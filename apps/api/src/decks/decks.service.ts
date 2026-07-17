@@ -51,7 +51,9 @@ import type {
   DeckApiErrorCode,
   DeckChangeRecord,
   DeckElement,
+  DeckPatch,
   DeckPatchOperation,
+  ElementFramePatch,
   DeckSnapshot,
   DeckSnapshotReason,
   GetDeckResponse,
@@ -303,11 +305,19 @@ export class DecksService {
         );
       }
 
-      const requestedDeck = removeLegacyAiGeneratedTitleAnimations(
+      const parsedRequestedDeck = removeLegacyAiGeneratedTitleAnimations(
         request.deck,
       );
+      const isImportedDeck = currentDeck?.metadata.sourceType === "import";
+      const requestedDeck =
+        currentDeck && (templateBlueprint || isImportedDeck)
+          ? normalizeOoxmlReplacementProvenance(
+              currentDeck,
+              parsedRequestedDeck,
+            )
+          : parsedRequestedDeck;
       const replacement =
-        currentDeck && templateBlueprint
+        currentDeck && (templateBlueprint || isImportedDeck)
           ? createOoxmlReplacement(currentDeck, requestedDeck, updatedAt)
           : undefined;
       const nextDeck = replacement?.deck ?? requestedDeck;
@@ -336,7 +346,7 @@ export class DecksService {
         updatedAt,
       );
 
-      if (replacement) {
+      if (replacement && templateBlueprint) {
         syncInput = {
           deckId: deck.deckId,
           changeId: replacement.changeRecord.changeId,
@@ -414,20 +424,31 @@ export class DecksService {
       }
 
       const updatedAt = nowIso();
-      const applyResult = applyDeckPatch(currentDeck, request.patch, {
+      const templateBlueprint = await this.findOoxmlTemplateBlueprint(
+        manager,
+        projectId,
+        currentDeck.deckId,
+      );
+      const patch =
+        templateBlueprint || currentDeck.metadata.sourceType === "import"
+          ? normalizeOoxmlPatchProvenance(request.patch)
+          : request.patch;
+      const applyResult = applyDeckPatch(currentDeck, patch, {
         createdAt: updatedAt,
       });
 
       if (!applyResult.ok) {
         throwApplyPatchException(applyResult.error);
       }
+      if (currentDeck.metadata.sourceType === "import") {
+        assertOoxmlPatchOperationsAreSupported(
+          currentDeck,
+          applyResult.deck,
+          patch.operations,
+        );
+      }
 
       await this.insertPatchLog(manager, projectId, applyResult.changeRecord);
-      const templateBlueprint = await this.findOoxmlTemplateBlueprint(
-        manager,
-        projectId,
-        applyResult.deck.deckId,
-      );
       const shouldCheckpoint =
         !templateBlueprint &&
         (Boolean(request.snapshotReason) ||
@@ -624,69 +645,74 @@ export class DecksService {
       );
     }
 
-    const preparedRequest = await this.dataSource.transaction(async (manager) => {
-      const deckRow = await this.findProjectDeckRowForUpdate(manager, projectId);
-      if (!deckRow) {
-        throwDeckApiException(
-          "DECK_NOT_FOUND",
-          HttpStatus.NOT_FOUND,
-          `Deck not found for project: ${projectId}`,
+    const preparedRequest = await this.dataSource.transaction(
+      async (manager) => {
+        const deckRow = await this.findProjectDeckRowForUpdate(
+          manager,
+          projectId,
         );
-      }
-      if (request.deckId !== deckRow.deck_id) {
-        throwDeckApiException(
-          "DECK_MISMATCH",
-          HttpStatus.BAD_REQUEST,
-          "Requested deckId must match project deck",
-        );
-      }
+        if (!deckRow) {
+          throwDeckApiException(
+            "DECK_NOT_FOUND",
+            HttpStatus.NOT_FOUND,
+            `Deck not found for project: ${projectId}`,
+          );
+        }
+        if (request.deckId !== deckRow.deck_id) {
+          throwDeckApiException(
+            "DECK_MISMATCH",
+            HttpStatus.BAD_REQUEST,
+            "Requested deckId must match project deck",
+          );
+        }
 
-      const materializedState = await this.readCurrentDeckState(
-        manager,
-        parseDeckRow(deckRow),
-        projectId,
-        deckRow.deck_id,
-        toIso(deckRow.updated_at),
-        true,
-      );
-      if (materializedState.deck.version !== request.baseVersion) {
-        throwDeckApiException(
-          "STALE_BASE_VERSION",
-          HttpStatus.CONFLICT,
-          "Deck changed before the speaker notes suggestion started",
+        const materializedState = await this.readCurrentDeckState(
+          manager,
+          parseDeckRow(deckRow),
+          projectId,
+          deckRow.deck_id,
+          toIso(deckRow.updated_at),
+          true,
         );
-      }
-      const slide = materializedState.deck.slides.find(
-        (candidate) => candidate.slideId === request.slideId,
-      );
-      if (!slide) {
-        throwDeckApiException(
-          "DECK_VALIDATION_FAILED",
-          HttpStatus.BAD_REQUEST,
-          "Requested slide does not exist in the deck",
+        if (materializedState.deck.version !== request.baseVersion) {
+          throwDeckApiException(
+            "STALE_BASE_VERSION",
+            HttpStatus.CONFLICT,
+            "Deck changed before the speaker notes suggestion started",
+          );
+        }
+        const slide = materializedState.deck.slides.find(
+          (candidate) => candidate.slideId === request.slideId,
         );
-      }
-      const hasNotes = slide.speakerNotes.trim().length > 0;
-      if ((request.mode === "draft") === hasNotes) {
-        throwDeckApiException(
-          "DECK_VALIDATION_FAILED",
-          HttpStatus.BAD_REQUEST,
-          hasNotes
-            ? "Draft mode is only available when speaker notes are empty"
-            : "Refinement modes require existing speaker notes",
-        );
-      }
+        if (!slide) {
+          throwDeckApiException(
+            "DECK_VALIDATION_FAILED",
+            HttpStatus.BAD_REQUEST,
+            "Requested slide does not exist in the deck",
+          );
+        }
+        const hasNotes = slide.speakerNotes.trim().length > 0;
+        if ((request.mode === "draft") === hasNotes) {
+          throwDeckApiException(
+            "DECK_VALIDATION_FAILED",
+            HttpStatus.BAD_REQUEST,
+            hasNotes
+              ? "Draft mode is only available when speaker notes are empty"
+              : "Refinement modes require existing speaker notes",
+          );
+        }
 
-      const deck = await this.writeDeckCheckpoint(
-        manager,
-        materializedState.deck,
-        nowIso(),
-      );
-      return speakerNotesSuggestionJobPayloadSchema.shape.request.parse({
-        ...request,
-        baseVersion: deck.version,
-      });
-    });
+        const deck = await this.writeDeckCheckpoint(
+          manager,
+          materializedState.deck,
+          nowIso(),
+        );
+        return speakerNotesSuggestionJobPayloadSchema.shape.request.parse({
+          ...request,
+          baseVersion: deck.version,
+        });
+      },
+    );
 
     const queuedJob = await this.jobsService.create({
       projectId,
@@ -747,7 +773,9 @@ export class DecksService {
       throw error;
     }
 
-    return createSpeakerNotesSuggestionJobResponseSchema.parse({ job: queuedJob });
+    return createSpeakerNotesSuggestionJobResponseSchema.parse({
+      job: queuedJob,
+    });
   }
 
   async listSnapshots(projectId: string): Promise<ListDeckSnapshotsResponse> {
@@ -796,7 +824,7 @@ export class DecksService {
       }
 
       const restoredSnapshot = parseSnapshotRow(snapshotRow);
-      const deck = removeLegacyAiGeneratedTitleAnimations(
+      const snapshotDeck = removeLegacyAiGeneratedTitleAnimations(
         parseDeckJson(snapshotRow.deck_json),
       );
       const updatedAt = nowIso();
@@ -805,14 +833,14 @@ export class DecksService {
       const currentRow = await this.findDeckRowForUpdate(
         manager,
         projectId,
-        deck.deckId,
+        snapshotDeck.deckId,
       );
       if (currentRow) {
         const currentState = await this.readCurrentDeckState(
           manager,
           parseDeckJson(currentRow.deck_json),
           projectId,
-          deck.deckId,
+          snapshotDeck.deckId,
           toIso(currentRow.updated_at),
           true,
         );
@@ -830,24 +858,34 @@ export class DecksService {
         );
       }
 
-      if (currentDeck && templateBlueprint) {
+      if (
+        currentDeck &&
+        (templateBlueprint || currentDeck.metadata.sourceType === "import")
+      ) {
+        const normalizedSnapshotDeck = normalizeOoxmlReplacementProvenance(
+          currentDeck,
+          snapshotDeck,
+        );
         const replacement = createOoxmlReplacement(
           currentDeck,
-          deck,
+          normalizedSnapshotDeck,
           updatedAt,
+          "snapshot-restore",
         );
         await this.insertPatchLog(manager, projectId, replacement.changeRecord);
         const restoredDeck = await this.writeDeckCheckpoint(
           manager,
           replacement.deck,
           updatedAt,
-          templateBlueprint,
+          templateBlueprint ?? null,
         );
-        syncInput = {
-          deckId: restoredDeck.deckId,
-          changeId: replacement.changeRecord.changeId,
-          targetDeckVersion: restoredDeck.version,
-        };
+        if (templateBlueprint) {
+          syncInput = {
+            deckId: restoredDeck.deckId,
+            changeId: replacement.changeRecord.changeId,
+            targetDeckVersion: restoredDeck.version,
+          };
+        }
 
         return { deck: restoredDeck, restoredSnapshot, updatedAt };
       }
@@ -855,12 +893,12 @@ export class DecksService {
       await this.deletePatchRowsAfterVersion(
         manager,
         projectId,
-        deck.deckId,
-        deck.version,
+        snapshotDeck.deckId,
+        snapshotDeck.version,
       );
-      await this.writeDeckCheckpoint(manager, deck, updatedAt);
+      await this.writeDeckCheckpoint(manager, snapshotDeck, updatedAt);
 
-      return { deck, restoredSnapshot, updatedAt };
+      return { deck: snapshotDeck, restoredSnapshot, updatedAt };
     });
 
     const ooxmlSyncJob = syncInput
@@ -1270,12 +1308,38 @@ function createOoxmlReplacement(
   currentDeck: Deck,
   requestedDeck: Deck,
   createdAt: string,
+  structurePolicy: "full-put" | "snapshot-restore" = "full-put",
 ): { deck: Deck; changeRecord: DeckChangeRecord } {
+  assertOoxmlReplacementStructureIsSupported(
+    currentDeck,
+    requestedDeck,
+    structurePolicy,
+  );
   const deck = deckSchema.parse({
     ...requestedDeck,
     version: currentDeck.version + 1,
   });
-  const operations = createOoxmlElementDiff(currentDeck, deck);
+  const neutralDiff = createOoxmlNeutralDiff(currentDeck, deck);
+  const elementOperations = createOoxmlElementDiff(currentDeck, deck);
+  for (const operation of elementOperations) {
+    if (
+      operation.type === "update_element_props" ||
+      operation.type === "delete_element"
+    ) {
+      neutralDiff.semanticCueReplaySlideIds.add(operation.slideId);
+    }
+  }
+  const operations = [
+    ...neutralDiff.operations,
+    ...elementOperations,
+    ...createOoxmlSemanticCueReplayOperations(
+      deck,
+      neutralDiff.semanticCueReplaySlideIds,
+    ),
+  ];
+  if (currentDeck.metadata.sourceType === "import") {
+    assertOoxmlPatchOperationsAreSupported(currentDeck, deck, operations);
+  }
 
   return {
     deck,
@@ -1292,6 +1356,305 @@ function createOoxmlReplacement(
           : [{ type: "update_deck", title: deck.title }],
     },
   };
+}
+
+function normalizeOoxmlReplacementProvenance(
+  currentDeck: Deck,
+  requestedDeck: Deck,
+): Deck {
+  const currentSlides = new Map(
+    currentDeck.slides.map((slide) => [slide.slideId, slide]),
+  );
+  const metadata = { ...requestedDeck.metadata };
+  if (currentDeck.metadata.sourceType === undefined) {
+    delete metadata.sourceType;
+  } else {
+    metadata.sourceType = currentDeck.metadata.sourceType;
+  }
+
+  return deckSchema.parse({
+    ...requestedDeck,
+    metadata,
+    slides: requestedDeck.slides.map((slide) => {
+      const currentSlide = currentSlides.get(slide.slideId);
+      if (!currentSlide) return authoredOoxmlSlide(slide);
+
+      const currentElements = new Map(
+        currentSlide.elements.map((element) => [element.elementId, element]),
+      );
+      const normalizedSlide = {
+        ...slide,
+        ooxmlOrigin: currentSlide.ooxmlOrigin,
+        ooxmlMotionCapabilities: currentSlide.ooxmlMotionCapabilities,
+        elements: slide.elements.map((element) => {
+          const currentElement = currentElements.get(element.elementId);
+          if (currentElement?.type !== element.type) {
+            return authoredOoxmlElement(element);
+          }
+          const normalizedElement = {
+            ...element,
+            ooxmlOrigin: currentElement.ooxmlOrigin,
+            ooxmlEditCapabilities: currentElement.ooxmlEditCapabilities,
+          };
+          if (currentElement.ooxmlOrigin === undefined) {
+            delete normalizedElement.ooxmlOrigin;
+          }
+          if (currentElement.ooxmlEditCapabilities === undefined) {
+            delete normalizedElement.ooxmlEditCapabilities;
+          }
+          return normalizedElement;
+        }),
+      };
+      if (currentSlide.ooxmlOrigin === undefined) {
+        delete normalizedSlide.ooxmlOrigin;
+      }
+      if (currentSlide.ooxmlMotionCapabilities === undefined) {
+        delete normalizedSlide.ooxmlMotionCapabilities;
+      }
+      return normalizedSlide;
+    }),
+  });
+}
+
+function normalizeOoxmlPatchProvenance(patch: DeckPatch): DeckPatch {
+  return {
+    ...patch,
+    operations: patch.operations.map((operation) => {
+      if (operation.type === "add_element") {
+        return {
+          ...operation,
+          element: authoredOoxmlElement(operation.element),
+        };
+      }
+      if (operation.type === "add_slide") {
+        return {
+          ...operation,
+          slide: authoredOoxmlSlide(operation.slide),
+        };
+      }
+      return operation;
+    }),
+  };
+}
+
+function authoredOoxmlElement(element: DeckElement): DeckElement {
+  const authored = {
+    ...element,
+    ooxmlOrigin: "authored" as const,
+  };
+  delete authored.ooxmlEditCapabilities;
+  return authored;
+}
+
+function authoredOoxmlSlide(slide: Deck["slides"][number]) {
+  const authored = {
+    ...slide,
+    ooxmlOrigin: "authored" as const,
+    elements: slide.elements.map(authoredOoxmlElement),
+  };
+  delete authored.ooxmlMotionCapabilities;
+  return authored;
+}
+
+function assertOoxmlReplacementStructureIsSupported(
+  currentDeck: Deck,
+  requestedDeck: Deck,
+  structurePolicy: "full-put" | "snapshot-restore",
+): void {
+  const comparableStructure =
+    structurePolicy === "snapshot-restore"
+      ? ooxmlSnapshotRestorePackageStructure
+      : ooxmlFullPutStructure;
+
+  if (
+    isDeepStrictEqual(
+      comparableStructure(currentDeck),
+      comparableStructure(requestedDeck),
+    )
+  ) {
+    return;
+  }
+
+  throwDeckApiException(
+    "OOXML_CHANGE_UNSUPPORTED",
+    HttpStatus.BAD_REQUEST,
+    "Imported Deck full replacement contains an unsupported OOXML change",
+    [
+      structurePolicy === "snapshot-restore"
+        ? "Snapshot restore may change package-neutral Deck and slide fields plus supported element content; slide structure, canvas, theme, style, and animations must remain unchanged."
+        : "Only the Deck title and element add, delete, frame, or property changes are supported by this endpoint.",
+    ],
+  );
+}
+
+function ooxmlFullPutStructure(deck: Deck) {
+  return ooxmlSnapshotRestorePackageStructure(deck);
+}
+
+function ooxmlSnapshotRestorePackageStructure(deck: Deck) {
+  const {
+    title: _title,
+    version: _version,
+    metadata: _metadata,
+    targetDurationMinutes: _targetDurationMinutes,
+    slides,
+    ...packageStructure
+  } = deck;
+  return {
+    ...packageStructure,
+    slides: slides.map(
+      ({
+        title: _title,
+        thumbnailUrl: _thumbnailUrl,
+        estimatedSeconds: _estimatedSeconds,
+        speakerNotes: _speakerNotes,
+        elements: _elements,
+        keywords: _keywords,
+        semanticCues: _semanticCues,
+        actions: _actions,
+        aiNotes: _aiNotes,
+        ...slidePackageStructure
+      }) => slidePackageStructure,
+    ),
+  };
+}
+
+function createOoxmlNeutralDiff(
+  currentDeck: Deck,
+  nextDeck: Deck,
+): {
+  operations: DeckPatchOperation[];
+  semanticCueReplaySlideIds: Set<string>;
+} {
+  const operations: DeckPatchOperation[] = [];
+  const semanticCueReplaySlideIds = new Set<string>();
+  const updateDeck: Extract<DeckPatchOperation, { type: "update_deck" }> = {
+    type: "update_deck",
+  };
+
+  if (currentDeck.title !== nextDeck.title) updateDeck.title = nextDeck.title;
+  if (currentDeck.targetDurationMinutes !== nextDeck.targetDurationMinutes) {
+    updateDeck.targetDurationMinutes = nextDeck.targetDurationMinutes;
+  }
+  const metadata = ooxmlDeckMetadataPatch(currentDeck, nextDeck);
+  if (Object.keys(metadata).length > 0) updateDeck.metadata = metadata;
+  if (Object.keys(updateDeck).length > 1) operations.push(updateDeck);
+
+  const nextSlides = new Map(
+    nextDeck.slides.map((slide) => [slide.slideId, slide]),
+  );
+  for (const currentSlide of currentDeck.slides) {
+    const nextSlide = nextSlides.get(currentSlide.slideId);
+    if (!nextSlide) continue;
+
+    const resetActions =
+      !isDeepStrictEqual(currentSlide.actions, nextSlide.actions) ||
+      !isDeepStrictEqual(currentSlide.keywords, nextSlide.keywords);
+    if (resetActions) {
+      for (const action of currentSlide.actions) {
+        operations.push({
+          type: "delete_slide_action",
+          slideId: currentSlide.slideId,
+          actionId: action.actionId,
+        });
+      }
+      semanticCueReplaySlideIds.add(currentSlide.slideId);
+    }
+
+    const updateSlide: Extract<DeckPatchOperation, { type: "update_slide" }> = {
+      type: "update_slide",
+      slideId: currentSlide.slideId,
+    };
+    if (currentSlide.title !== nextSlide.title)
+      updateSlide.title = nextSlide.title;
+    if (currentSlide.thumbnailUrl !== nextSlide.thumbnailUrl) {
+      updateSlide.thumbnailUrl = nextSlide.thumbnailUrl;
+    }
+    if (currentSlide.estimatedSeconds !== nextSlide.estimatedSeconds) {
+      updateSlide.estimatedSeconds = nextSlide.estimatedSeconds ?? null;
+    }
+    if (!isDeepStrictEqual(currentSlide.aiNotes, nextSlide.aiNotes)) {
+      updateSlide.aiNotes = nextSlide.aiNotes ?? null;
+    }
+    if (Object.keys(updateSlide).length > 2) operations.push(updateSlide);
+
+    if (currentSlide.speakerNotes !== nextSlide.speakerNotes) {
+      operations.push({
+        type: "update_speaker_notes",
+        slideId: currentSlide.slideId,
+        speakerNotes: nextSlide.speakerNotes,
+      });
+      semanticCueReplaySlideIds.add(currentSlide.slideId);
+    }
+    if (!isDeepStrictEqual(currentSlide.keywords, nextSlide.keywords)) {
+      operations.push({
+        type: "replace_keywords",
+        slideId: currentSlide.slideId,
+        keywords: nextSlide.keywords,
+      });
+      semanticCueReplaySlideIds.add(currentSlide.slideId);
+    }
+    if (resetActions) {
+      for (const action of nextSlide.actions) {
+        operations.push({
+          type: "add_slide_action",
+          slideId: currentSlide.slideId,
+          action,
+        });
+      }
+    }
+    if (!isDeepStrictEqual(currentSlide.semanticCues, nextSlide.semanticCues)) {
+      semanticCueReplaySlideIds.add(currentSlide.slideId);
+    }
+  }
+
+  return { operations, semanticCueReplaySlideIds };
+}
+
+function ooxmlDeckMetadataPatch(
+  currentDeck: Deck,
+  nextDeck: Deck,
+): NonNullable<
+  Extract<DeckPatchOperation, { type: "update_deck" }>["metadata"]
+> {
+  const patch: Record<string, unknown> = {};
+  const mutableKeys = [
+    "thumbnailSource",
+    "generatedBy",
+    "audience",
+    "purpose",
+    "tone",
+    "presentationProfile",
+    "designPackSnapshot",
+    "designProgramSnapshot",
+    "createdFrom",
+  ] as const;
+  for (const key of mutableKeys) {
+    if (isDeepStrictEqual(currentDeck.metadata[key], nextDeck.metadata[key])) {
+      continue;
+    }
+    patch[key] = nextDeck.metadata[key] ?? null;
+  }
+  return patch as NonNullable<
+    Extract<DeckPatchOperation, { type: "update_deck" }>["metadata"]
+  >;
+}
+
+function createOoxmlSemanticCueReplayOperations(
+  nextDeck: Deck,
+  slideIds: Set<string>,
+): DeckPatchOperation[] {
+  return nextDeck.slides.flatMap((slide) =>
+    slideIds.has(slide.slideId)
+      ? [
+          {
+            type: "replace_semantic_cues" as const,
+            slideId: slide.slideId,
+            semanticCues: slide.semanticCues,
+          },
+        ]
+      : [],
+  );
 }
 
 function createOoxmlElementDiff(
@@ -1332,22 +1695,22 @@ function createOoxmlElementDiff(
       continue;
     }
 
-    const currentFrame = ooxmlElementFrame(current.element);
-    const nextFrame = ooxmlElementFrame(next.element);
-    if (!isDeepStrictEqual(currentFrame, nextFrame)) {
+    const frame = ooxmlElementFramePatch(current.element, next.element);
+    if (Object.keys(frame).length > 0) {
       operations.push({
         type: "update_element_frame",
         slideId: next.slideId,
         elementId: next.element.elementId,
-        frame: nextFrame,
+        frame,
       });
     }
-    if (!isDeepStrictEqual(current.element.props, next.element.props)) {
+    const props = ooxmlElementPropsPatch(current.element, next.element);
+    if (Object.keys(props).length > 0) {
       operations.push({
         type: "update_element_props",
         slideId: next.slideId,
         elementId: next.element.elementId,
-        props: next.element.props,
+        props,
       });
     }
   }
@@ -1371,19 +1734,297 @@ function indexDeckElements(deck: Deck) {
   return elements;
 }
 
-function ooxmlElementFrame(element: DeckElement) {
-  return {
-    role: element.role,
-    x: element.x,
-    y: element.y,
-    width: element.width,
-    height: element.height,
-    rotation: element.rotation,
-    opacity: element.opacity,
-    zIndex: element.zIndex,
-    locked: element.locked,
-    visible: element.visible,
+function ooxmlElementFramePatch(
+  current: DeckElement,
+  next: DeckElement,
+): ElementFramePatch {
+  const frame: ElementFramePatch = {};
+  const currentGeometry = {
+    x: current.x,
+    y: current.y,
+    width: current.width,
+    height: current.height,
+    rotation: current.rotation,
   };
+  const nextGeometry = {
+    x: next.x,
+    y: next.y,
+    width: next.width,
+    height: next.height,
+    rotation: next.rotation,
+  };
+  if (!isDeepStrictEqual(currentGeometry, nextGeometry)) {
+    Object.assign(frame, nextGeometry);
+  }
+  if (current.role !== next.role) frame.role = next.role ?? null;
+  if (current.opacity !== next.opacity) frame.opacity = next.opacity;
+  if (current.zIndex !== next.zIndex) frame.zIndex = next.zIndex;
+  if (current.locked !== next.locked) frame.locked = next.locked;
+  if (current.visible !== next.visible) frame.visible = next.visible;
+  return frame;
+}
+
+function ooxmlElementPropsPatch(
+  current: DeckElement,
+  next: DeckElement,
+): Record<string, unknown> {
+  const currentProps = current.props as Record<string, unknown>;
+  const nextProps = next.props as Record<string, unknown>;
+  const changed: Record<string, unknown> = {};
+  const keys = new Set([
+    ...Object.keys(currentProps),
+    ...Object.keys(nextProps),
+  ]);
+
+  for (const key of keys) {
+    if (isDeepStrictEqual(currentProps[key], nextProps[key])) continue;
+    changed[key] = Object.prototype.hasOwnProperty.call(nextProps, key)
+      ? nextProps[key]
+      : null;
+  }
+  return changed;
+}
+
+const ooxmlPackageNeutralOperationTypes = new Set<string>([
+  "update_deck",
+  "update_slide",
+  "update_speaker_notes",
+  "replace_keywords",
+  "replace_semantic_cues",
+  "add_slide_action",
+  "update_slide_action",
+  "delete_slide_action",
+]);
+
+const ooxmlSupportedFrameFields = new Set([
+  "x",
+  "y",
+  "width",
+  "height",
+  "rotation",
+  "zIndex",
+]);
+
+function assertOoxmlPatchOperationsAreSupported(
+  currentDeck: Deck,
+  nextDeck: Deck,
+  operations: DeckPatchOperation[],
+): void {
+  for (const operation of operations) {
+    const reasonCode = ooxmlUnsupportedOperationReason(
+      currentDeck,
+      nextDeck,
+      operation,
+    );
+    if (!reasonCode) continue;
+
+    const details = [
+      `operationType=${operation.type}`,
+      `reasonCode=${reasonCode}`,
+    ];
+    if ("slideId" in operation) details.push(`slideId=${operation.slideId}`);
+    if ("elementId" in operation) {
+      details.push(`elementId=${operation.elementId}`);
+    } else if (operation.type === "add_element") {
+      details.push(`elementId=${operation.element.elementId}`);
+    }
+    throwDeckApiException(
+      "OOXML_CHANGE_UNSUPPORTED",
+      HttpStatus.BAD_REQUEST,
+      "Imported Deck change is not supported by the current OOXML serializer",
+      details,
+    );
+  }
+}
+
+function ooxmlUnsupportedOperationReason(
+  currentDeck: Deck,
+  nextDeck: Deck,
+  operation: DeckPatchOperation,
+): string | null {
+  if (ooxmlPackageNeutralOperationTypes.has(operation.type)) return null;
+
+  if (operation.type === "add_element") {
+    const targetSlide =
+      currentDeck.slides.find((slide) => slide.slideId === operation.slideId) ??
+      nextDeck.slides.find((slide) => slide.slideId === operation.slideId);
+    if (targetSlide?.ooxmlOrigin !== "imported") {
+      return "SLIDE_PROVENANCE_UNSAFE";
+    }
+    if (
+      operation.element.ooxmlOrigin !== "authored" ||
+      !authoredOoxmlSerializerSupportsElement(operation.element)
+    ) {
+      return "ADD_ELEMENT_SERIALIZER_UNSUPPORTED";
+    }
+    return null;
+  }
+
+  if (
+    operation.type === "update_element_frame" ||
+    operation.type === "update_element_props" ||
+    operation.type === "delete_element"
+  ) {
+    const element =
+      findOoxmlElement(currentDeck, operation.slideId, operation.elementId) ??
+      findOoxmlElement(nextDeck, operation.slideId, operation.elementId);
+    if (!element?.ooxmlOrigin) return "ELEMENT_PROVENANCE_MISSING";
+    if (element.ooxmlOrigin === "imported" && !element.ooxmlEditCapabilities) {
+      return "ELEMENT_CAPABILITY_MISSING";
+    }
+
+    if (operation.type === "update_element_frame") {
+      const fields = Object.keys(operation.frame);
+      if (
+        fields.length === 0 ||
+        fields.some((field) => !ooxmlSupportedFrameFields.has(field))
+      ) {
+        return "FRAME_FIELDS_UNSUPPORTED";
+      }
+      const hasGeometry = fields.some((field) => field !== "zIndex");
+      if (
+        hasGeometry &&
+        !["x", "y", "width", "height"].every((field) =>
+          Object.prototype.hasOwnProperty.call(operation.frame, field),
+        )
+      ) {
+        return "FRAME_FIELDS_UNSUPPORTED";
+      }
+      if (element.ooxmlOrigin === "imported") {
+        return element.ooxmlEditCapabilities?.frame === true
+          ? null
+          : "FRAME_CAPABILITY_UNSAFE";
+      }
+      return authoredOoxmlSerializerSupportsElement(element)
+        ? null
+        : "AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED";
+    }
+
+    if (operation.type === "delete_element") {
+      if (element.ooxmlOrigin === "imported") {
+        return element.ooxmlEditCapabilities?.delete === true
+          ? null
+          : "DELETE_CAPABILITY_UNSAFE";
+      }
+      return authoredOoxmlSerializerSupportsElement(element)
+        ? null
+        : "AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED";
+    }
+
+    return ooxmlElementPropsUnsupportedReason(element, operation.props);
+  }
+
+  return "OPERATION_TYPE_UNSUPPORTED";
+}
+
+function ooxmlElementPropsUnsupportedReason(
+  element: DeckElement,
+  props: Record<string, unknown>,
+): string | null {
+  const fields = Object.keys(props);
+  if (fields.length === 0) return "PROPS_FIELDS_UNSUPPORTED";
+  const capabilities = element.ooxmlEditCapabilities;
+
+  if (element.type === "text") {
+    if (element.ooxmlOrigin === "imported") {
+      if (fields.includes("text") && capabilities?.richText !== "full") {
+        return "RICH_TEXT_CAPABILITY_UNSAFE";
+      }
+      if (!fields.includes("text") && capabilities?.richText === "none") {
+        return "RICH_TEXT_CAPABILITY_UNSAFE";
+      }
+    } else if (!authoredOoxmlSerializerSupportsElement(element)) {
+      return "AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED";
+    }
+    return fields.length === 1 && fields[0] === "text"
+      ? null
+      : "PROPS_FIELDS_UNSUPPORTED";
+  }
+
+  if (element.type === "image") {
+    if (
+      fields.includes("crop") &&
+      element.ooxmlOrigin === "imported" &&
+      capabilities?.crop === "none"
+    ) {
+      return "CROP_CAPABILITY_UNSAFE";
+    }
+    if (fields.every((field) => field === "src" || field === "alt")) {
+      if (
+        element.ooxmlOrigin === "imported" &&
+        capabilities?.imageSource !== true
+      ) {
+        return "IMAGE_SOURCE_CAPABILITY_UNSAFE";
+      }
+      return element.ooxmlOrigin === "authored" &&
+        !authoredOoxmlSerializerSupportsElement(element)
+        ? "AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED"
+        : null;
+    }
+    return "PROPS_FIELDS_UNSUPPORTED";
+  }
+
+  if (element.type === "table" && element.ooxmlOrigin === "imported") {
+    if (!capabilities?.tableCellText) return "TABLE_CELL_CAPABILITY_UNSAFE";
+  }
+  return "PROPS_FIELDS_UNSUPPORTED";
+}
+
+function findOoxmlElement(
+  deck: Deck,
+  slideId: string,
+  elementId: string,
+): DeckElement | undefined {
+  return deck.slides
+    .find((slide) => slide.slideId === slideId)
+    ?.elements.find((element) => element.elementId === elementId);
+}
+
+function authoredOoxmlSerializerSupportsElement(element: DeckElement): boolean {
+  if (element.opacity !== 1 || element.locked || !element.visible) return false;
+
+  if (element.type === "text") {
+    const supportedProps = new Set([
+      "text",
+      "bodyInset",
+      "fontFamily",
+      "fontSize",
+      "fontWeight",
+      "italic",
+      "underline",
+      "color",
+      "align",
+      "verticalAlign",
+      "lineHeight",
+    ]);
+    return (
+      Object.keys(element.props).every((key) => supportedProps.has(key)) &&
+      (element.props.fontWeight === "normal" ||
+        element.props.fontWeight === "bold")
+    );
+  }
+
+  if (element.type === "image") {
+    return (
+      element.props.crop === undefined &&
+      element.props.fit === "contain" &&
+      element.props.focusX === 0.5 &&
+      element.props.focusY === 0.5
+    );
+  }
+
+  if (element.type !== "rect") return false;
+  return (
+    Object.keys(element.props).every((key) =>
+      ["fill", "stroke", "strokeWidth", "borderRadius"].includes(key),
+    ) &&
+    typeof element.props.fill === "string" &&
+    (element.props.fill === "transparent" ||
+      /^#[0-9a-f]{6}$/i.test(element.props.fill)) &&
+    element.props.stroke === "transparent" &&
+    element.props.strokeWidth === 0 &&
+    element.props.borderRadius === 0
+  );
 }
 
 function parseAppendDeckPatchRequest(body: unknown): AppendDeckPatchRequest {

@@ -22,6 +22,7 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
     keywordOptions,
     keywordTriggerRestrictionMessage,
     keywordTriggerWarningMessage,
+    mutationDisabledReason,
     preferredAnimationId,
     selectedKeywordId,
     selectedKeywordLabel,
@@ -36,7 +37,7 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
     onDeleteAnimation,
     onSelectKeyword,
     onSelectSlideAnimation,
-    onUpdateAnimation
+    onUpdateAnimation,
   } = props;
 
   return (
@@ -58,6 +59,7 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
         keywordOptions={keywordOptions}
         keywordTriggerRestrictionMessage={keywordTriggerRestrictionMessage}
         keywordTriggerWarningMessage={keywordTriggerWarningMessage}
+        mutationDisabledReason={mutationDisabledReason}
         preferredAnimationId={preferredAnimationId}
         selectedKeywordId={selectedKeywordId}
         selectedKeywordLabel={selectedKeywordLabel}

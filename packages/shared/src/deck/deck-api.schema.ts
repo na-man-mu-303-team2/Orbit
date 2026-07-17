@@ -78,6 +78,7 @@ export const deckApiErrorCodeSchema = z.enum([
   "PATCH_APPLY_FAILED",
   "PATCH_CHAIN_INVALID",
   "PATCH_CHAIN_CHECKPOINT_MISMATCH",
+  "OOXML_CHANGE_UNSUPPORTED",
 ]);
 
 export const deckApiErrorSchema = z.object({

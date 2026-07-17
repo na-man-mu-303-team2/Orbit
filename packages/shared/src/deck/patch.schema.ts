@@ -7,7 +7,9 @@ import {
   animationTypeSchema
 } from "./animation.schema";
 import {
+  deckMetadataSchema,
   deckThumbnailSourceSchema,
+  slideAiNotesSchema,
   slideBackgroundImageFitSchema,
   slideKeywordsSchema,
   slideLayoutSchema,
@@ -23,7 +25,10 @@ import {
   deckSlideIdSchema
 } from "./id.schema";
 import { semanticCueSchema } from "./semantic-cue.schema";
-import { slideActionPatchSchema, slideActionSchema } from "./slide-action.schema";
+import {
+  slideActionPatchSchema,
+  slideActionSchema
+} from "./slide-action.schema";
 import {
   deckElementCoordinateSchema,
   deckElementRoleSchema,
@@ -32,12 +37,7 @@ import {
 } from "./slide-object.schema";
 import { themeColorSchema } from "./theme.schema";
 
-export const deckPatchSourceSchema = z.enum([
-  "user",
-  "ai",
-  "import",
-  "system"
-]);
+export const deckPatchSourceSchema = z.enum(["user", "ai", "import", "system"]);
 
 export const deckPatchOperationTypeSchema = z.enum([
   "update_deck",
@@ -104,9 +104,21 @@ export const deckThemePatchSchema = z.object({
 });
 
 export const deckMetadataPatchSchema = z.object({
-  thumbnailSource: z
-    .union([deckThumbnailSourceSchema, z.null()])
-    .optional()
+  thumbnailSource: z.union([deckThumbnailSourceSchema, z.null()]).optional(),
+  generatedBy: deckMetadataSchema.shape.generatedBy.nullable().optional(),
+  audience: deckMetadataSchema.shape.audience.nullable().optional(),
+  purpose: deckMetadataSchema.shape.purpose.nullable().optional(),
+  tone: deckMetadataSchema.shape.tone.nullable().optional(),
+  presentationProfile: deckMetadataSchema.shape.presentationProfile
+    .nullable()
+    .optional(),
+  designPackSnapshot: deckMetadataSchema.shape.designPackSnapshot
+    .nullable()
+    .optional(),
+  designProgramSnapshot: deckMetadataSchema.shape.designProgramSnapshot
+    .nullable()
+    .optional(),
+  createdFrom: deckMetadataSchema.shape.createdFrom.nullable().optional()
 });
 
 export const slideBackgroundImagePatchSchema = z.object({
@@ -152,7 +164,8 @@ export const animationPatchSchema = z.object({
 export const updateDeckOperationSchema = z.object({
   type: z.literal("update_deck"),
   title: z.string().min(1).optional(),
-  metadata: deckMetadataPatchSchema.optional()
+  metadata: deckMetadataPatchSchema.optional(),
+  targetDurationMinutes: z.number().int().positive().optional()
 });
 
 export const addSlideOperationSchema = z.object({
@@ -164,7 +177,9 @@ export const updateSlideOperationSchema = z.object({
   type: z.literal("update_slide"),
   slideId: deckSlideIdSchema,
   title: z.string().optional(),
-  thumbnailUrl: z.string().optional()
+  thumbnailUrl: z.string().optional(),
+  estimatedSeconds: z.number().int().positive().nullable().optional(),
+  aiNotes: slideAiNotesSchema.nullable().optional()
 });
 
 export const deleteSlideOperationSchema = z.object({

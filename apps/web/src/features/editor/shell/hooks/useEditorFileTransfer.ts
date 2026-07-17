@@ -1,31 +1,35 @@
 import {
   createAddElementPatch,
   createElementId,
-  createUpdateElementPropsPatch
+  createUpdateElementPropsPatch,
 } from "../../../../../../../packages/editor-core/src/index";
 import type { Deck, DeckCanvas, DeckElement, DeckPatch } from "@orbit/shared";
 import type { ChangeEvent, MutableRefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 
-import { createProject, fetchProjects, uploadProjectAsset } from "../../../projects/ProjectAssetWorkspace";
+import {
+  createProject,
+  fetchProjects,
+  uploadProjectAsset,
+} from "../../../projects/ProjectAssetWorkspace";
 import { normalizeEditorAssetUrl } from "../../shared/editorAssetUrl";
 import { exportDeckToPptx, importPptxIntoEditor } from "../api/editorJobApi";
 import type { PptxImportState } from "../components/PptxImportQualityPanel";
 import {
   resolveOoxmlEditCapability,
-  type OoxmlEditCapability
+  type OoxmlEditCapability,
 } from "../editorOoxmlCapabilities";
 import type { PatchProducer } from "./useEditorPersistenceState";
 import {
   defaultImageInsertFrame,
   getDefaultImageInsertFrame,
-  getNextElementZIndex
+  getNextElementZIndex,
 } from "../utils/editorLayout";
 import {
   getEditorImageValidationMessage,
   getPptxImportValidationMessage,
   readImageNaturalSize,
-  toEditorErrorMessage
+  toEditorErrorMessage,
 } from "../utils/editorFileValidation";
 import { createSlideScopedUploadFile } from "../utils/slideRenderUtils";
 
@@ -55,7 +59,7 @@ export type CanvasImageDropGate = {
 };
 
 export function getDroppedFiles(
-  dataTransfer: Pick<DataTransfer, "files">
+  dataTransfer: Pick<DataTransfer, "files">,
 ): File[] {
   return Array.from(dataTransfer.files);
 }
@@ -69,39 +73,39 @@ export function getCanvasDropPlacement(input: {
   const scale = Math.max(0.0001, input.stageScale);
   return {
     centerX: (input.clientX - input.rect.left) / scale,
-    centerY: (input.clientY - input.rect.top) / scale
+    centerY: (input.clientY - input.rect.top) / scale,
   };
 }
 
 type CommitPatch = (
   patch: DeckPatch | PatchProducer,
-  baseDeck?: Deck
+  baseDeck?: Deck,
 ) => boolean;
 
 const editorUploadProjectTitle = "ORBIT Editor Uploads";
 
 export function selectFirstEditorImageFile(
-  files: readonly File[]
+  files: readonly File[],
 ): ImageFileBatchSelection {
   if (files.length === 0) {
     return { errorMessage: "", file: null, ignoredCount: 0 };
   }
 
   const file = files.find(
-    (candidate) => getEditorImageValidationMessage(candidate) === ""
+    (candidate) => getEditorImageValidationMessage(candidate) === "",
   );
   if (!file) {
     return {
       errorMessage: getEditorImageValidationMessage(files[0]!),
       file: null,
-      ignoredCount: files.length
+      ignoredCount: files.length,
     };
   }
 
   return {
     errorMessage: "",
     file,
-    ignoredCount: Math.max(0, files.length - 1)
+    ignoredCount: Math.max(0, files.length - 1),
   };
 }
 
@@ -114,7 +118,7 @@ export function getImageBatchStatusMessage(ignoredCount: number) {
 export function getPlacedImageInsertFrame(
   canvas: DeckCanvas,
   imageSize: { height: number; width: number },
-  placement?: ImageInsertPlacement
+  placement?: ImageInsertPlacement,
 ) {
   const frame = getDefaultImageInsertFrame(canvas, imageSize);
   if (!placement) return frame;
@@ -124,26 +128,26 @@ export function getPlacedImageInsertFrame(
     x: clamp(
       Math.round(placement.centerX - frame.width / 2),
       0,
-      Math.max(0, canvas.width - frame.width)
+      Math.max(0, canvas.width - frame.width),
     ),
     y: clamp(
       Math.round(placement.centerY - frame.height / 2),
       0,
-      Math.max(0, canvas.height - frame.height)
-    )
+      Math.max(0, canvas.height - frame.height),
+    ),
   };
 }
 
 export function getImageInsertCapability(
   deck: Deck,
-  slideId: string
+  slideId: string,
 ): OoxmlEditCapability {
   const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
   if (!slide) {
     return {
       enabled: false,
       reasonCode: "SLIDE_REQUIRED",
-      reason: "이미지를 넣을 슬라이드를 찾지 못했습니다."
+      reason: "이미지를 넣을 슬라이드를 찾지 못했습니다.",
     };
   }
 
@@ -168,14 +172,37 @@ export function getImageInsertCapability(
       fit: "contain",
       focusX: 0.5,
       focusY: 0.5,
-      src: "pending-image-upload"
-    }
+      src: "pending-image-upload",
+    },
   };
 
   return resolveOoxmlEditCapability({
     deck,
     element,
-    feature: "add-element"
+    feature: "add-element",
+    slide,
+  });
+}
+
+export function getImageReplaceCapability(
+  deck: Deck,
+  slideId: string,
+  elementId: string,
+): OoxmlEditCapability {
+  const element = deck.slides
+    .find((slide) => slide.slideId === slideId)
+    ?.elements.find((candidate) => candidate.elementId === elementId);
+  if (!element || element.type !== "image") {
+    return {
+      enabled: false,
+      reasonCode: "ELEMENT_REQUIRED",
+      reason: "교체할 이미지 요소를 찾지 못했습니다.",
+    };
+  }
+  return resolveOoxmlEditCapability({
+    deck,
+    element,
+    feature: "image-source",
   });
 }
 
@@ -205,7 +232,7 @@ export async function performImageFileInsert(input: {
   if (validationMessage) throw new Error(validationMessage);
 
   const targetSlideIndex = input.activeDeck.slides.findIndex(
-    (slide) => slide.slideId === input.target.slideId
+    (slide) => slide.slideId === input.target.slideId,
   );
   if (targetSlideIndex < 0) {
     throw new Error("이미지를 넣을 슬라이드를 찾지 못했습니다.");
@@ -215,20 +242,31 @@ export async function performImageFileInsert(input: {
   if (input.target.type === "replace") {
     const replaceTarget = input.target;
     const targetElement = targetSlide.elements.find(
-      (element) => element.elementId === replaceTarget.elementId
+      (element) => element.elementId === replaceTarget.elementId,
     );
     if (!targetElement || targetElement.type !== "image") {
       throw new Error("교체할 이미지 요소를 찾지 못했습니다.");
     }
-  } else {
-    const capability = getImageInsertCapability(
+    const capability = getImageReplaceCapability(
       input.activeDeck,
-      input.target.slideId
+      replaceTarget.slideId,
+      replaceTarget.elementId,
     );
     if (!capability.enabled) {
       throw new Error(
         capability.reason ??
-          "이 Deck에는 이미지를 안전하게 추가할 수 없습니다."
+          "이 이미지를 PPTX에서 안전하게 교체할 수 없습니다.",
+      );
+    }
+  } else {
+    const capability = getImageInsertCapability(
+      input.activeDeck,
+      input.target.slideId,
+    );
+    if (!capability.enabled) {
+      throw new Error(
+        capability.reason ??
+          "이 Deck에는 이미지를 안전하게 추가할 수 없습니다.",
       );
     }
   }
@@ -237,98 +275,94 @@ export async function performImageFileInsert(input: {
     input.target.type === "insert"
       ? await input.readNaturalSize(input.file).catch(() => ({
           height: defaultImageInsertFrame.height,
-          width: defaultImageInsertFrame.width
+          width: defaultImageInsertFrame.width,
         }))
       : null;
   const uploadProjectId = await input.resolveUploadProject(
-    input.activeDeck.projectId
+    input.activeDeck.projectId,
   );
   const uploaded = await input.upload(
     uploadProjectId,
     createSlideScopedUploadFile(
       input.file,
       targetSlide.order || targetSlideIndex + 1,
-      "image"
-    )
+      "image",
+    ),
   );
   const normalizedUploadedUrl = normalizeEditorAssetUrl(uploaded.url);
 
   if (input.target.type === "replace") {
     const replaceTarget = input.target;
     let committedSlideIndex = targetSlideIndex;
-    const committed = input.commitPatch(
-      (currentDeck) => {
-        const currentSlideIndex = currentDeck.slides.findIndex(
-          (slide) => slide.slideId === replaceTarget.slideId
-        );
-        if (currentSlideIndex < 0) {
-          throw new Error("이미지를 넣을 슬라이드를 찾지 못했습니다.");
-        }
-        committedSlideIndex = currentSlideIndex;
-        return createUpdateElementPropsPatch(
-          currentDeck,
-          replaceTarget.slideId,
-          replaceTarget.elementId,
-          { alt: input.file.name, src: normalizedUploadedUrl }
-        );
+    const committed = input.commitPatch((currentDeck) => {
+      const currentSlideIndex = currentDeck.slides.findIndex(
+        (slide) => slide.slideId === replaceTarget.slideId,
+      );
+      if (currentSlideIndex < 0) {
+        throw new Error("이미지를 넣을 슬라이드를 찾지 못했습니다.");
       }
-    );
+      committedSlideIndex = currentSlideIndex;
+      return createUpdateElementPropsPatch(
+        currentDeck,
+        replaceTarget.slideId,
+        replaceTarget.elementId,
+        { alt: input.file.name, src: normalizedUploadedUrl },
+      );
+    });
     if (!committed) throw new Error("이미지 교체를 적용하지 못했습니다.");
     return {
       elementId: replaceTarget.elementId,
       kind: "replace" as const,
-      slideIndex: committedSlideIndex
+      slideIndex: committedSlideIndex,
     };
   }
 
   const frame = getPlacedImageInsertFrame(
     input.activeDeck.canvas,
     naturalSize!,
-    input.placement
+    input.placement,
   );
   let elementId: string | null = null;
   let committedSlideIndex = targetSlideIndex;
-  const committed = input.commitPatch(
-    (currentDeck) => {
-      const currentSlideIndex = currentDeck.slides.findIndex(
-        (slide) => slide.slideId === input.target.slideId
-      );
-      const currentSlide = currentDeck.slides[currentSlideIndex];
-      if (!currentSlide) {
-        throw new Error("이미지를 넣을 슬라이드를 찾지 못했습니다.");
-      }
-      elementId = createElementId(currentDeck);
-      committedSlideIndex = currentSlideIndex;
-      return createAddElementPatch(currentDeck, input.target.slideId, {
-        elementId: elementId!,
-        type: "image",
-        role: "media",
-        x: frame.x,
-        y: frame.y,
-        width: frame.width,
-        height: frame.height,
-        rotation: 0,
-        opacity: 1,
-        zIndex: getNextElementZIndex(currentSlide.elements),
-        locked: false,
-        visible: true,
-        props: {
-          alt: input.file.name,
-          fit: "contain",
-          focusX: 0.5,
-          focusY: 0.5,
-          src: normalizedUploadedUrl
-        }
-      });
+  const committed = input.commitPatch((currentDeck) => {
+    const currentSlideIndex = currentDeck.slides.findIndex(
+      (slide) => slide.slideId === input.target.slideId,
+    );
+    const currentSlide = currentDeck.slides[currentSlideIndex];
+    if (!currentSlide) {
+      throw new Error("이미지를 넣을 슬라이드를 찾지 못했습니다.");
     }
-  );
+    elementId = createElementId(currentDeck);
+    committedSlideIndex = currentSlideIndex;
+    return createAddElementPatch(currentDeck, input.target.slideId, {
+      elementId: elementId!,
+      type: "image",
+      role: "media",
+      x: frame.x,
+      y: frame.y,
+      width: frame.width,
+      height: frame.height,
+      rotation: 0,
+      opacity: 1,
+      zIndex: getNextElementZIndex(currentSlide.elements),
+      locked: false,
+      visible: true,
+      props: {
+        alt: input.file.name,
+        fit: "contain",
+        focusX: 0.5,
+        focusY: 0.5,
+        src: normalizedUploadedUrl,
+      },
+    });
+  });
   if (!committed) throw new Error("이미지 추가를 적용하지 못했습니다.");
   if (!elementId) throw new Error("이미지 요소 ID를 만들지 못했습니다.");
 
   return {
     elementId,
     kind: "insert" as const,
-    slideIndex: committedSlideIndex
+    slideIndex: committedSlideIndex,
   };
 }
 
@@ -362,7 +396,7 @@ export function useEditorFileTransfer(args: {
     status: "idle",
     warnings: [],
     qualityReport: null,
-    message: ""
+    message: "",
   });
 
   useEffect(() => {
@@ -373,16 +407,23 @@ export function useEditorFileTransfer(args: {
 
   function openImageFilePicker(target: ImageUploadTarget) {
     if (imageUploadPendingRef.current) return;
-    if (target.type === "insert") {
-      const capability = getImageInsertCapability(
-        args.workingDeckRef.current,
-        target.slideId
-      );
+    {
+      const capability =
+        target.type === "insert"
+          ? getImageInsertCapability(
+              args.workingDeckRef.current,
+              target.slideId,
+            )
+          : getImageReplaceCapability(
+              args.workingDeckRef.current,
+              target.slideId,
+              target.elementId,
+            );
       if (!capability.enabled) {
         setImageUploadStatus("");
         setImageUploadError(
           capability.reason ??
-            "이 Deck에는 이미지를 안전하게 추가할 수 없습니다."
+            "이 Deck에서는 이미지를 안전하게 추가하거나 교체할 수 없습니다.",
         );
         return;
       }
@@ -395,21 +436,30 @@ export function useEditorFileTransfer(args: {
   }
 
   function openPptxFilePicker() {
-    if (pptxImportState.status === "uploading" || pptxImportState.status === "importing") {
+    if (
+      pptxImportState.status === "uploading" ||
+      pptxImportState.status === "importing"
+    ) {
       return;
     }
     pptxFileInputRef.current?.click();
   }
 
   async function resolveUploadProject(targetProjectId: string) {
-    if (resolvedUploadProjectIdRef.current) return resolvedUploadProjectIdRef.current;
+    if (resolvedUploadProjectIdRef.current)
+      return resolvedUploadProjectIdRef.current;
     if (args.persistedProjectId) {
       resolvedUploadProjectIdRef.current = args.persistedProjectId;
       return args.persistedProjectId;
     }
     const projects = await fetchProjects();
-    const preferredProject = projects.find((project) => project.projectId === targetProjectId);
-    const project = preferredProject ?? projects[0] ?? (await createProject(editorUploadProjectTitle));
+    const preferredProject = projects.find(
+      (project) => project.projectId === targetProjectId,
+    );
+    const project =
+      preferredProject ??
+      projects[0] ??
+      (await createProject(editorUploadProjectTitle));
     resolvedUploadProjectIdRef.current = project.projectId;
     return project.projectId;
   }
@@ -417,7 +467,7 @@ export function useEditorFileTransfer(args: {
   async function insertImageFiles(
     files: readonly File[],
     target: ImageUploadTarget,
-    placement?: ImageInsertPlacement
+    placement?: ImageInsertPlacement,
   ) {
     if (imageUploadPendingRef.current) return false;
     setImageUploadError("");
@@ -443,7 +493,7 @@ export function useEditorFileTransfer(args: {
         resolveUploadProject,
         target,
         upload: (projectId, file) =>
-          uploadProjectAsset(projectId, file, "reference-material")
+          uploadProjectAsset(projectId, file, "reference-material"),
       });
       args.onSelectSlide(result.slideIndex);
       args.onSelectElement(result.elementId);
@@ -454,7 +504,7 @@ export function useEditorFileTransfer(args: {
       setImageUploadStatus(
         result.kind === "insert"
           ? getImageBatchStatusMessage(selection.ignoredCount)
-          : "이미지를 교체했습니다."
+          : "이미지를 교체했습니다.",
       );
       return true;
     } catch (error) {
@@ -470,45 +520,62 @@ export function useEditorFileTransfer(args: {
   async function handlePptxFileSelection(file: File) {
     const validationMessage = getPptxImportValidationMessage(file);
     if (validationMessage) {
-      setPptxImportState({ status: "error", warnings: [], qualityReport: null, message: validationMessage });
+      setPptxImportState({
+        status: "error",
+        warnings: [],
+        qualityReport: null,
+        message: validationMessage,
+      });
       return;
     }
-    setPptxImportState({ status: "uploading", warnings: [], qualityReport: null, message: "PPTX 업로드 중..." });
+    setPptxImportState({
+      status: "uploading",
+      warnings: [],
+      qualityReport: null,
+      message: "PPTX 업로드 중...",
+    });
     try {
       await args.prepareForImport();
       const activeProjectId = await resolveUploadProject(
-        args.workingDeckRef.current.projectId || args.projectId
+        args.workingDeckRef.current.projectId || args.projectId,
       );
-      const { importResult, importedDeck } = await importPptxIntoEditor(activeProjectId, file, {
-        onPhase: (phase) => setPptxImportState({
-          status: phase,
-          warnings: [],
-          qualityReport: null,
-          message: phase === "uploading" ? "PPTX 업로드 중..." : "PPTX 변환 중..."
-        }),
-        refetchDeck: args.refetchDeck
-      });
+      const { importResult, importedDeck } = await importPptxIntoEditor(
+        activeProjectId,
+        file,
+        {
+          onPhase: (phase) =>
+            setPptxImportState({
+              status: phase,
+              warnings: [],
+              qualityReport: null,
+              message:
+                phase === "uploading" ? "PPTX 업로드 중..." : "PPTX 변환 중...",
+            }),
+          refetchDeck: args.refetchDeck,
+        },
+      );
       args.onImportedDeck(importedDeck);
       args.onClearSelectedKeyword();
       setPptxImportState({
         status: "succeeded",
         warnings: importResult.warnings,
         qualityReport: importResult.qualityReport,
-        message: "PPTX 가져오기 완료"
+        message: "PPTX 가져오기 완료",
       });
     } catch (error) {
       setPptxImportState({
         status: "error",
         warnings: [],
         qualityReport: null,
-        message: toEditorErrorMessage(error)
+        message: toEditorErrorMessage(error),
       });
     }
   }
 
   async function exportPptx(save: () => Promise<boolean | undefined>) {
     if (isPptxExporting) return;
-    const activeProjectId = args.workingDeckRef.current.projectId || args.persistedProjectId;
+    const activeProjectId =
+      args.workingDeckRef.current.projectId || args.persistedProjectId;
     if (!activeProjectId) {
       setPptxExportError("내보낼 프로젝트를 찾지 못했습니다.");
       return;
@@ -518,19 +585,22 @@ export function useEditorFileTransfer(args: {
     setPptxExportStatus("저장 중...");
     try {
       const saved = await save();
-      if (!saved) throw new Error("최신 편집 내용을 저장한 뒤 다시 시도하세요.");
+      if (!saved)
+        throw new Error("최신 편집 내용을 저장한 뒤 다시 시도하세요.");
       setPptxExportStatus("PPTX 내보내기 중...");
       const result = await exportDeckToPptx(activeProjectId);
       setPptxExportStatus(
         result.warnings.length
           ? `PPTX 생성 완료, ${result.warnings.length}개 경고`
-          : "PPTX 생성 완료"
+          : "PPTX 생성 완료",
       );
       window.open(result.url, "_blank", "noopener,noreferrer");
     } catch (error) {
       setPptxExportStatus("");
       setPptxExportError(
-        error instanceof Error ? error.message : "PPTX 내보내기에 실패했습니다."
+        error instanceof Error
+          ? error.message
+          : "PPTX 내보내기에 실패했습니다.",
       );
     } finally {
       setIsPptxExporting(false);
@@ -560,7 +630,7 @@ export function useEditorFileTransfer(args: {
         getImageInsertCapability(args.workingDeckRef.current, slideId),
       insertImageFiles,
       openImageFilePicker,
-      openPptxFilePicker
+      openPptxFilePicker,
     },
     refs: { imageFileInputRef, pptxFileInputRef },
     state: {
@@ -570,8 +640,8 @@ export function useEditorFileTransfer(args: {
       isPptxExporting,
       pptxExportError,
       pptxExportStatus,
-      pptxImportState
-    }
+      pptxImportState,
+    },
   };
 }
 

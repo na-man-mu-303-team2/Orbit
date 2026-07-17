@@ -89,11 +89,26 @@ describe("templateBlueprintSchema", () => {
         {
           slideIndex: 1,
           sourceSlideIndex: 1,
+          ooxmlOrigin: "imported",
+          ooxmlMotionCapabilities: {
+            transitionWritable: false,
+            importedMainSequenceCoverage: "absent",
+          },
           renderAssetFileId: "file_slide_1",
           fallbackRenderAssetFileId: "file_fallback_1",
           elementSources: [
             {
               elementId: "el_title",
+              elementType: "text",
+              ooxmlOrigin: "imported",
+              ooxmlEditCapabilities: {
+                richText: "none",
+                crop: "none",
+                tableCellText: false,
+                frame: true,
+                delete: false,
+                imageSource: false,
+              },
               slidePart: "ppt/slides/slide1.xml",
               shapeId: "2",
               sourceType: "placeholder",
@@ -108,7 +123,22 @@ describe("templateBlueprintSchema", () => {
     expect(blueprint.currentPackageFileId).toBe("file_current");
     expect(blueprint.ooxmlSyncedDeckVersion).toBe(2);
     expect(blueprint.slides[0].renderAssetFileId).toBe("file_slide_1");
+    expect(blueprint.slides[0].ooxmlMotionCapabilities).toEqual({
+      transitionWritable: false,
+      importedMainSequenceCoverage: "absent",
+    });
     expect(blueprint.slides[0].elementSources[0]?.writable).toBe(true);
+    expect(blueprint.slides[0].elementSources[0]?.elementType).toBe("text");
+    expect(
+      blueprint.slides[0].elementSources[0]?.ooxmlEditCapabilities,
+    ).toEqual({
+      richText: "none",
+      crop: "none",
+      tableCellText: false,
+      frame: true,
+      delete: false,
+      imageSource: false,
+    });
   });
 });
 

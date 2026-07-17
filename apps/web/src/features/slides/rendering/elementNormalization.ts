@@ -33,7 +33,18 @@ export function normalizeRenderableElement(
   element: unknown
 ): DeckElement {
   const elementDraft = element as DeckElement;
-  const frame = normalizeElementFrameDraft(canvas, elementDraft, {});
+  const frame = normalizeElementFrameDraft(canvas, elementDraft, {
+    role: elementDraft.role,
+    x: elementDraft.x,
+    y: elementDraft.y,
+    width: elementDraft.width,
+    height: elementDraft.height,
+    rotation: elementDraft.rotation,
+    opacity: elementDraft.opacity,
+    zIndex: elementDraft.zIndex,
+    locked: elementDraft.locked,
+    visible: elementDraft.visible
+  });
 
   return deckElementSchema.parse({
     ...elementDraft,

@@ -82,4 +82,49 @@ describe("SlideRail", () => {
       /<button disabled="" role="menuitem" type="button">삭제/,
     );
   });
+
+  it("renders an OOXML duplicate disabled reason next to the disabled action", () => {
+    const reason = "가져온 슬라이드의 OOXML 출처 정보가 없습니다.";
+    const html = renderToString(
+      <SlideRail
+        canMutate
+        canvasAspectRatio="16 / 9"
+        duplicateDisabledReasons={{ slide_1: reason }}
+        items={buildSlideRailItems(slides, "slide_1")}
+        viewMode="list"
+        onDelete={vi.fn()}
+        onDuplicate={vi.fn()}
+        onMove={vi.fn()}
+        onReorder={vi.fn()}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain(`<small role="status">${reason}</small>`);
+    expect(html).toContain(`disabled="" role="menuitem" title="${reason}"`);
+  });
+
+  it("disables OOXML slide drag, move, and delete with a structural reason", () => {
+    const reason = "원본 OOXML 슬라이드 구조를 안전하게 변경할 수 없습니다.";
+    const html = renderToString(
+      <SlideRail
+        canMutate
+        canvasAspectRatio="16 / 9"
+        items={buildSlideRailItems(slides, "slide_1")}
+        structuralDisabledReasons={{ slide_1: reason }}
+        viewMode="list"
+        onDelete={vi.fn()}
+        onDuplicate={vi.fn()}
+        onMove={vi.fn()}
+        onReorder={vi.fn()}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain(
+      `disabled="" title="${reason}" type="button"><svg`,
+    );
+    expect(html.match(new RegExp(`<small role="status">${reason}</small>`, "g"))).toHaveLength(1);
+    expect(html).toMatch(/<button disabled="" role="menuitem" type="button">삭제/);
+  });
 });

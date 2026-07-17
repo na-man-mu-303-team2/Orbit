@@ -263,6 +263,8 @@ describe("applyDeckPatch", () => {
     const deck = createPatchTestDeck();
     deck.metadata.sourceType = "import";
     deck.metadata.thumbnailSource = "import-render";
+    deck.metadata.audience = "executive";
+    deck.metadata.createdFrom = { topic: "Before", references: [], designReferences: [] };
 
     const result = applyPatchOrFail(
       deck,
@@ -270,14 +272,20 @@ describe("applyDeckPatch", () => {
         {
           metadata: {
             thumbnailSource: "canvas",
+            audience: "technical",
+            createdFrom: null,
           },
+          targetDurationMinutes: 18,
           type: "update_deck",
         },
       ]),
     );
 
     expect(result.deck.metadata.thumbnailSource).toBe("canvas");
+    expect(result.deck.metadata.audience).toBe("technical");
+    expect(result.deck.metadata.createdFrom).toBeUndefined();
     expect(result.deck.metadata.sourceType).toBe("import");
+    expect(result.deck.targetDurationMinutes).toBe(18);
     expect(result.deck.title).toBe(deck.title);
   });
 
@@ -298,7 +306,7 @@ describe("applyDeckPatch", () => {
     ]);
   });
 
-  it("updates slide title and thumbnailUrl", () => {
+  it("updates slide audit fields", () => {
     const result = applyPatchOrFail(
       createPatchTestDeck(),
       createPatch([
@@ -307,6 +315,11 @@ describe("applyDeckPatch", () => {
           slideId: "slide_1",
           title: "Opening Updated",
           thumbnailUrl: "/files/thumbnails/updated.png",
+          estimatedSeconds: 42,
+          aiNotes: {
+            emphasisPoints: ["핵심 메시지"],
+            sourceEvidence: [],
+          },
         },
       ]),
     );
@@ -315,6 +328,35 @@ describe("applyDeckPatch", () => {
     expect(result.deck.slides[0].thumbnailUrl).toBe(
       "/files/thumbnails/updated.png",
     );
+    expect(result.deck.slides[0].estimatedSeconds).toBe(42);
+    expect(result.deck.slides[0].aiNotes).toEqual({
+      emphasisPoints: ["핵심 메시지"],
+      sourceEvidence: [],
+    });
+  });
+
+  it("clears nullable slide audit fields", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0].estimatedSeconds = 42;
+    deck.slides[0].aiNotes = {
+      emphasisPoints: ["기존 메시지"],
+      sourceEvidence: [],
+    };
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "update_slide",
+          slideId: "slide_1",
+          estimatedSeconds: null,
+          aiNotes: null,
+        },
+      ]),
+    );
+
+    expect(result.deck.slides[0].estimatedSeconds).toBeUndefined();
+    expect(result.deck.slides[0].aiNotes).toBeUndefined();
   });
 
   it("deletes a slide", () => {

@@ -15,6 +15,7 @@ type DesignProposalPreviewModalProps = {
   summary: string;
   warnings: string[];
   isApplying: boolean;
+  mutationDisabledReason?: string;
   onApply: () => void;
   onClose: () => void;
 };
@@ -91,12 +92,18 @@ export function DesignProposalPreviewModal(
         {props.warnings.length ? (
           <p className="design-proposal-warning">{props.warnings.join(" ")}</p>
         ) : null}
+        {props.mutationDisabledReason ? (
+          <p className="design-proposal-warning" role="status">
+            {props.mutationDisabledReason}
+          </p>
+        ) : null}
 
         <footer className="design-proposal-modal-footer">
           <button type="button" onClick={props.onClose}>취소</button>
           <button
             className="primary"
-            disabled={props.isApplying}
+            disabled={props.isApplying || Boolean(props.mutationDisabledReason)}
+            title={props.mutationDisabledReason}
             type="button"
             onClick={props.onApply}
           >

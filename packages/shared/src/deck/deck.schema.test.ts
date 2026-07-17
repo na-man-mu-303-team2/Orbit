@@ -52,6 +52,15 @@ type DeckValidationInput = {
     title: string;
     thumbnailUrl: string;
     estimatedSeconds?: number;
+    ooxmlOrigin?: "imported" | "authored";
+    ooxmlMotionCapabilities?: {
+      transitionWritable: boolean;
+      importedMainSequenceCoverage:
+        | "unknown"
+        | "absent"
+        | "partial"
+        | "complete";
+    };
     style: Record<string, unknown>;
     speakerNotes: string;
     aiNotes?: {
@@ -1212,6 +1221,82 @@ describe("deckSchema validation", () => {
     expect(parsed.version).toBe(deck.version);
   });
 
+  it("preserves optional OOXML provenance and edit capabilities", () => {
+    const deck = createValidDeck();
+    deck.metadata.sourceType = "import";
+    deck.slides[0] = {
+      ...deck.slides[0],
+      ooxmlOrigin: "imported",
+      ooxmlMotionCapabilities: {
+        transitionWritable: false,
+        importedMainSequenceCoverage: "partial"
+      },
+      elements: deck.slides[0].elements.map((element) => ({
+        ...element,
+        ooxmlOrigin: "imported" as const,
+        ooxmlEditCapabilities: {
+          richText: "style-only" as const,
+          crop: "none" as const,
+          tableCellText: false,
+          frame: true,
+          delete: false,
+          imageSource: true
+        }
+      }))
+    };
+
+    const parsed = deckSchema.parse(deck);
+
+    expect(parsed.slides[0]).toMatchObject({
+      ooxmlOrigin: "imported",
+      ooxmlMotionCapabilities: {
+        transitionWritable: false,
+        importedMainSequenceCoverage: "partial"
+      }
+    });
+    expect(parsed.slides[0].elements[0]).toMatchObject({
+      ooxmlOrigin: "imported",
+      ooxmlEditCapabilities: {
+        richText: "style-only",
+        crop: "none",
+        tableCellText: false,
+        frame: true,
+        delete: false,
+        imageSource: true
+      }
+    });
+  });
+
+  it.each(["frame", "delete", "imageSource"] as const)(
+    "rejects a non-boolean OOXML %s capability",
+    (capability) => {
+      const deck = createValidDeck();
+      const element = deck.slides[0].elements[0]!;
+      deck.metadata.sourceType = "import";
+      deck.slides[0].elements[0] = {
+        ...element,
+        ooxmlOrigin: "imported",
+        ooxmlEditCapabilities: {
+          richText: "none",
+          crop: "none",
+          tableCellText: false,
+          [capability]: "yes" as unknown as boolean
+        }
+      };
+
+      expect(() => deckSchema.parse(deck)).toThrow();
+    }
+  );
+
+  it("keeps OOXML provenance optional for legacy and non-imported decks", () => {
+    const parsed = deckSchema.parse(createValidDeck());
+
+    expect(parsed.slides[0].ooxmlOrigin).toBeUndefined();
+    expect(parsed.slides[0].ooxmlMotionCapabilities).toBeUndefined();
+    expect(parsed.slides[0].elements[0]?.ooxmlOrigin).toBeUndefined();
+    expect(parsed.slides[0].elements[0]?.ooxmlEditCapabilities).toBeUndefined();
+  });
+
   it("accepts a 1024x768 standard-4-3 deck", () => {
     const deck = createValidDeck();
 
@@ -1778,6 +1863,33 @@ describe("deckPatchSchema validation", () => {
     expect(deckPatchSchema.safeParse(patch).success).toBe(true);
   });
 
+  it("accepts package-neutral deck and slide audit fields", () => {
+    const patch: unknown = {
+      ...createValidPatch(),
+      operations: [
+        {
+          type: "update_deck",
+          targetDurationMinutes: 18,
+          metadata: {
+            audience: "technical",
+            createdFrom: null
+          }
+        },
+        {
+          type: "update_slide",
+          slideId: "slide_1",
+          estimatedSeconds: null,
+          aiNotes: {
+            emphasisPoints: ["핵심 메시지"],
+            sourceEvidence: []
+          }
+        }
+      ]
+    };
+
+    expect(deckPatchSchema.safeParse(patch).success).toBe(true);
+  });
+
   it("rejects replace keyword patches with duplicate keyword IDs", () => {
     const patch: unknown = {
       ...createValidPatch(),
@@ -1858,9 +1970,9 @@ describe("deckPatchSchema validation", () => {
 
 describe("deckChangeRecordSchema validation", () => {
   it("accepts a valid deck change record", () => {
-    expect(deckChangeRecordSchema.safeParse(createValidChangeRecord()).success).toBe(
-      true
-    );
+    expect(
+      deckChangeRecordSchema.safeParse(createValidChangeRecord()).success
+    ).toBe(true);
   });
 
   it("rejects invalid changeId prefix", () => {

@@ -14,7 +14,10 @@ const payload = {
   }
 };
 
-const storage: Pick<StoragePort, "getSignedReadUrl" | "putObject"> = {
+const storage: Pick<
+  StoragePort,
+  "getSignedReadUrl" | "putObject" | "removeObject"
+> = {
   getSignedReadUrl: vi.fn(async () => "http://storage.local/template.pptx"),
   putObject: vi.fn(async (input: { key: string; contentType: string }) => ({
     key: input.key,
@@ -22,7 +25,8 @@ const storage: Pick<StoragePort, "getSignedReadUrl" | "putObject"> = {
     contentType: input.contentType,
     purpose: "design-asset" as const,
     size: 3
-  }))
+  })),
+  removeObject: vi.fn(async () => undefined)
 };
 
 describe("processPptxOoxmlGenerationJob", () => {
@@ -84,7 +88,7 @@ describe("processPptxOoxmlGenerationJob", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const job = await processPptxOoxmlGenerationJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -228,7 +232,7 @@ describe("processPptxOoxmlGenerationJob", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const job = await processPptxOoxmlGenerationJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -311,7 +315,7 @@ describe("processPptxOoxmlGenerationJob", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const job = await processPptxOoxmlGenerationJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -371,7 +375,7 @@ describe("processPptxOoxmlGenerationJob", () => {
     vi.stubGlobal("fetch", vi.fn());
 
     const job = await processPptxOoxmlGenerationJob(
-      { query } as unknown as DataSource,
+      createDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -380,6 +384,183 @@ describe("processPptxOoxmlGenerationJob", () => {
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("PPTX_OOXML_GENERATION_SOURCE_FAILED");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("stores only safe status and file identity when Python returns sensitive error text", async () => {
+    const sensitiveText =
+      "https://storage.local/file?signature=secret user supplied slide text";
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("FROM project_assets")) return [sourceAssetRow()];
+      return [];
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input) === "http://storage.local/template.pptx"
+          ? new Response("pptx-bytes")
+          : new Response(sensitiveText, { status: 422 })
+      )
+    );
+
+    const job = await processPptxOoxmlGenerationJob(
+      createDataSource(query),
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(job.error).toEqual({
+      code: "PPTX_OOXML_GENERATION_SOURCE_FAILED",
+      message:
+        "PPTX_OOXML_GENERATION_PYTHON_HTTP_ERROR:status=422:fileId=file_template"
+    });
+    expect(JSON.stringify(job)).not.toContain(sensitiveText);
+  });
+
+  it("rolls back DB writes and removes prior objects when the second asset upload fails", async () => {
+    const sensitiveProviderError =
+      "storage rejected https://storage.local/object?signature=secret";
+    let uploadCount = 0;
+    const failingStorage: typeof storage = {
+      getSignedReadUrl: storage.getSignedReadUrl,
+      putObject: vi.fn(async (input: { key: string; contentType: string }) => {
+        uploadCount += 1;
+        if (uploadCount === 2) throw new Error(sensitiveProviderError);
+        return {
+          key: input.key,
+          url: "http://storage.local/design-asset",
+          contentType: input.contentType,
+          purpose: "design-asset" as const,
+          size: 3
+        };
+      }),
+      removeObject: vi.fn(async () => undefined)
+    };
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("FROM project_assets")) return [sourceAssetRow()];
+      return [];
+    });
+    const dataSource = createDataSource(query);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input) === "http://storage.local/template.pptx"
+          ? new Response("pptx-bytes")
+          : new Response(JSON.stringify(workerResponse()))
+      )
+    );
+
+    const job = await processPptxOoxmlGenerationJob(
+      dataSource,
+      failingStorage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    expect(failingStorage.putObject).toHaveBeenCalledTimes(2);
+    const firstStorageKey = vi.mocked(failingStorage.putObject).mock.calls[0]![0].key;
+    expect(failingStorage.removeObject).toHaveBeenCalledOnce();
+    expect(failingStorage.removeObject).toHaveBeenCalledWith(firstStorageKey);
+    expect(
+      query.mock.calls.filter(([sql]) =>
+        String(sql).includes("INSERT INTO project_assets")
+      )
+    ).toHaveLength(1);
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(false);
+    expect(job.error).toEqual({
+      code: "PPTX_OOXML_GENERATION_SAVE_FAILED",
+      message:
+        "PPTX_OOXML_GENERATION_SAVE_FAILED:projectId=project-a:fileId=file_template"
+    });
+    expect(JSON.stringify(job)).not.toContain(sensitiveProviderError);
+  });
+
+  it("rolls back the Deck and cleans storage when TemplateBlueprint persistence fails", async () => {
+    const sensitiveDatabaseError = "database detail includes private slide text";
+    const sensitiveCleanupError =
+      "cleanup failed for https://storage.local/object?signature=secret";
+    const cleanupStorage: typeof storage = {
+      getSignedReadUrl: storage.getSignedReadUrl,
+      putObject: storage.putObject,
+      removeObject: vi.fn(async () => {
+        throw new Error(sensitiveCleanupError);
+      })
+    };
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("FROM project_assets")) return [sourceAssetRow()];
+      if (sql.includes("INSERT INTO template_blueprints")) {
+        throw new Error(sensitiveDatabaseError);
+      }
+      return [];
+    });
+    const dataSource = createDataSource(query);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input) === "http://storage.local/template.pptx"
+          ? new Response("pptx-bytes")
+          : new Response(JSON.stringify(workerResponse()))
+      )
+    );
+
+    const job = await processPptxOoxmlGenerationJob(
+      dataSource,
+      cleanupStorage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(true);
+    expect(cleanupStorage.removeObject).toHaveBeenCalledTimes(3);
+    expect(warn).toHaveBeenCalledWith(
+      {
+        event: "pptx_ooxml.generation.storage_cleanup_failed",
+        jobId: "job-ooxml",
+        projectId: "project-a",
+        fileId: "file_template",
+        failedObjectCount: 3
+      },
+      "PPTX OOXML generation storage cleanup failed."
+    );
+    expect(JSON.stringify(job)).not.toContain(sensitiveDatabaseError);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(sensitiveCleanupError);
   });
 
   it.each(["topic", "prompt", "extraField"])(
@@ -396,7 +577,7 @@ describe("processPptxOoxmlGenerationJob", () => {
       vi.stubGlobal("fetch", vi.fn());
 
       const job = await processPptxOoxmlGenerationJob(
-        { query } as unknown as DataSource,
+        createDataSource(query),
         storage,
         "http://localhost:8000",
         {
@@ -411,6 +592,30 @@ describe("processPptxOoxmlGenerationJob", () => {
     }
   );
 });
+
+function createDataSource(query: ReturnType<typeof vi.fn>): DataSource {
+  return {
+    query,
+    transaction: vi.fn(
+      async (
+        callback: (manager: Pick<DataSource, "query">) => Promise<unknown>
+      ) => callback({ query })
+    )
+  } as unknown as DataSource;
+}
+
+function sourceAssetRow() {
+  return {
+    file_id: "file_template",
+    project_id: "project-a",
+    storage_key: "projects/project-a/assets/file_template-template.pptx",
+    mime_type: pptxMimeType,
+    original_name: "template.pptx",
+    size: 12,
+    purpose: "pptx-import",
+    status: "uploaded"
+  };
+}
 
 function workerResponse() {
   return {

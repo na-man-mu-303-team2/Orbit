@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AiChatPanel,
   createInitialAiChatState,
+  resolveDesignAgentProposalApplyCapability,
   type AiChatState
 } from "./AiChatPanel";
 
@@ -61,5 +62,39 @@ describe("AiChatPanel", () => {
 
     expect(renderPanel()).toContain("이 채팅 기록은 패널을 다시 열어도 유지됩니다.");
     expect(renderPanel()).toContain("이 채팅 기록은 패널을 다시 열어도 유지됩니다.");
+  });
+
+  it("preflights an unsupported imported-deck proposal before apply", () => {
+    const deck = createDemoDeck();
+    deck.metadata.sourceType = "import";
+    deck.slides[0]!.ooxmlOrigin = "imported";
+    deck.slides[0]!.ooxmlMotionCapabilities = {
+      importedMainSequenceCoverage: "absent",
+      transitionWritable: false
+    };
+
+    expect(
+      resolveDesignAgentProposalApplyCapability(deck, {
+        proposalId: "proposal_1",
+        projectId: deck.projectId,
+        deckId: deck.deckId,
+        slideId: deck.slides[0]!.slideId,
+        requestMessageId: "message_1",
+        baseVersion: deck.version,
+        title: "배경 변경",
+        operations: [
+          {
+            type: "update_slide_style",
+            slideId: deck.slides[0]!.slideId,
+            style: { backgroundColor: "#000000" }
+          }
+        ],
+        affectedElementIds: [],
+        warnings: [],
+        status: "pending",
+        createdAt: "2026-07-17T00:00:00.000Z",
+        updatedAt: "2026-07-17T00:00:00.000Z"
+      })
+    ).toMatchObject({ enabled: false });
   });
 });

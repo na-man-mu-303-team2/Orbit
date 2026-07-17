@@ -27,6 +27,8 @@ export function createAddSlidePatch(
   deck: Deck,
   slide: Slide
 ): DeckPatch {
+  const nextSlide =
+    deck.metadata.sourceType === "import" ? asAuthoredOoxmlSlide(slide) : slide;
   return {
     deckId: deck.deckId,
     baseVersion: deck.version,
@@ -34,7 +36,7 @@ export function createAddSlidePatch(
     operations: [
       {
         type: "add_slide",
-        slide
+        slide: nextSlide
       }
     ]
   };
@@ -53,11 +55,15 @@ export function createDuplicateSlidePatch(deck: Deck, sourceSlideId: string): De
     (slide) => slide.slideId === sourceSlideId,
   );
   const allocateId = createLocalIdAllocator(deck);
-  const duplicate = duplicateSlideWithReferences(
+  const duplicateInput = duplicateSlideWithReferences(
     sourceMatches[0]!,
     deck.slides.length + 1,
     allocateId,
   );
+  const duplicate =
+    deck.metadata.sourceType === "import"
+      ? asAuthoredOoxmlSlide(duplicateInput)
+      : duplicateInput;
   const reorderedSlideIds = [
     ...orderedSlides.slice(0, sourceIndex + 1).map((slide) => slide.slideId),
     duplicate.slideId,
@@ -79,6 +85,23 @@ export function createDuplicateSlidePatch(deck: Deck, sourceSlideId: string): De
       },
     ],
   };
+}
+
+function asAuthoredOoxmlSlide(slide: Slide): Slide {
+  const authored = {
+    ...structuredClone(slide),
+    ooxmlOrigin: "authored" as const,
+    elements: slide.elements.map((element) => {
+      const nextElement = {
+        ...structuredClone(element),
+        ooxmlOrigin: "authored" as const
+      };
+      delete nextElement.ooxmlEditCapabilities;
+      return nextElement;
+    })
+  };
+  delete authored.ooxmlMotionCapabilities;
+  return slideSchema.parse(authored);
 }
 
 function duplicateSlideWithReferences(

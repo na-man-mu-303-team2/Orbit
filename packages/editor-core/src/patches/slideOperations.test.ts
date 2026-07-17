@@ -1,4 +1,8 @@
-import { createKeywordOccurrenceId, deckSchema, type Deck } from "@orbit/shared";
+import {
+  createKeywordOccurrenceId,
+  deckSchema,
+  type Deck,
+} from "@orbit/shared";
 import { describe, expect, it } from "vitest";
 
 import { createDemoDeck } from "../index";
@@ -28,7 +32,7 @@ describe("slide operation helpers", () => {
       keywords: [],
       semanticCues: [],
       animations: [],
-      actions: []
+      actions: [],
     });
     const result = applyDeckPatch(deck, patch);
 
@@ -47,8 +51,8 @@ describe("slide operation helpers", () => {
         title: `Slide ${index + 1}`,
         elements: [],
         animations: [],
-        actions: []
-      }))
+        actions: [],
+      })),
     };
     const patch = createAddSlidePatch(twentySlideDeck, {
       ...templateSlide,
@@ -57,7 +61,7 @@ describe("slide operation helpers", () => {
       title: "Slide 21",
       elements: [],
       animations: [],
-      actions: []
+      actions: [],
     });
 
     const result = applyDeckPatch(twentySlideDeck, patch);
@@ -120,6 +124,44 @@ describe("slide operation helpers", () => {
       expect(result.deck.slides.map((slide) => slide.order)).toEqual([1, 2, 3]);
     }
   });
+
+  it("reclassifies imported slide duplicates and every element as authored", () => {
+    const deck = createReferenceRichDeck();
+    deck.metadata.sourceType = "import";
+    const source = deck.slides[1]!;
+    source.ooxmlOrigin = "imported";
+    source.ooxmlMotionCapabilities = {
+      transitionWritable: true,
+      importedMainSequenceCoverage: "complete",
+    };
+    source.elements = source.elements.map((element) => ({
+      ...element,
+      ooxmlOrigin: "imported" as const,
+      ooxmlEditCapabilities: {
+        richText: "full" as const,
+        crop: "picture" as const,
+        tableCellText: true,
+      },
+    }));
+
+    const patch = createDuplicateSlidePatch(deck, source.slideId);
+    const operation = patch.operations[0];
+
+    expect(operation?.type).toBe("add_slide");
+    if (operation?.type !== "add_slide") return;
+    expect(operation.slide.ooxmlOrigin).toBe("authored");
+    expect(operation.slide.ooxmlMotionCapabilities).toBeUndefined();
+    expect(
+      operation.slide.elements.every(
+        (element) => element.ooxmlOrigin === "authored",
+      ),
+    ).toBe(true);
+    expect(
+      operation.slide.elements.every(
+        (element) => element.ooxmlEditCapabilities === undefined,
+      ),
+    ).toBe(true);
+  });
 });
 
 function createReferenceRichDeck(): Deck {
@@ -142,7 +184,10 @@ function createReferenceRichDeck(): Deck {
         keywordId: source.keywords[0]!.keywordId,
         occurrenceId,
       },
-      effect: { kind: "play-animation", animationId: source.animations[0]!.animationId },
+      effect: {
+        kind: "play-animation",
+        animationId: source.animations[0]!.animationId,
+      },
     },
   ];
   source.semanticCues = [
@@ -157,9 +202,21 @@ function createReferenceRichDeck(): Deck {
       revision: 1,
       sourceFingerprint: "fingerprint-source-1",
       sourceRefs: [
-        { kind: "slide-title", refId: source.slideId, sourceHash: "title-hash-source" },
-        { kind: "speaker-notes", refId: source.slideId, sourceHash: "notes-hash-source" },
-        { kind: "chart", refId: source.elements[1]!.elementId, sourceHash: "chart-hash-source" },
+        {
+          kind: "slide-title",
+          refId: source.slideId,
+          sourceHash: "title-hash-source",
+        },
+        {
+          kind: "speaker-notes",
+          refId: source.slideId,
+          sourceHash: "notes-hash-source",
+        },
+        {
+          kind: "chart",
+          refId: source.elements[1]!.elementId,
+          sourceHash: "chart-hash-source",
+        },
       ],
       qualityWarnings: [],
       required: true,
@@ -202,13 +259,19 @@ function createReferenceRichDeck(): Deck {
   return deckSchema.parse(deck);
 }
 
-function expectReferenceRichDuplicate(source: Deck["slides"][number], duplicate: Deck["slides"][number], deck: Deck) {
+function expectReferenceRichDuplicate(
+  source: Deck["slides"][number],
+  duplicate: Deck["slides"][number],
+  deck: Deck,
+) {
   const originalLocalIds = new Set([
     source.slideId,
     ...source.elements.map((element) => element.elementId),
     ...source.animations.map((animation) => animation.animationId),
     ...source.keywords.map((keyword) => keyword.keywordId),
-    ...source.keywords.flatMap((keyword) => keyword.requiredOccurrenceIds ?? []),
+    ...source.keywords.flatMap(
+      (keyword) => keyword.requiredOccurrenceIds ?? [],
+    ),
     ...source.actions.map((action) => action.actionId),
     ...source.semanticCues.map((cue) => cue.cueId),
   ]);
@@ -238,7 +301,9 @@ function expectReferenceRichDuplicate(source: Deck["slides"][number], duplicate:
   const group = duplicate.elements.find((element) => element.type === "group");
   expect(group?.type).toBe("group");
   if (group?.type === "group") {
-    expect(group.props.childElementIds.every((id) => elementIds.includes(id))).toBe(true);
+    expect(
+      group.props.childElementIds.every((id) => elementIds.includes(id)),
+    ).toBe(true);
   }
 
   const animation = duplicate.animations[0]!;
@@ -286,8 +351,12 @@ function expectReferenceRichDuplicate(source: Deck["slides"][number], duplicate:
     ...duplicate.keywords.flatMap((item) => item.requiredOccurrenceIds ?? []),
     ...duplicate.actions.flatMap((item) => [
       ...(item.trigger.kind === "cue" ? [] : [item.trigger.keywordId]),
-      ...(item.trigger.kind === "keyword-occurrence" ? [item.trigger.occurrenceId] : []),
-      ...(item.effect.kind === "play-animation" ? [item.effect.animationId] : []),
+      ...(item.trigger.kind === "keyword-occurrence"
+        ? [item.trigger.occurrenceId]
+        : []),
+      ...(item.effect.kind === "play-animation"
+        ? [item.effect.animationId]
+        : []),
     ]),
     ...duplicate.semanticCues.flatMap((item) => [
       item.slideId,
@@ -298,5 +367,7 @@ function expectReferenceRichDuplicate(source: Deck["slides"][number], duplicate:
     duplicate.aiNotes?.sourceLedger?.[0]?.usedInSlideId ?? "",
     duplicate.aiNotes?.compositionPlan?.primaryFocalElementId ?? "",
   ];
-  expect(duplicateReferences.some((id) => originalLocalIds.has(id))).toBe(false);
+  expect(duplicateReferences.some((id) => originalLocalIds.has(id))).toBe(
+    false,
+  );
 }

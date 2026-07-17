@@ -111,9 +111,11 @@ export {
 export {
   createAddElementPatch,
   createDeleteElementPatch,
+  createDuplicateElementPatch,
   createElementId,
   createUpdateElementPropsPatch
 } from "./patches/elementOperations";
+export type { DuplicateElementPatchResult } from "./patches/elementOperations";
 export {
   createAddSlidePatch,
   createDuplicateSlidePatch,

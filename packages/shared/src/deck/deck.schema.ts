@@ -15,7 +15,10 @@ import {
 import { deriveKeywordOccurrences } from "./keyword-occurrences";
 import { semanticCueSchema } from "./semantic-cue.schema";
 import { slideActionSchema } from "./slide-action.schema";
-import { deckElementSchema } from "./slide-object.schema";
+import {
+  deckElementSchema,
+  ooxmlOriginSchema
+} from "./slide-object.schema";
 import { savedDesignPackSnapshotSchema } from "./saved-design-pack.schema";
 import { themeColorSchema, themeSchema } from "./theme.schema";
 
@@ -163,6 +166,18 @@ export const slideKeywordsSchema = z
 
 export const slideOrderSchema = z.number().int().positive();
 
+export const importedMainSequenceCoverageSchema = z.enum([
+  "unknown",
+  "absent",
+  "partial",
+  "complete"
+]);
+
+export const ooxmlMotionCapabilitiesSchema = z.object({
+  transitionWritable: z.boolean(),
+  importedMainSequenceCoverage: importedMainSequenceCoverageSchema
+});
+
 export const slideLayoutSchema = z.enum([
   "title",
   "title-content",
@@ -282,6 +297,8 @@ export const slideAiNotesSchema = z
 export const slideSchema = z
   .object({
     slideId: deckSlideIdSchema,
+    ooxmlOrigin: ooxmlOriginSchema.optional(),
+    ooxmlMotionCapabilities: ooxmlMotionCapabilitiesSchema.optional(),
     order: slideOrderSchema,
     title: z.string().default(""),
     thumbnailUrl: z.string().default(""),
@@ -472,6 +489,12 @@ export type DeckDesignProgramSnapshot = z.infer<
 >;
 export type DeckCreatedFrom = z.infer<typeof deckCreatedFromSchema>;
 export type Slide = z.infer<typeof slideSchema>;
+export type ImportedMainSequenceCoverage = z.infer<
+  typeof importedMainSequenceCoverageSchema
+>;
+export type OoxmlMotionCapabilities = z.infer<
+  typeof ooxmlMotionCapabilitiesSchema
+>;
 export type SlideLayout = z.infer<typeof slideLayoutSchema>;
 export type SlideStyle = z.infer<typeof slideStyleSchema>;
 export type SlideBackgroundImage = z.infer<typeof slideBackgroundImageSchema>;

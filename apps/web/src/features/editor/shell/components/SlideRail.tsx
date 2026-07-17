@@ -28,6 +28,7 @@ export type SlideRailProps = {
   canMutate: boolean;
   canvasAspectRatio: string;
   collapsed?: boolean;
+  duplicateDisabledReasons?: Readonly<Record<string, string>>;
   items: readonly SlideRailItem[];
   onDelete: (slideId: string) => void;
   onDuplicate: (slideId: string) => void;
@@ -35,6 +36,7 @@ export type SlideRailProps = {
   onReorder: (orderedSlideIds: readonly string[]) => void;
   onSelect: (slideId: string) => void;
   showIds?: boolean;
+  structuralDisabledReasons?: Readonly<Record<string, string>>;
   thumbnailBackgrounds?: Readonly<Record<string, string>>;
   viewMode: "list" | "thumbnail";
 };
@@ -48,7 +50,7 @@ export function SlideRail(props: SlideRailProps) {
   const menuKeyboard = usePopupMenuKeyboard({
     getTrigger: () =>
       openMenuSlideId
-        ? menuButtonRefs.current.get(openMenuSlideId) ?? null
+        ? (menuButtonRefs.current.get(openMenuSlideId) ?? null)
         : null,
     isOpen: openMenuSlideId !== null,
     onClose: () => setOpenMenuSlideId(null),
@@ -70,7 +72,9 @@ export function SlideRail(props: SlideRailProps) {
 
   function selectAndFocus(slideId: string) {
     props.onSelect(slideId);
-    requestAnimationFrame(() => selectionButtonRefs.current.get(slideId)?.focus());
+    requestAnimationFrame(() =>
+      selectionButtonRefs.current.get(slideId)?.focus(),
+    );
   }
 
   function handleSelectionKeyDown(
@@ -97,14 +101,20 @@ export function SlideRail(props: SlideRailProps) {
     if (selected && selected.slideId !== slideId) return selected.slideId;
     const index = props.items.findIndex((item) => item.slideId === slideId);
     return (
-      props.items[index + 1]?.slideId ??
-      props.items[index - 1]?.slideId ??
-      null
+      props.items[index + 1]?.slideId ?? props.items[index - 1]?.slideId ?? null
     );
   }
 
-  function handleDragStart(event: PointerEvent<HTMLButtonElement>, slideId: string) {
-    if (!props.canMutate || event.button !== 0) return;
+  function handleDragStart(
+    event: PointerEvent<HTMLButtonElement>,
+    slideId: string,
+  ) {
+    if (
+      !props.canMutate ||
+      props.structuralDisabledReasons?.[slideId] ||
+      event.button !== 0
+    )
+      return;
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const nextState = beginSlideRailDrag(event.pointerId, slideId);
@@ -123,7 +133,8 @@ export function SlideRail(props: SlideRailProps) {
     if (!hit || !slideId) return;
 
     const rect = hit.getBoundingClientRect();
-    const edge = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+    const edge =
+      event.clientY < rect.top + rect.height / 2 ? "before" : "after";
     const nextState = updateSlideRailDragTarget(current, slideId, edge);
     dragStateRef.current = nextState;
     setDragState(nextState);
@@ -164,9 +175,10 @@ export function SlideRail(props: SlideRailProps) {
       >
         {props.items.map((item) => {
           const isMenuOpen = openMenuSlideId === item.slideId;
-          const dropTarget = dragState?.target?.slideId === item.slideId
-            ? dragState.target
-            : null;
+          const dropTarget =
+            dragState?.target?.slideId === item.slideId
+              ? dragState.target
+              : null;
           const menuId = `slide-rail-menu-${item.slideId}`;
 
           return (
@@ -183,13 +195,19 @@ export function SlideRail(props: SlideRailProps) {
                 aria-pressed={item.isSelected}
                 className={`slide-item ${item.isSelected ? "active" : ""}`}
                 data-slide-id={item.slideId}
-                ref={(node) => setButtonRef(selectionButtonRefs.current, item.slideId, node)}
+                ref={(node) =>
+                  setButtonRef(selectionButtonRefs.current, item.slideId, node)
+                }
                 tabIndex={item.isSelected ? 0 : -1}
                 type="button"
                 onClick={() => props.onSelect(item.slideId)}
-                onKeyDown={(event) => handleSelectionKeyDown(event, item.slideId)}
+                onKeyDown={(event) =>
+                  handleSelectionKeyDown(event, item.slideId)
+                }
               >
-                <span aria-hidden="true" className="slide-number">{item.index + 1}</span>
+                <span aria-hidden="true" className="slide-number">
+                  {item.index + 1}
+                </span>
                 <span className="slide-title">
                   <span className="slide-title-text">{item.title}</span>
                   {props.showIds ? <IdBadge id={item.slideId} /> : null}
@@ -211,8 +229,14 @@ export function SlideRail(props: SlideRailProps) {
                   <button
                     aria-label={`${item.title} 드래그하여 이동`}
                     className="slide-rail-drag-handle"
+                    disabled={Boolean(
+                      props.structuralDisabledReasons?.[item.slideId],
+                    )}
+                    title={props.structuralDisabledReasons?.[item.slideId]}
                     type="button"
-                    onPointerDown={(event) => handleDragStart(event, item.slideId)}
+                    onPointerDown={(event) =>
+                      handleDragStart(event, item.slideId)
+                    }
                   >
                     <GripVertical aria-hidden="true" size={16} />
                   </button>
@@ -222,9 +246,13 @@ export function SlideRail(props: SlideRailProps) {
                     aria-haspopup="menu"
                     aria-label={`${item.title} 메뉴`}
                     className="slide-rail-menu-button"
-                    ref={(node) => setButtonRef(menuButtonRefs.current, item.slideId, node)}
+                    ref={(node) =>
+                      setButtonRef(menuButtonRefs.current, item.slideId, node)
+                    }
                     type="button"
-                    onClick={() => setOpenMenuSlideId(isMenuOpen ? null : item.slideId)}
+                    onClick={() =>
+                      setOpenMenuSlideId(isMenuOpen ? null : item.slideId)
+                    }
                   >
                     <Dots aria-hidden="true" size={17} />
                   </button>
@@ -237,17 +265,36 @@ export function SlideRail(props: SlideRailProps) {
                     role="menu"
                     onKeyDown={menuKeyboard.onKeyDown}
                   >
+                    {props.duplicateDisabledReasons?.[item.slideId] ? (
+                      <small role="status">
+                        {props.duplicateDisabledReasons[item.slideId]}
+                      </small>
+                    ) : null}
+                    {props.structuralDisabledReasons?.[item.slideId] ? (
+                      <small role="status">
+                        {props.structuralDisabledReasons[item.slideId]}
+                      </small>
+                    ) : null}
                     <button
+                      disabled={Boolean(
+                        props.duplicateDisabledReasons?.[item.slideId],
+                      )}
                       role="menuitem"
+                      title={props.duplicateDisabledReasons?.[item.slideId]}
                       type="button"
                       onClick={() => {
                         setOpenMenuSlideId(null);
                         props.onDuplicate(item.slideId);
                         refocusMenuButton(item.slideId);
                       }}
-                    >복제</button>
+                    >
+                      복제
+                    </button>
                     <button
-                      disabled={!item.canMoveUp}
+                      disabled={
+                        !item.canMoveUp ||
+                        Boolean(props.structuralDisabledReasons?.[item.slideId])
+                      }
                       role="menuitem"
                       type="button"
                       onClick={() => {
@@ -255,9 +302,14 @@ export function SlideRail(props: SlideRailProps) {
                         props.onMove(item.slideId, "up");
                         refocusMenuButton(item.slideId);
                       }}
-                    >위로 이동</button>
+                    >
+                      위로 이동
+                    </button>
                     <button
-                      disabled={!item.canMoveDown}
+                      disabled={
+                        !item.canMoveDown ||
+                        Boolean(props.structuralDisabledReasons?.[item.slideId])
+                      }
                       role="menuitem"
                       type="button"
                       onClick={() => {
@@ -265,9 +317,14 @@ export function SlideRail(props: SlideRailProps) {
                         props.onMove(item.slideId, "down");
                         refocusMenuButton(item.slideId);
                       }}
-                    >아래로 이동</button>
+                    >
+                      아래로 이동
+                    </button>
                     <button
-                      disabled={!item.canDelete}
+                      disabled={
+                        !item.canDelete ||
+                        Boolean(props.structuralDisabledReasons?.[item.slideId])
+                      }
                       role="menuitem"
                       type="button"
                       onClick={() => {
@@ -284,7 +341,9 @@ export function SlideRail(props: SlideRailProps) {
                           );
                         }
                       }}
-                    >삭제</button>
+                    >
+                      삭제
+                    </button>
                   </div>
                 </div>
               ) : null}

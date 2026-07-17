@@ -1,0 +1,77 @@
+.image-crop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+}
+
+.image-crop-viewport {
+  position: absolute;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 2px solid #2563eb;
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.56);
+}
+
+.image-crop-viewport.is-dragging {
+  cursor: grabbing;
+}
+
+.image-crop-preview {
+  position: absolute;
+  max-width: none;
+  pointer-events: none;
+  user-select: none;
+}
+
+.image-crop-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(to right, transparent 33.1%, rgba(255, 255, 255, 0.65) 33.3%, transparent 33.5%, transparent 66.4%, rgba(255, 255, 255, 0.65) 66.6%, transparent 66.8%),
+    linear-gradient(to bottom, transparent 33.1%, rgba(255, 255, 255, 0.65) 33.3%, transparent 33.5%, transparent 66.4%, rgba(255, 255, 255, 0.65) 66.6%, transparent 66.8%);
+}
+
+.image-crop-toolbar {
+  position: absolute;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  margin-top: 10px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  pointer-events: auto;
+}
+
+.image-crop-toolbar button {
+  min-height: 30px;
+  padding: 4px 9px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  color: #344054;
+  background: #ffffff;
+  cursor: pointer;
+  font: inherit;
+}
+
+.image-crop-toolbar button:hover {
+  background: #f2f4f7;
+}
+
+.image-crop-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.image-crop-toolbar button.primary {
+  border-color: #2563eb;
+  color: #ffffff;
+  background: #2563eb;
+}

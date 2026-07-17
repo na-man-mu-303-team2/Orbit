@@ -138,10 +138,13 @@ function applyOperation(
       }
 
       if (operation.metadata !== undefined) {
-        mergeRecordPatch(
+        replaceRecordPatch(
           deck.metadata as unknown as Record<string, unknown>,
           operation.metadata as Record<string, unknown>,
         );
+      }
+      if (operation.targetDurationMinutes !== undefined) {
+        deck.targetDurationMinutes = operation.targetDurationMinutes;
       }
       return { ok: true };
 
@@ -170,6 +173,22 @@ function applyOperation(
 
       if (operation.thumbnailUrl !== undefined) {
         slide.thumbnailUrl = operation.thumbnailUrl;
+      }
+
+      if (operation.estimatedSeconds !== undefined) {
+        if (operation.estimatedSeconds === null) {
+          delete slide.estimatedSeconds;
+        } else {
+          slide.estimatedSeconds = operation.estimatedSeconds;
+        }
+      }
+
+      if (operation.aiNotes !== undefined) {
+        if (operation.aiNotes === null) {
+          delete slide.aiNotes;
+        } else {
+          slide.aiNotes = cloneJson(operation.aiNotes);
+        }
       }
 
       return { ok: true };
@@ -201,7 +220,10 @@ function applyOperation(
     }
 
     case "reorder_slides": {
-      const validationFailure = validateSlideReorder(deck, operation.slideOrders);
+      const validationFailure = validateSlideReorder(
+        deck,
+        operation.slideOrders,
+      );
       if (validationFailure) {
         return validationFailure;
       }
@@ -321,7 +343,10 @@ function applyOperation(
       slide.animations = slide.animations.filter(
         (animation) => animation.elementId !== operation.elementId,
       );
-      const removedActionIds = removeActionsForAnimations(slide, removedAnimationIds);
+      const removedActionIds = removeActionsForAnimations(
+        slide,
+        removedAnimationIds,
+      );
       removeElementFromGroups(slide, operation.elementId);
       removeElementReferences(slide, operation.elementId);
       removeActionReferences(slide, removedActionIds);
@@ -645,7 +670,9 @@ function removeActionsForAnimations(
 }
 
 function removeActionsForMissingKeywords(slide: Slide): string[] {
-  const keywordIds = new Set(slide.keywords.map((keyword) => keyword.keywordId));
+  const keywordIds = new Set(
+    slide.keywords.map((keyword) => keyword.keywordId),
+  );
 
   const removedActionIds: string[] = [];
   slide.actions = slide.actions.filter((action) => {
@@ -854,6 +881,20 @@ function mergeRecordPatch(
     }
 
     target[key] = cloneJson(value);
+  }
+}
+
+function replaceRecordPatch(
+  target: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): void {
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    if (value === null) {
+      delete target[key];
+    } else {
+      target[key] = cloneJson(value);
+    }
   }
 }
 

@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus } from "@nestjs/common";
+import { applyDeckPatch } from "@orbit/editor-core";
 import {
   deckApiErrorSchema,
   deckSchema,
@@ -282,6 +283,24 @@ function createService() {
   return { dataSource, service };
 }
 
+function createOoxmlSyncService(jobId: string) {
+  stubOrbitEnv();
+  const dataSource = new InMemoryDeckDataSource();
+  const syncJob = createJob(jobId);
+  const jobsService = {
+    create: vi.fn(async () => syncJob),
+    update: vi.fn(),
+  };
+  const enqueueSyncJob = vi.fn(async () => undefined);
+  const service = new DecksService(
+    dataSource as unknown as DataSource,
+    jobsService as never,
+    enqueueSyncJob,
+  );
+
+  return { dataSource, enqueueSyncJob, jobsService, service, syncJob };
+}
+
 function createJob(
   jobId = "job_sync_1",
   type:
@@ -388,6 +407,39 @@ function createDeck(): Deck {
   });
 }
 
+function createImportedDeck(
+  capabilities: NonNullable<DeckElement["ooxmlEditCapabilities"]> = {
+    richText: "full",
+    crop: "none",
+    tableCellText: false,
+    frame: true,
+    delete: true,
+  },
+): Deck {
+  const deck = createDeck();
+  return deckSchema.parse({
+    ...deck,
+    metadata: { ...deck.metadata, sourceType: "import" },
+    slides: [
+      {
+        ...deck.slides[0]!,
+        ooxmlOrigin: "imported",
+        ooxmlMotionCapabilities: {
+          transitionWritable: false,
+          importedMainSequenceCoverage: "absent",
+        },
+        elements: [
+          {
+            ...createTextElement("el_imported", "Imported text"),
+            ooxmlOrigin: "imported",
+            ooxmlEditCapabilities: capabilities,
+          },
+        ],
+      },
+    ],
+  });
+}
+
 function createTextElement(
   elementId: string,
   text: string,
@@ -414,6 +466,35 @@ function createTextElement(
       align: "left",
       verticalAlign: "top",
       lineHeight: 1.2,
+    },
+  };
+}
+
+function createImageElement(
+  elementId: string,
+  x: number,
+  capabilities: NonNullable<DeckElement["ooxmlEditCapabilities"]>,
+): DeckElement {
+  return {
+    elementId,
+    type: "image",
+    ooxmlOrigin: "imported",
+    ooxmlEditCapabilities: capabilities,
+    x,
+    y: 120,
+    width: 320,
+    height: 180,
+    rotation: 0,
+    opacity: 1,
+    zIndex: 1,
+    locked: false,
+    visible: true,
+    props: {
+      src: "data:image/png;base64,AA==",
+      alt: "",
+      fit: "contain",
+      focusX: 0.5,
+      focusY: 0.5,
     },
   };
 }
@@ -487,6 +568,29 @@ function seedStoredDeck(
     deck_json: cloneJson(deckJson),
     version: deck.version,
     updated_at: "2026-06-29T00:00:00.000Z",
+  });
+}
+
+function seedOoxmlBlueprint(
+  dataSource: InMemoryDeckDataSource,
+  deck: Deck,
+  ooxmlSyncedDeckVersion = deck.version,
+): void {
+  dataSource.templateBlueprintRows.push({
+    template_id: "template_file_1",
+    project_id: deck.projectId,
+    deck_id: deck.deckId,
+    blueprint_json: {
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      currentPackageFileId: "file_current",
+      ooxmlSyncedDeckVersion,
+      slides: deck.slides.map((_, slideIndex) => ({
+        slideIndex: slideIndex + 1,
+        sourceSlideIndex: slideIndex + 1,
+        slots: [],
+      })),
+    },
   });
 }
 
@@ -963,11 +1067,18 @@ describe("DecksService", () => {
         expect.objectContaining({
           type: "update_element_frame",
           elementId: "el_keep",
+          frame: {
+            x: 180,
+            y: 120,
+            width: 480,
+            height: 120,
+            rotation: 0,
+          },
         }),
         expect.objectContaining({
           type: "update_element_props",
           elementId: "el_keep",
-          props: expect.objectContaining({ text: "After" }),
+          props: { text: "After" },
         }),
         expect.objectContaining({
           type: "add_element",
@@ -991,6 +1102,608 @@ describe("DecksService", () => {
         targetDeckVersion: 3,
       }),
     );
+  });
+
+  it("rejects unsupported structural changes in an imported full save before persistence", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    await service.putDeck(deck.projectId, { deck });
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 1,
+        slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
+      },
+    });
+
+    await expectDeckApiError(
+      () =>
+        service.putDeck(deck.projectId, {
+          baseVersion: deck.version,
+          deck: {
+            ...deck,
+            slides: [
+              {
+                ...deck.slides[0]!,
+                style: { backgroundColor: "#000000" },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(dataSource.decks.get(deck.projectId)?.version).toBe(1);
+    expect(dataSource.patchRows).toHaveLength(0);
+  });
+
+  it("does not persist a rejected imported patch before a supported patch", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_after_rejection",
+    );
+    const deck = createImportedDeck();
+    const slide = deck.slides[0]!;
+    const element = slide.elements[0]!;
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    const error = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "update_element_frame",
+                slideId: slide.slideId,
+                elementId: element.elementId,
+                frame: { opacity: 0.5 },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(error.details).toContain("reasonCode=FRAME_FIELDS_UNSUPPORTED");
+    expect(dataSource.patchRows).toHaveLength(0);
+    expect(dataSource.decks.get(deck.projectId)).toMatchObject({ version: 1 });
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_frame",
+            slideId: slide.slideId,
+            elementId: element.elementId,
+            frame: {
+              x: 180,
+              y: element.y,
+              width: element.width,
+              height: element.height,
+              rotation: element.rotation,
+            },
+          },
+        ],
+      },
+    });
+
+    expect(response.deck).toMatchObject({ version: 2 });
+    expect(response.deck.slides[0]!.elements[0]).toMatchObject({ x: 180 });
+    expect(dataSource.patchRows).toHaveLength(1);
+    expect(dataSource.patchRows[0]).toMatchObject({
+      before_version: 1,
+      after_version: 2,
+    });
+  });
+
+  it("uses explicit image-source capability for grouped pictures and unsafe proxies", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_safe_image_source",
+    );
+    const base = createImportedDeck();
+    const groupedPictureCapabilities = {
+      richText: "none" as const,
+      crop: "none" as const,
+      tableCellText: false,
+      frame: false,
+      delete: false,
+      imageSource: true,
+    };
+    const pictureFillCapabilities = {
+      ...groupedPictureCapabilities,
+      frame: true,
+      delete: true,
+      imageSource: false,
+    };
+    const lockedPictureCapabilities = {
+      ...groupedPictureCapabilities,
+      imageSource: false,
+    };
+    const deck = deckSchema.parse({
+      ...base,
+      slides: [
+        {
+          ...base.slides[0]!,
+          elements: [
+            createImageElement(
+              "el_grouped_picture",
+              100,
+              groupedPictureCapabilities,
+            ),
+            createImageElement(
+              "el_picture_fill_proxy",
+              500,
+              pictureFillCapabilities,
+            ),
+            createImageElement(
+              "el_locked_picture",
+              900,
+              lockedPictureCapabilities,
+            ),
+          ],
+        },
+      ],
+    });
+    const slide = deck.slides[0]!;
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    for (const elementId of ["el_picture_fill_proxy", "el_locked_picture"]) {
+      const error = await expectDeckApiError(
+        () =>
+          service.appendPatch(deck.projectId, {
+            patch: {
+              deckId: deck.deckId,
+              baseVersion: deck.version,
+              source: "user",
+              operations: [
+                {
+                  type: "update_element_props",
+                  slideId: slide.slideId,
+                  elementId,
+                  props: {
+                    src: "data:image/png;base64,AQ==",
+                    alt: "Blocked replacement",
+                  },
+                },
+              ],
+            },
+          }),
+        HttpStatus.BAD_REQUEST,
+        "OOXML_CHANGE_UNSUPPORTED",
+      );
+      expect(error.details).toContain(
+        "reasonCode=IMAGE_SOURCE_CAPABILITY_UNSAFE",
+      );
+    }
+    expect(dataSource.patchRows).toHaveLength(0);
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: slide.slideId,
+            elementId: "el_grouped_picture",
+            props: {
+              src: "data:image/png;base64,Ag==",
+              alt: "Safe replacement",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(response.deck.version).toBe(2);
+    expect(response.deck.slides[0]!.elements[0]).toMatchObject({
+      elementId: "el_grouped_picture",
+      props: {
+        src: "data:image/png;base64,Ag==",
+        alt: "Safe replacement",
+      },
+    });
+    expect(dataSource.patchRows).toHaveLength(1);
+  });
+
+  it("rejects unsupported imported capabilities and operation families", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_unsupported_matrix",
+    );
+    const deck = createImportedDeck({
+      richText: "none",
+      crop: "none",
+      tableCellText: false,
+      frame: false,
+      delete: false,
+    });
+    const slide = deck.slides[0]!;
+    const element = slide.elements[0]!;
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    const unsupportedOperations: DeckPatch["operations"] = [
+      {
+        type: "update_element_frame",
+        slideId: slide.slideId,
+        elementId: element.elementId,
+        frame: {
+          x: 180,
+          y: element.y,
+          width: element.width,
+          height: element.height,
+        },
+      },
+      {
+        type: "delete_element",
+        slideId: slide.slideId,
+        elementId: element.elementId,
+      },
+      {
+        type: "update_element_props",
+        slideId: slide.slideId,
+        elementId: element.elementId,
+        props: { text: "Blocked" },
+      },
+      { type: "update_theme", theme: { name: "Blocked theme" } },
+      {
+        type: "update_slide_style",
+        slideId: slide.slideId,
+        style: { backgroundColor: "#000000" },
+      },
+      {
+        type: "add_animation",
+        slideId: slide.slideId,
+        animation: {
+          animationId: "anim_blocked",
+          elementId: element.elementId,
+          type: "fade-in",
+          order: 1,
+          durationMs: 400,
+          delayMs: 0,
+          easing: "ease-out",
+        },
+      },
+      {
+        type: "add_slide",
+        slide: {
+          ...slide,
+          slideId: "slide_blocked",
+          order: 2,
+          elements: [],
+        },
+      },
+      {
+        type: "add_element",
+        slideId: slide.slideId,
+        element: {
+          elementId: "el_unsupported_ellipse",
+          type: "ellipse",
+          x: 100,
+          y: 100,
+          width: 200,
+          height: 100,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 2,
+          locked: false,
+          visible: true,
+          props: {
+            fill: "#FFFFFF",
+            stroke: "transparent",
+            strokeWidth: 0,
+            borderRadius: 0,
+          },
+        },
+      },
+    ];
+
+    for (const operation of unsupportedOperations) {
+      await expectDeckApiError(
+        () =>
+          service.appendPatch(deck.projectId, {
+            patch: {
+              deckId: deck.deckId,
+              baseVersion: deck.version,
+              source: "user",
+              operations: [operation],
+            },
+          }),
+        HttpStatus.BAD_REQUEST,
+        "OOXML_CHANGE_UNSUPPORTED",
+      );
+    }
+
+    expect(dataSource.patchRows).toHaveLength(0);
+    expect(dataSource.decks.get(deck.projectId)).toMatchObject({ version: 1 });
+  });
+
+  it("rejects an unsupported imported full diff but allows package-neutral fields", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_neutral_full_put",
+    );
+    const deck = createImportedDeck({
+      richText: "full",
+      crop: "none",
+      tableCellText: false,
+      frame: true,
+      delete: false,
+    });
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    await expectDeckApiError(
+      () =>
+        service.putDeck(deck.projectId, {
+          baseVersion: deck.version,
+          deck: {
+            ...deck,
+            slides: [{ ...deck.slides[0]!, elements: [] }],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+    expect(dataSource.patchRows).toHaveLength(0);
+    expect(dataSource.decks.get(deck.projectId)).toMatchObject({ version: 1 });
+
+    const response = await service.putDeck(deck.projectId, {
+      baseVersion: deck.version,
+      deck: {
+        ...deck,
+        title: "Package-neutral title",
+        targetDurationMinutes: 12,
+        slides: [
+          {
+            ...deck.slides[0]!,
+            title: "Package-neutral slide title",
+            speakerNotes: "Package-neutral speaker notes",
+          },
+        ],
+      },
+    });
+
+    expect(response.deck).toMatchObject({
+      version: 2,
+      title: "Package-neutral title",
+      targetDurationMinutes: 12,
+    });
+    expect(response.deck.slides[0]).toMatchObject({
+      title: "Package-neutral slide title",
+      speakerNotes: "Package-neutral speaker notes",
+    });
+  });
+
+  it("preserves imported provenance and marks full-save additions as authored", async () => {
+    const { dataSource, service } = createService();
+    const base = createDeck();
+    const imported = deckSchema.parse({
+      ...base,
+      metadata: { ...base.metadata, sourceType: "import" },
+      slides: [
+        {
+          ...base.slides[0]!,
+          ooxmlOrigin: "imported",
+          ooxmlMotionCapabilities: {
+            transitionWritable: false,
+            importedMainSequenceCoverage: "partial",
+          },
+          elements: [
+            {
+              ...createTextElement("el_imported", "Before"),
+              ooxmlOrigin: "imported",
+              ooxmlEditCapabilities: {
+                richText: "full",
+                crop: "none",
+                tableCellText: false,
+                frame: false,
+                delete: false,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    await service.putDeck(imported.projectId, { deck: imported });
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: imported.projectId,
+      deck_id: imported.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 1,
+        slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
+      },
+    });
+
+    const requested = deckSchema.parse({
+      ...imported,
+      title: "Full save with element audit",
+      metadata: { ...imported.metadata, sourceType: "manual" },
+      slides: [
+        {
+          ...imported.slides[0]!,
+          ooxmlOrigin: "authored",
+          ooxmlMotionCapabilities: {
+            transitionWritable: true,
+            importedMainSequenceCoverage: "complete",
+          },
+          elements: [
+            {
+              ...imported.slides[0]!.elements[0]!,
+              ooxmlOrigin: "authored",
+              ooxmlEditCapabilities: {
+                richText: "full",
+                crop: "picture",
+                tableCellText: true,
+              },
+              props: {
+                ...imported.slides[0]!.elements[0]!.props,
+                text: "After",
+              },
+            },
+            {
+              ...createTextElement("el_new", "New"),
+              ooxmlOrigin: "imported",
+              ooxmlEditCapabilities: {
+                richText: "full",
+                crop: "picture",
+                tableCellText: true,
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const response = await service.putDeck(imported.projectId, {
+      baseVersion: imported.version,
+      deck: requested,
+    });
+
+    expect(response.deck.metadata.sourceType).toBe("import");
+    expect(response.deck.title).toBe("Full save with element audit");
+    expect(response.deck.slides[0]).toMatchObject({
+      ooxmlOrigin: "imported",
+      ooxmlMotionCapabilities: {
+        transitionWritable: false,
+        importedMainSequenceCoverage: "partial",
+      },
+    });
+    expect(response.deck.slides[0]!.elements[0]).toMatchObject({
+      ooxmlOrigin: "imported",
+      ooxmlEditCapabilities: {
+        richText: "full",
+        crop: "none",
+        tableCellText: false,
+        frame: false,
+        delete: false,
+      },
+    });
+    expect(response.deck.slides[0]!.elements[1]).toMatchObject({
+      elementId: "el_new",
+      ooxmlOrigin: "authored",
+    });
+    expect(
+      response.deck.slides[0]!.elements[1]!.ooxmlEditCapabilities,
+    ).toBeUndefined();
+    expect(dataSource.patchRows[0]?.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "update_deck",
+          title: "Full save with element audit",
+        }),
+        expect.objectContaining({
+          type: "update_element_props",
+          elementId: "el_imported",
+        }),
+        expect.objectContaining({
+          type: "add_element",
+          element: expect.objectContaining({ elementId: "el_new" }),
+        }),
+      ]),
+    );
+  });
+
+  it("marks client-supplied imported add operations as authored", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    await service.putDeck(deck.projectId, { deck });
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 1,
+        slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
+      },
+    });
+
+    const maliciousCapabilities = {
+      richText: "full" as const,
+      crop: "picture" as const,
+      tableCellText: true,
+    };
+    await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "add_element",
+            slideId: deck.slides[0]!.slideId,
+            element: {
+              ...createTextElement("el_added", "Added"),
+              ooxmlOrigin: "imported",
+              ooxmlEditCapabilities: maliciousCapabilities,
+            },
+          },
+          {
+            type: "add_slide",
+            slide: {
+              slideId: "slide_added",
+              order: 2,
+              title: "Added",
+              ooxmlOrigin: "imported",
+              ooxmlMotionCapabilities: {
+                transitionWritable: true,
+                importedMainSequenceCoverage: "complete",
+              },
+              elements: [
+                {
+                  ...createTextElement("el_slide_added", "Added slide"),
+                  ooxmlOrigin: "imported",
+                  ooxmlEditCapabilities: maliciousCapabilities,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    const storedDeck = deckSchema.parse(
+      dataSource.decks.get(deck.projectId)?.deck_json,
+    );
+    expect(storedDeck.slides[0]!.elements[0]).toMatchObject({
+      elementId: "el_added",
+      ooxmlOrigin: "authored",
+    });
+    expect(
+      storedDeck.slides[0]!.elements[0]!.ooxmlEditCapabilities,
+    ).toBeUndefined();
+    expect(storedDeck.slides[1]).toMatchObject({
+      slideId: "slide_added",
+      ooxmlOrigin: "authored",
+    });
+    expect(storedDeck.slides[1]!.ooxmlMotionCapabilities).toBeUndefined();
+    expect(storedDeck.slides[1]!.elements[0]).toMatchObject({
+      ooxmlOrigin: "authored",
+    });
+    expect(
+      storedDeck.slides[1]!.elements[0]!.ooxmlEditCapabilities,
+    ).toBeUndefined();
   });
 
   it("diffs equal element IDs independently across imported slides", async () => {
@@ -1058,6 +1771,11 @@ describe("DecksService", () => {
         elementId: "el_shared",
         props: expect.objectContaining({ text: "After" }),
       }),
+      {
+        type: "replace_semantic_cues",
+        slideId: "slide_second",
+        semanticCues: [],
+      },
     ]);
   });
 
@@ -1567,6 +2285,344 @@ describe("DecksService", () => {
       },
       "PPTX OOXML sync job enqueued.",
     );
+  });
+
+  it("restores package-neutral fields from an OOXML-backed snapshot", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_neutral_restore",
+    );
+    const base = createDeck();
+    const snapshotDeck = deckSchema.parse({
+      ...base,
+      title: "Historical deck title",
+      metadata: { ...base.metadata, audience: "technical" },
+      targetDurationMinutes: 12,
+      slides: [
+        {
+          ...base.slides[0]!,
+          title: "Historical slide title",
+          thumbnailUrl: "https://example.com/historical-thumbnail.png",
+          estimatedSeconds: 42,
+          speakerNotes: "ORBIT 흐름을 설명합니다.",
+          keywords: [
+            {
+              keywordId: "kw_restore_orbit",
+              text: "ORBIT",
+              synonyms: [],
+              abbreviations: [],
+              required: true,
+            },
+          ],
+          actions: [
+            {
+              actionId: "act_restore_next",
+              trigger: { kind: "cue", cue: "다음" },
+              effect: { kind: "go-to-next-slide" },
+            },
+          ],
+          semanticCues: [
+            {
+              cueId: "scue_restore_orbit",
+              slideId: base.slides[0]!.slideId,
+              meaning: "ORBIT의 발표 흐름",
+              nliHypotheses: ["ORBIT의 발표 흐름을 설명한다."],
+              triggerActionIds: ["act_restore_next"],
+            },
+          ],
+          aiNotes: {
+            emphasisPoints: ["복원된 강조점"],
+            sourceEvidence: [],
+          },
+        },
+      ],
+    });
+    const currentDeck = deckSchema.parse({
+      ...snapshotDeck,
+      title: "Current imported deck",
+      version: 3,
+      metadata: {
+        ...snapshotDeck.metadata,
+        sourceType: "import",
+        audience: "executive",
+      },
+      targetDurationMinutes: 8,
+      slides: [
+        {
+          ...snapshotDeck.slides[0]!,
+          title: "Current slide title",
+          thumbnailUrl: "",
+          estimatedSeconds: 18,
+          speakerNotes: "",
+          keywords: [],
+          actions: [],
+          semanticCues: [],
+          aiNotes: undefined,
+        },
+      ],
+    });
+    seedStoredDeck(dataSource, currentDeck, currentDeck);
+    dataSource.snapshotRows.push({
+      snapshot_id: "snapshot_ooxml_neutral_restore",
+      project_id: snapshotDeck.projectId,
+      deck_id: snapshotDeck.deckId,
+      deck_json: cloneJson(snapshotDeck),
+      version: snapshotDeck.version,
+      reason: "deck-replaced",
+      created_at: "2026-07-10T00:00:00.000Z",
+    });
+    seedOoxmlBlueprint(dataSource, currentDeck);
+
+    const response = await service.restoreSnapshot(
+      currentDeck.projectId,
+      "snapshot_ooxml_neutral_restore",
+    );
+
+    expect(response.deck).toMatchObject({
+      title: snapshotDeck.title,
+      version: 4,
+      metadata: {
+        sourceType: "import",
+        audience: "technical",
+      },
+      targetDurationMinutes: 12,
+    });
+    expect(response.deck.slides[0]).toMatchObject({
+      title: "Historical slide title",
+      thumbnailUrl: "https://example.com/historical-thumbnail.png",
+      estimatedSeconds: 42,
+      speakerNotes: "ORBIT 흐름을 설명합니다.",
+      keywords: snapshotDeck.slides[0]!.keywords,
+      semanticCues: snapshotDeck.slides[0]!.semanticCues,
+      actions: snapshotDeck.slides[0]!.actions,
+      aiNotes: snapshotDeck.slides[0]!.aiNotes,
+    });
+    expect(
+      dataSource.decks.get(currentDeck.projectId)?.deck_json,
+    ).toMatchObject({
+      title: snapshotDeck.title,
+      targetDurationMinutes: 12,
+      slides: [
+        expect.objectContaining({
+          speakerNotes: "ORBIT 흐름을 설명합니다.",
+          keywords: snapshotDeck.slides[0]!.keywords,
+          semanticCues: snapshotDeck.slides[0]!.semanticCues,
+          actions: snapshotDeck.slides[0]!.actions,
+        }),
+      ],
+    });
+    const operations = dataSource.patchRows[0]?.operations;
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "update_deck",
+          title: snapshotDeck.title,
+          targetDurationMinutes: 12,
+          metadata: { audience: "technical" },
+        }),
+        expect.objectContaining({
+          type: "update_slide",
+          slideId: snapshotDeck.slides[0]!.slideId,
+          estimatedSeconds: 42,
+          aiNotes: snapshotDeck.slides[0]!.aiNotes,
+        }),
+        expect.objectContaining({ type: "update_speaker_notes" }),
+        expect.objectContaining({ type: "replace_keywords" }),
+        expect.objectContaining({ type: "add_slide_action" }),
+        expect.objectContaining({ type: "replace_semantic_cues" }),
+      ]),
+    );
+    const replay = applyDeckPatch(
+      currentDeck,
+      {
+        deckId: currentDeck.deckId,
+        baseVersion: currentDeck.version,
+        source: "user",
+        operations: operations!,
+      },
+      { createdAt: "2026-07-10T00:00:01.000Z" },
+    );
+    expect(replay.ok).toBe(true);
+    if (!replay.ok) throw new Error(replay.error.message);
+    expect(replay.deck).toEqual(response.deck);
+  });
+
+  it("normalizes snapshot restore provenance from the current OOXML deck", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_provenance_restore",
+    );
+    const base = createDeck();
+    const importedCapabilities = {
+      richText: "none" as const,
+      crop: "none" as const,
+      tableCellText: false,
+    };
+    const historicalCapabilities = {
+      richText: "full" as const,
+      crop: "picture" as const,
+      tableCellText: true,
+    };
+    const snapshotDeck = deckSchema.parse({
+      ...base,
+      metadata: { ...base.metadata, sourceType: "manual" },
+      slides: [
+        {
+          ...base.slides[0]!,
+          ooxmlOrigin: "authored",
+          ooxmlMotionCapabilities: {
+            transitionWritable: true,
+            importedMainSequenceCoverage: "complete",
+          },
+          elements: [
+            {
+              ...createTextElement("el_restore_existing", "Existing"),
+              ooxmlOrigin: "authored",
+              ooxmlEditCapabilities: historicalCapabilities,
+            },
+            {
+              ...createTextElement(
+                "el_restore_reintroduced",
+                "Reintroduced",
+                700,
+              ),
+              ooxmlOrigin: "imported",
+              ooxmlEditCapabilities: historicalCapabilities,
+            },
+          ],
+        },
+      ],
+    });
+    const currentDeck = deckSchema.parse({
+      ...snapshotDeck,
+      version: 3,
+      metadata: { ...snapshotDeck.metadata, sourceType: "import" },
+      slides: [
+        {
+          ...snapshotDeck.slides[0]!,
+          ooxmlOrigin: "imported",
+          ooxmlMotionCapabilities: {
+            transitionWritable: false,
+            importedMainSequenceCoverage: "partial",
+          },
+          elements: [
+            {
+              ...snapshotDeck.slides[0]!.elements[0]!,
+              ooxmlOrigin: "imported",
+              ooxmlEditCapabilities: importedCapabilities,
+            },
+          ],
+        },
+      ],
+    });
+    seedStoredDeck(dataSource, currentDeck, currentDeck);
+    dataSource.snapshotRows.push({
+      snapshot_id: "snapshot_ooxml_provenance_restore",
+      project_id: snapshotDeck.projectId,
+      deck_id: snapshotDeck.deckId,
+      deck_json: cloneJson(snapshotDeck),
+      version: snapshotDeck.version,
+      reason: "deck-replaced",
+      created_at: "2026-07-10T00:00:00.000Z",
+    });
+    seedOoxmlBlueprint(dataSource, currentDeck);
+
+    const response = await service.restoreSnapshot(
+      currentDeck.projectId,
+      "snapshot_ooxml_provenance_restore",
+    );
+
+    expect(response.deck.metadata.sourceType).toBe("import");
+    expect(response.deck.slides[0]).toMatchObject({
+      ooxmlOrigin: "imported",
+      ooxmlMotionCapabilities: {
+        transitionWritable: false,
+        importedMainSequenceCoverage: "partial",
+      },
+    });
+    expect(response.deck.slides[0]!.elements[0]).toMatchObject({
+      elementId: "el_restore_existing",
+      ooxmlOrigin: "imported",
+      ooxmlEditCapabilities: importedCapabilities,
+    });
+    expect(response.deck.slides[0]!.elements[1]).toMatchObject({
+      elementId: "el_restore_reintroduced",
+      ooxmlOrigin: "authored",
+    });
+    expect(
+      response.deck.slides[0]!.elements[1]!.ooxmlEditCapabilities,
+    ).toBeUndefined();
+    const storedDeck = deckSchema.parse(
+      dataSource.decks.get(currentDeck.projectId)?.deck_json,
+    );
+    expect(storedDeck.slides[0]!.elements[0]).toMatchObject({
+      elementId: "el_restore_existing",
+      ooxmlOrigin: "imported",
+      ooxmlEditCapabilities: importedCapabilities,
+    });
+    expect(storedDeck.slides[0]!.elements[1]).toMatchObject({
+      elementId: "el_restore_reintroduced",
+      ooxmlOrigin: "authored",
+    });
+    expect(
+      storedDeck.slides[0]!.elements[1]!.ooxmlEditCapabilities,
+    ).toBeUndefined();
+    expect(dataSource.patchRows[0]?.operations).toEqual([
+      expect.objectContaining({
+        type: "add_element",
+        element: expect.objectContaining({
+          elementId: "el_restore_reintroduced",
+          ooxmlOrigin: "authored",
+        }),
+      }),
+    ]);
+    expect(
+      (
+        dataSource.patchRows[0]?.operations[0] as
+          | Extract<DeckPatch["operations"][number], { type: "add_element" }>
+          | undefined
+      )?.element.ooxmlEditCapabilities,
+    ).toBeUndefined();
+  });
+
+  it("rejects package-affecting structure changes in an OOXML snapshot restore", async () => {
+    const { dataSource, service } = createService();
+    const base = createDeck();
+    const currentDeck = deckSchema.parse({ ...base, version: 3 });
+    const snapshotDeck = deckSchema.parse({
+      ...base,
+      slides: [
+        {
+          ...base.slides[0]!,
+          style: { backgroundColor: "#000000" },
+        },
+      ],
+    });
+    seedStoredDeck(dataSource, currentDeck, currentDeck);
+    dataSource.snapshotRows.push({
+      snapshot_id: "snapshot_ooxml_unsupported_restore",
+      project_id: snapshotDeck.projectId,
+      deck_id: snapshotDeck.deckId,
+      deck_json: cloneJson(snapshotDeck),
+      version: snapshotDeck.version,
+      reason: "deck-replaced",
+      created_at: "2026-07-10T00:00:00.000Z",
+    });
+    seedOoxmlBlueprint(dataSource, currentDeck);
+
+    await expectDeckApiError(
+      () =>
+        service.restoreSnapshot(
+          currentDeck.projectId,
+          "snapshot_ooxml_unsupported_restore",
+        ),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(dataSource.decks.get(currentDeck.projectId)).toMatchObject({
+      version: 3,
+      deck_json: expect.objectContaining({ version: 3 }),
+    });
+    expect(dataSource.patchRows).toHaveLength(0);
   });
 
   it("preserves unsynced OOXML patches and returns a failed restore sync job", async () => {

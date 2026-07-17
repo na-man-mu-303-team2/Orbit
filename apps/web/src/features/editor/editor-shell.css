@@ -2188,6 +2188,15 @@
   cursor: not-allowed;
 }
 
+.element-context-menu-item small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: auto;
+  max-width: 180px;
+  text-align: right;
+}
+
 .shape-menu-title {
   padding: 6px 8px 4px;
   color: var(--muted);
@@ -2226,9 +2235,23 @@
   padding: 0 10px;
 }
 
-.shape-menu-item:hover {
+.shape-menu-item:hover:not(:disabled) {
   background: var(--blue-soft);
   color: var(--blue);
+}
+
+.shape-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.shape-menu-item small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: auto;
+  max-width: 180px;
+  text-align: right;
 }
 
 .shape-menu-symbol {

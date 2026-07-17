@@ -1,7 +1,7 @@
 import type { Deck, DeckPatch } from "@orbit/shared";
 import {
   createDemoDeck,
-  createElementId
+  createElementId,
 } from "../../../../../../../packages/editor-core/src/index";
 import { describe, expect, it, vi } from "vitest";
 
@@ -11,6 +11,7 @@ import {
   getDroppedFiles,
   getImageBatchStatusMessage,
   getImageInsertCapability,
+  getImageReplaceCapability,
   getPlacedImageInsertFrame,
   performImageFileInsert,
   selectFirstEditorImageFile,
@@ -141,6 +142,77 @@ describe("useEditorFileTransfer image insert action", () => {
     });
   });
 
+  it("fails closed before upload when the imported target slide has no provenance", () => {
+    const deck = importedDeck();
+    delete deck.slides[0]!.ooxmlOrigin;
+
+    expect(
+      getImageInsertCapability(deck, deck.slides[0]!.slideId),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "IMPORTED_PROVENANCE_MISSING",
+    });
+  });
+
+  it("rejects an unsafe imported image replacement before upload", async () => {
+    const deck = importedDeck();
+    const slide = deck.slides[0]!;
+    const image: Deck["slides"][number]["elements"][number] = {
+      elementId: "el_imported_image",
+      type: "image",
+      ooxmlOrigin: "imported",
+      ooxmlEditCapabilities: {
+        richText: "none",
+        crop: "none",
+        tableCellText: false,
+        frame: false,
+        delete: false,
+        imageSource: false,
+      },
+      role: "media",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 1,
+      locked: false,
+      visible: true,
+      props: {
+        alt: "source",
+        fit: "contain",
+        focusX: 0.5,
+        focusY: 0.5,
+        src: "asset:source",
+      },
+    };
+    slide.elements = [image];
+    const upload = vi.fn(async () => ({ url: "asset:replacement" }));
+    const resolveUploadProject = vi.fn(async () => "project_upload");
+
+    expect(
+      getImageReplaceCapability(deck, slide.slideId, image.elementId),
+    ).toMatchObject({ enabled: false });
+    await expect(
+      performImageFileInsert({
+        activeDeck: deck,
+        commitPatch: vi.fn(() => true),
+        file: mockFile("replacement.png", "image/png", 32),
+        readNaturalSize: vi.fn(async () => ({ height: 100, width: 100 })),
+        resolveUploadProject,
+        target: {
+          type: "replace",
+          slideId: slide.slideId,
+          elementId: image.elementId,
+        },
+        upload,
+      }),
+    ).rejects.toThrow("원본 OOXML 구조");
+    expect(resolveUploadProject).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+  });
+
   it("uploads before creating one authored image patch at the clamped pointer", async () => {
     const deck = importedDeck();
     const slideId = deck.slides[0]!.slideId;
@@ -220,10 +292,7 @@ describe("useEditorFileTransfer image insert action", () => {
     concurrentDeck.slides[0]!.elements.push(concurrentElement);
     let committedPatch: DeckPatch | null = null;
     const commitPatch = vi.fn(
-      (
-        patch: DeckPatch | ((deck: Deck) => DeckPatch),
-        _baseDeck?: Deck,
-      ) => {
+      (patch: DeckPatch | ((deck: Deck) => DeckPatch), _baseDeck?: Deck) => {
         committedPatch =
           typeof patch === "function" ? patch(concurrentDeck) : patch;
         return true;
@@ -242,7 +311,8 @@ describe("useEditorFileTransfer image insert action", () => {
 
     const operation = (committedPatch as DeckPatch | null)?.operations[0];
     expect(operation?.type).toBe("add_element");
-    if (operation?.type !== "add_element") throw new Error("add patch expected");
+    if (operation?.type !== "add_element")
+      throw new Error("add patch expected");
     expect(operation.element.elementId).not.toBe(staleCandidateId);
     expect(operation.element.zIndex).toBe(51);
     expect(result.elementId).toBe(operation.element.elementId);

@@ -18,7 +18,7 @@ export const deckElementTypeSchema = z.enum([
   "group",
   "customShape",
   "chart",
-  "table"
+  "table",
 ]);
 
 export const deckElementRoleSchema = z.enum([
@@ -32,14 +32,39 @@ export const deckElementRoleSchema = z.enum([
   "chart",
   "table",
   "highlight",
-  "footer"
+  "footer",
 ]);
 
 export const deckElementCoordinateSchema = z.number().finite().nonnegative();
 export const deckElementSizeSchema = z.number().finite().positive();
 
+export const ooxmlOriginSchema = z.enum(["imported", "authored"]);
+
+export const ooxmlRichTextEditCapabilitySchema = z.enum([
+  "none",
+  "style-only",
+  "full",
+]);
+
+export const ooxmlCropEditCapabilitySchema = z.enum([
+  "none",
+  "picture",
+  "picture-fill",
+]);
+
+export const ooxmlElementEditCapabilitiesSchema = z.object({
+  richText: ooxmlRichTextEditCapabilitySchema,
+  crop: ooxmlCropEditCapabilitySchema,
+  tableCellText: z.boolean(),
+  frame: z.boolean().optional(),
+  delete: z.boolean().optional(),
+  imageSource: z.boolean().optional(),
+});
+
 export const deckElementBaseSchema = z.object({
   elementId: deckElementIdSchema,
+  ooxmlOrigin: ooxmlOriginSchema.optional(),
+  ooxmlEditCapabilities: ooxmlElementEditCapabilitiesSchema.optional(),
   role: deckElementRoleSchema.optional(),
   x: deckElementCoordinateSchema,
   y: deckElementCoordinateSchema,
@@ -49,33 +74,33 @@ export const deckElementBaseSchema = z.object({
   opacity: z.number().finite().min(0).max(1).default(1),
   zIndex: z.number().int().nonnegative().default(0),
   locked: z.boolean().default(false),
-  visible: z.boolean().default(true)
+  visible: z.boolean().default(true),
 });
 
 export const deckElementGradientStopSchema = z.object({
   offset: z.number().finite().min(0).max(1),
   color: themeColorSchema,
-  opacity: z.number().finite().min(0).max(1).default(1)
+  opacity: z.number().finite().min(0).max(1).default(1),
 });
 
 export const deckElementLinearGradientPaintSchema = z.object({
   type: z.literal("linear-gradient"),
   angle: z.number().finite().default(0),
-  stops: z.array(deckElementGradientStopSchema).min(2)
+  stops: z.array(deckElementGradientStopSchema).min(2),
 });
 
 export const deckElementPatternPaintSchema = z.object({
   type: z.literal("pattern"),
   preset: z.string().min(1).default("pct20"),
   foreground: themeColorSchema,
-  background: themeColorSchema.default("#FFFFFF")
+  background: themeColorSchema.default("#FFFFFF"),
 });
 
 export const deckElementPaintSchema = z.union([
   themeColorSchema,
   z.literal("transparent"),
   deckElementLinearGradientPaintSchema,
-  deckElementPatternPaintSchema
+  deckElementPatternPaintSchema,
 ]);
 
 export const deckElementShadowSchema = z.object({
@@ -83,7 +108,7 @@ export const deckElementShadowSchema = z.object({
   blur: z.number().finite().nonnegative().default(0),
   offsetX: z.number().finite().default(0),
   offsetY: z.number().finite().default(0),
-  opacity: z.number().finite().min(0).max(1).default(0.25)
+  opacity: z.number().finite().min(0).max(1).default(0.25),
 });
 
 export const shapeElementPropsSchema = z
@@ -96,23 +121,18 @@ export const shapeElementPropsSchema = z
     dash: z.array(z.number().finite().positive()).optional(),
     lineCap: z.enum(["butt", "round", "square"]).optional(),
     lineJoin: z.enum(["miter", "round", "bevel"]).optional(),
-    shadow: deckElementShadowSchema.optional()
+    shadow: deckElementShadowSchema.optional(),
   })
   .default({});
 
-export const textAlignSchema = z.enum([
-  "left",
-  "center",
-  "right",
-  "justify"
-]);
+export const textAlignSchema = z.enum(["left", "center", "right", "justify"]);
 
 export const textVerticalAlignSchema = z.enum(["top", "middle", "bottom"]);
 export const textWritingModeSchema = z.enum(["horizontal", "vertical-270"]);
 
 export const textFontWeightSchema = z.union([
   z.enum(["normal", "medium", "semibold", "bold"]),
-  z.number().int().min(100).max(900)
+  z.number().int().min(100).max(900),
 ]);
 
 export const textElementRunSchema = z.object({
@@ -123,13 +143,13 @@ export const textElementRunSchema = z.object({
   italic: z.boolean().optional(),
   underline: z.boolean().optional(),
   color: themeColorSchema.optional(),
-  baseline: z.enum(["normal", "superscript", "subscript"]).default("normal")
+  baseline: z.enum(["normal", "superscript", "subscript"]).default("normal"),
 });
 
 export const textElementBulletSchema = z.object({
   enabled: z.boolean().default(false),
   character: z.string().min(1).default("\u2022"),
-  indent: z.number().finite().nonnegative().default(0)
+  indent: z.number().finite().nonnegative().default(0),
 });
 
 export const textElementParagraphSchema = z.object({
@@ -146,14 +166,14 @@ export const textElementParagraphSchema = z.object({
   spaceBefore: z.number().finite().nonnegative().default(0),
   spaceAfter: z.number().finite().nonnegative().default(0),
   indent: z.number().finite().default(0),
-  bullet: textElementBulletSchema.optional()
+  bullet: textElementBulletSchema.optional(),
 });
 
 export const textElementBodyInsetSchema = z.object({
   left: z.number().finite().nonnegative().default(0),
   right: z.number().finite().nonnegative().default(0),
   top: z.number().finite().nonnegative().default(0),
-  bottom: z.number().finite().nonnegative().default(0)
+  bottom: z.number().finite().nonnegative().default(0),
 });
 
 export const textElementPropsSchema = z
@@ -172,7 +192,7 @@ export const textElementPropsSchema = z
     verticalAlign: textVerticalAlignSchema.default("top"),
     writingMode: textWritingModeSchema.optional(),
     lineHeight: z.number().finite().positive().default(1.2),
-    bullet: textElementBulletSchema.optional()
+    bullet: textElementBulletSchema.optional(),
   })
   .default({});
 
@@ -183,19 +203,19 @@ export const imageCropSchema = z
     left: z.number().finite().min(0).max(1).default(0),
     top: z.number().finite().min(0).max(1).default(0),
     right: z.number().finite().min(0).max(1).default(0),
-    bottom: z.number().finite().min(0).max(1).default(0)
+    bottom: z.number().finite().min(0).max(1).default(0),
   })
   .superRefine((crop, ctx) => {
     if (crop.left + crop.right >= 1) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "image crop left and right must leave visible width"
+        message: "image crop left and right must leave visible width",
       });
     }
     if (crop.top + crop.bottom >= 1) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "image crop top and bottom must leave visible height"
+        message: "image crop top and bottom must leave visible height",
       });
     }
   });
@@ -206,14 +226,14 @@ export const imageElementPropsSchema = z.object({
   fit: imageFitSchema.default("contain"),
   focusX: z.number().finite().min(0).max(1).default(0.5),
   focusY: z.number().finite().min(0).max(1).default(0.5),
-  crop: imageCropSchema.optional()
+  crop: imageCropSchema.optional(),
 });
 
 export const svgElementPropsSchema = imageElementPropsSchema;
 
 export const groupElementPropsSchema = z
   .object({
-    childElementIds: z.array(deckElementIdSchema).default([])
+    childElementIds: z.array(deckElementIdSchema).default([]),
   })
   .default({});
 
@@ -229,7 +249,7 @@ export const tableCellPropsSchema = z.object({
   borderColor: themeColorSchema.default("#CBD5E1"),
   borderWidth: z.number().finite().nonnegative().default(1),
   colSpan: z.number().int().positive().default(1),
-  rowSpan: z.number().int().positive().default(1)
+  rowSpan: z.number().int().positive().default(1),
 });
 
 export const tableElementPropsSchema = z
@@ -238,7 +258,7 @@ export const tableElementPropsSchema = z
     columnWidths: z.array(z.number().finite().positive()).optional(),
     rowHeights: z.array(z.number().finite().positive()).optional(),
     borderColor: themeColorSchema.default("#CBD5E1"),
-    borderWidth: z.number().finite().nonnegative().default(1)
+    borderWidth: z.number().finite().nonnegative().default(1),
   })
   .default({});
 
@@ -251,7 +271,7 @@ export const customShapeNodeSchema = z.object({
   inY: z.number().finite().optional(),
   outX: z.number().finite().optional(),
   outY: z.number().finite().optional(),
-  mode: customShapeNodeModeSchema.default("corner")
+  mode: customShapeNodeModeSchema.default("corner"),
 });
 
 export const customShapeElementPropsSchema = z.object({
@@ -266,7 +286,7 @@ export const customShapeElementPropsSchema = z.object({
   lineJoin: z.enum(["miter", "round", "bevel"]).optional(),
   shadow: deckElementShadowSchema.optional(),
   closed: z.boolean().default(true),
-  nodes: z.array(customShapeNodeSchema).default([])
+  nodes: z.array(customShapeNodeSchema).default([]),
 });
 
 type ShapeElementType =
@@ -279,16 +299,16 @@ type ShapeElementType =
   | "ring";
 
 const createShapeElementSchema = <TElementType extends ShapeElementType>(
-  type: TElementType
+  type: TElementType,
 ) =>
   deckElementBaseSchema.extend({
     type: z.literal(type),
-    props: shapeElementPropsSchema
+    props: shapeElementPropsSchema,
   });
 
 export const textElementSchema = deckElementBaseSchema.extend({
   type: z.literal("text"),
-  props: textElementPropsSchema
+  props: textElementPropsSchema,
 });
 
 export const rectElementSchema = createShapeElementSchema("rect");
@@ -301,32 +321,32 @@ export const ringElementSchema = createShapeElementSchema("ring");
 
 export const imageElementSchema = deckElementBaseSchema.extend({
   type: z.literal("image"),
-  props: imageElementPropsSchema
+  props: imageElementPropsSchema,
 });
 
 export const svgElementSchema = deckElementBaseSchema.extend({
   type: z.literal("svg"),
-  props: svgElementPropsSchema
+  props: svgElementPropsSchema,
 });
 
 export const groupElementSchema = deckElementBaseSchema.extend({
   type: z.literal("group"),
-  props: groupElementPropsSchema
+  props: groupElementPropsSchema,
 });
 
 export const customShapeElementSchema = deckElementBaseSchema.extend({
   type: z.literal("customShape"),
-  props: customShapeElementPropsSchema
+  props: customShapeElementPropsSchema,
 });
 
 export const chartElementSchema = deckElementBaseSchema.extend({
   type: z.literal("chart"),
-  props: chartSchema
+  props: chartSchema,
 });
 
 export const tableElementSchema = deckElementBaseSchema.extend({
   type: z.literal("table"),
-  props: tableElementPropsSchema
+  props: tableElementPropsSchema,
 });
 
 export const deckElementSchema = z.discriminatedUnion("type", [
@@ -343,11 +363,21 @@ export const deckElementSchema = z.discriminatedUnion("type", [
   groupElementSchema,
   customShapeElementSchema,
   chartElementSchema,
-  tableElementSchema
+  tableElementSchema,
 ]);
 
 export type DeckElementType = z.infer<typeof deckElementTypeSchema>;
 export type DeckElementRole = z.infer<typeof deckElementRoleSchema>;
+export type OoxmlOrigin = z.infer<typeof ooxmlOriginSchema>;
+export type OoxmlRichTextEditCapability = z.infer<
+  typeof ooxmlRichTextEditCapabilitySchema
+>;
+export type OoxmlCropEditCapability = z.infer<
+  typeof ooxmlCropEditCapabilitySchema
+>;
+export type OoxmlElementEditCapabilities = z.infer<
+  typeof ooxmlElementEditCapabilitiesSchema
+>;
 export type DeckElementPaint = z.infer<typeof deckElementPaintSchema>;
 export type DeckElementLinearGradientPaint = z.infer<
   typeof deckElementLinearGradientPaintSchema

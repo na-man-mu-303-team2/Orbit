@@ -30,4 +30,26 @@ describe("DesignProposalPreviewModal", () => {
     expect(html).toContain("background-color:#0000FF");
     expect(html).toContain('data-testid="proposal-canvas"');
   });
+
+  it("disables apply and displays the fail-closed reason", () => {
+    const deck = createDemoDeck();
+    const reason = "원본 OOXML 구조에서 이 편집을 안전하게 보존할 수 없습니다.";
+    const html = renderToStaticMarkup(
+      <DesignProposalPreviewModal
+        deck={deck}
+        isApplying={false}
+        mutationDisabledReason={reason}
+        slideId={deck.slides[0]!.slideId}
+        summary="지원하지 않는 변경"
+        warnings={[]}
+        onApply={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+
+    expect(html).toContain(`<p class="design-proposal-warning" role="status">${reason}</p>`);
+    expect(html).toMatch(
+      new RegExp(`class="primary" disabled="" title="${reason}"`)
+    );
+  });
 });

@@ -18,6 +18,7 @@ from app.ai.pptx_ooxml_generation import (
     generate_pptx_ooxml,
     render_pptx_to_png_assets,
     shape_fallback_assets,
+    source_slide_part,
     strip_text_from_pptx_package,
     sync_pptx_ooxml,
 )
@@ -40,16 +41,52 @@ def test_pure_generation_preserves_package_entries_and_source_text(
     assert zip_entry_hashes(package_bytes) == zip_entry_hashes(pptx_path.read_bytes())
     assert len(result.template_blueprint["slides"]) == 1
     assert result.template_blueprint["currentPackageFileId"] == "asset:current_package"
+    assert result.template_blueprint["slides"][0]["ooxmlOrigin"] == "imported"
+    assert result.template_blueprint["slides"][0]["ooxmlMotionCapabilities"] == {
+        "transitionWritable": False,
+        "importedMainSequenceCoverage": "absent",
+    }
+    assert all(
+        source["elementType"]
+        and source["ooxmlOrigin"] == "imported"
+        and source["ooxmlEditCapabilities"]["richText"] == "none"
+        and source["ooxmlEditCapabilities"]["crop"] == "none"
+        and source["ooxmlEditCapabilities"]["tableCellText"] is False
+        and isinstance(source["ooxmlEditCapabilities"]["frame"], bool)
+        and isinstance(source["ooxmlEditCapabilities"]["imageSource"], bool)
+        and source["ooxmlEditCapabilities"]["delete"]
+        is source["ooxmlEditCapabilities"]["frame"]
+        for source in result.template_blueprint["slides"][0]["elementSources"]
+    )
     assert result.blueprint["slides"][0]["elements"]
     assert any(
-        element["type"] == "text"
-        and element["props"]["text"] == "Placeholder Title"
+        element["type"] == "text" and element["props"]["text"] == "Placeholder Title"
         for element in result.blueprint["slides"][0]["elements"]
     )
 
 
 def test_apply_slot_texts_route_is_not_registered() -> None:
     assert "/ai/pptx-ooxml-apply-slot-texts" not in app.openapi()["paths"]
+
+
+def test_source_slide_part_fails_closed_for_ambiguous_legacy_sources() -> None:
+    assert (
+        source_slide_part(
+            {
+                "elementSources": [
+                    {
+                        "slidePart": "ppt/slides/slide1.xml",
+                        "writable": True,
+                    },
+                    {
+                        "slidePart": "ppt/slides/slide2.xml",
+                        "writable": True,
+                    },
+                ]
+            }
+        )
+        == ""
+    )
 
 
 def test_generation_blueprint_uses_detected_canvas(tmp_path: Path) -> None:
@@ -100,8 +137,11 @@ def test_generation_includes_imported_image_assets(tmp_path: Path) -> None:
     assert base64.b64decode(image_asset.content_base64).startswith(b"\x89PNG")
 
 
-def test_sync_pptx_ooxml_applies_text_and_frame_patch(tmp_path: Path) -> None:
+def test_sync_pptx_ooxml_rejects_imported_text_capability_atomically(
+    tmp_path: Path,
+) -> None:
     pptx_path = sample_pptx(tmp_path)
+    original_bytes = pptx_path.read_bytes()
     generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
     title_slot = next(
         slot
@@ -135,18 +175,211 @@ def test_sync_pptx_ooxml_applies_text_and_frame_patch(tmp_path: Path) -> None:
             },
         ],
     )
-    package_asset = next(
-        asset for asset in result.assets if asset.asset_id == "current_package"
+    assert current_package_bytes(result.assets) == original_bytes
+    assert result.applied_operations == []
+    assert len(result.unsupported_operations) == 1
+    assert (
+        result.unsupported_operations[0].reason_code
+        == "RICH_TEXT_CAPABILITY_UNSAFE"
     )
-    package_bytes = base64.b64decode(package_asset.content_base64)
 
-    with zipfile.ZipFile(BytesIO(package_bytes), "r") as package:
-        slide_xml = package.read("ppt/slides/slide1.xml")
 
-    assert b"Synced Title" in slide_xml
-    assert b"Placeholder Title" not in slide_xml
-    assert b'x="609600"' in slide_xml
-    assert b'cx="4064000"' in slide_xml
+def test_sync_pptx_ooxml_applies_imported_frame_patch(tmp_path: Path) -> None:
+    pptx_path = sample_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    title_slot = next(
+        slot
+        for slot in generated.template_blueprint["slides"][0]["slots"]
+        if slot["usage"] == "content-slot"
+    )
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_frame",
+                "slideId": "slide_import_file_template_1",
+                "elementId": title_slot["elementId"],
+                "frame": {"x": 96, "y": 48, "width": 640, "height": 120},
+            }
+        ],
+    )
+    package_bytes = current_package_bytes(result.assets)
+
+    assert b'x="609600"' in package_entry(package_bytes, "ppt/slides/slide1.xml")
+    assert b'cx="4064000"' in package_entry(package_bytes, "ppt/slides/slide1.xml")
+    assert [operation.operation_type for operation in result.applied_operations] == [
+        "update_element_frame"
+    ]
+    assert result.unsupported_operations == []
+
+
+def test_sync_pptx_ooxml_applies_imported_z_index_to_shape_tree(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_round_trip_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    target_source = generated.template_blueprint["slides"][0]["elementSources"][0]
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_frame",
+                "slideId": "slide_import_file_template_1",
+                "elementId": target_source["elementId"],
+                "frame": {"zIndex": 999},
+            }
+        ],
+    )
+
+    assert result.unsupported_operations == []
+    assert len(result.applied_operations) == 1
+    assert slide_visual_shape_ids(current_package_bytes(result.assets))[-1] == str(
+        target_source["shapeId"]
+    )
+
+
+@pytest.mark.parametrize("operation_type", ["delete_element", "update_element_frame"])
+def test_sync_pptx_ooxml_rejects_partial_shared_shape_operation_atomically(
+    tmp_path: Path,
+    operation_type: str,
+) -> None:
+    pptx_path = sample_split_fill_text_shape_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    sources = generated.template_blueprint["slides"][0]["elementSources"]
+    cohorts: dict[str, list[dict]] = {}
+    for source in sources:
+        cohorts.setdefault(source["shapeId"], []).append(source)
+    cohort = next(members for members in cohorts.values() if len(members) > 1)
+    assert all(
+        source["ooxmlEditCapabilities"]["frame"] is False
+        and source["ooxmlEditCapabilities"]["delete"] is False
+        for source in cohort
+    )
+    operation = {
+        "type": operation_type,
+        "slideId": "slide_import_file_template_1",
+        "elementId": cohort[0]["elementId"],
+    }
+    if operation_type == "update_element_frame":
+        operation["frame"] = {"x": 200, "y": 160, "width": 500, "height": 180}
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[operation],
+    )
+
+    assert current_package_bytes(result.assets) == pptx_path.read_bytes()
+    assert result.applied_operations == []
+    assert len(result.unsupported_operations) == 1
+    assert (
+        result.unsupported_operations[0].reason_code
+        == "SHARED_SHAPE_COHORT_UNSAFE"
+    )
+
+
+def test_sync_pptx_ooxml_applies_consistent_shared_shape_operations_once(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_split_fill_text_shape_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    sources = generated.template_blueprint["slides"][0]["elementSources"]
+    cohorts: dict[str, list[dict]] = {}
+    for source in sources:
+        cohorts.setdefault(source["shapeId"], []).append(source)
+    cohort = next(members for members in cohorts.values() if len(members) > 1)
+    frames = [
+        {"x": 200, "y": 160, "width": 500, "height": 180},
+        {"x": 300, "y": 200, "width": 500, "height": 180},
+    ]
+
+    framed = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_frame",
+                "slideId": "slide_import_file_template_1",
+                "elementId": source["elementId"],
+                "frame": frame,
+            }
+            for frame in frames
+            for source in cohort
+        ],
+    )
+    assert framed.unsupported_operations == []
+    assert len(framed.applied_operations) == len(cohort) * len(frames)
+    assert b'x="1905000"' in shape_xml(
+        current_package_bytes(framed.assets), cohort[0]["shapeId"]
+    )
+
+    deleted = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "delete_element",
+                "slideId": "slide_import_file_template_1",
+                "elementId": source["elementId"],
+            }
+            for source in cohort
+        ],
+    )
+    assert deleted.unsupported_operations == []
+    assert len(deleted.applied_operations) == len(cohort)
+    with pytest.raises(AssertionError):
+        shape_xml(current_package_bytes(deleted.assets), cohort[0]["shapeId"])
+
+
+def test_sync_pptx_ooxml_partial_frame_fails_without_changing_package(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_pptx(tmp_path)
+    original_bytes = pptx_path.read_bytes()
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    title_slot = next(
+        slot
+        for slot in generated.template_blueprint["slides"][0]["slots"]
+        if slot["usage"] == "content-slot"
+    )
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_frame",
+                "slideId": "slide_import_file_template_1",
+                "elementId": title_slot["elementId"],
+                "frame": {"x": 96},
+            }
+        ],
+    )
+    assert current_package_bytes(result.assets) == original_bytes
+    assert result.applied_operations == []
+    assert len(result.unsupported_operations) == 1
+    assert result.unsupported_operations[0].reason_code == "FRAME_FIELDS_UNSUPPORTED"
 
 
 def test_sync_pptx_ooxml_skips_grouped_child_frame_patch(tmp_path: Path) -> None:
@@ -188,6 +421,9 @@ def test_sync_pptx_ooxml_skips_grouped_child_frame_patch(tmp_path: Path) -> None
     assert result.warnings == [
         f"OOXML grouped frame sync skipped for {target['elementId']}."
     ]
+    assert result.applied_operations == []
+    assert len(result.unsupported_operations) == 1
+    assert result.unsupported_operations[0].reason_code == "GROUPED_FRAME_UNSUPPORTED"
 
     synced_path = tmp_path / "grouped-frame-synced.pptx"
     synced_path.write_bytes(package_bytes)
@@ -198,33 +434,20 @@ def test_sync_pptx_ooxml_skips_grouped_child_frame_patch(tmp_path: Path) -> None
         if element.get("props", {}).get("text") == "Grouped frame target"
     )
     assert {
-        key: reimported_target[key]
-        for key in ("x", "y", "width", "height", "rotation")
+        key: reimported_target[key] for key in ("x", "y", "width", "height", "rotation")
     } == original_frame
 
 
-def test_sync_pptx_ooxml_round_trips_text_and_target_image(
+def test_sync_pptx_ooxml_reports_unsupported_props_without_changing_package(
     tmp_path: Path,
 ) -> None:
     pptx_path = sample_round_trip_pptx(tmp_path)
     original_bytes = pptx_path.read_bytes()
     generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
-    elements = generated.blueprint["slides"][0]["elements"]
-    sources = generated.template_blueprint["slides"][0]["elementSources"]
-    title = next(element for element in elements if element["type"] == "text")
-    images = [element for element in elements if element["type"] == "image"]
-    target_image = next(
-        element for element in images if element["props"]["src"] == "asset:image_2"
-    )
-    untouched_image = next(
-        element for element in images if element["props"]["src"] == "asset:image_1"
-    )
-    fallback_source = next(source for source in sources if source.get("fallbackReason"))
-    target_source = source_for_element(sources, target_image["elementId"])
-    untouched_source = source_for_element(sources, untouched_image["elementId"])
-    replacement_bytes = png_bytes("#00ff00")
-    replacement_data_url = (
-        "data:image/png;base64," + base64.b64encode(replacement_bytes).decode("ascii")
+    image = next(
+        element
+        for element in generated.blueprint["slides"][0]["elements"]
+        if element["type"] == "image"
     )
 
     result = sync_pptx_ooxml(
@@ -237,14 +460,130 @@ def test_sync_pptx_ooxml_round_trips_text_and_target_image(
             {
                 "type": "update_element_props",
                 "slideId": "slide_import_file_template_1",
-                "elementId": title["elementId"],
-                "props": {"text": "Synced round-trip title"},
-            },
+                "elementId": image["elementId"],
+                "props": {"crop": {"left": 0.1, "top": 0, "right": 0, "bottom": 0}},
+            }
+        ],
+    )
+
+    assert current_package_bytes(result.assets) == original_bytes
+    assert result.applied_operations == []
+    assert len(result.unsupported_operations) == 1
+    unsupported = result.unsupported_operations[0]
+    assert unsupported.operation_type == "update_element_props"
+    assert unsupported.reason_code == "PROPS_FIELDS_UNSUPPORTED"
+    assert unsupported.element_id == image["elementId"]
+
+
+def test_sync_pptx_ooxml_rejects_prop_type_mismatch_without_package_changes(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_round_trip_pptx(tmp_path)
+    original_bytes = pptx_path.read_bytes()
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    image = next(
+        element
+        for element in generated.blueprint["slides"][0]["elements"]
+        if element["type"] == "image"
+    )
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_props",
+                "slideId": "slide_import_file_template_1",
+                "elementId": image["elementId"],
+                "props": {"text": "must not reach a picture"},
+            }
+        ],
+    )
+
+    assert current_package_bytes(result.assets) == original_bytes
+    assert result.applied_operations == []
+    assert result.unsupported_operations[0].reason_code == "ELEMENT_TYPE_MISMATCH"
+
+
+def test_sync_pptx_ooxml_rejects_legacy_source_without_provenance(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_pptx(tmp_path)
+    original_bytes = pptx_path.read_bytes()
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    blueprint = copy.deepcopy(generated.template_blueprint)
+    source = next(
+        item
+        for item in blueprint["slides"][0]["elementSources"]
+        if item["writable"]
+    )
+    source.pop("ooxmlOrigin", None)
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_frame",
+                "slideId": "slide_import_file_template_1",
+                "elementId": source["elementId"],
+                "frame": {"x": 100, "y": 100, "width": 400, "height": 100},
+            }
+        ],
+    )
+
+    assert current_package_bytes(result.assets) == original_bytes
+    assert result.applied_operations == []
+    assert (
+        result.unsupported_operations[0].reason_code
+        == "SOURCE_PROVENANCE_UNSAFE"
+    )
+
+
+def test_sync_pptx_ooxml_round_trips_target_image(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_round_trip_pptx(tmp_path)
+    original_bytes = pptx_path.read_bytes()
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    elements = generated.blueprint["slides"][0]["elements"]
+    sources = generated.template_blueprint["slides"][0]["elementSources"]
+    images = [element for element in elements if element["type"] == "image"]
+    target_image = next(
+        element for element in images if element["props"]["src"] == "asset:image_2"
+    )
+    untouched_image = next(
+        element for element in images if element["props"]["src"] == "asset:image_1"
+    )
+    fallback_source = next(source for source in sources if source.get("fallbackReason"))
+    target_source = source_for_element(sources, target_image["elementId"])
+    untouched_source = source_for_element(sources, untouched_image["elementId"])
+    replacement_bytes = png_bytes("#00ff00")
+    replacement_data_url = "data:image/png;base64," + base64.b64encode(
+        replacement_bytes
+    ).decode("ascii")
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
             {
                 "type": "update_element_props",
                 "slideId": "slide_import_file_template_1",
                 "elementId": target_image["elementId"],
-                "props": {"alt": "Replacement", "src": replacement_data_url},
+                "props": {
+                    "src": replacement_data_url,
+                    "alt": "Replaced target image",
+                },
             },
         ],
     )
@@ -254,20 +593,30 @@ def test_sync_pptx_ooxml_round_trips_text_and_target_image(
     )
 
     assert result.warnings == []
+    assert b'descr="Replaced target image"' in shape_xml(
+        package_bytes,
+        target_source["shapeId"],
+    )
     assert target_relationship_id != target_source["relationshipId"]
-    assert source_for_element(
-        result.element_sources,
-        target_image["elementId"],
-    )["relationshipId"] == target_relationship_id
+    assert (
+        source_for_element(
+            result.element_sources,
+            target_image["elementId"],
+        )["relationshipId"]
+        == target_relationship_id
+    )
     assert (
         picture_relationship_id(package_bytes, untouched_source["shapeId"])
         == untouched_source["relationshipId"]
     )
-    assert relationship_blob(
-        package_bytes,
-        "ppt/slides/slide1.xml",
-        target_relationship_id,
-    ) == replacement_bytes
+    assert (
+        relationship_blob(
+            package_bytes,
+            "ppt/slides/slide1.xml",
+            target_relationship_id,
+        )
+        == replacement_bytes
+    )
     assert relationship_blob(
         package_bytes,
         "ppt/slides/slide1.xml",
@@ -290,11 +639,6 @@ def test_sync_pptx_ooxml_round_trips_text_and_target_image(
         render=False,
     )
 
-    assert any(
-        element["type"] == "text"
-        and element["props"]["text"] == "Synced round-trip title"
-        for element in round_trip.blueprint["slides"][0]["elements"]
-    )
     assert replacement_bytes in {
         base64.b64decode(asset.content_base64)
         for asset in round_trip.assets
@@ -321,7 +665,19 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
             "y": 600,
             "width": 500,
             "height": 100,
-            "props": {"text": "Added text"},
+            "props": {
+                "text": "Added text",
+                "bodyInset": {"left": 12, "right": 8, "top": 4, "bottom": 6},
+                "fontFamily": "Pretendard",
+                "fontSize": 30,
+                "fontWeight": "bold",
+                "italic": True,
+                "underline": True,
+                "color": "#123456",
+                "align": "center",
+                "verticalAlign": "middle",
+                "lineHeight": 1.4,
+            },
         },
         {
             "elementId": "el_added_rect",
@@ -363,9 +719,7 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
     )
 
     assert added.warnings == []
-    added_sources = {
-        source["elementId"]: source for source in added.element_sources
-    }
+    added_sources = {source["elementId"]: source for source in added.element_sources}
     assert set(added_sources) == {
         "el_added_text",
         "el_added_rect",
@@ -375,10 +729,48 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
         source["shapeId"] != "0" and source["writable"] is True
         for source in added_sources.values()
     )
+    assert all(
+        source["ooxmlOrigin"] == "authored"
+        and source["ooxmlEditCapabilities"]["richText"] == "none"
+        and source["ooxmlEditCapabilities"]["crop"] == "none"
+        and source["ooxmlEditCapabilities"]["tableCellText"] is False
+        and source["ooxmlEditCapabilities"]["frame"] is True
+        and source["ooxmlEditCapabilities"]["delete"] is True
+        for source in added_sources.values()
+    )
+    assert added_sources["el_added_image"]["ooxmlEditCapabilities"][
+        "imageSource"
+    ] is True
+    assert added_sources["el_added_text"]["ooxmlEditCapabilities"][
+        "imageSource"
+    ] is False
+    assert added_sources["el_added_rect"]["ooxmlEditCapabilities"][
+        "imageSource"
+    ] is False
+    assert len(added.applied_operations) == 3
+    assert added.unsupported_operations == []
     assert added_sources["el_added_image"]["relationshipId"].startswith("rId")
+    added_package = current_package_bytes(added.assets)
+    assert slide_visual_shape_ids(added_package)[-3:] == [
+        added_sources["el_added_text"]["shapeId"],
+        added_sources["el_added_rect"]["shapeId"],
+        added_sources["el_added_image"]["shapeId"],
+    ]
+    added_text_xml = shape_xml(
+        added_package,
+        added_sources["el_added_text"]["shapeId"],
+    )
+    assert b'<a:pPr algn="ctr">' in added_text_xml
+    assert b'sz="3000"' in added_text_xml
+    assert b'b="1"' in added_text_xml
+    assert b'i="1"' in added_text_xml
+    assert b'u="sng"' in added_text_xml
+    assert b'typeface="Pretendard"' in added_text_xml
+    assert b'<a:srgbClr val="123456"' in added_text_xml
+    assert b'anchor="ctr"' in added_text_xml
 
     added_path = tmp_path / "added.pptx"
-    added_path.write_bytes(current_package_bytes(added.assets))
+    added_path.write_bytes(added_package)
     next_blueprint = copy.deepcopy(generated.template_blueprint)
     next_blueprint["slides"][0]["elementSources"].extend(added.element_sources)
     edited = sync_pptx_ooxml(
@@ -424,11 +816,14 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
         edited.element_sources,
         "el_added_image",
     )
-    assert relationship_blob(
-        edited_bytes,
-        "ppt/slides/slide1.xml",
-        edited_image_source["relationshipId"],
-    ) == second_image
+    assert (
+        relationship_blob(
+            edited_bytes,
+            "ppt/slides/slide1.xml",
+            edited_image_source["relationshipId"],
+        )
+        == second_image
+    )
 
     edited_path = tmp_path / "edited-added.pptx"
     edited_path.write_bytes(edited_bytes)
@@ -442,9 +837,9 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
         for source in round_trip.template_blueprint["slides"][0]["elementSources"]
     }
 
-    assert {
-        source["shapeId"] for source in added_sources.values()
-    }.issubset(round_trip_shape_ids)
+    assert {source["shapeId"] for source in added_sources.values()}.issubset(
+        round_trip_shape_ids
+    )
     assert any(
         element["type"] == "text" and element["props"]["text"] == "Edited added text"
         for element in round_trip.blueprint["slides"][0]["elements"]
@@ -454,6 +849,303 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
         for asset in round_trip.assets
         if asset.mime_type == "image/png"
     }
+
+
+def test_sync_pptx_ooxml_authored_image_contain_uses_letterbox_source_rect(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_round_trip_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    image_blob = png_sized_bytes(16, 8, "#00ff00")
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "add_element",
+                "slideId": "slide_import_file_template_1",
+                "element": {
+                    "elementId": "el_contain_image",
+                    "type": "image",
+                    "x": 100,
+                    "y": 100,
+                    "width": 200,
+                    "height": 200,
+                    "zIndex": 0,
+                    "props": {
+                        "src": "data:image/png;base64,"
+                        + base64.b64encode(image_blob).decode("ascii"),
+                        "fit": "contain",
+                    },
+                },
+            }
+        ],
+    )
+
+    source = source_for_element(result.element_sources, "el_contain_image")
+    picture_xml = shape_xml(
+        current_package_bytes(result.assets),
+        source["shapeId"],
+    )
+    assert b'<a:srcRect t="-50000" b="-50000"' in picture_xml
+    assert b"imageFit" in picture_xml
+    assert slide_visual_shape_ids(current_package_bytes(result.assets))[0] == str(
+        source["shapeId"]
+    )
+
+    contained_path = tmp_path / "authored-contain.pptx"
+    contained_path.write_bytes(current_package_bytes(result.assets))
+    reimported = generate_pptx_ooxml(
+        contained_path,
+        "file_reimported",
+        render=False,
+    )
+    reimported_source = next(
+        item
+        for item in reimported.template_blueprint["slides"][0]["elementSources"]
+        if item["shapeId"] == source["shapeId"]
+    )
+    reimported_element = next(
+        item
+        for item in reimported.blueprint["slides"][0]["elements"]
+        if item["elementId"] == reimported_source["elementId"]
+    )
+    assert reimported_element["props"]["fit"] == "contain"
+    assert "crop" not in reimported_element["props"]
+
+
+def test_sync_pptx_ooxml_recomputes_authored_contain_after_frame_resize(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_round_trip_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    image_blob = png_sized_bytes(16, 8, "#00ff00")
+    added = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "add_element",
+                "slideId": "slide_import_file_template_1",
+                "element": {
+                    "elementId": "el_contain_resize",
+                    "type": "image",
+                    "x": 100,
+                    "y": 100,
+                    "width": 200,
+                    "height": 200,
+                    "props": {
+                        "src": "data:image/png;base64,"
+                        + base64.b64encode(image_blob).decode("ascii"),
+                        "fit": "contain",
+                    },
+                },
+            }
+        ],
+    )
+    blueprint = copy.deepcopy(generated.template_blueprint)
+    blueprint["slides"][0]["elementSources"].extend(added.element_sources)
+    source = source_for_element(added.element_sources, "el_contain_resize")
+    added_path = tmp_path / "authored-contain-before-resize.pptx"
+    added_path.write_bytes(current_package_bytes(added.assets))
+
+    resized = sync_pptx_ooxml(
+        added_path,
+        template_blueprint=blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=3,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_frame",
+                "slideId": "slide_import_file_template_1",
+                "elementId": "el_contain_resize",
+                "frame": {"x": 100, "y": 100, "width": 400, "height": 200},
+            }
+        ],
+    )
+    picture_xml = shape_xml(
+        current_package_bytes(resized.assets), source["shapeId"]
+    )
+
+    assert resized.unsupported_operations == []
+    assert b"srcRect" not in picture_xml
+    assert b"imageFit" in picture_xml
+
+    resized_path = tmp_path / "reimported-contain-resized.pptx"
+    resized_path.write_bytes(current_package_bytes(resized.assets))
+    resized_reimport = generate_pptx_ooxml(
+        resized_path,
+        "file_resized_reimport",
+        render=False,
+    )
+    resized_source = next(
+        item
+        for item in resized_reimport.template_blueprint["slides"][0][
+            "elementSources"
+        ]
+        if item["shapeId"] == source["shapeId"]
+    )
+    resized_element = next(
+        item
+        for item in resized_reimport.blueprint["slides"][0]["elements"]
+        if item["elementId"] == resized_source["elementId"]
+    )
+    assert resized_element["props"]["fit"] == "contain"
+
+
+def test_sync_pptx_ooxml_recomputes_reimported_contain_after_source_replace(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_round_trip_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    wide_blob = png_sized_bytes(16, 8, "#00ff00")
+    tall_blob = png_sized_bytes(8, 16, "#0000ff")
+    added = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "add_element",
+                "slideId": "slide_import_file_template_1",
+                "element": {
+                    "elementId": "el_contain_reimport_replace",
+                    "type": "image",
+                    "x": 100,
+                    "y": 100,
+                    "width": 200,
+                    "height": 200,
+                    "props": {
+                        "src": "data:image/png;base64,"
+                        + base64.b64encode(wide_blob).decode("ascii"),
+                        "fit": "contain",
+                    },
+                },
+            }
+        ],
+    )
+    source = source_for_element(
+        added.element_sources, "el_contain_reimport_replace"
+    )
+    added_path = tmp_path / "authored-contain-reimport-replace.pptx"
+    added_path.write_bytes(current_package_bytes(added.assets))
+    reimported = generate_pptx_ooxml(
+        added_path,
+        "file_reimported",
+        render=False,
+    )
+    reimported_source = next(
+        item
+        for item in reimported.template_blueprint["slides"][0]["elementSources"]
+        if item["shapeId"] == source["shapeId"]
+    )
+
+    replaced = sync_pptx_ooxml(
+        added_path,
+        template_blueprint=reimported.template_blueprint,
+        deck_canvas=reimported.canvas,
+        synced_deck_version=3,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_props",
+                "slideId": "slide_import_file_reimported_1",
+                "elementId": reimported_source["elementId"],
+                "props": {
+                    "src": "data:image/png;base64,"
+                    + base64.b64encode(tall_blob).decode("ascii")
+                },
+            }
+        ],
+    )
+    picture_xml = shape_xml(
+        current_package_bytes(replaced.assets), source["shapeId"]
+    )
+
+    assert replaced.unsupported_operations == []
+    assert b'<a:srcRect l="-50000" r="-50000"' in picture_xml
+    assert b"imageFit" in picture_xml
+
+
+def test_sync_pptx_ooxml_recomputes_reimported_contain_after_frame_resize(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_round_trip_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    image_blob = png_sized_bytes(16, 8, "#00ff00")
+    added = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "add_element",
+                "slideId": "slide_import_file_template_1",
+                "element": {
+                    "elementId": "el_contain_reimport_resize",
+                    "type": "image",
+                    "x": 100,
+                    "y": 100,
+                    "width": 200,
+                    "height": 200,
+                    "props": {
+                        "src": "data:image/png;base64,"
+                        + base64.b64encode(image_blob).decode("ascii"),
+                        "fit": "contain",
+                    },
+                },
+            }
+        ],
+    )
+    source = source_for_element(
+        added.element_sources, "el_contain_reimport_resize"
+    )
+    added_path = tmp_path / "authored-contain-reimport-resize.pptx"
+    added_path.write_bytes(current_package_bytes(added.assets))
+    reimported = generate_pptx_ooxml(
+        added_path,
+        "file_reimported",
+        render=False,
+    )
+    reimported_source = next(
+        item
+        for item in reimported.template_blueprint["slides"][0]["elementSources"]
+        if item["shapeId"] == source["shapeId"]
+    )
+
+    resized = sync_pptx_ooxml(
+        added_path,
+        template_blueprint=reimported.template_blueprint,
+        deck_canvas=reimported.canvas,
+        synced_deck_version=3,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_frame",
+                "slideId": "slide_import_file_reimported_1",
+                "elementId": reimported_source["elementId"],
+                "frame": {"x": 100, "y": 100, "width": 400, "height": 200},
+            }
+        ],
+    )
+    picture_xml = shape_xml(
+        current_package_bytes(resized.assets), source["shapeId"]
+    )
+
+    assert resized.unsupported_operations == []
+    assert b"srcRect" not in picture_xml
+    assert b"imageFit" in picture_xml
 
 
 def test_sync_pptx_ooxml_scopes_duplicate_element_ids_to_slide_part(
@@ -466,7 +1158,10 @@ def test_sync_pptx_ooxml_scopes_duplicate_element_ids_to_slide_part(
     mapped_sources: list[dict[str, dict]] = []
     for slide_index, ids in enumerate(shape_ids):
         sources = blueprint["slides"][slide_index]["elementSources"]
-        text_source = next(source for source in sources if source["shapeId"] == ids["text"])
+        text_source = next(
+            source for source in sources if source["shapeId"] == ids["text"]
+        )
+        text_source["ooxmlOrigin"] = "authored"
         image_source = next(
             source for source in sources if source["shapeId"] == ids["image"]
         )
@@ -541,11 +1236,14 @@ def test_sync_pptx_ooxml_scopes_duplicate_element_ids_to_slide_part(
         if source["slidePart"] == "ppt/slides/slide2.xml"
         and source["elementId"] == "el_shared_image"
     )
-    assert relationship_blob(
-        synced_bytes,
-        "ppt/slides/slide2.xml",
-        synced_image_source["relationshipId"],
-    ) == replacement_image
+    assert (
+        relationship_blob(
+            synced_bytes,
+            "ppt/slides/slide2.xml",
+            synced_image_source["relationshipId"],
+        )
+        == replacement_image
+    )
     with pytest.raises(AssertionError):
         shape_xml(
             synced_bytes,
@@ -589,6 +1287,139 @@ def test_sync_pptx_ooxml_scopes_duplicate_element_ids_to_slide_part(
         "ppt/slides/slide1.xml",
         "ppt/slides/slide2.xml",
     }
+
+
+def test_sync_pptx_ooxml_routes_reordered_logical_slide_to_source_part(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_reordered_slide_parts_pptx(tmp_path)
+    original_bytes = pptx_path.read_bytes()
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    first_template_slide = generated.template_blueprint["slides"][0]
+    assert first_template_slide["sourceSlidePart"] == "ppt/slides/slide2.xml"
+    text_sources = [
+        source
+        for source in first_template_slide["elementSources"]
+        if source.get("elementType") == "text" and source.get("writable")
+    ]
+    assert len(text_sources) >= 2
+    frame_source, delete_source = text_sources[:2]
+
+    synced = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_frame",
+                "slideId": "slide_import_file_template_1",
+                "elementId": frame_source["elementId"],
+                "frame": {"x": 320, "y": 160, "width": 500, "height": 100},
+            },
+            {
+                "type": "delete_element",
+                "slideId": "slide_import_file_template_1",
+                "elementId": delete_source["elementId"],
+            },
+            {
+                "type": "add_element",
+                "slideId": "slide_import_file_template_1",
+                "element": {
+                    "elementId": "el_reordered_slide_add",
+                    "type": "text",
+                    "x": 100,
+                    "y": 600,
+                    "width": 400,
+                    "height": 80,
+                    "props": {"text": "Added to logical first slide"},
+                },
+            },
+            {
+                "type": "update_element_frame",
+                "slideId": "slide_import_file_template_1",
+                "elementId": "el_reordered_slide_add",
+                "frame": {"x": 140, "y": 620, "width": 420, "height": 90},
+            },
+        ],
+    )
+    synced_bytes = current_package_bytes(synced.assets)
+
+    assert synced.unsupported_operations == []
+    assert package_entry(synced_bytes, "ppt/slides/slide1.xml") == package_entry(
+        original_bytes, "ppt/slides/slide1.xml"
+    )
+    assert b'x="2032000"' in shape_xml(
+        synced_bytes,
+        frame_source["shapeId"],
+        "ppt/slides/slide2.xml",
+    )
+    assert delete_source["elementId"].encode() not in package_entry(
+        synced_bytes, "ppt/slides/slide2.xml"
+    )
+    assert b"Added to logical first slide" in package_entry(
+        synced_bytes, "ppt/slides/slide2.xml"
+    )
+    added_source = next(
+        source
+        for source in synced.element_sources
+        if source["elementId"] == "el_reordered_slide_add"
+    )
+    assert b'x="889000"' in shape_xml(
+        synced_bytes,
+        added_source["shapeId"],
+        "ppt/slides/slide2.xml",
+    )
+
+
+def test_sync_pptx_ooxml_rejects_delete_when_motion_references_are_unmodeled(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_round_trip_pptx(tmp_path)
+    generated_without_timing = generate_pptx_ooxml(
+        pptx_path,
+        "file_template",
+        render=False,
+    )
+    source = next(
+        item
+        for item in generated_without_timing.template_blueprint["slides"][0][
+            "elementSources"
+        ]
+        if item.get("elementType") == "text"
+    )
+    add_shape_timing_reference(pptx_path, source["shapeId"])
+    original_bytes = pptx_path.read_bytes()
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    guarded_source = next(
+        item
+        for item in generated.template_blueprint["slides"][0]["elementSources"]
+        if item["elementId"] == source["elementId"]
+    )
+    assert guarded_source["ooxmlEditCapabilities"]["frame"] is True
+    assert guarded_source["ooxmlEditCapabilities"]["delete"] is False
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "delete_element",
+                "slideId": "slide_import_file_template_1",
+                "elementId": source["elementId"],
+            }
+        ],
+    )
+
+    assert current_package_bytes(result.assets) == original_bytes
+    assert result.applied_operations == []
+    assert [item.reason_code for item in result.unsupported_operations] == [
+        "MOTION_REFERENCE_COVERAGE_UNSAFE"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -701,9 +1532,7 @@ def test_shape_fallback_assets_crop_from_slide_render() -> None:
                 assetId="slide_render_1",
                 fileName="slide-01.png",
                 mimeType="image/png",
-                contentBase64=base64.b64encode(slide_render.getvalue()).decode(
-                    "ascii"
-                ),
+                contentBase64=base64.b64encode(slide_render.getvalue()).decode("ascii"),
             )
         ],
         warnings,
@@ -806,6 +1635,103 @@ def sample_scaled_group_pptx(tmp_path: Path) -> Path:
     return pptx_path
 
 
+def sample_split_fill_text_shape_pptx(tmp_path: Path) -> Path:
+    pptx_path = tmp_path / "split-fill-text-shape.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(1),
+        Inches(1),
+        Inches(4),
+        Inches(1.5),
+    )
+    shape.text_frame.text = "Shared native fill and text"
+    presentation.save(pptx_path)
+    return pptx_path
+
+
+def sample_reordered_slide_parts_pptx(tmp_path: Path) -> Path:
+    pptx_path = tmp_path / "reordered-slide-parts.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    for slide_number in (1, 2):
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        for text_index in (1, 2):
+            textbox = slide.shapes.add_textbox(
+                Inches(text_index),
+                Inches(text_index),
+                Inches(4),
+                Inches(0.6),
+            )
+            textbox.text_frame.text = f"Part {slide_number} text {text_index}"
+    presentation.save(pptx_path)
+
+    buffer = BytesIO()
+    with zipfile.ZipFile(pptx_path, "r") as source, zipfile.ZipFile(
+        buffer, "w"
+    ) as target:
+        presentation_root = ET.fromstring(source.read("ppt/presentation.xml"))
+        slide_id_list = next(
+            node for node in presentation_root.iter() if node.tag.endswith("sldIdLst")
+        )
+        slide_ids = list(slide_id_list)
+        for slide_id in slide_ids:
+            slide_id_list.remove(slide_id)
+        for slide_id in reversed(slide_ids):
+            slide_id_list.append(slide_id)
+        presentation_xml = ET.tostring(
+            presentation_root,
+            encoding="utf-8",
+            xml_declaration=True,
+        )
+        for info in source.infolist():
+            target.writestr(
+                info,
+                presentation_xml
+                if info.filename == "ppt/presentation.xml"
+                else source.read(info.filename),
+            )
+    pptx_path.write_bytes(buffer.getvalue())
+    return pptx_path
+
+
+def add_shape_timing_reference(pptx_path: Path, shape_id: str) -> None:
+    presentation_namespace = (
+        "http://schemas.openxmlformats.org/presentationml/2006/main"
+    )
+    buffer = BytesIO()
+    with zipfile.ZipFile(pptx_path, "r") as source, zipfile.ZipFile(
+        buffer, "w"
+    ) as target:
+        slide_root = ET.fromstring(source.read("ppt/slides/slide1.xml"))
+        timing = ET.SubElement(
+            slide_root,
+            f"{{{presentation_namespace}}}timing",
+        )
+        target_element = ET.SubElement(
+            timing,
+            f"{{{presentation_namespace}}}spTgt",
+        )
+        target_element.set("spid", shape_id)
+        slide_xml = ET.tostring(
+            slide_root,
+            encoding="utf-8",
+            xml_declaration=True,
+        )
+        for info in source.infolist():
+            target.writestr(
+                info,
+                slide_xml
+                if info.filename == "ppt/slides/slide1.xml"
+                else source.read(info.filename),
+            )
+    pptx_path.write_bytes(buffer.getvalue())
+
+
 def sample_duplicate_element_ids_pptx(
     tmp_path: Path,
 ) -> tuple[Path, list[dict[str, str]]]:
@@ -818,9 +1744,7 @@ def sample_duplicate_element_ids_pptx(
         image_path = tmp_path / f"duplicate-{slide_index}.png"
         image_path.write_bytes(png_bytes(color))
         slide = presentation.slides.add_slide(presentation.slide_layouts[6])
-        text = slide.shapes.add_textbox(
-            Inches(1), Inches(0.5), Inches(5), Inches(0.8)
-        )
+        text = slide.shapes.add_textbox(Inches(1), Inches(0.5), Inches(5), Inches(0.8))
         text.text_frame.text = f"Slide {slide_index} title"
         image = slide.shapes.add_picture(
             str(image_path), Inches(1), Inches(2), Inches(2), Inches(2)
@@ -849,6 +1773,12 @@ def png_bytes(color: str) -> bytes:
     return output.getvalue()
 
 
+def png_sized_bytes(width: int, height: int, color: str) -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (width, height), color).save(output, format="PNG")
+    return output.getvalue()
+
+
 def current_package_bytes(assets: list[ImportedDesignAsset]) -> bytes:
     package = next(asset for asset in assets if asset.asset_id == "current_package")
     return base64.b64decode(package.content_base64)
@@ -871,7 +1801,9 @@ def picture_relationship_id(package_bytes: bytes, shape_id: str) -> str:
         if c_nv_pr is None or c_nv_pr.get("id") != shape_id:
             continue
         blip = next(node for node in picture.iter() if node.tag.endswith("blip"))
-        return next(value for key, value in blip.attrib.items() if key.endswith("embed"))
+        return next(
+            value for key, value in blip.attrib.items() if key.endswith("embed")
+        )
     raise AssertionError(f"picture shape not found: {shape_id}")
 
 
@@ -888,7 +1820,9 @@ def relationship_blob(
             child for child in root if child.get("Id") == relationship_id
         )
         target = relationship.get("Target", "")
-        media_part = str((Path(slide_part).parent / target).resolve()).replace("\\", "/")
+        media_part = str((Path(slide_part).parent / target).resolve()).replace(
+            "\\", "/"
+        )
         media_part = media_part.split("/ppt/", maxsplit=1)[-1]
         return package.read(f"ppt/{media_part}")
 
@@ -910,6 +1844,23 @@ def shape_xml(
         if c_nv_pr is not None and c_nv_pr.get("id") == shape_id:
             return ET.tostring(shape)
     raise AssertionError(f"shape not found: {shape_id}")
+
+
+def slide_visual_shape_ids(package_bytes: bytes) -> list[str]:
+    with zipfile.ZipFile(BytesIO(package_bytes), "r") as package:
+        root = ET.fromstring(package.read("ppt/slides/slide1.xml"))
+    shape_tree = next(node for node in root.iter() if node.tag.endswith("spTree"))
+    shape_ids: list[str] = []
+    for shape in shape_tree:
+        if not shape.tag.endswith(("cxnSp", "graphicFrame", "grpSp", "pic", "sp")):
+            continue
+        c_nv_pr = next(
+            (node for node in shape.iter() if node.tag.endswith("cNvPr")),
+            None,
+        )
+        if c_nv_pr is not None and c_nv_pr.get("id"):
+            shape_ids.append(str(c_nv_pr.get("id")))
+    return shape_ids
 
 
 def package_entry(package_bytes: bytes, name: str) -> bytes:

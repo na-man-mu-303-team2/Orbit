@@ -36,6 +36,10 @@ import {
 import {
   useSyncCustomShapeEditDraft
 } from "./hooks/useSyncCustomShapeEditDraft";
+import {
+  completeImageCropDraft,
+  ImageCropOverlay
+} from "./image/ImageCropOverlay";
 import { InlineTextEditorOverlay } from "./text/InlineTextEditorOverlay";
 import { TextContextToolbar } from "./text/TextContextToolbar";
 import {
@@ -279,6 +283,7 @@ export function EditableCanvas(props: {
   deck: Deck;
   disableInteractions?: boolean;
   editingElementId: string | null;
+  imageCropElementId?: string | null;
   insertTool: InsertTool;
   elementStates?: Record<string, ElementPresentationState> | null;
   selectedElementIds: string[];
@@ -320,6 +325,7 @@ export function EditableCanvas(props: {
   ) => void;
   onDoubleClickElement: (elementId: string) => void;
   onFinishEditing: () => void;
+  onFinishImageCrop?: () => void;
   onOpenElementContextMenu: (args: {
     clientX: number;
     clientY: number;
@@ -339,6 +345,7 @@ export function EditableCanvas(props: {
     deck,
     disableInteractions = false,
     editingElementId,
+    imageCropElementId = null,
     elementStates,
     insertTool,
     selectedElementIds,
@@ -356,6 +363,7 @@ export function EditableCanvas(props: {
     onCommitCustomShapeGeometry,
     onDoubleClickElement,
     onFinishEditing,
+    onFinishImageCrop = () => {},
     onOpenElementContextMenu,
     onSetCustomShapeEditElementId,
     onSetInsertTool,
@@ -395,6 +403,19 @@ export function EditableCanvas(props: {
             candidate.type === "text"
         ) ?? null)
       : null;
+  const imageCropElement =
+    !disableInteractions &&
+    imageCropElementId &&
+    selectedElementIds.length === 1 &&
+    selectedElementIds[0] === imageCropElementId
+      ? (visibleElements.find(
+          (candidate): candidate is Extract<DeckElement, { type: "image" }> =>
+            candidate.elementId === imageCropElementId &&
+            candidate.type === "image"
+        ) ?? null)
+      : null;
+  const canvasInteractionDisabled =
+    disableInteractions || Boolean(imageCropElement);
   const editingCustomShapeElement =
     customShapeEditElementId && customShapeEditElementId !== editingElementId
       ? (visibleElements.find(
@@ -418,7 +439,7 @@ export function EditableCanvas(props: {
       return;
     }
 
-    if (disableInteractions || customShapeEditElementId) {
+    if (canvasInteractionDisabled || customShapeEditElementId) {
       transformer.nodes([]);
       transformer.getLayer()?.batchDraw();
       return;
@@ -430,7 +451,7 @@ export function EditableCanvas(props: {
 
     transformer.nodes(selectedNodes);
     transformer.getLayer()?.batchDraw();
-  }, [customShapeEditElementId, disableInteractions, selectedElementIds, visibleElements]);
+  }, [canvasInteractionDisabled, customShapeEditElementId, selectedElementIds, visibleElements]);
 
   useEffect(() => {
     if (insertTool !== "customShape") {
@@ -491,7 +512,7 @@ export function EditableCanvas(props: {
   }
 
   useCanvasKeyboardShortcuts({
-    enabled: !disableInteractions,
+    enabled: !canvasInteractionDisabled,
     customShapeEditDraft,
     customShapeInsertDraft,
     editingCustomShapeElement,
@@ -510,7 +531,9 @@ export function EditableCanvas(props: {
     draftElement,
     editingElementId,
     insertTool,
-    isMarqueeInteractionBlocked: Boolean(customShapeEditElementId),
+    isMarqueeInteractionBlocked: Boolean(
+      customShapeEditElementId || imageCropElement
+    ),
     marqueeElements: visibleElements,
     normalizeDraftRect,
     onCommitSelection: onSelectElements,
@@ -527,17 +550,17 @@ export function EditableCanvas(props: {
   });
 
   useCanvasBackgroundPointerCapture({
-    enabled: !disableInteractions,
+    enabled: !canvasInteractionDisabled,
     onCancelMarquee: stageMouseHandlers.cancelMarquee,
     stageRef
   });
 
   useEffect(() => {
-    if (disableInteractions) {
+    if (canvasInteractionDisabled) {
       stageMouseHandlers.cancelMarquee();
       setDragGuides([]);
     }
-  }, [disableInteractions, stageMouseHandlers.cancelMarquee]);
+  }, [canvasInteractionDisabled, stageMouseHandlers.cancelMarquee]);
 
   useEffect(() => {
     setDragGuides([]);
@@ -631,12 +654,14 @@ export function EditableCanvas(props: {
         scaleY={stageScale}
         width={deck.canvas.width * stageScale}
         onPointerDown={
-          disableInteractions ? undefined : stageMouseHandlers.onPointerDown
+          canvasInteractionDisabled ? undefined : stageMouseHandlers.onPointerDown
         }
         onPointerMove={
-          disableInteractions ? undefined : stageMouseHandlers.onPointerMove
+          canvasInteractionDisabled ? undefined : stageMouseHandlers.onPointerMove
         }
-        onPointerUp={disableInteractions ? undefined : stageMouseHandlers.onPointerUp}
+        onPointerUp={
+          canvasInteractionDisabled ? undefined : stageMouseHandlers.onPointerUp
+        }
       >
         <Layer>
           {visibleElements.map((element) => (
@@ -644,7 +669,9 @@ export function EditableCanvas(props: {
               key={element.elementId}
               accentColor={slide.style.accentColor ?? deck.theme.accentColor}
               deck={deck}
-              disablePointerEvents={disableInteractions || insertTool !== "select"}
+              disablePointerEvents={
+                canvasInteractionDisabled || insertTool !== "select"
+              }
               element={element}
               isSelected={selectedElementIds.includes(element.elementId)}
               presentationState={elementStates?.[element.elementId]}
@@ -750,7 +777,7 @@ export function EditableCanvas(props: {
             ref={transformerRef}
             boundBoxFunc={handleTransformerBoundBox}
             enabledAnchors={
-              disableInteractions
+              canvasInteractionDisabled
                 ? []
                 : [
                     "top-left",
@@ -770,12 +797,52 @@ export function EditableCanvas(props: {
                 "altKey" in event.evt && Boolean(event.evt.altKey);
               setDragGuides([]);
             }}
-            rotateEnabled={!disableInteractions}
+            rotateEnabled={!canvasInteractionDisabled}
             rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
           />
         </Layer>
       </Stage>
-      {selectedTextElement && insertTool === "select" && !customShapeEditElementId ? (
+      {imageCropElement ? (
+        <ImageCropOverlay
+          frame={{
+            x: imageCropElement.x,
+            y: imageCropElement.y,
+            width: imageCropElement.width,
+            height: imageCropElement.height,
+            rotation: imageCropElement.rotation
+          }}
+          imageProps={imageCropElement.props}
+          stageScale={stageScale}
+          onApply={(crop) => {
+            completeImageCropDraft({
+              action: "apply",
+              crop,
+              onCommit: (nextProps) =>
+                onCommitElementProps(imageCropElement.elementId, nextProps)
+            });
+            onFinishImageCrop();
+          }}
+          onCancel={onFinishImageCrop}
+          onReset={() => {
+            completeImageCropDraft({
+              action: "reset",
+              crop: imageCropElement.props.crop ?? {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0
+              },
+              onCommit: (nextProps) =>
+                onCommitElementProps(imageCropElement.elementId, nextProps)
+            });
+            onFinishImageCrop();
+          }}
+        />
+      ) : null}
+      {selectedTextElement &&
+      !imageCropElement &&
+      insertTool === "select" &&
+      !customShapeEditElementId ? (
         <TextContextToolbar
           deck={deck}
           element={selectedTextElement}
@@ -791,7 +858,7 @@ export function EditableCanvas(props: {
           onCommitProps={onCommitElementProps}
         />
       ) : null}
-      {!disableInteractions && editingElementId ? (
+      {!canvasInteractionDisabled && editingElementId ? (
         <InlineTextEditorOverlay
           deck={deck}
           element={

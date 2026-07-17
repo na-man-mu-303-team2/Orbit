@@ -66,5 +66,22 @@ describe("elementFrame helpers", () => {
     });
 
     expect(frame.role).toBeNull();
+    expect(frame).toEqual({ role: null });
+  });
+
+  it("includes the complete geometry but omits untouched presentation fields", () => {
+    const deck = createDemoDeck();
+    const element = deck.slides[0].elements[0];
+    const frame = normalizeElementFrameDraft(deck.canvas, element, {
+      x: 240
+    });
+
+    expect(frame).toEqual({
+      x: 240,
+      y: element.y,
+      width: element.width,
+      height: element.height,
+      rotation: element.rotation
+    });
   });
 });

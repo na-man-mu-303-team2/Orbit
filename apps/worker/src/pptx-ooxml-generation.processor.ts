@@ -59,8 +59,7 @@ const pptxOoxmlGenerationWorkerResponseSchema = z.object({
 type PptxOoxmlGenerationWorkerResponse = z.infer<
   typeof pptxOoxmlGenerationWorkerResponseSchema
 >;
-type OoxmlGenerationBlueprint =
-  PptxOoxmlGenerationWorkerResponse["blueprint"];
+type OoxmlGenerationBlueprint = PptxOoxmlGenerationWorkerResponse["blueprint"];
 type OoxmlTemplateBlueprint =
   PptxOoxmlGenerationWorkerResponse["templateBlueprint"];
 
@@ -68,6 +67,8 @@ type SavedAssetRefs = {
   fileIds: Map<string, string>;
   urls: Map<string, string>;
 };
+
+type QueryExecutor = Pick<DataSource, "query">;
 
 type JobRow = {
   job_id: string;
@@ -96,9 +97,16 @@ type ProjectAssetRow = {
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
+class PythonWorkerHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`Python worker request failed with status ${status}.`);
+    this.name = "PythonWorkerHttpError";
+  }
+}
+
 export async function processPptxOoxmlGenerationJob(
   dataSource: DataSource,
-  storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
+  storage: Pick<StoragePort, "getSignedReadUrl" | "putObject" | "removeObject">,
   pythonWorkerUrl: string,
   rawPayload: unknown,
 ): Promise<Job> {
@@ -113,7 +121,7 @@ export async function processPptxOoxmlGenerationJob(
         : "";
 
     if (!jobId) {
-      throw new Error(payloadResult.error.message);
+      throw new Error("PPTX OOXML generation payload is invalid.");
     }
 
     return failJob(
@@ -121,7 +129,7 @@ export async function processPptxOoxmlGenerationJob(
       jobId,
       0,
       "PPTX_OOXML_GENERATION_PAYLOAD_INVALID",
-      payloadResult.error.message,
+      `PPTX_OOXML_GENERATION_PAYLOAD_INVALID:jobId=${jobId}`,
     );
   }
 
@@ -153,68 +161,77 @@ export async function processPptxOoxmlGenerationJob(
       payload.jobId,
       10,
       "PPTX_OOXML_GENERATION_SOURCE_FAILED",
-      error instanceof Error ? error.message : "PPTX OOXML generation failed.",
+      safeGenerationSourceFailureMessage(error, payload.request.fileId),
     );
   }
 
+  const newStorageObjectKeys: string[] = [];
   try {
-    const assetRefs = await saveGeneratedDesignAssets(
-      dataSource,
+    return await dataSource.transaction(async (manager) => {
+      const assetRefs = await saveGeneratedDesignAssets(
+        manager,
+        storage,
+        payload.projectId,
+        generated,
+        newStorageObjectKeys,
+      );
+      const templateBlueprint =
+        pptxOoxmlGenerationWorkerResponseSchema.shape.templateBlueprint.parse(
+          replaceAssetRefs(generated.templateBlueprint, assetRefs.fileIds),
+        );
+      const deckBlueprint =
+        pptxOoxmlGenerationWorkerResponseSchema.shape.blueprint.parse(
+          replaceAssetRefs(generated.blueprint, assetRefs.urls),
+        );
+      const deck = buildOoxmlDeck(
+        payload.projectId,
+        asset,
+        generated.canvas,
+        deckBlueprint,
+        templateBlueprint,
+        assetRefs.urls,
+      );
+
+      await saveDeck(manager, deck);
+      await saveTemplateBlueprint(
+        manager,
+        payload.projectId,
+        deck.deckId,
+        templateBlueprint,
+        generated.qualityReport,
+      );
+
+      const result = pptxOoxmlGenerationJobResultSchema.parse({
+        deckId: deck.deckId,
+        templateId: templateBlueprint.templateId,
+        sourceFileId: payload.request.fileId,
+        currentPackageFileId: templateBlueprint.currentPackageFileId,
+        qualityReport: generated.qualityReport,
+        warnings: generated.warnings,
+      });
+
+      return updateJob(manager, payload.jobId, {
+        status: "succeeded",
+        progress: 100,
+        message: "PPTX OOXML generation completed.",
+        result,
+        error: null,
+      });
+    });
+  } catch {
+    await cleanupNewStorageObjects(
       storage,
+      newStorageObjectKeys,
+      payload.jobId,
       payload.projectId,
-      generated,
+      payload.request.fileId,
     );
-    const templateBlueprint =
-      pptxOoxmlGenerationWorkerResponseSchema.shape.templateBlueprint.parse(
-        replaceAssetRefs(generated.templateBlueprint, assetRefs.fileIds),
-      );
-    const deckBlueprint =
-      pptxOoxmlGenerationWorkerResponseSchema.shape.blueprint.parse(
-        replaceAssetRefs(generated.blueprint, assetRefs.urls),
-      );
-    const deck = buildOoxmlDeck(
-      payload.projectId,
-      asset,
-      generated.canvas,
-      deckBlueprint,
-      templateBlueprint,
-      assetRefs.urls,
-    );
-
-    await saveDeck(dataSource, deck);
-    await saveTemplateBlueprint(
-      dataSource,
-      payload.projectId,
-      deck.deckId,
-      templateBlueprint,
-      generated.qualityReport,
-    );
-
-    const result = pptxOoxmlGenerationJobResultSchema.parse({
-      deckId: deck.deckId,
-      templateId: templateBlueprint.templateId,
-      sourceFileId: payload.request.fileId,
-      currentPackageFileId: templateBlueprint.currentPackageFileId,
-      qualityReport: generated.qualityReport,
-      warnings: generated.warnings,
-    });
-
-    return updateJob(dataSource, payload.jobId, {
-      status: "succeeded",
-      progress: 100,
-      message: "PPTX OOXML generation completed.",
-      result,
-      error: null,
-    });
-  } catch (error) {
     return failJob(
       dataSource,
       payload.jobId,
       75,
       "PPTX_OOXML_GENERATION_SAVE_FAILED",
-      error instanceof Error
-        ? error.message
-        : "PPTX OOXML generation save failed.",
+      `PPTX_OOXML_GENERATION_SAVE_FAILED:projectId=${payload.projectId}:fileId=${payload.request.fileId}`,
     );
   }
 }
@@ -286,19 +303,18 @@ async function generatePptxOoxmlWithPython(
   );
 
   if (!response.ok) {
-    throw new Error(
-      (await response.text()) || "Python worker PPTX OOXML generation failed.",
-    );
+    throw new PythonWorkerHttpError(response.status);
   }
 
   return pptxOoxmlGenerationWorkerResponseSchema.parse(await response.json());
 }
 
 async function saveGeneratedDesignAssets(
-  dataSource: DataSource,
+  dataSource: QueryExecutor,
   storage: Pick<StoragePort, "putObject">,
   projectId: string,
   generated: PptxOoxmlGenerationWorkerResponse,
+  newStorageObjectKeys: string[],
 ): Promise<SavedAssetRefs> {
   const refs: SavedAssetRefs = {
     fileIds: new Map(),
@@ -318,6 +334,7 @@ async function saveGeneratedDesignAssets(
       contentType: asset.mimeType,
       purpose: "design-asset",
     });
+    newStorageObjectKeys.push(storageKey);
     await dataSource.query(
       `
         INSERT INTO project_assets (
@@ -385,10 +402,34 @@ function buildOoxmlDeck(
       if (!renderUrl) {
         throw new Error(`Rendered slide asset missing: ${renderAssetRef}`);
       }
-      const elements = useSnapshotFallback ? [] : visualElements;
+      const elementSources = new Map(
+        slide.elementSources.map((source) => [source.elementId, source]),
+      );
+      const elements = useSnapshotFallback
+        ? []
+        : visualElements.map((element) =>
+            deckElementSchema.parse({
+              ...element,
+              ooxmlOrigin: "imported",
+              ooxmlEditCapabilities: elementSources.get(element.elementId)
+                ?.ooxmlEditCapabilities ?? {
+                richText: "none",
+                crop: "none",
+                tableCellText: false,
+                frame: false,
+                delete: false,
+                imageSource: false,
+              },
+            }),
+          );
 
       return {
         slideId: `slide_ooxml_${safeId(asset.file_id)}_${index + 1}`,
+        ooxmlOrigin: "imported",
+        ooxmlMotionCapabilities: slide.ooxmlMotionCapabilities ?? {
+          transitionWritable: false,
+          importedMainSequenceCoverage: "unknown",
+        },
         order: index + 1,
         title: `Slide ${index + 1}`,
         thumbnailUrl: renderUrl,
@@ -427,7 +468,7 @@ function elementHasUnresolvedAssetRef(element: unknown): boolean {
   return typeof src === "string" && src.startsWith("asset:");
 }
 
-async function saveDeck(dataSource: DataSource, deck: Deck): Promise<void> {
+async function saveDeck(dataSource: QueryExecutor, deck: Deck): Promise<void> {
   await dataSource.query(
     `
       INSERT INTO decks (project_id, deck_id, deck_json, version, updated_at)
@@ -444,7 +485,7 @@ async function saveDeck(dataSource: DataSource, deck: Deck): Promise<void> {
 }
 
 async function saveTemplateBlueprint(
-  dataSource: DataSource,
+  dataSource: QueryExecutor,
   projectId: string,
   deckId: string,
   templateBlueprint: TemplateBlueprint,
@@ -498,8 +539,47 @@ function replaceAssetRefs(value: unknown, refs: Map<string, string>): unknown {
   return value;
 }
 
+function safeGenerationSourceFailureMessage(
+  error: unknown,
+  fileId: string,
+): string {
+  if (error instanceof PythonWorkerHttpError) {
+    return `PPTX_OOXML_GENERATION_PYTHON_HTTP_ERROR:status=${error.status}:fileId=${fileId}`;
+  }
+  return `PPTX_OOXML_GENERATION_SOURCE_FAILED:fileId=${fileId}`;
+}
+
+async function cleanupNewStorageObjects(
+  storage: Pick<StoragePort, "removeObject">,
+  objectKeys: string[],
+  jobId: string,
+  projectId: string,
+  fileId: string,
+): Promise<void> {
+  if (objectKeys.length === 0) return;
+
+  const cleanupResults = await Promise.allSettled(
+    objectKeys.map((key) => storage.removeObject(key)),
+  );
+  const failedObjectCount = cleanupResults.filter(
+    (result) => result.status === "rejected",
+  ).length;
+  if (failedObjectCount === 0) return;
+
+  console.warn(
+    {
+      event: "pptx_ooxml.generation.storage_cleanup_failed",
+      jobId,
+      projectId,
+      fileId,
+      failedObjectCount,
+    },
+    "PPTX OOXML generation storage cleanup failed.",
+  );
+}
+
 async function failJob(
-  dataSource: DataSource,
+  dataSource: QueryExecutor,
   jobId: string,
   progress: number,
   code: string,
@@ -515,7 +595,7 @@ async function failJob(
 }
 
 async function updateJob(
-  dataSource: DataSource,
+  dataSource: QueryExecutor,
   jobId: string,
   patch: {
     status: "running" | "succeeded" | "failed";

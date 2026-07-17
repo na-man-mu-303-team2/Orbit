@@ -30,20 +30,41 @@ export function normalizeElementFrameDraft(
   currentElement: DeckElement,
   draft: ElementFrameDraft
 ): ElementFramePatch {
-  return {
-    role: Object.prototype.hasOwnProperty.call(draft, "role")
-      ? draft.role
-      : currentElement.role,
-    x: clampCoordinate(draft.x ?? currentElement.x, canvas.width),
-    y: clampCoordinate(draft.y ?? currentElement.y, canvas.height),
-    width: clampSize(draft.width ?? currentElement.width),
-    height: clampSize(draft.height ?? currentElement.height),
-    rotation: normalizeRotation(draft.rotation ?? currentElement.rotation),
-    opacity: clampOpacity(draft.opacity ?? currentElement.opacity),
-    zIndex: clampZIndex(draft.zIndex ?? currentElement.zIndex),
-    locked: draft.locked ?? currentElement.locked,
-    visible: draft.visible ?? currentElement.visible
-  };
+  const frame: ElementFramePatch = {};
+  const hasOwn = (key: keyof ElementFrameDraft) =>
+    Object.prototype.hasOwnProperty.call(draft, key);
+  const hasGeometryChange =
+    hasOwn("x") ||
+    hasOwn("y") ||
+    hasOwn("width") ||
+    hasOwn("height") ||
+    hasOwn("rotation");
+
+  if (hasGeometryChange) {
+    frame.x = clampCoordinate(draft.x ?? currentElement.x, canvas.width);
+    frame.y = clampCoordinate(draft.y ?? currentElement.y, canvas.height);
+    frame.width = clampSize(draft.width ?? currentElement.width);
+    frame.height = clampSize(draft.height ?? currentElement.height);
+    frame.rotation = normalizeRotation(draft.rotation ?? currentElement.rotation);
+  }
+
+  if (hasOwn("role")) {
+    frame.role = draft.role;
+  }
+  if (hasOwn("opacity")) {
+    frame.opacity = clampOpacity(draft.opacity ?? currentElement.opacity);
+  }
+  if (hasOwn("zIndex")) {
+    frame.zIndex = clampZIndex(draft.zIndex ?? currentElement.zIndex);
+  }
+  if (hasOwn("locked")) {
+    frame.locked = draft.locked ?? currentElement.locked;
+  }
+  if (hasOwn("visible")) {
+    frame.visible = draft.visible ?? currentElement.visible;
+  }
+
+  return frame;
 }
 
 export function createElementFramePatch(

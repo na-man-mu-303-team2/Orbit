@@ -17,6 +17,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     keywordOptions,
     keywordTriggerRestrictionMessage,
     keywordTriggerWarningMessage,
+    mutationDisabledReason,
     preferredAnimationId,
     selectedKeywordId,
     selectedKeywordLabel,
@@ -28,7 +29,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     onSelectKeyword,
     onSelectSlideAnimation,
     showIds,
-    onUpdateAnimation
+    onUpdateAnimation,
   } = props;
   const {
     creationType,
@@ -40,7 +41,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     selectedAnimationId,
     startCreating,
     summary,
-    updateDraft
+    updateDraft,
   } = useAnimationInspectorModel(animations, preferredAnimationId);
   const ordinalLabelByAnimationId =
     buildSlideAnimationOrdinalLabelMap(slideAnimations);
@@ -71,6 +72,12 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
         summaryTone={summary.tone}
       />
 
+      {mutationDisabledReason ? (
+        <div className="animation-editor-warning" role="status">
+          {mutationDisabledReason}
+        </div>
+      ) : null}
+
       <AnimationExistingList
         animations={animations}
         ordinalLabelByAnimationId={ordinalLabelByAnimationId}
@@ -79,7 +86,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
       />
 
       <AnimationCreateFlow
-        canCreateAnimation={canCreateAnimation}
+        canCreateAnimation={canCreateAnimation && !mutationDisabledReason}
         creationType={creationType}
         draft={creationType ? draftByType[creationType] : null}
         keywordOptions={keywordOptions}
@@ -102,11 +109,17 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
       />
 
       {mode === "editing-existing" && selectedAnimation ? (
-        <AnimationExistingEditor
-          animation={selectedAnimation}
-          onDeleteAnimation={onDeleteAnimation}
-          onUpdateAnimation={onUpdateAnimation}
-        />
+        <fieldset
+          disabled={Boolean(mutationDisabledReason)}
+          style={{ display: "contents" }}
+          title={mutationDisabledReason ?? undefined}
+        >
+          <AnimationExistingEditor
+            animation={selectedAnimation}
+            onDeleteAnimation={onDeleteAnimation}
+            onUpdateAnimation={onUpdateAnimation}
+          />
+        </fieldset>
       ) : null}
 
       {mode === "idle" ? (

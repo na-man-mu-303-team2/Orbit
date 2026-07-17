@@ -16,6 +16,7 @@ import {
   applyDesignAgentProposal,
   createDesignAgentMessage
 } from "../../design-agent/designAgentApi";
+import { resolveOoxmlPatchCapability } from "../editorOoxmlCapabilities";
 import { DesignProposalPreviewModal } from "./DesignProposalPreviewModal";
 
 export type AiChatMessage = {
@@ -58,6 +59,18 @@ export function createInitialAiChatState(projectId: string): AiChatState {
     projectId,
     sessionId: null
   };
+}
+
+export function resolveDesignAgentProposalApplyCapability(
+  deck: Deck,
+  proposal: DesignAgentProposal
+) {
+  return resolveOoxmlPatchCapability(deck, {
+    deckId: proposal.deckId,
+    baseVersion: proposal.baseVersion,
+    source: "ai",
+    operations: proposal.operations
+  });
 }
 
 export function AiChatPanel(props: AiChatPanelProps) {
@@ -147,6 +160,19 @@ export function AiChatPanel(props: AiChatPanelProps) {
 
   async function handleApplyPreview() {
     if (!pendingPreview || isApplying) return;
+    const capability = resolveDesignAgentProposalApplyCapability(
+      props.deck,
+      pendingPreview.proposal
+    );
+    if (!capability.enabled) {
+      appendErrorMessage(
+        new Error(
+          capability.reason ??
+            "이 AI 제안을 PPTX 원본에 안전하게 적용할 수 없습니다."
+        )
+      );
+      return;
+    }
     setIsApplying(true);
     try {
       const applied = await applyDesignAgentProposal(
@@ -186,6 +212,9 @@ export function AiChatPanel(props: AiChatPanelProps) {
   }
 
   const canSend = Boolean(draft.trim() && props.currentSlide && !isSending);
+  const proposalApplyCapability = pendingPreview
+    ? resolveDesignAgentProposalApplyCapability(props.deck, pendingPreview.proposal)
+    : null;
 
   return (
     <section className="ai-chat-panel" aria-label="AI 채팅">
@@ -229,6 +258,12 @@ export function AiChatPanel(props: AiChatPanelProps) {
           summary={pendingPreview.proposal.summary ?? pendingPreview.proposal.title}
           warnings={pendingPreview.proposal.warnings}
           isApplying={isApplying}
+          mutationDisabledReason={
+            proposalApplyCapability?.enabled === false
+              ? (proposalApplyCapability.reason ??
+                "이 AI 제안을 PPTX 원본에 안전하게 적용할 수 없습니다.")
+              : undefined
+          }
           onApply={() => void handleApplyPreview()}
           onClose={() => setPendingPreview(null)}
         />

@@ -31,6 +31,7 @@ DML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+ORBIT_OOXML_NS = "urn:orbit:deck:ooxml"
 
 SLIDE_REL_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
@@ -313,6 +314,7 @@ def import_pptx_ooxml_visual_tree(
                 {
                     "sourceFileId": file_id,
                     "sourceSlideIndex": slide_index,
+                    "sourceSlidePart": slide_part,
                     "style": imported_slide_style(elements, background),
                     "elements": elements,
                 }
@@ -1269,7 +1271,7 @@ def image_element(
         "src": f"asset:{asset_id}",
         "alt": shape_name(shape)
         or ("Imported SVG" if is_svg_mime_type(mime_type) else "Imported image"),
-        "fit": "stretch",
+        "fit": image_fit(shape),
         "focusX": 0.5,
         "focusY": 0.5,
     }
@@ -1339,7 +1341,7 @@ def shape_picture_fill_element(
         "props": {
             "src": f"asset:{asset_id}",
             "alt": shape_name(shape) or "Shape picture fill",
-            "fit": "stretch",
+            "fit": image_fit(shape),
             "focusX": 0.5,
             "focusY": 0.5,
             **({"crop": crop} if crop else {}),
@@ -2250,8 +2252,27 @@ def image_crop(shape: ET.Element[Any]) -> dict[str, float] | None:
     return crop if any(value > 0 for value in crop.values()) else None
 
 
+def image_fit(shape: ET.Element[Any]) -> str:
+    for node in shape.iter():
+        if node.tag == f"{{{ORBIT_OOXML_NS}}}imageFit":
+            value = str(node.get("value", ""))
+            if value in {"contain", "cover", "stretch"}:
+                return value
+    src_rect = first_local_descendant(shape, "srcRect")
+    if src_rect is None:
+        return "stretch"
+    values = [signed_pct_attr(src_rect, edge) for edge in ("l", "t", "r", "b")]
+    if any(value < 0 for value in values) and not any(value > 0 for value in values):
+        return "contain"
+    return "stretch"
+
+
 def pct_attr(element: ET.Element[Any], name: str) -> float:
     return max(0, min(0.99, int_attr(element, name, 0) / 100000))
+
+
+def signed_pct_attr(element: ET.Element[Any], name: str) -> float:
+    return max(-10, min(0.99, int_attr(element, name, 0) / 100000))
 
 
 def shape_frame(

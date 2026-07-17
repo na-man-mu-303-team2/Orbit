@@ -1,4 +1,5 @@
 import { renderToString } from "react-dom/server";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,7 +8,9 @@ import {
 } from "../editorShellUiStore";
 import { EditorToolbar } from "./EditorToolbar";
 
-function renderToolbar() {
+function renderToolbar(
+  overrides: Partial<ComponentProps<typeof EditorToolbar>> = {}
+) {
   return renderToString(
     <EditorToolbar
       canMutate
@@ -30,6 +33,7 @@ function renderToolbar() {
       shapeMenuButtonRef={{ current: null }}
       undoDisabled
       zoomControl={null}
+      {...overrides}
     />
   );
 }
@@ -47,5 +51,38 @@ describe("EditorToolbar smart guides", () => {
     expect(renderToolbar()).toMatch(
       /aria-label="스마트 가이드 끄기" aria-pressed="true"/
     );
+  });
+
+  it("disables unsupported add controls before mutation and exposes each reason", () => {
+    const chartReason = "차트 serializer가 준비되지 않았습니다.";
+    const animationReason = "애니메이션 serializer가 준비되지 않았습니다.";
+    const html = renderToolbar({
+      actionDisabledReasons: {
+        animation: animationReason,
+        chart: chartReason
+      }
+    });
+
+    expect(html).toMatch(
+      new RegExp(`aria-label="차트"[^>]*disabled=""[^>]*title="${chartReason}"`)
+    );
+    expect(html).toMatch(
+      new RegExp(
+        `aria-label="애니메이션"[^>]*disabled=""[^>]*title="${animationReason}"`
+      )
+    );
+    expect(html).not.toMatch(/aria-label="텍스트"[^>]*disabled=""/);
+  });
+
+  it("disables slide-bound controls with a visible tooltip reason when no slide exists", () => {
+    const html = renderToolbar({ canUseCurrentSlide: false });
+
+    for (const label of ["텍스트", "도형", "차트", "이미지", "애니메이션"]) {
+      expect(html).toMatch(
+        new RegExp(
+          `aria-label="${label}"[^>]*disabled=""[^>]*title="편집할 슬라이드가 필요합니다\\."`
+        )
+      );
+    }
   });
 });
