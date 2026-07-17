@@ -504,8 +504,8 @@ describe("editor shell", () => {
     expect(html).not.toContain("줄바꿈은 발표자 화면에도 반영됩니다.");
     expect(html).toContain("발표 체크포인트");
     expect(html).not.toContain("필수 발화와 화면 전환에 연결된 키워드입니다.");
-    expect(html.indexOf("script-keyword-section")).toBeLessThan(
-      html.indexOf("speaker-notes-length-meter"),
+    expect(html.indexOf("speaker-notes-length-meter")).toBeLessThan(
+      html.indexOf("script-keyword-section"),
     );
     expect(html).toContain('aria-labelledby="speaker-notes-title"');
     expect(html).toContain("저장됨");

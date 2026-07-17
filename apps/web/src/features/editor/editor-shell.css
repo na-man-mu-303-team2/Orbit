@@ -8799,7 +8799,7 @@ body.is-resizing-speaker-notes {
   .orbit-shell.editor-professional .editor-panel,
   .orbit-shell.editor-professional .editor-panel:has(.selection-quickbar) {
     grid-template-columns:
-      clamp(200px, var(--slides-pane-width, 224px), 280px)
+      clamp(160px, var(--slides-pane-width, 184px), 280px)
       minmax(0, 1fr)
       clamp(280px, var(--right-pane-width, 304px), 360px);
     grid-template-rows: minmax(0, 1fr) auto;
@@ -8809,7 +8809,7 @@ body.is-resizing-speaker-notes {
   .orbit-shell.editor-professional .editor-panel.right-panel-closed,
   .orbit-shell.editor-professional .editor-panel.right-panel-closed:has(.selection-quickbar) {
     grid-template-columns:
-      clamp(200px, var(--slides-pane-width, 224px), 280px)
+      clamp(160px, var(--slides-pane-width, 184px), 280px)
       minmax(0, 1fr)
       var(--right-pane-collapsed-width, 44px);
   }
@@ -8817,7 +8817,7 @@ body.is-resizing-speaker-notes {
   .orbit-shell.editor-professional .editor-panel.animation-panel-open,
   .orbit-shell.editor-professional .editor-panel.animation-panel-open:has(.selection-quickbar) {
     grid-template-columns:
-      clamp(200px, var(--slides-pane-width, 224px), 280px)
+      clamp(160px, var(--slides-pane-width, 184px), 280px)
       minmax(0, 2fr)
       minmax(240px, 1fr)
       clamp(280px, var(--right-pane-width, 304px), 360px);
@@ -8827,7 +8827,7 @@ body.is-resizing-speaker-notes {
   .orbit-shell.editor-professional .editor-panel.animation-panel-open.right-panel-closed,
   .orbit-shell.editor-professional .editor-panel.animation-panel-open.right-panel-closed:has(.selection-quickbar) {
     grid-template-columns:
-      clamp(200px, var(--slides-pane-width, 224px), 280px)
+      clamp(160px, var(--slides-pane-width, 184px), 280px)
       minmax(0, 2fr)
       minmax(240px, 1fr)
       var(--right-pane-collapsed-width, 44px);
@@ -10001,4 +10001,275 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional .collapse-slides-button:hover:not(:disabled) {
   border: 0;
   border-color: transparent;
+}
+
+/* Compact script workspace: actions live on the script surface and supporting
+ * information stays attached to the content instead of consuming full rows. */
+.orbit-shell.editor-professional .stage-speaker-notes-panel {
+  min-height: 40px;
+}
+
+.orbit-shell.editor-professional .stage-speaker-notes-panel.collapsed {
+  height: 40px;
+}
+
+.orbit-shell.editor-professional .stage-speaker-notes-panel.expanded {
+  grid-template-rows: 8px 42px minmax(0, 1fr);
+}
+
+.orbit-shell.editor-professional .speaker-notes-resize-handle {
+  height: 8px;
+}
+
+.orbit-shell.editor-professional .stage-speaker-notes-panel .script-panel-header,
+.orbit-shell.editor-professional .stage-speaker-notes-panel.expanded .script-panel-header {
+  min-height: 40px;
+  gap: 0;
+  padding: 0;
+}
+
+.orbit-shell.editor-professional .stage-speaker-notes-panel.collapsed .script-panel-header {
+  border-bottom: 0;
+}
+
+.orbit-shell.editor-professional .stage-speaker-notes-panel.collapsed .speaker-notes-toggle {
+  width: 100%;
+  padding: 0 14px;
+}
+
+.orbit-shell.editor-professional .speaker-notes-collapsed-label {
+  flex: 0 0 auto;
+  color: var(--redesign-color-on-surface);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.orbit-shell.editor-professional .speaker-notes-collapsed-preview {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 11px;
+  font-weight: 450;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orbit-shell.editor-professional .speaker-notes-tabs {
+  gap: 0;
+}
+
+.orbit-shell.editor-professional .speaker-notes-tabs button {
+  min-width: 88px;
+  margin: 0;
+  padding: 0 18px;
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.orbit-shell.editor-professional .speaker-notes-tabs button::after {
+  right: 16px;
+  left: 16px;
+}
+
+.orbit-shell.editor-professional .speaker-notes-collapse-button {
+  margin-right: 6px;
+}
+
+.orbit-shell.editor-professional .stage-speaker-notes-panel .script-panel-body {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+
+.orbit-shell.editor-professional .script-notes-surface,
+.orbit-shell.editor-professional .script-notes-editor-shell {
+  position: relative;
+  min-height: 84px;
+  padding: 12px 44px 8px 12px;
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface-container-lowest);
+}
+
+.orbit-shell.editor-professional .script-notes-surface {
+  cursor: text;
+}
+
+.orbit-shell.editor-professional .script-notes-surface:focus-visible {
+  outline: 1px solid var(--redesign-color-primary);
+  outline-offset: -1px;
+}
+
+.orbit-shell.editor-professional .script-notes-surface-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  gap: 2px;
+}
+
+.orbit-shell.editor-professional .script-notes-editor-shell {
+  padding-right: 72px;
+}
+
+.orbit-shell.editor-professional .script-notes-editor-shell .script-notes-editor {
+  min-height: 76px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  resize: vertical;
+}
+
+.orbit-shell.editor-professional .script-notes-editor-shell .script-notes-editor:focus {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .script-notes-surface .speaker-notes-length-meter,
+.orbit-shell.editor-professional .script-notes-editor-shell .speaker-notes-length-meter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--redesign-color-outline-variant);
+  border-radius: 0;
+  background: transparent;
+}
+
+.orbit-shell.editor-professional .script-notes-surface .speaker-notes-length-meter > div,
+.orbit-shell.editor-professional .script-notes-editor-shell .speaker-notes-length-meter > div {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.orbit-shell.editor-professional .script-notes-surface .speaker-notes-length-meter strong,
+.orbit-shell.editor-professional .script-notes-surface .speaker-notes-length-meter span,
+.orbit-shell.editor-professional .script-notes-editor-shell .speaker-notes-length-meter strong,
+.orbit-shell.editor-professional .script-notes-editor-shell .speaker-notes-length-meter span {
+  font-size: 9px;
+  line-height: 1.3;
+}
+
+.orbit-shell.editor-professional .script-notes-surface .speaker-notes-length-track,
+.orbit-shell.editor-professional .script-notes-editor-shell .speaker-notes-length-track {
+  flex: 0 1 96px;
+  width: 96px;
+  height: 3px;
+  margin-left: auto;
+}
+
+.orbit-shell.editor-professional .script-keyword-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 0;
+  padding-top: 7px;
+  border-top: 1px solid var(--redesign-color-outline-variant);
+}
+
+.orbit-shell.editor-professional .script-keyword-heading {
+  flex: 0 0 auto;
+}
+
+.orbit-shell.editor-professional .script-keyword-heading strong {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.orbit-shell.editor-professional .script-keyword-section .keyword-strip {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.orbit-shell.editor-professional .script-keyword-section .keyword-chip {
+  flex: 0 0 auto;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+.orbit-shell.editor-professional .script-keyword-section .keyword-chip-badge {
+  min-height: 15px;
+  padding: 0 4px;
+  font-size: 8px;
+}
+
+.orbit-shell.editor-professional .script-keyword-section .keyword-empty {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Slide navigator header follows the same flat chrome hierarchy as the
+ * topbar instead of presenting its collapse action as a separate tile. */
+.orbit-shell.editor-professional .slides-pane-header {
+  height: var(--editor-chrome-height);
+  min-height: var(--editor-chrome-height);
+  padding: 0 8px 0 14px;
+}
+
+.orbit-shell.editor-professional .slides-pane.collapsed .slides-pane-header {
+  border-bottom: 0;
+}
+
+.orbit-shell.editor-professional .slides-pane-title {
+  gap: 6px;
+}
+
+.orbit-shell.editor-professional .slides-pane-title strong {
+  color: var(--redesign-color-on-surface);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.orbit-shell.editor-professional .slides-pane-title span {
+  width: auto;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.orbit-shell.editor-professional .collapse-slides-button,
+.orbit-shell.editor-professional .slides-pane.collapsed .collapse-slides-button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--redesign-radius-sm);
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  box-shadow: none;
+}
+
+.orbit-shell.editor-professional .collapse-slides-button:hover:not(:disabled) {
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface);
 }

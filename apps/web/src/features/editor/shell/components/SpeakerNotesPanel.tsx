@@ -2,10 +2,8 @@ import type { Keyword, Slide } from "@orbit/shared";
 import {
   IconCheck as Check,
   IconChevronDown as ChevronDown,
-  IconFileText as FileText,
   IconGripHorizontal as GripHorizontal,
-  IconPencil as PenLine,
-  IconSparkles as Sparkles,
+  IconWand as Wand,
   IconX as X
 } from "@tabler/icons-react";
 import type {
@@ -122,7 +120,6 @@ export function SpeakerNotesPanel(props: {
                 </button>
               ))}
             </div>
-            {props.isEditing ? <span className="script-panel-status">편집 중</span> : null}
             <button
               aria-controls="speaker-notes-content"
               aria-expanded="true"
@@ -145,16 +142,10 @@ export function SpeakerNotesPanel(props: {
             type="button"
             onClick={props.onTogglePanel}
           >
-            <span aria-hidden="true" className="script-panel-icon"><FileText size={18} /></span>
-            <div className="speaker-notes-toggle-copy">
-              <div className="script-panel-title-row">
-                <strong>발표 메모</strong>
-              </div>
-              <span className="speaker-notes-preview">
-                {notesPreview || "발표자 노트를 추가하려면 클릭하세요."}
-              </span>
-            </div>
-            <ChevronDown aria-hidden="true" className="speaker-notes-toggle-chevron" size={16} />
+            <strong className="speaker-notes-collapsed-label">대본</strong>
+            <span className="speaker-notes-collapsed-preview">
+              {notesPreview || "대본을 추가하려면 클릭하세요."}
+            </span>
           </button>
         )}
       </div>
@@ -165,10 +156,10 @@ export function SpeakerNotesPanel(props: {
             id="speaker-notes-script-panel"
             role="tabpanel"
           >
-            {props.isExpanded ? (
-              <div className="speaker-notes-action-row">
-                {props.isEditing ? (
-                  <div className="script-panel-actions">
+            {props.isEditing ? (
+              <div className="script-panel-body">
+                <div className="script-notes-editor-shell">
+                  <div className="script-notes-surface-actions">
                     <button aria-label="메모 편집 취소" className="script-panel-action" title="취소" type="button" onClick={props.onCancelEdit}>
                       <X aria-hidden="true" size={15} />
                     </button>
@@ -176,8 +167,32 @@ export function SpeakerNotesPanel(props: {
                       <Check aria-hidden="true" size={15} />
                     </button>
                   </div>
-                ) : (
-                  <div className="script-panel-actions">
+                  <textarea
+                    aria-label="발표 메모 수정"
+                    autoFocus
+                    className="script-notes-editor"
+                    placeholder={"슬라이드에서 말할 내용을 입력하세요.\n문단을 나누면 발표할 때도 그대로 표시됩니다."}
+                    value={props.draft}
+                    onChange={(event) => props.onDraftChange(event.target.value)}
+                  />
+                  <SpeakerNotesLengthMeter guidance={props.guidance} />
+                </div>
+              </div>
+            ) : (
+              <div className="script-panel-body">
+                <div
+                  aria-label="대본. 더블클릭하거나 Enter 키를 눌러 편집"
+                  className="script-notes-surface"
+                  role="group"
+                  tabIndex={0}
+                  onDoubleClick={props.onStartEdit}
+                  onKeyDown={(event) => {
+                    if (event.currentTarget === event.target && event.key === "Enter") {
+                      props.onStartEdit();
+                    }
+                  }}
+                >
+                  <div className="script-notes-surface-actions">
                     <button
                       aria-label={notesPreview ? "AI로 메모 다듬기" : "AI 메모 초안 만들기"}
                       className="script-panel-action assistant"
@@ -185,33 +200,9 @@ export function SpeakerNotesPanel(props: {
                       type="button"
                       onClick={props.onOpenAssistant}
                     >
-                      <Sparkles aria-hidden="true" size={14} />
-                    </button>
-                    <button aria-label="메모 편집" className="script-panel-action" title="메모 편집" type="button" onClick={props.onStartEdit}>
-                      <PenLine aria-hidden="true" size={14} />
+                      <Wand aria-hidden="true" size={15} />
                     </button>
                   </div>
-                )}
-              </div>
-            ) : null}
-            {props.isEditing ? (
-              <div className="script-panel-body">
-                <textarea
-                  aria-label="발표 메모 수정"
-                  autoFocus
-                  className="script-notes-editor"
-                  placeholder={"슬라이드에서 말할 내용을 입력하세요.\n문단을 나누면 발표할 때도 그대로 표시됩니다."}
-                  value={props.draft}
-                  onChange={(event) => props.onDraftChange(event.target.value)}
-                />
-                <div aria-live="polite" className="script-panel-meta script-panel-character-count">
-                  <span>{props.draft.length.toLocaleString()}자</span>
-                </div>
-                <SpeakerNotesLengthMeter guidance={props.guidance} />
-              </div>
-            ) : (
-              <div className="script-panel-body">
-                <div className="script-notes-surface">
                   <KeywordHighlightedNotes
                     keywords={props.currentSlide?.keywords ?? []}
                     notes={props.currentSlide?.speakerNotes ?? ""}
@@ -222,9 +213,7 @@ export function SpeakerNotesPanel(props: {
                     onSelectKeyword={props.onSelectKeyword}
                     onSelectKeywordText={props.onSelectKeywordText}
                   />
-                </div>
-                <div className="script-panel-meta script-panel-character-count">
-                  <span>{(props.currentSlide?.speakerNotes ?? "").length.toLocaleString()}자</span>
+                  <SpeakerNotesLengthMeter guidance={props.guidance} />
                 </div>
                 <section aria-labelledby="speaker-notes-keywords-title" className="script-keyword-section">
                   <div className="script-keyword-heading"><strong id="speaker-notes-keywords-title">발표 체크포인트</strong></div>
@@ -236,7 +225,6 @@ export function SpeakerNotesPanel(props: {
                     onSelectKeyword={props.onSelectKeyword}
                   />
                 </section>
-                <SpeakerNotesLengthMeter guidance={props.guidance} />
                 {props.selectedKeyword ? (
                   <KeywordDetail
                     keyword={props.selectedKeyword}

@@ -167,7 +167,7 @@ declare global {
 
 const fallbackDeck = createDemoDeck();
 const collapsedSlidesPaneWidth = 0;
-const minSlidesPaneWidth = 132;
+const minSlidesPaneWidth = 160;
 
 const maxSlidesPaneWidth = 280;
 const collapsedRightPaneWidth = 52;
