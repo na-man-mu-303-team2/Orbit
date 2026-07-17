@@ -11,12 +11,30 @@ from pptx.dml.color import RGBColor
 from pptx.enum.chart import XL_CHART_TYPE
 from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
 from pydantic import BaseModel, Field
 
 
 DECK_UNITS_PER_INCH = 144
 POINTS_PER_INCH = 72
+RICH_TEXT_UNSUPPORTED_HYPERLINK = "PPTX_RICH_TEXT_UNSUPPORTED_HYPERLINK"
+RICH_TEXT_UNSUPPORTED_LETTER_SPACING = (
+    "PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING"
+)
+RICH_TEXT_UNSUPPORTED_RUN_PROPERTY = "PPTX_RICH_TEXT_UNSUPPORTED_RUN_PROPERTY"
+SUPPORTED_RUN_PROPERTIES = {
+    "baseline",
+    "color",
+    "fontFamily",
+    "fontSize",
+    "fontWeight",
+    "italic",
+    "text",
+    "underline",
+}
+HYPERLINK_RUN_PROPERTIES = {"href", "hyperlink", "link"}
+LETTER_SPACING_RUN_PROPERTIES = {"letterSpacing"}
 
 
 class DeckPptxExportRequest(BaseModel):
@@ -97,7 +115,7 @@ def add_element(
 ) -> None:
     element_type = element.get("type")
     if element_type == "text":
-        add_text(slide, element, deck)
+        add_text(slide, element, deck, warnings)
     elif element_type in {"rect", "ellipse"}:
         add_shape(slide, element, element_type)
     elif element_type in {"line", "arrow"}:
@@ -114,7 +132,12 @@ def add_element(
         warnings.append(f"Skipped unsupported element type: {element_type}")
 
 
-def add_text(slide: Any, element: dict[str, Any], deck: dict[str, Any]) -> None:
+def add_text(
+    slide: Any,
+    element: dict[str, Any],
+    deck: dict[str, Any],
+    warnings: list[str],
+) -> None:
     props = element.get("props", {})
     shape = slide.shapes.add_textbox(
         emu_x(element),
@@ -133,16 +156,43 @@ def add_text(slide: Any, element: dict[str, Any], deck: dict[str, Any]) -> None:
     text_frame.vertical_anchor = vertical_anchor(props.get("verticalAlign", "top"))
 
     paragraphs = props.get("paragraphs")
-    if isinstance(paragraphs, list) and paragraphs:
+    element_id = str(element.get("elementId", "unknown"))
+    if isinstance(paragraphs, list):
         for index, paragraph_payload in enumerate(paragraphs):
             paragraph = text_frame.paragraphs[0] if index == 0 else text_frame.add_paragraph()
-            apply_paragraph(paragraph, paragraph_payload, props, deck)
+            apply_paragraph(
+                paragraph,
+                paragraph_payload,
+                props,
+                deck,
+                warnings,
+                element_id=element_id,
+                paragraph_index=index,
+            )
         return
 
     paragraph = text_frame.paragraphs[0]
-    paragraph.text = str(props.get("text", ""))
-    apply_paragraph_style(paragraph, props)
-    apply_font(paragraph.font, props, deck)
+    runs = props.get("runs")
+    if isinstance(runs, list) and runs:
+        apply_paragraph(
+            paragraph,
+            {"text": props.get("text", ""), "runs": runs},
+            props,
+            deck,
+            warnings,
+            element_id=element_id,
+            paragraph_index=0,
+        )
+    else:
+        apply_paragraph(
+            paragraph,
+            {"text": props.get("text", "")},
+            props,
+            deck,
+            warnings,
+            element_id=element_id,
+            paragraph_index=0,
+        )
 
 
 def apply_paragraph(
@@ -150,12 +200,25 @@ def apply_paragraph(
     paragraph_payload: dict[str, Any],
     fallback: dict[str, Any],
     deck: dict[str, Any],
+    warnings: list[str],
+    *,
+    element_id: str,
+    paragraph_index: int,
 ) -> None:
     paragraph.text = ""
-    apply_paragraph_style(paragraph, {**fallback, **paragraph_payload})
+    paragraph_props = {**fallback, **paragraph_payload}
+    apply_paragraph_style(paragraph, paragraph_props)
+    apply_font(paragraph.font, paragraph_props, deck)
     runs = paragraph_payload.get("runs")
     if isinstance(runs, list) and runs:
-        for run_payload in runs:
+        for run_index, run_payload in enumerate(runs):
+            append_run_diagnostics(
+                warnings,
+                run_payload,
+                element_id=element_id,
+                paragraph_index=paragraph_index,
+                run_index=run_index,
+            )
             run = paragraph.add_run()
             run.text = str(run_payload.get("text", ""))
             apply_font(run.font, {**fallback, **paragraph_payload, **run_payload}, deck)
@@ -169,9 +232,23 @@ def apply_paragraph_style(paragraph: Any, props: dict[str, Any]) -> None:
     paragraph.alignment = paragraph_alignment(props.get("align", "left"))
     line_height = float(props.get("lineHeight", 1.2))
     paragraph.line_spacing = line_height
+    paragraph.space_before = Pt(canvas_units_to_points(props.get("spaceBefore", 0)))
+    paragraph.space_after = Pt(canvas_units_to_points(props.get("spaceAfter", 0)))
+
     bullet = props.get("bullet") or {}
+    indent = float(props.get("indent", 0))
     if bullet.get("enabled"):
-        paragraph.text = f"{bullet.get('character', '•')} {paragraph.text}"
+        indent = max(indent, float(bullet.get("indent", 0)))
+
+    paragraph_properties = paragraph._p.get_or_add_pPr()
+    paragraph_properties.set("marL", str(canvas_units_to_emu(indent)))
+    for child in list(paragraph_properties):
+        if child.tag.rsplit("}", maxsplit=1)[-1] in {"buAutoNum", "buChar", "buNone"}:
+            paragraph_properties.remove(child)
+    if bullet.get("enabled"):
+        bullet_character = OxmlElement("a:buChar")
+        bullet_character.set("char", str(bullet.get("character", "•")))
+        paragraph_properties.append(bullet_character)
 
 
 def apply_font(font: Any, props: dict[str, Any], deck: dict[str, Any]) -> None:
@@ -188,9 +265,56 @@ def apply_font(font: Any, props: dict[str, Any], deck: dict[str, Any]) -> None:
         / DECK_UNITS_PER_INCH
     )
     font.bold = is_bold(props.get("fontWeight", "normal"))
+    font.italic = bool(props.get("italic", False))
+    font.underline = bool(props.get("underline", False))
     color = props.get("color") or theme.get("textColor") or "#111827"
     if is_hex_color(color):
         font.color.rgb = rgb(color)
+    baseline = props.get("baseline", "normal")
+    run_properties = font._element
+    if baseline == "superscript":
+        run_properties.set("baseline", "30000")
+    elif baseline == "subscript":
+        run_properties.set("baseline", "-25000")
+    else:
+        run_properties.attrib.pop("baseline", None)
+
+
+def append_run_diagnostics(
+    warnings: list[str],
+    run_payload: dict[str, Any],
+    *,
+    element_id: str,
+    paragraph_index: int,
+    run_index: int,
+) -> None:
+    location = (
+        f"element={element_id}; paragraph={paragraph_index}; run={run_index}"
+    )
+    if any(key in run_payload for key in HYPERLINK_RUN_PROPERTIES):
+        warnings.append(f"{RICH_TEXT_UNSUPPORTED_HYPERLINK}: {location}")
+    if any(key in run_payload for key in LETTER_SPACING_RUN_PROPERTIES):
+        warnings.append(f"{RICH_TEXT_UNSUPPORTED_LETTER_SPACING}: {location}")
+
+    diagnostic_properties = (
+        set(run_payload)
+        - SUPPORTED_RUN_PROPERTIES
+        - HYPERLINK_RUN_PROPERTIES
+        - LETTER_SPACING_RUN_PROPERTIES
+    )
+    for property_name in sorted(diagnostic_properties):
+        warnings.append(
+            f"{RICH_TEXT_UNSUPPORTED_RUN_PROPERTY}: property={property_name}; "
+            f"{location}"
+        )
+
+
+def canvas_units_to_points(value: Any) -> float:
+    return float(value) * POINTS_PER_INCH / DECK_UNITS_PER_INCH
+
+
+def canvas_units_to_emu(value: Any) -> int:
+    return round(float(value) * int(Inches(1)) / DECK_UNITS_PER_INCH)
 
 
 def add_shape(slide: Any, element: dict[str, Any], element_type: str) -> None:

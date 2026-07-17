@@ -54,6 +54,10 @@ MAX_CROP_TOTAL_UNITS = OOXML_PERCENT_SCALE - 1
 DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU = 91440
 DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU = 45720
 DEFAULT_PPTX_FONT_FAMILY = "Aptos, Calibri, Arial, sans-serif"
+RICH_TEXT_UNSUPPORTED_HYPERLINK = "PPTX_RICH_TEXT_UNSUPPORTED_HYPERLINK"
+RICH_TEXT_UNSUPPORTED_LETTER_SPACING = (
+    "PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING"
+)
 FALLBACK_SCHEME_COLORS = {
     "bg1": "#FFFFFF",
     "tx1": "#111827",
@@ -944,6 +948,7 @@ def append_shape_text_only(
         z_index=state.next_z(),
         locked=locked,
         theme_colors=state.theme_colors,
+        warnings=state.warnings,
     )
     if text_element_payload:
         elements.append(text_element_payload)
@@ -1123,6 +1128,7 @@ def append_shape(
             z_index=state.next_z(),
             locked=locked,
             theme_colors=state.theme_colors,
+            warnings=state.warnings,
         )
         if text_element_payload:
             elements.append(text_element_payload)
@@ -1226,6 +1232,7 @@ def append_shape(
         z_index=state.next_z(),
         locked=locked,
         theme_colors=state.theme_colors,
+        warnings=state.warnings,
     )
     if text_element_payload:
         elements.append(text_element_payload)
@@ -1716,13 +1723,20 @@ def text_element(
     z_index: int,
     locked: bool,
     theme_colors: dict[str, str],
+    warnings: list[str],
 ) -> dict[str, Any] | None:
     body = first_local_child(shape, "txBody")
     if body is None:
         return None
+    append_rich_text_diagnostics(
+        body,
+        warnings,
+        slide_index=slide_index,
+        shape_id=shape_id,
+    )
     paragraphs = text_paragraphs(body, scale, theme_colors)
     runs = flatten_paragraph_runs(paragraphs)
-    text = "".join(str(run.get("text", "")) for run in runs)
+    text = "\n".join(str(paragraph.get("text", "")) for paragraph in paragraphs)
     if not text.strip():
         return None
     first_run = next((run for run in runs if str(run.get("text", "")).strip()), runs[0])
@@ -1740,7 +1754,10 @@ def text_element(
         "writingMode": text_writing_mode(body),
         "lineHeight": paragraph_line_height(body),
     }
-    bullet = paragraph_bullet(body)
+    for key in ("italic", "underline"):
+        if key in first_run:
+            props[key] = first_run[key]
+    bullet = paragraph_bullet(body, scale)
     if bullet:
         props["bullet"] = bullet
     return {
@@ -1765,8 +1782,6 @@ def text_paragraphs(
     for paragraph in direct_local_children(body, "p"):
         runs = paragraph_runs(paragraph, scale, theme_colors)
         text = "".join(str(run.get("text", "")) for run in runs)
-        if not text:
-            continue
         props: dict[str, Any] = {
             "text": text,
             "runs": runs,
@@ -1776,16 +1791,24 @@ def text_paragraphs(
             "spaceAfter": paragraph_spacing_px(paragraph, "spcAft", scale),
             "indent": paragraph_indent_px(paragraph, scale),
         }
-        bullet = paragraph_bullet_value(paragraph)
+        bullet = paragraph_bullet_value(paragraph, scale)
         if bullet:
             props["bullet"] = bullet
-        first_run = next(
-            (run for run in runs if str(run.get("text", "")).strip()),
-            runs[0],
-        )
-        for key in ("fontFamily", "fontSize", "fontWeight", "color"):
-            if key in first_run:
-                props[key] = first_run[key]
+        if runs:
+            first_run = next(
+                (run for run in runs if str(run.get("text", "")).strip()),
+                runs[0],
+            )
+            for key in (
+                "fontFamily",
+                "fontSize",
+                "fontWeight",
+                "italic",
+                "underline",
+                "color",
+            ):
+                if key in first_run:
+                    props[key] = first_run[key]
         paragraphs.append(props)
     if paragraphs:
         return paragraphs
@@ -1811,10 +1834,42 @@ def paragraph_runs(
     return runs
 
 
+def append_rich_text_diagnostics(
+    body: ET.Element[Any],
+    warnings: list[str],
+    *,
+    slide_index: int,
+    shape_id: str,
+) -> None:
+    for paragraph_index, paragraph in enumerate(direct_local_children(body, "p")):
+        run_index = 0
+        for child in list(paragraph):
+            if local_name(child) != "r":
+                continue
+            r_pr = first_local_child(child, "rPr")
+            if r_pr is None:
+                run_index += 1
+                continue
+            location = (
+                f"slide={slide_index}; shape={shape_id}; "
+                f"paragraph={paragraph_index}; run={run_index}"
+            )
+            if (
+                first_local_descendant(r_pr, "hlinkClick") is not None
+                or first_local_descendant(r_pr, "hlinkMouseOver") is not None
+            ):
+                warnings.append(f"{RICH_TEXT_UNSUPPORTED_HYPERLINK}: {location}")
+            if "spc" in r_pr.attrib:
+                warnings.append(
+                    f"{RICH_TEXT_UNSUPPORTED_LETTER_SPACING}: {location}"
+                )
+            run_index += 1
+
+
 def flatten_paragraph_runs(paragraphs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     runs: list[dict[str, Any]] = []
     for paragraph_index, paragraph in enumerate(paragraphs):
-        if paragraph_index > 0 and runs:
+        if paragraph_index > 0:
             runs.append({"text": "\n", "baseline": "normal"})
         runs.extend(paragraph.get("runs", []))
     return runs
@@ -1860,8 +1915,15 @@ def run_props(
     size = int_attr(r_pr, "sz", 0)
     if size > 0:
         props["fontSize"] = font_size_to_canvas_px(size / 100, scale)
-    if r_pr.get("b") in {"1", "true"}:
-        props["fontWeight"] = "bold"
+    bold = r_pr.get("b")
+    if bold is not None:
+        props["fontWeight"] = "bold" if bold in {"1", "true"} else "normal"
+    italic = r_pr.get("i")
+    if italic is not None:
+        props["italic"] = italic in {"1", "true"}
+    underline = r_pr.get("u")
+    if underline is not None:
+        props["underline"] = underline not in {"0", "false", "none"}
     color = solid_color(first_local_child(r_pr, "solidFill"), theme_colors)
     if color:
         props["color"] = color
@@ -1969,12 +2031,22 @@ def text_body_inset(body: ET.Element[Any], scale: OoxmlScale) -> dict[str, int]:
     }
 
 
-def paragraph_bullet(body: ET.Element[Any]) -> dict[str, Any] | None:
+def paragraph_bullet(
+    body: ET.Element[Any],
+    scale: OoxmlScale,
+) -> dict[str, Any] | None:
     first_paragraph = first_local_child(body, "p")
-    return paragraph_bullet_value(first_paragraph) if first_paragraph is not None else None
+    return (
+        paragraph_bullet_value(first_paragraph, scale)
+        if first_paragraph is not None
+        else None
+    )
 
 
-def paragraph_bullet_value(paragraph: ET.Element[Any]) -> dict[str, Any] | None:
+def paragraph_bullet_value(
+    paragraph: ET.Element[Any],
+    scale: OoxmlScale,
+) -> dict[str, Any] | None:
     p_pr = first_local_child(paragraph, "pPr")
     if p_pr is None:
         return None
@@ -1984,7 +2056,7 @@ def paragraph_bullet_value(paragraph: ET.Element[Any]) -> dict[str, Any] | None:
     return {
         "enabled": True,
         "character": str(bullet.get("char", "\u2022")),
-        "indent": max(0, round(int_attr(p_pr, "marL", 0) / 12700)),
+        "indent": max(0, round(int_attr(p_pr, "marL", 0) * scale.scale_x)),
     }
 
 
