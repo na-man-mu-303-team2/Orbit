@@ -1716,6 +1716,118 @@ describe("processGenerateDeckJob", () => {
       );
     });
 
+    it("repairs a single-slide shard using its actual deck order", async () => {
+      const base = programV2Deck();
+      const deck = deckSchema.parse({
+        ...base,
+        slides: [{ ...base.slides[0], slideId: "slide_5", order: 5 }]
+      });
+      const repairedDeck = deckSchema.parse({
+        ...deck,
+        title: "Repaired fifth slide"
+      });
+      const repairBodies: Array<Record<string, unknown>> = [];
+      let reviewCount = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: unknown, init?: RequestInit) => {
+          const url = String(input);
+          if (url.endsWith("/ai/review-deck-visuals")) {
+            reviewCount += 1;
+            return reviewCount === 1
+              ? visualFailureResponse("FOCAL_POINT_WEAK", [5], "slide_5")
+              : visualPassResponse();
+          }
+          if (url.endsWith("/ai/repair-deck-visuals")) {
+            repairBodies.push(JSON.parse(String(init?.body)));
+            return visualRepairResponse(repairedDeck);
+          }
+          throw new Error(`Unexpected URL: ${url}`);
+        })
+      );
+
+      const outcome = await runRenderedVisualQuality({
+        dataSource: { query: dynamicJobQuery() } as unknown as DataSource,
+        storage,
+        pythonWorkerUrl: "http://localhost:8000",
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation,
+        officialAssetFileIds: [],
+        enforcesHybridMediaBudget: false,
+        jobId: "job-1",
+        projectId: "project-a",
+        onRepairProgress: async () => undefined,
+        emitEvent: () => undefined
+      });
+
+      expect(outcome).toMatchObject({
+        passed: true,
+        reviewAttempts: 2,
+        repairAttempts: 1,
+        deck: { title: "Repaired fifth slide" }
+      });
+      expect(repairBodies[0]?.actions).toEqual([
+        expect.objectContaining({
+          action: "increaseFocalScale",
+          slideId: "slide_5"
+        })
+      ]);
+    });
+
+    it("does not repair a blocking visual issue without repair actions", async () => {
+      const deck = programV2Deck();
+      const repairRequest = vi.fn();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: unknown) => {
+          const url = String(input);
+          if (url.endsWith("/ai/review-deck-visuals")) {
+            return new Response(
+              JSON.stringify({
+                review: {
+                  passed: false,
+                  issues: [
+                    {
+                      code: "FOCAL_POINT_WEAK",
+                      slideOrder: 1,
+                      message: "Visual hierarchy is weak."
+                    }
+                  ],
+                  repairActions: []
+                },
+                warnings: []
+              })
+            );
+          }
+          if (url.endsWith("/ai/repair-deck-visuals")) {
+            repairRequest();
+          }
+          throw new Error(`Unexpected URL: ${url}`);
+        })
+      );
+
+      const outcome = await runRenderedVisualQuality({
+        dataSource: { query: dynamicJobQuery() } as unknown as DataSource,
+        storage,
+        pythonWorkerUrl: "http://localhost:8000",
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation,
+        officialAssetFileIds: [],
+        enforcesHybridMediaBudget: false,
+        jobId: "job-1",
+        projectId: "project-a",
+        onRepairProgress: async () => undefined,
+        emitEvent: () => undefined
+      });
+
+      expect(outcome).toMatchObject({
+        passed: false,
+        reviewAttempts: 1,
+        repairAttempts: 0
+      });
+      expect(repairRequest).not.toHaveBeenCalled();
+    });
+
     it("reapplies the current publication upsert and Job result on recall", async () => {
       const deck = programV2Deck();
       const workerPayload = parsedGenerateDeckResponse(deck);
@@ -2132,7 +2244,8 @@ function visualPassResponse() {
 
 function visualFailureResponse(
   code: "FOCAL_POINT_WEAK" | "BALANCE_WEAK" | "IMAGE_CONTENT_MISMATCH",
-  slideOrders = [1]
+  slideOrders = [1],
+  slideId = "slide_1"
 ) {
   return new Response(
     JSON.stringify({
@@ -2146,7 +2259,7 @@ function visualFailureResponse(
         repairActions: [
           {
             action: "increaseFocalScale",
-            slideId: "slide_1",
+            slideId,
             targetElementId: "el_1_program_v2_title",
             compositionId: null,
             backgroundMode: null,
