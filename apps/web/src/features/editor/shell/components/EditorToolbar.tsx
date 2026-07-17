@@ -16,6 +16,7 @@ import type { InsertTool } from "../editorShellUiStore";
 import { EditorZoomControls } from "./EditorZoomControls";
 
 type EditorToolbarProps = {
+  canMutate: boolean;
   canUseCurrentSlide: boolean;
   insertTool: InsertTool;
   isAnimationPanelOpen: boolean;
@@ -49,7 +50,7 @@ export function EditorToolbar(props: EditorToolbarProps) {
 
   return (
     <div className="stage-top-controls">
-      <div className="editor-toolbar">
+      {props.canMutate ? <div className="editor-toolbar">
         <div className="tool-group">
           <button aria-label="실행 취소" className="icon-button history-nav-button" disabled={props.undoDisabled} title="Undo" type="button" onClick={props.onUndo}>
             <IconArrowLeft className="history-nav-icon" size={20} stroke={2} />
@@ -127,7 +128,7 @@ export function EditorToolbar(props: EditorToolbarProps) {
             <Sparkles size={17} />
           </button>
         </div>
-      </div>
+      </div> : null}
       <EditorZoomControls
         isFitToViewport={props.isStageFitToViewport}
         onFitToViewport={props.onFitStageToViewport}

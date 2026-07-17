@@ -72,6 +72,7 @@ import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
+import { ProjectAccessProvider } from "../../projects/ProjectAccessContext";
 
 vi.mock("react-konva", () => {
   function shapeAttrs(props: Record<string, unknown>) {
@@ -136,7 +137,9 @@ function createTestQueryClient() {
 function renderApp(queryClient: QueryClient, projectId?: string) {
   return renderToString(
     <QueryClientProvider client={queryClient}>
-      <EditorShell projectId={projectId} />
+      <ProjectAccessProvider membership={{ role: "owner", status: "accepted" }}>
+        <EditorShell projectId={projectId} />
+      </ProjectAccessProvider>
     </QueryClientProvider>
   );
 }
@@ -292,15 +295,18 @@ describe("editor shell", () => {
 
     const transition = resolveHistoryNavigation({
       currentDeck,
-      currentSlideIndex: 1,
-      stack: [{ deck: previousDeck, slideIndex: 999 }]
+      currentSlideId: currentDeck.slides[1]?.slideId ?? null,
+      stack: [{ deck: previousDeck, slideId: "slide_missing" }]
     });
 
     expect(transition).toMatchObject({
-      currentEntry: { deck: currentDeck, slideIndex: 1 },
+      currentEntry: {
+        deck: currentDeck,
+        slideId: currentDeck.slides[1]?.slideId ?? currentDeck.slides[0]?.slideId
+      },
       nextStack: [],
       targetEntry: { deck: previousDeck },
-      targetSlideIndex: previousDeck.slides.length - 1
+      targetSlideId: previousDeck.slides[0]?.slideId
     });
     expect(transition?.targetEntry.deck.slides[0].semanticCues[0].freshness).toBe(
       "current"
@@ -311,7 +317,7 @@ describe("editor shell", () => {
     expect(
       resolveHistoryNavigation({
         currentDeck,
-        currentSlideIndex: 0,
+        currentSlideId: currentDeck.slides[0]?.slideId ?? null,
         stack: []
       })
     ).toBeNull();
@@ -321,18 +327,21 @@ describe("editor shell", () => {
     const previousDeck = createDemoDeck();
     const olderEntries = Array.from({ length: 50 }, (_, index) => ({
       deck: { ...previousDeck, title: `이전 편집 ${index}` },
-      slideIndex: index % previousDeck.slides.length
+      slideId: previousDeck.slides[index % previousDeck.slides.length]?.slideId ?? null
     }));
 
     const history = appendAppliedDesignProposalHistory({
       currentDeck: previousDeck,
-      currentSlideIndex: 1,
+      currentSlideId: previousDeck.slides[1]?.slideId ?? null,
       undoStack: olderEntries
     });
 
     expect(history).toHaveLength(50);
     expect(history[0]?.deck.title).toBe("이전 편집 1");
-    expect(history.at(-1)).toEqual({ deck: previousDeck, slideIndex: 1 });
+    expect(history.at(-1)).toEqual({
+      deck: previousDeck,
+      slideId: previousDeck.slides[1]?.slideId ?? previousDeck.slides[0]?.slideId
+    });
   });
 
   it("prompts before discarding a dirty speaker notes draft", () => {

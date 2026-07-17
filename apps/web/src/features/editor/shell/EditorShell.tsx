@@ -1,5 +1,6 @@
 import {
   createDemoDeck,
+  createDuplicateSlidePatch,
   createUpdateActivityDefinitionPatch,
   createUpdateActivityResultDefinitionPatch,
   getElementAnimations,
@@ -27,6 +28,10 @@ import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
 import { useEditorShellUiStore } from "./editorShellUiStore";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
 import { canEditSlideCanvas } from "./utils/slideEditingPolicy";
+import {
+  canMutateProjectDeck,
+  useProjectAccessMembership
+} from "../../projects/ProjectAccessContext";
 export {
   EditorStateNotice
 } from "./components/EditorStateNotice";
@@ -47,6 +52,17 @@ export {
   resolveHistoryNavigation,
   type HistoryEntry
 } from "./utils/editorHistory";
+import {
+  buildSlideRailItems,
+  resolveSelectedSlideId,
+  resolveSelectedSlideIdAfterDelete
+} from "./slideRailModel";
+import {
+  createDeleteSlidePatch,
+  createSlideRailReorderPatch,
+  getAddedSlideId,
+  moveSlideId
+} from "./slideRailOperations";
 export {
   danglingKeywordOccurrenceSaveMessage,
   getSpeakerNotesDanglingOccurrenceSaveBlock,
@@ -94,6 +110,7 @@ import {
   EditorSlideRehearsalRightPanel
 } from "./components/EditorSlideRehearsal";
 import { SlideNavigatorPane } from "./components/SlideNavigatorPane";
+import { EditorUndoToast } from "./components/EditorUndoToast";
 import { EditorContextMenus } from "./components/EditorContextMenus";
 import { EditorModals } from "./components/EditorModals";
 import { EditorCanvasStage } from "./components/EditorCanvasStage";
@@ -201,7 +218,10 @@ function navigateToHome() {
 
 export function EditorShell(props: { projectId?: string }) {
   const projectId = props.projectId ?? demoIds.projectId;
-  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const projectAccessMembership = useProjectAccessMembership();
+  const canMutateDeck = canMutateProjectDeck(projectAccessMembership);
+  const [currentSlideId, setCurrentSlideId] = useState<string | null>(null);
+  const [isDeleteUndoToastOpen, setIsDeleteUndoToastOpen] = useState(false);
   const resetProjectUiState = useEditorShellUiStore(
     (state) => state.resetProjectUiState
   );
@@ -376,9 +396,10 @@ export function EditorShell(props: { projectId?: string }) {
     refs: editorDocumentRefs,
     state: editorDocumentState
   } = useEditorDocumentController({
-    currentSlideIndex,
+    currentSlideId,
     loadedDeck,
     onHydratedProjectChange: () => {
+      setCurrentSlideId(null);
       setSelectedElementIds([]);
       setEditingElementId(null);
       setCustomShapeEditElementId(null);
@@ -453,7 +474,16 @@ export function EditorShell(props: { projectId?: string }) {
     Boolean(deckQuery.data?.projectId) &&
     !isDeckLoading &&
     !isDeckError;
-  const currentSlide = deck.slides[currentSlideIndex] ?? deck.slides[0] ?? null;
+  const resolvedCurrentSlideId = resolveSelectedSlideId(deck.slides, currentSlideId);
+  const currentSlideIndex = resolvedCurrentSlideId
+    ? deck.slides.findIndex((slide) => slide.slideId === resolvedCurrentSlideId)
+    : -1;
+  const currentSlide =
+    currentSlideIndex >= 0 ? deck.slides[currentSlideIndex] ?? null : null;
+  const slideRailItems = useMemo(
+    () => buildSlideRailItems(deck.slides, resolvedCurrentSlideId),
+    [deck.slides, resolvedCurrentSlideId]
+  );
   const canEditCurrentSlideCanvas = canEditSlideCanvas(currentSlide);
 
   useEffect(() => {
@@ -493,19 +523,21 @@ export function EditorShell(props: { projectId?: string }) {
       (slide) => slide.slideId === slideRehearsalState.activeSlideId
     ) ?? currentSlide;
 
-  function handleSelectSlideForNavigator(index: number) {
+  function handleSelectSlideForNavigator(slideId: string) {
+    const index = deck.slides.findIndex((slide) => slide.slideId === slideId);
+    if (index < 0) return;
     if (!isSlideRehearsalActive) {
-      handleSelectSlideIndex(index);
+      handleSelectSlide(slideId);
       return;
     }
-    if (index === currentSlideIndex) return;
+    if (slideId === resolvedCurrentSlideId) return;
 
     const nextSlide = deck.slides[index];
     if (!nextSlide) return;
 
     resetSpeakerNotesEditState(nextSlide.speakerNotes);
     speakerNotesEditorActions.closeAssistant();
-    setCurrentSlideIndex(index);
+    setCurrentSlideId(slideId);
     if (
       slideRehearsalState.status === "listening" ||
       slideRehearsalState.status === "starting"
@@ -566,12 +598,14 @@ export function EditorShell(props: { projectId?: string }) {
   function resetSpeakerNotesEditState(notes: string) {
     speakerNotesEditorActions.resetEditState(notes);
   }
-  function handleSelectSlideIndex(index: number) {
-    if (index === currentSlideIndex) return;
+  function handleSelectSlide(slideId: string) {
+    if (slideId === resolvedCurrentSlideId) return;
     if (!confirmDiscardSpeakerNotesDraft()) return;
-    resetSpeakerNotesEditState(deck.slides[index]?.speakerNotes ?? "");
+    const nextSlide = deck.slides.find((slide) => slide.slideId === slideId);
+    if (!nextSlide) return;
+    resetSpeakerNotesEditState(nextSlide.speakerNotes);
     speakerNotesEditorActions.closeAssistant();
-    setCurrentSlideIndex(index);
+    setCurrentSlideId(slideId);
   }
   const {
     actions: editorFileTransferActions,
@@ -583,7 +617,7 @@ export function EditorShell(props: { projectId?: string }) {
     onCloseContextMenu: () => setElementContextMenu(null),
     onImportedDeck: (importedDeck) => {
       editorDocumentActions.hydrateFromServer(importedDeck);
-      setCurrentSlideIndex(0);
+      setCurrentSlideId(importedDeck.slides[0]?.slideId ?? null);
       resetSpeakerNotesEditState(importedDeck.slides[0]?.speakerNotes ?? "");
       setUndoStack([]);
       setRedoStack([]);
@@ -597,7 +631,10 @@ export function EditorShell(props: { projectId?: string }) {
     },
     onResetEditing: () => setEditingElementId(null),
     onSelectElement: (elementId) => setSelectedElementIds([elementId]),
-    onSelectSlide: handleSelectSlideIndex,
+    onSelectSlide: (index) => {
+      const slideId = workingDeckRef.current.slides[index]?.slideId;
+      if (slideId) handleSelectSlide(slideId);
+    },
     onSetSelectTool: () => setInsertTool("select"),
     persistedProjectId: deckQuery.data?.projectId,
     prepareForImport: async () => {
@@ -725,6 +762,9 @@ export function EditorShell(props: { projectId?: string }) {
     selectedElementIds.length === 1
       ? selectedElements.find((element) => element.elementId === selectedElementId) ?? null
       : null;
+  function setCurrentSlideIndex(index: number) {
+    setCurrentSlideId(workingDeckRef.current.slides[index]?.slideId ?? null);
+  }
   const {
     actions: editorCanvasActions,
     refs: editorCanvasRefs
@@ -966,13 +1006,11 @@ export function EditorShell(props: { projectId?: string }) {
       const extractedDeck = refetchResult.data;
       if (extractedDeck) {
         editorDocumentActions.hydrateFromServer(extractedDeck);
-        const nextSlideIndex = selectedSlideId
-          ? extractedDeck.slides.findIndex(
-              (slide) => slide.slideId === selectedSlideId
-            )
-          : -1;
-        if (nextSlideIndex >= 0) {
-          setCurrentSlideIndex(nextSlideIndex);
+        if (
+          selectedSlideId &&
+          extractedDeck.slides.some((slide) => slide.slideId === selectedSlideId)
+        ) {
+          setCurrentSlideId(selectedSlideId);
         }
         setUndoStack([]);
         setRedoStack([]);
@@ -1012,10 +1050,81 @@ export function EditorShell(props: { projectId?: string }) {
     setSelectedElementIds([elementId]);
   }
 
+  function handleDuplicateSlide(slideId: string) {
+    if (!canMutateDeck || !commitSpeakerNotesDraftIfDirty()) return;
+
+    let duplicateSlideId: string | null = null;
+    const committed = commitPatch((currentDeck) => {
+      const patch = createDuplicateSlidePatch(currentDeck, slideId);
+      duplicateSlideId = getAddedSlideId(patch);
+      return patch;
+    });
+    if (!committed || !duplicateSlideId) return;
+
+    const duplicateSlide = workingDeckRef.current.slides.find(
+      (slide) => slide.slideId === duplicateSlideId
+    );
+    setCurrentSlideId(duplicateSlideId);
+    resetSpeakerNotesEditState(duplicateSlide?.speakerNotes ?? "");
+    setSelectedElementIds([]);
+    setIsDeleteUndoToastOpen(false);
+    refreshChangedSlideThumbnails(workingDeckRef.current);
+  }
+
+  function handleDeleteSlide(slideId: string) {
+    const activeDeck = workingDeckRef.current;
+    if (!canMutateDeck || activeDeck.slides.length <= 1) return;
+
+    const nextSelectedSlideId = resolveSelectedSlideIdAfterDelete({
+      deletedSlideId: slideId,
+      selectedSlideId: resolvedCurrentSlideId,
+      slides: activeDeck.slides
+    });
+    if (
+      slideId === resolvedCurrentSlideId &&
+      !commitSpeakerNotesDraftIfDirty()
+    ) {
+      return;
+    }
+
+    const committed = commitPatch((currentDeck) =>
+      createDeleteSlidePatch(currentDeck, slideId)
+    );
+    if (!committed) return;
+
+    if (slideId === resolvedCurrentSlideId) {
+      const nextSlide = workingDeckRef.current.slides.find(
+        (slide) => slide.slideId === nextSelectedSlideId
+      );
+      setCurrentSlideId(nextSelectedSlideId);
+      resetSpeakerNotesEditState(nextSlide?.speakerNotes ?? "");
+    }
+    setSelectedElementIds([]);
+    setIsDeleteUndoToastOpen(true);
+    refreshChangedSlideThumbnails(workingDeckRef.current);
+  }
+
+  function handleReorderSlides(orderedSlideIds: readonly string[]) {
+    if (!canMutateDeck) return;
+    const committed = commitPatch((currentDeck) =>
+      createSlideRailReorderPatch(currentDeck, orderedSlideIds)
+    );
+    if (committed) setIsDeleteUndoToastOpen(false);
+  }
+
+  function handleMoveSlide(slideId: string, direction: "down" | "up") {
+    const reordered = moveSlideId(
+      workingDeckRef.current.slides.map((slide) => slide.slideId),
+      slideId,
+      direction
+    );
+    if (reordered) handleReorderSlides(reordered);
+  }
+
   const historyCallbacks = {
     confirmDiscard: confirmDiscardSpeakerNotesDraft,
-    onNavigate: (_nextDeck: Deck, nextSlideIndex: number) => {
-      setCurrentSlideIndex(nextSlideIndex);
+    onNavigate: (_nextDeck: Deck, nextSlideId: string | null) => {
+      setCurrentSlideId(nextSlideId);
       setSelectedElementIds([]);
       clearSelectedKeyword();
       setEditingElementId(null);
@@ -1026,7 +1135,7 @@ export function EditorShell(props: { projectId?: string }) {
     resetNotes: resetSpeakerNotesEditState
   };
   function handleUndo() {
-    editorDocumentActions.undo(historyCallbacks);
+    return editorDocumentActions.undo(historyCallbacks);
   }
   function handleRedo() {
     editorDocumentActions.redo(historyCallbacks);
@@ -1187,10 +1296,10 @@ export function EditorShell(props: { projectId?: string }) {
   ]);
 
   useEffect(() => {
-    if (currentSlideIndex > 0 && currentSlideIndex >= deck.slides.length) {
-      setCurrentSlideIndex(Math.max(0, deck.slides.length - 1));
+    if (resolvedCurrentSlideId !== currentSlideId) {
+      setCurrentSlideId(resolvedCurrentSlideId);
     }
-  }, [currentSlideIndex, deck.slides.length]);
+  }, [currentSlideId, resolvedCurrentSlideId]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1404,9 +1513,10 @@ export function EditorShell(props: { projectId?: string }) {
           />
         ) : (
           <SlideNavigatorPane
-            currentSlideIndex={currentSlideIndex}
+            canMutate={canMutateDeck}
             deck={deck}
             isCollapsed={isSlidesPaneCollapsed}
+            items={slideRailItems}
             onAddActivitySlide={(template) => {
               if (!handleAddActivitySlide(template)) return;
               setIsRightPanelOpen(true);
@@ -1416,6 +1526,10 @@ export function EditorShell(props: { projectId?: string }) {
               setIsRightPanelOpen(true);
             }}
             onAddSlide={handleAddSlide}
+            onDeleteSlide={handleDeleteSlide}
+            onDuplicateSlide={handleDuplicateSlide}
+            onMoveSlide={handleMoveSlide}
+            onReorderSlides={handleReorderSlides}
             onResizeStart={handleSlidesPaneResizeStart}
             onSelectSlide={handleSelectSlideForNavigator}
             onSetView={setSlidePanelView}
@@ -1430,6 +1544,7 @@ export function EditorShell(props: { projectId?: string }) {
         <section className="stage-pane">
           {!isSlideRehearsalActive ? (
             <EditorToolbar
+              canMutate={canMutateDeck}
               canUseCurrentSlide={canEditCurrentSlideCanvas}
               insertTool={insertTool}
               isAnimationPanelOpen={isAnimationPanelOpen}
@@ -1685,10 +1800,7 @@ export function EditorShell(props: { projectId?: string }) {
                   );
                 }}
                 onSelectSourceSlide={(slideId) => {
-                  const index = deck.slides.findIndex(
-                    (slide) => slide.slideId === slideId
-                  );
-                  if (index >= 0) handleSelectSlideIndex(index);
+                  handleSelectSlide(slideId);
                 }}
               />
             ) : <EditorSelectionProperties
@@ -1794,6 +1906,14 @@ export function EditorShell(props: { projectId?: string }) {
           onChange={handlePptxFileInputChange}
         />
       </main>
+      {canMutateDeck && isDeleteUndoToastOpen ? (
+        <EditorUndoToast
+          message="슬라이드가 삭제되었습니다"
+          onUndo={() => {
+            if (handleUndo()) setIsDeleteUndoToastOpen(false);
+          }}
+        />
+      ) : null}
       <EditorContextMenus
         elementContextMenu={elementContextMenu}
         isImageUploadPending={isImageUploadPending}

@@ -23,6 +23,7 @@
   --redesign-color-on-surface-variant: #55555f;
   --redesign-color-inverse-surface: #1c1c20;
   --redesign-color-inverse-on-surface: #f5f5f7;
+  --redesign-color-inverse-outline: color-mix(in srgb, var(--redesign-color-inverse-on-surface) 34%, transparent);
   --redesign-color-outline: #8c8c96;
   --redesign-color-outline-variant: #d6d6dc;
   --redesign-color-surface-tint: var(--redesign-color-primary);
@@ -237,6 +238,7 @@
   --redesign-shadow-none: none;
   --redesign-shadow-raised: 0 8px 24px rgba(17, 17, 20, 0.08);
   --redesign-shadow-overlay: 0 20px 56px rgba(17, 17, 20, 0.16);
+  --redesign-shadow-focus-inverse: 0 0 0 3px color-mix(in srgb, var(--redesign-color-inverse-on-surface) 30%, transparent);
   --redesign-shadow-inset-subtle: inset 0 0 0 1px color-mix(in srgb, var(--redesign-color-primary) 4%, transparent);
   --redesign-shadow-inset-primary: inset 0 0 0 1px var(--redesign-color-primary);
   --redesign-shadow-inset-primary-emphasis: inset 0 0 0 1px var(--redesign-color-primary-emphasis);

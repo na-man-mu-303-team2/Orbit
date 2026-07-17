@@ -47,6 +47,7 @@ import {
 } from "./features/mockups/OrbitMockupFlow";
 import { ProjectExplorerPage } from "./features/projects/ProjectExplorerPage";
 import { OrbitWorkspaceHome } from "./features/projects/ProjectHub";
+import { ProjectAccessProvider } from "./features/projects/ProjectAccessContext";
 import "./features/projects/orbit-create-deck.css";
 import "./features/projects/orbit-project-access.css";
 import {
@@ -1020,7 +1021,11 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
   if (access.data?.membership?.status !== "accepted")
     return <EditorLoadingFallback />;
 
-  return <>{props.children}</>;
+  return (
+    <ProjectAccessProvider membership={access.data.membership}>
+      {props.children}
+    </ProjectAccessProvider>
+  );
 }
 
 function ProjectAccessError(props: { onRetry: () => void; projectId: string }) {
