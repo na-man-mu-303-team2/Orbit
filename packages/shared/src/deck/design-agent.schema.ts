@@ -40,6 +40,9 @@ export const designAgentCapabilityOperationSchema = z.enum([
   "update_element_props",
   "delete_element",
   "update_slide_style",
+  "add_animation",
+  "update_animation",
+  "delete_animation",
 ]);
 
 export const designAgentCapabilitiesSchema = z.object({
@@ -59,6 +62,9 @@ export const designAgentCapabilities = designAgentCapabilitiesSchema.parse({
     "update_element_props",
     "delete_element",
     "update_slide_style",
+    "add_animation",
+    "update_animation",
+    "delete_animation",
   ],
   addableElementTypes: ["text", "rect", "chart", "table"],
   canEditTextContent: true,

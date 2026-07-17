@@ -142,6 +142,87 @@ def test_prompt_uses_actual_canvas_dimensions() -> None:
     assert "current page, current slide, or a visible center text" in prompt
     assert "Explicit graph or chart requests take precedence over SmartArt" in prompt
     assert "Explicit table or tabular-format requests also take precedence" in prompt
+    assert "Only use fade-in and fade-out effects" in prompt
+
+
+def test_allows_adding_fade_animation_to_visible_element() -> None:
+    request = request_payload()
+    request.capabilities.operations.append("add_animation")
+    payload = proposal_payload()
+    payload["operations"] = [{
+        "type": "add_animation",
+        "slideId": "slide_1",
+        "animation": {
+            "animationId": "anim_ai_fade_in_1",
+            "elementId": "el_image",
+            "type": "fade-in",
+            "order": 1,
+            "durationMs": 600,
+            "delayMs": 0,
+            "easing": "ease-out",
+        },
+    }]
+
+    result = generate_design_proposal(
+        request, model="test-model", api_key=None, client=FakeClient(payload)
+    )
+
+    assert result.operations[0].type == "add_animation"
+    assert result.operations[0].animation.type == "fade-in"
+
+
+def test_rejects_animation_for_unknown_element() -> None:
+    request = request_payload()
+    request.capabilities.operations.append("add_animation")
+    payload = proposal_payload()
+    payload["operations"] = [{
+        "type": "add_animation",
+        "slideId": "slide_1",
+        "animation": {
+            "animationId": "anim_ai_fade_in_1",
+            "elementId": "el_missing",
+            "type": "fade-in",
+            "order": 1,
+            "durationMs": 600,
+            "delayMs": 0,
+            "easing": "ease-out",
+        },
+    }]
+
+    with pytest.raises(DesignAgentGenerationError, match="elementId does not exist"):
+        generate_design_proposal(
+            request, model="test-model", api_key=None, client=FakeClient(payload)
+        )
+
+
+def test_resolves_unselected_center_table_for_fade_in_without_llm() -> None:
+    request = request_payload()
+    request.question = "가운데 표를 페이드인 애니메이션 적용해줘"
+    request.context.selected_element_ids = []
+    request.context.slide["elements"] = [{
+        "elementId": "el_center_table",
+        "type": "table",
+        "role": "table",
+        "x": 460,
+        "y": 260,
+        "width": 1000,
+        "height": 560,
+        "visible": True,
+    }]
+    request.context.slide["animations"] = []
+    request.capabilities.operations.extend(
+        ["add_animation", "update_animation", "delete_animation"]
+    )
+    client = FakeClient(proposal_payload())
+
+    result = generate_design_proposal(
+        request, model="test-model", api_key=None, client=client
+    )
+
+    assert client.responses.calls == []
+    assert result.operations[0].type == "add_animation"
+    assert result.operations[0].animation.element_id == "el_center_table"
+    assert result.operations[0].animation.type == "fade-in"
 
 
 def test_allows_an_unspecified_alignment() -> None:
