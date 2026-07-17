@@ -23,11 +23,21 @@ type EditorCanvasStageProps = {
   renderingDeck: Deck | null;
   slideRenderStageRefs: MutableRefObject<Map<string, Konva.Stage>>;
   stageScale: number;
+  zoomMode: "fit" | "manual";
 };
 
 export function EditorCanvasStage(props: EditorCanvasStageProps) {
   return (
-    <div className="canvas-scroll" ref={props.canvasViewportRef}>
+    <div
+      aria-label="슬라이드 캔버스 작업 영역"
+      className="canvas-scroll"
+      data-testid="editor-canvas-pane"
+      data-zoom-mode={props.zoomMode}
+      data-zoom-percent={Math.round(props.stageScale * 100)}
+      ref={props.canvasViewportRef}
+      role="region"
+      tabIndex={0}
+    >
       {props.currentSlide ? (
         <div className="konva-wrap">
           <div

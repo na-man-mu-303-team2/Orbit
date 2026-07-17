@@ -2,16 +2,35 @@ import type { DeckCanvas } from "@orbit/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  getNextEditorStageScale,
-  getResponsiveEditorStageScale
-} from "../utils/editorLayout";
+  fitEditorZoomState,
+  persistProjectEditorZoom,
+  readProjectEditorZoom,
+  resolveEditorStageScale,
+  stepEditorZoom,
+  type EditorZoomState
+} from "../editorZoom";
+
+type ProjectEditorZoomState = {
+  projectId: string;
+  zoom: EditorZoomState;
+};
 
 export function useEditorViewport(args: {
   canvas: DeckCanvas;
   isRightPanelOpen: boolean;
+  projectId: string;
   setIsRightPanelOpen: (open: boolean) => void;
 }) {
-  const { canvas, isRightPanelOpen, setIsRightPanelOpen } = args;
+  const { canvas, isRightPanelOpen, projectId, setIsRightPanelOpen } = args;
+  const [projectEditorZoom, setProjectEditorZoom] =
+    useState<ProjectEditorZoomState>(() => ({
+      projectId,
+      zoom: readProjectEditorZoom(projectId)
+    }));
+  const zoom =
+    projectEditorZoom.projectId === projectId
+      ? projectEditorZoom.zoom
+      : readProjectEditorZoom(projectId);
   const [editorViewportWidth, setEditorViewportWidth] = useState<number | null>(null);
   const [canvasViewport, setCanvasViewport] = useState<{
     height: number;
@@ -19,7 +38,19 @@ export function useEditorViewport(args: {
   } | null>(null);
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
   const wasCompactEditorLayoutRef = useRef(false);
-  const [manualStageScale, setManualStageScale] = useState<number | null>(null);
+
+  useEffect(() => {
+    setProjectEditorZoom((current) =>
+      current.projectId === projectId
+        ? current
+        : { projectId, zoom: readProjectEditorZoom(projectId) }
+    );
+  }, [projectId]);
+
+  useEffect(() => {
+    if (projectEditorZoom.projectId !== projectId) return;
+    persistProjectEditorZoom(projectId, projectEditorZoom.zoom);
+  }, [projectEditorZoom, projectId]);
 
   useEffect(() => {
     const syncEditorViewportWidth = () => setEditorViewportWidth(window.innerWidth);
@@ -53,37 +84,42 @@ export function useEditorViewport(args: {
     };
   }, []);
 
-  const fittedStageScale = useMemo(
+  const stageScale = useMemo(
     () =>
-      getResponsiveEditorStageScale(
+      resolveEditorStageScale(
+        zoom,
         canvas.width,
         canvasViewport?.width ?? editorViewportWidth,
         canvas.height,
         canvasViewport?.height
       ),
-    [canvas.height, canvas.width, canvasViewport, editorViewportWidth]
+    [canvas.height, canvas.width, canvasViewport, editorViewportWidth, zoom]
   );
 
   const changeStageScale = useCallback(
     (direction: "in" | "out") => {
-      setManualStageScale((current) =>
-        getNextEditorStageScale(current ?? fittedStageScale, direction)
-      );
+      setProjectEditorZoom({
+        projectId,
+        zoom: { mode: "manual", scale: stepEditorZoom(stageScale, direction) }
+      });
     },
-    [fittedStageScale]
+    [projectId, stageScale]
   );
 
   const fitStageToViewport = useCallback(() => {
-    setManualStageScale(null);
+    setProjectEditorZoom({ projectId, zoom: fitEditorZoomState });
     const viewport = canvasViewportRef.current;
     if (viewport) {
       viewport.scrollTo({ left: 0, top: 0 });
     }
-  }, []);
+  }, [projectId]);
 
-  useEffect(() => {
-    setManualStageScale(null);
-  }, [canvas.height, canvas.width]);
+  const zoomToActualSize = useCallback(() => {
+    setProjectEditorZoom({
+      projectId,
+      zoom: { mode: "manual", scale: 1 }
+    });
+  }, [projectId]);
 
   useEffect(() => {
     const viewport = canvasViewportRef.current;
@@ -117,9 +153,11 @@ export function useEditorViewport(args: {
   return {
     canvasViewportRef,
     fitStageToViewport,
-    isStageFitToViewport: manualStageScale === null,
-    stageScale: manualStageScale ?? fittedStageScale,
+    isStageFitToViewport: zoom.mode === "fit",
+    stageScale,
+    zoom,
     zoomIn: () => changeStageScale("in"),
-    zoomOut: () => changeStageScale("out")
+    zoomOut: () => changeStageScale("out"),
+    zoomToActualSize
   };
 }

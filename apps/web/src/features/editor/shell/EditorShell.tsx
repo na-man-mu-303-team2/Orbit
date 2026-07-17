@@ -151,6 +151,10 @@ import {
 } from "./hooks/useEditorSlideRehearsal";
 import { useShapeMenuPlacement } from "./hooks/useShapeMenuPlacement";
 import { createSelectionNudgePatch } from "./utils/selectionNudge";
+import {
+  maximumManualEditorZoom,
+  minimumManualEditorZoom
+} from "./editorZoom";
 export {
   applyDeckPatchAcknowledgement,
   buildPatchBatch,
@@ -705,11 +709,14 @@ export function EditorShell(props: { projectId?: string }) {
     fitStageToViewport,
     isStageFitToViewport,
     stageScale,
+    zoom: editorZoom,
     zoomIn: zoomCanvasIn,
-    zoomOut: zoomCanvasOut
+    zoomOut: zoomCanvasOut,
+    zoomToActualSize
   } = useEditorViewport({
     canvas: deck.canvas,
     isRightPanelOpen,
+    projectId,
     setIsRightPanelOpen
   });
   const currentSlideAnimations = useMemo(
@@ -1444,6 +1451,7 @@ export function EditorShell(props: { projectId?: string }) {
           activePresentationAction={activePresentationAction}
           activeTopMenu={activeTopMenu}
           canManageShare={canManageShare}
+          canMutateDeck={canMutateDeck}
           canOpenAudienceLink={canOpenAudienceLink}
           canStartPresentation={canStartPresentation}
           canvas={deck.canvas}
@@ -1628,6 +1636,8 @@ export function EditorShell(props: { projectId?: string }) {
         <section className="stage-pane">
           {!isSlideRehearsalActive ? (
             <EditorToolbar
+              canZoomIn={stageScale < maximumManualEditorZoom}
+              canZoomOut={stageScale > minimumManualEditorZoom}
               canMutate={canMutateDeck}
               canUseCurrentSlide={canEditCurrentSlideCanvas}
               insertTool={insertTool}
@@ -1655,6 +1665,7 @@ export function EditorShell(props: { projectId?: string }) {
               onFitStageToViewport={fitStageToViewport}
               onZoomIn={zoomCanvasIn}
               onZoomOut={zoomCanvasOut}
+              onZoomToActualSize={zoomToActualSize}
               redoDisabled={redoStack.length === 0}
               selectedElementAnimationCount={selectedElementAnimations.length}
               shapeMenuButtonRef={shapeMenuButtonRef}
@@ -1730,6 +1741,7 @@ export function EditorShell(props: { projectId?: string }) {
             renderingDeck={renderingDeck}
             slideRenderStageRefs={slideRenderStageRefs}
             stageScale={stageScale}
+            zoomMode={editorZoom.mode}
           />
 
             {isSlideRehearsalActive && rehearsalSlide ? (
