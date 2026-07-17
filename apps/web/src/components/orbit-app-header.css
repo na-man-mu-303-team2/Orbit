@@ -38,13 +38,13 @@
 
 .orbit-app-header-redesign .orbit-app-header-nav button:hover {
   background: transparent;
-  color: var(--redesign-color-primary);
+  color: var(--redesign-color-primary-emphasis);
 }
 
 .orbit-app-header-redesign .orbit-app-header-nav button.active {
   background: transparent;
   border-bottom: 2px solid var(--redesign-color-primary);
-  color: var(--redesign-color-primary);
+  color: var(--redesign-color-primary-emphasis);
 }
 
 .orbit-app-header-redesign .orbit-app-header-login {

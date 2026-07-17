@@ -29,6 +29,7 @@
 
   /* Primary — Electric Blue */
   --redesign-color-primary: #0090ff;
+  --redesign-color-primary-emphasis: #0068b7;
   --redesign-color-on-primary: #ffffff;
   --redesign-color-primary-container: #e0f3ff;
   --redesign-color-on-primary-container: #004a75;
@@ -147,6 +148,7 @@
 
   /* Primary — Electric Blue */
   --redesign-color-primary: #8dd4ff;
+  --redesign-color-primary-emphasis: #8dd4ff;
   --redesign-color-on-primary: #00344a;
   --redesign-color-primary-container: #1abcfe;
   --redesign-color-on-primary-container: #004865;
