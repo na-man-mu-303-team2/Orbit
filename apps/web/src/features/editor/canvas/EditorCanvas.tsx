@@ -38,6 +38,7 @@ import {
   type ElementPresentationState,
 } from "../../slides/rendering";
 import { resolveRedesignPalette } from "../../../styles/redesignPalette";
+import { isEditorKeyboardCommandSuppressedTarget } from "../shell/editorKeyboardCommands";
 
 export { getRenderableSlideElements } from "../../slides/rendering";
 
@@ -149,30 +150,6 @@ export function getContextMenuPosition(args: {
       ),
     ),
   };
-}
-
-function isKeyboardEditableTarget(target: EventTarget | null) {
-  if (target instanceof HTMLElement) {
-    return (
-      target.isContentEditable ||
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      Boolean(
-        target.closest("[contenteditable='true'], input, textarea, select"),
-      )
-    );
-  }
-
-  if (target instanceof Node) {
-    return Boolean(
-      target.parentElement?.closest(
-        "[contenteditable='true'], input, textarea, select",
-      ),
-    );
-  }
-
-  return false;
 }
 
 export function getEditorImageValidationMessage(
@@ -494,7 +471,7 @@ export function EditableCanvas(props: {
     customShapeInsertDraft,
     editingCustomShapeElement,
     insertTool,
-    isKeyboardEditableTarget,
+    isKeyboardEditableTarget: isEditorKeyboardCommandSuppressedTarget,
     onCommitCustomShapeGeometry,
     onCreateCustomShape,
     onSetCustomShapeEditElementId,
@@ -508,7 +485,7 @@ export function EditableCanvas(props: {
     deck,
     editingElementId,
     insertTool,
-    isKeyboardEditableTarget,
+    isKeyboardEditableTarget: isEditorKeyboardCommandSuppressedTarget,
     onClearSelection,
     onSelectionDragStart: (point) => setSelectionDraft({ start: point, end: point }),
     onSelectionDragMove: (point) =>

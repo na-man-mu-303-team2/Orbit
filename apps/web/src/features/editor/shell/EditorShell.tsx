@@ -133,6 +133,7 @@ import { useProjectPresence } from "./hooks/useProjectPresence";
 import { useEditorViewport } from "./hooks/useEditorViewport";
 import { useSlideRenderPipeline } from "./hooks/useSlideRenderPipeline";
 import { useEditorKeyboardShortcuts } from "./hooks/useEditorKeyboardShortcuts";
+import type { EditorEscapeLayer } from "./editorKeyboardCommands";
 import { useOoxmlSyncJob } from "./hooks/useOoxmlSyncJob";
 import { useSpeakerNotesEditor } from "./hooks/useSpeakerNotesEditor";
 import { useEditorFileTransfer } from "./hooks/useEditorFileTransfer";
@@ -149,6 +150,7 @@ import {
   type EditorSlideRehearsalState
 } from "./hooks/useEditorSlideRehearsal";
 import { useShapeMenuPlacement } from "./hooks/useShapeMenuPlacement";
+import { createSelectionNudgePatch } from "./utils/selectionNudge";
 export {
   applyDeckPatchAcknowledgement,
   buildPatchBatch,
@@ -1121,6 +1123,58 @@ export function EditorShell(props: { projectId?: string }) {
     if (reordered) handleReorderSlides(reordered);
   }
 
+  function handleDismissKeyboardLayer(layer: EditorEscapeLayer) {
+    switch (layer) {
+      case "modal":
+        if (isExitConfirmOpen) {
+          setIsExitConfirmOpen(false);
+          return;
+        }
+        if (isExportDialogOpen) {
+          setIsExportDialogOpen(false);
+          return;
+        }
+        if (isSpeakerNotesAssistantOpen) {
+          speakerNotesEditorActions.closeAssistant();
+          return;
+        }
+        if (isAudienceLinkModalOpen) {
+          setIsAudienceLinkModalOpen(false);
+          return;
+        }
+        if (isPresenceDebugOpen) {
+          setIsPresenceDebugOpen(false);
+          return;
+        }
+        if (isSharePanelOpen) setIsSharePanelOpen(false);
+        return;
+      case "menu":
+        if (elementContextMenu) {
+          setElementContextMenu(null);
+          return;
+        }
+        if (isShapeMenuOpen) {
+          setIsShapeMenuOpen(false);
+          return;
+        }
+        setActiveTopMenu(null);
+        return;
+      case "crop-edit":
+        return;
+      case "custom-shape-edit":
+        setCustomShapeEditElementId(null);
+        return;
+      case "inline-text-edit":
+        setEditingElementId(null);
+        return;
+      case "insert-tool":
+        setInsertTool("select");
+        return;
+      case "selection":
+        setSelectedElementIds([]);
+    }
+  }
+
   const historyCallbacks = {
     confirmDiscard: confirmDiscardSpeakerNotesDraft,
     onNavigate: (_nextDeck: Deck, nextSlideId: string | null) => {
@@ -1332,20 +1386,50 @@ export function EditorShell(props: { projectId?: string }) {
   }, [currentSlide, selectedElement]);
 
   useEditorKeyboardShortcuts({
+    canMutateDeck,
     copiedElementRef,
     editingElementId,
+    hasOpenMenu: Boolean(activeTopMenu || isShapeMenuOpen || elementContextMenu),
+    hasOpenModal: Boolean(
+      isAudienceLinkModalOpen ||
+        isExitConfirmOpen ||
+        isExportDialogOpen ||
+        isPresenceDebugOpen ||
+        isSharePanelOpen ||
+        isSpeakerNotesAssistantOpen
+    ),
+    insertToolActive: insertTool !== "select",
+    isCropEditing: false,
     isCustomShapeEditingSelection,
     onCopy: handleCopySelectedElement,
     onDelete: handleDeleteSelectedElement,
+    onDismissLayer: handleDismissKeyboardLayer,
     onDuplicate: handleDuplicateSelectedElement,
+    onNavigateSlide: (direction) => {
+      const nextIndex = Math.min(
+        deck.slides.length - 1,
+        Math.max(0, currentSlideIndex + (direction === "next" ? 1 : -1))
+      );
+      const nextSlideId = deck.slides[nextIndex]?.slideId;
+      if (nextSlideId) handleSelectSlideForNavigator(nextSlideId);
+    },
+    onNudge: (deltaX, deltaY) => {
+      if (!currentSlide) return;
+      const patch = createSelectionNudgePatch({
+        deck: workingDeckRef.current,
+        deltaX,
+        deltaY,
+        selectedElementIds,
+        slideId: currentSlide.slideId
+      });
+      if (patch) commitPatch(patch);
+    },
     onPaste: handlePasteCopiedElement,
     onRedo: handleRedo,
+    onSave: () => void handleSaveDeck(),
     onUndo: handleUndo,
     selectedElement,
-    selectedElementId,
-    selectedElementIds,
-    setCustomShapeEditElementId,
-    setSelectedElementIds
+    selectedElementIds
   });
 
   return (

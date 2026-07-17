@@ -1,112 +1,74 @@
 import type { DeckElement } from "@orbit/shared";
 import { useEffect } from "react";
 
+import {
+  resolveEditorKeyboardCommand,
+  type EditorEscapeLayer,
+} from "../editorKeyboardCommands";
+
 export function useEditorKeyboardShortcuts(args: {
+  canMutateDeck: boolean;
   copiedElementRef: { current: unknown };
   editingElementId: string | null;
+  hasOpenMenu: boolean;
+  hasOpenModal: boolean;
+  insertToolActive: boolean;
+  isCropEditing?: boolean;
   isCustomShapeEditingSelection: boolean;
   onCopy: () => void;
   onDelete: () => void;
+  onDismissLayer: (layer: EditorEscapeLayer) => void;
   onDuplicate: () => void;
+  onNavigateSlide: (direction: "next" | "previous") => void;
+  onNudge: (deltaX: number, deltaY: number) => void;
   onPaste: () => void;
   onRedo: () => void;
+  onSave: () => void;
   onUndo: () => void;
   selectedElement: DeckElement | null;
-  selectedElementId: string | null;
   selectedElementIds: string[];
-  setCustomShapeEditElementId: (elementId: string | null) => void;
-  setSelectedElementIds: (elementIds: string[]) => void;
 }) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      const isEditableTarget = isKeyboardEditableTarget(event.target);
+      const command = resolveEditorKeyboardCommand({
+        altKey: event.altKey,
+        canMutateDeck: args.canMutateDeck,
+        canPaste: Boolean(args.copiedElementRef.current),
+        ctrlKey: event.ctrlKey,
+        defaultPrevented: event.defaultPrevented,
+        hasOpenMenu: args.hasOpenMenu,
+        hasOpenModal: args.hasOpenModal,
+        hasSelection: args.selectedElementIds.length > 0,
+        hasSingleSelection: Boolean(args.selectedElement),
+        isCropEditing: args.isCropEditing,
+        isCustomShapeEditing: args.isCustomShapeEditingSelection,
+        isInlineTextEditing: Boolean(args.editingElementId),
+        isInsertToolActive: args.insertToolActive,
+        key: event.key,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        target: event.target,
+      });
 
-      if (
-        !isEditableTarget &&
-        (event.metaKey || event.ctrlKey) &&
-        event.key.toLowerCase() === "z"
-      ) {
-        event.preventDefault();
-        if (event.shiftKey) args.onRedo();
-        else args.onUndo();
+      if (!command) return;
+
+      event.preventDefault();
+      switch (command.type) {
+        case "copy-selection": args.onCopy(); break;
+        case "delete-selection": args.onDelete(); break;
+        case "dismiss-layer": args.onDismissLayer(command.layer); break;
+        case "duplicate-selection": args.onDuplicate(); break;
+        case "navigate-slide": args.onNavigateSlide(command.direction); break;
+        case "nudge-selection": args.onNudge(command.deltaX, command.deltaY); break;
+        case "paste-selection": args.onPaste(); break;
+        case "redo": args.onRedo(); break;
+        case "save": if (command.canExecute) args.onSave(); break;
+        case "undo": args.onUndo(); break;
       }
-
-      if (
-        !isEditableTarget &&
-        !args.isCustomShapeEditingSelection &&
-        (event.key === "Delete" || event.key === "Backspace") &&
-        args.selectedElementIds.length > 0 &&
-        (!args.editingElementId ||
-          args.selectedElementIds.length > 1 ||
-          args.editingElementId !== args.selectedElementId)
-      ) {
-        event.preventDefault();
-        args.onDelete();
-      }
-
-      if (
-        !isEditableTarget &&
-        (event.metaKey || event.ctrlKey) &&
-        event.key.toLowerCase() === "d" &&
-        args.selectedElementIds.length === 1
-      ) {
-        event.preventDefault();
-        args.onDuplicate();
-      }
-
-      if (!isEditableTarget && (event.metaKey || event.ctrlKey)) {
-        const normalizedKey = event.key.toLowerCase();
-
-        if (normalizedKey === "c" && args.selectedElement) {
-          event.preventDefault();
-          args.onCopy();
-        }
-
-        if (normalizedKey === "v" && args.copiedElementRef.current) {
-          event.preventDefault();
-          args.onPaste();
-        }
-      }
-
-      if (event.key === "Escape") {
-        if (args.isCustomShapeEditingSelection) {
-          args.setCustomShapeEditElementId(null);
-          return;
-        }
-
-        if (
-          args.selectedElementIds.length > 0 &&
-          (args.selectedElementIds.length > 1 ||
-            args.editingElementId !== args.selectedElementId)
-        ) {
-          args.setSelectedElementIds([]);
-        }
-      }
+      event.stopImmediatePropagation();
     }
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [args]);
-}
-
-export function isKeyboardEditableTarget(target: EventTarget | null) {
-  if (target instanceof HTMLElement) {
-    return (
-      target.isContentEditable ||
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      Boolean(target.closest("[contenteditable='true'], input, textarea, select"))
-    );
-  }
-
-  if (target instanceof Node) {
-    return Boolean(
-      target.parentElement?.closest(
-        "[contenteditable='true'], input, textarea, select"
-      )
-    );
-  }
-
-  return false;
 }
