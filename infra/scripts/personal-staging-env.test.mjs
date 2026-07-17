@@ -187,7 +187,7 @@ test("develop deploy syncs safe Doppler defaults before server deployment", () =
   );
 });
 
-test("manual recovery keeps env sync and full deploy on the develop-only serialized path", () => {
+test("manual full recovery uses the existing dispatch and serialized develop sync path", () => {
   const contractWorkflow = fs.readFileSync(
     ".github/workflows/environment-contract-ci.yml",
     "utf8",
@@ -197,24 +197,12 @@ test("manual recovery keeps env sync and full deploy on the develop-only seriali
     "utf8",
   );
 
-  assert.match(contractWorkflow, /^  workflow_dispatch:$/m);
-  assert.match(contractWorkflow, /^      deploy_personal_staging:$/m);
-  assert.match(
-    contractWorkflow,
-    /github\.event_name == 'workflow_dispatch'[\s\S]*github\.ref == 'refs\/heads\/develop'[\s\S]*inputs\.deploy_personal_staging/,
-  );
-  assert.match(
-    contractWorkflow,
-    /trigger_source: \$\{\{ github\.event_name == 'push' && 'develop-push' \|\| 'manual-recovery' \}\}/,
-  );
-  assert.match(deployWorkflow, /^          - manual-recovery$/m);
+  assert.doesNotMatch(contractWorkflow, /^  workflow_dispatch:$/m);
+  assert.match(deployWorkflow, /^  workflow_dispatch:$/m);
+  assert.match(deployWorkflow, /^          - manual$/m);
   assert.match(
     deployWorkflow,
-    /inputs\.trigger_source == 'develop-push' \|\|\s+inputs\.trigger_source == 'manual-recovery'/,
-  );
-  assert.match(
-    deployWorkflow,
-    /inputs\.trigger_source != 'manual-recovery' \|\|\s+github\.ref == 'refs\/heads\/develop'/,
+    /inputs\.deployment_mode == 'full' &&[\s\S]*inputs\.trigger_source == 'develop-push' \|\|\s+inputs\.trigger_source == 'manual'\)[\s\S]*github\.ref == 'refs\/heads\/develop'/,
   );
   assert.match(
     deployWorkflow,

@@ -38,7 +38,6 @@ on:
         type: choice
         options:
           - manual
-          - manual-recovery
           - doppler-stg-secrets-update
 
 permissions:
@@ -53,7 +52,7 @@ jobs:
     if: >-
       inputs.deployment_mode == 'full' &&
       (inputs.trigger_source == 'develop-push' ||
-      inputs.trigger_source == 'manual-recovery') &&
+      inputs.trigger_source == 'manual') &&
       github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -92,9 +91,7 @@ jobs:
     if: >-
       always() &&
       (needs.sync-personal-staging-env.result == 'success' ||
-      needs.sync-personal-staging-env.result == 'skipped') &&
-      (inputs.trigger_source != 'manual-recovery' ||
-      github.ref == 'refs/heads/develop')
+      needs.sync-personal-staging-env.result == 'skipped')
     runs-on: [self-hosted, orbit-personal-staging]
     timeout-minutes: 30
     environment: personal-staging
