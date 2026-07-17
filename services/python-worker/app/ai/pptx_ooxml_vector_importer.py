@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import copy
+import hashlib
 import math
 import os
 import zipfile
@@ -32,6 +34,9 @@ REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 ORBIT_OOXML_NS = "urn:orbit:deck:ooxml"
+TABLE_GRAPHIC_DATA_URI = (
+    "http://schemas.openxmlformats.org/drawingml/2006/table"
+)
 
 SLIDE_REL_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
@@ -58,6 +63,9 @@ RICH_TEXT_UNSUPPORTED_HYPERLINK = "PPTX_RICH_TEXT_UNSUPPORTED_HYPERLINK"
 RICH_TEXT_UNSUPPORTED_LETTER_SPACING = (
     "PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING"
 )
+TABLE_STRUCTURE_UNSUPPORTED = "PPTX_TABLE_STRUCTURE_UNSUPPORTED"
+TABLE_TRACK_MISMATCH = "PPTX_TABLE_TRACK_MISMATCH"
+MAX_TABLE_CELL_LOCATORS = 10_000
 FALLBACK_SCHEME_COLORS = {
     "bg1": "#FFFFFF",
     "tx1": "#111827",
@@ -340,13 +348,18 @@ def import_pptx_ooxml_visual_tree(
                 "warnings": state.warnings,
             }
         )
+        template_blueprint = build_template_blueprint(
+            file_id,
+            slides,
+            slot_sources_by_slide,
+        )
+        copy_table_cell_locators_to_blueprint(
+            template_blueprint,
+            slot_sources_by_slide,
+        )
         return PptxDesignImportResult(
             blueprint=blueprint.model_dump(by_alias=True),
-            templateBlueprint=build_template_blueprint(
-                file_id,
-                slides,
-                slot_sources_by_slide,
-            ),
+            templateBlueprint=template_blueprint,
             qualityReport=build_quality_report(slides, state.warnings),
             assets=state.assets,
             warnings=state.warnings,
@@ -482,6 +495,14 @@ def append_graphic_frame(
         )
         if element:
             source["type"] = "table"
+            locators, diagnostics = table_cell_locators(
+                frame_element,
+                slide_index=slide_index,
+                shape_id=shape_id,
+            )
+            state.warnings.extend(diagnostics)
+            if locators is not None:
+                source["tableCellLocators"] = locators
             elements.append(element)
             slot_sources[str(element["elementId"])] = source
             return
@@ -705,22 +726,23 @@ def table_cell(
     text = "".join(str(run.get("text", "")) for run in runs)
     tc_pr = first_local_child(cell, "tcPr")
     border_color, border_width = table_cell_border(tc_pr, scale, theme_colors)
-    explicit_fill = solid_color(first_local_child(tc_pr, "solidFill"), theme_colors)
     default_fill, default_text_color = default_table_cell_colors(row_index)
     props: dict[str, Any] = {
         "text": text,
-        "fill": explicit_fill or default_fill,
+        "fill": table_cell_fill(tc_pr, theme_colors, default_fill),
         "textColor": default_text_color,
         "fontSize": 32,
         "fontWeight": "normal",
         "align": paragraph_align(body) if body is not None else "left",
-        "verticalAlign": text_vertical_align(body) if body is not None else "middle",
+        "verticalAlign": table_cell_vertical_align(tc_pr, body),
         "borderColor": border_color,
         "borderWidth": border_width,
-        "colSpan": max(1, int_attr(tc_pr, "gridSpan", 1)),
-        "rowSpan": max(1, int_attr(tc_pr, "rowSpan", 1)),
+        "colSpan": max(1, int_attr(cell, "gridSpan", 1)),
+        "rowSpan": max(1, int_attr(cell, "rowSpan", 1)),
     }
     first_run = next((run for run in runs if str(run.get("text", "")).strip()), None)
+    if first_run is None and body is not None:
+        first_run = table_cell_empty_text_style(body, scale, theme_colors)
     if first_run:
         if first_run.get("fontFamily"):
             props["fontFamily"] = first_run["fontFamily"]
@@ -756,6 +778,155 @@ def table_row_heights(table: ET.Element[Any], scale: OoxmlScale) -> list[int]:
     ]
 
 
+def table_cell_locators(
+    frame_element: ET.Element[Any],
+    *,
+    slide_index: int,
+    shape_id: str,
+) -> tuple[list[dict[str, Any]] | None, list[str]]:
+    table = direct_graphic_frame_table(frame_element)
+    location = f"slide={slide_index}; shape={shape_id}"
+    if table is None:
+        return None, [
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=non-direct-table"
+        ]
+
+    grid = first_local_child(table, "tblGrid")
+    columns = direct_local_children(grid, "gridCol") if grid is not None else []
+    rows = direct_local_children(table, "tr")
+    if not columns or not rows:
+        return None, [
+            f"{TABLE_TRACK_MISMATCH}: {location}; "
+            "reason=column-track-mismatch"
+        ]
+    if len(columns) > 1000 or len(rows) > 1000:
+        return None, [
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=locator-limit"
+        ]
+    if any(not valid_integer_attribute(column, "w", minimum=1) for column in columns):
+        return None, [
+            f"{TABLE_TRACK_MISMATCH}: {location}; "
+            "reason=column-track-mismatch"
+        ]
+    if any(not valid_integer_attribute(row, "h", minimum=0) for row in rows):
+        return None, [
+            f"{TABLE_TRACK_MISMATCH}: {location}; reason=row-track-mismatch"
+        ]
+
+    row_cells = [direct_local_children(row, "tc") for row in rows]
+    row_lengths = {len(cells) for cells in row_cells}
+    if len(row_lengths) != 1:
+        return None, [
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=jagged-grid"
+        ]
+    if next(iter(row_lengths), 0) != len(columns):
+        return None, [
+            f"{TABLE_TRACK_MISMATCH}: {location}; "
+            "reason=column-track-mismatch"
+        ]
+    if len(rows) * len(columns) > MAX_TABLE_CELL_LOCATORS:
+        return None, [
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=locator-limit"
+        ]
+    if any(table_cell_has_merge(cell) for cells in row_cells for cell in cells):
+        return None, [
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=merged-cell"
+        ]
+
+    return [
+        {
+            "rowIndex": row_index,
+            "columnIndex": column_index,
+            "fingerprint": table_cell_fingerprint(cell),
+        }
+        for row_index, cells in enumerate(row_cells)
+        for column_index, cell in enumerate(cells)
+    ], []
+
+
+def direct_graphic_frame_table(
+    frame_element: ET.Element[Any],
+) -> ET.Element[Any] | None:
+    graphic = first_local_child(frame_element, "graphic")
+    graphic_data = first_local_child(graphic, "graphicData")
+    if (
+        graphic_data is None
+        or graphic_data.get("uri") != TABLE_GRAPHIC_DATA_URI
+    ):
+        return None
+    return first_local_child(graphic_data, "tbl")
+
+
+def valid_integer_attribute(
+    element: ET.Element[Any],
+    name: str,
+    *,
+    minimum: int,
+) -> bool:
+    raw_value = element.get(name)
+    if raw_value is None:
+        return False
+    try:
+        return int(raw_value) >= minimum
+    except ValueError:
+        return False
+
+
+def table_cell_has_merge(cell: ET.Element[Any]) -> bool:
+    for span_name in ("gridSpan", "rowSpan"):
+        raw_span = cell.get(span_name)
+        if raw_span is None:
+            continue
+        try:
+            if int(raw_span) != 1:
+                return True
+        except ValueError:
+            return True
+    for merge_name in ("hMerge", "vMerge"):
+        raw_merge = cell.get(merge_name)
+        if raw_merge is None:
+            continue
+        if raw_merge.lower() in {"1", "true", "on"}:
+            return True
+        if raw_merge.lower() not in {"0", "false", "off"}:
+            return True
+    return False
+
+
+def table_cell_fingerprint(cell: ET.Element[Any]) -> str:
+    payload = copy.deepcopy(cell)
+    for node in payload.iter():
+        if node.tag == f"{{{DML_NS}}}t":
+            node.text = ""
+            node.attrib.pop(
+                "{http://www.w3.org/XML/1998/namespace}space",
+                None,
+            )
+    canonical = ET.canonicalize(
+        ET.tostring(payload, encoding="unicode"),
+        with_comments=False,
+        rewrite_prefixes=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def copy_table_cell_locators_to_blueprint(
+    template_blueprint: dict[str, Any],
+    slot_sources_by_slide: list[dict[str, dict[str, Any]]],
+) -> None:
+    blueprint_slides = template_blueprint.get("slides", [])
+    for slide_index, blueprint_slide in enumerate(blueprint_slides):
+        if slide_index >= len(slot_sources_by_slide):
+            break
+        sources_by_element = slot_sources_by_slide[slide_index]
+        for element_source in blueprint_slide.get("elementSources", []):
+            element_id_value = str(element_source.get("elementId", ""))
+            source = sources_by_element.get(element_id_value, {})
+            locators = source.get("tableCellLocators")
+            if isinstance(locators, list) and locators:
+                element_source["tableCellLocators"] = locators
+
+
 def table_cell_border(
     tc_pr: ET.Element[Any] | None,
     scale: OoxmlScale,
@@ -771,6 +942,59 @@ def table_cell_border(
             round(max(0, int_attr(border, "w", 12700) * scale.average_scale), 2),
         )
     return "#FFFFFF", 1
+
+
+def table_cell_fill(
+    tc_pr: ET.Element[Any] | None,
+    theme_colors: dict[str, str],
+    fallback: str,
+) -> str:
+    if tc_pr is None:
+        return fallback
+    fill_names = {"noFill", "solidFill", "gradFill", "blipFill", "pattFill", "grpFill"}
+    fill = next(
+        (child for child in list(tc_pr) if local_name(child) in fill_names),
+        None,
+    )
+    if fill is None:
+        return fallback
+    if local_name(fill) == "solidFill":
+        return solid_color(fill, theme_colors) or "transparent"
+    return "transparent"
+
+
+def table_cell_empty_text_style(
+    body: ET.Element[Any],
+    scale: OoxmlScale,
+    theme_colors: dict[str, str],
+) -> dict[str, Any] | None:
+    for paragraph in direct_local_children(body, "p"):
+        for run in direct_local_children(paragraph, "r"):
+            run_properties = first_local_child(run, "rPr")
+            if run_properties is not None:
+                return run_properties_value(run_properties, scale, theme_colors)
+        end_properties = first_local_child(paragraph, "endParaRPr")
+        if end_properties is not None:
+            return run_properties_value(end_properties, scale, theme_colors)
+        paragraph_properties = first_local_child(paragraph, "pPr")
+        default_properties = first_local_child(paragraph_properties, "defRPr")
+        if default_properties is not None:
+            return run_properties_value(default_properties, scale, theme_colors)
+    return None
+
+
+def table_cell_vertical_align(
+    tc_pr: ET.Element[Any] | None,
+    body: ET.Element[Any] | None,
+) -> str:
+    anchor = str(tc_pr.get("anchor", "")) if tc_pr is not None else ""
+    if anchor:
+        return {
+            "ctr": "middle",
+            "mid": "middle",
+            "b": "bottom",
+        }.get(anchor, "top")
+    return text_vertical_align(body) if body is not None else "middle"
 
 
 def append_group_shape(
@@ -1906,6 +2130,14 @@ def run_props(
     theme_colors: dict[str, str],
 ) -> dict[str, Any]:
     r_pr = first_local_child(run, "rPr")
+    return run_properties_value(r_pr, scale, theme_colors)
+
+
+def run_properties_value(
+    r_pr: ET.Element[Any] | None,
+    scale: OoxmlScale,
+    theme_colors: dict[str, str],
+) -> dict[str, Any]:
     props: dict[str, Any] = {"baseline": "normal"}
     if r_pr is None:
         return props
@@ -1966,6 +2198,7 @@ def text_vertical_align(body: ET.Element[Any]) -> str:
     body_pr = first_local_child(body, "bodyPr")
     anchor = str(body_pr.get("anchor", "t")) if body_pr is not None else "t"
     return {
+        "ctr": "middle",
         "mid": "middle",
         "b": "bottom",
     }.get(anchor, "top")

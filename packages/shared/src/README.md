@@ -33,7 +33,7 @@ canonical coaching result나 Job payload/result에 포함하지 않는다.
 | `deck/deck-api.schema.ts` | 덱 저장/복원 API request, response, error, snapshot, patch log entry 계약. NestJS API와 web/editor/AI consumer가 같은 API 표면을 공유할 때 사용한다. |
 | `deck/generate-deck.schema.ts` | AI 덱 생성 request, response, validation issue, job result 계약. API, worker, web이 같은 generate-deck payload를 검증할 때 사용한다. |
 | `deck/deck-export.schema.ts` | Deck JSON을 PPTX로 export하는 request와 job result 계약. API, worker, web이 같은 export 결과 payload를 검증할 때 사용한다. |
-| `deck/template-blueprint.schema.ts` | 활성 PPTX OOXML 경로의 TemplateBlueprint sidecar와 quality report 계약, historical-only `pptxImportJobResultSchema` parser. 활성 Job 결과는 `pptxOoxmlGenerationJobResultSchema`를 사용하며 Deck/DeckElement schema 변경 없이 template slot 의미를 관리한다. |
+| `deck/template-blueprint.schema.ts` | 활성 PPTX OOXML 경로의 TemplateBlueprint sidecar와 quality report 계약, historical-only `pptxImportJobResultSchema` parser. 활성 Job 결과는 `pptxOoxmlGenerationJobResultSchema`를 사용하며 Deck/DeckElement schema 변경 없이 template slot 의미와 bounded rectangular table cell locator를 관리한다. |
 | `deck/deck.schema.ts` | deck top-level 구조, presenter timing, metadata, canvas preset, theme, slide layout/style, slide, keyword, slide action schema와 `Deck`, `DeckCanvas`, `DeckMetadata`, `Slide`, `SlideLayout`, `SlideStyle`, `Keyword` 타입. |
 | `deck/id.schema.ts` | deck 내부 ID prefix schema와 `DeckId`, `DeckSlideId`, `DeckElementId`, `DeckAnimationId`, `DeckActionId`, `DeckKeywordId`, `DeckChangeId` 타입. |
 | `deck/patch.schema.ts` | deck 변경 요청과 적용 이력 schema. AI, 편집기, import가 전체 Deck JSON을 다시 만들지 않고 patch operation으로 변경을 전달할 때 사용한다. |
