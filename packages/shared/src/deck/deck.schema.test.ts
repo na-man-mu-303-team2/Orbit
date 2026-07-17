@@ -1061,6 +1061,192 @@ describe("deckSchema validation", () => {
     expectValidDeck(deck);
   });
 
+  it("does not materialize rich text style defaults in a legacy plain text deck", () => {
+    const parsed = deckSchema.parse(createValidDeck());
+    const element = parsed.slides[0].elements[0];
+
+    expect(element?.type).toBe("text");
+    if (!element || element.type !== "text") {
+      throw new Error("expected a text element");
+    }
+
+    expect(parsed.version).toBe(1);
+    expect(element.props).toEqual({
+      text: "ORBIT",
+      fontSize: 24,
+      fontWeight: "normal",
+      align: "left",
+      verticalAlign: "top",
+      lineHeight: 1.2
+    });
+    expect(element.props).not.toHaveProperty("italic");
+    expect(element.props).not.toHaveProperty("underline");
+  });
+
+  it("preserves mixed italic and underline styles through Deck serialization", () => {
+    const deck = createValidDeck();
+    const runs = [
+      {
+        text: "Bold italic",
+        fontWeight: "bold",
+        italic: true,
+        underline: false,
+        color: "#111827"
+      },
+      {
+        text: " and underlined",
+        fontWeight: "normal",
+        italic: false,
+        underline: true,
+        color: "#2563EB"
+      }
+    ];
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      props: {
+        text: "Bold italic and underlined",
+        runs,
+        paragraphs: [
+          {
+            text: "Bold italic and underlined",
+            runs,
+            italic: true,
+            underline: false
+          }
+        ],
+        italic: false,
+        underline: true
+      }
+    };
+
+    const parsed = deckSchema.parse(deck);
+    const reparsed = deckSchema.parse(JSON.parse(JSON.stringify(parsed)));
+    const element = reparsed.slides[0].elements[0];
+
+    expect(element?.type).toBe("text");
+    if (!element || element.type !== "text") {
+      throw new Error("expected a text element");
+    }
+
+    expect(reparsed).toEqual(parsed);
+    expect(reparsed.version).toBe(deck.version);
+    expect(element.props).toMatchObject({
+      italic: false,
+      underline: true,
+      runs: [
+        { italic: true, underline: false },
+        { italic: false, underline: true }
+      ],
+      paragraphs: [
+        {
+          italic: true,
+          underline: false,
+          runs: [
+            { italic: true, underline: false },
+            { italic: false, underline: true }
+          ]
+        }
+      ]
+    });
+  });
+
+  it("accepts canonical single and multi-paragraph text projections", () => {
+    const singleParagraphDeck = createValidDeck();
+    const mirroredRuns = [
+      { text: "Single ", italic: true },
+      { text: "paragraph", underline: true }
+    ];
+    singleParagraphDeck.slides[0].elements[0] = {
+      ...singleParagraphDeck.slides[0].elements[0],
+      props: {
+        text: "Single paragraph",
+        runs: mirroredRuns,
+        paragraphs: [
+          {
+            text: "Single paragraph",
+            runs: mirroredRuns
+          }
+        ]
+      }
+    };
+
+    const singleParsed = deckSchema.parse(singleParagraphDeck);
+    const singleElement = singleParsed.slides[0].elements[0];
+    expect(singleElement?.type).toBe("text");
+    if (!singleElement || singleElement.type !== "text") {
+      throw new Error("expected a text element");
+    }
+    expect(singleElement.props.runs).toEqual(
+      singleElement.props.paragraphs?.[0]?.runs
+    );
+
+    const multiParagraphDeck = createValidDeck();
+    multiParagraphDeck.slides[0].elements[0] = {
+      ...multiParagraphDeck.slides[0].elements[0],
+      props: {
+        text: "First paragraph\nSecond paragraph",
+        paragraphs: [
+          {
+            text: "First paragraph",
+            runs: [
+              { text: "First ", italic: true },
+              { text: "paragraph", underline: true }
+            ]
+          },
+          {
+            text: "Second paragraph"
+          }
+        ]
+      }
+    };
+
+    const multiParsed = deckSchema.parse(multiParagraphDeck);
+    const multiElement = multiParsed.slides[0].elements[0];
+    expect(multiElement?.type).toBe("text");
+    if (!multiElement || multiElement.type !== "text") {
+      throw new Error("expected a text element");
+    }
+
+    const paragraphProjection = multiElement.props.paragraphs
+      ?.map((paragraph) =>
+        paragraph.runs?.length
+          ? paragraph.runs.map((run) => run.text).join("")
+          : paragraph.text
+      )
+      .join("\n");
+    expect(multiElement.props.text).toBe(paragraphProjection);
+    expect(multiElement.props.runs).toBeUndefined();
+    expect(multiParsed.version).toBe(multiParagraphDeck.version);
+  });
+
+  it("keeps legacy runs-only text valid until an edit commit normalizes it", () => {
+    const deck = createValidDeck();
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      props: {
+        text: "Legacy runs",
+        runs: [
+          { text: "Legacy ", italic: true },
+          { text: "runs", underline: true }
+        ]
+      }
+    };
+
+    const parsed = deckSchema.parse(deck);
+    const element = parsed.slides[0].elements[0];
+
+    expect(element?.type).toBe("text");
+    if (!element || element.type !== "text") {
+      throw new Error("expected a text element");
+    }
+
+    expect(element.props.paragraphs).toBeUndefined();
+    expect(element.props.runs?.map((run) => run.text).join("")).toBe(
+      element.props.text
+    );
+    expect(parsed.version).toBe(deck.version);
+  });
+
   it("accepts a 1024x768 standard-4-3 deck", () => {
     const deck = createValidDeck();
 
