@@ -4,6 +4,7 @@ import {
   createDemoDeck
 } from "@orbit/editor-core";
 import { deckSchema } from "@orbit/shared";
+import type { ActivitySessionResultItem } from "@orbit/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -17,6 +18,7 @@ import { ActivityEditorOperationsPanel } from "./ActivityEditorOperationsPanel";
 import { ActivitySlidePreview } from "./ActivitySlidePreview";
 import {
   ActivityResultSlideInspector,
+  findCurrentActivityResult,
   findActivityResultSource
 } from "./ActivityResultSlideInspector";
 
@@ -182,4 +184,47 @@ describe("activity slide editor", () => {
       )
     ).toBeNull();
   });
+
+  it("selects only the current run from a chosen presentation session", () => {
+    const runs = [
+      sessionResultItem("activity_run_old", false, 1),
+      sessionResultItem("activity_run_current", true, 2)
+    ];
+
+    expect(
+      findCurrentActivityResult(runs, slide.activity.activityId)?.run
+        .activityRunId
+    ).toBe("activity_run_current");
+    expect(findCurrentActivityResult(runs, "activity_other")).toBeNull();
+  });
+
+  function sessionResultItem(
+    activityRunId: string,
+    isCurrent: boolean,
+    version: number
+  ): ActivitySessionResultItem {
+    return {
+      availability: "raw-retained",
+      result: null,
+      run: {
+        activityRunId,
+        presentationSessionId: "session_1",
+        activityId: slide.activity.activityId,
+        sourceSlideId: slide.slideId,
+        version,
+        supersedesActivityRunId: version === 1 ? null : "activity_run_old",
+        definitionSnapshot: slide.activity,
+        definitionFingerprint: `fingerprint_${version}`,
+        status: isCurrent ? "draft" : "closed",
+        revision: 0,
+        isCurrent,
+        responseCount: 0,
+        openedAt: null,
+        closedAt: null,
+        revealedAt: null,
+        createdAt: "2026-07-17T00:00:00.000Z",
+        updatedAt: "2026-07-17T00:00:00.000Z"
+      }
+    };
+  }
 });

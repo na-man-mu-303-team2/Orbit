@@ -1,6 +1,7 @@
 import type {
   ActivityResultDefinition,
   ActivityResultsSlide,
+  ActivitySessionResultItem,
   ActivitySlide,
   Deck
 } from "@orbit/shared";
@@ -9,6 +10,7 @@ import { useMemo, useState } from "react";
 
 import { activityApi } from "../api/activityApi";
 import { activityQueryKeys } from "../model/activityQueryKeys";
+import { ActivityResultSlideRenderer } from "../rendering/ActivityResultSlideRenderer";
 import "./activity-slide-editor.css";
 
 const layoutLabels: Record<ActivityResultDefinition["layout"], string> = {
@@ -40,6 +42,28 @@ export function ActivityResultSlideInspector(props: {
       activityApi.listSessions(props.projectId, props.deck.deckId),
     staleTime: 15_000
   });
+  const sessionResults = useQuery({
+    enabled: Boolean(source && selectedSessionId),
+    queryKey: activityQueryKeys.sessionResults(
+      props.projectId,
+      selectedSessionId
+    ),
+    queryFn: () => activityApi.getSessionResults(
+      props.projectId,
+      selectedSessionId
+    ),
+    staleTime: 5_000
+  });
+  const selectedResult = source
+    ? findCurrentActivityResult(
+        sessionResults.data?.activities ?? [],
+        source.activity.activityId
+      )
+    : null;
+  const resultsDeleted = Boolean(
+    sessionResults.data?.session.resultsDeletedAt ||
+    selectedResult?.availability === "results-deleted"
+  );
 
   return (
     <div className="activity-slide-inspector activity-result-inspector">
@@ -131,14 +155,36 @@ export function ActivityResultSlideInspector(props: {
       <div
         aria-label="결과 장표 미리보기"
         className="activity-result-preview"
-        data-state={source ? (selectedSessionId ? "waiting" : "no-session") : "source-missing"}
+        data-state={previewState({
+          hasResult: Boolean(selectedResult?.result),
+          loading: sessionResults.isLoading,
+          resultsDeleted,
+          selectedSessionId,
+          source: Boolean(source)
+        })}
       >
         {!source ? (
           <p>연결할 원본 참여 장표를 선택하세요.</p>
-        ) : selectedSessionId ? (
-          <p>선택한 세션의 실제 결과를 불러옵니다.</p>
-        ) : (
+        ) : !selectedSessionId ? (
           <p>발표 세션을 선택하면 실제 결과를 미리 볼 수 있습니다.</p>
+        ) : sessionResults.isLoading ? (
+          <p role="status">선택한 세션의 실제 결과를 불러오는 중입니다.</p>
+        ) : sessionResults.isError ? (
+          <p role="alert">선택한 세션 결과를 불러오지 못했습니다.</p>
+        ) : resultsDeleted ? (
+          <p>이 발표 세션의 결과는 영구 삭제되었습니다.</p>
+        ) : selectedResult ? (
+          <ActivityResultSlideRenderer
+            presenterResult={selectedResult.result}
+            publicResult={null}
+            role="presenter"
+            run={selectedResult.run}
+            scale={0.135}
+            slide={props.slide}
+            source={source}
+          />
+        ) : (
+          <p>선택한 세션에서 이 참여 장표의 현재 실행 결과를 찾지 못했습니다.</p>
         )}
       </div>
       <p className="activity-system-layer-lock">
@@ -146,6 +192,30 @@ export function ActivityResultSlideInspector(props: {
       </p>
     </div>
   );
+}
+
+export function findCurrentActivityResult(
+  activities: ActivitySessionResultItem[],
+  sourceActivityId: string
+): ActivitySessionResultItem | null {
+  return activities.find(
+    (item) =>
+      item.run.activityId === sourceActivityId && item.run.isCurrent
+  ) ?? null;
+}
+
+function previewState(input: {
+  hasResult: boolean;
+  loading: boolean;
+  resultsDeleted: boolean;
+  selectedSessionId: string;
+  source: boolean;
+}) {
+  if (!input.source) return "source-missing";
+  if (!input.selectedSessionId) return "no-session";
+  if (input.loading) return "waiting";
+  if (input.resultsDeleted) return "results-deleted";
+  return input.hasResult ? "presenter-live" : "no-run";
 }
 
 export function findActivityResultSource(

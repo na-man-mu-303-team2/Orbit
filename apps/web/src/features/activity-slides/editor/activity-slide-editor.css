@@ -467,7 +467,8 @@
   border: 1px dashed #d9d9d3;
   border-radius: 10px;
   background: #f4f4ef;
-  padding: 20px;
+  overflow: hidden;
+  padding: 0;
   text-align: center;
 }
 
@@ -475,6 +476,11 @@
   margin: 0;
   color: #666;
   line-height: 1.5;
+  padding: 20px;
+}
+
+.activity-result-preview .activity-result-slide-viewport {
+  flex: none;
 }
 
 .activity-system-layer-lock strong {
