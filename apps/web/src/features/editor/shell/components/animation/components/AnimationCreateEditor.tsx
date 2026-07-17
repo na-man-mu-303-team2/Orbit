@@ -37,6 +37,8 @@ export function AnimationCreateEditor(props: {
   } = props;
   const canSubmit =
     canCreateAnimation && !keywordTriggerRestrictionMessage;
+  const hasKeywordTrigger = Boolean(selectedKeywordId);
+  const startMode = hasKeywordTrigger ? "on-click" : draft.startMode;
 
   return (
     <AnimationPanelSection
@@ -63,28 +65,41 @@ export function AnimationCreateEditor(props: {
           {keywordTriggerWarningMessage}
         </div>
       ) : null}
-      <AnimationTimingFields
-        delayMs={draft.delayMs}
-        durationMs={draft.durationMs}
-        onDelayChange={(delayMs) => onDraftChange({ delayMs })}
-        onDurationChange={(durationMs) => onDraftChange({ durationMs })}
-      />
-      <div className="animation-panel-timing-actions">
-        <button
-          className="animation-panel-primary-button"
-          disabled={!canSubmit}
-          type="button"
-          onClick={() =>
-            onAddAnimation({
-              delayMs: draft.delayMs,
-              durationMs: draft.durationMs,
-              type
-            }, selectedKeywordId, selectedKeywordOccurrenceId)
+      <fieldset
+        disabled={!canCreateAnimation}
+        style={{ display: "contents" }}
+      >
+        <AnimationTimingFields
+          delayMs={draft.delayMs}
+          durationMs={draft.durationMs}
+          startMode={startMode}
+          startModeChangeDisabledReason={
+            hasKeywordTrigger
+              ? "키워드 action과 연결된 효과는 클릭할 때 시작합니다."
+              : null
           }
-        >
-          애니메이션 추가
-        </button>
-      </div>
+          onDelayChange={(delayMs) => onDraftChange({ delayMs })}
+          onDurationChange={(durationMs) => onDraftChange({ durationMs })}
+          onStartModeChange={(startMode) => onDraftChange({ startMode })}
+        />
+        <div className="animation-panel-timing-actions">
+          <button
+            className="animation-panel-primary-button"
+            disabled={!canSubmit}
+            type="button"
+            onClick={() =>
+              onAddAnimation({
+                delayMs: draft.delayMs,
+                durationMs: draft.durationMs,
+                startMode,
+                type
+              }, selectedKeywordId, selectedKeywordOccurrenceId)
+            }
+          >
+            애니메이션 추가
+          </button>
+        </div>
+      </fieldset>
     </AnimationPanelSection>
   );
 }

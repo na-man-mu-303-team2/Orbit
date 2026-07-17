@@ -36,6 +36,7 @@ export type {
   LegacyKeywordTriggerRepairConfidence,
   LegacyKeywordTriggerRepairSuggestion
 } from "./patches/legacyKeywordTriggerRepair";
+export { normalizeLegacyAnimationStartModes } from "./patches/legacyAnimationStartModeMigration";
 export {
   removeLegacyAiGeneratedTitleAnimations
 } from "./patches/legacyAiGeneratedAnimationRepair";
@@ -120,6 +121,7 @@ export {
   createAddSlidePatch,
   createDuplicateSlidePatch,
   createSlideId,
+  createUpdateSlideTransitionPatch
 } from "./patches/slideOperations";
 export {
   createSlidePlaybackState,
@@ -129,6 +131,20 @@ export {
   resolveCueActions,
   resolveTriggeredActions
 } from "./playback/slidePlayback";
+export {
+  animationTimelineDiagnosticLimit,
+  createAnimationTimeline,
+  getAnimationTimelineRoot
+} from "./playback/animationTimeline";
+export type {
+  AnimationStartMode,
+  AnimationTimelineBaseReference,
+  AnimationTimelineDiagnostic,
+  AnimationTimelinePlan,
+  AnimationTimelineRoot,
+  PlannedAnimationTimelineEffect,
+  TimelineAnimationInput
+} from "./playback/animationTimeline";
 export type {
   ClickPlaybackResult,
   SlideActionExecutionResult,

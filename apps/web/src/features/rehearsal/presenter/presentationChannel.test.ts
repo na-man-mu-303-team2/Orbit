@@ -80,6 +80,7 @@ describe("presentationChannel", () => {
                 },
               ],
               presenterOnlyMarker: "슬라이드 창으로 보내면 안 되는 필드",
+              transition: { type: "fade" as const, durationMs: 700 },
             }
           : slide,
       ),
@@ -94,6 +95,10 @@ describe("presentationChannel", () => {
     expect(snapshot.slides[0]?.animations).toEqual(
       p0AnimationDeck.slides[0]?.animations,
     );
+    expect(snapshot.slides[0]?.transition).toEqual({
+      type: "fade",
+      durationMs: 700,
+    });
     expect(snapshot.slides[0]?.speakerNotes).toBe("");
     expect(snapshot.slides[0]?.keywords).toEqual([]);
     expect(snapshot.slides[0]?.actions).toEqual([]);

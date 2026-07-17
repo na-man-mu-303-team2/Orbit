@@ -11,6 +11,7 @@ import {
   createAddSlidePatch,
   createDuplicateSlidePatch,
   createSlideId,
+  createUpdateSlideTransitionPatch,
 } from "./slideOperations";
 
 describe("slide operation helpers", () => {
@@ -26,6 +27,7 @@ describe("slide operation helpers", () => {
       order: 3,
       title: "New Slide",
       thumbnailUrl: "",
+      transition: { type: "fade", durationMs: 300 },
       style: {},
       speakerNotes: "",
       elements: [],
@@ -37,6 +39,42 @@ describe("slide operation helpers", () => {
     const result = applyDeckPatch(deck, patch);
 
     expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.deck.slides[2]?.transition).toEqual({
+        type: "fade",
+        durationMs: 300,
+      });
+    }
+  });
+
+  it("creates set and clear slide transition patches", () => {
+    const deck = createDemoDeck();
+
+    expect(
+      createUpdateSlideTransitionPatch(deck, "slide_1", {
+        type: "fade",
+        durationMs: 700,
+      }),
+    ).toMatchObject({
+      operations: [
+        {
+          type: "update_slide_transition",
+          slideId: "slide_1",
+          transition: { type: "fade", durationMs: 700 },
+        },
+      ],
+    });
+    expect(
+      createUpdateSlideTransitionPatch(deck, "slide_1", null),
+    ).toMatchObject({
+      operations: [
+        {
+          type: "update_slide_transition",
+          slideId: "slide_1",
+          transition: null,
+        },
+      ],
+    });
   });
 
   it("adds a twenty-first slide to an editor-managed deck", () => {
@@ -175,6 +213,8 @@ function createReferenceRichDeck(): Deck {
   );
 
   source.speakerNotes = "slideId 계약을 설명합니다.";
+  source.transition = { type: "fade", durationMs: 700 };
+  source.animations[0]!.startMode = "after-previous";
   source.keywords[0]!.requiredOccurrenceIds = [occurrenceId];
   source.actions = [
     {
@@ -311,6 +351,8 @@ function expectReferenceRichDuplicate(
   const action = duplicate.actions[0]!;
   const cue = duplicate.semanticCues[0]!;
   expect(elementIds).toContain(animation.elementId);
+  expect(duplicate.transition).toEqual(source.transition);
+  expect(animation.startMode).toBe(source.animations[0]!.startMode);
   expect(action.trigger).toMatchObject({
     kind: "keyword-occurrence",
     keywordId: keyword.keywordId,

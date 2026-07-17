@@ -4361,6 +4361,11 @@
   gap: 16px;
 }
 
+.animation-transition-panel {
+  margin-bottom: 16px;
+  padding-right: 2px;
+}
+
 .animation-panel-selection-card {
   display: flex;
   align-items: center;
@@ -4630,6 +4635,42 @@
 .animation-panel-timing-fields {
   display: grid;
   gap: 16px;
+}
+
+.animation-start-mode-field {
+  display: grid;
+  gap: 8px;
+}
+
+.animation-start-mode-field strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.animation-start-mode-field select {
+  min-height: 40px;
+  width: 100%;
+  border: 1px solid #cfd9ea;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  padding: 0 12px;
+}
+
+.animation-start-mode-field select:focus-visible {
+  box-shadow: var(--orbit-ds-focus);
+  outline: none;
+}
+
+.animation-previous-effect-summary {
+  margin: -4px 0 0;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 9px 10px;
 }
 
 .animation-range-field {

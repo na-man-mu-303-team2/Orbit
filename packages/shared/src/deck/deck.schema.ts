@@ -166,6 +166,11 @@ export const slideKeywordsSchema = z
 
 export const slideOrderSchema = z.number().int().positive();
 
+export const slideTransitionSchema = z.object({
+  type: z.literal("fade"),
+  durationMs: z.number().int().positive()
+});
+
 export const importedMainSequenceCoverageSchema = z.enum([
   "unknown",
   "absent",
@@ -298,11 +303,16 @@ export const slideSchema = z
   .object({
     slideId: deckSlideIdSchema,
     ooxmlOrigin: ooxmlOriginSchema.optional(),
+    ooxmlSourceSlidePart: z
+      .string()
+      .regex(/^ppt\/slides\/slide[^/]+\.xml$/)
+      .optional(),
     ooxmlMotionCapabilities: ooxmlMotionCapabilitiesSchema.optional(),
     order: slideOrderSchema,
     title: z.string().default(""),
     thumbnailUrl: z.string().default(""),
     estimatedSeconds: z.number().int().positive().optional(),
+    transition: slideTransitionSchema.optional(),
     style: slideStyleSchema,
     speakerNotes: z.string().default(""),
     elements: z.array(deckElementSchema).default([]),
@@ -489,6 +499,7 @@ export type DeckDesignProgramSnapshot = z.infer<
 >;
 export type DeckCreatedFrom = z.infer<typeof deckCreatedFromSchema>;
 export type Slide = z.infer<typeof slideSchema>;
+export type SlideTransition = z.infer<typeof slideTransitionSchema>;
 export type ImportedMainSequenceCoverage = z.infer<
   typeof importedMainSequenceCoverageSchema
 >;

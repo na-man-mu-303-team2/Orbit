@@ -51,6 +51,8 @@ function isLegacyAiGeneratedTitleAnimation(
     animation.durationMs === 400 &&
     animation.delayMs === 0 &&
     animation.easing === "ease-out" &&
+    (animation.startMode === undefined ||
+      animation.startMode === "on-slide-enter") &&
     !referencedAnimationIds.has(animation.animationId)
   );
 }

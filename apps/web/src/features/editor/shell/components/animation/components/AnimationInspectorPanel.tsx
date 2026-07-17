@@ -5,12 +5,21 @@ import { AnimationInspectorEmptyState } from "./AnimationInspectorEmptyState";
 import { AnimationPanelComposerEmpty } from "./AnimationPanelComposerEmpty";
 import { AnimationSelectionSummary } from "./AnimationSelectionSummary";
 import { AnimationSlideOverview } from "./AnimationSlideOverview";
+import {
+  createAnimationTimeline,
+  getAnimationTimelineRoot
+} from "@orbit/editor-core";
 import type { AnimationEditorPanelProps } from "../types";
 import { useAnimationInspectorModel } from "../hooks/useAnimationInspectorModel";
-import { buildSlideAnimationOrdinalLabelMap } from "../utils/animationUi";
+import {
+  buildSlideAnimationOrdinalLabelMap,
+  formatPreviousAnimationSummary,
+  getPreviousSlideAnimation
+} from "../utils/animationUi";
 
 export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
   const {
+    actionAnimationIds = [],
     animations,
     canCreateAnimation,
     element,
@@ -45,6 +54,29 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
   } = useAnimationInspectorModel(animations, preferredAnimationId);
   const ordinalLabelByAnimationId =
     buildSlideAnimationOrdinalLabelMap(slideAnimations);
+  const previousSelectedAnimation = selectedAnimation
+    ? getPreviousSlideAnimation(slideAnimations, selectedAnimation.animationId)
+    : null;
+  const actionAnimationIdSet = new Set(actionAnimationIds);
+  const animationTimeline = createAnimationTimeline({
+    animations: slideAnimations,
+    legacyOnClickAnimationIds: actionAnimationIdSet
+  });
+  const selectedTimelineAnimation = selectedAnimation
+    ? animationTimeline.effects.find(
+        (animation) => animation.animationId === selectedAnimation.animationId
+      )
+    : null;
+  const selectedTimelineRoot = selectedAnimation
+    ? getAnimationTimelineRoot(animationTimeline, selectedAnimation.animationId)
+    : null;
+  const selectedRootHasAction =
+    selectedTimelineRoot?.effects.some((effect) =>
+      actionAnimationIdSet.has(effect.animationId)
+    ) ?? false;
+  const actionLinkedChainReason = selectedRootHasAction
+    ? "이 효과는 action과 연결된 재생 체인에 포함되어 있어 시작 방식 변경이나 제거를 할 수 없습니다."
+    : null;
 
   if (!element) {
     return slideAnimations.length > 0 ? (
@@ -115,7 +147,23 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
           title={mutationDisabledReason ?? undefined}
         >
           <AnimationExistingEditor
-            animation={selectedAnimation}
+            animation={{
+              ...selectedAnimation,
+              startMode:
+                selectedTimelineAnimation?.startMode ?? selectedAnimation.startMode
+            }}
+            previousEffectSummary={
+              previousSelectedAnimation
+                ? formatPreviousAnimationSummary(
+                    previousSelectedAnimation,
+                    ordinalLabelByAnimationId
+                  )
+                : null
+            }
+            startModeChangeDisabledReason={
+              actionLinkedChainReason
+            }
+            deleteDisabledReason={actionLinkedChainReason}
             onDeleteAnimation={onDeleteAnimation}
             onUpdateAnimation={onUpdateAnimation}
           />

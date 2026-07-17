@@ -59,6 +59,15 @@ describe("removeLegacyAiGeneratedTitleAnimations", () => {
     expect(repaired.slides[0]?.animations).toHaveLength(2);
   });
 
+  it("preserves an explicitly authored click animation even when its legacy signature matches", () => {
+    const deck = createLegacyAiDeck();
+    deck.slides[0]!.animations[0]!.startMode = "on-click";
+
+    const repaired = removeLegacyAiGeneratedTitleAnimations(deck);
+
+    expect(repaired.slides[0]?.animations).toHaveLength(2);
+  });
+
   it("does not change non-AI decks", () => {
     const deck = createLegacyAiDeck();
     deck.metadata.sourceType = "manual";

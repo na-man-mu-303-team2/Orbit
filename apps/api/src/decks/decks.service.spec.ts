@@ -425,6 +425,7 @@ function createImportedDeck(
       {
         ...deck.slides[0]!,
         ooxmlOrigin: "imported",
+        ooxmlSourceSlidePart: "ppt/slides/slide1.xml",
         ooxmlMotionCapabilities: {
           transitionWritable: false,
           importedMainSequenceCoverage: "absent",
@@ -616,10 +617,12 @@ function seedOoxmlBlueprint(
       sourceFileId: "file_1",
       currentPackageFileId: "file_current",
       ooxmlSyncedDeckVersion,
-      slides: deck.slides.map((_, slideIndex) => ({
+      slides: deck.slides.map((deckSlide, slideIndex) => ({
         slideIndex: slideIndex + 1,
         sourceSlideIndex: slideIndex + 1,
         sourceSlidePart: `ppt/slides/slide${slideIndex + 1}.xml`,
+        ooxmlOrigin: deckSlide.ooxmlOrigin,
+        ooxmlMotionCapabilities: deckSlide.ooxmlMotionCapabilities,
         elementSources: slideIndex === 0 ? elementSources : [],
         slots: [],
       })),
@@ -3164,19 +3167,6 @@ describe("DecksService", () => {
         style: { backgroundColor: "#000000" },
       },
       {
-        type: "add_animation",
-        slideId: slide.slideId,
-        animation: {
-          animationId: "anim_blocked",
-          elementId: element.elementId,
-          type: "fade-in",
-          order: 1,
-          durationMs: 400,
-          delayMs: 0,
-          easing: "ease-out",
-        },
-      },
-      {
         type: "add_slide",
         slide: {
           ...slide,
@@ -3228,6 +3218,623 @@ describe("DecksService", () => {
 
     expect(dataSource.patchRows).toHaveLength(0);
     expect(dataSource.decks.get(deck.projectId)).toMatchObject({ version: 1 });
+  });
+
+  it("gates imported transition edits on the authoritative slide capability", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_transition_capability",
+    );
+    const blockedDeck = createImportedDeck();
+    await service.putDeck(blockedDeck.projectId, { deck: blockedDeck });
+    seedOoxmlBlueprint(dataSource, blockedDeck);
+
+    const blocked = await expectDeckApiError(
+      () =>
+        service.appendPatch(blockedDeck.projectId, {
+          patch: {
+            deckId: blockedDeck.deckId,
+            baseVersion: blockedDeck.version,
+            source: "user",
+            operations: [
+              {
+                type: "update_slide_transition",
+                slideId: blockedDeck.slides[0]!.slideId,
+                transition: { type: "fade", durationMs: 700 },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+    expect(blocked.details).toContain(
+      "reasonCode=TRANSITION_CAPABILITY_UNSAFE",
+    );
+    expect(dataSource.patchRows).toHaveLength(0);
+
+    const writableDeck = deckSchema.parse({
+      ...blockedDeck,
+      projectId: "project_transition_writable",
+      deckId: "deck_transition_writable",
+      slides: [
+        {
+          ...blockedDeck.slides[0]!,
+          ooxmlMotionCapabilities: {
+            ...blockedDeck.slides[0]!.ooxmlMotionCapabilities!,
+            transitionWritable: true,
+          },
+        },
+      ],
+    });
+    const writableFixture = createOoxmlSyncService(
+      "job_sync_transition_writable",
+    );
+    await writableFixture.service.putDeck(writableDeck.projectId, {
+      deck: writableDeck,
+    });
+    seedOoxmlBlueprint(writableFixture.dataSource, writableDeck);
+
+    await writableFixture.service.appendPatch(writableDeck.projectId, {
+      patch: {
+        deckId: writableDeck.deckId,
+        baseVersion: writableDeck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_slide_transition",
+            slideId: writableDeck.slides[0]!.slideId,
+            transition: { type: "fade", durationMs: 700 },
+          },
+        ],
+      },
+    });
+
+    expect(writableFixture.dataSource.patchRows[0]?.operations).toEqual([
+      {
+        type: "update_slide_transition",
+        slideId: writableDeck.slides[0]!.slideId,
+        transition: { type: "fade", durationMs: 700 },
+      },
+    ]);
+  });
+
+  it.each(["missing", "invalid"])(
+    "rejects imported motion patch when template blueprint is %s without persistence",
+    async (blueprintState) => {
+      const { dataSource, service } = createService();
+      const base = createImportedDeck();
+      const deck = deckSchema.parse({
+        ...base,
+        slides: [
+          {
+            ...base.slides[0]!,
+            ooxmlMotionCapabilities: {
+              transitionWritable: true,
+              importedMainSequenceCoverage: "complete",
+            },
+          },
+        ],
+      });
+      await service.putDeck(deck.projectId, { deck });
+      if (blueprintState === "invalid") {
+        dataSource.templateBlueprintRows.push({
+          template_id: "template_invalid_motion",
+          project_id: deck.projectId,
+          deck_id: deck.deckId,
+          blueprint_json: {
+            templateId: "template_invalid_motion",
+            sourceFileId: "file_1",
+            currentPackageFileId: "file_current",
+            slides: [
+              {
+                slideIndex: 1,
+                sourceSlideIndex: 1,
+                ooxmlMotionCapabilities: {
+                  transitionWritable: true,
+                  importedMainSequenceCoverage: "complete",
+                },
+              },
+            ],
+          },
+        });
+      }
+
+      const error = await expectDeckApiError(
+        () =>
+          service.appendPatch(deck.projectId, {
+            patch: {
+              deckId: deck.deckId,
+              baseVersion: deck.version,
+              source: "user",
+              operations: [
+                {
+                  type: "update_slide_transition",
+                  slideId: deck.slides[0]!.slideId,
+                  transition: { type: "fade", durationMs: 700 },
+                },
+              ],
+            },
+          }),
+        HttpStatus.BAD_REQUEST,
+        "OOXML_CHANGE_UNSUPPORTED",
+      );
+
+      expect(error.details).toContain(
+        "reasonCode=TEMPLATE_BLUEPRINT_UNAVAILABLE",
+      );
+      expect(dataSource.patchRows).toHaveLength(0);
+      expect(dataSource.decks.get(deck.projectId)).toMatchObject({
+        version: 1,
+      });
+    },
+  );
+
+  it("allows imported animation edits only for absent or complete main-sequence coverage", async () => {
+    const allowedFixture = createOoxmlSyncService("job_sync_animation_absent");
+    const allowedDeck = createImportedDeck();
+    await allowedFixture.service.putDeck(allowedDeck.projectId, {
+      deck: allowedDeck,
+    });
+    seedOoxmlBlueprint(allowedFixture.dataSource, allowedDeck);
+
+    await allowedFixture.service.appendPatch(allowedDeck.projectId, {
+      patch: {
+        deckId: allowedDeck.deckId,
+        baseVersion: allowedDeck.version,
+        source: "user",
+        operations: [
+          {
+            type: "add_animation",
+            slideId: allowedDeck.slides[0]!.slideId,
+            animation: {
+              animationId: "anim_first_imported",
+              elementId: allowedDeck.slides[0]!.elements[0]!.elementId,
+              type: "fade-in",
+              order: 1,
+              durationMs: 500,
+              delayMs: 0,
+              easing: "ease-out",
+              startMode: "on-click",
+            },
+          },
+        ],
+      },
+    });
+    expect(allowedFixture.dataSource.patchRows).toHaveLength(1);
+
+    const blockedFixture = createOoxmlSyncService("job_sync_animation_partial");
+    const blockedDeck = deckSchema.parse({
+      ...createImportedDeck(),
+      projectId: "project_animation_partial",
+      deckId: "deck_animation_partial",
+      slides: [
+        {
+          ...createImportedDeck().slides[0]!,
+          ooxmlMotionCapabilities: {
+            transitionWritable: true,
+            importedMainSequenceCoverage: "partial",
+          },
+        },
+      ],
+    });
+    await blockedFixture.service.putDeck(blockedDeck.projectId, {
+      deck: blockedDeck,
+    });
+    seedOoxmlBlueprint(blockedFixture.dataSource, blockedDeck);
+
+    const blocked = await expectDeckApiError(
+      () =>
+        blockedFixture.service.appendPatch(blockedDeck.projectId, {
+          patch: {
+            deckId: blockedDeck.deckId,
+            baseVersion: blockedDeck.version,
+            source: "user",
+            operations: [
+              {
+                type: "add_animation",
+                slideId: blockedDeck.slides[0]!.slideId,
+                animation: {
+                  animationId: "anim_blocked_partial",
+                  elementId: blockedDeck.slides[0]!.elements[0]!.elementId,
+                  type: "fade-in",
+                  order: 1,
+                  durationMs: 500,
+                  delayMs: 0,
+                  easing: "ease-out",
+                  startMode: "on-click",
+                },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+    expect(blocked.details).toContain(
+      "reasonCode=MOTION_REFERENCE_COVERAGE_UNSAFE",
+    );
+    expect(blockedFixture.dataSource.patchRows).toHaveLength(0);
+  });
+
+  it("materializes animations removed implicitly by an imported element deletion", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_delete_animation_cascade",
+    );
+    const imported = createImportedDeck();
+    const target = imported.slides[0]!.elements[0]!;
+    const deck = deckSchema.parse({
+      ...imported,
+      slides: [
+        {
+          ...imported.slides[0]!,
+          animations: [
+            {
+              animationId: "anim_deleted_with_element",
+              elementId: target.elementId,
+              type: "fade-in",
+              order: 1,
+              durationMs: 500,
+              delayMs: 0,
+              easing: "ease-out",
+              startMode: "on-click",
+            },
+          ],
+        },
+      ],
+    });
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    const result = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "delete_element",
+            slideId: deck.slides[0]!.slideId,
+            elementId: target.elementId,
+          },
+        ],
+      },
+    });
+
+    expect(result.changeRecord.operations).toEqual([
+      {
+        type: "delete_animation",
+        slideId: deck.slides[0]!.slideId,
+        animationId: "anim_deleted_with_element",
+      },
+      {
+        type: "delete_element",
+        slideId: deck.slides[0]!.slideId,
+        elementId: target.elementId,
+      },
+    ]);
+    expect(dataSource.patchRows[0]?.operations).toEqual(
+      result.changeRecord.operations,
+    );
+    expect(result.deck.slides[0]!.animations).toEqual([]);
+  });
+
+  it("emits full-save transition and animation changes as motion patch operations", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_motion_full_put",
+    );
+    const imported = createImportedDeck();
+    const deck = deckSchema.parse({
+      ...imported,
+      slides: [
+        {
+          ...imported.slides[0]!,
+          ooxmlMotionCapabilities: {
+            transitionWritable: true,
+            importedMainSequenceCoverage: "complete",
+          },
+          transition: { type: "fade", durationMs: 500 },
+          animations: [
+            {
+              animationId: "anim_existing",
+              elementId: imported.slides[0]!.elements[0]!.elementId,
+              type: "fade-in",
+              order: 1,
+              durationMs: 500,
+              delayMs: 0,
+              easing: "ease-out",
+              startMode: "on-click",
+            },
+          ],
+        },
+      ],
+    });
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    await service.putDeck(deck.projectId, {
+      baseVersion: deck.version,
+      deck: {
+        ...deck,
+        slides: [
+          {
+            ...deck.slides[0]!,
+            transition: { type: "fade", durationMs: 700 },
+            animations: [
+              {
+                ...deck.slides[0]!.animations[0]!,
+                durationMs: 900,
+                startMode: "after-previous",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(dataSource.patchRows[0]?.operations).toEqual(
+      expect.arrayContaining([
+        {
+          type: "update_slide_transition",
+          slideId: deck.slides[0]!.slideId,
+          transition: { type: "fade", durationMs: 700 },
+        },
+        expect.objectContaining({
+          type: "update_animation",
+          slideId: deck.slides[0]!.slideId,
+          animationId: "anim_existing",
+          animation: expect.objectContaining({
+            durationMs: 900,
+            startMode: "after-previous",
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("emits a motion operation when a full save reorders equal-order animations", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_motion_full_put_reorder",
+    );
+    const imported = createImportedDeck();
+    const targetId = imported.slides[0]!.elements[0]!.elementId;
+    const animations = [
+      {
+        animationId: "anim_reorder_a",
+        elementId: targetId,
+        type: "fade-in" as const,
+        order: 1,
+        durationMs: 500,
+        delayMs: 0,
+        easing: "ease-out" as const,
+        startMode: "on-click" as const,
+      },
+      {
+        animationId: "anim_reorder_b",
+        elementId: targetId,
+        type: "appear" as const,
+        order: 1,
+        durationMs: 300,
+        delayMs: 0,
+        easing: "linear" as const,
+        startMode: "on-click" as const,
+      },
+    ];
+    const deck = deckSchema.parse({
+      ...imported,
+      slides: [
+        {
+          ...imported.slides[0]!,
+          ooxmlMotionCapabilities: {
+            transitionWritable: true,
+            importedMainSequenceCoverage: "complete",
+          },
+          animations,
+        },
+      ],
+    });
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    await service.putDeck(deck.projectId, {
+      baseVersion: deck.version,
+      deck: {
+        ...deck,
+        slides: [
+          {
+            ...deck.slides[0]!,
+            animations: [...animations].reverse(),
+          },
+        ],
+      },
+    });
+
+    expect(dataSource.patchRows[0]?.operations).toEqual([
+      expect.objectContaining({
+        type: "update_animation",
+        slideId: deck.slides[0]!.slideId,
+        animationId: "anim_reorder_b",
+      }),
+    ]);
+  });
+
+  it("refreshes motion targets when a full save replaces an element type", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_motion_full_put_target_replace",
+    );
+    const imported = createImportedDeck();
+    const target = imported.slides[0]!.elements[0]!;
+    const deck = deckSchema.parse({
+      ...imported,
+      slides: [
+        {
+          ...imported.slides[0]!,
+          animations: [
+            {
+              animationId: "anim_replaced_target",
+              elementId: target.elementId,
+              type: "fade-in",
+              order: 1,
+              durationMs: 500,
+              delayMs: 0,
+              easing: "ease-out",
+              startMode: "on-click",
+            },
+          ],
+        },
+      ],
+    });
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    await service.putDeck(deck.projectId, {
+      baseVersion: deck.version,
+      deck: {
+        ...deck,
+        slides: [
+          {
+            ...deck.slides[0]!,
+            elements: [
+              {
+                elementId: target.elementId,
+                type: "rect",
+                role: target.role,
+                x: target.x,
+                y: target.y,
+                width: target.width,
+                height: target.height,
+                rotation: target.rotation,
+                opacity: target.opacity,
+                zIndex: target.zIndex,
+                locked: target.locked,
+                visible: target.visible,
+                props: {
+                  fill: "#2563eb",
+                  stroke: "transparent",
+                  strokeWidth: 0,
+                  cornerRadius: 0,
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(dataSource.patchRows[0]?.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "update_animation",
+          animationId: "anim_replaced_target",
+        }),
+        expect.objectContaining({
+          type: "delete_element",
+          elementId: target.elementId,
+        }),
+        expect.objectContaining({
+          type: "add_element",
+          element: expect.objectContaining({
+            elementId: target.elementId,
+            type: "rect",
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("allows an authored element delete only with safe motion coverage", async () => {
+    const imported = createImportedDeck();
+    const authored = {
+      ...createTextElement("el_authored_delete", "Authored"),
+      ooxmlOrigin: "authored" as const,
+    };
+    const completeDeck = deckSchema.parse({
+      ...imported,
+      projectId: "project_authored_delete_complete",
+      deckId: "deck_authored_delete_complete",
+      slides: [
+        {
+          ...imported.slides[0]!,
+          ooxmlMotionCapabilities: {
+            transitionWritable: true,
+            importedMainSequenceCoverage: "complete",
+          },
+          elements: [...imported.slides[0]!.elements, authored],
+        },
+      ],
+    });
+    const completeFixture = createOoxmlSyncService(
+      "job_sync_authored_delete_complete",
+    );
+    await completeFixture.service.putDeck(completeDeck.projectId, {
+      deck: completeDeck,
+    });
+    seedOoxmlBlueprint(completeFixture.dataSource, completeDeck);
+
+    await completeFixture.service.appendPatch(completeDeck.projectId, {
+      patch: {
+        deckId: completeDeck.deckId,
+        baseVersion: completeDeck.version,
+        source: "user",
+        operations: [
+          {
+            type: "delete_element",
+            slideId: completeDeck.slides[0]!.slideId,
+            elementId: authored.elementId,
+          },
+        ],
+      },
+    });
+    expect(completeFixture.dataSource.patchRows[0]?.operations).toEqual([
+      expect.objectContaining({
+        type: "delete_element",
+        elementId: authored.elementId,
+      }),
+    ]);
+
+    const partialDeck = deckSchema.parse({
+      ...completeDeck,
+      projectId: "project_authored_delete_partial",
+      deckId: "deck_authored_delete_partial",
+      slides: [
+        {
+          ...completeDeck.slides[0]!,
+          ooxmlMotionCapabilities: {
+            transitionWritable: true,
+            importedMainSequenceCoverage: "partial",
+          },
+        },
+      ],
+    });
+    const partialFixture = createOoxmlSyncService(
+      "job_sync_authored_delete_partial",
+    );
+    await partialFixture.service.putDeck(partialDeck.projectId, {
+      deck: partialDeck,
+    });
+    seedOoxmlBlueprint(partialFixture.dataSource, partialDeck);
+
+    const error = await expectDeckApiError(
+      () =>
+        partialFixture.service.appendPatch(partialDeck.projectId, {
+          patch: {
+            deckId: partialDeck.deckId,
+            baseVersion: partialDeck.version,
+            source: "user",
+            operations: [
+              {
+                type: "delete_element",
+                slideId: partialDeck.slides[0]!.slideId,
+                elementId: authored.elementId,
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+    expect(error.details).toContain(
+      "reasonCode=MOTION_REFERENCE_COVERAGE_UNSAFE",
+    );
   });
 
   it("rejects inconsistent authored text additions before persistence", async () => {

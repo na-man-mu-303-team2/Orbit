@@ -264,7 +264,11 @@ describe("applyDeckPatch", () => {
     deck.metadata.sourceType = "import";
     deck.metadata.thumbnailSource = "import-render";
     deck.metadata.audience = "executive";
-    deck.metadata.createdFrom = { topic: "Before", references: [], designReferences: [] };
+    deck.metadata.createdFrom = {
+      topic: "Before",
+      references: [],
+      designReferences: [],
+    };
 
     const result = applyPatchOrFail(
       deck,
@@ -357,6 +361,38 @@ describe("applyDeckPatch", () => {
 
     expect(result.deck.slides[0].estimatedSeconds).toBeUndefined();
     expect(result.deck.slides[0].aiNotes).toBeUndefined();
+  });
+
+  it("sets and clears a destination slide transition", () => {
+    const setResult = applyPatchOrFail(
+      createPatchTestDeck(),
+      createPatch([
+        {
+          type: "update_slide_transition",
+          slideId: "slide_1",
+          transition: { type: "fade", durationMs: 700 },
+        },
+      ]),
+    );
+    const clearResult = applyPatchOrFail(
+      setResult.deck,
+      createPatch(
+        [
+          {
+            type: "update_slide_transition",
+            slideId: "slide_1",
+            transition: null,
+          },
+        ],
+        setResult.deck.version,
+      ),
+    );
+
+    expect(setResult.deck.slides[0].transition).toEqual({
+      type: "fade",
+      durationMs: 700,
+    });
+    expect(clearResult.deck.slides[0].transition).toBeUndefined();
   });
 
   it("deletes a slide", () => {
@@ -469,21 +505,24 @@ describe("applyDeckPatch", () => {
         { slideId: "slide_2", order: 3 },
       ],
     },
-  ])("rejects reorder input with $name without mutating the deck", ({ slideOrders }) => {
-    const deck = createDeckWithSecondSlide();
-    const before = structuredClone(deck);
+  ])(
+    "rejects reorder input with $name without mutating the deck",
+    ({ slideOrders }) => {
+      const deck = createDeckWithSecondSlide();
+      const before = structuredClone(deck);
 
-    const result = applyDeckPatch(
-      deck,
-      createPatch([{ type: "reorder_slides", slideOrders }]),
-    );
+      const result = applyDeckPatch(
+        deck,
+        createPatch([{ type: "reorder_slides", slideOrders }]),
+      );
 
-    expect(result).toMatchObject({
-      ok: false,
-      error: { code: "INVALID_SLIDE_REORDER" },
-    });
-    expect(deck).toEqual(before);
-  });
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "INVALID_SLIDE_REORDER" },
+      });
+      expect(deck).toEqual(before);
+    },
+  );
 
   it("adds an element", () => {
     const result = applyPatchOrFail(
@@ -617,7 +656,7 @@ describe("applyDeckPatch", () => {
     const props = applyRichTextCharacterStyle(
       element.props,
       { start: 0, end: 2 },
-      { italic: true }
+      { italic: true },
     );
 
     const result = applyPatchOrFail(
@@ -627,9 +666,9 @@ describe("applyDeckPatch", () => {
           type: "update_element_props",
           slideId: "slide_1",
           elementId: element.elementId,
-          props
-        }
-      ])
+          props,
+        },
+      ]),
     );
 
     expect(result.deck.slides[0].semanticCues[0].freshness).toBe("current");
@@ -718,8 +757,12 @@ describe("applyDeckPatch", () => {
       ]),
     );
 
-    expect(tableResult.deck.slides[0].semanticCues[0].freshness).toBe("current");
-    expect(chartResult.deck.slides[0].semanticCues[0].freshness).toBe("current");
+    expect(tableResult.deck.slides[0].semanticCues[0].freshness).toBe(
+      "current",
+    );
+    expect(chartResult.deck.slides[0].semanticCues[0].freshness).toBe(
+      "current",
+    );
   });
 
   it("marks cues stale only when speaker notes actually change", () => {
@@ -874,6 +917,7 @@ describe("applyDeckPatch", () => {
           animationId: "anim_1",
           animation: {
             durationMs: 1000,
+            startMode: "on-click",
           },
         },
         {
@@ -930,6 +974,7 @@ describe("applyDeckPatch", () => {
     ]);
     expect(slide.animations).toHaveLength(1);
     expect(slide.animations[0].durationMs).toBe(1000);
+    expect(slide.animations[0].startMode).toBe("on-click");
     expect(slide.actions).toEqual([
       {
         actionId: "act_1",
@@ -1309,6 +1354,60 @@ describe("applyDeckPatch", () => {
       ok: false,
       error: {
         code: "SLIDE_ACTION_ANIMATION_NOT_FOUND",
+      },
+    });
+  });
+
+  it("fails when a slide action targets an explicit slide-entry chain", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0]!.animations[0]!.startMode = "on-slide-enter";
+
+    const result = applyDeckPatch(
+      deck,
+      createPatch([
+        {
+          type: "add_slide_action",
+          slideId: "slide_1",
+          action: {
+            actionId: "act_entry",
+            trigger: { kind: "cue", cue: "강조" },
+            effect: { kind: "play-animation", animationId: "anim_1" },
+          },
+        },
+      ]),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "SLIDE_ACTION_ANIMATION_TIMING_INCOMPATIBLE" },
+    });
+  });
+
+  it("fails when an animation update moves an action target out of its click chain", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0]!.actions.push({
+      actionId: "act_1",
+      trigger: { kind: "cue", cue: "강조" },
+      effect: { kind: "play-animation", animationId: "anim_1" },
+    });
+
+    const result = applyDeckPatch(
+      deck,
+      createPatch([
+        {
+          type: "update_animation",
+          slideId: "slide_1",
+          animationId: "anim_1",
+          animation: { startMode: "on-slide-enter" },
+        },
+      ]),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "SLIDE_ACTION_ANIMATION_TIMING_INCOMPATIBLE",
+        operationType: "update_animation",
       },
     });
   });

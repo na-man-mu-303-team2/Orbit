@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { createSlidePlaybackState } from "@orbit/editor-core";
 
 import type { Slide } from "@orbit/shared";
 
 import {
+  getTriggerAnimationIdsForSlide,
   getKeywordOccurrenceTriggerIdsForSlide,
   resolveKeywordOccurrenceTriggeredActions,
-  resolveKeywordTriggeredActions
+  resolveKeywordTriggeredActions,
+  resolveTriggeredActionPlaybackUpdate
 } from "./triggeredActionPlayback";
+import { createSlideshowAnimationPlan } from "../presenter/slideshowStepModel";
 
 describe("triggeredActionPlayback", () => {
   it("keeps legacy keyword and keyword occurrence trigger resolution separate", () => {
@@ -31,6 +35,70 @@ describe("triggeredActionPlayback", () => {
     const slide = createSlide();
 
     expect(resolveKeywordTriggeredActions(slide, "kw_ai")).toEqual([]);
+  });
+
+  it("runs a follower action as one root chain and settles the step monotonically", () => {
+    const slide = createSlide();
+    slide.animations[0]!.startMode = "on-click";
+    slide.animations[1]!.startMode = "with-previous";
+    const plan = createSlideshowAnimationPlan({ slide });
+    const actions = resolveKeywordOccurrenceTriggeredActions(
+      slide,
+      "kw_ai",
+      "kwo_slide_1_kw_ai_47_49"
+    );
+    const first = resolveTriggeredActionPlaybackUpdate({
+      actions,
+      playbackState: createSlidePlaybackState(),
+      presenterStepIndex: 0,
+      slide,
+      slideAnimationPlan: plan
+    });
+    const repeated = resolveTriggeredActionPlaybackUpdate({
+      actions,
+      playbackState: first.playbackState,
+      presenterStepIndex: first.presenterStepIndex,
+      slide,
+      slideAnimationPlan: plan
+    });
+
+    expect(first.presenterStepIndex).toBe(1);
+    expect(first.playbackState.playedAnimationIds).toEqual([
+      "anim_legacy",
+      "anim_occurrence"
+    ]);
+    expect(repeated).toEqual(first);
+  });
+
+  it("keeps an invalid legacy action as an overlay without changing explicit entry timing", () => {
+    const slide = createSlide();
+    slide.animations[0]!.startMode = "on-slide-enter";
+    slide.animations[1]!.startMode = "with-previous";
+    const triggerAnimationIds = getTriggerAnimationIdsForSlide(slide);
+    const plan = createSlideshowAnimationPlan({ slide, triggerAnimationIds });
+    const actions = resolveKeywordOccurrenceTriggeredActions(
+      slide,
+      "kw_ai",
+      "kwo_slide_1_kw_ai_47_49"
+    );
+    const update = resolveTriggeredActionPlaybackUpdate({
+      actions,
+      playbackState: createSlidePlaybackState(),
+      presenterStepIndex: 0,
+      slide,
+      slideAnimationPlan: plan
+    });
+
+    expect(plan.entryAnimations.map(({ animationId }) => animationId)).toEqual([
+      "anim_legacy",
+      "anim_occurrence"
+    ]);
+    expect(plan.triggerSteps).toEqual([]);
+    expect(update.presenterStepIndex).toBe(0);
+    expect(update.playbackState.playedAnimationIds).toEqual([
+      "anim_legacy",
+      "anim_occurrence"
+    ]);
   });
 });
 

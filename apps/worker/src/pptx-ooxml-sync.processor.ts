@@ -1,11 +1,16 @@
 import {
+  animationSchema,
   deckCanvasSchema,
+  deckSchema,
   deckPatchOperationSchema,
   deckPatchOperationTypeSchema,
+  ooxmlMotionCapabilitiesSchema,
   pptxOoxmlSyncJobResultSchema,
+  slideTransitionSchema,
   templateElementSourceSchema,
   templateBlueprintSchema,
   type DeckCanvas,
+  type Deck,
   type DeckPatchOperation,
   type Job,
   type TemplateBlueprint,
@@ -79,12 +84,64 @@ const ooxmlUnsupportedOperationSchema = z
   })
   .strict();
 
+const slideMotionTouchedSchema = z
+  .object({
+    transition: z.boolean(),
+    animations: z.boolean(),
+  })
+  .strict();
+
+const slideMotionSyncInputSchema = z
+  .object({
+    slideId: z.string().min(1),
+    sourceSlidePart: z
+      .string()
+      .regex(/^ppt\/slides\/slide[^/]+\.xml$/)
+      .optional(),
+    transition: slideTransitionSchema.nullable(),
+    animations: z.array(animationSchema),
+    capabilities: ooxmlMotionCapabilitiesSchema,
+    touched: slideMotionTouchedSchema,
+  })
+  .strict();
+
+const appliedSlideMotionSchema = z
+  .object({
+    slideId: z.string().min(1),
+    transition: z.boolean(),
+    animations: z.boolean(),
+  })
+  .strict();
+
+const unsupportedSlideMotionSchema = z
+  .object({
+    slideId: z.string().min(1),
+    scope: z.enum(["transition", "animations"]),
+    reasonCode: z.enum([
+      "SLIDE_MOTION_SOURCE_MISSING",
+      "SLIDE_MOTION_PAYLOAD_INVALID",
+      "SLIDE_TRANSITION_CAPABILITY_UNSAFE",
+      "SLIDE_TRANSITION_UNSUPPORTED",
+      "SLIDE_ANIMATION_CAPABILITY_UNSAFE",
+      "SLIDE_ANIMATION_UNSUPPORTED",
+      "SLIDE_ANIMATION_TARGET_UNRESOLVED",
+      "SLIDE_MOTION_STRUCTURE_UNSUPPORTED",
+      "SLIDE_MOTION_SYNC_RESPONSE_INCOMPLETE",
+    ]),
+  })
+  .strict();
+
 const pptxOoxmlSyncWorkerResponseSchema = z.object({
   assets: z.array(syncAssetSchema).default([]),
   elementSources: z.array(templateElementSourceSchema).max(500).default([]),
   appliedOperations: z.array(ooxmlAppliedOperationSchema).max(500).default([]),
   unsupportedOperations: z
     .array(ooxmlUnsupportedOperationSchema)
+    .max(500)
+    .default([]),
+  appliedSlideMotion: z.array(appliedSlideMotionSchema).max(500).default([]),
+  unsupportedSlideMotion: z
+    .array(unsupportedSlideMotionSchema)
     .max(500)
     .default([]),
   warnings: z.array(z.string()).default([]),
@@ -113,6 +170,17 @@ type OoxmlSyncOperation = Extract<
       | "delete_element";
   }
 >;
+type OoxmlMotionOperation = Extract<
+  DeckPatchOperation,
+  {
+    type:
+      | "update_slide_transition"
+      | "add_animation"
+      | "update_animation"
+      | "delete_animation";
+  }
+>;
+type SlideMotionSyncInput = z.infer<typeof slideMotionSyncInputSchema>;
 
 type JobRow = {
   job_id: string;
@@ -188,6 +256,16 @@ class UnsupportedOoxmlOperationsError extends Error {
   }
 }
 
+class UnsupportedOoxmlSlideMotionError extends Error {
+  readonly motion: z.infer<typeof unsupportedSlideMotionSchema>;
+
+  constructor(motion: z.infer<typeof unsupportedSlideMotionSchema>) {
+    super(`${motion.slideId}:${motion.scope}:${motion.reasonCode}`);
+    this.name = "UnsupportedOoxmlSlideMotionError";
+    this.motion = motion;
+  }
+}
+
 class PythonWorkerHttpError extends Error {
   constructor(readonly status: number) {
     super(`Python worker request failed with status ${status}.`);
@@ -238,11 +316,15 @@ export async function processPptxOoxmlSyncJob(
       const templateBlueprint = templateBlueprintSchema.parse(
         templateRow.blueprint_json,
       );
-      const deck = await loadStoredDeck(
+      const deckRow = await loadStoredDeck(
         manager,
         payload.projectId,
         payload.deckId,
       );
+      const deck = deckSchema.parse({
+        ...(deckRow.deck_json as Record<string, unknown>),
+        version: deckRow.version,
+      });
       const latestDeckVersion = deck.version;
       const syncedDeckVersion = templateBlueprint.ooxmlSyncedDeckVersion ?? 1;
 
@@ -299,7 +381,7 @@ export async function processPptxOoxmlSyncJob(
         latestDeckVersion,
         packageAsset,
         templateBlueprint,
-        deckCanvasSchema.parse((deck.deck_json as { canvas?: unknown }).canvas),
+        deck,
         embeddedOperations,
       );
       const savedAssets = await saveSyncAssets(
@@ -344,7 +426,10 @@ export async function processPptxOoxmlSyncJob(
     });
   } catch (error) {
     await cleanupNewStorageObjects(storage, newStorageObjectKeys, payload);
-    if (error instanceof UnsupportedOoxmlOperationsError) {
+    if (
+      error instanceof UnsupportedOoxmlOperationsError ||
+      error instanceof UnsupportedOoxmlSlideMotionError
+    ) {
       return failJob(
         dataSource,
         payload.jobId,
@@ -632,9 +717,14 @@ async function syncPptxOoxmlWithPython(
   targetDeckVersion: number,
   asset: ProjectAssetRow,
   templateBlueprint: TemplateBlueprint,
-  deckCanvas: DeckCanvas,
+  deck: Deck,
   operations: DeckPatchOperation[],
 ): Promise<PptxOoxmlSyncResult> {
+  const slideMotion = buildSlideMotionSyncInput(
+    deck,
+    templateBlueprint,
+    operations,
+  );
   const readUrl = await storage.getSignedReadUrl(asset.storage_key);
   const sourceResponse = await fetch(readUrl);
   if (!sourceResponse.ok) {
@@ -648,23 +738,65 @@ async function syncPptxOoxmlWithPython(
   let deletedElementSources: ElementSourceIdentity[] = [];
   const warnings: string[] = [];
   const ooxmlOperations = operations
-    .filter(isOoxmlSyncOperation)
+    .filter(isOoxmlElementSyncOperation)
     .map((operation) => withSourceSlideId(operation, templateBlueprint));
   const operationBatches = splitOoxmlOperationBatches(
     ooxmlOperations,
     templateBlueprint,
   );
+  const syncBatches: Array<{
+    operationBatch: OoxmlSyncOperation[];
+    slideMotion: SlideMotionSyncInput[];
+  }> = operationBatches.map((operationBatch) => ({
+    operationBatch,
+    slideMotion: [] as SlideMotionSyncInput[],
+  }));
+  const slidePartsWithDeleteMotion = new Set<string>();
+  for (const batch of syncBatches) {
+    const deletedSlideParts = new Set(
+      batch.operationBatch
+        .filter((operation) => operation.type === "delete_element")
+        .map(operationSourceSlidePart)
+        .filter((slidePart): slidePart is string => slidePart !== undefined),
+    );
+    if (deletedSlideParts.size === 0) continue;
+    batch.slideMotion = slideMotion.filter((motion) =>
+      deletedSlideParts.has(motion.sourceSlidePart ?? ""),
+    );
+    for (const motion of batch.slideMotion) {
+      if (motion.sourceSlidePart) {
+        slidePartsWithDeleteMotion.add(motion.sourceSlidePart);
+      }
+    }
+  }
+  const remainingSlideMotion = slideMotion.filter(
+    (motion) =>
+      !motion.sourceSlidePart ||
+      !slidePartsWithDeleteMotion.has(motion.sourceSlidePart),
+  );
+  const slideMotionBatches = chunkSlideMotion(remainingSlideMotion);
+  if (slideMotionBatches.length > 0) {
+    if (ooxmlOperations.length === 0) syncBatches.length = 0;
+    syncBatches.push(
+      ...slideMotionBatches.map((batchSlideMotion) => ({
+        operationBatch: [],
+        slideMotion: batchSlideMotion,
+      })),
+    );
+  }
 
-  for (const [batchIndex, operationBatch] of operationBatches.entries()) {
+  for (const [batchIndex, batch] of syncBatches.entries()) {
+    const { operationBatch, slideMotion: batchSlideMotion } = batch;
     const synced = await syncPptxOoxmlBatchWithPython(
       pythonWorkerUrl,
       targetDeckVersion,
       asset,
       packageBytes,
       nextTemplateBlueprint,
-      deckCanvas,
+      deck.canvas,
       operationBatch,
-      batchIndex === operationBatches.length - 1,
+      batchSlideMotion,
+      batchIndex === syncBatches.length - 1,
     );
     const batchDeletedElementSources = deletedElementSourceIdentities(
       operationBatch,
@@ -696,6 +828,16 @@ async function syncPptxOoxmlWithPython(
   };
 }
 
+function chunkSlideMotion(
+  slideMotion: SlideMotionSyncInput[],
+): SlideMotionSyncInput[][] {
+  const batches: SlideMotionSyncInput[][] = [];
+  for (let index = 0; index < slideMotion.length; index += ooxmlSyncBatchSize) {
+    batches.push(slideMotion.slice(index, index + ooxmlSyncBatchSize));
+  }
+  return batches;
+}
+
 async function syncPptxOoxmlBatchWithPython(
   pythonWorkerUrl: string,
   targetDeckVersion: number,
@@ -704,11 +846,13 @@ async function syncPptxOoxmlBatchWithPython(
   templateBlueprint: TemplateBlueprint,
   deckCanvas: DeckCanvas,
   ooxmlOperations: OoxmlSyncOperation[],
+  slideMotion: SlideMotionSyncInput[],
   render: boolean,
 ): Promise<PptxOoxmlSyncWorkerResponse> {
   const form = new FormData();
   form.append("template_blueprint", JSON.stringify(templateBlueprint));
   form.append("operations", JSON.stringify(ooxmlOperations));
+  form.append("slide_motion", JSON.stringify(slideMotion));
   form.append("deck_canvas", JSON.stringify(deckCanvas));
   form.append("synced_deck_version", String(targetDeckVersion));
   form.append("render", String(render));
@@ -738,12 +882,30 @@ async function syncPptxOoxmlBatchWithPython(
   if (unsupported) {
     throw new UnsupportedOoxmlOperationsError(unsupported);
   }
+  const unsupportedMotion = synced.unsupportedSlideMotion[0];
+  if (unsupportedMotion) {
+    throw new UnsupportedOoxmlSlideMotionError(unsupportedMotion);
+  }
   const incompleteOperation = findIncompleteAppliedOperation(
     ooxmlOperations,
     synced.appliedOperations,
   );
   if (incompleteOperation) {
     throw new UnsupportedOoxmlOperationsError(incompleteOperation);
+  }
+  const incompleteElementSource = findIncompleteAddedElementSource(
+    ooxmlOperations,
+    synced.elementSources,
+  );
+  if (incompleteElementSource) {
+    throw new UnsupportedOoxmlOperationsError(incompleteElementSource);
+  }
+  const incompleteMotion = findIncompleteAppliedSlideMotion(
+    slideMotion,
+    synced.appliedSlideMotion,
+  );
+  if (incompleteMotion) {
+    throw new UnsupportedOoxmlSlideMotionError(incompleteMotion);
   }
   return synced;
 }
@@ -986,6 +1148,255 @@ function findIncompleteAppliedOperation(
   return null;
 }
 
+function findIncompleteAppliedSlideMotion(
+  expected: SlideMotionSyncInput[],
+  applied: PptxOoxmlSyncWorkerResponse["appliedSlideMotion"],
+): z.infer<typeof unsupportedSlideMotionSchema> | null {
+  const comparisonLength = Math.max(expected.length, applied.length);
+  for (let index = 0; index < comparisonLength; index += 1) {
+    const expectedMotion = expected[index];
+    const appliedMotion = applied[index];
+    if (
+      expectedMotion &&
+      appliedMotion &&
+      expectedMotion.slideId === appliedMotion.slideId &&
+      expectedMotion.touched.transition === appliedMotion.transition &&
+      expectedMotion.touched.animations === appliedMotion.animations
+    ) {
+      continue;
+    }
+
+    const slideId =
+      expectedMotion?.slideId ?? appliedMotion?.slideId ?? "unknown-slide";
+    const scope =
+      expectedMotion?.touched.transition !== appliedMotion?.transition
+        ? "transition"
+        : "animations";
+    return {
+      slideId,
+      scope,
+      reasonCode: "SLIDE_MOTION_SYNC_RESPONSE_INCOMPLETE",
+    };
+  }
+  return null;
+}
+
+function buildSlideMotionSyncInput(
+  deck: Deck,
+  templateBlueprint: TemplateBlueprint,
+  operations: DeckPatchOperation[],
+): SlideMotionSyncInput[] {
+  const touchedBySlideId = new Map<
+    string,
+    { transition: boolean; animations: boolean }
+  >();
+  for (const operation of operations) {
+    if (
+      operation.type !== "delete_element" &&
+      !isOoxmlMotionOperation(operation)
+    ) {
+      continue;
+    }
+    const touched = touchedBySlideId.get(operation.slideId) ?? {
+      transition: false,
+      animations: false,
+    };
+    if (operation.type === "update_slide_transition") {
+      touched.transition = true;
+    } else if (operation.type === "delete_element") {
+      const slide = deck.slides.find(
+        (candidate) => candidate.slideId === operation.slideId,
+      );
+      if (
+        slide?.ooxmlMotionCapabilities?.importedMainSequenceCoverage !==
+        "complete"
+      ) {
+        continue;
+      }
+      touched.animations = true;
+    } else {
+      touched.animations = true;
+    }
+    touchedBySlideId.set(operation.slideId, touched);
+  }
+
+  return deck.slides.flatMap((slide) => {
+    const touched = touchedBySlideId.get(slide.slideId);
+    if (!touched) return [];
+    const scope = touched.transition ? "transition" : "animations";
+    if (!slide.ooxmlMotionCapabilities) {
+      throw new UnsupportedOoxmlSlideMotionError({
+        slideId: slide.slideId,
+        scope,
+        reasonCode:
+          scope === "transition"
+            ? "SLIDE_TRANSITION_CAPABILITY_UNSAFE"
+            : "SLIDE_ANIMATION_CAPABILITY_UNSAFE",
+      });
+    }
+    const matchingTemplateSlides = templateBlueprint.slides.filter(
+      (candidate) => candidate.sourceSlidePart === slide.ooxmlSourceSlidePart,
+    );
+    const templateSlide = matchingTemplateSlides[0];
+    const sourceSlidePart = slide.ooxmlSourceSlidePart;
+    if (
+      !sourceSlidePart ||
+      matchingTemplateSlides.length !== 1 ||
+      !templateSlide
+    ) {
+      throw new UnsupportedOoxmlSlideMotionError({
+        slideId: slide.slideId,
+        scope,
+        reasonCode: "SLIDE_MOTION_SOURCE_MISSING",
+      });
+    }
+    const authoritativeCapabilities = templateSlide.ooxmlMotionCapabilities;
+    if (
+      touched.transition &&
+      (slide.ooxmlMotionCapabilities.transitionWritable !== true ||
+        authoritativeCapabilities?.transitionWritable !== true)
+    ) {
+      throw new UnsupportedOoxmlSlideMotionError({
+        slideId: slide.slideId,
+        scope: "transition",
+        reasonCode: "SLIDE_TRANSITION_CAPABILITY_UNSAFE",
+      });
+    }
+    const coverage = slide.ooxmlMotionCapabilities.importedMainSequenceCoverage;
+    if (
+      touched.animations &&
+      ((coverage !== "absent" && coverage !== "complete") ||
+        authoritativeCapabilities?.importedMainSequenceCoverage !== coverage)
+    ) {
+      throw new UnsupportedOoxmlSlideMotionError({
+        slideId: slide.slideId,
+        scope: "animations",
+        reasonCode: "SLIDE_ANIMATION_CAPABILITY_UNSAFE",
+      });
+    }
+    return [
+      slideMotionSyncInputSchema.parse({
+        slideId: slide.slideId,
+        sourceSlidePart,
+        transition: slide.transition ?? null,
+        animations: slide.animations,
+        capabilities: slide.ooxmlMotionCapabilities,
+        touched,
+      }),
+    ];
+  });
+}
+
+function findIncompleteAddedElementSource(
+  operations: OoxmlSyncOperation[],
+  elementSources: PptxOoxmlSyncWorkerResponse["elementSources"],
+): z.infer<typeof ooxmlUnsupportedOperationSchema> | null {
+  for (const [operationIndex, operation] of operations.entries()) {
+    if (operation.type !== "add_element") continue;
+    const isDeletedLater = operations
+      .slice(operationIndex + 1)
+      .some(
+        (candidate) =>
+          candidate.type === "delete_element" &&
+          candidate.slideId === operation.slideId &&
+          candidate.elementId === operation.element.elementId,
+      );
+    if (isDeletedLater) continue;
+    const slidePart = operationSourceSlidePart(operation);
+    const matches = slidePart
+      ? elementSources.filter(
+          (source) =>
+            source.slidePart === slidePart &&
+            source.elementId === operation.element.elementId,
+        )
+      : [];
+    const source = matches[0];
+    const hasAuthoritativeSource =
+      matches.length === 1 &&
+      source?.elementType === operation.element.type &&
+      source.ooxmlOrigin === "authored" &&
+      source.writable === true &&
+      source.fallbackReason === undefined;
+    if (
+      hasAuthoritativeSource &&
+      source !== undefined &&
+      addedElementSourceSupportsEditing(operation, source)
+    ) {
+      continue;
+    }
+    return {
+      ...operationIdentity(operation),
+      reasonCode: "SYNC_RESPONSE_INCOMPLETE",
+    };
+  }
+  return null;
+}
+
+function addedElementSourceSupportsEditing(
+  operation: Extract<OoxmlSyncOperation, { type: "add_element" }>,
+  source: TemplateElementSource,
+): boolean {
+  const capabilities = source.ooxmlEditCapabilities;
+  if (
+    capabilities?.frame !== true ||
+    capabilities.delete !== true ||
+    capabilities.richText === undefined ||
+    capabilities.crop === undefined ||
+    capabilities.tableCellText === undefined ||
+    capabilities.imageSource === undefined
+  ) {
+    return false;
+  }
+  if (operation.element.type === "text") {
+    return (
+      ["slide", "shape"].includes(source.sourceType) &&
+      capabilities.richText === "full" &&
+      capabilities.crop === "none" &&
+      capabilities.tableCellText === false &&
+      capabilities.imageSource === false
+    );
+  }
+  if (operation.element.type === "rect") {
+    return (
+      ["slide", "shape"].includes(source.sourceType) &&
+      capabilities.richText === "none" &&
+      capabilities.crop === "none" &&
+      capabilities.tableCellText === false &&
+      capabilities.imageSource === false
+    );
+  }
+  if (operation.element.type === "image") {
+    return (
+      source.sourceType === "image" &&
+      source.relationshipId !== undefined &&
+      capabilities.richText === "none" &&
+      capabilities.crop === "picture" &&
+      capabilities.tableCellText === false &&
+      capabilities.imageSource === true
+    );
+  }
+  if (operation.element.type === "table") {
+    const rowCount = operation.element.props.rows.length;
+    const columnCount = operation.element.props.rows[0]?.length ?? 0;
+    const locators = source.tableCellLocators;
+    return (
+      source.sourceType === "table" &&
+      capabilities.richText === "none" &&
+      capabilities.crop === "none" &&
+      capabilities.tableCellText === true &&
+      capabilities.imageSource === false &&
+      columnCount > 0 &&
+      locators?.length === rowCount * columnCount &&
+      locators.every(
+        (locator, index) =>
+          locator.rowIndex === Math.floor(index / columnCount) &&
+          locator.columnIndex === index % columnCount,
+      )
+    );
+  }
+  return false;
+}
+
 function matchesAppliedOperation(
   operation: OoxmlSyncOperation,
   applied: z.infer<typeof ooxmlAppliedOperationSchema> | undefined,
@@ -1001,12 +1412,31 @@ function matchesAppliedOperation(
 
 function isOoxmlSyncOperation(
   operation: DeckPatchOperation,
+): operation is OoxmlSyncOperation | OoxmlMotionOperation {
+  return (
+    isOoxmlElementSyncOperation(operation) || isOoxmlMotionOperation(operation)
+  );
+}
+
+function isOoxmlElementSyncOperation(
+  operation: DeckPatchOperation,
 ): operation is OoxmlSyncOperation {
   return [
     "update_element_frame",
     "update_element_props",
     "add_element",
     "delete_element",
+  ].includes(operation.type);
+}
+
+function isOoxmlMotionOperation(
+  operation: DeckPatchOperation,
+): operation is OoxmlMotionOperation {
+  return [
+    "update_slide_transition",
+    "add_animation",
+    "update_animation",
+    "delete_animation",
   ].includes(operation.type);
 }
 

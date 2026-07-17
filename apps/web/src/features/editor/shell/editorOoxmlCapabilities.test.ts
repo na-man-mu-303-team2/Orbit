@@ -55,6 +55,63 @@ describe("resolveOoxmlEditCapability", () => {
     ).toMatchObject({ enabled: false, reasonCode: "SLIDE_REQUIRED" });
   });
 
+  it("rejects generic animation effects that the PPTX motion serializer cannot preserve", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const element = slide.elements[0]!;
+
+    expect(
+      resolveOoxmlPatchCapability(deck, {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "add_animation",
+            slideId: slide.slideId,
+            animation: {
+              animationId: "anim_generic_fade_out",
+              elementId: element.elementId,
+              type: "fade-out",
+              order: 1,
+              startMode: "on-click",
+              durationMs: 400,
+              delayMs: 0,
+              easing: "ease-out",
+            },
+          },
+        ],
+      }),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "GENERIC_EXPORT_UNSUPPORTED",
+    });
+
+    expect(
+      resolveOoxmlPatchCapability(deck, {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "add_animation",
+            slideId: slide.slideId,
+            animation: {
+              animationId: "anim_generic_fade_in",
+              elementId: element.elementId,
+              type: "fade-in",
+              order: 1,
+              startMode: "on-click",
+              durationMs: 400,
+              delayMs: 0,
+              easing: "ease-out",
+            },
+          },
+        ],
+      }),
+    ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+  });
+
   it("allows raster crop through the generic exporter only", () => {
     const deck = createDemoDeck();
     const image: Extract<DeckElement, { type: "image" }> = {
@@ -1189,7 +1246,7 @@ describe("resolveOoxmlEditCapability", () => {
     });
   });
 
-  it("keeps safe main-sequence provenance disabled until the serializer is ready", () => {
+  it("enables safe imported main-sequence provenance after serializer integration", () => {
     const deck = importedDeck();
     for (const coverage of ["absent", "complete"] as const) {
       const slide = importedSlide(deck.slides[0]!, coverage);
@@ -1200,8 +1257,8 @@ describe("resolveOoxmlEditCapability", () => {
           feature: "animation-main-sequence",
         }),
       ).toMatchObject({
-        enabled: false,
-        reasonCode: "ANIMATION_SERIALIZER_NOT_READY",
+        enabled: true,
+        reasonCode: "SUPPORTED",
       });
     }
     for (const coverage of ["unknown", "partial"] as const) {
@@ -1214,6 +1271,98 @@ describe("resolveOoxmlEditCapability", () => {
         }),
       ).toMatchObject({ enabled: false, reasonCode: "MOTION_COVERAGE_UNSAFE" });
     }
+  });
+
+  it("rejects unsupported imported animation effect add and update patches", () => {
+    const deck = importedDeck();
+    deck.slides[0] = importedSlide(deck.slides[0]!, "complete");
+    const slide = deck.slides[0]!;
+    const existing = slide.animations[0]!;
+
+    for (const operation of [
+      {
+        type: "add_animation" as const,
+        slideId: slide.slideId,
+        animation: {
+          animationId: "anim_imported_fade_out",
+          elementId: slide.elements[0]!.elementId,
+          type: "fade-out" as const,
+          order: 99,
+          startMode: "on-click" as const,
+          durationMs: 400,
+          delayMs: 0,
+          easing: "ease-out" as const
+        }
+      },
+      {
+        type: "update_animation" as const,
+        slideId: slide.slideId,
+        animationId: existing.animationId,
+        animation: { type: "fade-out" as const }
+      }
+    ]) {
+      expect(
+        resolveOoxmlPatchCapability(deck, {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          source: "user",
+          operations: [operation]
+        })
+      ).toMatchObject({
+        enabled: false,
+        reasonCode: "GENERIC_EXPORT_UNSUPPORTED"
+      });
+    }
+  });
+
+  it("gates imported transition patches on the slide locator capability", () => {
+    const deck = importedDeck();
+    deck.slides[0] = importedSlide(deck.slides[0]!, "absent", true);
+    const allowed = resolveOoxmlPatchCapability(deck, {
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user",
+      operations: [
+        {
+          type: "update_slide_transition",
+          slideId: deck.slides[0]!.slideId,
+          transition: { type: "fade", durationMs: 700 },
+        },
+      ],
+    });
+    expect(allowed).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+
+    const locatorless = { ...deck.slides[0]! };
+    delete locatorless.ooxmlSourceSlidePart;
+    expect(
+      resolveOoxmlEditCapability({
+        deck,
+        slide: locatorless,
+        feature: "transition",
+      }),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "IMPORTED_CAPABILITY_MISSING",
+    });
+
+    deck.slides[0] = importedSlide(deck.slides[0]!, "absent", false);
+    expect(
+      resolveOoxmlPatchCapability(deck, {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_slide_transition",
+            slideId: deck.slides[0]!.slideId,
+            transition: null,
+          },
+        ],
+      }),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "IMPORTED_FEATURE_UNSUPPORTED",
+    });
   });
 
   it("denies imported and authored OOXML slide properties", () => {
@@ -1265,12 +1414,14 @@ function importedSlide(
   coverage: NonNullable<
     Slide["ooxmlMotionCapabilities"]
   >["importedMainSequenceCoverage"],
+  transitionWritable = false,
 ): Slide {
   return {
     ...slide,
     ooxmlOrigin: "imported",
+    ooxmlSourceSlidePart: "ppt/slides/slide1.xml",
     ooxmlMotionCapabilities: {
-      transitionWritable: false,
+      transitionWritable,
       importedMainSequenceCoverage: coverage,
     },
   };

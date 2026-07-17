@@ -39,6 +39,17 @@ export function PptxImportQualityPanel(props: { state: PptxImportState }) {
             <strong>{Math.round(state.qualityReport.editabilityCoverage * 100)}%</strong>
           </div>
         ) : null}
+        {state.qualityReport?.motionDiagnostics ? (
+          <div className="stack-item compact" data-testid="pptx-motion-diagnostics">
+            <span>모션 진단</span>
+            <strong>
+              미지원 {state.qualityReport.motionDiagnostics.unsupported} · 저하{" "}
+              {state.qualityReport.motionDiagnostics.downgraded} · 미해결{" "}
+              {state.qualityReport.motionDiagnostics.unresolved} · 제외{" "}
+              {state.qualityReport.motionDiagnostics.excluded}
+            </strong>
+          </div>
+        ) : null}
         {state.warnings.slice(0, 3).map((warning) => (
           <div className="stack-item compact" key={warning}><span>{warning}</span></div>
         ))}

@@ -300,7 +300,38 @@
             "order": 1,
             "durationMs": 450,
             "delayMs": 0,
-            "easing": "ease-out"
+            "easing": "ease-out",
+            "startMode": "with-previous"
+          },
+          {
+            "animationId": "anim_accuracy_shape",
+            "elementId": "el_accuracy_shape",
+            "type": "zoom-in",
+            "order": 2,
+            "durationMs": 500,
+            "delayMs": 0,
+            "easing": "ease-out",
+            "startMode": "after-previous"
+          },
+          {
+            "animationId": "anim_accuracy_line",
+            "elementId": "el_accuracy_line",
+            "type": "appear",
+            "order": 3,
+            "durationMs": 300,
+            "delayMs": 0,
+            "easing": "ease-out",
+            "startMode": "on-click"
+          },
+          {
+            "animationId": "anim_accuracy_late_entry",
+            "elementId": "el_accuracy_arrow",
+            "type": "fade-in",
+            "order": 4,
+            "durationMs": 400,
+            "delayMs": 0,
+            "easing": "ease-out",
+            "startMode": "on-slide-enter"
           }
         ],
         "actions": [],
@@ -478,7 +509,14 @@
   },
   "semanticExpectations": {
     "transitionCount": 1,
+    "transitionDurationMsTotal": 600,
     "timingSlideCount": 1,
+    "animationEffectCount": 4,
+    "animationDurationMsTotal": 1650,
+    "onSlideEnterAnimationCount": 1,
+    "onClickAnimationCount": 1,
+    "withPreviousAnimationCount": 1,
+    "afterPreviousAnimationCount": 1,
     "cropCount": 1,
     "cropLeft": 20000,
     "cropTop": 10000,

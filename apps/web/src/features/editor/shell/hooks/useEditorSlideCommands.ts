@@ -1,14 +1,17 @@
 import {
   createAddAnimationPatch,
   createAddAnimationWithKeywordTriggerPatch,
+  createAnimationTimeline,
   createDefaultAnimation,
   createDeleteAnimationPatch,
   createKeyword,
   createReplaceKeywordsPatch,
   createUpdateAnimationPatch,
   createUpdateElementPropsPatch,
+  createUpdateSlideTransitionPatch,
   createUpsertAdvanceSlideKeywordActionPatch,
   findKeywordByTerm,
+  getAnimationTimelineRoot,
 } from "../../../../../../../packages/editor-core/src/index";
 import { normalizeElementFrameDraft } from "../../../../../../../packages/editor-core/src/patches/elementFrame";
 import { createKeywordOccurrenceId } from "@orbit/shared";
@@ -19,6 +22,7 @@ import type {
   DeckPatch,
   Keyword,
   Slide,
+  SlideTransition,
 } from "@orbit/shared";
 import type { MutableRefObject } from "react";
 
@@ -83,7 +87,7 @@ export function useEditorSlideCommands(args: {
 
   function allowSlideMutation(
     slideId: string,
-    feature: "animation-main-sequence" | "slide-properties",
+    feature: "animation-main-sequence" | "slide-properties" | "transition",
   ) {
     const slide = getSlide(slideId);
     const capability = resolveOoxmlEditCapability({
@@ -462,7 +466,9 @@ export function useEditorSlideCommands(args: {
     elementId: string,
     keywordId?: string | null,
     keywordOccurrenceId?: string | null,
-    draft?: Partial<Pick<DeckAnimation, "delayMs" | "durationMs" | "type">>,
+    draft?: Partial<
+      Pick<DeckAnimation, "delayMs" | "durationMs" | "startMode" | "type">
+    >,
   ) {
     if (!allowSlideMutation(slideId, "animation-main-sequence")) return;
     let createdAnimationId: string | null = null;
@@ -496,6 +502,17 @@ export function useEditorSlideCommands(args: {
     animation: Partial<DeckAnimation>,
   ) {
     if (!allowSlideMutation(slideId, "animation-main-sequence")) return;
+    const slide = getSlide(slideId);
+    if (
+      animation.startMode !== undefined &&
+      slide &&
+      isAnimationInActionLinkedRoot(slide, animationId)
+    ) {
+      args.setLastPatchLabel(
+        "action과 연결된 재생 체인의 시작 방식은 변경할 수 없습니다.",
+      );
+      return;
+    }
     args.commitPatch((deck) =>
       createUpdateAnimationPatch(deck, slideId, animationId, animation),
     );
@@ -503,8 +520,25 @@ export function useEditorSlideCommands(args: {
 
   function deleteAnimation(slideId: string, animationId: string) {
     if (!allowSlideMutation(slideId, "animation-main-sequence")) return;
+    const slide = getSlide(slideId);
+    if (slide && isAnimationInActionLinkedRoot(slide, animationId)) {
+      args.setLastPatchLabel(
+        "action과 연결된 재생 체인은 action을 먼저 제거한 뒤 삭제할 수 있습니다.",
+      );
+      return;
+    }
     args.commitPatch((deck) =>
       createDeleteAnimationPatch(deck, slideId, animationId),
+    );
+  }
+
+  function updateSlideTransition(
+    slideId: string,
+    transition: SlideTransition | null,
+  ) {
+    if (!allowSlideMutation(slideId, "transition")) return;
+    args.commitPatch((deck) =>
+      createUpdateSlideTransitionPatch(deck, slideId, transition),
     );
   }
 
@@ -523,7 +557,31 @@ export function useEditorSlideCommands(args: {
     toggleAdvanceSlideKeyword,
     toggleKeywordRequired,
     updateAnimation,
+    updateSlideTransition,
   };
+}
+
+function isAnimationInActionLinkedRoot(
+  slide: Slide,
+  animationId: string,
+) {
+  const actionAnimationIds = slide.actions.flatMap((action) =>
+    action.effect.kind === "play-animation"
+      ? [action.effect.animationId]
+      : [],
+  );
+  if (actionAnimationIds.length === 0) return false;
+  const actionAnimationIdSet = new Set(actionAnimationIds);
+  const timeline = createAnimationTimeline({
+    animations: slide.animations,
+    legacyOnClickAnimationIds: actionAnimationIds,
+  });
+  const root = getAnimationTimelineRoot(timeline, animationId);
+  return (
+    root?.effects.some((animation) =>
+      actionAnimationIdSet.has(animation.animationId),
+    ) ?? false
+  );
 }
 
 function isAutoFitTextValidationIssue(item: EditorValidationItem) {

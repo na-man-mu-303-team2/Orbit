@@ -138,9 +138,7 @@ class ExportDiagnosticsTest(unittest.TestCase):
         allowed = ensure_tmp_output_path(
             root, Path("tmp/pptx-export-accuracy/session/run-1")
         )
-        self.assertEqual(
-            allowed, Path("/repo/tmp/pptx-export-accuracy/session/run-1")
-        )
+        self.assertEqual(allowed, Path("/repo/tmp/pptx-export-accuracy/session/run-1"))
         for rejected in (
             Path("docs/quality/generated"),
             Path("tmp/pptx-export-accuracy"),
@@ -154,9 +152,12 @@ class ExportDiagnosticsTest(unittest.TestCase):
         slide_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
 <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
- xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">
+ xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"
+ xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main"
+ xmlns:orbit="urn:orbit:deck:ooxml">
  <p:cSld><p:spTree><a:srcRect l="20000" t="10000" r="15000" b="5000"/><c:chart/><a:tbl/></p:spTree></p:cSld>
- <p:transition/><p:timing/>
+ <p:transition p14:dur="600"/>
+ <p:timing><p:tnLst><p:par><p:cTn id="3" dur="450" presetClass="entr" nodeType="clickEffect" orbit:startMode="on-click"/></p:par></p:tnLst></p:timing>
 </p:sld>"""
         with tempfile.TemporaryDirectory() as directory:
             pptx_path = Path(directory) / "fixture.pptx"
@@ -166,7 +167,14 @@ class ExportDiagnosticsTest(unittest.TestCase):
                 pptx_path,
                 {
                     "transitionCount": 1,
+                    "transitionDurationMsTotal": 600,
                     "timingSlideCount": 1,
+                    "animationEffectCount": 1,
+                    "animationDurationMsTotal": 450,
+                    "onSlideEnterAnimationCount": 0,
+                    "onClickAnimationCount": 1,
+                    "withPreviousAnimationCount": 0,
+                    "afterPreviousAnimationCount": 0,
                     "cropCount": 1,
                     "cropLeft": 20000,
                     "cropTop": 10000,
@@ -178,12 +186,91 @@ class ExportDiagnosticsTest(unittest.TestCase):
             )
 
         rows = {row.code: row.to_dict() for row in assertions}
-        self.assertEqual(len(rows), 9)
+        self.assertEqual(len(rows), 16)
         self.assertTrue(all(row["passed"] for row in rows.values()))
         self.assertEqual(rows["OOXML_IMAGE_CROP_LEFT"]["actual"], 20000)
         self.assertEqual(rows["OOXML_IMAGE_CROP_TOP"]["actual"], 10000)
         self.assertEqual(rows["OOXML_IMAGE_CROP_RIGHT"]["actual"], 15000)
         self.assertEqual(rows["OOXML_IMAGE_CROP_BOTTOM"]["actual"], 5000)
+
+    def test_semantic_assertions_count_alternate_content_as_one_transition(
+        self,
+    ) -> None:
+        slide_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+ xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+ xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main">
+ <p:cSld><p:spTree/></p:cSld>
+ <mc:AlternateContent>
+  <mc:Choice Requires="p14"><p:transition p14:dur="600"><p:fade/></p:transition></mc:Choice>
+  <mc:Fallback><p:transition><p:fade/></p:transition></mc:Fallback>
+ </mc:AlternateContent>
+</p:sld>"""
+        with tempfile.TemporaryDirectory() as directory:
+            pptx_path = Path(directory) / "fixture.pptx"
+            with ZipFile(pptx_path, "w", ZIP_DEFLATED) as archive:
+                archive.writestr("ppt/slides/slide1.xml", slide_xml)
+            assertions = semantic_assertions(
+                pptx_path,
+                {"transitionCount": 1, "transitionDurationMsTotal": 600},
+            )
+
+        rows = {row.code: row.to_dict() for row in assertions}
+        self.assertTrue(rows["OOXML_TRANSITION_COUNT"]["passed"])
+        self.assertTrue(rows["OOXML_TRANSITION_DURATION_MS_TOTAL"]["passed"])
+
+    def test_semantic_assertions_reject_private_start_mode_native_mismatch(
+        self,
+    ) -> None:
+        slide_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+ xmlns:orbit="urn:orbit:deck:ooxml">
+ <p:cSld><p:spTree/></p:cSld>
+ <p:timing><p:tnLst>
+  <p:par><p:cTn id="3" dur="400" presetClass="entr" nodeType="clickEffect" orbit:startMode="on-click"/></p:par>
+  <p:par><p:cTn id="4" dur="400" presetClass="entr" nodeType="withEffect" orbit:startMode="on-slide-enter"/></p:par>
+ </p:tnLst></p:timing>
+</p:sld>"""
+        with tempfile.TemporaryDirectory() as directory:
+            pptx_path = Path(directory) / "fixture.pptx"
+            with ZipFile(pptx_path, "w", ZIP_DEFLATED) as archive:
+                archive.writestr("ppt/slides/slide1.xml", slide_xml)
+            assertions = semantic_assertions(
+                pptx_path,
+                {"onClickAnimationCount": 1, "onSlideEnterAnimationCount": 1},
+            )
+
+        rows = {row.code: row.to_dict() for row in assertions}
+        self.assertTrue(rows["OOXML_ANIMATION_ON_CLICK_COUNT"]["passed"])
+        self.assertFalse(rows["OOXML_ANIMATION_ON_SLIDE_ENTER_COUNT"]["passed"])
+
+    def test_semantic_assertions_allow_orphan_previous_modes_as_slide_entry_chain(
+        self,
+    ) -> None:
+        slide_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+ xmlns:orbit="urn:orbit:deck:ooxml">
+ <p:cSld><p:spTree/></p:cSld>
+ <p:timing><p:tnLst>
+  <p:par><p:cTn id="3" dur="400" presetClass="entr" nodeType="withEffect" orbit:startMode="with-previous"/></p:par>
+  <p:par><p:cTn id="4" dur="400" presetClass="entr" nodeType="afterEffect" orbit:startMode="after-previous"/></p:par>
+ </p:tnLst></p:timing>
+</p:sld>"""
+        with tempfile.TemporaryDirectory() as directory:
+            pptx_path = Path(directory) / "fixture.pptx"
+            with ZipFile(pptx_path, "w", ZIP_DEFLATED) as archive:
+                archive.writestr("ppt/slides/slide1.xml", slide_xml)
+            assertions = semantic_assertions(
+                pptx_path,
+                {
+                    "withPreviousAnimationCount": 1,
+                    "afterPreviousAnimationCount": 1,
+                },
+            )
+
+        rows = {row.code: row.to_dict() for row in assertions}
+        self.assertTrue(rows["OOXML_ANIMATION_WITH_PREVIOUS_COUNT"]["passed"])
+        self.assertTrue(rows["OOXML_ANIMATION_AFTER_PREVIOUS_COUNT"]["passed"])
 
     def test_crop_edges_are_asserted_independently_without_compensation(self) -> None:
         slide_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -234,7 +321,14 @@ class ExportDiagnosticsTest(unittest.TestCase):
             fixture["semanticExpectations"],
             {
                 "transitionCount": 1,
+                "transitionDurationMsTotal": 600,
                 "timingSlideCount": 1,
+                "animationEffectCount": 4,
+                "animationDurationMsTotal": 1650,
+                "onSlideEnterAnimationCount": 1,
+                "onClickAnimationCount": 1,
+                "withPreviousAnimationCount": 1,
+                "afterPreviousAnimationCount": 1,
                 "cropCount": 1,
                 "cropLeft": 20000,
                 "cropTop": 10000,
@@ -574,7 +668,9 @@ class ExportDiagnosticsTest(unittest.TestCase):
             )["passed"]
         )
 
-    def test_approved_baseline_loader_fails_closed_on_missing_or_legacy_file(self) -> None:
+    def test_approved_baseline_loader_fails_closed_on_missing_or_legacy_file(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with self.assertRaises(FileNotFoundError):

@@ -192,6 +192,7 @@ function createSlideWindowSlideSnapshot(
     slideId: slide.slideId,
     style: slide.style,
     thumbnailUrl: slide.thumbnailUrl,
+    transition: slide.transition,
     title: slide.title,
   };
 }

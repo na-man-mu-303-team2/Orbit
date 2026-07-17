@@ -793,6 +793,13 @@ export function EditorShell(props: { projectId?: string }) {
         slide: currentSlide
       })
     : null;
+  const currentTransitionEditCapability = currentSlide
+    ? resolveOoxmlEditCapability({
+        deck,
+        feature: "transition",
+        slide: currentSlide
+      })
+    : null;
   const editorAddElementCapabilities = useMemo(
     () => (currentSlide ? resolveEditorAddElementCapabilities(deck, currentSlide) : null),
     [currentSlide, deck]
@@ -882,6 +889,7 @@ export function EditorShell(props: { projectId?: string }) {
   const handleToggleAdvanceSlideKeyword = editorSlideActions.toggleAdvanceSlideKeyword;
   const handleToggleKeywordRequired = editorSlideActions.toggleKeywordRequired;
   const handleUpdateAnimation = editorSlideActions.updateAnimation;
+  const handleUpdateSlideTransition = editorSlideActions.updateSlideTransition;
   function clearSelectedKeyword() {
     editorSlideActions.clearSelectedKeyword();
   }
@@ -1761,6 +1769,11 @@ export function EditorShell(props: { projectId?: string }) {
           />
           {canMutateDeck && isAnimationPanelOpen ? (
             <AnimationSidePanel
+              actionAnimationIds={currentSlide?.actions.flatMap((action) =>
+                action.effect.kind === "play-animation"
+                  ? [action.effect.animationId]
+                  : []
+              )}
               animations={selectedElementAnimations}
               canPlaySlideAnimations={canPlayCurrentSlideAnimations}
               canCreateAnimation={Boolean(
@@ -1784,6 +1797,12 @@ export function EditorShell(props: { projectId?: string }) {
               selectedKeywordOccurrenceId={selectedKeywordOccurrenceKey}
               slideAnimations={currentSlideAnimations}
               slideElements={currentSlide?.elements ?? []}
+              slideTransition={currentSlide?.transition}
+              transitionMutationDisabledReason={
+                currentTransitionEditCapability?.enabled === false
+                  ? currentTransitionEditCapability.reason
+                  : null
+              }
               onAddAnimation={(draft, keywordId, keywordOccurrenceId) => {
                 if (!currentSlide || !selectedAnimationPanelElement) {
                   return;
@@ -1816,6 +1835,13 @@ export function EditorShell(props: { projectId?: string }) {
                 }
 
                 handleUpdateAnimation(currentSlide.slideId, animationId, animation);
+              }}
+              onUpdateSlideTransition={(transition) => {
+                if (!currentSlide) {
+                  return;
+                }
+
+                handleUpdateSlideTransition(currentSlide.slideId, transition);
               }}
             />
           ) : null}

@@ -31,7 +31,8 @@ describe("animation operations", () => {
     expect(
       createUpdateAnimationPatch(deck, slide.slideId, "anim_1", {
         durationMs: 700,
-        order: 4
+        order: 4,
+        startMode: "after-previous"
       })
     ).toMatchObject({
       operations: [
@@ -41,7 +42,8 @@ describe("animation operations", () => {
           animationId: "anim_1",
           animation: {
             durationMs: 700,
-            order: 4
+            order: 4,
+            startMode: "after-previous"
           }
         }
       ]
@@ -74,6 +76,7 @@ describe("animation operations", () => {
       elementId: "el_1",
       type: "fade-in",
       order: 3,
+      startMode: "on-click",
       durationMs: 400,
       delayMs: 0,
       easing: "ease-out"

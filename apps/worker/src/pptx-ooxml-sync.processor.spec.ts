@@ -603,8 +603,23 @@ describe("processPptxOoxmlSyncJob", () => {
     },
   );
 
-  it("rejects unsupported visual patch types before calling Python", async () => {
-    const { dataSource, query } = createDataSource({
+  it("coalesces animation patches into the latest slide motion full-state", async () => {
+    const currentDeck = storedDeck(2, {
+      animations: [
+        {
+          animationId: "anim_1",
+          elementId: "el_title",
+          type: "fade-in",
+          order: 1,
+          durationMs: 300,
+          delayMs: 0,
+          easing: "ease-in-out",
+          startMode: "on-click",
+        },
+      ],
+    });
+    const { dataSource } = createDataSource({
+      deck: currentDeck,
       deckVersion: 2,
       syncedVersion: 1,
       operations: [
@@ -619,11 +634,514 @@ describe("processPptxOoxmlSyncJob", () => {
             durationMs: 300,
             delayMs: 0,
             easing: "ease-in-out",
+            startMode: "on-click",
           },
         },
       ],
     });
-    const fetchMock = vi.fn(async () => new Response("pptx-bytes"));
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      if (String(input).endsWith("current.pptx")) {
+        return new Response("pptx-bytes");
+      }
+      const form = init?.body as FormData;
+      expect(JSON.parse(String(form.get("operations")))).toEqual([]);
+      expect(JSON.parse(String(form.get("slide_motion")))).toEqual([
+        {
+          slideId: "slide_1",
+          sourceSlidePart: "ppt/slides/slide1.xml",
+          transition: null,
+          animations: currentDeck.slides[0]!.animations,
+          capabilities: {
+            transitionWritable: true,
+            importedMainSequenceCoverage: "absent",
+          },
+          touched: { transition: false, animations: true },
+        },
+      ]);
+      return new Response(
+        JSON.stringify({
+          ...workerResponse([]),
+          appliedSlideMotion: [
+            { slideId: "slide_1", transition: false, animations: true },
+          ],
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("syncs add_element before animation motion that targets the new locator", async () => {
+    const elementId = "el_new_motion_target";
+    const element = authoredRectangleElement(elementId);
+    const animation = {
+      animationId: "anim_new_motion_target",
+      elementId,
+      type: "fade-in" as const,
+      order: 1,
+      durationMs: 500,
+      delayMs: 0,
+      easing: "ease-out" as const,
+      startMode: "on-click" as const,
+    };
+    const currentDeck = storedDeck(2, {
+      elements: [...storedDeck(2).slides[0]!.elements, element],
+      animations: [animation],
+    });
+    const { dataSource } = createDataSource({
+      deck: currentDeck,
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        { type: "add_element", slideId: "slide_1", element },
+        { type: "add_animation", slideId: "slide_1", animation },
+      ],
+    });
+    let pythonCallCount = 0;
+    const pythonForms: FormData[] = [];
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      if (String(input).endsWith("current.pptx")) {
+        return new Response("pptx-bytes");
+      }
+      pythonCallCount += 1;
+      const form = init?.body as FormData;
+      pythonForms.push(form);
+      if (pythonCallCount === 1) {
+        return new Response(
+          JSON.stringify({
+            ...workerResponse([
+              {
+                operationType: "add_element",
+                slideId: "slide_1",
+                elementId,
+              },
+            ]),
+            elementSources: [replacementElementSource(elementId)],
+          }),
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          ...workerResponse([]),
+          appliedSlideMotion: [
+            { slideId: "slide_1", transition: false, animations: true },
+          ],
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(pythonCallCount).toBe(2);
+    expect(JSON.parse(String(pythonForms[0]!.get("operations")))).toEqual([
+      expect.objectContaining({ type: "add_element" }),
+    ]);
+    expect(JSON.parse(String(pythonForms[0]!.get("slide_motion")))).toEqual([]);
+    expect(JSON.parse(String(pythonForms[1]!.get("operations")))).toEqual([]);
+    expect(JSON.parse(String(pythonForms[1]!.get("slide_motion")))).toEqual([
+      expect.objectContaining({
+        slideId: "slide_1",
+        animations: [animation],
+        touched: { transition: false, animations: true },
+      }),
+    ]);
+    expect(
+      JSON.parse(String(pythonForms[1]!.get("template_blueprint"))).slides[0]
+        .elementSources,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ elementId, shapeId: "2" }),
+      ]),
+    );
+    expect(storage.putObject).toHaveBeenCalledOnce();
+  });
+
+  it("syncs element deletion and its final animation state in one atomic batch", async () => {
+    const blueprint = templateBlueprint(1);
+    blueprint.slides[0]!.ooxmlMotionCapabilities = {
+      transitionWritable: true,
+      importedMainSequenceCoverage: "complete",
+    };
+    const deck = storedDeck(2, {
+      ooxmlMotionCapabilities: {
+        transitionWritable: true,
+        importedMainSequenceCoverage: "complete",
+      },
+      animations: [],
+    });
+    const operations = [
+      {
+        type: "delete_animation" as const,
+        slideId: "slide_1",
+        animationId: "anim_removed_with_element",
+      },
+      {
+        type: "delete_element" as const,
+        slideId: "slide_1",
+        elementId: "el_title",
+      },
+    ];
+    const { dataSource } = createDataSource({
+      blueprint,
+      deck,
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations,
+    });
+    const pythonForms: FormData[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+        const form = init?.body as FormData;
+        pythonForms.push(form);
+        return new Response(
+          JSON.stringify({
+            ...workerResponse([
+              {
+                operationType: "delete_element",
+                slideId: "slide_1",
+                elementId: "el_title",
+              },
+            ]),
+            appliedSlideMotion: [
+              { slideId: "slide_1", transition: false, animations: true },
+            ],
+          }),
+        );
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(pythonForms).toHaveLength(1);
+    expect(JSON.parse(String(pythonForms[0]!.get("operations")))).toEqual([
+      expect.objectContaining({
+        type: "delete_element",
+        elementId: "el_title",
+      }),
+    ]);
+    expect(JSON.parse(String(pythonForms[0]!.get("slide_motion")))).toEqual([
+      expect.objectContaining({
+        slideId: "slide_1",
+        animations: [],
+        touched: { transition: false, animations: true },
+      }),
+    ]);
+  });
+
+  it("syncs an unanimated authored deletion with complete motion coverage", async () => {
+    const blueprint = templateBlueprint(1);
+    blueprint.slides[0]!.ooxmlMotionCapabilities = {
+      transitionWritable: true,
+      importedMainSequenceCoverage: "complete",
+    };
+    const deck = storedDeck(2, {
+      ooxmlMotionCapabilities: {
+        transitionWritable: true,
+        importedMainSequenceCoverage: "complete",
+      },
+      animations: [],
+    });
+    const operations = [
+      {
+        type: "delete_element" as const,
+        slideId: "slide_1",
+        elementId: "el_title",
+      },
+    ];
+    const { dataSource } = createDataSource({
+      blueprint,
+      deck,
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations,
+    });
+    const pythonForms: FormData[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+        const form = init?.body as FormData;
+        pythonForms.push(form);
+        return new Response(
+          JSON.stringify({
+            ...workerResponse([
+              {
+                operationType: "delete_element",
+                slideId: "slide_1",
+                elementId: "el_title",
+              },
+            ]),
+            appliedSlideMotion: [
+              { slideId: "slide_1", transition: false, animations: true },
+            ],
+          }),
+        );
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(pythonForms).toHaveLength(1);
+    expect(JSON.parse(String(pythonForms[0]!.get("slide_motion")))).toEqual([
+      expect.objectContaining({
+        slideId: "slide_1",
+        animations: [],
+        touched: { transition: false, animations: true },
+      }),
+    ]);
+  });
+
+  it("fails closed when add_element acknowledgement omits its authoritative source", async () => {
+    const elementId = "el_missing_source_ack";
+    const element = authoredRectangleElement(elementId);
+    const { dataSource, query } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [{ type: "add_element", slideId: "slide_1", element }],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("current.pptx")
+          ? new Response("pptx-bytes")
+          : new Response(
+              JSON.stringify(
+                workerResponse([
+                  {
+                    operationType: "add_element",
+                    slideId: "slide_1",
+                    elementId,
+                  },
+                ]),
+              ),
+            ),
+      ),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error).toMatchObject({
+      code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+      retryable: false,
+    });
+    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("DELETE FROM deck_patches"),
+      ),
+    ).toBe(false);
+  });
+
+  it("fails closed when an added locator omits type-specific edit capabilities", async () => {
+    const elementId = "el_incomplete_capabilities";
+    const element = authoredRectangleElement(elementId);
+    const { dataSource } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [{ type: "add_element", slideId: "slide_1", element }],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("current.pptx")
+          ? new Response("pptx-bytes")
+          : new Response(
+              JSON.stringify({
+                ...workerResponse([
+                  {
+                    operationType: "add_element",
+                    slideId: "slide_1",
+                    elementId,
+                  },
+                ]),
+                elementSources: [
+                  {
+                    ...replacementElementSource(elementId),
+                    ooxmlEditCapabilities: {
+                      richText: "none",
+                      crop: "none",
+                      tableCellText: false,
+                    },
+                  },
+                ],
+              }),
+            ),
+      ),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error).toMatchObject({
+      code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+      retryable: false,
+    });
+    expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when an added table locator grid has transposed dimensions", async () => {
+    const elementId = "el_table_dimensions";
+    const element = authoredTableElement(elementId, 2, 3);
+    const { dataSource } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [{ type: "add_element", slideId: "slide_1", element }],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("current.pptx")
+          ? new Response("pptx-bytes")
+          : new Response(
+              JSON.stringify({
+                ...workerResponse([
+                  {
+                    operationType: "add_element",
+                    slideId: "slide_1",
+                    elementId,
+                  },
+                ]),
+                elementSources: [tableElementSource(elementId, 3, 2)],
+              }),
+            ),
+      ),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error).toMatchObject({
+      code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+      retryable: false,
+    });
+    expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("does not require a locator for an element added and deleted in one batch", async () => {
+    const elementId = "el_ephemeral";
+    const element = authoredRectangleElement(elementId);
+    const operations = [
+      { type: "add_element" as const, slideId: "slide_1", element },
+      { type: "delete_element" as const, slideId: "slide_1", elementId },
+    ];
+    const { dataSource } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("current.pptx")
+          ? new Response("pptx-bytes")
+          : new Response(
+              JSON.stringify(
+                workerResponse([
+                  {
+                    operationType: "add_element",
+                    slideId: "slide_1",
+                    elementId,
+                  },
+                  {
+                    operationType: "delete_element",
+                    slideId: "slide_1",
+                    elementId,
+                  },
+                ]),
+              ),
+            ),
+      ),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(storage.putObject).toHaveBeenCalledOnce();
+  });
+
+  it("does not call Python when Deck motion capability conflicts with TemplateBlueprint", async () => {
+    const { dataSource } = createDataSource({
+      deck: storedDeck(2, {
+        ooxmlMotionCapabilities: {
+          transitionWritable: true,
+          importedMainSequenceCoverage: "complete",
+        },
+      }),
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "add_animation",
+          slideId: "slide_1",
+          animation: {
+            animationId: "anim_conflicting_capability",
+            elementId: "el_title",
+            type: "fade-in",
+            order: 1,
+            durationMs: 500,
+            delayMs: 0,
+            easing: "ease-out",
+            startMode: "on-click",
+          },
+        },
+      ],
+    });
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     const job = await processPptxOoxmlSyncJob(
@@ -638,13 +1156,142 @@ describe("processPptxOoxmlSyncJob", () => {
       code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
       retryable: false,
     });
-    expect(job.error?.message).toBe(
-      "add_animation:OPERATION_TYPE_UNSUPPORTED:slide_1",
-    );
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("uses the stable slide part when reordered slides sync motion", async () => {
+    const baseDeck = storedDeck(2);
+    const firstSlide = {
+      ...baseDeck.slides[0]!,
+      order: 2,
+    };
+    const secondSlide = {
+      ...baseDeck.slides[0]!,
+      slideId: "slide_2",
+      ooxmlSourceSlidePart: "ppt/slides/slide2.xml",
+      order: 1,
+      title: "Slide 2",
+      transition: { type: "fade" as const, durationMs: 700 },
+    };
+    const reorderedDeck = {
+      ...baseDeck,
+      slides: [secondSlide, firstSlide],
+    };
+    const blueprint = templateBlueprint(1);
+    blueprint.slides.push({
+      slideIndex: 2,
+      sourceSlideIndex: 2,
+      sourceSlidePart: "ppt/slides/slide2.xml",
+      ooxmlOrigin: "imported",
+      ooxmlMotionCapabilities: {
+        transitionWritable: true,
+        importedMainSequenceCoverage: "absent",
+      },
+      renderAssetFileId: "file_render_2",
+      elementSources: [],
+      slots: [],
+    });
+    const { dataSource } = createDataSource({
+      blueprint,
+      deck: reorderedDeck,
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_slide_transition",
+          slideId: "slide_2",
+          transition: { type: "fade", durationMs: 700 },
+        },
+      ],
+    });
+    let capturedMotion: unknown;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+        const form = init?.body as FormData;
+        capturedMotion = JSON.parse(String(form.get("slide_motion")));
+        return new Response(
+          JSON.stringify({
+            ...workerResponse([]),
+            appliedSlideMotion: [
+              { slideId: "slide_2", transition: true, animations: false },
+            ],
+          }),
+        );
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(capturedMotion).toEqual([
+      expect.objectContaining({
+        slideId: "slide_2",
+        sourceSlidePart: "ppt/slides/slide2.xml",
+      }),
+    ]);
+  });
+
+  it("fails closed without saving when Python rejects a slide motion scope", async () => {
+    const { dataSource, query } = createDataSource({
+      deck: storedDeck(2, {
+        transition: { type: "fade", durationMs: 700 },
+      }),
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_slide_transition",
+          slideId: "slide_1",
+          transition: { type: "fade", durationMs: 700 },
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("current.pptx")
+          ? new Response("pptx-bytes")
+          : new Response(
+              JSON.stringify({
+                ...workerResponse([]),
+                unsupportedSlideMotion: [
+                  {
+                    slideId: "slide_1",
+                    scope: "transition",
+                    reasonCode: "SLIDE_TRANSITION_CAPABILITY_UNSAFE",
+                  },
+                ],
+              }),
+            ),
+      ),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error).toMatchObject({
+      code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+      retryable: false,
+    });
+    expect(storage.putObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
-        String(sql).includes("INSERT INTO project_assets"),
+        String(sql).includes("UPDATE template_blueprints"),
       ),
     ).toBe(false);
   });
@@ -760,6 +1407,160 @@ describe("processPptxOoxmlSyncJob", () => {
       });
     },
   );
+
+  it("chunks 501 slide-motion records at the Python response boundary", async () => {
+    const baseDeck = storedDeck(2);
+    const baseSlide = baseDeck.slides[0]!;
+    const deck = {
+      ...baseDeck,
+      slides: Array.from({ length: 501 }, (_, index) => ({
+        ...baseSlide,
+        slideId: `slide_${index + 1}`,
+        ooxmlSourceSlidePart: `ppt/slides/slide${index + 1}.xml`,
+        order: index + 1,
+        title: `Slide ${index + 1}`,
+        elements: [],
+        animations: [],
+        transition: { type: "fade" as const, durationMs: 500 },
+      })),
+    };
+    const blueprint = {
+      ...templateBlueprint(1),
+      slides: Array.from({ length: 501 }, (_, index) => ({
+        ...templateBlueprint(1).slides[0]!,
+        slideIndex: index + 1,
+        sourceSlideIndex: index + 1,
+        sourceSlidePart: `ppt/slides/slide${index + 1}.xml`,
+        elementSources: [],
+      })),
+    };
+    const operations = deck.slides.map((slide) => ({
+      type: "update_slide_transition" as const,
+      slideId: slide.slideId,
+      transition: slide.transition,
+    }));
+    const { dataSource } = createDataSource({
+      blueprint,
+      deck,
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations,
+    });
+    const motionBatchSizes: number[] = [];
+    const renderFlags: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+        const form = init?.body as FormData;
+        const slideMotion = JSON.parse(
+          String(form.get("slide_motion")),
+        ) as Array<{ slideId: string }>;
+        motionBatchSizes.push(slideMotion.length);
+        renderFlags.push(String(form.get("render")));
+        return new Response(
+          JSON.stringify({
+            ...workerResponse([]),
+            appliedSlideMotion: slideMotion.map((motion) => ({
+              slideId: motion.slideId,
+              transition: true,
+              animations: false,
+            })),
+          }),
+        );
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(motionBatchSizes).toEqual([500, 1]);
+    expect(renderFlags).toEqual(["false", "true"]);
+  });
+
+  it("repeats complete animation state for delete batches on the same slide", async () => {
+    const blueprint = templateBlueprint(1);
+    blueprint.slides[0]!.ooxmlMotionCapabilities = {
+      transitionWritable: true,
+      importedMainSequenceCoverage: "complete",
+    };
+    const deck = storedDeck(2, {
+      ooxmlMotionCapabilities: {
+        transitionWritable: true,
+        importedMainSequenceCoverage: "complete",
+      },
+      animations: [],
+    });
+    const operations = Array.from({ length: 501 }, (_, index) => ({
+      type: "delete_element" as const,
+      slideId: "slide_1",
+      elementId: `el_delete_${index + 1}`,
+    }));
+    const { dataSource } = createDataSource({
+      blueprint,
+      deck,
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations,
+    });
+    const operationBatchSizes: number[] = [];
+    const motionBatchSizes: number[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+        const form = init?.body as FormData;
+        const batchOperations = JSON.parse(
+          String(form.get("operations")),
+        ) as Array<{
+          type: "delete_element";
+          slideId: string;
+          elementId: string;
+        }>;
+        const slideMotion = JSON.parse(
+          String(form.get("slide_motion")),
+        ) as Array<{ slideId: string }>;
+        operationBatchSizes.push(batchOperations.length);
+        motionBatchSizes.push(slideMotion.length);
+        return new Response(
+          JSON.stringify({
+            ...workerResponse(
+              batchOperations.map((operation) => ({
+                operationType: operation.type,
+                slideId: operation.slideId,
+                elementId: operation.elementId,
+              })),
+            ),
+            appliedSlideMotion: slideMotion.map((motion) => ({
+              slideId: motion.slideId,
+              transition: false,
+              animations: true,
+            })),
+          }),
+        );
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(operationBatchSizes).toEqual([500, 1]);
+    expect(motionBatchSizes).toEqual([1, 1]);
+  });
 
   it("carries an authored image crop source across the 500-operation batch boundary", async () => {
     const addedElementId = "el_added_crop_image";
@@ -1376,6 +2177,7 @@ describe("processPptxOoxmlSyncJob", () => {
 
 function createDataSource(input: {
   blueprint?: ReturnType<typeof templateBlueprint>;
+  deck?: ReturnType<typeof storedDeck>;
   deckVersion: number;
   syncedVersion: number;
   operations: unknown[];
@@ -1410,14 +2212,7 @@ function createDataSource(input: {
     if (sql.includes("SELECT deck_json, version")) {
       return [
         {
-          deck_json: {
-            canvas: {
-              preset: "wide-16-9",
-              width: 1920,
-              height: 1080,
-              aspectRatio: "16:9",
-            },
-          },
+          deck_json: input.deck ?? storedDeck(input.deckVersion),
           version: input.deckVersion,
         },
       ];
@@ -1469,6 +2264,85 @@ function createDataSource(input: {
   return { dataSource, query };
 }
 
+function storedDeck(
+  version: number,
+  slideOverrides: Record<string, unknown> = {},
+) {
+  return {
+    deckId: "deck_a",
+    projectId: "project-a",
+    title: "Imported deck",
+    version,
+    metadata: {
+      language: "ko",
+      locale: "ko-KR",
+      sourceType: "import" as const,
+    },
+    canvas: {
+      preset: "wide-16-9" as const,
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9" as const,
+    },
+    theme: {},
+    slides: [
+      {
+        slideId: "slide_1",
+        ooxmlOrigin: "imported" as const,
+        ooxmlSourceSlidePart: "ppt/slides/slide1.xml",
+        ooxmlMotionCapabilities: {
+          transitionWritable: true,
+          importedMainSequenceCoverage: "absent" as
+            | "absent"
+            | "partial"
+            | "complete"
+            | "unknown",
+        },
+        order: 1,
+        title: "Slide 1",
+        thumbnailUrl: "",
+        style: {},
+        speakerNotes: "",
+        elements: [
+          {
+            elementId: "el_title",
+            type: "text" as const,
+            x: 100,
+            y: 100,
+            width: 400,
+            height: 100,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 1,
+            locked: false,
+            visible: true,
+            props: { text: "Title" },
+          },
+          {
+            elementId: "el_image",
+            type: "image" as const,
+            x: 100,
+            y: 250,
+            width: 400,
+            height: 300,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 2,
+            locked: false,
+            visible: true,
+            props: { src: "https://example.com/image.png", alt: "Image" },
+          },
+        ],
+        keywords: [],
+        semanticCues: [],
+        animations: [],
+        actions: [],
+        ...slideOverrides,
+      },
+    ],
+  };
+}
+
 function templateBlueprint(syncedVersion: number) {
   return {
     templateId: "template_a",
@@ -1480,6 +2354,16 @@ function templateBlueprint(syncedVersion: number) {
       {
         slideIndex: 1,
         sourceSlideIndex: 1,
+        sourceSlidePart: "ppt/slides/slide1.xml",
+        ooxmlOrigin: "imported" as const,
+        ooxmlMotionCapabilities: {
+          transitionWritable: true,
+          importedMainSequenceCoverage: "absent" as
+            | "absent"
+            | "partial"
+            | "complete"
+            | "unknown",
+        },
         renderAssetFileId: "file_render_1",
         elementSources: [
           {
@@ -1583,7 +2467,7 @@ function authoredRectangleElement(elementId: string) {
   return {
     elementId,
     type: "rect" as const,
-    role: "content" as const,
+    role: "decoration" as const,
     x: 120,
     y: 120,
     width: 320,
@@ -1598,6 +2482,36 @@ function authoredRectangleElement(elementId: string) {
       stroke: "transparent",
       strokeWidth: 0,
       borderRadius: 0,
+    },
+  };
+}
+
+function authoredTableElement(
+  elementId: string,
+  rowCount: number,
+  columnCount: number,
+) {
+  return {
+    elementId,
+    type: "table" as const,
+    role: "table" as const,
+    x: 120,
+    y: 120,
+    width: 600,
+    height: 240,
+    rotation: 0,
+    opacity: 1,
+    zIndex: 5,
+    locked: false,
+    visible: true,
+    props: {
+      rows: Array.from({ length: rowCount }, (_, rowIndex) =>
+        Array.from({ length: columnCount }, (_, columnIndex) => ({
+          text: `${rowIndex}:${columnIndex}`,
+        })),
+      ),
+      columnWidths: Array.from({ length: columnCount }, () => 100),
+      rowHeights: Array.from({ length: rowCount }, () => 60),
     },
   };
 }
@@ -1656,6 +2570,9 @@ function replacementElementSource(elementId: string) {
       richText: "none" as const,
       crop: "none" as const,
       tableCellText: false,
+      frame: true,
+      delete: true,
+      imageSource: false,
     },
     slidePart: "ppt/slides/slide1.xml",
     shapeId: "2",
@@ -1687,6 +2604,8 @@ function workerResponse(
     elementSources: [],
     appliedOperations,
     unsupportedOperations: [],
+    appliedSlideMotion: [],
+    unsupportedSlideMotion: [],
     warnings: [],
   };
 }

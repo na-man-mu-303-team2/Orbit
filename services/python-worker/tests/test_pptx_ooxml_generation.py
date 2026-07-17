@@ -43,7 +43,7 @@ def test_pure_generation_preserves_package_entries_and_source_text(
     assert result.template_blueprint["currentPackageFileId"] == "asset:current_package"
     assert result.template_blueprint["slides"][0]["ooxmlOrigin"] == "imported"
     assert result.template_blueprint["slides"][0]["ooxmlMotionCapabilities"] == {
-        "transitionWritable": False,
+        "transitionWritable": True,
         "importedMainSequenceCoverage": "absent",
     }
     assert all(
@@ -54,8 +54,7 @@ def test_pure_generation_preserves_package_entries_and_source_text(
         and source["ooxmlEditCapabilities"]["crop"]
         == (
             "picture"
-            if source["elementType"] == "image"
-            and source["sourceType"] == "image"
+            if source["elementType"] == "image" and source["sourceType"] == "image"
             else "none"
         )
         and source["ooxmlEditCapabilities"]["tableCellText"] is False
@@ -293,10 +292,7 @@ def test_sync_pptx_ooxml_rejects_partial_shared_shape_operation_atomically(
     assert current_package_bytes(result.assets) == pptx_path.read_bytes()
     assert result.applied_operations == []
     assert len(result.unsupported_operations) == 1
-    assert (
-        result.unsupported_operations[0].reason_code
-        == "SHARED_SHAPE_COHORT_UNSAFE"
-    )
+    assert result.unsupported_operations[0].reason_code == "SHARED_SHAPE_COHORT_UNSAFE"
 
 
 def test_sync_pptx_ooxml_applies_consistent_shared_shape_operations_once(
@@ -657,9 +653,7 @@ def test_sync_pptx_ooxml_rejects_crop_when_relationship_locator_mismatches(
                 "type": "update_element_props",
                 "slideId": "slide_import_file_template_1",
                 "elementId": source["elementId"],
-                "props": {
-                    "crop": {"left": 0.1, "top": 0, "right": 0, "bottom": 0}
-                },
+                "props": {"crop": {"left": 0.1, "top": 0, "right": 0, "bottom": 0}},
             }
         ],
     )
@@ -833,9 +827,7 @@ def test_sync_pptx_ooxml_rejects_legacy_source_without_provenance(
     generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
     blueprint = copy.deepcopy(generated.template_blueprint)
     source = next(
-        item
-        for item in blueprint["slides"][0]["elementSources"]
-        if item["writable"]
+        item for item in blueprint["slides"][0]["elementSources"] if item["writable"]
     )
     source.pop("ooxmlOrigin", None)
 
@@ -857,10 +849,7 @@ def test_sync_pptx_ooxml_rejects_legacy_source_without_provenance(
 
     assert current_package_bytes(result.assets) == original_bytes
     assert result.applied_operations == []
-    assert (
-        result.unsupported_operations[0].reason_code
-        == "SOURCE_PROVENANCE_UNSAFE"
-    )
+    assert result.unsupported_operations[0].reason_code == "SOURCE_PROVENANCE_UNSAFE"
 
 
 def test_sync_pptx_ooxml_round_trips_target_image(
@@ -1073,15 +1062,15 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
     )
     assert added_sources["el_added_text"]["ooxmlEditCapabilities"]["crop"] == "none"
     assert added_sources["el_added_rect"]["ooxmlEditCapabilities"]["crop"] == "none"
-    assert added_sources["el_added_image"]["ooxmlEditCapabilities"][
-        "imageSource"
-    ] is True
-    assert added_sources["el_added_text"]["ooxmlEditCapabilities"][
-        "imageSource"
-    ] is False
-    assert added_sources["el_added_rect"]["ooxmlEditCapabilities"][
-        "imageSource"
-    ] is False
+    assert (
+        added_sources["el_added_image"]["ooxmlEditCapabilities"]["imageSource"] is True
+    )
+    assert (
+        added_sources["el_added_text"]["ooxmlEditCapabilities"]["imageSource"] is False
+    )
+    assert (
+        added_sources["el_added_rect"]["ooxmlEditCapabilities"]["imageSource"] is False
+    )
     assert len(added.applied_operations) == 3
     assert added.unsupported_operations == []
     assert added_sources["el_added_image"]["relationshipId"].startswith("rId")
@@ -1431,9 +1420,7 @@ def test_sync_pptx_ooxml_recomputes_authored_contain_after_frame_resize(
             }
         ],
     )
-    picture_xml = shape_xml(
-        current_package_bytes(resized.assets), source["shapeId"]
-    )
+    picture_xml = shape_xml(current_package_bytes(resized.assets), source["shapeId"])
 
     assert resized.unsupported_operations == []
     assert b"srcRect" not in picture_xml
@@ -1448,9 +1435,7 @@ def test_sync_pptx_ooxml_recomputes_authored_contain_after_frame_resize(
     )
     resized_source = next(
         item
-        for item in resized_reimport.template_blueprint["slides"][0][
-            "elementSources"
-        ]
+        for item in resized_reimport.template_blueprint["slides"][0]["elementSources"]
         if item["shapeId"] == source["shapeId"]
     )
     resized_element = next(
@@ -1494,9 +1479,7 @@ def test_sync_pptx_ooxml_recomputes_reimported_contain_after_source_replace(
             }
         ],
     )
-    source = source_for_element(
-        added.element_sources, "el_contain_reimport_replace"
-    )
+    source = source_for_element(added.element_sources, "el_contain_reimport_replace")
     added_path = tmp_path / "authored-contain-reimport-replace.pptx"
     added_path.write_bytes(current_package_bytes(added.assets))
     reimported = generate_pptx_ooxml(
@@ -1528,9 +1511,7 @@ def test_sync_pptx_ooxml_recomputes_reimported_contain_after_source_replace(
             }
         ],
     )
-    picture_xml = shape_xml(
-        current_package_bytes(replaced.assets), source["shapeId"]
-    )
+    picture_xml = shape_xml(current_package_bytes(replaced.assets), source["shapeId"])
 
     assert replaced.unsupported_operations == []
     assert b'<a:srcRect l="-50000" r="-50000"' in picture_xml
@@ -1569,9 +1550,7 @@ def test_sync_pptx_ooxml_recomputes_reimported_contain_after_frame_resize(
             }
         ],
     )
-    source = source_for_element(
-        added.element_sources, "el_contain_reimport_resize"
-    )
+    source = source_for_element(added.element_sources, "el_contain_reimport_resize")
     added_path = tmp_path / "authored-contain-reimport-resize.pptx"
     added_path.write_bytes(current_package_bytes(added.assets))
     reimported = generate_pptx_ooxml(
@@ -1600,9 +1579,7 @@ def test_sync_pptx_ooxml_recomputes_reimported_contain_after_frame_resize(
             }
         ],
     )
-    picture_xml = shape_xml(
-        current_package_bytes(resized.assets), source["shapeId"]
-    )
+    picture_xml = shape_xml(current_package_bytes(resized.assets), source["shapeId"])
 
     assert resized.unsupported_operations == []
     assert b"srcRect" not in picture_xml
@@ -2098,13 +2075,18 @@ def sample_picture_fill_pptx(tmp_path: Path) -> Path:
         "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
     )
     output = BytesIO()
-    with zipfile.ZipFile(pptx_path, "r") as source, zipfile.ZipFile(
-        output,
-        "w",
-    ) as target:
+    with (
+        zipfile.ZipFile(pptx_path, "r") as source,
+        zipfile.ZipFile(
+            output,
+            "w",
+        ) as target,
+    ):
         slide_root = ET.fromstring(source.read("ppt/slides/slide1.xml"))
         picture = next(
-            node for node in slide_root.iter() if node.tag == f"{{{presentation_ns}}}pic"
+            node
+            for node in slide_root.iter()
+            if node.tag == f"{{{presentation_ns}}}pic"
         )
         picture_blip = next(
             node for node in picture.iter() if node.tag == f"{{{drawing_ns}}}blip"
@@ -2114,7 +2096,11 @@ def sample_picture_fill_pptx(tmp_path: Path) -> Path:
             node
             for node in slide_root.iter()
             if node.tag == f"{{{presentation_ns}}}sp"
-            and any(text.text == "Picture fill target" for text in node.iter() if text.tag == f"{{{drawing_ns}}}t")
+            and any(
+                text.text == "Picture fill target"
+                for text in node.iter()
+                if text.tag == f"{{{drawing_ns}}}t"
+            )
         )
         shape_properties = next(
             child
@@ -2229,9 +2215,10 @@ def sample_reordered_slide_parts_pptx(tmp_path: Path) -> Path:
     presentation.save(pptx_path)
 
     buffer = BytesIO()
-    with zipfile.ZipFile(pptx_path, "r") as source, zipfile.ZipFile(
-        buffer, "w"
-    ) as target:
+    with (
+        zipfile.ZipFile(pptx_path, "r") as source,
+        zipfile.ZipFile(buffer, "w") as target,
+    ):
         presentation_root = ET.fromstring(source.read("ppt/presentation.xml"))
         slide_id_list = next(
             node for node in presentation_root.iter() if node.tag.endswith("sldIdLst")
@@ -2262,9 +2249,10 @@ def add_shape_timing_reference(pptx_path: Path, shape_id: str) -> None:
         "http://schemas.openxmlformats.org/presentationml/2006/main"
     )
     buffer = BytesIO()
-    with zipfile.ZipFile(pptx_path, "r") as source, zipfile.ZipFile(
-        buffer, "w"
-    ) as target:
+    with (
+        zipfile.ZipFile(pptx_path, "r") as source,
+        zipfile.ZipFile(buffer, "w") as target,
+    ):
         slide_root = ET.fromstring(source.read("ppt/slides/slide1.xml"))
         timing = ET.SubElement(
             slide_root,

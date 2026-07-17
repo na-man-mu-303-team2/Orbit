@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function formatSecondsLabel(value: number) {
   return `${(value / 1000).toFixed(1)}s`;
@@ -14,14 +14,25 @@ export function AnimationRangeField(props: {
 }) {
   const { label, max, min, onCommit, step = 50, value } = props;
   const [draftValue, setDraftValue] = useState(value);
+  const lastCommittedValueRef = useRef(value);
 
   useEffect(() => {
     setDraftValue(value);
+    lastCommittedValueRef.current = value;
   }, [value]);
 
-  function commit(nextValue: number) {
+  function updateDraft(nextValue: number) {
+    if (!Number.isFinite(nextValue)) return;
     setDraftValue(nextValue);
-    onCommit(nextValue);
+  }
+
+  function commit(nextValue: number) {
+    if (!Number.isFinite(nextValue)) return;
+    const normalizedValue = Math.min(max, Math.max(min, nextValue));
+    setDraftValue(normalizedValue);
+    if (normalizedValue === lastCommittedValueRef.current) return;
+    lastCommittedValueRef.current = normalizedValue;
+    onCommit(normalizedValue);
   }
 
   return (
@@ -38,7 +49,9 @@ export function AnimationRangeField(props: {
           step={step}
           type="range"
           value={draftValue}
-          onChange={(event) => commit(Number(event.target.value))}
+          onChange={(event) => updateDraft(Number(event.target.value))}
+          onKeyUp={(event) => commit(Number(event.currentTarget.value))}
+          onPointerUp={(event) => commit(Number(event.currentTarget.value))}
         />
         <input
           className="animation-range-number"
@@ -47,7 +60,13 @@ export function AnimationRangeField(props: {
           step={step}
           type="number"
           value={draftValue}
-          onChange={(event) => commit(Number(event.target.value))}
+          onBlur={(event) => commit(Number(event.currentTarget.value))}
+          onChange={(event) => updateDraft(Number(event.target.value))}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              commit(Number(event.currentTarget.value));
+            }
+          }}
         />
       </div>
     </div>

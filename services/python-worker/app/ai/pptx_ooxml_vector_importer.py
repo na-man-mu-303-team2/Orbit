@@ -27,6 +27,11 @@ from app.ai.pptx_design_importer import (
     import_pptx_design,
     preset_custom_shape_path,
 )
+from app.ai.pptx_motion import (
+    main_sequence_node,
+    parse_slide_motion,
+    supported_main_sequence_shape_ids,
+)
 
 PML_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 DML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -34,9 +39,7 @@ REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 ORBIT_OOXML_NS = "urn:orbit:deck:ooxml"
-TABLE_GRAPHIC_DATA_URI = (
-    "http://schemas.openxmlformats.org/drawingml/2006/table"
-)
+TABLE_GRAPHIC_DATA_URI = "http://schemas.openxmlformats.org/drawingml/2006/table"
 
 SLIDE_REL_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
@@ -60,12 +63,11 @@ DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU = 91440
 DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU = 45720
 DEFAULT_PPTX_FONT_FAMILY = "Aptos, Calibri, Arial, sans-serif"
 RICH_TEXT_UNSUPPORTED_HYPERLINK = "PPTX_RICH_TEXT_UNSUPPORTED_HYPERLINK"
-RICH_TEXT_UNSUPPORTED_LETTER_SPACING = (
-    "PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING"
-)
+RICH_TEXT_UNSUPPORTED_LETTER_SPACING = "PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING"
 TABLE_STRUCTURE_UNSUPPORTED = "PPTX_TABLE_STRUCTURE_UNSUPPORTED"
 TABLE_TRACK_MISMATCH = "PPTX_TABLE_TRACK_MISMATCH"
 MAX_TABLE_CELL_LOCATORS = 10_000
+MAX_MOTION_DIAGNOSTIC_DETAILS = 500
 FALLBACK_SCHEME_COLORS = {
     "bg1": "#FFFFFF",
     "tx1": "#111827",
@@ -119,7 +121,9 @@ def import_pptx_design_with_optional_ooxml_vector(
             canvas_width=canvas_width,
             canvas_height=canvas_height,
         )
-        warning = f"OOXML visual tree importer failed; python-pptx fallback used: {error}"
+        warning = (
+            f"OOXML visual tree importer failed; python-pptx fallback used: {error}"
+        )
         fallback.warnings.insert(0, warning)
         fallback.blueprint.setdefault("warnings", fallback.warnings)
         if isinstance(fallback.blueprint["warnings"], list):
@@ -260,6 +264,7 @@ def import_pptx_ooxml_visual_tree(
         )
         slides: list[dict[str, Any]] = []
         slot_sources_by_slide: list[dict[str, dict[str, Any]]] = []
+        motion_diagnostics: list[dict[str, Any]] = []
 
         for slide_index, slide_part in enumerate(slide_parts, start=1):
             slide = read_xml(package, slide_part)
@@ -317,6 +322,19 @@ def import_pptx_ooxml_visual_tree(
                     locked=source_name != "slide",
                 )
 
+            shape_targets = animation_shape_targets(
+                slide,
+                slide_index=slide_index,
+                slide_part=slide_part,
+                elements=elements,
+                slot_sources=slot_sources,
+            )
+            motion = parse_slide_motion(
+                slide,
+                slide_index=slide_index,
+                shape_targets=shape_targets,
+            )
+            motion_diagnostics.extend(motion.diagnostics)
             assign_text_roles(
                 elements,
                 slot_sources,
@@ -324,15 +342,22 @@ def import_pptx_ooxml_visual_tree(
                 slide_count=len(slide_parts),
             )
             background = slide_background_color(slide, state.theme_colors) or "#FFFFFF"
-            slides.append(
-                {
-                    "sourceFileId": file_id,
-                    "sourceSlideIndex": slide_index,
-                    "sourceSlidePart": slide_part,
-                    "style": imported_slide_style(elements, background),
-                    "elements": elements,
-                }
-            )
+            slide_payload: dict[str, Any] = {
+                "sourceFileId": file_id,
+                "sourceSlideIndex": slide_index,
+                "sourceSlidePart": slide_part,
+                "style": imported_slide_style(elements, background),
+                "elements": elements,
+                "animations": motion.animations,
+                "ooxmlMotionCapabilities": {
+                    "transitionWritable": True,
+                    "importedMainSequenceCoverage": motion.coverage,
+                },
+                "motionDiagnostics": motion.diagnostics,
+            }
+            if motion.transition is not None:
+                slide_payload["transition"] = motion.transition
+            slides.append(slide_payload)
             slot_sources_by_slide.append(slot_sources)
 
         apply_repeated_text_roles(slides, slot_sources_by_slide)
@@ -357,13 +382,224 @@ def import_pptx_ooxml_visual_tree(
             template_blueprint,
             slot_sources_by_slide,
         )
+        copy_animation_group_sources_to_blueprint(
+            template_blueprint,
+            slides,
+            slot_sources_by_slide,
+        )
+        blueprint_payload = blueprint.model_dump(by_alias=True)
+        for payload_slide, source_slide in zip(
+            blueprint_payload.get("slides", []),
+            slides,
+            strict=True,
+        ):
+            for field in (
+                "animations",
+                "transition",
+                "ooxmlMotionCapabilities",
+                "motionDiagnostics",
+            ):
+                if field in source_slide:
+                    payload_slide[field] = copy.deepcopy(source_slide[field])
+        for template_slide, source_slide in zip(
+            template_blueprint.get("slides", []),
+            slides,
+            strict=True,
+        ):
+            template_slide["ooxmlMotionCapabilities"] = copy.deepcopy(
+                source_slide["ooxmlMotionCapabilities"]
+            )
+        quality_report = build_quality_report(slides, state.warnings)
+        quality_report["motionDiagnostics"] = motion_diagnostic_summary(
+            motion_diagnostics
+        )
         return PptxDesignImportResult(
-            blueprint=blueprint.model_dump(by_alias=True),
+            blueprint=blueprint_payload,
             templateBlueprint=template_blueprint,
-            qualityReport=build_quality_report(slides, state.warnings),
+            qualityReport=quality_report,
             assets=state.assets,
             warnings=state.warnings,
         )
+
+
+def motion_diagnostic_summary(
+    diagnostics: list[dict[str, Any]],
+) -> dict[str, Any]:
+    categorized: list[tuple[int, str, str]] = []
+    for diagnostic in diagnostics:
+        code = str(diagnostic.get("code", ""))
+        slide_index = int(diagnostic.get("slideIndex", 0) or 0)
+        if slide_index <= 0:
+            continue
+        if "UNSUPPORTED" in code:
+            category = "unsupported"
+        elif "DOWNGRADED" in code:
+            category = "downgraded"
+        elif "UNRESOLVED" in code or code.endswith("SOURCE_UNAVAILABLE"):
+            category = "unresolved"
+        elif "EXCLUDED" in code:
+            category = "excluded"
+        else:
+            continue
+        categorized.append((slide_index, code, category))
+
+    counts = {
+        category: sum(item_category == category for _, _, item_category in categorized)
+        for category in ("unsupported", "downgraded", "unresolved", "excluded")
+    }
+    detail_counts: dict[tuple[int, str], int] = {}
+    for slide_index, code, _ in categorized:
+        key = (slide_index, code)
+        detail_counts[key] = detail_counts.get(key, 0) + 1
+    details = [
+        {"slideIndex": slide_index, "code": code, "count": count}
+        for (slide_index, code), count in sorted(detail_counts.items())
+    ]
+    return {
+        "total": sum(counts.values()),
+        **counts,
+        # The shared contract requires complete detail counts when details are
+        # present. On overflow, omit details rather than return a misleading
+        # or schema-invalid partial list.
+        "details": details if len(details) <= MAX_MOTION_DIAGNOSTIC_DETAILS else [],
+    }
+
+
+def animation_shape_targets(
+    slide_root: ET.Element[Any],
+    *,
+    slide_index: int,
+    slide_part: str,
+    elements: list[dict[str, Any]],
+    slot_sources: dict[str, dict[str, Any]],
+) -> dict[str, str]:
+    timing = first_local_child(slide_root, "timing")
+    main_sequence = main_sequence_node(timing) if timing is not None else None
+    if main_sequence is None:
+        return {}
+    referenced_shape_ids = supported_main_sequence_shape_ids(main_sequence)
+    element_order = {
+        str(element.get("elementId", "")): index
+        for index, element in enumerate(elements)
+    }
+    targets: dict[str, str] = {}
+    for shape_id in sorted(referenced_shape_ids):
+        child_ids = sorted(
+            (
+                element_id_value
+                for element_id_value, source in slot_sources.items()
+                if str(source.get("slidePart", "")) == slide_part
+                and str(source.get("shapeId", "")) == shape_id
+                and bool(source.get("writable", False))
+            ),
+            key=lambda element_id_value: element_order.get(
+                element_id_value,
+                len(element_order),
+            ),
+        )
+        if len(child_ids) == 1:
+            targets[shape_id] = child_ids[0]
+            continue
+        if not child_ids:
+            continue
+        child_elements = [
+            element
+            for element in elements
+            if str(element.get("elementId", "")) in child_ids
+        ]
+        frame = union_element_frame(child_elements)
+        if frame is None:
+            continue
+        group_id = element_id(
+            slide_index,
+            "slide",
+            shape_id,
+            "animation_group",
+        )
+        elements.append(
+            {
+                **element_base(
+                    element_id=group_id,
+                    role="decoration",
+                    frame=frame,
+                    z_index=max(
+                        (int(element.get("zIndex", 0)) for element in child_elements),
+                        default=0,
+                    ),
+                    locked=False,
+                ),
+                "type": "group",
+                "props": {"childElementIds": child_ids},
+            }
+        )
+        slot_sources[group_id] = {
+            "type": "slide",
+            "name": "animation-group",
+            "slidePart": slide_part,
+            "shapeId": shape_id,
+            "writable": True,
+            "animationSyntheticTarget": True,
+        }
+        targets[shape_id] = group_id
+    return targets
+
+
+def union_element_frame(
+    elements: list[dict[str, Any]],
+) -> dict[str, int] | None:
+    if not elements:
+        return None
+    left = min(int(element.get("x", 0)) for element in elements)
+    top = min(int(element.get("y", 0)) for element in elements)
+    right = max(
+        int(element.get("x", 0)) + max(1, int(element.get("width", 1)))
+        for element in elements
+    )
+    bottom = max(
+        int(element.get("y", 0)) + max(1, int(element.get("height", 1)))
+        for element in elements
+    )
+    return {
+        "x": left,
+        "y": top,
+        "width": max(1, right - left),
+        "height": max(1, bottom - top),
+    }
+
+
+def copy_animation_group_sources_to_blueprint(
+    template_blueprint: dict[str, Any],
+    slides: list[dict[str, Any]],
+    slot_sources_by_slide: list[dict[str, dict[str, Any]]],
+) -> None:
+    for slide_index, template_slide in enumerate(template_blueprint.get("slides", [])):
+        if slide_index >= len(slides) or slide_index >= len(slot_sources_by_slide):
+            break
+        existing_ids = {
+            str(source.get("elementId", ""))
+            for source in template_slide.get("elementSources", [])
+            if isinstance(source, dict)
+        }
+        for element in slides[slide_index].get("elements", []):
+            if not isinstance(element, dict) or element.get("type") != "group":
+                continue
+            element_id_value = str(element.get("elementId", ""))
+            source = slot_sources_by_slide[slide_index].get(element_id_value)
+            if not source or element_id_value in existing_ids:
+                continue
+            slide_part = str(source.get("slidePart", ""))
+            shape_id = str(source.get("shapeId", ""))
+            if not slide_part or not shape_id:
+                continue
+            template_slide.setdefault("elementSources", []).append(
+                {
+                    "elementId": element_id_value,
+                    "slidePart": slide_part,
+                    "shapeId": shape_id,
+                    "sourceType": str(source.get("type", "slide")),
+                    "writable": bool(source.get("writable", False)),
+                }
+            )
 
 
 def append_visual_tree(
@@ -626,7 +862,9 @@ def chart_data(chart: ET.Element[Any], chart_type: str) -> list[dict[str, Any]]:
         label = labels[index] if index < len(labels) else f"Item {index + 1}"
         result.append({"label": label, "value": value})
     if chart_type in {"pie", "doughnut"}:
-        return [{"label": item["label"], "value": max(0, item["value"])} for item in result]
+        return [
+            {"label": item["label"], "value": max(0, item["value"])} for item in result
+        ]
     return result
 
 
@@ -765,10 +1003,14 @@ def default_table_cell_colors(row_index: int) -> tuple[str, str]:
 
 def table_column_widths(table: ET.Element[Any], scale: OoxmlScale) -> list[int]:
     grid = first_local_child(table, "tblGrid")
-    return [
-        max(1, round(int_attr(column, "w", 1) * scale.scale_x))
-        for column in direct_local_children(grid, "gridCol")
-    ] if grid is not None else []
+    return (
+        [
+            max(1, round(int_attr(column, "w", 1) * scale.scale_x))
+            for column in direct_local_children(grid, "gridCol")
+        ]
+        if grid is not None
+        else []
+    )
 
 
 def table_row_heights(table: ET.Element[Any], scale: OoxmlScale) -> list[int]:
@@ -796,8 +1038,7 @@ def table_cell_locators(
     rows = direct_local_children(table, "tr")
     if not columns or not rows:
         return None, [
-            f"{TABLE_TRACK_MISMATCH}: {location}; "
-            "reason=column-track-mismatch"
+            f"{TABLE_TRACK_MISMATCH}: {location}; reason=column-track-mismatch"
         ]
     if len(columns) > 1000 or len(rows) > 1000:
         return None, [
@@ -805,33 +1046,25 @@ def table_cell_locators(
         ]
     if any(not valid_integer_attribute(column, "w", minimum=1) for column in columns):
         return None, [
-            f"{TABLE_TRACK_MISMATCH}: {location}; "
-            "reason=column-track-mismatch"
+            f"{TABLE_TRACK_MISMATCH}: {location}; reason=column-track-mismatch"
         ]
     if any(not valid_integer_attribute(row, "h", minimum=0) for row in rows):
-        return None, [
-            f"{TABLE_TRACK_MISMATCH}: {location}; reason=row-track-mismatch"
-        ]
+        return None, [f"{TABLE_TRACK_MISMATCH}: {location}; reason=row-track-mismatch"]
 
     row_cells = [direct_local_children(row, "tc") for row in rows]
     row_lengths = {len(cells) for cells in row_cells}
     if len(row_lengths) != 1:
-        return None, [
-            f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=jagged-grid"
-        ]
+        return None, [f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=jagged-grid"]
     if next(iter(row_lengths), 0) != len(columns):
         return None, [
-            f"{TABLE_TRACK_MISMATCH}: {location}; "
-            "reason=column-track-mismatch"
+            f"{TABLE_TRACK_MISMATCH}: {location}; reason=column-track-mismatch"
         ]
     if len(rows) * len(columns) > MAX_TABLE_CELL_LOCATORS:
         return None, [
             f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=locator-limit"
         ]
     if any(table_cell_has_merge(cell) for cells in row_cells for cell in cells):
-        return None, [
-            f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=merged-cell"
-        ]
+        return None, [f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=merged-cell"]
 
     return [
         {
@@ -849,10 +1082,7 @@ def direct_graphic_frame_table(
 ) -> ET.Element[Any] | None:
     graphic = first_local_child(frame_element, "graphic")
     graphic_data = first_local_child(graphic, "graphicData")
-    if (
-        graphic_data is None
-        or graphic_data.get("uri") != TABLE_GRAPHIC_DATA_URI
-    ):
+    if graphic_data is None or graphic_data.get("uri") != TABLE_GRAPHIC_DATA_URI:
         return None
     return first_local_child(graphic_data, "tbl")
 
@@ -1092,6 +1322,13 @@ def append_group_shape(
                 "childElementIds": child_element_ids,
             },
         }
+    )
+    slot_sources[group_element_id] = shape_source(
+        group,
+        part_path,
+        group_id,
+        source_name,
+        locked,
     )
     return [group_element_id]
 
@@ -1682,7 +1919,9 @@ def unsupported_geometry_reason(shape: ET.Element[Any]) -> str | None:
     sp_pr = first_local_child(shape, "spPr")
     if sp_pr is None:
         return None
-    if first_local_child(sp_pr, "custGeom") is not None and not custom_geometry_path(shape):
+    if first_local_child(sp_pr, "custGeom") is not None and not custom_geometry_path(
+        shape
+    ):
         return "unsupported custom geometry"
     token = preset_token(shape)
     if supported_preset_token(token, local_name(shape)):
@@ -1693,7 +1932,8 @@ def unsupported_geometry_reason(shape: ET.Element[Any]) -> str | None:
 def supported_preset_token(token: str, tag: str) -> bool:
     return (
         tag == "cxnSp"
-        or token in {"rect", "roundRect", "line", "straightConnector1", "ellipse", "oval"}
+        or token
+        in {"rect", "roundRect", "line", "straightConnector1", "ellipse", "oval"}
         or "donut" in token
         or "star" in token
         or preset_custom_shape_path(token) is not None
@@ -2038,7 +2278,11 @@ def text_paragraphs(
         return paragraphs
 
     plain = "".join(node.text or "" for node in body.iter() if local_name(node) == "t")
-    return [{"text": plain, "runs": [{"text": plain, "baseline": "normal"}]}] if plain else []
+    return (
+        [{"text": plain, "runs": [{"text": plain, "baseline": "normal"}]}]
+        if plain
+        else []
+    )
 
 
 def paragraph_runs(
@@ -2050,7 +2294,9 @@ def paragraph_runs(
     for child in list(paragraph):
         name = local_name(child)
         if name == "r":
-            text = "".join(node.text or "" for node in child.iter() if local_name(node) == "t")
+            text = "".join(
+                node.text or "" for node in child.iter() if local_name(node) == "t"
+            )
             if text:
                 runs.append({"text": text, **run_props(child, scale, theme_colors)})
         elif name == "br":
@@ -2084,9 +2330,7 @@ def append_rich_text_diagnostics(
             ):
                 warnings.append(f"{RICH_TEXT_UNSUPPORTED_HYPERLINK}: {location}")
             if "spc" in r_pr.attrib:
-                warnings.append(
-                    f"{RICH_TEXT_UNSUPPORTED_LETTER_SPACING}: {location}"
-                )
+                warnings.append(f"{RICH_TEXT_UNSUPPORTED_LETTER_SPACING}: {location}")
             run_index += 1
 
 
@@ -2112,13 +2356,17 @@ def text_runs(
         for child in list(paragraph):
             name = local_name(child)
             if name == "r":
-                text = "".join(node.text or "" for node in child.iter() if local_name(node) == "t")
+                text = "".join(
+                    node.text or "" for node in child.iter() if local_name(node) == "t"
+                )
                 if text:
                     runs.append({"text": text, **run_props(child, scale, theme_colors)})
             elif name == "br":
                 runs.append({"text": "\n", "baseline": "normal"})
     if not runs:
-        plain = "".join(node.text or "" for node in body.iter() if local_name(node) == "t")
+        plain = "".join(
+            node.text or "" for node in body.iter() if local_name(node) == "t"
+        )
         if plain:
             runs.append({"text": plain, "baseline": "normal"})
     return runs
@@ -2181,7 +2429,11 @@ def run_typeface(r_pr: ET.Element[Any]) -> str | None:
 
 def paragraph_align(body: ET.Element[Any]) -> str:
     first_paragraph = first_local_child(body, "p")
-    return paragraph_align_value(first_paragraph) if first_paragraph is not None else "left"
+    return (
+        paragraph_align_value(first_paragraph)
+        if first_paragraph is not None
+        else "left"
+    )
 
 
 def paragraph_align_value(paragraph: ET.Element[Any]) -> str:
@@ -2507,7 +2759,11 @@ def solid_color(
 
 def scheme_color(value: str, theme_colors: dict[str, str]) -> str | None:
     lookup = SCHEME_COLOR_ALIASES.get(value, value)
-    return theme_colors.get(value) or theme_colors.get(lookup) or FALLBACK_SCHEME_COLORS.get(value)
+    return (
+        theme_colors.get(value)
+        or theme_colors.get(lookup)
+        or FALLBACK_SCHEME_COLORS.get(value)
+    )
 
 
 def shape_shadow(
@@ -2523,7 +2779,10 @@ def shape_shadow(
         placeholder_color = style_reference_color(shape, "effectRef", theme_colors)
     if shadow is None:
         return None
-    color = solid_color_with_placeholder(shadow, theme_colors, placeholder_color) or "#000000"
+    color = (
+        solid_color_with_placeholder(shadow, theme_colors, placeholder_color)
+        or "#000000"
+    )
     blur = round(int_attr(shadow, "blurRad", 0) * scale.average_scale, 2)
     distance = int_attr(shadow, "dist", 0) * scale.average_scale
     direction = math.radians(int_attr(shadow, "dir", 0) / 60000)
@@ -2626,7 +2885,9 @@ def shape_frame(
     if xfrm is None or first_local_child(xfrm, "off") is None:
         key = placeholder_key(shape)
         if key is not None:
-            fallback = placeholder_frames.get(key) or placeholder_frames.get((key[0], ""))
+            fallback = placeholder_frames.get(key) or placeholder_frames.get(
+                (key[0], "")
+            )
             if fallback is not None:
                 return fallback
         return None
@@ -2686,7 +2947,9 @@ def shape_source(
     locked: bool,
 ) -> dict[str, Any]:
     ph_key = placeholder_key(shape)
-    source_type = "placeholder" if ph_key is not None and source_name == "slide" else source_name
+    source_type = (
+        "placeholder" if ph_key is not None and source_name == "slide" else source_name
+    )
     source = {
         "type": source_type,
         "name": shape_name(shape) or "shape",
@@ -2772,12 +3035,20 @@ def preset_token(shape: ET.Element[Any]) -> str:
 
 def shape_identifier(shape: ET.Element[Any], fallback_index: int) -> str:
     c_nv_pr = first_local_descendant(shape, "cNvPr")
-    return safe_id(str(c_nv_pr.get("id", ""))) if c_nv_pr is not None else str(fallback_index)
+    return (
+        safe_id(str(c_nv_pr.get("id", "")))
+        if c_nv_pr is not None
+        else str(fallback_index)
+    )
 
 
 def shape_name(shape: ET.Element[Any]) -> str:
     c_nv_pr = first_local_descendant(shape, "cNvPr")
-    return str(c_nv_pr.get("descr") or c_nv_pr.get("name") or "") if c_nv_pr is not None else ""
+    return (
+        str(c_nv_pr.get("descr") or c_nv_pr.get("name") or "")
+        if c_nv_pr is not None
+        else ""
+    )
 
 
 def graphic_frame_kind(frame_element: ET.Element[Any]) -> str:
@@ -2811,7 +3082,9 @@ def presentation_slide_parts(package: zipfile.ZipFile) -> list[str]:
             continue
         rel = rels.get(rel_id)
         if rel and rel.get("Type") == SLIDE_REL_TYPE:
-            slide_parts.append(resolve_part_path("ppt/presentation.xml", rel.get("Target", "")))
+            slide_parts.append(
+                resolve_part_path("ppt/presentation.xml", rel.get("Target", ""))
+            )
     return slide_parts
 
 
@@ -2832,7 +3105,9 @@ def slide_shows_master_shapes(slide: ET.Element[Any]) -> bool:
 def theme_color_map(package: zipfile.ZipFile) -> dict[str, str]:
     theme_part = presentation_theme_part(package) or first_theme_part(package)
     theme = read_xml(package, theme_part)
-    color_scheme = first_local_descendant(theme, "clrScheme") if theme is not None else None
+    color_scheme = (
+        first_local_descendant(theme, "clrScheme") if theme is not None else None
+    )
     if color_scheme is None:
         return FALLBACK_SCHEME_COLORS
 
@@ -2985,7 +3260,9 @@ def relationship_target_by_type(
 
 def rels_path_for_part(part_path: str) -> str:
     directory, _, filename = part_path.rpartition("/")
-    return f"{directory}/_rels/{filename}.rels" if directory else f"_rels/{filename}.rels"
+    return (
+        f"{directory}/_rels/{filename}.rels" if directory else f"_rels/{filename}.rels"
+    )
 
 
 def resolve_part_path(part_path: str, target: str) -> str:
@@ -3017,9 +3294,13 @@ def content_type_map(package: zipfile.ZipFile) -> dict[str, str]:
     for item in root:
         name = local_name(item)
         if name == "Default" and item.get("Extension") and item.get("ContentType"):
-            mapping[f".{str(item.get('Extension')).lower()}"] = str(item.get("ContentType"))
+            mapping[f".{str(item.get('Extension')).lower()}"] = str(
+                item.get("ContentType")
+            )
         elif name == "Override" and item.get("PartName") and item.get("ContentType"):
-            mapping[str(item.get("PartName")).lstrip("/")] = str(item.get("ContentType"))
+            mapping[str(item.get("PartName")).lstrip("/")] = str(
+                item.get("ContentType")
+            )
     return mapping
 
 

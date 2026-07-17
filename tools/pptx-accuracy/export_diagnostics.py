@@ -61,7 +61,14 @@ SUPPORTED_EXPORT_ELEMENT_TYPES = {
 
 SEMANTIC_EXPECTATION_CODES = {
     "transitionCount": "OOXML_TRANSITION_COUNT",
+    "transitionDurationMsTotal": "OOXML_TRANSITION_DURATION_MS_TOTAL",
     "timingSlideCount": "OOXML_TIMING_SLIDE_COUNT",
+    "animationEffectCount": "OOXML_ANIMATION_EFFECT_COUNT",
+    "animationDurationMsTotal": "OOXML_ANIMATION_DURATION_MS_TOTAL",
+    "onSlideEnterAnimationCount": "OOXML_ANIMATION_ON_SLIDE_ENTER_COUNT",
+    "onClickAnimationCount": "OOXML_ANIMATION_ON_CLICK_COUNT",
+    "withPreviousAnimationCount": "OOXML_ANIMATION_WITH_PREVIOUS_COUNT",
+    "afterPreviousAnimationCount": "OOXML_ANIMATION_AFTER_PREVIOUS_COUNT",
     "cropCount": "OOXML_IMAGE_CROP_COUNT",
     "cropLeft": "OOXML_IMAGE_CROP_LEFT",
     "cropTop": "OOXML_IMAGE_CROP_TOP",
@@ -74,6 +81,8 @@ SEMANTIC_EXPECTATION_CODES = {
 PRESENTATION_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 CHART_NS = "http://schemas.openxmlformats.org/drawingml/2006/chart"
+P14_NS = "http://schemas.microsoft.com/office/powerpoint/2010/main"
+ORBIT_MOTION_NS = "urn:orbit:deck:ooxml"
 
 
 def diagnostics_for_deck(deck: Mapping[str, Any]) -> list[ExportDiagnostic]:
@@ -208,7 +217,14 @@ def semantic_assertions(
 def inspect_pptx_semantics(pptx_path: Path) -> dict[str, int]:
     values = {
         "transitionCount": 0,
+        "transitionDurationMsTotal": 0,
         "timingSlideCount": 0,
+        "animationEffectCount": 0,
+        "animationDurationMsTotal": 0,
+        "onSlideEnterAnimationCount": 0,
+        "onClickAnimationCount": 0,
+        "withPreviousAnimationCount": 0,
+        "afterPreviousAnimationCount": 0,
         "cropCount": 0,
         "cropLeft": 0,
         "cropTop": 0,
@@ -226,11 +242,46 @@ def inspect_pptx_semantics(pptx_path: Path) -> dict[str, int]:
         )
         for slide_name in slide_names:
             root = ElementTree.fromstring(archive.read(slide_name))
-            values["transitionCount"] += len(
-                root.findall(f".//{{{PRESENTATION_NS}}}transition")
-            )
+            transitions = root.findall(f".//{{{PRESENTATION_NS}}}transition")
+            if transitions:
+                # mc:AlternateContent contains both a Choice and a Fallback
+                # transition, but they represent one logical slide transition.
+                values["transitionCount"] += 1
+                values["transitionDurationMsTotal"] += max(
+                    integer_attribute(transition, f"{{{P14_NS}}}dur")
+                    for transition in transitions
+                )
             if root.find(f".//{{{PRESENTATION_NS}}}timing") is not None:
                 values["timingSlideCount"] += 1
+            effects = [
+                node
+                for node in root.findall(f".//{{{PRESENTATION_NS}}}cTn")
+                if node.get("presetClass") == "entr"
+            ]
+            values["animationEffectCount"] += len(effects)
+            values["animationDurationMsTotal"] += sum(
+                integer_attribute(effect, "dur") for effect in effects
+            )
+            seen_click_root = False
+            for effect in effects:
+                start_mode = effect.get(f"{{{ORBIT_MOTION_NS}}}startMode")
+                node_type = effect.get("nodeType")
+                native_semantics_match = {
+                    "on-slide-enter": node_type == "withEffect" and not seen_click_root,
+                    "on-click": node_type == "clickEffect",
+                    "with-previous": node_type == "withEffect",
+                    "after-previous": node_type == "afterEffect",
+                }.get(start_mode, False)
+                key = {
+                    "on-slide-enter": "onSlideEnterAnimationCount",
+                    "on-click": "onClickAnimationCount",
+                    "with-previous": "withPreviousAnimationCount",
+                    "after-previous": "afterPreviousAnimationCount",
+                }.get(start_mode)
+                if key is not None and native_semantics_match:
+                    values[key] += 1
+                if node_type == "clickEffect":
+                    seen_click_root = True
             crop_rectangles = root.findall(f".//{{{DRAWING_NS}}}srcRect")
             values["cropCount"] += len(crop_rectangles)
             if crop_rectangles and not crop_edges_recorded:
@@ -243,6 +294,13 @@ def inspect_pptx_semantics(pptx_path: Path) -> dict[str, int]:
             values["chartCount"] += len(root.findall(f".//{{{CHART_NS}}}chart"))
             values["tableCount"] += len(root.findall(f".//{{{DRAWING_NS}}}tbl"))
     return values
+
+
+def integer_attribute(element: ElementTree.Element, name: str) -> int:
+    value = element.get(name)
+    if value is None or not value.isdigit():
+        return 0
+    return int(value)
 
 
 def ensure_tmp_output_path(repository_root: Path, requested: Path) -> Path:
@@ -267,8 +325,7 @@ def sha256_file(path: Path) -> str:
 
 def artifact_checksums(paths: Iterable[Path], base: Path) -> dict[str, Any]:
     rows = {
-        path.relative_to(base).as_posix(): sha256_file(path)
-        for path in sorted(paths)
+        path.relative_to(base).as_posix(): sha256_file(path) for path in sorted(paths)
     }
     aggregate_input = "".join(f"{name}\0{digest}\n" for name, digest in rows.items())
     return {

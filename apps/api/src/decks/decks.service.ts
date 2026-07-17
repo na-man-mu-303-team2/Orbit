@@ -459,10 +459,14 @@ export class DecksService {
             templateBlueprint.blueprint,
           )
         : emptyOoxmlPreflightContext();
-      const patch =
+      const normalizedPatch =
         templateBlueprint || currentDeck.metadata.sourceType === "import"
           ? normalizeOoxmlPatchProvenance(request.patch)
           : request.patch;
+      const patch =
+        templateBlueprint || currentDeck.metadata.sourceType === "import"
+          ? materializeImplicitAnimationDeletes(currentDeck, normalizedPatch)
+          : normalizedPatch;
       const applyResult = applyDeckPatch(currentDeck, patch, {
         createdAt: updatedAt,
       });
@@ -1381,6 +1385,7 @@ function createOoxmlReplacement(
     version: currentDeck.version + 1,
   });
   const neutralDiff = createOoxmlNeutralDiff(currentDeck, deck);
+  const motionOperations = createOoxmlMotionDiff(currentDeck, deck);
   const elementOperations = createOoxmlElementDiff(currentDeck, deck);
   for (const operation of elementOperations) {
     if (
@@ -1392,6 +1397,7 @@ function createOoxmlReplacement(
   }
   const operations = [
     ...neutralDiff.operations,
+    ...motionOperations,
     ...elementOperations,
     ...createOoxmlSemanticCueReplayOperations(
       deck,
@@ -1503,6 +1509,66 @@ function normalizeOoxmlPatchProvenance(patch: DeckPatch): DeckPatch {
   };
 }
 
+function materializeImplicitAnimationDeletes(
+  currentDeck: Deck,
+  patch: DeckPatch,
+): DeckPatch {
+  const deletedElementKeys = new Set(
+    patch.operations
+      .filter(
+        (
+          operation,
+        ): operation is Extract<
+          DeckPatchOperation,
+          { type: "delete_element" }
+        > => operation.type === "delete_element",
+      )
+      .map((operation) =>
+        ooxmlElementKey(operation.slideId, operation.elementId),
+      ),
+  );
+  if (deletedElementKeys.size === 0) return patch;
+
+  const explicitAnimationDeletes = new Set(
+    patch.operations
+      .filter(
+        (
+          operation,
+        ): operation is Extract<
+          DeckPatchOperation,
+          { type: "delete_animation" }
+        > => operation.type === "delete_animation",
+      )
+      .map((operation) => `${operation.slideId}\0${operation.animationId}`),
+  );
+  const implicitAnimationDeletes = currentDeck.slides.flatMap((slide) =>
+    slide.animations.flatMap((animation) => {
+      const animationKey = `${slide.slideId}\0${animation.animationId}`;
+      if (
+        !deletedElementKeys.has(
+          ooxmlElementKey(slide.slideId, animation.elementId),
+        ) ||
+        explicitAnimationDeletes.has(animationKey)
+      ) {
+        return [];
+      }
+      return [
+        {
+          type: "delete_animation" as const,
+          slideId: slide.slideId,
+          animationId: animation.animationId,
+        },
+      ];
+    }),
+  );
+  return implicitAnimationDeletes.length === 0
+    ? patch
+    : {
+        ...patch,
+        operations: [...implicitAnimationDeletes, ...patch.operations],
+      };
+}
+
 function authoredOoxmlElement(element: DeckElement): DeckElement {
   const authored = {
     ...element,
@@ -1577,12 +1643,131 @@ function ooxmlSnapshotRestorePackageStructure(deck: Deck) {
         elements: _elements,
         keywords: _keywords,
         semanticCues: _semanticCues,
+        transition: _transition,
+        animations: _animations,
         actions: _actions,
         aiNotes: _aiNotes,
         ...slidePackageStructure
       }) => slidePackageStructure,
     ),
   };
+}
+
+function createOoxmlMotionDiff(
+  currentDeck: Deck,
+  nextDeck: Deck,
+): DeckPatchOperation[] {
+  const operations: DeckPatchOperation[] = [];
+  const nextSlides = new Map(
+    nextDeck.slides.map((slide) => [slide.slideId, slide]),
+  );
+
+  for (const currentSlide of currentDeck.slides) {
+    const nextSlide = nextSlides.get(currentSlide.slideId);
+    if (!nextSlide) continue;
+
+    if (!isDeepStrictEqual(currentSlide.transition, nextSlide.transition)) {
+      operations.push({
+        type: "update_slide_transition",
+        slideId: currentSlide.slideId,
+        transition: nextSlide.transition ?? null,
+      });
+    }
+
+    const currentAnimations = new Map(
+      currentSlide.animations.map((animation) => [
+        animation.animationId,
+        animation,
+      ]),
+    );
+    const nextAnimations = new Map(
+      nextSlide.animations.map((animation) => [
+        animation.animationId,
+        animation,
+      ]),
+    );
+    const animationSequenceChanged = !isDeepStrictEqual(
+      currentSlide.animations.map((animation) => animation.animationId),
+      nextSlide.animations.map((animation) => animation.animationId),
+    );
+    const animationOperationStartIndex = operations.length;
+
+    for (const currentAnimation of currentSlide.animations) {
+      if (nextAnimations.has(currentAnimation.animationId)) continue;
+      operations.push({
+        type: "delete_animation",
+        slideId: currentSlide.slideId,
+        animationId: currentAnimation.animationId,
+      });
+    }
+
+    for (const nextAnimation of nextSlide.animations) {
+      const currentAnimation = currentAnimations.get(nextAnimation.animationId);
+      if (!currentAnimation) {
+        operations.push({
+          type: "add_animation",
+          slideId: currentSlide.slideId,
+          animation: nextAnimation,
+        });
+        continue;
+      }
+      const currentTarget = currentSlide.elements.find(
+        (element) => element.elementId === currentAnimation.elementId,
+      );
+      const nextTarget = nextSlide.elements.find(
+        (element) => element.elementId === nextAnimation.elementId,
+      );
+      const targetElementReplaced =
+        currentTarget !== undefined &&
+        nextTarget !== undefined &&
+        currentTarget.type !== nextTarget.type;
+      if (
+        isDeepStrictEqual(currentAnimation, nextAnimation) &&
+        !targetElementReplaced
+      ) {
+        continue;
+      }
+      operations.push({
+        type: "update_animation",
+        slideId: currentSlide.slideId,
+        animationId: nextAnimation.animationId,
+        animation: {
+          elementId: nextAnimation.elementId,
+          type: nextAnimation.type,
+          order: nextAnimation.order,
+          durationMs: nextAnimation.durationMs,
+          delayMs: nextAnimation.delayMs,
+          easing: nextAnimation.easing,
+          startMode: nextAnimation.startMode,
+        },
+      });
+    }
+
+    if (
+      animationSequenceChanged &&
+      operations.length === animationOperationStartIndex
+    ) {
+      const nextAnimation = nextSlide.animations[0];
+      if (nextAnimation && currentAnimations.has(nextAnimation.animationId)) {
+        operations.push({
+          type: "update_animation",
+          slideId: currentSlide.slideId,
+          animationId: nextAnimation.animationId,
+          animation: {
+            elementId: nextAnimation.elementId,
+            type: nextAnimation.type,
+            order: nextAnimation.order,
+            durationMs: nextAnimation.durationMs,
+            delayMs: nextAnimation.delayMs,
+            easing: nextAnimation.easing,
+            startMode: nextAnimation.startMode,
+          },
+        });
+      }
+    }
+  }
+
+  return operations;
 }
 
 function createOoxmlNeutralDiff(
@@ -2042,6 +2227,9 @@ function ooxmlUnsupportedOperationReason(
   preflightContext: OoxmlPreflightContext,
 ): string | null {
   if (ooxmlPackageNeutralOperationTypes.has(operation.type)) return null;
+  if (!preflightContext.templateBlueprint) {
+    return "TEMPLATE_BLUEPRINT_UNAVAILABLE";
+  }
 
   if (operation.type === "add_element") {
     const targetSlide =
@@ -2108,9 +2296,29 @@ function ooxmlUnsupportedOperationReason(
           ? null
           : "DELETE_CAPABILITY_UNSAFE";
       }
-      return authoredOoxmlSerializerSupportsElement(element)
+      if (!authoredOoxmlSerializerSupportsElement(element)) {
+        return "AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED";
+      }
+      const slide =
+        currentDeck.slides.find(
+          (candidate) => candidate.slideId === operation.slideId,
+        ) ??
+        nextDeck.slides.find(
+          (candidate) => candidate.slideId === operation.slideId,
+        );
+      const coverage =
+        slide?.ooxmlMotionCapabilities?.importedMainSequenceCoverage;
+      const templateSlide = ooxmlTemplateSlideForDeckSlide(
+        currentDeck,
+        operation.slideId,
+        preflightContext.templateBlueprint,
+      );
+      const authoritativeCoverage =
+        templateSlide?.ooxmlMotionCapabilities?.importedMainSequenceCoverage;
+      return (coverage === "absent" || coverage === "complete") &&
+        authoritativeCoverage === coverage
         ? null
-        : "AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED";
+        : "MOTION_REFERENCE_COVERAGE_UNSAFE";
     }
 
     return ooxmlElementPropsUnsupportedReason(
@@ -2122,7 +2330,78 @@ function ooxmlUnsupportedOperationReason(
     );
   }
 
+  if (operation.type === "update_slide_transition") {
+    const slide =
+      currentDeck.slides.find(
+        (candidate) => candidate.slideId === operation.slideId,
+      ) ??
+      nextDeck.slides.find(
+        (candidate) => candidate.slideId === operation.slideId,
+      );
+    if (!slide?.ooxmlOrigin) return "SLIDE_PROVENANCE_MISSING";
+    if (slide.ooxmlOrigin !== "imported") {
+      return "AUTHORED_SLIDE_SERIALIZER_UNSUPPORTED";
+    }
+    const templateSlide = ooxmlTemplateSlideForDeckSlide(
+      currentDeck,
+      operation.slideId,
+      preflightContext.templateBlueprint,
+    );
+    return slide.ooxmlMotionCapabilities?.transitionWritable === true &&
+      templateSlide?.sourceSlidePart !== undefined &&
+      templateSlide.ooxmlMotionCapabilities?.transitionWritable === true
+      ? null
+      : "TRANSITION_CAPABILITY_UNSAFE";
+  }
+
+  if (
+    operation.type === "add_animation" ||
+    operation.type === "update_animation" ||
+    operation.type === "delete_animation"
+  ) {
+    const slide =
+      currentDeck.slides.find(
+        (candidate) => candidate.slideId === operation.slideId,
+      ) ??
+      nextDeck.slides.find(
+        (candidate) => candidate.slideId === operation.slideId,
+      );
+    if (!slide?.ooxmlOrigin) return "SLIDE_PROVENANCE_MISSING";
+    if (slide.ooxmlOrigin !== "imported") {
+      return "AUTHORED_SLIDE_SERIALIZER_UNSUPPORTED";
+    }
+    const coverage =
+      slide.ooxmlMotionCapabilities?.importedMainSequenceCoverage;
+    const templateSlide = ooxmlTemplateSlideForDeckSlide(
+      currentDeck,
+      operation.slideId,
+      preflightContext.templateBlueprint,
+    );
+    const authoritativeCoverage =
+      templateSlide?.ooxmlMotionCapabilities?.importedMainSequenceCoverage;
+    return (coverage === "absent" || coverage === "complete") &&
+      authoritativeCoverage === coverage &&
+      templateSlide?.sourceSlidePart !== undefined
+      ? null
+      : "MOTION_REFERENCE_COVERAGE_UNSAFE";
+  }
+
   return "OPERATION_TYPE_UNSUPPORTED";
+}
+
+function ooxmlTemplateSlideForDeckSlide(
+  deck: Deck,
+  slideId: string,
+  templateBlueprint: TemplateBlueprint,
+) {
+  const sourceSlidePart = deck.slides.find(
+    (slide) => slide.slideId === slideId,
+  )?.ooxmlSourceSlidePart;
+  if (!sourceSlidePart) return undefined;
+  const matches = templateBlueprint.slides.filter(
+    (slide) => slide.sourceSlidePart === sourceSlidePart,
+  );
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 function ooxmlElementPropsUnsupportedReason(

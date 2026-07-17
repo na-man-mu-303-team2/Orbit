@@ -57,7 +57,8 @@ const supported = Object.freeze<OoxmlEditCapability>({
   reason: null,
 });
 
-const importedAnimationMainSequenceSerializerReady = false;
+const importedAnimationMainSequenceSerializerReady = true;
+const genericExportAnimationTypes = new Set(["appear", "fade-in", "zoom-in"]);
 
 const supportedAuthoredTextProps = new Set([
   "text",
@@ -149,8 +150,6 @@ export function resolveOoxmlPatchCapability(
   deck: Deck,
   patch: DeckPatch,
 ): OoxmlEditCapability {
-  if (deck.metadata.sourceType !== "import") return supported;
-
   let workingDeck = deck;
   for (const operation of patch.operations) {
     const capability = resolveOoxmlOperationCapability(workingDeck, operation);
@@ -161,6 +160,7 @@ export function resolveOoxmlPatchCapability(
       };
     }
     const projectionOperation =
+      workingDeck.metadata.sourceType === "import" &&
       operation.type === "add_element"
         ? {
             ...operation,
@@ -241,9 +241,38 @@ function resolveOoxmlOperationCapability(
     operation.type === "update_animation" ||
     operation.type === "delete_animation"
   ) {
+    const slide = findDeckSlide(deck, operation.slideId);
+    if (!slide) {
+      return denied("SLIDE_REQUIRED", "편집할 슬라이드가 필요합니다.");
+    }
+    if (operation.type === "delete_animation") return supported;
+
+    const animationType =
+      operation.type === "add_animation"
+        ? operation.animation.type
+        : (operation.animation.type ??
+          slide.animations.find(
+            (animation) => animation.animationId === operation.animationId,
+          )?.type);
+    if (animationType && !genericExportAnimationTypes.has(animationType)) {
+      return denied(
+        "GENERIC_EXPORT_UNSUPPORTED",
+        `${animationType} 효과는 PPTX motion serializer에서 보존할 수 없습니다.`,
+      );
+    }
+    if (deck.metadata.sourceType !== "import") return supported;
+
     return resolveOoxmlEditCapability({
       deck,
       feature: "animation-main-sequence",
+      slide,
+    });
+  }
+
+  if (operation.type === "update_slide_transition") {
+    return resolveOoxmlEditCapability({
+      deck,
+      feature: "transition",
       slide: findDeckSlide(deck, operation.slideId),
     });
   }
@@ -600,6 +629,15 @@ function resolveImportedSlideCapability(
   feature: OoxmlEditFeature,
   slide: Slide,
 ): OoxmlEditCapability {
+  if (
+    (feature === "transition" || feature === "animation-main-sequence") &&
+    !slide.ooxmlSourceSlidePart
+  ) {
+    return denied(
+      "IMPORTED_CAPABILITY_MISSING",
+      "가져온 슬라이드의 안정적인 OOXML 위치 정보가 없어 편집을 중단했습니다.",
+    );
+  }
   const capabilities = slide.ooxmlMotionCapabilities;
   if (!capabilities) {
     return denied(

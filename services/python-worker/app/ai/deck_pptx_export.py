@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import base64
 import math
+import zipfile
 from io import BytesIO
 from typing import Any, Literal
+from xml.etree import ElementTree as ET
 
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
@@ -15,13 +17,13 @@ from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
 from pydantic import BaseModel, Field
 
+from app.ai.pptx_motion import apply_generic_slide_motion
+
 
 DECK_UNITS_PER_INCH = 144
 POINTS_PER_INCH = 72
 RICH_TEXT_UNSUPPORTED_HYPERLINK = "PPTX_RICH_TEXT_UNSUPPORTED_HYPERLINK"
-RICH_TEXT_UNSUPPORTED_LETTER_SPACING = (
-    "PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING"
-)
+RICH_TEXT_UNSUPPORTED_LETTER_SPACING = "PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING"
 RICH_TEXT_UNSUPPORTED_RUN_PROPERTY = "PPTX_RICH_TEXT_UNSUPPORTED_RUN_PROPERTY"
 TABLE_STRUCTURE_UNSUPPORTED = "PPTX_TABLE_STRUCTURE_UNSUPPORTED"
 TABLE_STYLE_UNSUPPORTED = "PPTX_TABLE_STYLE_UNSUPPORTED"
@@ -48,6 +50,10 @@ class DeckPptxExportRequest(BaseModel):
 class DeckPptxExportResponse(BaseModel):
     content_base64: str = Field(alias="contentBase64")
     warnings: list[str] = Field(default_factory=list)
+    motion_diagnostics: list[dict[str, Any]] = Field(
+        default_factory=list,
+        alias="motionDiagnostics",
+    )
 
 
 def export_deck_pptx(request: DeckPptxExportRequest) -> DeckPptxExportResponse:
@@ -57,6 +63,7 @@ def export_deck_pptx(request: DeckPptxExportRequest) -> DeckPptxExportResponse:
     presentation.slide_height = Inches(float(deck["canvas"]["height"]) / 144)
     blank_layout = presentation.slide_layouts[6]
     warnings: list[str] = []
+    element_targets_by_slide: list[dict[str, list[str]]] = []
 
     for slide_data in deck.get("slides", []):
         slide = presentation.slides.add_slide(blank_layout)
@@ -65,18 +72,139 @@ def export_deck_pptx(request: DeckPptxExportRequest) -> DeckPptxExportResponse:
             slide_data.get("elements", []),
             key=lambda element: int(element.get("zIndex", 0)),
         )
+        element_targets: dict[str, list[str]] = {}
         for element in elements:
             if not element.get("visible", True):
                 continue
+            before_ids = {int(shape.shape_id) for shape in slide.shapes}
             add_element(slide, element, deck, warnings)
+            element_id = str(element.get("elementId", ""))
+            if element_id:
+                element_targets[element_id] = [
+                    str(shape.shape_id)
+                    for shape in slide.shapes
+                    if int(shape.shape_id) not in before_ids
+                ]
+        resolve_group_targets(elements, element_targets)
+        element_targets_by_slide.append(element_targets)
         add_speaker_notes(slide, slide_data, warnings)
 
     output = BytesIO()
     presentation.save(output)
-    return DeckPptxExportResponse(
-        contentBase64=base64.b64encode(output.getvalue()).decode("ascii"),
-        warnings=dedupe(warnings),
+    package_bytes, motion_diagnostics = inject_generic_motion(
+        output.getvalue(),
+        deck,
+        element_targets_by_slide,
     )
+    return DeckPptxExportResponse(
+        contentBase64=base64.b64encode(package_bytes).decode("ascii"),
+        warnings=dedupe(warnings),
+        motionDiagnostics=bound_motion_diagnostics(motion_diagnostics),
+    )
+
+
+def bound_motion_diagnostics(
+    diagnostics: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if len(diagnostics) <= 500:
+        return diagnostics
+    aggregates: dict[str, dict[str, Any]] = {}
+    for diagnostic in diagnostics:
+        code = str(diagnostic.get("code", "PPTX_MOTION_PAYLOAD_INVALID"))
+        slide_index = max(1, int(diagnostic.get("slideIndex", 1)))
+        count = max(1, int(diagnostic.get("count", 1)))
+        current = aggregates.get(code)
+        if current is None:
+            aggregates[code] = {
+                "code": code,
+                "slideIndex": slide_index,
+                "count": count,
+            }
+            continue
+        current["slideIndex"] = min(int(current["slideIndex"]), slide_index)
+        current["count"] = int(current["count"]) + count
+    return [aggregates[code] for code in sorted(aggregates)]
+
+
+def resolve_group_targets(
+    elements: list[dict[str, Any]],
+    element_targets: dict[str, list[str]],
+) -> None:
+    groups = {
+        str(element.get("elementId", "")): element
+        for element in elements
+        if element.get("type") == "group" and element.get("elementId")
+    }
+
+    def targets_for(element_id: str, visiting: set[str]) -> list[str]:
+        direct = element_targets.get(element_id, [])
+        if direct or element_id not in groups or element_id in visiting:
+            return direct
+        visiting.add(element_id)
+        result: list[str] = []
+        child_ids = groups[element_id].get("props", {}).get("childElementIds", [])
+        if isinstance(child_ids, list):
+            for child_id in child_ids:
+                for shape_id in targets_for(str(child_id), visiting):
+                    if shape_id not in result:
+                        result.append(shape_id)
+        visiting.remove(element_id)
+        element_targets[element_id] = result
+        return result
+
+    for group_id in groups:
+        targets_for(group_id, set())
+
+
+def inject_generic_motion(
+    package_bytes: bytes,
+    deck: dict[str, Any],
+    element_targets_by_slide: list[dict[str, list[str]]],
+) -> tuple[bytes, list[dict[str, Any]]]:
+    diagnostics: list[dict[str, Any]] = []
+    changed_entries: dict[str, bytes] = {}
+    with zipfile.ZipFile(BytesIO(package_bytes), "r") as source:
+        source_names = set(source.namelist())
+        for slide_index, slide_data in enumerate(deck.get("slides", []), start=1):
+            slide_part = f"ppt/slides/slide{slide_index}.xml"
+            if slide_part not in source_names or not isinstance(slide_data, dict):
+                continue
+            try:
+                slide_root = ET.fromstring(source.read(slide_part))
+                slide_diagnostics = apply_generic_slide_motion(
+                    slide_root,
+                    slide_data,
+                    slide_index=slide_index,
+                    element_targets=(
+                        element_targets_by_slide[slide_index - 1]
+                        if slide_index <= len(element_targets_by_slide)
+                        else {}
+                    ),
+                )
+            except (ET.ParseError, TypeError, ValueError):
+                diagnostics.append(
+                    {
+                        "code": "PPTX_MOTION_PAYLOAD_INVALID",
+                        "slideIndex": slide_index,
+                    }
+                )
+                continue
+            diagnostics.extend(slide_diagnostics)
+            changed_entries[slide_part] = ET.tostring(
+                slide_root,
+                encoding="utf-8",
+                xml_declaration=True,
+            )
+        if not changed_entries:
+            return package_bytes, diagnostics
+        target_buffer = BytesIO()
+        with zipfile.ZipFile(target_buffer, "w") as target:
+            for info in source.infolist():
+                target.writestr(
+                    info,
+                    changed_entries.get(info.filename, source.read(info.filename)),
+                )
+        return target_buffer.getvalue(), diagnostics
 
 
 def add_speaker_notes(
@@ -97,7 +225,9 @@ def add_speaker_notes(
     notes_text_frame.text = speaker_notes
 
 
-def apply_slide_background(slide: Any, slide_data: dict[str, Any], deck: dict[str, Any]) -> None:
+def apply_slide_background(
+    slide: Any, slide_data: dict[str, Any], deck: dict[str, Any]
+) -> None:
     color = (
         slide_data.get("style", {}).get("backgroundColor")
         or deck.get("theme", {}).get("backgroundColor")
@@ -162,7 +292,9 @@ def add_text(
     element_id = str(element.get("elementId", "unknown"))
     if isinstance(paragraphs, list):
         for index, paragraph_payload in enumerate(paragraphs):
-            paragraph = text_frame.paragraphs[0] if index == 0 else text_frame.add_paragraph()
+            paragraph = (
+                text_frame.paragraphs[0] if index == 0 else text_frame.add_paragraph()
+            )
             apply_paragraph(
                 paragraph,
                 paragraph_payload,
@@ -263,9 +395,7 @@ def apply_font(font: Any, props: dict[str, Any], deck: dict[str, Any]) -> None:
         or "Pretendard"
     )
     font.size = Pt(
-        float(props.get("fontSize", 24))
-        * POINTS_PER_INCH
-        / DECK_UNITS_PER_INCH
+        float(props.get("fontSize", 24)) * POINTS_PER_INCH / DECK_UNITS_PER_INCH
     )
     font.bold = is_bold(props.get("fontWeight", "normal"))
     font.italic = bool(props.get("italic", False))
@@ -291,9 +421,7 @@ def append_run_diagnostics(
     paragraph_index: int,
     run_index: int,
 ) -> None:
-    location = (
-        f"element={element_id}; paragraph={paragraph_index}; run={run_index}"
-    )
+    location = f"element={element_id}; paragraph={paragraph_index}; run={run_index}"
     if any(key in run_payload for key in HYPERLINK_RUN_PROPERTIES):
         warnings.append(f"{RICH_TEXT_UNSUPPORTED_HYPERLINK}: {location}")
     if any(key in run_payload for key in LETTER_SPACING_RUN_PROPERTIES):
@@ -528,26 +656,28 @@ def add_table(
 def table_export_issue(props: Any, element_id: str) -> str | None:
     rows = props.get("rows") if isinstance(props, dict) else None
     if not isinstance(rows, list) or not rows:
-        return (
-            f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; "
-            "reason=empty-grid"
-        )
+        return f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; reason=empty-grid"
     if not isinstance(rows[0], list) or not rows[0]:
-        return f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; reason=jagged-grid"
+        return (
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; reason=jagged-grid"
+        )
     column_count = len(rows[0])
     if any(not isinstance(row, list) or len(row) != column_count for row in rows):
-        return f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; reason=jagged-grid"
+        return (
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; reason=jagged-grid"
+        )
     if any(not isinstance(cell, dict) for row in rows for cell in row):
         return (
-            f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; "
-            "reason=invalid-cell"
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; reason=invalid-cell"
         )
     if any(
         int(cell.get("colSpan", 1)) != 1 or int(cell.get("rowSpan", 1)) != 1
         for row in rows
         for cell in row
     ):
-        return f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; reason=merged-cell"
+        return (
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; reason=merged-cell"
+        )
 
     for row_index, row in enumerate(rows):
         for column_index, cell in enumerate(row):
@@ -589,9 +719,7 @@ def normalized_table_track_emu(
     scaled_weights = [weight / max_weight for weight in weights]
     weight_total = sum(scaled_weights)
     distributable = total_emu - count
-    exact_extras = [
-        distributable * weight / weight_total for weight in scaled_weights
-    ]
+    exact_extras = [distributable * weight / weight_total for weight in scaled_weights]
     floor_extras = [math.floor(value) for value in exact_extras]
     normalized = [1 + value for value in floor_extras]
     remainder = distributable - sum(floor_extras)
