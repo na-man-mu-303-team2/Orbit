@@ -434,6 +434,18 @@
 - Affected files: `packages/shared/src/slide-practice/**`, `apps/api/src/slide-practice/**`, `apps/web/src/features/editor/practice/**`, `apps/api/src/database/migrations/2026071701000-CreateSlidePracticeAndQuestionGuides.ts`, `docs/contracts.md`.
 - Follow-up review notes: worker의 주기적 retention cleanup은 구현했다. 사용자의 즉시 삭제 UI는 후속 운영 작업으로 남기고, 원음 보존이 필요해지면 별도 opt-in·암호화·삭제 정책 승인을 먼저 받는다.
 
+## ORBIT editor practice voice classifier v2
+
+- Context: 실제 한 장 연습의 파생 지표 분포에서 `classifierVersion: 1`의 pitch·음량·속도·리듬 조건이 지나치게 좁고, `turbo`의 `pauseRatio < 0.12` 조건은 전체 연습 구간 무음 비율의 의미와 맞지 않아 대부분 `neutral`로 저장됐다. 측정 분량이 부족한 결과에도 `neutral` 유형이 붙어 판정 결과처럼 보였다.
+- Options considered:
+  - UI의 유형 이름만 바꾸고 기존 판정식을 유지한다.
+  - 과거 보고서를 조회할 때마다 새 기준으로 재분류한다.
+  - 과거 v1 결과는 보존하고 신규 결과에만 완화된 v2 기준과 측정 보류 정책을 적용한다.
+- Final decision: shared report schema는 `classifierVersion: 1 | 2`를 읽고 신규 Web 보고서는 v2로 저장한다. v2는 pitch, 속도, 음량, 리듬 경계를 실제 파생 지표 범위에 맞게 완화하고 `lullaby -> announcer -> turbo -> cloud -> neutral` 순서로 판정한다. `unmeasured`는 호환 가능한 neutral mode와 confidence 0으로 저장하지만 UI에서는 `판단 보류`로 표시하고 voice baseline 갱신에서도 제외한다. 판단 근거와 `loudnessDb`는 즉시 결과와 저장 기록에서 함께 보여준다.
+- Rationale: 저장된 결과의 의미를 소급 변경하지 않으면서 신규 연습에서 구분 가능한 피드백을 늘리고, 측정되지 않은 결과를 안정형으로 오해하는 문제를 막는다. 원음이나 전사 원문을 추가 저장하지 않고 기존 파생 지표만 사용한다.
+- Affected files: `packages/shared/src/slide-practice/slide-practice.schema.ts`, `apps/web/src/features/editor/practice/voiceStyleClassifier.ts`, `apps/web/src/features/editor/practice/useSlidePracticeSession.ts`, `apps/web/src/features/editor/practice/SlidePracticePanel.tsx`, `apps/web/src/features/editor/practice/SlidePracticeHistoryPanel.tsx`, 관련 테스트와 스타일, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: staging에서 classifier v2의 유형별 aggregate 분포와 `quality.state`만 확인한다. raw audio, transcript, 사용자별 상세 음성 지표는 운영 로그에 남기지 않는다. 데이터가 충분히 쌓이면 경계값 변경은 새 classifier version으로 관리한다.
+
 ## ORBIT editor slide question guide canonical storage
 
 - Context: 현재 슬라이드의 예상 질문과 추천 답변은 project-private 원문이며, 공통 계약은 Question·AnswerGuide·발표 메모·참고자료 원문을 generic Job payload/result에 저장하지 못하게 한다.
@@ -469,3 +481,51 @@
 - Rationale: 한 번의 연습 시작 동작으로 브라우저 capability 차이를 흡수하면서도 원음과 전사 원문을 영구 저장하지 않는 최소 보존 원칙을 유지한다.
 - Affected files: `packages/config/src/index.ts`, `packages/shared/src/config/runtime-config.schema.ts`, `apps/api/src/runtime-config/runtime-config.controller.ts`, `apps/web/src/features/editor/shell/components/EditorBottomDock.tsx`, `apps/web/src/features/editor/practice/useSlidePracticeSession.ts`, environment examples, `docker-compose.yml`.
 - Follow-up review notes: staging에서 Chrome/Edge 언어팩 지원율, 자동 fallback 비율, `quality.reason` 분포를 확인한 뒤 production flag를 활성화한다. 개인정보 처리방침에는 서버 실시간 전사로 자동 전환될 수 있다는 점과 원문 비보존 정책을 일관되게 반영한다.
+
+## ORBIT editor slide practice server analysis cutover
+
+- Context: 브라우저 Web Speech와 Web Audio를 동시에 사용하면 브라우저별 지원·마이크 처리 차이 때문에 말 속도, pitch, 음량, 습관어 결과가 불안정했다. 사용자는 바로 연습 원본을 서버에 임시 전송하는 것을 허용했고, 저장소에는 이미 Report STT, private audio upload, BullMQ, Storage deletion outbox 경계가 있다.
+- Options considered:
+  - 기존 Web Speech + Web Audio 분석을 유지하고 임계값만 다시 조정한다.
+  - 공식 리허설 run/report를 바로 연습에도 그대로 생성한다.
+  - `MediaRecorder`로만 녹음하고 별도 creator-private analysis aggregate에서 기존 Report STT와 서버 PCM 분석을 실행한다.
+- Final decision: 신규 바로 연습은 `slide-practice-audio` private purpose, `slide_practice_audio_analyses`, `slide-practice-analysis` Job을 사용한다. Web은 `MediaRecorder`만 사용한다. Python worker는 기존 Report STT provider와 16kHz PCM decoder를 재사용하고, 서버 metric v2에서 기존 60ms frame·`-48 dBFS`·70~420Hz·correlation 0.55 기준을 적용한다. TypeScript worker는 transcript를 메모리에서만 사용해 습관어와 음절 속도를 계산하고 파생 report만 90일 저장한다. raw audio는 성공·실패 직후 삭제하고 실패 시 deletion outbox로 재시도하며, transcript는 API·Job·DB·report·로그에 저장하지 않는다. classifier v2 임계값과 유형 우선순위는 변경하지 않는다. 이 결정은 앞선 브라우저 메모리 전용 및 Web Speech fallback 결정을 신규 바로 연습 경로에 한해 대체한다.
+- Rationale: 공식 리허설 aggregate와 바로 연습 기록을 분리한 채 검증된 서버 STT·storage lifecycle을 재사용하고, 브라우저 capability 차이를 제거한다. 원음 보존 시간을 분석 처리 구간으로 제한하고 transcript 영구 저장을 막아 서버 분석 도입에 따른 개인정보 범위를 최소화한다.
+- Affected files: `packages/shared/src/files/file.schema.ts`, `packages/shared/src/slide-practice/**`, `packages/shared/src/coaching/private-audio-cleanup.schema.ts`, `packages/shared/src/jobs/job.schema.ts`, `packages/job-queue/src/index.ts`, `apps/api/src/slide-practice/**`, `apps/api/src/database/migrations/2026071703000-CreateSlidePracticeAudioAnalyses.ts`, `apps/worker/src/slide-practice-analysis.processor.ts`, `apps/worker/src/storage-deletion-reconciler.ts`, `services/python-worker/app/audio/slide_practice.py`, `services/python-worker/app/main.py`, `apps/web/src/features/editor/practice/**`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: staging에서 analysis latency, bounded error code, raw audio deletion retry 상태만 aggregate로 확인한다. transcript, storage URL/key, audio file ID, 사용자별 세부 음성 지표는 운영 로그에 추가하지 않는다. 30분 만료 upload의 삭제 outbox enqueue와 project/user 삭제 cascade를 운영 점검한다.
+
+## ORBIT editor practice voice classifier v3 two-style rollout
+
+- Context: 바로 연습 결과에서 아나운서형·구름형·기본형을 신규 판정으로 계속 제공하기보다 사용자가 요청한 자장가형·터보형 두 피드백에 집중하고, 자장가형에는 작은 음량과 낮은 pitch 폭뿐 아니라 실제 느린 발화 근거가 필요하다. 기존 v1·v2 보고서에는 제거 대상 유형이 이미 저장될 수 있어 enum을 물리적으로 삭제하면 creator-private 연습 기록 조회가 깨진다.
+- Options considered:
+  - shared enum에서 `announcer`, `cloud`, `neutral`을 제거하고 과거 기록을 읽지 못하게 한다.
+  - classifier v2 의미를 제자리에서 바꾸고 과거 결과도 조회 시 재분류한다.
+  - 과거 enum과 결과는 읽기 호환으로 유지하고 신규 classifier v3만 자장가형·터보형을 생성하며 나머지는 유형 없는 판단 보류로 표시한다.
+- Final decision: 신규 server report는 `classifierVersion: 3`을 저장한다. v3는 `lullaby -> turbo -> neutral` 순서로 평가하며 `announcer`와 `cloud`를 생성하지 않는다. `lullaby`는 `loudnessDb < -38`, 낮은 pitch 폭, `syllablesPerSecond < 3.2` 또는 사용자 baseline보다 `0.8` 이상 느린 조건을 모두 요구한다. `turbo`의 `syllablesPerSecond > 4.8` 또는 baseline보다 `0.8` 초과와 `pauseRatio < 0.70` 기준은 유지한다. 어느 조건도 만족하지 않거나 측정 분량이 부족하면 저장 호환용 `neutral`, `confidence: 0`을 사용하고 UI에는 `판단 보류`로 표시한다. v1·v2의 `announcer`, `cloud`, `neutral`은 과거 보고서 읽기 전용으로 유지한다.
+- Rationale: 사용자에게 노출되는 신규 유형을 두 개로 제한하면서도 과거 보고서와 공통 API 계약을 깨지 않는다. 느린 속도를 자장가형의 필수 근거로 추가해 작고 단조롭지만 빠른 발화를 자장가형으로 분류하는 오판을 줄인다.
+- Affected files: `packages/shared/src/slide-practice/slide-practice-analysis.ts`, `packages/shared/src/slide-practice/slide-practice.schema.ts`, `apps/worker/src/slide-practice-analysis.processor.ts`, `apps/web/src/features/editor/practice/SlidePracticePanel.tsx`, 관련 테스트, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: staging에서는 유형별 aggregate count와 판단 보류 비율만 확인한다. 사용자별 음량·pitch·속도 원값, transcript, raw audio는 운영 로그에 남기지 않는다. 실제 분포상 자장가형이 지나치게 적으면 기존 결과를 재분류하지 않고 classifier v4로만 임계값을 조정한다.
+
+## ORBIT editor practice voice classifier v4 pitch-and-slow lullaby
+
+- Context: 정상 측정된 바로 연습에서도 v3의 음량·낮은 pitch 폭·느린 속도 결합 조건 때문에 자장가형이 거의 생성되지 않았다. 실제 저장 지표에서 낮은 pitch 폭은 충족했지만 속도가 기존 절대 경계에 근소하게 미달했고, 사용자는 음량을 자장가형 판정에서 제외하기를 원했다.
+- Options considered:
+  - v3의 음량 임계값만 완화하고 세 조건 결합을 유지한다.
+  - 음량 조건을 제거하고 기존 pitch·속도 경계를 그대로 유지한다.
+  - 음량 조건을 제거하고 낮은 pitch 폭을 유지하면서 절대 속도 경계를 완화한다.
+- Final decision: 신규 server report는 `classifierVersion: 4`를 저장한다. v4 `lullaby`는 `pitchSpanHz < max(45, baselinePitchSpanHz * 0.80)`와 `syllablesPerSecond < 3.5` 또는 사용자 baseline보다 `0.8` 이상 느린 조건을 함께 요구하며 `loudnessDb`는 판정에 사용하지 않는다. `turbo` 기준, `lullaby -> turbo -> neutral` 우선순위, 측정 부족 시 판단 보류 정책은 유지한다. v1·v2·v3 결과는 조회 시 재분류하지 않는다.
+- Rationale: 음량 측정 차이가 자장가형 판정을 막지 않게 하면서도 낮은 억양 변화와 느린 속도라는 두 근거를 유지한다. 새 classifier version으로 저장해 과거 보고서의 판정 의미와 API 읽기 호환성을 보존한다.
+- Affected files: `packages/shared/src/slide-practice/slide-practice-analysis.ts`, `packages/shared/src/slide-practice/slide-practice.schema.ts`, `apps/worker/src/slide-practice-analysis.processor.ts`, 관련 테스트, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: staging에서는 v4의 자장가형·터보형·판단 보류 aggregate count만 확인한다. 사용자별 음량·pitch·속도 원값, transcript, raw audio는 운영 로그에 남기지 않는다. 경계 변경이 다시 필요하면 기존 결과를 재분류하지 않고 새 classifier version으로 관리한다.
+
+## ORBIT slide question guide current deck reconstruction
+
+- Context: 예상 질문 API는 `DecksService`를 통해 `decks` checkpoint와 이후 `deck_patches`를 재생한 최신 deck version으로 guide를 고정하지만, Worker는 `decks` row만 읽었다. checkpoint가 v1이고 유효한 patch tail이 v2를 만든 상태에서 guide v2를 실제 변경으로 오인해 `SLIDE_QUESTION_GUIDE_SOURCE_STALE`로 실패했다.
+- Options considered:
+  - 예상 질문 생성 전에 API가 항상 전체 deck checkpoint를 다시 저장하고 patch tail을 compact한다.
+  - Worker가 질문 생성 Job의 identifier-only payload에 전체 Deck을 추가한다.
+  - Worker가 같은 DB snapshot에서 checkpoint와 patch tail을 읽고 canonical `applyDeckPatch`로 최신 deck을 재구성한다.
+- Final decision: `slide-question-guide-generation` Worker는 단일 DB query snapshot에서 `decks` checkpoint와 정렬된 `deck_patches` tail을 읽고 `@orbit/editor-core`의 `applyDeckPatch`로 최신 Deck을 재구성한다. 재구성된 version과 slide canonical hash가 frozen guide source와 다를 때만 기존 stale failure를 유지한다. Job payload/result와 guide 저장 계약은 변경하지 않는다.
+- Rationale: 일반 편집마다 전체 Deck checkpoint를 강제하지 않고 기존 persistence 구조를 유지하며, 전체 Deck을 Job에 복제하지 않아 privacy 계약을 지킨다. API와 같은 canonical patch 적용기를 사용해 element, notes, style 등 모든 patch operation을 빠짐없이 반영한다.
+- Affected files: `apps/worker/src/slide-question-guide-generation.processor.ts`, `apps/worker/src/slide-question-guide-generation.processor.spec.ts`, `apps/worker/package.json`, `pnpm-lock.yaml`, `docs/decision-log.md`.
+- Follow-up review notes: checkpoint v1 + patch tail v2 + guide v2 회귀 테스트를 유지한다. 향후 다른 Worker에서도 current Deck 전체가 필요하면 중복 SQL을 늘리지 말고 공용 server-side deck state reader 경계를 별도 검토한다.
