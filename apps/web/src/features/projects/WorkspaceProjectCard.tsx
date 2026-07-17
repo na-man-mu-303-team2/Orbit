@@ -45,41 +45,34 @@ export function WorkspaceProjectCard({
             <ProjectSlidePreview projectId={project.projectId} />
           </Suspense>
         </span>
+        <span className="workspace-home-card-caption">
+          <small>{createdAtLabel} 생성</small>
+          <strong>{project.title}</strong>
+        </span>
       </button>
 
-      <div className="workspace-home-card-info">
-        <div className="workspace-home-card-titlerow">
-          <strong>{project.title}</strong>
-          <button
-            aria-label={isPinned ? `${project.title} 고정 해제` : `${project.title} 고정`}
-            aria-pressed={isPinned}
-            className={`workspace-home-card-pin ${isPinned ? "is-pinned" : ""}`}
-            onClick={onTogglePinned}
-            type="button"
-          >
-            {isPinned ? (
-              <IconPinFilled aria-hidden="true" size={15} />
-            ) : (
-              <IconPin aria-hidden="true" size={15} />
-            )}
-          </button>
-        </div>
-
-        <div className="workspace-home-card-meta">
-          <span className="workspace-home-card-date">
-            <small>생성일</small>
-            <b>{createdAtLabel}</b>
-          </span>
-          <button
-            aria-label={`${project.title} 리허설 시작`}
-            className="workspace-home-card-rehearse"
-            onClick={onRehearse}
-            title="리허설 시작"
-            type="button"
-          >
-            <IconPresentationAnalytics aria-hidden="true" size={17} stroke={1.8} />
-          </button>
-        </div>
+      <div className="workspace-home-card-actions">
+        <button
+          aria-label={isPinned ? `${project.title} 고정 해제` : `${project.title} 고정`}
+          aria-pressed={isPinned}
+          className={`workspace-home-card-pin ${isPinned ? "is-pinned" : ""}`}
+          onClick={onTogglePinned}
+          type="button"
+        >
+          {isPinned ? (
+            <IconPinFilled aria-hidden="true" size={14} />
+          ) : (
+            <IconPin aria-hidden="true" size={14} />
+          )}
+        </button>
+        <button
+          aria-label={`${project.title} 리허설 시작`}
+          onClick={onRehearse}
+          title="리허설 시작"
+          type="button"
+        >
+          <IconPresentationAnalytics aria-hidden="true" size={15} stroke={1.8} />
+        </button>
       </div>
     </article>
   );
