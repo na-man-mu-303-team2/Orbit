@@ -1,6 +1,29 @@
+/*
+ * The modal renders through a portal outside .orbit-shell, so the editor's
+ * Redesign System aliases are redeclared on the backdrop.
+ */
 .audience-link-modal-backdrop {
+  --page: var(--redesign-color-surface-container-lowest);
+  --surface: var(--redesign-color-surface-container-low);
+  --surface-soft: var(--redesign-color-surface-container);
+  --ink: var(--redesign-color-on-surface);
+  --ink-soft: color-mix(in srgb, var(--redesign-color-on-surface) 84%, var(--redesign-color-on-surface-variant));
+  --muted: var(--redesign-color-on-surface-variant);
+  --line: var(--redesign-color-outline-variant);
+  --line-strong: color-mix(in srgb, var(--redesign-color-outline) 55%, var(--redesign-color-outline-variant));
+  --blue: var(--redesign-color-primary);
+  --blue-strong: var(--redesign-color-on-primary-container);
+  --blue-border: color-mix(in srgb, var(--redesign-color-primary) 45%, var(--redesign-color-outline-variant));
+  --blue-soft: color-mix(in srgb, var(--redesign-color-primary) 14%, var(--redesign-color-surface-container-low));
+  --on-accent: var(--redesign-color-on-primary);
+  --green: color-mix(in srgb, var(--orbit-ds-success) 55%, var(--redesign-color-on-surface));
+  --green-soft: color-mix(in srgb, var(--orbit-ds-success) 22%, var(--redesign-color-surface-container-low));
+  --danger: var(--redesign-color-error);
+  --danger-soft: color-mix(in srgb, var(--redesign-color-error) 18%, var(--redesign-color-surface-container-low));
+  --shadow-ink: var(--redesign-color-on-surface);
+  color-scheme: light;
   align-items: center;
-  background: rgba(15, 23, 42, 0.58);
+  background: color-mix(in srgb, var(--shadow-ink) 58%, transparent);
   display: flex;
   inset: 0;
   justify-content: center;
@@ -10,10 +33,10 @@
 }
 
 .audience-link-modal {
-  background: #ffffff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 14px;
-  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+  box-shadow: 0 28px 80px color-mix(in srgb, var(--shadow-ink) 28%, transparent);
   display: grid;
   gap: 20px;
   padding: 20px;
@@ -46,10 +69,10 @@
 
 .audience-link-modal header button {
   align-items: center;
-  background: #f8fafc;
+  background: var(--surface-soft);
   border: 1px solid var(--line);
   border-radius: 8px;
-  color: #475569;
+  color: var(--muted);
   display: inline-flex;
   height: 34px;
   justify-content: center;
@@ -64,9 +87,9 @@
 
 .audience-link-modal-placeholder {
   align-items: center;
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--line-strong);
   border-radius: 10px;
-  color: #475569;
+  color: var(--muted);
   display: grid;
   gap: 10px;
   justify-items: center;
@@ -100,18 +123,18 @@
 }
 
 .audience-link-status-open {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--green-soft);
+  color: var(--green);
 }
 
 .audience-link-status-closed {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .audience-link-qr-frame {
   align-items: center;
-  background: #ffffff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   display: flex;
@@ -128,7 +151,7 @@
 
 .audience-link-expiry-summary {
   align-items: center;
-  background: #f8fafc;
+  background: var(--surface-soft);
   border: 1px solid var(--line);
   border-radius: 10px;
   display: flex;
@@ -157,17 +180,17 @@
 .audience-link-url-field span,
 .audience-link-create label > span,
 .audience-expiry-field span {
-  color: #334155;
+  color: var(--ink-soft);
   font-size: 0.82rem;
   font-weight: 800;
 }
 
 .audience-link-url-field input,
 .audience-expiry-field select {
-  background: #f8fbff;
-  border: 1px solid #bfdbfe;
+  background: var(--blue-soft);
+  border: 1px solid var(--blue-border);
   border-radius: 8px;
-  color: #1e3a8a;
+  color: var(--blue-strong);
   min-height: 38px;
   min-width: 0;
   padding: 0 10px;
@@ -176,7 +199,7 @@
 .audience-link-url-field input:focus,
 .audience-expiry-field select:focus {
   border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 14%, transparent);
   outline: none;
 }
 
@@ -207,7 +230,7 @@
 .audience-pin-inputs span {
   align-items: center;
   background: var(--blue-soft);
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--blue-border);
   border-radius: 7px;
   color: var(--blue-strong);
   display: inline-flex;
@@ -220,7 +243,7 @@
 
 .audience-pin-inputs:focus-within span {
   border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 14%, transparent);
 }
 
 .audience-link-actions {
@@ -231,15 +254,15 @@
 
 .audience-link-actions button,
 .audience-link-primary {
-  background: #f8fbff;
-  border: 1px solid #bfdbfe;
+  background: var(--blue-soft);
+  border: 1px solid var(--blue-border);
   border-radius: 10px;
   color: var(--blue-strong);
   cursor: pointer;
   font-weight: 900;
   min-height: 40px;
   padding: 0 14px;
-  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--blue) 8%, transparent);
 }
 
 .audience-link-actions button:hover:not(:disabled) {
@@ -249,16 +272,16 @@
 }
 
 .audience-link-actions .audience-link-session-close {
-  background: #fff1f2;
-  border-color: #fecdd3;
-  color: #be123c;
-  box-shadow: 0 1px 2px rgba(190, 18, 60, 0.08);
+  background: var(--danger-soft);
+  border-color: var(--danger-soft);
+  color: var(--danger);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
 .audience-link-actions .audience-link-session-close:hover:not(:disabled) {
-  background: #ffe4e6;
-  border-color: #fb7185;
-  color: #9f1239;
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .audience-link-actions .audience-link-modal-dismiss {
@@ -267,7 +290,7 @@
 
 .audience-link-confirm-backdrop {
   align-items: center;
-  background: rgba(15, 23, 42, 0.36);
+  background: color-mix(in srgb, var(--shadow-ink) 36%, transparent);
   border-radius: 14px;
   display: flex;
   inset: 0;
@@ -278,10 +301,10 @@
 }
 
 .audience-link-confirm-modal {
-  background: #ffffff;
-  border: 1px solid #fecdd3;
+  background: var(--surface);
+  border: 1px solid var(--danger-soft);
   border-radius: 12px;
-  box-shadow: 0 18px 52px rgba(15, 23, 42, 0.24);
+  box-shadow: 0 18px 52px color-mix(in srgb, var(--shadow-ink) 24%, transparent);
   display: grid;
   gap: 10px;
   max-width: 320px;
@@ -290,12 +313,12 @@
 }
 
 .audience-link-confirm-modal strong {
-  color: #9f1239;
+  color: var(--danger);
   font-size: 0.98rem;
 }
 
 .audience-link-confirm-modal p {
-  color: #475569;
+  color: var(--muted);
   font-size: 0.84rem;
   line-height: 1.5;
   margin: 0;
@@ -309,8 +332,8 @@
 }
 
 .audience-link-confirm-actions button {
-  background: #f8fbff;
-  border: 1px solid #bfdbfe;
+  background: var(--blue-soft);
+  border: 1px solid var(--blue-border);
   border-radius: 9px;
   color: var(--blue-strong);
   cursor: pointer;
@@ -325,15 +348,15 @@
 }
 
 .audience-link-confirm-actions .audience-link-confirm-danger {
-  background: #ffe4e6;
-  border-color: #fb7185;
-  color: #9f1239;
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .audience-link-confirm-actions .audience-link-confirm-danger:hover:not(:disabled) {
-  background: #fecdd3;
-  border-color: #e11d48;
-  color: #881337;
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .audience-link-confirm-actions button:disabled {
@@ -348,24 +371,24 @@
 }
 
 .audience-link-primary:hover:not(:disabled) {
-  background: #dbeafe;
+  background: var(--blue-soft);
   border-color: var(--blue-strong);
   color: var(--blue-strong);
 }
 
 .audience-link-actions button:disabled,
 .audience-link-primary:disabled {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #94a3b8;
+  background: var(--surface-soft);
+  border-color: var(--line-strong);
+  color: var(--muted);
   cursor: not-allowed;
 }
 
 .audience-link-error {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-soft);
   border-radius: 8px;
-  color: #991b1b;
+  color: var(--danger);
   font-size: 0.84rem;
   margin: 0;
   padding: 10px 12px;

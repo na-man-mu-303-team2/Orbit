@@ -142,6 +142,7 @@ import {
   toEditorErrorMessage
 } from "./utils/editorFileValidation";
 import type { PptxImportState } from "./components/PptxImportQualityPanel";
+import "../../../styles/tokens.css";
 import "../editor-shell.css";
 
 declare global {
@@ -199,7 +200,7 @@ export function EditorShell(props: { projectId?: string }) {
   const setIsRightPanelOpen = useEditorShellUiStore(
     (state) => state.setIsRightPanelOpen
   );
-  const [rightPanelView, setRightPanelView] = useState<RightPanelView>("ai");
+  const [rightPanelView, setRightPanelView] = useState<RightPanelView>("design");
   const [aiPanelView, setAiPanelView] = useState<AiPanelView>("chat");
   const [aiChatState, setAiChatState] = useState(() =>
     createInitialAiChatState(projectId)
@@ -343,7 +344,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEffect(() => {
     resetProjectUiState();
-    setRightPanelView("ai");
+    setRightPanelView("design");
     setAiPanelView("chat");
     setAiChatState(createInitialAiChatState(projectId));
     setSemanticCueExtractionState({ status: "idle", message: "" });
@@ -1083,7 +1084,7 @@ export function EditorShell(props: { projectId?: string }) {
     <>
       <main
         aria-busy={isDeckLoading}
-        className={`editor-app-shell orbit-shell ${isDeckLoading ? "is-deck-loading" : ""}`}
+        className={`editor-app-shell orbit-shell editor-professional redesign-dark ${isDeckLoading ? "is-deck-loading" : ""}`}
       >
         <EditorTopbar
           activePresentationAction={activePresentationAction}

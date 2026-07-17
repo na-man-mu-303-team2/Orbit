@@ -4,18 +4,14 @@ import {
   IconCloud as Cloud,
   IconDownload as Download,
   IconFileText as FileText,
-  IconFolderPlus as FolderPlus,
   IconHistory as History,
   IconHome as Home,
-  IconPencil as PenLine,
   IconRefresh as RefreshCw,
   IconShare as Share2,
-  IconUpload as Upload,
-  IconWand as Wand2
+  IconUpload as Upload
 } from "@tabler/icons-react";
 import { useEffect, useRef } from "react";
 
-import orbitLogo from "../../../../assets/orbit-logo.png";
 import type { EditorShellUiUpdater, TopMenu } from "../editorShellUiStore";
 import {
   getPresenceUserInitial,
@@ -123,7 +119,6 @@ export function EditorTopbar(props: EditorTopbarProps) {
   }, [activeTopMenu, setActiveTopMenu]);
 
   const fileMenuItems = [
-    { action: "new", icon: FolderPlus, label: "새 프레젠테이션", meta: "빈 덱" },
     { action: "import", icon: Upload, label: "PPTX 가져오기", meta: pptxImportMeta },
     {
       action: "save",
@@ -132,38 +127,20 @@ export function EditorTopbar(props: EditorTopbarProps) {
       meta: saveMenuMeta
     }
   ];
-  const exportMenuItems = ["PPTX 내보내기", "PDF 내보내기", "PNG 내보내기", "JSON 백업 내보내기"].map(
-    (label, index) => ({
-      action: index === 0 ? "pptx" : "pending",
-      disabled: index === 0 ? isPptxExporting : true,
-      icon: Download,
-      label: index === 0 && isPptxExporting ? "PPTX 내보내는 중..." : label,
-      meta: index === 0 ? pptxExportMessage : "준비 중"
-    })
-  );
-  const resizeMenuItems = [
-    { active: canvas.preset === "wide-16-9", label: "와이드 16:9", meta: "1920 × 1080" },
-    { active: canvas.preset === "standard-4-3", label: "표준 4:3", meta: "1024 × 768" }
-  ];
-  const editModeItems = [
-    { active: true, label: "편집 중", meta: "텍스트와 오브젝트 수정" },
-    { label: "보기 전용", meta: "슬라이드 탐색만" },
-    { label: "검토", meta: "코멘트 중심" }
-  ];
-  const quickEditItems = [
-    { icon: PenLine, label: "슬라이드 제목 수정" },
-    { icon: FileText, label: "발표 메모 편집" },
-    { icon: Wand2, label: "선택 요소 속성" }
-  ];
+  const exportMenuItem = {
+    action: "pptx",
+    disabled: isPptxExporting,
+    icon: Download,
+    label: isPptxExporting ? "PPTX 내보내는 중..." : "PPTX 내보내기",
+    meta: pptxExportMessage
+  };
+  const ExportIcon = exportMenuItem.icon;
 
   return (
     <header className="app-topbar" ref={topbarRef}>
       <div className="topbar-left">
         <div className="menu-stack">
           <div className="editor-document-title">
-            <button aria-label="ORBIT 홈으로 이동" onClick={onExitToHome} type="button">
-              <img alt="ORBIT" src={orbitLogo} />
-            </button>
             <span>
               <strong>{deckTitle}</strong>
               <small>{saveStatusLabel}</small>
@@ -174,18 +151,6 @@ export function EditorTopbar(props: EditorTopbarProps) {
               <Home size={15} />
             </button>
             <TopMenuButton activeTopMenu={activeTopMenu} label="파일" menu="file" setActiveTopMenu={setActiveTopMenu} />
-            <TopMenuButton activeTopMenu={activeTopMenu} label="크기 조정" menu="resize" setActiveTopMenu={setActiveTopMenu} />
-            <TopMenuButton activeTopMenu={activeTopMenu} label="편집 중" menu="editMode" setActiveTopMenu={setActiveTopMenu} />
-            <button
-              aria-expanded={activeTopMenu === "quickEdit"}
-              aria-haspopup="menu"
-              className={`top-icon-button ${activeTopMenu === "quickEdit" ? "active" : ""}`}
-              title="Quick edit"
-              type="button"
-              onClick={() => setActiveTopMenu((current) => current === "quickEdit" ? null : "quickEdit")}
-            >
-              <PenLine size={15} />
-            </button>
           </div>
 
           {activeTopMenu === "file" ? (
@@ -195,9 +160,6 @@ export function EditorTopbar(props: EditorTopbarProps) {
                   <strong>{deckTitle}</strong>
                   <span>프레젠테이션 · {canvas.width} × {canvas.height}px</span>
                 </div>
-                <button aria-label="문서 이름 변경" className="menu-ghost-button" title="Rename" type="button">
-                  <PenLine size={15} />
-                </button>
               </div>
               <div className="file-menu-list">
                 {fileMenuItems.map(({ action, icon: Icon, label, meta }) => (
@@ -206,33 +168,17 @@ export function EditorTopbar(props: EditorTopbarProps) {
                     key={action}
                     role="menuitem"
                     type="button"
-                    onClick={() => action === "import" ? onImportPptx() : action === "save" ? onSave() : undefined}
+                    onClick={() => action === "import" ? onImportPptx() : onSave()}
                   >
                     <span className="file-menu-label"><Icon size={16} />{label}</span>
                     <span className="file-menu-meta">{meta ? <small>{meta}</small> : null}</span>
                   </button>
                 ))}
                 <span className="menu-section-label">내보내기</span>
-                {exportMenuItems.map(({ action, disabled, icon: Icon, label, meta }) => (
-                  <button className="file-menu-item" disabled={disabled} key={label} role="menuitem" type="button" onClick={() => action === "pptx" ? onExportPptx() : undefined}>
-                    <span className="file-menu-label"><Icon size={16} />{label}</span>
-                    <span className="file-menu-meta">{meta ? <small>{meta}</small> : null}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {activeTopMenu === "resize" ? <SimpleMenu items={resizeMenuItems} radio /> : null}
-          {activeTopMenu === "editMode" ? <SimpleMenu items={editModeItems} radio /> : null}
-          {activeTopMenu === "quickEdit" ? (
-            <div className="file-menu-popover compact-popover" role="menu">
-              <div className="file-menu-list">
-                {quickEditItems.map(({ icon: Icon, label }) => (
-                  <button className="file-menu-item" key={label} role="menuitem" type="button">
-                    <span className="file-menu-label"><Icon size={16} />{label}</span>
-                  </button>
-                ))}
+                <button className="file-menu-item" disabled={exportMenuItem.disabled} role="menuitem" type="button" onClick={onExportPptx}>
+                  <span className="file-menu-label"><ExportIcon size={16} />{exportMenuItem.label}</span>
+                  <span className="file-menu-meta">{exportMenuItem.meta ? <small>{exportMenuItem.meta}</small> : null}</span>
+                </button>
               </div>
             </div>
           ) : null}
@@ -258,8 +204,8 @@ export function EditorTopbar(props: EditorTopbarProps) {
           statusLabel={saveStatusLabel}
         />
         {ooxmlSyncStatus ? <span className={`ooxml-sync-pill ${ooxmlSyncStatus.kind}`} title={ooxmlSyncStatus.detail}>{ooxmlSyncStatus.label}</span> : null}
-        <button className="editor-context-top-button" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }} type="button"><FileText size={15} /><span>브리프</span></button>
-        <button className="editor-context-top-button" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/history`; }} type="button"><History size={15} /><span>버전</span></button>
+        <button aria-label="브리프" className="editor-context-top-button" title="브리프" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }} type="button"><FileText size={17} /></button>
+        <button aria-label="버전 기록" className="editor-context-top-button" title="버전 기록" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/history`; }} type="button"><History size={17} /></button>
         <PresentationMenu
           activeStartAction={activePresentationAction}
           canOpenAudienceLink={canOpenAudienceLink}
@@ -282,7 +228,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
             onOpenShare();
             setActiveTopMenu(null);
           }}
-        ><Share2 size={15} />공유</button>
+        ><Share2 size={17} /><span className="visually-hidden">공유</span></button>
         <button aria-label="에디터 새로고침" className="refresh-top-button" type="button" onClick={onRefresh}><RefreshCw size={15} /></button>
       </div>
     </header>
@@ -306,23 +252,5 @@ function TopMenuButton(props: {
     >
       {props.label} <ChevronDown size={14} />
     </button>
-  );
-}
-
-function SimpleMenu(props: {
-  items: Array<{ active?: boolean; label: string; meta: string }>;
-  radio?: boolean;
-}) {
-  return (
-    <div className="file-menu-popover compact-popover" role="menu">
-      <div className="file-menu-list">
-        {props.items.map((item) => (
-          <button className={`file-menu-item ${item.active ? "selected" : ""}`} key={item.label} role={props.radio ? "menuitemradio" : "menuitem"} type="button">
-            <span className="file-menu-label">{item.label}</span>
-            <span className="file-menu-meta"><small>{item.meta}</small></span>
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }

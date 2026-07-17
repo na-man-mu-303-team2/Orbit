@@ -7,7 +7,6 @@ import {
   IconPointer as MousePointer2,
   IconShape as Shapes,
   IconSparkles as Sparkles,
-  IconTemplate as LayoutTemplate,
   IconTypography as Type
 } from "@tabler/icons-react";
 import type { ReactNode, RefObject } from "react";
@@ -50,8 +49,8 @@ export function EditorToolbar(props: EditorToolbarProps) {
             <MousePointer2 size={14} />
           </button>
           <div className="toolbar-divider" />
-          <button aria-label="텍스트" className="tool-button" type="button" onClick={props.onAddText}>
-            <Type size={14} /><span className="tool-button-label">텍스트</span>
+          <button aria-label="텍스트 추가" className="tool-button" title="텍스트 추가" type="button" onClick={props.onAddText}>
+            <Type size={17} />
           </button>
           <div className="shape-menu-anchor">
             <button
@@ -60,30 +59,29 @@ export function EditorToolbar(props: EditorToolbarProps) {
               aria-label="도형"
               className={`tool-button ${props.isShapeMenuOpen || props.insertTool === "customShape" ? "active" : ""}`}
               ref={props.shapeMenuButtonRef}
+              title="도형 추가"
               type="button"
               onClick={props.onToggleShapeMenu}
             >
-              <Shapes size={14} /><span className="tool-button-label">도형</span><ChevronDown size={14} />
+              <Shapes size={17} /><ChevronDown size={12} />
             </button>
           </div>
-          <button aria-label="차트" className="tool-button" type="button" onClick={props.onAddChart}>
-            <BarChart3 size={14} /><span className="tool-button-label">차트</span>
+          <button aria-label="차트 추가" className="tool-button" title="차트 추가" type="button" onClick={props.onAddChart}>
+            <BarChart3 size={17} />
           </button>
-          <button aria-label="이미지" className="tool-button" disabled={!props.canUseCurrentSlide || props.isImageUploadPending} type="button" onClick={props.onOpenImagePicker}>
-            <ImagePlus size={14} /><span className="tool-button-label">이미지</span>
+          <button aria-label="이미지 추가" className="tool-button" disabled={!props.canUseCurrentSlide || props.isImageUploadPending} title="이미지 추가" type="button" onClick={props.onOpenImagePicker}>
+            <ImagePlus size={17} />
           </button>
           <button
             aria-label="애니메이션"
             className={`tool-button ${props.isAnimationPanelOpen || props.selectedElementAnimationCount > 0 ? "active" : ""}`}
             disabled={!props.canUseCurrentSlide}
+            title="애니메이션"
             type="button"
             onClick={props.onOpenAnimation}
           >
-            <Sparkles size={14} /><span className="tool-button-label">애니메이션</span>
+            <Sparkles size={17} />
           </button>
-        </div>
-        <div className="tool-group">
-          <button aria-label="템플릿" className="tool-button" type="button"><LayoutTemplate size={14} /><span className="tool-button-label">템플릿</span></button>
         </div>
       </div>
       {props.selectionProperties}

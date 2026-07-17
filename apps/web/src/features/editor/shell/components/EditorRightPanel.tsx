@@ -1,7 +1,10 @@
 import type { ApplyDesignAgentProposalResponse, Deck, SemanticCue, Slide } from "@orbit/shared";
 import {
+  IconAdjustmentsHorizontal as Properties,
   IconLayoutSidebarRightCollapse as PanelRightClose,
-  IconLayoutSidebarRightExpand as PanelRightOpen
+  IconLayoutSidebarRightExpand as PanelRightOpen,
+  IconSparkles as Sparkles,
+  IconX as Close
 } from "@tabler/icons-react";
 import type { Dispatch, KeyboardEvent, PointerEvent, ReactNode, SetStateAction } from "react";
 
@@ -54,17 +57,6 @@ type EditorRightPanelProps = {
 };
 
 export function EditorRightPanel(props: EditorRightPanelProps) {
-  function handleRightPanelTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const views = ["ai", "design"] as const;
-    const currentIndex = views.indexOf(props.rightPanelView);
-    const direction = event.key === "ArrowRight" ? 1 : -1;
-    const nextView = views[(currentIndex + direction + views.length) % views.length];
-    props.setRightPanelView(nextView);
-    requestAnimationFrame(() => document.getElementById(`editor-${nextView}-tab`)?.focus());
-  }
-
   function handleAiPanelTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
@@ -81,20 +73,40 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
       {props.isOpen ? (
         <>
           <button aria-label="오른쪽 패널 크기 조정" className="right-pane-resizer" type="button" onPointerDown={props.onResizeStart} />
-          <div className="ai-header">
-            <h2>편집 패널</h2>
-            <div>
+          <div className="inspector-header">
+            <div className="inspector-title"><Properties aria-hidden="true" size={15} /><strong>속성</strong></div>
+            <div className="inspector-actions">
+              <button
+                aria-label={props.rightPanelView === "ai" ? "AI 코치 닫기" : "AI 코치 열기"}
+                aria-pressed={props.rightPanelView === "ai"}
+                className={`ai-coach-toggle ${props.rightPanelView === "ai" ? "active" : ""}`}
+                title="AI 코치"
+                type="button"
+                onClick={() => props.setRightPanelView((current) => current === "ai" ? "design" : "ai")}
+              >
+                <Sparkles size={16} />
+                <span>AI 코치</span>
+              </button>
               <button aria-label="오른쪽 패널 접기" className="collapse-right-pane-button" title="오른쪽 패널 접기" type="button" onClick={() => props.setIsOpen(false)}>
                 <PanelRightClose size={16} />
               </button>
             </div>
           </div>
-          <div aria-label="오른쪽 패널 보기" className="right-panel-tabs" role="tablist">
-            <button aria-controls="editor-ai-panel" aria-selected={props.rightPanelView === "ai"} className={props.rightPanelView === "ai" ? "active" : ""} id="editor-ai-tab" role="tab" tabIndex={props.rightPanelView === "ai" ? 0 : -1} type="button" onClick={() => props.setRightPanelView("ai")} onKeyDown={handleRightPanelTabKeyDown}>AI 코치</button>
-            <button aria-controls="editor-design-panel" aria-selected={props.rightPanelView === "design"} className={props.rightPanelView === "design" ? "active" : ""} id="editor-design-tab" role="tab" tabIndex={props.rightPanelView === "design" ? 0 : -1} type="button" onClick={() => props.setRightPanelView("design")} onKeyDown={handleRightPanelTabKeyDown}>디자인</button>
+          <div className="assistant-panel-slot inspector-panel-slot">
+            <div aria-labelledby="editor-design-heading" className="assistant-panel-view editor-design-panel" id="editor-design-panel" role="region">
+              <span className="orbit-ds-eyebrow">SLIDE PROPERTIES</span>
+              <h3 id="editor-design-heading">현재 슬라이드</h3>
+              <p>슬라이드와 덱의 기본 시각 속성을 조정합니다.</p>
+              {props.designProperties}
+            </div>
           </div>
-          <div className="assistant-panel-slot">
-            <div aria-labelledby="editor-ai-tab" className="assistant-panel-view editor-ai-coach-panel" hidden={props.rightPanelView !== "ai"} id="editor-ai-panel" role="tabpanel">
+          {props.rightPanelView === "ai" ? (
+            <section aria-label="AI 코치" className="ai-coach-dock" id="editor-ai-panel">
+              <header className="ai-coach-dock-header">
+                <div><Sparkles aria-hidden="true" size={16} /><strong>AI 코치</strong></div>
+                <button aria-label="AI 코치 닫기" title="AI 코치 닫기" type="button" onClick={() => props.setRightPanelView("design")}><Close size={16} /></button>
+              </header>
+              <div className="editor-ai-coach-panel">
               <div aria-label="AI 코치 보기" className="assistant-subtabs" role="tablist">
                 <button aria-controls="editor-ai-chat-panel" aria-selected={props.aiPanelView === "chat"} className={props.aiPanelView === "chat" ? "active" : ""} id="editor-ai-chat-tab" role="tab" tabIndex={props.aiPanelView === "chat" ? 0 : -1} type="button" onClick={() => props.setAiPanelView("chat")} onKeyDown={handleAiPanelTabKeyDown}>채팅</button>
                 <button aria-controls="editor-ai-tools-panel" aria-selected={props.aiPanelView === "tools"} className={props.aiPanelView === "tools" ? "active" : ""} id="editor-ai-tools-tab" role="tab" tabIndex={props.aiPanelView === "tools" ? 0 : -1} type="button" onClick={() => props.setAiPanelView("tools")} onKeyDown={handleAiPanelTabKeyDown}>검사</button>
@@ -108,19 +120,14 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                 <SourceLedgerPanel slide={props.currentSlide} />
                 <SemanticCueReviewPanel extractionState={props.semanticCueExtractionState} slide={props.currentSlide} onChange={props.onSemanticCueChange} onExtract={props.onSemanticCueExtract} />
               </div>
-            </div>
-            <div aria-labelledby="editor-design-tab" className="assistant-panel-view editor-design-panel" hidden={props.rightPanelView !== "design"} id="editor-design-panel" role="tabpanel">
-              <span className="orbit-ds-eyebrow">SLIDE DESIGN</span>
-              <h3>현재 슬라이드</h3>
-              <p>슬라이드와 덱의 기본 시각 속성을 조정합니다.</p>
-              {props.designProperties}
-            </div>
-          </div>
+              </div>
+            </section>
+          ) : null}
         </>
       ) : (
         <div className="collapsed-right-rail">
           <button aria-label="오른쪽 패널 펼치기" className="collapse-right-pane-button" title="오른쪽 패널 펼치기" type="button" onClick={() => props.setIsOpen(true)}><PanelRightOpen size={16} /></button>
-          <span>도구</span>
+          <span>속성</span>
         </div>
       )}
     </aside>

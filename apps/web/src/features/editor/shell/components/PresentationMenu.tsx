@@ -31,13 +31,14 @@ export function PresentationMenu(props: PresentationMenuProps) {
   return (
     <>
       <button
+        aria-label={activeStartAction === "rehearsal" ? "리허설 준비 중" : "리허설"}
         className="editor-rehearsal-button"
         disabled={!canStartPresentation}
+        title="리허설"
         type="button"
         onClick={onStartRehearsal}
       >
         <IconMicrophone aria-hidden="true" size={16} />
-        {activeStartAction === "rehearsal" ? "준비 중" : "리허설"}
       </button>
       <div className="top-action-menu">
         <div className={`editor-presentation-split ${isOpen ? "active" : ""}`}>

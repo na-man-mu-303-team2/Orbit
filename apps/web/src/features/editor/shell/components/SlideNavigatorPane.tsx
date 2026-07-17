@@ -1,7 +1,9 @@
 import type { Deck } from "@orbit/shared";
 import {
+  IconLayoutGrid as Grid,
   IconLayoutSidebarLeftCollapse as PanelLeftClose,
   IconLayoutSidebarLeftExpand as PanelLeftOpen,
+  IconList as List,
   IconPlus as Plus
 } from "@tabler/icons-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
@@ -100,23 +102,26 @@ export function SlideNavigatorPane(props: {
         <div className="side-footer">
           <div className="slide-view-switch" role="group" aria-label="슬라이드 보기 방식">
             <button
+              aria-label="썸네일 보기"
               className={props.view === "thumbnail" ? "active" : ""}
+              title="썸네일 보기"
               type="button"
               onClick={() => props.onSetView("thumbnail")}
             >
-              썸네일
+              <Grid aria-hidden="true" size={16} />
             </button>
             <button
+              aria-label="목록 보기"
               className={props.view === "list" ? "active" : ""}
+              title="목록 보기"
               type="button"
               onClick={() => props.onSetView("list")}
             >
-              목록
+              <List aria-hidden="true" size={16} />
             </button>
           </div>
-          <button className="add-slide-button" type="button" onClick={props.onAddSlide}>
+          <button aria-label="슬라이드 추가" className="add-slide-button" title="슬라이드 추가" type="button" onClick={props.onAddSlide}>
             <Plus aria-hidden="true" size={17} />
-            슬라이드 추가
           </button>
         </div>
       ) : null}

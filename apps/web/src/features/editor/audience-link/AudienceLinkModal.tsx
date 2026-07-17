@@ -168,7 +168,7 @@ export function AudienceLinkModal({
 
   return createPortal(
     <div
-      className="audience-link-modal-backdrop"
+      className="audience-link-modal-backdrop redesign-dark"
       role="presentation"
       onMouseDown={closeModal}
     >
