@@ -354,6 +354,7 @@ def deck_content_response_format_for(
     raw_input: RawInput,
     *,
     exact_slide_count: int | None = None,
+    content_item_range: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     response_format = deepcopy(DESIGN_PACK_CONTENT_RESPONSE_FORMAT)
 
@@ -371,6 +372,11 @@ def deck_content_response_format_for(
     source_ref_items = slides_schema["items"]["properties"]["sourceRefs"]["items"]
     if source_ids:
         source_ref_items["enum"] = source_ids
+    if content_item_range is not None:
+        content_items_schema = slides_schema["items"]["properties"]["contentItems"]
+        content_items_schema["minItems"], content_items_schema["maxItems"] = (
+            content_item_range
+        )
     return response_format
 
 
@@ -2153,6 +2159,7 @@ def compose_slide_detail_with_llm(
     client: Any | None = None,
     model: str | None = None,
     api_key: str | None = None,
+    content_item_range: tuple[int, int] = (1, 5),
 ) -> SlidePlan:
     api_client: Any = client
     if api_client is None:
@@ -2188,9 +2195,15 @@ def compose_slide_detail_with_llm(
                 DECK_CONTENT_INSTRUCTIONS
                 + "\n- Return one slide only. Preserve the supplied title, message, "
                 "slideType, and sourceRefs exactly. Generate only its detailed fields."
+                f"\n- Return {content_item_range[0]}-{content_item_range[1]} "
+                "content items so the approved composition can render them."
             ),
             input=prompt,
-            text=deck_content_response_format_for(raw_input, exact_slide_count=1),
+            text=deck_content_response_format_for(
+                raw_input,
+                exact_slide_count=1,
+                content_item_range=content_item_range,
+            ),
         )
         generated = GeneratedDeckContentPlan.model_validate_json(
             str(getattr(response, "output_text", "")).strip()

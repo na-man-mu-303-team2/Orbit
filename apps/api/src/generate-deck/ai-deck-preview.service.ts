@@ -71,10 +71,6 @@ const layoutV2PayloadSchema = z
     warnings: z.array(z.string()),
   })
   .strict();
-const layoutPayloadSchema = z.union([
-  layoutV2PayloadSchema,
-  legacyLayoutPayloadSchema,
-]);
 const imageRowSchema = z.object({
   shard_key: z.string().min(1),
   status: z.enum(["queued", "running", "succeeded", "failed"]),
@@ -222,8 +218,9 @@ export function projectAiDeckPreview(input: {
     ).workerPayload.deck;
     completedSlideIds = deck.slides.map((slide) => slide.slideId);
   } else if (layoutRow) {
-    const layout = layoutPayloadSchema.parse(layoutRow.payload_json);
-    const parsedV2Layout = layoutV2PayloadSchema.safeParse(layout);
+    const parsedV2Layout = layoutV2PayloadSchema.safeParse(
+      layoutRow.payload_json,
+    );
     if (parsedV2Layout.success) {
       const v2Layout = parsedV2Layout.data;
       const completedBySourceOrder = new Map(
@@ -255,38 +252,42 @@ export function projectAiDeckPreview(input: {
         .slice(prefix.length)
         .map((slide) => slide.slideId);
     } else {
-    const imageSlides = new Map(
-      input.imageRows.flatMap((row) => {
-        if (row.status !== "succeeded" || !row.payload_json) return [];
-        const parsed = imagePayloadSchema.safeParse(row.payload_json);
-        return parsed.success
-          ? [[parsed.data.slide.slideId, parsed.data.slide] as const]
-          : [];
-      }),
-    );
-    const imageNeeded = new Set(
-      layout.visualRequirements.items
-        .filter((item) => item.visualPlan.imageNeeded === true)
-        .map((item) => item.slideId),
-    );
-    deck = {
-      ...layout.workerPayload.deck,
-      slides: layout.workerPayload.deck.slides.map(
-        (slide) => imageSlides.get(slide.slideId) ?? slide,
-      ),
-    };
-    completedSlideIds = deck.slides
-      .filter(
-        (slide) =>
-          !imageNeeded.has(slide.slideId) || imageSlides.has(slide.slideId),
-      )
-      .map((slide) => slide.slideId);
-    pendingSlideIds = deck.slides
-      .filter(
-        (slide) =>
-          imageNeeded.has(slide.slideId) && !imageSlides.has(slide.slideId),
-      )
-      .map((slide) => slide.slideId);
+      const legacyLayout = legacyLayoutPayloadSchema.parse(
+        layoutRow.payload_json,
+      );
+      const imageSlides = new Map(
+        input.imageRows.flatMap((row) => {
+          if (row.status !== "succeeded" || !row.payload_json) return [];
+          const parsed = imagePayloadSchema.safeParse(row.payload_json);
+          return parsed.success
+            ? [[parsed.data.slide.slideId, parsed.data.slide] as const]
+            : [];
+        }),
+      );
+      const imageNeeded = new Set(
+        legacyLayout.visualRequirements.items
+          .filter((item) => item.visualPlan.imageNeeded === true)
+          .map((item) => item.slideId),
+      );
+      const legacyDeck = {
+        ...legacyLayout.workerPayload.deck,
+        slides: legacyLayout.workerPayload.deck.slides.map(
+          (slide) => imageSlides.get(slide.slideId) ?? slide,
+        ),
+      };
+      deck = legacyDeck;
+      completedSlideIds = legacyDeck.slides
+        .filter(
+          (slide) =>
+            !imageNeeded.has(slide.slideId) || imageSlides.has(slide.slideId),
+        )
+        .map((slide) => slide.slideId);
+      pendingSlideIds = legacyDeck.slides
+        .filter(
+          (slide) =>
+            imageNeeded.has(slide.slideId) && !imageSlides.has(slide.slideId),
+        )
+        .map((slide) => slide.slideId);
     }
   }
 

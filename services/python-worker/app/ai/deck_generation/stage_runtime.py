@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.ai.composition_library import COMPOSITION_SPECS
 from app.ai.deck_generation.content_planning import (
     compose_slide_detail_with_llm,
     plan_story_content,
@@ -254,6 +255,8 @@ def run_slide_compose_stage(
             "reference_context": [],
         },
     )
+    direction = stage_input.design_plan.design_program.slides[target.order - 1]
+    composition = COMPOSITION_SPECS[direction.composition_id]
     detailed = compose_slide_detail_with_llm(
         scoped_raw_input,
         target,
@@ -261,8 +264,8 @@ def run_slide_compose_stage(
         client=client,
         model=model,
         api_key=api_key,
+        content_item_range=(composition.min_items, composition.max_items),
     )
-    direction = stage_input.design_plan.design_program.slides[target.order - 1]
     slide = assemble_program_v2_slide(
         scoped_raw_input,
         detailed,

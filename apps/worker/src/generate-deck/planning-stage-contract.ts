@@ -100,14 +100,21 @@ const layoutCompileV2ArtifactPayloadSchema = z
     });
   });
 
-export const layoutCompileArtifactPayloadSchema = z.union([
-  layoutCompileV2ArtifactPayloadSchema,
-  legacyLayoutCompileArtifactPayloadSchema,
-]);
-
 export type LayoutCompileV2ArtifactPayload = z.infer<
   typeof layoutCompileV2ArtifactPayloadSchema
 >;
+export type LayoutCompileArtifactPayload =
+  | LayoutCompileV2ArtifactPayload
+  | z.infer<typeof legacyLayoutCompileArtifactPayloadSchema>;
+
+export const layoutCompileArtifactPayloadSchema: z.ZodType<
+  LayoutCompileArtifactPayload,
+  z.ZodTypeDef,
+  unknown
+> = z.union([
+  layoutCompileV2ArtifactPayloadSchema,
+  legacyLayoutCompileArtifactPayloadSchema,
+]);
 
 export function isLayoutCompileV2Artifact(
   payload: LayoutCompileArtifactPayload,
@@ -115,14 +122,21 @@ export function isLayoutCompileV2Artifact(
   return "artifactVersion" in payload && payload.artifactVersion === 2;
 }
 
-export const planningArtifactPayloadSchemas = {
+export type AiDeckPlanningStage = z.infer<typeof aiDeckPlanningStageSchema>;
+
+type PlanningArtifactPayloadSchemaMap = {
+  "source-grounding": typeof sourceGroundingArtifactPayloadSchema;
+  "content-planning": typeof contentPlanningArtifactPayloadSchema;
+  "design-planning": typeof designPlanningArtifactPayloadSchema;
+  "layout-compile": typeof layoutCompileArtifactPayloadSchema;
+};
+
+export const planningArtifactPayloadSchemas: PlanningArtifactPayloadSchemaMap = {
   "source-grounding": sourceGroundingArtifactPayloadSchema,
   "content-planning": contentPlanningArtifactPayloadSchema,
   "design-planning": designPlanningArtifactPayloadSchema,
   "layout-compile": layoutCompileArtifactPayloadSchema,
-} as const;
-
-export type AiDeckPlanningStage = keyof typeof planningArtifactPayloadSchemas;
+};
 export type SourceGroundingArtifactPayload = z.infer<
   typeof sourceGroundingArtifactPayloadSchema
 >;
@@ -131,9 +145,6 @@ export type ContentPlanningArtifactPayload = z.infer<
 >;
 export type DesignPlanningArtifactPayload = z.infer<
   typeof designPlanningArtifactPayloadSchema
->;
-export type LayoutCompileArtifactPayload = z.infer<
-  typeof layoutCompileArtifactPayloadSchema
 >;
 export type AiDeckPlanningArtifactPayload =
   | SourceGroundingArtifactPayload
