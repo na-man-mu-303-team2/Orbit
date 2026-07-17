@@ -19,6 +19,8 @@ ResearchIssueCode = Literal[
     "official-missing",
 ]
 
+MAX_WEB_RESEARCH_ATTEMPTS = 1
+
 
 class OfficialWebSource(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
@@ -109,11 +111,11 @@ def research_official_web_sources(
     saw_vetting_failure = False
     saw_vetted_non_official = False
 
-    for attempt in range(1, 3):
+    for attempt in range(1, MAX_WEB_RESEARCH_ATTEMPTS + 1):
         try:
             response = client.responses.create(
                 model=model,
-                tools=[{"type": "web_search", "search_context_size": "medium"}],
+                tools=[{"type": "web_search", "search_context_size": "low"}],
                 include=["web_search_call.action.sources"],
                 input=_search_query(
                     subject,
@@ -177,7 +179,7 @@ def research_official_web_sources(
         issue_codes.append("official-missing")
     if not issue_codes:
         issue_codes.append("no-citations")
-    return _unavailable_summary(2, issue_codes, researched_at)
+    return _unavailable_summary(MAX_WEB_RESEARCH_ATTEMPTS, issue_codes, researched_at)
 
 
 def _unavailable_summary(

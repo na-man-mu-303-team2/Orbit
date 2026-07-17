@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  slideQuestionGuideDeckContextSlideSchema,
   slideQuestionGuideJobPayloadSchema,
   slideQuestionGuideJobResultSchema,
   slideQuestionGuideSchema,
@@ -24,6 +25,28 @@ describe("slide question guide privacy contract", () => {
       itemCount: 3,
       generatedAt: "2026-07-17T00:00:00.000Z",
       suggestedAnswer: "Job에 들어가면 안 되는 답변",
+    }).success).toBe(false);
+  });
+
+  it("bounds transient full-deck context without widening the Job contract", () => {
+    expect(slideQuestionGuideDeckContextSlideSchema.safeParse({
+      slideId: "slide-1",
+      order: 1,
+      deckVersion: 3,
+      contentHash: "a".repeat(64),
+      title: "시장 진입 전략",
+      content: "교육 시장을 우선 검증합니다.",
+      speakerNotes: "첫 고객군과 검증 순서를 설명합니다.",
+    }).success).toBe(true);
+
+    expect(slideQuestionGuideDeckContextSlideSchema.safeParse({
+      slideId: "slide-1",
+      order: 1,
+      deckVersion: 3,
+      contentHash: "a".repeat(64),
+      title: "시장 진입 전략",
+      content: "교육 시장을 우선 검증합니다.",
+      speakerNotes: "x".repeat(6_001),
     }).success).toBe(false);
   });
 

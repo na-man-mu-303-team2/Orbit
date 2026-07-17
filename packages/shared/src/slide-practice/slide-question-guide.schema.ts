@@ -49,6 +49,16 @@ export const slideQuestionGuideSourceSnapshotSchema = z.object({
   content: z.string().trim().max(8_000),
 }).strict();
 
+export const slideQuestionGuideDeckContextSlideSchema = z.object({
+  slideId: identifierSchema,
+  order: z.number().int().positive(),
+  deckVersion: z.number().int().positive(),
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  title: z.string().trim().max(500),
+  content: z.string().trim().max(4_000),
+  speakerNotes: z.string().trim().max(6_000),
+}).strict();
+
 export const slideQuestionTypeSchema = z.enum([
   "evidence",
   "objection",

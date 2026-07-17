@@ -1,5 +1,8 @@
 import {
+  deckPatchSchema,
+  deckSchema,
   jobSchema,
+  slideQuestionGuideDeckContextSlideSchema,
   slideQuestionGuideItemCoreSchema,
   slideQuestionGuideItemSchema,
   slideQuestionGuideJobPayloadSchema,
@@ -9,10 +12,24 @@ import {
   slideQuestionGuideWebSourceRefSchema,
   type Job,
 } from "@orbit/shared";
+import { applyDeckPatch } from "@orbit/editor-core";
+import { createHash } from "node:crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
 
 const generatedItemSchema = slideQuestionGuideItemCoreSchema.omit({ questionId: true });
+const deckCheckpointRowSchema = z.object({
+  deck_json: z.unknown(),
+  version: z.coerce.number().int().nonnegative(),
+  patch_rows: z.unknown(),
+});
+const deckPatchRowSchema = z.object({
+  before_version: z.coerce.number().int().nonnegative(),
+  after_version: z.coerce.number().int().nonnegative(),
+  source: z.enum(["user", "ai", "import", "system"]),
+  operations: z.unknown(),
+  created_at: z.union([z.date(), z.string().min(1)]),
+});
 const responseSchema = z.object({
   items: z.array(generatedItemSchema).length(3),
   model: z.string().trim().min(1).max(100),
@@ -81,35 +98,78 @@ export async function processSlideQuestionGuideGenerationJob(
       throw new Error("SLIDE_QUESTION_GUIDE_SOURCE_STALE");
     }
 
-    failureStage = "brief-context-load";
-    const briefRow = firstRow(await dataSource.query(
-      `SELECT content_json FROM presentation_briefs WHERE project_id = $1`,
-      [payload.projectId],
-    ));
-    const brief = briefRow ? briefContextSchema.parse(briefRow.content_json) : null;
-    failureStage = "approved-reference-load";
-    const references = await dataSource.query(
-      `SELECT chunks.id::text AS chunk_id, chunks.file_id, chunks.content, chunks.content_hash
-       FROM presentation_brief_approved_references approved
-       JOIN project_assets assets
-         ON assets.project_id = approved.project_id
-        AND assets.file_id = approved.file_id
-        AND assets.content_hash = approved.file_content_hash
-       JOIN reference_chunks chunks
-         ON chunks.project_id = approved.project_id
-        AND chunks.file_id = approved.file_id
-       WHERE approved.project_id = $1 AND assets.status = 'uploaded'
-       ORDER BY approved.display_order, chunks.id LIMIT 8`,
-      [payload.projectId],
-    );
+    failureStage = "generation-context-load";
+    const [deckRows, briefRows, references] = await Promise.all([
+      dataSource.query(
+        `SELECT
+           d.deck_json,
+           d.version,
+           COALESCE((
+             SELECT jsonb_agg(
+               jsonb_build_object(
+                 'before_version', p.before_version,
+                 'after_version', p.after_version,
+                 'source', p.source,
+                 'operations', p.operations,
+                 'created_at', p.created_at
+               )
+               ORDER BY p.after_version ASC, p.created_at ASC, p.change_id ASC
+             )
+             FROM deck_patches p
+             WHERE p.project_id = d.project_id
+               AND p.deck_id = d.deck_id
+               AND p.after_version > d.version
+           ), '[]'::jsonb) AS patch_rows
+         FROM decks d
+         WHERE d.project_id = $1 AND d.deck_id = $2`,
+        [payload.projectId, guide.deck_id],
+      ),
+      dataSource.query(
+        `SELECT content_json FROM presentation_briefs WHERE project_id = $1`,
+        [payload.projectId],
+      ),
+      dataSource.query(
+        `SELECT chunks.id::text AS chunk_id, chunks.file_id, chunks.content, chunks.content_hash
+         FROM presentation_brief_approved_references approved
+         JOIN project_assets assets
+           ON assets.project_id = approved.project_id
+          AND assets.file_id = approved.file_id
+          AND assets.content_hash = approved.file_content_hash
+         JOIN reference_chunks chunks
+           ON chunks.project_id = approved.project_id
+          AND chunks.file_id = approved.file_id
+         WHERE approved.project_id = $1 AND assets.status = 'uploaded'
+         ORDER BY approved.display_order, chunks.id LIMIT 8`,
+        [payload.projectId],
+      ),
+    ]);
+    const deckRow = firstRow(deckRows);
+    const deck = deckRow ? replayCurrentDeckState(deckRow) : null;
+    if (!deck || deck.version !== Number(guide.deck_version)) {
+      throw new Error("SLIDE_QUESTION_GUIDE_SOURCE_STALE");
+    }
+    if (deck.deckId !== guide.deck_id || deck.version !== Number(guide.deck_version)) {
+      throw new Error("SLIDE_QUESTION_GUIDE_SOURCE_STALE");
+    }
+    const slides = deck.slides.map((slide) => slideQuestionGuideDeckContextSlideSchema.parse({
+      slideId: slide.slideId,
+      order: slide.order,
+      deckVersion: deck.version,
+      contentHash: sha256Canonical(slide),
+      title: slide.title.slice(0, 500),
+      content: collectSlideContent(slide).slice(0, 4_000),
+      speakerNotes: slide.speakerNotes.slice(0, 6_000),
+    }));
+    const targetSlide = slides.find((slide) => slide.slideId === guide.slide_id);
+    if (!targetSlide || targetSlide.contentHash !== sourceSnapshot.contentHash) {
+      throw new Error("SLIDE_QUESTION_GUIDE_SOURCE_STALE");
+    }
+    const briefRow = firstRow(briefRows);
+    const brief = briefRow ? briefContextSchema.parse(jsonValue(briefRow.content_json)) : null;
     const request = {
-      slide: {
-        slideId: guide.slide_id,
-        deckVersion: sourceSnapshot.deckVersion,
-        contentHash: sourceSnapshot.contentHash,
-        title: sourceSnapshot.title,
-        content: sourceSnapshot.content,
-      },
+      targetSlideId: guide.slide_id,
+      deckVersion: sourceSnapshot.deckVersion,
+      slides,
       references: references.map((reference: Record<string, unknown>) => ({
         fileId: String(reference.file_id),
         chunkId: String(reference.chunk_id),
@@ -139,7 +199,7 @@ export async function processSlideQuestionGuideGenerationJob(
       issueCodes: generated.research.issueCodes,
     });
     failureStage = "source-ref-validation";
-    validateSourceRefs(generated.items, sourceSnapshot, references, generated.webSources);
+    validateSourceRefs(generated.items, slides, references, generated.webSources);
     const generatedAt = new Date().toISOString();
     const items = generated.items.map((item, index) => slideQuestionGuideItemSchema.parse({
       ...item,
@@ -230,10 +290,13 @@ export async function processSlideQuestionGuideGenerationJob(
 
 function validateSourceRefs(
   items: z.infer<typeof responseSchema>["items"],
-  sourceSnapshot: z.infer<typeof slideQuestionGuideSourceSnapshotSchema>,
+  slides: Array<z.infer<typeof slideQuestionGuideDeckContextSlideSchema>>,
   references: Array<Record<string, unknown>>,
   webSources: Array<z.infer<typeof slideQuestionGuideWebSourceRefSchema>>,
 ) {
+  const allowedSlides = new Set(
+    slides.map((slide) => `${slide.slideId}:${slide.deckVersion}:${slide.contentHash}`),
+  );
   const allowedReferences = new Set(
     references.map((reference) => (
       `${reference.file_id}:${reference.chunk_id}:${reference.content_hash}`
@@ -246,9 +309,7 @@ function validateSourceRefs(
   const allowedWebSources = new Set(webSources.map(webSourceKey));
   for (const reference of sourceRefs) {
     const allowed = reference.kind === "slide"
-      ? reference.slideId === sourceSnapshot.slideId
-        && reference.deckVersion === sourceSnapshot.deckVersion
-        && reference.contentHash === sourceSnapshot.contentHash
+      ? allowedSlides.has(`${reference.slideId}:${reference.deckVersion}:${reference.contentHash}`)
       : reference.kind === "reference"
         ? allowedReferences.has(`${reference.fileId}:${reference.chunkId}:${reference.contentHash}`)
         : allowedWebSources.has(webSourceKey(reference));
@@ -279,8 +340,7 @@ export type SlideQuestionGuideResearchBusinessEvent = {
 
 export type SlideQuestionGuideFailureStage =
   | "source-snapshot-validation"
-  | "brief-context-load"
-  | "approved-reference-load"
+  | "generation-context-load"
   | "python-worker-request"
   | "provider-response-validation"
   | "source-ref-validation"
@@ -377,4 +437,78 @@ function toIso(value: unknown) {
 
 function stringValue(value: unknown) {
   return typeof value === "string" ? value : "";
+}
+
+function jsonValue(value: unknown) {
+  return typeof value === "string" ? JSON.parse(value) : value;
+}
+
+function replayCurrentDeckState(rawRow: unknown) {
+  const row = deckCheckpointRowSchema.parse(rawRow);
+  let deck = deckSchema.parse(jsonValue(row.deck_json));
+  if (deck.version !== row.version) {
+    throw new Error("Deck checkpoint version does not match deck JSON.");
+  }
+
+  const patchRows = z.array(deckPatchRowSchema).parse(jsonValue(row.patch_rows));
+  let expectedBeforeVersion = deck.version;
+  for (const patchRow of patchRows) {
+    if (
+      patchRow.before_version !== expectedBeforeVersion ||
+      patchRow.after_version !== patchRow.before_version + 1
+    ) {
+      throw new Error("Stored deck patch chain is not sequential.");
+    }
+
+    const patch = deckPatchSchema.parse({
+      deckId: deck.deckId,
+      baseVersion: patchRow.before_version,
+      source: patchRow.source,
+      operations: jsonValue(patchRow.operations),
+    });
+    const applied = applyDeckPatch(deck, patch, {
+      createdAt: toIso(patchRow.created_at),
+    });
+    if (!applied.ok || applied.deck.version !== patchRow.after_version) {
+      throw new Error("Stored deck patch could not be replayed.");
+    }
+    deck = applied.deck;
+    expectedBeforeVersion = patchRow.after_version;
+  }
+
+  return deck;
+}
+
+function collectSlideContent(value: unknown): string {
+  const collected: string[] = [];
+  const visit = (candidate: unknown, key = "") => {
+    if (typeof candidate === "string" && ["title", "text", "alt"].includes(key)) {
+      if (candidate.trim()) collected.push(candidate.trim());
+      return;
+    }
+    if (Array.isArray(candidate)) {
+      candidate.forEach((item) => visit(item, key));
+      return;
+    }
+    if (candidate && typeof candidate === "object") {
+      Object.entries(candidate).forEach(([childKey, child]) => visit(child, childKey));
+    }
+  };
+  visit(value);
+  return Array.from(new Set(collected)).join("\n");
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function sha256Canonical(value: unknown): string {
+  return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }

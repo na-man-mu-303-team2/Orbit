@@ -31,16 +31,21 @@ export async function createSlideQuestionGuide(input: {
   return slideQuestionGuideJobResponseSchema.parse(await response.json());
 }
 
-export async function waitForSlideQuestionGuideJob(jobId: string) {
+export async function waitForSlideQuestionGuideJob(
+  jobId: string,
+  options: { pollIntervalMs?: number; timeoutMs?: number } = {},
+) {
   const startedAt = Date.now();
+  const pollIntervalMs = options.pollIntervalMs ?? 500;
+  const timeoutMs = options.timeoutMs ?? 120_000;
   for (;;) {
     const response = await fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`, { credentials: "include" });
     if (!response.ok) throw new Error(await responseMessage(response, "질문 생성 상태를 확인하지 못했습니다."));
     const job = jobSchema.parse(await response.json());
     if (job.status === "succeeded") return job;
     if (job.status === "failed") throw new Error(job.error?.message ?? "예상 질문 생성에 실패했습니다.");
-    if (Date.now() - startedAt > 120_000) throw new Error("예상 질문 생성 시간이 초과되었습니다.");
-    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    if (Date.now() - startedAt > timeoutMs) throw new Error("예상 질문 생성 시간이 초과되었습니다.");
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 }
 

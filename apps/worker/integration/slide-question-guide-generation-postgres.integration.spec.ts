@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { DataSource } from "typeorm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -6,7 +6,7 @@ import { processSlideQuestionGuideGenerationJob } from "../src/slide-question-gu
 
 const databaseUrl = process.env.ORBIT_INTEGRATION_DATABASE_URL;
 const describeWithPostgres = databaseUrl ? describe : describe.skip;
-const slideHash = "a".repeat(64);
+const slideHash = sha256Canonical(slideFixture());
 const researchedAt = "2026-07-17T00:00:00.000Z";
 
 const researchCases: ResearchCase[] = [
@@ -104,8 +104,8 @@ function createFixtureIds(): FixtureIds {
   return {
     userId: `it-slide-guide-user-${suffix}`,
     projectId: `it-slide-guide-project-${suffix}`,
-    deckId: `it-slide-guide-deck-${suffix}`,
-    slideId: `it-slide-guide-slide-${suffix}`,
+    deckId: `deck_it-slide-guide-${suffix}`,
+    slideId: "slide_integration_target",
     guideId: `it-slide-guide-${suffix}`,
     jobId: `it-slide-guide-job-${suffix}`,
     clientRequestId: `it-slide-guide-request-${suffix}`,
@@ -126,7 +126,7 @@ async function seedFixture(dataSource: DataSource, fixture: FixtureIds) {
   await dataSource.query(
     `INSERT INTO decks (project_id, deck_id, deck_json, version)
      VALUES ($1, $2, $3::jsonb, 3)`,
-    [fixture.projectId, fixture.deckId, JSON.stringify({ slides: [] })],
+    [fixture.projectId, fixture.deckId, JSON.stringify(deckFixture(fixture))],
   );
   await dataSource.query(
     `INSERT INTO jobs (job_id, project_id, type, status, progress, message, payload)
@@ -171,6 +171,51 @@ async function seedFixture(dataSource: DataSource, fixture: FixtureIds) {
       fixture.userId,
     ],
   );
+}
+
+function deckFixture(fixture: FixtureIds) {
+  return {
+    deckId: fixture.deckId,
+    projectId: fixture.projectId,
+    title: "Slide guide integration",
+    version: 3,
+    metadata: {},
+    targetDurationMinutes: 10,
+    canvas: { preset: "wide-16-9", width: 1920, height: 1080, aspectRatio: "16:9" },
+    theme: {},
+    slides: [slideFixture()],
+  };
+}
+
+function slideFixture() {
+  return {
+    slideId: "slide_integration_target",
+    order: 1,
+    title: "시장 진입 전략",
+    thumbnailUrl: "",
+    style: {},
+    speakerNotes: "첫 고객군과 검증 순서를 설명합니다.",
+    elements: [],
+    keywords: [],
+    semanticCues: [],
+    animations: [],
+    actions: [],
+  };
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function sha256Canonical(value: unknown): string {
+  return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
 
 function providerResponse(fixture: FixtureIds, researchCase: ResearchCase) {

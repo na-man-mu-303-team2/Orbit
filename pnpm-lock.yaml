@@ -238,6 +238,9 @@ importers:
       '@orbit/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@orbit/editor-core':
+        specifier: workspace:*
+        version: link:../../packages/editor-core
       '@orbit/job-queue':
         specifier: workspace:*
         version: link:../../packages/job-queue

@@ -1,4 +1,5 @@
 import type { DataSource } from "typeorm";
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { processSlideQuestionGuideGenerationJob } from "./slide-question-guide-generation.processor";
@@ -8,7 +9,8 @@ const payload = {
   projectId: "project-1",
   guideId: "guide-1",
 };
-const slideHash = "a".repeat(64);
+const slideHash = sha256Canonical(deckFixture().slides[0]);
+const supportingSlideHash = sha256Canonical(deckFixture().slides[1]);
 const referenceHash = "b".repeat(64);
 
 describe("processSlideQuestionGuideGenerationJob", () => {
@@ -20,9 +22,13 @@ describe("processSlideQuestionGuideGenerationJob", () => {
   it("stores private canonical items while keeping the Job result identifier-only", async () => {
     const harness = createHarness();
     const events: Record<string, unknown>[] = [];
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json(providerResponse(
-      [0, 1, 2].map((index) => generatedItem(index)),
-    ))));
+    let providerRequest: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
+      providerRequest = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return Response.json(providerResponse(
+        [0, 1, 2].map((index) => generatedItem(index)),
+      ));
+    }));
 
     const job = await processSlideQuestionGuideGenerationJob(
       harness.dataSource,
@@ -35,17 +41,25 @@ describe("processSlideQuestionGuideGenerationJob", () => {
     expect(job.result).toEqual({
       guideId: "guide-1",
       projectId: "project-1",
-      deckId: "deck-1",
+      deckId: "deck_1",
       deckVersion: 3,
-      slideId: "slide-1",
+      slideId: "slide_1",
       itemCount: 3,
       generatedAt: expect.any(String),
     });
     expect(JSON.stringify(job.result)).not.toContain("questionText");
+    expect(providerRequest).toMatchObject({
+      targetSlideId: "slide_1",
+      deckVersion: 3,
+      slides: [
+        { slideId: "slide_1", speakerNotes: "현재 슬라이드 발표 대본" },
+        { slideId: "slide_2", speakerNotes: "다음 슬라이드 발표 대본" },
+      ],
+    });
     expect(harness.insertedItems).toHaveLength(3);
     expect(harness.storedResearch).toEqual({
       status: "unavailable",
-      attempts: 2,
+      attempts: 1,
       officialSourceCount: 0,
       issueCodes: ["no-citations"],
       researchedAt: "2026-07-17T00:00:00.000Z",
@@ -59,11 +73,76 @@ describe("processSlideQuestionGuideGenerationJob", () => {
       projectId: "project-1",
       guideId: "guide-1",
       status: "unavailable",
-      attempts: 2,
+      attempts: 1,
       officialSourceCount: 0,
       issueCodes: ["no-citations"],
     }]);
     expect(JSON.stringify(events)).not.toContain("http");
+  });
+
+  it("replays the patch tail before validating the frozen guide deck version", async () => {
+    const checkpointDeck = deckFixture();
+    checkpointDeck.version = 2;
+    checkpointDeck.slides[0]!.title = "변경 전 제목";
+    const harness = createHarness({
+      checkpointDeck,
+      patchRows: [{
+        before_version: 2,
+        after_version: 3,
+        source: "user",
+        operations: [{
+          type: "update_slide",
+          slideId: "slide_1",
+          title: "핵심 슬라이드",
+        }],
+        created_at: "2026-07-17T00:00:00.000Z",
+      }],
+    });
+    let providerRequest: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
+      providerRequest = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return Response.json(providerResponse(
+        [0, 1, 2].map((index) => generatedItem(index)),
+      ));
+    }));
+
+    const job = await processSlideQuestionGuideGenerationJob(
+      harness.dataSource,
+      "http://python-worker:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(providerRequest).toMatchObject({ deckVersion: 3 });
+    expect((providerRequest as { slides: unknown[] } | null)?.slides).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          slideId: "slide_1",
+          deckVersion: 3,
+          title: "핵심 슬라이드",
+        }),
+      ]),
+    );
+  });
+
+  it("accepts another slide in the same frozen deck as answer evidence", async () => {
+    const harness = createHarness();
+    const items = [0, 1, 2].map((index) => generatedItem(index));
+    items[0] = {
+      ...items[0],
+      keyConcepts: [{ label: "다음 단계", sourceRefs: [supportingSlideRef()] }],
+      sourceRefs: [supportingSlideRef()],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(providerResponse(items))));
+
+    const job = await processSlideQuestionGuideGenerationJob(
+      harness.dataSource,
+      "http://python-worker:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect(harness.insertedItems).toHaveLength(3);
   });
 
   it("rejects a provider source hash that was not in the frozen source snapshot", async () => {
@@ -223,6 +302,8 @@ describe("processSlideQuestionGuideGenerationJob", () => {
 });
 
 function createHarness(options: {
+  checkpointDeck?: ReturnType<typeof deckFixture>;
+  patchRows?: Array<Record<string, unknown>>;
   persistenceError?: Error;
   jobPersistenceError?: Error;
 } = {}) {
@@ -239,6 +320,14 @@ function createHarness(options: {
   const query = vi.fn(async (sql: string, parameters: unknown[] = []) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
     if (normalized.startsWith("SELECT * FROM slide_question_guides")) return [guideRow()];
+    if (normalized.startsWith("SELECT d.deck_json")) {
+      const checkpointDeck = options.checkpointDeck ?? deckFixture();
+      return [{
+        deck_json: checkpointDeck,
+        version: checkpointDeck.version,
+        patch_rows: options.patchRows ?? [],
+      }];
+    }
     if (normalized.startsWith("SELECT chunks.id::text")) return [{
       chunk_id: "chunk-1",
       file_id: "file-1",
@@ -298,12 +387,12 @@ function guideRow() {
   return {
     guide_id: "guide-1",
     project_id: "project-1",
-    deck_id: "deck-1",
+    deck_id: "deck_1",
     deck_version: 3,
-    slide_id: "slide-1",
+    slide_id: "slide_1",
     slide_content_hash: slideHash,
     source_snapshot_json: {
-      slideId: "slide-1",
+      slideId: "slide_1",
       deckVersion: 3,
       contentHash: slideHash,
       title: "핵심 슬라이드",
@@ -332,10 +421,20 @@ function generatedItem(index: number) {
 function slideRef() {
   return {
     kind: "slide" as const,
-    slideId: "slide-1",
+    slideId: "slide_1",
     objectId: null,
     deckVersion: 3,
     contentHash: slideHash,
+  };
+}
+
+function supportingSlideRef() {
+  return {
+    kind: "slide" as const,
+    slideId: "slide_2",
+    objectId: null,
+    deckVersion: 3,
+    contentHash: supportingSlideHash,
   };
 }
 
@@ -377,13 +476,61 @@ function providerResponse(
         }
       : {
           status: "unavailable",
-          attempts: 2,
+          attempts: 1,
           officialSourceCount: 0,
           issueCodes: ["no-citations"],
           researchedAt: "2026-07-17T00:00:00.000Z",
         },
     webSources,
   };
+}
+
+function deckFixture() {
+  return {
+    deckId: "deck_1",
+    projectId: "project-1",
+    title: "통합 발표",
+    version: 3,
+    metadata: {},
+    targetDurationMinutes: 10,
+    canvas: { preset: "wide-16-9", width: 1920, height: 1080, aspectRatio: "16:9" },
+    theme: {},
+    slides: [
+      slideFixture("slide_1", 1, "핵심 슬라이드", "현재 슬라이드 발표 대본"),
+      slideFixture("slide_2", 2, "실행 계획", "다음 슬라이드 발표 대본"),
+    ],
+  };
+}
+
+function slideFixture(slideId: string, order: number, title: string, speakerNotes: string) {
+  return {
+    slideId,
+    order,
+    title,
+    thumbnailUrl: "",
+    style: {},
+    speakerNotes,
+    elements: [],
+    keywords: [],
+    semanticCues: [],
+    animations: [],
+    actions: [],
+  };
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function sha256Canonical(value: unknown): string {
+  return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
 
 function jobRow(

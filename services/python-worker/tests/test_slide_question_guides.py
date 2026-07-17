@@ -53,18 +53,33 @@ def test_generates_three_grounded_questions_with_strict_ai_output() -> None:
     assert '"anyOf"' in serialized_schema
     assert '"oneOf"' not in serialized_schema
     assert '"discriminator"' not in serialized_schema
+    generation_input = json.loads(client.responses.last_request["input"])
+    assert generation_input["targetSlideId"] == "slide-1"
+    assert [slide["slideId"] for slide in generation_input["slides"]] == [
+        "slide-1",
+        "slide-2",
+    ]
+    assert generation_input["slides"][1]["speakerNotes"] == (
+        "다음 슬라이드에서 실행 순서를 설명합니다."
+    )
 
 
 def test_returns_remediation_instead_of_calling_ai_without_sources() -> None:
     request = SlideQuestionGuideRequest.model_validate(
         {
-            "slide": {
-                "slideId": "slide-1",
-                "deckVersion": 3,
-                "contentHash": "a" * 64,
-                "title": "",
-                "content": "",
-            },
+            "targetSlideId": "slide-1",
+            "deckVersion": 3,
+            "slides": [
+                {
+                    "slideId": "slide-1",
+                    "order": 1,
+                    "deckVersion": 3,
+                    "contentHash": "a" * 64,
+                    "title": "",
+                    "content": "",
+                    "speakerNotes": "",
+                }
+            ],
             "references": [],
             "brief": None,
             "questionCount": 3,
@@ -109,11 +124,12 @@ def test_uses_only_vetted_official_web_sources_and_keeps_search_query_bounded() 
     assert payload["items"][0]["sourceRefs"] == [payload["webSources"][0]]
     search_request = client.responses.requests[0]
     assert search_request["tools"] == [
-        {"type": "web_search", "search_context_size": "medium"}
+        {"type": "web_search", "search_context_size": "low"}
     ]
     assert "시장 진입 전략" in search_request["input"]
     assert "첫 고객군을 교육 시장으로 한정" not in search_request["input"]
     assert "초기 전환율은 12%" not in search_request["input"]
+    assert "발표 대본" not in search_request["input"]
 
 
 def test_web_search_failure_degrades_to_slide_only_generation() -> None:
@@ -137,7 +153,7 @@ def test_web_search_failure_degrades_to_slide_only_generation() -> None:
 
     payload = response.model_dump(by_alias=True)
     assert payload["research"]["status"] == "unavailable"
-    assert payload["research"]["attempts"] == 2
+    assert payload["research"]["attempts"] == 1
     assert payload["research"]["issueCodes"] == ["provider-call-failed"]
     assert payload["webSources"] == []
     assert all(item["supportState"] == "grounded" for item in payload["items"])
@@ -146,13 +162,28 @@ def test_web_search_failure_degrades_to_slide_only_generation() -> None:
 def source_request() -> SlideQuestionGuideRequest:
     return SlideQuestionGuideRequest.model_validate(
         {
-            "slide": {
-                "slideId": "slide-1",
-                "deckVersion": 3,
-                "contentHash": "a" * 64,
-                "title": "시장 진입 전략",
-                "content": "첫 고객군을 교육 시장으로 한정하고 검증합니다.",
-            },
+            "targetSlideId": "slide-1",
+            "deckVersion": 3,
+            "slides": [
+                {
+                    "slideId": "slide-1",
+                    "order": 1,
+                    "deckVersion": 3,
+                    "contentHash": "a" * 64,
+                    "title": "시장 진입 전략",
+                    "content": "첫 고객군을 교육 시장으로 한정하고 검증합니다.",
+                    "speakerNotes": "현재 슬라이드 발표 대본입니다.",
+                },
+                {
+                    "slideId": "slide-2",
+                    "order": 2,
+                    "deckVersion": 3,
+                    "contentHash": "c" * 64,
+                    "title": "실행 순서",
+                    "content": "검증 이후 확장합니다.",
+                    "speakerNotes": "다음 슬라이드에서 실행 순서를 설명합니다.",
+                },
+            ],
             "references": [
                 {
                     "fileId": "file-1",
