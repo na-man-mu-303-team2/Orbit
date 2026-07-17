@@ -59,8 +59,9 @@
 .workspace-home-head h1 {
   margin: 0;
   color: var(--redesign-color-on-surface);
-  font-size: var(--redesign-type-title-lg-size);
+  font-size: var(--redesign-type-headline-lg-size);
   font-weight: var(--redesign-type-headline-lg-weight);
+  line-height: var(--redesign-type-headline-lg-line-height);
   letter-spacing: var(--redesign-type-headline-lg-tracking);
 }
 
