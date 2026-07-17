@@ -68,6 +68,22 @@ export {
 } from "./patches/elementFrame";
 export type { ElementFrameDraft } from "./patches/elementFrame";
 export {
+  applyRichTextCharacterStyle,
+  applyRichTextParagraphStyle,
+  getRichTextSelectionCharacterStyle,
+  getRichTextSelectionParagraphStyle,
+  getRichTextSemanticText,
+  normalizeRichTextProps
+} from "./text/richTextOperations";
+export type {
+  RichTextCharacterStylePatch,
+  RichTextParagraphStylePatch,
+  RichTextRange,
+  RichTextSelectionCharacterStyle,
+  RichTextSelectionParagraphStyle,
+  RichTextSelectionValue
+} from "./text/richTextOperations";
+export {
   buildGroupedFrameOperations,
   createGroupedElementFramePatch,
   getGroupChildElements,
