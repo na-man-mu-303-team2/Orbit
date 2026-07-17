@@ -3,7 +3,7 @@ import {
   IconEdit,
   IconLink,
   IconMicrophone,
-  IconPlayerPlay
+  IconPlayerPlay,
 } from "@tabler/icons-react";
 
 import { DropdownMenu, DropdownMenuItem } from "../../../../components/ui";
@@ -31,12 +31,10 @@ export function PresentationMenu(props: PresentationMenuProps) {
     onOpenAudienceLink,
     onStartPresentation,
     onStartRehearsal,
-    onToggle
+    onToggle,
   } = props;
-  const isPresentationDisabled =
-    isSlideRehearsalActive || !canStartPresentation;
   const isPresentationMenuDisabled =
-    isSlideRehearsalActive || !canOpenAudienceLink;
+    isSlideRehearsalActive || (!canStartPresentation && !canOpenAudienceLink);
 
   return (
     <>
@@ -59,9 +57,7 @@ export function PresentationMenu(props: PresentationMenuProps) {
               : "슬라이드 한 장 리허설"
         }
         title={
-          isSlideRehearsalActive
-            ? "에디터로 돌아가기"
-            : "슬라이드 한 장 리허설"
+          isSlideRehearsalActive ? "에디터로 돌아가기" : "슬라이드 한 장 리허설"
         }
         onClick={onStartRehearsal}
       />
@@ -70,10 +66,12 @@ export function PresentationMenu(props: PresentationMenuProps) {
           className={`editor-presentation-split ${isOpen ? "active" : ""} ${isSlideRehearsalActive ? "rehearsal-disabled" : ""}`}
         >
           <button
+            aria-expanded={isOpen}
+            aria-haspopup="menu"
             className="editor-present-button"
-            disabled={isPresentationDisabled}
+            disabled={isPresentationMenuDisabled}
             type="button"
-            onClick={onStartPresentation}
+            onClick={onToggle}
           >
             <IconPlayerPlay aria-hidden="true" size={16} />
             {activeStartAction === "presentation" ? "준비 중" : "발표하기"}
@@ -97,7 +95,16 @@ export function PresentationMenu(props: PresentationMenuProps) {
             variant="black"
           >
             <DropdownMenuItem
+              aria-label="발표 시작"
+              disabled={!canStartPresentation}
+              icon={<IconPlayerPlay size={16} />}
+              onClick={onStartPresentation}
+            >
+              발표 시작
+            </DropdownMenuItem>
+            <DropdownMenuItem
               icon={<IconLink size={16} />}
+              disabled={!canOpenAudienceLink}
               onClick={onOpenAudienceLink}
             >
               <span className="editor-presentation-menu-label">
