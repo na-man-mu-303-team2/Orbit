@@ -80,6 +80,7 @@ PptxOoxmlSyncOperationType = Literal[
 PptxOoxmlUnsupportedReasonCode = Literal[
     "ADD_ELEMENT_FAILED",
     "ADD_ELEMENT_TYPE_UNSUPPORTED",
+    "CROP_CAPABILITY_UNSAFE",
     "ELEMENT_TYPE_MISMATCH",
     "FRAME_FIELDS_UNSUPPORTED",
     "GROUPED_FRAME_UNSUPPORTED",
@@ -422,33 +423,52 @@ def imported_element_capabilities(
 ) -> dict[str, Any]:
     frame_writable = False
     image_source_writable = False
+    crop_capability = "none"
     if (
         slide_root is not None
         and bool(source.get("writable", False))
-        and shape_cohort_size == 1
     ):
         shape, _parent = find_shape_by_id(
             slide_root,
             str(source.get("shapeId", "")),
         )
-        frame_writable = shape is not None and not has_group_shape_ancestor(
-            slide_root,
+        frame_writable = (
+            shape_cohort_size == 1
+            and shape is not None
+            and not has_group_shape_ancestor(slide_root, shape)
+        )
+        crop_capability = imported_image_crop_capability(
+            element_type,
+            source,
             shape,
         )
         image_source_writable = (
-            element_type == "image"
-            and shape is not None
-            and shape.tag == P_PIC
-            and bool(source.get("relationshipId"))
+            crop_capability == "picture"
+            and direct_image_blip(shape, source) is not None
         )
     return {
         "richText": "none",
-        "crop": "none",
+        "crop": crop_capability,
         "tableCellText": False,
         "frame": frame_writable,
         "delete": False,
         "imageSource": image_source_writable,
     }
+
+
+def imported_image_crop_capability(
+    element_type: str,
+    source: dict[str, Any],
+    shape: ET.Element[Any] | None,
+) -> str:
+    if (
+        element_type != "image"
+        or shape is None
+        or not bool(source.get("writable", False))
+        or source.get("fallbackReason")
+    ):
+        return "none"
+    return image_crop_capability_for_shape(shape, source)
 
 
 def apply_patch_operations_to_package(
@@ -717,9 +737,12 @@ def add_element_has_unsupported_props(element: dict[str, Any]) -> bool:
             or bool(set(props) - {"fill", "stroke", "strokeWidth", "borderRadius"})
         )
     if element_type == "image":
+        crop = props.get("crop")
         return (
-            set(props) - {"src", "alt", "fit", "focusX", "focusY"} != set()
-            or props.get("fit", "stretch") != "stretch"
+            set(props) - {"src", "alt", "fit", "focusX", "focusY", "crop"}
+            != set()
+            or ("crop" in props and normalized_image_crop(crop) is None)
+            or props.get("fit", "contain") != "contain"
             or float(props.get("focusX", 0.5)) != 0.5
             or float(props.get("focusY", 0.5)) != 0.5
         )
@@ -737,17 +760,52 @@ def validate_source_props_update(
         if element_type != "text" or shape.tag != P_SP:
             return "ELEMENT_TYPE_MISMATCH"
         return None
-    if prop_names == {"src"}:
+    if prop_names and prop_names.issubset({"src", "alt", "crop"}):
         capabilities = dict_value(source, "ooxmlEditCapabilities")
-        if (
-            element_type != "image"
-            or shape.tag != P_PIC
+        if element_type != "image":
+            return "ELEMENT_TYPE_MISMATCH"
+        if {"src", "alt"}.intersection(prop_names) and (
+            shape.tag != P_PIC
             or source.get("ooxmlOrigin") == "imported"
             and not capabilities.get("imageSource")
         ):
             return "ELEMENT_TYPE_MISMATCH"
+        if "crop" in props:
+            crop = props.get("crop")
+            if crop is not None and normalized_image_crop(crop) is None:
+                return "PROPS_FIELDS_UNSUPPORTED"
+            capability = capabilities.get("crop")
+            expected_capability = image_crop_capability_for_shape(shape, source)
+            if capability != expected_capability or capability == "none":
+                return "CROP_CAPABILITY_UNSAFE"
         return None
     return "PROPS_FIELDS_UNSUPPORTED"
+
+
+def normalized_image_crop(value: Any) -> dict[str, float] | None:
+    if not isinstance(value, dict) or set(value) - {
+        "left",
+        "top",
+        "right",
+        "bottom",
+    }:
+        return None
+    crop: dict[str, float] = {}
+    for edge in ("left", "top", "right", "bottom"):
+        raw_value = value.get(edge, 0)
+        if (
+            not isinstance(raw_value, (int, float))
+            or isinstance(raw_value, bool)
+            or not math.isfinite(float(raw_value))
+            or not 0 <= float(raw_value) <= 1
+        ):
+            return None
+        crop[edge] = float(raw_value)
+    if crop["left"] + crop["right"] >= 1:
+        return None
+    if crop["top"] + crop["bottom"] >= 1:
+        return None
+    return crop
 
 
 def operation_element_id(operation: dict[str, Any]) -> str:
@@ -808,6 +866,48 @@ def find_shape_by_id(
     return None, None
 
 
+def direct_image_blip_fill(shape: ET.Element[Any] | None) -> ET.Element[Any] | None:
+    if shape is None:
+        return None
+    if shape.tag == P_PIC:
+        return first_local_child(shape, "blipFill")
+    if shape.tag == P_SP:
+        shape_properties = first_local_child(shape, "spPr")
+        if shape_properties is not None:
+            return first_local_child(shape_properties, "blipFill")
+    return None
+
+
+def direct_image_blip(
+    shape: ET.Element[Any] | None,
+    source: dict[str, Any],
+) -> ET.Element[Any] | None:
+    blip_fill = direct_image_blip_fill(shape)
+    if blip_fill is None:
+        return None
+    blip = first_local_child(blip_fill, "blip")
+    expected_relationship_id = str(source.get("relationshipId", ""))
+    current_relationship_id = (
+        str(blip.get(f"{{{REL_NS}}}embed", "")) if blip is not None else ""
+    )
+    if not expected_relationship_id or current_relationship_id != expected_relationship_id:
+        return None
+    return blip
+
+
+def image_crop_capability_for_shape(
+    shape: ET.Element[Any],
+    source: dict[str, Any],
+) -> str:
+    if direct_image_blip(shape, source) is None:
+        return "none"
+    if shape.tag == P_PIC:
+        return "picture"
+    if shape.tag == P_SP:
+        return "picture-fill"
+    return "none"
+
+
 def has_group_shape_ancestor(
     root: ET.Element[Any], shape: ET.Element[Any]
 ) -> bool:
@@ -832,6 +932,7 @@ def update_shape_props(
     warnings: list[str],
     element_id: str,
 ) -> bool:
+    changed = False
     if "text" in props:
         replace_shape_text(shape, str(props.get("text") or ""))
         return True
@@ -859,6 +960,15 @@ def update_shape_props(
             return False
         source["relationshipId"] = relationship_id
         updated_sources[source_key] = dict(source)
+        changed = True
+    if "crop" in props:
+        crop_value = props.get("crop")
+        crop = normalized_image_crop(crop_value) if crop_value is not None else None
+        if not set_picture_crop_source_rect(shape, crop):
+            warnings.append(f"OOXML image crop target missing for {element_id}.")
+            return False
+        changed = True
+    if changed:
         return True
     warnings.append(f"OOXML prop sync skipped for {element_id}.")
     return False
@@ -1168,6 +1278,7 @@ def add_element_to_slide_xml(
             element,
             relationship_id,
             scale,
+            image_dimensions(image_blob),
         )
         source_type = "image"
     else:
@@ -1187,7 +1298,7 @@ def add_element_to_slide_xml(
         "ooxmlOrigin": "authored",
         "ooxmlEditCapabilities": {
             "richText": "none",
-            "crop": "none",
+            "crop": "picture" if element_type == "image" else "none",
             "tableCellText": False,
             "frame": True,
             "delete": True,
@@ -1248,6 +1359,7 @@ def picture_shape_element(
     element: dict[str, Any],
     relationship_id: str,
     scale: PackageFrameScale,
+    image_size: tuple[int, int] | None,
 ) -> ET.Element[Any]:
     picture = ET.Element(P_PIC)
     nv_pic_pr = ET.SubElement(picture, f"{{{PML_NS}}}nvPicPr")
@@ -1268,11 +1380,134 @@ def picture_shape_element(
     ET.SubElement(stretch, f"{{{DML_NS}}}fillRect")
     sp_pr = ET.SubElement(picture, f"{{{PML_NS}}}spPr")
     update_shape_frame(picture, element, scale)
+    frame_size = picture_frame_size(picture)
+    if image_size is not None and frame_size is not None:
+        set_picture_contain_source_rect(picture, image_size, frame_size)
+    crop = normalized_image_crop(dict_value(element, "props").get("crop"))
+    if crop is not None:
+        set_picture_crop_source_rect(picture, crop)
     ET.SubElement(
         ET.SubElement(sp_pr, f"{{{DML_NS}}}prstGeom", {"prst": "rect"}),
         f"{{{DML_NS}}}avLst",
     )
     return picture
+
+
+def image_dimensions(image_blob: bytes) -> tuple[int, int] | None:
+    try:
+        with Image.open(BytesIO(image_blob)) as image:
+            width, height = image.size
+    except (OSError, SyntaxError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return int(width), int(height)
+
+
+def picture_frame_size(shape: ET.Element[Any]) -> tuple[int, int] | None:
+    xfrm = first_local_descendant(shape, "xfrm")
+    if xfrm is None:
+        return None
+    ext = first_local_child(xfrm, "ext")
+    if ext is None:
+        return None
+    width = int_value(ext.get("cx"), 0)
+    height = int_value(ext.get("cy"), 0)
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def set_picture_crop_source_rect(
+    shape: ET.Element[Any],
+    crop: dict[str, float] | None,
+) -> bool:
+    blip_fill = direct_image_blip_fill(shape)
+    if blip_fill is None:
+        return False
+    children = list(blip_fill)
+    blip_index = next(
+        (
+            index
+            for index, child in enumerate(children)
+            if local_name(child) == "blip"
+        ),
+        -1,
+    )
+    if blip_index < 0:
+        return False
+    for child in children:
+        if local_name(child) == "srcRect":
+            blip_fill.remove(child)
+    if crop is None:
+        return True
+
+    blip_fill.insert(
+        blip_index + 1,
+        ET.Element(
+            f"{{{DML_NS}}}srcRect",
+            crop_source_rect_attributes(crop),
+        ),
+    )
+    return True
+
+
+def crop_source_rect_attributes(crop: dict[str, float]) -> dict[str, str]:
+    values = {
+        edge: max(0, min(99_999, round(crop[name] * 100_000)))
+        for edge, name in (
+            ("l", "left"),
+            ("t", "top"),
+            ("r", "right"),
+            ("b", "bottom"),
+        )
+    }
+    for first, second in (("l", "r"), ("t", "b")):
+        overflow = values[first] + values[second] - 99_999
+        if overflow > 0:
+            reduction = min(values[second], overflow)
+            values[second] -= reduction
+            values[first] -= overflow - reduction
+    return {edge: str(values[edge]) for edge in ("l", "t", "r", "b")}
+
+
+def set_picture_contain_source_rect(
+    picture: ET.Element[Any],
+    image_size: tuple[int, int],
+    frame_size: tuple[int, int],
+) -> None:
+    blip_fill = direct_image_blip_fill(picture)
+    if blip_fill is None:
+        return
+
+    image_width, image_height = image_size
+    frame_width, frame_height = frame_size
+    image_ratio = image_width / image_height
+    frame_ratio = frame_width / frame_height
+    attributes: dict[str, str] = {}
+    if not math.isclose(image_ratio, frame_ratio, rel_tol=1e-6, abs_tol=1e-9):
+        if image_ratio > frame_ratio:
+            edge = -round((image_ratio / frame_ratio - 1) * 50_000)
+            attributes = {"t": str(edge), "b": str(edge)}
+        else:
+            edge = -round((frame_ratio / image_ratio - 1) * 50_000)
+            attributes = {"l": str(edge), "r": str(edge)}
+    if not attributes:
+        return
+
+    children = list(blip_fill)
+    blip_index = next(
+        (
+            index
+            for index, child in enumerate(children)
+            if local_name(child) == "blip"
+        ),
+        -1,
+    )
+    blip_fill.insert(
+        blip_index + 1,
+        ET.Element(f"{{{DML_NS}}}srcRect", attributes),
+    )
 
 
 def valid_hex_color(value: str) -> bool:

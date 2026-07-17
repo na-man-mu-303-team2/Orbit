@@ -950,7 +950,9 @@ OOXML provenance와 요소 편집 capability는 다음 계약을 사용한다.
 - `tableCellText`는 필수 boolean이고 `frame`, `delete`, `imageSource`는 optional boolean이다. 필드가 없거나 `false`이면 해당 targeted sync를 지원한다고 추정하지 않는다.
 - import 시 slide와 element source에 provenance를 기록하고, Deck element에도 동일 capability를 복사한다. source가 중복 shape를 가리키거나 group 내부이거나 writable하지 않으면 frame capability는 `false`다.
 - 새 요소·새 슬라이드·복제본은 `authored`로 전환하며 원본 imported capability를 승계하지 않는다.
-- Crop, Rich text, Table, Motion capability는 각 보존 serializer가 병합되기 전까지 보수적으로 비활성화한다.
+- Crop capability는 relationship이 일치하는 direct `p:pic`을 `picture`, direct picture-filled `p:sp`를 `picture-fill`로 판정한다. capability와 실제 shape locator가 일치할 때만 normalized crop을 OOXML `srcRect`에 기록하고 `null`은 기존 `srcRect`를 제거한다. 새로 작성한 image는 `picture` capability를 갖는다.
+- generic exporter와 OOXML sync는 동일한 normalized crop edge와 최소 가시 영역 규칙을 사용한다. imported image의 locator 또는 capability가 불완전하면 원본 package를 유지하고 fail-closed 처리한다.
+- Rich text, Table, Motion capability는 각 보존 serializer가 병합되기 전까지 보수적으로 비활성화한다.
 
 구현 위치:
 
@@ -1008,6 +1010,7 @@ Supported first-pass patch operations:
 Python Worker의 sync 응답은 bounded array인 `appliedOperations`와 `unsupportedOperations`를 함께 반환한다. 각 항목은 `operationType`, optional `slideId`/`elementId`를 사용하고 unsupported 항목은 다음 bounded `reasonCode` 중 하나를 포함한다.
 
 - `ADD_ELEMENT_FAILED`, `ADD_ELEMENT_TYPE_UNSUPPORTED`
+- `CROP_CAPABILITY_UNSAFE`
 - `ELEMENT_TYPE_MISMATCH`, `FRAME_FIELDS_UNSUPPORTED`, `GROUPED_FRAME_UNSUPPORTED`
 - `OPERATION_TYPE_UNSUPPORTED`, `PROPS_FIELDS_UNSUPPORTED`, `PROPS_UPDATE_FAILED`
 - `SHAPE_MISSING`, `SLIDE_PART_MISSING`

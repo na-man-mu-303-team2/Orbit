@@ -328,6 +328,82 @@ def test_sync_pptx_ooxml_round_trips_text_and_target_image(
     )
 
 
+def test_sync_pptx_ooxml_round_trips_image_crop_and_rejects_unsafe_capability(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_round_trip_pptx(tmp_path)
+    original_bytes = pptx_path.read_bytes()
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    target = next(
+        element
+        for element in generated.blueprint["slides"][0]["elements"]
+        if element["type"] == "image" and element["props"]["src"] == "asset:image_2"
+    )
+    source = source_for_element(
+        generated.template_blueprint["slides"][0]["elementSources"],
+        target["elementId"],
+    )
+    crop = {"left": 0.2, "top": 0.1, "right": 0.15, "bottom": 0.05}
+    operation = {
+        "type": "update_element_props",
+        "slideId": "slide_import_file_template_1",
+        "elementId": target["elementId"],
+        "props": {"crop": crop},
+    }
+
+    assert source["ooxmlEditCapabilities"]["crop"] == "picture"
+
+    synced = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[operation],
+    )
+    synced_bytes = current_package_bytes(synced.assets)
+
+    assert synced.warnings == []
+    assert len(synced.applied_operations) == 1
+    assert synced.unsupported_operations == []
+    assert picture_crop_rect(synced_bytes, source["shapeId"]) == {
+        "l": "20000",
+        "t": "10000",
+        "r": "15000",
+        "b": "5000",
+    }
+
+    synced_path = tmp_path / "crop-synced.pptx"
+    synced_path.write_bytes(synced_bytes)
+    reimported = generate_pptx_ooxml(synced_path, "file_crop", render=False)
+    reimported_target = next(
+        element
+        for element in reimported.blueprint["slides"][0]["elements"]
+        if element["type"] == "image" and element["props"].get("crop") == crop
+    )
+    assert reimported_target["props"]["crop"] == crop
+
+    unsafe_blueprint = copy.deepcopy(generated.template_blueprint)
+    unsafe_source = source_for_element(
+        unsafe_blueprint["slides"][0]["elementSources"], target["elementId"]
+    )
+    unsafe_source["ooxmlEditCapabilities"]["crop"] = "none"
+    rejected = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=unsafe_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[operation],
+    )
+
+    assert current_package_bytes(rejected.assets) == original_bytes
+    assert rejected.applied_operations == []
+    assert [
+        unsupported.reason_code for unsupported in rejected.unsupported_operations
+    ] == ["CROP_CAPABILITY_UNSAFE"]
+
+
 def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
     tmp_path: Path,
 ) -> None:
@@ -398,6 +474,10 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
         for source in added_sources.values()
     )
     assert added_sources["el_added_image"]["relationshipId"].startswith("rId")
+    assert (
+        added_sources["el_added_image"]["ooxmlEditCapabilities"]["crop"]
+        == "picture"
+    )
 
     added_path = tmp_path / "added.pptx"
     added_path.write_bytes(current_package_bytes(added.assets))
@@ -428,7 +508,13 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
                 "elementId": "el_added_image",
                 "props": {
                     "src": "data:image/png;base64,"
-                    + base64.b64encode(second_image).decode("ascii")
+                    + base64.b64encode(second_image).decode("ascii"),
+                    "crop": {
+                        "left": 0.1,
+                        "top": 0.2,
+                        "right": 0.15,
+                        "bottom": 0.05,
+                    },
                 },
             },
         ],
@@ -451,6 +537,9 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
         "ppt/slides/slide1.xml",
         edited_image_source["relationshipId"],
     ) == second_image
+    assert picture_crop_rect(
+        edited_bytes, added_sources["el_added_image"]["shapeId"]
+    ) == {"l": "10000", "t": "20000", "r": "15000", "b": "5000"}
 
     edited_path = tmp_path / "edited-added.pptx"
     edited_path.write_bytes(edited_bytes)
@@ -896,6 +985,17 @@ def picture_relationship_id(package_bytes: bytes, shape_id: str) -> str:
         blip = next(node for node in picture.iter() if node.tag.endswith("blip"))
         return next(value for key, value in blip.attrib.items() if key.endswith("embed"))
     raise AssertionError(f"picture shape not found: {shape_id}")
+
+
+def picture_crop_rect(package_bytes: bytes, shape_id: str) -> dict[str, str]:
+    root = ET.fromstring(shape_xml(package_bytes, shape_id))
+    source_rect = next(
+        (node for node in root.iter() if node.tag.endswith("srcRect")),
+        None,
+    )
+    if source_rect is None:
+        raise AssertionError(f"picture crop not found: {shape_id}")
+    return dict(source_rect.attrib)
 
 
 def relationship_blob(
