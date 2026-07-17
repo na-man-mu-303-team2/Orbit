@@ -544,6 +544,14 @@ async function startFakePythonWorker() {
     const version = Number(
       body.match(/name="synced_deck_version"\r\n\r\n(\d+)/)?.[1] ?? 0,
     );
+    const operations = JSON.parse(
+      body.match(/name="operations"\r\n\r\n([^\r\n]+)/)?.[1] ?? "[]",
+    ) as Array<{
+      type: string;
+      slideId?: string;
+      elementId?: string;
+      element?: { elementId?: string };
+    }>;
     syncedVersions.push(version);
     response.writeHead(200, { "content-type": "application/json" });
     response.end(
@@ -559,6 +567,12 @@ async function startFakePythonWorker() {
           },
         ],
         elementSources: [],
+        appliedOperations: operations.map((operation) => ({
+          operationType: operation.type,
+          slideId: operation.slideId,
+          elementId: operation.elementId ?? operation.element?.elementId,
+        })),
+        unsupportedOperations: [],
         warnings: [],
       }),
     );

@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import { deckElementIdSchema, deckIdSchema } from "./id.schema";
+import {
+  deckElementTypeSchema,
+  ooxmlElementEditCapabilitiesSchema,
+  ooxmlOriginSchema,
+} from "./slide-object.schema";
 
 export const templateBlueprintIdSchema = z
   .string()
@@ -64,6 +69,9 @@ export const templateSlotSourceSchema = z
 
 export const templateElementSourceSchema = z.object({
   elementId: deckElementIdSchema,
+  elementType: deckElementTypeSchema.optional(),
+  ooxmlOrigin: ooxmlOriginSchema.optional(),
+  ooxmlEditCapabilities: ooxmlElementEditCapabilitiesSchema.optional(),
   slidePart: z.string().min(1),
   shapeId: z.string().min(1),
   relationshipId: z.string().min(1).optional(),
@@ -94,6 +102,11 @@ export const templateBlueprintSlotSchema = z.object({
 export const templateBlueprintSlideSchema = z.object({
   slideIndex: z.number().int().positive(),
   sourceSlideIndex: z.number().int().positive(),
+  sourceSlidePart: z
+    .string()
+    .regex(/^ppt\/slides\/slide[^/]+\.xml$/)
+    .optional(),
+  ooxmlOrigin: ooxmlOriginSchema.optional(),
   cloneSourceSlideIndex: z.number().int().positive().optional(),
   cloneSourceSlidePart: z.string().min(1).optional(),
   slideRole: z.string().trim().min(1).optional(),

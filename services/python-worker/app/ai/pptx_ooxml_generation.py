@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, cast
+from typing import Any, Literal, cast
 from xml.etree import ElementTree as ET
 
 from PIL import Image
@@ -70,6 +70,43 @@ class PptxOoxmlGenerationResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+PptxOoxmlSyncOperationType = Literal[
+    "add_element",
+    "update_element_frame",
+    "update_element_props",
+    "delete_element",
+]
+
+PptxOoxmlUnsupportedReasonCode = Literal[
+    "ADD_ELEMENT_FAILED",
+    "ADD_ELEMENT_TYPE_UNSUPPORTED",
+    "ELEMENT_TYPE_MISMATCH",
+    "FRAME_FIELDS_UNSUPPORTED",
+    "GROUPED_FRAME_UNSUPPORTED",
+    "OPERATION_TYPE_UNSUPPORTED",
+    "PROPS_FIELDS_UNSUPPORTED",
+    "PROPS_UPDATE_FAILED",
+    "SHAPE_MISSING",
+    "SLIDE_PART_MISSING",
+    "SOURCE_MISSING",
+    "SOURCE_NOT_WRITABLE",
+    "SOURCE_PROVENANCE_UNSAFE",
+    "SYNC_RESPONSE_INCOMPLETE",
+]
+
+
+class PptxOoxmlAppliedOperation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    operation_type: PptxOoxmlSyncOperationType = Field(alias="operationType")
+    slide_id: str | None = Field(default=None, alias="slideId")
+    element_id: str | None = Field(default=None, alias="elementId")
+
+
+class PptxOoxmlUnsupportedOperation(PptxOoxmlAppliedOperation):
+    reason_code: PptxOoxmlUnsupportedReasonCode = Field(alias="reasonCode")
+
+
 class PptxOoxmlSyncResult(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -77,6 +114,16 @@ class PptxOoxmlSyncResult(BaseModel):
     element_sources: list[dict[str, Any]] = Field(
         default_factory=list,
         alias="elementSources",
+    )
+    applied_operations: list[PptxOoxmlAppliedOperation] = Field(
+        default_factory=list,
+        max_length=500,
+        alias="appliedOperations",
+    )
+    unsupported_operations: list[PptxOoxmlUnsupportedOperation] = Field(
+        default_factory=list,
+        max_length=500,
+        alias="unsupportedOperations",
     )
     warnings: list[str] = Field(default_factory=list)
 
@@ -126,6 +173,11 @@ def generate_pptx_ooxml(
     )
     warnings = list(imported.warnings)
     package_bytes = path.read_bytes()
+    add_imported_ooxml_capabilities(
+        imported.blueprint,
+        template_blueprint,
+        package_bytes,
+    )
 
     assets = [
         package_asset("current_package", package_bytes, f"{safe_file_stem(path)}.pptx")
@@ -189,13 +241,17 @@ def sync_pptx_ooxml(
         slide_width_emu=max(1, int(presentation.slide_width or 1)),
         slide_height_emu=max(1, int(presentation.slide_height or 1)),
     )
-    package_bytes, patch_warnings, updated_element_sources = (
-        apply_patch_operations_to_package(
-            path.read_bytes(),
-            template_blueprint,
-            operations,
-            scale,
-        )
+    (
+        package_bytes,
+        patch_warnings,
+        updated_element_sources,
+        applied_operations,
+        unsupported_operations,
+    ) = apply_patch_operations_to_package(
+        path.read_bytes(),
+        template_blueprint,
+        operations,
+        scale,
     )
     assets = [
         package_asset("current_package", package_bytes, f"{safe_file_stem(path)}.pptx")
@@ -211,6 +267,8 @@ def sync_pptx_ooxml(
     return PptxOoxmlSyncResult(
         assets=assets,
         elementSources=updated_element_sources,
+        appliedOperations=applied_operations,
+        unsupportedOperations=unsupported_operations,
         warnings=warnings,
     )
 
@@ -250,6 +308,10 @@ def prepare_template_blueprint(
             slide.get("sourceSlideIndex"),
             int_value(slide.get("slideIndex"), 1),
         )
+        slide_part = str(slide.get("sourceSlidePart", "")) or (
+            f"ppt/slides/slide{slide_index}.xml"
+        )
+        slide["sourceSlidePart"] = slide_part
         slide["renderAssetFileId"] = f"asset:slide_render_{slide_index}"
         for slot_index, slot in enumerate(slide.get("slots", []), start=1):
             if not isinstance(slot, dict):
@@ -260,9 +322,133 @@ def prepare_template_blueprint(
                 slot["confidence"] = max(0.65, float(slot.get("confidence", 0)))
             source = slot.setdefault("source", {})
             if isinstance(source, dict):
-                source.setdefault("slidePart", f"ppt/slides/slide{slide_index}.xml")
+                source.setdefault("slidePart", slide_part)
                 source.setdefault("shapeId", str(slot_index))
     return prepared
+
+
+def add_imported_ooxml_capabilities(
+    blueprint: dict[str, Any],
+    template_blueprint: dict[str, Any],
+    package_bytes: bytes,
+) -> None:
+    blueprint_slides = {
+        int_value(slide.get("sourceSlideIndex"), index + 1): slide
+        for index, slide in enumerate(blueprint.get("slides", []))
+        if isinstance(slide, dict)
+    }
+
+    try:
+        package = zipfile.ZipFile(BytesIO(package_bytes), "r")
+    except (OSError, zipfile.BadZipFile):
+        package = None
+
+    try:
+        for index, slide in enumerate(template_blueprint.get("slides", [])):
+            if not isinstance(slide, dict):
+                continue
+            source_slide_index = int_value(
+                slide.get("sourceSlideIndex"),
+                int_value(slide.get("slideIndex"), index + 1),
+            )
+            slide_part = str(slide.get("sourceSlidePart", "")) or (
+                f"ppt/slides/slide{source_slide_index}.xml"
+            )
+            slide["sourceSlidePart"] = slide_part
+            slide["ooxmlOrigin"] = "imported"
+
+            blueprint_slide = blueprint_slides.get(source_slide_index, {})
+            element_types = {
+                str(element.get("elementId", "")): str(element.get("type", ""))
+                for element in blueprint_slide.get("elements", [])
+                if isinstance(element, dict)
+            }
+            element_sources = [
+                source
+                for source in slide.get("elementSources", [])
+                if isinstance(source, dict)
+            ]
+            shape_cohort_sizes: dict[tuple[str, str], int] = {}
+            for source in element_sources:
+                cohort_key = (
+                    str(source.get("slidePart", "")),
+                    str(source.get("shapeId", "")),
+                )
+                if all(cohort_key):
+                    shape_cohort_sizes[cohort_key] = (
+                        shape_cohort_sizes.get(cohort_key, 0) + 1
+                    )
+
+            slide_root = imported_slide_root(package, slide_part)
+            for source in element_sources:
+                element_type = element_types.get(str(source.get("elementId", "")), "")
+                if element_type:
+                    source["elementType"] = element_type
+                source["ooxmlOrigin"] = "imported"
+                source["ooxmlEditCapabilities"] = imported_element_capabilities(
+                    element_type,
+                    source,
+                    slide_root,
+                    shape_cohort_sizes.get(
+                        (
+                            str(source.get("slidePart", "")),
+                            str(source.get("shapeId", "")),
+                        ),
+                        0,
+                    ),
+                )
+    finally:
+        if package is not None:
+            package.close()
+
+
+def imported_slide_root(
+    package: zipfile.ZipFile | None,
+    slide_part: str,
+) -> ET.Element[Any] | None:
+    if package is None or not slide_part:
+        return None
+    try:
+        return ET.fromstring(package.read(slide_part))
+    except (KeyError, ET.ParseError, OSError):
+        return None
+
+
+def imported_element_capabilities(
+    element_type: str,
+    source: dict[str, Any],
+    slide_root: ET.Element[Any] | None,
+    shape_cohort_size: int,
+) -> dict[str, Any]:
+    frame_writable = False
+    image_source_writable = False
+    if (
+        slide_root is not None
+        and bool(source.get("writable", False))
+        and shape_cohort_size == 1
+    ):
+        shape, _parent = find_shape_by_id(
+            slide_root,
+            str(source.get("shapeId", "")),
+        )
+        frame_writable = shape is not None and not has_group_shape_ancestor(
+            slide_root,
+            shape,
+        )
+        image_source_writable = (
+            element_type == "image"
+            and shape is not None
+            and shape.tag == P_PIC
+            and bool(source.get("relationshipId"))
+        )
+    return {
+        "richText": "none",
+        "crop": "none",
+        "tableCellText": False,
+        "frame": frame_writable,
+        "delete": False,
+        "imageSource": image_source_writable,
+    }
 
 
 def apply_patch_operations_to_package(
@@ -270,10 +456,18 @@ def apply_patch_operations_to_package(
     template_blueprint: dict[str, Any],
     operations: list[dict[str, Any]],
     scale: PackageFrameScale,
-) -> tuple[bytes, list[str], list[dict[str, Any]]]:
+) -> tuple[
+    bytes,
+    list[str],
+    list[dict[str, Any]],
+    list[PptxOoxmlAppliedOperation],
+    list[PptxOoxmlUnsupportedOperation],
+]:
     sources = element_source_map(template_blueprint)
     warnings: list[str] = []
     updated_sources: dict[tuple[str, str], dict[str, Any]] = {}
+    applied_operations: list[PptxOoxmlAppliedOperation] = []
+    unsupported_operations: list[PptxOoxmlUnsupportedOperation] = []
 
     with zipfile.ZipFile(BytesIO(package_bytes), "r") as source:
         source_names = set(source.namelist())
@@ -303,7 +497,7 @@ def apply_patch_operations_to_package(
         added_entries: dict[str, bytes] = {}
 
         for operation in operations:
-            apply_sync_operation(
+            reason_code = apply_sync_operation(
                 operation,
                 sources,
                 package_entries,
@@ -312,6 +506,15 @@ def apply_patch_operations_to_package(
                 scale,
                 warnings,
             )
+            if reason_code is None:
+                applied_operations.append(applied_operation(operation))
+            else:
+                unsupported_operations.append(
+                    unsupported_operation(operation, reason_code)
+                )
+
+        if unsupported_operations:
+            return package_bytes, warnings, [], [], unsupported_operations
 
         changed_entries = {
             part: content
@@ -319,11 +522,19 @@ def apply_patch_operations_to_package(
             if part not in source_names or content != source.read(part)
         }
         if not changed_entries and not added_entries:
-            return package_bytes, warnings, list(updated_sources.values())
+            return (
+                package_bytes,
+                warnings,
+                list(updated_sources.values()),
+                applied_operations,
+                unsupported_operations,
+            )
         return (
             rewrite_zip(source, changed_entries, added_entries),
             warnings,
             list(updated_sources.values()),
+            applied_operations,
+            unsupported_operations,
         )
 
 
@@ -335,87 +546,238 @@ def apply_sync_operation(
     updated_sources: dict[tuple[str, str], dict[str, Any]],
     scale: PackageFrameScale,
     warnings: list[str],
-) -> None:
+) -> PptxOoxmlUnsupportedReasonCode | None:
     operation_type = str(operation.get("type", ""))
-    element_id = str(operation.get("elementId", ""))
+    element_id = operation_element_id(operation)
     operation_slide_part = slide_part_for_operation(operation)
 
     if operation_type == "add_element":
         element = operation.get("element")
-        if isinstance(element, dict):
-            added_source = add_element_to_slide_xml(
-                operation,
-                element,
-                package_entries,
-                added_entries,
-                scale,
-                warnings,
-            )
-            if added_source is not None:
-                added_key = (
-                    str(added_source["slidePart"]),
-                    str(added_source["elementId"]),
-                )
-                sources[added_key] = added_source
-                updated_sources[added_key] = added_source
-        return
+        if not isinstance(element, dict):
+            return "ADD_ELEMENT_FAILED"
+        if not operation_slide_part or operation_slide_part not in package_entries:
+            return "SLIDE_PART_MISSING"
+        if str(element.get("type", "")) not in {"text", "rect", "image"}:
+            return "ADD_ELEMENT_TYPE_UNSUPPORTED"
+        if add_element_has_unsupported_props(element):
+            return "PROPS_FIELDS_UNSUPPORTED"
+        added_source = add_element_to_slide_xml(
+            operation,
+            element,
+            package_entries,
+            added_entries,
+            scale,
+            warnings,
+        )
+        if added_source is None:
+            return "ADD_ELEMENT_FAILED"
+        added_key = (
+            str(added_source["slidePart"]),
+            str(added_source["elementId"]),
+        )
+        sources[added_key] = added_source
+        updated_sources[added_key] = added_source
+        return None
 
     source_key = (operation_slide_part, element_id)
     source = sources.get(source_key)
     if not source:
         warnings.append(f"OOXML source missing for {element_id}.")
-        return
+        return "SOURCE_MISSING"
     if not bool(source.get("writable", False)):
         warnings.append(f"OOXML source is locked for {element_id}.")
-        return
+        return "SOURCE_NOT_WRITABLE"
+    if source.get("ooxmlOrigin") not in {"imported", "authored"}:
+        warnings.append(f"OOXML source provenance is unsafe for {element_id}.")
+        return "SOURCE_PROVENANCE_UNSAFE"
 
     slide_part = str(source.get("slidePart", ""))
     slide_xml = package_entries.get(slide_part)
     if slide_xml is None:
         warnings.append(f"OOXML slide part missing for {element_id}.")
-        return
+        return "SLIDE_PART_MISSING"
 
     root = ET.fromstring(slide_xml)
     shape, parent = find_shape_by_id(root, str(source.get("shapeId", "")))
     if shape is None:
         warnings.append(f"OOXML shape missing for {element_id}.")
-        return
+        return "SHAPE_MISSING"
 
     shape_changed = False
     if operation_type == "update_element_props":
         props = operation.get("props")
-        if isinstance(props, dict):
-            shape_changed = update_shape_props(
-                shape,
-                props,
-                source,
-                slide_part,
-                package_entries,
-                added_entries,
-                updated_sources,
-                source_key,
-                warnings,
-                element_id,
-            )
+        if not isinstance(props, dict) or not props:
+            return "PROPS_FIELDS_UNSUPPORTED"
+        props_reason = validate_source_props_update(source, shape, props)
+        if props_reason is not None:
+            return props_reason
+        shape_changed = update_shape_props(
+            shape,
+            props,
+            source,
+            slide_part,
+            package_entries,
+            added_entries,
+            updated_sources,
+            source_key,
+            warnings,
+            element_id,
+        )
+        if not shape_changed:
+            return "PROPS_UPDATE_FAILED"
     elif operation_type == "update_element_frame":
         frame = operation.get("frame")
-        if isinstance(frame, dict):
-            if has_group_shape_ancestor(root, shape):
-                warnings.append(
-                    f"OOXML grouped frame sync skipped for {element_id}."
-                )
-            else:
-                update_shape_frame(shape, frame, scale)
-                shape_changed = True
-            if "zIndex" in frame:
-                warnings.append(f"OOXML zIndex sync skipped for {element_id}.")
-    elif operation_type == "delete_element":
-        if parent is not None:
-            parent.remove(shape)
+        if not isinstance(frame, dict) or not frame:
+            return "FRAME_FIELDS_UNSUPPORTED"
+        if set(frame) - {
+            "role",
+            "x",
+            "y",
+            "width",
+            "height",
+            "rotation",
+            "opacity",
+            "zIndex",
+            "locked",
+            "visible",
+        }:
+            return "FRAME_FIELDS_UNSUPPORTED"
+        if float(frame.get("opacity", 1)) != 1 or not bool(
+            frame.get("visible", True)
+        ):
+            return "FRAME_FIELDS_UNSUPPORTED"
+        geometry_fields = set(frame) & {"x", "y", "width", "height", "rotation"}
+        if geometry_fields and has_group_shape_ancestor(root, shape):
+            warnings.append(f"OOXML grouped frame sync skipped for {element_id}.")
+            return "GROUPED_FRAME_UNSUPPORTED"
+        capabilities = dict_value(source, "ooxmlEditCapabilities")
+        if source.get("ooxmlOrigin") == "imported" and not capabilities.get("frame"):
+            return "FRAME_FIELDS_UNSUPPORTED"
+        if geometry_fields:
+            update_shape_frame(shape, frame, scale)
             shape_changed = True
+        if "zIndex" in frame:
+            if parent is None or not reorder_visual_shape(
+                parent,
+                shape,
+                frame["zIndex"],
+            ):
+                return "FRAME_FIELDS_UNSUPPORTED"
+            shape_changed = True
+    elif operation_type == "delete_element":
+        capabilities = dict_value(source, "ooxmlEditCapabilities")
+        if source.get("ooxmlOrigin") == "imported" and not capabilities.get("delete"):
+            return "PROPS_FIELDS_UNSUPPORTED"
+        if parent is None:
+            return "SHAPE_MISSING"
+        parent.remove(shape)
+        shape_changed = True
+    else:
+        return "OPERATION_TYPE_UNSUPPORTED"
 
     if shape_changed:
         package_entries[slide_part] = xml_bytes(root)
+    return None
+
+
+def add_element_has_unsupported_props(element: dict[str, Any]) -> bool:
+    props = dict_value(element, "props")
+    element_type = str(element.get("type", ""))
+    if (
+        float(element.get("opacity", 1)) != 1
+        or bool(element.get("locked", False))
+        or not bool(element.get("visible", True))
+        or float(element.get("rotation", 0)) != 0
+    ):
+        return True
+    if element_type == "text":
+        return set(props) - {
+            "text",
+            "fontSize",
+            "fontWeight",
+            "align",
+            "verticalAlign",
+            "lineHeight",
+        } != set() or any(
+            (
+                props.get("fontSize", 24) != 24,
+                props.get("fontWeight", "normal") != "normal",
+                props.get("align", "left") != "left",
+                props.get("verticalAlign", "top") != "top",
+                props.get("lineHeight", 1.2) != 1.2,
+            )
+        )
+    if element_type == "rect":
+        fill = props.get("fill", "transparent")
+        return (
+            not (fill == "transparent" or isinstance(fill, str) and valid_hex_color(fill))
+            or props.get("stroke", "transparent") != "transparent"
+            or float(props.get("strokeWidth", 0)) != 0
+            or float(props.get("borderRadius", 0)) != 0
+            or bool(set(props) - {"fill", "stroke", "strokeWidth", "borderRadius"})
+        )
+    if element_type == "image":
+        return (
+            set(props) - {"src", "alt", "fit", "focusX", "focusY"} != set()
+            or props.get("fit", "stretch") != "stretch"
+            or float(props.get("focusX", 0.5)) != 0.5
+            or float(props.get("focusY", 0.5)) != 0.5
+        )
+    return True
+
+
+def validate_source_props_update(
+    source: dict[str, Any],
+    shape: ET.Element[Any],
+    props: dict[str, Any],
+) -> PptxOoxmlUnsupportedReasonCode | None:
+    prop_names = set(props)
+    element_type = str(source.get("elementType", ""))
+    if prop_names == {"text"}:
+        if element_type != "text" or shape.tag != P_SP:
+            return "ELEMENT_TYPE_MISMATCH"
+        return None
+    if prop_names == {"src"}:
+        capabilities = dict_value(source, "ooxmlEditCapabilities")
+        if (
+            element_type != "image"
+            or shape.tag != P_PIC
+            or source.get("ooxmlOrigin") == "imported"
+            and not capabilities.get("imageSource")
+        ):
+            return "ELEMENT_TYPE_MISMATCH"
+        return None
+    return "PROPS_FIELDS_UNSUPPORTED"
+
+
+def operation_element_id(operation: dict[str, Any]) -> str:
+    element_id = operation.get("elementId")
+    if isinstance(element_id, str):
+        return element_id
+    element = operation.get("element")
+    if isinstance(element, dict) and isinstance(element.get("elementId"), str):
+        return str(element["elementId"])
+    return ""
+
+
+def applied_operation(operation: dict[str, Any]) -> PptxOoxmlAppliedOperation:
+    return PptxOoxmlAppliedOperation(
+        operationType=cast(PptxOoxmlSyncOperationType, operation.get("type")),
+        slideId=str(operation.get("slideId", "")) or None,
+        elementId=operation_element_id(operation) or None,
+    )
+
+
+def unsupported_operation(
+    operation: dict[str, Any],
+    reason_code: PptxOoxmlUnsupportedReasonCode,
+) -> PptxOoxmlUnsupportedOperation:
+    return PptxOoxmlUnsupportedOperation(
+        operationType=cast(PptxOoxmlSyncOperationType, operation.get("type")),
+        slideId=str(operation.get("slideId", "")) or None,
+        elementId=operation_element_id(operation) or None,
+        reasonCode=reason_code,
+    )
 
 
 def element_source_map(
@@ -637,13 +999,103 @@ def update_shape_frame(
     ext = first_local_child(xfrm, "ext")
     if ext is None:
         ext = ET.SubElement(xfrm, f"{{{DML_NS}}}ext")
-    x, y, width, height = frame_to_emu(frame, scale)
-    off.set("x", str(x))
-    off.set("y", str(y))
-    ext.set("cx", str(width))
-    ext.set("cy", str(height))
+    if "x" in frame:
+        off.set(
+            "x",
+            str(round(float(frame["x"]) * scale.slide_width_emu / scale.canvas_width)),
+        )
+    if "y" in frame:
+        off.set(
+            "y",
+            str(round(float(frame["y"]) * scale.slide_height_emu / scale.canvas_height)),
+        )
+    if "width" in frame:
+        ext.set(
+            "cx",
+            str(
+                max(
+                    1,
+                    round(
+                        float(frame["width"])
+                        * scale.slide_width_emu
+                        / scale.canvas_width
+                    ),
+                )
+            ),
+        )
+    if "height" in frame:
+        ext.set(
+            "cy",
+            str(
+                max(
+                    1,
+                    round(
+                        float(frame["height"])
+                        * scale.slide_height_emu
+                        / scale.canvas_height
+                    ),
+                )
+            ),
+        )
     if "rotation" in frame:
         xfrm.set("rot", str(round(float(frame["rotation"]) * 60000)))
+
+
+VISUAL_SHAPE_NAMES = {"cxnSp", "graphicFrame", "grpSp", "pic", "sp"}
+
+
+def reorder_visual_shape(
+    parent: ET.Element[Any],
+    shape: ET.Element[Any],
+    z_index_value: Any,
+) -> bool:
+    visual_children = [
+        child for child in list(parent) if local_name(child) in VISUAL_SHAPE_NAMES
+    ]
+    if shape not in visual_children:
+        return False
+    target_index = normalized_z_index(z_index_value, len(visual_children))
+    if target_index is None:
+        return False
+    current_index = visual_children.index(shape)
+    if current_index == target_index:
+        return True
+
+    parent.remove(shape)
+    remaining = [child for child in visual_children if child is not shape]
+    if target_index >= len(remaining):
+        insert_at = visual_insert_end_index(parent)
+    else:
+        insert_at = list(parent).index(remaining[target_index])
+    parent.insert(insert_at, shape)
+    return True
+
+
+def normalized_z_index(value: Any, item_count: int) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return None
+    return max(0, min(int(numeric), max(0, item_count - 1)))
+
+
+def visual_insert_end_index(parent: ET.Element[Any]) -> int:
+    children = list(parent)
+    visual_indexes = [
+        index
+        for index, child in enumerate(children)
+        if local_name(child) in VISUAL_SHAPE_NAMES
+    ]
+    if visual_indexes:
+        return visual_indexes[-1] + 1
+    for index, child in enumerate(children):
+        if local_name(child) == "extLst":
+            return index
+    return len(children)
 
 
 def add_element_to_slide_xml(
@@ -731,6 +1183,16 @@ def add_element_to_slide_xml(
 
     source: dict[str, Any] = {
         "elementId": element_id,
+        "elementType": element_type,
+        "ooxmlOrigin": "authored",
+        "ooxmlEditCapabilities": {
+            "richText": "none",
+            "crop": "none",
+            "tableCellText": False,
+            "frame": True,
+            "delete": True,
+            "imageSource": element_type == "image",
+        },
         "slidePart": slide_part,
         "shapeId": str(next_shape_id),
         "sourceType": source_type,

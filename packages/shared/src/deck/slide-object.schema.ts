@@ -38,8 +38,33 @@ export const deckElementRoleSchema = z.enum([
 export const deckElementCoordinateSchema = z.number().finite().nonnegative();
 export const deckElementSizeSchema = z.number().finite().positive();
 
+export const ooxmlOriginSchema = z.enum(["imported", "authored"]);
+
+export const ooxmlRichTextEditCapabilitySchema = z.enum([
+  "none",
+  "style-only",
+  "full"
+]);
+
+export const ooxmlCropEditCapabilitySchema = z.enum([
+  "none",
+  "picture",
+  "picture-fill"
+]);
+
+export const ooxmlElementEditCapabilitiesSchema = z.object({
+  richText: ooxmlRichTextEditCapabilitySchema,
+  crop: ooxmlCropEditCapabilitySchema,
+  tableCellText: z.boolean(),
+  frame: z.boolean().optional(),
+  delete: z.boolean().optional(),
+  imageSource: z.boolean().optional()
+});
+
 export const deckElementBaseSchema = z.object({
   elementId: deckElementIdSchema,
+  ooxmlOrigin: ooxmlOriginSchema.optional(),
+  ooxmlEditCapabilities: ooxmlElementEditCapabilitiesSchema.optional(),
   role: deckElementRoleSchema.optional(),
   x: deckElementCoordinateSchema,
   y: deckElementCoordinateSchema,

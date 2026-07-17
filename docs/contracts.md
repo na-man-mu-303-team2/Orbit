@@ -933,7 +933,8 @@ TemplateBlueprint optional OOXML tracking fields:
 - `slides[].renderAssetFileId`
 - `slides[].fallbackRenderAssetFileId`
 - `slides[].elementSources[]`
-- `slides[].elementSources[]`: `{ elementId, slidePart, shapeId, relationshipId?, sourceType, writable, fallbackReason? }`
+- `slides[].sourceSlidePart`, `slides[].ooxmlOrigin`
+- `slides[].elementSources[]`: `{ elementId, elementType?, ooxmlOrigin?, ooxmlEditCapabilities?, slidePart, shapeId, relationshipId?, sourceType, writable, fallbackReason? }`
 - `slots[].source.slidePart`
 - `slots[].source.shapeId`
 - `slots[].source.relationshipId`
@@ -941,6 +942,15 @@ TemplateBlueprint optional OOXML tracking fields:
 `templateBlueprintSchema`, `templateBlueprintIdSchema`, `template_blueprints` 테이블은 PPTX OOXML generation/sync/export round-trip 전용 계약으로 유지한다. 일반 AI GenerateDeck call graph는 이 schema, 테이블, importer를 참조하지 않는다.
 
 `sourcePackageFileId`는 업로드한 불변 원본 asset을 가리킨다. `currentPackageFileId`는 import 시 별도 `design-asset`으로 저장한 writable package를 가리키며, 이후 OOXML sync와 imported Deck export의 기준이다. 초기 import 결과에서는 `sourceFileId === sourcePackageFileId`이고 `currentPackageFileId`는 원본과 구분되는 저장 asset ID여야 한다. slide의 `renderAssetFileId`도 저장된 `design-asset` ID다.
+
+OOXML provenance와 요소 편집 capability는 다음 계약을 사용한다.
+
+- `ooxmlOrigin`은 `imported` 또는 `authored`이며 기존 Deck JSON과의 호환을 위해 optional이다.
+- `ooxmlEditCapabilities.richText`는 `none`, `style-only`, `full`, `crop`은 `none`, `picture`, `picture-fill`만 허용한다.
+- `tableCellText`는 필수 boolean이고 `frame`, `delete`, `imageSource`는 optional boolean이다. 필드가 없거나 `false`이면 해당 targeted sync를 지원한다고 추정하지 않는다.
+- import 시 slide와 element source에 provenance를 기록하고, Deck element에도 동일 capability를 복사한다. source가 중복 shape를 가리키거나 group 내부이거나 writable하지 않으면 frame capability는 `false`다.
+- 새 요소·새 슬라이드·복제본은 `authored`로 전환하며 원본 imported capability를 승계하지 않는다.
+- Crop, Rich text, Table, Motion capability는 각 보존 serializer가 병합되기 전까지 보수적으로 비활성화한다.
 
 구현 위치:
 
@@ -995,7 +1005,18 @@ Supported first-pass patch operations:
 - `add_element`
 - `delete_element`
 
-`zIndex` sync can warn without reverting the saved `DeckPatch`.
+Python Worker의 sync 응답은 bounded array인 `appliedOperations`와 `unsupportedOperations`를 함께 반환한다. 각 항목은 `operationType`, optional `slideId`/`elementId`를 사용하고 unsupported 항목은 다음 bounded `reasonCode` 중 하나를 포함한다.
+
+- `ADD_ELEMENT_FAILED`, `ADD_ELEMENT_TYPE_UNSUPPORTED`
+- `ELEMENT_TYPE_MISMATCH`, `FRAME_FIELDS_UNSUPPORTED`, `GROUPED_FRAME_UNSUPPORTED`
+- `OPERATION_TYPE_UNSUPPORTED`, `PROPS_FIELDS_UNSUPPORTED`, `PROPS_UPDATE_FAILED`
+- `SHAPE_MISSING`, `SLIDE_PART_MISSING`
+- `SOURCE_MISSING`, `SOURCE_NOT_WRITABLE`, `SOURCE_PROVENANCE_UNSAFE`
+- `SYNC_RESPONSE_INCOMPLETE`
+
+Worker는 전송한 operation과 `appliedOperations`의 순서·type·slide·element identity가 정확히 일치하는지 검증한다. 하나라도 unsupported이거나 응답 승인이 누락·추가·재정렬되면 non-retryable `PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION`으로 실패한다. 이때 새 asset을 저장하지 않고 `currentPackageFileId`, `ooxmlSyncedDeckVersion`, patch compaction을 변경하지 않는다. Python도 요청 안의 operation 하나라도 적용할 수 없으면 원본 package bytes를 반환하고 해당 요청의 applied 목록을 비운다.
+
+speaker notes, keywords, semantic cues, slide action처럼 package visual tree를 바꾸지 않는 operation은 package-neutral로 취급한다. 그 외 아직 지원하지 않는 slide/theme/animation operation은 Python 호출 전에 같은 fail-closed 오류로 거부한다. 단순 fidelity warning은 사용자 변경이 실제로 적용된 경우에만 성공 응답과 함께 반환할 수 있다.
 
 동시성·최신성 규칙:
 
@@ -1004,8 +1025,8 @@ Supported first-pass patch operations:
 - `ooxmlSyncedDeckVersion >= deck.version`이면 provider와 asset 저장을 반복하지 않는 idempotent success로 종료한다.
 - TemplateBlueprint update는 현재 저장된 `ooxmlSyncedDeckVersion`보다 높은 결과만 반영한다. 낮은 version의 완료가 최신 `currentPackageFileId`를 덮어쓰지 않는다.
 - 성공한 sync version 이하의 patch만 compact한다.
-- writable text/frame과 image source를 동기화한다. 새로 추가된 text/rect/image 요소는 실제 OOXML `shapeId`와 writable source mapping을 만들고, image에는 relationship과 media part를 함께 생성해 후속 편집도 같은 요소를 갱신한다. 내부 image asset은 같은 project의 uploaded image인지 검증한 뒤 Python worker에 전달하고, Python은 대상 picture relationship과 media part만 교체한다. 지원하지 않는 fallback 요소는 package를 손상시키지 않고 warning으로 보존한다.
-- group 내부 child의 frame은 group-local 좌표 역변환을 지원하기 전까지 변경을 건너뛰고 `OOXML grouped frame sync skipped` warning을 반환하며 원본 package bytes를 보존한다. grouped child의 text/image props 동기화는 계속 허용한다.
+- writable text/frame과 image source를 동기화한다. 새로 추가된 text/rect/image 요소는 실제 OOXML `shapeId`와 writable source mapping을 만들고, image에는 relationship과 media part를 함께 생성해 후속 편집도 같은 요소를 갱신한다. 내부 image asset은 같은 project의 uploaded image인지 검증한 뒤 Python worker에 전달하고, Python은 대상 picture relationship과 media part만 교체한다. 지원하지 않는 fallback 요소는 package를 손상시키지 않고 bounded unsupported reason으로 실패한다.
+- group 내부 child의 frame은 group-local 좌표 역변환을 지원하기 전까지 `GROUPED_FRAME_UNSUPPORTED`로 실패하고 원본 package bytes와 freshness를 보존한다. grouped child의 지원 가능한 text/image props 동기화는 계속 허용한다.
 
 Imported Deck export 규칙:
 

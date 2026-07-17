@@ -313,6 +313,7 @@ def import_pptx_ooxml_visual_tree(
                 {
                     "sourceFileId": file_id,
                     "sourceSlideIndex": slide_index,
+                    "sourceSlidePart": slide_part,
                     "style": imported_slide_style(elements, background),
                     "elements": elements,
                 }
