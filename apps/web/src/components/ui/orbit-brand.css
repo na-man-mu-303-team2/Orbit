@@ -1,7 +1,7 @@
 .redesign-orbit-brand {
   display: inline-flex;
   align-items: center;
-  gap: var(--redesign-space-sm);
+  gap: var(--redesign-space-2);
   color: inherit;
   line-height: 1;
 }
@@ -16,7 +16,7 @@
 
 .redesign-orbit-brand-wordmark {
   font-family: var(--redesign-font-family);
-  font-size: 18px;
+  font-size: var(--redesign-type-title-md-size);
   font-weight: 800;
   letter-spacing: -0.03em;
 }

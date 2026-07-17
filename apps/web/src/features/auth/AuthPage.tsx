@@ -7,7 +7,7 @@ import {
   OrbitField,
   OrbitIconButton,
   OrbitInput
-} from "../../design-system";
+} from "../../components/ui";
 import "../../styles/tokens.css";
 import "./orbit-auth-page.css";
 

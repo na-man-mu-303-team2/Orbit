@@ -19,7 +19,7 @@ import {
   OrbitInput,
   OrbitTabs,
   OrbitTextarea,
-} from "../../design-system";
+} from "../../components/ui";
 import {
   requestStoryPlan,
   requestStoryPlanMutation,

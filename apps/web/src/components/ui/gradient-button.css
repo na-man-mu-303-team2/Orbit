@@ -2,9 +2,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--redesign-space-sm);
-  min-height: 36px;
-  padding: var(--redesign-space-sm) var(--redesign-space-md);
+  gap: var(--redesign-space-2);
+  min-height: var(--redesign-size-control-md);
+  padding: var(--redesign-space-2) var(--redesign-space-4);
   border: 0;
   border-radius: var(--redesign-radius);
   background: linear-gradient(
@@ -19,23 +19,23 @@
   );
   color: var(--redesign-color-on-primary);
   font-family: var(--redesign-font-family);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: var(--redesign-type-label-md-size);
+  font-weight: var(--redesign-type-label-md-weight);
   cursor: pointer;
-  box-shadow: 0 var(--redesign-space-xs) var(--redesign-space-md)
-    color-mix(in srgb, var(--redesign-color-primary) 16%, transparent);
-  transition: box-shadow 180ms ease, filter 180ms ease, transform 180ms ease;
+  box-shadow: var(--redesign-glow-primary);
+  transition: box-shadow var(--redesign-duration-normal) var(--redesign-ease-standard),
+    filter var(--redesign-duration-normal) var(--redesign-ease-standard),
+    transform var(--redesign-duration-normal) var(--redesign-ease-standard);
 }
 
 .redesign-gradient-button-large {
-  min-height: 46px;
-  padding: var(--redesign-space-sm) var(--redesign-space-lg);
-  font-size: 14px;
+  min-height: var(--redesign-size-control-lg);
+  padding: var(--redesign-space-2) var(--redesign-space-6);
+  font-size: var(--redesign-type-label-md-size);
 }
 
 .redesign-gradient-button:hover:not(:disabled) {
-  box-shadow: 0 var(--redesign-space-xs) var(--redesign-space-md)
-    color-mix(in srgb, var(--redesign-color-secondary) 20%, transparent);
+  box-shadow: var(--redesign-glow-secondary);
   filter: saturate(1.03) brightness(1.02);
   transform: translateY(-1px);
 }

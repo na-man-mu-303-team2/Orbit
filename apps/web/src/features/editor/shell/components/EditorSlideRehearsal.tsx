@@ -197,7 +197,7 @@ export function EditorSlideRehearsalRightPanel(
   return (
     <div className="editor-slide-rehearsal-side">
       <section className="editor-slide-rehearsal-summary">
-        <span className="orbit-ds-eyebrow">CURRENT SLIDE</span>
+        <span className="redesign-eyebrow">CURRENT SLIDE</span>
         <strong>
           {props.slide.order}. {props.slide.title || "제목 없는 슬라이드"}
         </strong>

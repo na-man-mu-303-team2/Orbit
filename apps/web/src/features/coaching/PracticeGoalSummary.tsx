@@ -2,7 +2,7 @@ import type { FocusedPracticeAttemptSummary, PracticePlanResponse } from "@orbit
 import { ArrowRight, Check, CheckCircle2, Clock3, MessageCircle, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { OrbitStatus } from "../../design-system";
+import { OrbitStatus } from "../../components/ui";
 import { getFocusedPracticeSummary } from "./focusedPracticeApi";
 import { fetchPracticePlan } from "./practicePlanApi";
 import { practiceGoalCategoryLabel, practiceHistoryLabel } from "./practicePlanViewModel";
@@ -77,7 +77,7 @@ export function PracticeGoalSummary(props: {
     <section className="practice-report-summary" aria-labelledby="practice-report-summary-title">
       <header>
         <div>
-          <p className="orbit-ds-eyebrow">우선 연습 목표</p>
+          <p className="redesign-eyebrow">우선 연습 목표</p>
           <h2 id="practice-report-summary-title">다음 연습에서 먼저 바꿀 것</h2>
         </div>
         <a href={planHref}>
@@ -125,7 +125,7 @@ function PracticeGoalSummaryStateCard(props: { copy: string; href: string; title
     <section className="practice-report-summary practice-report-summary-state" aria-labelledby="practice-report-summary-title">
       <header>
         <div>
-          <p className="orbit-ds-eyebrow">우선 연습 목표</p>
+          <p className="redesign-eyebrow">우선 연습 목표</p>
           <h2 id="practice-report-summary-title">{props.title}</h2>
         </div>
         <a href={props.href}>

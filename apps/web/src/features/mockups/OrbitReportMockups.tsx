@@ -19,7 +19,7 @@ import {
 } from "@tabler/icons-react";
 import { useMemo, useState, type ReactNode } from "react";
 import orbitLogo from "./assets/orbit-logo-selected.png";
-import { OrbitButton, OrbitStatus } from "../../design-system";
+import { OrbitButton, OrbitStatus } from "../../components/ui";
 import "./orbit-report-mockups.css";
 
 type ReportMockupProps = {
@@ -50,7 +50,7 @@ export function OrbitRehearsalCompleteMockup(props: ReportMockupProps) {
       <main className="report-transition-main">
         <section className="report-transition-hero">
           <span className="report-complete-mark"><IconCheck size={34} /></span>
-          <p className="orbit-ds-eyebrow">REHEARSAL COMPLETE</p>
+          <p className="redesign-eyebrow">REHEARSAL COMPLETE</p>
           <h1>리허설을 잘 마쳤어요.</h1>
           <p>방금 연습한 내용을 분석해 다음 발표가 더 좋아질 포인트를 정리했습니다.</p>
           <div className="report-transition-status"><IconSparkles size={17} /><strong>AI 리포트 준비 완료</strong><span>방금</span></div>
@@ -97,7 +97,7 @@ export function OrbitReportListMockup(props: ReportMockupProps) {
       <ReportHeader onNavigate={props.onNavigate} />
       <main className="report-list-main">
         <section className="report-list-heading">
-          <div><p className="orbit-ds-eyebrow">REHEARSAL REPORTS</p><h1>리허설 리포트</h1><p>연습할수록 달라지는 발표 흐름을 한눈에 확인하세요.</p></div>
+          <div><p className="redesign-eyebrow">REHEARSAL REPORTS</p><h1>리허설 리포트</h1><p>연습할수록 달라지는 발표 흐름을 한눈에 확인하세요.</p></div>
           <OrbitButton icon={<IconMicrophone size={18} />} onClick={() => props.onNavigate("/mockup/rehearsal")} variant="secondary">새 리허설</OrbitButton>
         </section>
 
@@ -150,7 +150,7 @@ export function OrbitReportDetailMockup(props: ReportMockupProps) {
         <div className="report-detail-breadcrumb"><button onClick={() => props.onNavigate("/mockup/reports")} type="button"><IconArrowLeft size={18} />리포트 목록</button><span>/</span><strong>4회차</strong></div>
 
         <section className="report-detail-hero">
-          <div><p className="orbit-ds-eyebrow">2026 하반기 제품 전략</p><h1>4회차 리허설 리포트</h1><p><IconCalendar size={16} /> 2026.07.10 10:42 · 발표 시간 04:32</p></div>
+          <div><p className="redesign-eyebrow">2026 하반기 제품 전략</p><h1>4회차 리허설 리포트</h1><p><IconCalendar size={16} /> 2026.07.10 10:42 · 발표 시간 04:32</p></div>
           <div className="report-detail-hero-actions"><button type="button"><IconDownload size={17} />PDF 저장</button><OrbitButton icon={<IconPlayerPlay size={18} />} onClick={() => props.onNavigate("/mockup/rehearsal")}>다시 리허설</OrbitButton></div>
         </section>
 
@@ -210,7 +210,7 @@ function ReportHeader(props: ReportMockupProps) {
     <header className="report-mockup-header">
       <button aria-label="ORBIT 홈" onClick={() => props.onNavigate("/mockup/home")} type="button"><img alt="ORBIT" src={orbitLogo} /></button>
       <nav aria-label="주요 메뉴"><button onClick={() => props.onNavigate("/mockup/home")} type="button">홈</button><button onClick={() => props.onNavigate("/mockup/home")} type="button">프로젝트</button><button onClick={() => props.onNavigate("/mockup/rehearsal")} type="button">리허설</button><button aria-current="page" onClick={() => props.onNavigate("/mockup/reports")} type="button">리포트</button></nav>
-      <div><span className="report-project-label"><IconPresentation size={17} />2026 하반기 제품 전략</span><span className="orbit-ds-avatar">김</span></div>
+      <div><span className="report-project-label"><IconPresentation size={17} />2026 하반기 제품 전략</span><span className="redesign-avatar">김</span></div>
     </header>
   );
 }

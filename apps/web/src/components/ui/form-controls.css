@@ -1,0 +1,27 @@
+.redesign-field { display: grid; gap: var(--redesign-space-2); }
+.redesign-field-label { color: var(--redesign-color-on-surface); font-size: var(--redesign-type-label-md-size); font-weight: var(--redesign-type-label-md-weight); line-height: var(--redesign-type-label-md-line-height); }
+.redesign-field small { color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-label-sm-size); line-height: var(--redesign-type-label-sm-line-height); }
+.redesign-field-invalid small { color: var(--redesign-color-error); }
+
+.redesign-input,
+.redesign-select {
+  background: var(--redesign-color-surface-container-low);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius);
+  color: var(--redesign-color-on-surface);
+  font: inherit;
+  min-height: var(--redesign-size-control-lg);
+  padding-inline: var(--redesign-space-3);
+  transition: var(--redesign-transition-color);
+  width: 100%;
+}
+
+.redesign-input:hover:not(:disabled),
+.redesign-select:hover:not(:disabled) { border-color: var(--redesign-color-outline); }
+.redesign-input:focus-visible,
+.redesign-select:focus-visible { border-color: var(--redesign-color-primary-emphasis); box-shadow: var(--redesign-focus-ring); outline: none; }
+.redesign-input:disabled,
+.redesign-select:disabled { background: var(--redesign-color-disabled-container); color: var(--redesign-color-on-disabled); cursor: not-allowed; }
+.redesign-input[aria-invalid="true"],
+.redesign-select[aria-invalid="true"] { background: var(--redesign-color-error-container); border-color: var(--redesign-color-error); }
+.redesign-textarea { line-height: var(--redesign-type-body-md-line-height); min-height: 112px; padding-block: var(--redesign-space-3); resize: vertical; }

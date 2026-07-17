@@ -5161,7 +5161,7 @@ export function RehearsalFailureScreen(props: {
     <main className="rehearsal-preflight-screen" aria-label="리허설 오류">
       <section className="rehearsal-preflight-card" role="alert">
         <div className="rehearsal-preflight-copy">
-          <span className="orbit-ds-eyebrow">REHEARSAL ERROR</span>
+          <span className="redesign-eyebrow">REHEARSAL ERROR</span>
           <h1>리허설을 시작하지 못했습니다.</h1>
           <p>{props.error}</p>
         </div>

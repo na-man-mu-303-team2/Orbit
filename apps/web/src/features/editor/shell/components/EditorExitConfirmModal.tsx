@@ -1,4 +1,4 @@
-import { OrbitButton, OrbitDialog } from "../../../../design-system";
+import { OrbitButton, OrbitDialog } from "../../../../components/ui";
 
 type EditorExitConfirmModalProps = {
   isSaving: boolean;

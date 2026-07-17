@@ -1,11 +1,9 @@
 # Orbit Web UI Rules
 
-These rules govern the ongoing UI redesign only, built around the
-**Redesign System** described in `apps/web/DESIGN.md`. They describe a new
-set of files to build under the paths below and do not apply to the existing
-`apps/web/src/design-system/` folder (`orbit-design-system.css`, `tokens.ts`,
-`components.tsx`, etc.), which is a separate, currently-shipping design
-system and must not be modified as part of this work.
+These rules govern the integrated **Redesign System** described in
+`apps/web/DESIGN.md`. The legacy `apps/web/src/design-system/` implementation
+has been replaced; product UI must use the canonical tokens and primitives
+listed below instead of introducing a parallel token or component system.
 
 ## UI architecture
 
@@ -18,6 +16,9 @@ system and must not be modified as part of this work.
 ## Styling
 
 - Use CSS variables from `apps/web/src/styles/tokens.css`.
+- Treat `apps/web/src/styles/tokens.css` as the single source of truth for
+  color, typography, spacing, component size, shape, elevation, layering,
+  motion, and responsive reference values.
 - Do not add literal hex colors outside `tokens.css`.
 - Do not add arbitrary spacing values when an existing spacing token fits.
 - Do not add inline styles except for dynamically calculated coordinates.

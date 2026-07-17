@@ -1,21 +1,21 @@
 /*
  * OrbitAppHeader — shared product top bar on the Redesign System
- * (apps/web/DESIGN.md). Scoped with .orbit-app-header-redesign so it wins
- * over the legacy design-system rules in styles.css on every tab.
+ * (apps/web/DESIGN.md). Scoped with .orbit-app-header-redesign to keep the
+ * shared product navigation independent from feature-level layout rules.
  * Consumes --redesign-* variables from src/styles/tokens.css only.
  */
 .orbit-app-header.orbit-app-header-redesign {
-  border-bottom: 1px solid
+  border-bottom: var(--redesign-border-width) solid
     color-mix(in srgb, var(--redesign-color-outline-variant) 72%, transparent);
   background: color-mix(in srgb, var(--redesign-color-surface) 82%, transparent);
   font-family: var(--redesign-font-family);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(var(--redesign-blur-overlay));
+  -webkit-backdrop-filter: blur(var(--redesign-blur-overlay));
 }
 
 .orbit-app-header-redesign .orbit-app-header-inner {
-  height: 64px;
-  max-width: 1200px;
+  height: var(--redesign-size-header);
+  max-width: var(--redesign-layout-max-width);
   padding: 0 var(--redesign-layout-margin);
 }
 
@@ -25,15 +25,15 @@
 
 .orbit-app-header-redesign .orbit-app-header-nav button {
   min-height: 34px;
-  padding: var(--redesign-space-sm) var(--redesign-space-md);
+  padding: var(--redesign-space-2) var(--redesign-space-4);
   border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--redesign-color-on-surface-variant);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--redesign-type-body-sm-size);
   font-weight: 600;
-  transition: color 140ms ease;
+  transition: color var(--redesign-duration-fast) var(--redesign-ease-standard);
 }
 
 .orbit-app-header-redesign .orbit-app-header-nav button:hover {
@@ -53,7 +53,7 @@
   background: var(--redesign-color-surface);
   color: var(--redesign-color-on-surface);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--redesign-type-body-sm-size);
   font-weight: 600;
 }
 
@@ -71,7 +71,7 @@
   border: 0;
   border-radius: var(--redesign-radius-full);
   background: transparent;
-  transition: box-shadow 140ms ease, transform 140ms ease;
+  transition: box-shadow var(--redesign-duration-fast) var(--redesign-ease-standard), transform var(--redesign-duration-fast) var(--redesign-ease-standard);
 }
 
 .orbit-app-header-redesign .orbit-app-header-user:hover {
@@ -90,12 +90,12 @@
   height: 34px;
   background: var(--redesign-color-primary);
   color: var(--redesign-color-on-primary);
-  font-size: 14px;
+  font-size: var(--redesign-type-body-sm-size);
   font-weight: 800;
   box-shadow: var(--redesign-glow-primary);
 }
 
-/* Account dropdown — shared white menu with account context */
+/* Account dropdown — shared var(--redesign-color-light-surface) menu with account context */
 
 .orbit-app-header-redesign .orbit-app-header-account-menu {
   min-width: 232px;

@@ -226,7 +226,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                   role="tabpanel"
                 >
                   <div className="inspector-animation-actions">
-                    <span className="orbit-ds-eyebrow">MOTION</span>
+                    <span className="redesign-eyebrow">MOTION</span>
                     <button
                       aria-label={
                         props.isPlayingAnimations
@@ -266,7 +266,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                   role="tabpanel"
                 >
                   {!isSpecialSlide ? (
-                    <span className="orbit-ds-eyebrow">
+                    <span className="redesign-eyebrow">
                       {hasElementSelection
                         ? "ELEMENT PROPERTIES"
                         : "GLOBAL STYLES"}
