@@ -2569,6 +2569,30 @@
   padding: var(--redesign-space-8) var(--redesign-space-6) var(--redesign-space-7);
 }
 
+.editor-image-transfer-notice {
+  position: sticky;
+  top: var(--redesign-space-2);
+  z-index: 12;
+  width: fit-content;
+  max-width: min(680px, calc(100% - var(--redesign-space-6)));
+  margin: 0 auto var(--redesign-space-3);
+  padding: var(--redesign-space-2) var(--redesign-space-3);
+  border: 1px solid var(--redesign-color-primary-outline);
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-info-container);
+  color: var(--redesign-color-on-info-container);
+  box-shadow: var(--redesign-shadow-raised);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.editor-image-transfer-notice.error {
+  border-color: var(--redesign-color-error);
+  background: var(--redesign-color-error-container);
+  color: var(--redesign-color-on-error-container);
+}
+
 .editor-loading-guard {
   align-items: center;
   background: var(--redesign-color-background);
@@ -2768,6 +2792,35 @@
 
 .orbit-stage-shell {
   overflow: hidden;
+}
+
+.orbit-stage-shell.is-image-drop-target {
+  box-shadow: var(--redesign-shadow-image-drop-target);
+}
+
+.editor-image-drop-overlay {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: var(--redesign-space-2);
+  pointer-events: none;
+  border: 4px dashed color-mix(in srgb, var(--redesign-color-primary) 75%, transparent);
+  background: color-mix(in srgb, var(--redesign-color-primary-subtle) 82%, transparent);
+  color: var(--redesign-color-primary-emphasis);
+  text-align: center;
+}
+
+.editor-image-drop-overlay strong {
+  font-size: clamp(18px, 2vw, 30px);
+  font-weight: 900;
+}
+
+.editor-image-drop-overlay span {
+  font-size: clamp(12px, 1.2vw, 16px);
+  font-weight: 800;
 }
 
 .konva-editor-stage {
