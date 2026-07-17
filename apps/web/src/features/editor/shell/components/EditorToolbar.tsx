@@ -10,7 +10,7 @@ import {
   IconSparkles as Sparkles,
   IconTypography as Type
 } from "@tabler/icons-react";
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 
 import type { InsertTool } from "../editorShellUiStore";
 import { EditorZoomControls } from "./EditorZoomControls";
@@ -20,6 +20,7 @@ type EditorToolbarProps = {
   canZoomOut: boolean;
   canMutate: boolean;
   canUseCurrentSlide: boolean;
+  compactSelectionTrigger?: ReactNode;
   insertTool: InsertTool;
   isAnimationPanelOpen: boolean;
   isImageUploadPending: boolean;
@@ -54,6 +55,7 @@ export function EditorToolbar(props: EditorToolbarProps) {
   return (
     <div className="stage-top-controls">
       {props.canMutate ? <div className="editor-toolbar">
+        {props.compactSelectionTrigger}
         <div className="tool-group">
           <button aria-label="실행 취소" className="icon-button history-nav-button" disabled={props.undoDisabled} title="Undo" type="button" onClick={props.onUndo}>
             <IconArrowLeft className="history-nav-icon" size={20} stroke={2} />

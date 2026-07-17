@@ -172,7 +172,7 @@ export function isEditorKeyboardCommandSuppressedTarget(
 
   if (
     element.closest(
-      "input, textarea, select, dialog, [role='dialog'], [role='menu']",
+      "input, textarea, select, dialog, [role='dialog'], [role='menu'], [data-editor-keyboard-owner]",
     )
   ) {
     return true;

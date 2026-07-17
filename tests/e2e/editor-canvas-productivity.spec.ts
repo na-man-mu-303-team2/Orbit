@@ -386,7 +386,9 @@ test.describe("P1-2 canvas productivity", () => {
     await selectCanvasElement(page, "el_3");
     const initialFrame = await getElementFrame(page, "el_3");
 
-    await page.getByRole("tab", { name: "속성", exact: true }).click();
+    await expect(
+      page.getByRole("tab", { name: "속성", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
     const rotationInput = page.getByLabel("회전", { exact: true });
     await rotationInput.focus();
     await expect(rotationInput).toBeFocused();

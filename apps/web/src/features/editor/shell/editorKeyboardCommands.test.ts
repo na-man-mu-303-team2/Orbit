@@ -33,7 +33,15 @@ function resolve(overrides: Partial<EditorKeyboardCommandInput> = {}) {
 }
 
 describe("isEditorKeyboardCommandSuppressedTarget", () => {
-  it.each(["input", "textarea", "select", "dialog", "[role='dialog']", "[role='menu']"])(
+  it.each([
+    "input",
+    "textarea",
+    "select",
+    "dialog",
+    "[role='dialog']",
+    "[role='menu']",
+    "[data-editor-keyboard-owner]",
+  ])(
     "suppresses commands inside %s",
     (selector) => {
       expect(isEditorKeyboardCommandSuppressedTarget(targetInside(selector))).toBe(true);
