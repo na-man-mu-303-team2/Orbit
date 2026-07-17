@@ -629,16 +629,41 @@ def apply_sync_operation(
         frame = operation.get("frame")
         if not isinstance(frame, dict) or not frame:
             return "FRAME_FIELDS_UNSUPPORTED"
-        if set(frame) - {"x", "y", "width", "height", "rotation"}:
+        if set(frame) - {
+            "role",
+            "x",
+            "y",
+            "width",
+            "height",
+            "rotation",
+            "opacity",
+            "zIndex",
+            "locked",
+            "visible",
+        }:
             return "FRAME_FIELDS_UNSUPPORTED"
-        if has_group_shape_ancestor(root, shape):
+        if float(frame.get("opacity", 1)) != 1 or not bool(
+            frame.get("visible", True)
+        ):
+            return "FRAME_FIELDS_UNSUPPORTED"
+        geometry_fields = set(frame) & {"x", "y", "width", "height", "rotation"}
+        if geometry_fields and has_group_shape_ancestor(root, shape):
             warnings.append(f"OOXML grouped frame sync skipped for {element_id}.")
             return "GROUPED_FRAME_UNSUPPORTED"
         capabilities = dict_value(source, "ooxmlEditCapabilities")
         if source.get("ooxmlOrigin") == "imported" and not capabilities.get("frame"):
             return "FRAME_FIELDS_UNSUPPORTED"
-        update_shape_frame(shape, frame, scale)
-        shape_changed = True
+        if geometry_fields:
+            update_shape_frame(shape, frame, scale)
+            shape_changed = True
+        if "zIndex" in frame:
+            if parent is None or not reorder_visual_shape(
+                parent,
+                shape,
+                frame["zIndex"],
+            ):
+                return "FRAME_FIELDS_UNSUPPORTED"
+            shape_changed = True
     elif operation_type == "delete_element":
         capabilities = dict_value(source, "ooxmlEditCapabilities")
         if source.get("ooxmlOrigin") == "imported" and not capabilities.get("delete"):
@@ -1014,6 +1039,63 @@ def update_shape_frame(
         )
     if "rotation" in frame:
         xfrm.set("rot", str(round(float(frame["rotation"]) * 60000)))
+
+
+VISUAL_SHAPE_NAMES = {"cxnSp", "graphicFrame", "grpSp", "pic", "sp"}
+
+
+def reorder_visual_shape(
+    parent: ET.Element[Any],
+    shape: ET.Element[Any],
+    z_index_value: Any,
+) -> bool:
+    visual_children = [
+        child for child in list(parent) if local_name(child) in VISUAL_SHAPE_NAMES
+    ]
+    if shape not in visual_children:
+        return False
+    target_index = normalized_z_index(z_index_value, len(visual_children))
+    if target_index is None:
+        return False
+    current_index = visual_children.index(shape)
+    if current_index == target_index:
+        return True
+
+    parent.remove(shape)
+    remaining = [child for child in visual_children if child is not shape]
+    if target_index >= len(remaining):
+        insert_at = visual_insert_end_index(parent)
+    else:
+        insert_at = list(parent).index(remaining[target_index])
+    parent.insert(insert_at, shape)
+    return True
+
+
+def normalized_z_index(value: Any, item_count: int) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return None
+    return max(0, min(int(numeric), max(0, item_count - 1)))
+
+
+def visual_insert_end_index(parent: ET.Element[Any]) -> int:
+    children = list(parent)
+    visual_indexes = [
+        index
+        for index, child in enumerate(children)
+        if local_name(child) in VISUAL_SHAPE_NAMES
+    ]
+    if visual_indexes:
+        return visual_indexes[-1] + 1
+    for index, child in enumerate(children):
+        if local_name(child) == "extLst":
+            return index
+    return len(children)
 
 
 def add_element_to_slide_xml(

@@ -108,6 +108,11 @@ def test_sync_pptx_ooxml_applies_text_and_frame_patch(tmp_path: Path) -> None:
         for slot in generated.template_blueprint["slides"][0]["slots"]
         if slot["usage"] == "content-slot"
     )
+    title_element = next(
+        element
+        for element in generated.blueprint["slides"][0]["elements"]
+        if element["elementId"] == title_slot["elementId"]
+    )
 
     result = sync_pptx_ooxml(
         pptx_path,
@@ -131,7 +136,18 @@ def test_sync_pptx_ooxml_applies_text_and_frame_patch(tmp_path: Path) -> None:
                 "type": "update_element_frame",
                 "slideId": "slide_import_file_template_1",
                 "elementId": title_slot["elementId"],
-                "frame": {"x": 96, "y": 48, "width": 640, "height": 120},
+                "frame": {
+                    "role": title_element.get("role"),
+                    "x": 96,
+                    "y": 48,
+                    "width": 640,
+                    "height": 120,
+                    "rotation": title_element["rotation"],
+                    "opacity": title_element["opacity"],
+                    "zIndex": title_element["zIndex"],
+                    "locked": title_element["locked"],
+                    "visible": title_element["visible"],
+                },
             },
         ],
     )

@@ -1392,12 +1392,33 @@ function createOoxmlElementDiff(
         type: "update_element_props",
         slideId: next.slideId,
         elementId: next.element.elementId,
-        props: next.element.props,
+        props: changedOoxmlElementProps(
+          current.element.props,
+          next.element.props,
+        ),
       });
     }
   }
 
   return operations;
+}
+
+function changedOoxmlElementProps(
+  currentProps: DeckElement["props"],
+  nextProps: DeckElement["props"],
+): Record<string, unknown> {
+  const current = currentProps as Record<string, unknown>;
+  const next = nextProps as Record<string, unknown>;
+  const changed: Record<string, unknown> = {};
+
+  const propNames = new Set([...Object.keys(current), ...Object.keys(next)]);
+  for (const propName of propNames) {
+    if (!isDeepStrictEqual(current[propName], next[propName])) {
+      changed[propName] = propName in next ? next[propName] : null;
+    }
+  }
+
+  return changed;
 }
 
 function indexDeckElements(deck: Deck) {
