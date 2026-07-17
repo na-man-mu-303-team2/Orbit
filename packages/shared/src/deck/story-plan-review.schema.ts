@@ -34,6 +34,7 @@ export const storyPlanSourceMetadataSchema = z
 export const storyPlanSlideSchema = z
   .object({
     order: z.number().int().min(1),
+    sourceOrder: z.number().int().min(1),
     slideType: z.string().trim().min(1),
     title: z.string(),
     message: z.string(),
@@ -105,6 +106,19 @@ export const storyPlanRegenerateRequestSchema = z
 export const storyPlanApproveRequestSchema = z
   .object({
     expectedRevision: z.number().int().min(1),
+    slides: z
+      .array(
+        z
+          .object({
+            sourceOrder: z.number().int().min(1),
+            title: z.string().trim().min(1).max(200),
+            message: z.string().trim().min(1).max(1000),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100)
+      .optional(),
     designSelection: z
       .object({
         paletteOptionId: z.string().trim().min(1).max(80),
@@ -158,6 +172,4 @@ export type StoryPlanRegenerateRequest = z.infer<
 export type StoryPlanApproveRequest = z.infer<
   typeof storyPlanApproveRequestSchema
 >;
-export type StoryPlanEditRequest = z.infer<
-  typeof storyPlanEditRequestSchema
->;
+export type StoryPlanEditRequest = z.infer<typeof storyPlanEditRequestSchema>;

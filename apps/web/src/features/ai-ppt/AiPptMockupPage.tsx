@@ -24,6 +24,8 @@ import {
   uploadProjectAsset,
 } from "../projects/ProjectAssetWorkspace";
 import {
+  clearStoryApprovalDraft,
+  readStoryApprovalDraft,
   requestStoryPlan,
   requestStoryPlanMutation,
   storyPlanPath,
@@ -388,8 +390,8 @@ export function AiPptMockupPage() {
           <span>AI PPT</span>
           <h1>발표 내용부터 빠르게 시작하세요</h1>
           <p>
-            내용, 청중, 발표 톤과 참고자료를 입력하면 AI가 먼저 이야기
-            구성을 제안합니다.
+            내용, 청중, 발표 톤과 참고자료를 입력하면 AI가 먼저 이야기 구성을
+            제안합니다.
           </p>
         </div>
         <button
@@ -469,7 +471,9 @@ export function AiPptStyleColorPage(props: {
   const [selectedFontId, setSelectedFontId] = useState(
     recommendGenerateDeckFonts(defaultFontMood)[0].fontId,
   );
-  const [customPalette, setCustomPalette] = useState<PaletteOption | null>(null);
+  const [customPalette, setCustomPalette] = useState<PaletteOption | null>(
+    null,
+  );
   const [palettePrompt, setPalettePrompt] = useState("");
   const [isCustomizingPalette, setIsCustomizingPalette] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -493,7 +497,8 @@ export function AiPptStyleColorPage(props: {
     [story?.styleContext?.tone, story?.styleContext?.topic],
   );
   const selectedFont =
-    fontOptions.find((font) => font.fontId === selectedFontId) ?? fontOptions[0];
+    fontOptions.find((font) => font.fontId === selectedFontId) ??
+    fontOptions[0];
 
   useEffect(() => {
     let cancelled = false;
@@ -503,6 +508,7 @@ export function AiPptStyleColorPage(props: {
         if (cancelled) return;
         setStory(next);
         if (next.status === "approved") {
+          clearStoryApprovalDraft(props.projectId, props.jobId);
           setStatus("슬라이드를 생성하는 중...");
           const job = await pollJob(next.jobId);
           if (!cancelled && job.status === "succeeded") {
@@ -577,12 +583,25 @@ export function AiPptStyleColorPage(props: {
     setError("");
     setStatus("선택한 스타일을 적용하는 중...");
     try {
+      const approvalDraft = readStoryApprovalDraft(
+        props.projectId,
+        props.jobId,
+      );
+      if (
+        approvalDraft &&
+        approvalDraft.expectedRevision !== story.plan.revision
+      ) {
+        throw new Error(
+          "스토리 구성이 변경되었습니다. Story Review에서 다시 확인해 주세요.",
+        );
+      }
       const next = await requestStoryPlanMutation(
         props.projectId,
         props.jobId,
         "approve",
         {
           expectedRevision: story.plan.revision,
+          ...(approvalDraft ? { slides: approvalDraft.slides } : {}),
           designSelection: {
             paletteOptionId: selectedPalette.optionId,
             paletteOverride: selectedPalette.palette,
@@ -590,6 +609,7 @@ export function AiPptStyleColorPage(props: {
           },
         },
       );
+      clearStoryApprovalDraft(props.projectId, props.jobId);
       setStory(next);
       setStatus("슬라이드를 생성하는 중...");
       const job = await pollJob(next.jobId, (current) => {
@@ -694,7 +714,9 @@ function WizardSteps({ activeIndex }: { activeIndex: number }) {
           ].join(" ")}
           key={label}
         >
-          <span>{index < activeIndex ? <IconCheck size={14} /> : index + 1}</span>
+          <span>
+            {index < activeIndex ? <IconCheck size={14} /> : index + 1}
+          </span>
           <strong>{label}</strong>
         </div>
       ))}
@@ -957,7 +979,10 @@ function MiniSlide(props: {
         ...fontStyles.body,
       }}
     >
-      <i className="ai-ppt-mini-top-rule" style={{ background: palette.primary }} />
+      <i
+        className="ai-ppt-mini-top-rule"
+        style={{ background: palette.primary }}
+      />
       <header className="ai-ppt-mini-section" style={fontStyles.heading}>
         <span style={{ color: palette.primary }}>01</span>
         <b>발표 디자인</b>
@@ -966,7 +991,10 @@ function MiniSlide(props: {
         <main className="ai-ppt-mini-body-recipe">
           {[palette.primary, palette.secondary, palette.accentColor].map(
             (color, index) => (
-              <section key={`${color}-${index}`} style={{ borderColor: palette.border }}>
+              <section
+                key={`${color}-${index}`}
+                style={{ borderColor: palette.border }}
+              >
                 <i style={{ background: color }} />
                 <strong style={fontStyles.heading}>
                   {index === 0 ? "과정" : index === 1 ? "핵심" : "근거"}
@@ -982,7 +1010,9 @@ function MiniSlide(props: {
             <strong style={fontStyles.heading}>핵심 메시지</strong>
             <p style={fontStyles.body}>발표 흐름과 실행안</p>
           </section>
-          <aside style={{ background: palette.muted, borderColor: palette.border }}>
+          <aside
+            style={{ background: palette.muted, borderColor: palette.border }}
+          >
             <i style={{ background: palette.primary }} />
             <span style={{ borderColor: palette.border }} />
             <span style={{ borderColor: palette.border }} />
