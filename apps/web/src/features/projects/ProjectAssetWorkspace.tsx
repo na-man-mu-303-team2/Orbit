@@ -150,6 +150,27 @@ export async function createProject(title: string, fetcher: Fetcher = fetch) {
   return project;
 }
 
+export async function createProjectWithoutDeck(
+  title: string,
+  fetcher: Fetcher = fetch,
+) {
+  const response = await fetcher(
+    `/api/v1/workspaces/${demoIds.workspaceId}/projects`,
+    {
+      body: JSON.stringify({ title }),
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  if (!response.ok) {
+    throw new ProjectAssetError(
+      await readErrorMessage(response, "프로젝트를 만들지 못했습니다."),
+    );
+  }
+  return (await response.json()) as Project;
+}
+
 export async function deleteProject(
   projectId: string,
   fetcher: Fetcher = fetch,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import re
 from typing import Any
 
 from app.ai.composition_library import design_program_snapshot
@@ -38,6 +39,7 @@ from app.ai.deck_generation.models import (
     PythonQualityInput,
     RawInput,
     ReferenceContext,
+    SlideCountRange,
     SlidePlan,
     SourceGroundingResult,
     StylePromptContext,
@@ -423,6 +425,7 @@ def analyze_input(
     *,
     reference_context: list[ReferenceContext] | None = None,
 ) -> RawInput:
+    request = apply_prompt_timing_constraints(request)
     slide_count = choose_slide_count(
         request.target_duration_minutes,
         request.slide_count_range,
@@ -474,3 +477,34 @@ def analyze_input(
             "presentation_profile": presentation_profile_for_request(request),
         }
     )
+
+
+def apply_prompt_timing_constraints(
+    request: GenerateDeckRequest,
+) -> GenerateDeckRequest:
+    duration_match = re.search(
+        r"(?:발표\s*시간(?:은|이)?\s*)?(\d{1,3})\s*분(?:짜리|간)?",
+        request.prompt,
+    )
+    slide_match = re.search(
+        r"(\d{1,2})\s*(?:[-~～–]\s*(\d{1,2}))?\s*(?:장|페이지|슬라이드)",
+        request.prompt,
+    )
+    updates: dict[str, Any] = {}
+    duration = int(duration_match.group(1)) if duration_match else None
+    if duration is not None and 1 <= duration <= 120:
+        updates["target_duration_minutes"] = duration
+        updates["brief"] = request.brief.model_copy(
+            update={"duration_minutes": duration}
+        )
+    if slide_match:
+        counts = [int(slide_match.group(1))]
+        if slide_match.group(2):
+            counts.append(int(slide_match.group(2)))
+        valid_counts = [count for count in counts if 1 <= count <= 20]
+        if valid_counts:
+            updates["slide_count_range"] = SlideCountRange(
+                min=min(valid_counts),
+                max=max(valid_counts),
+            )
+    return request.model_copy(update=updates) if updates else request

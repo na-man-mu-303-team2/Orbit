@@ -242,7 +242,7 @@ function normalizeHttpError(
   if (reasonCode === "DESIGN_COMPOSITION_UNSUPPORTED") {
     return new AiDeckPlanningStageError(
       "DESIGN_COMPOSITION_UNSUPPORTED",
-      "The approved story plan cannot be composed with the available layouts.",
+      "The content plan cannot be composed with the available layouts.",
       false,
       diagnostics,
     );

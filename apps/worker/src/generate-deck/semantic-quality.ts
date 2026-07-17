@@ -28,6 +28,46 @@ export function allValidationIssues(validation: GenerateDeckValidation) {
   ];
 }
 
+export function withGenerationQualityMetadata(
+  deck: Deck,
+  validation: GenerateDeckValidation,
+  requestedStatus: "passed" | "advisory" | "unavailable",
+): Deck {
+  const issues = allValidationIssues(validation).map((issue) => {
+    const slideOrder = slideOrderFromIssuePath(issue.path);
+    const slideId = slideOrder
+      ? deck.slides[slideOrder - 1]?.slideId
+      : undefined;
+    return {
+      code: issue.code,
+      message: issue.message,
+      severity: issue.severity === "error" ? "risk" as const : "warning" as const,
+      ...(slideOrder ? { slideOrder } : {}),
+      ...(slideId ? { slideId } : {}),
+    };
+  });
+  return deckSchema.parse({
+    ...deck,
+    metadata: {
+      ...deck.metadata,
+      generationQuality: {
+        status:
+          requestedStatus === "unavailable"
+            ? "unavailable"
+            : issues.length > 0
+              ? "advisory"
+              : "passed",
+        issues,
+      },
+    },
+  });
+}
+
+function slideOrderFromIssuePath(path: string): number | undefined {
+  const match = /^slides\.(\d+)/.exec(path);
+  return match ? Number(match[1]) + 1 : undefined;
+}
+
 export function hasBlockingQualityGateIssues(
   validation: GenerateDeckValidation,
 ) {

@@ -8,12 +8,21 @@ import {
 import { z } from "zod";
 
 export const aiDeckExecutionStageSchema = z.enum([
+  "cover-slide",
   "image-slide",
   "semantic-quality",
   "rendered-visual-quality",
   "publication",
 ]);
 export type AiDeckExecutionStage = z.infer<typeof aiDeckExecutionStageSchema>;
+
+export const coverSlideArtifactPayloadSchema = z
+  .object({
+    deck: generateDeckResponseSchema.shape.deck,
+    warnings: z.array(z.string()),
+    validation: generateDeckValidationSchema,
+  })
+  .strict();
 
 const legacyImageSlideArtifactPayloadSchema = z
   .object({
@@ -77,12 +86,14 @@ export const executionArtifactPayloadSchemas: Record<
   AiDeckExecutionStage,
   z.ZodTypeAny
 > = {
+  "cover-slide": coverSlideArtifactPayloadSchema,
   "image-slide": imageSlideArtifactPayloadSchema,
   "semantic-quality": qualityArtifactPayloadSchema,
   "rendered-visual-quality": qualityArtifactPayloadSchema,
   publication: publicationArtifactPayloadSchema,
 };
 export type AiDeckExecutionArtifactPayload =
+  | z.infer<typeof coverSlideArtifactPayloadSchema>
   | z.infer<typeof imageSlideArtifactPayloadSchema>
   | z.infer<typeof qualityArtifactPayloadSchema>
   | z.infer<typeof publicationArtifactPayloadSchema>;
@@ -103,6 +114,7 @@ export function parseExecutionArtifactPayload(
 }
 
 const executionStages = new Set<AiDeckGenerationStage>([
+  "cover-slide",
   "image-slide",
   "semantic-quality",
   "rendered-visual-quality",

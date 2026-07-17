@@ -1,8 +1,11 @@
 import {
+  aiDeckGenerationStageSchema,
+  aiDeckGenerationStageStatusSchema,
   aiDeckPreviewResponseSchema,
   deckShellSchema,
   deckSchema,
   generateDeckResponseSchema,
+  generateDeckStoredJobPayloadSchema,
   jobErrorSchema,
   slideSchema,
   type AiDeckPreviewResponse,
@@ -18,12 +21,17 @@ const jobRowSchema = z.object({
   project_id: z.string().min(1),
   status: z.enum(["queued", "running", "succeeded", "failed"]),
   progress: z.number().int().min(0).max(100),
+  payload: z.unknown().optional(),
   error: jobErrorSchema.nullable(),
   updated_at: z.union([z.date(), z.string().min(1)]),
 });
 const planningRowSchema = z.object({
   stage: z.enum(["content-planning", "layout-compile"]),
   payload_json: z.unknown(),
+});
+const stageRowSchema = z.object({
+  stage: aiDeckGenerationStageSchema,
+  status: aiDeckGenerationStageStatusSchema,
 });
 const contentPayloadSchema = z
   .object({
@@ -92,6 +100,14 @@ const imageV2PayloadSchema = z
   })
   .strict();
 const qualityRowSchema = z.object({ payload_json: z.unknown() });
+const coverRowSchema = z.object({ payload_json: z.unknown() });
+const coverPayloadSchema = z
+  .object({
+    deck: deckSchema,
+    warnings: z.array(z.string()),
+    validation: z.record(z.unknown()),
+  })
+  .strict();
 const qualityPayloadSchema = z
   .object({ workerPayload: generateDeckResponseSchema })
   .strict();
@@ -105,7 +121,7 @@ export class AiDeckPreviewService {
     const job = firstRow(
       await this.dataSource.query(
         `
-          SELECT job_id, project_id, status, progress, error, updated_at
+          SELECT job_id, project_id, status, progress, payload, error, updated_at
           FROM jobs
           WHERE job_id = $1 AND project_id = $2
             AND type = 'ai-deck-generation'
@@ -116,7 +132,14 @@ export class AiDeckPreviewService {
     if (!job) throw new NotFoundException(`Job not found: ${jobId}`);
     const parsedJob = jobRowSchema.parse(job);
 
-    const [planningRows, imageRows, qualityRows, deckRows] = await Promise.all([
+    const [
+      planningRows,
+      imageRows,
+      qualityRows,
+      deckRows,
+      coverRows,
+      stageRows,
+    ] = await Promise.all([
       this.dataSource.query(
         `
           SELECT artifacts.stage, artifacts.payload_json
@@ -168,26 +191,60 @@ export class AiDeckPreviewService {
             [projectId],
           )
         : Promise.resolve([]),
+      this.dataSource.query(
+        `
+          SELECT artifacts.payload_json
+          FROM ai_deck_execution_artifacts artifacts
+          JOIN ai_deck_generation_stages stages
+            ON stages.pipeline_job_id = artifacts.pipeline_job_id
+           AND stages.stage = artifacts.stage
+           AND stages.shard_key = artifacts.shard_key
+           AND stages.status = 'succeeded'
+          WHERE artifacts.pipeline_job_id = $1
+            AND artifacts.project_id = $2
+            AND artifacts.stage = 'cover-slide'
+          LIMIT 1
+        `,
+        [jobId, projectId],
+      ),
+      this.dataSource.query(
+        `
+          SELECT stage, status
+          FROM ai_deck_generation_stages
+          WHERE pipeline_job_id = $1
+        `,
+        [jobId],
+      ),
     ]);
+
+    const storedPayload = generateDeckStoredJobPayloadSchema.parse(
+      parsedJob.payload,
+    );
 
     return projectAiDeckPreview({
       job: parsedJob,
+      expectedSlideCountRange: storedPayload.request.slideCountRange,
+      stageRows: rows(stageRows).map((row) => stageRowSchema.parse(row)),
       planningRows: rows(planningRows).map((row) =>
         planningRowSchema.parse(row),
       ),
       imageRows: rows(imageRows).map((row) => imageRowSchema.parse(row)),
       qualityRow: firstRow(qualityRows),
       deckRow: firstRow(deckRows),
+      coverRow: firstRow(coverRows),
     });
   }
 }
 
 export function projectAiDeckPreview(input: {
   job: z.infer<typeof jobRowSchema>;
+  expectedSlideCountRange?: { min: number; max: number };
+  stageRows?: z.infer<typeof stageRowSchema>[];
   planningRows: z.infer<typeof planningRowSchema>[];
   imageRows: z.infer<typeof imageRowSchema>[];
   qualityRow: Record<string, unknown> | null;
   deckRow: Record<string, unknown> | null;
+  coverRow?: Record<string, unknown> | null;
 }): AiDeckPreviewResponse {
   const contentRow = input.planningRows.find(
     (row) => row.stage === "content-planning",
@@ -290,30 +347,60 @@ export function projectAiDeckPreview(input: {
         )
         .map((slide) => slide.slideId);
     }
+  } else if (input.coverRow) {
+    deck = coverPayloadSchema.parse(
+      coverRowSchema.parse(input.coverRow).payload_json,
+    ).deck;
+    completedSlideIds = deck.slides.map((slide) => slide.slideId);
+    pendingSlideIds = outline
+      .slice(completedSlideIds.length)
+      .map((item) => `slide_${item.order}`);
   }
 
   const cancelled =
     input.job.status === "failed" &&
     input.job.error?.code === "AI_DECK_GENERATION_CANCELLED";
+  const activeStages = new Set<string>(
+    (input.stageRows ?? [])
+      .filter((row) => row.status === "queued" || row.status === "running")
+      .map((row) => row.stage),
+  );
+  const hasQualityWork = [
+    "semantic-quality",
+    "rendered-visual-quality",
+    "publication",
+  ].some((stage) => activeStages.has(stage));
+  const hasRenderingWork = activeStages.has("image-slide");
+  const hasComposingWork = [
+    "content-planning",
+    "design-planning",
+    "layout-compile",
+  ].some((stage) => activeStages.has(stage));
+  const hasGroundingWork = ["reference-extract-file", "source-grounding"].some(
+    (stage) => activeStages.has(stage),
+  );
   const status = cancelled
     ? "cancelled"
     : input.job.status === "failed"
       ? "failed"
       : input.job.status === "succeeded"
         ? "ready"
-        : !deck
-          ? outline.length
-            ? "composing"
-            : "planning"
-          : pendingSlideIds.length
+        : hasQualityWork || (layoutRow && pendingSlideIds.length === 0)
+          ? "quality-check"
+          : hasRenderingWork || (layoutRow && pendingSlideIds.length > 0)
             ? "rendering"
-            : "quality-check";
+            : hasComposingWork || outline.length > 0
+              ? "composing"
+              : hasGroundingWork
+                ? "grounding"
+                : "planning";
 
   return aiDeckPreviewResponseSchema.parse({
     jobId: input.job.job_id,
     projectId: input.job.project_id,
     status,
     progress: input.job.progress,
+    expectedSlideCountRange: input.expectedSlideCountRange ?? { min: 5, max: 8 },
     editable: false,
     outline,
     deck,

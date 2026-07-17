@@ -6,6 +6,7 @@ import { OrbitButton } from "../../components/ui";
 import { getResponsiveEditorStageScale } from "../editor/shell/utils/editorLayout";
 import { ReadOnlySlideCanvas } from "../slides/rendering";
 import {
+  previewBannerText,
   readySlidePrefix,
   requestAiDeckPreview,
   retryAiDeckGeneration,
@@ -29,7 +30,27 @@ export function AiDeckGenerationPage(props: {
     preview?.deck ?? null,
     preview?.completedSlideIds ?? [],
   );
-  const revealedCount = availableCount;
+  const [revealedCount, setRevealedCount] = useState(0);
+
+  useEffect(() => {
+    if (revealedCount > availableCount) {
+      setRevealedCount(availableCount);
+      return;
+    }
+    if (revealedCount >= availableCount) return;
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    if (reducedMotion) {
+      setRevealedCount(availableCount);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setRevealedCount((count) => Math.min(count + 1, availableCount)),
+      500,
+    );
+    return () => window.clearTimeout(timer);
+  }, [availableCount, revealedCount]);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,10 +141,9 @@ export function AiDeckGenerationPage(props: {
         </div>
       </header>
 
-      {preview?.status === "quality-check" ? (
+      {preview ? (
         <div className="ai-deck-generation-banner">
-          모든 슬라이드를 만들었습니다. 최종 품질을 확인하고 있어 일부 표현이
-          달라질 수 있습니다.
+          {previewBannerText(preview)}
         </div>
       ) : null}
       {error || preview?.error ? (
@@ -141,6 +161,9 @@ export function AiDeckGenerationPage(props: {
       <div className="ai-deck-generation-editor">
         <PreviewNavigator
           deck={preview?.deck ?? null}
+          expectedSlideCountRange={
+            preview?.expectedSlideCountRange ?? { min: 5, max: 8 }
+          }
           onSelect={(index) => {
             if (index >= revealedCount) return;
             setSelectedIndex(index);
@@ -184,23 +207,36 @@ export function AiDeckGenerationPage(props: {
 
 function PreviewNavigator(props: {
   deck: Deck | null;
+  expectedSlideCountRange: AiDeckPreviewResponse["expectedSlideCountRange"];
   onSelect: (index: number) => void;
   outline: AiDeckPreviewResponse["outline"];
   revealedCount: number;
   selectedIndex: number;
 }) {
+  const provisional = props.outline.length === 0;
+  const items = provisional
+    ? Array.from({ length: props.expectedSlideCountRange.max }, (_, index) => ({
+        order: index + 1,
+        title: "",
+        message: "",
+      }))
+    : props.outline;
   return (
     <aside className="ai-deck-preview-navigator" aria-label="슬라이드 목차">
       <header>
         <strong>슬라이드</strong>
-        <span>{props.outline.length}</span>
+        <span>
+          {provisional
+            ? `${props.expectedSlideCountRange.min}~${props.expectedSlideCountRange.max}장 예정`
+            : `${props.outline.length}장`}
+        </span>
       </header>
       <ol>
-        {props.outline.map((item, index) => {
+        {items.map((item, index) => {
           const revealed = index < props.revealedCount;
           const slide = props.deck?.slides[index];
           return (
-            <li key={`${item.order}-${item.title}`}>
+            <li key={`${item.order}-${item.title || "pending"}`}>
               <button
                 aria-current={
                   revealed && index === props.selectedIndex ? "page" : undefined
@@ -223,11 +259,15 @@ function PreviewNavigator(props: {
                   )}
                 </span>
                 <span className="ai-deck-preview-copy">
-                  <strong>{item.title}</strong>
+                  {item.title ? <strong>{item.title}</strong> : null}
                   <small>
                     {revealed
                       ? "생성 완료"
-                      : index === props.revealedCount
+                      : provisional
+                        ? index < props.expectedSlideCountRange.min
+                          ? "생성 예정"
+                          : "구성에 따라 추가"
+                        : index === props.revealedCount
                         ? "생성 중"
                         : "생성 예정"}
                   </small>
@@ -284,6 +324,8 @@ function FittedSlide(props: { deck: Deck; slideIndex: number }) {
 }
 
 function statusLabel(status?: AiDeckPreviewResponse["status"]) {
+  if (status === "grounding") return "참고자료 확인 중";
+  if (status === "composing") return "슬라이드 구성 중";
   if (status === "rendering") return "슬라이드 렌더링 중";
   if (status === "quality-check") return "최종 품질 확인 중";
   if (status === "ready") return "완료";

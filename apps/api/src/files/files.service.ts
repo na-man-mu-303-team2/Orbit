@@ -310,10 +310,6 @@ export class FilesService {
       return asset.deletedAt.toISOString();
     }
 
-    if (asset.status !== "uploaded") {
-      throw new NotFoundException(`Asset is not uploaded: ${fileId}`);
-    }
-
     await this.storage.removeObject(asset.storageKey);
 
     const deletedAt = new Date();

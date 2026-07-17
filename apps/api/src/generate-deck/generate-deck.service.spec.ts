@@ -114,10 +114,10 @@ describe("GenerateDeckService", () => {
     ).resolves.toEqual({ job: retriedJob });
   });
 
-  it("stores Story Review as required for new PostgreSQL jobs", async () => {
+  it("creates a PostgreSQL job with the strict start response contract", async () => {
     process.env.AI_DECK_EXECUTION_MODE = "pg";
     const job = {
-      jobId: "job-pg-story",
+      jobId: "job-pg-design",
       projectId: "project_generated_1",
       type: "ai-deck-generation",
       status: "queued",
@@ -140,14 +140,9 @@ describe("GenerateDeckService", () => {
       jobsService,
       projectsService,
       vi.fn(async () => undefined),
-    ).createJob(job.projectId, { topic: "Story Review" });
+    ).createJob(job.projectId, { topic: "Async design" });
 
-    expect(result.storyReviewRequired).toBe(true);
-    expect(jobsService.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        payload: expect.objectContaining({ storyReviewRequired: true }),
-      }),
-    );
+    expect(result).toEqual({ job });
   });
 
   it("creates an AI deck generation job and enqueues the worker payload", async () => {
@@ -203,7 +198,7 @@ describe("GenerateDeckService", () => {
       references: [{ fileId: "file_1" }]
     });
 
-    expect(result).toEqual({ job, storyReviewRequired: false });
+    expect(result).toEqual({ job });
     expect(projectsService.getAccessibleProject).toHaveBeenCalledWith(
       "project_generated_1"
     );
@@ -211,7 +206,6 @@ describe("GenerateDeckService", () => {
       projectId: "project_generated_1",
       type: "ai-deck-generation",
       payload: {
-        storyReviewRequired: false,
         request: expect.objectContaining({
           topic: "AI 덱 생성",
           designPrompt: "retro pixel palette",
@@ -237,7 +231,6 @@ describe("GenerateDeckService", () => {
       redisUrl: "redis://localhost:6379",
       jobId: "job-1",
       projectId: "project_generated_1",
-      storyReviewRequired: false,
       request: expect.objectContaining({
         topic: "AI 덱 생성",
         designPrompt: "retro pixel palette",
@@ -339,7 +332,6 @@ describe("GenerateDeckService", () => {
     expect(jobsService.create).toHaveBeenCalledWith(
       expect.objectContaining({
         payload: {
-          storyReviewRequired: false,
           request: expect.objectContaining({
             slideCountRange: { min: 4, max: 4 },
             design: expect.objectContaining({
@@ -481,8 +473,7 @@ describe("GenerateDeckService", () => {
       request: resolvedRequest,
       designPackSnapshot: snapshot,
       imageAssetScope: { userId: "user_1" },
-      requestedByUserId: "user_1",
-      storyReviewRequired: false
+      requestedByUserId: "user_1"
     };
     expect(jobsService.create).toHaveBeenCalledWith({
       projectId: "project_generated_1",
@@ -573,7 +564,7 @@ describe("GenerateDeckService", () => {
       references: []
     });
 
-    expect(result).toEqual({ job, storyReviewRequired: false });
+    expect(result).toEqual({ job });
     expect(projectsService.getAccessibleProject).toHaveBeenCalledWith(
       "project_custom_1"
     );
@@ -581,7 +572,6 @@ describe("GenerateDeckService", () => {
       projectId: "project_custom_1",
       type: "ai-deck-generation",
       payload: {
-        storyReviewRequired: false,
         request: expect.objectContaining({
           topic: "프로젝트별 AI 덱 생성"
         })
