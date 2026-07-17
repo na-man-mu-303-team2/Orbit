@@ -126,6 +126,11 @@ def generate_pptx_ooxml(
     )
     warnings = list(imported.warnings)
     package_bytes = path.read_bytes()
+    add_imported_ooxml_capabilities(
+        imported.blueprint,
+        template_blueprint,
+        package_bytes,
+    )
 
     assets = [
         package_asset("current_package", package_bytes, f"{safe_file_stem(path)}.pptx")
@@ -250,6 +255,10 @@ def prepare_template_blueprint(
             slide.get("sourceSlideIndex"),
             int_value(slide.get("slideIndex"), 1),
         )
+        slide_part = str(slide.get("sourceSlidePart", "")) or (
+            f"ppt/slides/slide{slide_index}.xml"
+        )
+        slide["sourceSlidePart"] = slide_part
         slide["renderAssetFileId"] = f"asset:slide_render_{slide_index}"
         for slot_index, slot in enumerate(slide.get("slots", []), start=1):
             if not isinstance(slot, dict):
@@ -260,9 +269,133 @@ def prepare_template_blueprint(
                 slot["confidence"] = max(0.65, float(slot.get("confidence", 0)))
             source = slot.setdefault("source", {})
             if isinstance(source, dict):
-                source.setdefault("slidePart", f"ppt/slides/slide{slide_index}.xml")
+                source.setdefault("slidePart", slide_part)
                 source.setdefault("shapeId", str(slot_index))
     return prepared
+
+
+def add_imported_ooxml_capabilities(
+    blueprint: dict[str, Any],
+    template_blueprint: dict[str, Any],
+    package_bytes: bytes,
+) -> None:
+    blueprint_slides = {
+        int_value(slide.get("sourceSlideIndex"), index + 1): slide
+        for index, slide in enumerate(blueprint.get("slides", []))
+        if isinstance(slide, dict)
+    }
+
+    try:
+        package = zipfile.ZipFile(BytesIO(package_bytes), "r")
+    except (OSError, zipfile.BadZipFile):
+        package = None
+
+    try:
+        for index, slide in enumerate(template_blueprint.get("slides", [])):
+            if not isinstance(slide, dict):
+                continue
+            source_slide_index = int_value(
+                slide.get("sourceSlideIndex"),
+                int_value(slide.get("slideIndex"), index + 1),
+            )
+            slide_part = str(slide.get("sourceSlidePart", "")) or (
+                f"ppt/slides/slide{source_slide_index}.xml"
+            )
+            slide["sourceSlidePart"] = slide_part
+            slide["ooxmlOrigin"] = "imported"
+
+            blueprint_slide = blueprint_slides.get(source_slide_index, {})
+            element_types = {
+                str(element.get("elementId", "")): str(element.get("type", ""))
+                for element in blueprint_slide.get("elements", [])
+                if isinstance(element, dict)
+            }
+            element_sources = [
+                source
+                for source in slide.get("elementSources", [])
+                if isinstance(source, dict)
+            ]
+            shape_cohort_sizes: dict[tuple[str, str], int] = {}
+            for source in element_sources:
+                cohort_key = (
+                    str(source.get("slidePart", "")),
+                    str(source.get("shapeId", "")),
+                )
+                if all(cohort_key):
+                    shape_cohort_sizes[cohort_key] = (
+                        shape_cohort_sizes.get(cohort_key, 0) + 1
+                    )
+
+            slide_root = imported_slide_root(package, slide_part)
+            for source in element_sources:
+                element_type = element_types.get(str(source.get("elementId", "")), "")
+                if element_type:
+                    source["elementType"] = element_type
+                source["ooxmlOrigin"] = "imported"
+                source["ooxmlEditCapabilities"] = imported_element_capabilities(
+                    element_type,
+                    source,
+                    slide_root,
+                    shape_cohort_sizes.get(
+                        (
+                            str(source.get("slidePart", "")),
+                            str(source.get("shapeId", "")),
+                        ),
+                        0,
+                    ),
+                )
+    finally:
+        if package is not None:
+            package.close()
+
+
+def imported_slide_root(
+    package: zipfile.ZipFile | None,
+    slide_part: str,
+) -> ET.Element[Any] | None:
+    if package is None or not slide_part:
+        return None
+    try:
+        return ET.fromstring(package.read(slide_part))
+    except (KeyError, ET.ParseError, OSError):
+        return None
+
+
+def imported_element_capabilities(
+    element_type: str,
+    source: dict[str, Any],
+    slide_root: ET.Element[Any] | None,
+    shape_cohort_size: int,
+) -> dict[str, Any]:
+    frame_writable = False
+    image_source_writable = False
+    if (
+        slide_root is not None
+        and bool(source.get("writable", False))
+        and shape_cohort_size == 1
+    ):
+        shape, _parent = find_shape_by_id(
+            slide_root,
+            str(source.get("shapeId", "")),
+        )
+        frame_writable = shape is not None and not has_group_shape_ancestor(
+            slide_root,
+            shape,
+        )
+        image_source_writable = (
+            element_type == "image"
+            and shape is not None
+            and shape.tag == P_PIC
+            and bool(source.get("relationshipId"))
+        )
+    return {
+        "richText": "none",
+        "crop": "none",
+        "tableCellText": False,
+        "frame": frame_writable,
+        "delete": False,
+        "imageSource": image_source_writable,
+    }
 
 
 def apply_patch_operations_to_package(

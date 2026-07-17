@@ -89,11 +89,23 @@ describe("templateBlueprintSchema", () => {
         {
           slideIndex: 1,
           sourceSlideIndex: 1,
+          sourceSlidePart: "ppt/slides/slide1.xml",
+          ooxmlOrigin: "imported",
           renderAssetFileId: "file_slide_1",
           fallbackRenderAssetFileId: "file_fallback_1",
           elementSources: [
             {
               elementId: "el_title",
+              elementType: "text",
+              ooxmlOrigin: "imported",
+              ooxmlEditCapabilities: {
+                richText: "none",
+                crop: "none",
+                tableCellText: false,
+                frame: true,
+                delete: false,
+                imageSource: false,
+              },
               slidePart: "ppt/slides/slide1.xml",
               shapeId: "2",
               sourceType: "placeholder",
@@ -108,7 +120,39 @@ describe("templateBlueprintSchema", () => {
     expect(blueprint.currentPackageFileId).toBe("file_current");
     expect(blueprint.ooxmlSyncedDeckVersion).toBe(2);
     expect(blueprint.slides[0].renderAssetFileId).toBe("file_slide_1");
+    expect(blueprint.slides[0].ooxmlOrigin).toBe("imported");
+    expect(
+      blueprint.slides[0].elementSources[0]?.ooxmlEditCapabilities?.frame,
+    ).toBe(true);
     expect(blueprint.slides[0].elementSources[0]?.writable).toBe(true);
+  });
+
+  it("keeps OOXML provenance optional for existing blueprints", () => {
+    const blueprint = templateBlueprintSchema.parse({
+      templateId: "template_legacy",
+      sourceFileId: "file_legacy",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          elementSources: [
+            {
+              elementId: "el_legacy",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "2",
+              sourceType: "shape",
+              writable: true,
+            },
+          ],
+          slots: [],
+        },
+      ],
+    });
+
+    expect(blueprint.slides[0].ooxmlOrigin).toBeUndefined();
+    expect(
+      blueprint.slides[0].elementSources[0]?.ooxmlEditCapabilities,
+    ).toBeUndefined();
   });
 });
 

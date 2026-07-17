@@ -933,7 +933,8 @@ TemplateBlueprint optional OOXML tracking fields:
 - `slides[].renderAssetFileId`
 - `slides[].fallbackRenderAssetFileId`
 - `slides[].elementSources[]`
-- `slides[].elementSources[]`: `{ elementId, slidePart, shapeId, relationshipId?, sourceType, writable, fallbackReason? }`
+- `slides[].sourceSlidePart`, `slides[].ooxmlOrigin`
+- `slides[].elementSources[]`: `{ elementId, elementType?, ooxmlOrigin?, ooxmlEditCapabilities?, slidePart, shapeId, relationshipId?, sourceType, writable, fallbackReason? }`
 - `slots[].source.slidePart`
 - `slots[].source.shapeId`
 - `slots[].source.relationshipId`
@@ -941,6 +942,15 @@ TemplateBlueprint optional OOXML tracking fields:
 `templateBlueprintSchema`, `templateBlueprintIdSchema`, `template_blueprints` 테이블은 PPTX OOXML generation/sync/export round-trip 전용 계약으로 유지한다. 일반 AI GenerateDeck call graph는 이 schema, 테이블, importer를 참조하지 않는다.
 
 `sourcePackageFileId`는 업로드한 불변 원본 asset을 가리킨다. `currentPackageFileId`는 import 시 별도 `design-asset`으로 저장한 writable package를 가리키며, 이후 OOXML sync와 imported Deck export의 기준이다. 초기 import 결과에서는 `sourceFileId === sourcePackageFileId`이고 `currentPackageFileId`는 원본과 구분되는 저장 asset ID여야 한다. slide의 `renderAssetFileId`도 저장된 `design-asset` ID다.
+
+OOXML provenance와 요소 편집 capability는 다음 계약을 사용한다.
+
+- `ooxmlOrigin`은 `imported` 또는 `authored`이며 기존 Deck JSON과의 호환을 위해 optional이다.
+- `ooxmlEditCapabilities.richText`는 `none`, `style-only`, `full`, `crop`은 `none`, `picture`, `picture-fill`만 허용한다.
+- `tableCellText`는 필수 boolean이고 `frame`, `delete`, `imageSource`는 optional boolean이다. 필드가 없거나 `false`이면 해당 targeted sync를 지원한다고 추정하지 않는다.
+- import 시 slide와 element source에 provenance를 기록하고, Deck element에도 동일 capability를 복사한다. source가 중복 shape를 가리키거나 group 내부이거나 writable하지 않으면 frame capability는 `false`다.
+- 새 요소·새 슬라이드·복제본은 `authored`로 전환하며 원본 imported capability를 승계하지 않는다.
+- Crop, Rich text, Table, Motion capability는 각 보존 serializer가 병합되기 전까지 보수적으로 비활성화한다.
 
 구현 위치:
 
