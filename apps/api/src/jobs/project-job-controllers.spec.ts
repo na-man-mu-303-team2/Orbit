@@ -3,7 +3,7 @@ import { authSessionCookieName } from "../auth/auth.constants";
 import type { AuthService } from "../auth/auth.service";
 import type { SignedCookieRequest } from "../auth/current-user";
 import { GenerateDeckController } from "../generate-deck/generate-deck.controller";
-import { StoryPlanReviewController } from "../generate-deck/story-plan-review.controller";
+import { DesignSelectionController } from "../generate-deck/design-selection.controller";
 import { PptxOoxmlGenerationsController } from "../pptx-ooxml-generations/pptx-ooxml-generations.controller";
 import type { ProjectsService } from "../projects/projects.service";
 
@@ -56,19 +56,20 @@ describe("project job controllers", () => {
     });
   });
 
-  it("requires write permission before Story Review approval", async () => {
+  it("requires write permission before selecting an AI deck design", async () => {
     const { authService, projectsService } = createAuthHarness();
-    const service = { approve: vi.fn(async () => ({ status: "approved" })) };
-    const controller = new StoryPlanReviewController(
+    const service = { select: vi.fn(async () => ({ status: "generating" })) };
+    const controller = new DesignSelectionController(
       authService,
-      service as never,
       projectsService as unknown as ProjectsService,
+      service as never,
     );
 
-    await controller.approve(
+    const body = { paletteOptionId: "blue" };
+    await controller.put(
       "project-a",
       "job-1",
-      { expectedRevision: 1 },
+      body,
       signedRequest(),
     );
 
@@ -76,29 +77,7 @@ describe("project job controllers", () => {
       "project-a",
       "user-1",
     );
-    expect(service.approve).toHaveBeenCalledWith(
-      "project-a",
-      "job-1",
-      { expectedRevision: 1 },
-    );
-  });
-  it("requires write permission before Story Review edits", async () => {
-    const { authService, projectsService } = createAuthHarness();
-    const service = { edit: vi.fn(async () => ({ status: "review-pending" })) };
-    const controller = new StoryPlanReviewController(
-      authService,
-      service as never,
-      projectsService as unknown as ProjectsService,
-    );
-    const body = { kind: "reorder", expectedRevision: 1, orders: [2, 1] };
-
-    await controller.edit("project-a", "job-1", body, signedRequest());
-
-    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
-      "project-a",
-      "user-1",
-    );
-    expect(service.edit).toHaveBeenCalledWith("project-a", "job-1", body);
+    expect(service.select).toHaveBeenCalledWith("project-a", "job-1", body);
   });
 });
 

@@ -104,6 +104,9 @@ const rehearsalWorkspaceCssPath = fileURLToPath(
 const rehearsalPanelSourcePath = fileURLToPath(
   new URL("./panel/RehearsalPanel.tsx", import.meta.url),
 );
+const rehearsalTeleprompterSourcePath = fileURLToPath(
+  new URL("./presenter/RehearsalScriptTeleprompter.tsx", import.meta.url),
+);
 const presenterScaffoldSourcePath = fileURLToPath(
   new URL("../presenter-shell/PresenterScaffold.tsx", import.meta.url),
 );
@@ -191,6 +194,10 @@ describe("RehearsalWorkspace", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
     const panelSource = fs.readFileSync(rehearsalPanelSourcePath, "utf8");
+    const teleprompterSource = fs.readFileSync(
+      rehearsalTeleprompterSourcePath,
+      "utf8",
+    );
     const presenterScaffoldSource = fs.readFileSync(
       presenterScaffoldSourcePath,
       "utf8",
@@ -199,7 +206,9 @@ describe("RehearsalWorkspace", () => {
     expect(source).toContain(
       'className="rehearsal-assist-card checklist-card"',
     );
-    expect(source).toContain('className="rehearsal-teleprompter-progress"');
+    expect(teleprompterSource).toContain(
+      'className="rehearsal-teleprompter-progress"',
+    );
     expect(panelSource).toContain(
       'className="rehearsal-panel-section rehearsal-panel-script"',
     );

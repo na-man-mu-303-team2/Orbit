@@ -6,7 +6,7 @@ import type {
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { OrbitButton, OrbitDialog } from "../../../../design-system";
+import { OrbitButton, OrbitDialog } from "../../../../components/ui";
 import { activityApi } from "../../../activity-slides/api/activityApi";
 import { activityQueryKeys } from "../../../activity-slides/model/activityQueryKeys";
 

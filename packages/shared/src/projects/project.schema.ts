@@ -14,6 +14,10 @@ export const createProjectRequestSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
 });
 
+export const updateProjectRequestSchema = z
+  .object({ title: z.string().trim().min(1).max(120) })
+  .strict();
+
 export const deleteProjectResponseSchema = z.object({
   projectId: z.string().min(1),
 });
@@ -53,6 +57,7 @@ export const projectListResponseSchema = z.array(projectSchema);
 
 export type Project = z.infer<typeof projectSchema>;
 export type CreateProjectRequest = z.infer<typeof createProjectRequestSchema>;
+export type UpdateProjectRequest = z.infer<typeof updateProjectRequestSchema>;
 export type DeleteProjectResponse = z.infer<typeof deleteProjectResponseSchema>;
 export type ProjectMemberRole = z.infer<typeof projectMemberRoleSchema>;
 export type ProjectMemberStatus = z.infer<typeof projectMemberStatusSchema>;

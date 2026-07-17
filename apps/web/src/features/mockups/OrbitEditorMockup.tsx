@@ -34,7 +34,7 @@ import {
 } from "@tabler/icons-react";
 import { useMemo, useState, type ReactNode } from "react";
 import orbitLogo from "./assets/orbit-logo-selected.png";
-import { OrbitButton } from "../../design-system";
+import { OrbitButton } from "../../components/ui";
 import "./orbit-editor-mockup.css";
 
 type OrbitEditorMockupProps = {

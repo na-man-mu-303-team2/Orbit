@@ -86,6 +86,7 @@ const implementedStageNames = new Set([
   "reference-extract-file",
   "source-grounding",
   "content-planning",
+  "cover-slide",
   "design-planning",
   "layout-compile",
   "image-slide",

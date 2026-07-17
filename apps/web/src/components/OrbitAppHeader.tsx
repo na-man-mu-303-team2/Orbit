@@ -4,7 +4,14 @@ import {
   IconLogout
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
-import orbitLogo from "../assets/orbit-logo.png";
+import "../styles/tokens.css";
+import {
+  DropdownMenu,
+  DropdownMenuAccount,
+  DropdownMenuItem,
+  OrbitBrand
+} from "./ui";
+import "./orbit-app-header.css";
 
 export type OrbitAppNavigationItem = "home" | "project" | "rehearsal" | "reports";
 
@@ -55,7 +62,7 @@ export function OrbitAppHeader(props: OrbitAppHeaderProps) {
   }, [isMenuOpen]);
 
   return (
-    <header className="orbit-app-header">
+    <header className="orbit-app-header orbit-app-header-redesign">
       <div className="orbit-app-header-inner">
         <button
           aria-label="ORBIT 홈으로 이동"
@@ -63,7 +70,7 @@ export function OrbitAppHeader(props: OrbitAppHeaderProps) {
           onClick={() => props.onNavigate("/")}
           type="button"
         >
-          <img alt="ORBIT" src={orbitLogo} />
+          <OrbitBrand />
         </button>
 
         <nav aria-label="주요 메뉴" className="orbit-app-header-nav">
@@ -85,6 +92,7 @@ export function OrbitAppHeader(props: OrbitAppHeaderProps) {
             <>
               <button
                 aria-label={`계정 메뉴: ${props.userLabel || "사용자"}`}
+                aria-controls={isMenuOpen ? "orbit-app-account-menu" : undefined}
                 aria-expanded={isMenuOpen}
                 aria-haspopup="menu"
                 className="orbit-app-header-user"
@@ -98,26 +106,24 @@ export function OrbitAppHeader(props: OrbitAppHeaderProps) {
                 <IconChevronDown aria-hidden="true" size={16} stroke={1.8} />
               </button>
               {isMenuOpen ? (
-                <div className="orbit-app-header-menu" role="menu">
-                  <div className="orbit-app-header-menu-user">
-                    <span aria-hidden="true" className="orbit-app-header-avatar">
-                      {props.userInitial}
-                    </span>
-                    <div>
-                      <strong>내 계정</strong>
-                      <span>{props.userLabel}</span>
-                    </div>
-                  </div>
-                  <button
+                <DropdownMenu
+                  aria-label="계정 메뉴"
+                  className="orbit-app-header-account-menu"
+                  id="orbit-app-account-menu"
+                  variant="white"
+                >
+                  <DropdownMenuAccount
+                    initial={props.userInitial}
+                    label={props.userLabel}
+                  />
+                  <DropdownMenuItem
                     disabled={props.isLoggingOut}
+                    icon={<IconLogout aria-hidden="true" size={16} stroke={1.8} />}
                     onClick={props.onLogout}
-                    role="menuitem"
-                    type="button"
                   >
-                    <IconLogout aria-hidden="true" size={18} stroke={1.8} />
                     {props.isLoggingOut ? "로그아웃 중" : "로그아웃"}
-                  </button>
-                </div>
+                  </DropdownMenuItem>
+                </DropdownMenu>
               ) : null}
             </>
           ) : (

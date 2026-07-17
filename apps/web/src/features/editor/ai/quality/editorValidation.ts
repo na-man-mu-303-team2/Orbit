@@ -16,37 +16,17 @@ const presentationGridStep = presentationGridColumnWidth + presentationGridGutte
 const presentationGridSafeX = 120;
 const presentationGridSpacing = 8;
 const presentationGridTolerance = 4;
+const locallyRecomputedGenerationIssueCodes = new Set([
+  "BODY_CONTENT_DENSE",
+  "CTA_MISSING",
+  "SPEAKER_NOTES_DENSE",
+  "SPEAKER_NOTES_SHORT"
+]);
 
 export type EditorValidationItem = {
   elementId?: string;
   elementIds?: string[];
-  issue?:
-    | "textOverflow"
-    | "titleWrap"
-    | "labelWrap"
-    | "speakerNotesShort"
-    | "textContrast"
-    | "contrastUnverifiable"
-    | "mediaSlotMissing"
-    | "sourceLedgerMissing"
-    | "slideCountMismatch"
-    | "ACTION_TITLE_WEAK"
-    | "BODY_CONTENT_DENSE"
-    | "FONT_SIZE_BELOW_MINIMUM"
-    | "FONT_FAMILY_OVERUSED"
-    | "LINE_HEIGHT_OUT_OF_RANGE"
-    | "VISUAL_HIERARCHY_WEAK"
-    | "CTA_MISSING"
-    | "GRID_ALIGNMENT_INCONSISTENT"
-    | "CONTENT_DUPLICATED"
-    | "SPEAKER_NOTES_SHORT"
-    | "SPEAKER_NOTES_DENSE"
-    | "SLIDE_MESSAGE_MULTIPLE"
-    | "NARRATIVE_FLOW_WEAK"
-    | "EVIDENCE_MISMATCH"
-    | "IMAGE_RELEVANCE_WEAK"
-    | "IMAGE_LICENSE_MISSING"
-    | "SPEAKER_NOTES_REPEATED";
+  issue?: string;
   level?: "warning";
   canonicalIssue?: "TEXT_OVERFLOW";
   message: string;
@@ -63,15 +43,33 @@ export function getEditorValidationItems(
   const slideItems = slides.flatMap((targetSlide) =>
     getEditorSlideValidationItems(deck, targetSlide)
   );
-  if (!slide) return [...deckItems, ...slideItems];
-  return [
-    ...deckItems.filter((item) => !item.slideId || item.slideId === slide.slideId),
+  if (!slide) return uniqueValidationItems([...deckItems, ...slideItems]);
+  return uniqueValidationItems([
+    ...deckItems.filter((item) => item.slideId === slide.slideId),
     ...slideItems
-  ];
+  ]);
+}
+
+function uniqueValidationItems(items: EditorValidationItem[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = `${item.issue ?? ""}:${item.slideId ?? ""}:${item.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function getEditorDeckValidationItems(deck: Deck): EditorValidationItem[] {
-  const items: EditorValidationItem[] = [];
+  const items: EditorValidationItem[] =
+    deck.metadata.generationQuality?.issues
+      .filter((issue) => !locallyRecomputedGenerationIssueCodes.has(issue.code))
+      .map((issue) => ({
+        issue: issue.code,
+        message: issue.message,
+        severity: issue.severity,
+        slideId: issue.slideId,
+      })) ?? [];
   const presentationRules = Boolean(deck.metadata.presentationProfile);
   const timingPlan = deck.slides.find(
     (slide) => slide.aiNotes?.timingPlan

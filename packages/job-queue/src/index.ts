@@ -750,6 +750,7 @@ export function aiDeckGenerationStageQueueName(
     case "design-planning":
     case "layout-compile":
       return aiDeckDesignLayoutQueueName;
+    case "cover-slide":
     case "image-slide":
       return aiDeckImageQueueName;
     case "semantic-quality":
@@ -766,6 +767,7 @@ function aiDeckGenerationStageJobOptions(
     jobId: aiDeckGenerationStageJobId(message),
     attempts: 5,
     backoff: { type: "exponential" as const, delay: 1_000 },
+    priority: message.stage === "cover-slide" ? 1 : 10,
     removeOnComplete: true,
     removeOnFail: true,
   };

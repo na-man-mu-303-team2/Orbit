@@ -391,7 +391,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       {
         queueName: aiDeckImageQueueName,
         handler: (job) => {
-          if (job.name !== "image-slide") {
+          if (job.name !== "cover-slide" && job.name !== "image-slide") {
             throw new Error(`Unsupported BullMQ job name: ${job.name}`);
           }
           return processAiDeckExecutionStage(
@@ -568,6 +568,19 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       .map(({ queueName, handler }) => this.createWorker(queueName, handler));
 
     if (this.config.AI_DECK_EXECUTION_MODE === "pg") {
+      if (
+        this.config.AI_DECK_WORKER_CONCURRENCY === 1 ||
+        this.config.AI_DECK_USER_CONCURRENCY === 1
+      ) {
+        this.logger.warn(
+          {
+            event: "ai_ppt.cover_preview.concurrency_limited",
+            workerConcurrency: this.config.AI_DECK_WORKER_CONCURRENCY,
+            userConcurrency: this.config.AI_DECK_USER_CONCURRENCY,
+          },
+          "AI deck cover preview can be delayed when PostgreSQL stage concurrency is 1.",
+        );
+      }
       this.aiDeckPostgresRunner = new AiDeckPostgresStageRunner({
         dataSource: this.dataSource,
         storage,

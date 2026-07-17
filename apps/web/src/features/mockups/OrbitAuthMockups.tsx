@@ -14,7 +14,7 @@ import {
 } from "@tabler/icons-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 import orbitLogo from "./assets/orbit-logo-selected.png";
-import { OrbitButton } from "../../design-system";
+import { OrbitButton } from "../../components/ui";
 import "./orbit-auth-mockups.css";
 
 type AuthMockupProps = {
@@ -128,7 +128,7 @@ function AuthShell(props: AuthMockupProps & { children: ReactNode }) {
     <div className="orbit-auth-mockup">
       <aside className="auth-brand-panel">
         <button aria-label="ORBIT 공개 화면" onClick={() => props.onNavigate("/mockup")} type="button"><IconArrowLeft size={18} /><img alt="ORBIT" src={orbitLogo} /></button>
-        <div className="auth-brand-copy"><p className="orbit-ds-eyebrow">AI PRESENTATION WORKSPACE</p><h1>생각부터<br />발표 순간까지.</h1><p>만들고, 편집하고, 연습하는 모든 흐름을 ORBIT 하나로 이어보세요.</p></div>
+        <div className="auth-brand-copy"><p className="redesign-eyebrow">AI PRESENTATION WORKSPACE</p><h1>생각부터<br />발표 순간까지.</h1><p>만들고, 편집하고, 연습하는 모든 흐름을 ORBIT 하나로 이어보세요.</p></div>
         <ol className="auth-brand-benefits"><li><span><IconSparkles size={19} /></span><div><strong>AI로 빠르게 시작</strong><small>아이디어와 자료를 발표 구성으로 정리해요.</small></div></li><li><span><IconEdit size={19} /></span><div><strong>한눈에 편집</strong><small>콘텐츠와 디자인을 한 캔버스에서 다듬어요.</small></div></li><li><span><IconMicrophone size={19} /></span><div><strong>발표까지 자신 있게</strong><small>리허설과 실전 발표 흐름을 함께 준비해요.</small></div></li></ol>
         <div className="auth-brand-note"><IconPresentation size={20} /><span>오늘도 ORBIT에서<br /><strong>3,248개의 발표</strong>가 준비되고 있어요.</span></div>
       </aside>
@@ -138,7 +138,7 @@ function AuthShell(props: AuthMockupProps & { children: ReactNode }) {
 }
 
 function AuthFormHeader(props: { children: ReactNode; eyebrow: string; title: string }) {
-  return <header className="auth-form-header"><p className="orbit-ds-eyebrow">{props.eyebrow}</p><h1>{props.title}</h1><p>{props.children}</p></header>;
+  return <header className="auth-form-header"><p className="redesign-eyebrow">{props.eyebrow}</p><h1>{props.title}</h1><p>{props.children}</p></header>;
 }
 
 function AuthDivider() {

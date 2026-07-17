@@ -216,6 +216,7 @@ function retryProgress(stage: (typeof aiDeckStageOrder)[number]): number {
     "reference-extract-file": 5,
     "source-grounding": 15,
     "content-planning": 25,
+    "cover-slide": 40,
     "design-planning": 40,
     "layout-compile": 50,
     "image-slide": 60,

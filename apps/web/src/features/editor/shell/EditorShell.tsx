@@ -6,14 +6,12 @@ import {
   deriveKeywordActionUsage,
   validateSlideAnimations
 } from "../../../../../../packages/editor-core/src/index";
-import { demoIds } from "@orbit/shared";
+import { demoIds, type Slide } from "@orbit/shared";
 import type { Job } from "../../../../../../packages/shared/src/jobs/job.schema";
 import { getRenderableSlideElements } from "../canvas/EditorCanvas";
 import {
-  AnimationSidePanel,
+  AnimationInspectorPanel,
   buildAnimationKeywordTriggerPolicy,
-  maxAnimationPaneWidth,
-  minAnimationPaneWidth,
   toAnimationKeywordTriggerOptions,
   useEditorAnimationPreview
 } from "./components/animation";
@@ -90,7 +88,11 @@ import {
   SpeakerNotesAssistantDialog
 } from "./components/SpeakerNotesAssistantDialog";
 import { SpeakerNotesPanel } from "./components/SpeakerNotesPanel";
-import { EditorBottomDock } from "./components/EditorBottomDock";
+import {
+  EditorSlideRehearsalBottomPanel,
+  EditorSlideRehearsalLeftPanel,
+  EditorSlideRehearsalRightPanel
+} from "./components/EditorSlideRehearsal";
 import { SlideNavigatorPane } from "./components/SlideNavigatorPane";
 import { EditorContextMenus } from "./components/EditorContextMenus";
 import { EditorModals } from "./components/EditorModals";
@@ -99,8 +101,7 @@ import { EditorToolbar } from "./components/EditorToolbar";
 import { IconLibrarySidePanel } from "./components/IconLibrarySidePanel";
 import {
   EditorRightPanel,
-  type AiPanelView,
-  type RightPanelView
+  type AiPanelView
 } from "./components/EditorRightPanel";
 import {
   fetchDeck,
@@ -126,6 +127,10 @@ import {
 } from "./hooks/useSpeakerNotesPanelLayout";
 import { useEditorSlideCommands } from "./hooks/useEditorSlideCommands";
 import { useEditorPresentationActions } from "./hooks/useEditorPresentationActions";
+import {
+  useEditorSlideRehearsal,
+  type EditorSlideRehearsalState
+} from "./hooks/useEditorSlideRehearsal";
 import { useShapeMenuPlacement } from "./hooks/useShapeMenuPlacement";
 export {
   applyDeckPatchAcknowledgement,
@@ -154,6 +159,7 @@ import {
   toEditorErrorMessage
 } from "./utils/editorFileValidation";
 import type { PptxImportState } from "./components/PptxImportQualityPanel";
+import "../../../styles/tokens.css";
 import "../editor-shell.css";
 
 declare global {
@@ -181,7 +187,7 @@ declare global {
 
 const fallbackDeck = createDemoDeck();
 const collapsedSlidesPaneWidth = 0;
-const minSlidesPaneWidth = 132;
+const minSlidesPaneWidth = 160;
 
 const maxSlidesPaneWidth = 280;
 const collapsedRightPaneWidth = 52;
@@ -215,7 +221,6 @@ export function EditorShell(props: { projectId?: string }) {
   const setIsRightPanelOpen = useEditorShellUiStore(
     (state) => state.setIsRightPanelOpen
   );
-  const [rightPanelView, setRightPanelView] = useState<RightPanelView>("ai");
   const [aiPanelView, setAiPanelView] = useState<AiPanelView>("chat");
   const [aiChatState, setAiChatState] = useState(() =>
     createInitialAiChatState(projectId)
@@ -229,12 +234,6 @@ export function EditorShell(props: { projectId?: string }) {
   const slidesPaneWidth = useEditorShellUiStore((state) => state.slidesPaneWidth);
   const setSlidesPaneWidth = useEditorShellUiStore(
     (state) => state.setSlidesPaneWidth
-  );
-  const animationPaneWidth = useEditorShellUiStore(
-    (state) => state.animationPaneWidth
-  );
-  const setAnimationPaneWidth = useEditorShellUiStore(
-    (state) => state.setAnimationPaneWidth
   );
   const rightPaneWidth = useEditorShellUiStore((state) => state.rightPaneWidth);
   const setRightPaneWidth = useEditorShellUiStore((state) => state.setRightPaneWidth);
@@ -325,6 +324,10 @@ export function EditorShell(props: { projectId?: string }) {
     useState<DeckExportFormat>("pptx");
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const editorStageRef = useRef<Konva.Stage | null>(null);
+  const panelStateBeforeRehearsalRef = useRef<{
+    isRightPanelOpen: boolean;
+    isSlidesPaneCollapsed: boolean;
+  } | null>(null);
   const ooxmlSyncJob = useOoxmlSyncJob();
 
   const health = useQuery({
@@ -362,7 +365,6 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEffect(() => {
     resetProjectUiState();
-    setRightPanelView("ai");
     setAiPanelView("chat");
     setAiChatState(createInitialAiChatState(projectId));
     setSemanticCueExtractionState({ status: "idle", message: "" });
@@ -475,6 +477,45 @@ export function EditorShell(props: { projectId?: string }) {
     setSelectedElementIds
   ]);
   const {
+    enter: enterSlideRehearsal,
+    exit: exitSlideRehearsal,
+    start: startSlideRehearsal,
+    state: slideRehearsalState,
+    stop: stopSlideRehearsal
+  } = useEditorSlideRehearsal({ projectId });
+  const isSlideRehearsalActive = Boolean(slideRehearsalState.activeSlideId);
+  const [slideRehearsalReport, setSlideRehearsalReport] = useState<{
+    slide: Slide;
+    state: EditorSlideRehearsalState;
+  } | null>(null);
+  const rehearsalSlide =
+    deck.slides.find(
+      (slide) => slide.slideId === slideRehearsalState.activeSlideId
+    ) ?? currentSlide;
+
+  function handleSelectSlideForNavigator(index: number) {
+    if (!isSlideRehearsalActive) {
+      handleSelectSlideIndex(index);
+      return;
+    }
+    if (index === currentSlideIndex) return;
+
+    const nextSlide = deck.slides[index];
+    if (!nextSlide) return;
+
+    resetSpeakerNotesEditState(nextSlide.speakerNotes);
+    speakerNotesEditorActions.closeAssistant();
+    setCurrentSlideIndex(index);
+    if (
+      slideRehearsalState.status === "listening" ||
+      slideRehearsalState.status === "starting"
+    ) {
+      void startSlideRehearsal(nextSlide);
+    } else {
+      enterSlideRehearsal(nextSlide);
+    }
+  }
+  const {
     actions: speakerNotesEditorActions,
     state: speakerNotesEditorState
   } = useSpeakerNotesEditor({
@@ -584,8 +625,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
   const {
     activeStartAction: activePresentationAction,
-    startPresentation: handleStartPresentation,
-    startRehearsal: handleStartRehearsal
+    startPresentation: handleStartPresentation
   } = useEditorPresentationActions({
     applyPersistedDeck,
     commitSpeakerNotesDraftIfDirty,
@@ -603,7 +643,7 @@ export function EditorShell(props: { projectId?: string }) {
     workingDeckRef
   });
   const canStartPresentation =
-    canOpenAudienceLink && !activePresentationAction;
+    canOpenAudienceLink && !activePresentationAction && !isSlideRehearsalActive;
   const saveStatusLabel = getEditorStatusLabel({
     isDeckError,
     isDeckLoading,
@@ -623,7 +663,11 @@ export function EditorShell(props: { projectId?: string }) {
   );
   const {
     canvasViewportRef: editorCanvasViewportRef,
-    stageScale
+    fitStageToViewport,
+    isStageFitToViewport,
+    stageScale,
+    zoomIn: zoomCanvasIn,
+    zoomOut: zoomCanvasOut
   } = useEditorViewport({
     canvas: deck.canvas,
     isRightPanelOpen,
@@ -991,12 +1035,79 @@ export function EditorShell(props: { projectId?: string }) {
   function openAnimationInspector() {
     setIsIconPanelOpen(false);
     setIsAnimationPanelOpen(true);
+    setIsRightPanelOpen(true);
+  }
+
+  async function handleExitSlideRehearsal() {
+    const previousPanelState = panelStateBeforeRehearsalRef.current;
+    panelStateBeforeRehearsalRef.current = null;
+    await exitSlideRehearsal();
+
+    if (previousPanelState) {
+      setIsSlidesPaneCollapsed(previousPanelState.isSlidesPaneCollapsed);
+      setIsRightPanelOpen(previousPanelState.isRightPanelOpen);
+    }
+  }
+
+  async function handleFinishSlideRehearsal() {
+    const reportSlide = rehearsalSlide;
+    const reportState: EditorSlideRehearsalState = {
+      ...slideRehearsalState,
+      audioLevelPercent: 0,
+      interimTranscript: "",
+      status: "stopped"
+    };
+    await stopSlideRehearsal();
+    if (reportSlide) {
+      setSlideRehearsalReport({ slide: reportSlide, state: reportState });
+    }
+    await handleExitSlideRehearsal();
+    setIsRightPanelOpen(true);
+  }
+
+  function beginSlideRehearsalMode(slide: Slide) {
+    setSlideRehearsalReport(null);
+    panelStateBeforeRehearsalRef.current = {
+      isRightPanelOpen,
+      isSlidesPaneCollapsed
+    };
+    setActiveTopMenu(null);
+    setIsSlidesPaneCollapsed(false);
+    setIsIconPanelOpen(false);
+    setIsAnimationPanelOpen(false);
+    setSelectedElementIds([]);
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    speakerNotesEditorActions.closeAssistant();
+    enterSlideRehearsal(slide);
+  }
+
+  function handleToggleSlideRehearsal() {
+    if (isSlideRehearsalActive) {
+      void handleExitSlideRehearsal();
+      return;
+    }
+    if (!currentSlide || !commitSpeakerNotesDraftIfDirty()) return;
+    beginSlideRehearsalMode(currentSlide);
+  }
+
+  function handleRestartFromRehearsalReport() {
+    const report = slideRehearsalReport;
+    if (!report) return;
+    beginSlideRehearsalMode(report.slide);
+    void startSlideRehearsal(report.slide);
   }
 
   function toggleIconLibrary() {
     setIsIconPanelOpen((current) => {
-      if (!current) setIsAnimationPanelOpen(false);
-      return !current;
+      const next = !current;
+      if (next) {
+        setIsAnimationPanelOpen(false);
+        setIsRightPanelOpen(true);
+      } else {
+        setIsRightPanelOpen(false);
+      }
+      return next;
     });
   }
 
@@ -1035,20 +1146,6 @@ export function EditorShell(props: { projectId?: string }) {
     });
   }
 
-  function handleAnimationPaneResizeStart(
-    event: ReactPointerEvent<HTMLButtonElement>
-  ) {
-    beginHorizontalPaneResize({
-      direction: "expand-right",
-      event,
-      maxWidth: maxAnimationPaneWidth,
-      minWidth: minAnimationPaneWidth,
-      onWidthChange: setAnimationPaneWidth,
-      startWidth: animationPaneWidth
-    });
-  }
-
-
   useEffect(() => {
     if (
       selectedKeywordId &&
@@ -1059,6 +1156,11 @@ export function EditorShell(props: { projectId?: string }) {
       clearSelectedKeyword();
     }
   }, [currentSlide, selectedKeywordId]);
+
+  useEffect(() => {
+    panelStateBeforeRehearsalRef.current = null;
+    void exitSlideRehearsal();
+  }, [exitSlideRehearsal, projectId]);
 
   useEffect(() => {
     setSelectedElementIds((current) =>
@@ -1141,7 +1243,9 @@ export function EditorShell(props: { projectId?: string }) {
     <>
       <main
         aria-busy={isDeckLoading}
-        className={`editor-app-shell orbit-shell ${isDeckLoading ? "is-deck-loading" : ""}`}
+        className={`editor-app-shell orbit-shell editor-professional redesign-dark ${
+          isSlideRehearsalActive ? "slide-rehearsal-active" : ""
+        } ${isDeckLoading ? "is-deck-loading" : ""}`}
       >
         <EditorTopbar
           activePresentationAction={activePresentationAction}
@@ -1155,6 +1259,7 @@ export function EditorShell(props: { projectId?: string }) {
           isPptxExporting={isPptxExporting}
           isSharePanelOpen={isSharePanelOpen}
           isSharePermissionLoading={isSharePermissionLoading}
+          isSlideRehearsalActive={isSlideRehearsalActive}
           isUsingFallbackDeck={isUsingFallbackDeck}
           lastSavedAtLabel={formatLastSavedAtLabel(lastSavedAt)}
           ooxmlSyncStatus={ooxmlSyncStatus}
@@ -1181,7 +1286,7 @@ export function EditorShell(props: { projectId?: string }) {
           }}
           onSave={() => void handleSaveDeck()}
           onStartPresentation={() => void handleStartPresentation()}
-          onStartRehearsal={() => void handleStartRehearsal()}
+          onStartRehearsal={handleToggleSlideRehearsal}
           projectId={projectId}
           projectPresenceUsers={projectPresenceUsers}
           pptxExportMessage={pptxExportError || pptxExportStatus}
@@ -1262,20 +1367,24 @@ export function EditorShell(props: { projectId?: string }) {
         }}
       />
       {isDeckLoading ? (
-        <div className="editor-loading-guard" role="status">
-          <span className="editor-loading-spinner" aria-hidden="true" />
-          <strong>발표 자료를 불러오는 중입니다</strong>
+        <div
+          aria-label="발표 자료를 불러오는 중"
+          className="editor-loading-guard"
+          role="status"
+        >
+          <span aria-hidden="true" className="editor-loading-indicator" />
         </div>
       ) : null}
 
       <section
-        className={`editor-panel ${isAnimationPanelOpen || isIconPanelOpen ? "animation-panel-open" : ""} ${
-          isRightPanelOpen ? "" : "right-panel-closed"
-        } ${isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""}`}
+        className={`editor-panel ${isRightPanelOpen ? "" : "right-panel-closed"} ${
+          isSlidesPaneCollapsed ? "slides-panel-collapsed" : ""
+        } ${
+          isSlideRehearsalActive ? "slide-rehearsal-mode" : ""
+        }`}
         aria-label="Presentation editor"
         style={
           {
-            "--animation-pane-width": `${animationPaneWidth}px`,
             "--slides-pane-width": `${
               isSlidesPaneCollapsed ? collapsedSlidesPaneWidth : slidesPaneWidth
             }px`,
@@ -1285,151 +1394,75 @@ export function EditorShell(props: { projectId?: string }) {
           } as CSSProperties
         }
       >
-        <SlideNavigatorPane
-          currentSlideIndex={currentSlideIndex}
-          deck={deck}
-          isCollapsed={isSlidesPaneCollapsed}
-          onAddActivitySlide={(template) => {
-            if (!handleAddActivitySlide(template)) return;
-            setIsRightPanelOpen(true);
-            setRightPanelView("design");
-          }}
-          onAddActivityResultsSlide={() => {
-            if (!handleAddActivityResultsSlide()) return;
-            setIsRightPanelOpen(true);
-            setRightPanelView("design");
-          }}
-          onAddSlide={handleAddSlide}
-          onResizeStart={handleSlidesPaneResizeStart}
-          onSelectSlide={handleSelectSlideIndex}
-          onSetView={setSlidePanelView}
-          onToggleCollapsed={() =>
-            setIsSlidesPaneCollapsed((current) => !current)
-          }
-          showIds={showIds}
-          slideThumbnailUrls={slideThumbnailUrls}
-          view={slidePanelView}
-        />
-        {isIconPanelOpen ? (
-          <IconLibrarySidePanel
-            accentColor={currentSlide?.style.accentColor ?? deck.theme.accentColor}
-            onClose={() => setIsIconPanelOpen(false)}
-            onInsert={editorCanvasActions.addIconElement}
+        {isSlideRehearsalActive && rehearsalSlide ? (
+          <EditorSlideRehearsalLeftPanel
+            onResizeStart={handleSlidesPaneResizeStart}
+            onRestart={() => void startSlideRehearsal(rehearsalSlide)}
+            onStop={() => void handleFinishSlideRehearsal()}
+            slide={rehearsalSlide}
+            state={slideRehearsalState}
           />
-        ) : null}
-        {isAnimationPanelOpen ? (
-          <AnimationSidePanel
-            animations={selectedElementAnimations}
-            canPlaySlideAnimations={canPlayCurrentSlideAnimations}
-            canCreateAnimation={Boolean(currentSlide && selectedAnimationPanelElement)}
-            element={selectedAnimationPanelElement}
-            isPlayingSlideAnimations={isPlayingCurrentSlideAnimations}
-            keywordOptions={animationPanelKeywordOptions}
-            keywordTriggerRestrictionMessage={
-              animationKeywordTriggerPolicy.restrictionMessage
-            }
-            keywordTriggerWarningMessage={
-              animationKeywordTriggerPolicy.warningMessage
-            }
-            preferredAnimationId={animationPanelFocusedAnimationId}
-            selectedKeywordId={selectedKeywordId}
-            selectedKeywordLabel={selectedKeyword?.text ?? null}
-            selectedKeywordOccurrenceId={selectedKeywordOccurrenceKey}
-            slideAnimations={currentSlideAnimations}
-            slideElements={currentSlide?.elements ?? []}
-            onAddAnimation={(draft, keywordId, keywordOccurrenceId) => {
-              if (!currentSlide || !selectedAnimationPanelElement) {
-                return;
-              }
-
-              handleAddAnimation(
-                currentSlide.slideId,
-                selectedAnimationPanelElement.elementId,
-                keywordId,
-                keywordOccurrenceId,
-                draft
-              );
+        ) : (
+          <SlideNavigatorPane
+            currentSlideIndex={currentSlideIndex}
+            deck={deck}
+            isCollapsed={isSlidesPaneCollapsed}
+            onAddActivitySlide={(template) => {
+              if (!handleAddActivitySlide(template)) return;
+              setIsRightPanelOpen(true);
             }}
+            onAddActivityResultsSlide={() => {
+              if (!handleAddActivityResultsSlide()) return;
+              setIsRightPanelOpen(true);
+            }}
+            onAddSlide={handleAddSlide}
+            onResizeStart={handleSlidesPaneResizeStart}
+            onSelectSlide={handleSelectSlideForNavigator}
+            onSetView={setSlidePanelView}
+            onToggleCollapsed={() =>
+              setIsSlidesPaneCollapsed((current) => !current)
+            }
             showIds={showIds}
-            onClose={() => setIsAnimationPanelOpen(false)}
-            onPlaySlideAnimations={playCurrentSlideAnimations}
-            onResizeStart={handleAnimationPaneResizeStart}
-            onDeleteAnimation={(animationId) => {
-              if (!currentSlide) {
-                return;
-              }
-
-              handleDeleteAnimation(currentSlide.slideId, animationId);
-            }}
-            onSelectKeyword={handleSelectKeyword}
-            onSelectSlideAnimation={handleSelectSlideAnimationFromPanel}
-            onUpdateAnimation={(animationId, animation) => {
-              if (!currentSlide) {
-                return;
-              }
-
-              handleUpdateAnimation(currentSlide.slideId, animationId, animation);
-            }}
+            slideThumbnailUrls={slideThumbnailUrls}
+            view={slidePanelView}
           />
-        ) : null}
-
+        )}
         <section className="stage-pane">
-          <EditorToolbar
-            canUseCurrentSlide={canEditCurrentSlideCanvas}
-            insertTool={insertTool}
-            isAnimationPanelOpen={isAnimationPanelOpen}
-            isIconPanelOpen={isIconPanelOpen}
-            isImageUploadPending={isImageUploadPending}
-            isShapeMenuOpen={isShapeMenuOpen}
-            onAddChart={handleAddChartElement}
-            onAddText={handleAddTextElement}
-            onOpenAnimation={openAnimationInspector}
-            onOpenIconLibrary={toggleIconLibrary}
-            onOpenImagePicker={() => {
-              if (currentSlide) {
-                openImageFilePicker({ slideId: currentSlide.slideId, type: "insert" });
-              }
-            }}
-            onRedo={handleRedo}
-            onSelectTool={() => setInsertTool("select")}
-            onToggleShapeMenu={() => setIsShapeMenuOpen((current) => !current)}
-            onUndo={handleUndo}
-            redoDisabled={redoStack.length === 0}
-            selectedElementAnimationCount={selectedElementAnimations.length}
-            selectionProperties={
-              selectedElementIds.length > 1 ? null : (
-                <EditorSelectionProperties
-                  animations={selectedElementAnimations}
-                  animationDiagnostics={currentSlideAnimationDiagnostics}
-                  canvas={deck.canvas}
-                  customShapeEditActive={isCustomShapeEditingSelection}
-                  element={selectedElement}
-                  instanceKey="toolbar-properties"
-                  onChangeElementFrame={handleElementFrameChange}
-                  onChangeElementProps={handleElementPropsChange}
-                  onChangeSlideStyle={(style) => {
-                    if (currentSlide) handleSlideStyleChange(currentSlide.slideId, style);
-                  }}
-                  onChangeTheme={handleThemeChange}
-                  onCloseInlineEditing={() => setEditingElementId(null)}
-                  onCommitCustomShapeGeometry={handleCommitCustomShapeGeometry}
-                  onDeleteAnimation={handleDeleteAnimation}
-                  onOpenAnimationEditor={openAnimationInspector}
-                  onToggleCustomShapeEdit={(elementId) =>
-                    setCustomShapeEditElementId((current) =>
-                      current === elementId ? null : elementId
-                    )
-                  }
-                  selectedKeywordLabel={selectedKeyword?.text ?? null}
-                  showIds={showIds}
-                  slide={selectedElement ? currentSlide : null}
-                  theme={deck.theme}
-                />
-              )
-            }
-            shapeMenuButtonRef={shapeMenuButtonRef}
-            undoDisabled={undoStack.length === 0}
-          />
+          {!isSlideRehearsalActive ? (
+            <EditorToolbar
+              canUseCurrentSlide={canEditCurrentSlideCanvas}
+              insertTool={insertTool}
+              isAnimationPanelOpen={isAnimationPanelOpen}
+              isIconPanelOpen={isIconPanelOpen}
+              isImageUploadPending={isImageUploadPending}
+              isShapeMenuOpen={isShapeMenuOpen}
+              isStageFitToViewport={isStageFitToViewport}
+              onAddChart={handleAddChartElement}
+              onAddText={handleAddTextElement}
+              onOpenAnimation={openAnimationInspector}
+              onOpenIconLibrary={toggleIconLibrary}
+              onOpenImagePicker={() => {
+                if (currentSlide) {
+                  openImageFilePicker({
+                    slideId: currentSlide.slideId,
+                    type: "insert",
+                  });
+                }
+              }}
+              onRedo={handleRedo}
+              onSelectTool={() => setInsertTool("select")}
+              onToggleShapeMenu={() => setIsShapeMenuOpen((current) => !current)}
+              onUndo={handleUndo}
+              onFitStageToViewport={fitStageToViewport}
+              onZoomIn={zoomCanvasIn}
+              onZoomOut={zoomCanvasOut}
+              redoDisabled={redoStack.length === 0}
+              selectedElementAnimationCount={selectedElementAnimations.length}
+              shapeMenuButtonRef={shapeMenuButtonRef}
+              stageScale={stageScale}
+              undoDisabled={undoStack.length === 0}
+            />
+          ) : null}
 
           <EditorCanvasStage
             assistantDialog={
@@ -1452,7 +1485,8 @@ export function EditorShell(props: { projectId?: string }) {
             deck={deck}
             editableCanvasProps={{
               customShapeEditElementId,
-              disableInteractions: isPlayingCurrentSlideAnimations,
+                disableInteractions:
+                  isPlayingCurrentSlideAnimations || isSlideRehearsalActive,
               editingElementId,
               elementStates: animationPreviewElementStates,
               insertTool,
@@ -1499,81 +1533,124 @@ export function EditorShell(props: { projectId?: string }) {
             stageScale={stageScale}
           />
 
-          <EditorBottomDock
-            currentSlide={currentSlide}
-            deck={deck}
-            flushPendingSaves={flushPendingSavesBeforeManualAction}
-            height={speakerNotesPanelHeight}
-            isExpanded={isSpeakerNotesPanelExpanded}
-            isResizing={isSpeakerNotesPanelResizing}
-            maxHeight={getSpeakerNotesPanelMaxHeight()}
-            minHeight={minSpeakerNotesPanelHeight}
-            onResizeKeyDown={handleSpeakerNotesResizeKeyDown}
-            onResizeStart={handleSpeakerNotesResizeStart}
-            onTogglePanel={handleToggleSpeakerNotesPanel}
-            projectId={projectId}
-            notesPanel={<SpeakerNotesPanel
-            contentRef={speakerNotesContentRef}
-            currentSlide={currentSlide}
-            draft={speakerNotesDraft}
-            guidance={speakerNotesLengthGuidance}
-            height={speakerNotesPanelHeight}
-            isEditing={isSpeakerNotesEditing}
-            isExpanded={isSpeakerNotesPanelExpanded}
-            isResizing={isSpeakerNotesPanelResizing}
-            maxHeight={getSpeakerNotesPanelMaxHeight()}
-            minHeight={minSpeakerNotesPanelHeight}
-            onCancelEdit={handleCancelSpeakerNotesEdit}
-            onClearKeyword={clearSelectedKeyword}
-            onDeleteKeyword={() => {
-              if (currentSlide && selectedKeyword) {
-                handleDeleteSelectedKeyword(
-                  currentSlide.slideId,
-                  selectedKeyword.keywordId
-                );
-              }
-            }}
-            onDraftChange={setSpeakerNotesDraft}
-            onOpenAssistant={handleOpenSpeakerNotesAssistant}
-            onResizeKeyDown={handleSpeakerNotesResizeKeyDown}
-            onResizeStart={handleSpeakerNotesResizeStart}
-            onSaveEdit={handleSaveSpeakerNotesEdit}
-            onSelectKeyword={handleSelectKeyword}
-            onSelectKeywordText={handleSpeakerNotesKeywordSelection}
-            onStartEdit={handleStartSpeakerNotesEdit}
-            onToggleAdvanceSlide={() => {
-              if (currentSlide && selectedKeyword) {
-                handleToggleAdvanceSlideKeyword(
-                  currentSlide.slideId,
-                  selectedKeyword.keywordId,
-                  !(selectedKeywordUsage?.advancesSlide ?? false)
-                );
-              }
-            }}
-            onTogglePanel={handleToggleSpeakerNotesPanel}
-            onToggleRequired={() => {
-              if (currentSlide && selectedKeyword) {
-                handleToggleKeywordRequired(
-                  currentSlide.slideId,
-                  selectedKeyword.keywordId,
-                  selectedKeywordOccurrenceKey
-                );
-              }
-            }}
-            selectedKeyword={selectedKeyword}
-            selectedKeywordId={selectedKeywordId}
-            selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
-            selectedKeywordRequiredActive={selectedKeywordRequiredActive}
-            selectedKeywordUsage={selectedKeywordUsage}
-            showIds={showIds}
-            usageByKeywordId={currentSlideKeywordUsage}
-          />}
-          />
+            {isSlideRehearsalActive && rehearsalSlide ? (
+              <EditorSlideRehearsalBottomPanel
+                onRestart={() => void startSlideRehearsal(rehearsalSlide)}
+                onStop={() => void handleFinishSlideRehearsal()}
+                slide={rehearsalSlide}
+                state={slideRehearsalState}
+              />
+            ) : (
+              <SpeakerNotesPanel
+                contentRef={speakerNotesContentRef}
+                currentSlide={currentSlide}
+                draft={speakerNotesDraft}
+                guidance={speakerNotesLengthGuidance}
+                height={speakerNotesPanelHeight}
+                isEditing={isSpeakerNotesEditing}
+                isExpanded={isSpeakerNotesPanelExpanded}
+                isResizing={isSpeakerNotesPanelResizing}
+                maxHeight={getSpeakerNotesPanelMaxHeight()}
+                minHeight={minSpeakerNotesPanelHeight}
+                onCancelEdit={handleCancelSpeakerNotesEdit}
+                onClearKeyword={clearSelectedKeyword}
+                onDeleteKeyword={() => {
+                  if (currentSlide && selectedKeyword) {
+                    handleDeleteSelectedKeyword(
+                      currentSlide.slideId,
+                      selectedKeyword.keywordId
+                    );
+                  }
+                }}
+                onDraftChange={setSpeakerNotesDraft}
+                onOpenAssistant={handleOpenSpeakerNotesAssistant}
+                onResizeKeyDown={handleSpeakerNotesResizeKeyDown}
+                onResizeStart={handleSpeakerNotesResizeStart}
+                onSaveEdit={handleSaveSpeakerNotesEdit}
+                onSelectKeyword={handleSelectKeyword}
+                onSelectKeywordText={handleSpeakerNotesKeywordSelection}
+                onStartEdit={handleStartSpeakerNotesEdit}
+                onToggleAdvanceSlide={() => {
+                  if (currentSlide && selectedKeyword) {
+                    handleToggleAdvanceSlideKeyword(
+                      currentSlide.slideId,
+                      selectedKeyword.keywordId,
+                      !(selectedKeywordUsage?.advancesSlide ?? false)
+                    );
+                  }
+                }}
+                onTogglePanel={handleToggleSpeakerNotesPanel}
+                onToggleRequired={() => {
+                  if (currentSlide && selectedKeyword) {
+                    handleToggleKeywordRequired(
+                      currentSlide.slideId,
+                      selectedKeyword.keywordId,
+                      selectedKeywordOccurrenceKey
+                    );
+                  }
+                }}
+                selectedKeyword={selectedKeyword}
+                selectedKeywordId={selectedKeywordId}
+                selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
+                selectedKeywordRequiredActive={selectedKeywordRequiredActive}
+                selectedKeywordUsage={selectedKeywordUsage}
+                showIds={showIds}
+                usageByKeywordId={currentSlideKeywordUsage}
+              />
+            )}
         </section>
 
         <EditorRightPanel
           aiChatState={aiChatState}
           aiPanelView={aiPanelView}
+          animationCount={selectedElementAnimations.length}
+          animationProperties={
+            <AnimationInspectorPanel
+              animations={selectedElementAnimations}
+              canCreateAnimation={Boolean(currentSlide && selectedAnimationPanelElement)}
+              element={selectedAnimationPanelElement}
+              keywordOptions={animationPanelKeywordOptions}
+              keywordTriggerRestrictionMessage={
+                animationKeywordTriggerPolicy.restrictionMessage
+              }
+              keywordTriggerWarningMessage={
+                animationKeywordTriggerPolicy.warningMessage
+              }
+              preferredAnimationId={animationPanelFocusedAnimationId}
+              selectedKeywordId={selectedKeywordId}
+              selectedKeywordLabel={selectedKeyword?.text ?? null}
+              selectedKeywordOccurrenceId={selectedKeywordOccurrenceKey}
+              slideAnimations={currentSlideAnimations}
+              slideElements={currentSlide?.elements ?? []}
+              onAddAnimation={(draft, keywordId, keywordOccurrenceId) => {
+                if (!currentSlide || !selectedAnimationPanelElement) {
+                  return;
+                }
+
+                handleAddAnimation(
+                  currentSlide.slideId,
+                  selectedAnimationPanelElement.elementId,
+                  keywordId,
+                  keywordOccurrenceId,
+                  draft
+                );
+              }}
+              onDeleteAnimation={(animationId) => {
+                if (currentSlide) {
+                  handleDeleteAnimation(currentSlide.slideId, animationId);
+                }
+              }}
+              onSelectKeyword={handleSelectKeyword}
+              onSelectSlideAnimation={handleSelectSlideAnimationFromPanel}
+              onUpdateAnimation={(animationId, animation) => {
+                if (currentSlide) {
+                  handleUpdateAnimation(currentSlide.slideId, animationId, animation);
+                }
+              }}
+              showIds={showIds}
+            />
+          }
+          canPlayAnimations={canPlayCurrentSlideAnimations}
           currentSlide={currentSlide}
           deck={deck}
           designProperties={
@@ -1619,8 +1696,7 @@ export function EditorShell(props: { projectId?: string }) {
               animationDiagnostics={currentSlideAnimationDiagnostics}
               canvas={deck.canvas}
               customShapeEditActive={isCustomShapeEditingSelection}
-              element={null}
-              instanceKey="design-properties"
+              element={selectedElementIds.length === 1 ? selectedElement : null}
               onChangeElementFrame={handleElementFrameChange}
               onChangeElementProps={handleElementPropsChange}
               onChangeSlideStyle={(style) => {
@@ -1643,24 +1719,50 @@ export function EditorShell(props: { projectId?: string }) {
             />
           }
           editorValidationItems={editorValidationItems}
+          iconLibrary={
+            <IconLibrarySidePanel
+              accentColor={
+                currentSlide?.style.accentColor ?? deck.theme.accentColor
+              }
+              onInsert={editorCanvasActions.addIconElement}
+            />
+          }
+          isIconPanelOpen={isIconPanelOpen}
           isOpen={isRightPanelOpen}
+          isAnimationPropertiesOpen={isAnimationPanelOpen}
+          isPlayingAnimations={isPlayingCurrentSlideAnimations}
           onAiChatStateChange={setAiChatState}
           onApplyAllValidationTextOverflow={handleApplyAllValidationTextOverflow}
           onHighlightElementIds={setValidationHighlightElementIds}
+          onExitRehearsal={() => setSlideRehearsalReport(null)}
           onProposalApplied={handleDesignAgentProposalApplied}
-          onSpeakerNotesAssistantRequest={speakerNotesEditorActions.openAssistantAndGenerate}
+          onPlayAnimations={playCurrentSlideAnimations}
+          onSpeakerNotesAssistantRequest={
+            speakerNotesEditorActions.openAssistantAndGenerate
+          }
           onResizeStart={handleRightPaneResizeStart}
           onSemanticCueChange={handleSemanticCueReviewChange}
           onSemanticCueExtract={(force) => void handleSemanticCueExtraction(force)}
           onTextOverflowAction={handleValidationTextOverflowAction}
           projectId={projectId}
           pptxImportState={pptxImportState}
-          rightPanelView={rightPanelView}
+          rehearsalPanel={
+            slideRehearsalReport ? (
+              <EditorSlideRehearsalRightPanel
+                onRestart={handleRestartFromRehearsalReport}
+                onStop={() => setSlideRehearsalReport(null)}
+                slide={slideRehearsalReport.slide}
+                state={slideRehearsalReport.state}
+              />
+            ) : undefined
+          }
+          rehearsalTitle="리허설 리포트"
           selectedElementIds={selectedElementIds}
           semanticCueExtractionState={semanticCueExtractionState}
           setAiPanelView={setAiPanelView}
+          setIsIconPanelOpen={setIsIconPanelOpen}
+          setIsAnimationPropertiesOpen={setIsAnimationPanelOpen}
           setIsOpen={setIsRightPanelOpen}
-          setRightPanelView={setRightPanelView}
         />
       </section>
 

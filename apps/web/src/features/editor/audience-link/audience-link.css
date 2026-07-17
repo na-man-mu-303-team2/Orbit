@@ -1,22 +1,24 @@
+/* The modal renders through a portal and consumes global Redesign tokens. */
 .audience-link-modal-backdrop {
+  color-scheme: light;
   align-items: center;
-  background: rgba(15, 23, 42, 0.58);
+  background: color-mix(in srgb, var(--redesign-color-on-surface) 58%, transparent);
   display: flex;
   inset: 0;
   justify-content: center;
-  padding: 24px;
+  padding: var(--redesign-space-6);
   position: fixed;
   z-index: 95;
 }
 
 .audience-link-modal {
-  background: #ffffff;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+  background: var(--redesign-color-surface-container-low);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  box-shadow: var(--redesign-shadow-overlay);
   display: grid;
-  gap: 20px;
-  padding: 20px;
+  gap: var(--redesign-space-5);
+  padding: var(--redesign-space-5);
   position: relative;
   width: min(420px, calc(100vw - 48px));
 }
@@ -24,32 +26,32 @@
 .audience-link-modal header {
   align-items: start;
   display: flex;
-  gap: 12px;
+  gap: var(--redesign-space-3);
   justify-content: space-between;
 }
 
 .audience-link-modal header div {
   display: grid;
-  gap: 4px;
+  gap: var(--redesign-space-1);
 }
 
 .audience-link-modal header strong {
-  color: var(--ink);
-  font-size: 1rem;
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-md-size);
 }
 
 .audience-link-modal header span {
-  color: var(--muted);
-  font-size: 0.82rem;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
   line-height: 1.4;
 }
 
 .audience-link-modal header button {
   align-items: center;
-  background: #f8fafc;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: #475569;
+  background: var(--redesign-color-surface-container);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  color: var(--redesign-color-on-surface-variant);
   display: inline-flex;
   height: 34px;
   justify-content: center;
@@ -58,66 +60,66 @@
 }
 
 .audience-link-modal header button:hover {
-  background: var(--blue-soft);
-  color: var(--blue);
+  background: var(--redesign-color-primary-subtle);
+  color: var(--redesign-color-primary);
 }
 
 .audience-link-modal-placeholder {
   align-items: center;
-  border: 1px dashed #cbd5e1;
-  border-radius: 10px;
-  color: #475569;
+  border: 1px dashed var(--redesign-color-outline);
+  border-radius: var(--redesign-radius-xl);
+  color: var(--redesign-color-on-surface-variant);
   display: grid;
-  gap: 10px;
+  gap: var(--redesign-space-2);
   justify-items: center;
   min-height: 180px;
-  padding: 28px;
+  padding: var(--redesign-space-7);
 }
 
 .audience-link-current,
 .audience-link-create {
   display: grid;
-  gap: 14px;
+  gap: var(--redesign-space-3);
 }
 
 .audience-link-status-row {
   align-items: center;
   display: flex;
-  gap: 10px;
+  gap: var(--redesign-space-2);
   justify-content: space-between;
 }
 
 .audience-link-status-row small {
-  color: var(--muted);
-  font-size: 0.78rem;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
 }
 
 .audience-link-status {
-  border-radius: 999px;
-  font-size: 0.78rem;
+  border-radius: var(--redesign-radius-full);
+  font-size: var(--redesign-type-body-sm-size);
   font-weight: 900;
-  padding: 5px 10px;
+  padding: var(--redesign-space-1) var(--redesign-space-2);
 }
 
 .audience-link-status-open {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--redesign-color-success-subtle);
+  color: var(--redesign-color-success);
 }
 
 .audience-link-status-closed {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--redesign-color-error-subtle);
+  color: var(--redesign-color-error);
 }
 
 .audience-link-qr-frame {
   align-items: center;
-  background: #ffffff;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  background: var(--redesign-color-surface-container-low);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
   display: flex;
   justify-content: center;
   min-height: 236px;
-  padding: 8px;
+  padding: var(--redesign-space-2);
 }
 
 .audience-link-qr-frame img {
@@ -128,61 +130,61 @@
 
 .audience-link-expiry-summary {
   align-items: center;
-  background: #f8fafc;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  background: var(--redesign-color-surface-container);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
   display: flex;
-  gap: 10px;
+  gap: var(--redesign-space-2);
   justify-content: space-between;
-  padding: 10px 12px;
+  padding: var(--redesign-space-2) var(--redesign-space-3);
 }
 
 .audience-link-expiry-summary strong {
-  color: var(--blue-strong);
-  font-size: 0.92rem;
+  color: var(--redesign-color-primary-emphasis);
+  font-size: var(--redesign-type-body-sm-size);
 }
 
 .audience-link-expiry-summary span {
-  color: var(--muted);
-  font-size: 0.78rem;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
 }
 
 .audience-link-url-field,
 .audience-link-create label,
 .audience-expiry-field {
   display: grid;
-  gap: 8px;
+  gap: var(--redesign-space-2);
 }
 
 .audience-link-url-field span,
 .audience-link-create label > span,
 .audience-expiry-field span {
-  color: #334155;
-  font-size: 0.82rem;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
   font-weight: 800;
 }
 
 .audience-link-url-field input,
 .audience-expiry-field select {
-  background: #f8fbff;
-  border: 1px solid #bfdbfe;
-  border-radius: 8px;
-  color: #1e3a8a;
+  background: var(--redesign-color-primary-subtle);
+  border: 1px solid var(--redesign-color-primary-outline);
+  border-radius: var(--redesign-radius-xl);
+  color: var(--redesign-color-primary-emphasis);
   min-height: 38px;
   min-width: 0;
-  padding: 0 10px;
+  padding: 0 var(--redesign-space-2);
 }
 
 .audience-link-url-field input:focus,
 .audience-expiry-field select:focus {
-  border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+  border-color: var(--redesign-color-primary);
+  box-shadow: var(--redesign-glow-primary);
   outline: none;
 }
 
 .audience-pin-inputs {
   display: grid;
-  gap: 10px;
+  gap: var(--redesign-space-2);
   grid-template-columns: repeat(4, 44px);
   position: relative;
   width: max-content;
@@ -192,7 +194,7 @@
   background: transparent;
   border: 0;
   color: transparent;
-  caret-color: var(--blue);
+  caret-color: var(--redesign-color-primary);
   font-size: 1px;
   height: 44px;
   inset: 0;
@@ -206,12 +208,12 @@
 
 .audience-pin-inputs span {
   align-items: center;
-  background: var(--blue-soft);
-  border: 1px solid #bfdbfe;
-  border-radius: 7px;
-  color: var(--blue-strong);
+  background: var(--redesign-color-primary-subtle);
+  border: 1px solid var(--redesign-color-primary-outline);
+  border-radius: var(--redesign-radius-xl);
+  color: var(--redesign-color-primary-emphasis);
   display: inline-flex;
-  font-size: 1.2rem;
+  font-size: var(--redesign-type-title-lg-size);
   font-weight: 900;
   height: 44px;
   justify-content: center;
@@ -219,46 +221,46 @@
 }
 
 .audience-pin-inputs:focus-within span {
-  border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+  border-color: var(--redesign-color-primary);
+  box-shadow: var(--redesign-glow-primary);
 }
 
 .audience-link-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--redesign-space-2);
 }
 
 .audience-link-actions button,
 .audience-link-primary {
-  background: #f8fbff;
-  border: 1px solid #bfdbfe;
-  border-radius: 10px;
-  color: var(--blue-strong);
+  background: var(--redesign-color-primary-subtle);
+  border: 1px solid var(--redesign-color-primary-outline);
+  border-radius: var(--redesign-radius-xl);
+  color: var(--redesign-color-primary-emphasis);
   cursor: pointer;
   font-weight: 900;
   min-height: 40px;
-  padding: 0 14px;
-  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
+  padding: 0 var(--redesign-space-3);
+  box-shadow: var(--redesign-glow-primary);
 }
 
 .audience-link-actions button:hover:not(:disabled) {
-  background: var(--blue-soft);
-  border-color: var(--blue);
-  color: var(--blue);
+  background: var(--redesign-color-primary-subtle);
+  border-color: var(--redesign-color-primary);
+  color: var(--redesign-color-primary);
 }
 
 .audience-link-actions .audience-link-session-close {
-  background: #fff1f2;
-  border-color: #fecdd3;
-  color: #be123c;
-  box-shadow: 0 1px 2px rgba(190, 18, 60, 0.08);
+  background: var(--redesign-color-error-subtle);
+  border-color: var(--redesign-color-error-subtle);
+  color: var(--redesign-color-error);
+  box-shadow: var(--redesign-glow-error);
 }
 
 .audience-link-actions .audience-link-session-close:hover:not(:disabled) {
-  background: #ffe4e6;
-  border-color: #fb7185;
-  color: #9f1239;
+  background: var(--redesign-color-error-subtle);
+  border-color: var(--redesign-color-error);
+  color: var(--redesign-color-error);
 }
 
 .audience-link-actions .audience-link-modal-dismiss {
@@ -267,73 +269,73 @@
 
 .audience-link-confirm-backdrop {
   align-items: center;
-  background: rgba(15, 23, 42, 0.36);
-  border-radius: 14px;
+  background: color-mix(in srgb, var(--redesign-color-on-surface) 36%, transparent);
+  border-radius: var(--redesign-radius-xl);
   display: flex;
   inset: 0;
   justify-content: center;
-  padding: 18px;
+  padding: var(--redesign-space-4);
   position: absolute;
   z-index: 3;
 }
 
 .audience-link-confirm-modal {
-  background: #ffffff;
-  border: 1px solid #fecdd3;
-  border-radius: 12px;
-  box-shadow: 0 18px 52px rgba(15, 23, 42, 0.24);
+  background: var(--redesign-color-surface-container-low);
+  border: 1px solid var(--redesign-color-error-subtle);
+  border-radius: var(--redesign-radius-xl);
+  box-shadow: var(--redesign-shadow-overlay);
   display: grid;
-  gap: 10px;
+  gap: var(--redesign-space-2);
   max-width: 320px;
-  padding: 18px;
+  padding: var(--redesign-space-4);
   width: 100%;
 }
 
 .audience-link-confirm-modal strong {
-  color: #9f1239;
-  font-size: 0.98rem;
+  color: var(--redesign-color-error);
+  font-size: var(--redesign-type-body-md-size);
 }
 
 .audience-link-confirm-modal p {
-  color: #475569;
-  font-size: 0.84rem;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
   line-height: 1.5;
   margin: 0;
 }
 
 .audience-link-confirm-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--redesign-space-2);
   justify-content: flex-end;
-  margin-top: 4px;
+  margin-top: var(--redesign-space-1);
 }
 
 .audience-link-confirm-actions button {
-  background: #f8fbff;
-  border: 1px solid #bfdbfe;
-  border-radius: 9px;
-  color: var(--blue-strong);
+  background: var(--redesign-color-primary-subtle);
+  border: 1px solid var(--redesign-color-primary-outline);
+  border-radius: var(--redesign-radius-xl);
+  color: var(--redesign-color-primary-emphasis);
   cursor: pointer;
   font-weight: 900;
   min-height: 38px;
-  padding: 0 14px;
+  padding: 0 var(--redesign-space-3);
 }
 
 .audience-link-confirm-actions button:hover:not(:disabled) {
-  background: var(--blue-soft);
-  border-color: var(--blue);
+  background: var(--redesign-color-primary-subtle);
+  border-color: var(--redesign-color-primary);
 }
 
 .audience-link-confirm-actions .audience-link-confirm-danger {
-  background: #ffe4e6;
-  border-color: #fb7185;
-  color: #9f1239;
+  background: var(--redesign-color-error-subtle);
+  border-color: var(--redesign-color-error);
+  color: var(--redesign-color-error);
 }
 
 .audience-link-confirm-actions .audience-link-confirm-danger:hover:not(:disabled) {
-  background: #fecdd3;
-  border-color: #e11d48;
-  color: #881337;
+  background: var(--redesign-color-error-subtle);
+  border-color: var(--redesign-color-error);
+  color: var(--redesign-color-error);
 }
 
 .audience-link-confirm-actions button:disabled {
@@ -342,31 +344,31 @@
 }
 
 .audience-link-primary {
-  background: var(--blue-soft);
-  border-color: var(--blue);
-  color: var(--blue-strong);
+  background: var(--redesign-color-primary-subtle);
+  border-color: var(--redesign-color-primary);
+  color: var(--redesign-color-primary-emphasis);
 }
 
 .audience-link-primary:hover:not(:disabled) {
-  background: #dbeafe;
-  border-color: var(--blue-strong);
-  color: var(--blue-strong);
+  background: var(--redesign-color-primary-subtle);
+  border-color: var(--redesign-color-primary-emphasis);
+  color: var(--redesign-color-primary-emphasis);
 }
 
 .audience-link-actions button:disabled,
 .audience-link-primary:disabled {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #94a3b8;
+  background: var(--redesign-color-surface-container);
+  border-color: var(--redesign-color-outline);
+  color: var(--redesign-color-on-surface-variant);
   cursor: not-allowed;
 }
 
 .audience-link-error {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
-  color: #991b1b;
-  font-size: 0.84rem;
+  background: var(--redesign-color-error-subtle);
+  border: 1px solid var(--redesign-color-error-subtle);
+  border-radius: var(--redesign-radius-xl);
+  color: var(--redesign-color-error);
+  font-size: var(--redesign-type-body-sm-size);
   margin: 0;
-  padding: 10px 12px;
+  padding: var(--redesign-space-2) var(--redesign-space-3);
 }

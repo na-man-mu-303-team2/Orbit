@@ -1,0 +1,28 @@
+.redesign-icon-button {
+  align-items: center;
+  background: transparent;
+  border: var(--redesign-border-width) solid transparent;
+  border-radius: var(--redesign-radius);
+  color: var(--redesign-color-on-surface);
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: var(--redesign-size-control-md);
+  justify-content: center;
+  transition: var(--redesign-transition-color), var(--redesign-transition-transform);
+  width: var(--redesign-size-control-md);
+}
+
+.redesign-icon-button-surface { background: var(--redesign-color-surface-container-low); border-color: var(--redesign-color-outline-variant); }
+.redesign-icon-button-plain { background: transparent; }
+.redesign-icon-button-primary { background: var(--redesign-color-primary-emphasis); color: var(--redesign-color-on-primary); }
+.redesign-icon-button-inverse { background: var(--redesign-color-inverse-surface); color: var(--redesign-color-inverse-on-surface); }
+
+.redesign-icon-button:hover:not(:disabled) {
+  background: var(--redesign-color-primary-container);
+  border-color: var(--redesign-color-primary-emphasis);
+  color: var(--redesign-color-primary-emphasis);
+}
+
+.redesign-icon-button:active:not(:disabled) { transform: translateY(1px); }
+.redesign-icon-button:focus-visible { box-shadow: var(--redesign-focus-ring); outline: none; }
+.redesign-icon-button:disabled { color: var(--redesign-color-on-disabled); cursor: not-allowed; opacity: 0.72; }

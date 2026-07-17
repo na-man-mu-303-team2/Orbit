@@ -7,6 +7,7 @@ const planningPreview = {
   projectId: "project-1",
   status: "composing",
   progress: 40,
+  expectedSlideCountRange: { min: 5, max: 8 },
   editable: false,
   outline: [{ order: 1, title: "시작", message: "핵심 메시지" }],
   deck: null,
@@ -27,5 +28,15 @@ describe("AI deck preview contract", () => {
         rawArtifact: { prompt: "secret" },
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts grounding before the content outline exists", () => {
+    expect(
+      aiDeckPreviewResponseSchema.parse({
+        ...planningPreview,
+        status: "grounding",
+        outline: [],
+      }).status,
+    ).toBe("grounding");
   });
 });

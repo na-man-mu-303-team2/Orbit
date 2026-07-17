@@ -18,17 +18,22 @@ describe("AI PPT wizard UI", () => {
     expect(html).toContain("전문적인");
     expect(html).toContain('type="file"');
     expect(html).toContain("multiple");
+    expect(html).toContain("내용 구성");
+    expect(html).toContain("참고자료 우선");
+    expect(html).toContain("이미지 구성");
+    expect(html).toContain("공식 + AI 이미지");
+    expect(html).toContain('role="tooltip"');
     expect(html).not.toContain('name="duration"');
     expect(html).not.toContain('name="slides"');
     expect(html).not.toContain(">References<");
   });
 
-  it("shows content, Story Review, and Style & Color in order", () => {
+  it("shows content, Style & Color, and progressive preview in order", () => {
     const html = renderToStaticMarkup(createElement(AiPptMockupPage));
 
     expect(html).toContain(">내용 입력<");
-    expect(html).toContain(">Story Review<");
     expect(html).toContain(">Style &amp; Color<");
+    expect(html).toContain(">슬라이드 구성 미리보기<");
     expect(html).not.toContain(">Brief<");
     expect(html).not.toContain(">Color<");
   });

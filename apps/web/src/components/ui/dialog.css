@@ -1,0 +1,37 @@
+.redesign-dialog-backdrop {
+  align-items: center;
+  background: var(--redesign-color-scrim);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: var(--redesign-space-6);
+  position: fixed;
+  z-index: var(--redesign-z-modal);
+}
+
+.redesign-dialog {
+  background: var(--redesign-color-surface-container-lowest);
+  border: var(--redesign-border-strong);
+  border-radius: var(--redesign-radius-lg);
+  box-shadow: var(--redesign-shadow-overlay);
+  color: var(--redesign-color-on-surface);
+  max-height: calc(100vh - 48px);
+  max-width: 560px;
+  overflow: auto;
+  width: 100%;
+}
+
+.redesign-dialog:focus { outline: none; }
+.redesign-dialog-header { align-items: flex-start; border-bottom: var(--redesign-border-subtle); display: flex; gap: var(--redesign-space-6); justify-content: space-between; padding: var(--redesign-space-6) var(--redesign-space-6) var(--redesign-space-5); }
+.redesign-dialog-header h2 { font-size: var(--redesign-type-headline-md-size); letter-spacing: var(--redesign-type-headline-md-tracking); line-height: var(--redesign-type-headline-md-line-height); margin: 0; }
+.redesign-dialog-header p { color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-body-sm-size); line-height: var(--redesign-type-body-sm-line-height); margin: var(--redesign-space-1) 0 0; }
+.redesign-dialog-body { padding: var(--redesign-space-6); }
+.redesign-dialog-footer { align-items: center; border-top: var(--redesign-border-subtle); display: flex; gap: var(--redesign-space-2); justify-content: flex-end; padding: var(--redesign-space-4) var(--redesign-space-6); }
+
+@media (max-width: 640px) {
+  .redesign-dialog-backdrop { align-items: flex-end; padding: var(--redesign-space-3); }
+  .redesign-dialog { border-radius: var(--redesign-radius-lg) var(--redesign-radius-lg) 0 0; max-height: calc(100vh - 24px); }
+  .redesign-dialog-header,
+  .redesign-dialog-body { padding: var(--redesign-space-5); }
+  .redesign-dialog-footer { padding: var(--redesign-space-3) var(--redesign-space-5); }
+}

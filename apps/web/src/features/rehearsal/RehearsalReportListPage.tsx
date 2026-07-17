@@ -7,7 +7,7 @@ import {
   IconRefresh
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
-import { OrbitButton, OrbitEmptyState } from "../../design-system";
+import { OrbitButton, OrbitEmptyState } from "../../components/ui";
 import { fetchProjects } from "../projects/ProjectAssetWorkspace";
 import { fetchProjectRehearsalReportRuns } from "./reportApi";
 import { navigateTo, formatRunDate } from "./rehearsalUtils";
@@ -62,7 +62,7 @@ export function RehearsalReportListPage({ projectId }: { projectId?: string }) {
   return (
     <section className="orbit-report-hub">
       <header className="orbit-report-hub-heading">
-        <div><p className="orbit-ds-eyebrow">REHEARSAL REPORTS</p><h1>리허설 리포트</h1><p>프로젝트별 연습 기록과 변화 흐름을 한눈에 확인하세요.</p></div>
+        <div><p className="redesign-eyebrow">REHEARSAL REPORTS</p><h1>리허설 리포트</h1><p>프로젝트별 연습 기록과 변화 흐름을 한눈에 확인하세요.</p></div>
         <OrbitButton icon={<IconMicrophone aria-hidden="true" size={18} />} onClick={() => navigateTo("/project?intent=rehearsal")} variant="secondary">새 리허설</OrbitButton>
       </header>
 

@@ -214,6 +214,11 @@ export async function initializePendingAiDeckGenerationJobs(
           SELECT 1
           FROM ai_deck_generation_stages stages
           WHERE stages.pipeline_job_id = jobs.job_id
+            AND stages.stage IN (
+              'reference-extract-file',
+              'source-grounding',
+              'content-planning'
+            )
         )
       ORDER BY jobs.created_at, jobs.job_id
       LIMIT $1

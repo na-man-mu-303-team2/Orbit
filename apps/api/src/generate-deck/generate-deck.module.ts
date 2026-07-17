@@ -10,8 +10,8 @@ import { AiDeckPreviewService } from "./ai-deck-preview.service";
 import { DeckColorOptionsController } from "./deck-color-options.controller";
 import { GenerateDeckController } from "./generate-deck.controller";
 import { GenerateDeckService } from "./generate-deck.service";
-import { StoryPlanReviewController } from "./story-plan-review.controller";
-import { StoryPlanReviewService } from "./story-plan-review.service";
+import { DesignSelectionController } from "./design-selection.controller";
+import { DesignSelectionService } from "./design-selection.service";
 
 @Module({
   imports: [
@@ -25,9 +25,9 @@ import { StoryPlanReviewService } from "./story-plan-review.service";
   controllers: [
     AiDeckPreviewController,
     DeckColorOptionsController,
+    DesignSelectionController,
     GenerateDeckController,
-    StoryPlanReviewController
   ],
-  providers: [AiDeckPreviewService, GenerateDeckService, StoryPlanReviewService]
+  providers: [AiDeckPreviewService, DesignSelectionService, GenerateDeckService]
 })
 export class GenerateDeckModule {}

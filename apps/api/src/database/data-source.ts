@@ -58,6 +58,7 @@ import { AddSmartArtTemplateLayouts2026071702000 } from "./migrations/2026071702
 import { IncreaseSmartArtTypography2026071703000 } from "./migrations/2026071703000-IncreaseSmartArtTypography";
 import { RepairActivityRetentionPrivacy2026071704000 } from "./migrations/2026071704000-RepairActivityRetentionPrivacy";
 import { CenterSmartArtCardText2026071705000 } from "./migrations/2026071705000-CenterSmartArtCardText";
+import { ReplaceStoryReviewWithCoverPreview2026071706000 } from "./migrations/2026071706000-ReplaceStoryReviewWithCoverPreview";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -127,7 +128,8 @@ export const databaseOptions: DataSourceOptions = {
     CreatePresentationSessionAudienceRegistry2026071703000,
     IncreaseSmartArtTypography2026071703000,
     RepairActivityRetentionPrivacy2026071704000,
-    CenterSmartArtCardText2026071705000
+    CenterSmartArtCardText2026071705000,
+    ReplaceStoryReviewWithCoverPreview2026071706000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

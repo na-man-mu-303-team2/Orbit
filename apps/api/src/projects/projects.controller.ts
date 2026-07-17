@@ -14,6 +14,7 @@ import {
   createProjectAccessRequestSchema,
   updateProjectMemberRoleRequestSchema,
   updateProjectMemberStatusRequestSchema,
+  updateProjectRequestSchema,
   upsertProjectMemberRequestSchema,
 } from "@orbit/shared";
 import type { Request } from "express";
@@ -65,6 +66,23 @@ export class ProjectsController {
   ) {
     const user = await this.getCurrentUser(request);
     return this.projectsService.delete(workspaceId, projectId, user.userId);
+  }
+
+  @Patch(":projectId")
+  async updateProject(
+    @Param("workspaceId") workspaceId: string,
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const input = parseRequest(updateProjectRequestSchema, body ?? {});
+    const user = await this.getCurrentUser(request);
+    return this.projectsService.updateTitle(
+      workspaceId,
+      projectId,
+      user.userId,
+      input.title,
+    );
   }
 
   @Get(":projectId/members")

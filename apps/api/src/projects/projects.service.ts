@@ -176,6 +176,20 @@ export class ProjectsService {
     return deleteProjectResponseSchema.parse({ projectId });
   }
 
+  async updateTitle(
+    workspaceId: string,
+    projectId: string,
+    requesterUserId: string,
+    title: string,
+  ): Promise<Project> {
+    const project = await this.assertCanWriteProject(projectId, requesterUserId);
+    if (project.workspaceId !== workspaceId) {
+      throw new NotFoundException(`Project not found: ${projectId}`);
+    }
+    await this.projectsRepository.update({ projectId, workspaceId }, { title });
+    return projectSchema.parse({ ...project, title });
+  }
+
   async getAccessibleProject(projectId: string): Promise<Project> {
     let project = await this.projectsRepository.findOne({
       where: { projectId },

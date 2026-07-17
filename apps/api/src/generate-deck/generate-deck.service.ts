@@ -72,8 +72,6 @@ export class GenerateDeckService {
           )
         : { request: parsedRequest };
     const request = resolved.request;
-    const storyReviewRequired =
-      this.config.AI_DECK_EXECUTION_MODE === "pg";
     await this.assertCoachingContext(projectId, request.coachingContext);
     await this.assertOfficialAssets(projectId, request.officialAssetFileIds ?? []);
     const storedPayload = generateDeckStoredJobPayloadSchema.parse({
@@ -87,7 +85,6 @@ export class GenerateDeckService {
             }
           }
         : {}),
-      storyReviewRequired
     });
     const queuedJob = await this.jobsService.create({
       projectId,
@@ -122,7 +119,6 @@ export class GenerateDeckService {
 
     return generateDeckStartResponseSchema.parse({
       job: queuedJob,
-      storyReviewRequired,
     });
   }
 

@@ -1,14 +1,19 @@
 import {
   IconChevronDown,
+  IconEdit,
   IconLink,
   IconMicrophone,
-  IconPlayerPlay
+  IconPlayerPlay,
 } from "@tabler/icons-react";
+
+import { DropdownMenu, DropdownMenuItem } from "../../../../components/ui";
+import { EditorIconButton } from "./EditorIconButton";
 
 type PresentationMenuProps = {
   activeStartAction?: "presentation" | "rehearsal" | null;
   canOpenAudienceLink: boolean;
   canStartPresentation: boolean;
+  isSlideRehearsalActive?: boolean;
   isOpen: boolean;
   onOpenAudienceLink: () => void;
   onStartPresentation: () => void;
@@ -21,31 +26,52 @@ export function PresentationMenu(props: PresentationMenuProps) {
     activeStartAction = null,
     canOpenAudienceLink,
     canStartPresentation,
+    isSlideRehearsalActive = false,
     isOpen,
     onOpenAudienceLink,
     onStartPresentation,
     onStartRehearsal,
-    onToggle
+    onToggle,
   } = props;
+  const isPresentationMenuDisabled =
+    isSlideRehearsalActive || (!canStartPresentation && !canOpenAudienceLink);
 
   return (
     <>
-      <button
-        className="editor-rehearsal-button"
-        disabled={!canStartPresentation}
-        type="button"
+      <EditorIconButton
+        aria-pressed={isSlideRehearsalActive}
+        className={`editor-rehearsal-button ${isSlideRehearsalActive ? "active" : ""}`}
+        disabled={!canStartPresentation && !isSlideRehearsalActive}
+        icon={
+          isSlideRehearsalActive ? (
+            <IconEdit size={16} />
+          ) : (
+            <IconMicrophone size={16} />
+          )
+        }
+        label={
+          isSlideRehearsalActive
+            ? "에디터로 돌아가기"
+            : activeStartAction === "rehearsal"
+              ? "리허설 준비 중"
+              : "슬라이드 한 장 리허설"
+        }
+        title={
+          isSlideRehearsalActive ? "에디터로 돌아가기" : "슬라이드 한 장 리허설"
+        }
         onClick={onStartRehearsal}
-      >
-        <IconMicrophone aria-hidden="true" size={16} />
-        {activeStartAction === "rehearsal" ? "준비 중" : "리허설"}
-      </button>
+      />
       <div className="top-action-menu">
-        <div className={`editor-presentation-split ${isOpen ? "active" : ""}`}>
+        <div
+          className={`editor-presentation-split ${isOpen ? "active" : ""} ${isSlideRehearsalActive ? "rehearsal-disabled" : ""}`}
+        >
           <button
+            aria-expanded={isOpen}
+            aria-haspopup="menu"
             className="editor-present-button"
-            disabled={!canStartPresentation}
+            disabled={isPresentationMenuDisabled}
             type="button"
-            onClick={onStartPresentation}
+            onClick={onToggle}
           >
             <IconPlayerPlay aria-hidden="true" size={16} />
             {activeStartAction === "presentation" ? "준비 중" : "발표하기"}
@@ -55,32 +81,38 @@ export function PresentationMenu(props: PresentationMenuProps) {
             aria-haspopup="menu"
             aria-label="발표 메뉴 열기"
             className="editor-present-menu-button"
-            disabled={!canOpenAudienceLink}
+            disabled={isPresentationMenuDisabled}
             type="button"
             onClick={onToggle}
           >
             <IconChevronDown aria-hidden="true" size={14} />
           </button>
         </div>
-        {isOpen ? (
-          <div className="file-menu-popover action-popover" role="menu">
-            <div className="file-menu-list">
-              <button
-                className="file-menu-item"
-                role="menuitem"
-                type="button"
-                onClick={onOpenAudienceLink}
-              >
-                <span className="file-menu-label">
-                  <IconLink aria-hidden="true" size={16} />
-                  청중 링크·QR
-                </span>
-                <span className="file-menu-meta">
-                  <small>QR 코드 발급</small>
-                </span>
-              </button>
-            </div>
-          </div>
+        {isOpen && !isSlideRehearsalActive ? (
+          <DropdownMenu
+            align="end"
+            className="editor-presentation-menu"
+            variant="white"
+          >
+            <DropdownMenuItem
+              aria-label="발표 시작"
+              disabled={!canStartPresentation}
+              icon={<IconPlayerPlay size={16} />}
+              onClick={onStartPresentation}
+            >
+              발표 시작
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              icon={<IconLink size={16} />}
+              disabled={!canOpenAudienceLink}
+              onClick={onOpenAudienceLink}
+            >
+              <span className="editor-presentation-menu-label">
+                <span>청중 링크·QR</span>
+                <small>QR 코드 발급</small>
+              </span>
+            </DropdownMenuItem>
+          </DropdownMenu>
         ) : null}
       </div>
     </>

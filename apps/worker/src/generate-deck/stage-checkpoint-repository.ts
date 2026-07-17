@@ -218,7 +218,7 @@ export class AiDeckGenerationStageCheckpointRepository {
               AND jobs.status IN ('queued','running')
               AND stages.stage IN (
                 'reference-extract-file','source-grounding','content-planning',
-                'design-planning','layout-compile','image-slide',
+                'cover-slide','design-planning','layout-compile','image-slide',
                 'semantic-quality','rendered-visual-quality','publication'
               )
               AND stages.status = 'queued'
@@ -311,7 +311,7 @@ export class AiDeckGenerationStageCheckpointRepository {
                 AND jobs.status IN ('queued','running')
                 AND stages.stage IN (
                   'reference-extract-file','source-grounding','content-planning',
-                  'design-planning','layout-compile','image-slide',
+                  'cover-slide','design-planning','layout-compile','image-slide',
                   'semantic-quality','rendered-visual-quality','publication'
                 )
                 AND stages.status = 'queued'
@@ -320,7 +320,8 @@ export class AiDeckGenerationStageCheckpointRepository {
                   NULLIF(jobs.payload->>'requestedByUserId', ''),
                   projects.created_by
                 ) = $1
-              ORDER BY stages.created_at,
+              ORDER BY CASE WHEN stages.stage = 'cover-slide' THEN 0 ELSE 1 END,
+                       stages.created_at,
                        stages.pipeline_job_id,
                        stages.stage,
                        stages.shard_key
@@ -585,7 +586,7 @@ export class AiDeckGenerationStageCheckpointRepository {
             AND jobs.status IN ('queued','running')
             AND stages.stage IN (
               'reference-extract-file','source-grounding','content-planning',
-              'design-planning','layout-compile','image-slide',
+              'cover-slide','design-planning','layout-compile','image-slide',
               'semantic-quality','rendered-visual-quality','publication'
             )
             AND stages.status = 'queued'
@@ -625,12 +626,13 @@ export class AiDeckGenerationStageCheckpointRepository {
           AND jobs.status IN ('queued','running')
           AND stages.stage IN (
             'reference-extract-file','source-grounding','content-planning',
-            'design-planning','layout-compile','image-slide',
+            'cover-slide','design-planning','layout-compile','image-slide',
             'semantic-quality','rendered-visual-quality','publication'
           )
           AND stages.status = 'queued'
           AND stages.dispatched_at IS NULL
-        ORDER BY stages.created_at, stages.pipeline_job_id, stages.shard_key
+        ORDER BY CASE WHEN stages.stage = 'cover-slide' THEN 0 ELSE 1 END,
+                 stages.created_at, stages.pipeline_job_id, stages.shard_key
         LIMIT $1
       `,
       [limit],
@@ -663,7 +665,7 @@ export class AiDeckGenerationStageCheckpointRepository {
           AND jobs.status IN ('queued','running')
           AND stages.stage IN (
             'reference-extract-file','source-grounding','content-planning',
-            'design-planning','layout-compile','image-slide',
+            'cover-slide','design-planning','layout-compile','image-slide',
             'semantic-quality','rendered-visual-quality','publication'
           )
           AND stages.status = 'running'

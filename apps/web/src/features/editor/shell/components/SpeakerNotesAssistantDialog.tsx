@@ -7,7 +7,7 @@ import {
   IconSparkles as Sparkles
 } from "@tabler/icons-react";
 
-import { OrbitButton, OrbitDialog, OrbitStatus } from "../../../../design-system";
+import { OrbitButton, OrbitDialog, OrbitStatus } from "../../../../components/ui";
 import { formatSpeakerNotesDuration } from "../speakerNotesAssistant";
 import type { SpeakerNotesLengthGuidance } from "../speakerNotesAssistant";
 
