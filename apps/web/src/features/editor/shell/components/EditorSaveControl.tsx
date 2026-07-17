@@ -1,3 +1,5 @@
+import { IconDeviceFloppy as Save } from "@tabler/icons-react";
+
 type EditorSaveControlProps = {
   emptyStateLabel?: string;
   disabled?: boolean;
@@ -22,12 +24,14 @@ export function EditorSaveControl(props: EditorSaveControlProps) {
   return (
     <div className="editor-save-control">
       <button
+        aria-label={isSaving ? "저장 중" : "저장"}
         className="editor-save-button"
         disabled={disabled || isSaving}
+        title={isSaving ? "저장 중" : "저장"}
         type="button"
         onClick={onSave}
       >
-        {isSaving ? "저장 중..." : "저장"}
+        <Save aria-hidden="true" size={16} />
       </button>
       <div className="editor-save-meta">
         <span className="editor-save-status">{statusLabel}</span>

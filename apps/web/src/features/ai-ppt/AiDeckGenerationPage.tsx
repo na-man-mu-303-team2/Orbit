@@ -2,7 +2,7 @@ import type { AiDeckPreviewResponse, Deck } from "@orbit/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconArrowLeft, IconLoader2, IconRefresh } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { OrbitButton } from "../../design-system";
+import { OrbitButton } from "../../components/ui";
 import { getResponsiveEditorStageScale } from "../editor/shell/utils/editorLayout";
 import { ReadOnlySlideCanvas } from "../slides/rendering";
 import {

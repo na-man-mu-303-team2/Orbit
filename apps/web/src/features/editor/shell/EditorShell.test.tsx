@@ -56,7 +56,10 @@ import {
   shouldPromptSpeakerNotesDraftDiscard,
   shouldPromptSpeakerNotesOverwrite
 } from "./utils/speakerNotesDraft";
-import { getResponsiveEditorStageScale } from "./utils/editorLayout";
+import {
+  getNextEditorStageScale,
+  getResponsiveEditorStageScale
+} from "./utils/editorLayout";
 import { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 import {
   createExpandTextWidthToFitFrame,
@@ -160,7 +163,17 @@ describe("editor shell", () => {
       604 / 1920,
       5,
     );
-    expect(getResponsiveEditorStageScale(1920, 1679, 1080, 1124)).toBe(0.66);
+    expect(getResponsiveEditorStageScale(1920, 1679, 1080, 1124)).toBeCloseTo(
+      1631 / 1920,
+      5,
+    );
+  });
+
+  it("limits canvas-only zoom to the supported range", () => {
+    expect(getNextEditorStageScale(0.4, "in")).toBe(0.45);
+    expect(getNextEditorStageScale(0.4, "out")).toBe(0.35);
+    expect(getNextEditorStageScale(2, "in")).toBe(2);
+    expect(getNextEditorStageScale(0.1, "out")).toBe(0.1);
   });
 
   it("flushes scheduled undo redo persistence before manual save queues", async () => {
@@ -481,8 +494,9 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain(deck.title);
+    expect(html).toContain("editor-professional redesign-dark");
     expect(html).toContain("차트");
-    expect(html).not.toContain("Data Contract");
+    expect(html).toContain("Data Contract");
     expect(html).toContain("발표 메모");
     expect(html).not.toContain("발표할 때 참고할 내용을 슬라이드별로 정리하세요.");
     expect(html).not.toContain("현재 슬라이드 · <!-- -->Opening");
@@ -491,37 +505,54 @@ describe("editor shell", () => {
     expect(html).not.toContain("줄바꿈은 발표자 화면에도 반영됩니다.");
     expect(html).toContain("발표 체크포인트");
     expect(html).not.toContain("필수 발화와 화면 전환에 연결된 키워드입니다.");
-    expect(html.indexOf("script-keyword-section")).toBeLessThan(
-      html.indexOf("speaker-notes-length-meter"),
+    expect(html.indexOf("speaker-notes-length-meter")).toBeLessThan(
+      html.indexOf("script-keyword-section"),
     );
     expect(html).toContain('aria-labelledby="speaker-notes-title"');
     expect(html).toContain("저장됨");
-    expect(html).toContain("AI 검증");
-    expect(html).toContain("AI 채팅");
-    expect(html).toContain("AI 코치");
-    expect(html).toContain(">검사<");
-    expect(html).toContain(">디자인<");
+    expect(html).toContain('aria-label="AI 어시스턴트 보기"');
+    expect(html).not.toContain('aria-label="AI 어시스턴트 사용 가능"');
+    expect(html).toContain('aria-label="오른쪽 패널 보기"');
+    expect(html).toContain('class="editor-right-panel-content"');
+    expect(html).toContain('class="editor-right-panel-rail"');
+    expect(html).not.toContain('class="collapsed-right-rail"');
+    expect(html).toContain('aria-label="속성"');
+    expect(html).toContain('aria-label="애니메이션"');
+    expect(html).not.toContain('aria-label="애니메이션 속성"');
+    expect(html).not.toContain('aria-label="애니메이션 패널"');
     expect(html).not.toContain('id="editor-notes-tab"');
     expect(html).not.toContain("ID 표시");
     expect(html).not.toContain("Data View");
-    expect(html).toContain("발표 메시지");
     expect(html).toContain("이미지");
-    expect(html).toContain('data-testid="editor-slide-quickbar"');
-    expect(html).toContain("테마 배경");
-    expect(html).toContain('aria-label="ORBIT 홈으로 이동"');
+    expect(html).not.toContain('data-testid="editor-slide-quickbar"');
+    expect(html).not.toContain("테마 배경");
+    expect(html).not.toContain('class="property-color-control"');
+    expect(html).toContain('aria-label="홈으로 이동"');
+    expect(html).not.toContain("topbar-brand-label");
     expect(html).toContain('class="editor-document-title"');
+    expect(html).toContain('aria-label="에디터 동기화"');
+    expect(html.indexOf("저장됨")).toBeLessThan(
+      html.indexOf('aria-label="에디터 동기화"'),
+    );
     expect(html).toContain("파일");
-    expect(html).toContain("편집 중");
+    expect(html).not.toContain(">크기 조정<");
+    expect(html).not.toContain("Quick edit");
+    expect(html).not.toContain(">편집 중<");
+    expect(html).not.toContain("템플릿");
+    expect(html).not.toContain('aria-label="브리프"');
+    expect(html).toContain('class="editor-context-top-button editor-version-button"');
     expect(html).toContain("공유");
     expect(html).toContain("리허설");
     expect(html).toContain("발표하기");
     expect(html).toContain('aria-label="실행 취소"');
     expect(html).toContain('aria-label="다시 실행"');
     expect(html).toContain('aria-label="선택 도구"');
-    expect(html).toContain('aria-label="오른쪽 패널 접기"');
-    expect(html).toContain('aria-label="오른쪽 패널 보기"');
-    expect(html).toContain('id="editor-ai-tools-panel"');
-    expect(html).toContain('id="editor-design-panel"');
+    expect(html).toContain('aria-label="AI 어시스턴트 패널 닫기"');
+    expect(html).not.toContain('aria-label="AI 어시스턴트 접기"');
+    expect(html).not.toContain('aria-label="AI 어시스턴트 사용 가능"');
+    expect(html).toContain('id="editor-ai-panel"');
+    expect(html).toContain('hidden="" id="editor-ai-tools-panel"');
+    expect(html).not.toContain('id="editor-design-panel"');
     expect(html).not.toContain('id="editor-notes-panel"');
     expect(html).toContain("stage-speaker-notes-panel");
     expect(html).toContain('aria-controls="speaker-notes-content"');
@@ -531,7 +562,7 @@ describe("editor shell", () => {
     expect(html).not.toContain("speaker-notes-restore-handle");
   });
 
-  it("integrates imported Semantic Cue review into the right panel", () => {
+  it("keeps imported Semantic Cue review in the persistent AI coach panel", () => {
     const queryClient = createTestQueryClient();
     const deck = createDemoDeck();
     deck.metadata.sourceType = "import";
@@ -571,12 +602,11 @@ describe("editor shell", () => {
 
     const html = renderApp(queryClient);
 
-    expect(html).toContain('role="tablist"');
+    expect(html).toContain('aria-label="AI 어시스턴트 보기"');
+    expect(html).not.toContain('id="editor-design-panel"');
+    expect(html).toContain('aria-label="오른쪽 패널 보기"');
     expect(html).toContain('hidden="" id="editor-ai-tools-panel"');
-    expect(html).toContain("발표 메시지");
-    expect(html).toContain("AI로 전체 덱 다시 분석");
     expect(html).toContain("도입 효과");
-    expect(html).toContain("슬라이드 제목");
   });
 
   it("returns a warning for unreadable text overlap", () => {

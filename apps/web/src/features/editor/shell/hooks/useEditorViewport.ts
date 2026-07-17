@@ -1,7 +1,10 @@
 import type { DeckCanvas } from "@orbit/shared";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { getResponsiveEditorStageScale } from "../utils/editorLayout";
+import {
+  getNextEditorStageScale,
+  getResponsiveEditorStageScale
+} from "../utils/editorLayout";
 
 export function useEditorViewport(args: {
   canvas: DeckCanvas;
@@ -16,6 +19,7 @@ export function useEditorViewport(args: {
   } | null>(null);
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
   const wasCompactEditorLayoutRef = useRef(false);
+  const [manualStageScale, setManualStageScale] = useState<number | null>(null);
 
   useEffect(() => {
     const syncEditorViewportWidth = () => setEditorViewportWidth(window.innerWidth);
@@ -49,6 +53,53 @@ export function useEditorViewport(args: {
     };
   }, []);
 
+  const fittedStageScale = useMemo(
+    () =>
+      getResponsiveEditorStageScale(
+        canvas.width,
+        canvasViewport?.width ?? editorViewportWidth,
+        canvas.height,
+        canvasViewport?.height
+      ),
+    [canvas.height, canvas.width, canvasViewport, editorViewportWidth]
+  );
+
+  const changeStageScale = useCallback(
+    (direction: "in" | "out") => {
+      setManualStageScale((current) =>
+        getNextEditorStageScale(current ?? fittedStageScale, direction)
+      );
+    },
+    [fittedStageScale]
+  );
+
+  const fitStageToViewport = useCallback(() => {
+    setManualStageScale(null);
+    const viewport = canvasViewportRef.current;
+    if (viewport) {
+      viewport.scrollTo({ left: 0, top: 0 });
+    }
+  }, []);
+
+  useEffect(() => {
+    setManualStageScale(null);
+  }, [canvas.height, canvas.width]);
+
+  useEffect(() => {
+    const viewport = canvasViewportRef.current;
+    if (!viewport) return;
+
+    const handleCanvasZoom = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+
+      event.preventDefault();
+      changeStageScale(event.deltaY < 0 ? "in" : "out");
+    };
+
+    viewport.addEventListener("wheel", handleCanvasZoom, { passive: false });
+    return () => viewport.removeEventListener("wheel", handleCanvasZoom);
+  }, [changeStageScale]);
+
   useEffect(() => {
     if (editorViewportWidth === null) return;
 
@@ -65,11 +116,10 @@ export function useEditorViewport(args: {
 
   return {
     canvasViewportRef,
-    stageScale: getResponsiveEditorStageScale(
-      canvas.width,
-      canvasViewport?.width ?? editorViewportWidth,
-      canvas.height,
-      canvasViewport?.height
-    )
+    fitStageToViewport,
+    isStageFitToViewport: manualStageScale === null,
+    stageScale: manualStageScale ?? fittedStageScale,
+    zoomIn: () => changeStageScale("in"),
+    zoomOut: () => changeStageScale("out")
   };
 }

@@ -63,6 +63,7 @@ import { JobProgressDisplay } from "./JobProgressDisplay";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import { RehearsalRunNav } from "./RehearsalRunNav";
 import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview";
+import { RehearsalScriptTeleprompter } from "./presenter/RehearsalScriptTeleprompter";
 import "./rehearsal-preflight.css";
 import "./rehearsal-report-detail.css";
 import "./rehearsal-workspace-orbit.css";
@@ -274,6 +275,7 @@ export {
   SherpaOnnxLiveSttAdapter,
   resampleFloat32Audio,
 } from "./sherpaOnnxLiveSttAdapter";
+export { getRehearsalTeleprompterScrollBehavior } from "./presenter/RehearsalScriptTeleprompter";
 
 type Fetcher = (
   input: RequestInfo | URL,
@@ -5159,7 +5161,7 @@ export function RehearsalFailureScreen(props: {
     <main className="rehearsal-preflight-screen" aria-label="리허설 오류">
       <section className="rehearsal-preflight-card" role="alert">
         <div className="rehearsal-preflight-copy">
-          <span className="orbit-ds-eyebrow">REHEARSAL ERROR</span>
+          <span className="redesign-eyebrow">REHEARSAL ERROR</span>
           <h1>리허설을 시작하지 못했습니다.</h1>
           <p>{props.error}</p>
         </div>
@@ -5871,17 +5873,6 @@ export function RehearsalCompletionScreen(props: {
   );
 }
 
-export function getRehearsalTeleprompterScrollBehavior(
-  previousFocusSentenceId: string | null | undefined,
-  nextFocusSentenceId: string | null,
-): ScrollBehavior | null {
-  if (!nextFocusSentenceId || previousFocusSentenceId === nextFocusSentenceId) {
-    return null;
-  }
-
-  return previousFocusSentenceId === undefined ? "auto" : "smooth";
-}
-
 function RehearsalTeleprompter(props: {
   countdownMs: number;
   focusScopeId: string;
@@ -5891,74 +5882,23 @@ function RehearsalTeleprompter(props: {
   scriptProgressPercent: number;
   state: AdvanceControllerState;
 }) {
-  const scrollViewportRef = useRef<HTMLDivElement | null>(null);
-  const focusRowRef = useRef<HTMLParagraphElement | null>(null);
-  const previousFocusSentenceIdRef = useRef<string | null | undefined>(
-    undefined,
-  );
   const countdownSeconds = getAutoAdvanceCountdownSeconds(
     props.state,
     props.countdownMs,
     props.nowMs,
   );
-  const focusKey = props.rows.focusSentenceId
-    ? `${props.focusScopeId}:${props.rows.focusSentenceId}`
-    : null;
-
-  useEffect(() => {
-    const scrollBehavior = getRehearsalTeleprompterScrollBehavior(
-      previousFocusSentenceIdRef.current,
-      focusKey,
-    );
-    previousFocusSentenceIdRef.current = focusKey;
-    if (!scrollBehavior) {
-      return;
-    }
-
-    const viewport = scrollViewportRef.current;
-    const focusRow = focusRowRef.current;
-    if (!viewport || !focusRow) {
-      return;
-    }
-
-    const centeredTop = Math.max(
-      0,
-      focusRow.offsetTop - (viewport.clientHeight - focusRow.clientHeight) / 2,
-    );
-    viewport.scrollTo({
-      behavior: scrollBehavior,
-      top: centeredTop,
-    });
-  }, [focusKey]);
 
   return (
-    <section className="rehearsal-teleprompter-band" aria-label="발표 대본 프롬프터">
-      <div
-        className="rehearsal-teleprompter-lyrics"
-        ref={scrollViewportRef}
-        tabIndex={0}
-      >
-        {props.rows.items.map((row) => (
-          <p
-            aria-current={row.isFocusTarget ? "true" : undefined}
-            aria-live={row.isFocusTarget ? "polite" : undefined}
-            className={`rehearsal-teleprompter-line rehearsal-teleprompter-line-${row.status} ${
-              row.isFocusTarget ? "rehearsal-teleprompter-current" : ""
-            }`.trim()}
-            key={row.sentenceId}
-            ref={row.isFocusTarget ? focusRowRef : undefined}
-          >
-            {row.text}
-          </p>
-        ))}
-      </div>
-      <output
-        aria-label="원문 기준 실시간 진행률"
-        className="rehearsal-teleprompter-progress"
-      >
-        원문 진행 {props.scriptProgressPercent}%
-      </output>
-
+    <RehearsalScriptTeleprompter
+      focusScopeId={props.focusScopeId}
+      progressPercent={props.scriptProgressPercent}
+      rows={props.rows.items.map((row) => ({
+        id: row.sentenceId,
+        isFocusTarget: row.isFocusTarget,
+        status: row.status,
+        text: row.text,
+      }))}
+    >
       {countdownSeconds !== null ? (
         <div className="rehearsal-auto-advance-card" role="status">
           <strong>{countdownSeconds}</strong>
@@ -5978,7 +5918,7 @@ function RehearsalTeleprompter(props: {
           <span>발표 종료 준비됨</span>
         </div>
       ) : null}
-    </section>
+    </RehearsalScriptTeleprompter>
   );
 }
 

@@ -1,0 +1,550 @@
+/*
+ * Workspace home — var(--redesign-color-light-surface) professional-tool surface on the Redesign System
+ * (apps/web/DESIGN.md). It follows the landing page's crisp var(--redesign-color-light-surface) canvas,
+ * thin structural borders, and vivid token-based accents.
+ */
+
+/* ---------- Shell ---------- */
+
+.orbit-home-shell {
+  background: var(--redesign-color-background);
+}
+
+/* ---------- Page ---------- */
+
+.workspace-home {
+  box-sizing: border-box;
+  min-height: 100%;
+  color: var(--redesign-color-on-background);
+  font-family: var(--redesign-font-family);
+  background: var(--redesign-color-background);
+}
+
+.workspace-home button {
+  font-family: inherit;
+}
+
+.workspace-home button:focus-visible {
+  outline: none;
+  box-shadow: var(--redesign-focus-ring);
+}
+
+.workspace-home-main {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--redesign-space-6);
+  width: min(100%, 1200px);
+  margin: 0 auto;
+  padding: var(--redesign-space-12) var(--redesign-layout-margin)
+    calc(var(--redesign-space-12) * 1.5);
+}
+
+/* ---------- Section head ---------- */
+
+.workspace-home-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--redesign-space-4);
+}
+
+.workspace-home-eyebrow {
+  margin: 0 0 var(--redesign-space-1);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: var(--redesign-type-label-sm-weight);
+  line-height: var(--redesign-type-label-sm-line-height);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.workspace-home-head h1 {
+  margin: 0;
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-title-lg-size);
+  font-weight: var(--redesign-type-headline-lg-weight);
+  letter-spacing: var(--redesign-type-headline-lg-tracking);
+}
+
+.workspace-home-more {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--redesign-space-1);
+  min-height: 36px;
+  padding: var(--redesign-space-2) 0 var(--redesign-space-2)
+    var(--redesign-space-4);
+  border: 0;
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--redesign-duration-fast) var(--redesign-ease-standard), transform var(--redesign-duration-fast) var(--redesign-ease-standard);
+}
+
+.workspace-home-more:hover {
+  color: var(--redesign-color-primary);
+  transform: translateX(2px);
+}
+
+/* ---------- Grid ---------- */
+
+.workspace-home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
+  gap: var(--redesign-layout-gutter);
+}
+
+/* Create tile — dashed card with icon square, title and helper copy */
+
+.workspace-home-create {
+  position: relative;
+  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--redesign-space-2);
+  min-height: 100%;
+  padding: var(--redesign-space-6);
+  border: 1px dashed
+    color-mix(
+      in srgb,
+      var(--redesign-color-primary) 62%,
+      var(--redesign-color-outline-variant)
+    );
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface);
+  color: var(--redesign-color-on-surface);
+  cursor: pointer;
+  box-sizing: border-box;
+  transform-origin: center;
+  transition: border-color var(--redesign-duration-normal) var(--redesign-ease-standard), background-color var(--redesign-duration-normal) var(--redesign-ease-standard),
+    box-shadow var(--redesign-duration-normal) var(--redesign-ease-standard),
+    transform var(--redesign-duration-normal) var(--redesign-ease-emphasized);
+}
+
+.workspace-home-create-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--redesign-space-1);
+  border: 1px solid var(--redesign-color-primary);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+  transition: background-color var(--redesign-duration-fast) var(--redesign-ease-standard), border-color var(--redesign-duration-fast) var(--redesign-ease-standard),
+    color var(--redesign-duration-fast) var(--redesign-ease-standard), box-shadow var(--redesign-duration-normal) var(--redesign-ease-standard),
+    transform var(--redesign-duration-normal) var(--redesign-ease-emphasized);
+}
+
+.workspace-home-create > strong {
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.workspace-home-create > small {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  line-height: 1.55;
+  text-align: center;
+}
+
+.workspace-home-create:hover,
+.workspace-home-create:focus-visible {
+  z-index: 2;
+  border-color: color-mix(
+    in srgb,
+    var(--redesign-color-primary) 55%,
+    var(--redesign-color-outline-variant)
+  );
+  background: var(--redesign-color-surface);
+  box-shadow: var(--redesign-shadow-overlay);
+  transform: translateY(-8px) scale(1.08);
+}
+
+.workspace-home-create:hover .workspace-home-create-icon {
+  border-color: var(--redesign-color-primary);
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+  box-shadow: var(--redesign-glow-primary);
+  transform: scale(1.1) rotate(90deg);
+}
+
+.workspace-home-create:active {
+  transform: translateY(-2px) scale(1.02);
+}
+
+.workspace-home-create:active .workspace-home-create-icon {
+  transform: scale(0.94) rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-home-create,
+  .workspace-home-create-icon {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* ---------- Cards — simple Adobe-style: bare thumbnail + caption ---------- */
+
+.workspace-home-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-home-card-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Hover actions over the thumbnail */
+
+.workspace-home-card-actions {
+  position: absolute;
+  top: var(--redesign-space-2);
+  right: var(--redesign-space-2);
+  z-index: 2;
+  display: flex;
+  gap: var(--redesign-space-1);
+  opacity: 0;
+  transition: opacity var(--redesign-duration-fast) var(--redesign-ease-standard);
+}
+
+.workspace-home-card:hover .workspace-home-card-actions,
+.workspace-home-card:focus-within .workspace-home-card-actions,
+.workspace-home-card.is-pinned .workspace-home-card-actions {
+  opacity: 1;
+}
+
+.workspace-home-card-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius);
+  background: color-mix(in srgb, var(--redesign-color-surface) 92%, transparent);
+  color: var(--redesign-color-on-surface-variant);
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: color var(--redesign-duration-fast) var(--redesign-ease-standard), border-color var(--redesign-duration-fast) var(--redesign-ease-standard),
+    transform var(--redesign-duration-normal) var(--redesign-ease-emphasized);
+}
+
+.workspace-home-card-actions > button:hover {
+  border-color: var(--redesign-color-outline);
+  color: var(--redesign-color-on-surface);
+  transform: scale(1.08);
+}
+
+.workspace-home-card-pin.is-pinned {
+  border-color: color-mix(in srgb, var(--redesign-color-primary) 45%, var(--redesign-color-outline-variant));
+  color: var(--redesign-color-primary);
+}
+
+/* Caption under the thumbnail */
+
+.workspace-home-card-caption {
+  display: grid;
+  gap: 3px;
+  padding: var(--redesign-space-2) var(--redesign-space-1) 0;
+}
+
+.workspace-home-card-caption small {
+  color: var(--redesign-color-outline);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 500;
+}
+
+.workspace-home-card-caption strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.workspace-home-card-open:hover .workspace-home-card-caption strong {
+  color: var(--redesign-color-primary);
+}
+
+/* Thumbnail — a crisp var(--redesign-color-light-surface) stage with a single brand accent */
+
+.workspace-home-thumb {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  padding: var(--redesign-space-6);
+  border: 0;
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface-container-low);
+  box-shadow: var(--redesign-shadow-card);
+  box-sizing: border-box;
+  transition: box-shadow var(--redesign-duration-normal) var(--redesign-ease-standard), transform var(--redesign-duration-normal) var(--redesign-ease-emphasized);
+}
+
+.workspace-home-card-open:hover .workspace-home-thumb,
+.workspace-home-card-open:focus-visible .workspace-home-thumb {
+  box-shadow: var(--redesign-shadow-card-hover);
+  transform: translateY(-3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-home-thumb,
+  .workspace-home-card-open:hover .workspace-home-thumb {
+    transition: none;
+    transform: none;
+  }
+}
+
+.workspace-home-thumb-slide {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--redesign-space-1);
+  justify-content: center;
+  width: 76%;
+  aspect-ratio: 16 / 9;
+  padding: var(--redesign-space-4);
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--redesign-color-primary) 28%,
+      var(--redesign-color-outline-variant)
+    );
+  border-radius: var(--redesign-radius);
+  background: var(--redesign-color-surface-container-lowest);
+  box-shadow: var(--redesign-glow-primary);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.workspace-home-thumb-slide::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--redesign-color-primary);
+}
+
+.workspace-home-thumb-slide b {
+  width: 64%;
+  height: 7px;
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface-container-highest);
+}
+
+.workspace-home-thumb-slide i {
+  width: 42%;
+  height: 4px;
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface-container-high);
+}
+
+.workspace-home-thumb-slide i:last-child {
+  width: 52%;
+}
+
+/* Live first-slide preview — fills the whole thumbnail over the skeleton */
+
+.workspace-home-thumb-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--redesign-color-surface);
+  pointer-events: none;
+}
+
+/* Card info — title row with pin, then micro-label meta grid */
+
+.workspace-home-card-info {
+  display: grid;
+  gap: var(--redesign-space-4);
+  padding: var(--redesign-space-4);
+  background: var(--redesign-color-surface);
+}
+
+.workspace-home-card-titlerow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--redesign-space-2);
+}
+
+.workspace-home-card-titlerow strong {
+  display: -webkit-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+  overflow: hidden;
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 700;
+  line-height: 1.45;
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.workspace-home-card-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--redesign-radius);
+  background: transparent;
+  color: var(--redesign-color-outline);
+  cursor: pointer;
+  transition: color var(--redesign-duration-fast) var(--redesign-ease-standard), background-color var(--redesign-duration-fast) var(--redesign-ease-standard),
+    transform var(--redesign-duration-normal) var(--redesign-ease-emphasized);
+}
+
+.workspace-home-card-pin:hover {
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+  transform: scale(1.08);
+}
+
+.workspace-home-card-pin.is-pinned {
+  color: var(--redesign-color-primary);
+}
+
+.workspace-home-card-meta {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--redesign-space-2);
+  padding-top: var(--redesign-space-2);
+  border-top: 1px solid
+    color-mix(in srgb, var(--redesign-color-primary) 10%, transparent);
+}
+
+.workspace-home-card-date {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workspace-home-card-meta small {
+  color: var(--redesign-color-outline);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: var(--redesign-type-label-sm-weight);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workspace-home-card-meta b {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 600;
+}
+
+.workspace-home-card-rehearse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--redesign-color-primary) 52%,
+      var(--redesign-color-outline-variant)
+    );
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-surface);
+  color: var(--redesign-color-primary);
+  cursor: pointer;
+  transition: background-color var(--redesign-duration-fast) var(--redesign-ease-standard), border-color var(--redesign-duration-fast) var(--redesign-ease-standard),
+    color var(--redesign-duration-fast) var(--redesign-ease-standard), transform var(--redesign-duration-fast) var(--redesign-ease-standard);
+}
+
+.workspace-home-card-rehearse:hover {
+  border-color: var(--redesign-color-primary);
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+  box-shadow: var(--redesign-glow-primary);
+  transform: translateY(-1px);
+}
+
+/* ---------- States (span the grid) ---------- */
+
+.workspace-home-state {
+  display: grid;
+  grid-column: 2 / -1;
+  gap: var(--redesign-space-2);
+  align-content: center;
+  justify-items: start;
+  margin: 0;
+  padding: var(--redesign-space-6);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+}
+
+.workspace-home-state strong {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-sm-size);
+}
+
+.workspace-home-state button {
+  min-height: 36px;
+  padding: var(--redesign-space-2) var(--redesign-space-4);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius);
+  background: var(--redesign-color-surface-container);
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.workspace-home-state button:hover {
+  border-color: var(--redesign-color-outline);
+  background: var(--redesign-color-surface-container-high);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 767px) {
+  .workspace-home-main {
+    padding: var(--redesign-space-6) var(--redesign-space-4)
+      var(--redesign-space-12);
+  }
+
+  .workspace-home-state {
+    grid-column: 1 / -1;
+  }
+}

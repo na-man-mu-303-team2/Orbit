@@ -28,6 +28,7 @@ export function AnimationSidePanelFrame(props: AnimationSidePanelFrameProps) {
             <Sparkles size={16} />
             <div>
               <strong>애니메이션</strong>
+              <span>MOTION TIMELINE</span>
             </div>
           </div>
           <button

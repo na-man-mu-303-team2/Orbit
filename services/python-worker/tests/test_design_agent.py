@@ -545,17 +545,39 @@ def test_alternative_design_recovers_individual_year_value_elements() -> None:
 
 
 def test_rejects_unselected_smart_art_sources() -> None:
+    request = request_payload()
+    request.context.selected_element_ids = []
     payload = proposal_payload()
     payload["operations"] = []
     payload["affectedElementIds"] = []
     payload["smartArtRequest"] = {
         "layoutId": "smart_art_list_3",
         "layoutType": "list",
-        "sourceElementIds": ["el_unselected"],
+        "sourceElementIds": ["el_image"],
         "items": [{"title": "기획", "description": None}],
     }
 
     with pytest.raises(DesignAgentGenerationError, match="unselected elements"):
+        generate_design_proposal(
+            request,
+            model="test-model",
+            api_key=None,
+            client=FakeClient(payload),
+        )
+
+
+def test_rejects_unknown_smart_art_sources() -> None:
+    payload = proposal_payload()
+    payload["operations"] = []
+    payload["affectedElementIds"] = []
+    payload["smartArtRequest"] = {
+        "layoutId": "smart_art_list_3",
+        "layoutType": "list",
+        "sourceElementIds": ["el_unknown"],
+        "items": [{"title": "기획", "description": None}],
+    }
+
+    with pytest.raises(DesignAgentGenerationError, match="unknown elements"):
         generate_design_proposal(
             request_payload(),
             model="test-model",
@@ -591,6 +613,75 @@ def test_allows_visible_unselected_smart_art_sources_for_current_page_request() 
 
     assert result.smart_art_request is not None
     assert result.smart_art_request.source_element_ids == ["el_image"]
+
+
+def test_normalizes_sequence_diagram_sources_to_current_slide_without_selection() -> None:
+    request = request_payload()
+    request.question = "1, 2, 3, 4번을 순차 다이어그램 형태로 바꿔줘."
+    request.context.selected_element_ids = []
+    payload = proposal_payload()
+    payload["operations"] = []
+    payload["affectedElementIds"] = []
+    payload["smartArtRequest"] = {
+        "layoutId": "smart_art_process_4",
+        "layoutType": "process",
+        "sourceElementIds": ["el_image"],
+        "items": [
+            {"title": f"단계 {index + 1}", "description": None}
+            for index in range(4)
+        ],
+    }
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=FakeClient(payload),
+    )
+
+    assert result.interpreted_intent.target == "current-slide"
+    assert result.smart_art_request is not None
+    assert result.smart_art_request.source_element_ids == ["el_image"]
+
+
+def test_does_not_expand_selection_specific_smart_art_request_to_current_slide() -> None:
+    request = request_payload()
+    request.question = "선택한 1, 2, 3, 4번을 순차 다이어그램 형태로 바꿔줘."
+    request.context.selected_element_ids = []
+    payload = proposal_payload()
+    payload["operations"] = []
+    payload["affectedElementIds"] = []
+    payload["smartArtRequest"] = {
+        "layoutId": "smart_art_process_4",
+        "layoutType": "process",
+        "sourceElementIds": ["el_image"],
+        "items": [
+            {"title": f"단계 {index + 1}", "description": None}
+            for index in range(4)
+        ],
+    }
+
+    with pytest.raises(DesignAgentGenerationError, match="unselected elements"):
+        generate_design_proposal(
+            request,
+            model="test-model",
+            api_key=None,
+            client=FakeClient(payload),
+        )
+
+
+def test_filters_unknown_affected_element_metadata() -> None:
+    payload = proposal_payload()
+    payload["affectedElementIds"] = ["el_image", "el_unknown"]
+
+    result = generate_design_proposal(
+        request_payload(),
+        model="test-model",
+        api_key=None,
+        client=FakeClient(payload),
+    )
+
+    assert result.affected_element_ids == ["el_image"]
 
 
 def test_allows_deleted_elements_in_affected_ids() -> None:

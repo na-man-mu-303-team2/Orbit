@@ -12,7 +12,12 @@ import {
   type UploadedFile,
 } from "@orbit/shared";
 
-type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+import { resolveRedesignPalette } from "../../styles/redesignPalette";
+
+type Fetcher = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
 type AssetMimeType = (typeof allowedAssetMimeTypes)[number];
 
 const defaultPurpose: FilePurpose = "pptx-import";
@@ -72,7 +77,9 @@ export function buildAssetUploadRequest(
   const mimeType = resolveAssetMimeType(file);
 
   if (validationMessage || !mimeType) {
-    throw new ProjectAssetError(validationMessage ?? "업로드할 수 없는 파일입니다.");
+    throw new ProjectAssetError(
+      validationMessage ?? "업로드할 수 없는 파일입니다.",
+    );
   }
 
   return {
@@ -86,6 +93,23 @@ export function buildAssetUploadRequest(
 async function readErrorMessage(response: Response, fallback: string) {
   const message = await response.text();
   return message || fallback;
+}
+
+export async function fetchProjectDeckPreview(
+  projectId: string,
+  fetcher: Fetcher = fetch,
+): Promise<Deck | null> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/deck`,
+    { credentials: "include" },
+  );
+  if (!response.ok) return null;
+  try {
+    const body = (await response.json()) as { deck?: unknown };
+    return deckSchema.parse(body.deck);
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchProjects(fetcher: Fetcher = fetch) {
@@ -147,7 +171,10 @@ export async function createProjectWithoutDeck(
   return (await response.json()) as Project;
 }
 
-export async function deleteProject(projectId: string, fetcher: Fetcher = fetch) {
+export async function deleteProject(
+  projectId: string,
+  fetcher: Fetcher = fetch,
+) {
   const response = await fetcher(
     `/api/v1/workspaces/${demoIds.workspaceId}/projects/${encodeURIComponent(projectId)}`,
     {
@@ -167,6 +194,13 @@ export async function deleteProject(projectId: string, fetcher: Fetcher = fetch)
 
 export function buildInitialProjectDeck(project: Project): Deck {
   const normalizedProjectId = project.projectId.replace(/^project_/, "");
+  const redesignPalette = resolveRedesignPalette();
+  const primaryColor = redesignPalette?.primary ?? "#2563eb";
+  const secondaryColor = redesignPalette?.secondary ?? "#7c3aed";
+  const surfaceColor = redesignPalette?.surface ?? "#ffffff";
+  const textColor = redesignPalette?.onSurface ?? "#111827";
+  const mutedColor = redesignPalette?.surfaceContainer ?? "#f3f4f6";
+  const borderColor = redesignPalette?.outlineVariant ?? "#dbe3f0";
 
   return deckSchema.parse({
     canvas: {
@@ -196,23 +230,23 @@ export function buildInitialProjectDeck(project: Project): Deck {
         slideId: "slide_1",
         speakerNotes: "",
         style: {
-          accentColor: "#2563eb",
-          backgroundColor: "#ffffff",
+          accentColor: primaryColor,
+          backgroundColor: surfaceColor,
           layout: "title",
-          textColor: "#111827",
+          textColor,
         },
         thumbnailUrl: "",
         title: "",
       },
     ],
     theme: {
-      accentColor: "#2563eb",
-      backgroundColor: "#ffffff",
+      accentColor: primaryColor,
+      backgroundColor: surfaceColor,
       effects: {
         borderRadius: 10,
         shadow: {
           blur: 18,
-          color: "#111827",
+          color: textColor,
           offsetX: 0,
           offsetY: 8,
           opacity: 0.16,
@@ -221,13 +255,13 @@ export function buildInitialProjectDeck(project: Project): Deck {
       fontFamily: "Inter",
       name: "Orbit Blank",
       palette: {
-        border: "#dbe3f0",
-        muted: "#f3f4f6",
-        primary: "#2563eb",
-        secondary: "#7c3aed",
-        surface: "#ffffff",
+        border: borderColor,
+        muted: mutedColor,
+        primary: primaryColor,
+        secondary: secondaryColor,
+        surface: surfaceColor,
       },
-      textColor: "#111827",
+      textColor,
       typography: {
         bodyFontFamily: "Inter",
         bodySize: 22,
@@ -247,14 +281,17 @@ export async function createInitialProjectDeck(
   fetcher: Fetcher = fetch,
 ) {
   const deck = buildInitialProjectDeck(project);
-  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(project.projectId)}/deck`, {
-    body: JSON.stringify({
-      deck,
-      snapshotReason: "deck-replaced",
-    }),
-    headers: { "content-type": "application/json" },
-    method: "PUT",
-  });
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(project.projectId)}/deck`,
+    {
+      body: JSON.stringify({
+        deck,
+        snapshotReason: "deck-replaced",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "PUT",
+    },
+  );
 
   if (!response.ok) {
     throw new ProjectAssetError(
@@ -272,7 +309,11 @@ export async function uploadProjectAsset(
   fetcher: Fetcher = fetch,
 ) {
   const uploadRequest = buildAssetUploadRequest(file, purpose);
-  const uploadUrl = await requestProjectUploadUrl(projectId, uploadRequest, fetcher);
+  const uploadUrl = await requestProjectUploadUrl(
+    projectId,
+    uploadRequest,
+    fetcher,
+  );
 
   await uploadFileToStorage(file, uploadUrl, fetcher);
   return completeProjectAssetUpload(projectId, uploadUrl.fileId, fetcher);
@@ -283,11 +324,14 @@ async function requestProjectUploadUrl(
   uploadRequest: AssetUploadUrlRequest,
   fetcher: Fetcher,
 ) {
-  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/assets/upload-url`, {
-    body: JSON.stringify(uploadRequest),
-    headers: { "content-type": "application/json" },
-    method: "POST",
-  });
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/assets/upload-url`,
+    {
+      body: JSON.stringify(uploadRequest),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
 
   if (!response.ok) {
     throw new ProjectAssetError(
@@ -321,11 +365,14 @@ async function completeProjectAssetUpload(
   fileId: string,
   fetcher: Fetcher,
 ) {
-  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/assets/complete`, {
-    body: JSON.stringify({ fileId }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
-  });
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/assets/complete`,
+    {
+      body: JSON.stringify({ fileId }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
 
   if (!response.ok) {
     throw new ProjectAssetError(
@@ -340,7 +387,10 @@ export function formatAssetBytes(bytes: number) {
   if (bytes === 0) return "0 B";
 
   const units = ["B", "KB", "MB", "GB"];
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const index = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
   const value = bytes / 1024 ** index;
 
   return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;

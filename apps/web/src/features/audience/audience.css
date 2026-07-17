@@ -1,25 +1,25 @@
 .audience-page {
   align-items: center;
   background:
-    linear-gradient(135deg, var(--orbit-ds-lilac-soft) 0 34%, transparent 34%),
-    var(--orbit-ds-surface);
-  color: var(--orbit-ds-ink);
+    linear-gradient(135deg, var(--redesign-color-secondary-container) 0 34%, transparent 34%),
+    var(--redesign-color-surface-container-low);
+  color: var(--redesign-color-on-surface);
   display: flex;
-  font-family: var(--orbit-ds-font-sans);
+  font-family: var(--redesign-font-family);
   min-height: 100vh;
-  padding: 28px;
+  padding: var(--redesign-space-7);
 }
 
 .audience-entry-panel {
-  background: var(--orbit-ds-canvas);
-  border: 1px solid var(--orbit-ds-border);
-  border-radius: var(--orbit-ds-radius-panel);
-  box-shadow: 0 24px 72px rgba(9, 9, 9, 0.1);
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
+  box-shadow: var(--redesign-shadow-overlay);
   display: grid;
-  gap: 20px;
+  gap: var(--redesign-space-5);
   margin: 0 auto;
   max-width: 460px;
-  padding: 30px;
+  padding: var(--redesign-space-7);
   width: 100%;
 }
 
@@ -32,46 +32,46 @@
 
 .audience-entry-heading {
   display: grid;
-  gap: 8px;
+  gap: var(--redesign-space-2);
 }
 
 .audience-entry-heading span {
-  color: var(--orbit-ds-lilac-strong);
-  font-family: var(--orbit-ds-font-mono);
-  font-size: var(--orbit-ds-type-caption);
+  color: var(--redesign-color-secondary);
+  font-family: var(--redesign-font-family);
+  font-size: var(--redesign-type-label-sm-size);
   font-weight: 800;
   letter-spacing: 0.14em;
 }
 
 .audience-entry-heading h1 {
-  color: var(--orbit-ds-ink);
-  font-size: 38px;
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-display-sm-size);
   letter-spacing: -0.05em;
   line-height: 1.08;
   margin: 0;
 }
 
 .audience-entry-heading p {
-  color: var(--orbit-ds-text-muted);
-  font-size: var(--orbit-ds-type-body-small);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
   line-height: 1.6;
   margin: 0;
 }
 
 .audience-passcode-field {
   display: grid;
-  gap: 10px;
+  gap: var(--redesign-space-2);
 }
 
 .audience-passcode-field > span {
-  color: var(--orbit-ds-ink);
-  font-size: var(--orbit-ds-type-ui);
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-md-size);
   font-weight: 800;
 }
 
 .audience-passcode-boxes {
   display: grid;
-  gap: 10px;
+  gap: var(--redesign-space-2);
   grid-template-columns: repeat(4, minmax(0, 1fr));
   position: relative;
 }
@@ -79,7 +79,7 @@
 .audience-passcode-boxes input {
   background: transparent;
   border: 0;
-  caret-color: var(--orbit-ds-lilac-strong);
+  caret-color: var(--redesign-color-secondary);
   color: transparent;
   font-size: 1px;
   inset: 0;
@@ -92,59 +92,59 @@
 .audience-passcode-boxes span {
   align-items: center;
   aspect-ratio: 1;
-  background: var(--orbit-ds-surface);
-  border: 1px solid var(--orbit-ds-border-strong);
-  border-radius: var(--orbit-ds-radius-control);
-  color: var(--orbit-ds-ink);
+  background: var(--redesign-color-surface-container-low);
+  border: 1px solid var(--redesign-color-outline);
+  border-radius: var(--redesign-radius);
+  color: var(--redesign-color-on-surface);
   display: inline-flex;
-  font-size: 24px;
+  font-size: var(--redesign-type-headline-md-size);
   font-weight: 800;
   justify-content: center;
 }
 
 .audience-passcode-boxes:focus-within span {
-  border-color: var(--orbit-ds-lilac-strong);
-  box-shadow: var(--orbit-ds-focus);
+  border-color: var(--redesign-color-secondary);
+  box-shadow: var(--redesign-focus-ring);
 }
 
 .audience-room-grid {
   display: grid;
-  gap: 10px;
+  gap: var(--redesign-space-2);
 }
 
 .audience-verified-badge {
-  background: var(--orbit-ds-success-soft);
-  border-radius: var(--orbit-ds-radius-pill);
-  color: var(--orbit-ds-success);
-  font-size: var(--orbit-ds-type-ui-small);
+  background: var(--redesign-color-success-container);
+  border-radius: var(--redesign-radius-full);
+  color: var(--redesign-color-success);
+  font-size: var(--redesign-type-body-sm-size);
   font-weight: 800;
   justify-self: start;
-  padding: 6px 11px;
+  padding: var(--redesign-space-1) var(--redesign-space-3);
 }
 
 .audience-access-loading {
-  background: var(--orbit-ds-surface);
-  border: 1px solid var(--orbit-ds-border);
-  border-radius: var(--orbit-ds-radius-control);
-  color: var(--orbit-ds-text-muted);
-  font-size: var(--orbit-ds-type-ui);
+  background: var(--redesign-color-surface-container-low);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-md-size);
   font-weight: 700;
-  padding: 16px;
+  padding: var(--redesign-space-4);
   text-align: center;
 }
 
 .audience-room-grid button {
   align-items: start;
-  background: var(--orbit-ds-canvas);
-  border: 1px solid var(--orbit-ds-border-strong);
-  border-radius: var(--orbit-ds-radius-control);
-  color: var(--orbit-ds-lilac-strong);
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline);
+  border-radius: var(--redesign-radius);
+  color: var(--redesign-color-secondary);
   cursor: pointer;
   display: grid;
-  gap: 5px 10px;
+  gap: var(--redesign-space-1) var(--redesign-space-2);
   grid-template-columns: auto 1fr;
   min-height: 72px;
-  padding: 14px;
+  padding: var(--redesign-space-3);
   text-align: left;
 }
 
@@ -154,28 +154,28 @@
 }
 
 .audience-room-grid button strong {
-  color: var(--orbit-ds-ink);
-  font-size: var(--orbit-ds-type-ui);
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-md-size);
 }
 
 .audience-room-grid button small {
-  color: var(--orbit-ds-text-muted);
-  font-size: var(--orbit-ds-type-caption);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
 }
 
 .audience-room-grid button.selected {
-  background: var(--orbit-ds-lilac-soft);
-  border-color: var(--orbit-ds-lilac-strong);
-  box-shadow: var(--orbit-ds-focus);
+  background: var(--redesign-color-secondary-container);
+  border-color: var(--redesign-color-secondary);
+  box-shadow: var(--redesign-focus-ring);
 }
 
 .audience-enter-button {
-  background: var(--orbit-ds-ink);
-  border: 1px solid var(--orbit-ds-ink);
-  border-radius: var(--orbit-ds-radius-pill);
-  color: var(--orbit-ds-canvas);
+  background: var(--redesign-color-on-surface);
+  border: 1px solid var(--redesign-color-on-surface);
+  border-radius: var(--redesign-radius-full);
+  color: var(--redesign-color-surface-container-lowest);
   cursor: pointer;
-  font-size: var(--orbit-ds-type-ui);
+  font-size: var(--redesign-type-label-md-size);
   font-weight: 800;
   min-height: 48px;
   position: sticky;
@@ -184,25 +184,25 @@
 }
 
 .audience-enter-button:disabled {
-  background: var(--orbit-ds-surface);
-  border-color: var(--orbit-ds-border);
-  color: var(--orbit-ds-text-muted);
+  background: var(--redesign-color-surface-container-low);
+  border-color: var(--redesign-color-outline-variant);
+  color: var(--redesign-color-on-surface-variant);
   cursor: not-allowed;
 }
 
 .audience-error {
-  background: var(--orbit-ds-danger-soft);
-  border-radius: var(--orbit-ds-radius-control);
-  color: var(--orbit-ds-danger);
-  font-size: var(--orbit-ds-type-ui-small);
+  background: var(--redesign-color-error-container);
+  border-radius: var(--redesign-radius);
+  color: var(--redesign-color-error);
+  font-size: var(--redesign-type-body-sm-size);
   margin: 0;
-  padding: 11px 12px;
+  padding: var(--redesign-space-3) var(--redesign-space-3);
 }
 
 .audience-session-meta {
-  color: var(--orbit-ds-text-muted);
-  font-family: var(--orbit-ds-font-mono);
-  font-size: var(--orbit-ds-type-caption);
+  color: var(--redesign-color-on-surface-variant);
+  font-family: var(--redesign-font-family);
+  font-size: var(--redesign-type-label-sm-size);
   margin: 0;
   overflow-wrap: anywhere;
   text-align: center;
@@ -211,17 +211,17 @@
 @media (max-width: 520px) {
   .audience-page {
     align-items: flex-start;
-    padding: 16px;
+    padding: var(--redesign-space-4);
   }
 
   .audience-entry-panel {
-    gap: 18px;
+    gap: var(--redesign-space-4);
     min-height: calc(100dvh - 32px);
-    padding: 24px 20px;
+    padding: var(--redesign-space-6) var(--redesign-space-5);
   }
 
   .audience-entry-heading h1 {
-    font-size: 34px;
+    font-size: var(--redesign-type-headline-lg-size);
   }
 
   .audience-enter-button {

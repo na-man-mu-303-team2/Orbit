@@ -1,0 +1,4 @@
+.redesign-color-block { border: var(--redesign-border-subtle); border-radius: var(--redesign-radius-lg); display: flex; flex-direction: column; justify-content: space-between; min-height: 240px; padding: var(--redesign-space-6); }
+.redesign-color-block-lilac { background: var(--redesign-color-secondary-container); color: var(--redesign-color-on-secondary-container); }
+.redesign-color-block-lime { background: var(--redesign-color-success-container); color: var(--redesign-color-on-success-container); }
+.redesign-color-block-cream { background: var(--redesign-color-warning-container); color: var(--redesign-color-on-warning-container); }

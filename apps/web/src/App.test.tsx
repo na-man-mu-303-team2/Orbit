@@ -13,16 +13,13 @@ import {
   shouldWaitForAuthResolution
 } from "./App";
 import { OrbitAppHeader } from "./components/OrbitAppHeader";
-import {
-  OrbitAuthPage,
-  OrbitPublicLandingPage,
-  submitOrbitAuth
-} from "./features/auth/OrbitAuthPage";
+import { OrbitAuthPage, submitOrbitAuth } from "./features/auth/AuthPage";
+import { LandingPage } from "./features/landing/LandingPage";
 import { authMeQueryKey } from "./features/auth/auth-session";
 import {
   OrbitProjectExplorer,
   OrbitWorkspaceHome
-} from "./features/projects/OrbitProjectHub";
+} from "./features/projects/ProjectHub";
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -322,16 +319,17 @@ describe("App shell routing", () => {
   });
 });
 describe("public and authentication surfaces", () => {
-  it("renders the public landing conversion path without unsupported auth actions", () => {
+  it("renders the public landing hero with login and signup entry points", () => {
     const html = renderToStaticMarkup(
-      <OrbitPublicLandingPage onNavigate={() => undefined} />
+        <LandingPage onNavigate={() => undefined} />
     );
 
-    expect(html).toContain("생각을 발표로 바꾸는 가장 빠른 캔버스");
-    expect(html).toContain("무료로 발표 만들기");
-    expect(html).toContain("생성");
-    expect(html).toContain("편집");
-    expect(html).toContain("리허설");
+    expect(html).toContain("생각을 발표로 바꾸는");
+    expect(html).toContain("가장 빠른 캔버스");
+    expect(html).toContain("로그인");
+    expect(html).toContain("무료로 시작");
+    expect(html.match(/redesign-gradient-button/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(html).not.toContain("랜딩 페이지 메뉴");
     expect(html).not.toContain("Google");
     expect(html).not.toContain("비밀번호를 잊으셨나요");
   });
@@ -353,6 +351,8 @@ describe("public and authentication surfaces", () => {
     expect(signupHtml).toContain("첫 발표를 시작해 볼까요?");
     expect(loginHtml).toContain('type="email"');
     expect(loginHtml).toContain('type="password"');
+    expect(loginHtml).toContain("redesign-gradient-button");
+    expect(signupHtml).toContain("redesign-gradient-button");
     expect(signupHtml).not.toContain("Google");
     expect(signupHtml).not.toContain('autocomplete="name"');
   });
@@ -394,17 +394,29 @@ describe("workspace project surfaces", () => {
     expect(getProjectAccessRoleLabel("viewer")).toBe("보기 전용");
   });
 
-  it("keeps a single AI presentation primary action on workspace home", () => {
+  it("renders a recents-only workspace home with an AI creation tile", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      ["projects"],
+      Array.from({ length: 9 }, (_, index) => ({
+        createdAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
+        createdBy: "user_1",
+        projectId: `project_${index + 1}`,
+        title: `프로젝트 ${index + 1}`,
+        workspaceId: "workspace_1"
+      }))
+    );
     const html = renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={queryClient}>
         <OrbitWorkspaceHome onNavigate={() => undefined} userName="지윤" />
       </QueryClientProvider>
     );
 
-    expect(html).toContain("지윤님,");
-    expect(html.match(/<button class="orbit-ds-button/g)).toHaveLength(1);
-    expect(html).toContain("프로젝트를 불러오는 중입니다.");
-    expect(html).toContain("리허설 시작하기");
+    expect(html).toContain("최근 본 항목");
+    expect(html).toContain("더보기");
+    expect(html).toContain('aria-label="AI 발표자료 만들기"');
+    expect(html.match(/class="workspace-home-card"/g)).toHaveLength(7);
+    expect(html).not.toContain("워크스페이스 메뉴");
   });
 
   it("renders search, sorting, refresh and creation controls in project explorer", () => {

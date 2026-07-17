@@ -1,9 +1,8 @@
 import type { Project } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
 import {
-  IconArrowRight,
+  IconChevronRight,
   IconFileText,
-  IconMicrophone,
   IconPlus,
   IconRefresh,
   IconSearch,
@@ -11,9 +10,12 @@ import {
   IconTrash
 } from "@tabler/icons-react";
 import { useMemo, useState, type ReactNode } from "react";
-import { OrbitButton, OrbitEmptyState, OrbitIconButton, OrbitInput } from "../../design-system";
+import { OrbitButton, OrbitEmptyState, OrbitIconButton, OrbitInput } from "../../components/ui";
+import "../../styles/tokens.css";
 import { createProject, deleteProject, fetchProjects } from "./ProjectAssetWorkspace";
+import { WorkspaceProjectCard } from "./WorkspaceProjectCard";
 import "./orbit-project-hub.css";
+import "./workspace-home.css";
 
 type ProjectHubProps = {
   onNavigate: (path: string) => void;
@@ -21,39 +23,87 @@ type ProjectHubProps = {
 
 export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string }) {
   const projects = useProjectList();
-  const recentProjects = useMemo(() => sortProjects(projects.data ?? []).slice(0, 4), [projects.data]);
+  const [pinnedIds, setPinnedIds] = useState<string[]>(readPinnedProjectIds);
+  const recentProjects = useMemo(() => {
+    const sorted = sortProjects(projects.data ?? []);
+    const pinned = sorted.filter((project) => pinnedIds.includes(project.projectId));
+    const rest = sorted.filter((project) => !pinnedIds.includes(project.projectId));
+    return [...pinned, ...rest].slice(0, 7);
+  }, [projects.data, pinnedIds]);
+
+  function togglePinnedProject(projectId: string) {
+    setPinnedIds((current) => {
+      const next = current.includes(projectId)
+        ? current.filter((id) => id !== projectId)
+        : [projectId, ...current];
+      writePinnedProjectIds(next);
+      return next;
+    });
+  }
 
   return (
-    <section className="orbit-project-hub orbit-workspace-home">
-      <header className="orbit-hub-heading">
-        <div>
-          <p className="orbit-ds-eyebrow">WORKSPACE</p>
-          <h1>{props.userName ? `${props.userName}님,` : "오늘도"}<br />멋진 발표를 만들어볼까요?</h1>
-          <p>최근 작업을 이어가거나 AI로 새 발표자료를 빠르게 시작하세요.</p>
+    <div className="workspace-home">
+      <section className="workspace-home-main">
+        <header className="workspace-home-head">
+          <div>
+            <p className="workspace-home-eyebrow">Workspace</p>
+            <h1>최근 본 항목</h1>
+          </div>
+          <button
+            className="workspace-home-more"
+            onClick={() => props.onNavigate("/project")}
+            type="button"
+          >
+            더보기
+            <IconChevronRight aria-hidden="true" size={15} />
+          </button>
+        </header>
+
+        <div className="workspace-home-grid">
+          <button
+            aria-label="AI 발표자료 만들기"
+            className="workspace-home-create"
+            onClick={() => props.onNavigate("/createdeck")}
+            type="button"
+          >
+            <span aria-hidden="true" className="workspace-home-create-icon">
+              <IconPlus size={22} stroke={1.8} />
+            </span>
+            <strong>새 발표자료 만들기</strong>
+            <small>
+              AI로 초안을 만들거나
+              <br />
+              빈 슬라이드로 시작하세요.
+            </small>
+          </button>
+
+          {projects.isLoading ? (
+            <p className="workspace-home-state" role="status">프로젝트를 불러오는 중입니다.</p>
+          ) : projects.isError ? (
+            <div className="workspace-home-state">
+              <strong>프로젝트를 불러오지 못했습니다.</strong>
+              <span>연결을 확인한 뒤 다시 시도해 주세요.</span>
+              <button onClick={() => void projects.refetch()} type="button">다시 시도</button>
+            </div>
+          ) : (
+            recentProjects.map((project) => {
+              const isPinned = pinnedIds.includes(project.projectId);
+              return (
+                <WorkspaceProjectCard
+                  createdAtLabel={formatProjectDate(project)}
+                  isPinned={isPinned}
+                  key={project.projectId}
+                  onOpen={() => props.onNavigate(projectPath(project))}
+                  onRehearse={() => props.onNavigate(`/rehearsal/${encodeURIComponent(project.projectId)}`)}
+                  onTogglePinned={() => togglePinnedProject(project.projectId)}
+                  project={project}
+                />
+              );
+            })
+          )}
         </div>
-        <OrbitButton icon={<IconSparkles aria-hidden="true" size={19} />} onClick={() => props.onNavigate("/createdeck")}>AI 발표자료 만들기</OrbitButton>
-      </header>
-
-      {recentProjects[0] ? (
-        <button className="orbit-hub-continue" onClick={() => props.onNavigate(projectPath(recentProjects[0]))} type="button">
-          <span className="orbit-hub-project-mark"><IconFileText aria-hidden="true" size={25} /></span>
-          <span><small>최근 작업 이어하기</small><strong>{recentProjects[0].title}</strong><small>{formatProjectDate(recentProjects[0])} 생성</small></span>
-          <span>편집 계속하기 <IconArrowRight aria-hidden="true" size={18} /></span>
-        </button>
-      ) : null}
-
-      <section className="orbit-hub-projects" aria-labelledby="orbit-recent-projects">
-        <header><div><h2 id="orbit-recent-projects">최근 프로젝트</h2><p>가장 최근에 만든 발표자료를 확인하세요.</p></div><button onClick={() => props.onNavigate("/project")} type="button">전체 보기 <IconArrowRight aria-hidden="true" size={17} /></button></header>
-        <ProjectState query={projects}>
-          <ProjectTable compact onNavigate={props.onNavigate} projects={recentProjects} />
-        </ProjectState>
       </section>
-
-      <section className="orbit-hub-start-grid" aria-label="빠른 시작">
-        <button className="lime" onClick={() => props.onNavigate("/createdeck")} type="button"><IconSparkles aria-hidden="true" size={30} /><span><strong>AI 발표자료 만들기</strong><small>주제와 자료를 바탕으로 발표 초안을 만드세요.</small></span><IconArrowRight aria-hidden="true" size={22} /></button>
-        <button className="cream" onClick={() => props.onNavigate("/project?intent=rehearsal")} type="button"><IconMicrophone aria-hidden="true" size={30} /><span><strong>리허설 시작하기</strong><small>프로젝트를 골라 발표 흐름을 연습하세요.</small></span><IconArrowRight aria-hidden="true" size={22} /></button>
-      </section>
-    </section>
+    </div>
   );
 }
 
@@ -102,7 +152,7 @@ export function OrbitProjectExplorer(props: ProjectHubProps & { intent?: "rehear
   return (
     <section className="orbit-project-hub orbit-project-explorer">
       <header className="orbit-hub-heading compact">
-        <div><p className="orbit-ds-eyebrow">{props.intent === "rehearsal" ? "REHEARSAL" : "PROJECTS"}</p><h1>{props.intent === "rehearsal" ? "리허설할 프로젝트 선택" : "프로젝트"}</h1><p>{props.intent === "rehearsal" ? "연습할 발표자료를 선택하면 바로 마이크 점검으로 이어집니다." : "모든 발표자료를 찾고, 편집하고, 리허설을 시작하세요."}</p></div>
+        <div><p className="redesign-eyebrow">{props.intent === "rehearsal" ? "REHEARSAL" : "PROJECTS"}</p><h1>{props.intent === "rehearsal" ? "리허설할 프로젝트 선택" : "프로젝트"}</h1><p>{props.intent === "rehearsal" ? "연습할 발표자료를 선택하면 바로 마이크 점검으로 이어집니다." : "모든 발표자료를 찾고, 편집하고, 리허설을 시작하세요."}</p></div>
         {props.intent === "rehearsal" ? <OrbitButton onClick={() => props.onNavigate("/project")} variant="secondary">프로젝트 관리</OrbitButton> : <OrbitButton icon={<IconSparkles aria-hidden="true" size={19} />} onClick={() => props.onNavigate("/createdeck")}>AI 발표자료 만들기</OrbitButton>}
       </header>
       <section className="orbit-project-table-shell">
@@ -175,4 +225,28 @@ function formatProjectDate(project: Project) {
 
 function projectPath(project: Project) {
   return `/project/${encodeURIComponent(project.projectId)}`;
+}
+
+const pinnedProjectsStorageKey = "orbit.workspace.pinned-projects";
+
+function readPinnedProjectIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(pinnedProjectsStorageKey);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((id): id is string => typeof id === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePinnedProjectIds(ids: string[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(pinnedProjectsStorageKey, JSON.stringify(ids));
+  } catch {
+    /* storage unavailable — pinning stays session-only */
+  }
 }
