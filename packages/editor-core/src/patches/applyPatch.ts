@@ -304,6 +304,12 @@ function applyOperation(
       const removedElement = slide.elements[elementIndex];
 
       slide.elements.splice(elementIndex, 1);
+      if (
+        slide.aiNotes?.compositionPlan?.primaryFocalElementId ===
+        operation.elementId
+      ) {
+        delete slide.aiNotes.compositionPlan.primaryFocalElementId;
+      }
       slide.animations = slide.animations.filter(
         (animation) => animation.elementId !== operation.elementId,
       );

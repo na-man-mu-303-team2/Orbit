@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { applyDeckPatch } from "@orbit/editor-core";
 import {
   applyDesignAgentProposalResponseSchema,
   createDesignAgentMessageResponseSchema,
@@ -9,6 +10,7 @@ import {
   type ApplyDesignAgentProposalResponse,
   type CreateDesignAgentMessageRequest,
   type CreateDesignAgentMessageResponse,
+  type Deck,
   type DeckCanvas,
   type DeckPatchOperation,
   type DesignAgentContext,
@@ -52,7 +54,7 @@ export class DesignAgentService {
     actorUserId: string,
     input: CreateDesignAgentMessageRequest,
   ): Promise<CreateDesignAgentMessageResponse> {
-    await this.assertCurrentContext(projectId, input.context);
+    const currentDeck = await this.assertCurrentContext(projectId, input.context);
 
     const sessionId = input.sessionId ?? `design_session_${randomUUID()}`;
     const history = await this.loadHistory(projectId, actorUserId, sessionId);
@@ -142,6 +144,21 @@ export class DesignAgentService {
           )
         : [];
       const operations = [...aiResult.operations, ...smartArtOperations];
+      if (operations.length > 0) {
+        const preview = applyDeckPatch(currentDeck, {
+          deckId: input.context.deckId,
+          baseVersion: input.context.baseVersion,
+          source: "ai",
+          operations,
+        });
+        if (!preview.ok) {
+          throw new BadRequestException(
+            `Design agent proposal is invalid: ${preview.error.code}${
+              preview.error.details?.[0] ? ` (${preview.error.details[0]})` : ""
+            }`,
+          );
+        }
+      }
       const affectedElementIds = Array.from(
         new Set([
           ...aiResult.affectedElementIds,
@@ -295,7 +312,7 @@ export class DesignAgentService {
   private async assertCurrentContext(
     projectId: string,
     context: DesignAgentContext,
-  ): Promise<void> {
+  ): Promise<Deck> {
     const current = await this.decksService.getDeck(projectId);
     if (current.deck.deckId !== context.deckId) {
       throw new BadRequestException("Design agent deckId does not match project deck.");
@@ -306,6 +323,7 @@ export class DesignAgentService {
     if (!current.deck.slides.some((slide) => slide.slideId === context.slide.slideId)) {
       throw new BadRequestException("Design agent slide does not exist in project deck.");
     }
+    return current.deck;
   }
 
   private async loadHistory(
