@@ -1,11 +1,13 @@
 from datetime import date
+import json
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 import app.ai.deck_generation.design_planning as design_planning_module
 from app.ai.design_program import DeckDesignProgram
-from app.ai.deck_generation.content_planning import plan_content
+from app.ai.deck_generation.content_planning import plan_content, plan_story_content
 from app.ai.deck_generation.design_planning import resolve_style_prompt_context
 from app.ai.deck_generation.diagnostics import assemble_generation_diagnostics
 from app.ai.deck_generation.models import (
@@ -68,6 +70,59 @@ def test_source_and_content_stage_entrypoints_return_boundary_dtos() -> None:
     assert restored_input.timing_plan == content_stage_input.timing_plan
     assert restored_input.repair_attempted == content_stage_input.repair_attempted
     assert restored_input.repair_reason_codes == content_stage_input.repair_reason_codes
+
+
+def test_staged_story_plan_uses_one_llm_call_without_slide_details() -> None:
+    raw_input = ground_sources(
+        analyze_input(
+            GenerateDeckRequest(
+                projectId="project_demo_1",
+                topic="ORBIT",
+                prompt="ORBIT 생성 흐름을 설명해줘",
+            )
+        ),
+        current_date=date(2026, 7, 17),
+    ).raw_input
+    source_id = raw_input.source_records[0].source_id
+
+    class Responses:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def create(self, **_kwargs: Any) -> SimpleNamespace:
+            self.calls += 1
+            slides = [
+                {
+                    "title": f"슬라이드 {order}",
+                    "message": f"핵심 메시지 {order}",
+                    "slideType": (
+                        "cover"
+                        if order == 1
+                        else "summary"
+                        if order == raw_input.slide_count
+                        else "solution"
+                    ),
+                    "sourceRefs": [source_id],
+                }
+                for order in range(1, raw_input.slide_count + 1)
+            ]
+            return SimpleNamespace(
+                output_text=json.dumps(
+                    {"title": "ORBIT", "slides": slides},
+                    ensure_ascii=False,
+                )
+            )
+
+    responses = Responses()
+    content = plan_story_content(
+        raw_input,
+        resolve_style_prompt_context(raw_input),
+        client=SimpleNamespace(responses=responses),
+    )
+
+    assert responses.calls == 1
+    assert all(not slide.speaker_notes for slide in content.slide_plans)
+    assert all(not slide.content_items for slide in content.slide_plans)
 
 
 def test_quality_and_diagnostics_stage_entrypoints_use_pydantic_boundaries() -> None:
@@ -175,6 +230,10 @@ def test_planning_stage_runtime_preserves_typed_stage_boundaries(
 
     assert content.content_plan.slide_count == len(content.content_plan.slide_plans)
     assert len(design.design_plan.design_program.slides) == content.content_plan.slide_count
-    assert len(layout.layout_result.slides) == content.content_plan.slide_count
-    assert len(layout.visual_requirements.items) == content.content_plan.slide_count
-    assert len(layout.worker_payload.deck["slides"]) == content.content_plan.slide_count
+    assert layout.artifact_version == 2
+    assert len(layout.slides) == content.content_plan.slide_count
+    assert [slide.shard_key for slide in layout.slides] == [
+        f"{order:03d}-slide_{order}"
+        for order in range(1, content.content_plan.slide_count + 1)
+    ]
+    assert "slides" not in layout.deck_shell

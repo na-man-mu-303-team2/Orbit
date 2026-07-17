@@ -39,6 +39,7 @@ export const chartStyleSchema = z
 
 export const cartesianChartDatumSchema = z.object({
   label: z.string().min(1),
+  series: z.string().min(1).optional(),
   value: z.number().finite()
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deckSchema } from "./deck.schema";
+import { deckSchema, deckShellSchema } from "./deck.schema";
 import { createKeywordOccurrenceId } from "./keyword-occurrences";
 import { deckChangeRecordSchema, deckPatchSchema } from "./patch.schema";
 
@@ -291,6 +291,13 @@ const expectInvalidDeck = (deck: unknown) => {
 describe("deckSchema validation", () => {
   it("accepts a 1920x1080 wide-16-9 deck", () => {
     expectValidDeck(createValidDeck());
+  });
+
+  it("projects a deck shell without slide validation state", () => {
+    const shell = deckShellSchema.parse(createValidDeck());
+
+    expect(shell).not.toHaveProperty("slides");
+    expect(shell.deckId).toBe("deck_test_1");
   });
 
   it("accepts a program-v2 design snapshot and composition plan", () => {

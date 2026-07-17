@@ -1,12 +1,13 @@
-import type { Deck } from "@orbit/shared";
+import type { Deck, DeckExportFormat } from "@orbit/shared";
 import {
   IconChevronDown as ChevronDown,
   IconHistory as History,
   IconHome as Home,
+  IconPencil as PenLine,
   IconRefresh as RefreshCw,
   IconShare as Share2,
 } from "@tabler/icons-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { EditorShellUiUpdater, TopMenu } from "../editorShellUiStore";
 import {
@@ -36,12 +37,13 @@ type EditorTopbarProps = {
   lastSavedAtLabel: string | null;
   ooxmlSyncStatus: { detail: string; kind: string; label: string } | null;
   onExitToHome: () => void;
-  onExportPptx: () => void;
+  onOpenExport: (format: DeckExportFormat) => void;
   onImportPptx: () => void;
   onOpenAudienceLink: () => void;
   onOpenPresenceDebug: () => void;
   onOpenShare: () => void;
   onRefresh: () => void;
+  onRenameDeckTitle: (title: string) => void;
   onSave: () => void;
   onStartPresentation: () => void;
   onStartRehearsal: () => void;
@@ -59,6 +61,7 @@ type EditorTopbarProps = {
 
 export function EditorTopbar(props: EditorTopbarProps) {
   const topbarRef = useRef<HTMLElement | null>(null);
+  const titleEditCancelledRef = useRef(false);
   const {
     activePresentationAction,
     activeTopMenu,
@@ -76,12 +79,13 @@ export function EditorTopbar(props: EditorTopbarProps) {
     lastSavedAtLabel,
     ooxmlSyncStatus,
     onExitToHome,
-    onExportPptx,
+    onOpenExport,
     onImportPptx,
     onOpenAudienceLink,
     onOpenPresenceDebug,
     onOpenShare,
     onRefresh,
+    onRenameDeckTitle,
     onSave,
     onStartPresentation,
     onStartRehearsal,
@@ -96,6 +100,25 @@ export function EditorTopbar(props: EditorTopbarProps) {
     showLoadedFileLabel,
     saving,
   } = props;
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(deckTitle);
+
+  useEffect(() => {
+    if (!isEditingTitle) setTitleDraft(deckTitle);
+  }, [deckTitle, isEditingTitle]);
+
+  function finishTitleEditing() {
+    if (titleEditCancelledRef.current) {
+      titleEditCancelledRef.current = false;
+      setTitleDraft(deckTitle);
+      setIsEditingTitle(false);
+      return;
+    }
+    const title = titleDraft.trim();
+    if (title && title !== deckTitle) onRenameDeckTitle(title);
+    if (!title) setTitleDraft(deckTitle);
+    setIsEditingTitle(false);
+  }
 
   useEffect(() => {
     if (!activeTopMenu) return;
@@ -123,8 +146,42 @@ export function EditorTopbar(props: EditorTopbarProps) {
       <div className="topbar-left">
         <div className="menu-stack">
           <div className="editor-document-title">
-            <span>
-              <strong>{deckTitle}</strong>
+            <span className="editor-document-title-content">
+              {isEditingTitle ? (
+                <input
+                  aria-label="프레젠테이션 제목"
+                  autoFocus
+                  className="editor-document-title-input"
+                  maxLength={200}
+                  onBlur={finishTitleEditing}
+                  onChange={(event) => setTitleDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                    if (event.key === "Escape") {
+                      titleEditCancelledRef.current = true;
+                      setTitleDraft(deckTitle);
+                      setIsEditingTitle(false);
+                    }
+                  }}
+                  value={titleDraft}
+                />
+              ) : (
+                <strong>{deckTitle}</strong>
+              )}
+              <button
+                aria-label="프레젠테이션 제목 수정"
+                className="editor-title-edit-button"
+                title="제목 수정"
+                type="button"
+                onClick={() => {
+                  titleEditCancelledRef.current = false;
+                  setTitleDraft(deckTitle);
+                  setIsEditingTitle(true);
+                  setActiveTopMenu(null);
+                }}
+              >
+                <PenLine size={14} />
+              </button>
               <small>{saveStatusLabel}</small>
               <button
                 aria-label="에디터 동기화"
@@ -180,7 +237,16 @@ export function EditorTopbar(props: EditorTopbarProps) {
                             ? "PPTX 내보내는 중..."
                             : "PPTX 내보내기...",
                           meta: pptxExportMessage,
-                          onSelect: onExportPptx,
+                          onSelect: () => onOpenExport("pptx"),
+                        },
+                        {
+                          disabled: isPptxExporting,
+                          id: "export-png",
+                          label: isPptxExporting
+                            ? "PNG ZIP 내보내는 중..."
+                            : "PNG ZIP 내보내기...",
+                          meta: pptxExportMessage || "모든 장표 PNG",
+                          onSelect: () => onOpenExport("png"),
                         },
                       ],
                       label: "내보내기",

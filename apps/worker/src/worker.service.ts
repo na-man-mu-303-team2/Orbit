@@ -20,6 +20,8 @@ import {
   aiDeckDesignLayoutQueueName,
   aiDeckImageQueueName,
   aiDeckQaFinalizeQueueName,
+  activityResponseRetentionQueueName,
+  enqueueActivityResponseRetentionJob,
 } from "@orbit/job-queue";
 import { loadOrbitConfig } from "@orbit/config";
 import type { Job as OrbitJob } from "@orbit/shared";
@@ -67,6 +69,8 @@ import {
 import { processChallengeQnaGenerationJob } from "./challenge-qna-generation.processor";
 import { processChallengeQnaAnswerJob } from "./challenge-qna-answer.processor";
 import { ChallengeQnaEvidenceCache } from "./challenge-qna-evidence-cache";
+import { dispatchDueActivityRetentionJobs } from "./activity-retention.dispatcher";
+import { processActivityResponseRetentionJob } from "./activity-retention.processor";
 
 @Injectable()
 export class WorkerService implements OnModuleInit, OnModuleDestroy {
@@ -89,6 +93,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     aiDeckDesignLayoutQueueName,
     aiDeckImageQueueName,
     aiDeckQaFinalizeQueueName,
+    activityResponseRetentionQueueName,
   ];
   private readonly workerId = `worker-${randomUUID()}`;
   private queueNames: string[] = [];
@@ -96,6 +101,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private transcriptCache: RedisRehearsalTranscriptCache | null = null;
   private challengeQnaEvidenceCache: ChallengeQnaEvidenceCache | null = null;
   private storageDeletionTimer: ReturnType<typeof setInterval> | null = null;
+  private activityRetentionTimer: ReturnType<typeof setInterval> | null = null;
   private aiDeckMaintenanceTimer: ReturnType<typeof setInterval> | null = null;
   private aiDeckMaintenanceInFlight: Promise<void> | null = null;
   private aiDeckPostgresRunner: AiDeckPostgresStageRunner | null = null;
@@ -175,6 +181,35 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     if (this.config.AI_DECK_WORKER_QUEUE === "all") {
       reconcileDeletions();
       this.storageDeletionTimer = setInterval(reconcileDeletions, 30_000);
+      const dispatchRetention = () => {
+        void dispatchDueActivityRetentionJobs(
+          this.dataSource,
+          (payload) =>
+            enqueueActivityResponseRetentionJob({
+              ...payload,
+              driver: this.config.JOB_QUEUE_DRIVER,
+              redisUrl: this.config.REDIS_URL,
+            }),
+        )
+          .then((result) => {
+            if (result.scanned === 0 && result.normalizedExpired === 0) return;
+            this.logger.info(
+              { event: "activity_retention.dispatched", ...result },
+              "Activity response retention jobs dispatched.",
+            );
+          })
+          .catch((error) => {
+            this.logger.error(
+              {
+                event: "activity_retention.dispatch_failed",
+                error: serializeLogError(error),
+              },
+              "Activity response retention dispatch failed.",
+            );
+          });
+      };
+      dispatchRetention();
+      this.activityRetentionTimer = setInterval(dispatchRetention, 30_000);
       this.transcriptCache = new RedisRehearsalTranscriptCache(
         this.config.PRIVATE_EVIDENCE_REDIS_URL,
       );
@@ -464,6 +499,11 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             job.data,
           ),
       },
+      {
+        queueName: activityResponseRetentionQueueName,
+        handler: (job) =>
+          processActivityResponseRetentionJob(this.dataSource, job.data),
+      },
     ];
     const selectedQueues = new Set(this.queueNames);
     this.workers = registrations
@@ -536,6 +576,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     if (this.storageDeletionTimer) clearInterval(this.storageDeletionTimer);
+    if (this.activityRetentionTimer) clearInterval(this.activityRetentionTimer);
     if (this.aiDeckMaintenanceTimer) clearInterval(this.aiDeckMaintenanceTimer);
     await this.aiDeckPostgresRunner?.stop();
     await Promise.all(this.workers.map((worker) => worker.close()));

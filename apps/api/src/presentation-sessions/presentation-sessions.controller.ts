@@ -1,18 +1,11 @@
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UnauthorizedException } from "@nestjs/common";
 import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Req,
-  UnauthorizedException
-} from "@nestjs/common";
-import {
-  createAudienceAccessSessionRequestSchema,
-  updateAudienceAccessSessionStatusRequestSchema
+  createPresentationSessionRequestSchema,
+  deckIdSchema,
+  updatePresentationSessionAccessRequestSchema
 } from "@orbit/shared";
 import type { Request } from "express";
+
 import { authSessionCookieName } from "../auth/auth.constants";
 import { AuthService } from "../auth/auth.service";
 import { parseRequest } from "../common/zod-request";
@@ -34,11 +27,25 @@ export class PresentationSessionsController {
   @Get("current")
   async getCurrent(
     @Param("projectId") projectId: string,
+    @Query("deckId") rawDeckId: string,
     @Req() request: SignedCookieRequest
   ) {
+    const deckId = deckIdSchema.parse(rawDeckId);
     const user = await this.getCurrentUser(request);
-    await this.projectsService.assertCanReadProject(projectId, user.userId);
-    return this.presentationSessionsService.getCurrent(projectId);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.presentationSessionsService.getCurrent(projectId, deckId);
+  }
+
+  @Get()
+  async list(
+    @Param("projectId") projectId: string,
+    @Query("deckId") rawDeckId: string,
+    @Req() request: SignedCookieRequest
+  ) {
+    const deckId = deckIdSchema.parse(rawDeckId);
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.presentationSessionsService.list(projectId, deckId);
   }
 
   @Post()
@@ -47,40 +54,41 @@ export class PresentationSessionsController {
     @Body() body: unknown,
     @Req() request: SignedCookieRequest
   ) {
-    const input = parseRequest(createAudienceAccessSessionRequestSchema, body ?? {});
+    const input = parseRequest(createPresentationSessionRequestSchema, body ?? {});
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.presentationSessionsService.create(projectId, input);
+    return this.presentationSessionsService.create(projectId, user.userId, input);
   }
 
-  @Patch(":sessionId/status")
-  async updateStatus(
+  @Patch(":sessionId/access")
+  async updateAccess(
     @Param("projectId") projectId: string,
     @Param("sessionId") sessionId: string,
     @Body() body: unknown,
     @Req() request: SignedCookieRequest
   ) {
-    const input = parseRequest(updateAudienceAccessSessionStatusRequestSchema, body ?? {});
+    const input = parseRequest(updatePresentationSessionAccessRequestSchema, body ?? {});
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.presentationSessionsService.updateStatus(
-      projectId,
-      sessionId,
-      input.status
-    );
+    return this.presentationSessionsService.updateAccess(projectId, sessionId, input);
+  }
+
+  @Post(":sessionId/close")
+  async close(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.presentationSessionsService.close(projectId, sessionId);
   }
 
   private async getCurrentUser(request: SignedCookieRequest) {
-    const sessionId = getSignedSessionId(request);
-    if (!sessionId) {
+    const value = request.signedCookies?.[authSessionCookieName];
+    if (typeof value !== "string" || value.length === 0) {
       throw new UnauthorizedException("Authentication required");
     }
-
-    return (await this.authService.me(sessionId)).user;
+    return (await this.authService.me(value)).user;
   }
-}
-
-function getSignedSessionId(request: SignedCookieRequest): string | null {
-  const value = request.signedCookies?.[authSessionCookieName];
-  return typeof value === "string" && value.length > 0 ? value : null;
 }

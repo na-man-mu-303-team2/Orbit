@@ -1,0 +1,235 @@
+.activity-result-slide-viewport {
+  overflow: hidden;
+}
+
+.activity-result-slide {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 560px minmax(0, 1fr);
+  gap: 72px;
+  width: 1920px;
+  height: 1080px;
+  padding: 112px 128px;
+  transform-origin: top left;
+  overflow: hidden;
+  background: #f7f7f2;
+  color: #171717;
+}
+
+.activity-result-slide > header {
+  min-width: 0;
+}
+
+.activity-result-slide > header > span {
+  color: #5a6600;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.activity-result-slide h1 {
+  margin: 28px 0 20px;
+  font-size: 66px;
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+  overflow-wrap: break-word;
+}
+
+.activity-result-slide > header p {
+  margin: 0;
+  color: #666;
+  font-size: 24px;
+  line-height: 1.5;
+}
+
+.activity-result-notice {
+  align-self: stretch;
+  display: grid;
+  place-content: center;
+  justify-items: start;
+  border: 2px dashed #d9d9d3;
+  border-radius: 24px;
+  padding: 64px;
+  background: white;
+}
+
+.activity-result-notice strong {
+  margin-top: 26px;
+  font-size: 36px;
+}
+
+.activity-result-notice p {
+  max-width: 680px;
+  margin: 16px 0 0;
+  color: #666;
+  font-size: 24px;
+  line-height: 1.5;
+}
+
+.activity-result-content {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 24px;
+  min-width: 0;
+}
+
+.activity-result-summary-layout {
+  align-self: center;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-width: 0;
+}
+
+.activity-result-summary-layout > ul {
+  display: grid;
+  gap: 14px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.activity-result-summary-layout > ul > li {
+  background: white;
+  border: 1px solid #deded7;
+  border-radius: 18px;
+  display: grid;
+  gap: 10px;
+  padding: 24px 28px;
+}
+
+.activity-result-summary-layout > ul span {
+  color: #555;
+  font-size: 20px;
+}
+
+.activity-result-summary-layout > ul strong {
+  font-size: 34px;
+}
+
+.activity-result-total,
+.activity-result-summary-layout > ul > li,
+.activity-result-grid article,
+.activity-result-texts {
+  border: 1px solid #deded7;
+  border-radius: 22px;
+  background: white;
+}
+
+.activity-result-total {
+  align-content: center;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+
+.activity-result-total span {
+  color: #666;
+  font-size: 22px;
+}
+
+.activity-result-total strong {
+  font-size: 64px;
+}
+
+.activity-result-grid {
+  align-content: center;
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.activity-result-grid article {
+  padding: 28px;
+  min-width: 0;
+}
+
+.activity-result-grid article > span {
+  display: block;
+  margin-bottom: 18px;
+  color: #555;
+  font-size: 21px;
+}
+
+.activity-result-grid article > strong {
+  font-size: 44px;
+}
+
+.activity-result-grid small {
+  margin-left: 8px;
+  color: #666;
+  font-size: 20px;
+}
+
+.activity-result-grid ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-result-grid li {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(180px, 2fr) 64px;
+  gap: 16px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f2f2ed;
+  font-size: 19px;
+}
+
+.activity-result-chart-track {
+  background: #e5e7eb;
+  border-radius: 999px;
+  display: block;
+  height: 12px;
+  overflow: hidden;
+}
+
+.activity-result-chart-track > span {
+  background: #8b5cf6;
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+}
+
+.activity-result-grid article > .activity-result-chart-track {
+  margin-top: 16px;
+}
+
+.activity-result-texts {
+  align-self: center;
+  max-height: 760px;
+  padding: 36px;
+  overflow: hidden;
+}
+
+.activity-result-texts > strong {
+  font-size: 28px;
+}
+
+.activity-result-texts ul {
+  display: grid;
+  gap: 14px;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-result-texts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: #f2f2ed;
+  font-size: 22px;
+  line-height: 1.4;
+}
+
+.activity-result-texts small {
+  flex: none;
+  color: #666;
+}

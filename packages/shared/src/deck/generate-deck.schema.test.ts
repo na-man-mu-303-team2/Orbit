@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deckColorCustomizationRequestSchema,
+  deckColorCustomizationResponseSchema,
   deckColorOptionRequestSchema,
   deckColorOptionsResponseSchema,
   generateDeckDiagnosticsSchema,
@@ -572,6 +574,51 @@ describe("deckColorOptionsResponseSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("deckColorCustomizationResponseSchema", () => {
+  const palette = {
+    primary: "#D97706",
+    secondary: "#92400E",
+    background: "#FFFBEB",
+    surface: "#FFFFFF",
+    muted: "#FEF3C7",
+    border: "#FDE68A",
+    text: "#1C1917",
+    accentColor: "#2563EB"
+  };
+
+  it("requires a complete base palette and one strict result", () => {
+    const request = deckColorCustomizationRequestSchema.parse({
+      topic: "제품 전략",
+      instruction: "포인트 컬러만 더 따뜻하게",
+      basePalette: palette,
+      tone: "professional"
+    });
+    const response = deckColorCustomizationResponseSchema.parse({
+      option: {
+        optionId: "ai-custom",
+        name: "따뜻한 전략",
+        palette,
+        rationale: "기존 배경을 유지하고 포인트를 조정했습니다."
+      }
+    });
+
+    expect(request.stylePackId).toBe("brandlogy-modern");
+    expect(response.option.palette).toEqual(palette);
+  });
+
+  it("rejects extra fields and incomplete palettes", () => {
+    expect(
+      deckColorCustomizationRequestSchema.safeParse({
+        topic: "제품 전략",
+        instruction: "파란색으로",
+        basePalette: { primary: "#2563EB" },
+        tone: "professional",
+        providerPrompt: "do not expose"
+      }).success
+    ).toBe(false);
   });
 });
 

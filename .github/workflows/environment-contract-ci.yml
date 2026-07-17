@@ -1,4 +1,4 @@
-name: Environment Contract CI
+name: Environment Contract check
 
 on:
   pull_request:
@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: environment-contract-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' && 'personal-staging-deploy' || format('environment-contract-{0}-{1}', github.workflow, github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -32,14 +32,66 @@ jobs:
           node-version: 24
 
       - name: Validate environment contract
-        run: node infra/scripts/check-env.mjs
+        run: |
+          bash -n infra/scripts/orbit-deploy-personal-staging-wrapper.sh
+          node infra/scripts/check-env.mjs
+          node --test infra/scripts/personal-staging-env.test.mjs infra/scripts/personal-staging-wrapper.test.mjs
 
-  deploy-personal-staging:
+  sync-personal-staging-env:
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     needs:
       - environment-contract
-    uses: ./.github/workflows/deploy-personal-staging.yml
-    with:
-      deployment_mode: full
-      expected_sha: ${{ github.sha }}
-      trigger_source: develop-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: personal-staging
+    steps:
+      - name: Checkout validated develop commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Doppler CLI
+        uses: dopplerhq/cli-action@v3
+
+      - name: Sync safe env defaults to Doppler
+        shell: bash
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_STG_SYNC_TOKEN }}
+        run: |
+          if [[ -z "${DOPPLER_TOKEN:-}" ]]; then
+            echo "DOPPLER_STG_SYNC_TOKEN is required."
+            exit 1
+          fi
+
+          node infra/scripts/sync-personal-staging-doppler.mjs \
+            --apply \
+            --project orbit \
+            --config stg
+
+  deploy-personal-staging:
+    if: >-
+      always() &&
+      needs.environment-contract.result == 'success' &&
+      needs.sync-personal-staging-env.result == 'success'
+    needs:
+      - environment-contract
+      - sync-personal-staging-env
+    runs-on: [self-hosted, orbit-personal-staging]
+    timeout-minutes: 30
+    environment: personal-staging
+    steps:
+      - name: Deploy personal staging
+        shell: bash
+        env:
+          DEPLOYMENT_MODE: full
+          EXPECTED_SHA: ${{ github.sha }}
+          TRIGGER_SOURCE: develop-push
+        run: |
+          echo "Deployment mode: $DEPLOYMENT_MODE"
+          echo "Trigger source: $TRIGGER_SOURCE"
+          sudo /usr/local/sbin/orbit-deploy-personal-staging "$DEPLOYMENT_MODE" "$EXPECTED_SHA"

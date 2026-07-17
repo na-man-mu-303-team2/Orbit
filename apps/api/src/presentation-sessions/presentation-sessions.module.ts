@@ -4,11 +4,17 @@ import { ProjectsModule } from "../projects/projects.module";
 import { AudienceSessionsController } from "./audience-sessions.controller";
 import { PresentationSessionsController } from "./presentation-sessions.controller";
 import { PresentationSessionsService } from "./presentation-sessions.service";
+import { PresentationSessionRepository } from "./presentation-session.repository";
+import { AudienceRateLimitService } from "./audience-rate-limit.service";
 
 @Module({
   imports: [AuthModule, ProjectsModule],
   controllers: [AudienceSessionsController, PresentationSessionsController],
-  providers: [PresentationSessionsService],
-  exports: [PresentationSessionsService]
+  providers: [
+    AudienceRateLimitService,
+    PresentationSessionRepository,
+    PresentationSessionsService
+  ],
+  exports: [AudienceRateLimitService, PresentationSessionsService]
 })
 export class PresentationSessionsModule {}

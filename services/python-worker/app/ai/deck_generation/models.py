@@ -523,6 +523,15 @@ class RawInput(BaseModel):
         default_factory=list,
         alias="warningCodes",
     )
+    regeneration_instruction: str = Field(
+        default="",
+        alias="regenerationInstruction",
+        max_length=240,
+    )
+    previous_slide_titles: list[str] = Field(
+        default_factory=list,
+        alias="previousSlideTitles",
+    )
     design_program_context: InternalDesignProgramContext = Field(
         default_factory=InternalDesignProgramContext,
     )
@@ -616,6 +625,20 @@ class GeneratedSlideContent(BaseModel):
 class GeneratedDeckContentPlan(BaseModel):
     title: str = Field(min_length=1)
     slides: list[GeneratedSlideContent] = Field(min_length=1)
+
+
+class GeneratedStorySlide(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    title: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+    slide_type: SlideType = Field(alias="slideType")
+    source_refs: list[str] = Field(default_factory=list, alias="sourceRefs")
+
+
+class GeneratedStoryPlan(BaseModel):
+    title: str = Field(min_length=1)
+    slides: list[GeneratedStorySlide] = Field(min_length=1)
 
 
 class SpeakerNotesRepairItem(BaseModel):

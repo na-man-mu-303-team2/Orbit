@@ -1,5 +1,8 @@
 import type { Deck } from "@orbit/shared";
-import type { PresenterSlideshowState } from "./presenterStateStore";
+import type {
+  AudienceOutputMode,
+  PresenterSlideshowState,
+} from "./presenterStateStore";
 
 export const presentationChannelPrefix = "orbit:presenter-screen";
 
@@ -79,6 +82,7 @@ export type PresenterRemoteCommand =
   | { action: "goto"; slideIndex: number; stepIndex?: number }
   | { action: "next-step" }
   | { action: "prev" }
+  | { action: "set-audience-output"; mode: AudienceOutputMode }
   | { action: "timer-pause" }
   | { action: "timer-reset" }
   | { action: "timer-start" };
@@ -91,6 +95,20 @@ export type PresenterCommandMessage = {
   type: "presenter-command";
 };
 
+export type ScreenShareEndedReason =
+  | "playback-failed"
+  | "track-ended"
+  | "stream-missing"
+  | "receiver-reset";
+
+export type ScreenShareEndedMessage = {
+  deckId: string;
+  reason: ScreenShareEndedReason;
+  sentAt: number;
+  sessionId: string;
+  type: "screen-share-ended";
+};
+
 export type PresentationChannelMessage =
   | PresenterSnapshotMessage
   | PresenterStateMessage
@@ -101,7 +119,8 @@ export type PresentationChannelMessage =
   | SlideWindowHeartbeatMessage
   | PresenterRemoteReadyMessage
   | PresenterRemoteHeartbeatMessage
-  | PresenterCommandMessage;
+  | PresenterCommandMessage
+  | ScreenShareEndedMessage;
 
 export function createPresentationSessionId() {
   if (
@@ -160,7 +179,7 @@ export function createSlideWindowDeckSnapshot(
 function createSlideWindowSlideSnapshot(
   slide: Deck["slides"][number],
 ): Deck["slides"][number] {
-  return {
+  const common = {
     actions: [],
     animations: slide.animations,
     elements: slide.elements,
@@ -175,13 +194,25 @@ function createSlideWindowSlideSnapshot(
     thumbnailUrl: slide.thumbnailUrl,
     title: slide.title,
   };
+
+  if (slide.kind === "activity") {
+    return { ...common, kind: "activity", activity: slide.activity };
+  }
+  if (slide.kind === "activity-results") {
+    return {
+      ...common,
+      kind: "activity-results",
+      activityResult: slide.activityResult,
+    };
+  }
+  return { ...common, kind: "content" };
 }
 
-export function isPresentationChannelMessage(
+export function parsePresentationChannelMessage(
   value: unknown,
-): value is PresentationChannelMessage {
+): PresentationChannelMessage | null {
   if (!isRecord(value)) {
-    return false;
+    return null;
   }
 
   if (
@@ -189,42 +220,50 @@ export function isPresentationChannelMessage(
     typeof value.sessionId !== "string" ||
     typeof value.sentAt !== "number"
   ) {
-    return false;
+    return null;
   }
 
   switch (value.type) {
     case "presenter-snapshot":
-      return (
-        isRecord(value.deck) &&
-        isPresenterSlideshowState(value.state) &&
-        isStringArray(value.triggerAnimationIds)
-      );
+    case "presenter-remote-snapshot": {
+      const state = parsePresenterSlideshowState(value.state);
+      if (
+        !isRecord(value.deck) ||
+        !state ||
+        !isStringArray(value.triggerAnimationIds)
+      ) {
+        return null;
+      }
+      return { ...value, state } as
+        | PresenterSnapshotMessage
+        | PresenterRemoteSnapshotMessage;
+    }
     case "presenter-state":
-      return (
-        isPresenterSlideshowState(value.state) &&
-        isStringArray(value.triggerAnimationIds)
-      );
-    case "presenter-remote-snapshot":
-      return (
-        isRecord(value.deck) &&
-        isPresenterSlideshowState(value.state) &&
-        isStringArray(value.triggerAnimationIds)
-      );
-    case "presenter-remote-state":
-      return (
-        isPresenterSlideshowState(value.state) &&
-        isStringArray(value.triggerAnimationIds)
-      );
+    case "presenter-remote-state": {
+      const state = parsePresenterSlideshowState(value.state);
+      if (!state || !isStringArray(value.triggerAnimationIds)) {
+        return null;
+      }
+      return { ...value, state } as
+        | PresenterStateMessage
+        | PresenterRemoteStateMessage;
+    }
     case "presenter-heartbeat":
     case "slide-window-ready":
     case "slide-window-heartbeat":
     case "presenter-remote-ready":
     case "presenter-remote-heartbeat":
-      return true;
+      return value as PresentationChannelMessage;
     case "presenter-command":
-      return isPresenterRemoteCommand(value.command);
+      return isPresenterRemoteCommand(value.command)
+        ? (value as unknown as PresenterCommandMessage)
+        : null;
+    case "screen-share-ended":
+      return isScreenShareEndedReason(value.reason)
+        ? (value as unknown as ScreenShareEndedMessage)
+        : null;
     default:
-      return false;
+      return null;
   }
 }
 
@@ -387,14 +426,35 @@ export function createPresenterCommandMessage(args: {
   };
 }
 
-function isPresenterSlideshowState(
+export function createScreenShareEndedMessage(args: {
+  identity: PresentationChannelIdentity;
+  reason: ScreenShareEndedReason;
+  sentAt?: number;
+}): ScreenShareEndedMessage {
+  return {
+    deckId: args.identity.deckId,
+    reason: args.reason,
+    sentAt: args.sentAt ?? Date.now(),
+    sessionId: args.identity.sessionId,
+    type: "screen-share-ended",
+  };
+}
+
+function parsePresenterSlideshowState(
   value: unknown,
-): value is PresenterSlideshowState {
+): PresenterSlideshowState | null {
   if (!isRecord(value)) {
-    return false;
+    return null;
   }
 
-  return (
+  const audienceOutputMode =
+    value.audienceOutputMode === undefined
+      ? "slide"
+      : isAudienceOutputMode(value.audienceOutputMode)
+        ? value.audienceOutputMode
+        : null;
+  if (
+    audienceOutputMode !== null &&
     typeof value.slideId === "string" &&
     typeof value.slideIndex === "number" &&
     typeof value.stepIndex === "number" &&
@@ -407,7 +467,10 @@ function isPresenterSlideshowState(
     ) &&
     (value.speech === undefined || isPresenterSpeechState(value.speech)) &&
     (value.timing === undefined || isPresenterTimingState(value.timing))
-  );
+  ) {
+    return { ...value, audienceOutputMode } as PresenterSlideshowState;
+  }
+  return null;
 }
 
 function isPresenterSpeechState(value: unknown) {
@@ -568,10 +631,29 @@ function isPresenterRemoteCommand(
     return true;
   }
 
+  if (value.action === "set-audience-output") {
+    return isAudienceOutputMode(value.mode);
+  }
+
   return (
     value.action === "goto" &&
     isNonNegativeInteger(value.slideIndex) &&
     (value.stepIndex === undefined || isNonNegativeInteger(value.stepIndex))
+  );
+}
+
+function isAudienceOutputMode(value: unknown): value is AudienceOutputMode {
+  return value === "slide" || value === "screen-share" || value === "black";
+}
+
+function isScreenShareEndedReason(
+  value: unknown,
+): value is ScreenShareEndedReason {
+  return (
+    value === "playback-failed" ||
+    value === "track-ended" ||
+    value === "stream-missing" ||
+    value === "receiver-reset"
   );
 }
 

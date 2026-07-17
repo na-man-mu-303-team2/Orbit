@@ -172,6 +172,23 @@ def test_normalizer_enforces_composition_and_background_rhythm() -> None:
     assert 3 <= sum(slide.asset_role != "none" for slide in normalized.slides) <= 5
 
 
+def test_normalizer_preserves_approved_edge_slide_types() -> None:
+    slides = [
+        slide_payload("problem", 3),
+        slide_payload("process", 4),
+    ]
+
+    normalized = normalize_design_program(
+        repeated_program(len(slides)),
+        slides,
+        media_policy="minimal",
+        preserve_slide_types=True,
+    )
+
+    assert normalized.slides[0].composition_id == "editorial-split"
+    assert normalized.slides[-1].composition_id in {"process-horizontal", "timeline"}
+
+
 def test_normalizer_breaks_long_background_runs_without_single_color_lock() -> None:
     slides = launch_slides()
     candidate = repeated_program(len(slides))

@@ -8,6 +8,8 @@ import {
   getPresenterRemoteKeywordRows,
   getPresenterRemoteNextSentenceIndex,
   getPresenterRemoteTimingState,
+  isPresenterRemoteOwnerStale,
+  reconcilePresenterRemoteOutputMode,
   splitPresenterRemoteNotes,
   PresenterRemoteWindow,
 } from "./PresenterRemoteWindow";
@@ -52,7 +54,8 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("첫 문장입니다");
     expect(html).toContain("이전");
     expect(html).toContain("다음");
-    expect(html).toContain("팝업 가림");
+    expect(html).toContain("웹·실습 보여주기");
+    expect(html).toContain("청중 화면 가리기");
     expect(html).toContain("발표 종료");
     expect(html).not.toContain("Partial transcript");
     expect(html).not.toContain("rawAudio");
@@ -405,6 +408,60 @@ describe("PresenterRemoteWindow", () => {
     expect(
       getPresenterRemoteCommandDispatchDelays({ action: "timer-start" }),
     ).toEqual([0]);
+  });
+
+  it("marks the owner stale only after the five-second heartbeat window", () => {
+    expect(isPresenterRemoteOwnerStale(null, 6001)).toBe(false);
+    expect(isPresenterRemoteOwnerStale(1000, 6000)).toBe(false);
+    expect(isPresenterRemoteOwnerStale(1000, 6001)).toBe(true);
+  });
+
+  it("keeps a local audience output command until the owner acknowledges it", () => {
+    const current = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      audienceOutputMode: "screen-share" as const,
+    };
+    const staleOwnerMessage = createPresenterStateMessage({
+      identity,
+      sentAt: 100,
+      state: {
+        ...current,
+        audienceOutputMode: "slide",
+        slideId: "slide_p0_2",
+        slideIndex: 1,
+      },
+      triggerAnimationIds: [],
+    });
+
+    const waiting = reconcilePresenterRemoteOutputMode({
+      current,
+      message: staleOwnerMessage,
+      now: 1500,
+      pending: { mode: "screen-share", sentAt: 1000 },
+    });
+    expect(waiting.state).toMatchObject({
+      audienceOutputMode: "screen-share",
+      slideId: "slide_p0_2",
+      slideIndex: 1,
+    });
+    expect(waiting.pending?.mode).toBe("screen-share");
+
+    const acknowledged = reconcilePresenterRemoteOutputMode({
+      current: waiting.state,
+      message: createPresenterStateMessage({
+        identity,
+        sentAt: 1600,
+        state: {
+          ...waiting.state,
+          audienceOutputMode: "screen-share",
+        },
+        triggerAnimationIds: [],
+      }),
+      now: 1600,
+      pending: waiting.pending,
+    });
+    expect(acknowledged.pending).toBeNull();
+    expect(acknowledged.state.audienceOutputMode).toBe("screen-share");
   });
 
   it("applies presenter state messages without replacing presenter-only deck data", () => {

@@ -3,6 +3,7 @@ import type {
   Deck,
   SemanticCue,
   Slide,
+  SpeakerNotesSuggestionMode,
 } from "@orbit/shared";
 import {
   IconAdjustmentsHorizontal as Properties,
@@ -37,6 +38,7 @@ import {
   PptxImportQualityPanel,
   type PptxImportState,
 } from "./PptxImportQualityPanel";
+import { getDesignPanelLabel } from "../utils/slideEditingPolicy";
 
 export type AiPanelView = "chat" | "tools" | "semantic-cues";
 type RightPanelMode = "assistant" | "animation" | "properties";
@@ -60,6 +62,7 @@ type EditorRightPanelProps = {
   onExitRehearsal?: () => void;
   onProposalApplied: (response: ApplyDesignAgentProposalResponse) => void;
   onPlayAnimations: () => void;
+  onSpeakerNotesAssistantRequest: (mode: SpeakerNotesSuggestionMode) => void;
   onResizeStart: (event: PointerEvent<HTMLButtonElement>) => void;
   onSemanticCueChange: (semanticCues: SemanticCue[]) => void;
   onSemanticCueExtract: (force: boolean) => void;
@@ -80,6 +83,8 @@ type EditorRightPanelProps = {
 
 export function EditorRightPanel(props: EditorRightPanelProps) {
   const hasElementSelection = props.selectedElementIds.length === 1;
+  const designPanelLabel = getDesignPanelLabel(props.currentSlide);
+  const isSpecialSlide = designPanelLabel === "장표 설정";
   const [activePanelMode, setActivePanelMode] =
     useState<RightPanelMode>("assistant");
 
@@ -88,6 +93,13 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
       setActivePanelMode("animation");
     }
   }, [props.isAnimationPropertiesOpen]);
+
+  useEffect(() => {
+    if (isSpecialSlide) {
+      setActivePanelMode("properties");
+      props.setIsAnimationPropertiesOpen(false);
+    }
+  }, [isSpecialSlide, props.currentSlide?.slideId]);
 
   function closePanel() {
     props.setIsOpen(false);
@@ -237,22 +249,32 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
               ) : null}
               {activePanelMode === "properties" ? (
                 <div
-                  aria-label={hasElementSelection ? "선택 요소" : undefined}
+                  aria-label={
+                    hasElementSelection
+                      ? "선택 요소"
+                      : isSpecialSlide
+                        ? designPanelLabel
+                        : undefined
+                  }
                   aria-labelledby={
-                    hasElementSelection ? undefined : "editor-design-heading"
+                    hasElementSelection || isSpecialSlide
+                      ? undefined
+                      : "editor-design-heading"
                   }
                   className="assistant-panel-view editor-design-panel"
                   id="editor-design-panel"
                   role="tabpanel"
                 >
-                  <span className="orbit-ds-eyebrow">
-                    {hasElementSelection
-                      ? "ELEMENT PROPERTIES"
-                      : "GLOBAL STYLES"}
-                  </span>
-                  {!hasElementSelection ? (
+                  {!isSpecialSlide ? (
+                    <span className="orbit-ds-eyebrow">
+                      {hasElementSelection
+                        ? "ELEMENT PROPERTIES"
+                        : "GLOBAL STYLES"}
+                    </span>
+                  ) : null}
+                  {!hasElementSelection && !isSpecialSlide ? (
                     <>
-                      <h3 id="editor-design-heading">현재 슬라이드</h3>
+                      <h3 id="editor-design-heading">{designPanelLabel}</h3>
                       <p>슬라이드와 덱의 기본 시각 속성을 조정합니다.</p>
                     </>
                   ) : null}
@@ -312,10 +334,14 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                         projectId={props.projectId}
                         deck={props.deck}
                         currentSlide={props.currentSlide}
+                        designEditingEnabled={!isSpecialSlide}
                         selectedElementIds={props.selectedElementIds}
                         chatState={props.aiChatState}
                         onChatStateChange={props.onAiChatStateChange}
                         onProposalApplied={props.onProposalApplied}
+                        onSpeakerNotesAssistantRequest={
+                          props.onSpeakerNotesAssistantRequest
+                        }
                       />
                     </div>
                     <div

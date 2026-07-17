@@ -1,12 +1,14 @@
-import type { Deck } from "@orbit/shared";
+import type { ActivityTemplate, Deck } from "@orbit/shared";
 import {
+  IconChevronUp as ChevronUp,
   IconLayoutGrid as Grid,
   IconLayoutSidebarLeftCollapse as PanelLeftClose,
   IconList as List,
   IconPlus as Plus
 } from "@tabler/icons-react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
+import { ActivitySpecialSlideThumbnail } from "../../../activity-slides";
 import type { SlidePanelView } from "../editorShellUiStore";
 import { buildSlideThumbBackground } from "../utils/editorLayout";
 import { IdBadge } from "./EditorIdBadge";
@@ -16,6 +18,8 @@ export function SlideNavigatorPane(props: {
   currentSlideIndex: number;
   deck: Deck;
   isCollapsed: boolean;
+  onAddActivitySlide: (template: ActivityTemplate) => void;
+  onAddActivityResultsSlide: () => void;
   onAddSlide: () => void;
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onSelectSlide: (index: number) => void;
@@ -26,6 +30,11 @@ export function SlideNavigatorPane(props: {
   view: SlidePanelView;
 }) {
   const hasSlides = props.deck.slides.length > 0;
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const canAddActivity = canAddActivitySlide(props.deck);
+  const hasActivitySource = props.deck.slides.some(
+    (slide) => slide.kind === "activity"
+  );
 
   return (
     <aside className={`slides-pane ${props.isCollapsed ? "collapsed" : ""}`}>
@@ -74,15 +83,28 @@ export function SlideNavigatorPane(props: {
                       className="slide-thumb orbit-thumb"
                       style={{
                         aspectRatio: `${props.deck.canvas.width} / ${props.deck.canvas.height}`,
-                        background: buildSlideThumbBackground(
-                          slide,
-                          props.deck,
-                          props.slideThumbnailUrls[slide.slideId]
-                        )
+                        background:
+                          slide.kind === "content"
+                            ? buildSlideThumbBackground(
+                                slide,
+                                props.deck,
+                                props.slideThumbnailUrls[slide.slideId],
+                              )
+                            : undefined,
                       }}
-                    />
+                    >
+                      {slide.kind === "activity" ||
+                      slide.kind === "activity-results" ? (
+                        <ActivitySpecialSlideThumbnail
+                          deck={props.deck}
+                          slide={slide}
+                        />
+                      ) : null}
+                    </span>
                   ) : null}
-                  {props.view === "list" && props.showIds ? <IdBadge id={slide.slideId} /> : null}
+                  {props.view === "list" && props.showIds ? (
+                    <IdBadge id={slide.slideId} />
+                  ) : null}
                 </button>
               );
             })
@@ -117,9 +139,78 @@ export function SlideNavigatorPane(props: {
               <List aria-hidden="true" size={16} />
             </button>
           </div>
-          <button aria-label="슬라이드 추가" className="add-slide-button" title="슬라이드 추가" type="button" onClick={props.onAddSlide}>
-            <Plus aria-hidden="true" size={17} />
-          </button>
+          <div className="add-slide-split">
+            <button
+              aria-label="슬라이드 추가"
+              className="add-slide-button"
+              title="슬라이드 추가"
+              type="button"
+              onClick={props.onAddSlide}
+            >
+              <Plus aria-hidden="true" size={17} />
+            </button>
+            <button
+              aria-expanded={isAddMenuOpen}
+              aria-haspopup="menu"
+              aria-label="추가할 슬라이드 유형 선택"
+              className="add-slide-menu-button"
+              type="button"
+              onClick={() => setIsAddMenuOpen((current) => !current)}
+            >
+              <ChevronUp aria-hidden="true" size={16} />
+            </button>
+            {isAddMenuOpen ? (
+              <div className="add-slide-menu" role="menu">
+                {([
+                  ["pre-question", "사전 질문", "발표 전 질문 받기"],
+                  ["poll", "실시간 투표", "단일 선택 투표"],
+                  ["satisfaction", "만족도 조사", "척도·선택·주관식 설문"]
+                ] as const).map(([template, title, description]) => (
+                  <button
+                    disabled={!canAddActivity}
+                    key={template}
+                    role="menuitem"
+                    title={
+                      canAddActivity
+                        ? `${title} 추가`
+                        : "참여 장표는 16:9 덱에서 사용할 수 있습니다."
+                    }
+                    type="button"
+                    onClick={() => {
+                      props.onAddActivitySlide(template);
+                      setIsAddMenuOpen(false);
+                    }}
+                  >
+                    <strong>{title}</strong>
+                    <span>
+                      {canAddActivity ? description : "와이드 16:9 필요"}
+                    </span>
+                  </button>
+                ))}
+                <button
+                  disabled={!canAddActivity || !hasActivitySource}
+                  role="menuitem"
+                  title={
+                    !canAddActivity
+                      ? "참여 장표는 16:9 덱에서 사용할 수 있습니다."
+                      : hasActivitySource
+                        ? "연결 결과 장표 추가"
+                        : "먼저 참여 장표를 추가하세요."
+                  }
+                  type="button"
+                  onClick={() => {
+                    props.onAddActivityResultsSlide();
+                    setIsAddMenuOpen(false);
+                  }}
+                >
+                  <strong>연결 결과 장표</strong>
+                  <span>
+                    {hasActivitySource ? "참여 결과 연결" : "원본 참여 장표 필요"}
+                  </span>
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -131,4 +222,8 @@ export function SlideNavigatorPane(props: {
       />
     </aside>
   );
+}
+
+export function canAddActivitySlide(deck: Pick<Deck, "canvas">): boolean {
+  return deck.canvas.preset === "wide-16-9";
 }

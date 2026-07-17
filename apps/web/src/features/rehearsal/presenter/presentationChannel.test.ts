@@ -8,6 +8,7 @@ import {
   createPresenterRemoteReadyMessage,
   createPresenterRemoteSnapshotMessage,
   createPresenterRemoteStateMessage,
+  createScreenShareEndedMessage,
   createPresenterSnapshotMessage,
   createPresenterStateMessage,
   createSlideWindowDeckSnapshot,
@@ -15,14 +16,16 @@ import {
   createSlideWindowReadyMessage,
   getPresentationChannelName,
   getPresenterRemoteChannelName,
-  isPresentationChannelMessage,
   matchesPresentationChannelIdentity,
+  parsePresentationChannelMessage,
 } from "./presentationChannel";
 
 const identity = {
   deckId: p0AnimationDeck.deckId,
   sessionId: "session-presenter-1",
 };
+const isPresentationChannelMessage = (value: unknown) =>
+  parsePresentationChannelMessage(value) !== null;
 
 describe("presentationChannel", () => {
   it("creates deterministic session-scoped channel names", () => {
@@ -125,6 +128,7 @@ describe("presentationChannel", () => {
       type: "presenter-snapshot",
       triggerAnimationIds: ["anim_image_zoom_in"],
       state: {
+        audienceOutputMode: "slide",
         slideId: "slide_p0_1",
         stepIndex: 1,
         highlights: [{ elementId: "el_body", active: true }],
@@ -339,6 +343,121 @@ describe("presentationChannel", () => {
         command: { action: "timer-finish" },
       }),
     ).toBe(false);
+  });
+
+  it("validates audience output commands and rejects unknown modes", () => {
+    const message = createPresenterCommandMessage({
+      command: { action: "set-audience-output", mode: "screen-share" },
+      identity,
+      sentAt: 91,
+    });
+
+    expect(isPresentationChannelMessage(message)).toBe(true);
+    expect(
+      isPresentationChannelMessage({
+        ...message,
+        command: { action: "set-audience-output", mode: "notes" },
+      }),
+    ).toBe(false);
+  });
+
+  it("validates screen share lifecycle messages without capture data", () => {
+    const message = createScreenShareEndedMessage({
+      identity,
+      reason: "track-ended",
+      sentAt: 92,
+    });
+    const serialized = JSON.stringify(message);
+
+    expect(isPresentationChannelMessage(message)).toBe(true);
+    expect(matchesPresentationChannelIdentity(message, identity)).toBe(true);
+    expect(serialized).not.toContain("MediaStream");
+    expect(serialized).not.toContain('"stream"');
+    expect(serialized).not.toContain('"tracks"');
+    expect(serialized).not.toContain('"label"');
+    expect(serialized).not.toContain("speakerNotes");
+    expect(serialized).not.toContain("transcript");
+    expect(serialized).not.toContain("rawAudio");
+    expect(
+      isPresentationChannelMessage({
+        ...message,
+        reason: "permission-denied",
+      }),
+    ).toBe(false);
+    expect(
+      parsePresentationChannelMessage(
+        createScreenShareEndedMessage({
+          identity,
+          reason: "playback-failed",
+          sentAt: 93,
+        }),
+      ),
+    ).not.toBeNull();
+  });
+
+  it("rejects presenter state messages with an unknown audience mode", () => {
+    const message = createPresenterStateMessage({
+      identity,
+      sentAt: 93,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+      triggerAnimationIds: [],
+    });
+
+    expect(
+      isPresentationChannelMessage({
+        ...message,
+        state: { ...message.state, audienceOutputMode: "notes" },
+      }),
+    ).toBe(false);
+  });
+
+  it("normalizes a missing legacy audience mode to slide without mutating input", () => {
+    const state = createPresenterSlideshowState(p0AnimationDeck);
+    const messages = [
+      createPresenterSnapshotMessage({
+        deck: p0AnimationDeck,
+        identity,
+        sentAt: 94,
+        state,
+      }),
+      createPresenterStateMessage({ identity, sentAt: 95, state }),
+      createPresenterRemoteSnapshotMessage({
+        deck: p0AnimationDeck,
+        identity,
+        sentAt: 96,
+        state,
+      }),
+      createPresenterRemoteStateMessage({ identity, sentAt: 97, state }),
+    ];
+
+    for (const message of messages) {
+      const legacyState = { ...message.state } as Record<string, unknown>;
+      delete legacyState.audienceOutputMode;
+      const legacyMessage = { ...message, state: legacyState };
+
+      const parsed = parsePresentationChannelMessage(legacyMessage);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed && "state" in parsed
+        ? parsed.state.audienceOutputMode
+        : null).toBe("slide");
+      expect(legacyState).not.toHaveProperty("audienceOutputMode");
+    }
+  });
+
+  it("rejects an explicitly invalid audience mode while parsing", () => {
+    const message = createPresenterStateMessage({
+      identity,
+      sentAt: 98,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+    });
+
+    expect(
+      parsePresentationChannelMessage({
+        ...message,
+        state: { ...message.state, audienceOutputMode: "notes" },
+      }),
+    ).toBeNull();
   });
 });
 

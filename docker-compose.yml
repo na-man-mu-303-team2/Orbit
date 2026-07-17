@@ -82,6 +82,7 @@ services:
       - .env.local
     environment:
       APP_ENV: ${APP_ENV:-local}
+      API_TRUST_PROXY_HOPS: ${API_TRUST_PROXY_HOPS:-0}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
       API_BASE_URL: ${API_BASE_URL:-http://localhost:3000}
       DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit

@@ -1,4 +1,10 @@
-import fs from "node:fs";
+import {
+  collectComposeEnvironmentKeys,
+  isBlankEnvValue,
+  readEnvFile,
+  readPersonalStagingPolicy,
+  validatePersonalStagingPolicy,
+} from "./personal-staging-env.mjs";
 
 const requiredKeys = [
   "NODE_ENV",
@@ -37,6 +43,8 @@ const requiredKeys = [
   "JOB_QUEUE_DRIVER",
   "AI_DECK_EXECUTION_MODE",
   "AI_DECK_WORKER_QUEUE",
+  "AI_DECK_WORKER_CONCURRENCY",
+  "AI_DECK_USER_CONCURRENCY",
   "LIVE_STT_PROVIDER",
   "LIVE_STT_ENGINE",
   "REPORT_STT_PROVIDER",
@@ -79,13 +87,13 @@ const requiredKeys = [
   "DEMO_WORKSPACE_ID",
   "DEMO_PROJECT_ID",
   "DEMO_DECK_ID",
-  "DEMO_SESSION_ID"
+  "DEMO_SESSION_ID",
 ];
 
 const exampleFiles = [
   ".env.example",
   ".env.staging.example",
-  ".env.production.example"
+  ".env.production.example",
 ];
 
 const commonAllowedEmptyKeys = [
@@ -104,64 +112,22 @@ const commonAllowedEmptyKeys = [
   "VITE_SEMANTIC_CUE_NLI_BENCHMARK_DEVICE",
   "WHISPERX_API_URL",
   "WHISPERX_API_KEY",
-  "WHISPERX_MODEL"
+  "WHISPERX_MODEL",
 ];
 
 const allowedEmptyKeysByFile = new Map([
-  [
-    ".env.example",
-    new Set([...commonAllowedEmptyKeys, "OPENAI_API_KEY"])
-  ],
+  [".env.example", new Set([...commonAllowedEmptyKeys, "OPENAI_API_KEY"])],
   [".env.staging.example", new Set(commonAllowedEmptyKeys)],
-  [".env.production.example", new Set(commonAllowedEmptyKeys)]
+  [".env.production.example", new Set(commonAllowedEmptyKeys)],
 ]);
 
 const failures = [];
-
-function isBlankEnvValue(rawValue) {
-  let value = rawValue.trim();
-  const isQuoted =
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"));
-
-  if (isQuoted) {
-    value = value.slice(1, -1).trim();
-  }
-
-  return value.length === 0;
-}
-
-function readEnvFile(file) {
-  const entries = new Map();
-  const content = fs.readFileSync(file, "utf8");
-
-  content.split(/\r?\n/).forEach((rawLine, index) => {
-    const line = rawLine.trim();
-
-    if (!line || line.startsWith("#")) {
-      return;
-    }
-
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line);
-    if (!match) {
-      failures.push(`${file}:${index + 1} invalid env declaration`);
-      return;
-    }
-
-    const [, key, rawValue] = match;
-    if (entries.has(key)) {
-      failures.push(`${file}:${index + 1} duplicate env key: ${key}`);
-      return;
-    }
-
-    entries.set(key, rawValue);
-  });
-
-  return entries;
-}
-
 const envFiles = new Map(
-  exampleFiles.map((file) => [file, readEnvFile(file)])
+  exampleFiles.map((file) => {
+    const result = readEnvFile(file);
+    failures.push(...result.failures);
+    return [file, result.entries];
+  }),
 );
 
 for (const [file, entries] of envFiles) {
@@ -195,6 +161,27 @@ for (const file of exampleFiles.slice(1)) {
       failures.push(`${file} does not match .env.example: extra ${key}`);
     }
   }
+}
+
+const personalStagingPolicyFile = "infra/env/personal-staging-env-policy.json";
+
+try {
+  const policy = readPersonalStagingPolicy(personalStagingPolicyFile);
+  const composeKeys = collectComposeEnvironmentKeys([
+    "docker-compose.yml",
+    "docker-compose.staging.yml",
+  ]);
+
+  failures.push(
+    ...validatePersonalStagingPolicy({
+      stagingEntries: envFiles.get(".env.staging.example"),
+      policy,
+      composeKeys,
+      policyFile: personalStagingPolicyFile,
+    }),
+  );
+} catch {
+  failures.push(`${personalStagingPolicyFile} is not valid JSON`);
 }
 
 if (failures.length > 0) {

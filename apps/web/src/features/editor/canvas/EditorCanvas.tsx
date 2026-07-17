@@ -10,6 +10,7 @@ import type Konva from "konva";
 import type { Box as TransformerBox } from "konva/lib/shapes/Transformer";
 import {
   Layer as KonvaLayer,
+  Line as KonvaLine,
   Rect as KonvaRect,
   Stage as KonvaStage,
   Transformer as KonvaTransformer,
@@ -24,8 +25,11 @@ import { useCanvasKeyboardShortcuts } from "./hooks/useCanvasKeyboardShortcuts";
 import { useCanvasStageInteractions } from "./hooks/useCanvasStageInteractions";
 import { useSyncCustomShapeEditDraft } from "./hooks/useSyncCustomShapeEditDraft";
 import { InlineTextEditorOverlay } from "./text/InlineTextEditorOverlay";
+import { InlineDataEditorOverlay } from "./data/InlineDataEditorOverlay";
 import {
+  type CanvasSnapGuide,
   commitCustomShapeEditGeometry,
+  getElementsIntersectingSelectionRect,
   normalizeDraftRect,
 } from "./utils/canvasInteractionUtils";
 import {
@@ -40,6 +44,7 @@ export { getRenderableSlideElements } from "../../slides/rendering";
 type KonvaComponent = ComponentType<any>;
 
 const Layer = KonvaLayer as unknown as KonvaComponent;
+const Line = KonvaLine as unknown as KonvaComponent;
 const Rect = KonvaRect as unknown as KonvaComponent;
 const Stage = KonvaStage as unknown as KonvaComponent;
 const Transformer = KonvaTransformer as unknown as KonvaComponent;
@@ -336,6 +341,7 @@ export function EditableCanvas(props: {
   onSetCustomShapeEditElementId: (elementId: string | null) => void;
   onSetInsertTool: (tool: InsertTool) => void;
   onSelectElement: (elementId: string, options?: { append?: boolean }) => void;
+  onSelectElements: (elementIds: string[]) => void;
 }) {
   const {
     customShapeEditElementId,
@@ -363,6 +369,7 @@ export function EditableCanvas(props: {
     onSetCustomShapeEditElementId,
     onSetInsertTool,
     onSelectElement,
+    onSelectElements,
   } = props;
   const transformerRef = useRef<Konva.Transformer | null>(null);
   const nodeRefs = useRef<Record<string, Konva.Group | null>>({});
@@ -380,6 +387,11 @@ export function EditableCanvas(props: {
     useState<CustomShapeInsertDraft | null>(null);
   const [customShapeEditDraft, setCustomShapeEditDraft] =
     useState<CustomShapeEditDraft | null>(null);
+  const [selectionDraft, setSelectionDraft] = useState<{
+    start: CanvasPoint;
+    end: CanvasPoint;
+  } | null>(null);
+  const [snapGuides, setSnapGuides] = useState<CanvasSnapGuide[]>([]);
   const editingCustomShapeElement =
     customShapeEditElementId && customShapeEditElementId !== editingElementId
       ? (visibleElements.find(
@@ -498,6 +510,17 @@ export function EditableCanvas(props: {
     insertTool,
     isKeyboardEditableTarget,
     onClearSelection,
+    onSelectionDragStart: (point) => setSelectionDraft({ start: point, end: point }),
+    onSelectionDragMove: (point) =>
+      setSelectionDraft((current) => (current ? { ...current, end: point } : current)),
+    onSelectionDragEnd: () =>
+      setSelectionDraft((current) => {
+        const rect = current ? normalizeDraftRect(current.start, current.end) : null;
+        if (rect) {
+          onSelectElements(getElementsIntersectingSelectionRect(visibleElements, rect));
+        }
+        return null;
+      }),
     onMarkTextBlurForClear: () => {
       pendingTextBlurActionRef.current = "clear-selection";
     },
@@ -532,6 +555,9 @@ export function EditableCanvas(props: {
       className="konva-editor-stage"
       data-testid="editor-canvas-stage"
       ref={containerRef}
+      onContextMenu={(event) => {
+        if (selectedElementIds.length > 1) event.preventDefault();
+      }}
     >
       <Stage
         className="konva-canvas-layer"
@@ -549,6 +575,22 @@ export function EditableCanvas(props: {
         onMouseUp={
           disableInteractions ? undefined : stageMouseHandlers.onMouseUp
         }
+        onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
+          if (disableInteractions || selectedElementIds.length < 2) return;
+          const selectedElement = visibleElements.find((element) =>
+            selectedElementIds.includes(element.elementId)
+          );
+          if (!selectedElement) return;
+
+          event.evt.preventDefault();
+          event.cancelBubble = true;
+          onOpenElementContextMenu({
+            clientX: event.evt.clientX,
+            clientY: event.evt.clientY,
+            element: selectedElement,
+            slideId: slide.slideId,
+          });
+        }}
       >
         <Layer>
           {visibleElements.map((element) => (
@@ -594,9 +636,23 @@ export function EditableCanvas(props: {
                   slideId: slide.slideId,
                 })
               }
+              onSnapGuidesChange={setSnapGuides}
+              snapThreshold={8 / Math.max(stageScale, 0.01)}
               onSelect={(append) =>
                 onSelectElement(element.elementId, { append })
               }
+            />
+          ))}
+          {snapGuides.map((guide) => (
+            <Line
+              dash={[8 / Math.max(stageScale, 0.01), 5 / Math.max(stageScale, 0.01)]}
+              key={`${guide.axis}-${guide.position}`}
+              listening={false}
+              points={guide.axis === "x"
+                ? [guide.position, 0, guide.position, deck.canvas.height]
+                : [0, guide.position, deck.canvas.width, guide.position]}
+              stroke="#ec4899"
+              strokeWidth={1.5 / Math.max(stageScale, 0.01)}
             />
           ))}
           {visibleElements
@@ -640,6 +696,21 @@ export function EditableCanvas(props: {
               })}
             />
           ) : null}
+          {selectionDraft ? (
+            <Rect
+              dash={[8, 5]}
+              fill="rgba(37, 99, 235, 0.1)"
+              listening={false}
+              stroke="#2563eb"
+              strokeWidth={1.5}
+              {...(normalizeDraftRect(selectionDraft.start, selectionDraft.end) ?? {
+                x: selectionDraft.start.x,
+                y: selectionDraft.start.y,
+                width: 1,
+                height: 1
+              })}
+            />
+          ) : null}
           <Transformer
             ref={transformerRef}
             boundBoxFunc={(
@@ -671,18 +742,30 @@ export function EditableCanvas(props: {
         </Layer>
       </Stage>
       {editingElementId ? (
-        <InlineTextEditorOverlay
-          deck={deck}
-          element={
-            visibleElements.find(
-              (candidate) => candidate.elementId === editingElementId,
-            ) ?? null
-          }
-          slide={slide}
-          stageScale={stageScale}
-          onCommitProps={onCommitElementProps}
-          onFinishEditing={handleInlineTextEditingFinish}
-        />
+        <>
+          <InlineTextEditorOverlay
+            deck={deck}
+            element={
+              visibleElements.find(
+                (candidate) => candidate.elementId === editingElementId,
+              ) ?? null
+            }
+            slide={slide}
+            stageScale={stageScale}
+            onCommitProps={onCommitElementProps}
+            onFinishEditing={handleInlineTextEditingFinish}
+          />
+          <InlineDataEditorOverlay
+            element={
+              visibleElements.find(
+                (candidate) => candidate.elementId === editingElementId,
+              ) ?? null
+            }
+            stageScale={stageScale}
+            onCommitProps={onCommitElementProps}
+            onFinishEditing={handleInlineTextEditingFinish}
+          />
+        </>
       ) : null}
       {insertTool === "customShape" ? (
         <div className="canvas-mode-hint">

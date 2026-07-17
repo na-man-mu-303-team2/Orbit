@@ -3864,7 +3864,7 @@ button:disabled {
   border-radius: 8px;
   display: grid;
   gap: 8px;
-  grid-template-columns: 0.9fr 1.3fr 0.9fr 0.9fr 0.9fr;
+  grid-template-columns: 0.9fr 1.3fr 0.9fr 0.9fr;
   padding: 10px;
 }
 

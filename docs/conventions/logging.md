@@ -83,3 +83,10 @@ PostgreSQL transport의 bootstrap·runner 경계는 `ai_deck.postgres_initialize
 `ai_deck.postgres_initialization_failed`, `ai-ppt.stage.retry-scheduled`,
 `ai-ppt.stage.runner-failed`를 사용한다. 로그에는 checkpoint identity와 안전하게
 직렬화한 오류만 기록하고 부모 Job payload, source, OCR, content, provider 응답은 기록하지 않는다.
+
+Story Review 변경 경계는 `ai_ppt.story_review.approved`,
+`ai_ppt.story_review.regeneration_requested`,
+`ai_ppt.story_review.cancelled`를 `info`로 기록한다. 공통 필드는 `jobId`와
+`projectId`만 사용하고 regeneration instruction, outline, slide content, speaker notes,
+source metadata, OCR와 provider 응답은 기록하지 않는다. 재제안 실패는 기존
+`ai-ppt.stage.attempt-failed` 또는 `ai-ppt.stage.failed`의 안전한 진단 계약을 재사용한다.

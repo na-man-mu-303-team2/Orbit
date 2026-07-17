@@ -9,6 +9,7 @@ import {
 describe("presenterStateStore", () => {
   it("creates a restorable initial presenter state", () => {
     expect(createPresenterSlideshowState(p0AnimationDeck)).toMatchObject({
+      audienceOutputMode: "slide",
       slideId: "slide_p0_1",
       slideIndex: 0,
       stepIndex: 0,

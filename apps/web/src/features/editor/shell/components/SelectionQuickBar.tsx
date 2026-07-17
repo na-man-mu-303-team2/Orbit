@@ -1040,6 +1040,9 @@ function convertChartData(
 
   return chart.data.map((datum, index) => ({
     label: datum.label ?? `항목 ${index + 1}`,
+    ...(type === "line" && "series" in datum && datum.series
+      ? { series: datum.series }
+      : {}),
     value: "value" in datum ? datum.value : datum.y,
   }));
 }
@@ -1054,7 +1057,18 @@ function chartDataDraft(chart: Chart) {
       .join(", ");
   }
 
-  return chart.data.map((datum) => `${datum.label}:${datum.value}`).join(", ");
+  if (chart.type === "line") {
+    return chart.data
+      .map(
+        (datum) =>
+          `${datum.series ?? "Series 1"}:${datum.label}:${datum.value}`,
+      )
+      .join(", ");
+  }
+
+  return chart.data
+    .map((datum) => `${datum.label}:${datum.value}`)
+    .join(", ");
 }
 
 function parseChartDataDraft(
@@ -1076,6 +1090,17 @@ function parseChartDataDraft(
         x: Number(first) || 0,
         y: Number(second) || 0,
       };
+    });
+  }
+
+
+  if (type === "line") {
+    return entries.map((entry, index) => {
+      const parts = entry.split(":").map((part) => part.trim());
+      const [series, label, rawValue] = parts.length >= 3
+        ? parts
+        : ["Series 1", parts[0] ?? `항목 ${index + 1}`, parts[1] ?? "0"];
+      return { label, series, value: Number(rawValue) || 0 };
     });
   }
 

@@ -1,6 +1,8 @@
 import {
   createAddElementPatch,
   createAddSlidePatch,
+  createActivityResultsSlide,
+  createActivitySlide,
   createElementId,
   createGroupedElementFramePatch,
   createSlideId,
@@ -13,6 +15,7 @@ import {
 } from "../../../../../../../packages/editor-core/src/patches/elementFrame";
 import type {
   CustomShapeNode,
+  ActivityTemplate,
   Deck,
   DeckElement,
   DeckElementRole,
@@ -25,6 +28,10 @@ import { useRef, type MutableRefObject } from "react";
 
 import { resolveRedesignPalette } from "../../../../styles/redesignPalette";
 import { normalizeCustomShapeAbsoluteGeometry } from "../../canvas/custom-shape/geometry";
+import {
+  createSlideIconDataUrl,
+  type SlideIconDefinition
+} from "../../icons/slideIconRegistry";
 import type { ShapeInsertType } from "../components/EditorContextMenus";
 import type {
   EditorShellUiUpdater,
@@ -35,6 +42,7 @@ import {
   getContextMenuPosition,
   getNextElementZIndex,
 } from "../utils/editorLayout";
+import { canEditSlideCanvas } from "../utils/slideEditingPolicy";
 import type { PatchProducer } from "./useEditorPersistenceState";
 
 export type ElementFrameChange = {
@@ -49,7 +57,11 @@ export type ElementFrameChange = {
   visible?: boolean;
 };
 
-type ClipboardState = { element: DeckElement; pasteCount: number };
+type ClipboardState = {
+  elements: DeckElement[];
+  pasteCount: number;
+  rootElementId: string;
+};
 type CommitPatch = (
   patch: DeckPatch | PatchProducer,
   baseDeck?: Deck,
@@ -81,7 +93,7 @@ export function useEditorCanvasCommands(args: {
   const copiedElementRef = useRef<ClipboardState | null>(null);
 
   function addTextElement() {
-    if (!args.currentSlide) return;
+    if (!canEditSlideCanvas(args.currentSlide)) return;
     const elementId = createElementId(args.deck);
     args.commitPatch((currentDeck) =>
       createAddElementPatch(currentDeck, args.currentSlide!.slideId, {
@@ -118,7 +130,7 @@ export function useEditorCanvasCommands(args: {
   }
 
   function addChartElement() {
-    if (!args.currentSlide) return;
+    if (!canEditSlideCanvas(args.currentSlide)) return;
     const elementId = createElementId(args.deck);
     const redesignPalette = resolveRedesignPalette();
     const primaryColor =
@@ -172,8 +184,39 @@ export function useEditorCanvasCommands(args: {
     args.setSelectedElementIds([elementId]);
   }
 
+  function addIconElement(icon: SlideIconDefinition, color: string) {
+    if (!canEditSlideCanvas(args.currentSlide)) return;
+    const elementId = createElementId(args.deck);
+    const size = 96;
+    const x = Math.max(0, (args.deck.canvas.width - size) / 2);
+    const y = Math.max(0, (args.deck.canvas.height - size) / 2);
+    args.commitPatch((currentDeck) => createAddElementPatch(currentDeck, args.currentSlide!.slideId, {
+      elementId,
+      type: "svg",
+      role: "decoration",
+      x,
+      y,
+      width: size,
+      height: size,
+      rotation: 0,
+      opacity: 1,
+      zIndex: getNextElementZIndex(args.currentSlide!.elements),
+      locked: false,
+      visible: true,
+      props: {
+        src: createSlideIconDataUrl(icon, color),
+        alt: icon.label,
+        fit: "contain",
+        focusX: 0.5,
+        focusY: 0.5
+      }
+    }));
+    args.setSelectedElementIds([elementId]);
+    args.setInsertTool("select");
+  }
+
   function insertShapeElement(shapeType: ShapeInsertType) {
-    if (!args.currentSlide) return;
+    if (!canEditSlideCanvas(args.currentSlide)) return;
     if (shapeType === "customShape") {
       args.setEditingElementId(null);
       args.setCustomShapeEditElementId(null);
@@ -254,6 +297,7 @@ export function useEditorCanvasCommands(args: {
       const nextOrder = currentDeck.slides.length + 1;
       nextSlideIndex = currentDeck.slides.length;
       return createAddSlidePatch(currentDeck, {
+        kind: "content",
         slideId,
         order: nextOrder,
         title: `Slide ${nextOrder}`,
@@ -302,14 +346,84 @@ export function useEditorCanvasCommands(args: {
     args.setSelectedElementIds([]);
   }
 
+  function addActivitySlide(template: ActivityTemplate) {
+    if (!args.confirmDiscardSpeakerNotesDraft()) return false;
+    if (args.workingDeckRef.current.canvas.preset !== "wide-16-9") return false;
+
+    let nextSlideIndex = args.workingDeckRef.current.slides.length;
+    args.resetSpeakerNotesEditState("");
+    const committed = args.commitPatch((currentDeck) => {
+      const slide = createActivitySlide(currentDeck, template);
+      nextSlideIndex = currentDeck.slides.length;
+      return createAddSlidePatch(currentDeck, slide);
+    });
+    if (!committed) return false;
+
+    args.setCurrentSlideIndex(nextSlideIndex);
+    args.setSelectedElementIds([]);
+    args.setEditingElementId(null);
+    args.setCustomShapeEditElementId(null);
+    return true;
+  }
+
+  function addActivityResultsSlide(sourceActivityId?: string) {
+    if (!args.confirmDiscardSpeakerNotesDraft()) return false;
+    if (args.workingDeckRef.current.canvas.preset !== "wide-16-9") return false;
+
+    const source = [...args.workingDeckRef.current.slides]
+      .reverse()
+      .find(
+        (slide) =>
+          slide.kind === "activity" &&
+          (sourceActivityId === undefined ||
+            slide.activity.activityId === sourceActivityId)
+      );
+    if (!source || source.kind !== "activity") return false;
+
+    let nextSlideIndex = args.workingDeckRef.current.slides.length;
+    args.resetSpeakerNotesEditState("");
+    const committed = args.commitPatch((currentDeck) => {
+      const slide = createActivityResultsSlide(
+        currentDeck,
+        source.activity.activityId
+      );
+      nextSlideIndex = currentDeck.slides.length;
+      return createAddSlidePatch(currentDeck, slide);
+    });
+    if (!committed) return false;
+
+    args.setCurrentSlideIndex(nextSlideIndex);
+    args.setSelectedElementIds([]);
+    args.setEditingElementId(null);
+    args.setCustomShapeEditElementId(null);
+    return true;
+  }
+
   function deleteSelectedElement() {
-    if (!args.currentSlide || args.selectedElementIds.length === 0) return;
+    if (!canEditSlideCanvas(args.currentSlide) || args.selectedElementIds.length === 0) return;
     args.setElementContextMenu(null);
+    const elementsById = new Map(
+      args.currentSlide.elements.map((element) => [element.elementId, element])
+    );
+    const deleteElementIds = new Set<string>();
+    const collectDeleteTargets = (elementId: string) => {
+      if (deleteElementIds.has(elementId)) return;
+      const element = elementsById.get(elementId);
+      if (!element) return;
+      if (element.type === "group") {
+        const groupProps = element.props as GroupElementProps;
+        for (const childElementId of groupProps.childElementIds) {
+          collectDeleteTargets(childElementId);
+        }
+      }
+      deleteElementIds.add(elementId);
+    };
+    for (const elementId of args.selectedElementIds) collectDeleteTargets(elementId);
     args.commitPatch((currentDeck) => ({
       deckId: currentDeck.deckId,
       baseVersion: currentDeck.version,
       source: "user",
-      operations: args.selectedElementIds.map((elementId) => ({
+      operations: [...deleteElementIds].map((elementId) => ({
         type: "delete_element" as const,
         slideId: args.currentSlide!.slideId,
         elementId,
@@ -320,52 +434,116 @@ export function useEditorCanvasCommands(args: {
     args.setCustomShapeEditElementId(null);
   }
 
-  function cloneElement(sourceElement: DeckElement, offsetMultiplier = 1) {
-    if (!args.currentSlide) return null;
-    const nextElementId = createElementId(args.deck);
-    const nextZIndex =
-      args.currentSlide.elements.reduce(
-        (highest, element) => Math.max(highest, element.zIndex),
-        0,
-      ) + 1;
-    const offset = 24 * offsetMultiplier;
-    args.commitPatch((currentDeck) =>
-      createAddElementPatch(currentDeck, args.currentSlide!.slideId, {
-        ...structuredClone(sourceElement),
-        elementId: nextElementId,
-        x: sourceElement.x + offset,
-        y: sourceElement.y + offset,
-        zIndex: nextZIndex,
-      }),
+  function getCloneSourceElements(rootElement: DeckElement) {
+    if (!canEditSlideCanvas(args.currentSlide) || rootElement.type !== "group") {
+      return canEditSlideCanvas(args.currentSlide) ? [rootElement] : [];
+    }
+    const elementsById = new Map(
+      args.currentSlide.elements.map((element) => [element.elementId, element]),
     );
-    args.setSelectedElementIds([nextElementId]);
+    const collected: DeckElement[] = [];
+    const visited = new Set<string>();
+    const collect = (element: DeckElement) => {
+      if (visited.has(element.elementId)) return;
+      visited.add(element.elementId);
+      collected.push(element);
+      if (element.type !== "group") return;
+      const groupProps = element.props as GroupElementProps;
+      for (const childElementId of groupProps.childElementIds) {
+        const childElement = elementsById.get(childElementId);
+        if (childElement) collect(childElement);
+      }
+    };
+    collect(rootElement);
+    return collected;
+  }
+
+  function cloneElements(
+    sourceElements: DeckElement[],
+    rootElementId: string,
+    offsetMultiplier = 1,
+  ) {
+    if (!canEditSlideCanvas(args.currentSlide)) return null;
+    if (sourceElements.length === 0) return null;
+    const existingIds = new Set(
+      args.deck.slides.flatMap((slide) =>
+        slide.elements.map((element) => element.elementId),
+      ),
+    );
+    const idMap = new Map<string, string>();
+    for (const sourceElement of sourceElements) {
+      let index = 1;
+      while (existingIds.has(`el_${index}`)) index += 1;
+      const nextElementId = `el_${index}`;
+      existingIds.add(nextElementId);
+      idMap.set(sourceElement.elementId, nextElementId);
+    }
+    const highestZIndex = args.currentSlide.elements.reduce(
+      (highest, element) => Math.max(highest, element.zIndex),
+      0,
+    );
+    const lowestSourceZIndex = Math.min(
+      ...sourceElements.map((element) => element.zIndex),
+    );
+    const offset = 24 * offsetMultiplier;
+    const clonedElements = sourceElements.map((sourceElement) => {
+      const clonedElement = structuredClone(sourceElement);
+      clonedElement.elementId = idMap.get(sourceElement.elementId)!;
+      clonedElement.x = sourceElement.x + offset;
+      clonedElement.y = sourceElement.y + offset;
+      clonedElement.zIndex =
+        highestZIndex + 1 + sourceElement.zIndex - lowestSourceZIndex;
+      if (clonedElement.type === "group") {
+        const groupProps = clonedElement.props as GroupElementProps;
+        groupProps.childElementIds = groupProps.childElementIds
+          .map((childElementId) => idMap.get(childElementId))
+          .filter((childElementId): childElementId is string => Boolean(childElementId));
+      }
+      return clonedElement;
+    });
+    args.commitPatch((currentDeck) => ({
+      deckId: currentDeck.deckId,
+      baseVersion: currentDeck.version,
+      source: "user",
+      operations: clonedElements.map((element) => ({
+        type: "add_element" as const,
+        slideId: args.currentSlide!.slideId,
+        element,
+      })),
+    }));
+    const nextRootElementId = idMap.get(rootElementId) ?? null;
+    if (nextRootElementId) args.setSelectedElementIds([nextRootElementId]);
     args.setEditingElementId(null);
     args.setCustomShapeEditElementId(null);
-    return nextElementId;
+    return nextRootElementId;
   }
 
   function duplicateSelectedElement() {
-    if (!args.currentSlide || !args.selectedElement) return;
+    if (!canEditSlideCanvas(args.currentSlide) || !args.selectedElement) return;
     args.setElementContextMenu(null);
-    cloneElement(args.selectedElement);
+    cloneElements(
+      getCloneSourceElements(args.selectedElement),
+      args.selectedElement.elementId
+    );
   }
 
   function copySelectedElement() {
-    if (!args.selectedElement) return;
+    if (!canEditSlideCanvas(args.currentSlide) || !args.selectedElement) return;
     args.setElementContextMenu(null);
     copiedElementRef.current = {
-      element: structuredClone(args.selectedElement),
+      elements: structuredClone(getCloneSourceElements(args.selectedElement)),
       pasteCount: 0,
+      rootElementId: args.selectedElement.elementId,
     };
   }
 
   function pasteCopiedElement() {
-    if (!args.currentSlide || !copiedElementRef.current) return;
+    if (!canEditSlideCanvas(args.currentSlide) || !copiedElementRef.current) return;
     args.setElementContextMenu(null);
-    const { element, pasteCount } = copiedElementRef.current;
+    const { elements, pasteCount, rootElementId } = copiedElementRef.current;
     const nextPasteCount = pasteCount + 1;
-    cloneElement(element, nextPasteCount);
-    copiedElementRef.current = { element, pasteCount: nextPasteCount };
+    cloneElements(elements, rootElementId, nextPasteCount);
+    copiedElementRef.current = { elements, pasteCount: nextPasteCount, rootElementId };
   }
 
   function createDrawnElement(
@@ -379,7 +557,7 @@ export function useEditorCanvasCommands(args: {
           height: number;
         },
   ) {
-    if (!args.currentSlide) return;
+    if (!canEditSlideCanvas(args.currentSlide)) return;
     const elementId = createElementId(args.deck);
     const redesignPalette = resolveRedesignPalette();
     const primaryColor =
@@ -446,7 +624,7 @@ export function useEditorCanvasCommands(args: {
   }
 
   function createCustomShape(nodes: CustomShapeNode[], closed: boolean) {
-    if (!args.currentSlide || nodes.length < 2) {
+    if (!canEditSlideCanvas(args.currentSlide) || nodes.length < 2) {
       args.setInsertTool("select");
       return;
     }
@@ -496,12 +674,13 @@ export function useEditorCanvasCommands(args: {
       (candidate) => candidate.elementId === elementId,
     );
     if (
-      !slide ||
+      !canEditSlideCanvas(slide) ||
       !element ||
       element.type !== "customShape" ||
       nodes.length < 2
-    )
+    ) {
       return;
+    }
     const geometry = normalizeCustomShapeAbsoluteGeometry(nodes, closed);
     args.commitPatch((currentDeck) => ({
       deckId: currentDeck.deckId,
@@ -545,7 +724,7 @@ export function useEditorCanvasCommands(args: {
     const element = slide?.elements.find(
       (candidate) => candidate.elementId === elementId,
     );
-    if (!slide || !element) return;
+    if (!canEditSlideCanvas(slide) || !element) return;
     try {
       args.commitPatch((currentDeck) =>
         element.type === "group"
@@ -565,7 +744,7 @@ export function useEditorCanvasCommands(args: {
   }
 
   function createGroupFromSelection() {
-    if (!args.currentSlide || args.selectedElements.length < 2) return;
+    if (!canEditSlideCanvas(args.currentSlide) || args.selectedElements.length < 2) return;
     const elementId = createElementId(args.deck);
     const bounds = getGroupedSelectionBounds(args.selectedElements);
     const highestZIndex = args.selectedElements.reduce(
@@ -606,7 +785,13 @@ export function useEditorCanvasCommands(args: {
     const groupElement = slide?.elements.find(
       (candidate) => candidate.elementId === elementId,
     );
-    if (!slide || !groupElement || groupElement.type !== "group") return;
+    if (
+      !canEditSlideCanvas(slide) ||
+      !groupElement ||
+      groupElement.type !== "group"
+    ) {
+      return;
+    }
     const groupProps = groupElement.props as GroupElementProps;
     const childElements = getGroupChildElements(
       slide,
@@ -639,6 +824,10 @@ export function useEditorCanvasCommands(args: {
     element: DeckElement;
     slideId: string;
   }) {
+    const slide = args.deck.slides.find(
+      (candidate) => candidate.slideId === input.slideId,
+    );
+    if (!canEditSlideCanvas(slide)) return;
     const isSelectedElement = args.selectedElementIds.includes(
       input.element.elementId,
     );
@@ -648,8 +837,9 @@ export function useEditorCanvasCommands(args: {
       !isGroupingTarget &&
       input.element.type !== "image" &&
       input.element.type !== "group"
-    )
+    ) {
       return;
+    }
     const { left, top } = getContextMenuPosition({
       clientX: input.clientX,
       clientY: input.clientY,
@@ -680,7 +870,10 @@ export function useEditorCanvasCommands(args: {
   return {
     actions: {
       addChartElement,
+      addActivityResultsSlide,
+      addIconElement,
       addSlide,
+      addActivitySlide,
       addTextElement,
       changeElementFrame,
       clearCanvasSelection,

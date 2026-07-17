@@ -244,7 +244,8 @@ export const generateDeckStoredJobPayloadSchema = z
       })
       .strict()
       .optional(),
-    requestedByUserId: z.string().trim().min(1).optional()
+    requestedByUserId: z.string().trim().min(1).optional(),
+    storyReviewRequired: z.boolean().default(false)
   })
   .strict();
 
@@ -266,6 +267,31 @@ export const deckColorOptionSchema = z.object({
 export const deckColorOptionsResponseSchema = z.object({
   options: z.array(deckColorOptionSchema).length(3)
 });
+
+export const deckColorPaletteSchema = generateDeckPaletteOverrideSchema.required();
+
+export const deckColorCustomizationRequestSchema = z
+  .object({
+    topic: z.string().trim().min(1).max(200),
+    instruction: z.string().trim().min(1).max(500),
+    basePalette: deckColorPaletteSchema,
+    stylePackId: z.string().trim().min(1).default("brandlogy-modern"),
+    tone: z.enum(["professional", "friendly", "confident", "concise"])
+  })
+  .strict();
+
+export const deckColorCustomizationResponseSchema = z
+  .object({
+    option: z
+      .object({
+        optionId: z.string().trim().min(1),
+        name: z.string().trim().min(1),
+        palette: deckColorPaletteSchema,
+        rationale: z.string().trim().default("")
+      })
+      .strict()
+  })
+  .strict();
 
 export const generateDeckValidationIssueSchema = z.object({
   code: z.string().trim().min(1).default("UNSPECIFIED"),
@@ -475,6 +501,12 @@ export type DeckColorOptionRequest = z.infer<typeof deckColorOptionRequestSchema
 export type DeckColorOption = z.infer<typeof deckColorOptionSchema>;
 export type DeckColorOptionsResponse = z.infer<
   typeof deckColorOptionsResponseSchema
+>;
+export type DeckColorCustomizationRequest = z.infer<
+  typeof deckColorCustomizationRequestSchema
+>;
+export type DeckColorCustomizationResponse = z.infer<
+  typeof deckColorCustomizationResponseSchema
 >;
 export type GenerateDeckValidationIssue = z.infer<
   typeof generateDeckValidationIssueSchema

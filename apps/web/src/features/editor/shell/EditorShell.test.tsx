@@ -36,6 +36,7 @@ import {
 } from "./api/deckPersistenceApi";
 import {
   createSemanticCueExtractionJob,
+  exportDeck,
   exportDeckToPptx,
   importPptxIntoEditor,
   requireMatchingPptxImportedDeck
@@ -880,6 +881,47 @@ describe("editor shell", () => {
       format: "pptx"
     });
     expect(jobPollCount).toBe(2);
+  });
+
+  it("passes PNG format and an explicitly selected session to export", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/deck/exports")) {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          format: "png",
+          presentationSessionId: "session_1"
+        });
+        return new Response(
+          JSON.stringify({ job: jobPayload("queued", null, "deck-export") })
+        );
+      }
+      if (url.endsWith("/api/jobs/job-pptx")) {
+        return new Response(
+          JSON.stringify(
+            jobPayload(
+              "succeeded",
+              {
+                deckId: "deck_ai_1",
+                fileId: "file_export_png",
+                url: "/api/v1/projects/project-a/assets/file_export_png/content",
+                format: "png",
+                warnings: []
+              },
+              "deck-export"
+            )
+          )
+        );
+      }
+      return new Response("unexpected request", { status: 500 });
+    });
+
+    await expect(
+      exportDeck(
+        "project-a",
+        { format: "png", presentationSessionId: "session_1" },
+        fetcher
+      )
+    ).resolves.toMatchObject({ format: "png", fileId: "file_export_png" });
   });
 
   it("creates a semantic cue extraction job with the requested regeneration policy", async () => {
