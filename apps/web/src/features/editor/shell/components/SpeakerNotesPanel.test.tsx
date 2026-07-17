@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { getSpeakerNotesLengthGuidance } from "../speakerNotesAssistant";
 import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
+import { SpeakerNotesQnaTab } from "./SpeakerNotesQnaTab";
+import { SpeakerNotesReportTab } from "./SpeakerNotesReportTab";
 
 function renderPanel(isExpanded: boolean, isEditing = false) {
   const currentSlide = createDemoDeck().slides[0] ?? null;
@@ -86,5 +88,15 @@ describe("SpeakerNotesPanel", () => {
     expect(html).toContain('aria-label="메모 편집 취소"');
     expect(html).toContain('aria-label="메모 저장"');
     expect(html).not.toContain('aria-label="AI로 메모 다듬기"');
+  });
+
+  it("QnA와 리포트 내용을 독립된 탭 컴포넌트로 렌더링한다", () => {
+    const qnaHtml = renderToStaticMarkup(<SpeakerNotesQnaTab />);
+    const reportHtml = renderToStaticMarkup(<SpeakerNotesReportTab />);
+
+    expect(qnaHtml).toContain('id="speaker-notes-qna-panel"');
+    expect(qnaHtml).toContain("예상 질문과 답변");
+    expect(reportHtml).toContain('id="speaker-notes-report-panel"');
+    expect(reportHtml).toContain("슬라이드별 분석 결과");
   });
 });
