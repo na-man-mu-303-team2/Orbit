@@ -27,6 +27,7 @@ import { useSyncCustomShapeEditDraft } from "./hooks/useSyncCustomShapeEditDraft
 import { ImageCropOverlay } from "./image/ImageCropOverlay";
 import { InlineTextEditorOverlay } from "./text/InlineTextEditorOverlay";
 import { InlineDataEditorOverlay } from "./data/InlineDataEditorOverlay";
+import { TextContextToolbar } from "./text/TextContextToolbar";
 import {
   type CanvasSnapGuide,
   commitCustomShapeEditGeometry,
@@ -355,7 +356,8 @@ export function EditableCanvas(props: {
   } = props;
   const transformerRef = useRef<Konva.Transformer | null>(null);
   const nodeRefs = useRef<Record<string, Konva.Group | null>>({});
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerElement, setContainerElement] =
+    useState<HTMLDivElement | null>(null);
   const [editorPrimaryColor, setEditorPrimaryColor] = useState(
     () => deck.theme.palette.primary,
   );
@@ -382,11 +384,24 @@ export function EditableCanvas(props: {
       ? (visibleElements.find(
           (candidate): candidate is Extract<DeckElement, { type: "image" }> =>
             candidate.elementId === imageCropElementId &&
-            candidate.type === "image"
+            candidate.type === "image",
         ) ?? null)
       : null;
   const canvasInteractionDisabled =
     disableInteractions || Boolean(imageCropElement);
+  const [activeTextRange, setActiveTextRange] = useState<{
+    elementId: string;
+    end: number;
+    start: number;
+  } | null>(null);
+  const selectedTextElement =
+    selectedElementIds.length === 1
+      ? (visibleElements.find(
+          (candidate): candidate is Extract<DeckElement, { type: "text" }> =>
+            candidate.elementId === selectedElementIds[0] &&
+            candidate.type === "text",
+        ) ?? null)
+      : null;
   const editingCustomShapeElement =
     customShapeEditElementId && customShapeEditElementId !== editingElementId
       ? (visibleElements.find(
@@ -403,7 +418,7 @@ export function EditableCanvas(props: {
   const editorPrimaryMediumColor = withColorAlpha(editorPrimaryColor, 0.55);
 
   useEffect(() => {
-    const editorShell = containerRef.current?.closest<HTMLElement>(
+    const editorShell = containerElement?.closest<HTMLElement>(
       ".orbit-shell.editor-professional",
     );
     if (!editorShell) return;
@@ -412,7 +427,7 @@ export function EditableCanvas(props: {
     if (palette) {
       setEditorPrimaryColor(palette.primary);
     }
-  }, []);
+  }, [containerElement]);
 
   useEffect(() => {
     const transformer = transformerRef.current;
@@ -437,7 +452,7 @@ export function EditableCanvas(props: {
     canvasInteractionDisabled,
     customShapeEditElementId,
     selectedElementIds,
-    visibleElements
+    visibleElements,
   ]);
 
   useEffect(() => {
@@ -448,6 +463,7 @@ export function EditableCanvas(props: {
 
   useEffect(() => {
     pendingTextBlurActionRef.current = null;
+    setActiveTextRange(null);
   }, [editingElementId]);
 
   useSyncCustomShapeEditDraft({
@@ -489,6 +505,16 @@ export function EditableCanvas(props: {
     onFinishEditing();
   }
 
+  function handleTextSelection(event: React.SyntheticEvent<HTMLDivElement>) {
+    const target = event.target;
+    if (!(target instanceof HTMLTextAreaElement) || !editingElementId) return;
+    setActiveTextRange({
+      elementId: editingElementId,
+      end: target.selectionEnd,
+      start: target.selectionStart,
+    });
+  }
+
   useCanvasKeyboardShortcuts({
     customShapeEditDraft,
     customShapeInsertDraft,
@@ -510,14 +536,21 @@ export function EditableCanvas(props: {
     insertTool,
     isKeyboardEditableTarget: isEditorKeyboardCommandSuppressedTarget,
     onClearSelection,
-    onSelectionDragStart: (point) => setSelectionDraft({ start: point, end: point }),
+    onSelectionDragStart: (point) =>
+      setSelectionDraft({ start: point, end: point }),
     onSelectionDragMove: (point) =>
-      setSelectionDraft((current) => (current ? { ...current, end: point } : current)),
+      setSelectionDraft((current) =>
+        current ? { ...current, end: point } : current,
+      ),
     onSelectionDragEnd: () =>
       setSelectionDraft((current) => {
-        const rect = current ? normalizeDraftRect(current.start, current.end) : null;
+        const rect = current
+          ? normalizeDraftRect(current.start, current.end)
+          : null;
         if (rect) {
-          onSelectElements(getElementsIntersectingSelectionRect(visibleElements, rect));
+          onSelectElements(
+            getElementsIntersectingSelectionRect(visibleElements, rect),
+          );
         }
         return null;
       }),
@@ -554,10 +587,11 @@ export function EditableCanvas(props: {
     <div
       className="konva-editor-stage"
       data-testid="editor-canvas-stage"
-      ref={containerRef}
+      ref={setContainerElement}
       onContextMenu={(event) => {
         if (selectedElementIds.length > 1) event.preventDefault();
       }}
+      onSelectCapture={handleTextSelection}
     >
       <Stage
         className="konva-canvas-layer"
@@ -576,9 +610,10 @@ export function EditableCanvas(props: {
           canvasInteractionDisabled ? undefined : stageMouseHandlers.onMouseUp
         }
         onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
-          if (canvasInteractionDisabled || selectedElementIds.length < 2) return;
+          if (canvasInteractionDisabled || selectedElementIds.length < 2)
+            return;
           const selectedElement = visibleElements.find((element) =>
-            selectedElementIds.includes(element.elementId)
+            selectedElementIds.includes(element.elementId),
           );
           if (!selectedElement) return;
 
@@ -645,12 +680,17 @@ export function EditableCanvas(props: {
           ))}
           {snapGuides.map((guide) => (
             <Line
-              dash={[8 / Math.max(stageScale, 0.01), 5 / Math.max(stageScale, 0.01)]}
+              dash={[
+                8 / Math.max(stageScale, 0.01),
+                5 / Math.max(stageScale, 0.01),
+              ]}
               key={`${guide.axis}-${guide.position}`}
               listening={false}
-              points={guide.axis === "x"
-                ? [guide.position, 0, guide.position, deck.canvas.height]
-                : [0, guide.position, deck.canvas.width, guide.position]}
+              points={
+                guide.axis === "x"
+                  ? [guide.position, 0, guide.position, deck.canvas.height]
+                  : [0, guide.position, deck.canvas.width, guide.position]
+              }
               stroke="#ec4899"
               strokeWidth={1.5 / Math.max(stageScale, 0.01)}
             />
@@ -703,11 +743,14 @@ export function EditableCanvas(props: {
               listening={false}
               stroke="#2563eb"
               strokeWidth={1.5}
-              {...(normalizeDraftRect(selectionDraft.start, selectionDraft.end) ?? {
+              {...(normalizeDraftRect(
+                selectionDraft.start,
+                selectionDraft.end,
+              ) ?? {
                 x: selectionDraft.start.x,
                 y: selectionDraft.start.y,
                 width: 1,
-                height: 1
+                height: 1,
               })}
             />
           ) : null}
@@ -741,6 +784,24 @@ export function EditableCanvas(props: {
           />
         </Layer>
       </Stage>
+      {selectedTextElement &&
+      insertTool === "select" &&
+      !customShapeEditElementId ? (
+        <TextContextToolbar
+          deck={deck}
+          element={selectedTextElement}
+          range={
+            activeTextRange?.elementId === selectedTextElement.elementId
+              ? activeTextRange
+              : null
+          }
+          readOnly={disableInteractions}
+          slide={slide}
+          stageElement={containerElement}
+          stageScale={stageScale}
+          onCommitProps={onCommitElementProps}
+        />
+      ) : null}
       {imageCropElement ? (
         <ImageCropOverlay
           frame={{
@@ -748,7 +809,7 @@ export function EditableCanvas(props: {
             y: imageCropElement.y,
             width: imageCropElement.width,
             height: imageCropElement.height,
-            rotation: imageCropElement.rotation
+            rotation: imageCropElement.rotation,
           }}
           imageProps={imageCropElement.props}
           stageScale={stageScale}

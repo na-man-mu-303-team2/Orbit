@@ -3,13 +3,13 @@ import type {
   Deck,
   DeckElement,
   Slide,
-  TextElementProps
+  TextElementProps,
 } from "@orbit/shared";
 
 import {
   convertCustomShapeNodesToAbsolute,
   getCustomShapeDimension,
-  type CanvasPoint
+  type CanvasPoint,
 } from "../custom-shape/geometry";
 import { getTextElementLayout } from "../text/textLayout";
 
@@ -30,20 +30,20 @@ export function commitCustomShapeEditGeometry(args: {
         height: args.element.height,
         width: args.element.width,
         x: args.element.x,
-        y: args.element.y
+        y: args.element.y,
       },
       nodes: args.draft.nodes,
       viewBoxHeight: getCustomShapeDimension(
         customShapeProps,
         "viewBoxHeight",
-        args.element.height
+        args.element.height,
       ),
       viewBoxWidth: getCustomShapeDimension(
         customShapeProps,
         "viewBoxWidth",
-        args.element.width
-      )
-    })
+        args.element.width,
+      ),
+    }),
   };
 }
 
@@ -66,11 +66,11 @@ export function isCanvasPointInsideElementSelectionArea(args: {
         y: element.y,
         width: element.width,
         height: element.height,
-        rotation: element.rotation
+        rotation: element.rotation,
       },
       props: element.props as TextElementProps,
       slide,
-      theme: deck.theme
+      theme: deck.theme,
     });
 
     return isCanvasPointInsideRotatedFrame({
@@ -79,9 +79,9 @@ export function isCanvasPointInsideElementSelectionArea(args: {
         y: element.y + textLayout.y,
         width: Math.max(24, textLayout.contentWidth),
         height: Math.max(1, textLayout.contentHeight),
-        rotation: element.rotation
+        rotation: element.rotation,
       },
-      point
+      point,
     });
   }
 
@@ -91,15 +91,15 @@ export function isCanvasPointInsideElementSelectionArea(args: {
       y: element.y,
       width: Math.max(1, element.width),
       height: Math.max(1, element.height),
-      rotation: element.rotation
+      rotation: element.rotation,
     },
-    point
+    point,
   });
 }
 
 export function normalizeDraftRect(
   start: { x: number; y: number },
-  end: { x: number; y: number }
+  end: { x: number; y: number },
 ) {
   const x = Math.min(start.x, end.x);
   const y = Math.min(start.y, end.y);
@@ -114,13 +114,13 @@ export function normalizeDraftRect(
     x,
     y,
     width: Math.max(8, width),
-    height: Math.max(8, height)
+    height: Math.max(8, height),
   };
 }
 
 export function getElementsIntersectingSelectionRect(
   elements: DeckElement[],
-  selectionRect: { x: number; y: number; width: number; height: number }
+  selectionRect: { x: number; y: number; width: number; height: number },
 ) {
   const selectionRight = selectionRect.x + selectionRect.width;
   const selectionBottom = selectionRect.y + selectionRect.height;
@@ -128,7 +128,7 @@ export function getElementsIntersectingSelectionRect(
   return elements
     .filter((element) => {
       if (!element.visible) return false;
-      const bounds = getRotatedFrameBounds(element);
+      const bounds = getRotatedElementAabb(element);
       return (
         bounds.x < selectionRight &&
         bounds.x + bounds.width > selectionRect.x &&
@@ -156,30 +156,42 @@ export function getSnappedElementPosition(args: {
 
   for (const element of args.elements) {
     if (element.elementId === args.elementId || !element.visible) continue;
-    verticalTargets.push(element.x, element.x + element.width / 2, element.x + element.width);
-    horizontalTargets.push(element.y, element.y + element.height / 2, element.y + element.height);
+    verticalTargets.push(
+      element.x,
+      element.x + element.width / 2,
+      element.x + element.width,
+    );
+    horizontalTargets.push(
+      element.y,
+      element.y + element.height / 2,
+      element.y + element.height,
+    );
   }
 
   const verticalSnap = findClosestSnap(
     [0, args.frame.width / 2, args.frame.width],
     verticalTargets,
     args.frame.x,
-    args.threshold
+    args.threshold,
   );
   const horizontalSnap = findClosestSnap(
     [0, args.frame.height / 2, args.frame.height],
     horizontalTargets,
     args.frame.y,
-    args.threshold
+    args.threshold,
   );
 
   return {
     x: verticalSnap?.coordinate ?? args.frame.x,
     y: horizontalSnap?.coordinate ?? args.frame.y,
     guides: [
-      ...(verticalSnap ? [{ axis: "x" as const, position: verticalSnap.target }] : []),
-      ...(horizontalSnap ? [{ axis: "y" as const, position: horizontalSnap.target }] : [])
-    ]
+      ...(verticalSnap
+        ? [{ axis: "x" as const, position: verticalSnap.target }]
+        : []),
+      ...(horizontalSnap
+        ? [{ axis: "y" as const, position: horizontalSnap.target }]
+        : []),
+    ],
   };
 }
 
@@ -187,20 +199,24 @@ function findClosestSnap(
   anchorOffsets: number[],
   targets: number[],
   coordinate: number,
-  threshold: number
+  threshold: number,
 ) {
-  let closest: { coordinate: number; distance: number; target: number } | null = null;
+  let closest: { coordinate: number; distance: number; target: number } | null =
+    null;
   for (const target of targets) {
     for (const offset of anchorOffsets) {
       const distance = Math.abs(target - (coordinate + offset));
-      if (distance > threshold || (closest && distance >= closest.distance)) continue;
+      if (distance > threshold || (closest && distance >= closest.distance))
+        continue;
       closest = { coordinate: target - offset, distance, target };
     }
   }
   return closest;
 }
 
-function getRotatedFrameBounds(element: DeckElement) {
+export function getRotatedElementAabb(
+  element: Pick<DeckElement, "height" | "rotation" | "width" | "x" | "y">,
+) {
   const radians = (element.rotation * Math.PI) / 180;
   const cos = Math.cos(radians);
   const sin = Math.sin(radians);
@@ -208,10 +224,10 @@ function getRotatedFrameBounds(element: DeckElement) {
     { x: 0, y: 0 },
     { x: element.width, y: 0 },
     { x: 0, y: element.height },
-    { x: element.width, y: element.height }
+    { x: element.width, y: element.height },
   ].map((point) => ({
     x: element.x + point.x * cos - point.y * sin,
-    y: element.y + point.x * sin + point.y * cos
+    y: element.y + point.x * sin + point.y * cos,
   }));
   const xs = corners.map((point) => point.x);
   const ys = corners.map((point) => point.y);
@@ -222,7 +238,7 @@ function getRotatedFrameBounds(element: DeckElement) {
     x,
     y,
     width: Math.max(...xs) - x,
-    height: Math.max(...ys) - y
+    height: Math.max(...ys) - y,
   };
 }
 
