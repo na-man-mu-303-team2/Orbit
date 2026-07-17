@@ -28,6 +28,7 @@ import {
   readStoryApprovalDraft,
   requestStoryPlan,
   requestStoryPlanMutation,
+  storyGenerationPath,
   storyPlanPath,
 } from "./story-plan-api";
 import "./ai-ppt-mockup.css";
@@ -509,13 +510,7 @@ export function AiPptStyleColorPage(props: {
         setStory(next);
         if (next.status === "approved") {
           clearStoryApprovalDraft(props.projectId, props.jobId);
-          setStatus("슬라이드를 생성하는 중...");
-          const job = await pollJob(next.jobId);
-          if (!cancelled && job.status === "succeeded") {
-            navigateToProject(next.projectId);
-          } else if (!cancelled) {
-            setError(job.error?.message || job.message);
-          }
+          navigate(storyGenerationPath(next.projectId, next.jobId));
           return;
         }
         if (
@@ -611,14 +606,7 @@ export function AiPptStyleColorPage(props: {
       );
       clearStoryApprovalDraft(props.projectId, props.jobId);
       setStory(next);
-      setStatus("슬라이드를 생성하는 중...");
-      const job = await pollJob(next.jobId, (current) => {
-        setStatus(getAiPptGenerationStatus(current));
-      });
-      if (job.status === "failed") {
-        throw new Error(job.error?.message || job.message);
-      }
-      navigateToProject(next.projectId);
+      navigate(storyGenerationPath(next.projectId, next.jobId));
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "AI PPT 생성에 실패했습니다.",

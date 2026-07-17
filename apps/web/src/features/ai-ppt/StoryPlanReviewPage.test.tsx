@@ -6,6 +6,7 @@ import {
   moveStorySlideOrder,
   StoryPlanReviewView,
   storyReviewJobFailureMessage,
+  storyGenerationPath,
   storyPlanPath,
   storyPlanRegenerationPollingKey,
   storyStyleColorPath,
@@ -98,6 +99,9 @@ describe("StoryPlanReviewView", () => {
     );
     expect(storyStyleColorPath("project 1", "job/1")).toBe(
       "/project/project%201/style-color/job%2F1",
+    );
+    expect(storyGenerationPath("project 1", "job/1")).toBe(
+      "/project/project%201/generation/job%2F1",
     );
   });
 

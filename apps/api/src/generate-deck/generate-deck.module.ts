@@ -5,6 +5,8 @@ import { JobsModule } from "../jobs/jobs.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { SavedDesignPacksModule } from "../saved-design-packs/saved-design-packs.module";
 import { PresentationBriefsModule } from "../presentation-briefs/presentation-briefs.module";
+import { AiDeckPreviewController } from "./ai-deck-preview.controller";
+import { AiDeckPreviewService } from "./ai-deck-preview.service";
 import { DeckColorOptionsController } from "./deck-color-options.controller";
 import { GenerateDeckController } from "./generate-deck.controller";
 import { GenerateDeckService } from "./generate-deck.service";
@@ -21,10 +23,11 @@ import { StoryPlanReviewService } from "./story-plan-review.service";
     SavedDesignPacksModule
   ],
   controllers: [
+    AiDeckPreviewController,
     DeckColorOptionsController,
     GenerateDeckController,
     StoryPlanReviewController
   ],
-  providers: [GenerateDeckService, StoryPlanReviewService]
+  providers: [AiDeckPreviewService, GenerateDeckService, StoryPlanReviewService]
 })
 export class GenerateDeckModule {}
