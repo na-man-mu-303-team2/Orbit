@@ -324,6 +324,28 @@
   font-weight: 800;
 }
 
+.activity-editor-command-row {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.activity-editor-command-row > button {
+  min-width: 0;
+}
+
+.activity-editor-secondary-command {
+  background: white;
+  border: 1px solid #171717;
+  border-radius: 8px;
+  color: #171717;
+  font-weight: 800;
+}
+
+.activity-editor-reopen-help {
+  margin-top: -4px !important;
+}
+
 .activity-editor-direct-link {
   display: grid;
   font-weight: 700;

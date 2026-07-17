@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest";
 import {
   ActivityPresenterMetrics,
   ActivityPresenterResults,
-  getActivityPrimaryCommand
+  getActivityPrimaryCommand,
+  getActivityReopenCommand
 } from "./ActivityPresenterPanel";
 
 describe("ActivityPresenterPanel", () => {
@@ -27,6 +28,11 @@ describe("ActivityPresenterPanel", () => {
       label: "결과 숨기기",
       nextStatus: "closed"
     });
+    expect(getActivityReopenCommand("closed")).toEqual({
+      label: "응답 다시 열기",
+      nextStatus: "open"
+    });
+    expect(getActivityReopenCommand("results")).toBeNull();
   });
 
   it("renders poll distribution and presenter-only question text", () => {

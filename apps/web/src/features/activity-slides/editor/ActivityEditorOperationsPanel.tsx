@@ -3,13 +3,16 @@ import { IconCopy, IconQrcode } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { createQrDataUrl } from "../../editor/audience-link/audienceLinkUtils";
-import { getActivityPrimaryCommand } from "../presenter/ActivityPresenterPanel";
+import {
+  getActivityPrimaryCommand,
+  getActivityReopenCommand
+} from "../presenter/ActivityPresenterPanel";
 import { canonicalActivityUrl } from "../rendering/ActivityAudienceSlideRenderer";
 import type { ActivityEditorRuntime } from "./useActivityEditorRuntime";
 
 export function ActivityEditorOperationsPanel(props: {
   onOpenAudienceLink?: () => void;
-  onUpdateStatus: () => void;
+  onUpdateStatus: (status?: ActivityRuntimeStatus) => void;
   pending: boolean;
   runtime: ActivityEditorRuntime | null;
   slide: ActivitySlide;
@@ -27,6 +30,9 @@ export function ActivityEditorOperationsPanel(props: {
     [props.runtime, props.slide.activity.activityId]
   );
   const command = getActivityPrimaryCommand(
+    props.runtime?.run.status ?? "draft"
+  );
+  const reopenCommand = getActivityReopenCommand(
     props.runtime?.run.status ?? "draft"
   );
 
@@ -77,14 +83,40 @@ export function ActivityEditorOperationsPanel(props: {
           <strong>{props.runtime.run.responseCount}</strong>
         </div>
       </div>
-      <button
-        className="activity-editor-primary-command"
-        disabled={props.pending}
-        type="button"
-        onClick={props.onUpdateStatus}
-      >
-        {props.pending ? "상태 변경 중" : command.label}
-      </button>
+      {reopenCommand ? (
+        <>
+          <div className="activity-editor-command-row">
+            <button
+              className="activity-editor-secondary-command"
+              disabled={props.pending}
+              type="button"
+              onClick={() => props.onUpdateStatus(reopenCommand.nextStatus)}
+            >
+              {props.pending ? "상태 변경 중" : reopenCommand.label}
+            </button>
+            <button
+              className="activity-editor-primary-command"
+              disabled={props.pending}
+              type="button"
+              onClick={() => props.onUpdateStatus(command.nextStatus)}
+            >
+              {props.pending ? "상태 변경 중" : command.label}
+            </button>
+          </div>
+          <p className="activity-editor-reopen-help">
+            다시 열어도 기존 응답과 집계는 유지됩니다.
+          </p>
+        </>
+      ) : (
+        <button
+          className="activity-editor-primary-command"
+          disabled={props.pending}
+          type="button"
+          onClick={() => props.onUpdateStatus(command.nextStatus)}
+        >
+          {props.pending ? "상태 변경 중" : command.label}
+        </button>
+      )}
       <label className="activity-editor-direct-link">
         장표별 직접 링크
         <span>

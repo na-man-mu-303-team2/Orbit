@@ -25,7 +25,8 @@ export {
 } from "./rendering/ActivityAudienceSlideRenderer";
 export {
   ActivityPresenterPanel,
-  getActivityPrimaryCommand
+  getActivityPrimaryCommand,
+  getActivityReopenCommand
 } from "./presenter/ActivityPresenterPanel";
 export type { ActivitySurfaceRole } from "./rendering";
 export {

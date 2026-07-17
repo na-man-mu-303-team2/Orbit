@@ -110,6 +110,43 @@ describe("activity slide editor", () => {
     expect(html).toContain("QR 코드 확인");
   });
 
+  it("offers reopening and result reveal together after responses close", () => {
+    const html = renderToStaticMarkup(
+      <ActivityEditorOperationsPanel
+        onUpdateStatus={vi.fn()}
+        pending={false}
+        runtime={{
+          audienceUrl: "/audience/session_1",
+          sessionId: "session_1",
+          run: {
+            activityRunId: "activity_run_closed",
+            presentationSessionId: "session_1",
+            activityId: slide.activity.activityId,
+            sourceSlideId: slide.slideId,
+            version: 1,
+            supersedesActivityRunId: null,
+            definitionSnapshot: slide.activity,
+            definitionFingerprint: "fingerprint_closed",
+            status: "closed",
+            revision: 4,
+            isCurrent: true,
+            responseCount: 7,
+            openedAt: "2026-07-17T00:00:00.000Z",
+            closedAt: "2026-07-17T00:01:00.000Z",
+            revealedAt: null,
+            createdAt: "2026-07-17T00:00:00.000Z",
+            updatedAt: "2026-07-17T00:01:00.000Z"
+          }
+        }}
+        slide={slide}
+      />
+    );
+
+    expect(html).toContain("응답 다시 열기");
+    expect(html).toContain("결과 공개");
+    expect(html).toContain("기존 응답과 집계는 유지됩니다");
+  });
+
   it("offers the shared session modal when no session exists", () => {
     const html = renderToStaticMarkup(
       <ActivityEditorOperationsPanel

@@ -86,7 +86,7 @@ export function ActivityPresenterPanel(props: {
     () => getActivityPrimaryCommand(runtime?.run.status ?? "draft"),
     [runtime?.run.status]
   );
-  const updateStatus = async () => {
+  const updateStatus = async (nextStatus = primary.nextStatus) => {
     if (!runtime || pending) return;
     setPending(true);
     setError("");
@@ -95,7 +95,7 @@ export function ActivityPresenterPanel(props: {
         props.projectId,
         runtime.sessionId,
         runtime.run.activityRunId,
-        { status: primary.nextStatus, expectedRevision: runtime.run.revision }
+        { status: nextStatus, expectedRevision: runtime.run.revision }
       );
       const { result } = await activityApi.getPresenterResult(
         props.projectId,
@@ -176,19 +176,47 @@ export function ActivityPresenterPanel(props: {
         />
       ) : null}
       {error ? <p className="activity-presenter-error" role="status">{error}</p> : null}
-      <button
-        className="activity-presenter-primary-command"
-        disabled={!runtime || pending}
-        onClick={() => void updateStatus()}
-        type="button"
-      >
-        {primary.nextStatus === "open" ? (
-          <IconPlayerPlay aria-hidden="true" size={18} stroke={1.8} />
-        ) : (
-          <IconPlayerPause aria-hidden="true" size={18} stroke={1.8} />
-        )}
-        {pending ? "상태 변경 중" : primary.label}
-      </button>
+      {getActivityReopenCommand(runtime?.run.status ?? "draft") ? (
+        <>
+          <div className="activity-presenter-command-row">
+            <button
+              className="activity-presenter-secondary-command"
+              disabled={!runtime || pending}
+              onClick={() => void updateStatus("open")}
+              type="button"
+            >
+              <IconPlayerPlay aria-hidden="true" size={18} stroke={1.8} />
+              {pending ? "상태 변경 중" : "응답 다시 열기"}
+            </button>
+            <button
+              className="activity-presenter-primary-command"
+              disabled={!runtime || pending}
+              onClick={() => void updateStatus(primary.nextStatus)}
+              type="button"
+            >
+              <IconPlayerPause aria-hidden="true" size={18} stroke={1.8} />
+              {pending ? "상태 변경 중" : primary.label}
+            </button>
+          </div>
+          <p className="activity-presenter-reopen-help">
+            기존 응답과 집계를 유지한 채 다시 받습니다.
+          </p>
+        </>
+      ) : (
+        <button
+          className="activity-presenter-primary-command"
+          disabled={!runtime || pending}
+          onClick={() => void updateStatus(primary.nextStatus)}
+          type="button"
+        >
+          {primary.nextStatus === "open" ? (
+            <IconPlayerPlay aria-hidden="true" size={18} stroke={1.8} />
+          ) : (
+            <IconPlayerPause aria-hidden="true" size={18} stroke={1.8} />
+          )}
+          {pending ? "상태 변경 중" : primary.label}
+        </button>
+      )}
     </section>
   );
 }
@@ -300,6 +328,15 @@ export function getActivityPrimaryCommand(status: ActivityRuntimeStatus): {
   if (status === "closed") return { label: "결과 공개", nextStatus: "results" };
   if (status === "results") return { label: "결과 숨기기", nextStatus: "closed" };
   return { label: "응답 열기", nextStatus: "open" };
+}
+
+export function getActivityReopenCommand(status: ActivityRuntimeStatus): {
+  label: "응답 다시 열기";
+  nextStatus: "open";
+} | null {
+  return status === "closed"
+    ? { label: "응답 다시 열기", nextStatus: "open" }
+    : null;
 }
 
 function ActivityStatusBadge(props: { status: ActivityRuntimeStatus }) {

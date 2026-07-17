@@ -1,4 +1,4 @@
-import type { ActivityRun } from "@orbit/shared";
+import type { ActivityRun, ActivityRuntimeStatus } from "@orbit/shared";
 import { useCallback, useEffect, useState } from "react";
 
 import { activityApi, ActivityApiError } from "../api/activityApi";
@@ -106,7 +106,7 @@ export function useActivityEditorRuntime(input: {
     }
   }, [input.projectId, pending, refresh, runtime]);
 
-  const updateStatus = useCallback(async () => {
+  const updateStatus = useCallback(async (nextStatus?: ActivityRuntimeStatus) => {
     if (!input.projectId || !runtime || pending) return false;
     setPending(true);
     setError("");
@@ -118,7 +118,7 @@ export function useActivityEditorRuntime(input: {
         runtime.run.activityRunId,
         {
           expectedRevision: runtime.run.revision,
-          status: command.nextStatus
+          status: nextStatus ?? command.nextStatus
         }
       );
       setRuntime({ ...runtime, run: response.run });

@@ -198,7 +198,12 @@ describe("ActivityRunsService", () => {
   });
 
   it("locks the session before opening a run and closes any other open run", async () => {
-    const openRun = { ...run, status: "closed" as const, revision: 3 };
+    const openRun = {
+      ...run,
+      status: "closed" as const,
+      revision: 3,
+      response_count: 7
+    };
     const { repository, service } = createService({
       findById: vi.fn().mockResolvedValue(openRun),
       closeOtherOpenRuns: vi.fn().mockResolvedValue(["activity_run_other"]),
@@ -210,9 +215,13 @@ describe("ActivityRunsService", () => {
       })
     });
 
-    await service.updateStatus("project_1", "session_1", "activity_run_1", {
-      status: "open",
-      expectedRevision: 3
+    await expect(
+      service.updateStatus("project_1", "session_1", "activity_run_1", {
+        status: "open",
+        expectedRevision: 3
+      })
+    ).resolves.toMatchObject({
+      run: { status: "open", responseCount: 7 }
     });
 
     expect(vi.mocked(repository.lockSessionDeck).mock.invocationCallOrder[0]).toBeLessThan(

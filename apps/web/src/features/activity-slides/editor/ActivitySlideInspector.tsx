@@ -244,7 +244,7 @@ export function ActivitySlideInspector(props: {
       ) : null}
       <ActivityEditorOperationsPanel
         onOpenAudienceLink={props.onOpenAudienceLink}
-        onUpdateStatus={() => void editorRuntime.updateStatus()}
+        onUpdateStatus={(status) => void editorRuntime.updateStatus(status)}
         pending={editorRuntime.pending}
         runtime={editorRuntime.runtime}
         slide={props.slide}
