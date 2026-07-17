@@ -49,6 +49,8 @@ THEME_REL_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
 )
 VECTOR_IMPORT_FLAG = "ORBIT_PPTX_OOXML_VECTOR_IMPORT"
+OOXML_PERCENT_SCALE = 100_000
+MAX_CROP_TOTAL_UNITS = OOXML_PERCENT_SCALE - 1
 DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU = 91440
 DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU = 45720
 DEFAULT_PPTX_FONT_FAMILY = "Aptos, Calibri, Arial, sans-serif"
@@ -1155,7 +1157,10 @@ def append_shape(
         )
         if element:
             elements.append(element)
-            slot_sources[str(element["elementId"])] = source
+            slot_sources[str(element["elementId"])] = {
+                **source,
+                "type": "image",
+            }
         return [
             str(element.get("elementId", ""))
             for element in elements[appended_start:]
@@ -1179,7 +1184,10 @@ def append_shape(
     )
     if picture_fill_element:
         elements.append(picture_fill_element)
-        slot_sources[str(picture_fill_element["elementId"])] = source
+        slot_sources[str(picture_fill_element["elementId"])] = {
+            **source,
+            "type": "shape",
+        }
 
     fill = shape_fill(shape, state.theme_colors)
     stroke, stroke_width, stroke_extras = shape_stroke(
@@ -1246,7 +1254,7 @@ def image_element(
     locked: bool,
     state: OoxmlImportState,
 ) -> dict[str, Any] | None:
-    blip = first_local_descendant(shape, "blip")
+    blip = first_local_child(image_blip_fill(shape), "blip")
     relationship_id = attr_by_local_name(blip, "embed")
     if not relationship_id:
         state.warnings.append(
@@ -1308,10 +1316,10 @@ def shape_picture_fill_element(
     locked: bool,
     state: OoxmlImportState,
 ) -> dict[str, Any] | None:
-    sp_pr = first_local_child(shape, "spPr")
-    if first_local_child(sp_pr, "blipFill") is None:
+    blip_fill = image_blip_fill(shape)
+    if blip_fill is None:
         return None
-    relationship_id = attr_by_local_name(first_local_descendant(shape, "blip"), "embed")
+    relationship_id = attr_by_local_name(first_local_child(blip_fill, "blip"), "embed")
     if not relationship_id:
         return None
     asset = image_asset_from_relationship(
@@ -2240,14 +2248,22 @@ def referenced_theme_outer_shadow(
 
 
 def image_crop(shape: ET.Element[Any]) -> dict[str, float] | None:
-    src_rect = first_local_descendant(shape, "srcRect")
+    src_rect = first_local_child(image_blip_fill(shape), "srcRect")
     if src_rect is None:
         return None
+    left, right = normalized_crop_pair(
+        positive_pct_units(src_rect, "l"),
+        positive_pct_units(src_rect, "r"),
+    )
+    top, bottom = normalized_crop_pair(
+        positive_pct_units(src_rect, "t"),
+        positive_pct_units(src_rect, "b"),
+    )
     crop = {
-        "left": pct_attr(src_rect, "l"),
-        "top": pct_attr(src_rect, "t"),
-        "right": pct_attr(src_rect, "r"),
-        "bottom": pct_attr(src_rect, "b"),
+        "left": left / OOXML_PERCENT_SCALE,
+        "top": top / OOXML_PERCENT_SCALE,
+        "right": right / OOXML_PERCENT_SCALE,
+        "bottom": bottom / OOXML_PERCENT_SCALE,
     }
     return crop if any(value > 0 for value in crop.values()) else None
 
@@ -2258,7 +2274,7 @@ def image_fit(shape: ET.Element[Any]) -> str:
             value = str(node.get("value", ""))
             if value in {"contain", "cover", "stretch"}:
                 return value
-    src_rect = first_local_descendant(shape, "srcRect")
+    src_rect = first_local_child(image_blip_fill(shape), "srcRect")
     if src_rect is None:
         return "stretch"
     values = [signed_pct_attr(src_rect, edge) for edge in ("l", "t", "r", "b")]
@@ -2267,12 +2283,32 @@ def image_fit(shape: ET.Element[Any]) -> str:
     return "stretch"
 
 
-def pct_attr(element: ET.Element[Any], name: str) -> float:
-    return max(0, min(0.99, int_attr(element, name, 0) / 100000))
+def image_blip_fill(shape: ET.Element[Any]) -> ET.Element[Any] | None:
+    if local_name(shape) == "pic":
+        return first_local_child(shape, "blipFill")
+    return first_local_child(first_local_child(shape, "spPr"), "blipFill")
+
+
+def positive_pct_units(element: ET.Element[Any], name: str) -> int:
+    return max(0, min(OOXML_PERCENT_SCALE, int_attr(element, name, 0)))
+
+
+def normalized_crop_pair(first: int, second: int) -> tuple[int, int]:
+    total = first + second
+    if total < OOXML_PERCENT_SCALE:
+        return first, second
+    normalized_first = min(
+        MAX_CROP_TOTAL_UNITS,
+        (first * MAX_CROP_TOTAL_UNITS + total // 2) // total,
+    )
+    return normalized_first, MAX_CROP_TOTAL_UNITS - normalized_first
 
 
 def signed_pct_attr(element: ET.Element[Any], name: str) -> float:
-    return max(-10, min(0.99, int_attr(element, name, 0) / 100000))
+    return max(
+        -10,
+        min(0.99, int_attr(element, name, 0) / OOXML_PERCENT_SCALE),
+    )
 
 
 def shape_frame(
@@ -2355,7 +2391,10 @@ def shape_source(
     }
     if ph_key is not None and ph_key[0]:
         source["placeholderType"] = ph_key[0]
-    relationship_id = attr_by_local_name(first_local_descendant(shape, "blip"), "embed")
+    relationship_id = attr_by_local_name(
+        first_local_child(image_blip_fill(shape), "blip"),
+        "embed",
+    )
     if relationship_id:
         source["relationshipId"] = relationship_id
     return source

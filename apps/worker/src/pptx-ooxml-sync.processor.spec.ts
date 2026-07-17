@@ -192,7 +192,7 @@ describe("processPptxOoxmlSyncJob", () => {
                     operationType: "update_element_props",
                     slideId: "slide_1",
                     elementId: "el_image",
-                    reasonCode: "PROPS_FIELDS_UNSUPPORTED",
+                    reasonCode: "CROP_CAPABILITY_UNSAFE",
                   },
                 ],
               }),
@@ -213,7 +213,7 @@ describe("processPptxOoxmlSyncJob", () => {
       retryable: false,
     });
     expect(job.error?.message).toBe(
-      "update_element_props:PROPS_FIELDS_UNSUPPORTED:slide_1:el_image",
+      "update_element_props:CROP_CAPABILITY_UNSAFE:slide_1:el_image",
     );
     expect(storage.putObject).not.toHaveBeenCalled();
     expect(
@@ -620,6 +620,107 @@ describe("processPptxOoxmlSyncJob", () => {
       });
     },
   );
+
+  it("carries an authored image crop source across the 500-operation batch boundary", async () => {
+    const addedElementId = "el_added_crop_image";
+    const operations = [
+      ...frameOperations(499),
+      {
+        type: "add_element" as const,
+        slideId: "slide_1",
+        element: authoredImageElement(addedElementId),
+      },
+      {
+        type: "update_element_props" as const,
+        slideId: "slide_1",
+        elementId: addedElementId,
+        props: {
+          crop: { left: 0.1, top: 0.05, right: 0, bottom: 0 },
+        },
+      },
+    ];
+    const savedBlueprints: Array<ReturnType<typeof templateBlueprint>> = [];
+    const { dataSource } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations,
+      onBlueprintUpdate: (blueprint) => {
+        savedBlueprints.push(blueprint as ReturnType<typeof templateBlueprint>);
+        return true;
+      },
+    });
+    const pythonBatchSizes: number[] = [];
+    let pythonCallCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+
+        pythonCallCount += 1;
+        const form = init?.body as FormData;
+        const batch = JSON.parse(String(form.get("operations"))) as Array<{
+          type: "add_element" | "update_element_frame" | "update_element_props";
+          slideId: string;
+          elementId?: string;
+          element?: { elementId: string };
+        }>;
+        pythonBatchSizes.push(batch.length);
+        if (pythonCallCount === 2) {
+          const nextBlueprint = JSON.parse(
+            String(form.get("template_blueprint")),
+          ) as ReturnType<typeof templateBlueprint>;
+          expect(nextBlueprint.slides[0]!.elementSources).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                elementId: addedElementId,
+                ooxmlOrigin: "authored",
+                ooxmlEditCapabilities: expect.objectContaining({
+                  crop: "picture",
+                }),
+              }),
+            ]),
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            ...workerResponse(
+              batch.map((operation) => ({
+                operationType: operation.type,
+                slideId: operation.slideId,
+                elementId: operation.elementId ?? operation.element?.elementId,
+              })),
+            ),
+            elementSources:
+              pythonCallCount === 1
+                ? [authoredCropImageElementSource(addedElementId)]
+                : [],
+          }),
+        );
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(pythonBatchSizes).toEqual([500, 1]);
+    expect(
+      savedBlueprints[0]?.slides[0]!.elementSources.find(
+        (source) => source.elementId === addedElementId,
+      ),
+    ).toMatchObject({
+      elementId: addedElementId,
+      ooxmlOrigin: "authored",
+      ooxmlEditCapabilities: expect.objectContaining({ crop: "picture" }),
+    });
+  });
 
   it("keeps consecutive shared-shape frame rounds whole at the batch boundary", async () => {
     const sharedShapeBlueprint = templateBlueprint(1);
@@ -1326,6 +1427,51 @@ function authoredRectangleElement(elementId: string) {
       strokeWidth: 0,
       borderRadius: 0,
     },
+  };
+}
+
+function authoredImageElement(elementId: string) {
+  return {
+    elementId,
+    type: "image" as const,
+    role: "media" as const,
+    x: 120,
+    y: 120,
+    width: 320,
+    height: 180,
+    rotation: 0,
+    opacity: 1,
+    zIndex: 5,
+    locked: false,
+    visible: true,
+    props: {
+      alt: "Crop-ready image",
+      fit: "contain" as const,
+      focusX: 0.5,
+      focusY: 0.5,
+      src: "data:image/png;base64,AQID",
+    },
+  };
+}
+
+function authoredCropImageElementSource(elementId: string) {
+  return {
+    elementId,
+    elementType: "image" as const,
+    ooxmlOrigin: "authored" as const,
+    ooxmlEditCapabilities: {
+      richText: "none" as const,
+      crop: "picture" as const,
+      tableCellText: false,
+      imageSource: true,
+      frame: true,
+      delete: true,
+    },
+    slidePart: "ppt/slides/slide1.xml",
+    shapeId: "502",
+    relationshipId: "rId502",
+    sourceType: "image" as const,
+    writable: true,
   };
 }
 

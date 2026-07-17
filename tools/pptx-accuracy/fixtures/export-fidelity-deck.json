@@ -480,6 +480,10 @@
     "transitionCount": 1,
     "timingSlideCount": 1,
     "cropCount": 1,
+    "cropLeft": 20000,
+    "cropTop": 10000,
+    "cropRight": 15000,
+    "cropBottom": 5000,
     "chartCount": 1,
     "tableCount": 1
   }

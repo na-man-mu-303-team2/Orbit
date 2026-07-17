@@ -1,3 +1,4 @@
+import { applyDeckPatch } from "@orbit/editor-core";
 import type {
   Deck,
   DeckElement,
@@ -125,14 +126,32 @@ export function resolveOoxmlPatchCapability(
 ): OoxmlEditCapability {
   if (deck.metadata.sourceType !== "import") return supported;
 
+  let workingDeck = deck;
   for (const operation of patch.operations) {
-    const capability = resolveOoxmlOperationCapability(deck, operation);
+    const capability = resolveOoxmlOperationCapability(workingDeck, operation);
     if (!capability.enabled) {
       return {
         ...capability,
         reason: `${operation.type}: ${capability.reason ?? "지원하지 않는 OOXML 편집입니다."}`,
       };
     }
+    const projectionOperation =
+      operation.type === "add_element"
+        ? {
+            ...operation,
+            element: {
+              ...operation.element,
+              ooxmlOrigin: "authored" as const,
+              ooxmlEditCapabilities: undefined,
+            },
+          }
+        : operation;
+    const projection = applyDeckPatch(workingDeck, {
+      ...patch,
+      baseVersion: workingDeck.version,
+      operations: [projectionOperation],
+    });
+    if (projection.ok) workingDeck = projection.deck;
   }
   return supported;
 }
@@ -178,16 +197,17 @@ function resolveOoxmlOperationCapability(
       operation.slideId,
       operation.elementId,
     );
+    if (operation.type === "update_element_props") {
+      return resolveElementPropsCapability(deck, element, operation.props);
+    }
     const feature =
       operation.type === "delete_element"
         ? "delete-element"
-        : operation.type === "update_element_frame"
-          ? Object.keys(operation.frame).some((key) =>
+        : Object.keys(operation.frame).some((key) =>
               ["locked", "opacity", "role", "visible"].includes(key),
             )
-            ? "element-appearance"
-            : "element-frame"
-          : resolveElementPropsFeature(element, operation.props);
+          ? "element-appearance"
+          : "element-frame";
     return resolveOoxmlEditCapability({ deck, element, feature });
   }
 
@@ -237,6 +257,43 @@ function resolveOoxmlOperationCapability(
   });
 }
 
+function resolveElementPropsCapability(
+  deck: Deck,
+  element: DeckElement | null,
+  props: Record<string, unknown>,
+): OoxmlEditCapability {
+  if (element?.type === "image") {
+    const propKeys = Object.keys(props);
+    const supportedImageKeys = ["alt", "crop", "src"];
+    if (
+      propKeys.length > 0 &&
+      propKeys.every((key) => supportedImageKeys.includes(key))
+    ) {
+      const features: OoxmlEditFeature[] = [];
+      if (propKeys.some((key) => key === "alt" || key === "src")) {
+        features.push("image-source");
+      }
+      if (propKeys.includes("crop")) features.push("crop");
+
+      for (const feature of features) {
+        const capability = resolveOoxmlEditCapability({
+          deck,
+          element,
+          feature,
+        });
+        if (!capability.enabled) return capability;
+      }
+      return supported;
+    }
+  }
+
+  return resolveOoxmlEditCapability({
+    deck,
+    element,
+    feature: resolveElementPropsFeature(element, props),
+  });
+}
+
 function resolveElementPropsFeature(
   element: DeckElement | null,
   props: Record<string, unknown>,
@@ -278,6 +335,14 @@ function resolveGenericExportCapability(
   if (isElementFeature(feature)) {
     if (!element)
       return denied("ELEMENT_REQUIRED", "편집할 요소가 필요합니다.");
+    if (feature === "crop") {
+      return element.type === "image"
+        ? supported
+        : denied(
+            "GENERIC_EXPORT_UNSUPPORTED",
+            "래스터 이미지 자르기만 일반 PPTX 내보내기에서 보존할 수 있습니다.",
+          );
+    }
     if (feature === "add-element" || feature === "duplicate-element") {
       return genericExportSupportsElement(element)
         ? supported
@@ -329,10 +394,10 @@ function resolveImportedElementCapability(
       : importedFeatureUnsupported();
   }
   if (feature === "crop") {
-    return capabilities.crop === "picture" ||
-      capabilities.crop === "picture-fill"
+    return element.type === "image" &&
+      (capabilities.crop === "picture" || capabilities.crop === "picture-fill")
       ? supported
-      : importedFeatureUnsupported();
+      : importedCropUnsupported();
   }
   if (feature === "table-cell-text") {
     return capabilities.tableCellText
@@ -364,6 +429,15 @@ function resolveAuthoredElementCapability(
   feature: OoxmlEditFeature,
   element: DeckElement,
 ): OoxmlEditCapability {
+  if (feature === "crop") {
+    return element.type === "image" &&
+      authoredSerializerSupportsElement(element)
+      ? supported
+      : denied(
+          "AUTHORED_SERIALIZER_UNSUPPORTED",
+          "이 이미지 자르기를 OOXML에 보존하는 serializer가 아직 없습니다.",
+        );
+  }
   if (feature === "rich-text-content" && element.type === "text") {
     return !element.props.paragraphs?.length && !element.props.runs?.length
       ? supported
@@ -457,7 +531,6 @@ function authoredSerializerSupportsElement(element: DeckElement): boolean {
   }
   if (element.type === "image") {
     return (
-      element.props.crop === undefined &&
       element.props.fit === "contain" &&
       element.props.focusX === 0.5 &&
       element.props.focusY === 0.5
@@ -509,6 +582,13 @@ function importedFeatureUnsupported(): OoxmlEditCapability {
   return denied(
     "IMPORTED_FEATURE_UNSUPPORTED",
     "원본 OOXML 구조에서 이 편집을 안전하게 보존할 수 없습니다.",
+  );
+}
+
+function importedCropUnsupported(): OoxmlEditCapability {
+  return denied(
+    "IMPORTED_FEATURE_UNSUPPORTED",
+    "이 이미지의 원본 OOXML 자르기 영역은 읽기 전용이거나 안전한 source mapping이 없어 편집할 수 없습니다.",
   );
 }
 

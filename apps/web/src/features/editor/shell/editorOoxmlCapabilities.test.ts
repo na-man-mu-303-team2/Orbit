@@ -55,6 +55,32 @@ describe("resolveOoxmlEditCapability", () => {
     ).toMatchObject({ enabled: false, reasonCode: "SLIDE_REQUIRED" });
   });
 
+  it("allows raster crop through the generic exporter only", () => {
+    const deck = createDemoDeck();
+    const image: Extract<DeckElement, { type: "image" }> = {
+      ...imageElement(),
+      props: {
+        ...imageElement().props,
+        crop: { bottom: 0.05, left: 0.2, right: 0.15, top: 0.1 },
+        fit: "cover",
+      },
+    };
+
+    expect(
+      resolveOoxmlEditCapability({ deck, element: image, feature: "crop" }),
+    ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+    expect(
+      resolveOoxmlEditCapability({
+        deck,
+        element: deck.slides[0]!.elements[0]!,
+        feature: "crop",
+      }),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "GENERIC_EXPORT_UNSUPPORTED",
+    });
+  });
+
   it("uses explicit imported rich text, crop, and table capabilities", () => {
     const deck = importedDeck();
     const text = importedElement(deck.slides[0]!.elements[0]!, {
@@ -80,14 +106,159 @@ describe("resolveOoxmlEditCapability", () => {
       reasonCode: "IMPORTED_FEATURE_UNSUPPORTED",
     });
 
-    const image = importedElement(imageElement(), {
+    for (const crop of ["picture", "picture-fill"] as const) {
+      const image = importedElement(imageElement(), {
+        richText: "none",
+        crop,
+        tableCellText: false,
+      });
+      expect(
+        resolveOoxmlEditCapability({ deck, element: image, feature: "crop" }),
+      ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+    }
+  });
+
+  it("keeps read-only and malformed imported crop sources fail closed", () => {
+    const deck = importedDeck();
+    const readOnlyImage = importedElement(imageElement(), {
+      richText: "none",
+      crop: "none",
+      tableCellText: false,
+    });
+    const readOnlyCapability = resolveOoxmlEditCapability({
+      deck,
+      element: readOnlyImage,
+      feature: "crop",
+    });
+
+    expect(readOnlyCapability).toMatchObject({
+      enabled: false,
+      reasonCode: "IMPORTED_FEATURE_UNSUPPORTED",
+    });
+    expect(readOnlyCapability.reason).toContain("읽기 전용");
+
+    const missingCapability: DeckElement = {
+      ...imageElement(),
+      ooxmlOrigin: "imported",
+    };
+    expect(
+      resolveOoxmlEditCapability({
+        deck,
+        element: missingCapability,
+        feature: "crop",
+      }),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "IMPORTED_CAPABILITY_MISSING",
+      reason: expect.stringContaining("편집 가능 범위가 없어"),
+    });
+
+    const malformedText = importedElement(deck.slides[0]!.elements[0]!, {
       richText: "none",
       crop: "picture",
       tableCellText: false,
     });
     expect(
-      resolveOoxmlEditCapability({ deck, element: image, feature: "crop" }),
-    ).toMatchObject({ enabled: true });
+      resolveOoxmlEditCapability({
+        deck,
+        element: malformedText,
+        feature: "crop",
+      }),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "IMPORTED_FEATURE_UNSUPPORTED",
+    });
+  });
+
+  it("checks crop and image-source capabilities cumulatively at the patch boundary", () => {
+    const deck = importedDeck();
+    const image = importedElement(imageElement(), {
+      richText: "none",
+      crop: "picture",
+      tableCellText: false,
+      imageSource: false,
+    });
+    deck.slides[0]!.elements[0] = image;
+    const patch = (props: Record<string, unknown>) => ({
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user" as const,
+      operations: [
+        {
+          type: "update_element_props" as const,
+          slideId: deck.slides[0]!.slideId,
+          elementId: image.elementId,
+          props,
+        },
+      ],
+    });
+
+    expect(
+      resolveOoxmlPatchCapability(
+        deck,
+        patch({
+          crop: { bottom: 0.05, left: 0.2, right: 0.15, top: 0.1 },
+        }),
+      ),
+    ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+    expect(
+      resolveOoxmlPatchCapability(
+        deck,
+        patch({
+          crop: null,
+          src: "asset:replacement",
+        }),
+      ),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "IMPORTED_FEATURE_UNSUPPORTED",
+    });
+
+    deck.slides[0]!.elements[0] = importedElement(image, {
+      ...image.ooxmlEditCapabilities!,
+      imageSource: true,
+    });
+    expect(
+      resolveOoxmlPatchCapability(
+        deck,
+        patch({
+          crop: { bottom: 0.05, left: 0.2, right: 0.15, top: 0.1 },
+          src: "asset:replacement",
+        }),
+      ),
+    ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+  });
+
+  it("evaluates add then crop operations against the sequential authored image", () => {
+    const deck = importedDeck();
+    deck.slides[0]!.ooxmlOrigin = "imported";
+    const image = {
+      ...imageElement(),
+      elementId: "el_added_then_cropped",
+    };
+
+    expect(
+      resolveOoxmlPatchCapability(deck, {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "add_element",
+            slideId: deck.slides[0]!.slideId,
+            element: image,
+          },
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: image.elementId,
+            props: {
+              crop: { bottom: 0.05, left: 0.2, right: 0.15, top: 0.1 },
+            },
+          },
+        ],
+      }),
+    ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
   });
 
   it("uses explicit imported frame and delete capabilities only", () => {
@@ -294,6 +465,38 @@ describe("resolveOoxmlEditCapability", () => {
     }
   });
 
+  it("allows authored OOXML raster images to enter and persist crop edits", () => {
+    const deck = importedDeck();
+    const image = {
+      ...imageElement(),
+      ooxmlOrigin: "authored" as const,
+    };
+    const croppedImage: DeckElement = {
+      ...image,
+      props: {
+        ...image.props,
+        crop: { bottom: 0.05, left: 0.2, right: 0.15, top: 0.1 },
+      },
+    };
+
+    for (const element of [image, croppedImage]) {
+      expect(
+        resolveOoxmlEditCapability({ deck, element, feature: "crop" }),
+      ).toMatchObject({ enabled: true, reasonCode: "SUPPORTED" });
+    }
+
+    expect(
+      resolveOoxmlEditCapability({
+        deck,
+        element: { ...image, props: { ...image.props, fit: "cover" } },
+        feature: "crop",
+      }),
+    ).toMatchObject({
+      enabled: false,
+      reasonCode: "AUTHORED_SERIALIZER_UNSUPPORTED",
+    });
+  });
+
   it("allows plain text updates on authored OOXML text only", () => {
     const deck = importedDeck();
     const element = deck.slides[0]!.elements[0]!;
@@ -367,6 +570,20 @@ describe("resolveOoxmlEditCapability", () => {
       resolveOoxmlEditCapability({
         deck,
         element: image,
+        feature: "add-element",
+        slide,
+      }),
+    ).toMatchObject({ enabled: true });
+    expect(
+      resolveOoxmlEditCapability({
+        deck,
+        element: {
+          ...image,
+          props: {
+            ...image.props,
+            crop: { bottom: 0.05, left: 0.2, right: 0.15, top: 0.1 },
+          },
+        },
         feature: "add-element",
         slide,
       }),
@@ -468,7 +685,7 @@ function importedSlide(
   };
 }
 
-function imageElement(): DeckElement {
+function imageElement(): Extract<DeckElement, { type: "image" }> {
   return {
     elementId: "el_image_capability",
     type: "image",

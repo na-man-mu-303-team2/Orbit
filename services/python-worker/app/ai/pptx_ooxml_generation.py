@@ -84,6 +84,7 @@ PptxOoxmlSyncOperationType = Literal[
 PptxOoxmlUnsupportedReasonCode = Literal[
     "ADD_ELEMENT_FAILED",
     "ADD_ELEMENT_TYPE_UNSUPPORTED",
+    "CROP_CAPABILITY_UNSAFE",
     "FRAME_FIELDS_UNSUPPORTED",
     "GROUPED_FRAME_UNSUPPORTED",
     "IMAGE_CONTAIN_SOURCE_UNAVAILABLE",
@@ -454,36 +455,54 @@ def imported_element_capabilities(
 ) -> dict[str, Any]:
     frame_writable = False
     image_source_writable = False
+    crop_capability = "none"
     if (
         slide_root is not None
         and bool(source.get("writable", False))
-        and shape_cohort_size == 1
     ):
         shape, _parent = find_shape_by_id(
             slide_root,
             str(source.get("shapeId", "")),
         )
-        frame_writable = shape is not None and not has_group_shape_ancestor(
-            slide_root,
+        frame_writable = (
+            shape_cohort_size == 1
+            and shape is not None
+            and not has_group_shape_ancestor(slide_root, shape)
+        )
+        crop_capability = imported_image_crop_capability(
+            element_type,
+            source,
             shape,
         )
         image_source_writable = (
-            element_type == "image"
-            and shape is not None
-            and shape.tag == P_PIC
-            and bool(source.get("relationshipId"))
+            crop_capability == "picture" and direct_image_blip(shape, source) is not None
         )
-    # The current targeted serializer only preserves plain text replacement,
-    # frame geometry, and image source replacement. Advanced authoring remains
-    # fail-closed until A7/B5/B8 upgrade the corresponding capability.
+    # The current targeted serializer preserves plain text replacement, frame
+    # geometry, direct image source replacement, and direct picture crop.
+    # Rich text and table authoring remain fail-closed until B5/B8.
     return {
         "richText": "none",
-        "crop": "none",
+        "crop": crop_capability,
         "tableCellText": False,
         "frame": frame_writable,
         "delete": frame_writable and motion_coverage == "absent",
         "imageSource": image_source_writable,
     }
+
+
+def imported_image_crop_capability(
+    element_type: str,
+    source: dict[str, Any],
+    shape: ET.Element[Any] | None,
+) -> str:
+    if (
+        element_type != "image"
+        or shape is None
+        or not bool(source.get("writable", False))
+        or source.get("fallbackReason")
+    ):
+        return "none"
+    return image_crop_capability_for_shape(shape, source)
 
 
 def apply_patch_operations_to_package(
@@ -710,9 +729,13 @@ def apply_sync_operation(
             return "GROUPED_FRAME_UNSUPPORTED"
         if geometry_fields:
             update_shape_frame(shape, frame, scale)
-            if source.get("elementType") == "image" and (
-                source.get("ooxmlOrigin") == "authored"
-                or picture_uses_contain_fit(shape)
+            if (
+                source.get("elementType") == "image"
+                and not picture_has_explicit_crop(shape)
+                and (
+                    source.get("ooxmlOrigin") == "authored"
+                    or picture_uses_contain_fit(shape)
+                )
             ):
                 image_size = picture_source_image_dimensions(
                     shape,
@@ -820,8 +843,9 @@ def add_element_has_unsupported_advanced_props(element: dict[str, Any]) -> bool:
             or "shadow" in props
         )
     if element_type == "image":
+        crop = props.get("crop")
         return (
-            "crop" in props
+            ("crop" in props and normalized_image_crop(crop) is None)
             or props.get("fit", "contain") != "contain"
             or float(props.get("focusX", 0.5)) != 0.5
             or float(props.get("focusY", 0.5)) != 0.5
@@ -844,11 +868,42 @@ def validate_source_props_update(
             if capabilities.get("richText") != "full":
                 return "RICH_TEXT_CAPABILITY_UNSAFE"
         return None
-    if prop_names and prop_names.issubset({"src", "alt"}):
-        if element_type != "image" or shape.tag != P_PIC:
+    if prop_names and prop_names.issubset({"src", "alt", "crop"}):
+        if element_type != "image":
             return "ELEMENT_TYPE_MISMATCH"
+        if {"src", "alt"}.intersection(prop_names) and shape.tag != P_PIC:
+            return "ELEMENT_TYPE_MISMATCH"
+        if "crop" in props:
+            crop = props.get("crop")
+            if crop is not None and normalized_image_crop(crop) is None:
+                return "PROPS_FIELDS_UNSUPPORTED"
+            capability = dict_value(source, "ooxmlEditCapabilities").get("crop")
+            expected_capability = image_crop_capability_for_shape(shape, source)
+            if capability != expected_capability or capability == "none":
+                return "CROP_CAPABILITY_UNSAFE"
         return None
     return "PROPS_FIELDS_UNSUPPORTED"
+
+
+def normalized_image_crop(value: Any) -> dict[str, float] | None:
+    if not isinstance(value, dict) or set(value) - {"left", "top", "right", "bottom"}:
+        return None
+    crop: dict[str, float] = {}
+    for edge in ("left", "top", "right", "bottom"):
+        raw_value = value.get(edge, 0)
+        if (
+            not isinstance(raw_value, (int, float))
+            or isinstance(raw_value, bool)
+            or not math.isfinite(float(raw_value))
+            or not 0 <= float(raw_value) <= 1
+        ):
+            return None
+        crop[edge] = float(raw_value)
+    if crop["left"] + crop["right"] >= 1:
+        return None
+    if crop["top"] + crop["bottom"] >= 1:
+        return None
+    return crop
 
 
 def valid_text_body_inset(value: Any) -> bool:
@@ -933,12 +988,12 @@ def shared_shape_operation_plan(
             slide_part_for_operation(operation),
             operation_element_id(operation),
         )
-        source = sources.get(source_key)
-        if source is None:
+        operation_source = sources.get(source_key)
+        if operation_source is None:
             continue
         cohort_key = (
-            str(source.get("slidePart", "")),
-            str(source.get("shapeId", "")),
+            str(operation_source.get("slidePart", "")),
+            str(operation_source.get("shapeId", "")),
         )
         if cohort_key in shared_cohorts:
             operations_by_cohort.setdefault(cohort_key, []).append(
@@ -1032,6 +1087,49 @@ def find_shape_by_id(
     return None, None
 
 
+def direct_image_blip_fill(shape: ET.Element[Any] | None) -> ET.Element[Any] | None:
+    if shape is None:
+        return None
+    if shape.tag == P_PIC:
+        return first_local_child(shape, "blipFill")
+    if shape.tag == P_SP:
+        shape_properties = first_local_child(shape, "spPr")
+        if shape_properties is not None:
+            return first_local_child(shape_properties, "blipFill")
+    return None
+
+
+def direct_image_blip(
+    shape: ET.Element[Any] | None,
+    source: dict[str, Any],
+) -> ET.Element[Any] | None:
+    blip_fill = direct_image_blip_fill(shape)
+    if blip_fill is None:
+        return None
+    blip = first_local_child(blip_fill, "blip")
+    expected_relationship_id = str(source.get("relationshipId", ""))
+    current_relationship_id = (
+        str(blip.get(f"{{{REL_NS}}}embed", "")) if blip is not None else ""
+    )
+    if not expected_relationship_id or current_relationship_id != expected_relationship_id:
+        return None
+    return blip
+
+
+def image_crop_capability_for_shape(
+    shape: ET.Element[Any],
+    source: dict[str, Any],
+) -> str:
+    if direct_image_blip(shape, source) is None:
+        return "none"
+    source_type = str(source.get("sourceType", ""))
+    if shape.tag == P_PIC and source_type == "image":
+        return "picture"
+    if shape.tag == P_SP and source_type == "shape":
+        return "picture-fill"
+    return "none"
+
+
 def has_group_shape_ancestor(root: ET.Element[Any], shape: ET.Element[Any]) -> bool:
     parents = {child: parent for parent in root.iter() for child in list(parent)}
     parent = parents.get(shape)
@@ -1077,8 +1175,12 @@ def update_shape_props(
             return False
         mime_type, image_blob = replacement
         uses_contain_fit = (
-            source.get("ooxmlOrigin") == "authored"
-            or picture_uses_contain_fit(shape)
+            "crop" not in props
+            and not picture_has_explicit_crop(shape)
+            and (
+                source.get("ooxmlOrigin") == "authored"
+                or picture_uses_contain_fit(shape)
+            )
         )
         relationship_id = replace_picture_media_relationship(
             shape,
@@ -1105,6 +1207,13 @@ def update_shape_props(
             set_picture_contain_source_rect(shape, image_size, frame_size)
         source["relationshipId"] = relationship_id
         updated_sources[source_key] = dict(source)
+        changed = True
+    if "crop" in props:
+        crop_value = props.get("crop")
+        crop = normalized_image_crop(crop_value) if crop_value is not None else None
+        if not set_picture_crop_source_rect(shape, crop):
+            warnings.append(f"OOXML image crop target missing for {element_id}.")
+            return False
         changed = True
     if changed:
         return True
@@ -1347,7 +1456,7 @@ def add_element_to_slide_xml(
         "ooxmlOrigin": "authored",
         "ooxmlEditCapabilities": {
             "richText": "none",
-            "crop": "none",
+            "crop": "picture" if element_type == "image" else "none",
             "tableCellText": False,
             "frame": True,
             "delete": True,
@@ -1569,6 +1678,9 @@ def picture_shape_element(
     frame_size = picture_frame_size(picture)
     if image_size is not None and frame_size is not None:
         set_picture_contain_source_rect(picture, image_size, frame_size)
+    crop = normalized_image_crop(dict_value(element, "props").get("crop"))
+    if crop is not None:
+        set_picture_crop_source_rect(picture, crop)
     set_orbit_image_fit(picture, "contain")
     ET.SubElement(
         ET.SubElement(sp_pr, f"{{{DML_NS}}}prstGeom", {"prst": "rect"}),
@@ -1768,6 +1880,71 @@ def picture_uses_contain_fit(picture: ET.Element[Any]) -> bool:
     return any(value < 0 for value in values) and not any(
         value > 0 for value in values
     )
+
+
+def picture_has_explicit_crop(shape: ET.Element[Any]) -> bool:
+    blip_fill = direct_image_blip_fill(shape)
+    if blip_fill is None:
+        return False
+    src_rect = first_local_child(blip_fill, "srcRect")
+    if src_rect is None:
+        return False
+    try:
+        values = [int(src_rect.get(edge, "0")) for edge in ("l", "t", "r", "b")]
+    except ValueError:
+        return False
+    return all(value >= 0 for value in values)
+
+
+def set_picture_crop_source_rect(
+    shape: ET.Element[Any],
+    crop: dict[str, float] | None,
+) -> bool:
+    blip_fill = direct_image_blip_fill(shape)
+    if blip_fill is None:
+        return False
+    children = list(blip_fill)
+    blip_index = next(
+        (
+            index
+            for index, child in enumerate(children)
+            if local_name(child) == "blip"
+        ),
+        -1,
+    )
+    if blip_index < 0:
+        return False
+    for child in children:
+        if local_name(child) == "srcRect":
+            blip_fill.remove(child)
+    if crop is None:
+        return True
+
+    attributes = crop_source_rect_attributes(crop)
+    blip_fill.insert(
+        blip_index + 1,
+        ET.Element(f"{{{DML_NS}}}srcRect", attributes),
+    )
+    return True
+
+
+def crop_source_rect_attributes(crop: dict[str, float]) -> dict[str, str]:
+    values = {
+        edge: max(0, min(99_999, round(crop[name] * 100_000)))
+        for edge, name in (
+            ("l", "left"),
+            ("t", "top"),
+            ("r", "right"),
+            ("b", "bottom"),
+        )
+    }
+    for first, second in (("l", "r"), ("t", "b")):
+        overflow = values[first] + values[second] - 99_999
+        if overflow > 0:
+            reduction = min(values[second], overflow)
+            values[second] -= reduction
+            values[first] -= overflow - reduction
+    return {edge: str(values[edge]) for edge in ("l", "t", "r", "b")}
 
 
 def set_picture_contain_source_rect(

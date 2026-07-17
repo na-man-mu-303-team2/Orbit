@@ -10,6 +10,7 @@ import {
   type DeckElement,
   type DeckPatch,
   type DeckSnapshotReason,
+  type TemplateElementSource,
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import type { PinoLogger } from "nestjs-pino";
@@ -499,6 +500,35 @@ function createImageElement(
   };
 }
 
+function createAuthoredImageElement(
+  elementId: string,
+  x: number,
+  crop?: { left: number; top: number; right: number; bottom: number },
+): DeckElement {
+  return {
+    elementId,
+    type: "image",
+    ooxmlOrigin: "authored",
+    x,
+    y: 120,
+    width: 320,
+    height: 180,
+    rotation: 0,
+    opacity: 1,
+    zIndex: 1,
+    locked: false,
+    visible: true,
+    props: {
+      src: "data:image/png;base64,AA==",
+      alt: "",
+      fit: "contain",
+      focusX: 0.5,
+      focusY: 0.5,
+      ...(crop ? { crop } : {}),
+    },
+  };
+}
+
 function createRepeatedKeywordDeck(): Deck {
   const deck = createDeck();
 
@@ -575,6 +605,7 @@ function seedOoxmlBlueprint(
   dataSource: InMemoryDeckDataSource,
   deck: Deck,
   ooxmlSyncedDeckVersion = deck.version,
+  elementSources: TemplateElementSource[] = [],
 ): void {
   dataSource.templateBlueprintRows.push({
     template_id: "template_file_1",
@@ -588,10 +619,36 @@ function seedOoxmlBlueprint(
       slides: deck.slides.map((_, slideIndex) => ({
         slideIndex: slideIndex + 1,
         sourceSlideIndex: slideIndex + 1,
+        sourceSlidePart: `ppt/slides/slide${slideIndex + 1}.xml`,
+        elementSources: slideIndex === 0 ? elementSources : [],
         slots: [],
       })),
     },
   });
+}
+
+function createImageElementSource(
+  element: DeckElement,
+  crop: "none" | "picture" | "picture-fill",
+): TemplateElementSource {
+  return {
+    elementId: element.elementId,
+    elementType: "image",
+    ooxmlOrigin: element.ooxmlOrigin,
+    ooxmlEditCapabilities: {
+      richText: "none",
+      crop,
+      tableCellText: false,
+      frame: true,
+      delete: true,
+      imageSource: true,
+    },
+    slidePart: "ppt/slides/slide1.xml",
+    shapeId: "7",
+    relationshipId: "rId7",
+    sourceType: crop === "picture-fill" ? "shape" : "image",
+    writable: true,
+  };
 }
 
 function createUpdateTitlePatch(
@@ -1319,6 +1376,374 @@ describe("DecksService", () => {
       },
     });
     expect(dataSource.patchRows).toHaveLength(1);
+  });
+
+  it.each([
+    ["picture", "image"],
+    ["picture-fill", "shape"],
+  ] as const)(
+    "allows imported %s crop updates and crop:null reset from the authoritative source mapping",
+    async (cropCapability, sourceType) => {
+      const { dataSource, service } = createOoxmlSyncService(
+        `job_sync_imported_crop_${cropCapability}`,
+      );
+      const base = createImportedDeck();
+      const capabilities = {
+        richText: "none" as const,
+        crop: cropCapability,
+        tableCellText: false,
+        frame: true,
+        delete: true,
+        imageSource: true,
+      };
+      const image = createImageElement(
+        `el_imported_crop_${cropCapability}`,
+        100,
+        capabilities,
+      );
+      const deck = deckSchema.parse({
+        ...base,
+        slides: [
+          {
+            ...base.slides[0]!,
+            elements: [image],
+          },
+        ],
+      });
+      const source = {
+        ...createImageElementSource(image, cropCapability),
+        sourceType,
+      };
+      await service.putDeck(deck.projectId, { deck });
+      seedOoxmlBlueprint(dataSource, deck, deck.version, [source]);
+
+      const cropped = await service.appendPatch(deck.projectId, {
+        patch: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          source: "user",
+          operations: [
+            {
+              type: "update_element_props",
+              slideId: deck.slides[0]!.slideId,
+              elementId: image.elementId,
+              props: {
+                crop: { left: 0.2, top: 0.1, right: 0.15, bottom: 0.05 },
+              },
+            },
+          ],
+        },
+      });
+
+      expect(cropped.deck.slides[0]!.elements[0]!.props).toMatchObject({
+        crop: { left: 0.2, top: 0.1, right: 0.15, bottom: 0.05 },
+      });
+
+      const reset = await service.appendPatch(deck.projectId, {
+        patch: {
+          deckId: deck.deckId,
+          baseVersion: cropped.deck.version,
+          source: "user",
+          operations: [
+            {
+              type: "update_element_props",
+              slideId: deck.slides[0]!.slideId,
+              elementId: image.elementId,
+              props: { crop: null },
+            },
+          ],
+        },
+      });
+
+      expect(reset.deck.slides[0]!.elements[0]!.props).not.toHaveProperty(
+        "crop",
+      );
+    },
+  );
+
+  it.each(["missing-source", "missing-capability", "none"] as const)(
+    "fails closed for imported crop when the authoritative source mapping is %s",
+    async (sourceState) => {
+      const { dataSource, service } = createOoxmlSyncService(
+        `job_sync_unsafe_imported_crop_${sourceState}`,
+      );
+      const base = createImportedDeck();
+      const image = createImageElement("el_imported_unsafe_crop", 100, {
+        richText: "none",
+        crop: "picture",
+        tableCellText: false,
+        frame: true,
+        delete: true,
+        imageSource: true,
+      });
+      const deck = deckSchema.parse({
+        ...base,
+        slides: [{ ...base.slides[0]!, elements: [image] }],
+      });
+      const pictureSource = createImageElementSource(image, "picture");
+      const {
+        ooxmlEditCapabilities: _capabilities,
+        ...sourceWithoutCapability
+      } = pictureSource;
+      const sources =
+        sourceState === "missing-source"
+          ? []
+          : sourceState === "missing-capability"
+            ? [sourceWithoutCapability]
+            : [createImageElementSource(image, "none")];
+      await service.putDeck(deck.projectId, { deck });
+      seedOoxmlBlueprint(dataSource, deck, deck.version, sources);
+
+      const error = await expectDeckApiError(
+        () =>
+          service.appendPatch(deck.projectId, {
+            patch: {
+              deckId: deck.deckId,
+              baseVersion: deck.version,
+              source: "user",
+              operations: [
+                {
+                  type: "update_element_props",
+                  slideId: deck.slides[0]!.slideId,
+                  elementId: image.elementId,
+                  props: {
+                    crop: { left: 0.1, top: 0, right: 0, bottom: 0 },
+                  },
+                },
+              ],
+            },
+          }),
+        HttpStatus.BAD_REQUEST,
+        "OOXML_CHANGE_UNSUPPORTED",
+      );
+
+      expect(error.details).toContain("reasonCode=CROP_CAPABILITY_UNSAFE");
+      expect(dataSource.patchRows).toHaveLength(0);
+    },
+  );
+
+  it("allows authored image crop on add, in the same patch, and in a sequential unsynced patch", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_authored_crop_coalesced",
+    );
+    const deck = createImportedDeck();
+    const slideId = deck.slides[0]!.slideId;
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+
+    const addAndCrop = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "add_element",
+            slideId,
+            element: createAuthoredImageElement("el_crop_on_add", 100, {
+              left: 0.1,
+              top: 0.05,
+              right: 0.15,
+              bottom: 0,
+            }),
+          },
+          {
+            type: "add_element",
+            slideId,
+            element: createAuthoredImageElement("el_crop_same_patch", 500),
+          },
+          {
+            type: "update_element_props",
+            slideId,
+            elementId: "el_crop_same_patch",
+            props: {
+              crop: { left: 0, top: 0.1, right: 0.2, bottom: 0 },
+            },
+          },
+        ],
+      },
+    });
+
+    const added = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: addAndCrop.deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "add_element",
+            slideId,
+            element: createAuthoredImageElement(
+              "el_crop_sequential_patch",
+              900,
+            ),
+          },
+        ],
+      },
+    });
+    const sequentialCrop = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: added.deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId,
+            elementId: "el_crop_sequential_patch",
+            props: {
+              crop: { left: 0.05, top: 0, right: 0, bottom: 0.1 },
+            },
+          },
+        ],
+      },
+    });
+
+    expect(sequentialCrop.deck.slides[0]!.elements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          elementId: "el_crop_on_add",
+          ooxmlOrigin: "authored",
+          props: expect.objectContaining({
+            crop: { left: 0.1, top: 0.05, right: 0.15, bottom: 0 },
+          }),
+        }),
+        expect.objectContaining({
+          elementId: "el_crop_same_patch",
+          props: expect.objectContaining({
+            crop: { left: 0, top: 0.1, right: 0.2, bottom: 0 },
+          }),
+        }),
+        expect.objectContaining({
+          elementId: "el_crop_sequential_patch",
+          props: expect.objectContaining({
+            crop: { left: 0.05, top: 0, right: 0, bottom: 0.1 },
+          }),
+        }),
+      ]),
+    );
+    expect(dataSource.patchRows).toHaveLength(3);
+  });
+
+  it("keeps unsupported authored image fit fail-closed when crop is present", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_authored_crop_unsupported_fit",
+    );
+    const deck = createImportedDeck();
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck);
+    const image = createAuthoredImageElement("el_crop_cover", 100, {
+      left: 0.1,
+      top: 0,
+      right: 0,
+      bottom: 0,
+    });
+
+    const error = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "add_element",
+                slideId: deck.slides[0]!.slideId,
+                element: {
+                  ...image,
+                  props: { ...image.props, fit: "cover" },
+                },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(error.details).toContain(
+      "reasonCode=ADD_ELEMENT_SERIALIZER_UNSUPPORTED",
+    );
+    expect(dataSource.patchRows).toHaveLength(0);
+  });
+
+  it("allows crop for an already-synced authored image with a safe picture source mapping", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_authored_crop_safe_mapping",
+    );
+    const base = createImportedDeck();
+    const image = createAuthoredImageElement("el_authored_mapped_safe", 100);
+    const deck = deckSchema.parse({
+      ...base,
+      slides: [{ ...base.slides[0]!, elements: [image] }],
+    });
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck, deck.version, [
+      createImageElementSource(image, "picture"),
+    ]);
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: deck.slides[0]!.slideId,
+            elementId: image.elementId,
+            props: { crop: { left: 0.1, top: 0, right: 0, bottom: 0 } },
+          },
+        ],
+      },
+    });
+
+    expect(response.deck.slides[0]!.elements[0]!.props).toMatchObject({
+      crop: { left: 0.1, top: 0, right: 0, bottom: 0 },
+    });
+  });
+
+  it("fails closed for an already-synced authored image whose source mapping has no crop capability", async () => {
+    const { dataSource, service } = createOoxmlSyncService(
+      "job_sync_authored_crop_unsafe_mapping",
+    );
+    const base = createImportedDeck();
+    const image = createAuthoredImageElement("el_authored_mapped_unsafe", 100);
+    const deck = deckSchema.parse({
+      ...base,
+      slides: [{ ...base.slides[0]!, elements: [image] }],
+    });
+    await service.putDeck(deck.projectId, { deck });
+    seedOoxmlBlueprint(dataSource, deck, deck.version, [
+      createImageElementSource(image, "none"),
+    ]);
+
+    const error = await expectDeckApiError(
+      () =>
+        service.appendPatch(deck.projectId, {
+          patch: {
+            deckId: deck.deckId,
+            baseVersion: deck.version,
+            source: "user",
+            operations: [
+              {
+                type: "update_element_props",
+                slideId: deck.slides[0]!.slideId,
+                elementId: image.elementId,
+                props: {
+                  crop: { left: 0.1, top: 0, right: 0, bottom: 0 },
+                },
+              },
+            ],
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "OOXML_CHANGE_UNSUPPORTED",
+    );
+
+    expect(error.details).toContain("reasonCode=CROP_CAPABILITY_UNSAFE");
+    expect(dataSource.patchRows).toHaveLength(0);
   });
 
   it("rejects unsupported imported capabilities and operation families", async () => {

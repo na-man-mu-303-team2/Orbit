@@ -140,7 +140,7 @@ describe("SelectionQuickBar", () => {
     expect(html).toContain("anim_dangling_1");
   });
 
-  it("keeps crop hidden until A7 while honoring the supplied capability", () => {
+  it("shows and enables raster crop when persistence is supported", () => {
     const deck = createDemoDeck();
     const slide = deck.slides[0]!;
     const element: DeckElement = {
@@ -161,9 +161,11 @@ describe("SelectionQuickBar", () => {
       reasonCode: "SUPPORTED" as const,
     };
 
-    expect(
-      getImageCropActionState({ capability, element, persistenceReady: true }),
-    ).toEqual({ enabled: true, reason: null, visible: true });
+    expect(getImageCropActionState({ capability, element })).toEqual({
+      enabled: true,
+      reason: null,
+      visible: true,
+    });
     expect(
       getImageCropActionState({
         capability: {
@@ -172,11 +174,21 @@ describe("SelectionQuickBar", () => {
           reasonCode: "IMPORTED_FEATURE_UNSUPPORTED",
         },
         element,
-        persistenceReady: true,
       }),
     ).toEqual({
       enabled: false,
       reason: "원본 crop을 안전하게 저장할 수 없습니다.",
+      visible: true,
+    });
+    expect(
+      getImageCropActionState({
+        actionAvailable: false,
+        capability,
+        element,
+      }),
+    ).toEqual({
+      enabled: false,
+      reason: "이미지 자르기 편집기를 시작할 수 없습니다.",
       visible: true,
     });
 
@@ -205,7 +217,102 @@ describe("SelectionQuickBar", () => {
       />,
     );
 
-    expect(html).not.toContain("자르기");
+    expect(html).toMatch(
+      /<button[^>]*aria-label="이미지 자르기"[^>]*>자르기<\/button>/,
+    );
+    expect(html).not.toMatch(
+      /<button[^>]*aria-label="이미지 자르기"[^>]*disabled=""/,
+    );
+  });
+
+  it("keeps unsupported crop visible but disabled with an explicit reason", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const element: DeckElement = {
+      ...slide.elements[0]!,
+      type: "image",
+      role: "media",
+      props: {
+        alt: "Read-only crop fixture",
+        fit: "contain",
+        focusX: 0.5,
+        focusY: 0.5,
+        src: "data:image/png;base64,AA==",
+      },
+    };
+    const reason =
+      "이 이미지의 원본 OOXML 자르기 영역은 읽기 전용이어서 편집할 수 없습니다.";
+    const html = renderToString(
+      <SelectionQuickBar
+        animations={[]}
+        animationDiagnostics={validateSlideAnimations(slide, element.elementId)}
+        canCreateAnimation
+        canvas={deck.canvas}
+        customShapeEditActive={false}
+        element={element}
+        imageCropCapability={{
+          enabled: false,
+          reason,
+          reasonCode: "IMPORTED_FEATURE_UNSUPPORTED",
+        }}
+        selectedKeywordLabel={null}
+        slide={slide}
+        theme={deck.theme}
+        showIds={false}
+        onOpenAnimationEditor={vi.fn()}
+        onChangeFrame={vi.fn()}
+        onChangeProps={vi.fn()}
+        onChangeSlideStyle={vi.fn()}
+        onChangeTheme={vi.fn()}
+        onDeleteAnimation={vi.fn()}
+        onStartImageCrop={vi.fn()}
+        onToggleCustomShapeClosed={vi.fn()}
+        onToggleCustomShapeEdit={vi.fn()}
+      />,
+    );
+
+    expect(html).toMatch(
+      /<button[^>]*aria-label="이미지 자르기"[^>]*disabled=""/,
+    );
+    expect(html).toContain(`role="status">${reason}</span>`);
+    expect(html).toContain('aria-describedby="image-crop-reason-');
+  });
+
+  it("fails closed when the crop capability or action handler is missing", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const element: DeckElement = {
+      ...slide.elements[0]!,
+      type: "image",
+      props: {
+        alt: "Missing capability fixture",
+        fit: "contain",
+        focusX: 0.5,
+        focusY: 0.5,
+        src: "data:image/png;base64,AA==",
+      },
+    };
+
+    expect(getImageCropActionState({ capability: null, element })).toEqual({
+      enabled: false,
+      reason: "이미지 자르기 저장 가능 여부를 확인할 수 없습니다.",
+      visible: true,
+    });
+    expect(
+      getImageCropActionState({
+        actionAvailable: false,
+        capability: {
+          enabled: true,
+          reason: null,
+          reasonCode: "SUPPORTED",
+        },
+        element,
+      }),
+    ).toMatchObject({
+      enabled: false,
+      reason: "이미지 자르기 편집기를 시작할 수 없습니다.",
+      visible: true,
+    });
   });
 
   it("shows disabled OOXML reasons on destructive element controls", () => {
@@ -245,6 +352,8 @@ describe("SelectionQuickBar", () => {
     );
 
     expect(html.match(/<fieldset[^>]*disabled=""/g)).toHaveLength(4);
-    expect(html).toContain(`<span class="quickbar-inline-hint quickbar-inline-hint-warning" role="status">${denied.reason}</span>`);
+    expect(html).toContain(
+      `<span class="quickbar-inline-hint quickbar-inline-hint-warning" role="status">${denied.reason}</span>`,
+    );
   });
 });

@@ -1,8 +1,8 @@
 {
   "approval": {
     "approvedAt": "2026-07-17",
-    "artifactAggregateSha256": "0a4af386a0a7e7fc4145c2b6c3f2897934cb72f52138fc66bb9b0078e82c3ce1",
-    "determinismChecksum": "a6178a0195ab2096c2b04f3800822e0cd222d1011d77a5d2929c8df39ece0b13",
+    "artifactAggregateSha256": "2d2f0091cfbed09b3673354a68da6f9cb2a63e21cff265489256c0dfa722a220",
+    "determinismChecksum": "c201fe3f1feb11936154516cdce188d87853b597ee2786f24fd44c619c88d2f9",
     "method": "two-run-deterministic-report-review",
     "runCount": 2
   },
@@ -21,11 +21,10 @@
       "EXPORT_ARROWHEAD_DEGRADED_TO_LINE": 1,
       "EXPORT_ELEMENT_INTENTIONAL_HIDDEN": 1,
       "EXPORT_ELEMENT_TYPE_UNSUPPORTED": 1,
-      "EXPORT_GROUP_CONTAINER_SKIPPED": 1,
-      "EXPORT_IMAGE_CROP_NOT_SERIALIZED": 1
+      "EXPORT_GROUP_CONTAINER_SKIPPED": 1
     },
     "byDisposition": {
-      "degraded": 2,
+      "degraded": 1,
       "intentional-hidden": 1,
       "skipped": 2
     },
@@ -33,7 +32,6 @@
       "arrow": 1,
       "customShape": 1,
       "group": 1,
-      "image": 1,
       "rect": 1
     },
     "expectedExporterWarningCodes": [
@@ -42,9 +40,9 @@
       "EXPORT_GROUP_CONTAINER_SKIPPED"
     ],
     "expectedExporterWarningCount": 3,
-    "total": 5
+    "total": 4
   },
-  "exporterSourceSha256": "7c068fe3a376cdbde8ed262638fa1b14198a93efbaa6341511b0e21016191353",
+  "exporterSourceSha256": "8076f37ca4616993e8ddf164593390f7e226974e98d55956cffc07428c12ff82",
   "exporterWarningReconciliation": {
     "actualCount": 3,
     "code": "EXPORTER_WARNING_CODE_RECONCILIATION",
@@ -65,7 +63,7 @@
     "unexpectedCodes": [],
     "unmappedCount": 0
   },
-  "fixtureSha256": "36ab552ee55b4c037d36694f93adc3ee4043f12c957959698a44f5172d23db72",
+  "fixtureSha256": "9867d4bfafcdd8703634f20fdad910444a4754b3b4f3358178ff62dc1159de72",
   "fontFiles": [
     {
       "family": "Pretendard",
@@ -82,13 +80,13 @@
   ],
   "kind": "deck-pptx-export-baseline",
   "metrics": {
-    "averageColorMae": 0.052089,
-    "averageSsim": 0.86245,
+    "averageColorMae": 0.019656,
+    "averageSsim": 0.90035,
     "evaluatedCount": 2,
-    "maximumColorMae": 0.087656,
-    "minimumSsim": 0.7888,
+    "maximumColorMae": 0.022789,
+    "minimumSsim": 0.8646,
     "missingCount": 0,
-    "p50Ssim": 0.86245,
+    "p50Ssim": 0.90035,
     "totalCount": 2
   },
   "rows": [
@@ -104,14 +102,14 @@
       "status": "evaluated"
     },
     {
-      "colorMae": 0.087656,
+      "colorMae": 0.022789,
       "dimensions": {
         "browser": [1920, 1080],
         "libreOffice": [1920, 1080]
       },
       "name": "slide-002-slide_export_accuracy_media",
       "slideId": "slide_export_accuracy_media",
-      "ssim": 0.7888,
+      "ssim": 0.8646,
       "status": "evaluated"
     }
   ],
@@ -130,10 +128,34 @@
       "passed": false
     },
     {
-      "actual": 0,
+      "actual": 1,
       "code": "OOXML_IMAGE_CROP_COUNT",
       "expected": 1,
-      "passed": false
+      "passed": true
+    },
+    {
+      "actual": 20000,
+      "code": "OOXML_IMAGE_CROP_LEFT",
+      "expected": 20000,
+      "passed": true
+    },
+    {
+      "actual": 10000,
+      "code": "OOXML_IMAGE_CROP_TOP",
+      "expected": 10000,
+      "passed": true
+    },
+    {
+      "actual": 15000,
+      "code": "OOXML_IMAGE_CROP_RIGHT",
+      "expected": 15000,
+      "passed": true
+    },
+    {
+      "actual": 5000,
+      "code": "OOXML_IMAGE_CROP_BOTTOM",
+      "expected": 5000,
+      "passed": true
     },
     {
       "actual": 1,

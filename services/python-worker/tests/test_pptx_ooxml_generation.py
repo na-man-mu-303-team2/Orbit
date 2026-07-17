@@ -50,7 +50,13 @@ def test_pure_generation_preserves_package_entries_and_source_text(
         source["elementType"]
         and source["ooxmlOrigin"] == "imported"
         and source["ooxmlEditCapabilities"]["richText"] == "none"
-        and source["ooxmlEditCapabilities"]["crop"] == "none"
+        and source["ooxmlEditCapabilities"]["crop"]
+        == (
+            "picture"
+            if source["elementType"] == "image"
+            and source["sourceType"] == "image"
+            else "none"
+        )
         and source["ooxmlEditCapabilities"]["tableCellText"] is False
         and isinstance(source["ooxmlEditCapabilities"]["frame"], bool)
         and isinstance(source["ooxmlEditCapabilities"]["imageSource"], bool)
@@ -438,7 +444,7 @@ def test_sync_pptx_ooxml_skips_grouped_child_frame_patch(tmp_path: Path) -> None
     } == original_frame
 
 
-def test_sync_pptx_ooxml_reports_unsupported_props_without_changing_package(
+def test_sync_pptx_ooxml_applies_imported_picture_crop(
     tmp_path: Path,
 ) -> None:
     pptx_path = sample_round_trip_pptx(tmp_path)
@@ -466,13 +472,218 @@ def test_sync_pptx_ooxml_reports_unsupported_props_without_changing_package(
         ],
     )
 
+    source = source_for_element(
+        generated.template_blueprint["slides"][0]["elementSources"],
+        image["elementId"],
+    )
+    assert current_package_bytes(result.assets) != original_bytes
+    assert len(result.applied_operations) == 1
+    assert result.unsupported_operations == []
+    assert source["ooxmlEditCapabilities"]["crop"] == "picture"
+    assert b'<a:srcRect l="10000" t="0" r="0" b="0"' in shape_xml(
+        current_package_bytes(result.assets),
+        source["shapeId"],
+    )
+
+
+def test_sync_pptx_ooxml_rejects_crop_when_source_capability_is_missing(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_round_trip_pptx(tmp_path)
+    original_bytes = pptx_path.read_bytes()
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    image = next(
+        element
+        for element in generated.blueprint["slides"][0]["elements"]
+        if element["type"] == "image"
+    )
+    unsafe_blueprint = copy.deepcopy(generated.template_blueprint)
+    source = source_for_element(
+        unsafe_blueprint["slides"][0]["elementSources"],
+        image["elementId"],
+    )
+    source["ooxmlEditCapabilities"]["crop"] = "none"
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=unsafe_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_props",
+                "slideId": "slide_import_file_template_1",
+                "elementId": image["elementId"],
+                "props": {"crop": None},
+            }
+        ],
+    )
+
     assert current_package_bytes(result.assets) == original_bytes
     assert result.applied_operations == []
     assert len(result.unsupported_operations) == 1
-    unsupported = result.unsupported_operations[0]
-    assert unsupported.operation_type == "update_element_props"
-    assert unsupported.reason_code == "PROPS_FIELDS_UNSUPPORTED"
-    assert unsupported.element_id == image["elementId"]
+    assert result.unsupported_operations[0].reason_code == "CROP_CAPABILITY_UNSAFE"
+
+
+def test_sync_pptx_ooxml_rejects_crop_when_relationship_locator_mismatches(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_round_trip_pptx(tmp_path)
+    original_bytes = pptx_path.read_bytes()
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    unsafe_blueprint = copy.deepcopy(generated.template_blueprint)
+    source = next(
+        item
+        for item in unsafe_blueprint["slides"][0]["elementSources"]
+        if item["ooxmlEditCapabilities"]["crop"] == "picture"
+    )
+    source["relationshipId"] = "rId-mismatch"
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=unsafe_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_props",
+                "slideId": "slide_import_file_template_1",
+                "elementId": source["elementId"],
+                "props": {
+                    "crop": {"left": 0.1, "top": 0, "right": 0, "bottom": 0}
+                },
+            }
+        ],
+    )
+
+    assert current_package_bytes(result.assets) == original_bytes
+    assert result.applied_operations == []
+    assert len(result.unsupported_operations) == 1
+    assert result.unsupported_operations[0].reason_code == "CROP_CAPABILITY_UNSAFE"
+
+
+def test_sync_pptx_ooxml_applies_crop_after_image_add_in_same_batch(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_round_trip_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    image_blob = png_sized_bytes(16, 8, "#22c55e")
+    element_id = "el_add_then_crop"
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "add_element",
+                "slideId": "slide_import_file_template_1",
+                "element": {
+                    "elementId": element_id,
+                    "type": "image",
+                    "x": 100,
+                    "y": 100,
+                    "width": 320,
+                    "height": 180,
+                    "props": {
+                        "src": "data:image/png;base64,"
+                        + base64.b64encode(image_blob).decode("ascii"),
+                        "fit": "contain",
+                    },
+                },
+            },
+            {
+                "type": "update_element_props",
+                "slideId": "slide_import_file_template_1",
+                "elementId": element_id,
+                "props": {
+                    "crop": {
+                        "left": 0.2,
+                        "top": 0.1,
+                        "right": 0.15,
+                        "bottom": 0.05,
+                    }
+                },
+            },
+        ],
+    )
+    source = source_for_element(result.element_sources, element_id)
+
+    assert result.unsupported_operations == []
+    assert len(result.applied_operations) == 2
+    assert source["ooxmlEditCapabilities"]["crop"] == "picture"
+    assert b'<a:srcRect l="20000" t="10000" r="15000" b="5000"' in shape_xml(
+        current_package_bytes(result.assets),
+        source["shapeId"],
+    )
+
+
+def test_sync_pptx_ooxml_round_trips_picture_fill_crop(tmp_path: Path) -> None:
+    pptx_path = sample_picture_fill_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    source = next(
+        item
+        for item in generated.template_blueprint["slides"][0]["elementSources"]
+        if item["ooxmlEditCapabilities"]["crop"] == "picture-fill"
+    )
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_props",
+                "slideId": "slide_import_file_template_1",
+                "elementId": source["elementId"],
+                "props": {
+                    "crop": {
+                        "left": 0.2,
+                        "top": 0.1,
+                        "right": 0.15,
+                        "bottom": 0.05,
+                    }
+                },
+            }
+        ],
+    )
+    package_bytes = current_package_bytes(result.assets)
+
+    assert result.unsupported_operations == []
+    assert len(result.applied_operations) == 1
+    assert b'<a:srcRect l="20000" t="10000" r="15000" b="5000"' in shape_xml(
+        package_bytes,
+        source["shapeId"],
+    )
+
+    synced_path = tmp_path / "picture-fill-crop-synced.pptx"
+    synced_path.write_bytes(package_bytes)
+    reimported = generate_pptx_ooxml(synced_path, "file_reimported", render=False)
+    reimported_source = next(
+        item
+        for item in reimported.template_blueprint["slides"][0]["elementSources"]
+        if item["shapeId"] == source["shapeId"]
+        and item["sourceType"] == "shape"
+        and item["elementType"] == "image"
+    )
+    reimported_element = next(
+        item
+        for item in reimported.blueprint["slides"][0]["elements"]
+        if item["elementId"] == reimported_source["elementId"]
+    )
+    assert reimported_source["ooxmlEditCapabilities"]["crop"] == "picture-fill"
+    assert reimported_element["props"]["crop"] == {
+        "left": 0.2,
+        "top": 0.1,
+        "right": 0.15,
+        "bottom": 0.05,
+    }
 
 
 def test_sync_pptx_ooxml_rejects_prop_type_mismatch_without_package_changes(
@@ -697,7 +908,13 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
             "height": 180,
             "props": {
                 "src": "data:image/png;base64,"
-                + base64.b64encode(first_image).decode("ascii")
+                + base64.b64encode(first_image).decode("ascii"),
+                "crop": {
+                    "left": 0.2,
+                    "top": 0.1,
+                    "right": 0.15,
+                    "bottom": 0.05,
+                },
             },
         },
     ]
@@ -732,12 +949,16 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
     assert all(
         source["ooxmlOrigin"] == "authored"
         and source["ooxmlEditCapabilities"]["richText"] == "none"
-        and source["ooxmlEditCapabilities"]["crop"] == "none"
         and source["ooxmlEditCapabilities"]["tableCellText"] is False
         and source["ooxmlEditCapabilities"]["frame"] is True
         and source["ooxmlEditCapabilities"]["delete"] is True
         for source in added_sources.values()
     )
+    assert added_sources["el_added_image"]["ooxmlEditCapabilities"]["crop"] == (
+        "picture"
+    )
+    assert added_sources["el_added_text"]["ooxmlEditCapabilities"]["crop"] == "none"
+    assert added_sources["el_added_rect"]["ooxmlEditCapabilities"]["crop"] == "none"
     assert added_sources["el_added_image"]["ooxmlEditCapabilities"][
         "imageSource"
     ] is True
@@ -751,6 +972,10 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
     assert added.unsupported_operations == []
     assert added_sources["el_added_image"]["relationshipId"].startswith("rId")
     added_package = current_package_bytes(added.assets)
+    assert b'<a:srcRect l="20000" t="10000" r="15000" b="5000"' in shape_xml(
+        added_package,
+        added_sources["el_added_image"]["shapeId"],
+    )
     assert slide_visual_shape_ids(added_package)[-3:] == [
         added_sources["el_added_text"]["shapeId"],
         added_sources["el_added_rect"]["shapeId"],
@@ -798,7 +1023,13 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
                 "elementId": "el_added_image",
                 "props": {
                     "src": "data:image/png;base64,"
-                    + base64.b64encode(second_image).decode("ascii")
+                    + base64.b64encode(second_image).decode("ascii"),
+                    "crop": {
+                        "left": 0.1,
+                        "top": 0.2,
+                        "right": 0.05,
+                        "bottom": 0.15,
+                    },
                 },
             },
         ],
@@ -823,6 +1054,10 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
             edited_image_source["relationshipId"],
         )
         == second_image
+    )
+    assert b'<a:srcRect l="10000" t="20000" r="5000" b="15000"' in shape_xml(
+        edited_bytes,
+        added_sources["el_added_image"]["shapeId"],
     )
 
     edited_path = tmp_path / "edited-added.pptx"
@@ -849,6 +1084,14 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
         for asset in round_trip.assets
         if asset.mime_type == "image/png"
     }
+    round_trip_image = next(
+        element
+        for element in round_trip.blueprint["slides"][0]["elements"]
+        if element["type"] == "image"
+        and element["props"].get("crop")
+        == {"left": 0.1, "top": 0.2, "right": 0.05, "bottom": 0.15}
+    )
+    assert round_trip_image["props"]["fit"] == "contain"
 
 
 def test_sync_pptx_ooxml_authored_image_contain_uses_letterbox_source_rect(
@@ -915,6 +1158,110 @@ def test_sync_pptx_ooxml_authored_image_contain_uses_letterbox_source_rect(
     )
     assert reimported_element["props"]["fit"] == "contain"
     assert "crop" not in reimported_element["props"]
+
+
+def test_sync_pptx_ooxml_preserves_explicit_crop_on_resize_and_source_replace(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_round_trip_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    first_blob = png_sized_bytes(16, 8, "#00ff00")
+    second_blob = png_sized_bytes(8, 16, "#0000ff")
+    crop = {"left": 0.2, "top": 0.1, "right": 0.15, "bottom": 0.05}
+    added = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "add_element",
+                "slideId": "slide_import_file_template_1",
+                "element": {
+                    "elementId": "el_explicit_crop",
+                    "type": "image",
+                    "x": 100,
+                    "y": 100,
+                    "width": 200,
+                    "height": 200,
+                    "props": {
+                        "src": "data:image/png;base64,"
+                        + base64.b64encode(first_blob).decode("ascii"),
+                        "fit": "contain",
+                        "crop": crop,
+                    },
+                },
+            }
+        ],
+    )
+    source = source_for_element(added.element_sources, "el_explicit_crop")
+    blueprint = copy.deepcopy(generated.template_blueprint)
+    blueprint["slides"][0]["elementSources"].extend(added.element_sources)
+    added_path = tmp_path / "explicit-crop-added.pptx"
+    added_path.write_bytes(current_package_bytes(added.assets))
+
+    preserved = sync_pptx_ooxml(
+        added_path,
+        template_blueprint=blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=3,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_frame",
+                "slideId": "slide_import_file_template_1",
+                "elementId": "el_explicit_crop",
+                "frame": {"x": 100, "y": 100, "width": 400, "height": 200},
+            },
+            {
+                "type": "update_element_props",
+                "slideId": "slide_import_file_template_1",
+                "elementId": "el_explicit_crop",
+                "props": {
+                    "src": "data:image/png;base64,"
+                    + base64.b64encode(second_blob).decode("ascii")
+                },
+            },
+        ],
+    )
+    preserved_bytes = current_package_bytes(preserved.assets)
+    expected_rect = b'<a:srcRect l="20000" t="10000" r="15000" b="5000"'
+
+    assert preserved.unsupported_operations == []
+    assert expected_rect in shape_xml(preserved_bytes, source["shapeId"])
+
+    preserved_source = source_for_element(
+        preserved.element_sources,
+        "el_explicit_crop",
+    )
+    source_for_element(
+        blueprint["slides"][0]["elementSources"],
+        "el_explicit_crop",
+    ).update(preserved_source)
+    preserved_path = tmp_path / "explicit-crop-preserved.pptx"
+    preserved_path.write_bytes(preserved_bytes)
+    reset = sync_pptx_ooxml(
+        preserved_path,
+        template_blueprint=blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=4,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_props",
+                "slideId": "slide_import_file_template_1",
+                "elementId": "el_explicit_crop",
+                "props": {"crop": None},
+            }
+        ],
+    )
+
+    assert reset.unsupported_operations == []
+    assert b"srcRect" not in shape_xml(
+        current_package_bytes(reset.assets),
+        source["shapeId"],
+    )
 
 
 def test_sync_pptx_ooxml_recomputes_authored_contain_after_frame_resize(
@@ -1603,6 +1950,103 @@ def sample_round_trip_pptx(tmp_path: Path) -> Path:
         Inches(1.5),
     )
     presentation.save(pptx_path)
+    return pptx_path
+
+
+def sample_picture_fill_pptx(tmp_path: Path) -> Path:
+    pptx_path = tmp_path / "picture-fill-source.pptx"
+    image_path = tmp_path / "picture-fill.png"
+    image_path.write_bytes(png_sized_bytes(64, 48, "#2563eb"))
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    slide.shapes.add_picture(
+        str(image_path),
+        Inches(8),
+        Inches(1),
+        Inches(1),
+        Inches(1),
+    )
+    shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(1),
+        Inches(1),
+        Inches(4),
+        Inches(2),
+    )
+    shape.text_frame.text = "Picture fill target"
+    presentation.save(pptx_path)
+
+    presentation_ns = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    drawing_ns = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    relationship_ns = (
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    )
+    output = BytesIO()
+    with zipfile.ZipFile(pptx_path, "r") as source, zipfile.ZipFile(
+        output,
+        "w",
+    ) as target:
+        slide_root = ET.fromstring(source.read("ppt/slides/slide1.xml"))
+        picture = next(
+            node for node in slide_root.iter() if node.tag == f"{{{presentation_ns}}}pic"
+        )
+        picture_blip = next(
+            node for node in picture.iter() if node.tag == f"{{{drawing_ns}}}blip"
+        )
+        relationship_id = str(picture_blip.get(f"{{{relationship_ns}}}embed", ""))
+        target_shape = next(
+            node
+            for node in slide_root.iter()
+            if node.tag == f"{{{presentation_ns}}}sp"
+            and any(text.text == "Picture fill target" for text in node.iter() if text.tag == f"{{{drawing_ns}}}t")
+        )
+        shape_properties = next(
+            child
+            for child in list(target_shape)
+            if child.tag == f"{{{presentation_ns}}}spPr"
+        )
+        for child in list(shape_properties):
+            if child.tag.rsplit("}", maxsplit=1)[-1] in {
+                "blipFill",
+                "gradFill",
+                "grpFill",
+                "noFill",
+                "pattFill",
+                "solidFill",
+            }:
+                shape_properties.remove(child)
+        blip_fill = ET.Element(f"{{{drawing_ns}}}blipFill")
+        ET.SubElement(
+            blip_fill,
+            f"{{{drawing_ns}}}blip",
+            {f"{{{relationship_ns}}}embed": relationship_id},
+        )
+        stretch = ET.SubElement(blip_fill, f"{{{drawing_ns}}}stretch")
+        ET.SubElement(stretch, f"{{{drawing_ns}}}fillRect")
+        line_index = next(
+            (
+                index
+                for index, child in enumerate(list(shape_properties))
+                if child.tag.rsplit("}", maxsplit=1)[-1] == "ln"
+            ),
+            len(shape_properties),
+        )
+        shape_properties.insert(line_index, blip_fill)
+        next_slide_xml = ET.tostring(
+            slide_root,
+            encoding="utf-8",
+            xml_declaration=True,
+        )
+        for info in source.infolist():
+            target.writestr(
+                info,
+                next_slide_xml
+                if info.filename == "ppt/slides/slide1.xml"
+                else source.read(info.filename),
+            )
+    pptx_path.write_bytes(output.getvalue())
     return pptx_path
 
 

@@ -118,6 +118,11 @@ type OoxmlTemplateBlueprint = TemplateBlueprintRow & {
   blueprint: TemplateBlueprint;
 };
 
+type OoxmlPreflightContext = {
+  templateBlueprint?: TemplateBlueprint;
+  pendingAuthoredElementKeys: ReadonlySet<string>;
+};
+
 type PptxOoxmlSyncJobInput = {
   deckId: string;
   changeId: string;
@@ -316,9 +321,24 @@ export class DecksService {
               parsedRequestedDeck,
             )
           : parsedRequestedDeck;
+      const ooxmlPreflightContext =
+        currentDeck && templateBlueprint
+          ? await this.createOoxmlPreflightContext(
+              manager,
+              projectId,
+              currentDeck.deckId,
+              templateBlueprint.blueprint,
+            )
+          : emptyOoxmlPreflightContext();
       const replacement =
         currentDeck && (templateBlueprint || isImportedDeck)
-          ? createOoxmlReplacement(currentDeck, requestedDeck, updatedAt)
+          ? createOoxmlReplacement(
+              currentDeck,
+              requestedDeck,
+              updatedAt,
+              "full-put",
+              ooxmlPreflightContext,
+            )
           : undefined;
       const nextDeck = replacement?.deck ?? requestedDeck;
 
@@ -429,6 +449,14 @@ export class DecksService {
         projectId,
         currentDeck.deckId,
       );
+      const ooxmlPreflightContext = templateBlueprint
+        ? await this.createOoxmlPreflightContext(
+            manager,
+            projectId,
+            currentDeck.deckId,
+            templateBlueprint.blueprint,
+          )
+        : emptyOoxmlPreflightContext();
       const patch =
         templateBlueprint || currentDeck.metadata.sourceType === "import"
           ? normalizeOoxmlPatchProvenance(request.patch)
@@ -445,6 +473,7 @@ export class DecksService {
           currentDeck,
           applyResult.deck,
           patch.operations,
+          ooxmlPreflightContext,
         );
       }
 
@@ -871,6 +900,14 @@ export class DecksService {
           normalizedSnapshotDeck,
           updatedAt,
           "snapshot-restore",
+          templateBlueprint
+            ? await this.createOoxmlPreflightContext(
+                manager,
+                projectId,
+                currentDeck.deckId,
+                templateBlueprint.blueprint,
+              )
+            : emptyOoxmlPreflightContext(),
         );
         await this.insertPatchLog(manager, projectId, replacement.changeRecord);
         const restoredDeck = await this.writeDeckCheckpoint(
@@ -940,6 +977,26 @@ export class DecksService {
     return {
       deck,
       updatedAt: toIso(patchRows.at(-1)?.created_at ?? nowIso()),
+    };
+  }
+
+  private async createOoxmlPreflightContext(
+    executor: QueryExecutor,
+    projectId: string,
+    deckId: string,
+    templateBlueprint: TemplateBlueprint,
+  ): Promise<OoxmlPreflightContext> {
+    const patchRows = await this.findPatchRowsAfterVersion(
+      executor,
+      projectId,
+      deckId,
+      templateBlueprint.ooxmlSyncedDeckVersion ?? 1,
+      true,
+    );
+    return {
+      templateBlueprint,
+      pendingAuthoredElementKeys:
+        pendingAuthoredElementKeysFromPatchRows(patchRows),
     };
   }
 
@@ -1309,6 +1366,7 @@ function createOoxmlReplacement(
   requestedDeck: Deck,
   createdAt: string,
   structurePolicy: "full-put" | "snapshot-restore" = "full-put",
+  preflightContext: OoxmlPreflightContext = emptyOoxmlPreflightContext(),
 ): { deck: Deck; changeRecord: DeckChangeRecord } {
   assertOoxmlReplacementStructureIsSupported(
     currentDeck,
@@ -1338,7 +1396,12 @@ function createOoxmlReplacement(
     ),
   ];
   if (currentDeck.metadata.sourceType === "import") {
-    assertOoxmlPatchOperationsAreSupported(currentDeck, deck, operations);
+    assertOoxmlPatchOperationsAreSupported(
+      currentDeck,
+      deck,
+      operations,
+      preflightContext,
+    );
   }
 
   return {
@@ -1805,18 +1868,76 @@ const ooxmlSupportedFrameFields = new Set([
   "zIndex",
 ]);
 
+function emptyOoxmlPreflightContext(): OoxmlPreflightContext {
+  return { pendingAuthoredElementKeys: new Set() };
+}
+
+function ooxmlElementKey(slideId: string, elementId: string): string {
+  return `${slideId}\0${elementId}`;
+}
+
+function pendingAuthoredElementKeysFromPatchRows(
+  patchRows: DeckPatchRow[],
+): Set<string> {
+  const pending = new Set<string>();
+  for (const row of patchRows) {
+    for (const operation of row.operations) {
+      updatePendingAuthoredElementKeys(pending, operation);
+    }
+  }
+  return pending;
+}
+
+function updatePendingAuthoredElementKeys(
+  pending: Set<string>,
+  operation: DeckPatchOperation,
+): void {
+  if (operation.type === "add_element") {
+    if (operation.element.ooxmlOrigin === "authored") {
+      pending.add(
+        ooxmlElementKey(operation.slideId, operation.element.elementId),
+      );
+    }
+    return;
+  }
+  if (operation.type === "delete_element") {
+    pending.delete(ooxmlElementKey(operation.slideId, operation.elementId));
+    return;
+  }
+  if (operation.type === "add_slide") {
+    for (const element of operation.slide.elements) {
+      if (element.ooxmlOrigin === "authored") {
+        pending.add(
+          ooxmlElementKey(operation.slide.slideId, element.elementId),
+        );
+      }
+    }
+  }
+}
+
 function assertOoxmlPatchOperationsAreSupported(
   currentDeck: Deck,
   nextDeck: Deck,
   operations: DeckPatchOperation[],
+  preflightContext: OoxmlPreflightContext = emptyOoxmlPreflightContext(),
 ): void {
+  const pendingAuthoredElementKeys = new Set(
+    preflightContext.pendingAuthoredElementKeys,
+  );
   for (const operation of operations) {
     const reasonCode = ooxmlUnsupportedOperationReason(
       currentDeck,
       nextDeck,
       operation,
+      {
+        ...preflightContext,
+        pendingAuthoredElementKeys,
+      },
     );
-    if (!reasonCode) continue;
+    if (!reasonCode) {
+      updatePendingAuthoredElementKeys(pendingAuthoredElementKeys, operation);
+      continue;
+    }
 
     const details = [
       `operationType=${operation.type}`,
@@ -1841,6 +1962,7 @@ function ooxmlUnsupportedOperationReason(
   currentDeck: Deck,
   nextDeck: Deck,
   operation: DeckPatchOperation,
+  preflightContext: OoxmlPreflightContext,
 ): string | null {
   if (ooxmlPackageNeutralOperationTypes.has(operation.type)) return null;
 
@@ -1911,15 +2033,24 @@ function ooxmlUnsupportedOperationReason(
         : "AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED";
     }
 
-    return ooxmlElementPropsUnsupportedReason(element, operation.props);
+    return ooxmlElementPropsUnsupportedReason(
+      currentDeck,
+      operation.slideId,
+      element,
+      operation.props,
+      preflightContext,
+    );
   }
 
   return "OPERATION_TYPE_UNSUPPORTED";
 }
 
 function ooxmlElementPropsUnsupportedReason(
+  currentDeck: Deck,
+  slideId: string,
   element: DeckElement,
   props: Record<string, unknown>,
+  preflightContext: OoxmlPreflightContext,
 ): string | null {
   const fields = Object.keys(props);
   if (fields.length === 0) return "PROPS_FIELDS_UNSUPPORTED";
@@ -1943,31 +2074,84 @@ function ooxmlElementPropsUnsupportedReason(
 
   if (element.type === "image") {
     if (
-      fields.includes("crop") &&
-      element.ooxmlOrigin === "imported" &&
-      capabilities?.crop === "none"
+      fields.some(
+        (field) => field !== "src" && field !== "alt" && field !== "crop",
+      )
     ) {
-      return "CROP_CAPABILITY_UNSAFE";
+      return "PROPS_FIELDS_UNSUPPORTED";
     }
-    if (fields.every((field) => field === "src" || field === "alt")) {
+    if (fields.includes("crop")) {
+      const pendingAuthoredSource =
+        element.ooxmlOrigin === "authored" &&
+        preflightContext.pendingAuthoredElementKeys.has(
+          ooxmlElementKey(slideId, element.elementId),
+        );
       if (
-        element.ooxmlOrigin === "imported" &&
-        capabilities?.imageSource !== true
+        !pendingAuthoredSource &&
+        !ooxmlSourceMappingSupportsImageCrop(
+          currentDeck,
+          slideId,
+          element,
+          preflightContext.templateBlueprint,
+        )
       ) {
-        return "IMAGE_SOURCE_CAPABILITY_UNSAFE";
+        return "CROP_CAPABILITY_UNSAFE";
       }
-      return element.ooxmlOrigin === "authored" &&
-        !authoredOoxmlSerializerSupportsElement(element)
-        ? "AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED"
-        : null;
     }
-    return "PROPS_FIELDS_UNSUPPORTED";
+    if (
+      fields.some((field) => field === "src" || field === "alt") &&
+      element.ooxmlOrigin === "imported" &&
+      capabilities?.imageSource !== true
+    ) {
+      return "IMAGE_SOURCE_CAPABILITY_UNSAFE";
+    }
+    return element.ooxmlOrigin === "authored" &&
+      !authoredOoxmlSerializerSupportsElement(element)
+      ? "AUTHORED_ELEMENT_SERIALIZER_UNSUPPORTED"
+      : null;
   }
 
   if (element.type === "table" && element.ooxmlOrigin === "imported") {
     if (!capabilities?.tableCellText) return "TABLE_CELL_CAPABILITY_UNSAFE";
   }
   return "PROPS_FIELDS_UNSUPPORTED";
+}
+
+function ooxmlSourceMappingSupportsImageCrop(
+  currentDeck: Deck,
+  slideId: string,
+  element: DeckElement,
+  templateBlueprint: TemplateBlueprint | undefined,
+): boolean {
+  if (!templateBlueprint) return false;
+  const slideIndex =
+    currentDeck.slides.findIndex((slide) => slide.slideId === slideId) + 1;
+  const mappedSlide =
+    slideIndex > 0
+      ? templateBlueprint.slides.find(
+          (slide) => slide.slideIndex === slideIndex,
+        )
+      : undefined;
+  if (!mappedSlide) return false;
+  const sources = mappedSlide.elementSources.filter(
+    (source) => source.elementId === element.elementId,
+  );
+  if (sources.length !== 1) return false;
+
+  const source = sources[0]!;
+  if (
+    source.elementType !== "image" ||
+    source.ooxmlOrigin !== element.ooxmlOrigin ||
+    source.writable !== true ||
+    !source.relationshipId
+  ) {
+    return false;
+  }
+  const crop = source.ooxmlEditCapabilities?.crop;
+  return (
+    (crop === "picture" && source.sourceType === "image") ||
+    (crop === "picture-fill" && source.sourceType === "shape")
+  );
 }
 
 function findOoxmlElement(
@@ -2006,7 +2190,6 @@ function authoredOoxmlSerializerSupportsElement(element: DeckElement): boolean {
 
   if (element.type === "image") {
     return (
-      element.props.crop === undefined &&
       element.props.fit === "contain" &&
       element.props.focusX === 0.5 &&
       element.props.focusY === 0.5

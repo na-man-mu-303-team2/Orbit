@@ -638,6 +638,184 @@ def test_ooxml_visual_tree_keeps_picture_fill_as_editable_image(
     assert picture_fill["zIndex"] < text["zIndex"]
 
 
+def test_ooxml_visual_tree_imports_picture_crop_with_image_provenance(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "picture-crop.pptx"
+    image_path = tmp_path / "picture-crop.png"
+    Image.new("RGB", (64, 48), "#47604D").save(image_path)
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    picture = slide.shapes.add_picture(
+        str(image_path),
+        Inches(1),
+        Inches(1),
+        Inches(4),
+        Inches(3),
+    )
+    relationship_id = embedded_blip_relationship_id(picture)
+    add_shape_source_rect(
+        picture,
+        left="20000",
+        top="10000",
+        right="15000",
+        bottom="5000",
+    )
+    shape_id = str(picture.shape_id)
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    image = next(
+        element
+        for element in result.blueprint["slides"][0]["elements"]
+        if str(element["elementId"]).endswith("_image")
+    )
+    source = next(
+        item
+        for item in result.template_blueprint["slides"][0]["elementSources"]
+        if item["elementId"] == image["elementId"]
+    )
+    slot = next(
+        item
+        for item in result.template_blueprint["slides"][0]["slots"]
+        if item["elementId"] == image["elementId"]
+    )
+
+    assert image["props"]["crop"] == {
+        "left": 0.2,
+        "top": 0.1,
+        "right": 0.15,
+        "bottom": 0.05,
+    }
+    assert source["sourceType"] == "image"
+    assert source["shapeId"] == shape_id
+    assert source["relationshipId"] == relationship_id
+    assert slot["source"]["type"] == "image"
+
+
+def test_ooxml_visual_tree_imports_picture_fill_crop_without_retyping_siblings(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "picture-fill-crop.pptx"
+    image_path = tmp_path / "picture-fill-crop.png"
+    Image.new("RGB", (64, 48), "#2563EB").save(image_path)
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    picture = slide.shapes.add_picture(
+        str(image_path),
+        Inches(8),
+        Inches(1),
+        Inches(1),
+        Inches(1),
+    )
+    relationship_id = embedded_blip_relationship_id(picture)
+    shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(1),
+        Inches(1),
+        Inches(4),
+        Inches(2),
+    )
+    shape.text_frame.text = "Picture fill sibling"
+    shape.line.color.rgb = RGBColor(17, 24, 39)
+    replace_shape_fill_with_blip(shape, relationship_id)
+    add_shape_source_rect(
+        shape,
+        left="20000",
+        top="10000",
+        right="15000",
+        bottom="5000",
+    )
+    shape_id = str(shape.shape_id)
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    elements = result.blueprint["slides"][0]["elements"]
+    picture_fill = next(
+        element
+        for element in elements
+        if str(element["elementId"]).endswith("_picture_fill")
+    )
+    sources = result.template_blueprint["slides"][0]["elementSources"]
+    picture_fill_source = next(
+        source
+        for source in sources
+        if source["elementId"] == picture_fill["elementId"]
+    )
+    sibling_sources = [
+        source
+        for source in sources
+        if source["shapeId"] == shape_id
+        and source["elementId"] != picture_fill["elementId"]
+    ]
+    sibling_element_ids = {source["elementId"] for source in sibling_sources}
+    sibling_types = {
+        element["type"]
+        for element in elements
+        if element["elementId"] in sibling_element_ids
+    }
+
+    assert picture_fill["props"]["crop"] == {
+        "left": 0.2,
+        "top": 0.1,
+        "right": 0.15,
+        "bottom": 0.05,
+    }
+    assert picture_fill_source["sourceType"] == "shape"
+    assert picture_fill_source["shapeId"] == shape_id
+    assert picture_fill_source["relationshipId"] == relationship_id
+    assert {source["sourceType"] for source in sibling_sources} == {"slide"}
+    assert {"rect", "text"}.issubset(sibling_types)
+    assert any(
+        element["elementId"] in sibling_element_ids
+        and element["props"].get("text") == "Picture fill sibling"
+        for element in elements
+    )
+
+
+def test_ooxml_visual_tree_normalizes_malformed_overconstrained_crop(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "unsafe-picture-crop.pptx"
+    image_path = tmp_path / "unsafe-picture-crop.png"
+    Image.new("RGB", (64, 48), "#F59E0B").save(image_path)
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    picture = slide.shapes.add_picture(
+        str(image_path),
+        Inches(1),
+        Inches(1),
+        Inches(4),
+        Inches(3),
+    )
+    add_shape_source_rect(
+        picture,
+        left="90000",
+        top="not-a-percentage",
+        right="90000",
+        bottom="250000",
+    )
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_design")
+    image = next(
+        element
+        for element in result.blueprint["slides"][0]["elements"]
+        if str(element["elementId"]).endswith("_image")
+    )
+    crop = image["props"]["crop"]
+
+    assert crop == {
+        "left": 0.5,
+        "top": 0.0,
+        "right": 0.49999,
+        "bottom": 0.99999,
+    }
+    assert crop["left"] + crop["right"] < 1
+    assert crop["top"] + crop["bottom"] < 1
+    assert all(0 <= value <= 1 for value in crop.values())
+
+
 def test_ooxml_visual_tree_keeps_group_visual_children_editable(
     tmp_path: Path,
 ) -> None:
@@ -1577,6 +1755,37 @@ def replace_shape_fill_with_blip(shape: object, relationship_id: str) -> None:
             """
         ),
     )
+
+
+def add_shape_source_rect(
+    shape: object,
+    *,
+    left: str,
+    top: str,
+    right: str,
+    bottom: str,
+) -> None:
+    shape_element = shape._element
+    if shape_element.tag.rsplit("}", maxsplit=1)[-1] == "pic":
+        blip_fill = shape_element.blipFill
+    else:
+        blip_fill = next(
+            child
+            for child in list(shape_element.spPr)
+            if child.tag.rsplit("}", maxsplit=1)[-1] == "blipFill"
+        )
+    src_rect = parse_xml(
+        '<a:srcRect xmlns:a="http://schemas.openxmlformats.org/'
+        'drawingml/2006/main"/>'
+    )
+    for name, value in {"l": left, "t": top, "r": right, "b": bottom}.items():
+        src_rect.set(name, value)
+    blip_index = next(
+        index
+        for index, child in enumerate(list(blip_fill))
+        if child.tag.rsplit("}", maxsplit=1)[-1] == "blip"
+    )
+    blip_fill.insert(blip_index + 1, src_rect)
 
 
 def embedded_blip_relationship_id(shape: object) -> str:

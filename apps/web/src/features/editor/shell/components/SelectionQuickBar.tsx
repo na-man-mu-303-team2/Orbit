@@ -43,27 +43,44 @@ type TextFitContext = {
   fontFamily?: string;
 };
 
-export const imageCropPersistenceReady = false;
-
 export function getImageCropActionState(args: {
+  actionAvailable?: boolean;
   capability: OoxmlEditCapability | null | undefined;
   element: DeckElement | null;
-  persistenceReady?: boolean;
 }) {
-  const visible =
-    (args.persistenceReady ?? imageCropPersistenceReady) &&
-    args.element?.type === "image";
+  const visible = args.element?.type === "image";
 
   if (!visible) {
     return { enabled: false, reason: null, visible: false };
   }
 
-  const enabled = args.capability?.enabled === true;
+  if (!args.capability) {
+    return {
+      enabled: false,
+      reason: "이미지 자르기 저장 가능 여부를 확인할 수 없습니다.",
+      visible: true,
+    };
+  }
+  if (!args.capability.enabled) {
+    return {
+      enabled: false,
+      reason:
+        args.capability.reason ??
+        "이미지 자르기를 안전하게 저장할 수 없습니다.",
+      visible: true,
+    };
+  }
+  if (args.actionAvailable === false) {
+    return {
+      enabled: false,
+      reason: "이미지 자르기 편집기를 시작할 수 없습니다.",
+      visible: true,
+    };
+  }
+
   return {
-    enabled,
-    reason: enabled
-      ? null
-      : (args.capability?.reason ?? "이미지 자르기를 사용할 수 없습니다."),
+    enabled: true,
+    reason: null,
     visible: true,
   };
 }
@@ -251,9 +268,11 @@ export function SelectionQuickBar(props: {
     emptyLabel: "애니메이션 없음",
   });
   const imageCropActionState = getImageCropActionState({
+    actionAvailable: Boolean(onStartImageCrop),
     capability: imageCropCapability,
     element,
   });
+  const imageCropReasonId = `image-crop-reason-${element.elementId}`;
 
   return (
     <section
@@ -277,15 +296,29 @@ export function SelectionQuickBar(props: {
         </CapabilityFieldset>
         {imageCropActionState.visible ? (
           <button
+            aria-describedby={
+              imageCropActionState.reason ? imageCropReasonId : undefined
+            }
             aria-label="이미지 자르기"
             className="quickbar-action-chip"
-            disabled={!imageCropActionState.enabled || !onStartImageCrop}
+            disabled={!imageCropActionState.enabled}
             title={imageCropActionState.reason ?? "이미지 자르기"}
             type="button"
-            onClick={onStartImageCrop}
+            onClick={
+              imageCropActionState.enabled ? onStartImageCrop : undefined
+            }
           >
             자르기
           </button>
+        ) : null}
+        {imageCropActionState.reason ? (
+          <span
+            className="quickbar-inline-hint quickbar-inline-hint-warning"
+            id={imageCropReasonId}
+            role="status"
+          >
+            {imageCropActionState.reason}
+          </span>
         ) : null}
         <div className="quickbar-divider" />
         <CapabilityFieldset capability={elementFrameCapability}>
