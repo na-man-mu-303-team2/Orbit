@@ -19,6 +19,7 @@ import { ShareAccessModal } from "./ShareAccessModal";
 
 export function EditorModals(props: {
   audienceLink: {
+    deckId: string;
     isOpen: boolean;
     onClose: () => void;
     projectId: string;

@@ -1144,6 +1144,7 @@ export function EditorShell(props: { projectId?: string }) {
         />
       <EditorModals
         audienceLink={{
+          deckId: deck.deckId,
           isOpen: isAudienceLinkModalOpen,
           onClose: () => setIsAudienceLinkModalOpen(false),
           projectId
@@ -1482,6 +1483,7 @@ export function EditorShell(props: { projectId?: string }) {
             currentSlide?.kind === "activity" ? (
               <ActivitySlideInspector
                 deckId={deck.deckId}
+                onOpenAudienceLink={() => setIsAudienceLinkModalOpen(true)}
                 projectId={deck.projectId}
                 slide={currentSlide}
                 onChange={(activity) => {

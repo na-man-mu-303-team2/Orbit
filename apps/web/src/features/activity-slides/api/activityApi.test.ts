@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { activityApi } from "./activityApi";
+import { activityApi, ActivityApiError } from "./activityApi";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -52,5 +52,30 @@ describe("activityApi", () => {
       "/api/v1/audience-sessions/session_1/active-activity",
       expect.objectContaining({ credentials: "include" })
     );
+  });
+
+  it("preserves Activity conflict codes for editor recovery", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: "ACTIVITY_DEFINITION_LOCKED",
+            message: "Activity definition cannot change after the first response"
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } }
+        )
+      )
+    );
+
+    const error = await activityApi
+      .ensureRun("project_1", "session_1", "activity_1")
+      .catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(ActivityApiError);
+    expect(error).toMatchObject({
+      code: "ACTIVITY_DEFINITION_LOCKED",
+      status: 409
+    });
   });
 });

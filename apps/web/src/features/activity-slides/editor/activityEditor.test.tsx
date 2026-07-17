@@ -13,6 +13,7 @@ import {
   convertQuestionType,
   moveQuestion
 } from "./ActivitySlideInspector";
+import { ActivityEditorOperationsPanel } from "./ActivityEditorOperationsPanel";
 import { ActivitySlidePreview } from "./ActivitySlidePreview";
 import {
   ActivityResultSlideInspector,
@@ -41,6 +42,60 @@ describe("activity slide editor", () => {
     expect(html).toContain("발표자 화면");
     expect(html).toContain("잠긴 시스템 레이어");
     expect(html).toContain('data-activity-system-layer="locked"');
+    expect(html).toContain('data-semantic-locked="false"');
+  });
+
+  it("renders editor status, public state, direct link, and QR controls", () => {
+    const html = renderToStaticMarkup(
+      <ActivityEditorOperationsPanel
+        onUpdateStatus={vi.fn()}
+        pending={false}
+        runtime={{
+          audienceUrl: "/audience/session_1",
+          sessionId: "session_1",
+          run: {
+            activityRunId: "activity_run_1",
+            presentationSessionId: "session_1",
+            activityId: slide.activity.activityId,
+            sourceSlideId: slide.slideId,
+            version: 1,
+            supersedesActivityRunId: null,
+            definitionSnapshot: slide.activity,
+            definitionFingerprint: "fingerprint_1",
+            status: "results",
+            revision: 3,
+            isCurrent: true,
+            responseCount: 7,
+            openedAt: "2026-07-17T00:00:00.000Z",
+            closedAt: "2026-07-17T00:01:00.000Z",
+            revealedAt: "2026-07-17T00:02:00.000Z",
+            createdAt: "2026-07-17T00:00:00.000Z",
+            updatedAt: "2026-07-17T00:02:00.000Z"
+          }
+        }}
+        slide={slide}
+      />
+    );
+
+    expect(html).toContain("결과 공개");
+    expect(html).toContain("청중 결과");
+    expect(html).toContain("/audience/session_1/a/");
+    expect(html).toContain("장표별 직접 링크 복사");
+    expect(html).toContain("QR 코드 확인");
+  });
+
+  it("offers the shared session modal when no session exists", () => {
+    const html = renderToStaticMarkup(
+      <ActivityEditorOperationsPanel
+        onOpenAudienceLink={vi.fn()}
+        onUpdateStatus={vi.fn()}
+        pending={false}
+        runtime={null}
+        slide={slide}
+      />
+    );
+
+    expect(html).toContain("발표 세션 만들기");
   });
 
   it("converts and reorders satisfaction questions without changing their IDs", () => {

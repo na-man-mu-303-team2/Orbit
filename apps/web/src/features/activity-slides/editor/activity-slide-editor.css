@@ -169,18 +169,149 @@
   min-width: 0;
 }
 
+.activity-semantic-fields {
+  border: 0;
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
 .activity-inspector-heading h3,
 .activity-inspector-heading p {
   margin: 4px 0 0;
 }
 
 .activity-slide-inspector > label,
+.activity-semantic-fields > label,
 .activity-inspector-questions label {
   color: #4b4b4b;
   display: grid;
   font-size: 12px;
   font-weight: 700;
   gap: 6px;
+}
+
+.activity-semantic-fields:disabled {
+  opacity: 0.68;
+}
+
+.activity-definition-lock {
+  background: #fff8e6;
+  border: 1px solid #efd38b;
+  border-radius: 10px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.activity-definition-lock p,
+.activity-editor-runtime-error {
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.activity-definition-lock p {
+  color: #6b5423;
+}
+
+.activity-editor-runtime-error {
+  color: #b42318;
+}
+
+.activity-editor-operations {
+  border: 1px solid #deded7;
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.activity-editor-operations p {
+  color: #666;
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+
+.activity-editor-operations button {
+  min-height: 36px;
+}
+
+.activity-editor-operation-heading {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.activity-editor-operation-heading > div {
+  background: #f4f4ef;
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+}
+
+.activity-editor-operation-heading span,
+.activity-editor-direct-link,
+.activity-editor-qr-preview span {
+  color: #666;
+  font-size: 10px;
+}
+
+.activity-editor-operation-heading strong {
+  font-size: 12px;
+}
+
+.activity-editor-primary-command {
+  background: #171717;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  font-weight: 800;
+}
+
+.activity-editor-direct-link {
+  display: grid;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.activity-editor-direct-link > span {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.activity-editor-direct-link button,
+.activity-editor-qr-toggle,
+.activity-editor-operations > button:not(.activity-editor-primary-command) {
+  align-items: center;
+  background: white;
+  border: 1px solid #d9d9d3;
+  border-radius: 8px;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 5px;
+  justify-content: center;
+  padding: 7px 10px;
+}
+
+.activity-editor-qr-preview {
+  background: #f4f4ef;
+  border-radius: 9px;
+  display: grid;
+  min-height: 160px;
+  place-items: center;
+  padding: 10px;
+}
+
+.activity-editor-qr-preview img {
+  height: 150px;
+  width: 150px;
 }
 
 .activity-slide-inspector input[type="text"],
