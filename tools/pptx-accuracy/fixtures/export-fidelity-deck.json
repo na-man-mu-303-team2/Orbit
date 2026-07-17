@@ -1,0 +1,486 @@
+{
+  "schemaVersion": 1,
+  "deck": {
+    "deckId": "deck_export_accuracy_v1",
+    "projectId": "project_export_accuracy",
+    "title": "Deterministic PPTX export fidelity fixture",
+    "version": 1,
+    "metadata": {
+      "language": "ko",
+      "locale": "ko-KR",
+      "sourceType": "manual"
+    },
+    "canvas": {
+      "preset": "wide-16-9",
+      "width": 1920,
+      "height": 1080,
+      "aspectRatio": "16:9"
+    },
+    "theme": {
+      "name": "Export Accuracy",
+      "fontFamily": "Pretendard",
+      "backgroundColor": "#FFFFFF",
+      "textColor": "#111827",
+      "accentColor": "#2563EB",
+      "palette": {
+        "primary": "#2563EB",
+        "secondary": "#7C3AED",
+        "surface": "#FFFFFF",
+        "muted": "#F3F4F6",
+        "border": "#CBD5E1"
+      },
+      "typography": {
+        "headingFontFamily": "Pretendard",
+        "bodyFontFamily": "Pretendard",
+        "titleSize": 56,
+        "headingSize": 40,
+        "bodySize": 24,
+        "captionSize": 16
+      },
+      "effects": {
+        "borderRadius": 8
+      }
+    },
+    "slides": [
+      {
+        "slideId": "slide_export_accuracy_text",
+        "order": 1,
+        "title": "Text, shape, group, line and unsupported fidelity",
+        "thumbnailUrl": "",
+        "style": {
+          "backgroundColor": "#FFFFFF",
+          "textColor": "#111827",
+          "accentColor": "#2563EB",
+          "layout": "title-content"
+        },
+        "speakerNotes": "",
+        "elements": [
+          {
+            "elementId": "el_accuracy_rich_title",
+            "type": "text",
+            "role": "title",
+            "x": 120,
+            "y": 72,
+            "width": 1680,
+            "height": 170,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 1,
+            "locked": false,
+            "visible": true,
+            "props": {
+              "text": "Rich export accuracy fixture",
+              "paragraphs": [
+                {
+                  "text": "Rich export accuracy fixture",
+                  "runs": [
+                    {
+                      "text": "Rich ",
+                      "fontFamily": "Pretendard",
+                      "fontSize": 64,
+                      "fontWeight": "bold",
+                      "color": "#111827"
+                    },
+                    {
+                      "text": "export accuracy",
+                      "fontFamily": "Pretendard",
+                      "fontSize": 54,
+                      "fontWeight": "semibold",
+                      "color": "#2563EB"
+                    },
+                    {
+                      "text": " fixture",
+                      "fontFamily": "Pretendard",
+                      "fontSize": 46,
+                      "fontWeight": "normal",
+                      "color": "#7C3AED"
+                    }
+                  ],
+                  "align": "left",
+                  "lineHeight": 1.1,
+                  "spaceBefore": 0,
+                  "spaceAfter": 0,
+                  "indent": 0
+                }
+              ],
+              "fontFamily": "Pretendard",
+              "fontSize": 54,
+              "fontWeight": "normal",
+              "color": "#111827",
+              "align": "left",
+              "verticalAlign": "middle",
+              "lineHeight": 1.1,
+              "bodyInset": {
+                "left": 0,
+                "right": 0,
+                "top": 0,
+                "bottom": 0
+              }
+            }
+          },
+          {
+            "elementId": "el_accuracy_shape",
+            "type": "rect",
+            "role": "highlight",
+            "x": 120,
+            "y": 320,
+            "width": 420,
+            "height": 210,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 2,
+            "locked": false,
+            "visible": true,
+            "props": {
+              "fill": "#DBEAFE",
+              "stroke": "#2563EB",
+              "strokeWidth": 8,
+              "borderRadius": 0
+            }
+          },
+          {
+            "elementId": "el_accuracy_line",
+            "type": "line",
+            "role": "decoration",
+            "x": 120,
+            "y": 640,
+            "width": 500,
+            "height": 8,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 3,
+            "locked": false,
+            "visible": true,
+            "props": {
+              "fill": "transparent",
+              "stroke": "#0F766E",
+              "strokeWidth": 10,
+              "borderRadius": 0
+            }
+          },
+          {
+            "elementId": "el_accuracy_arrow",
+            "type": "arrow",
+            "role": "decoration",
+            "x": 120,
+            "y": 760,
+            "width": 500,
+            "height": 8,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 4,
+            "locked": false,
+            "visible": true,
+            "props": {
+              "fill": "transparent",
+              "stroke": "#DC2626",
+              "strokeWidth": 10,
+              "borderRadius": 0
+            }
+          },
+          {
+            "elementId": "el_accuracy_custom_shape",
+            "type": "customShape",
+            "role": "decoration",
+            "x": 690,
+            "y": 320,
+            "width": 260,
+            "height": 230,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 5,
+            "locked": false,
+            "visible": true,
+            "props": {
+              "pathData": "M 130 0 L 260 230 L 0 230 Z",
+              "viewBoxWidth": 260,
+              "viewBoxHeight": 230,
+              "fill": "#FDE68A",
+              "stroke": "#D97706",
+              "strokeWidth": 6,
+              "closed": true,
+              "nodes": [
+                { "x": 130, "y": 0, "mode": "corner" },
+                { "x": 260, "y": 230, "mode": "corner" },
+                { "x": 0, "y": 230, "mode": "corner" }
+              ]
+            }
+          },
+          {
+            "elementId": "el_accuracy_group",
+            "type": "group",
+            "role": "decoration",
+            "x": 1040,
+            "y": 320,
+            "width": 700,
+            "height": 250,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 6,
+            "locked": false,
+            "visible": true,
+            "props": {
+              "childElementIds": [
+                "el_accuracy_group_ellipse",
+                "el_accuracy_group_text"
+              ]
+            }
+          },
+          {
+            "elementId": "el_accuracy_group_ellipse",
+            "type": "ellipse",
+            "role": "decoration",
+            "x": 1080,
+            "y": 350,
+            "width": 180,
+            "height": 180,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 7,
+            "locked": false,
+            "visible": true,
+            "props": {
+              "fill": "#DDD6FE",
+              "stroke": "#7C3AED",
+              "strokeWidth": 6,
+              "borderRadius": 0
+            }
+          },
+          {
+            "elementId": "el_accuracy_group_text",
+            "type": "text",
+            "role": "caption",
+            "x": 1300,
+            "y": 390,
+            "width": 380,
+            "height": 100,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 8,
+            "locked": false,
+            "visible": true,
+            "props": {
+              "text": "Grouped content",
+              "fontFamily": "Pretendard",
+              "fontSize": 38,
+              "fontWeight": "semibold",
+              "color": "#4C1D95",
+              "align": "left",
+              "verticalAlign": "middle",
+              "lineHeight": 1.2
+            }
+          },
+          {
+            "elementId": "el_accuracy_hidden",
+            "type": "rect",
+            "role": "decoration",
+            "x": 1500,
+            "y": 900,
+            "width": 200,
+            "height": 80,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 9,
+            "locked": false,
+            "visible": false,
+            "props": {
+              "fill": "#000000",
+              "stroke": "transparent",
+              "strokeWidth": 0,
+              "borderRadius": 0
+            }
+          }
+        ],
+        "keywords": [],
+        "animations": [
+          {
+            "animationId": "anim_accuracy_title",
+            "elementId": "el_accuracy_rich_title",
+            "type": "fade-in",
+            "order": 1,
+            "durationMs": 450,
+            "delayMs": 0,
+            "easing": "ease-out"
+          }
+        ],
+        "actions": [],
+        "aiNotes": {
+          "emphasisPoints": [],
+          "sourceEvidence": []
+        }
+      },
+      {
+        "slideId": "slide_export_accuracy_media",
+        "order": 2,
+        "title": "Image crop, chart and table fidelity",
+        "thumbnailUrl": "",
+        "transition": {
+          "type": "fade",
+          "durationMs": 600
+        },
+        "style": {
+          "backgroundColor": "#F8FAFC",
+          "textColor": "#0F172A",
+          "accentColor": "#0EA5E9",
+          "layout": "chart-focus"
+        },
+        "speakerNotes": "",
+        "elements": [
+          {
+            "elementId": "el_accuracy_media_title",
+            "type": "text",
+            "role": "title",
+            "x": 120,
+            "y": 60,
+            "width": 1680,
+            "height": 120,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 1,
+            "locked": false,
+            "visible": true,
+            "props": {
+              "text": "Image crop · chart · table",
+              "fontFamily": "Pretendard",
+              "fontSize": 58,
+              "fontWeight": "bold",
+              "color": "#0F172A",
+              "align": "left",
+              "verticalAlign": "middle",
+              "lineHeight": 1.1
+            }
+          },
+          {
+            "elementId": "el_accuracy_cropped_image",
+            "type": "image",
+            "role": "media",
+            "x": 120,
+            "y": 240,
+            "width": 700,
+            "height": 700,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 2,
+            "locked": false,
+            "visible": true,
+            "props": {
+              "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+              "alt": "Deterministic embedded crop fixture",
+              "fit": "cover",
+              "focusX": 0.4,
+              "focusY": 0.6,
+              "crop": {
+                "left": 0.2,
+                "top": 0.1,
+                "right": 0.15,
+                "bottom": 0.05
+              }
+            }
+          },
+          {
+            "elementId": "el_accuracy_chart",
+            "type": "chart",
+            "role": "chart",
+            "x": 900,
+            "y": 220,
+            "width": 850,
+            "height": 350,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 3,
+            "locked": false,
+            "visible": true,
+            "props": {
+              "type": "bar",
+              "title": "Quarterly score",
+              "data": [
+                { "label": "Q1", "value": 42 },
+                { "label": "Q2", "value": 67 },
+                { "label": "Q3", "value": 83 }
+              ],
+              "style": {
+                "colors": ["#2563EB", "#7C3AED", "#0EA5E9"],
+                "backgroundColor": "#FFFFFF",
+                "textColor": "#0F172A",
+                "fontFamily": "Pretendard",
+                "showLegend": false,
+                "legendPosition": "bottom",
+                "showDataLabels": true,
+                "showGrid": true,
+                "xAxisTitle": "Quarter",
+                "yAxisTitle": "Score",
+                "unit": "pt"
+              }
+            }
+          },
+          {
+            "elementId": "el_accuracy_table",
+            "type": "table",
+            "role": "table",
+            "x": 900,
+            "y": 630,
+            "width": 850,
+            "height": 300,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 4,
+            "locked": false,
+            "visible": true,
+            "props": {
+              "rows": [
+                [
+                  {
+                    "text": "Metric",
+                    "fill": "#DBEAFE",
+                    "fontWeight": "bold",
+                    "align": "center"
+                  },
+                  {
+                    "text": "Current",
+                    "fill": "#DBEAFE",
+                    "fontWeight": "bold",
+                    "align": "center"
+                  },
+                  {
+                    "text": "Target",
+                    "fill": "#DBEAFE",
+                    "fontWeight": "bold",
+                    "align": "center"
+                  }
+                ],
+                [
+                  { "text": "Accuracy", "fill": "#FFFFFF" },
+                  { "text": "0.91", "fill": "#FFFFFF", "align": "right" },
+                  { "text": "0.95", "fill": "#FFFFFF", "align": "right" }
+                ],
+                [
+                  { "text": "Warnings", "fill": "#F8FAFC" },
+                  { "text": "3", "fill": "#F8FAFC", "align": "right" },
+                  { "text": "0", "fill": "#F8FAFC", "align": "right" }
+                ]
+              ],
+              "columnWidths": [283, 283, 284],
+              "rowHeights": [100, 100, 100],
+              "borderColor": "#94A3B8",
+              "borderWidth": 2
+            }
+          }
+        ],
+        "keywords": [],
+        "animations": [],
+        "actions": [],
+        "aiNotes": {
+          "emphasisPoints": [],
+          "sourceEvidence": []
+        }
+      }
+    ]
+  },
+  "semanticExpectations": {
+    "transitionCount": 1,
+    "timingSlideCount": 1,
+    "cropCount": 1,
+    "chartCount": 1,
+    "tableCount": 1
+  }
+}
