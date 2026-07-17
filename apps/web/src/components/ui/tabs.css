@@ -1,0 +1,7 @@
+.redesign-tabs { display: grid; gap: var(--redesign-space-3); }
+.redesign-tab-list { border-bottom: var(--redesign-border-subtle); display: flex; gap: var(--redesign-space-1); overflow-x: auto; }
+.redesign-tab { background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--redesign-color-on-surface-variant); font: inherit; font-size: var(--redesign-type-label-md-size); font-weight: var(--redesign-type-label-md-weight); min-height: var(--redesign-size-control-md); padding-inline: var(--redesign-space-3); transition: var(--redesign-transition-color); white-space: nowrap; }
+.redesign-tab:hover { background: var(--redesign-color-surface-container-low); color: var(--redesign-color-on-surface); }
+.redesign-tab[aria-selected="true"] { border-bottom-color: var(--redesign-color-primary-emphasis); color: var(--redesign-color-primary-emphasis); }
+.redesign-tab:focus-visible { box-shadow: var(--redesign-focus-ring-inset); outline: none; }
+.redesign-tab-panel { min-width: 0; }

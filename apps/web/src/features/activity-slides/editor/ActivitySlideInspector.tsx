@@ -4,7 +4,7 @@ import type {
   ActivityQuestionType,
   ActivitySlide
 } from "@orbit/shared";
-import { OrbitButton, OrbitDialog } from "../../../design-system";
+import { OrbitButton, OrbitDialog } from "../../../components/ui";
 import { useState } from "react";
 
 import { ActivitySlidePreview, type ActivityPreviewRole } from "./ActivitySlidePreview";
@@ -56,7 +56,7 @@ export function ActivitySlideInspector(props: {
   return (
     <div className="activity-slide-inspector">
       <div className="activity-inspector-heading">
-        <span className="orbit-ds-eyebrow">ACTIVITY</span>
+        <span className="redesign-eyebrow">ACTIVITY</span>
         <h3>{templateLabels[activity.template]}</h3>
         <p>청중에게 보일 문항과 발표자 화면을 함께 확인합니다.</p>
       </div>

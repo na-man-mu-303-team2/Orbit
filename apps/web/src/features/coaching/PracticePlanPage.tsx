@@ -10,7 +10,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { OrbitButton, OrbitStatus } from "../../design-system";
+import { OrbitButton, OrbitStatus } from "../../components/ui";
 import { fetchPracticePlan } from "./practicePlanApi";
 import {
   firstSelectableGoal,
@@ -59,7 +59,7 @@ export function PracticePlanPage(props: {
   );
 
   return (
-    <div className="orbit-ds-page practice-plan-page">
+    <div className="redesign-page practice-plan-page">
       <header className="practice-plan-topbar">
         <a href={`/rehearsal/${encodeURIComponent(props.projectId)}/report/${encodeURIComponent(props.sourceFullRunId)}`}>
           <IconArrowLeft aria-hidden="true" size={18} /> 리포트로 돌아가기
@@ -79,7 +79,7 @@ export function PracticePlanPage(props: {
       {plan?.status === "ready" && selectedGoal ? (
         <section className="practice-plan-content" aria-labelledby="practice-plan-title">
           <header className="practice-plan-heading">
-            <p className="orbit-ds-eyebrow">다음 리허설</p>
+            <p className="redesign-eyebrow">다음 리허설</p>
             <h1 id="practice-plan-title">다음 연습은 이 세 가지에 집중하세요.</h1>
             <p>한 번에 하나씩 고르고, 짧게 반복한 뒤 전체 발표에서 확인합니다.</p>
           </header>

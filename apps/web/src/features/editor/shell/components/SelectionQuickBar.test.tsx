@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SelectionQuickBar } from "./SelectionQuickBar";
 
 describe("SelectionQuickBar", () => {
-  it("renders animation summary and editor entry point", () => {
+  it("keeps animation editing out of the visual property controls", () => {
     const deck = createDemoDeck();
     const slide = {
       ...deck.slides[0]!,
@@ -45,8 +45,8 @@ describe("SelectionQuickBar", () => {
       />
     );
 
-    expect(html).toContain("애니메이션 편집");
-    expect(html).toContain("나타나기");
+    expect(html).not.toContain("애니메이션 편집");
+    expect(html).not.toContain("나타나기");
     expect(html).not.toContain("나타나기 1개가 연결되어 있습니다.");
     expect(html).not.toContain("선택 키워드: ORBIT");
     expect(html).not.toContain("재생");
@@ -54,7 +54,7 @@ describe("SelectionQuickBar", () => {
     expect(html).not.toContain("잠금");
   });
 
-  it("renders add button label when no animation exists", () => {
+  it("renders visual actions as compact icon controls", () => {
     const deck = createDemoDeck();
     const slide = deck.slides[0]!;
     const element = slide.elements.find((candidate) => candidate.elementId === "el_1") ?? null;
@@ -81,8 +81,17 @@ describe("SelectionQuickBar", () => {
       />
     );
 
-    expect(html).toContain("애니메이션 편집");
-    expect(html).toContain("애니메이션 없음");
+    expect(html).toContain('aria-label="텍스트 맞춤 축소"');
+    expect(html).toContain("위치");
+    expect(html).toContain("레이아웃");
+    expect(html).toContain("외형");
+    expect(html).toContain('aria-label="왼쪽 정렬"');
+    expect(html).toContain('aria-label="오른쪽 정렬"');
+    expect(html).toContain('aria-label="위쪽 정렬"');
+    expect(html).toContain('aria-label="아래쪽 정렬"');
+    expect(html).toContain("불투명도 (%)");
+    expect(html).toContain('aria-label="세로 가운데 정렬"');
+    expect(html).not.toContain("애니메이션 편집");
   });
 
   it("renders dangling animation cleanup in slide quickbar", () => {

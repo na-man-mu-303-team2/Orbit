@@ -21,18 +21,16 @@ import {
   OrbitAppHeader,
   type OrbitAppNavigationItem,
 } from "./components/OrbitAppHeader";
-import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
-import { OrbitButton, OrbitEmptyState } from "./design-system";
-import {
-  OrbitAuthPage,
-  OrbitPublicLandingPage,
-} from "./features/auth/OrbitAuthPage";
+import { RedesignSystemPage } from "./features/design-system/RedesignSystemPage";
+import { OrbitButton, OrbitEmptyState } from "./components/ui";
+import { OrbitAuthPage } from "./features/auth/AuthPage";
 import {
   authMeQueryKey,
   fetchCurrentUser,
   markAuthLoggedOut,
   type AuthUser,
 } from "./features/auth/auth-session";
+import { LandingPage } from "./features/landing/LandingPage";
 import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
 import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
 import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
@@ -48,10 +46,7 @@ import {
   OrbitMockupFlow,
   type OrbitMockupScreen,
 } from "./features/mockups/OrbitMockupFlow";
-import {
-  OrbitProjectExplorer,
-  OrbitWorkspaceHome,
-} from "./features/projects/OrbitProjectHub";
+import { OrbitProjectExplorer, OrbitWorkspaceHome } from "./features/projects/ProjectHub";
 import "./features/projects/orbit-create-deck.css";
 import "./features/projects/orbit-project-access.css";
 import {
@@ -575,7 +570,7 @@ export function App() {
   }
 
   if (route.name === "home" && !auth.data) {
-    return <OrbitPublicLandingPage onNavigate={navigateTo} />;
+    return <LandingPage onNavigate={navigateTo} />;
   }
 
   if (!shouldRenderAppFrame(route)) {
@@ -626,7 +621,7 @@ export function shouldRenderAppFrame(route: Route) {
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
-  if (route.name === "design-system") return <OrbitDesignSystemPage />;
+  if (route.name === "design-system") return <RedesignSystemPage />;
   if (route.name === "mockup") {
     return <OrbitMockupFlow onNavigate={navigateTo} screen={route.screen} />;
   }
@@ -1054,7 +1049,7 @@ function ProjectAccessError(props: { onRetry: () => void; projectId: string }) {
   return (
     <ProjectAccessLayout projectId={props.projectId}>
       <article className="orbit-access-message">
-        <span className="orbit-ds-eyebrow">PROJECT ACCESS</span>
+        <span className="redesign-eyebrow">PROJECT ACCESS</span>
         <h1>프로젝트 권한을 확인하지 못했습니다.</h1>
         <p>
           잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요.
@@ -1114,7 +1109,7 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
     return (
       <ProjectAccessLayout projectId={props.projectId}>
         <div className="orbit-access-message">
-          <p className="orbit-ds-eyebrow">ACCESS CHECK</p>
+          <p className="redesign-eyebrow">ACCESS CHECK</p>
           <h1>권한 상태를 확인하지 못했습니다.</h1>
           <p>연결을 확인한 뒤 다시 시도해 주세요.</p>
           <OrbitButton onClick={() => void access.refetch()}>
@@ -1133,7 +1128,7 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
         projectId={props.projectId}
       >
         <article className="orbit-access-message">
-          <span className="orbit-ds-eyebrow">APPROVAL PENDING</span>
+          <span className="redesign-eyebrow">APPROVAL PENDING</span>
           <h1>승인을 기다리고 있어요.</h1>
           <p>
             프로젝트 소유자가 요청을 확인하고 있습니다. 승인되면 이 프로젝트에
@@ -1173,7 +1168,7 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
       projectId={props.projectId}
     >
       <form className="orbit-access-message" onSubmit={handleSubmit}>
-        <span className="orbit-ds-eyebrow">ACCESS REQUIRED</span>
+        <span className="redesign-eyebrow">ACCESS REQUIRED</span>
         <h1>
           이 프로젝트에 참여하려면
           <br />
@@ -1242,7 +1237,7 @@ function ProjectAccessLayout(props: {
         <div className="orbit-access-icon">
           <IconFileText aria-hidden="true" size={26} />
         </div>
-        <p className="orbit-ds-eyebrow">PRIVATE PROJECT</p>
+        <p className="redesign-eyebrow">PRIVATE PROJECT</p>
         <h2>{props.project?.title ?? "비공개 프로젝트"}</h2>
         <p>승인된 구성원만 발표자료를 열고 함께 작업할 수 있습니다.</p>
         <dl>
@@ -1272,8 +1267,12 @@ export function getProjectAccessRoleLabel(role: ProjectMemberRole) {
 
 function EditorLoadingFallback() {
   return (
-    <section className="loading-page">
-      <h1>에디터를 불러오는 중</h1>
+    <section
+      aria-label="에디터를 불러오는 중"
+      className="editor-loading-page redesign-dark"
+      role="status"
+    >
+      <span aria-hidden="true" className="editor-loading-indicator" />
     </section>
   );
 }

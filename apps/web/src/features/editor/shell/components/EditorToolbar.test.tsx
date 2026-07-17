@@ -14,8 +14,10 @@ describe("EditorToolbar", () => {
         isIconPanelOpen={false}
         isImageUploadPending={false}
         isShapeMenuOpen={false}
+        isStageFitToViewport
         onAddChart={vi.fn()}
         onAddText={vi.fn()}
+        onFitStageToViewport={vi.fn()}
         onOpenAnimation={vi.fn()}
         onOpenIconLibrary={vi.fn()}
         onOpenImagePicker={vi.fn()}
@@ -23,10 +25,12 @@ describe("EditorToolbar", () => {
         onSelectTool={vi.fn()}
         onToggleShapeMenu={vi.fn()}
         onUndo={vi.fn()}
+        onZoomIn={vi.fn()}
+        onZoomOut={vi.fn()}
         redoDisabled
         selectedElementAnimationCount={0}
-        selectionProperties={null}
         shapeMenuButtonRef={createRef<HTMLButtonElement>()}
+        stageScale={0.8}
         undoDisabled
       />
     );
@@ -36,9 +40,9 @@ describe("EditorToolbar", () => {
       "텍스트",
       "도형",
       "차트",
+      "아이콘",
       "이미지",
-      "애니메이션",
-      "템플릿"
+      "애니메이션"
     ]) {
       const button = html.match(new RegExp(`<button[^>]*aria-label="${label}"[^>]*>`))?.[0];
       expect(button, label).toContain("disabled");

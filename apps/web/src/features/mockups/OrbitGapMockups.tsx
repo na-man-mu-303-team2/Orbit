@@ -24,7 +24,7 @@ import {
   OrbitInput,
   OrbitStatus,
   OrbitTextarea
-} from "../../design-system";
+} from "../../components/ui";
 import { ChallengeQnaPage } from "../coaching/ChallengeQnaPage";
 import type { ChallengeQnaView } from "../coaching/challengeQnaApi";
 import { FocusedPracticePage } from "../coaching/FocusedPracticePage";
@@ -85,7 +85,7 @@ export function OrbitMockupCatalog(props: MockupNavigateProps) {
     <MockupPage onNavigate={props.onNavigate}>
       <section className="gap-catalog-hero">
         <div>
-          <p className="orbit-ds-eyebrow">PRODUCT SURFACE MAP</p>
+          <p className="redesign-eyebrow">PRODUCT SURFACE MAP</p>
           <h1>화면 밖에 있던 기능을<br />사용자 여정으로 연결했어요.</h1>
           <p>production 구현, API 계약, 독립 페이지를 기존 목업과 대조해 새로 필요한 화면만 모았습니다.</p>
         </div>
@@ -128,7 +128,7 @@ export function OrbitPresentationBriefMockup(props: MockupNavigateProps) {
     <MockupPage onNavigate={props.onNavigate}>
       <GapBreadcrumb current="발표 브리프" onBack={() => props.onNavigate("/mockup/catalog")} />
       <section className="gap-page-heading">
-        <div><p className="orbit-ds-eyebrow">PRESENTATION BRIEF</p><h1>누구에게, 무엇을 얻기 위해<br />발표하는지 먼저 정리해요.</h1><p>1분 브리프가 생성 결과와 리허설 평가 기준을 같은 방향으로 맞춥니다.</p></div>
+        <div><p className="redesign-eyebrow">PRESENTATION BRIEF</p><h1>누구에게, 무엇을 얻기 위해<br />발표하는지 먼저 정리해요.</h1><p>1분 브리프가 생성 결과와 리허설 평가 기준을 같은 방향으로 맞춥니다.</p></div>
         <OrbitStatus tone={saved ? "success" : "lilac"}>{saved ? "브리프 저장됨" : "약 1분"}</OrbitStatus>
       </section>
 
@@ -276,7 +276,7 @@ export function OrbitAudienceEntranceMockup(props: MockupNavigateProps) {
     <div className="audience-gap-page">
       <button className="audience-gap-back" onClick={() => props.onNavigate("/mockup/catalog")} type="button"><IconArrowLeft size={18} /> 목업 맵</button>
       <section className="audience-gap-panel">
-        <span className="audience-gap-mark"><IconPresentation size={28} /></span><p className="orbit-ds-eyebrow">LIVE AUDIENCE</p><h1>청중 입장</h1><p>{verified ? "입장할 공간을 선택해 주세요." : "발표자가 공유한 4자리 비밀번호를 입력해 주세요."}</p>
+        <span className="audience-gap-mark"><IconPresentation size={28} /></span><p className="redesign-eyebrow">LIVE AUDIENCE</p><h1>청중 입장</h1><p>{verified ? "입장할 공간을 선택해 주세요." : "발표자가 공유한 4자리 비밀번호를 입력해 주세요."}</p>
         {!verified ? <><label className="audience-gap-code"><span>입장 비밀번호</span><input aria-label="4자리 입장 비밀번호" inputMode="numeric" maxLength={4} onChange={(event) => setPasscode(event.currentTarget.value.replace(/\D/g, ""))} value={passcode} /><div aria-hidden="true">{[0, 1, 2, 3].map((index) => <span className={passcode[index] ? "filled" : ""} key={index}>{passcode[index] ?? ""}</span>)}</div></label><OrbitButton disabled={passcode.length !== 4} onClick={() => setVerified(true)}>비밀번호 확인</OrbitButton></> : <><OrbitStatus tone="success">비밀번호 확인 완료</OrbitStatus><div className="audience-gap-rooms" role="radiogroup" aria-label="입장할 방"><button aria-checked={room === "questions"} className={room === "questions" ? "selected" : ""} onClick={() => setRoom("questions")} role="radio" type="button"><IconMessageCircleQuestion size={24} /><strong>질문방</strong><small>발표자에게 질문을 남깁니다.</small></button><button aria-checked={room === "stream"} className={room === "stream" ? "selected" : ""} onClick={() => setRoom("stream")} role="radio" type="button"><IconPresentation size={24} /><strong>스트리밍 방</strong><small>발표 화면을 함께 봅니다.</small></button></div><OrbitButton disabled={!room} icon={<IconArrowRight size={18} />}>입장하기</OrbitButton></>}
         <small className="audience-gap-session">세션 ORBIT-2407</small>
       </section>
@@ -299,7 +299,7 @@ export function OrbitVersionHistoryMockup(props: MockupNavigateProps) {
   return (
     <MockupPage onNavigate={props.onNavigate}>
       <GapBreadcrumb current="버전 기록" onBack={() => props.onNavigate("/mockup/editor")} />
-      <section className="gap-page-heading compact"><div><p className="orbit-ds-eyebrow">VERSION HISTORY</p><h1>이전 작업을 확인하고 안전하게 복원하세요.</h1><p>자동 저장과 주요 변경 시점의 덱 버전을 비교합니다.</p></div><OrbitStatus tone={restored ? "success" : "neutral"}>{restored ? `버전 ${snapshot.version} 복원됨` : "현재 버전 18"}</OrbitStatus></section>
+      <section className="gap-page-heading compact"><div><p className="redesign-eyebrow">VERSION HISTORY</p><h1>이전 작업을 확인하고 안전하게 복원하세요.</h1><p>자동 저장과 주요 변경 시점의 덱 버전을 비교합니다.</p></div><OrbitStatus tone={restored ? "success" : "neutral"}>{restored ? `버전 ${snapshot.version} 복원됨` : "현재 버전 18"}</OrbitStatus></section>
       <div className="version-layout">
         <aside className="version-list"><header><h2>저장 기록</h2><button aria-label="새로고침" type="button"><IconRefresh size={18} /></button></header>{snapshots.map((item, index) => <button aria-pressed={selected === index} key={item.version} onClick={() => { setSelected(index); setRestored(false); }} type="button"><span><IconClock size={18} /></span><div><small>{item.time}</small><strong>버전 {item.version} · {item.reason}</strong></div><OrbitStatus tone={item.tone}>{item.label}</OrbitStatus></button>)}</aside>
         <section className="version-preview"><header><div><small>미리보기</small><h2>버전 {snapshot.version} · {snapshot.reason}</h2></div><OrbitButton disabled={selected === 0} icon={<IconRefresh size={18} />} onClick={() => setConfirming(true)}>이 버전 복원</OrbitButton></header><div className="version-preview-slide"><span>PRODUCT STRATEGY 2026</span><h3>다음 성장을 만드는<br />세 가지 선택</h3><p>고객 가치 중심의 실행으로 지속 가능한 성장을 가속화합니다.</p><div><strong>+15%</strong><strong>+30%</strong><strong>2</strong></div></div><footer><IconFileText size={17} /><span>복원하면 현재 덱은 새 snapshot으로 보존되고, 선택한 버전이 새 현재 버전이 됩니다.</span></footer></section>

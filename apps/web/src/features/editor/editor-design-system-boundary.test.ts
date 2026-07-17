@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 const webRoot = process.cwd();
 const productionRoots = [
   path.join(webRoot, "src/features/editor"),
-  path.join(webRoot, "src/design-system")
+  path.join(webRoot, "src/components/ui"),
+  path.join(webRoot, "src/styles")
 ];
 const sourceExtensions = new Set([".css", ".ts", ".tsx"]);
 const mockupImportSegment = ["features", "mockups"].join("/");

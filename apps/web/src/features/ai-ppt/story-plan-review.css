@@ -1,28 +1,28 @@
 .story-review-page {
   max-width: 1580px;
   margin: 0 auto;
-  padding: 28px 0 116px;
-  color: #111318;
+  padding: var(--redesign-space-7) 0 var(--redesign-space-29);
+  color: var(--redesign-color-on-surface);
 }
 
 .story-review-heading {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 32px;
-  padding: 4px 16px 24px;
+  gap: var(--redesign-space-8);
+  padding: var(--redesign-space-1) var(--redesign-space-4) var(--redesign-space-6);
 }
 
 .story-review-breadcrumb {
   display: flex;
-  gap: 10px;
-  margin: 0 0 18px;
-  color: #6c6e76;
-  font-size: 14px;
+  gap: var(--redesign-space-2);
+  margin: 0 0 var(--redesign-space-4);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
 }
 
 .story-review-breadcrumb a {
-  color: #5146d9;
+  color: var(--redesign-color-secondary);
   font-weight: 700;
   text-decoration: none;
 }
@@ -36,23 +36,23 @@
 }
 
 .story-review-heading > div > p:last-child {
-  margin: 14px 0 0;
-  color: #62656e;
-  font-size: 17px;
+  margin: var(--redesign-space-3) 0 0;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-md-size);
 }
 
 .story-review-meta {
   display: flex;
   align-items: center;
-  margin: 0 0 8px;
+  margin: 0 0 var(--redesign-space-2);
 }
 
 .story-review-meta div {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 22px;
-  border-left: 1px solid #dadbe0;
+  gap: var(--redesign-space-1);
+  padding: 0 var(--redesign-space-5);
+  border-left: 1px solid var(--redesign-color-outline-variant);
   white-space: nowrap;
 }
 
@@ -65,37 +65,37 @@
   margin: 0;
 }
 
-.story-review-page .orbit-ds-tab-list {
-  gap: 8px;
+.story-review-page .redesign-tab-list {
+  gap: var(--redesign-space-2);
   width: 100%;
   padding: 0;
-  border-bottom: 1px solid #d8d9dd;
+  border-bottom: 1px solid var(--redesign-color-outline-variant);
   border-radius: 0;
   background: transparent;
 }
 
-.story-review-page .orbit-ds-tabs {
+.story-review-page .redesign-tabs {
   gap: 0;
 }
 
-.story-review-page .orbit-ds-tab {
-  padding: 16px 24px 14px;
+.story-review-page .redesign-tab {
+  padding: var(--redesign-space-4) var(--redesign-space-6) var(--redesign-space-3);
   border: 0;
   border-bottom: 3px solid transparent;
   background: transparent;
-  color: #555861;
-  font-size: 16px;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-md-size);
 }
 
-.story-review-page .orbit-ds-tab[aria-selected="true"] {
+.story-review-page .redesign-tab[aria-selected="true"] {
   border-radius: 0;
   background: transparent;
-  border-bottom-color: #5146d9;
-  color: #17181c;
+  border-bottom-color: var(--redesign-color-secondary);
+  color: var(--redesign-color-on-surface);
   font-weight: 700;
 }
 
-.story-review-page .orbit-ds-tab-panel {
+.story-review-page .redesign-tab-panel {
   padding: 0;
 }
 
@@ -103,16 +103,16 @@
 .story-review-progress,
 .story-review-error {
   display: grid;
-  gap: 6px;
-  margin: 12px 0;
-  padding: 18px 22px;
-  border-radius: 12px;
+  gap: var(--redesign-space-1);
+  margin: var(--redesign-space-3) 0;
+  padding: var(--redesign-space-4) var(--redesign-space-5);
+  border-radius: var(--redesign-radius-xl);
 }
 
 .story-review-warning {
   grid-template-columns: auto 1fr;
-  background: #fff4d9;
-  color: #514322;
+  background: var(--redesign-color-warning-container);
+  color: var(--redesign-color-on-warning-container);
 }
 
 .story-review-warning > svg {
@@ -121,35 +121,35 @@
 }
 
 .story-review-warning span {
-  color: #6f6245;
+  color: var(--redesign-color-on-warning-container);
 }
 
 .story-review-progress {
-  background: #f1f0ff;
-  color: #4036b7;
+  background: var(--redesign-color-secondary-container);
+  color: var(--redesign-color-secondary);
 }
 
 .story-review-error {
-  background: #fff0ee;
-  color: #9d3028;
+  background: var(--redesign-color-error-container);
+  color: var(--redesign-color-error);
 }
 
 .story-review-card-list {
   display: grid;
-  gap: 12px;
-  padding: 20px 0 8px;
+  gap: var(--redesign-space-3);
+  padding: var(--redesign-space-5) 0 var(--redesign-space-2);
 }
 
 .story-review-card {
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr) 38px;
-  gap: 18px;
+  gap: var(--redesign-space-4);
   align-items: start;
-  padding: 22px 20px;
-  border: 1px solid #e1e2e7;
-  border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 4px 14px rgb(17 19 24 / 4%);
+  padding: var(--redesign-space-5) var(--redesign-space-5);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  background: var(--redesign-color-surface-container-lowest);
+  box-shadow: var(--redesign-shadow-raised);
 }
 
 .story-review-card[draggable="true"] {
@@ -161,15 +161,15 @@
 
 .story-review-card:focus-within,
 .story-review-card:hover {
-  border-color: #bbb7ee;
-  box-shadow: 0 7px 20px rgb(81 70 217 / 8%);
+  border-color: var(--redesign-color-secondary);
+  box-shadow: var(--redesign-glow-secondary);
 }
 
 .story-review-card-order {
   display: flex;
   align-items: center;
-  gap: 7px;
-  color: #8a8c94;
+  gap: var(--redesign-space-2);
+  color: var(--redesign-color-on-surface-variant);
 }
 
 .story-review-card-order span {
@@ -178,8 +178,8 @@
   height: 32px;
   place-items: center;
   border-radius: 50%;
-  background: #e8f5e9;
-  color: #22242a;
+  background: var(--redesign-color-success-container);
+  color: var(--redesign-color-on-surface);
   font-weight: 700;
 }
 
@@ -191,53 +191,53 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 10px;
+  gap: var(--redesign-space-5);
+  margin-bottom: var(--redesign-space-2);
 }
 
 .story-review-card-heading small {
-  color: #5146d9;
-  font-size: 12px;
+  color: var(--redesign-color-secondary);
+  font-size: var(--redesign-type-label-sm-size);
   font-weight: 700;
 }
 
 .story-review-card-heading h2 {
-  margin: 4px 0 0;
-  font-size: 19px;
+  margin: var(--redesign-space-1) 0 0;
+  font-size: var(--redesign-type-title-md-size);
 }
 
-.story-review-card-heading .orbit-ds-input {
+.story-review-card-heading .redesign-input {
   width: min(720px, 100%);
-  margin-top: 4px;
-  font-size: 19px;
+  margin-top: var(--redesign-space-1);
+  font-size: var(--redesign-type-title-md-size);
   font-weight: 700;
 }
 
 .story-review-card-heading time {
-  color: #6c6e76;
+  color: var(--redesign-color-on-surface-variant);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .story-review-card-content > p {
   margin: 0;
-  color: #4b4e57;
+  color: var(--redesign-color-on-surface-variant);
   line-height: 1.65;
 }
 
-.story-review-card-content textarea.orbit-ds-input {
+.story-review-card-content textarea.redesign-input {
   width: 100%;
   resize: vertical;
 }
 
-.story-review-card-content > textarea.orbit-ds-input {
-  color: #4b4e57;
+.story-review-card-content > textarea.redesign-input {
+  color: var(--redesign-color-on-surface-variant);
   line-height: 1.65;
 }
 
 .story-review-move-actions {
   display: grid;
-  gap: 6px;
+  gap: var(--redesign-space-1);
 }
 
 .story-review-move-actions button {
@@ -245,16 +245,16 @@
   width: 34px;
   height: 30px;
   place-items: center;
-  border: 1px solid #dedfe5;
-  border-radius: 8px;
-  background: #fff;
-  color: #555861;
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  background: var(--redesign-color-surface-container-lowest);
+  color: var(--redesign-color-on-surface-variant);
   cursor: pointer;
 }
 
 .story-review-move-actions button:hover:not(:disabled) {
-  border-color: #8d86e8;
-  color: #5146d9;
+  border-color: var(--redesign-color-secondary);
+  color: var(--redesign-color-secondary);
 }
 
 .story-review-move-actions button:disabled {
@@ -263,12 +263,12 @@
 }
 
 .story-review-script-sources {
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: 9px;
-  background: #f6f6f8;
-  color: #666872;
-  font-size: 12px;
+  margin-top: var(--redesign-space-3);
+  padding: var(--redesign-space-2) var(--redesign-space-3);
+  border-radius: var(--redesign-radius-xl);
+  background: var(--redesign-color-surface-container-low);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
 }
 
 .story-review-script-sources > span {
@@ -278,8 +278,8 @@
 .story-review-script-sources ul {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px 14px;
-  margin: 5px 0 0;
+  gap: var(--redesign-space-1) var(--redesign-space-3);
+  margin: var(--redesign-space-1) 0 0;
   padding: 0;
   list-style: none;
 }
@@ -288,18 +288,18 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
-  margin-top: 12px;
+  gap: var(--redesign-space-3);
+  margin-top: var(--redesign-space-3);
 }
 
 .story-review-script-actions small,
 .story-review-unsaved {
-  color: #777982;
-  font-size: 12px;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
 }
 
 .story-review-unsaved {
-  margin: 8px 0 0;
+  margin: var(--redesign-space-2) 0 0;
   text-align: right;
 }
 .story-review-actions {
@@ -312,31 +312,31 @@
   align-items: center;
   justify-content: space-between;
   min-height: 86px;
-  padding: 14px max(24px, calc((100vw - 1580px) / 2 + 12px));
-  border-top: 1px solid #d7d8dc;
-  background: #fff;
-  box-shadow: 0 -8px 22px rgb(17 19 24 / 6%);
+  padding: var(--redesign-space-3) max(var(--redesign-space-6), calc((100vw - 1580px) / 2 + var(--redesign-space-3)));
+  border-top: 1px solid var(--redesign-color-outline-variant);
+  background: var(--redesign-color-surface-container-lowest);
+  box-shadow: var(--redesign-shadow-raised);
 }
 
 .story-review-actions > div {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--redesign-space-3);
 }
 
 .story-review-actions > div > span {
-  color: #6a6c73;
-  font-size: 14px;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
 }
 
 .story-review-instruction {
   display: grid;
-  gap: 10px;
+  gap: var(--redesign-space-2);
 }
 
 .story-review-instruction small {
   justify-self: end;
-  color: #777982;
+  color: var(--redesign-color-on-surface-variant);
 }
 
 .story-review-loading {
@@ -349,28 +349,28 @@
 .story-review-skeleton {
   width: 320px;
   height: 12px;
-  margin: 0 auto 30px;
-  border-radius: 6px;
-  background: #e7e7ef;
+  margin: 0 auto var(--redesign-space-7);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-surface-container);
 }
 
 @media (max-width: 760px) {
   .story-review-page {
-    padding: 18px 0 170px;
+    padding: var(--redesign-space-4) 0 170px;
   }
 
   .story-review-heading {
     display: grid;
-    padding: 0 18px 22px;
+    padding: 0 var(--redesign-space-4) var(--redesign-space-5);
   }
 
   .story-review-heading h1 {
-    font-size: 36px;
+    font-size: var(--redesign-type-display-sm-size);
   }
 
   .story-review-meta {
     display: grid;
-    gap: 10px;
+    gap: var(--redesign-space-2);
   }
 
   .story-review-meta div {
@@ -378,32 +378,32 @@
     border: 0;
   }
 
-  .story-review-page .orbit-ds-tab-list {
+  .story-review-page .redesign-tab-list {
     display: flex;
     grid-template-columns: none;
     overflow-x: auto;
     scrollbar-width: none;
   }
 
-  .story-review-page .orbit-ds-tab-list::-webkit-scrollbar {
+  .story-review-page .redesign-tab-list::-webkit-scrollbar {
     display: none;
   }
 
-  .story-review-page .orbit-ds-tab {
+  .story-review-page .redesign-tab {
     flex: 0 0 auto;
-    padding-inline: 18px;
+    padding-inline: var(--redesign-space-4);
   }
 
   .story-review-warning,
   .story-review-progress,
   .story-review-error {
-    margin-inline: 18px;
+    margin-inline: var(--redesign-space-4);
   }
 
   .story-review-actions {
     display: grid;
-    gap: 10px;
-    padding: 12px 16px 18px;
+    gap: var(--redesign-space-2);
+    padding: var(--redesign-space-3) var(--redesign-space-4) var(--redesign-space-4);
   }
 
   .story-review-actions > div {
@@ -419,13 +419,13 @@
 
 @media (max-width: 760px) {
   .story-review-card-list {
-    padding-inline: 14px;
+    padding-inline: var(--redesign-space-3);
   }
 
   .story-review-card {
     grid-template-columns: 38px minmax(0, 1fr);
-    gap: 12px;
-    padding: 18px 14px;
+    gap: var(--redesign-space-3);
+    padding: var(--redesign-space-4) var(--redesign-space-3);
   }
 
   .story-review-card-order svg {
@@ -439,7 +439,7 @@
   }
 
   .story-review-card-heading {
-    gap: 10px;
+    gap: var(--redesign-space-2);
   }
   .story-review-script-actions {
     justify-content: space-between;
