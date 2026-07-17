@@ -610,7 +610,7 @@ export function AiPptMockupPage() {
   }
 
   return (
-    <WorkspaceContainer as="section" className="ai-ppt-page">
+    <WorkspaceContainer as="section" className="ai-ppt-page" width="content">
       <header className="ai-ppt-header">
         <div>
           <span>AI PPT</span>
@@ -702,7 +702,7 @@ function AiPptStyleStartingPage() {
   const font = recommendGenerateDeckFonts(defaultFontMood)[0];
   const palette = defaultPaletteOptions[0];
   return (
-    <WorkspaceContainer as="section" className="ai-ppt-page">
+    <WorkspaceContainer as="section" className="ai-ppt-page" width="content">
       <header className="ai-ppt-header">
         <div>
           <span>AI PPT</span>
@@ -866,7 +866,7 @@ export function AiPptStyleColorPage(props: {
   }
 
   return (
-    <WorkspaceContainer as="section" className="ai-ppt-page">
+    <WorkspaceContainer as="section" className="ai-ppt-page" width="content">
       <header className="ai-ppt-header">
         <div>
           <span>AI PPT</span>

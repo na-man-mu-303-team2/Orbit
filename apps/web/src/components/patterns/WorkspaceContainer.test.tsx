@@ -15,4 +15,12 @@ describe("WorkspaceContainer", () => {
       'class="redesign-workspace-container feature-layout"',
     );
   });
+
+  it("adds the content width modifier when requested", () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceContainer width="content">workspace</WorkspaceContainer>,
+    );
+
+    expect(html).toContain("redesign-workspace-container--content");
+  });
 });

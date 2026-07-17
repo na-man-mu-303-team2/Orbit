@@ -37,7 +37,11 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
 
   return (
     <div className="workspace-home">
-      <WorkspaceContainer as="section" className="workspace-home-main">
+      <WorkspaceContainer
+        as="section"
+        className="workspace-home-main"
+        width="content"
+      >
         <header className="workspace-home-head">
           <div>
             <h1>최근 작업</h1>

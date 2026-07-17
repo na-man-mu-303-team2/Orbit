@@ -1,5 +1,6 @@
 .orbit-project-hub {
-  padding-block: var(--redesign-space-12) var(--redesign-space-18);
+  padding-block: var(--redesign-workspace-page-padding-start)
+    var(--redesign-workspace-page-padding-end);
   color: var(--redesign-color-on-background);
   font-family: var(--redesign-font-family);
 }
@@ -253,10 +254,6 @@
 }
 
 @media (max-width: 760px) {
-  .orbit-project-hub {
-    padding-block: var(--redesign-space-8) var(--redesign-space-13);
-  }
-
   .orbit-hub-heading {
     align-items: stretch;
     flex-direction: column;

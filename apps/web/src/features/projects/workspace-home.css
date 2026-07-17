@@ -32,10 +32,9 @@
 .workspace-home-main {
   display: flex;
   flex-direction: column;
-  gap: var(--redesign-space-6);
-  max-width: 1640px;
-  padding-block: var(--redesign-space-12)
-    calc(var(--redesign-space-12) * 1.5);
+  gap: var(--redesign-workspace-page-gap);
+  padding-block: var(--redesign-workspace-page-padding-start)
+    var(--redesign-workspace-page-padding-end);
 }
 
 /* ---------- Section head ---------- */
@@ -549,10 +548,6 @@
 }
 
 @media (max-width: 767px) {
-  .workspace-home-main {
-    padding-block: var(--redesign-space-6) var(--redesign-space-12);
-  }
-
   .workspace-home-state {
     grid-column: 1 / -1;
   }
