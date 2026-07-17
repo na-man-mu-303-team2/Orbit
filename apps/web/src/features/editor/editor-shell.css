@@ -294,7 +294,9 @@
 .icon-button,
 .text-tool,
 .small-button,
-.side-footer button,
+.side-footer > button,
+.side-footer > .slide-view-switch > button,
+.side-footer > .add-slide-split > button,
 .ai-header button,
 .suggestion-actions button,
 .ai-input button {
@@ -8410,8 +8412,9 @@ body.is-resizing-speaker-notes {
   gap: var(--redesign-space-1);
 }
 
-.orbit-shell.editor-professional .side-footer button,
-.orbit-shell.editor-professional .side-footer > .add-slide-button {
+.orbit-shell.editor-professional .side-footer > button,
+.orbit-shell.editor-professional .side-footer > .slide-view-switch > button,
+.orbit-shell.editor-professional .side-footer > .add-slide-split > button {
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
@@ -11840,6 +11843,11 @@ body.is-resizing-speaker-notes {
   min-width: 0;
   overflow: hidden;
   transition: opacity var(--redesign-duration-slow) var(--redesign-ease-standard), border-right-width var(--redesign-duration-slow) var(--redesign-ease-standard);
+}
+
+.orbit-shell.editor-professional .slides-pane:has(.add-slide-menu) {
+  overflow: visible;
+  z-index: var(--redesign-z-dropdown);
 }
 
 .orbit-shell.editor-professional .slides-pane-content {
