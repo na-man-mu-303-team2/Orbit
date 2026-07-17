@@ -8,7 +8,10 @@ import { fetchProjectDeckPreview } from "./ProjectAssetWorkspace";
  * canvas renderer stays out of the initial home bundle. Renders nothing when
  * the project has no deck yet — the skeleton behind it stays visible.
  */
-export default function ProjectSlidePreview(props: { projectId: string }) {
+export default function ProjectSlidePreview(props: {
+  className?: string;
+  projectId: string;
+}) {
   const deckQuery = useQuery({
     queryKey: ["projects", props.projectId, "deck-preview"],
     queryFn: () => fetchProjectDeckPreview(props.projectId),
@@ -43,7 +46,10 @@ export default function ProjectSlidePreview(props: { projectId: string }) {
   if (!deck || !slide) return null;
 
   return (
-    <div className="workspace-home-thumb-canvas" ref={shell}>
+    <div
+      className={props.className ?? "workspace-home-thumb-canvas"}
+      ref={shell}
+    >
       {scale > 0 ? (
         <ReadOnlySlideCanvas deck={deck} scale={scale} slide={slide} />
       ) : null}

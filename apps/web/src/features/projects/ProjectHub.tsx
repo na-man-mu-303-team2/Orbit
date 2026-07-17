@@ -66,11 +66,11 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
             <span aria-hidden="true" className="workspace-home-create-icon">
               <IconPlus size={22} stroke={1.8} />
             </span>
-            <strong>새 발표자료 만들기</strong>
+            <strong>AI로 발표자료 만들기</strong>
             <small>
-              AI로 초안을 만들거나
+              아이디어를 입력하면 AI가
               <br />
-              빈 슬라이드로 시작하세요.
+              발표자료 초안을 만들어드려요.
             </small>
           </button>
 
