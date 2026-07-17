@@ -9,6 +9,7 @@ import type {
 import type { ComponentProps } from "react";
 
 import { getCustomShapeAbsoluteNodes } from "../../canvas/custom-shape/geometry";
+import type { ImageCropActionState } from "../../canvas/image/imageCropSession";
 import { SelectionQuickBar } from "./SelectionQuickBar";
 
 type EditorSelectionPropertiesProps = {
@@ -17,6 +18,7 @@ type EditorSelectionPropertiesProps = {
   canvas: Deck["canvas"];
   customShapeEditActive: boolean;
   element: DeckElement | null;
+  imageCropActionState?: ImageCropActionState;
   onChangeElementFrame: (
     slideId: string,
     elementId: string,
@@ -38,6 +40,7 @@ type EditorSelectionPropertiesProps = {
   ) => void;
   onDeleteAnimation: (slideId: string, animationId: string) => void;
   onOpenAnimationEditor: () => void;
+  onStartImageCrop?: () => void;
   onToggleCustomShapeEdit: (elementId: string) => void;
   selectedKeywordLabel: string | null;
   showIds: boolean;
@@ -61,6 +64,7 @@ export function EditorSelectionProperties(props: EditorSelectionPropertiesProps)
       canvas={props.canvas}
       customShapeEditActive={props.customShapeEditActive}
       element={element}
+      imageCropActionState={props.imageCropActionState}
       key={element?.elementId ?? slide?.slideId ?? "none"}
       selectedKeywordLabel={props.selectedKeywordLabel}
       showIds={props.showIds}
@@ -78,6 +82,7 @@ export function EditorSelectionProperties(props: EditorSelectionPropertiesProps)
         if (slide) props.onDeleteAnimation(slide.slideId, animationId);
       }}
       onOpenAnimationEditor={props.onOpenAnimationEditor}
+      onStartImageCrop={props.onStartImageCrop}
       onToggleCustomShapeClosed={() => {
         if (!element || !slide || element.type !== "customShape") return;
         props.onCommitCustomShapeGeometry(

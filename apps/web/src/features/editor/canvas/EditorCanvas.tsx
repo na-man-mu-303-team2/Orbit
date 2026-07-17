@@ -24,6 +24,7 @@ import { useCanvasBackgroundPointerCapture } from "./hooks/useCanvasBackgroundPo
 import { useCanvasKeyboardShortcuts } from "./hooks/useCanvasKeyboardShortcuts";
 import { useCanvasStageInteractions } from "./hooks/useCanvasStageInteractions";
 import { useSyncCustomShapeEditDraft } from "./hooks/useSyncCustomShapeEditDraft";
+import { ImageCropOverlay } from "./image/ImageCropOverlay";
 import { InlineTextEditorOverlay } from "./text/InlineTextEditorOverlay";
 import { InlineDataEditorOverlay } from "./data/InlineDataEditorOverlay";
 import {
@@ -265,6 +266,7 @@ export function EditableCanvas(props: {
   deck: Deck;
   disableInteractions?: boolean;
   editingElementId: string | null;
+  imageCropElementId?: string | null;
   insertTool: InsertTool;
   elementStates?: Record<string, ElementPresentationState> | null;
   selectedElementIds: string[];
@@ -309,6 +311,7 @@ export function EditableCanvas(props: {
   ) => void;
   onDoubleClickElement: (elementId: string) => void;
   onFinishEditing: () => void;
+  onFinishImageCrop?: () => void;
   onOpenElementContextMenu: (args: {
     clientX: number;
     clientY: number;
@@ -325,6 +328,7 @@ export function EditableCanvas(props: {
     deck,
     disableInteractions = false,
     editingElementId,
+    imageCropElementId = null,
     elementStates,
     insertTool,
     selectedElementIds,
@@ -342,6 +346,7 @@ export function EditableCanvas(props: {
     onCommitCustomShapeGeometry,
     onDoubleClickElement,
     onFinishEditing,
+    onFinishImageCrop = () => {},
     onOpenElementContextMenu,
     onSetCustomShapeEditElementId,
     onSetInsertTool,
@@ -369,6 +374,19 @@ export function EditableCanvas(props: {
     end: CanvasPoint;
   } | null>(null);
   const [snapGuides, setSnapGuides] = useState<CanvasSnapGuide[]>([]);
+  const imageCropElement =
+    !disableInteractions &&
+    imageCropElementId &&
+    selectedElementIds.length === 1 &&
+    selectedElementIds[0] === imageCropElementId
+      ? (visibleElements.find(
+          (candidate): candidate is Extract<DeckElement, { type: "image" }> =>
+            candidate.elementId === imageCropElementId &&
+            candidate.type === "image"
+        ) ?? null)
+      : null;
+  const canvasInteractionDisabled =
+    disableInteractions || Boolean(imageCropElement);
   const editingCustomShapeElement =
     customShapeEditElementId && customShapeEditElementId !== editingElementId
       ? (visibleElements.find(
@@ -403,7 +421,7 @@ export function EditableCanvas(props: {
       return;
     }
 
-    if (customShapeEditElementId) {
+    if (canvasInteractionDisabled || customShapeEditElementId) {
       transformer.nodes([]);
       transformer.getLayer()?.batchDraw();
       return;
@@ -415,7 +433,12 @@ export function EditableCanvas(props: {
 
     transformer.nodes(selectedNodes);
     transformer.getLayer()?.batchDraw();
-  }, [customShapeEditElementId, selectedElementIds, visibleElements]);
+  }, [
+    canvasInteractionDisabled,
+    customShapeEditElementId,
+    selectedElementIds,
+    visibleElements
+  ]);
 
   useEffect(() => {
     if (insertTool !== "customShape") {
@@ -544,16 +567,16 @@ export function EditableCanvas(props: {
         scaleY={stageScale}
         width={deck.canvas.width * stageScale}
         onMouseDown={
-          disableInteractions ? undefined : stageMouseHandlers.onMouseDown
+          canvasInteractionDisabled ? undefined : stageMouseHandlers.onMouseDown
         }
         onMouseMove={
-          disableInteractions ? undefined : stageMouseHandlers.onMouseMove
+          canvasInteractionDisabled ? undefined : stageMouseHandlers.onMouseMove
         }
         onMouseUp={
-          disableInteractions ? undefined : stageMouseHandlers.onMouseUp
+          canvasInteractionDisabled ? undefined : stageMouseHandlers.onMouseUp
         }
         onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
-          if (disableInteractions || selectedElementIds.length < 2) return;
+          if (canvasInteractionDisabled || selectedElementIds.length < 2) return;
           const selectedElement = visibleElements.find((element) =>
             selectedElementIds.includes(element.elementId)
           );
@@ -580,7 +603,7 @@ export function EditableCanvas(props: {
               editorPrimaryStrongSoftColor={editorPrimaryStrongSoftColor}
               deck={deck}
               disablePointerEvents={
-                disableInteractions || insertTool !== "select"
+                canvasInteractionDisabled || insertTool !== "select"
               }
               element={element}
               isSelected={selectedElementIds.includes(element.elementId)}
@@ -699,7 +722,7 @@ export function EditableCanvas(props: {
               height: Math.max(1, nextBox.height),
             })}
             enabledAnchors={
-              disableInteractions
+              canvasInteractionDisabled
                 ? []
                 : [
                     "top-left",
@@ -713,12 +736,34 @@ export function EditableCanvas(props: {
                   ]
             }
             ignoreStroke
-            rotateEnabled={!disableInteractions}
+            rotateEnabled={!canvasInteractionDisabled}
             rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
           />
         </Layer>
       </Stage>
-      {editingElementId ? (
+      {imageCropElement ? (
+        <ImageCropOverlay
+          frame={{
+            x: imageCropElement.x,
+            y: imageCropElement.y,
+            width: imageCropElement.width,
+            height: imageCropElement.height,
+            rotation: imageCropElement.rotation
+          }}
+          imageProps={imageCropElement.props}
+          stageScale={stageScale}
+          onApply={(crop) => {
+            onCommitElementProps(imageCropElement.elementId, { crop });
+            onFinishImageCrop();
+          }}
+          onCancel={onFinishImageCrop}
+          onReset={() => {
+            onCommitElementProps(imageCropElement.elementId, { crop: null });
+            onFinishImageCrop();
+          }}
+        />
+      ) : null}
+      {!imageCropElement && editingElementId ? (
         <>
           <InlineTextEditorOverlay
             deck={deck}

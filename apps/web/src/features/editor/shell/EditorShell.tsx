@@ -10,6 +10,7 @@ import {
 import { demoIds, type Slide } from "@orbit/shared";
 import type { Job } from "../../../../../../packages/shared/src/jobs/job.schema";
 import { getRenderableSlideElements } from "../canvas/EditorCanvas";
+import { getImageCropActionState } from "../canvas/image/imageCropSession";
 import {
   AnimationInspectorPanel,
   buildAnimationKeywordTriggerPolicy,
@@ -345,6 +346,9 @@ export function EditorShell(props: { projectId?: string }) {
   );
   const setCustomShapeEditElementId = useEditorShellUiStore(
     (state) => state.setCustomShapeEditElementId
+  );
+  const [imageCropElementId, setImageCropElementId] = useState<string | null>(
+    null
   );
   const isShapeMenuOpen = useEditorShellUiStore((state) => state.isShapeMenuOpen);
   const setIsShapeMenuOpen = useEditorShellUiStore(
@@ -802,6 +806,10 @@ export function EditorShell(props: { projectId?: string }) {
     selectedElementIds.length === 1
       ? selectedElements.find((element) => element.elementId === selectedElementId) ?? null
       : null;
+  const imageCropActionState = getImageCropActionState(deck, selectedElement);
+  const isCropEditing =
+    selectedElement?.type === "image" &&
+    selectedElement.elementId === imageCropElementId;
   const selectionInspectorCompactMode =
     resolveSelectionInspectorCompactMode(editorViewportWidth);
   const selectionInspectorModel = useMemo(
@@ -992,6 +1000,7 @@ export function EditorShell(props: { projectId?: string }) {
     ? editorFileTransferActions.getImageInsertCapability(currentSlide.slideId)
     : null;
   const imageDropEnabled =
+    !isCropEditing &&
     !isCustomShapeEditingSelection &&
     canAcceptCanvasImageDrop({
       canMutateDeck,
@@ -1247,6 +1256,7 @@ export function EditorShell(props: { projectId?: string }) {
         setActiveTopMenu(null);
         return;
       case "crop-edit":
+        finishImageCrop();
         return;
       case "custom-shape-edit":
         setCustomShapeEditElementId(null);
@@ -1270,6 +1280,7 @@ export function EditorShell(props: { projectId?: string }) {
       clearSelectedKeyword();
       setEditingElementId(null);
       setCustomShapeEditElementId(null);
+      setImageCropElementId(null);
       setElementContextMenu(null);
     },
     refreshThumbnails: refreshChangedSlideThumbnails,
@@ -1280,6 +1291,31 @@ export function EditorShell(props: { projectId?: string }) {
   }
   function handleRedo() {
     editorDocumentActions.redo(historyCallbacks);
+  }
+
+  function finishImageCrop() {
+    const finishedElementId = imageCropElementId;
+    setImageCropElementId(null);
+    if (!finishedElementId) return;
+
+    requestAnimationFrame(() =>
+      document.getElementById(`image-crop-trigger-${finishedElementId}`)?.focus()
+    );
+  }
+
+  function startImageCrop() {
+    if (
+      !canMutateDeck ||
+      !selectedElement ||
+      !imageCropActionState.enabled
+    ) {
+      return;
+    }
+
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+    setImageCropElementId(selectedElement.elementId);
   }
 
   function openAnimationInspector() {
@@ -1437,6 +1473,15 @@ export function EditorShell(props: { projectId?: string }) {
   ]);
 
   useEffect(() => {
+    if (
+      imageCropElementId &&
+      (!isCropEditing || !imageCropActionState.enabled)
+    ) {
+      setImageCropElementId(null);
+    }
+  }, [imageCropActionState.enabled, imageCropElementId, isCropEditing]);
+
+  useEffect(() => {
     if (resolvedCurrentSlideId !== currentSlideId) {
       setCurrentSlideId(resolvedCurrentSlideId);
     }
@@ -1506,6 +1551,7 @@ export function EditorShell(props: { projectId?: string }) {
       animationDiagnostics: currentSlideAnimationDiagnostics,
       canvas: deck.canvas,
       customShapeEditActive: isCustomShapeEditingSelection,
+      imageCropActionState,
       onChangeElementFrame: handleElementFrameChange,
       onChangeElementProps: handleElementPropsChange,
       onChangeSlideStyle: (style: {
@@ -1520,6 +1566,7 @@ export function EditorShell(props: { projectId?: string }) {
       onCommitCustomShapeGeometry: handleCommitCustomShapeGeometry,
       onDeleteAnimation: handleDeleteAnimation,
       onOpenAnimationEditor: openAnimationInspector,
+      onStartImageCrop: startImageCrop,
       onToggleCustomShapeEdit: (elementId: string) =>
         setCustomShapeEditElementId((current) =>
           current === elementId ? null : elementId
@@ -1573,7 +1620,7 @@ export function EditorShell(props: { projectId?: string }) {
     hasOpenMenu: Boolean(activeTopMenu || isShapeMenuOpen || elementContextMenu),
     hasOpenModal: hasBlockingEditorDialog,
     insertToolActive: insertTool !== "select",
-    isCropEditing: false,
+    isCropEditing,
     isCustomShapeEditingSelection,
     onCopy: handleCopySelectedElement,
     onDelete: handleDeleteSelectedElement,
@@ -1899,6 +1946,7 @@ export function EditorShell(props: { projectId?: string }) {
                 disableInteractions:
                   isPlayingCurrentSlideAnimations || isSlideRehearsalActive,
               editingElementId,
+              imageCropElementId: canMutateDeck ? imageCropElementId : null,
               elementStates: animationPreviewElementStates,
               insertTool,
               selectedElementIds,
@@ -1928,6 +1976,7 @@ export function EditorShell(props: { projectId?: string }) {
               },
               onDoubleClickElement: (elementId) => setEditingElementId(elementId),
               onFinishEditing: () => setEditingElementId(null),
+              onFinishImageCrop: finishImageCrop,
               onSetCustomShapeEditElementId: setCustomShapeEditElementId,
               onSetInsertTool: setInsertTool,
               onOpenElementContextMenu: handleOpenElementContextMenu,

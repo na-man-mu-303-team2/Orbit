@@ -34,6 +34,7 @@ import {
   getCustomShapePaint,
   getCustomShapeStrokeWidth,
 } from "../../canvas/custom-shape/geometry";
+import type { ImageCropActionState } from "../../canvas/image/imageCropSession";
 import {
   getKonvaFontStyle,
   getPrimaryTextRun,
@@ -73,10 +74,12 @@ export function SelectionQuickBar(props: {
   canvas: Deck["canvas"] | null;
   customShapeEditActive: boolean;
   element: DeckElement | null;
+  imageCropActionState?: ImageCropActionState;
   selectedKeywordLabel: string | null;
   slide: Slide | null;
   theme: Deck["theme"] | null;
   onOpenAnimationEditor: () => void;
+  onStartImageCrop?: () => void;
   onChangeFrame: (frame: {
     role?: DeckElement["role"] | null;
     x?: number;
@@ -111,11 +114,13 @@ export function SelectionQuickBar(props: {
     customShapeEditActive,
     canvas,
     element,
+    imageCropActionState,
     onChangeFrame,
     onChangeProps,
     onChangeSlideStyle,
     onChangeTheme,
     onDeleteAnimation,
+    onStartImageCrop,
     onToggleCustomShapeClosed,
     onToggleCustomShapeEdit,
     showIds,
@@ -447,6 +452,34 @@ export function SelectionQuickBar(props: {
         <div className="element-property-section">
           <h4>{getElementContentSectionLabel(element.type)}</h4>
           <div className="selection-quickbar-fields element-property-content-fields">
+            {imageCropActionState?.visible ? (
+              <>
+                <button
+                  aria-describedby={
+                    imageCropActionState.reason
+                      ? `image-crop-disabled-reason-${element.elementId}`
+                      : undefined
+                  }
+                  className="quickbar-action-chip"
+                  disabled={!imageCropActionState.enabled || !onStartImageCrop}
+                  id={`image-crop-trigger-${element.elementId}`}
+                  title={imageCropActionState.reason ?? "이미지 자르기"}
+                  type="button"
+                  onClick={onStartImageCrop}
+                >
+                  자르기
+                </button>
+                {imageCropActionState.reason ? (
+                  <span
+                    className="quickbar-inline-hint quickbar-inline-hint-warning"
+                    id={`image-crop-disabled-reason-${element.elementId}`}
+                    role="status"
+                  >
+                    {imageCropActionState.reason}
+                  </span>
+                ) : null}
+              </>
+            ) : null}
             <ElementQuickBarFields
               customShapeEditActive={customShapeEditActive}
               element={element}
