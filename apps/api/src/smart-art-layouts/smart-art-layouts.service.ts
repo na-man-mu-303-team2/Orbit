@@ -25,4 +25,15 @@ export class SmartArtLayoutsService {
       order: { itemCountMax: "ASC" }
     });
   }
+
+  async listActiveCatalog(): Promise<SmartArtLayoutEntity[]> {
+    return this.repository.find({
+      where: { isActive: true },
+      order: { itemCountMin: "ASC", layoutType: "ASC", layoutId: "ASC" }
+    });
+  }
+
+  async findActiveById(layoutId: string): Promise<SmartArtLayoutEntity | null> {
+    return this.repository.findOne({ where: { layoutId, isActive: true } });
+  }
 }

@@ -16,6 +16,7 @@ describe("AiChatPanel", () => {
     const deck = createDemoDeck();
     const html = renderToString(
       <AiChatPanel
+        onSpeakerNotesAssistantRequest={() => undefined}
         projectId={deck.projectId}
         deck={deck}
         currentSlide={deck.slides[0] ?? null}
@@ -30,6 +31,7 @@ describe("AiChatPanel", () => {
     expect(html).toContain("현재 슬라이드에서 바꾸고 싶은 디자인");
     expect(html).toContain('placeholder="바꾸고 싶은 디자인을 말씀해 주세요"');
     expect(html).toContain('aria-label="메시지 보내기"');
+    expect(html).toContain("<textarea");
   });
 
   it("renders editor-owned history again after the panel remounts", () => {
@@ -49,6 +51,7 @@ describe("AiChatPanel", () => {
     const renderPanel = () =>
       renderToString(
         <AiChatPanel
+          onSpeakerNotesAssistantRequest={() => undefined}
           projectId={deck.projectId}
           deck={deck}
           currentSlide={deck.slides[0] ?? null}
@@ -68,6 +71,7 @@ describe("AiChatPanel", () => {
     const slide = createActivitySlide(deck, "poll");
     const html = renderToString(
       <AiChatPanel
+        onSpeakerNotesAssistantRequest={() => undefined}
         projectId={deck.projectId}
         deck={{ ...deck, slides: [...deck.slides, slide] }}
         currentSlide={slide}

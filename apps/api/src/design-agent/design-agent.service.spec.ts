@@ -14,6 +14,10 @@ import {
 } from "./design-agent.service";
 
 describe("allowsUnselectedSmartArtSources", () => {
+  it("allows reconfigure wording to use visible slide elements", () => {
+    expect(allowsUnselectedSmartArtSources("현재 디자인 재구성좀 해줘")).toBe(true);
+  });
+
   it.each([
     "현재 페이지 가운데 텍스트를 도식화해줘",
     "이 슬라이드를 스마트아트로 바꿔줘",
@@ -25,6 +29,19 @@ describe("allowsUnselectedSmartArtSources", () => {
 
   it("keeps selection-only requests restricted", () => {
     expect(allowsUnselectedSmartArtSources("선택한 항목을 스마트아트로 바꿔줘")).toBe(false);
+  });
+
+  it.each([
+    "보기 좋게 꾸며줘",
+    "도형도 넣어서 디자인해줘",
+    "좀 다른 디자인 없어?",
+    "Beautify this content",
+  ])("allows visible slide sources for broad preset requests: %s", (question) => {
+    expect(allowsUnselectedSmartArtSources(question)).toBe(true);
+  });
+
+  it("keeps explicit small edits on the direct edit path", () => {
+    expect(allowsUnselectedSmartArtSources("글자 색상만 바꿔서 꾸며줘")).toBe(false);
   });
 });
 
@@ -145,6 +162,11 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
 
     const fakeLayout = {
       layoutId: "smart_art_list_vertical_3",
+      layoutType: "list",
+      name: "Vertical list",
+      itemCountMin: 2,
+      itemCountMax: 3,
+      isActive: true,
       elements: [
         {
           elementIdSuffix: "row_bg_0",
@@ -191,7 +213,8 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     } as unknown as SmartArtLayoutEntity;
 
     const smartArtLayoutsService = {
-      findByTypeAndItemCount: vi.fn(async () => fakeLayout),
+      listActiveCatalog: vi.fn(async () => [fakeLayout]),
+      findActiveById: vi.fn(async () => fakeLayout),
     } as unknown as SmartArtLayoutsService;
 
     const pythonClient = {
@@ -202,6 +225,7 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
         affectedElementIds: [],
         warnings: [],
         smartArtRequest: {
+          layoutId: "smart_art_list_vertical_3",
           layoutType: "list",
           sourceElementIds: [sourceElementId!],
           items: [{ title: "기획" }, { title: "개발" }],
@@ -230,7 +254,9 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
       },
     });
 
-    expect(smartArtLayoutsService.findByTypeAndItemCount).toHaveBeenCalledWith("list", 2);
+    expect(smartArtLayoutsService.findActiveById).toHaveBeenCalledWith(
+      "smart_art_list_vertical_3",
+    );
     expect(savedProposal?.operations).toHaveLength(5);
     expect(savedProposal?.operations[0]).toMatchObject({
       type: "delete_element",
