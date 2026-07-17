@@ -2005,9 +2005,96 @@ def normalize_design_program(
     _enforce_media_budget(normalized, slides, media_policy, media_budget)
     if media_policy == "hybrid":
         _enforce_hybrid_media_mix(normalized, slides, media_budget)
+    _apply_diagram_first_policy(normalized, slides, media_policy)
     _replace_body_hero_splits_without_media(normalized, slides)
     _enforce_background_rhythm(normalized, force_light, force_dark)
     return DeckDesignProgram.model_validate(normalized.model_dump(by_alias=True))
+
+
+def _apply_diagram_first_policy(
+    program: DeckDesignProgram,
+    slides: list[dict[str, Any]],
+    media_policy: str,
+) -> None:
+    for index, (direction, slide) in enumerate(
+        zip(program.slides, slides, strict=True)
+    ):
+        if index == 0:
+            continue
+        slide_type = _composition_slide_type(slide)
+        text = " ".join(
+            [
+                str(slide.get("title", "")),
+                str(slide.get("message", "")),
+            ]
+        ).casefold()
+        candidate: CompositionId | None = None
+        if slide_type == "process":
+            candidate = (
+                "timeline"
+                if any(
+                    keyword in text
+                    for keyword in ("로드맵", "일정", "마일스톤", "schedule", "roadmap")
+                )
+                else "process-horizontal"
+            )
+        elif slide_type == "architecture":
+            candidate = "diagram-hub"
+        elif slide_type in {"data", "chart"}:
+            candidate = (
+                "kpi-strip-evidence"
+                if content_supports_composition("kpi-strip-evidence", slide)
+                else "metric-poster"
+            )
+        elif slide_type == "comparison":
+            candidate = "feature-comparison"
+        if candidate is not None and _supports(
+            candidate,
+            slide_type,
+            len(_items(slide)),
+        ):
+            direction.composition_id = candidate
+            direction.asset_role = "none"
+            direction.required_asset = False
+            continue
+        removes_generated_image = (
+            media_policy == "ai-generated"
+            or (media_policy == "hybrid" and direction.asset_role == "atmosphere")
+        ) and not _ai_image_candidate(slide_type, text)
+        if not removes_generated_image:
+            continue
+        if COMPOSITION_SPECS[direction.composition_id].media_requirement == "required":
+            replacement = _first_supported(
+                tuple(
+                    fallback
+                    for fallback in FALLBACK_COMPOSITIONS.get(slide_type, ())
+                    if COMPOSITION_SPECS[fallback].media_requirement != "required"
+                ),
+                slide_type,
+                len(_items(slide)),
+                allow_missing=True,
+            )
+            if replacement is not None:
+                direction.composition_id = replacement
+        direction.asset_role = "none"
+        direction.required_asset = False
+
+
+def _ai_image_candidate(slide_type: str, text: str) -> bool:
+    return slide_type == "problem" or any(
+        keyword in text
+        for keyword in (
+            "분위기",
+            "비전",
+            "현장",
+            "감성",
+            "영감",
+            "장면",
+            "atmosphere",
+            "mood",
+            "vision",
+        )
+    )
 
 
 def _select_composition_sequence(

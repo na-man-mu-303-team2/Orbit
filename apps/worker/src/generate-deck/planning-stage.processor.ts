@@ -71,6 +71,93 @@ const sourceGroundingResearchDiagnosticsSchema = z.object({
   web_research_timed_out: z.boolean().default(false),
   web_research_elapsed_ms: z.number().int().nonnegative().default(0),
 });
+const contentFactDiagnosticsSchema = z.object({
+  factValidationDurationMs: z.number().int().nonnegative().default(0),
+  factRepairAttempted: z.boolean().default(false),
+  factRepairSucceeded: z.boolean().default(false),
+  factRepairDurationMs: z.number().int().nonnegative().default(0),
+  factRepairEligibleSlideOrders: z
+    .array(z.number().int().positive())
+    .default([]),
+  factQualityIssues: z
+    .array(
+      z.object({
+        code: z.string(),
+        slideOrder: z.number().int().positive(),
+      }),
+    )
+    .default([]),
+});
+const coverFactContextSchema = z.object({
+  criticalFacts: z
+    .array(
+      z.object({
+        factId: z.string(),
+        canonicalText: z.string(),
+        sourceRefs: z.array(z.string()).default([]),
+      }),
+    )
+    .default([]),
+  evidenceObligations: z
+    .array(
+      z.object({
+        obligationId: z.string(),
+        canonicalText: z.string(),
+        sourceRefs: z.array(z.string()).default([]),
+      }),
+    )
+    .default([]),
+  communicationContract: z
+    .object({
+      placementConstraints: z
+        .array(
+          z.object({
+            targetId: z.string(),
+            slideRole: z.enum(["cover", "body", "closing"]),
+            elementRole: z.enum(["title", "subtitle", "message", "body"]),
+            slideOrder: z.number().int().positive().nullable().default(null),
+          }),
+        )
+        .default([]),
+    })
+    .default({ placementConstraints: [] }),
+  factQualityIssues: z
+    .array(
+      z.object({
+        code: z.string(),
+        message: z.string(),
+        slideOrder: z.number().int().positive(),
+      }),
+    )
+    .default([]),
+  sourceRecords: z
+    .array(
+      z
+        .object({
+          sourceId: z.string(),
+          sourceType: z.enum(["topic", "uploaded", "web", "generated", "none"]),
+          fileId: z.string().nullable().optional(),
+          chunkId: z.string().nullable().optional(),
+          url: z.string().nullable().optional(),
+          title: z.string().default(""),
+          authority: z.enum(["official", "independent", "unknown"]).default("unknown"),
+          confidence: z.number().min(0).max(1).default(0.5),
+        })
+        .passthrough(),
+    )
+    .default([]),
+});
+const coverStoryContextSchema = z.object({
+  slidePlans: z
+    .array(
+      z.object({
+        order: z.number().int().positive(),
+        title: z.string(),
+        message: z.string(),
+      }).passthrough(),
+    )
+    .min(1),
+});
 const timestampSchema = z.union([z.date(), z.string().min(1)]);
 const parentJobRowSchema = z.object({
   job_id: z.string().min(1),
@@ -199,6 +286,43 @@ export async function processAiDeckPlanningStage(
               research.data.research_fact_coverage_satisfied,
             timedOut: research.data.web_research_timed_out,
             elapsedMs: research.data.web_research_elapsed_ms,
+          },
+        );
+      }
+    }
+    if (message.stage === "content-planning") {
+      const contentPayload = contentPlanningArtifactPayloadSchema.parse(payload);
+      const diagnostics = contentFactDiagnosticsSchema.parse(
+        contentPayload.rawInput,
+      );
+      emitStageEvent(
+        options.eventLogger,
+        "ai-ppt.fact-validation.completed",
+        {
+          pipelineJobId: message.pipelineJobId,
+          projectId: message.projectId,
+          durationMs: diagnostics.factValidationDurationMs,
+          issueCodes: [
+            ...new Set(diagnostics.factQualityIssues.map((issue) => issue.code)),
+          ],
+          slideOrders: [
+            ...new Set(
+              diagnostics.factQualityIssues.map((issue) => issue.slideOrder),
+            ),
+          ],
+        },
+      );
+      if (diagnostics.factRepairAttempted) {
+        emitStageEvent(
+          options.eventLogger,
+          "ai-ppt.fact-repair.attempted",
+          {
+            pipelineJobId: message.pipelineJobId,
+            projectId: message.projectId,
+            durationMs: diagnostics.factRepairDurationMs,
+            slideOrders: diagnostics.factRepairEligibleSlideOrders,
+            repairCount: diagnostics.factRepairEligibleSlideOrders.length,
+            succeeded: diagnostics.factRepairSucceeded,
           },
         );
       }
@@ -648,11 +772,32 @@ async function reuseCoverAsFirstSlide(
   const cover = coverSlideArtifactPayloadSchema.parse(rawCover.payload_json);
   const sourceSlide = cover.deck.slides[0];
   if (!sourceSlide) return null;
-  const slide = {
+  const factContext = await loadCoverFactContext(db, message);
+  const slide = applyCoverFactContext({
     ...sourceSlide,
     slideId: descriptor.slideId,
     order: descriptor.order,
-  };
+  }, factContext);
+  const appliedCoverPlacement =
+    factContext.raw.communicationContract.placementConstraints.some(
+      (constraint) =>
+        constraint.slideRole === "cover" &&
+        ["title", "subtitle"].includes(constraint.elementRole),
+    );
+  const contentIssues = factContext.raw.factQualityIssues
+    .filter(
+      (issue) =>
+        issue.slideOrder === 1 &&
+        !(appliedCoverPlacement && issue.code === "FACT_PLACEMENT_MISMATCH"),
+    )
+    .map((issue) => ({
+      code: issue.code,
+      scope: "slide" as const,
+      severity: "warning" as const,
+      blocking: false,
+      path: "slides.0.content",
+      message: issue.message,
+    }));
   const completed = completedSlideV2ArtifactPayloadSchema.parse({
     artifactVersion: 2,
     sourceOrder: descriptor.sourceOrder,
@@ -660,7 +805,10 @@ async function reuseCoverAsFirstSlide(
     slideId: descriptor.slideId,
     slide,
     warnings: cover.warnings,
-    validation: cover.validation,
+    validation: {
+      ...cover.validation,
+      contentIssues: [...cover.validation.contentIssues, ...contentIssues],
+    },
   });
   const checkpointRows = await db.query(
     `INSERT INTO ai_deck_generation_stages (
@@ -697,6 +845,130 @@ async function reuseCoverAsFirstSlide(
     ],
   );
   return descriptor.sourceOrder;
+}
+
+async function loadCoverFactContext(
+  db: Pick<DataSource, "query">,
+  message: AiDeckGenerationStageMessage,
+) {
+  const row = firstQueryRow(
+    await db.query(
+      `SELECT payload_json
+       FROM ai_deck_planning_artifacts
+       WHERE pipeline_job_id = $1 AND project_id = $2
+         AND stage = 'content-planning' AND shard_key = ''`,
+      [message.pipelineJobId, message.projectId],
+    ),
+  );
+  const payload = contentPlanningArtifactPayloadSchema.parse(
+    z.object({ payload_json: z.unknown() }).parse(row).payload_json,
+  );
+  return {
+    raw: coverFactContextSchema.parse(payload.rawInput),
+    story: coverStoryContextSchema.parse(payload.contentPlan),
+  };
+}
+
+function applyCoverFactContext(
+  slide: ReturnType<typeof coverSlideArtifactPayloadSchema.parse>["deck"]["slides"][number],
+  context: Awaited<ReturnType<typeof loadCoverFactContext>>,
+) {
+  const placements = context.raw.communicationContract.placementConstraints.filter(
+    (constraint) =>
+      constraint.slideRole === "cover" &&
+      (constraint.slideOrder === null || constraint.slideOrder === 1),
+  );
+  const targets = new Map<
+    string,
+    { canonicalText: string; sourceRefs: string[] }
+  >();
+  for (const fact of context.raw.criticalFacts) targets.set(fact.factId, fact);
+  for (const obligation of context.raw.evidenceObligations) {
+    targets.set(obligation.obligationId, obligation);
+  }
+  const titlePlacement = placements.find(
+    (constraint) => constraint.elementRole === "title",
+  );
+  const subtitlePlacement = placements.find(
+    (constraint) => constraint.elementRole === "subtitle",
+  );
+  const titleTarget = titlePlacement
+    ? targets.get(titlePlacement.targetId)
+    : undefined;
+  const subtitleTarget = subtitlePlacement
+    ? targets.get(subtitlePlacement.targetId)
+    : undefined;
+  const story = context.story.slidePlans[0];
+  const title = titleTarget?.canonicalText || slide.title || story.title;
+  const subtitle = subtitleTarget?.canonicalText || "";
+  const titleElement = slide.elements.find(
+    (element) => element.elementId === "el_cover_title" && element.type === "text",
+  );
+  const elements = slide.elements.map((element) =>
+    element === titleElement && element.type === "text"
+      ? {
+          ...element,
+          height: subtitle ? 350 : element.height,
+          props: { ...element.props, text: title },
+        }
+      : element,
+  );
+  if (subtitle && titleElement?.type === "text") {
+    elements.push({
+      elementId: "el_cover_subtitle",
+      type: "text",
+      role: "subtitle",
+      x: titleElement.x,
+      y: 730,
+      width: Math.min(titleElement.width, 1120),
+      height: 150,
+      rotation: 0,
+      opacity: 1,
+      zIndex: titleElement.zIndex + 1,
+      locked: false,
+      visible: true,
+      props: {
+        ...titleElement.props,
+        text: subtitle,
+        fontSize: 34,
+        fontWeight: "medium",
+        lineHeight: 1.3,
+      },
+    });
+  }
+  const placedTargets = [titleTarget, subtitleTarget].filter(
+    (target): target is NonNullable<typeof target> => Boolean(target),
+  );
+  const sourceMap = new Map(
+    context.raw.sourceRecords.map((source) => [source.sourceId, source]),
+  );
+  const sourceLedger = placedTargets.flatMap((target) => {
+    const source = target.sourceRefs.map((sourceId) => sourceMap.get(sourceId)).find(Boolean);
+    if (!source) return [];
+    return [{
+      claim: target.canonicalText,
+      source: source.title || source.sourceId,
+      sourceType: source.sourceType,
+      sourceId: source.sourceId,
+      ...(source.fileId ? { fileId: source.fileId } : {}),
+      ...(source.chunkId ? { chunkId: source.chunkId } : {}),
+      ...(source.url ? { url: source.url } : {}),
+      ...(source.title ? { title: source.title } : {}),
+      authority: source.authority,
+      confidence: source.confidence,
+      usedInSlideId: slide.slideId,
+    }];
+  });
+  return {
+    ...slide,
+    title,
+    elements,
+    aiNotes: {
+      ...slide.aiNotes,
+      emphasisPoints: [...new Set([title, subtitle, story.message].filter(Boolean))],
+      ...(sourceLedger.length > 0 ? { sourceLedger } : {}),
+    },
+  };
 }
 
 async function failStageAndParent(
