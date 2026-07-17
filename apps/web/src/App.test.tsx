@@ -260,6 +260,34 @@ describe("App shell routing", () => {
     }
   });
 
+  it("keeps the Story Review waiting screen while project access is checked", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(authMeQueryKey, {
+      userId: "user_demo_1",
+      email: "demo@orbit.test"
+    });
+    vi.stubGlobal("window", {
+      location: {
+        pathname: "/project/project_demo_1/story-plan/job-1",
+        search: ""
+      }
+    });
+
+    try {
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
+      );
+
+      expect(html).toContain("이야기 구성을 정리하고 있습니다.");
+      expect(html).not.toContain("에디터를 불러오는 중");
+    } finally {
+      vi.unstubAllGlobals();
+      queryClient.clear();
+    }
+  });
+
   it("parses project brief and version history production routes", () => {
     expect(getRoute("/project/project_demo_1/brief")).toEqual({
       name: "project-brief",

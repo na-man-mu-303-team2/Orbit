@@ -672,7 +672,7 @@ export function moveStorySlideOrder(
   next.splice(toIndex, 0, moved!);
   return next;
 }
-function StoryPlanLoading(props: {
+export function StoryPlanLoading(props: {
   busy?: boolean;
   error?: string;
   onCancel?: () => void;

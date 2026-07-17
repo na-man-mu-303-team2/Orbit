@@ -43,7 +43,10 @@ import {
   AiPptStyleColorPage,
 } from "./features/ai-ppt/AiPptMockupPage";
 import { AiDeckGenerationPage } from "./features/ai-ppt/AiDeckGenerationPage";
-import { StoryPlanReviewPage } from "./features/ai-ppt/StoryPlanReviewPage";
+import {
+  StoryPlanLoading,
+  StoryPlanReviewPage,
+} from "./features/ai-ppt/StoryPlanReviewPage";
 import { DeckVersionHistoryPage } from "./features/editor/history/DeckVersionHistoryPage";
 import type { EditorCapability } from "./features/editor/shell/editorCapabilities";
 import {
@@ -716,6 +719,7 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "story-plan-review") {
     return (
       <ProjectAccessGate
+        loadingFallback={<StoryPlanLoading />}
         projectId={route.projectId}
         requiredCapability="canUseAiMutations"
       >
@@ -1060,6 +1064,7 @@ async function readApiError(response: Response, fallback: string) {
 
 function ProjectAccessGate(props: {
   children: ReactNode;
+  loadingFallback?: ReactNode;
   projectId: string;
   requiredCapability?: EditorCapability;
 }) {
@@ -1076,7 +1081,9 @@ function ProjectAccessGate(props: {
     }
   }, [access.data?.membership, access.isSuccess, props.projectId]);
 
-  if (access.isLoading) return <EditorLoadingFallback />;
+  if (access.isLoading) {
+    return <>{props.loadingFallback ?? <EditorLoadingFallback />}</>;
+  }
   if (access.isError) {
     return (
       <ProjectAccessError
@@ -1085,11 +1092,14 @@ function ProjectAccessGate(props: {
       />
     );
   }
-  if (access.data?.membership?.status !== "accepted")
-    return <EditorLoadingFallback />;
+  if (access.data?.membership?.status !== "accepted") {
+    return <>{props.loadingFallback ?? <EditorLoadingFallback />}</>;
+  }
 
   const acceptedAccess = createAcceptedProjectAccess(access.data);
-  if (!acceptedAccess) return <EditorLoadingFallback />;
+  if (!acceptedAccess) {
+    return <>{props.loadingFallback ?? <EditorLoadingFallback />}</>;
+  }
 
   if (
     props.requiredCapability &&
