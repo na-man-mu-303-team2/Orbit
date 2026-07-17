@@ -8,8 +8,15 @@ import type { ProjectsService } from "../projects/projects.service";
 import type { ChallengeQnaEvidenceCache } from "./challenge-qna-evidence-cache";
 import { buildChallengeQnaSource, ChallengeQnaService } from "./challenge-qna.service";
 
+const jobQueueMocks = vi.hoisted(() => ({
+  enqueueChallengeQnaAnswerAnalysisJob: vi.fn(async () => undefined),
+  enqueueChallengeQnaGenerationJob: vi.fn(async () => undefined),
+}));
+
+vi.mock("@orbit/job-queue", () => jobQueueMocks);
+
 vi.mock("@orbit/config", () => ({
-  loadOrbitConfig: () => ({ ADAPTIVE_REHEARSAL_COACH_ENABLED: true, CHALLENGE_QNA_ENABLED: true, ADAPTIVE_COACHING_PROJECT_ALLOWLIST: ["*"] }),
+  loadOrbitConfig: () => ({ JOB_QUEUE_DRIVER: "bullmq", REDIS_URL: "redis://localhost:6379", REHEARSAL_AUDIO_MAX_BYTES: 50_000_000, ADAPTIVE_REHEARSAL_COACH_ENABLED: true, CHALLENGE_QNA_ENABLED: true, ADAPTIVE_COACHING_PROJECT_ALLOWLIST: ["*"] }),
   isAdaptiveCoachingProjectAllowed: () => true,
 }));
 
@@ -57,6 +64,62 @@ describe("ChallengeQnaService grounding", () => {
       questionRevision: 1,
       level: "full-guide",
     })).rejects.toMatchObject({ response: { code: "INVALID_STATE_TRANSITION" } });
+    expect(query.mock.calls[2]?.[0]).toContain("status='succeeded'");
+  });
+
+  it("reveals the full guide only after a succeeded answer", async () => {
+    const question = {
+      question_id: "question-a", project_id: "project-a", qna_session_id: "qna-existing", revision: 1,
+      question_order: 1, question_type: "goal-linked", difficulty: "medium", question_text: "근거는?",
+      linked_goal_ids_json: [], source_refs_json: [], assistance_level: "full-guide",
+      succeeded_attempt_count: 0, answer_guide_json: { mustIncludeConcepts: [] }, provenance_json: {},
+    };
+    const query = vi.fn()
+      .mockResolvedValueOnce([challengeSessionRow()])
+      .mockResolvedValueOnce([question])
+      .mockResolvedValueOnce([]);
+    const service = new ChallengeQnaService(
+      { query } as unknown as DataSource,
+      { assertCanReadProject: vi.fn(async () => ({})) } as unknown as ProjectsService,
+      {} as FilesService,
+      {} as JobsService,
+      {} as ChallengeQnaEvidenceCache,
+    );
+
+    const result = await service.getSession("qna-existing", "user-a");
+
+    expect(result.questions[0]?.answerGuide).toBeNull();
+    expect(query.mock.calls[1]?.[0]).toContain("FILTER (WHERE attempts.status='succeeded')");
+  });
+
+  it("marks generation state failed when queue dispatch fails", async () => {
+    jobQueueMocks.enqueueChallengeQnaGenerationJob.mockRejectedValueOnce(new Error("redis down"));
+    const current = { ...challengeSessionRow(), status: "failed", error_code: "PROVIDER_UNAVAILABLE" };
+    const retrying = { ...current, status: "preparing", generation_revision: 2, generation_job_id: null, error_code: null };
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("SELECT * FROM challenge_qna_sessions")) return [current];
+      if (sql.includes("generation_revision=generation_revision+1")) return [retrying];
+      return [];
+    });
+    const job = { jobId: "job-generation", projectId: "project-a", type: "challenge-qna-generation", status: "queued", progress: 0, message: "Queued", result: null, error: null, createdAt: "2026-07-12T09:00:00.000Z", updatedAt: "2026-07-12T09:00:00.000Z" } as const;
+    const jobs = { create: vi.fn(async () => job), update: vi.fn(async () => ({ ...job, status: "failed" })) };
+    const service = new ChallengeQnaService(
+      { query } as unknown as DataSource,
+      { assertCanWriteProject: vi.fn(async () => ({})) } as unknown as ProjectsService,
+      {} as FilesService,
+      jobs as unknown as JobsService,
+      {} as ChallengeQnaEvidenceCache,
+    );
+
+    await expect(service.retryGeneration("qna-existing", "user-a", {
+      clientRequestId: "retry-generation-a",
+      expectedGenerationRevision: 1,
+    })).rejects.toThrow("redis down");
+
+    expect(jobs.update).toHaveBeenCalledWith("job-generation", expect.objectContaining({
+      status: "failed", error: expect.objectContaining({ code: "QNA_GENERATION_ENQUEUE_FAILED" }),
+    }));
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("error_code='PROVIDER_UNAVAILABLE'"))).toBe(true);
   });
 
   it("returns the existing session when concurrent idempotent creation collides", async () => {

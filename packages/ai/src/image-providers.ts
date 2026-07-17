@@ -118,9 +118,9 @@ export class OpenversePublicImageSearchProvider
     for (const candidate of candidates.slice(0, 5)) {
       for (const imageUrl of uniqueUrls(candidate.url, candidate.thumbnail)) {
         try {
-          const imageResponse = await fetch(imageUrl, {
+          const imageResponse = await fetchPublicUrl(imageUrl, {
             signal: input.abortSignal,
-            headers: { accept: "image/*" }
+            accept: "image/*"
           });
           if (!imageResponse.ok) {
             throw new Error(
@@ -138,7 +138,7 @@ export class OpenversePublicImageSearchProvider
             fileName: fileNameForMime(candidate.title || "public-image", mimeType),
             provider: "openverse",
             sourceUrl: candidate.foreign_landing_url,
-            sourceAssetUrl: imageUrl,
+            sourceAssetUrl: imageResponse.url || imageUrl,
             sourceAuthority: "independent",
             usageBasis: "licensed",
             author: candidate.creator?.trim() || "Unknown creator",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { maxRehearsalAudioUploadSizeBytes } from "../files/file.schema";
 import {
   challengeAnswerGuideSchema,
   challengeQnaAnswerAttemptSchema,
@@ -42,6 +43,16 @@ describe("challengeAnswerGuideSchema", () => {
 });
 
 describe("Challenge Q&A answer privacy", () => {
+  it("rejects private voice audio above the rehearsal upload limit", () => {
+    expect(createChallengeQnaAnswerAttemptRequestSchema.safeParse({
+      clientRequestId: "request-123",
+      questionRevision: 1,
+      inputMode: "voice",
+      mimeType: "audio/webm",
+      size: maxRehearsalAudioUploadSizeBytes + 1
+    }).success).toBe(false);
+  });
+
   it("accepts text only at the command boundary and rejects it from results", () => {
     expect(
       createChallengeQnaAnswerAttemptRequestSchema.parse({
@@ -57,4 +68,3 @@ describe("Challenge Q&A answer privacy", () => {
     ).toBe(false);
   });
 });
-

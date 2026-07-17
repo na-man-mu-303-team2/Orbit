@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
-import { allowedRehearsalAudioMimeTypes } from "../files/file.schema";
+import {
+  allowedRehearsalAudioMimeTypes,
+  maxRehearsalAudioUploadSizeBytes,
+} from "../files/file.schema";
 import {
   cleanupStateSchema,
   clientRequestIdSchema,
@@ -351,7 +354,7 @@ export const createChallengeQnaAnswerAttemptRequestSchema = z.discriminatedUnion
         ...answerAttemptBaseShape,
         inputMode: z.literal("voice"),
         mimeType: z.enum(allowedRehearsalAudioMimeTypes),
-        size: z.number().int().positive(),
+        size: z.number().int().positive().max(maxRehearsalAudioUploadSizeBytes),
       })
       .strict(),
     z
@@ -383,4 +386,3 @@ export type ChallengeQuestion = z.infer<typeof challengeQuestionSchema>;
 export type ChallengeQnaAnswerAttempt = z.infer<
   typeof challengeQnaAnswerAttemptSchema
 >;
-

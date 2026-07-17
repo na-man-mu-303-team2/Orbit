@@ -126,11 +126,9 @@ export function derivePracticeGoalSet(input: {
       createdAt: input.report.generatedAt,
     };
   });
-  const analysisState =
-    input.report.semanticEvaluation.state === "partial" &&
-    input.report.semanticEvaluation.retryable
-      ? "partial"
-      : "final";
+  const analysisState = input.report.semanticEvaluation.retryable
+    ? "partial"
+    : "final";
 
   return practiceGoalSetSchema.parse({
     goalSetId,

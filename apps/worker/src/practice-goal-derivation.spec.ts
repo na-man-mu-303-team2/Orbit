@@ -59,6 +59,26 @@ describe("practice goal derivation", () => {
     expect(recovered?.goalSetId).not.toBe(first?.goalSetId);
   });
 
+  it("keeps retryable unavailable semantic evaluation partial", () => {
+    const unavailableReport = report(false);
+    unavailableReport.semanticEvaluation = {
+      state: "unavailable",
+      measurementMode: "none",
+      reasons: ["provider_unavailable"],
+      retryable: true
+    };
+
+    const set = derivePracticeGoalSet({
+      projectId: "project-a",
+      sourceFullRunId: "run-a",
+      sourceAnalysisRevision: 1,
+      snapshot: snapshot(),
+      report: unavailableReport
+    });
+
+    expect(set?.analysisState).toBe("partial");
+  });
+
   it("keeps the goal set empty when the report has no failing candidates", () => {
     const set = derivePracticeGoalSet({
       projectId: "project-a",
