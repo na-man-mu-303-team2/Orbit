@@ -96,4 +96,20 @@ describe("databaseOptions", () => {
       names.indexOf("CreatePresentationSessionAudienceRegistry2026071703000")
     ).toBeGreaterThan(names.indexOf("CreateActivityRuntime2026071702000"));
   });
+
+  it("registers the SmartArt typography migration after its layout migrations", () => {
+    const migrations = Array.isArray(databaseOptions.migrations)
+      ? databaseOptions.migrations
+      : [];
+    const names = migrations.map((migration) =>
+      typeof migration === "function" ? migration.name : "",
+    );
+
+    expect(names.indexOf("AddSmartArtTemplateLayouts2026071702000")).toBeGreaterThan(
+      names.indexOf("CreateSmartArtLayouts2026071701000"),
+    );
+    expect(names.indexOf("IncreaseSmartArtTypography2026071703000")).toBeGreaterThan(
+      names.indexOf("AddSmartArtTemplateLayouts2026071702000"),
+    );
+  });
 });

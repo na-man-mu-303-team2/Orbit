@@ -1,4 +1,8 @@
-import type { Job, StoryPlanReviewResponse } from "@orbit/shared";
+import type {
+  Job,
+  StoryPlanApproveRequest,
+  StoryPlanReviewResponse,
+} from "@orbit/shared";
 import {
   IconChevronDown,
   IconChevronUp,
@@ -9,26 +13,35 @@ import {
   IconInfoCircle,
   IconRefresh,
 } from "@tabler/icons-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   OrbitButton,
   OrbitDialog,
+  OrbitInput,
   OrbitTabs,
   OrbitTextarea,
 } from "../../design-system";
-import { pollJob } from "./AiPptMockupPage";
 import {
   requestStoryPlan,
   requestStoryPlanMutation,
+  saveStoryApprovalDraft,
+  storyGenerationPath,
   storyStyleColorPath,
 } from "./story-plan-api";
 import "./story-plan-review.css";
 
-export { storyPlanPath, storyStyleColorPath } from "./story-plan-api";
+export {
+  storyGenerationPath,
+  storyPlanPath,
+  storyStyleColorPath,
+} from "./story-plan-api";
 
 type StoryTab = "outline" | "script";
 type StoryPlan = NonNullable<StoryPlanReviewResponse["plan"]>;
 type StorySlide = StoryPlan["slides"][number];
+type StoryApprovalSlide = NonNullable<
+  StoryPlanApproveRequest["slides"]
+>[number];
 type StoryPlanEdit =
   | { kind: "reorder"; orders: number[] }
   | { kind: "speaker-notes"; order: number; speakerNotes: string };
@@ -37,11 +50,11 @@ const DAILY_IMAGE_BUDGET_WARNING =
   "Daily image asset budget retained remaining placeholders.";
 
 export function hasUnsavedStoryScripts(
-  slides: ReadonlyArray<Pick<StorySlide, "order" | "speakerNotes">>,
+  slides: ReadonlyArray<Pick<StorySlide, "sourceOrder" | "speakerNotes">>,
   drafts: Readonly<Record<number, string>>,
 ) {
   return slides.some((slide) => {
-    const draft = drafts[slide.order];
+    const draft = drafts[slide.sourceOrder];
     return draft !== undefined && draft !== slide.speakerNotes;
   });
 }
@@ -50,7 +63,10 @@ export function storyReviewJobFailureMessage(
   job: Pick<Job, "error" | "message" | "result">,
 ) {
   const warnings = job.result?.warnings;
-  if (Array.isArray(warnings) && warnings.includes(DAILY_IMAGE_BUDGET_WARNING)) {
+  if (
+    Array.isArray(warnings) &&
+    warnings.includes(DAILY_IMAGE_BUDGET_WARNING)
+  ) {
     return "AI 이미지 일일 생성 한도를 모두 사용했습니다. 한도가 초기화된 후 다시 시도해 주세요.";
   }
   return job.error?.message || job.message || "AI PPT를 생성하지 못했습니다.";
@@ -77,8 +93,10 @@ export function StoryPlanReviewPage(props: {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [scriptDrafts, setScriptDrafts] = useState<Record<number, string>>({});
+  const [storyDrafts, setStoryDrafts] = useState<StoryApprovalSlide[]>([]);
   const mutationInFlight = useRef(false);
   const regenerationPollingKey = storyPlanRegenerationPollingKey(response);
+  const responseSlides = response?.plan?.slides;
 
   useEffect(() => {
     let cancelled = false;
@@ -92,12 +110,7 @@ export function StoryPlanReviewPage(props: {
         if (next.status === "planning" || next.status === "regenerating") {
           timer = setTimeout(load, 1200);
         } else if (next.status === "approved") {
-          const job = await pollJob(next.jobId);
-          if (!cancelled && job.status === "succeeded") {
-            navigate(`/project/${encodeURIComponent(next.projectId)}`);
-          } else if (!cancelled) {
-            setError(storyReviewJobFailureMessage(job));
-          }
+          navigate(storyGenerationPath(next.projectId, next.jobId));
         }
       } catch (cause) {
         if (!cancelled) {
@@ -118,7 +131,39 @@ export function StoryPlanReviewPage(props: {
 
   useEffect(() => {
     setScriptDrafts({});
-  }, [response?.plan?.revision]);
+    setStoryDrafts(
+      responseSlides?.map(({ sourceOrder, title, message }) => ({
+        sourceOrder,
+        title,
+        message,
+      })) ?? [],
+    );
+  }, [response?.plan?.revision, responseSlides]);
+
+  const draftResponse = useMemo(() => {
+    if (!response?.plan || storyDrafts.length !== response.plan.slides.length) {
+      return response;
+    }
+    const slidesBySourceOrder = new Map(
+      response.plan.slides.map((slide) => [slide.sourceOrder, slide]),
+    );
+    const slides = storyDrafts.flatMap((draft, index) => {
+      const slide = slidesBySourceOrder.get(draft.sourceOrder);
+      return slide ? [{ ...slide, ...draft, order: index + 1 }] : [];
+    });
+    if (slides.length !== response.plan.slides.length) return response;
+    return {
+      ...response,
+      plan: {
+        ...response.plan,
+        outline: {
+          ...response.plan.outline,
+          slideTitles: slides.map((slide) => slide.title),
+        },
+        slides,
+      },
+    };
+  }, [response, storyDrafts]);
 
   const hasUnsavedScripts = hasUnsavedStoryScripts(
     response?.plan?.slides ?? [],
@@ -141,12 +186,15 @@ export function StoryPlanReviewPage(props: {
       setResponse(next);
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "구성 변경사항을 저장하지 못했습니다.",
+        cause instanceof Error
+          ? cause.message
+          : "구성 변경사항을 저장하지 못했습니다.",
       );
       if (edit.kind === "reorder") {
-        const latest = await requestStoryPlan(props.projectId, props.jobId).catch(
-          () => null,
-        );
+        const latest = await requestStoryPlan(
+          props.projectId,
+          props.jobId,
+        ).catch(() => null);
         if (latest) {
           setResponse(latest);
           setScriptDrafts({});
@@ -158,33 +206,71 @@ export function StoryPlanReviewPage(props: {
     }
   }
 
-  async function reorderSlides(fromOrder: number, toOrder: number) {
+  function reorderSlides(fromOrder: number, toOrder: number) {
     if (!response?.plan || fromOrder === toOrder) return;
     if (hasUnsavedScripts) {
       setActiveTab("script");
       setError("대본 변경사항을 먼저 저장해 주세요.");
       return;
     }
-    const orders = moveStorySlideOrder(
-      response.plan.slides.map((slide) => slide.order),
-      fromOrder,
-      toOrder,
-    );
-    await editStoryPlan({ kind: "reorder", orders });
+    setStoryDrafts((current) => {
+      const next = [...current];
+      const [moved] = next.splice(fromOrder - 1, 1);
+      if (!moved) return current;
+      next.splice(toOrder - 1, 0, moved);
+      return next;
+    });
   }
 
-  async function saveScript(order: number) {
-    const speakerNotes = scriptDrafts[order]?.trim();
+  async function saveScript(sourceOrder: number) {
+    const speakerNotes = scriptDrafts[sourceOrder]?.trim();
     if (!speakerNotes) {
       setError("대본은 비워 둘 수 없습니다.");
       return;
     }
+    const order = response?.plan?.slides.find(
+      (slide) => slide.sourceOrder === sourceOrder,
+    )?.order;
+    if (!order) return;
     await editStoryPlan({ kind: "speaker-notes", order, speakerNotes });
+  }
+
+  function updateStoryDraft(
+    sourceOrder: number,
+    field: "title" | "message",
+    value: string,
+  ) {
+    setStoryDrafts((current) =>
+      current.map((slide) =>
+        slide.sourceOrder === sourceOrder
+          ? { ...slide, [field]: value }
+          : slide,
+      ),
+    );
   }
 
   function continueToStyle() {
     if (!response?.plan || hasUnsavedScripts) {
       setError("대본 변경사항을 먼저 저장해 주세요.");
+      return;
+    }
+    if (
+      storyDrafts.length !== response.plan.slides.length ||
+      storyDrafts.some((slide) => !slide.title.trim() || !slide.message.trim())
+    ) {
+      setError("슬라이드 제목과 핵심 메시지를 모두 입력해 주세요.");
+      return;
+    }
+    const saved = saveStoryApprovalDraft(props.projectId, props.jobId, {
+      expectedRevision: response.plan.revision,
+      slides: storyDrafts.map((slide) => ({
+        ...slide,
+        title: slide.title.trim(),
+        message: slide.message.trim(),
+      })),
+    });
+    if (!saved) {
+      setError("스토리 변경사항을 다음 단계로 전달하지 못했습니다.");
       return;
     }
     navigate(storyStyleColorPath(props.projectId, props.jobId));
@@ -244,13 +330,14 @@ export function StoryPlanReviewPage(props: {
         onCancel={() => void mutate("cancel")}
         hasUnsavedScripts={hasUnsavedScripts}
         onRegenerate={() => setDialogOpen(true)}
-        onReorder={(fromOrder, toOrder) => void reorderSlides(fromOrder, toOrder)}
+        onReorder={reorderSlides}
         onSaveScript={(order) => void saveScript(order)}
         onScriptChange={(order, value) =>
           setScriptDrafts((current) => ({ ...current, [order]: value }))
         }
+        onStoryChange={updateStoryDraft}
         onTabChange={(tab) => setActiveTab(tab)}
-        response={response}
+        response={draftResponse ?? response}
         scriptDrafts={scriptDrafts}
       />
       <OrbitDialog
@@ -300,6 +387,11 @@ export function StoryPlanReviewView(props: {
   onReorder: (fromOrder: number, toOrder: number) => void;
   onSaveScript: (order: number) => void;
   onScriptChange: (order: number, value: string) => void;
+  onStoryChange: (
+    sourceOrder: number,
+    field: "title" | "message",
+    value: string,
+  ) => void;
   onTabChange: (tab: StoryTab) => void;
   response: StoryPlanReviewResponse;
   scriptDrafts: Record<number, string>;
@@ -390,6 +482,7 @@ export function StoryPlanReviewView(props: {
           <StoryOutline
             disabled={props.busy || !reviewPending || props.hasUnsavedScripts}
             onReorder={props.onReorder}
+            onStoryChange={props.onStoryChange}
             plan={plan}
           />
         ) : null}
@@ -434,7 +527,12 @@ export function StoryPlanReviewView(props: {
         </OrbitButton>
         <div>
           <OrbitButton
-            disabled={props.busy || !reviewPending || exhausted || props.hasUnsavedScripts}
+            disabled={
+              props.busy ||
+              !reviewPending ||
+              exhausted ||
+              props.hasUnsavedScripts
+            }
             onClick={props.onRegenerate}
             variant="secondary"
           >
@@ -456,6 +554,11 @@ export function StoryPlanReviewView(props: {
 function StoryOutline(props: {
   disabled?: boolean;
   onReorder: (fromOrder: number, toOrder: number) => void;
+  onStoryChange: (
+    sourceOrder: number,
+    field: "title" | "message",
+    value: string,
+  ) => void;
   plan: StoryPlan;
 }) {
   return (
@@ -472,11 +575,36 @@ function StoryOutline(props: {
           <div className="story-review-card-heading">
             <div>
               <small>{slideTypeLabel(slide.slideType)}</small>
-              <h2>{slide.title}</h2>
+              <OrbitInput
+                aria-label={`${slide.order}번 슬라이드 제목`}
+                disabled={props.disabled}
+                maxLength={200}
+                onChange={(event) =>
+                  props.onStoryChange(
+                    slide.sourceOrder,
+                    "title",
+                    event.currentTarget.value,
+                  )
+                }
+                value={slide.title}
+              />
             </div>
             <time>{formatSeconds(slide.targetSeconds)}</time>
           </div>
-          <p>{slide.message}</p>
+          <OrbitTextarea
+            aria-label={`${slide.order}번 슬라이드 핵심 메시지`}
+            disabled={props.disabled}
+            maxLength={1000}
+            onChange={(event) =>
+              props.onStoryChange(
+                slide.sourceOrder,
+                "message",
+                event.currentTarget.value,
+              )
+            }
+            rows={3}
+            value={slide.message}
+          />
         </StoryCard>
       ))}
     </div>
@@ -495,7 +623,7 @@ function StoryScript(props: {
   return (
     <div className="story-review-card-list">
       {props.plan.slides.map((slide, index) => {
-        const draft = props.drafts[slide.order] ?? slide.speakerNotes;
+        const draft = props.drafts[slide.sourceOrder] ?? slide.speakerNotes;
         const dirty = draft !== slide.speakerNotes;
         return (
           <StoryCard
@@ -517,7 +645,9 @@ function StoryScript(props: {
               aria-label={`${slide.order}번 슬라이드 대본`}
               disabled={props.disabled}
               maxLength={5000}
-              onChange={(event) => props.onChange(slide.order, event.target.value)}
+              onChange={(event) =>
+                props.onChange(slide.sourceOrder, event.target.value)
+              }
               rows={6}
               value={draft}
             />
@@ -526,7 +656,7 @@ function StoryScript(props: {
               <small>{draft.length}/5000자</small>
               <OrbitButton
                 disabled={props.disabled || !dirty || !draft.trim()}
-                onClick={() => props.onSave(slide.order)}
+                onClick={() => props.onSave(slide.sourceOrder)}
                 variant="secondary"
               >
                 <IconDeviceFloppy aria-hidden="true" size={16} />
@@ -579,7 +709,9 @@ function StoryCard(props: {
         <button
           aria-label={`${props.slide.title} 위로 이동`}
           disabled={props.disabled || props.index === 0}
-          onClick={() => props.onReorder(props.slide.order, props.slide.order - 1)}
+          onClick={() =>
+            props.onReorder(props.slide.order, props.slide.order - 1)
+          }
           type="button"
         >
           <IconChevronUp aria-hidden="true" size={17} />
@@ -587,7 +719,9 @@ function StoryCard(props: {
         <button
           aria-label={`${props.slide.title} 아래로 이동`}
           disabled={props.disabled || props.index === props.total - 1}
-          onClick={() => props.onReorder(props.slide.order, props.slide.order + 1)}
+          onClick={() =>
+            props.onReorder(props.slide.order, props.slide.order + 1)
+          }
           type="button"
         >
           <IconChevronDown aria-hidden="true" size={17} />
@@ -603,7 +737,10 @@ function ExternalStorySources({ slide }: { slide: StorySlide }) {
   );
   if (!sources.length) return null;
   return (
-    <aside className="story-review-script-sources" aria-label="AI가 사용한 근거">
+    <aside
+      className="story-review-script-sources"
+      aria-label="AI가 사용한 근거"
+    >
       <span>AI가 참고한 근거</span>
       <ul>
         {sources.map((source, index) => (

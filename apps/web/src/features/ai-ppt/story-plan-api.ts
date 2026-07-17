@@ -1,4 +1,13 @@
-import { storyPlanReviewResponseSchema } from "@orbit/shared";
+import {
+  storyPlanApproveRequestSchema,
+  storyPlanReviewResponseSchema,
+  type StoryPlanApproveRequest,
+} from "@orbit/shared";
+
+type StoryApprovalDraft = Pick<
+  StoryPlanApproveRequest,
+  "expectedRevision" | "slides"
+>;
 
 export function storyPlanPath(projectId: string, jobId: string) {
   return `/project/${encodeURIComponent(projectId)}/story-plan/${encodeURIComponent(jobId)}`;
@@ -6,6 +15,61 @@ export function storyPlanPath(projectId: string, jobId: string) {
 
 export function storyStyleColorPath(projectId: string, jobId: string) {
   return `/project/${encodeURIComponent(projectId)}/style-color/${encodeURIComponent(jobId)}`;
+}
+
+export function storyGenerationPath(projectId: string, jobId: string) {
+  return `/project/${encodeURIComponent(projectId)}/generation/${encodeURIComponent(jobId)}`;
+}
+
+function storyApprovalDraftKey(projectId: string, jobId: string) {
+  return `orbit:story-approval:${projectId}:${jobId}`;
+}
+
+export function saveStoryApprovalDraft(
+  projectId: string,
+  jobId: string,
+  draft: StoryApprovalDraft,
+) {
+  const parsed = storyPlanApproveRequestSchema.parse(draft);
+  if (!parsed.slides) throw new Error("Story approval slides are required.");
+  try {
+    sessionStorage.setItem(
+      storyApprovalDraftKey(projectId, jobId),
+      JSON.stringify({
+        expectedRevision: parsed.expectedRevision,
+        slides: parsed.slides,
+      }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function readStoryApprovalDraft(projectId: string, jobId: string) {
+  try {
+    const value = sessionStorage.getItem(
+      storyApprovalDraftKey(projectId, jobId),
+    );
+    if (!value) return null;
+    const parsed = storyPlanApproveRequestSchema.safeParse(JSON.parse(value));
+    return parsed.success && parsed.data.slides
+      ? {
+          expectedRevision: parsed.data.expectedRevision,
+          slides: parsed.data.slides,
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearStoryApprovalDraft(projectId: string, jobId: string) {
+  try {
+    sessionStorage.removeItem(storyApprovalDraftKey(projectId, jobId));
+  } catch {
+    // Storage availability must not interrupt approval or editor handoff.
+  }
 }
 
 export async function requestStoryPlan(projectId: string, jobId: string) {

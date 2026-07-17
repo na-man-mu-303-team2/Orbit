@@ -120,7 +120,12 @@ export class StoryPlanReviewService {
       );
     });
     this.logger.info(
-      { event: "ai_ppt.story_review.edited", jobId, projectId, kind: request.kind },
+      {
+        event: "ai_ppt.story_review.edited",
+        jobId,
+        projectId,
+        kind: request.kind,
+      },
       "AI deck story plan edited.",
     );
     return this.get(projectId, jobId);
@@ -158,9 +163,16 @@ export class StoryPlanReviewService {
         ),
       );
       const artifactId = z.string().uuid().parse(artifact?.artifact_id);
+      let contentPayload = artifact?.payload_json;
+      if (request.slides) {
+        contentPayload = applyStoryPlanApprovalDraft(
+          contentPayload,
+          request.slides,
+        );
+      }
       if (request.designSelection) {
-        const contentPayload = applyStoryPlanDesignSelection(
-          artifact?.payload_json,
+        contentPayload = applyStoryPlanDesignSelection(
+          contentPayload,
           request.designSelection,
           storyStyleContext(state.job.payload)?.tone ?? "professional",
         );
@@ -170,6 +182,17 @@ export class StoryPlanReviewService {
         );
         await manager.query(
           `
+            UPDATE jobs
+            SET payload = $3::jsonb, updated_at = now()
+            WHERE job_id = $1 AND project_id = $2
+              AND type = 'ai-deck-generation'
+          `,
+          [jobId, projectId, jobPayload],
+        );
+      }
+      if (request.slides || request.designSelection) {
+        await manager.query(
+          `
             UPDATE ai_deck_planning_artifacts
             SET payload_json = $3::jsonb, updated_at = now()
             WHERE pipeline_job_id = $1
@@ -177,15 +200,6 @@ export class StoryPlanReviewService {
               AND stage = 'content-planning'
           `,
           [jobId, projectId, contentPayload],
-        );
-        await manager.query(
-          `
-            UPDATE jobs
-            SET payload = $3::jsonb, updated_at = now()
-            WHERE job_id = $1 AND project_id = $2
-              AND type = 'ai-deck-generation'
-          `,
-          [jobId, projectId, jobPayload],
         );
       }
       await manager.query(
@@ -568,6 +582,45 @@ export function applyStoryPlanEdit(
   };
 }
 
+type StoryPlanApprovalSlides = NonNullable<StoryPlanApproveRequest["slides"]>;
+
+export function applyStoryPlanApprovalDraft(
+  rawPayload: unknown,
+  drafts: StoryPlanApprovalSlides,
+): unknown {
+  const payload = contentArtifactPayloadSchema.parse(rawPayload);
+  const slides = payload.contentPlan.slidePlans;
+  const bySourceOrder = new Map(slides.map((slide) => [slide.order, slide]));
+  const requestedOrders = new Set(drafts.map((draft) => draft.sourceOrder));
+  if (
+    bySourceOrder.size !== slides.length ||
+    requestedOrders.size !== drafts.length ||
+    drafts.length !== slides.length ||
+    drafts.some((draft) => !bySourceOrder.has(draft.sourceOrder))
+  ) {
+    throw new ConflictException("Story plan approval draft is stale.");
+  }
+  const slidePlans = drafts.map((draft, index) => ({
+    ...bySourceOrder.get(draft.sourceOrder)!,
+    order: index + 1,
+    title: draft.title,
+    message: draft.message,
+  }));
+  const slideTitles = slidePlans.map((slide) => slide.title);
+  return {
+    ...payload,
+    contentPlan: {
+      ...payload.contentPlan,
+      outline: {
+        ...payload.contentPlan.outline,
+        slide_titles: slideTitles,
+        slideTitles,
+      },
+      slidePlans,
+    },
+  };
+}
+
 type StoryPlanDesignSelection = NonNullable<
   StoryPlanApproveRequest["designSelection"]
 >;
@@ -746,6 +799,7 @@ function projectPlan(
     });
     return {
       order: slide.order,
+      sourceOrder: slide.order,
       slideType: slide.slideType ?? slide.slide_type ?? "summary",
       title: slide.title,
       message: slide.message,
