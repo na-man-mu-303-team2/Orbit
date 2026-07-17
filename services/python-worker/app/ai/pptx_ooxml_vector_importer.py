@@ -1716,7 +1716,6 @@ def text_element(
     if not text.strip():
         return None
     first_run = next((run for run in runs if str(run.get("text", "")).strip()), runs[0])
-    text_frame = text_content_frame(body, frame, scale)
     props: dict[str, Any] = {
         "text": text,
         "runs": runs,
@@ -1738,7 +1737,7 @@ def text_element(
         **element_base(
             element_id=element_id(slide_index, source_name, shape_id, "text"),
             role="body",
-            frame=text_frame,
+            frame=frame,
             z_index=z_index,
             locked=locked,
         ),
@@ -1922,33 +1921,6 @@ def paragraph_line_height_value(paragraph: ET.Element[Any]) -> float:
     if spacing_pct is None:
         return 1.15
     return max(0.5, min(4, int_attr(spacing_pct, "val", 115000) / 100000))
-
-
-def text_content_frame(
-    body: ET.Element[Any],
-    frame: dict[str, int],
-    scale: OoxmlScale,
-) -> dict[str, int]:
-    body_pr = first_local_child(body, "bodyPr")
-    if body_pr is None:
-        return frame
-
-    inset = text_body_inset(body, scale)
-    left = inset["left"]
-    right = inset["right"]
-    top = inset["top"]
-    bottom = inset["bottom"]
-    max_horizontal_inset = max(0, frame["width"] - 1)
-    max_vertical_inset = max(0, frame["height"] - 1)
-    horizontal_inset = min(left + right, max_horizontal_inset)
-    vertical_inset = min(top + bottom, max_vertical_inset)
-    return {
-        **frame,
-        "x": frame["x"] + min(left, horizontal_inset),
-        "y": frame["y"] + min(top, vertical_inset),
-        "width": max(1, frame["width"] - horizontal_inset),
-        "height": max(1, frame["height"] - vertical_inset),
-    }
 
 
 def text_body_inset(body: ET.Element[Any], scale: OoxmlScale) -> dict[str, int]:

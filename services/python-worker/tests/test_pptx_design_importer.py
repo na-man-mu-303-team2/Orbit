@@ -1092,7 +1092,7 @@ def test_ooxml_visual_tree_importer_honors_hidden_master_shapes(
     assert "#223344" not in fills
 
 
-def test_ooxml_visual_tree_importer_preserves_text_box_geometry(
+def test_ooxml_visual_tree_importer_preserves_text_box_frame_and_body_inset(
     tmp_path: Path,
 ) -> None:
     pptx_path = tmp_path / "text-geometry.pptx"
@@ -1140,10 +1140,10 @@ def test_ooxml_visual_tree_importer_preserves_text_box_geometry(
         if element["type"] == "rect" and element["props"]["fill"] == "#EE4444"
     )
 
-    assert text["x"] == 216
-    assert text["y"] == 180
-    assert text["width"] == 468
-    assert text["height"] == 216
+    assert text["x"] == 144
+    assert text["y"] == 144
+    assert text["width"] == 576
+    assert text["height"] == 288
     assert text["props"]["verticalAlign"] == "middle"
     assert text["props"]["lineHeight"] == 1.3
     assert text["props"]["paragraphs"][0]["lineHeight"] == 1.3
