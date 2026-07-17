@@ -236,7 +236,7 @@ describe("processPptxOoxmlSyncJob", () => {
                     operationType: "update_element_props",
                     slideId: "slide_1",
                     elementId: "el_title",
-                    reasonCode: "CROP_CAPABILITY_UNSAFE",
+                    reasonCode: "RICH_TEXT_CAPABILITY_UNSAFE",
                   },
                 ],
               }),
