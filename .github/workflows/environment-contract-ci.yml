@@ -33,8 +33,9 @@ jobs:
 
       - name: Validate environment contract
         run: |
+          bash -n infra/scripts/orbit-deploy-personal-staging-wrapper.sh
           node infra/scripts/check-env.mjs
-          node --test infra/scripts/personal-staging-env.test.mjs
+          node --test infra/scripts/personal-staging-env.test.mjs infra/scripts/personal-staging-wrapper.test.mjs
 
   deploy-personal-staging:
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
