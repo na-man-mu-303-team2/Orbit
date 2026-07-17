@@ -4,11 +4,14 @@ import {
   type EnqueueGenerateDeckJobInput
 } from "@orbit/job-queue";
 import {
+  deckColorCustomizationRequestSchema,
+  deckColorCustomizationResponseSchema,
   deckColorOptionRequestSchema,
   deckColorOptionsResponseSchema,
   generateDeckRequestSchema,
   generateDeckStartResponseSchema,
   generateDeckStoredJobPayloadSchema,
+  type DeckColorCustomizationResponse,
   type DeckColorOptionsResponse
 } from "@orbit/shared";
 import { loadOrbitConfig } from "@orbit/config";
@@ -158,6 +161,43 @@ export class GenerateDeckService {
         error instanceof Error
           ? error.message
           : "Python worker returned invalid color options."
+      );
+    }
+  }
+
+  async customizeColorPalette(
+    body: unknown
+  ): Promise<DeckColorCustomizationResponse> {
+    const request = parseRequest(deckColorCustomizationRequestSchema, body);
+    let response: Response;
+
+    try {
+      response = await fetch(
+        workerUrl(this.config.PYTHON_WORKER_URL, "/ai/deck-color-customization"),
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+          signal: AbortSignal.timeout(30_000)
+        }
+      );
+    } catch {
+      throw new ServiceUnavailableException(
+        "AI palette customization is temporarily unavailable."
+      );
+    }
+
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        "AI palette customization failed. Keep the selected palette and retry."
+      );
+    }
+
+    try {
+      return deckColorCustomizationResponseSchema.parse(await response.json());
+    } catch {
+      throw new InternalServerErrorException(
+        "Python worker returned an invalid customized palette."
       );
     }
   }

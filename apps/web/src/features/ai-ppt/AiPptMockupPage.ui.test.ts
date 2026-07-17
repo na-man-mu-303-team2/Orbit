@@ -4,20 +4,26 @@ import { describe, expect, it } from "vitest";
 import { AiPptMockupPage } from "./AiPptMockupPage";
 
 describe("AI PPT wizard UI", () => {
-  it("does not expose the payload review step", () => {
+  it("starts with one content screen and multiple attachments", () => {
     const html = renderToStaticMarkup(createElement(AiPptMockupPage));
 
-    expect(html).toContain(">References<");
-    expect(html).not.toContain(">Review<");
-    expect(html).not.toContain("고급 설정 JSON 보기");
+    expect(html).toContain('aria-label="발표 내용 입력"');
+    expect(html).toContain('name="topic"');
+    expect(html).toContain('name="content"');
+    expect(html).toContain('name="audience"');
+    expect(html).toContain('type="file"');
+    expect(html).toContain("multiple");
+    expect(html).not.toContain('name="duration"');
+    expect(html).not.toContain('name="slides"');
+    expect(html).not.toContain(">References<");
   });
 
-  it("lets users submit restored Brief values for validation", () => {
+  it("shows exactly two wizard steps", () => {
     const html = renderToStaticMarkup(createElement(AiPptMockupPage));
 
-    expect(html).toContain('aria-label="발표 Brief 입력"');
-    expect(html).toContain('name="topic"');
-    expect(html).toContain('name="duration"');
-    expect(html).not.toContain('<button class="ai-ppt-primary" disabled=""');
+    expect(html).toContain(">내용 입력<");
+    expect(html).toContain(">Style &amp; Color<");
+    expect(html).not.toContain(">Brief<");
+    expect(html).not.toContain(">Color<");
   });
 });

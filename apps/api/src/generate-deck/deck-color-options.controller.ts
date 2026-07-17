@@ -21,4 +21,13 @@ export class DeckColorOptionsController {
     await getCurrentUser(this.authService, request);
     return this.generateDeckService.createColorOptions(body);
   }
+
+  @Post("deck-color-customization")
+  async customizePalette(
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest
+  ) {
+    await getCurrentUser(this.authService, request);
+    return this.generateDeckService.customizeColorPalette(body);
+  }
 }

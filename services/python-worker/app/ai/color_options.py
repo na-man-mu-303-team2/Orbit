@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -74,6 +74,39 @@ class DeckColorOptionsResponse(BaseModel):
     options: list[DeckColorOption] = Field(min_length=3, max_length=3)
 
 
+class DeckColorCustomizationPalette(DeckColorPalette):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+
+class DeckColorCustomizationRequest(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+        str_strip_whitespace=True,
+        extra="forbid",
+    )
+
+    topic: str = Field(min_length=1, max_length=200)
+    instruction: str = Field(min_length=1, max_length=500)
+    base_palette: DeckColorCustomizationPalette = Field(alias="basePalette")
+    style_pack_id: str = Field(default="brandlogy-modern", alias="stylePackId")
+    tone: Literal["professional", "friendly", "confident", "concise"]
+
+
+class DeckColorCustomizationOption(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    option_id: str = Field(alias="optionId", min_length=1)
+    name: str = Field(min_length=1)
+    palette: DeckColorCustomizationPalette
+    rationale: str = ""
+
+
+class DeckColorCustomizationResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    option: DeckColorCustomizationOption
+
+
 COLOR_OPTION_RESPONSE_FORMAT: dict[str, Any] = {
     "format": {
         "type": "json_schema",
@@ -124,6 +157,55 @@ COLOR_OPTION_RESPONSE_FORMAT: dict[str, Any] = {
                 }
             },
             "required": ["options"],
+        },
+    }
+}
+
+COLOR_CUSTOMIZATION_RESPONSE_FORMAT: dict[str, Any] = {
+    "format": {
+        "type": "json_schema",
+        "name": "deck_color_customization",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "option": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "optionId": {"type": "string"},
+                        "name": {"type": "string"},
+                        "palette": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "primary": {"type": "string"},
+                                "secondary": {"type": "string"},
+                                "background": {"type": "string"},
+                                "surface": {"type": "string"},
+                                "muted": {"type": "string"},
+                                "border": {"type": "string"},
+                                "text": {"type": "string"},
+                                "accentColor": {"type": "string"},
+                            },
+                            "required": [
+                                "primary",
+                                "secondary",
+                                "background",
+                                "surface",
+                                "muted",
+                                "border",
+                                "text",
+                                "accentColor",
+                            ],
+                        },
+                        "rationale": {"type": "string"},
+                    },
+                    "required": ["optionId", "name", "palette", "rationale"],
+                }
+            },
+            "required": ["option"],
         },
     }
 }
@@ -230,6 +312,52 @@ def generate_deck_color_options(
         except Exception:
             pass
     return fallback_color_options(request)
+
+
+def customize_deck_color_palette(
+    request: DeckColorCustomizationRequest,
+    *,
+    model: str | None = None,
+    api_key: str | None = None,
+    client: Any | None = None,
+) -> DeckColorCustomizationResponse:
+    api_client: Any = client
+    if api_client is None:
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY is required for color customization.")
+        from openai import OpenAI
+
+        api_client = OpenAI(api_key=api_key)
+
+    response = api_client.responses.create(
+        model=model or "gpt-4.1-mini",
+        instructions=(
+            "Customize exactly one accessible color palette for a 16:9 PPT. "
+            "Follow the user's instruction, using the base palette as the starting point. "
+            "Use #RRGGBB values only and keep text contrast at least 4.5 against "
+            "the background. Write the name and rationale in concise, natural Korean."
+        ),
+        input=(
+            f"Topic: {request.topic}\n"
+            f"Tone: {request.tone}\n"
+            f"Style pack: {request.style_pack_id}\n"
+            f"Instruction: {request.instruction}\n"
+            f"Base palette: {json.dumps(request.base_palette.model_dump(by_alias=True))}"
+        ),
+        text=COLOR_CUSTOMIZATION_RESPONSE_FORMAT,
+    )
+    payload = json.loads(str(getattr(response, "output_text", "")).strip())
+    parsed = DeckColorCustomizationResponse.model_validate(payload)
+    option_payload = parsed.option.model_dump(by_alias=True)
+    palette = option_payload["palette"]
+    palette["text"] = accessible_text_color(
+        palette["background"],
+        palette["text"],
+    )
+    option_payload["palette"] = palette
+    return DeckColorCustomizationResponse(
+        option=DeckColorCustomizationOption.model_validate(option_payload)
+    )
 
 
 def generate_color_options_with_llm(
