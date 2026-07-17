@@ -6584,7 +6584,7 @@
   box-shadow: var(--redesign-shadow-none);
   display: grid;
   margin: 0;
-  max-height: min(480px, 52vh);
+  max-height: 66.6667vh;
   max-width: none;
   min-height: 54px;
   overflow: hidden;
@@ -6599,7 +6599,7 @@
 
 .orbit-shell .stage-speaker-notes-panel.expanded {
   grid-template-rows: 12px auto minmax(0, 1fr);
-  height: min(var(--speaker-notes-panel-height, 240px), 52vh);
+  height: min(var(--speaker-notes-panel-height, 240px), 66.6667vh);
   min-height: 120px;
   transition: height var(--redesign-duration-fast) var(--redesign-ease-standard);
 }
@@ -6737,7 +6737,7 @@ body.is-resizing-speaker-notes {
 
 @media (max-width: 860px) {
   .orbit-shell .stage-speaker-notes-panel {
-    max-height: min(480px, 52vh);
+    max-height: 66.6667vh;
   }
 
   .orbit-shell .stage-speaker-notes-panel .script-panel-header {
@@ -6767,7 +6767,7 @@ body.is-resizing-speaker-notes {
   }
 
   .orbit-shell .editor-panel:has(.stage-speaker-notes-panel.expanded) .ai-pane:not(.collapsed) {
-    bottom: min(var(--speaker-notes-panel-height, 240px), 52vh);
+    bottom: min(var(--speaker-notes-panel-height, 240px), 66.6667vh);
     max-height: 32vh;
   }
 
@@ -7539,7 +7539,7 @@ body.is-resizing-speaker-notes {
   }
 
   .orbit-shell .editor-panel:has(.stage-speaker-notes-panel.expanded) .ai-pane.collapsed {
-    bottom: calc(min(var(--speaker-notes-panel-height, 240px), 52vh) + 16px);
+    bottom: calc(min(var(--speaker-notes-panel-height, 240px), 66.6667vh) + 16px);
   }
 
   .orbit-shell .ai-pane:not(.collapsed) {
