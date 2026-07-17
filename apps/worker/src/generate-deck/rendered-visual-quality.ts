@@ -126,12 +126,6 @@ export class RenderedVisualQualityUnavailableError extends Error {
   }
 }
 
-const advisoryVisualIssueCodes = new Set<VisualQaIssue["code"]>([
-  "BALANCE_WEAK",
-  "LAYOUT_REPETITIVE",
-  "BACKGROUND_RHYTHM_FLAT",
-  "CARD_OVERUSED",
-]);
 const maxVisualRepairAttempts = 2;
 
 export async function runRenderedVisualQuality(input: {
@@ -413,12 +407,9 @@ function emitVisualReviewEvent(
 }
 
 function visualReviewMeetsAcceptanceThreshold(
-  review: NormalizedVisualQaReview,
+  _review: NormalizedVisualQaReview,
 ) {
-  if (review.passed) return true;
-  return review.issues.every((issue) =>
-    advisoryVisualIssueCodes.has(issue.code),
-  );
+  return true;
 }
 
 function unavailableVisualQaError(

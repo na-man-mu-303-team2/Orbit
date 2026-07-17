@@ -640,8 +640,27 @@ class GeneratedStorySlide(BaseModel):
     source_refs: list[str] = Field(default_factory=list, alias="sourceRefs")
 
 
+class GeneratedStoryBriefAnalysis(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    purpose: Purpose | None = None
+    presentation_context: str = Field(default="", alias="presentationContext")
+    presentation_type: str = Field(default="", alias="presentationType")
+    duration_minutes: int | None = Field(
+        default=None,
+        alias="durationMinutes",
+        ge=1,
+        le=120,
+    )
+    slide_count: int | None = Field(default=None, alias="slideCount", ge=1, le=20)
+
+
 class GeneratedStoryPlan(BaseModel):
     title: str = Field(min_length=1)
+    brief_analysis: GeneratedStoryBriefAnalysis = Field(
+        default_factory=GeneratedStoryBriefAnalysis,
+        alias="briefAnalysis",
+    )
     slides: list[GeneratedStorySlide] = Field(min_length=1)
 
 

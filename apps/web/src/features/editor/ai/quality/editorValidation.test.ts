@@ -195,6 +195,32 @@ const designPackDeck: Deck = {
 };
 
 describe("editor design-pack validation", () => {
+  it("shows persisted generation QA advisories in the AI coach inspection panel", () => {
+    const deck: Deck = structuredClone(designPackDeck);
+    deck.metadata.generationQuality = {
+      status: "advisory",
+      issues: [
+        {
+          code: "IMAGE_CROP_WEAK",
+          message: "핵심 피사체가 잘려 보입니다.",
+          severity: "warning",
+          slideId: "slide_1",
+          slideOrder: 1,
+        },
+      ],
+    };
+
+    expect(getEditorValidationItems(deck, deck.slides[0])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issue: "IMAGE_CROP_WEAK",
+          message: "핵심 피사체가 잘려 보입니다.",
+          slideId: "slide_1",
+        }),
+      ]),
+    );
+  });
+
   it("accepts generated text fitting and expected media placeholders", () => {
     const items = getEditorValidationItems(designPackDeck);
 

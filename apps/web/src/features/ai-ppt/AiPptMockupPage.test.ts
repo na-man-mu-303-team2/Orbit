@@ -87,6 +87,20 @@ describe("AI PPT simplified input", () => {
     expect(payload.design.fontOverride?.fontId).toBe("pretendard");
   });
 
+  it("structures explicit duration and slide count from presentation content", () => {
+    const payload = buildAiPptGenerateDeckPayload(
+      {
+        ...form,
+        content: "임원 보고용 15분짜리 발표이며 9~11장으로 구성해 주세요.",
+      },
+      defaultPaletteOptions[0],
+    );
+
+    expect(payload.targetDurationMinutes).toBe(15);
+    expect(payload.brief.durationMinutes).toBe(15);
+    expect(payload.slideCountRange).toEqual({ min: 9, max: 11 });
+  });
+
   it("forwards the selected content and image policies to the staged job", () => {
     const payload = buildAiPptGenerateDeckPayload(
       {

@@ -4,6 +4,7 @@ import {
   generateDeckJobResultSchema,
   generateDeckResponseSchema,
   generateDeckStoredJobPayloadSchema,
+  generateDeckVisualIssueCodeSchema,
   jobErrorSchema,
   jobSchema,
   jobStatusSchema,
@@ -50,6 +51,7 @@ import {
   allValidationIssues,
   hasBlockingQualityGateIssues,
   runInitialSemanticQuality,
+  withGenerationQualityMetadata,
   withDuplicateMediaAssetIssue,
   withHybridMediaBudgetIssue,
   withVisualIssues,
@@ -347,17 +349,13 @@ async function executeImageSlide(
       "AI deck image shard does not match the layout artifact.",
     );
   }
-  const runtime =
-    input.imageRuntime && slideIndex >= input.imageRuntime.maxPerDeck
-      ? { ...input.imageRuntime, maxPerDeck: 0 }
-      : input.imageRuntime;
   const resolved = await resolveGenerateDeckAssets({
     dataSource: input.dataSource,
     storage: input.storage,
     pythonWorkerUrl: input.pythonWorkerUrl,
     deck,
     validation: workerPayload.validation,
-    imageRuntime: runtime,
+    imageRuntime: input.imageRuntime,
     imageAssetScope: input.context.imageAssetScope,
     officialAssetFileIds: input.context.request.officialAssetFileIds ?? [],
     onlySlideIds: new Set([input.message.shardKey]),
@@ -471,79 +469,60 @@ function executeCoverSlide(
           textColor: palette.text,
           accentColor: palette.accentColor,
         },
-        speakerNotes: plan.message,
+        speakerNotes: "",
         elements: [
+          {
+            elementId: "el_cover_backdrop",
+            type: "rect",
+            role: "decoration",
+            x: 1320,
+            y: 0,
+            width: 600,
+            height: 1080,
+            rotation: 8,
+            opacity: 0.72,
+            zIndex: 1,
+            props: { fill: palette.muted, borderRadius: 84 },
+          },
           {
             elementId: "el_cover_accent",
             type: "rect",
             role: "decoration",
-            x: 112,
-            y: 148,
-            width: 18,
-            height: 530,
-            zIndex: 1,
-            props: { fill: palette.accentColor, borderRadius: 9 },
+            x: 132,
+            y: 190,
+            width: 96,
+            height: 14,
+            zIndex: 2,
+            props: { fill: palette.accentColor, borderRadius: 7 },
           },
           {
             elementId: "el_cover_title",
             type: "text",
             role: "title",
-            x: 190,
-            y: 230,
-            width: 1450,
-            height: 250,
-            zIndex: 2,
+            x: 132,
+            y: 292,
+            width: 1240,
+            height: 430,
+            zIndex: 3,
             props: {
               text: plan.title,
               fontFamily: font.headingFontFamily,
-              fontSize: font.recommendedTitleSize,
+              fontSize: Math.max(
+                64,
+                Math.min(88, font.recommendedTitleSize + 20),
+              ),
               fontWeight: "bold",
               color: palette.text,
-              lineHeight: font.lineHeight,
+              lineHeight: Math.max(1.05, Math.min(1.2, font.lineHeight)),
             },
           },
-          {
-            elementId: "el_cover_message",
-            type: "text",
-            role: "subtitle",
-            x: 195,
-            y: 520,
-            width: 1320,
-            height: 150,
-            zIndex: 2,
-            props: {
-              text: plan.message,
-              fontFamily: font.bodyFontFamily,
-              fontSize: font.recommendedBodySize,
-              color: palette.text,
-              lineHeight: font.lineHeight,
-            },
-          },
-          ...(plan.audience
-            ? [{
-                elementId: "el_cover_audience",
-                type: "text" as const,
-                role: "caption" as const,
-                x: 195,
-                y: 790,
-                width: 1320,
-                height: 70,
-                zIndex: 2,
-                props: {
-                  text: plan.audience,
-                  fontFamily: font.bodyFontFamily,
-                  fontSize: Math.max(16, font.recommendedBodySize - 4),
-                  color: palette.muted,
-                },
-              }]
-            : []),
         ],
         keywords: [],
         semanticCues: [],
         animations: [],
         actions: [],
         aiNotes: {
-          emphasisPoints: [plan.message],
+          emphasisPoints: [plan.title],
           sourceEvidence: [],
           visualPlan: {
             visualType: "minimal-cover",
@@ -649,20 +628,13 @@ async function executeV2ImageSlide(
     deckSchema.parse({ ...layout.deckShell, slides: [composed.slide] }),
     input.context.designPackSnapshot,
   );
-  const slideIndex = layout.slides.findIndex(
-    (slide) => slide.shardKey === input.message.shardKey,
-  );
-  const runtime =
-    input.imageRuntime && slideIndex >= input.imageRuntime.maxPerDeck
-      ? { ...input.imageRuntime, maxPerDeck: 0 }
-      : input.imageRuntime;
   const resolved = await resolveGenerateDeckAssets({
     dataSource: input.dataSource,
     storage: input.storage,
     pythonWorkerUrl: input.pythonWorkerUrl,
     deck,
     validation: composed.validation,
-    imageRuntime: runtime,
+    imageRuntime: input.imageRuntime,
     imageAssetScope: input.context.imageAssetScope,
     officialAssetFileIds: input.context.request.officialAssetFileIds ?? [],
     onlySlideIds: new Set([descriptor.slideId]),
@@ -710,7 +682,7 @@ async function executeV2ImageSlide(
       pythonWorkerUrl: input.pythonWorkerUrl,
       deck: finalizedDeck,
       validation: finalizedValidation,
-      imageRuntime: runtime,
+      imageRuntime: input.imageRuntime,
       imageAssetScope: input.context.imageAssetScope,
       officialAssetFileIds: input.context.request.officialAssetFileIds ?? [],
       enforcesHybridMediaBudget: false,
@@ -718,15 +690,12 @@ async function executeV2ImageSlide(
       projectId: input.message.projectId,
       onRepairProgress: async () => undefined,
       emitEvent: (event, fields) => emit(input.eventLogger, event, fields),
+      maxRepairAttempts: 0,
     });
-    if (!visual.passed) {
-      throw new StageTerminalError(
-        "GENERATE_DECK_SLIDE_VISUAL_QUALITY_GATE_FAILED",
-        "Generated slide did not pass rendered visual validation.",
-      );
-    }
     finalizedDeck = visual.deck;
-    finalizedValidation = visual.validation;
+    finalizedValidation = visual.issues.length > 0
+      ? withVisualIssues(visual.validation, visual.issues)
+      : visual.validation;
     warnings.push(...visual.warnings);
   } catch (error) {
     if (!(error instanceof RenderedVisualQualityUnavailableError)) throw error;
@@ -1004,6 +973,52 @@ async function executeRenderedVisualQuality(
   let workerPayload = qualityArtifactPayloadSchema.parse(
     artifact.payload,
   ).workerPayload;
+  if (isLayoutCompileV2Artifact(layout)) {
+    const visualQaUnavailable = workerPayload.warnings.some((warning) =>
+      warning.includes("Rendered Visual QA was unavailable"),
+    );
+    const visualIssues = allValidationIssues(workerPayload.validation).flatMap(
+      (issue) => {
+        const code = generateDeckVisualIssueCodeSchema.safeParse(issue.code);
+        const slideOrder = slideOrderFromIssuePath(issue.path);
+        return code.success
+          ? [{ code: code.data, ...(slideOrder ? { slideOrder } : {}) }]
+          : [];
+      },
+    );
+    workerPayload = generateDeckResponseSchema.parse({
+      ...workerPayload,
+      deck: withGenerationQualityMetadata(
+        workerPayload.deck,
+        workerPayload.validation,
+        visualQaUnavailable ? "unavailable" : "advisory",
+      ),
+      diagnostics: {
+        ...workerPayload.diagnostics,
+        validationIssueCount: allValidationIssues(workerPayload.validation).length,
+        visualQaStatus: visualQaUnavailable
+          ? "unavailable"
+          : visualIssues.length > 0
+            ? "advisory"
+            : "passed",
+        warningCodes: visualQaUnavailable || visualIssues.length > 0
+          ? unique([
+              ...workerPayload.diagnostics.warningCodes,
+              visualQaUnavailable
+                ? "GENERATE_DECK_VISUAL_QA_UNAVAILABLE"
+                : "GENERATE_DECK_VISUAL_ADVISORY",
+            ])
+          : workerPayload.diagnostics.warningCodes,
+        visualIssueCodes: visualIssues.map((issue) => issue.code),
+        visualIssueSlideOrders: unique(
+          visualIssues.flatMap((issue) =>
+            issue.slideOrder ? [issue.slideOrder] : [],
+          ),
+        ).sort((left, right) => left - right),
+      },
+    });
+    return qualityArtifactPayloadSchema.parse({ workerPayload });
+  }
   try {
     const outcome = await runRenderedVisualQuality({
       dataSource: input.dataSource,
@@ -1026,21 +1041,20 @@ async function executeRenderedVisualQuality(
       ...renderedVisualQualityDiagnostics(outcome, workerPayload.diagnostics),
       validationIssueCount: allValidationIssues(outcome.validation).length,
     };
+    const validation = outcome.issues.length > 0
+      ? withVisualIssues(outcome.validation, outcome.issues)
+      : outcome.validation;
     workerPayload = generateDeckResponseSchema.parse({
       ...workerPayload,
-      deck: outcome.deck,
+      deck: withGenerationQualityMetadata(
+        outcome.deck,
+        validation,
+        outcome.issues.length > 0 ? "advisory" : "passed",
+      ),
       warnings: [...workerPayload.warnings, ...outcome.warnings],
-      validation: outcome.validation,
+      validation,
       diagnostics,
     });
-    if (!outcome.passed) {
-      throw qualityGateError(
-        "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED",
-        workerPayload,
-        outcome.deck,
-        withVisualIssues(outcome.validation, outcome.issues),
-      );
-    }
     return qualityArtifactPayloadSchema.parse({ workerPayload });
   } catch (error) {
     if (!(error instanceof RenderedVisualQualityUnavailableError)) throw error;
@@ -1058,7 +1072,11 @@ async function executeRenderedVisualQuality(
     }
     workerPayload = generateDeckResponseSchema.parse({
       ...workerPayload,
-      deck: error.deck,
+      deck: withGenerationQualityMetadata(
+        error.deck,
+        error.validation,
+        "unavailable",
+      ),
       warnings: [
         ...workerPayload.warnings,
         ...error.warnings,
@@ -1080,6 +1098,11 @@ async function executeRenderedVisualQuality(
     });
     return qualityArtifactPayloadSchema.parse({ workerPayload });
   }
+}
+
+function slideOrderFromIssuePath(path: string): number | undefined {
+  const match = /^slides\.(\d+)/.exec(path);
+  return match ? Number(match[1]) + 1 : undefined;
 }
 
 async function completeStage(

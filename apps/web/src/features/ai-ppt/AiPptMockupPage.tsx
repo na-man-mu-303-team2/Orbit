@@ -317,6 +317,7 @@ export function buildAiPptGenerateDeckPayload(
   referenceFileIds: string[] = [],
   selectedFont = recommendGenerateDeckFonts(defaultFontMood)[0],
 ): GenerateDeckRequest {
+  const timing = inferAiPptTimingFromContent(state.content);
   return {
     topic: state.topic.trim(),
     prompt: state.content.trim(),
@@ -329,11 +330,11 @@ export function buildAiPptGenerateDeckPayload(
     ].join("; "),
     brief: {
       audienceText: state.audience.trim(),
-      durationMinutes: 10,
+      durationMinutes: timing.targetDurationMinutes,
       referencePolicy: state.referencePolicy,
     },
-    targetDurationMinutes: 10,
-    slideCountRange: { min: 5, max: 8 },
+    targetDurationMinutes: timing.targetDurationMinutes,
+    slideCountRange: timing.slideCountRange,
     template: "default",
     metadata: {
       audience: "general",
@@ -360,6 +361,41 @@ export function buildAiPptGenerateDeckPayload(
       briefRef: { mode: "generic" },
       evaluatorLensRef: { lensId: "general-novice", revision: 1 },
     },
+  };
+}
+
+export function inferAiPptTimingFromContent(content: string): Pick<
+  GenerateDeckRequest,
+  "targetDurationMinutes" | "slideCountRange"
+> {
+  const durationMatch = content.match(/(?:발표\s*시간(?:은|이)?\s*)?(\d{1,3})\s*분(?:짜리|간)?/u);
+  const slideMatch = content.match(
+    /(\d{1,2})\s*(?:[-~～–]\s*(\d{1,2}))?\s*(?:장|페이지|슬라이드)/u,
+  );
+  const duration = durationMatch ? Number(durationMatch[1]) : 10;
+  const firstSlideCount = slideMatch ? Number(slideMatch[1]) : 5;
+  const secondSlideCount = slideMatch?.[2] ? Number(slideMatch[2]) : undefined;
+  const validDuration = Number.isInteger(duration) && duration >= 1 && duration <= 120
+    ? duration
+    : 10;
+  const validSlideCounts = [firstSlideCount, secondSlideCount]
+    .filter(
+      (value): value is number =>
+        typeof value === "number" && Number.isInteger(value),
+    )
+    .filter((value) => value >= 1 && value <= 20);
+  if (slideMatch && validSlideCounts.length > 0) {
+    return {
+      targetDurationMinutes: validDuration,
+      slideCountRange: {
+        min: Math.min(...validSlideCounts),
+        max: Math.max(...validSlideCounts),
+      },
+    };
+  }
+  return {
+    targetDurationMinutes: validDuration,
+    slideCountRange: { min: 5, max: 8 },
   };
 }
 
