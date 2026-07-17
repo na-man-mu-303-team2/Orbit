@@ -10,6 +10,8 @@ describe("EditorToolbar", () => {
       <EditorToolbar
         canMutate
         canUseCurrentSlide={false}
+        canZoomIn
+        canZoomOut
         insertTool="select"
         isAnimationPanelOpen={false}
         isIconPanelOpen={false}
@@ -28,6 +30,7 @@ describe("EditorToolbar", () => {
         onUndo={vi.fn()}
         onZoomIn={vi.fn()}
         onZoomOut={vi.fn()}
+        onZoomToActualSize={vi.fn()}
         redoDisabled
         selectedElementAnimationCount={0}
         shapeMenuButtonRef={createRef<HTMLButtonElement>()}

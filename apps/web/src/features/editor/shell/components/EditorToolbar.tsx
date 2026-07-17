@@ -16,6 +16,8 @@ import type { InsertTool } from "../editorShellUiStore";
 import { EditorZoomControls } from "./EditorZoomControls";
 
 type EditorToolbarProps = {
+  canZoomIn: boolean;
+  canZoomOut: boolean;
   canMutate: boolean;
   canUseCurrentSlide: boolean;
   insertTool: InsertTool;
@@ -36,6 +38,7 @@ type EditorToolbarProps = {
   onFitStageToViewport: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  onZoomToActualSize: () => void;
   redoDisabled: boolean;
   selectedElementAnimationCount: number;
   shapeMenuButtonRef: RefObject<HTMLButtonElement | null>;
@@ -130,10 +133,13 @@ export function EditorToolbar(props: EditorToolbarProps) {
         </div>
       </div> : null}
       <EditorZoomControls
+        canZoomIn={props.canZoomIn}
+        canZoomOut={props.canZoomOut}
         isFitToViewport={props.isStageFitToViewport}
         onFitToViewport={props.onFitStageToViewport}
         onZoomIn={props.onZoomIn}
         onZoomOut={props.onZoomOut}
+        onZoomToActualSize={props.onZoomToActualSize}
         scale={props.stageScale}
       />
     </div>
