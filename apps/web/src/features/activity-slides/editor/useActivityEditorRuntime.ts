@@ -2,6 +2,7 @@ import type { ActivityRun } from "@orbit/shared";
 import { useCallback, useEffect, useState } from "react";
 
 import { activityApi, ActivityApiError } from "../api/activityApi";
+import { getActivityPrimaryCommand } from "../presenter/ActivityPresenterPanel";
 
 export type ActivityEditorRuntime = {
   audienceUrl: string;
@@ -105,12 +106,43 @@ export function useActivityEditorRuntime(input: {
     }
   }, [input.projectId, pending, refresh, runtime]);
 
+  const updateStatus = useCallback(async () => {
+    if (!input.projectId || !runtime || pending) return false;
+    setPending(true);
+    setError("");
+    try {
+      const command = getActivityPrimaryCommand(runtime.run.status);
+      const response = await activityApi.updateRunStatus(
+        input.projectId,
+        runtime.sessionId,
+        runtime.run.activityRunId,
+        {
+          expectedRevision: runtime.run.revision,
+          status: command.nextStatus
+        }
+      );
+      setRuntime({ ...runtime, run: response.run });
+      return true;
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "참여 장표 상태를 변경하지 못했습니다."
+      );
+      await refresh();
+      return false;
+    } finally {
+      setPending(false);
+    }
+  }, [input.projectId, pending, refresh, runtime]);
+
   return {
     error,
     locked: (runtime?.run.responseCount ?? 0) > 0,
     pending,
     refresh,
     runtime,
-    supersede
+    supersede,
+    updateStatus
   };
 }

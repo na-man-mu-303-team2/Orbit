@@ -9,6 +9,7 @@ import { useState } from "react";
 
 import { ActivitySlidePreview, type ActivityPreviewRole } from "./ActivitySlidePreview";
 import { ActivityEditorModerationPanel } from "./ActivityEditorModerationPanel";
+import { ActivityEditorOperationsPanel } from "./ActivityEditorOperationsPanel";
 import { useActivityEditorRuntime } from "./useActivityEditorRuntime";
 
 const templateLabels = {
@@ -26,6 +27,7 @@ const questionTypeLabels: Record<ActivityQuestionType, string> = {
 
 export function ActivitySlideInspector(props: {
   deckId?: string;
+  onOpenAudienceLink?: () => void;
   onChange: (activity: ActivityDefinition) => void;
   projectId?: string;
   slide: ActivitySlide;
@@ -240,6 +242,13 @@ export function ActivitySlideInspector(props: {
           {editorRuntime.error}
         </p>
       ) : null}
+      <ActivityEditorOperationsPanel
+        onOpenAudienceLink={props.onOpenAudienceLink}
+        onUpdateStatus={() => void editorRuntime.updateStatus()}
+        pending={editorRuntime.pending}
+        runtime={editorRuntime.runtime}
+        slide={props.slide}
+      />
 
       <div aria-label="참여 장표 미리보기 역할" className="activity-preview-tabs" role="tablist">
         {(["audience", "presenter"] as const).map((role) => (
