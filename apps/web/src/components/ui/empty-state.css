@@ -1,0 +1,5 @@
+.redesign-empty-state { align-items: center; color: var(--redesign-color-on-surface); display: flex; flex-direction: column; justify-content: center; min-height: 224px; padding: var(--redesign-space-6); text-align: center; }
+.redesign-empty-state-icon { align-items: center; background: var(--redesign-color-primary-container); border: var(--redesign-border-width) solid var(--redesign-color-primary-emphasis); border-radius: var(--redesign-radius-lg); color: var(--redesign-color-primary-emphasis); display: inline-flex; height: 48px; justify-content: center; width: 48px; }
+.redesign-empty-state h3 { font-size: var(--redesign-type-title-lg-size); line-height: var(--redesign-type-title-lg-line-height); margin: var(--redesign-space-4) 0 var(--redesign-space-1); }
+.redesign-empty-state p { color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-body-sm-size); line-height: var(--redesign-type-body-sm-line-height); margin: 0; max-width: 440px; }
+.redesign-empty-state-action { margin-top: var(--redesign-space-5); }

@@ -21,18 +21,16 @@ import {
   OrbitAppHeader,
   type OrbitAppNavigationItem,
 } from "./components/OrbitAppHeader";
-import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
-import { OrbitButton, OrbitEmptyState } from "./design-system";
-import {
-  OrbitAuthPage,
-  OrbitPublicLandingPage,
-} from "./features/auth/OrbitAuthPage";
+import { RedesignSystemPage } from "./features/design-system/RedesignSystemPage";
+import { OrbitButton, OrbitEmptyState } from "./components/ui";
+import { OrbitAuthPage } from "./features/auth/AuthPage";
 import {
   authMeQueryKey,
   fetchCurrentUser,
   markAuthLoggedOut,
   type AuthUser,
 } from "./features/auth/auth-session";
+import { LandingPage } from "./features/landing/LandingPage";
 import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
 import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
 import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
@@ -42,16 +40,14 @@ import {
   AiPptStyleColorPage,
 } from "./features/ai-ppt/AiPptMockupPage";
 import { AiDeckGenerationPage } from "./features/ai-ppt/AiDeckGenerationPage";
-import { StoryPlanReviewPage } from "./features/ai-ppt/StoryPlanReviewPage";
 import { DeckVersionHistoryPage } from "./features/editor/history/DeckVersionHistoryPage";
 import {
   OrbitMockupFlow,
   type OrbitMockupScreen,
 } from "./features/mockups/OrbitMockupFlow";
-import {
-  OrbitProjectExplorer,
-  OrbitWorkspaceHome,
-} from "./features/projects/OrbitProjectHub";
+import { ProjectExplorerPage } from "./features/projects/ProjectExplorerPage";
+import { OrbitWorkspaceHome } from "./features/projects/ProjectHub";
+import { ProjectAccessProvider } from "./features/projects/ProjectAccessContext";
 import "./features/projects/orbit-create-deck.css";
 import "./features/projects/orbit-project-access.css";
 import {
@@ -59,6 +55,7 @@ import {
   RehearsalWorkspace,
 } from "./features/rehearsal/RehearsalWorkspace";
 import { RehearsalReportListPage } from "./features/rehearsal/RehearsalReportListPage";
+import { RehearsalProjectPickerPage } from "./features/rehearsal/RehearsalProjectPickerPage";
 import { RehearsalProjectOverviewPage } from "./features/rehearsal/RehearsalProjectOverviewPage";
 import { PresentationWorkspace } from "./features/presentation/PresentationWorkspace";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
@@ -73,12 +70,12 @@ export type Route =
   | { name: "signup" }
   | { name: "home" }
   | { name: "create-deck" }
-  | { name: "project-list"; intent?: "rehearsal" }
+  | { name: "project-list" }
+  | { name: "rehearsal-project-list" }
   | { name: "project-editor"; projectId: string }
   | { name: "project-brief"; projectId: string }
   | { name: "project-history"; projectId: string }
   | { name: "activity-results"; projectId: string; sessionId: string }
-  | { name: "story-plan-review"; projectId: string; jobId: string }
   | { name: "story-style-color"; projectId: string; jobId: string }
   | { name: "ai-deck-generation"; projectId: string; jobId: string }
   | { name: "project-request"; projectId: string }
@@ -342,7 +339,7 @@ export function getRoute(pathname?: string, search?: string): Route {
     if (normalized === "/createdeck") return { name: "create-deck" };
     if (normalized === "/project") {
       return new URLSearchParams(currentSearch).get("intent") === "rehearsal"
-        ? { name: "project-list", intent: "rehearsal" }
+        ? { name: "rehearsal-project-list" }
         : { name: "project-list" };
     }
     if (normalized === "/reports") return { name: "report-list" };
@@ -419,17 +416,6 @@ export function getRoute(pathname?: string, search?: string): Route {
         name: "activity-results",
         projectId: decodeURIComponent(activityResultsMatch[1]),
         sessionId: decodeURIComponent(activityResultsMatch[2]),
-      };
-    }
-
-    const storyPlanMatch = normalized.match(
-      /^\/project\/([^/]+)\/story-plan\/([^/]+)$/,
-    );
-    if (storyPlanMatch) {
-      return {
-        name: "story-plan-review",
-        projectId: decodeURIComponent(storyPlanMatch[1]),
-        jobId: decodeURIComponent(storyPlanMatch[2]),
       };
     }
 
@@ -575,7 +561,7 @@ export function App() {
   }
 
   if (route.name === "home" && !auth.data) {
-    return <OrbitPublicLandingPage onNavigate={navigateTo} />;
+    return <LandingPage onNavigate={navigateTo} />;
   }
 
   if (!shouldRenderAppFrame(route)) {
@@ -626,7 +612,7 @@ export function shouldRenderAppFrame(route: Route) {
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
-  if (route.name === "design-system") return <OrbitDesignSystemPage />;
+  if (route.name === "design-system") return <RedesignSystemPage />;
   if (route.name === "mockup") {
     return <OrbitMockupFlow onNavigate={navigateTo} screen={route.screen} />;
   }
@@ -650,9 +636,10 @@ function renderRoute(route: Route, user?: AuthUser) {
   }
   if (route.name === "create-deck") return <AiPptWizardPage />;
   if (route.name === "project-list") {
-    return (
-      <OrbitProjectExplorer intent={route.intent} onNavigate={navigateTo} />
-    );
+    return <ProjectExplorerPage onNavigate={navigateTo} />;
+  }
+  if (route.name === "rehearsal-project-list") {
+    return <RehearsalProjectPickerPage onNavigate={navigateTo} />;
   }
   if (route.name === "project-editor") {
     return (
@@ -685,14 +672,6 @@ function renderRoute(route: Route, user?: AuthUser) {
           sessionId={route.sessionId}
         />
       </ProjectAccessGate>
-    );
-  }
-  if (route.name === "story-plan-review") {
-    return (
-      <StoryPlanReviewPage
-        jobId={route.jobId}
-        projectId={route.projectId}
-      />
     );
   }
   if (route.name === "story-style-color") {
@@ -974,10 +953,7 @@ function AppFrame(props: {
   );
 }
 
-export function getAppNavigationItem(
-  route: Route,
-  currentSearch = typeof window === "undefined" ? "" : window.location.search,
-): OrbitAppNavigationItem {
+export function getAppNavigationItem(route: Route): OrbitAppNavigationItem {
   if (route.name === "home") return "home";
   if (
     route.name === "report-list" ||
@@ -987,9 +963,7 @@ export function getAppNavigationItem(
   }
   if (
     route.name === "rehearsal" ||
-    (route.name === "project-list" &&
-      (route.intent === "rehearsal" ||
-        new URLSearchParams(currentSearch).get("intent") === "rehearsal"))
+    route.name === "rehearsal-project-list"
   ) {
     return "rehearsal";
   }
@@ -1047,14 +1021,18 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
   if (access.data?.membership?.status !== "accepted")
     return <EditorLoadingFallback />;
 
-  return <>{props.children}</>;
+  return (
+    <ProjectAccessProvider membership={access.data.membership}>
+      {props.children}
+    </ProjectAccessProvider>
+  );
 }
 
 function ProjectAccessError(props: { onRetry: () => void; projectId: string }) {
   return (
     <ProjectAccessLayout projectId={props.projectId}>
       <article className="orbit-access-message">
-        <span className="orbit-ds-eyebrow">PROJECT ACCESS</span>
+        <span className="redesign-eyebrow">PROJECT ACCESS</span>
         <h1>프로젝트 권한을 확인하지 못했습니다.</h1>
         <p>
           잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요.
@@ -1114,7 +1092,7 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
     return (
       <ProjectAccessLayout projectId={props.projectId}>
         <div className="orbit-access-message">
-          <p className="orbit-ds-eyebrow">ACCESS CHECK</p>
+          <p className="redesign-eyebrow">ACCESS CHECK</p>
           <h1>권한 상태를 확인하지 못했습니다.</h1>
           <p>연결을 확인한 뒤 다시 시도해 주세요.</p>
           <OrbitButton onClick={() => void access.refetch()}>
@@ -1133,7 +1111,7 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
         projectId={props.projectId}
       >
         <article className="orbit-access-message">
-          <span className="orbit-ds-eyebrow">APPROVAL PENDING</span>
+          <span className="redesign-eyebrow">APPROVAL PENDING</span>
           <h1>승인을 기다리고 있어요.</h1>
           <p>
             프로젝트 소유자가 요청을 확인하고 있습니다. 승인되면 이 프로젝트에
@@ -1173,7 +1151,7 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
       projectId={props.projectId}
     >
       <form className="orbit-access-message" onSubmit={handleSubmit}>
-        <span className="orbit-ds-eyebrow">ACCESS REQUIRED</span>
+        <span className="redesign-eyebrow">ACCESS REQUIRED</span>
         <h1>
           이 프로젝트에 참여하려면
           <br />
@@ -1242,7 +1220,7 @@ function ProjectAccessLayout(props: {
         <div className="orbit-access-icon">
           <IconFileText aria-hidden="true" size={26} />
         </div>
-        <p className="orbit-ds-eyebrow">PRIVATE PROJECT</p>
+        <p className="redesign-eyebrow">PRIVATE PROJECT</p>
         <h2>{props.project?.title ?? "비공개 프로젝트"}</h2>
         <p>승인된 구성원만 발표자료를 열고 함께 작업할 수 있습니다.</p>
         <dl>
@@ -1272,8 +1250,12 @@ export function getProjectAccessRoleLabel(role: ProjectMemberRole) {
 
 function EditorLoadingFallback() {
   return (
-    <section className="loading-page">
-      <h1>에디터를 불러오는 중</h1>
+    <section
+      aria-label="에디터를 불러오는 중"
+      className="editor-loading-page redesign-dark"
+      role="status"
+    >
+      <span aria-hidden="true" className="editor-loading-indicator" />
     </section>
   );
 }

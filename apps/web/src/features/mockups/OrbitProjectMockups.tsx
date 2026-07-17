@@ -21,7 +21,7 @@ import {
 } from "@tabler/icons-react";
 import { useState, type ReactNode } from "react";
 import orbitLogo from "./assets/orbit-logo-selected.png";
-import { OrbitButton, OrbitStatus } from "../../design-system";
+import { OrbitButton, OrbitStatus } from "../../components/ui";
 import "./orbit-project-mockups.css";
 
 type ProjectMockupProps = {
@@ -63,7 +63,7 @@ export function OrbitProjectAccessMockup(props: ProjectMockupProps) {
       <main className="project-access-main">
         <section className="project-access-context">
           <div className="project-access-context-icon"><IconPresentation size={32} /></div>
-          <p className="orbit-ds-eyebrow">PRIVATE PROJECT</p>
+          <p className="redesign-eyebrow">PRIVATE PROJECT</p>
           <h1>2026 하반기<br />제품 전략</h1>
           <p>제품팀의 다음 반기 전략과 실행 우선순위를 정리한 발표 프로젝트입니다.</p>
           <dl>
@@ -71,14 +71,14 @@ export function OrbitProjectAccessMockup(props: ProjectMockupProps) {
             <div><dt><IconFileText size={17} /> 프로젝트 구성</dt><dd>슬라이드 18장 · 리포트 4개</dd></div>
             <div><dt><IconCalendar size={17} /> 최근 업데이트</dt><dd>오늘 09:23</dd></div>
           </dl>
-          <div className="project-access-members"><span className="orbit-ds-avatar">김</span><span className="orbit-ds-avatar">박</span><span className="orbit-ds-avatar">이</span><strong>외 3명이 함께 작업 중</strong></div>
+          <div className="project-access-members"><span className="redesign-avatar">김</span><span className="redesign-avatar">박</span><span className="redesign-avatar">이</span><strong>외 3명이 함께 작업 중</strong></div>
         </section>
 
         <section className="project-access-card">
           {state === "request" ? (
             <>
               <span className="project-access-card-icon"><IconLock size={28} /></span>
-              <p className="orbit-ds-eyebrow">ACCESS REQUIRED</p>
+              <p className="redesign-eyebrow">ACCESS REQUIRED</p>
               <h2>이 프로젝트에 참여하려면<br />승인이 필요해요.</h2>
               <p className="project-access-card-copy">필요한 권한을 선택하면 프로젝트 소유자에게 요청을 보냅니다.</p>
               <div aria-label="요청 권한" className="project-access-options" role="radiogroup">
@@ -98,7 +98,7 @@ export function OrbitProjectAccessMockup(props: ProjectMockupProps) {
           ) : (
             <>
               <span className="project-access-card-icon pending"><IconClock size={30} /></span>
-              <p className="orbit-ds-eyebrow">REQUEST SENT</p>
+              <p className="redesign-eyebrow">REQUEST SENT</p>
               <h2>접근 요청을 보냈어요.</h2>
               <p className="project-access-card-copy">김지윤님이 요청을 확인하고 있습니다. 승인되면 바로 프로젝트를 열 수 있어요.</p>
               <div className="project-access-pending-summary">
@@ -132,7 +132,7 @@ export function OrbitProjectReportMockup(props: ProjectMockupProps) {
       <main className="project-report-main">
         <div className="project-report-breadcrumb"><button onClick={() => props.onNavigate("/mockup/reports")} type="button"><IconArrowLeft size={16} /> 리포트 목록</button><IconChevronRight size={14} /><strong>2026 하반기 제품 전략</strong></div>
         <header className="project-report-heading">
-          <div><p className="orbit-ds-eyebrow">PROJECT PERFORMANCE</p><h1>프로젝트 종합 리포트</h1><p>네 번의 리허설에서 달라진 발표 흐름과 다음 연습 목표를 확인하세요.</p></div>
+          <div><p className="redesign-eyebrow">PROJECT PERFORMANCE</p><h1>프로젝트 종합 리포트</h1><p>네 번의 리허설에서 달라진 발표 흐름과 다음 연습 목표를 확인하세요.</p></div>
           <OrbitButton icon={<IconMicrophone size={18} />} onClick={() => props.onNavigate("/mockup/microphone-check")}>새 리허설</OrbitButton>
         </header>
 
@@ -183,7 +183,7 @@ function ProjectUtilityHeader(props: { label: string; onBack: () => void; right:
 }
 
 function ProjectReportHeader(props: ProjectMockupProps) {
-  return <header className="project-report-header"><button aria-label="ORBIT 홈" onClick={() => props.onNavigate("/mockup/home")} type="button"><img alt="ORBIT" src={orbitLogo} /></button><nav aria-label="주요 메뉴"><button onClick={() => props.onNavigate("/mockup/home")} type="button">홈</button><button onClick={() => props.onNavigate("/mockup/home")} type="button">프로젝트</button><button onClick={() => props.onNavigate("/mockup/rehearsal")} type="button">리허설</button><button aria-current="page" onClick={() => props.onNavigate("/mockup/reports")} type="button">리포트</button></nav><div><span><IconPresentation size={17} />2026 하반기 제품 전략</span><span className="orbit-ds-avatar">김</span></div></header>;
+  return <header className="project-report-header"><button aria-label="ORBIT 홈" onClick={() => props.onNavigate("/mockup/home")} type="button"><img alt="ORBIT" src={orbitLogo} /></button><nav aria-label="주요 메뉴"><button onClick={() => props.onNavigate("/mockup/home")} type="button">홈</button><button onClick={() => props.onNavigate("/mockup/home")} type="button">프로젝트</button><button onClick={() => props.onNavigate("/mockup/rehearsal")} type="button">리허설</button><button aria-current="page" onClick={() => props.onNavigate("/mockup/reports")} type="button">리포트</button></nav><div><span><IconPresentation size={17} />2026 하반기 제품 전략</span><span className="redesign-avatar">김</span></div></header>;
 }
 
 function ProjectMetric(props: { icon: ReactNode; label: string; note: string; value: string }) {

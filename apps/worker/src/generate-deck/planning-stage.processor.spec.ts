@@ -22,6 +22,8 @@ const sourcePayload = {
     official_web_source_count: 1,
     independent_web_source_count: 0,
     research_fact_coverage_satisfied: true,
+    web_research_timed_out: false,
+    web_research_elapsed_ms: 18_400,
     warningCodes: ["WEB_RESEARCH_QUALITY_FAILED"],
   },
   sourceRecords: [],
@@ -133,6 +135,8 @@ describe("processAiDeckPlanningStage", () => {
         officialSourceCount: 1,
         independentSourceCount: 0,
         factCoverageSatisfied: true,
+        timedOut: false,
+        elapsedMs: 18_400,
       },
     );
   });
@@ -219,8 +223,8 @@ describe("processAiDeckPlanningStage", () => {
       if (compact.includes("FROM ai_deck_planning_artifacts artifacts")) {
         return [artifactRow("content-planning", contentPayload)];
       }
-      if (compact.includes("FROM ai_deck_story_reviews")) {
-        return [{ approved: 1 }];
+      if (compact.includes("SELECT payload FROM jobs")) {
+        return [{ payload: { request: { topic: "Safe topic" } } }];
       }
       if (compact.includes("SET status = 'failed', error_json")) {
         return [
@@ -274,135 +278,6 @@ describe("processAiDeckPlanningStage", () => {
         }),
       }),
     );
-  });
-
-  it("pauses a PostgreSQL Story Review job after content planning", async () => {
-    const message = { ...sourceMessage, stage: "content-planning" as const };
-    const contentPayload = {
-      rawInput: { topic: "Safe topic" },
-      contentPlan: {
-        outline: { title: "Safe topic", slide_titles: ["Safe topic"] },
-        slidePlans: [{ order: 1, title: "Safe topic" }],
-      },
-    };
-    const query = vi.fn(async (sql: string) => {
-      const compact = compactSql(sql);
-      if (compact.includes("SET status = 'running', attempt = stages.attempt + 1")) {
-        return [checkpointRow(message.stage, "running", 1, { planningArtifactId })];
-      }
-      if (compact.includes("FROM ai_deck_planning_artifacts artifacts")) {
-        return [artifactRow("source-grounding", sourcePayload)];
-      }
-      if (compact.includes("FROM ai_deck_story_reviews")) return [];
-      if (compact.includes("INSERT INTO ai_deck_planning_artifacts")) {
-        return [artifactRow("content-planning", contentPayload)];
-      }
-      if (compact.includes("SET status = 'succeeded'")) {
-        return [checkpointRow(message.stage, "succeeded", 1, { planningArtifactId }, { planningArtifactId })];
-      }
-      if (compact.includes("SELECT payload FROM jobs")) {
-        return [{ payload: { request: { topic: "Safe topic" }, storyReviewRequired: true } }];
-      }
-      if (compact.includes("INSERT INTO ai_deck_story_reviews")) {
-        return [{ pipeline_job_id: message.pipelineJobId }];
-      }
-      if (compact.includes("UPDATE jobs SET status = 'running'")) {
-        return [parentRow("running", 40)];
-      }
-      if (compact.includes("INSERT INTO ai_deck_generation_stages")) {
-        throw new Error("design-planning must wait for Story Review approval");
-      }
-      throw new Error("Unexpected Story Review SQL");
-    });
-
-    await expect(
-      processAiDeckPlanningStage(
-        fakeDataSource(query),
-        "http://python-worker:8000",
-        "worker-a",
-        message,
-        { fetchImpl: async () => jsonResponse(contentPayload) },
-      ),
-    ).resolves.toMatchObject({ status: "running", progress: 40 });
-    expect(
-      query.mock.calls.some(([sql]) =>
-        compactSql(String(sql)).includes("INSERT INTO ai_deck_story_reviews"),
-      ),
-    ).toBe(true);
-  });
-
-  it("keeps the previous plan available after the final regeneration attempt fails", async () => {
-    const message = { ...sourceMessage, stage: "content-planning" as const };
-    const previousContent = {
-      rawInput: { topic: "Safe topic" },
-      contentPlan: {
-        outline: { title: "Safe topic", slide_titles: ["Previous plan"] },
-        slidePlans: [{ order: 1, title: "Previous plan" }],
-      },
-    };
-    const query = vi.fn(async (sql: string, parameters?: unknown[]) => {
-      const compact = compactSql(sql);
-      if (compact.includes("SET status = 'running', attempt = stages.attempt + 1")) {
-        return [checkpointRow(message.stage, "running", 5, { planningArtifactId })];
-      }
-      if (compact.includes("FROM ai_deck_planning_artifacts artifacts")) {
-        return [artifactRow("source-grounding", sourcePayload)];
-      }
-      if (compact.includes("SELECT regeneration_instruction")) {
-        return [{ regeneration_instruction: "Make the flow shorter" }];
-      }
-      if (compact.includes("SELECT payload_json")) {
-        return [{ payload_json: previousContent }];
-      }
-      if (compact.includes("SET status = 'failed', error_json")) {
-        return [
-          checkpointRow(
-            message.stage,
-            "failed",
-            5,
-            { planningArtifactId },
-            null,
-            parameters?.[6] as Record<string, unknown>,
-          ),
-        ];
-      }
-      if (compact.includes("SELECT status FROM ai_deck_story_reviews")) {
-        return [{ status: "regenerating" }];
-      }
-      if (compact.includes("UPDATE ai_deck_story_reviews")) return [];
-      if (compact.includes("UPDATE jobs SET status = 'running'")) {
-        return [parentRow("running", 40)];
-      }
-      throw new Error(`Unexpected SQL: ${compact}`);
-    });
-
-    await expect(
-      processAiDeckPlanningStage(
-        fakeDataSource(query),
-        "http://python-worker:8000",
-        "worker-a",
-        message,
-        {
-          fetchImpl: async () =>
-            jsonResponse({ detail: "LLM provider unavailable" }, 503),
-        },
-      ),
-    ).resolves.toMatchObject({ status: "running", progress: 40 });
-    expect(
-      query.mock.calls.some(([sql]) =>
-        compactSql(String(sql)).includes("UPDATE ai_deck_story_reviews"),
-      ),
-    ).toBe(true);
-    expect(
-      query.mock.calls.some(([sql]) =>
-        compactSql(String(sql)).includes("INSERT INTO ai_deck_planning_artifacts"),
-      ),
-    ).toBe(false);
-    expect(
-      query.mock.calls.some(([sql]) =>
-        compactSql(String(sql)).includes("UPDATE jobs SET status = 'failed'"),
-      ),
-    ).toBe(false);
   });
 
   it("fans out one image checkpoint per visual requirement after layout", async () => {

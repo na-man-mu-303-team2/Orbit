@@ -593,8 +593,14 @@ describe("processGenerateDeckJob", () => {
     expect(repairCount).toBe(2);
     expect(job.result).toMatchObject({
       validation: {
-        passed: true,
-        designIssues: []
+        passed: false,
+        designIssues: [1, 2, 3].map((order) =>
+          expect.objectContaining({
+            code: "BALANCE_WEAK",
+            path: `slides.${order - 1}`,
+            blocking: false,
+          }),
+        ),
       },
       diagnostics: {
         visualQaStatus: "advisory",
@@ -611,7 +617,7 @@ describe("processGenerateDeckJob", () => {
     ).toBe(true);
   });
 
-  it("retains a twice-repaired blocking visual failure without publishing", async () => {
+  it("publishes a twice-repaired visual issue as an advisory", async () => {
     const deck = programV2Deck();
     const query = dynamicJobQuery();
     let repairCount = 0;
@@ -640,11 +646,9 @@ describe("processGenerateDeckJob", () => {
       programV2Payload()
     );
 
-    expect(job.status).toBe("failed");
-    expect(job.error?.code).toBe(
-      "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED"
-    );
-    expect(job.progress).toBe(90);
+    expect(job.status).toBe("succeeded");
+    expect(job.error).toBeNull();
+    expect(job.progress).toBe(100);
     expect(repairCount).toBe(2);
     expect(job.result).toMatchObject({
       validation: {
@@ -654,7 +658,7 @@ describe("processGenerateDeckJob", () => {
         ]
       },
       diagnostics: {
-        visualQaStatus: "failed",
+        visualQaStatus: "advisory",
         visualReviewAttempts: 3,
         visualRepairAttempts: 2,
         visualIssueCodes: ["IMAGE_CONTENT_MISMATCH"]
@@ -662,7 +666,7 @@ describe("processGenerateDeckJob", () => {
     });
     expect(
       query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("converts an unresolved optional image to a no-media composition", async () => {
@@ -1774,7 +1778,7 @@ describe("processGenerateDeckJob", () => {
       ]);
     });
 
-    it("does not repair a blocking visual issue without repair actions", async () => {
+    it("keeps a visual issue without repair actions as an advisory", async () => {
       const deck = programV2Deck();
       const repairRequest = vi.fn();
       vi.stubGlobal(
@@ -1821,7 +1825,7 @@ describe("processGenerateDeckJob", () => {
       });
 
       expect(outcome).toMatchObject({
-        passed: false,
+        passed: true,
         reviewAttempts: 1,
         repairAttempts: 0
       });

@@ -1,27 +1,34 @@
 import type { ActivityTemplate, Deck } from "@orbit/shared";
 import {
   IconChevronUp as ChevronUp,
+  IconLayoutGrid as Grid,
   IconLayoutSidebarLeftCollapse as PanelLeftClose,
-  IconLayoutSidebarLeftExpand as PanelLeftOpen,
+  IconList as List,
   IconPlus as Plus
 } from "@tabler/icons-react";
 import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { ActivitySpecialSlideThumbnail } from "../../../activity-slides";
 import type { SlidePanelView } from "../editorShellUiStore";
+import type { SlideRailItem } from "../slideRailModel";
 import { buildSlideThumbBackground } from "../utils/editorLayout";
-import { IdBadge } from "./EditorIdBadge";
 import { EmptyPanel } from "./EditorStateNotice";
+import { SlideRail } from "./SlideRail";
 
 export function SlideNavigatorPane(props: {
-  currentSlideIndex: number;
+  canMutate: boolean;
   deck: Deck;
+  items: readonly SlideRailItem[];
   isCollapsed: boolean;
   onAddActivitySlide: (template: ActivityTemplate) => void;
   onAddActivityResultsSlide: () => void;
   onAddSlide: () => void;
+  onDeleteSlide: (slideId: string) => void;
+  onDuplicateSlide: (slideId: string) => void;
+  onMoveSlide: (slideId: string, direction: "down" | "up") => void;
+  onReorderSlides: (orderedSlideIds: readonly string[]) => void;
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onSelectSlide: (index: number) => void;
+  onSelectSlide: (slideId: string) => void;
   onSetView: (view: SlidePanelView) => void;
   onToggleCollapsed: () => void;
   showIds: boolean;
@@ -47,61 +54,58 @@ export function SlideNavigatorPane(props: {
           </div>
         ) : null}
         <button
-          aria-label={props.isCollapsed ? "슬라이드 패널 펼치기" : "슬라이드 패널 접기"}
+          aria-label={props.isCollapsed ? "슬라이드 목록 열기" : "슬라이드 패널 접기"}
           className="collapse-slides-button"
           type="button"
-          title={props.isCollapsed ? "슬라이드 패널 펼치기" : "슬라이드 패널 접기"}
+          title={props.isCollapsed ? "슬라이드 목록 열기" : "슬라이드 패널 접기"}
           onClick={props.onToggleCollapsed}
         >
-          {props.isCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          {props.isCollapsed ? <List aria-hidden="true" size={16} /> : <PanelLeftClose size={16} />}
         </button>
       </div>
 
-      {props.isCollapsed ? (
-        <div className="collapsed-slide-rail">
-          {props.deck.slides.map((slide, index) => (
-            <button
-              className={`rail-slide-button ${index === props.currentSlideIndex ? "active" : ""}`}
-              key={slide.slideId}
-              type="button"
-              title={slide.title || `슬라이드 ${index + 1}`}
-              onClick={() => props.onSelectSlide(index)}
-            >
-              {index + 1}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className={`slides-list ${props.view}-view`}>
+      {!props.isCollapsed ? (
+        <div className="slides-pane-content">
           {hasSlides ? (
-            props.deck.slides.map((slide, index) => (
-              <button
-                className={`slide-item ${index === props.currentSlideIndex ? "active" : ""}`}
-                key={slide.slideId}
-                type="button"
-                onClick={() => props.onSelectSlide(index)}
-              >
-                <span className="slide-number">{index + 1}</span>
-                {props.showIds ? <IdBadge id={slide.slideId} /> : null}
-                <span
-                  className="slide-thumb orbit-thumb"
-                  style={{
-                    aspectRatio: `${props.deck.canvas.width} / ${props.deck.canvas.height}`,
-                    background: slide.kind === "content"
-                      ? buildSlideThumbBackground(
-                          slide,
-                          props.deck,
-                          props.slideThumbnailUrls[slide.slideId]
-                        )
-                      : undefined
-                  }}
-                >
-                  {slide.kind === "activity" || slide.kind === "activity-results" ? (
-                    <ActivitySpecialSlideThumbnail deck={props.deck} slide={slide} />
-                  ) : null}
-                </span>
-              </button>
-            ))
+            <SlideRail
+              canMutate={props.canMutate}
+              canvasAspectRatio={`${props.deck.canvas.width} / ${props.deck.canvas.height}`}
+              items={props.items}
+              onDelete={props.onDeleteSlide}
+              onDuplicate={props.onDuplicateSlide}
+              onMove={props.onMoveSlide}
+              onReorder={props.onReorderSlides}
+              onSelect={props.onSelectSlide}
+              showIds={props.showIds}
+              thumbnailBackgrounds={Object.fromEntries(
+                props.deck.slides.map((slide) => [
+                  slide.slideId,
+                  slide.kind === "content"
+                    ? buildSlideThumbBackground(
+                        slide,
+                        props.deck,
+                        props.slideThumbnailUrls[slide.slideId]
+                      )
+                    : ""
+                ])
+              )}
+              thumbnailContents={Object.fromEntries(
+                props.deck.slides
+                  .filter(
+                    (slide) =>
+                      slide.kind === "activity" || slide.kind === "activity-results"
+                  )
+                  .map((slide) => [
+                    slide.slideId,
+                    <ActivitySpecialSlideThumbnail
+                      deck={props.deck}
+                      key={slide.slideId}
+                      slide={slide}
+                    />
+                  ])
+              )}
+              viewMode={props.view}
+            />
           ) : (
             <EmptyPanel
               title="슬라이드 없음"
@@ -109,30 +113,39 @@ export function SlideNavigatorPane(props: {
             />
           )}
         </div>
-      )}
+      ) : null}
 
       {!props.isCollapsed ? (
         <div className="side-footer">
           <div className="slide-view-switch" role="group" aria-label="슬라이드 보기 방식">
             <button
+              aria-label="썸네일 보기"
               className={props.view === "thumbnail" ? "active" : ""}
+              title="썸네일 보기"
               type="button"
               onClick={() => props.onSetView("thumbnail")}
             >
-              썸네일
+              <Grid aria-hidden="true" size={16} />
             </button>
             <button
+              aria-label="목록 보기"
               className={props.view === "list" ? "active" : ""}
+              title="목록 보기"
               type="button"
               onClick={() => props.onSetView("list")}
             >
-              목록
+              <List aria-hidden="true" size={16} />
             </button>
           </div>
-          <div className="add-slide-split">
-            <button className="add-slide-button" type="button" onClick={props.onAddSlide}>
+          {props.canMutate ? <div className="add-slide-split">
+            <button
+              aria-label="슬라이드 추가"
+              className="add-slide-button"
+              title="슬라이드 추가"
+              type="button"
+              onClick={props.onAddSlide}
+            >
               <Plus aria-hidden="true" size={17} />
-              슬라이드 추가
             </button>
             <button
               aria-expanded={isAddMenuOpen}
@@ -155,7 +168,11 @@ export function SlideNavigatorPane(props: {
                     disabled={!canAddActivity}
                     key={template}
                     role="menuitem"
-                    title={canAddActivity ? `${title} 추가` : "참여 장표는 16:9 덱에서 사용할 수 있습니다."}
+                    title={
+                      canAddActivity
+                        ? `${title} 추가`
+                        : "참여 장표는 16:9 덱에서 사용할 수 있습니다."
+                    }
                     type="button"
                     onClick={() => {
                       props.onAddActivitySlide(template);
@@ -163,7 +180,9 @@ export function SlideNavigatorPane(props: {
                     }}
                   >
                     <strong>{title}</strong>
-                    <span>{canAddActivity ? description : "와이드 16:9 필요"}</span>
+                    <span>
+                      {canAddActivity ? description : "와이드 16:9 필요"}
+                    </span>
                   </button>
                 ))}
                 <button
@@ -189,7 +208,7 @@ export function SlideNavigatorPane(props: {
                 </button>
               </div>
             ) : null}
-          </div>
+          </div> : null}
         </div>
       ) : null}
 

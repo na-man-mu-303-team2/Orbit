@@ -5,6 +5,7 @@ import { deckSchema } from "./deck.schema";
 
 export const aiDeckPreviewStatusSchema = z.enum([
   "planning",
+  "grounding",
   "composing",
   "rendering",
   "quality-check",
@@ -27,6 +28,15 @@ export const aiDeckPreviewResponseSchema = z
     projectId: z.string().trim().min(1),
     status: aiDeckPreviewStatusSchema,
     progress: z.number().int().min(0).max(100),
+    expectedSlideCountRange: z
+      .object({
+        min: z.number().int().positive(),
+        max: z.number().int().positive(),
+      })
+      .strict()
+      .refine((value) => value.min <= value.max, {
+        message: "min must be less than or equal to max",
+      }),
     editable: z.literal(false),
     outline: z.array(aiDeckPreviewOutlineItemSchema),
     deck: deckSchema.nullable(),

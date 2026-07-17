@@ -1,0 +1,394 @@
+/*
+ * ORBIT Redesign System
+ *
+ * This file is the single source of truth for product UI values. Feature
+ * styles and shared primitives consume role-based tokens from this file and
+ * must not define a second palette or component scale.
+ */
+
+:root {
+  /* Neutral surfaces */
+  --redesign-color-background: var(--redesign-color-surface-container-lowest);
+  --redesign-color-on-background: #111114;
+  --redesign-color-surface: var(--redesign-color-light-surface);
+  --redesign-color-surface-dim: #f2f2f4;
+  --redesign-color-surface-bright: var(--redesign-color-light-surface);
+  --redesign-color-surface-container-lowest: var(--redesign-color-light-surface);
+  --redesign-color-surface-container-low: #f8f8fa;
+  --redesign-color-surface-container: #f1f1f4;
+  --redesign-color-surface-container-high: #e9e9ed;
+  --redesign-color-surface-container-highest: #e0e0e6;
+  --redesign-color-surface-variant: #e9e9ed;
+  --redesign-color-on-surface: #111114;
+  --redesign-color-on-surface-variant: #55555f;
+  --redesign-color-inverse-surface: #1c1c20;
+  --redesign-color-inverse-on-surface: #f5f5f7;
+  --redesign-color-inverse-outline: color-mix(in srgb, var(--redesign-color-inverse-on-surface) 34%, transparent);
+  --redesign-color-outline: #8c8c96;
+  --redesign-color-outline-variant: #d6d6dc;
+  --redesign-color-surface-tint: var(--redesign-color-primary);
+
+  /* Primary — Electric Blue */
+  --redesign-color-primary: #0090ff;
+  --redesign-color-primary-emphasis: #0068b7;
+  --redesign-color-on-primary: var(--redesign-color-light-surface);
+  --redesign-color-primary-container: #e0f3ff;
+  --redesign-color-on-primary-container: #004a75;
+  --redesign-color-primary-subtle: #edf8ff;
+  --redesign-color-primary-outline: #70c4f7;
+  --redesign-color-inverse-primary: #8dd4ff;
+  --redesign-color-primary-fixed: #e0f3ff;
+  --redesign-color-primary-fixed-dim: #8dd4ff;
+  --redesign-color-on-primary-fixed: #001c2e;
+  --redesign-color-on-primary-fixed-variant: #004a75;
+
+  /* Secondary — Vivid Purple */
+  --redesign-color-secondary: #8b3dff;
+  --redesign-color-on-secondary: var(--redesign-color-light-surface);
+  --redesign-color-secondary-container: #f1e6ff;
+  --redesign-color-on-secondary-container: #4a1b91;
+  --redesign-color-secondary-fixed: #f1e6ff;
+  --redesign-color-secondary-fixed-dim: #d8b9ff;
+  --redesign-color-on-secondary-fixed: #2a0060;
+  --redesign-color-on-secondary-fixed-variant: #5b1fb0;
+
+  /* Tertiary — Neon Pink */
+  --redesign-color-tertiary: #ff2d9e;
+  --redesign-color-on-tertiary: var(--redesign-color-light-surface);
+  --redesign-color-tertiary-container: #ffe0f0;
+  --redesign-color-on-tertiary-container: #8a0055;
+  --redesign-color-tertiary-fixed: #ffe0f0;
+  --redesign-color-tertiary-fixed-dim: #ff86d9;
+  --redesign-color-on-tertiary-fixed: #5c0040;
+  --redesign-color-on-tertiary-fixed-variant: #8a0055;
+
+  /* Error */
+  --redesign-color-error: #d3283f;
+  --redesign-color-on-error: var(--redesign-color-light-surface);
+  --redesign-color-error-container: #ffe0e0;
+  --redesign-color-on-error-container: #7a0010;
+
+  /* Semantic feedback */
+  --redesign-color-success: #146c43;
+  --redesign-color-on-success: var(--redesign-color-light-surface);
+  --redesign-color-success-container: #e1f5e9;
+  --redesign-color-on-success-container: #084c2d;
+  --redesign-color-success-subtle: #eef9f2;
+  --redesign-color-warning: #865500;
+  --redesign-color-on-warning: var(--redesign-color-light-surface);
+  --redesign-color-warning-container: #fff1cf;
+  --redesign-color-on-warning-container: #5d3a00;
+  --redesign-color-warning-subtle: #fff8e8;
+  --redesign-color-info: #005f9e;
+  --redesign-color-on-info: var(--redesign-color-light-surface);
+  --redesign-color-info-container: #e0f3ff;
+  --redesign-color-on-info-container: #004a75;
+  --redesign-color-disabled: #b6b6bf;
+  --redesign-color-on-disabled: #686871;
+  --redesign-color-disabled-container: #ededf0;
+  --redesign-color-error-subtle: #fff2f2;
+  --redesign-color-scrim: rgba(17, 17, 20, 0.52);
+  --redesign-color-overlay: rgba(255, 255, 255, 0.92);
+  --redesign-color-dark-surface: #1c1c20;
+  --redesign-color-dark-surface-raised: #252529;
+  --redesign-color-dark-surface-high: #303036;
+  --redesign-color-on-dark: #f5f5f7;
+  --redesign-color-light-surface: #ffffff;
+  --redesign-color-on-light: #111114;
+
+  /* Typography — single family across all roles */
+  --redesign-font-family: "Pretendard", sans-serif;
+
+  --redesign-type-display-xl-size: 96px;
+  --redesign-type-display-xl-weight: 800;
+  --redesign-type-display-xl-line-height: 104px;
+  --redesign-type-display-xl-tracking: -0.05em;
+
+  --redesign-type-display-lg-size: 64px;
+  --redesign-type-display-lg-weight: 800;
+  --redesign-type-display-lg-line-height: 72px;
+  --redesign-type-display-lg-tracking: -0.04em;
+
+  --redesign-type-display-md-size: 48px;
+  --redesign-type-display-md-weight: 800;
+  --redesign-type-display-md-line-height: 56px;
+  --redesign-type-display-md-tracking: -0.035em;
+
+  --redesign-type-display-sm-size: 40px;
+  --redesign-type-display-sm-weight: 750;
+  --redesign-type-display-sm-line-height: 48px;
+  --redesign-type-display-sm-tracking: -0.03em;
+
+  --redesign-type-headline-lg-size: 32px;
+  --redesign-type-headline-lg-weight: 700;
+  --redesign-type-headline-lg-line-height: 40px;
+  --redesign-type-headline-lg-tracking: -0.02em;
+
+  --redesign-type-headline-lg-mobile-size: 28px;
+  --redesign-type-headline-lg-mobile-weight: 700;
+  --redesign-type-headline-lg-mobile-line-height: 36px;
+  --redesign-type-headline-lg-mobile-tracking: -0.02em;
+
+  --redesign-type-headline-md-size: 26px;
+  --redesign-type-headline-md-weight: 700;
+  --redesign-type-headline-md-line-height: 34px;
+  --redesign-type-headline-md-tracking: -0.02em;
+
+  --redesign-type-title-lg-size: 20px;
+  --redesign-type-title-lg-weight: 700;
+  --redesign-type-title-lg-line-height: 28px;
+  --redesign-type-title-lg-tracking: -0.015em;
+
+  --redesign-type-title-md-size: 18px;
+  --redesign-type-title-md-weight: 650;
+  --redesign-type-title-md-line-height: 26px;
+  --redesign-type-title-md-tracking: -0.01em;
+
+  --redesign-type-body-lg-size: 18px;
+  --redesign-type-body-lg-weight: 400;
+  --redesign-type-body-lg-line-height: 28px;
+  --redesign-type-body-lg-tracking: 0em;
+
+  --redesign-type-body-md-size: 16px;
+  --redesign-type-body-md-weight: 400;
+  --redesign-type-body-md-line-height: 24px;
+  --redesign-type-body-md-tracking: 0em;
+
+  --redesign-type-body-sm-size: 14px;
+  --redesign-type-body-sm-weight: 400;
+  --redesign-type-body-sm-line-height: 20px;
+  --redesign-type-body-sm-tracking: 0em;
+
+  --redesign-type-label-md-size: 14px;
+  --redesign-type-label-md-weight: 600;
+  --redesign-type-label-md-line-height: 20px;
+  --redesign-type-label-md-tracking: 0em;
+
+  --redesign-type-label-sm-size: 12px;
+  --redesign-type-label-sm-weight: 600;
+  --redesign-type-label-sm-line-height: 16px;
+  --redesign-type-label-sm-tracking: 0.05em;
+
+  /* Shape — controls 4px, containers 8px, large panels 12px */
+  --redesign-radius-sm: 0.125rem;
+  --redesign-radius: 0.25rem;
+  --redesign-radius-md: 0.375rem;
+  --redesign-radius-lg: 0.5rem;
+  --redesign-radius-xl: 0.75rem;
+  --redesign-radius-full: 9999px;
+
+  /* Spacing — strict 4px base scale */
+  --redesign-space-0: 0;
+  --redesign-space-1: 4px;
+  --redesign-space-2: 8px;
+  --redesign-space-3: 12px;
+  --redesign-space-4: 16px;
+  --redesign-space-5: 20px;
+  --redesign-space-6: 24px;
+  --redesign-space-7: 28px;
+  --redesign-space-8: 32px;
+  --redesign-space-9: 36px;
+  --redesign-space-10: 40px;
+  --redesign-space-11: 44px;
+  --redesign-space-12: 48px;
+  --redesign-space-13: 52px;
+  --redesign-space-14: 56px;
+  --redesign-space-15: 60px;
+  --redesign-space-16: 64px;
+  --redesign-space-17: 68px;
+  --redesign-space-18: 72px;
+  --redesign-space-19: 76px;
+  --redesign-space-20: 80px;
+  --redesign-space-21: 84px;
+  --redesign-space-22: 88px;
+  --redesign-space-23: 92px;
+  --redesign-space-24: 96px;
+  --redesign-space-25: 100px;
+  --redesign-space-26: 104px;
+  --redesign-space-27: 108px;
+  --redesign-space-28: 112px;
+  --redesign-space-29: 116px;
+  --redesign-space-30: 120px;
+  --redesign-space-31: 124px;
+  --redesign-space-32: 128px;
+  --redesign-layout-gutter: 24px;
+  --redesign-layout-margin: 32px;
+
+  /* Component sizes */
+  --redesign-size-control-sm: 32px;
+  --redesign-size-control-md: 40px;
+  --redesign-size-control-lg: 48px;
+  --redesign-size-control-xl: 56px;
+  --redesign-size-icon-sm: 16px;
+  --redesign-size-icon-md: 20px;
+  --redesign-size-icon-lg: 24px;
+  --redesign-size-header: 64px;
+  --redesign-size-panel-rail: 48px;
+  --redesign-layout-max-width: 1200px;
+  --redesign-layout-workspace-max-width: 2240px;
+  --redesign-layout-content-max-width: 1640px;
+  --redesign-layout-workspace-margin: clamp(24px, 3vw, 64px);
+
+  /* Borders */
+  --redesign-border-width: 1px;
+  --redesign-border-subtle: 1px solid var(--redesign-color-outline-variant);
+  --redesign-border-strong: 1px solid var(--redesign-color-outline);
+  --redesign-border-active: 1px solid var(--redesign-color-primary);
+
+  /* Elevation — tonal layers first, restrained shadow for overlays only */
+  --redesign-shadow-none: none;
+  --redesign-shadow-raised: 0 8px 24px rgba(17, 17, 20, 0.08);
+  --redesign-shadow-overlay: 0 20px 56px rgba(17, 17, 20, 0.16);
+  --redesign-shadow-focus-inverse: 0 0 0 3px color-mix(in srgb, var(--redesign-color-inverse-on-surface) 30%, transparent);
+  --redesign-shadow-inset-subtle: inset 0 0 0 1px color-mix(in srgb, var(--redesign-color-primary) 4%, transparent);
+  --redesign-shadow-inset-primary: inset 0 0 0 1px var(--redesign-color-primary);
+  --redesign-shadow-inset-primary-emphasis: inset 0 0 0 1px var(--redesign-color-primary-emphasis);
+  --redesign-shadow-inset-primary-start: inset 2px 0 0 var(--redesign-color-primary);
+  --redesign-shadow-inset-primary-top: inset 0 3px 0 var(--redesign-color-primary-emphasis);
+  --redesign-shadow-inset-primary-bottom: inset 0 -1px var(--redesign-color-primary);
+  --redesign-shadow-inset-surface-strong: inset 0 0 0 5px var(--redesign-color-light-surface);
+  --redesign-shadow-card: inset 0 0 0 1px color-mix(in srgb, var(--redesign-color-on-surface) 6%, transparent), 0 1px 2px color-mix(in srgb, var(--redesign-color-on-surface) 4%, transparent), 0 10px 28px color-mix(in srgb, var(--redesign-color-on-surface) 6%, transparent);
+  --redesign-shadow-card-hover: inset 0 0 0 1.5px color-mix(in srgb, var(--redesign-color-primary) 60%, transparent), 0 2px 6px color-mix(in srgb, var(--redesign-color-on-surface) 6%, transparent), 0 16px 40px color-mix(in srgb, var(--redesign-color-on-surface) 12%, transparent);
+  --redesign-blur-overlay: 14px;
+
+  /* Layering */
+  --redesign-z-base: 0;
+  --redesign-z-sticky: 20;
+  --redesign-z-toolbar: 30;
+  --redesign-z-dropdown: 60;
+  --redesign-z-overlay: 80;
+  --redesign-z-modal: 100;
+  --redesign-z-toast: 120;
+
+  /* Motion */
+  --redesign-duration-none: 0ms;
+  --redesign-duration-instant: 100ms;
+  --redesign-duration-fast: 150ms;
+  --redesign-duration-normal: 220ms;
+  --redesign-duration-slow: 320ms;
+  --redesign-duration-loop: 1000ms;
+  --redesign-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --redesign-ease-emphasized: cubic-bezier(0.2, 0, 0, 1.2);
+  --redesign-transition-color: color var(--redesign-duration-fast) var(--redesign-ease-standard), background-color var(--redesign-duration-fast) var(--redesign-ease-standard), border-color var(--redesign-duration-fast) var(--redesign-ease-standard);
+  --redesign-transition-transform: transform var(--redesign-duration-normal) var(--redesign-ease-standard);
+
+  /* Responsive reference values (use in matching media queries) */
+  --redesign-breakpoint-mobile: 640px;
+  --redesign-breakpoint-tablet: 960px;
+  --redesign-breakpoint-desktop: 1200px;
+
+  /* Elevation & glow — Bloom effect per DESIGN.md (20% opacity, 12px blur) */
+  --redesign-glow-primary: 0 0 12px rgba(0, 144, 255, 0.2);
+  --redesign-glow-secondary: 0 0 12px rgba(139, 61, 255, 0.2);
+  --redesign-glow-tertiary: 0 0 12px rgba(255, 45, 158, 0.2);
+  --redesign-glow-error: 0 0 12px rgba(211, 40, 63, 0.2);
+  --redesign-focus-ring: 0 0 0 3px rgba(0, 144, 255, 0.24);
+  --redesign-focus-ring-inset: inset var(--redesign-focus-ring);
+}
+
+/*
+ * Dark scheme — professional tool surfaces (editor, rehearsal, workspace).
+ * Apply the .redesign-dark class to a subtree to flip every --redesign-*
+ * color token to its dark counterpart. Values follow the same Redesign
+ * System palette used by the Lumina-style editor reference.
+ */
+.redesign-dark {
+  /* Neutral surfaces */
+  --redesign-color-background: #131316;
+  --redesign-color-on-background: #e4e1e6;
+  --redesign-color-surface: #131316;
+  --redesign-color-surface-dim: #131316;
+  --redesign-color-surface-bright: #39393c;
+  --redesign-color-surface-container-lowest: #0e0e11;
+  --redesign-color-surface-container-low: #1b1b1e;
+  --redesign-color-surface-container: #1f1f22;
+  --redesign-color-surface-container-high: #2a2a2d;
+  --redesign-color-surface-container-highest: #353438;
+  --redesign-color-surface-variant: #353438;
+  --redesign-color-on-surface: #e4e1e6;
+  --redesign-color-on-surface-variant: #bdc8d1;
+  --redesign-color-inverse-surface: #e4e1e6;
+  --redesign-color-inverse-on-surface: #303033;
+  --redesign-color-outline: #87929b;
+  --redesign-color-outline-variant: #3d4850;
+  --redesign-color-surface-tint: #7fd0ff;
+
+  /* Primary — Electric Blue */
+  --redesign-color-primary: #8dd4ff;
+  --redesign-color-primary-emphasis: #8dd4ff;
+  --redesign-color-on-primary: #00344a;
+  --redesign-color-primary-container: #1abcfe;
+  --redesign-color-on-primary-container: #004865;
+  --redesign-color-primary-subtle: #182a34;
+  --redesign-color-primary-outline: #3f748f;
+  --redesign-color-inverse-primary: #00658c;
+  --redesign-color-primary-fixed: #c5e7ff;
+  --redesign-color-primary-fixed-dim: #7fd0ff;
+  --redesign-color-on-primary-fixed: #001e2d;
+  --redesign-color-on-primary-fixed-variant: #004c6a;
+
+  /* Secondary — Vivid Purple */
+  --redesign-color-secondary: #d8b9ff;
+  --redesign-color-on-secondary: #450086;
+  --redesign-color-secondary-container: #6904c5;
+  --redesign-color-on-secondary-container: #d0acff;
+  --redesign-color-secondary-fixed: #eedcff;
+  --redesign-color-secondary-fixed-dim: #d8b9ff;
+  --redesign-color-on-secondary-fixed: #290055;
+  --redesign-color-on-secondary-fixed-variant: #6300bb;
+
+  /* Tertiary — Neon Pink */
+  --redesign-color-tertiary: #ffb5e3;
+  --redesign-color-on-tertiary: #5f004d;
+  --redesign-color-tertiary-container: #ff86d9;
+  --redesign-color-on-tertiary-container: #800068;
+  --redesign-color-tertiary-fixed: #ffd8ed;
+  --redesign-color-tertiary-fixed-dim: #ffade1;
+  --redesign-color-on-tertiary-fixed: #3b002f;
+  --redesign-color-on-tertiary-fixed-variant: #87006e;
+
+  /* Error */
+  --redesign-color-error: #ffb4ab;
+  --redesign-color-on-error: #690005;
+  --redesign-color-error-container: #93000a;
+  --redesign-color-on-error-container: #ffdad6;
+
+  /* Semantic feedback */
+  --redesign-color-success: #83d5a8;
+  --redesign-color-on-success: #073b23;
+  --redesign-color-success-container: #174d32;
+  --redesign-color-on-success-container: #b6f1cf;
+  --redesign-color-success-subtle: #172a21;
+  --redesign-color-warning: #ffcc70;
+  --redesign-color-on-warning: #4a2d00;
+  --redesign-color-warning-container: #5c3b08;
+  --redesign-color-on-warning-container: #ffe3ad;
+  --redesign-color-warning-subtle: #2d2619;
+  --redesign-color-info: #8dd4ff;
+  --redesign-color-on-info: #00344a;
+  --redesign-color-info-container: #004c6a;
+  --redesign-color-on-info-container: #c5e7ff;
+  --redesign-color-disabled: #4a4a50;
+  --redesign-color-on-disabled: #92929b;
+  --redesign-color-disabled-container: #252529;
+  --redesign-color-error-subtle: #321d1d;
+  --redesign-color-scrim: rgba(0, 0, 0, 0.68);
+  --redesign-color-overlay: rgba(31, 31, 34, 0.94);
+
+  /* Elevation & glow — Bloom tuned for dark canvas */
+  --redesign-glow-primary: 0 0 12px rgba(26, 188, 254, 0.2);
+  --redesign-glow-secondary: 0 0 12px rgba(216, 185, 255, 0.2);
+  --redesign-glow-tertiary: 0 0 12px rgba(255, 181, 227, 0.2);
+  --redesign-glow-error: 0 0 12px rgba(255, 180, 171, 0.2);
+  --redesign-focus-ring: 0 0 0 3px rgba(141, 212, 255, 0.24);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --redesign-duration-instant: 0ms;
+    --redesign-duration-fast: 0ms;
+    --redesign-duration-normal: 0ms;
+    --redesign-duration-slow: 0ms;
+    --redesign-duration-loop: 0ms;
+  }
+}

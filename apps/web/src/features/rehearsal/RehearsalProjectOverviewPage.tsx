@@ -25,7 +25,7 @@ import { RehearsalRunNav } from "./RehearsalRunNav";
 import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview";
 import { DurationLineChart, SlideAvgBarChart } from "./ReportProgressCharts";
 import { buildRehearsalRunComparisonViewModel } from "./rehearsalRunComparisonModel";
-import { OrbitButton, OrbitEmptyState } from "../../design-system";
+import { OrbitButton, OrbitEmptyState } from "../../components/ui";
 import { getRehearsalReportPath } from "./RehearsalWorkspace";
 import orbitReportMascot from "../../assets/orbit-report-mascot-transparent.png";
 import {

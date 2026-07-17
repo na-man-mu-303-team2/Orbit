@@ -17,7 +17,6 @@ type EditorSelectionPropertiesProps = {
   canvas: Deck["canvas"];
   customShapeEditActive: boolean;
   element: DeckElement | null;
-  instanceKey: string;
   onChangeElementFrame: (
     slideId: string,
     elementId: string,
@@ -62,7 +61,7 @@ export function EditorSelectionProperties(props: EditorSelectionPropertiesProps)
       canvas={props.canvas}
       customShapeEditActive={props.customShapeEditActive}
       element={element}
-      key={`${props.instanceKey}-${element?.elementId ?? slide?.slideId ?? "none"}`}
+      key={element?.elementId ?? slide?.slideId ?? "none"}
       selectedKeywordLabel={props.selectedKeywordLabel}
       showIds={props.showIds}
       slide={slide}

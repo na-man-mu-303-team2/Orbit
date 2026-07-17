@@ -56,7 +56,10 @@ import {
   shouldPromptSpeakerNotesDraftDiscard,
   shouldPromptSpeakerNotesOverwrite
 } from "./utils/speakerNotesDraft";
-import { getResponsiveEditorStageScale } from "./utils/editorLayout";
+import {
+  getNextEditorStageScale,
+  getResponsiveEditorStageScale
+} from "./utils/editorLayout";
 import { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 import {
   createExpandTextWidthToFitFrame,
@@ -69,6 +72,7 @@ import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
+import { ProjectAccessProvider } from "../../projects/ProjectAccessContext";
 
 vi.mock("react-konva", () => {
   function shapeAttrs(props: Record<string, unknown>) {
@@ -133,7 +137,9 @@ function createTestQueryClient() {
 function renderApp(queryClient: QueryClient, projectId?: string) {
   return renderToString(
     <QueryClientProvider client={queryClient}>
-      <EditorShell projectId={projectId} />
+      <ProjectAccessProvider membership={{ role: "owner", status: "accepted" }}>
+        <EditorShell projectId={projectId} />
+      </ProjectAccessProvider>
     </QueryClientProvider>
   );
 }
@@ -160,7 +166,17 @@ describe("editor shell", () => {
       604 / 1920,
       5,
     );
-    expect(getResponsiveEditorStageScale(1920, 1679, 1080, 1124)).toBe(0.66);
+    expect(getResponsiveEditorStageScale(1920, 1679, 1080, 1124)).toBeCloseTo(
+      1631 / 1920,
+      5,
+    );
+  });
+
+  it("limits canvas-only zoom to the supported range", () => {
+    expect(getNextEditorStageScale(0.4, "in")).toBe(0.45);
+    expect(getNextEditorStageScale(0.4, "out")).toBe(0.35);
+    expect(getNextEditorStageScale(2, "in")).toBe(2);
+    expect(getNextEditorStageScale(0.1, "out")).toBe(0.1);
   });
 
   it("flushes scheduled undo redo persistence before manual save queues", async () => {
@@ -279,15 +295,18 @@ describe("editor shell", () => {
 
     const transition = resolveHistoryNavigation({
       currentDeck,
-      currentSlideIndex: 1,
-      stack: [{ deck: previousDeck, slideIndex: 999 }]
+      currentSlideId: currentDeck.slides[1]?.slideId ?? null,
+      stack: [{ deck: previousDeck, slideId: "slide_missing" }]
     });
 
     expect(transition).toMatchObject({
-      currentEntry: { deck: currentDeck, slideIndex: 1 },
+      currentEntry: {
+        deck: currentDeck,
+        slideId: currentDeck.slides[1]?.slideId ?? currentDeck.slides[0]?.slideId
+      },
       nextStack: [],
       targetEntry: { deck: previousDeck },
-      targetSlideIndex: previousDeck.slides.length - 1
+      targetSlideId: previousDeck.slides[0]?.slideId
     });
     expect(transition?.targetEntry.deck.slides[0].semanticCues[0].freshness).toBe(
       "current"
@@ -298,7 +317,7 @@ describe("editor shell", () => {
     expect(
       resolveHistoryNavigation({
         currentDeck,
-        currentSlideIndex: 0,
+        currentSlideId: currentDeck.slides[0]?.slideId ?? null,
         stack: []
       })
     ).toBeNull();
@@ -308,18 +327,21 @@ describe("editor shell", () => {
     const previousDeck = createDemoDeck();
     const olderEntries = Array.from({ length: 50 }, (_, index) => ({
       deck: { ...previousDeck, title: `이전 편집 ${index}` },
-      slideIndex: index % previousDeck.slides.length
+      slideId: previousDeck.slides[index % previousDeck.slides.length]?.slideId ?? null
     }));
 
     const history = appendAppliedDesignProposalHistory({
       currentDeck: previousDeck,
-      currentSlideIndex: 1,
+      currentSlideId: previousDeck.slides[1]?.slideId ?? null,
       undoStack: olderEntries
     });
 
     expect(history).toHaveLength(50);
     expect(history[0]?.deck.title).toBe("이전 편집 1");
-    expect(history.at(-1)).toEqual({ deck: previousDeck, slideIndex: 1 });
+    expect(history.at(-1)).toEqual({
+      deck: previousDeck,
+      slideId: previousDeck.slides[1]?.slideId ?? previousDeck.slides[0]?.slideId
+    });
   });
 
   it("prompts before discarding a dirty speaker notes draft", () => {
@@ -481,8 +503,9 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain(deck.title);
+    expect(html).toContain("editor-professional redesign-dark");
     expect(html).toContain("차트");
-    expect(html).not.toContain("Data Contract");
+    expect(html).toContain("Data Contract");
     expect(html).toContain("발표 메모");
     expect(html).not.toContain("발표할 때 참고할 내용을 슬라이드별로 정리하세요.");
     expect(html).not.toContain("현재 슬라이드 · <!-- -->Opening");
@@ -491,37 +514,54 @@ describe("editor shell", () => {
     expect(html).not.toContain("줄바꿈은 발표자 화면에도 반영됩니다.");
     expect(html).toContain("발표 체크포인트");
     expect(html).not.toContain("필수 발화와 화면 전환에 연결된 키워드입니다.");
-    expect(html.indexOf("script-keyword-section")).toBeLessThan(
-      html.indexOf("speaker-notes-length-meter"),
+    expect(html.indexOf("speaker-notes-length-meter")).toBeLessThan(
+      html.indexOf("script-keyword-section"),
     );
     expect(html).toContain('aria-labelledby="speaker-notes-title"');
     expect(html).toContain("저장됨");
-    expect(html).toContain("AI 검증");
-    expect(html).toContain("AI 채팅");
-    expect(html).toContain("AI 코치");
-    expect(html).toContain(">검사<");
-    expect(html).toContain(">디자인<");
+    expect(html).toContain('aria-label="AI 어시스턴트 보기"');
+    expect(html).not.toContain('aria-label="AI 어시스턴트 사용 가능"');
+    expect(html).toContain('aria-label="오른쪽 패널 보기"');
+    expect(html).toContain('class="editor-right-panel-content"');
+    expect(html).toContain('class="editor-right-panel-rail"');
+    expect(html).not.toContain('class="collapsed-right-rail"');
+    expect(html).toContain('aria-label="속성"');
+    expect(html).toContain('aria-label="애니메이션"');
+    expect(html).not.toContain('aria-label="애니메이션 속성"');
+    expect(html).not.toContain('aria-label="애니메이션 패널"');
     expect(html).not.toContain('id="editor-notes-tab"');
     expect(html).not.toContain("ID 표시");
     expect(html).not.toContain("Data View");
-    expect(html).toContain("발표 메시지");
     expect(html).toContain("이미지");
-    expect(html).toContain('data-testid="editor-slide-quickbar"');
-    expect(html).toContain("테마 배경");
-    expect(html).toContain('aria-label="ORBIT 홈으로 이동"');
+    expect(html).not.toContain('data-testid="editor-slide-quickbar"');
+    expect(html).not.toContain("테마 배경");
+    expect(html).not.toContain('class="property-color-control"');
+    expect(html).toContain('aria-label="홈으로 이동"');
+    expect(html).not.toContain("topbar-brand-label");
     expect(html).toContain('class="editor-document-title"');
+    expect(html).toContain('aria-label="에디터 동기화"');
+    expect(html.indexOf("저장됨")).toBeLessThan(
+      html.indexOf('aria-label="에디터 동기화"'),
+    );
     expect(html).toContain("파일");
-    expect(html).toContain("편집 중");
+    expect(html).not.toContain(">크기 조정<");
+    expect(html).not.toContain("Quick edit");
+    expect(html).not.toContain(">편집 중<");
+    expect(html).not.toContain("템플릿");
+    expect(html).not.toContain('aria-label="브리프"');
+    expect(html).toContain('class="editor-context-top-button editor-version-button"');
     expect(html).toContain("공유");
     expect(html).toContain("리허설");
     expect(html).toContain("발표하기");
     expect(html).toContain('aria-label="실행 취소"');
     expect(html).toContain('aria-label="다시 실행"');
     expect(html).toContain('aria-label="선택 도구"');
-    expect(html).toContain('aria-label="오른쪽 패널 접기"');
-    expect(html).toContain('aria-label="오른쪽 패널 보기"');
-    expect(html).toContain('id="editor-ai-tools-panel"');
-    expect(html).toContain('id="editor-design-panel"');
+    expect(html).toContain('aria-label="AI 어시스턴트 패널 닫기"');
+    expect(html).not.toContain('aria-label="AI 어시스턴트 접기"');
+    expect(html).not.toContain('aria-label="AI 어시스턴트 사용 가능"');
+    expect(html).toContain('id="editor-ai-panel"');
+    expect(html).toContain('hidden="" id="editor-ai-tools-panel"');
+    expect(html).not.toContain('id="editor-design-panel"');
     expect(html).not.toContain('id="editor-notes-panel"');
     expect(html).toContain("stage-speaker-notes-panel");
     expect(html).toContain('aria-controls="speaker-notes-content"');
@@ -531,7 +571,7 @@ describe("editor shell", () => {
     expect(html).not.toContain("speaker-notes-restore-handle");
   });
 
-  it("integrates imported Semantic Cue review into the right panel", () => {
+  it("keeps imported Semantic Cue review in the persistent AI coach panel", () => {
     const queryClient = createTestQueryClient();
     const deck = createDemoDeck();
     deck.metadata.sourceType = "import";
@@ -571,12 +611,11 @@ describe("editor shell", () => {
 
     const html = renderApp(queryClient);
 
-    expect(html).toContain('role="tablist"');
+    expect(html).toContain('aria-label="AI 어시스턴트 보기"');
+    expect(html).not.toContain('id="editor-design-panel"');
+    expect(html).toContain('aria-label="오른쪽 패널 보기"');
     expect(html).toContain('hidden="" id="editor-ai-tools-panel"');
-    expect(html).toContain("발표 메시지");
-    expect(html).toContain("AI로 전체 덱 다시 분석");
     expect(html).toContain("도입 효과");
-    expect(html).toContain("슬라이드 제목");
   });
 
   it("returns a warning for unreadable text overlap", () => {
@@ -2107,6 +2146,75 @@ describe("editor shell", () => {
     if (result.ok) {
       expect(result.deck.slides[0].elements[1].x).toBe(500);
     }
+  });
+
+  it("moves grouped children when distributing a group selection", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0];
+    const rect = (elementId: string, x: number, zIndex: number) => ({
+      elementId,
+      type: "rect" as const,
+      role: "highlight" as const,
+      x,
+      y: 100,
+      width: 100,
+      height: 80,
+      rotation: 0,
+      opacity: 1,
+      zIndex,
+      locked: false,
+      visible: true,
+      props: {
+        fill: "#ffffff",
+        stroke: "#111827",
+        strokeWidth: 1,
+        borderRadius: 0
+      }
+    });
+    const child = rect("el_group_child", 420, 2);
+    const group = {
+      elementId: "el_group",
+      type: "group" as const,
+      role: "decoration" as const,
+      x: 400,
+      y: 80,
+      width: 100,
+      height: 120,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 3,
+      locked: false,
+      visible: true,
+      props: { childElementIds: [child.elementId] }
+    };
+    const first = rect("el_first", 100, 1);
+    const last = rect("el_last", 900, 4);
+    slide.elements = [first, child, group, last];
+
+    const patch = createDistributeSelectionPatch(
+      deck,
+      slide,
+      [first, group, last],
+      "x"
+    );
+    expect(patch).not.toBeNull();
+
+    const result = applyDeckPatch(deck, patch!);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(
+      result.deck.slides[0].elements.find(
+        (element) => element.elementId === group.elementId
+      )?.x
+    ).toBe(500);
+    expect(
+      result.deck.slides[0].elements.find(
+        (element) => element.elementId === child.elementId
+      )?.x
+    ).toBe(520);
   });
 
   it("stores new animation triggers on the selected speaker note occurrence", () => {

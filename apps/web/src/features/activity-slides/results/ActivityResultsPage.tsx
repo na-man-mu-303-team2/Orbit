@@ -17,7 +17,7 @@ import {
   OrbitField,
   OrbitInput,
   OrbitStatus
-} from "../../../design-system";
+} from "../../../components/ui";
 import { activityApi } from "../api/activityApi";
 import { activityQueryKeys } from "../model/activityQueryKeys";
 import "./activity-results-page.css";
@@ -115,7 +115,7 @@ export function ActivityResultsPage(props: {
           에디터로 돌아가기
         </a>
         <div>
-          <span className="orbit-ds-eyebrow">PRESENTATION RESULTS</span>
+          <span className="redesign-eyebrow">PRESENTATION RESULTS</span>
           <h1>발표 세션 결과</h1>
           <p>{archive.data.sessionName}</p>
         </div>

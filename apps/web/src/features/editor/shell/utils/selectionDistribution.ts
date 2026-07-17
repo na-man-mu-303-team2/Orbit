@@ -1,4 +1,7 @@
-import { normalizeElementFrameDraft } from "@orbit/editor-core";
+import {
+  createGroupedElementFramePatch,
+  normalizeElementFrameDraft
+} from "@orbit/editor-core";
 import type { Deck, DeckElement, DeckPatch, Slide } from "@orbit/shared";
 
 export type DistributeAxis = "x" | "y";
@@ -19,23 +22,29 @@ export function createDistributeSelectionPatch(
   const firstCenter = getElementCenter(sortedElements[0], axis);
   const lastCenter = getElementCenter(sortedElements[sortedElements.length - 1], axis);
   const step = (lastCenter - firstCenter) / (sortedElements.length - 1);
-  const operations: DeckPatch["operations"] = sortedElements.map((element, index) => {
+  const operations: DeckPatch["operations"] = sortedElements.flatMap((element, index) => {
     const center = firstCenter + step * index;
     const nextPosition =
       axis === "x"
         ? Math.round(center - element.width / 2)
         : Math.round(center - element.height / 2);
+    const frame = axis === "x" ? { x: nextPosition } : { y: nextPosition };
 
-    return {
+    if (element.type === "group") {
+      return createGroupedElementFramePatch(
+        deck,
+        slide.slideId,
+        element.elementId,
+        frame
+      ).operations;
+    }
+
+    return [{
       type: "update_element_frame",
       slideId: slide.slideId,
       elementId: element.elementId,
-      frame: normalizeElementFrameDraft(
-        deck.canvas,
-        element,
-        axis === "x" ? { x: nextPosition } : { y: nextPosition }
-      )
-    };
+      frame: normalizeElementFrameDraft(deck.canvas, element, frame)
+    }];
   });
 
   return {

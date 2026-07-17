@@ -17,7 +17,7 @@ import {
   OrbitField,
   OrbitInput,
   OrbitTextarea
-} from "../../../design-system";
+} from "../../../components/ui";
 import { activityApi, ActivityApiError } from "../api/activityApi";
 import {
   buildSatisfactionAnswers,

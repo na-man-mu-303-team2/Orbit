@@ -4,7 +4,7 @@ import {
   type Deck,
   type DeckCanvas,
   type DeckElement,
-  type Slide
+  type Slide,
 } from "@orbit/shared";
 import type Konva from "konva";
 import type { Box as TransformerBox } from "konva/lib/shapes/Transformer";
@@ -13,42 +13,32 @@ import {
   Line as KonvaLine,
   Rect as KonvaRect,
   Stage as KonvaStage,
-  Transformer as KonvaTransformer
+  Transformer as KonvaTransformer,
 } from "react-konva";
 import type { ComponentType, MutableRefObject } from "react";
 import { useEffect, useRef, useState } from "react";
-import {
-  CustomShapeInsertOverlay
-} from "./components/CustomShapeOverlays";
+import { CustomShapeInsertOverlay } from "./components/CustomShapeOverlays";
 import { EditableElementNode } from "./components/EditableElementNode";
-import {
-  type CanvasPoint
-} from "./custom-shape/geometry";
-import {
-  useCanvasBackgroundPointerCapture
-} from "./hooks/useCanvasBackgroundPointerCapture";
-import {
-  useCanvasKeyboardShortcuts
-} from "./hooks/useCanvasKeyboardShortcuts";
-import {
-  useCanvasStageInteractions
-} from "./hooks/useCanvasStageInteractions";
-import {
-  useSyncCustomShapeEditDraft
-} from "./hooks/useSyncCustomShapeEditDraft";
+import { type CanvasPoint } from "./custom-shape/geometry";
+import { useCanvasBackgroundPointerCapture } from "./hooks/useCanvasBackgroundPointerCapture";
+import { useCanvasKeyboardShortcuts } from "./hooks/useCanvasKeyboardShortcuts";
+import { useCanvasStageInteractions } from "./hooks/useCanvasStageInteractions";
+import { useSyncCustomShapeEditDraft } from "./hooks/useSyncCustomShapeEditDraft";
 import { InlineTextEditorOverlay } from "./text/InlineTextEditorOverlay";
 import { InlineDataEditorOverlay } from "./data/InlineDataEditorOverlay";
 import {
   type CanvasSnapGuide,
   commitCustomShapeEditGeometry,
   getElementsIntersectingSelectionRect,
-  normalizeDraftRect
+  normalizeDraftRect,
 } from "./utils/canvasInteractionUtils";
 import {
   HighlightOverlay,
   ReadOnlySlideCanvas,
-  type ElementPresentationState
+  type ElementPresentationState,
 } from "../../slides/rendering";
+import { resolveRedesignPalette } from "../../../styles/redesignPalette";
+import { isEditorKeyboardCommandSuppressedTarget } from "../shell/editorKeyboardCommands";
 
 export { getRenderableSlideElements } from "../../slides/rendering";
 
@@ -64,11 +54,17 @@ const defaultImageInsertFrame = {
   height: 240,
   width: 420,
   x: 260,
-  y: 220
+  y: 220,
 };
 const editorImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-type InsertTool = "select" | "text" | "rect" | "ellipse" | "line" | "customShape";
+type InsertTool =
+  | "select"
+  | "text"
+  | "rect"
+  | "ellipse"
+  | "line"
+  | "customShape";
 type DrawableInsertTool = Exclude<InsertTool, "select" | "customShape">;
 type CustomShapeInsertDraft = {
   activeNodeIndex: number | null;
@@ -125,7 +121,7 @@ export function getNextElementZIndex(elements: DeckElement[]) {
   return (
     elements.reduce(
       (currentMaxZIndex, element) => Math.max(currentMaxZIndex, element.zIndex),
-      0
+      0,
     ) + 1
   );
 }
@@ -141,36 +137,24 @@ export function getContextMenuPosition(args: {
   return {
     left: Math.min(
       Math.max(viewportPadding, args.clientX),
-      Math.max(viewportPadding, window.innerWidth - args.width - viewportPadding)
+      Math.max(
+        viewportPadding,
+        window.innerWidth - args.width - viewportPadding,
+      ),
     ),
     top: Math.min(
       Math.max(viewportPadding, args.clientY),
-      Math.max(viewportPadding, window.innerHeight - args.height - viewportPadding)
-    )
+      Math.max(
+        viewportPadding,
+        window.innerHeight - args.height - viewportPadding,
+      ),
+    ),
   };
 }
 
-function isKeyboardEditableTarget(target: EventTarget | null) {
-  if (target instanceof HTMLElement) {
-    return (
-      target.isContentEditable ||
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      Boolean(target.closest("[contenteditable='true'], input, textarea, select"))
-    );
-  }
-
-  if (target instanceof Node) {
-    return Boolean(
-      target.parentElement?.closest("[contenteditable='true'], input, textarea, select")
-    );
-  }
-
-  return false;
-}
-
-export function getEditorImageValidationMessage(file: Pick<File, "name" | "size" | "type">) {
+export function getEditorImageValidationMessage(
+  file: Pick<File, "name" | "size" | "type">,
+) {
   if (!isSupportedEditorImageFile(file)) {
     return "JPG, PNG, WebP 이미지 파일만 업로드할 수 있습니다.";
   }
@@ -192,7 +176,12 @@ function isSupportedEditorImageFile(file: Pick<File, "name" | "type">) {
   }
 
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
-  return extension === "jpg" || extension === "jpeg" || extension === "png" || extension === "webp";
+  return (
+    extension === "jpg" ||
+    extension === "jpeg" ||
+    extension === "png" ||
+    extension === "webp"
+  );
 }
 
 function formatBytes(bytes: number) {
@@ -201,39 +190,47 @@ function formatBytes(bytes: number) {
   }
 
   const units = ["B", "KB", "MB", "GB"];
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const index = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
   const value = bytes / 1024 ** index;
 
   return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
 export function toEditorErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+  return error instanceof Error
+    ? error.message
+    : "알 수 없는 오류가 발생했습니다.";
 }
 
 export async function readImageNaturalSize(file: File) {
   if (typeof window === "undefined") {
     return {
       height: defaultImageInsertFrame.height,
-      width: defaultImageInsertFrame.width
+      width: defaultImageInsertFrame.width,
     };
   }
 
   const objectUrl = window.URL.createObjectURL(file);
 
   try {
-    return await new Promise<{ height: number; width: number }>((resolve, reject) => {
-      const image = new window.Image();
+    return await new Promise<{ height: number; width: number }>(
+      (resolve, reject) => {
+        const image = new window.Image();
 
-      image.onload = () => {
-        resolve({
-          height: image.naturalHeight || defaultImageInsertFrame.height,
-          width: image.naturalWidth || defaultImageInsertFrame.width
-        });
-      };
-      image.onerror = () => reject(new Error("이미지 크기를 읽지 못했습니다."));
-      image.src = objectUrl;
-    });
+        image.onload = () => {
+          resolve({
+            height: image.naturalHeight || defaultImageInsertFrame.height,
+            width: image.naturalWidth || defaultImageInsertFrame.width,
+          });
+        };
+        image.onerror = () =>
+          reject(new Error("이미지 크기를 읽지 못했습니다."));
+        image.src = objectUrl;
+      },
+    );
   } finally {
     window.URL.revokeObjectURL(objectUrl);
   }
@@ -241,10 +238,16 @@ export async function readImageNaturalSize(file: File) {
 
 export function getDefaultImageInsertFrame(
   canvas: DeckCanvas,
-  imageSize: { height: number; width: number }
+  imageSize: { height: number; width: number },
 ) {
-  const safeWidth = Math.max(1, imageSize.width || defaultImageInsertFrame.width);
-  const safeHeight = Math.max(1, imageSize.height || defaultImageInsertFrame.height);
+  const safeWidth = Math.max(
+    1,
+    imageSize.width || defaultImageInsertFrame.width,
+  );
+  const safeHeight = Math.max(
+    1,
+    imageSize.height || defaultImageInsertFrame.height,
+  );
   const scale = Math.min(520 / safeWidth, 320 / safeHeight, 1);
   const width = Math.max(140, Math.round(safeWidth * scale));
   const height = Math.max(96, Math.round(safeHeight * scale));
@@ -253,7 +256,7 @@ export function getDefaultImageInsertFrame(
     height,
     width,
     x: Math.max(40, Math.round((canvas.width - width) / 2)),
-    y: Math.max(40, Math.round((canvas.height - height) / 2))
+    y: Math.max(40, Math.round((canvas.height - height) / 2)),
   };
 }
 
@@ -272,7 +275,10 @@ export function EditableCanvas(props: {
   validationHighlightElementIds?: string[];
   visibleElements: DeckElement[];
   onClearSelection: () => void;
-  onCommitElementProps: (elementId: string, props: Record<string, unknown>) => void;
+  onCommitElementProps: (
+    elementId: string,
+    props: Record<string, unknown>,
+  ) => void;
   onCommitElementFrame: (
     slideId: string,
     elementId: string,
@@ -282,7 +288,7 @@ export function EditableCanvas(props: {
       width: number;
       height: number;
       rotation: number;
-    }
+    },
   ) => void;
   onCreateElement: (
     draft:
@@ -293,13 +299,13 @@ export function EditableCanvas(props: {
           y: number;
           width: number;
           height: number;
-        }
+        },
   ) => void;
   onCreateCustomShape: (nodes: CustomShapeNode[], closed: boolean) => void;
   onCommitCustomShapeGeometry: (
     elementId: string,
     nodes: CustomShapeNode[],
-    closed: boolean
+    closed: boolean,
   ) => void;
   onDoubleClickElement: (elementId: string) => void;
   onFinishEditing: () => void;
@@ -340,11 +346,14 @@ export function EditableCanvas(props: {
     onSetCustomShapeEditElementId,
     onSetInsertTool,
     onSelectElement,
-    onSelectElements
+    onSelectElements,
   } = props;
   const transformerRef = useRef<Konva.Transformer | null>(null);
   const nodeRefs = useRef<Record<string, Konva.Group | null>>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [editorPrimaryColor, setEditorPrimaryColor] = useState(
+    () => deck.theme.palette.primary,
+  );
   const pendingTextBlurActionRef = useRef<"clear-selection" | null>(null);
   const [draftElement, setDraftElement] = useState<{
     end: CanvasPoint;
@@ -365,10 +374,27 @@ export function EditableCanvas(props: {
       ? (visibleElements.find(
           (candidate) =>
             candidate.elementId === customShapeEditElementId &&
-            candidate.type === "customShape"
+            candidate.type === "customShape",
         ) ?? null)
       : null;
-  const validationHighlightElementIdSet = new Set(validationHighlightElementIds);
+  const validationHighlightElementIdSet = new Set(
+    validationHighlightElementIds,
+  );
+  const editorPrimarySoftColor = withColorAlpha(editorPrimaryColor, 0.08);
+  const editorPrimaryStrongSoftColor = withColorAlpha(editorPrimaryColor, 0.16);
+  const editorPrimaryMediumColor = withColorAlpha(editorPrimaryColor, 0.55);
+
+  useEffect(() => {
+    const editorShell = containerRef.current?.closest<HTMLElement>(
+      ".orbit-shell.editor-professional",
+    );
+    if (!editorShell) return;
+
+    const palette = resolveRedesignPalette(editorShell);
+    if (palette) {
+      setEditorPrimaryColor(palette.primary);
+    }
+  }, []);
 
   useEffect(() => {
     const transformer = transformerRef.current;
@@ -403,7 +429,7 @@ export function EditableCanvas(props: {
 
   useSyncCustomShapeEditDraft({
     editingCustomShapeElement,
-    setCustomShapeEditDraft
+    setCustomShapeEditDraft,
   });
 
   function commitCustomShapeEdit(nextDraft: CustomShapeEditDraft) {
@@ -413,17 +439,19 @@ export function EditableCanvas(props: {
 
     const nextGeometry = commitCustomShapeEditGeometry({
       draft: nextDraft,
-      element: editingCustomShapeElement
+      element: editingCustomShapeElement,
     });
 
     onCommitCustomShapeGeometry(
       nextGeometry.elementId,
       nextGeometry.nodes,
-      nextGeometry.closed
+      nextGeometry.closed,
     );
   }
 
-  function handleInlineTextEditingFinish(options?: { clearSelection?: boolean }) {
+  function handleInlineTextEditingFinish(options?: {
+    clearSelection?: boolean;
+  }) {
     const shouldClearSelection =
       options?.clearSelection ||
       pendingTextBlurActionRef.current === "clear-selection";
@@ -443,13 +471,13 @@ export function EditableCanvas(props: {
     customShapeInsertDraft,
     editingCustomShapeElement,
     insertTool,
-    isKeyboardEditableTarget,
+    isKeyboardEditableTarget: isEditorKeyboardCommandSuppressedTarget,
     onCommitCustomShapeGeometry,
     onCreateCustomShape,
     onSetCustomShapeEditElementId,
     onSetInsertTool,
     setCustomShapeEditDraft,
-    setCustomShapeInsertDraft
+    setCustomShapeInsertDraft,
   });
 
   useCanvasBackgroundPointerCapture({
@@ -457,7 +485,7 @@ export function EditableCanvas(props: {
     deck,
     editingElementId,
     insertTool,
-    isKeyboardEditableTarget,
+    isKeyboardEditableTarget: isEditorKeyboardCommandSuppressedTarget,
     onClearSelection,
     onSelectionDragStart: (point) => setSelectionDraft({ start: point, end: point }),
     onSelectionDragMove: (point) =>
@@ -478,7 +506,7 @@ export function EditableCanvas(props: {
     slide,
     stageRef,
     stageScale,
-    visibleElements
+    visibleElements,
   });
 
   const stageMouseHandlers = useCanvasStageInteractions({
@@ -496,7 +524,7 @@ export function EditableCanvas(props: {
     setCustomShapeEditDraft,
     setCustomShapeInsertDraft,
     setDraftElement,
-    stageScale
+    stageScale,
   });
 
   return (
@@ -515,9 +543,15 @@ export function EditableCanvas(props: {
         scaleX={stageScale}
         scaleY={stageScale}
         width={deck.canvas.width * stageScale}
-        onMouseDown={disableInteractions ? undefined : stageMouseHandlers.onMouseDown}
-        onMouseMove={disableInteractions ? undefined : stageMouseHandlers.onMouseMove}
-        onMouseUp={disableInteractions ? undefined : stageMouseHandlers.onMouseUp}
+        onMouseDown={
+          disableInteractions ? undefined : stageMouseHandlers.onMouseDown
+        }
+        onMouseMove={
+          disableInteractions ? undefined : stageMouseHandlers.onMouseMove
+        }
+        onMouseUp={
+          disableInteractions ? undefined : stageMouseHandlers.onMouseUp
+        }
         onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
           if (disableInteractions || selectedElementIds.length < 2) return;
           const selectedElement = visibleElements.find((element) =>
@@ -531,7 +565,7 @@ export function EditableCanvas(props: {
             clientX: event.evt.clientX,
             clientY: event.evt.clientY,
             element: selectedElement,
-            slideId: slide.slideId
+            slideId: slide.slideId,
           });
         }}
       >
@@ -540,8 +574,14 @@ export function EditableCanvas(props: {
             <EditableElementNode
               key={element.elementId}
               accentColor={slide.style.accentColor ?? deck.theme.accentColor}
+              editorPrimaryColor={editorPrimaryColor}
+              editorPrimaryMediumColor={editorPrimaryMediumColor}
+              editorPrimarySoftColor={editorPrimarySoftColor}
+              editorPrimaryStrongSoftColor={editorPrimaryStrongSoftColor}
               deck={deck}
-              disablePointerEvents={disableInteractions || insertTool !== "select"}
+              disablePointerEvents={
+                disableInteractions || insertTool !== "select"
+              }
               element={element}
               isSelected={selectedElementIds.includes(element.elementId)}
               presentationState={elementStates?.[element.elementId]}
@@ -570,7 +610,7 @@ export function EditableCanvas(props: {
                   clientX,
                   clientY,
                   element,
-                  slideId: slide.slideId
+                  slideId: slide.slideId,
                 })
               }
               onSnapGuidesChange={setSnapGuides}
@@ -593,9 +633,12 @@ export function EditableCanvas(props: {
             />
           ))}
           {visibleElements
-            .filter((element) => validationHighlightElementIdSet.has(element.elementId))
+            .filter((element) =>
+              validationHighlightElementIdSet.has(element.elementId),
+            )
             .map((element) => (
               <HighlightOverlay
+                color={editorPrimaryColor}
                 element={element}
                 key={`validation-highlight-${element.elementId}`}
                 state={elementStates?.[element.elementId]}
@@ -604,6 +647,9 @@ export function EditableCanvas(props: {
           {customShapeInsertDraft ? (
             <CustomShapeInsertOverlay
               draft={customShapeInsertDraft}
+              primaryColor={editorPrimaryColor}
+              primaryMediumColor={editorPrimaryMediumColor}
+              primarySoftColor={editorPrimarySoftColor}
               onClosePath={() => {
                 if (customShapeInsertDraft.nodes.length < 3) {
                   return;
@@ -616,14 +662,14 @@ export function EditableCanvas(props: {
           {draftElement ? (
             <Rect
               dash={[10, 6]}
-              fill="rgba(37, 99, 235, 0.08)"
-              stroke="#2563eb"
+              fill={editorPrimarySoftColor}
+              stroke={editorPrimaryColor}
               strokeWidth={2}
               {...(normalizeDraftRect(draftElement.start, draftElement.end) ?? {
                 x: draftElement.start.x,
                 y: draftElement.start.y,
                 width: 1,
-                height: 1
+                height: 1,
               })}
             />
           ) : null}
@@ -644,10 +690,13 @@ export function EditableCanvas(props: {
           ) : null}
           <Transformer
             ref={transformerRef}
-            boundBoxFunc={(_oldBox: TransformerBox, nextBox: TransformerBox) => ({
+            boundBoxFunc={(
+              _oldBox: TransformerBox,
+              nextBox: TransformerBox,
+            ) => ({
               ...nextBox,
               width: Math.max(1, nextBox.width),
-              height: Math.max(1, nextBox.height)
+              height: Math.max(1, nextBox.height),
             })}
             enabledAnchors={
               disableInteractions
@@ -660,7 +709,7 @@ export function EditableCanvas(props: {
                     "middle-right",
                     "bottom-left",
                     "bottom-center",
-                    "bottom-right"
+                    "bottom-right",
                   ]
             }
             ignoreStroke
@@ -674,7 +723,9 @@ export function EditableCanvas(props: {
           <InlineTextEditorOverlay
             deck={deck}
             element={
-              visibleElements.find((candidate) => candidate.elementId === editingElementId) ?? null
+              visibleElements.find(
+                (candidate) => candidate.elementId === editingElementId,
+              ) ?? null
             }
             slide={slide}
             stageScale={stageScale}
@@ -683,7 +734,9 @@ export function EditableCanvas(props: {
           />
           <InlineDataEditorOverlay
             element={
-              visibleElements.find((candidate) => candidate.elementId === editingElementId) ?? null
+              visibleElements.find(
+                (candidate) => candidate.elementId === editingElementId,
+              ) ?? null
             }
             stageScale={stageScale}
             onCommitProps={onCommitElementProps}
@@ -703,4 +756,23 @@ export function EditableCanvas(props: {
       ) : null}
     </div>
   );
+}
+
+function withColorAlpha(color: string, alpha: number) {
+  const normalizedHex = color.trim().match(/^#([0-9a-f]{6})$/i)?.[1];
+  if (normalizedHex) {
+    const red = Number.parseInt(normalizedHex.slice(0, 2), 16);
+    const green = Number.parseInt(normalizedHex.slice(2, 4), 16);
+    const blue = Number.parseInt(normalizedHex.slice(4, 6), 16);
+    return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+  }
+
+  const rgbChannels = color
+    .trim()
+    .match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgbChannels) {
+    return `rgba(${rgbChannels[1]}, ${rgbChannels[2]}, ${rgbChannels[3]}, ${alpha})`;
+  }
+
+  return color;
 }

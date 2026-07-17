@@ -4,6 +4,7 @@ export const aiDeckGenerationStageSchema = z.enum([
   "reference-extract-file",
   "source-grounding",
   "content-planning",
+  "cover-slide",
   "design-planning",
   "layout-compile",
   "image-slide",
@@ -60,6 +61,7 @@ const planningStagesWithArtifactInput = new Set<AiDeckGenerationStage>([
 ]);
 
 const executionStages = new Set<AiDeckGenerationStage>([
+  "cover-slide",
   "image-slide",
   "semantic-quality",
   "rendered-visual-quality",
