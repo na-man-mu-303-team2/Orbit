@@ -33,8 +33,11 @@ export class DesignAgentPythonClient {
     }
 
     if (!response.ok) {
+      const detail = await readWorkerErrorDetail(response);
       throw new BadGatewayException(
-        `Python design agent failed with status ${response.status}.`,
+        detail
+          ? `Python design agent failed: ${detail}`
+          : `Python design agent failed with status ${response.status}.`,
       );
     }
 
@@ -43,6 +46,17 @@ export class DesignAgentPythonClient {
     } catch {
       throw new BadGatewayException("Python design agent returned an invalid response.");
     }
+  }
+}
+
+async function readWorkerErrorDetail(response: Response): Promise<string | null> {
+  try {
+    const payload = (await response.json()) as { detail?: unknown };
+    return typeof payload.detail === "string" && payload.detail.trim()
+      ? payload.detail.trim().slice(0, 500)
+      : null;
+  } catch {
+    return null;
   }
 }
 

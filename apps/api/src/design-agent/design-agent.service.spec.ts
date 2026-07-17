@@ -8,7 +8,25 @@ import type { SmartArtLayoutsService } from "../smart-art-layouts/smart-art-layo
 import { DesignAgentMessageEntity } from "./design-agent-message.entity";
 import { DesignAgentProposalEntity } from "./design-agent-proposal.entity";
 import type { DesignAgentPythonClient } from "./design-agent-python.client";
-import { DesignAgentService } from "./design-agent.service";
+import {
+  allowsUnselectedSmartArtSources,
+  DesignAgentService,
+} from "./design-agent.service";
+
+describe("allowsUnselectedSmartArtSources", () => {
+  it.each([
+    "현재 페이지 가운데 텍스트를 도식화해줘",
+    "이 슬라이드를 스마트아트로 바꿔줘",
+    "가운데 텍스트를 중심으로 꾸며줘",
+    "Redesign the current slide as SmartArt",
+  ])("allows visible slide sources for whole-slide wording: %s", (question) => {
+    expect(allowsUnselectedSmartArtSources(question)).toBe(true);
+  });
+
+  it("keeps selection-only requests restricted", () => {
+    expect(allowsUnselectedSmartArtSources("선택한 항목을 스마트아트로 바꿔줘")).toBe(false);
+  });
+});
 
 describe("DesignAgentService.applyProposal", () => {
   it("applies a pending proposal through the shared deck patch path", async () => {
@@ -213,7 +231,7 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     });
 
     expect(smartArtLayoutsService.findByTypeAndItemCount).toHaveBeenCalledWith("list", 2);
-    expect(savedProposal?.operations).toHaveLength(4);
+    expect(savedProposal?.operations).toHaveLength(5);
     expect(savedProposal?.operations[0]).toMatchObject({
       type: "delete_element",
       elementId: sourceElementId,
@@ -222,5 +240,19 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
       .filter((op) => op.type === "add_element" && op.element.type === "text")
       .map((op) => (op.type === "add_element" ? (op.element.props as { text?: string }).text : undefined));
     expect(texts).toEqual(["기획", "개발"]);
+    const groupOperation = savedProposal?.operations.find(
+      (operation) => operation.type === "add_element" && operation.element.type === "group",
+    );
+    expect(groupOperation).toMatchObject({
+      type: "add_element",
+      element: {
+        type: "group",
+        locked: false,
+        props: { childElementIds: expect.arrayContaining([]) },
+      },
+    });
+    if (groupOperation?.type === "add_element" && groupOperation.element.type === "group") {
+      expect(groupOperation.element.props.childElementIds).toHaveLength(3);
+    }
   });
 });

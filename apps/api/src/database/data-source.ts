@@ -48,6 +48,7 @@ import { AddRehearsalAudioRetention2026071603000 } from "./migrations/2026071603
 import { AddRehearsalTranscriptArtifacts2026071603000 } from "./migrations/2026071603000-AddRehearsalTranscriptArtifacts";
 import { CreateAiDeckStoryReviews2026071604000 } from "./migrations/2026071604000-CreateAiDeckStoryReviews";
 import { CreateSmartArtLayouts2026071701000 } from "./migrations/2026071701000-CreateSmartArtLayouts";
+import { AddSmartArtTemplateLayouts2026071702000 } from "./migrations/2026071702000-AddSmartArtTemplateLayouts";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -107,7 +108,8 @@ export const databaseOptions: DataSourceOptions = {
     AddRehearsalAudioRetention2026071603000,
     AddRehearsalTranscriptArtifacts2026071603000,
     CreateAiDeckStoryReviews2026071604000,
-    CreateSmartArtLayouts2026071701000
+    CreateSmartArtLayouts2026071701000,
+    AddSmartArtTemplateLayouts2026071702000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
