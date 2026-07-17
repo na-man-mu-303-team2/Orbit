@@ -18,6 +18,7 @@ from app.ai.deck_generation.models import (
     GenerateDeckRequest,
     GeneratedContentItem,
     GeneratedDeckContentPlan,
+    GeneratedStoryPlan,
     PresentationProfile,
     PresentationTimingPlan,
     RawInput,
@@ -50,6 +51,76 @@ DECK_CONTENT_PLAN_CACHE: OrderedDict[
     tuple[str, str, str],
     GeneratedDeckContentPlan,
 ] = OrderedDict()
+
+
+STORY_PLAN_INSTRUCTIONS = """
+You create a concise Korean presentation story plan for ORBIT.
+Return only JSON that matches the requested schema.
+
+Rules:
+- Return exactly the requested number of slides.
+- Include only a deck title and, per slide, title, one core message, slideType,
+  and verified sourceRefs.
+- Keep title and message concrete, concise, and grounded in the supplied topic,
+  prompt, and source records.
+- Use only sourceRefs listed in the supplied source records.
+- Preserve exact product names, dates, platforms, availability, and defining
+  features from sources. Omit unsupported details instead of guessing.
+- Do not create speaker notes, content items, keywords, visual intent, media
+  intent, coordinates, or final Deck JSON.
+""".strip()
+
+
+def story_plan_response_format_for(raw_input: RawInput) -> dict[str, Any]:
+    source_ids = sorted(
+        source.source_id
+        for source in (raw_input.source_records or initial_source_records(raw_input))
+    )
+    source_items: dict[str, Any] = {"type": "string"}
+    if source_ids:
+        source_items["enum"] = source_ids
+    return {
+        "format": {
+            "type": "json_schema",
+            "name": "deck_story_plan_v2",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "title": {"type": "string"},
+                    "slides": {
+                        "type": "array",
+                        "minItems": raw_input.slide_count,
+                        "maxItems": raw_input.slide_count,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "title": {"type": "string"},
+                                "message": {"type": "string"},
+                                "slideType": {
+                                    "type": "string",
+                                    "enum": list(SLIDE_TYPES),
+                                },
+                                "sourceRefs": {
+                                    "type": "array",
+                                    "items": source_items,
+                                },
+                            },
+                            "required": [
+                                "title",
+                                "message",
+                                "slideType",
+                                "sourceRefs",
+                            ],
+                        },
+                    },
+                },
+                "required": ["title", "slides"],
+            },
+        }
+    }
 
 
 SLIDE_TYPES: tuple[SlideType, ...] = (
@@ -1956,6 +2027,198 @@ def plan_deck_content(
     slide_plans = compact_program_v2_content_items(slide_plans)
     slide_plans = normalize_program_v2_action_titles(slide_plans)
     return outline, slide_plans
+
+
+def generate_story_plan_with_llm(
+    raw_input: RawInput,
+    style_context: StylePromptContext,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> GeneratedStoryPlan | None:
+    api_client: Any = client
+    if api_client is None:
+        if not api_key:
+            if requires_llm_content(raw_input):
+                raise DeckContentGenerationError(
+                    "OPENAI_API_KEY is required for prompt or reference-based deck generation."
+                )
+            return None
+        from openai import OpenAI
+
+        api_client = OpenAI(api_key=api_key)
+    try:
+        response = api_client.responses.create(
+            model=model or "gpt-4.1-mini",
+            instructions=STORY_PLAN_INSTRUCTIONS,
+            input=deck_content_prompt(raw_input, style_context),
+            text=story_plan_response_format_for(raw_input),
+        )
+    except Exception as error:
+        raise DeckContentGenerationError(
+            f"LLM story plan generation failed: {error}"
+        ) from error
+    output_text = str(getattr(response, "output_text", "")).strip()
+    if not output_text:
+        raise DeckContentGenerationError("LLM returned an empty story plan.")
+    try:
+        plan = GeneratedStoryPlan.model_validate_json(output_text)
+    except Exception as error:
+        raise DeckContentGenerationError(
+            f"LLM returned an invalid story plan: {error}"
+        ) from error
+    if len(plan.slides) != raw_input.slide_count:
+        raise DeckContentGenerationError(
+            "LLM story plan did not match the requested slide count."
+        )
+    return plan
+
+
+def plan_story_content(
+    raw_input: RawInput,
+    style_context: StylePromptContext,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> ContentPlan:
+    generated = generate_story_plan_with_llm(
+        raw_input,
+        style_context,
+        client=client,
+        model=model,
+        api_key=api_key,
+    )
+    if generated is None:
+        outline = plan_presentation(raw_input)
+        slide_plans = plan_slides(raw_input, outline)
+        for slide in slide_plans:
+            slide.speaker_notes = ""
+            slide.keywords = []
+            slide.content_items = []
+    else:
+        available_source_ids = {
+            source.source_id
+            for source in (raw_input.source_records or initial_source_records(raw_input))
+        }
+        slide_plans = []
+        for order, slide in enumerate(generated.slides, start=1):
+            unknown_refs = set(slide.source_refs) - available_source_ids
+            if unknown_refs:
+                raise DeckContentGenerationError(
+                    "LLM story plan referenced unavailable source IDs: "
+                    + ", ".join(sorted(unknown_refs))
+                )
+            source_refs = list(slide.source_refs) or default_source_refs(raw_input, order)
+            fallback_type = slide_type_for(order, raw_input.slide_count)
+            slide_type = normalize_slide_type(slide.slide_type, fallback_type)
+            if slide_type == "cover" and order != 1:
+                slide_type = fallback_type
+            if slide_type == "summary" and order != raw_input.slide_count:
+                slide_type = fallback_type
+            slide_plans.append(
+                SlidePlan(
+                    order=order,
+                    slide_type=slide_type,
+                    title=normalize_design_pack_slide_title(slide.title, slide_type),
+                    message=slide.message,
+                    speaker_notes="",
+                    keywords=[],
+                    evidence=evidence_for(raw_input.references, slide.title),
+                    content_items=[],
+                    source_refs=source_refs,
+                )
+            )
+        outline = DeckOutline(
+            title=deck_title_for_topic(raw_input.topic, generated.title),
+            slide_titles=[slide.title for slide in slide_plans],
+        )
+    slide_plans = apply_timing_to_slide_plans(raw_input, slide_plans)
+    return ContentPlan(
+        outline=outline,
+        slidePlans=slide_plans,
+        slideCount=len(slide_plans),
+        timingPlan=raw_input.timing_plan.model_copy(deep=True),
+        repairAttempted=False,
+        repairReasonCodes=[],
+    )
+
+
+def compose_slide_detail_with_llm(
+    raw_input: RawInput,
+    target: SlidePlan,
+    style_context: StylePromptContext,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> SlidePlan:
+    api_client: Any = client
+    if api_client is None:
+        if not api_key:
+            raise DeckContentGenerationError(
+                "OPENAI_API_KEY is required for slide composition."
+            )
+        from openai import OpenAI
+
+        api_client = OpenAI(api_key=api_key)
+    prompt = "\n".join(
+        [
+            deck_content_prompt(raw_input, style_context),
+            "Compose details for exactly this approved slide:",
+            json.dumps(
+                {
+                    "order": target.order,
+                    "title": target.title,
+                    "message": target.message,
+                    "slideType": target.slide_type,
+                    "sourceRefs": target.source_refs,
+                    "targetSeconds": target.target_seconds,
+                    "targetSpeakerNotesChars": target.target_speaker_notes_chars,
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+    try:
+        response = api_client.responses.create(
+            model=model or "gpt-4.1-mini",
+            instructions=(
+                DECK_CONTENT_INSTRUCTIONS
+                + "\n- Return one slide only. Preserve the supplied title, message, "
+                "slideType, and sourceRefs exactly. Generate only its detailed fields."
+            ),
+            input=prompt,
+            text=deck_content_response_format_for(raw_input, exact_slide_count=1),
+        )
+        generated = GeneratedDeckContentPlan.model_validate_json(
+            str(getattr(response, "output_text", "")).strip()
+        ).slides[0]
+    except Exception as error:
+        raise DeckContentGenerationError(
+            f"LLM slide composition failed: {error}"
+        ) from error
+    content_items = [
+        GeneratedContentItem(
+            contentItemId=f"content_{target.order}_{index}",
+            text=item.text,
+        )
+        for index, item in enumerate(generated.content_items, start=1)
+    ] or content_items_from_message(target.message, target.order)
+    return target.model_copy(
+        deep=True,
+        update={
+            "speaker_notes": target.speaker_notes or generated.speaker_notes,
+            "keywords": merge_keywords(
+                reference_keywords_for(raw_input.reference_keywords),
+                generated.keywords,
+            )[:6],
+            "visual_intent": generated.visual_intent,
+            "media_intent": generated.media_intent,
+            "content_items": content_items,
+        },
+    )
 
 
 def plan_content(

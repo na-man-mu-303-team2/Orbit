@@ -148,6 +148,7 @@ export async function runRenderedVisualQuality(input: {
   projectId: string;
   onRepairProgress: (attempt: number, maxAttempts: number) => Promise<void>;
   emitEvent: (event: string, fields: Record<string, unknown>) => void;
+  maxRepairAttempts?: number;
 }): Promise<RenderedVisualQualityOutcome> {
   let deck = input.deck;
   let validation = input.validation;
@@ -178,11 +179,14 @@ export async function runRenderedVisualQuality(input: {
 
   while (
     !review.passed &&
-    repairAttempts < maxVisualRepairAttempts &&
+    repairAttempts < (input.maxRepairAttempts ?? maxVisualRepairAttempts) &&
     review.repairActions.length > 0
   ) {
     repairAttempts += 1;
-    await input.onRepairProgress(repairAttempts, maxVisualRepairAttempts);
+    await input.onRepairProgress(
+      repairAttempts,
+      input.maxRepairAttempts ?? maxVisualRepairAttempts,
+    );
     let repaired: Awaited<ReturnType<typeof requestVisualRepair>>;
     try {
       repaired = await requestVisualRepair(
