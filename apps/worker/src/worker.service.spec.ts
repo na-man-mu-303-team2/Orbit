@@ -9,6 +9,7 @@ import {
   aiDeckDesignLayoutQueueName,
   aiDeckImageQueueName,
   aiDeckQaFinalizeQueueName,
+  designImageGenerationQueueName,
 } from "@orbit/job-queue";
 import type { Job } from "@orbit/shared";
 import type { PinoLogger } from "nestjs-pino";
@@ -523,7 +524,11 @@ describe("WorkerService queue subscriptions", () => {
       configState.AI_DECK_WORKER_QUEUE = role;
       const { service } = createService();
       service.onModuleInit();
-      expect(bullMq.queues).toEqual([queueName]);
+      expect(bullMq.queues).toEqual(
+        role === "image"
+          ? [queueName, designImageGenerationQueueName]
+          : [queueName],
+      );
       await requiredHandler(queueName)(
         bullJob(stage, {
           pipelineJobId: "job-ai-deck-1",

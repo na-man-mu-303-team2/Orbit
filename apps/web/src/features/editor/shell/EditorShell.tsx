@@ -142,6 +142,7 @@ import type {
   ShapeElementProps,
   Slide,
   DeckApiErrorCode,
+  DesignImageGenerationResult,
   SpeakerNotesSuggestionMode,
   SpeakerNotesSuggestionResult
 } from "@orbit/shared";
@@ -3918,6 +3919,54 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
+  function handleGeneratedImageInsert(
+    result: DesignImageGenerationResult,
+    slideId: string
+  ) {
+    const activeDeck = workingDeckRef.current;
+    const targetSlideIndex = activeDeck.slides.findIndex(
+      (slide) => slide.slideId === slideId
+    );
+    if (targetSlideIndex < 0) return false;
+
+    const targetSlide = activeDeck.slides[targetSlideIndex];
+    const elementId = createElementId(activeDeck);
+    const frame = getDefaultImageInsertFrame(activeDeck.canvas, {
+      width: result.width,
+      height: result.height
+    });
+    commitPatch(
+      (currentDeck) =>
+        createAddElementPatch(currentDeck, slideId, {
+          elementId,
+          type: "image",
+          role: "media",
+          x: frame.x,
+          y: frame.y,
+          width: frame.width,
+          height: frame.height,
+          rotation: 0,
+          opacity: 1,
+          zIndex: getNextElementZIndex(targetSlide.elements),
+          locked: false,
+          visible: true,
+          props: {
+            alt: result.prompt,
+            fit: "cover",
+            focusX: 0.5,
+            focusY: 0.5,
+            src: normalizeEditorAssetUrl(result.url)
+          }
+        }),
+      activeDeck
+    );
+    handleSelectSlideIndex(targetSlideIndex);
+    setSelectedElementIds([elementId]);
+    setEditingElementId(null);
+    setInsertTool("select");
+    return true;
+  }
+
   async function handlePptxFileSelection(file: File) {
     const validationMessage = getPptxImportValidationMessage(file);
 
@@ -6443,6 +6492,7 @@ export function EditorShell(props: { projectId?: string }) {
                       chatState={aiChatState}
                       onChatStateChange={setAiChatState}
                       onProposalApplied={handleDesignAgentProposalApplied}
+                      onGeneratedImageInsert={handleGeneratedImageInsert}
                     />
                   </div>
                   <div

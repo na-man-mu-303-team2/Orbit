@@ -22,6 +22,7 @@ export class OpenAiGeneratedImageProvider implements GeneratedImageProvider {
 
   async generate(input: {
     prompt: string;
+    aspectRatio?: "landscape" | "portrait" | "square";
     abortSignal?: AbortSignal;
   }): Promise<ImageAssetCandidate> {
     const response = await fetch("https://api.openai.com/v1/images/generations", {
@@ -33,7 +34,12 @@ export class OpenAiGeneratedImageProvider implements GeneratedImageProvider {
       body: JSON.stringify({
         model: this.model,
         prompt: input.prompt,
-        size: "1536x1024",
+        size:
+          input.aspectRatio === "portrait"
+            ? "1024x1536"
+            : input.aspectRatio === "square"
+              ? "1024x1024"
+              : "1536x1024",
         quality: "medium",
         output_format: "png"
       }),
