@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  calculateActivityResponseRate,
   createAudienceActivityProjection,
   type ActivityPresenterResult
 } from "./activity-results.schema";
@@ -11,6 +12,8 @@ const presenterResult: ActivityPresenterResult = {
   status: "results",
   revision: 4,
   responseCount: 2,
+  participantCount: 4,
+  responseRate: 50,
   aggregates: [
     {
       questionId: "question_1",
@@ -43,6 +46,12 @@ const presenterResult: ActivityPresenterResult = {
 };
 
 describe("createAudienceActivityProjection", () => {
+  it("calculates a bounded integer percentage from unique entrants", () => {
+    expect(calculateActivityResponseRate(2, 4)).toBe(50);
+    expect(calculateActivityResponseRate(0, 0)).toBe(0);
+    expect(calculateActivityResponseRate(5, 4)).toBe(100);
+  });
+
   it("re-parses a presenter result into the strict public contract", () => {
     const projection = createAudienceActivityProjection(presenterResult);
     const serialized = JSON.stringify(projection);
@@ -53,6 +62,8 @@ describe("createAudienceActivityProjection", () => {
     expect(serialized).not.toContain("PRIVATE_NAME_SENTINEL");
     expect(serialized).not.toContain("PENDING_TEXT_SENTINEL");
     expect(serialized).not.toContain("moderationStatus");
+    expect(serialized).not.toContain("participantCount");
+    expect(serialized).not.toContain("responseRate");
   });
 
   it("returns no public projection before reveal", () => {

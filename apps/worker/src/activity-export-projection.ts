@@ -4,6 +4,7 @@ import {
   activityPresenterResultSchema,
   activityRetentionSnapshotSchema,
   buildActivityAggregates,
+  calculateActivityResponseRate,
   deckSchema,
   type ActivityAnswer,
   type ActivityPresenterResult,
@@ -19,6 +20,7 @@ type ExportRunRow = {
   status: "draft" | "open" | "closed" | "results";
   revision: number;
   response_count: number;
+  participant_count: number;
   aggregate_json: unknown | null;
   raw_responses_deleted_at: Date | string | null;
 };
@@ -122,6 +124,10 @@ async function loadActivityExportResult(
       `
         SELECT runs.activity_run_id, runs.activity_id, runs.definition_snapshot,
                runs.status, runs.revision, runs.response_count,
+               (SELECT COUNT(*)::int
+                FROM presentation_session_audiences AS audiences
+                WHERE audiences.project_id = runs.project_id
+                  AND audiences.session_id = runs.session_id) AS participant_count,
                snapshots.aggregate_json, sessions.raw_responses_deleted_at
         FROM activity_runs AS runs
         INNER JOIN presentation_sessions AS sessions
@@ -183,6 +189,11 @@ async function loadActivityExportResult(
     status: run.status,
     revision: run.revision,
     responseCount: run.response_count,
+    participantCount: run.participant_count,
+    responseRate: calculateActivityResponseRate(
+      run.response_count,
+      run.participant_count,
+    ),
     aggregates: buildActivityAggregates(
       definition,
       answers as ActivityAnswer[][],

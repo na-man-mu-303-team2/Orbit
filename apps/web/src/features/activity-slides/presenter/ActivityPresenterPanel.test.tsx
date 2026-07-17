@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import {
+  ActivityPresenterMetrics,
   ActivityPresenterResults,
   getActivityPrimaryCommand
 } from "./ActivityPresenterPanel";
@@ -38,6 +39,8 @@ describe("ActivityPresenterPanel", () => {
       status: "closed",
       revision: 3,
       responseCount: 2,
+      participantCount: 4,
+      responseRate: 50,
       aggregates: [{
         questionId: question.questionId,
         type: question.type,
@@ -62,6 +65,9 @@ describe("ActivityPresenterPanel", () => {
     const html = renderToStaticMarkup(<ActivityPresenterResults result={result} slide={slide} />);
     expect(html).toContain("100%");
     expect(html).toContain("PRESENTER_TEXT_SENTINEL");
+    expect(renderToStaticMarkup(<ActivityPresenterMetrics result={result} />)).toContain(
+      "50%"
+    );
   });
 
   it("renders keyboard-operable moderation controls for 50 text fixtures", () => {
@@ -72,6 +78,8 @@ describe("ActivityPresenterPanel", () => {
       status: "open",
       revision: 50,
       responseCount: 50,
+      participantCount: 100,
+      responseRate: 50,
       aggregates: [],
       textEntries: Array.from({ length: 50 }, (_, index) => ({
         entryId: `activity_text_${index + 1}`,

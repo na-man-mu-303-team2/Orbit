@@ -15,6 +15,10 @@ type AudienceAccessTokenPayload = {
 
 export type VerifiedAudienceAccessToken = AudienceAccessTokenPayload;
 
+export function createAudienceId(): string {
+  return `audience_${randomUUID()}`;
+}
+
 type AudienceAccessTokenSession = {
   sessionId: string;
   projectId: string;
@@ -28,7 +32,7 @@ export function createAudienceAccessToken(
   existingAudienceId?: string
 ): string {
   const payload: AudienceAccessTokenPayload = {
-    audienceId: existingAudienceId ?? `audience_${randomUUID()}`,
+    audienceId: existingAudienceId ?? createAudienceId(),
     sessionId: session.sessionId,
     projectId: session.projectId,
     uaHash: hashUserAgent(config.SESSION_SECRET, userAgent),

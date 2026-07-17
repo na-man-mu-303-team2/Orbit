@@ -182,6 +182,7 @@ export class PresentationSessionsService {
   async joinAudience(
     sessionId: string,
     input: JoinAudiencePresentationRequest,
+    audienceId: string,
     clientAddress = "unknown"
   ) {
     const row = await this.repository.findAccessibleBySessionId(sessionId);
@@ -200,6 +201,7 @@ export class PresentationSessionsService {
     } else if (input.passcode !== undefined) {
       throw new UnauthorizedException("Invalid audience session or passcode");
     }
+    await this.repository.registerAudience(row.project_id, sessionId, audienceId);
     return audiencePresentationAccessResponseSchema.parse({
       verified: true,
       session: this.toAudienceAccess(row)

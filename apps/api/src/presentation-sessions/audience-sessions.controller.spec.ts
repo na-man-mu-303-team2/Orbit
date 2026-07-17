@@ -86,7 +86,7 @@ describe("AudienceSessionsController", () => {
   });
 
   it("preserves the signed audience identity when rejoining the same session", async () => {
-    const { controller, config } = createController();
+    const { controller, config, service } = createController();
     const existingToken = createAudienceAccessToken(
       config,
       access,
@@ -114,5 +114,36 @@ describe("AudienceSessionsController", () => {
     expect(
       verifyAudienceAccessToken(config, issuedToken, "test-agent")?.audienceId
     ).toBe("audience_existing");
+    expect(service.joinAudience).toHaveBeenCalledWith(
+      "session_1",
+      {},
+      "audience_existing",
+      "unknown"
+    );
+  });
+
+  it("registers a newly generated anonymous identity before issuing its cookie", async () => {
+    const { controller, config, service } = createController();
+    const response = { cookie: vi.fn() };
+
+    await controller.join(
+      "session_1",
+      {},
+      {
+        headers: {
+          origin: config.WEB_ORIGIN,
+          "content-type": "application/json",
+          "user-agent": "test-agent"
+        }
+      } as never,
+      response as never
+    );
+
+    const registeredAudienceId = service.joinAudience.mock.calls[0]?.[2];
+    const issuedToken = response.cookie.mock.calls[0]?.[1];
+    expect(registeredAudienceId).toMatch(/^audience_/);
+    expect(
+      verifyAudienceAccessToken(config, issuedToken, "test-agent")?.audienceId
+    ).toBe(registeredAudienceId);
   });
 });

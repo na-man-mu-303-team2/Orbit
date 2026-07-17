@@ -93,6 +93,8 @@ function createService(
               status,
               revision: run.revision,
               responseCount: run.response_count,
+              participantCount: 4,
+              responseRate: 50,
               aggregates: [{
                 questionId: "question_rating",
                 type: "rating",
@@ -117,6 +119,7 @@ function createService(
       resultsDeleted = true;
       return true;
     }),
+    countSessionAudiences: vi.fn().mockResolvedValue(4),
     findOwnResponse: vi.fn().mockResolvedValue(responses[0]),
     listResponses: vi.fn().mockResolvedValue(responses),
     listTextEntries: vi.fn().mockResolvedValue([
@@ -185,6 +188,7 @@ describe("ActivityResultsService", () => {
     );
 
     expect(result.result.responseCount).toBe(2);
+    expect(result.result).toMatchObject({ participantCount: 4, responseRate: 50 });
     expect(result.result.aggregates[0]).toMatchObject({
       questionId: "question_rating",
       average: 4,

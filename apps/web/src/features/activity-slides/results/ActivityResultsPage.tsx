@@ -301,6 +301,8 @@ export function ActivityResultArchiveDetail(props: {
       </header>
       <dl className="activity-results-summary">
         <div><dt>응답</dt><dd>{item.result.responseCount}</dd></div>
+        <div><dt>참여자</dt><dd>{item.result.participantCount}</dd></div>
+        <div><dt>응답률</dt><dd>{item.result.responseRate}%</dd></div>
         <div><dt>상태</dt><dd>{item.result.status}</dd></div>
       </dl>
       <section aria-label="문항별 집계" className="activity-results-aggregate-list">

@@ -149,6 +149,18 @@ export class ActivityResultsRepository {
     );
   }
 
+  async countSessionAudiences(projectId: string, sessionId: string): Promise<number> {
+    const rows = await this.dataSource.query<Array<{ participant_count: number | string }>>(
+      `
+        SELECT COUNT(*)::int AS participant_count
+        FROM presentation_session_audiences
+        WHERE project_id = $1 AND session_id = $2
+      `,
+      [projectId, sessionId]
+    );
+    return Number(rows[0]?.participant_count ?? 0);
+  }
+
   async hardDeleteSessionResults(
     manager: EntityManager,
     projectId: string,
@@ -171,6 +183,10 @@ export class ActivityResultsRepository {
 
     await manager.query(
       `DELETE FROM activity_result_snapshots WHERE project_id = $1 AND session_id = $2`,
+      [projectId, sessionId]
+    );
+    await manager.query(
+      `DELETE FROM presentation_session_audiences WHERE project_id = $1 AND session_id = $2`,
       [projectId, sessionId]
     );
     await manager.query(

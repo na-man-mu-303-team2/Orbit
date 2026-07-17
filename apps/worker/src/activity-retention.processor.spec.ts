@@ -28,6 +28,11 @@ describe("processActivityResponseRetentionJob", () => {
     const statements = fixture.managerQuery.mock.calls.map(([sql]) => String(sql));
     expect(statements.findIndex((sql) => sql.includes("INSERT INTO activity_result_snapshots")))
       .toBeLessThan(statements.findIndex((sql) => sql.includes("DELETE FROM activity_responses")));
+    expect(
+      statements.findIndex((sql) => sql.includes("INSERT INTO activity_result_snapshots")),
+    ).toBeLessThan(
+      statements.findIndex((sql) => sql.includes("DELETE FROM presentation_session_audiences")),
+    );
     const snapshotCall = fixture.managerQuery.mock.calls.find(([sql]) =>
       String(sql).includes("INSERT INTO activity_result_snapshots"),
     );
@@ -35,6 +40,10 @@ describe("processActivityResponseRetentionJob", () => {
     expect(serialized).toContain("APPROVED_TEXT");
     expect(serialized).not.toContain("RAW_RESPONSE_SENTINEL");
     expect(serialized).not.toContain("PRIVATE_NAME_SENTINEL");
+    expect(snapshotCall?.[1]?.[4]).toMatchObject({
+      participantCount: 2,
+      responseRate: 50,
+    });
   });
 
   it("rolls back before raw deletion and succeeds on retry", async () => {
@@ -95,6 +104,7 @@ function retentionDataSource(
         results_deleted_at: options.resultsDeleted
           ? "2026-09-01T00:00:00.000Z"
           : null,
+        participant_count: 2,
       }];
     }
     if (sql.includes("FROM activity_runs")) return [runRow()];

@@ -16,6 +16,7 @@ import {
   audienceAccessCookieName,
   audienceAccessCookieOptions,
   createAudienceAccessToken,
+  createAudienceId,
   verifyAudienceAccessToken
 } from "./audience-access-cookie";
 import { PresentationSessionsService } from "./presentation-sessions.service";
@@ -52,13 +53,16 @@ export class AudienceSessionsController {
     const existingPayload = existing
       ? verifyAudienceAccessToken(this.config, existing, userAgent)
       : null;
+    const audienceId =
+      existingPayload?.sessionId === sessionId
+        ? existingPayload.audienceId
+        : createAudienceId();
     const result = await this.presentationSessionsService.joinAudience(
       sessionId,
       input,
+      audienceId,
       getAudienceClientAddress(request)
     );
-    const audienceId =
-      existingPayload?.sessionId === sessionId ? existingPayload.audienceId : undefined;
 
     response.cookie(
       audienceAccessCookieName,

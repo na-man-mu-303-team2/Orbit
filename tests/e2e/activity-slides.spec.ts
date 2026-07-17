@@ -123,6 +123,10 @@ test.describe("activity slides full story", () => {
       moderationStatus: "approved",
       text: privateText
     });
+    expect(presenterResult.result).toMatchObject({
+      participantCount: 2,
+      responseRate: 50
+    });
     run = await updateRunStatus(
       page,
       project.projectId,
@@ -250,11 +254,14 @@ test.describe("activity slides full story", () => {
       .toBe("succeeded");
     const retained = await pool.query<{
       raw_responses_deleted_at: Date | null;
+      participant_rows: string;
       response_rows: string;
       snapshot_rows: string;
     }>(
       `
         SELECT sessions.raw_responses_deleted_at,
+          (SELECT count(*)::text FROM presentation_session_audiences audiences
+            WHERE audiences.session_id = sessions.session_id) AS participant_rows,
           (SELECT count(*)::text FROM activity_responses responses
             INNER JOIN activity_runs runs
               ON runs.activity_run_id = responses.activity_run_id
@@ -267,6 +274,7 @@ test.describe("activity slides full story", () => {
       [passcodeSession.session.sessionId]
     );
     expect(retained.rows[0]?.raw_responses_deleted_at).not.toBeNull();
+    expect(Number(retained.rows[0]?.participant_rows)).toBe(0);
     expect(Number(retained.rows[0]?.response_rows)).toBe(0);
     expect(Number(retained.rows[0]?.snapshot_rows)).toBe(1);
     await page.goto(
@@ -367,6 +375,8 @@ async function getPresenterResult(
 ) {
   return expectJson<{
     result: {
+      participantCount: number;
+      responseRate: number;
       revision: number;
       textEntries: Array<{
         displayName: string | null;

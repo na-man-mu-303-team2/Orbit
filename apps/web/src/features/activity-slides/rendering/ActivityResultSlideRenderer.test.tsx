@@ -47,6 +47,8 @@ const presenterResult = activityPresenterResultSchema.parse({
   status: run.status,
   revision: run.revision,
   responseCount: 1,
+  participantCount: 2,
+  responseRate: 50,
   aggregates: source.activity.questions.map((question) => ({
     questionId: question.questionId,
     type: question.type,

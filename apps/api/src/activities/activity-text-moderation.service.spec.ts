@@ -18,6 +18,8 @@ function createService(target: { activity_id: string; activity_run_id: string; r
         status: "results",
         revision: 5,
         responseCount: 1,
+        participantCount: 2,
+        responseRate: 50,
         aggregates: [],
         textEntries: []
       }

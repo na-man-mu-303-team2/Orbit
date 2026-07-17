@@ -48,6 +48,7 @@ import { AddRehearsalAudioRetention2026071603000 } from "./migrations/2026071603
 import { AddRehearsalTranscriptArtifacts2026071603000 } from "./migrations/2026071603000-AddRehearsalTranscriptArtifacts";
 import { ExpandPresentationSessionsForActivities2026071701000 } from "./migrations/2026071701000-ExpandPresentationSessionsForActivities";
 import { CreateActivityRuntime2026071702000 } from "./migrations/2026071702000-CreateActivityRuntime";
+import { CreatePresentationSessionAudienceRegistry2026071703000 } from "./migrations/2026071703000-CreatePresentationSessionAudienceRegistry";
 import { CreateAiDeckStoryReviews2026071604000 } from "./migrations/2026071604000-CreateAiDeckStoryReviews";
 import { CreateSmartArtLayouts2026071701000 } from "./migrations/2026071701000-CreateSmartArtLayouts";
 
@@ -111,7 +112,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateAiDeckStoryReviews2026071604000,
     CreateSmartArtLayouts2026071701000,
     ExpandPresentationSessionsForActivities2026071701000,
-    CreateActivityRuntime2026071702000
+    CreateActivityRuntime2026071702000,
+    CreatePresentationSessionAudienceRegistry2026071703000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

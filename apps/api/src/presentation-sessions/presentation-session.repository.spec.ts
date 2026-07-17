@@ -60,4 +60,22 @@ describe("PresentationSessionRepository", () => {
     );
     expect(String(query.mock.calls[3]?.[0])).not.toContain("FOR UPDATE");
   });
+
+  it("registers a successful audience join idempotently", async () => {
+    const query = vi.fn().mockResolvedValue([]);
+    const repository = new PresentationSessionRepository({ query } as unknown as DataSource);
+
+    await repository.registerAudience(
+      "project_1",
+      "session_1",
+      "audience_1",
+      new Date("2026-07-17T01:00:00.000Z")
+    );
+
+    const sql = String(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("INSERT INTO presentation_session_audiences");
+    expect(sql).toContain(
+      "ON CONFLICT (project_id, session_id, audience_id) DO NOTHING"
+    );
+  });
 });
