@@ -80,7 +80,11 @@ export {
   createElementId,
   createUpdateElementPropsPatch
 } from "./patches/elementOperations";
-export { createAddSlidePatch, createSlideId } from "./patches/slideOperations";
+export {
+  createAddSlidePatch,
+  createDuplicateSlidePatch,
+  createSlideId,
+} from "./patches/slideOperations";
 export {
   createActivityResultsSlide,
   createActivitySlide,
