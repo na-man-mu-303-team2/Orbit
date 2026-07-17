@@ -169,6 +169,14 @@ def _planning_failure_detail(error: DeckContentGenerationError) -> dict[str, obj
         reason_code = "ART_DIRECTOR_INVALID_RESPONSE"
     elif "Art Director" in message and "unavailable" in message:
         reason_code = "ART_DIRECTOR_UNAVAILABLE"
+    elif message.startswith(
+        (
+            "No composition supports",
+            "No composition sequence satisfies",
+            "Design Program slide count mismatch",
+        )
+    ):
+        reason_code = "DESIGN_COMPOSITION_UNSUPPORTED"
     else:
         reason_code = "PLANNING_FAILURE_UNCLASSIFIED"
 

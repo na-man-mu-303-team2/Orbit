@@ -2,8 +2,10 @@ import {
   generateDeckRepairReasonSchema,
   jobErrorSchema,
   storyPlanApproveRequestSchema,
+  storyPlanEditRequestSchema,
   storyPlanRegenerateRequestSchema,
   storyPlanReviewResponseSchema,
+  type StoryPlanEditRequest,
   type StoryPlanReviewResponse,
 } from "@orbit/shared";
 import {
@@ -60,6 +62,65 @@ export class StoryPlanReviewService {
     return projectStoryPlanReview(
       await loadStorySnapshot(this.dataSource, projectId, jobId),
     );
+  }
+
+  async edit(
+    projectId: string,
+    jobId: string,
+    body: unknown,
+  ): Promise<StoryPlanReviewResponse> {
+    const request = parseRequest(storyPlanEditRequestSchema, body);
+    await this.dataSource.transaction(async (manager) => {
+      const state = await lockStoryState(manager, projectId, jobId);
+      if (!state.review || state.review.status !== "review-pending") {
+        throw new ConflictException("Story plan cannot be edited now.");
+      }
+      if (state.review.revision !== request.expectedRevision) {
+        throw new ConflictException("Story plan revision is stale.");
+      }
+      const artifact = firstRow(
+        await manager.query(
+          `
+            SELECT payload_json
+            FROM ai_deck_planning_artifacts
+            WHERE pipeline_job_id = $1
+              AND project_id = $2
+              AND stage = 'content-planning'
+            FOR UPDATE
+          `,
+          [jobId, projectId],
+        ),
+      );
+      if (!artifact) {
+        throw new ConflictException("Story plan artifact is unavailable.");
+      }
+      const payload = applyStoryPlanEdit(artifact.payload_json, request);
+      await manager.query(
+        `
+          UPDATE ai_deck_planning_artifacts
+          SET payload_json = $3::jsonb, updated_at = now()
+          WHERE pipeline_job_id = $1
+            AND project_id = $2
+            AND stage = 'content-planning'
+        `,
+        [jobId, projectId, payload],
+      );
+      await manager.query(
+        `
+          UPDATE ai_deck_story_reviews
+          SET revision = revision + 1, last_error_json = NULL, updated_at = now()
+          WHERE pipeline_job_id = $1
+            AND project_id = $2
+            AND status = 'review-pending'
+        `,
+        [jobId, projectId],
+      );
+    });
+    this.logger.info(
+      { event: "ai_ppt.story_review.edited", jobId, projectId, kind: request.kind },
+      "AI deck story plan edited.",
+    );
+    return this.get(projectId, jobId);
   }
 
   async approve(
@@ -418,6 +479,60 @@ const contentArtifactPayloadSchema = z
       .passthrough(),
   })
   .strict();
+
+export function applyStoryPlanEdit(
+  rawPayload: unknown,
+  request: StoryPlanEditRequest,
+): unknown {
+  const payload = contentArtifactPayloadSchema.parse(rawPayload);
+  const slides = payload.contentPlan.slidePlans;
+  if (request.kind === "speaker-notes") {
+    if (!slides.some((slide) => slide.order === request.order)) {
+      throw new ConflictException("Story plan slide is stale.");
+    }
+    return {
+      ...payload,
+      contentPlan: {
+        ...payload.contentPlan,
+        slidePlans: slides.map((slide) =>
+          slide.order === request.order
+            ? {
+                ...slide,
+                speaker_notes: request.speakerNotes,
+                speakerNotes: request.speakerNotes,
+              }
+            : slide,
+        ),
+      },
+    };
+  }
+
+  const byOrder = new Map(slides.map((slide) => [slide.order, slide]));
+  if (
+    byOrder.size !== slides.length ||
+    request.orders.length !== slides.length ||
+    request.orders.some((order) => !byOrder.has(order))
+  ) {
+    throw new ConflictException("Story plan slide order is stale.");
+  }
+  const slidePlans = request.orders.map((order, index) => ({
+    ...byOrder.get(order)!,
+    order: index + 1,
+  }));
+  const slideTitles = slidePlans.map((slide) => slide.title);
+  return {
+    ...payload,
+    contentPlan: {
+      ...payload.contentPlan,
+      outline: {
+        ...payload.contentPlan.outline,
+        slide_titles: slideTitles,
+        slideTitles,
+      },
+      slidePlans,
+    },
+  };
+}
 
 export function projectStoryPlanReview(
   snapshot: StorySnapshot,

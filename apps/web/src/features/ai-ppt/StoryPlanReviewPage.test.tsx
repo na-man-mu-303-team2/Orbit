@@ -1,7 +1,14 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { StoryPlanReviewView, storyPlanPath } from "./StoryPlanReviewPage";
+import {
+  hasUnsavedStoryScripts,
+  moveStorySlideOrder,
+  StoryPlanReviewView,
+  storyReviewJobFailureMessage,
+  storyPlanPath,
+  storyPlanRegenerationPollingKey,
+} from "./StoryPlanReviewPage";
 
 const response = {
   jobId: "job-1",
@@ -25,11 +32,13 @@ const response = {
         slideType: "summary",
         title: "핵심",
         message: "핵심 메시지",
-        speakerNotes: "발표자 노트",
+        speakerNotes: "발표자 대본",
         targetSeconds: 60,
         sourceState: "attention" as const,
         sources: [
+          { title: "사용자 입력", type: "topic" as const, authority: "unknown" as const },
           { title: "공식 안내", type: "web" as const, authority: "official" as const },
+          { title: "참고 문서", type: "uploaded" as const, authority: "unknown" as const },
         ],
       },
     ],
@@ -37,24 +46,37 @@ const response = {
   error: null,
 };
 
-describe("StoryPlanReviewView", () => {
-  it("renders the selected concept copy and safe review actions", () => {
-    const html = renderToStaticMarkup(
-      <StoryPlanReviewView
-        activeTab="flow"
-        onApprove={() => undefined}
-        onCancel={() => undefined}
-        onRegenerate={() => undefined}
-        onTabChange={() => undefined}
-        response={response}
-      />,
-    );
+const callbacks = {
+  onApprove: () => undefined,
+  onCancel: () => undefined,
+  onRegenerate: () => undefined,
+  onReorder: () => undefined,
+  onSaveScript: () => undefined,
+  onScriptChange: () => undefined,
+  onTabChange: () => undefined,
+};
 
-    expect(html).toContain("이야기 구성을 확인하세요.");
-    expect(html).toContain("다른 구성 제안받기");
-    expect(html).toContain("이 구성으로 생성");
-    expect(html).toContain("일부 확인 필요");
-    expect(html).not.toContain("검증됨");
+function renderView(
+  activeTab: "outline" | "script",
+  current = response,
+) {
+  return renderToStaticMarkup(
+    <StoryPlanReviewView
+      {...callbacks}
+      activeTab={activeTab}
+      response={current}
+      scriptDrafts={{ 1: "발표자 대본" }}
+    />,
+  );
+}
+
+describe("StoryPlanReviewView", () => {
+  it("shows only the outline and script tabs", () => {
+    const html = renderView("outline");
+
+    expect(html).toContain("목차");
+    expect(html).toContain("대본");
+    expect(html).not.toContain("근거와 참고자료");
   });
 
   it("builds the production Story Review route", () => {
@@ -63,83 +85,92 @@ describe("StoryPlanReviewView", () => {
     );
   });
 
-  it("renders evidence and speaker notes from the same safe plan", () => {
-    const evidence = renderToStaticMarkup(
-      <StoryPlanReviewView
-        activeTab="evidence"
-        onApprove={() => undefined}
-        onCancel={() => undefined}
-        onRegenerate={() => undefined}
-        onTabChange={() => undefined}
-        response={response}
-      />,
-    );
-    const notes = renderToStaticMarkup(
-      <StoryPlanReviewView
-        activeTab="notes"
-        onApprove={() => undefined}
-        onCancel={() => undefined}
-        onRegenerate={() => undefined}
-        onTabChange={() => undefined}
-        response={response}
-      />,
-    );
-
-    expect(evidence).toContain("공식 안내 · 웹 자료");
-    expect(notes).toContain("발표자 노트");
+  it("restarts polling when regeneration begins", () => {
+    expect(storyPlanRegenerationPollingKey(response)).toBeUndefined();
+    expect(
+      storyPlanRegenerationPollingKey({ ...response, status: "regenerating" }),
+    ).toBe(response.plan.regenerationCount);
   });
 
-  it.each(["approved", "cancelled", "failed"] as const)(
-    "disables every mutation action in the %s state",
-    (status) => {
-      const html = renderToStaticMarkup(
-        <StoryPlanReviewView
-          activeTab="flow"
-          onApprove={() => undefined}
-          onCancel={() => undefined}
-          onRegenerate={() => undefined}
-          onTabChange={() => undefined}
-          response={{ ...response, status }}
-        />,
-      );
+  it("shows only web and uploaded evidence below the editable script", () => {
+    const html = renderView("script");
 
-      expect(html.match(/ disabled=""/g)).toHaveLength(3);
-    },
-  );
+    expect(html).toContain("발표자 대본");
+    expect(html).toContain("공식 안내");
+    expect(html).toContain("참고 문서");
+    expect(html).not.toContain("사용자 입력");
+  });
 
-  it("disables only regeneration when the five-attempt limit is exhausted", () => {
+  it("keeps script save enabled while unsaved changes lock reordering", () => {
     const html = renderToStaticMarkup(
       <StoryPlanReviewView
-        activeTab="flow"
-        onApprove={() => undefined}
-        onCancel={() => undefined}
-        onRegenerate={() => undefined}
-        onTabChange={() => undefined}
-        response={{
-          ...response,
-          plan: { ...response.plan, regenerationCount: 5 },
-        }}
+        {...callbacks}
+        activeTab="script"
+        hasUnsavedScripts
+        response={response}
+        scriptDrafts={{ 1: "직접 수정한 대본" }}
       />,
     );
+    const label = html.indexOf("대본 저장");
+    const button = html.lastIndexOf("<button", label);
+    const openingTag = html.slice(button, html.indexOf(">", button) + 1);
 
-    expect(html.match(/ disabled=""/g)).toHaveLength(1);
+    expect(openingTag).not.toContain("disabled");
+  });
+
+  it("treats only changed script drafts as unsaved", () => {
+    const slides = response.plan.slides;
+
+    expect(hasUnsavedStoryScripts(slides, {})).toBe(false);
+    expect(
+      hasUnsavedStoryScripts(slides, { 1: slides[0]!.speakerNotes }),
+    ).toBe(false);
+    expect(hasUnsavedStoryScripts(slides, { 1: "수정한 대본" })).toBe(true);
+  });
+
+  it("explains a final generation failure caused by the daily image budget", () => {
+    expect(
+      storyReviewJobFailureMessage({
+        error: {
+          code: "GENERATE_DECK_QUALITY_GATE_FAILED",
+          message: "Deck quality gate failed.",
+        },
+        message: "AI PPT generation failed.",
+        result: {
+          warnings: [
+            "Daily image asset budget retained remaining placeholders.",
+          ],
+        },
+      }),
+    ).toContain("AI 이미지 일일 생성 한도");
+  });
+
+  it("moves the dragged slide to the dropped position", () => {
+    expect(moveStorySlideOrder([1, 2, 3], 1, 3)).toEqual([2, 3, 1]);
+    expect(moveStorySlideOrder([1, 2, 3], 3, 1)).toEqual([3, 1, 2]);
   });
 
   it.each([
-    ["cancelled", "생성이 취소되었습니다."],
-    ["failed", "구성을 만들지 못했습니다."],
-  ] as const)("renders the terminal %s state without a plan", (status, copy) => {
+    ["cancelled", "생성이 취소되었습니다.", null],
+    ["failed", "구성을 만들지 못했습니다.", "이야기 구성을 만들지 못했습니다."],
+  ] as const)("renders the terminal %s state without a plan", (status, copy, errorMessage) => {
     const html = renderToStaticMarkup(
       <StoryPlanReviewView
-        activeTab="flow"
-        onApprove={() => undefined}
-        onCancel={() => undefined}
-        onRegenerate={() => undefined}
-        onTabChange={() => undefined}
-        response={{ ...response, status, plan: null }}
+        {...callbacks}
+        activeTab="outline"
+        response={{
+          ...response,
+          status,
+          plan: null,
+          error: errorMessage
+            ? { code: "PYTHON_WORKER_PLANNING_FAILED", message: errorMessage }
+            : null,
+        }}
+        scriptDrafts={{}}
       />,
     );
 
     expect(html).toContain(copy);
+    if (errorMessage) expect(html).toContain(errorMessage);
   });
 });

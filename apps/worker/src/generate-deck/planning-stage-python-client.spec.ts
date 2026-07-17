@@ -58,6 +58,33 @@ describe("executeAiDeckPlanningStage", () => {
     expect(error).toMatchObject({ code, retryable: false });
   });
 
+  it("keeps unsupported composition failures non-retryable", async () => {
+    const error = await executeAiDeckPlanningStage(
+      "http://python-worker:8000",
+      "design-planning",
+      {},
+      {
+        fetchImpl: async () =>
+          jsonResponse(
+            {
+              detail: {
+                reasonCode: "DESIGN_COMPOSITION_UNSUPPORTED",
+              },
+            },
+            503,
+          ),
+      },
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      code: "DESIGN_COMPOSITION_UNSUPPORTED",
+      retryable: false,
+      diagnostics: {
+        reasonCode: "DESIGN_COMPOSITION_UNSUPPORTED",
+      },
+    });
+  });
+
   it("classifies provider unavailability as retryable without exposing detail", async () => {
     const providerBodySentinel = "secret-provider-response-body";
     const error = await executeAiDeckPlanningStage(

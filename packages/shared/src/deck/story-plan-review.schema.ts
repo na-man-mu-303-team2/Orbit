@@ -94,6 +94,32 @@ export const storyPlanApproveRequestSchema = z
   .object({ expectedRevision: z.number().int().min(1) })
   .strict();
 
+const storyPlanSlideOrderSchema = z
+  .array(z.number().int().min(1))
+  .min(1)
+  .max(100)
+  .refine((orders) => new Set(orders).size === orders.length, {
+    message: "Slide orders must be unique",
+  });
+
+export const storyPlanEditRequestSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("reorder"),
+      expectedRevision: z.number().int().min(1),
+      orders: storyPlanSlideOrderSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("speaker-notes"),
+      expectedRevision: z.number().int().min(1),
+      order: z.number().int().min(1),
+      speakerNotes: z.string().trim().min(1).max(5000),
+    })
+    .strict(),
+]);
+
 export const generateDeckStartResponseSchema = z
   .object({
     job: jobSchema,
@@ -109,4 +135,7 @@ export type StoryPlanRegenerateRequest = z.infer<
 >;
 export type StoryPlanApproveRequest = z.infer<
   typeof storyPlanApproveRequestSchema
+>;
+export type StoryPlanEditRequest = z.infer<
+  typeof storyPlanEditRequestSchema
 >;

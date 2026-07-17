@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   storyPlanApproveRequestSchema,
+  storyPlanEditRequestSchema,
   storyPlanRegenerateRequestSchema,
   storyPlanReviewResponseSchema,
 } from "./story-plan-review.schema";
@@ -58,6 +59,31 @@ describe("Story Plan Review contracts", () => {
       storyPlanRegenerateRequestSchema.safeParse({
         expectedRevision: 1,
         instruction: "가".repeat(241),
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts unique reorder and bounded speaker note edits", () => {
+    expect(
+      storyPlanEditRequestSchema.safeParse({
+        kind: "reorder",
+        expectedRevision: 1,
+        orders: [2, 1],
+      }).success,
+    ).toBe(true);
+    expect(
+      storyPlanEditRequestSchema.safeParse({
+        kind: "reorder",
+        expectedRevision: 1,
+        orders: [1, 1],
+      }).success,
+    ).toBe(false);
+    expect(
+      storyPlanEditRequestSchema.safeParse({
+        kind: "speaker-notes",
+        expectedRevision: 1,
+        order: 1,
+        speakerNotes: "가".repeat(5001),
       }).success,
     ).toBe(false);
   });
