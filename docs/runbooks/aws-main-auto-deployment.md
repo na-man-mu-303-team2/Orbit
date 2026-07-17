@@ -10,7 +10,7 @@
 
 - CloudFront: 단일 HTTPS entry point
 - S3 Static Web bucket: `apps/web/dist`
-- EC2 1대: Docker Compose로 `api`, `worker`, `python-worker`, `redis`, `nginx` 실행
+- EC2 1대: Docker Compose로 `api`, `worker`, `python-worker`, `redis`, `private-evidence-redis`, `nginx` 실행
 - RDS PostgreSQL: private subnet, pgvector는 TypeORM migration에서 생성
 - S3 Assets bucket: presigned PUT/GET
 - CloudWatch Logs: Docker `awslogs` driver
@@ -94,6 +94,10 @@ EC2 IAM role은 `/orbit/production/*`에 대한 `ssm:GetParameter`와 `ssm:GetPa
 
 템플릿은 저장소의 `infra/aws/ec2-production.env.example`와 EC2의 `/etc/orbit/production.env.example`를 기준으로 한다.
 
+`private-evidence-redis`는 발표 원문 근거를 최대 30분만 보존하는 API/Worker 전용 Redis다. 작업큐용 `redis`와 분리하고 volume, RDB, AOF를 사용하지 않으며 host port도 열지 않는다. API와 Worker의 `PRIVATE_EVIDENCE_REDIS_URL=redis://private-evidence-redis:6379`은 `docker-compose.aws.yml`의 `environment`에서 직접 주입한다.
+
+AWS 환경 예시에도 같은 키를 기록하지만 기존 EC2의 `/etc/orbit/production.env`는 template 변경으로 자동 갱신되지 않는다. Compose의 직접 주입 값이 `env_file`보다 우선하므로 기존 운영 파일에 이 키가 없어도 배포할 수 있고, 이번 복구에서는 deploy wrapper의 `required_keys`에 추가하지 않는다.
+
 필수 값:
 
 ```text
@@ -171,11 +175,12 @@ sudo chmod 0600 /etc/orbit/production.env
 2. CloudFormation output에서 S3 bucket, CloudFront distribution, EC2 instance id 조회
 3. `API_BASE_URL=https://<CloudFrontDomainName>`로 web build
 4. SSM `AWS-RunShellScript`로 EC2의 `/usr/local/sbin/orbit-deploy-aws-production` 실행
-5. workflow timeout 안에서 SSM command status를 polling하고 EC2 Docker Compose 배포 완료를 기다림
-6. CloudFront `/api/health`, `/socket.io/` 확인
-7. backend 검증이 끝난 뒤 `apps/web/dist`를 Static Web S3 bucket에 sync
-8. CloudFront invalidation
-9. CloudFront `/` 확인
+5. EC2에서 작업큐용 `redis`와 `private-evidence-redis`가 healthy 상태가 될 때까지 기다린 뒤 migration과 API/Worker/nginx 시작
+6. workflow timeout 안에서 SSM command status를 polling하고 EC2 Docker Compose 배포 완료를 기다림
+7. CloudFront `/api/health`, `/socket.io/` 확인
+8. backend 검증이 끝난 뒤 `apps/web/dist`를 Static Web S3 bucket에 sync
+9. CloudFront invalidation
+10. CloudFront `/` 확인
 
 EC2 wrapper는 `/opt/orbit/source` 전용 checkout만 사용한다.
 
@@ -183,6 +188,7 @@ EC2 wrapper는 `/opt/orbit/source` 전용 checkout만 사용한다.
 - `/opt/orbit/source`가 비어 있으면 최초 clone 대상으로 사용하고, 비어 있지 않은 non-git 디렉터리는 덮어쓰지 않는다.
 - 이후 실행: `git fetch origin <GitHubDeployBranch>`, `git switch <GitHubDeployBranch>`, `git pull --ff-only origin <GitHubDeployBranch>`
 - 사용자 작업 디렉터리에 `git reset`을 실행하지 않는다.
+- migration 전에 두 Redis를 `docker compose up -d --wait --wait-timeout 120`으로 준비한다. 둘 중 하나가 healthy 상태가 되지 않으면 실행 중인 API/Worker를 교체하기 전에 배포를 중단한다.
 
 SPA fallback은 CloudFront distribution-level `CustomErrorResponses`를 사용하지 않는다. Default static behavior의 CloudFront Function이 확장자가 없는 정적 SPA route만 `/index.html`로 rewrite하며, `/api/*`, `/socket.io/*`는 별도 cache behavior로 EC2 origin에 전달되어 backend의 403/404 상태와 JSON 오류 의미를 유지한다.
 
@@ -243,6 +249,7 @@ aws logs describe-log-streams \
 - `python-worker`
 - `nginx`
 - `redis`
+- `private-evidence-redis`
 
 ## Rollback
 

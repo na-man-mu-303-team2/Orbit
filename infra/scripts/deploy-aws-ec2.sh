@@ -80,7 +80,7 @@ COMPOSE=(docker compose -f "$COMPOSE_FILE")
 
 "${COMPOSE[@]}" config --quiet
 "${COMPOSE[@]}" build
-"${COMPOSE[@]}" up -d redis
+"${COMPOSE[@]}" up -d --wait --wait-timeout 120 redis private-evidence-redis
 "${COMPOSE[@]}" run --rm --no-deps api corepack pnpm --filter @orbit/api migration:run
 "${COMPOSE[@]}" up -d
 
