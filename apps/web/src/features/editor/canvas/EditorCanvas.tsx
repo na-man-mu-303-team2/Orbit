@@ -10,6 +10,7 @@ import type Konva from "konva";
 import type { Box as TransformerBox } from "konva/lib/shapes/Transformer";
 import {
   Layer as KonvaLayer,
+  Line as KonvaLine,
   Rect as KonvaRect,
   Stage as KonvaStage,
   Transformer as KonvaTransformer
@@ -41,6 +42,7 @@ import {
   normalizeDraftRect
 } from "./utils/canvasInteractionUtils";
 import type { CanvasSelectionModifiers } from "./utils/canvasSelection";
+import type { CanvasSnapGuide } from "./utils/canvasSnapping";
 import {
   getHighlightOverlayElements,
   HighlightOverlay,
@@ -54,6 +56,7 @@ export { getRenderableSlideElements } from "../../slides/rendering";
 type KonvaComponent = ComponentType<any>;
 
 const Layer = KonvaLayer as unknown as KonvaComponent;
+const Line = KonvaLine as unknown as KonvaComponent;
 const Rect = KonvaRect as unknown as KonvaComponent;
 const Stage = KonvaStage as unknown as KonvaComponent;
 const Transformer = KonvaTransformer as unknown as KonvaComponent;
@@ -364,6 +367,7 @@ export function EditableCanvas(props: {
     useState<CustomShapeInsertDraft | null>(null);
   const [customShapeEditDraft, setCustomShapeEditDraft] =
     useState<CustomShapeEditDraft | null>(null);
+  const [dragGuides, setDragGuides] = useState<CanvasSnapGuide[]>([]);
   const editingCustomShapeElement =
     customShapeEditElementId && customShapeEditElementId !== editingElementId
       ? (visibleElements.find(
@@ -493,8 +497,13 @@ export function EditableCanvas(props: {
   useEffect(() => {
     if (disableInteractions) {
       stageMouseHandlers.cancelMarquee();
+      setDragGuides([]);
     }
   }, [disableInteractions, stageMouseHandlers.cancelMarquee]);
+
+  useEffect(() => {
+    setDragGuides([]);
+  }, [insertTool, slide.slideId]);
 
   return (
     <div
@@ -527,14 +536,18 @@ export function EditableCanvas(props: {
               element={element}
               isSelected={selectedElementIds.includes(element.elementId)}
               presentationState={elementStates?.[element.elementId]}
+              selectedElementIds={selectedElementIds}
               selectedCount={selectedElementIds.length}
               showIds={showIds}
               slide={slide}
+              snapElements={visibleElements}
+              stageScale={stageScale}
               customShapeEditDraft={
                 customShapeEditDraft?.elementId === element.elementId
                   ? customShapeEditDraft
                   : null
               }
+              onChangeDragGuides={setDragGuides}
               onCommitFrame={(frame) =>
                 onCommitElementFrame(slide.slideId, element.elementId, frame)
               }
@@ -604,6 +617,22 @@ export function EditableCanvas(props: {
               {...stageMouseHandlers.marqueeRect}
             />
           ) : null}
+          {!disableInteractions
+            ? dragGuides.map((guide) => (
+                <Line
+                  key={`${guide.axis}-${guide.position}`}
+                  listening={false}
+                  points={
+                    guide.axis === "x"
+                      ? [guide.position, 0, guide.position, deck.canvas.height]
+                      : [0, guide.position, deck.canvas.width, guide.position]
+                  }
+                  stroke="#ec4899"
+                  strokeScaleEnabled={false}
+                  strokeWidth={1}
+                />
+              ))
+            : null}
           <Transformer
             ref={transformerRef}
             boundBoxFunc={(_oldBox: TransformerBox, nextBox: TransformerBox) => ({

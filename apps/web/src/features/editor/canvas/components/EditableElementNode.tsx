@@ -33,6 +33,10 @@ import {
   getGroupedChildPreviewFrame,
 } from "../utils/canvasElementUtils";
 import type { CanvasSelectionModifiers } from "../utils/canvasSelection";
+import {
+  resolveCanvasDragInteraction,
+  type CanvasSnapGuide
+} from "../utils/canvasSnapping";
 
 type KonvaComponent = ComponentType<any>;
 
@@ -55,9 +59,13 @@ export function EditableElementNode(props: {
   element: DeckElement;
   isSelected: boolean;
   presentationState?: ElementPresentationState;
+  selectedElementIds: readonly string[];
   selectedCount: number;
   showIds: boolean;
   slide: Slide;
+  snapElements: readonly DeckElement[];
+  stageScale: number;
+  onChangeDragGuides: (guides: CanvasSnapGuide[]) => void;
   onChangeCustomShapeEditDraft: (draft: CustomShapeEditDraft | null) => void;
   onDoubleClick: () => void;
   onCommitCustomShapeEditDraft: (draft: CustomShapeEditDraft) => void;
@@ -80,9 +88,13 @@ export function EditableElementNode(props: {
     element,
     isSelected,
     presentationState,
+    selectedElementIds,
     selectedCount,
     showIds,
     slide,
+    snapElements,
+    stageScale,
+    onChangeDragGuides,
     onChangeCustomShapeEditDraft,
     onDoubleClick,
     onCommitCustomShapeEditDraft,
@@ -145,6 +157,27 @@ export function EditableElementNode(props: {
     onSelect(modifiers);
   }
 
+  function resolveDragInteraction(
+    phase: "cancel" | "end" | "move",
+    node: Konva.Node
+  ) {
+    return resolveCanvasDragInteraction({
+      canvas: deck.canvas,
+      elements: snapElements,
+      frame: {
+        x: node.x(),
+        y: node.y(),
+        width: frame.width,
+        height: frame.height,
+        rotation: node.rotation()
+      },
+      movingElementId: element.elementId,
+      phase,
+      selectedElementIds,
+      stageScale
+    });
+  }
+
   return (
     <Group
       draggable={
@@ -202,15 +235,42 @@ export function EditableElementNode(props: {
           onDoubleClick();
         }
       }}
-      onDragEnd={(event: Konva.KonvaEventObject<DragEvent>) => {
-        setPreviewFrame(null);
-        onCommitFrame({
-          x: event.target.x(),
-          y: event.target.y(),
-          width: frame.width,
-          height: frame.height,
-          rotation: event.target.rotation(),
+      onDragStart={() => {
+        onChangeDragGuides([]);
+      }}
+      onDragMove={(event: Konva.KonvaEventObject<DragEvent>) => {
+        const result = resolveDragInteraction("move", event.currentTarget);
+
+        if (!result.previewFrame) {
+          return;
+        }
+
+        event.currentTarget.position({
+          x: result.previewFrame.x,
+          y: result.previewFrame.y
         });
+        setPreviewFrame(result.previewFrame);
+        onChangeDragGuides(result.guides);
+      }}
+      onDragEnd={(event: Konva.KonvaEventObject<DragEvent>) => {
+        const result = resolveDragInteraction("end", event.currentTarget);
+
+        setPreviewFrame(null);
+        onChangeDragGuides([]);
+
+        if (result.commitFrame) {
+          onCommitFrame(result.commitFrame);
+        }
+      }}
+      onPointerCancel={(event: Konva.KonvaEventObject<PointerEvent>) => {
+        const result = resolveDragInteraction("cancel", event.currentTarget);
+
+        event.currentTarget.position({
+          x: presentationState?.x ?? element.x,
+          y: presentationState?.y ?? element.y
+        });
+        setPreviewFrame(result.previewFrame);
+        onChangeDragGuides(result.guides);
       }}
       onTap={() => {
         if (element.role !== "background") {
