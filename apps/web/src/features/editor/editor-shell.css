@@ -11212,10 +11212,6 @@ body.is-resizing-speaker-notes {
   color: var(--redesign-color-error);
 }
 
-.orbit-shell.editor-professional.slide-rehearsal-light {
-  color-scheme: light;
-}
-
 .orbit-shell.editor-professional
   .editor-panel.slide-rehearsal-mode
   .stage-pane
@@ -11251,9 +11247,9 @@ body.is-resizing-speaker-notes {
   }
 }
 
-/* Slide rehearsal transition ------------------------------------------------
- * Entering rehearsal mode closes the slide navigator with a slide-away
- * animation and raises the teleprompter panel from the bottom edge. */
+/* Slide rehearsal workspace -------------------------------------------------
+ * Rehearsal stays inside the editor shell. The navigator content becomes
+ * rehearsal guidance while the teleprompter rises from the bottom edge. */
 
 .orbit-shell.editor-professional .editor-panel {
   transition: grid-template-columns 720ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -11267,22 +11263,61 @@ body.is-resizing-speaker-notes {
 
 .orbit-shell.editor-professional .editor-panel.slide-rehearsal-mode {
   grid-template-columns:
-    0px
+    var(--slides-pane-width, 184px)
     minmax(0, 1fr)
     var(--right-pane-width, 480px);
 }
 
 .orbit-shell.editor-professional .editor-panel.slide-rehearsal-mode.right-panel-closed {
   grid-template-columns:
-    0px
+    var(--slides-pane-width, 184px)
     minmax(0, 1fr)
     var(--right-pane-collapsed-width, 52px);
 }
 
-.orbit-shell.editor-professional .editor-panel.slide-rehearsal-mode .slides-pane {
-  border-right-width: 0;
-  opacity: 0;
-  pointer-events: none;
+.orbit-shell.editor-professional .editor-slide-rehearsal-left-pane {
+  grid-template-rows: var(--editor-chrome-height) minmax(0, 1fr);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-left-header {
+  min-height: var(--editor-chrome-height);
+  padding: 0 12px;
+  background: var(--redesign-color-surface-container-lowest);
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-left-header
+  .slides-pane-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-left-header
+  .slides-pane-title
+  svg {
+  color: var(--redesign-color-primary);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-left-content {
+  min-height: 0;
+  overflow: auto;
+  background: var(--redesign-color-surface-container-low);
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-left-content
+  .editor-slide-rehearsal-side {
+  min-height: 0;
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-left-content
+  .editor-slide-rehearsal-summary {
+  border-top: 0;
 }
 
 /* Teleprompter panel rises from the bottom, script fades in a beat later */
@@ -12054,7 +12089,7 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional
   .editor-presentation-split.rehearsal-disabled.active {
   border-color: var(--redesign-color-outline-variant);
-  background: var(--redesign-color-surface-container-high);
+  background: var(--redesign-color-surface-container-lowest);
   box-shadow: none;
 }
 
@@ -12066,7 +12101,7 @@ body.is-resizing-speaker-notes {
   .editor-present-menu-button:disabled {
   color: var(--redesign-color-on-surface-variant);
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 1;
 }
 
 /* The activity rail remains fixed while only the panel content collapses. */
@@ -12168,4 +12203,61 @@ body.is-resizing-speaker-notes {
   .ai-pane.collapsed:not(.rehearsal-mode)
   .right-pane-resizer {
   display: none;
+}
+
+/* Single-slide rehearsal keeps the original high-contrast voice panel. */
+.orbit-shell.editor-professional .editor-slide-rehearsal-bottom {
+  border-top-color: var(--redesign-color-primary);
+  background: var(--redesign-color-surface-container-lowest);
+}
+
+.orbit-shell.editor-professional .editor-slide-rehearsal-bottom-header {
+  border-bottom-color: var(--redesign-color-outline-variant);
+  background: var(--redesign-color-surface-container-low);
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  > .rehearsal-teleprompter-band {
+  background: var(--redesign-color-surface-container-lowest);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  .rehearsal-teleprompter-line {
+  color: color-mix(
+    in srgb,
+    var(--redesign-color-on-surface) 34%,
+    transparent
+  );
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  .rehearsal-teleprompter-line-covered,
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  .rehearsal-teleprompter-line-paraphrased {
+  color: color-mix(
+    in srgb,
+    var(--redesign-color-on-surface) 22%,
+    transparent
+  );
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  .rehearsal-teleprompter-line-next {
+  color: color-mix(
+    in srgb,
+    var(--redesign-color-on-surface) 68%,
+    transparent
+  );
+}
+
+.orbit-shell.editor-professional
+  .editor-slide-rehearsal-bottom
+  .rehearsal-teleprompter-current {
+  color: var(--redesign-color-on-surface);
 }

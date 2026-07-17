@@ -2,10 +2,12 @@ import type { Slide } from "@orbit/shared";
 import {
   IconCircle,
   IconCircleCheck,
+  IconMicrophone,
   IconPlayerPlay,
   IconPlayerStop,
 } from "@tabler/icons-react";
 import { useMemo } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 
 import {
   RehearsalScriptTeleprompter,
@@ -233,6 +235,32 @@ export function EditorSlideRehearsalRightPanel(
         )}
       </section>
     </div>
+  );
+}
+
+export function EditorSlideRehearsalLeftPanel(
+  props: EditorSlideRehearsalProps & {
+    onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  }
+) {
+  return (
+    <aside className="slides-pane editor-slide-rehearsal-left-pane">
+      <div className="slides-pane-header editor-slide-rehearsal-left-header">
+        <div className="slides-pane-title">
+          <IconMicrophone aria-hidden="true" size={15} />
+          <strong>슬라이드 리허설</strong>
+        </div>
+      </div>
+      <div className="editor-slide-rehearsal-left-content">
+        <EditorSlideRehearsalRightPanel {...props} />
+      </div>
+      <button
+        aria-label="리허설 패널 크기 조정"
+        className="slides-pane-resizer"
+        type="button"
+        onPointerDown={props.onResizeStart}
+      />
+    </aside>
   );
 }
 

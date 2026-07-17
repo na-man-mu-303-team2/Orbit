@@ -6,6 +6,7 @@ import type { EditorSlideRehearsalState } from "../hooks/useEditorSlideRehearsal
 import {
   createEditorSlideRehearsalScriptProgress,
   EditorSlideRehearsalBottomPanel,
+  EditorSlideRehearsalLeftPanel,
   EditorSlideRehearsalRightPanel,
   formatRehearsalTime
 } from "./EditorSlideRehearsal";
@@ -84,6 +85,24 @@ describe("EditorSlideRehearsal", () => {
     expect(html).not.toContain("연습 시간");
     expect(html).not.toContain("음성 엔진");
     expect(html).not.toContain("Web Speech");
+  });
+
+  it("에디터 왼쪽 패널에 리허설 안내를 표시한다", () => {
+    const slide = createDemoDeck().slides[0]!;
+    const html = renderToStaticMarkup(
+      <EditorSlideRehearsalLeftPanel
+        onResizeStart={vi.fn()}
+        onRestart={vi.fn()}
+        onStop={vi.fn()}
+        slide={slide}
+        state={{ ...listeningState, activeSlideId: slide.slideId }}
+      />
+    );
+
+    expect(html).toContain("editor-slide-rehearsal-left-pane");
+    expect(html).toContain("슬라이드 리허설");
+    expect(html).toContain("발표 체크포인트");
+    expect(html).toContain('aria-label="리허설 패널 크기 조정"');
   });
 
   it("경과 시간을 분:초 형식으로 만든다", () => {

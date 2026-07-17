@@ -81,6 +81,7 @@ import {
 import { SpeakerNotesPanel } from "./components/SpeakerNotesPanel";
 import {
   EditorSlideRehearsalBottomPanel,
+  EditorSlideRehearsalLeftPanel,
   EditorSlideRehearsalRightPanel
 } from "./components/EditorSlideRehearsal";
 import { SlideNavigatorPane } from "./components/SlideNavigatorPane";
@@ -1021,7 +1022,7 @@ export function EditorShell(props: { projectId?: string }) {
       isSlidesPaneCollapsed
     };
     setActiveTopMenu(null);
-    setIsRightPanelOpen(true);
+    setIsSlidesPaneCollapsed(false);
     setIsAnimationPanelOpen(false);
     setSelectedElementIds([]);
     setEditingElementId(null);
@@ -1178,10 +1179,8 @@ export function EditorShell(props: { projectId?: string }) {
     <>
       <main
         aria-busy={isDeckLoading}
-        className={`editor-app-shell orbit-shell editor-professional ${
-          isSlideRehearsalActive
-            ? "slide-rehearsal-active slide-rehearsal-light"
-            : "redesign-dark"
+        className={`editor-app-shell orbit-shell editor-professional redesign-dark ${
+          isSlideRehearsalActive ? "slide-rehearsal-active" : ""
         } ${isDeckLoading ? "is-deck-loading" : ""}`}
       >
         <EditorTopbar
@@ -1309,21 +1308,31 @@ export function EditorShell(props: { projectId?: string }) {
           } as CSSProperties
         }
       >
-        <SlideNavigatorPane
-          currentSlideIndex={currentSlideIndex}
-          deck={deck}
-          isCollapsed={isSlidesPaneCollapsed}
-          onAddSlide={handleAddSlide}
-          onResizeStart={handleSlidesPaneResizeStart}
-          onSelectSlide={handleSelectSlideForNavigator}
-          onSetView={setSlidePanelView}
-          onToggleCollapsed={() =>
-            setIsSlidesPaneCollapsed((current) => !current)
-          }
-          showIds={showIds}
-          slideThumbnailUrls={slideThumbnailUrls}
-          view={slidePanelView}
-        />
+        {isSlideRehearsalActive && rehearsalSlide ? (
+          <EditorSlideRehearsalLeftPanel
+            onResizeStart={handleSlidesPaneResizeStart}
+            onRestart={() => void startSlideRehearsal(rehearsalSlide)}
+            onStop={() => void handleFinishSlideRehearsal()}
+            slide={rehearsalSlide}
+            state={slideRehearsalState}
+          />
+        ) : (
+          <SlideNavigatorPane
+            currentSlideIndex={currentSlideIndex}
+            deck={deck}
+            isCollapsed={isSlidesPaneCollapsed}
+            onAddSlide={handleAddSlide}
+            onResizeStart={handleSlidesPaneResizeStart}
+            onSelectSlide={handleSelectSlideForNavigator}
+            onSetView={setSlidePanelView}
+            onToggleCollapsed={() =>
+              setIsSlidesPaneCollapsed((current) => !current)
+            }
+            showIds={showIds}
+            slideThumbnailUrls={slideThumbnailUrls}
+            view={slidePanelView}
+          />
+        )}
         <section className="stage-pane">
           {!isSlideRehearsalActive ? (
             <EditorToolbar
@@ -1574,11 +1583,7 @@ export function EditorShell(props: { projectId?: string }) {
           onAiChatStateChange={setAiChatState}
           onApplyAllValidationTextOverflow={handleApplyAllValidationTextOverflow}
           onHighlightElementIds={setValidationHighlightElementIds}
-            onExitRehearsal={
-              isSlideRehearsalActive
-                ? () => void handleExitSlideRehearsal()
-                : () => setSlideRehearsalReport(null)
-            }
+          onExitRehearsal={() => setSlideRehearsalReport(null)}
           onProposalApplied={handleDesignAgentProposalApplied}
           onPlayAnimations={playCurrentSlideAnimations}
           onResizeStart={handleRightPaneResizeStart}
@@ -1587,26 +1592,17 @@ export function EditorShell(props: { projectId?: string }) {
           onTextOverflowAction={handleValidationTextOverflowAction}
           projectId={projectId}
           pptxImportState={pptxImportState}
-            rehearsalPanel={
-              isSlideRehearsalActive && rehearsalSlide ? (
-                <EditorSlideRehearsalRightPanel
-                  onRestart={() => void startSlideRehearsal(rehearsalSlide)}
-                  onStop={() => void handleFinishSlideRehearsal()}
-                  slide={rehearsalSlide}
-                  state={slideRehearsalState}
-                />
-              ) : slideRehearsalReport ? (
-                <EditorSlideRehearsalRightPanel
-                  onRestart={handleRestartFromRehearsalReport}
-                  onStop={() => setSlideRehearsalReport(null)}
-                  slide={slideRehearsalReport.slide}
-                  state={slideRehearsalReport.state}
-                />
-              ) : undefined
-            }
-          rehearsalTitle={
-            isSlideRehearsalActive ? "슬라이드 리허설" : "리허설 리포트"
+          rehearsalPanel={
+            slideRehearsalReport ? (
+              <EditorSlideRehearsalRightPanel
+                onRestart={handleRestartFromRehearsalReport}
+                onStop={() => setSlideRehearsalReport(null)}
+                slide={slideRehearsalReport.slide}
+                state={slideRehearsalReport.state}
+              />
+            ) : undefined
           }
+          rehearsalTitle="리허설 리포트"
           selectedElementIds={selectedElementIds}
           semanticCueExtractionState={semanticCueExtractionState}
           setAiPanelView={setAiPanelView}
