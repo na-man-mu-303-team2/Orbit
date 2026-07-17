@@ -51,12 +51,30 @@ const visualRequirementsSchema = z.object({
     }),
   ),
 });
-const layoutPayloadSchema = z
+const legacyLayoutPayloadSchema = z
   .object({
     workerPayload: generateDeckResponseSchema,
     visualRequirements: visualRequirementsSchema,
   })
   .passthrough();
+const layoutManifestSlideSchema = z.object({
+  sourceOrder: z.number().int().positive(),
+  order: z.number().int().positive(),
+  slideId: z.string().min(1),
+  shardKey: z.string().min(1),
+});
+const layoutV2PayloadSchema = z
+  .object({
+    artifactVersion: z.literal(2),
+    deckShell: deckSchema.omit({ slides: true }),
+    slides: z.array(layoutManifestSlideSchema).min(1),
+    warnings: z.array(z.string()),
+  })
+  .strict();
+const layoutPayloadSchema = z.union([
+  layoutV2PayloadSchema,
+  legacyLayoutPayloadSchema,
+]);
 const imageRowSchema = z.object({
   shard_key: z.string().min(1),
   status: z.enum(["queued", "running", "succeeded", "failed"]),
@@ -64,6 +82,17 @@ const imageRowSchema = z.object({
 });
 const imagePayloadSchema = z
   .object({ slide: slideSchema, warnings: z.array(z.string()) })
+  .strict();
+const imageV2PayloadSchema = z
+  .object({
+    artifactVersion: z.literal(2),
+    sourceOrder: z.number().int().positive(),
+    order: z.number().int().positive(),
+    slideId: z.string().min(1),
+    slide: slideSchema,
+    warnings: z.array(z.string()),
+    validation: z.record(z.unknown()),
+  })
   .strict();
 const qualityRowSchema = z.object({ payload_json: z.unknown() });
 const qualityPayloadSchema = z
@@ -194,6 +223,36 @@ export function projectAiDeckPreview(input: {
     completedSlideIds = deck.slides.map((slide) => slide.slideId);
   } else if (layoutRow) {
     const layout = layoutPayloadSchema.parse(layoutRow.payload_json);
+    if ("artifactVersion" in layout) {
+      const completedBySourceOrder = new Map(
+        input.imageRows.flatMap((row) => {
+          if (row.status !== "succeeded" || !row.payload_json) return [];
+          const parsed = imageV2PayloadSchema.safeParse(row.payload_json);
+          return parsed.success
+            ? [[parsed.data.sourceOrder, parsed.data] as const]
+            : [];
+        }),
+      );
+      const prefix: z.infer<typeof slideSchema>[] = [];
+      for (const descriptor of layout.slides) {
+        const completed = completedBySourceOrder.get(descriptor.sourceOrder);
+        if (
+          !completed ||
+          completed.slideId !== descriptor.slideId ||
+          completed.order !== descriptor.order
+        ) {
+          break;
+        }
+        prefix.push(completed.slide);
+      }
+      if (prefix.length > 0) {
+        deck = deckSchema.parse({ ...layout.deckShell, slides: prefix });
+        completedSlideIds = prefix.map((slide) => slide.slideId);
+      }
+      pendingSlideIds = layout.slides
+        .slice(prefix.length)
+        .map((slide) => slide.slideId);
+    } else {
     const imageSlides = new Map(
       input.imageRows.flatMap((row) => {
         if (row.status !== "succeeded" || !row.payload_json) return [];
@@ -226,6 +285,7 @@ export function projectAiDeckPreview(input: {
           imageNeeded.has(slide.slideId) && !imageSlides.has(slide.slideId),
       )
       .map((slide) => slide.slideId);
+    }
   }
 
   const cancelled =

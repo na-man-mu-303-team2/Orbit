@@ -13,7 +13,6 @@ import {
 import "./ai-deck-generation.css";
 
 const pollingIntervalMs = 1200;
-const revealIntervalMs = 500;
 
 export function AiDeckGenerationPage(props: {
   jobId: string;
@@ -21,17 +20,16 @@ export function AiDeckGenerationPage(props: {
 }) {
   const [preview, setPreview] = useState<AiDeckPreviewResponse | null>(null);
   const [error, setError] = useState("");
-  const [revealedCount, setRevealedCount] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [followLatest, setFollowLatest] = useState(true);
   const [retrying, setRetrying] = useState(false);
   const handoffStarted = useRef(false);
   const queryClient = useQueryClient();
-  const reducedMotion = usePrefersReducedMotion();
   const availableCount = readySlidePrefix(
     preview?.deck ?? null,
     preview?.completedSlideIds ?? [],
   );
+  const revealedCount = availableCount;
 
   useEffect(() => {
     let cancelled = false;
@@ -61,19 +59,6 @@ export function AiDeckGenerationPage(props: {
       if (timer) clearTimeout(timer);
     };
   }, [props.jobId, props.projectId]);
-
-  useEffect(() => {
-    if (revealedCount >= availableCount) return;
-    if (reducedMotion) {
-      setRevealedCount(availableCount);
-      return;
-    }
-    const timer = setTimeout(
-      () => setRevealedCount((count) => Math.min(count + 1, availableCount)),
-      revealIntervalMs,
-    );
-    return () => clearTimeout(timer);
-  }, [availableCount, reducedMotion, revealedCount]);
 
   useEffect(() => {
     if (followLatest && revealedCount > 0) {
@@ -296,18 +281,6 @@ function FittedSlide(props: { deck: Deck; slideIndex: number }) {
       ) : null}
     </div>
   );
-}
-
-function usePrefersReducedMotion() {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setReduced(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-  return reduced;
 }
 
 function statusLabel(status?: AiDeckPreviewResponse["status"]) {

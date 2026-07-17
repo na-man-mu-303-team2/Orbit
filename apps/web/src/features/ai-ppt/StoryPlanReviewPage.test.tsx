@@ -85,12 +85,11 @@ function renderView(activeTab: "outline" | "script", current = response) {
 }
 
 describe("StoryPlanReviewView", () => {
-  it("shows only the outline and script tabs", () => {
+  it("shows only the outline tab", () => {
     const html = renderView("outline");
 
     expect(html).toContain("목차");
-    expect(html).toContain("대본");
-    expect(html).not.toContain("근거와 참고자료");
+    expect(html).not.toContain("대본");
   });
 
   it("builds the production Story Review route", () => {
@@ -124,32 +123,6 @@ describe("StoryPlanReviewView", () => {
     expect(
       storyPlanRegenerationPollingKey({ ...response, status: "regenerating" }),
     ).toBe(response.plan.regenerationCount);
-  });
-
-  it("shows only web and uploaded evidence below the editable script", () => {
-    const html = renderView("script");
-
-    expect(html).toContain("발표자 대본");
-    expect(html).toContain("공식 안내");
-    expect(html).toContain("참고 문서");
-    expect(html).not.toContain("사용자 입력");
-  });
-
-  it("keeps script save enabled while unsaved changes lock reordering", () => {
-    const html = renderToStaticMarkup(
-      <StoryPlanReviewView
-        {...callbacks}
-        activeTab="script"
-        hasUnsavedScripts
-        response={response}
-        scriptDrafts={{ 1: "직접 수정한 대본" }}
-      />,
-    );
-    const label = html.indexOf("대본 저장");
-    const button = html.lastIndexOf("<button", label);
-    const openingTag = html.slice(button, html.indexOf(">", button) + 1);
-
-    expect(openingTag).not.toContain("disabled");
   });
 
   it("treats only changed script drafts as unsaved", () => {
