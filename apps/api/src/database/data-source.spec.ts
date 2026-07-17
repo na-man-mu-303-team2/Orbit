@@ -95,6 +95,9 @@ describe("databaseOptions", () => {
     expect(
       names.indexOf("CreatePresentationSessionAudienceRegistry2026071703000")
     ).toBeGreaterThan(names.indexOf("CreateActivityRuntime2026071702000"));
+    expect(names.indexOf("RepairActivityRetentionPrivacy2026071704000")).toBeGreaterThan(
+      names.indexOf("CreatePresentationSessionAudienceRegistry2026071703000"),
+    );
   });
 
   it("registers the SmartArt typography migration after its layout migrations", () => {

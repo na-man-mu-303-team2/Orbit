@@ -53,6 +53,7 @@ import { CreateAiDeckStoryReviews2026071604000 } from "./migrations/202607160400
 import { CreateSmartArtLayouts2026071701000 } from "./migrations/2026071701000-CreateSmartArtLayouts";
 import { AddSmartArtTemplateLayouts2026071702000 } from "./migrations/2026071702000-AddSmartArtTemplateLayouts";
 import { IncreaseSmartArtTypography2026071703000 } from "./migrations/2026071703000-IncreaseSmartArtTypography";
+import { RepairActivityRetentionPrivacy2026071704000 } from "./migrations/2026071704000-RepairActivityRetentionPrivacy";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -117,7 +118,8 @@ export const databaseOptions: DataSourceOptions = {
     CreateActivityRuntime2026071702000,
     AddSmartArtTemplateLayouts2026071702000,
     CreatePresentationSessionAudienceRegistry2026071703000,
-    IncreaseSmartArtTypography2026071703000
+    IncreaseSmartArtTypography2026071703000,
+    RepairActivityRetentionPrivacy2026071704000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

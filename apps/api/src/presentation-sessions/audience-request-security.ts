@@ -53,7 +53,7 @@ export function getUserAgent(request: Request): string {
 }
 
 export function getAudienceClientAddress(request: Request): string {
-  return request.ip || request.socket?.remoteAddress || "unknown";
+  return request.ip || "unknown";
 }
 
 function getHeader(request: Request, name: string): string | undefined {

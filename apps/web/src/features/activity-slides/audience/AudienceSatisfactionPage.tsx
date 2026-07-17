@@ -18,7 +18,7 @@ import {
   OrbitInput,
   OrbitTextarea
 } from "../../../design-system";
-import { activityApi } from "../api/activityApi";
+import { activityApi, ActivityApiError } from "../api/activityApi";
 import {
   buildSatisfactionAnswers,
   createSatisfactionDraft,
@@ -28,6 +28,7 @@ import {
   type SatisfactionDraftErrors
 } from "./activityFormModel";
 import { connectAudienceActivityRealtime } from "../model/activityRealtimeClient";
+import { ActivityPublicResults } from "../rendering/ActivityAudienceSlideRenderer";
 import "./audience-satisfaction.css";
 
 type AudienceMode = "loading" | "join" | "waiting" | "form" | "receipt" | "error";
@@ -127,7 +128,10 @@ export function AudienceSatisfactionPage(props: {
 
   const refreshActiveActivity = useCallback(async () => {
     try {
-      const next = (await activityApi.getAudienceActiveActivity(props.sessionId)).activity;
+      const next = await loadAudienceActivityRefresh(
+        props.sessionId,
+        current?.activityId ?? null
+      );
       if (!next) {
         if (!current) setMode("waiting");
         return;
@@ -148,7 +152,14 @@ export function AudienceSatisfactionPage(props: {
         return;
       }
       showActivity(next);
-    } catch {
+    } catch (error) {
+      if (error instanceof ActivityApiError && error.status === 401) {
+        setCurrent(null);
+        setHasAccess(false);
+        setErrorMessage("종료되었거나 접근 시간이 지난 발표 세션입니다.");
+        setMode("error");
+        return;
+      }
       // Reconnect and the next HTTP poll restore the authoritative snapshot.
     }
   }, [current, draft, ignoredActivityId, isDirty, mode, props.sessionId, showActivity]);
@@ -306,7 +317,8 @@ export function AudienceSatisfactionPage(props: {
           </OrbitButton>
         </section>
       ) : null}
-      {mode === "form" && current ? (
+      {current ? <AudiencePublicResultCard current={current} /> : null}
+      {mode === "form" && current && current.run.status !== "results" ? (
         current.run.status === "open" ? (
           <AudienceSatisfactionForm
             definition={current.run.definitionSnapshot}
@@ -323,7 +335,7 @@ export function AudienceSatisfactionPage(props: {
           <AudienceStatus icon={<IconClock />} title="응답이 마감되었습니다" />
         )
       ) : null}
-      {mode === "receipt" && current?.ownResponse ? (
+      {mode === "receipt" && current?.ownResponse && current.run.status !== "results" ? (
         <section className="activity-audience-card activity-receipt" aria-labelledby="activity-receipt-title">
           <span className="activity-receipt-icon"><IconCheck aria-hidden="true" /></span>
           <span className="activity-audience-eyebrow">RESPONSE SAVED</span>
@@ -342,6 +354,36 @@ export function AudienceSatisfactionPage(props: {
         </section>
       ) : null}
     </main>
+  );
+}
+
+export async function loadAudienceActivityRefresh(
+  sessionId: string,
+  currentActivityId: string | null
+): Promise<GetAudienceActivityResponse | null> {
+  const active = (await activityApi.getAudienceActiveActivity(sessionId)).activity;
+  if (active || !currentActivityId) return active;
+  return activityApi.getAudienceActivity(sessionId, currentActivityId);
+}
+
+export function AudiencePublicResultCard(props: {
+  current: GetAudienceActivityResponse;
+}) {
+  if (props.current.run.status !== "results" || !props.current.publicResult) return null;
+  return (
+    <section
+      className="activity-audience-card activity-participant-results"
+      aria-labelledby="activity-public-results-title"
+    >
+      <span className="activity-audience-eyebrow">RESULTS</span>
+      <h1 id="activity-public-results-title">
+        {props.current.run.definitionSnapshot.title} 결과
+      </h1>
+      <ActivityPublicResults
+        activity={props.current.run.definitionSnapshot}
+        result={props.current.publicResult}
+      />
+    </section>
   );
 }
 

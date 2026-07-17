@@ -27,14 +27,6 @@ type RunRow = {
 };
 
 type ResponseRow = { answers_json: unknown };
-type TextRow = {
-  entry_id: string;
-  question_id: string;
-  text_value: string;
-  answered_at: Date | string | null;
-  updated_at: Date | string;
-};
-
 type JobRow = {
   job_id: string;
   project_id: string;
@@ -153,32 +145,15 @@ async function retainSessionResponses(
   );
 
   for (const run of runs) {
-    const [responses, approvedText] = await Promise.all([
-      manager.query(
-        `
-          SELECT answers_json
-          FROM activity_responses
-          WHERE project_id = $1 AND activity_run_id = $2
-          ORDER BY submitted_at ASC
-        `,
-        [projectId, run.activity_run_id],
-      ),
-      manager.query(
-        `
-          SELECT entries.entry_id, entries.question_id, entries.text_value,
-                 entries.answered_at, entries.updated_at
-          FROM activity_text_entries AS entries
-          INNER JOIN activity_responses AS responses
-            ON responses.project_id = entries.project_id
-           AND responses.response_id = entries.response_id
-          WHERE entries.project_id = $1
-            AND responses.activity_run_id = $2
-            AND entries.moderation_status = 'approved'
-          ORDER BY entries.updated_at ASC
-        `,
-        [projectId, run.activity_run_id],
-      ),
-    ]);
+    const responses = await manager.query(
+      `
+        SELECT answers_json
+        FROM activity_responses
+        WHERE project_id = $1 AND activity_run_id = $2
+        ORDER BY submitted_at ASC
+      `,
+      [projectId, run.activity_run_id],
+    );
     const definition = activityDefinitionSchema.parse(run.definition_snapshot);
     const answers = readQueryRows<ResponseRow>(responses).map((row) =>
       activityAnswerSchema.array().parse(row.answers_json),
@@ -195,15 +170,7 @@ async function retainSessionResponses(
         session.participant_count,
       ),
       aggregates: buildActivityAggregates(definition, answers as ActivityAnswer[][]),
-      textEntries: readQueryRows<TextRow>(approvedText).map((entry) => ({
-        entryId: entry.entry_id,
-        questionId: entry.question_id,
-        text: entry.text_value,
-        displayName: null,
-        moderationStatus: "approved" as const,
-        answeredAt: toOptionalIso(entry.answered_at),
-        updatedAt: toIso(entry.updated_at),
-      })),
+      textEntries: [],
     });
     await manager.query(
       `
@@ -333,8 +300,4 @@ function readQueryRows<T>(queryResult: unknown): T[] {
 
 function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
-}
-
-function toOptionalIso(value: Date | string | null): string | null {
-  return value === null ? null : toIso(value);
 }

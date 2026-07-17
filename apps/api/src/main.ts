@@ -8,6 +8,7 @@ import { Logger } from "nestjs-pino";
 import "reflect-metadata";
 import { AppModule } from "./app.module";
 import { resolveAllowedWebOrigins } from "./common/web-origin";
+import { configureHttpTrustProxy } from "./common/http-trust-proxy";
 import { writeBootstrapError } from "./logging";
 
 async function bootstrap() {
@@ -19,6 +20,7 @@ async function bootstrap() {
   });
   const logger = app.get(Logger);
   app.useLogger(logger);
+  configureHttpTrustProxy(app, config.API_TRUST_PROXY_HOPS);
 
   app.useBodyParser("json", { limit: config.API_JSON_BODY_LIMIT_BYTES });
   app.useBodyParser("urlencoded", {

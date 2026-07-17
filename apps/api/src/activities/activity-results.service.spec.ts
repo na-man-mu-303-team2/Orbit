@@ -102,15 +102,7 @@ function createService(
                 average: 4,
                 choices: []
               }],
-              textEntries: [{
-                entryId: "activity_text_approved",
-                questionId: "question_text",
-                text: "공개 의견",
-                displayName: null,
-                moderationStatus: "approved",
-                answeredAt: null,
-                updatedAt: "2026-07-17T00:05:00.000Z"
-              }]
+              textEntries: []
             }
           }]
         : []
@@ -268,7 +260,7 @@ describe("ActivityResultsService", () => {
       availability: "aggregate-only",
       result: {
         responseCount: 2,
-        textEntries: [{ displayName: null, moderationStatus: "approved" }]
+        textEntries: []
       }
     });
     expect(JSON.stringify(archive)).not.toContain("PRIVATE_NAME_SENTINEL");
