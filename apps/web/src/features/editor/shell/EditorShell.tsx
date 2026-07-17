@@ -64,6 +64,8 @@ import type {
   ApplyDesignAgentProposalResponse,
   Deck,
   DeckAnimation,
+  DeckExportFormat,
+  DeckExportRequest,
   SemanticCue,
 } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -134,6 +136,7 @@ export {
   createDeckExportJob,
   createPptxOoxmlGenerationJob,
   createSemanticCueExtractionJob,
+  exportDeck,
   exportDeckToPptx,
   importPptxIntoEditor,
   requireMatchingPptxImportedDeck,
@@ -311,6 +314,9 @@ export function EditorShell(props: { projectId?: string }) {
   );
   const [semanticCueExtractionState, setSemanticCueExtractionState] =
     useState<SemanticCueExtractionUiState>({ status: "idle", message: "" });
+  const [exportDialogFormat, setExportDialogFormat] =
+    useState<DeckExportFormat>("pptx");
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const editorStageRef = useRef<Konva.Stage | null>(null);
   const ooxmlSyncJob = useOoxmlSyncJob();
 
@@ -832,8 +838,14 @@ export function EditorShell(props: { projectId?: string }) {
     return editorDocumentActions.save(commitSpeakerNotesDraftIfDirty);
   }
 
-  async function handleExportPptx() {
-    await editorFileTransferActions.exportPptx(handleSaveDeck);
+  async function handleExportDeck(input: DeckExportRequest) {
+    return editorFileTransferActions.exportDeck(handleSaveDeck, input);
+  }
+
+  function openExportDialog(format: DeckExportFormat) {
+    setExportDialogFormat(format);
+    setIsExportDialogOpen(true);
+    setActiveTopMenu(null);
   }
 
   function handleSemanticCueReviewChange(semanticCues: SemanticCue[]) {
@@ -1110,7 +1122,7 @@ export function EditorShell(props: { projectId?: string }) {
           lastSavedAtLabel={formatLastSavedAtLabel(lastSavedAt)}
           ooxmlSyncStatus={ooxmlSyncStatus}
           onExitToHome={handleExitToHome}
-          onExportPptx={() => void handleExportPptx()}
+          onOpenExport={openExportDialog}
           onImportPptx={openPptxFilePicker}
           onOpenAudienceLink={() => {
             setIsAudienceLinkModalOpen(true);
@@ -1159,6 +1171,17 @@ export function EditorShell(props: { projectId?: string }) {
               void handleSaveAndExit();
             }
           }
+        }}
+        exportDialog={{
+          deckId: deck.deckId,
+          errorMessage: pptxExportError,
+          initialFormat: exportDialogFormat,
+          onClose: () => setIsExportDialogOpen(false),
+          onExport: handleExportDeck,
+          open: isExportDialogOpen,
+          pending: isPptxExporting,
+          projectId,
+          statusMessage: pptxExportStatus
         }}
         presence={{
           isOpen: isPresenceDebugOpen,

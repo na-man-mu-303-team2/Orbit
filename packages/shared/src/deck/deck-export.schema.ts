@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { deckIdSchema } from "./id.schema";
 
-export const deckExportFormatSchema = z.literal("pptx");
+export const deckExportFormatSchema = z.enum(["pptx", "png"]);
 
 export const deckExportRequestSchema = z
   .object({

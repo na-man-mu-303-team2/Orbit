@@ -3,13 +3,13 @@ import {
   createElementId,
   createUpdateElementPropsPatch
 } from "../../../../../../../packages/editor-core/src/index";
-import type { Deck, DeckPatch } from "@orbit/shared";
+import type { Deck, DeckExportRequest, DeckPatch } from "@orbit/shared";
 import type { ChangeEvent, MutableRefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { createProject, fetchProjects, uploadProjectAsset } from "../../../projects/ProjectAssetWorkspace";
 import { normalizeEditorAssetUrl } from "../../shared/editorAssetUrl";
-import { exportDeckToPptx, importPptxIntoEditor } from "../api/editorJobApi";
+import { exportDeck as requestDeckExport, importPptxIntoEditor } from "../api/editorJobApi";
 import type { PptxImportState } from "../components/PptxImportQualityPanel";
 import type { PatchProducer } from "./useEditorPersistenceState";
 import {
@@ -214,12 +214,15 @@ export function useEditorFileTransfer(args: {
     }
   }
 
-  async function exportPptx(save: () => Promise<boolean | undefined>) {
-    if (isPptxExporting) return;
+  async function exportDeck(
+    save: () => Promise<boolean | undefined>,
+    input: DeckExportRequest
+  ): Promise<boolean> {
+    if (isPptxExporting) return false;
     const activeProjectId = args.workingDeckRef.current.projectId || args.persistedProjectId;
     if (!activeProjectId) {
       setPptxExportError("내보낼 프로젝트를 찾지 못했습니다.");
-      return;
+      return false;
     }
     setIsPptxExporting(true);
     setPptxExportError("");
@@ -227,19 +230,22 @@ export function useEditorFileTransfer(args: {
     try {
       const saved = await save();
       if (!saved) throw new Error("최신 편집 내용을 저장한 뒤 다시 시도하세요.");
-      setPptxExportStatus("PPTX 내보내기 중...");
-      const result = await exportDeckToPptx(activeProjectId);
+      const formatLabel = input.format === "png" ? "PNG ZIP" : "PPTX";
+      setPptxExportStatus(`${formatLabel} 내보내기 중...`);
+      const result = await requestDeckExport(activeProjectId, input);
       setPptxExportStatus(
         result.warnings.length
-          ? `PPTX 생성 완료, ${result.warnings.length}개 경고`
-          : "PPTX 생성 완료"
+          ? `${formatLabel} 생성 완료, ${result.warnings.length}개 경고`
+          : `${formatLabel} 생성 완료`
       );
       window.open(result.url, "_blank", "noopener,noreferrer");
+      return true;
     } catch (error) {
       setPptxExportStatus("");
       setPptxExportError(
-        error instanceof Error ? error.message : "PPTX 내보내기에 실패했습니다."
+        error instanceof Error ? error.message : "Deck 내보내기에 실패했습니다."
       );
+      return false;
     } finally {
       setIsPptxExporting(false);
     }
@@ -263,7 +269,7 @@ export function useEditorFileTransfer(args: {
     actions: {
       handleImageFileInputChange,
       handlePptxFileInputChange,
-      exportPptx,
+      exportDeck,
       openImageFilePicker,
       openPptxFilePicker
     },

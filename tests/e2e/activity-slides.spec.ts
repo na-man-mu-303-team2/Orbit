@@ -168,7 +168,9 @@ test.describe("activity slides full story", () => {
       .selectOption(passcodeSession.session.sessionId);
     const resultPreview = page.getByLabel("결과 장표 미리보기");
     await expect(resultPreview).toHaveAttribute("data-state", "presenter-live");
-    await expect(resultPreview.getByText(privateText, { exact: true })).toBeVisible();
+    await expect(
+      resultPreview.getByRole("listitem").filter({ hasText: privateText })
+    ).toBeVisible();
     await expect(resultPreview.getByText("응답 1개", { exact: true })).toBeVisible();
 
     await expectOk(
@@ -204,6 +206,36 @@ test.describe("activity slides full story", () => {
     if (typeof exportUrl === "string") {
       const exported = await page.request.get(exportUrl);
       expect(exported.ok(), await exported.text()).toBe(true);
+      const bytes = await exported.body();
+      expect(bytes.subarray(0, 2).toString("utf8")).toBe("PK");
+    }
+
+    const pngExportJob = await expectJson<{ job: Job }>(
+      await page.request.post(
+        `/api/v1/projects/${encodeURIComponent(project.projectId)}/deck/exports`,
+        {
+          data: {
+            format: "png",
+            presentationSessionId: passcodeSession.session.sessionId
+          }
+        }
+      )
+    );
+    const completedPngExport = await pollJob(
+      page,
+      pngExportJob.job.jobId,
+      120_000
+    );
+    expect(completedPngExport.status).toBe("succeeded");
+    expect(completedPngExport.result).toEqual(
+      expect.objectContaining({ deckId: deck.deckId, format: "png" })
+    );
+    const pngExportUrl = completedPngExport.result?.url;
+    expect(typeof pngExportUrl).toBe("string");
+    if (typeof pngExportUrl === "string") {
+      const exported = await page.request.get(pngExportUrl);
+      expect(exported.ok(), await exported.text()).toBe(true);
+      expect(exported.headers()["content-type"]).toContain("application/zip");
       const bytes = await exported.body();
       expect(bytes.subarray(0, 2).toString("utf8")).toBe("PK");
     }

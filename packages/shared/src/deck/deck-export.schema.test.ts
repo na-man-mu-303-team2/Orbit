@@ -23,6 +23,12 @@ describe("deckExportRequestSchema", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("accepts an all-slide PNG ZIP export", () => {
+    expect(deckExportRequestSchema.parse({ format: "png" })).toEqual({
+      format: "png"
+    });
+  });
 });
 
 describe("deckExportJobResultSchema", () => {
@@ -36,5 +42,17 @@ describe("deckExportJobResultSchema", () => {
     });
 
     expect(result.format).toBe("pptx");
+  });
+
+  it("identifies a PNG ZIP result by its requested format", () => {
+    expect(
+      deckExportJobResultSchema.parse({
+        deckId: "deck_ai_1",
+        fileId: "file_export_2",
+        url: "/api/v1/files/file_export_2/download",
+        format: "png",
+        warnings: []
+      }).format
+    ).toBe("png");
   });
 });
