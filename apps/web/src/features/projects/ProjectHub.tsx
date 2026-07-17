@@ -3,21 +3,19 @@ import { useQuery } from "@tanstack/react-query";
 import {
   IconChevronRight,
   IconFileText,
-  IconMicrophone,
   IconPlus,
   IconRefresh,
   IconSearch,
   IconSparkles,
   IconTrash
 } from "@tabler/icons-react";
-import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { OrbitButton, OrbitEmptyState, OrbitIconButton, OrbitInput } from "../../design-system";
 import "../../styles/tokens.css";
 import { createProject, deleteProject, fetchProjects } from "./ProjectAssetWorkspace";
+import { WorkspaceProjectCard } from "./WorkspaceProjectCard";
 import "./orbit-project-hub.css";
 import "./workspace-home.css";
-
-const ProjectSlidePreview = lazy(() => import("./ProjectSlidePreview"));
 
 type ProjectHubProps = {
   onNavigate: (path: string) => void;
@@ -25,10 +23,23 @@ type ProjectHubProps = {
 
 export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string }) {
   const projects = useProjectList();
-  const recentProjects = useMemo(
-    () => sortProjects(projects.data ?? []).slice(0, 7),
-    [projects.data]
-  );
+  const [pinnedIds, setPinnedIds] = useState<string[]>(readPinnedProjectIds);
+  const recentProjects = useMemo(() => {
+    const sorted = sortProjects(projects.data ?? []);
+    const pinned = sorted.filter((project) => pinnedIds.includes(project.projectId));
+    const rest = sorted.filter((project) => !pinnedIds.includes(project.projectId));
+    return [...pinned, ...rest].slice(0, 7);
+  }, [projects.data, pinnedIds]);
+
+  function togglePinnedProject(projectId: string) {
+    setPinnedIds((current) => {
+      const next = current.includes(projectId)
+        ? current.filter((id) => id !== projectId)
+        : [projectId, ...current];
+      writePinnedProjectIds(next);
+      return next;
+    });
+  }
 
   return (
     <div className="workspace-home">
@@ -55,7 +66,15 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
             onClick={() => props.onNavigate("/createdeck")}
             type="button"
           >
-            <IconPlus aria-hidden="true" size={28} stroke={1.6} />
+            <span aria-hidden="true" className="workspace-home-create-icon">
+              <IconPlus size={22} stroke={1.8} />
+            </span>
+            <strong>새 발표자료 만들기</strong>
+            <small>
+              AI로 초안을 만들거나
+              <br />
+              빈 슬라이드로 시작하세요.
+            </small>
           </button>
 
           {projects.isLoading ? (
@@ -67,43 +86,20 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
               <button onClick={() => void projects.refetch()} type="button">다시 시도</button>
             </div>
           ) : (
-            recentProjects.map((project, index) => (
-              <article className="workspace-home-card" key={project.projectId}>
-                <button
-                  aria-label={`${project.title} 편집`}
-                  className="workspace-home-card-open"
-                  onClick={() => props.onNavigate(projectPath(project))}
-                  type="button"
-                >
-                  <span aria-hidden="true" className={`workspace-home-thumb tone-${index % 3}`}>
-                    <span className="workspace-home-thumb-slide">
-                      <b />
-                      <i />
-                      <i />
-                    </span>
-                    <Suspense fallback={null}>
-                      <ProjectSlidePreview projectId={project.projectId} />
-                    </Suspense>
-                  </span>
-                </button>
-                <footer>
-                  <span aria-hidden="true" className="workspace-home-card-icon">
-                    <IconFileText size={15} />
-                  </span>
-                  <span className="workspace-home-card-meta">
-                    <strong>{project.title}</strong>
-                    <small>{formatProjectDate(project)} 생성</small>
-                  </span>
-                  <button
-                    aria-label={`${project.title} 리허설 시작`}
-                    onClick={() => props.onNavigate(`/rehearsal/${encodeURIComponent(project.projectId)}`)}
-                    type="button"
-                  >
-                    <IconMicrophone aria-hidden="true" size={14} />
-                  </button>
-                </footer>
-              </article>
-            ))
+            recentProjects.map((project) => {
+              const isPinned = pinnedIds.includes(project.projectId);
+              return (
+                <WorkspaceProjectCard
+                  createdAtLabel={formatProjectDate(project)}
+                  isPinned={isPinned}
+                  key={project.projectId}
+                  onOpen={() => props.onNavigate(projectPath(project))}
+                  onRehearse={() => props.onNavigate(`/rehearsal/${encodeURIComponent(project.projectId)}`)}
+                  onTogglePinned={() => togglePinnedProject(project.projectId)}
+                  project={project}
+                />
+              );
+            })
           )}
         </div>
       </section>
@@ -229,4 +225,28 @@ function formatProjectDate(project: Project) {
 
 function projectPath(project: Project) {
   return `/project/${encodeURIComponent(project.projectId)}`;
+}
+
+const pinnedProjectsStorageKey = "orbit.workspace.pinned-projects";
+
+function readPinnedProjectIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(pinnedProjectsStorageKey);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((id): id is string => typeof id === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePinnedProjectIds(ids: string[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(pinnedProjectsStorageKey, JSON.stringify(ids));
+  } catch {
+    /* storage unavailable — pinning stays session-only */
+  }
 }
