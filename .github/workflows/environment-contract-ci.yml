@@ -1,4 +1,4 @@
-name: Environment Contract CI
+name: Environment Contract check
 
 on:
   pull_request:
