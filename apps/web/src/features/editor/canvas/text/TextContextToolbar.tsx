@@ -148,6 +148,7 @@ export function commitTextContextToolbarAction(args: {
 
 export function TextContextToolbar(props: {
   deck: Deck;
+  editCompositeId?: string;
   element: TextElement;
   loadedFontFamilies?: readonly string[];
   range?: RichTextRange | null;
@@ -156,9 +157,12 @@ export function TextContextToolbar(props: {
   stageElement: HTMLElement | null;
   stageScale: number;
   onCommitProps: (elementId: string, props: Record<string, unknown>) => void;
+  onEditCompositeBlur?: (nextTarget: Node | null) => void;
+  onPreserveRange?: () => void;
 }) {
   const {
     deck,
+    editCompositeId,
     element,
     loadedFontFamilies = bundledTextFontFamilies,
     range = null,
@@ -167,6 +171,8 @@ export function TextContextToolbar(props: {
     stageElement,
     stageScale,
     onCommitProps,
+    onEditCompositeBlur,
+    onPreserveRange,
   } = props;
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const [placement, setPlacement] =
@@ -301,7 +307,10 @@ export function TextContextToolbar(props: {
     <div
       aria-label="텍스트 서식"
       className="text-context-toolbar"
+      data-text-edit-composite={editCompositeId}
       data-placement={placement?.side ?? "above"}
+      onBlurCapture={(event) => onEditCompositeBlur?.(event.relatedTarget)}
+      onPointerDownCapture={() => onPreserveRange?.()}
       ref={toolbarRef}
       role="toolbar"
       style={{

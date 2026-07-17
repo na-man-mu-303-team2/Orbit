@@ -1,3 +1,4 @@
+import { normalizeRichTextProps } from "@orbit/editor-core";
 import {
   maxAssetUploadSizeBytes,
   type CustomShapeNode,
@@ -5,6 +6,7 @@ import {
   type DeckCanvas,
   type DeckElement,
   type Slide,
+  type TextElementProps,
 } from "@orbit/shared";
 import type Konva from "konva";
 import type { Box as TransformerBox } from "konva/lib/shapes/Transformer";
@@ -25,8 +27,11 @@ import { useCanvasKeyboardShortcuts } from "./hooks/useCanvasKeyboardShortcuts";
 import { useCanvasStageInteractions } from "./hooks/useCanvasStageInteractions";
 import { useSyncCustomShapeEditDraft } from "./hooks/useSyncCustomShapeEditDraft";
 import { ImageCropOverlay } from "./image/ImageCropOverlay";
-import { InlineTextEditorOverlay } from "./text/InlineTextEditorOverlay";
 import { InlineDataEditorOverlay } from "./data/InlineDataEditorOverlay";
+import {
+  InlineTextEditorOverlay,
+  type InlineTextEditorController,
+} from "./text/InlineTextEditorOverlay";
 import { TextContextToolbar } from "./text/TextContextToolbar";
 import {
   type CanvasSnapGuide,
@@ -355,6 +360,7 @@ export function EditableCanvas(props: {
     onSelectElements,
   } = props;
   const transformerRef = useRef<Konva.Transformer | null>(null);
+  const inlineTextEditorRef = useRef<InlineTextEditorController | null>(null);
   const nodeRefs = useRef<Record<string, Konva.Group | null>>({});
   const [containerElement, setContainerElement] =
     useState<HTMLDivElement | null>(null);
@@ -394,6 +400,10 @@ export function EditableCanvas(props: {
     end: number;
     start: number;
   } | null>(null);
+  const [editingTextDraft, setEditingTextDraft] = useState<{
+    elementId: string;
+    props: TextElementProps;
+  } | null>(null);
   const selectedTextElement =
     selectedElementIds.length === 1
       ? (visibleElements.find(
@@ -402,6 +412,14 @@ export function EditableCanvas(props: {
             candidate.type === "text",
         ) ?? null)
       : null;
+  const textToolbarElement =
+    selectedTextElement &&
+    editingTextDraft?.elementId === selectedTextElement.elementId
+      ? { ...selectedTextElement, props: editingTextDraft.props }
+      : selectedTextElement;
+  const textEditCompositeId = editingElementId
+    ? `inline-text-edit-${editingElementId}`
+    : undefined;
   const editingCustomShapeElement =
     customShapeEditElementId && customShapeEditElementId !== editingElementId
       ? (visibleElements.find(
@@ -464,6 +482,7 @@ export function EditableCanvas(props: {
   useEffect(() => {
     pendingTextBlurActionRef.current = null;
     setActiveTextRange(null);
+    setEditingTextDraft(null);
   }, [editingElementId]);
 
   useSyncCustomShapeEditDraft({
@@ -505,14 +524,20 @@ export function EditableCanvas(props: {
     onFinishEditing();
   }
 
-  function handleTextSelection(event: React.SyntheticEvent<HTMLDivElement>) {
-    const target = event.target;
-    if (!(target instanceof HTMLTextAreaElement) || !editingElementId) return;
-    setActiveTextRange({
-      elementId: editingElementId,
-      end: target.selectionEnd,
-      start: target.selectionStart,
-    });
+  function handleTextToolbarCommit(
+    elementId: string,
+    props: Record<string, unknown>,
+  ) {
+    if (editingElementId === elementId && inlineTextEditorRef.current) {
+      const nextProps = normalizeRichTextProps({
+        ...inlineTextEditorRef.current.getDraftProps(),
+        ...props,
+      } as TextElementProps);
+      inlineTextEditorRef.current.applyDraftProps(nextProps);
+      setEditingTextDraft({ elementId, props: nextProps });
+      return;
+    }
+    onCommitElementProps(elementId, props);
   }
 
   useCanvasKeyboardShortcuts({
@@ -591,7 +616,6 @@ export function EditableCanvas(props: {
       onContextMenu={(event) => {
         if (selectedElementIds.length > 1) event.preventDefault();
       }}
-      onSelectCapture={handleTextSelection}
     >
       <Stage
         className="konva-canvas-layer"
@@ -784,24 +808,6 @@ export function EditableCanvas(props: {
           />
         </Layer>
       </Stage>
-      {selectedTextElement &&
-      insertTool === "select" &&
-      !customShapeEditElementId ? (
-        <TextContextToolbar
-          deck={deck}
-          element={selectedTextElement}
-          range={
-            activeTextRange?.elementId === selectedTextElement.elementId
-              ? activeTextRange
-              : null
-          }
-          readOnly={disableInteractions}
-          slide={slide}
-          stageElement={containerElement}
-          stageScale={stageScale}
-          onCommitProps={onCommitElementProps}
-        />
-      ) : null}
       {imageCropElement ? (
         <ImageCropOverlay
           frame={{
@@ -824,19 +830,58 @@ export function EditableCanvas(props: {
           }}
         />
       ) : null}
-      {!imageCropElement && editingElementId ? (
+      {textToolbarElement &&
+      !imageCropElement &&
+      insertTool === "select" &&
+      !customShapeEditElementId ? (
+        <TextContextToolbar
+          deck={deck}
+          editCompositeId={
+            editingElementId === textToolbarElement.elementId
+              ? textEditCompositeId
+              : undefined
+          }
+          element={textToolbarElement}
+          range={
+            activeTextRange?.elementId === textToolbarElement.elementId
+              ? activeTextRange
+              : null
+          }
+          readOnly={disableInteractions}
+          slide={slide}
+          stageElement={containerElement}
+          stageScale={stageScale}
+          onCommitProps={handleTextToolbarCommit}
+          onEditCompositeBlur={(nextTarget) =>
+            inlineTextEditorRef.current?.handleCompositeBlur(nextTarget)
+          }
+          onPreserveRange={() => inlineTextEditorRef.current?.preserveRange()}
+        />
+      ) : null}
+      {!canvasInteractionDisabled && editingElementId ? (
         <>
           <InlineTextEditorOverlay
             deck={deck}
+            editCompositeId={textEditCompositeId}
             element={
               visibleElements.find(
                 (candidate) => candidate.elementId === editingElementId,
               ) ?? null
             }
+            key={editingElementId}
+            ref={inlineTextEditorRef}
             slide={slide}
             stageScale={stageScale}
             onCommitProps={onCommitElementProps}
+            onDraftPropsChange={(props) =>
+              setEditingTextDraft({ elementId: editingElementId, props })
+            }
             onFinishEditing={handleInlineTextEditingFinish}
+            onRangeChange={(range) =>
+              setActiveTextRange(
+                range ? { elementId: editingElementId, ...range } : null,
+              )
+            }
           />
           <InlineDataEditorOverlay
             element={
