@@ -4,6 +4,7 @@ import type {
   Deck,
   DesignImageGenerationResult,
   DesignAgentProposal,
+  SelectedDesignImageReference,
   SpeakerNotesSuggestionMode,
   Slide
 } from "@orbit/shared";
@@ -20,6 +21,10 @@ import {
   createDesignImageGeneration,
   pollDesignImageGeneration
 } from "../../design-agent/designAgentApi";
+import {
+  parseProjectAssetDescriptor,
+  resolveEditorAssetUrl
+} from "../../shared/editorAssetUrl";
 import { DesignProposalPreviewModal } from "./DesignProposalPreviewModal";
 
 export type AiChatMessage = {
@@ -42,6 +47,11 @@ export type AiChatState = {
 type PendingPreview = {
   candidateDeck: Deck;
   proposal: DesignAgentProposal;
+};
+
+type SelectedImagePreview = {
+  reference: SelectedDesignImageReference;
+  previewUrl: string;
 };
 
 type AiChatPanelProps = {
@@ -81,6 +91,11 @@ export function AiChatPanel(props: AiChatPanelProps) {
   const [isApplying, setIsApplying] = useState(false);
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
   const [mode, setMode] = useState<"design" | "image">("design");
+  const selectedImagePreview = getSelectedImagePreview(
+    props.projectId,
+    props.currentSlide,
+    props.selectedElementIds,
+  );
 
   function updateMessages(
     updater: (current: AiChatMessage[]) => AiChatMessage[]
@@ -111,7 +126,10 @@ export function AiChatPanel(props: AiChatPanelProps) {
           prompt: content,
           deckId: props.deck.deckId,
           slideId,
-          baseVersion: props.deck.version
+          baseVersion: props.deck.version,
+          ...(selectedImagePreview
+            ? { selectedImageReference: selectedImagePreview.reference }
+            : {})
         });
         const result = await pollDesignImageGeneration(generation.job.jobId);
         updateMessages((current) => [
@@ -340,6 +358,22 @@ export function AiChatPanel(props: AiChatPanelProps) {
             <Photo aria-hidden="true" size={14} /> 이미지 생성
           </button>
         </div>
+        {selectedImagePreview ? (
+          <div className="ai-chat-selected-image" aria-label="선택한 이미지 썸네일">
+            <img
+              alt={selectedImagePreview.reference.alt || "선택한 이미지"}
+              src={selectedImagePreview.previewUrl}
+            />
+            <div>
+              <strong>선택한 이미지</strong>
+              <span>
+                {mode === "image"
+                  ? "이미지 생성에 자동 사용됨"
+                  : "이미지 생성 모드에서 자동 사용됨"}
+              </span>
+            </div>
+          </div>
+        ) : null}
         <textarea
           aria-label="AI에게 메시지 보내기"
           placeholder={designEditingEnabled
@@ -375,4 +409,28 @@ export function AiChatPanel(props: AiChatPanelProps) {
       ) : null}
     </section>
   );
+}
+
+function getSelectedImagePreview(
+  projectId: string,
+  slide: Slide | null,
+  selectedElementIds: string[],
+): SelectedImagePreview | null {
+  if (!slide || selectedElementIds.length !== 1) return null;
+  const element = slide.elements.find(
+    (candidate) => candidate.elementId === selectedElementIds[0],
+  );
+  if (!element || element.type !== "image" || !element.props.src) return null;
+  const descriptor = parseProjectAssetDescriptor(element.props.src);
+  if (!descriptor || descriptor.projectId !== projectId) return null;
+  return {
+    previewUrl: resolveEditorAssetUrl(element.props.src),
+    reference: {
+      elementId: element.elementId,
+      fileId: descriptor.fileId,
+      projectId: descriptor.projectId,
+      src: element.props.src,
+      ...(element.props.alt ? { alt: element.props.alt } : {}),
+    },
+  };
 }

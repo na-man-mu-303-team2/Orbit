@@ -3,7 +3,7 @@ type ProjectAssetDescriptor = {
   projectId: string;
 };
 
-function parseProjectAssetDescriptor(src: string): ProjectAssetDescriptor | null {
+export function parseProjectAssetDescriptor(src: string): ProjectAssetDescriptor | null {
   if (!src) {
     return null;
   }

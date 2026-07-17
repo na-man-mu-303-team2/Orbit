@@ -13,8 +13,18 @@ describe("design image generation contract", () => {
         deckId: "deck_demo",
         slideId: "slide_1",
         baseVersion: 3,
+        selectedImageReference: {
+          elementId: "el_reference_image",
+          fileId: "file_reference",
+          projectId: "project_demo",
+          src: "/api/v1/projects/project_demo/assets/file_reference/content",
+          alt: "참고 이미지",
+        },
       }),
-    ).toMatchObject({ baseVersion: 3 });
+    ).toMatchObject({
+      baseVersion: 3,
+      selectedImageReference: { fileId: "file_reference" },
+    });
   });
 
   it("rejects invalid result dimensions", () => {
