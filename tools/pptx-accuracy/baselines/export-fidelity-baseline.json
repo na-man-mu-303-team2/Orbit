@@ -1,0 +1,159 @@
+{
+  "approval": {
+    "approvedAt": "2026-07-17",
+    "artifactAggregateSha256": "0a4af386a0a7e7fc4145c2b6c3f2897934cb72f52138fc66bb9b0078e82c3ce1",
+    "determinismChecksum": "a6178a0195ab2096c2b04f3800822e0cd222d1011d77a5d2929c8df39ece0b13",
+    "method": "two-run-deterministic-report-review",
+    "runCount": 2
+  },
+  "browserCapture": {
+    "browserVersion": "149.0.7827.55",
+    "deviceScaleFactor": 1,
+    "locale": "ko-KR",
+    "timezoneId": "UTC",
+    "viewport": {
+      "height": 1080,
+      "width": 1920
+    }
+  },
+  "diagnosticSummary": {
+    "byCode": {
+      "EXPORT_ARROWHEAD_DEGRADED_TO_LINE": 1,
+      "EXPORT_ELEMENT_INTENTIONAL_HIDDEN": 1,
+      "EXPORT_ELEMENT_TYPE_UNSUPPORTED": 1,
+      "EXPORT_GROUP_CONTAINER_SKIPPED": 1,
+      "EXPORT_IMAGE_CROP_NOT_SERIALIZED": 1
+    },
+    "byDisposition": {
+      "degraded": 2,
+      "intentional-hidden": 1,
+      "skipped": 2
+    },
+    "byElementType": {
+      "arrow": 1,
+      "customShape": 1,
+      "group": 1,
+      "image": 1,
+      "rect": 1
+    },
+    "expectedExporterWarningCodes": [
+      "EXPORT_ARROWHEAD_DEGRADED_TO_LINE",
+      "EXPORT_ELEMENT_TYPE_UNSUPPORTED",
+      "EXPORT_GROUP_CONTAINER_SKIPPED"
+    ],
+    "expectedExporterWarningCount": 3,
+    "total": 5
+  },
+  "exporterSourceSha256": "7c068fe3a376cdbde8ed262638fa1b14198a93efbaa6341511b0e21016191353",
+  "exporterWarningReconciliation": {
+    "actualCount": 3,
+    "code": "EXPORTER_WARNING_CODE_RECONCILIATION",
+    "expectedCodes": [
+      "EXPORT_ARROWHEAD_DEGRADED_TO_LINE",
+      "EXPORT_ELEMENT_TYPE_UNSUPPORTED",
+      "EXPORT_GROUP_CONTAINER_SKIPPED"
+    ],
+    "mappedCount": 3,
+    "mappingMethod": "isolated-element-probe-v1",
+    "matched": true,
+    "missingCodes": [],
+    "observedCodes": [
+      "EXPORT_ARROWHEAD_DEGRADED_TO_LINE",
+      "EXPORT_ELEMENT_TYPE_UNSUPPORTED",
+      "EXPORT_GROUP_CONTAINER_SKIPPED"
+    ],
+    "unexpectedCodes": [],
+    "unmappedCount": 0
+  },
+  "fixtureSha256": "36ab552ee55b4c037d36694f93adc3ee4043f12c957959698a44f5172d23db72",
+  "fontFiles": [
+    {
+      "family": "Pretendard",
+      "fileName": "PretendardVariable.woff2",
+      "role": "browser-package",
+      "sha256": "9599f12fd42fc0bce1cd50b47a0c022e108d7aa64dd0d1bb0ed44f3282d900b4"
+    },
+    {
+      "family": "Pretendard",
+      "fileName": "Pretendard-Regular.otf",
+      "role": "libreoffice-resolved",
+      "sha256": "3ffbacde6ab8411f1d2db54bb9b1f0b3ee2a738932033722cf0388c06aed1c93"
+    }
+  ],
+  "kind": "deck-pptx-export-baseline",
+  "metrics": {
+    "averageColorMae": 0.052089,
+    "averageSsim": 0.86245,
+    "evaluatedCount": 2,
+    "maximumColorMae": 0.087656,
+    "minimumSsim": 0.7888,
+    "missingCount": 0,
+    "p50Ssim": 0.86245,
+    "totalCount": 2
+  },
+  "rows": [
+    {
+      "colorMae": 0.016523,
+      "dimensions": {
+        "browser": [1920, 1080],
+        "libreOffice": [1920, 1080]
+      },
+      "name": "slide-001-slide_export_accuracy_text",
+      "slideId": "slide_export_accuracy_text",
+      "ssim": 0.9361,
+      "status": "evaluated"
+    },
+    {
+      "colorMae": 0.087656,
+      "dimensions": {
+        "browser": [1920, 1080],
+        "libreOffice": [1920, 1080]
+      },
+      "name": "slide-002-slide_export_accuracy_media",
+      "slideId": "slide_export_accuracy_media",
+      "ssim": 0.7888,
+      "status": "evaluated"
+    }
+  ],
+  "schemaVersion": 2,
+  "semanticAssertions": [
+    {
+      "actual": 0,
+      "code": "OOXML_TRANSITION_COUNT",
+      "expected": 1,
+      "passed": false
+    },
+    {
+      "actual": 0,
+      "code": "OOXML_TIMING_SLIDE_COUNT",
+      "expected": 1,
+      "passed": false
+    },
+    {
+      "actual": 0,
+      "code": "OOXML_IMAGE_CROP_COUNT",
+      "expected": 1,
+      "passed": false
+    },
+    {
+      "actual": 1,
+      "code": "OOXML_CHART_REFERENCE_COUNT",
+      "expected": 1,
+      "passed": true
+    },
+    {
+      "actual": 1,
+      "code": "OOXML_TABLE_COUNT",
+      "expected": 1,
+      "passed": true
+    }
+  ],
+  "toolVersions": {
+    "harnessSchema": "2",
+    "libreOffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+    "pillow": "11.3.0",
+    "pyMuPDF": "1.27.2.3",
+    "python": "3.12.13",
+    "pythonPptx": "1.0.2"
+  }
+}
