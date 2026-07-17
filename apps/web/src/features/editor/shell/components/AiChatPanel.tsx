@@ -3,6 +3,7 @@ import type {
   ApplyDesignAgentProposalResponse,
   Deck,
   DesignAgentProposal,
+  SpeakerNotesSuggestionMode,
   Slide
 } from "@orbit/shared";
 import { IconArrowUp as ArrowUp } from "@tabler/icons-react";
@@ -44,6 +45,7 @@ type AiChatPanelProps = {
   chatState: AiChatState;
   onChatStateChange: Dispatch<SetStateAction<AiChatState>>;
   onProposalApplied: (response: ApplyDesignAgentProposalResponse) => void;
+  onSpeakerNotesAssistantRequest: (mode: SpeakerNotesSuggestionMode) => void;
   designEditingEnabled?: boolean;
 };
 
@@ -110,6 +112,10 @@ export function AiChatPanel(props: AiChatPanelProps) {
           ? { ...current, sessionId: result.sessionId }
           : current
       );
+
+      if (result.uiAction?.type === "open-speaker-notes-assistant") {
+        props.onSpeakerNotesAssistantRequest(result.uiAction.mode);
+      }
 
       if (result.proposal) {
         const previewResult = applyDeckPatch(props.deck, {
@@ -218,15 +224,20 @@ export function AiChatPanel(props: AiChatPanelProps) {
       </div>
 
       <form className="ai-chat-composer" onSubmit={handleSubmit}>
-        <input
+        <textarea
           aria-label="AI에게 메시지 보내기"
           placeholder={designEditingEnabled
             ? "바꾸고 싶은 디자인을 말씀해 주세요"
             : "장표 설정에서 내용을 관리해 주세요"}
-          type="text"
+          rows={1}
           value={draft}
           disabled={isSending || !props.currentSlide || !designEditingEnabled}
           onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+            event.preventDefault();
+            event.currentTarget.form?.requestSubmit();
+          }}
         />
         <button aria-label="메시지 보내기" disabled={!canSend} type="submit">
           <ArrowUp size={17} strokeWidth={2.4} />

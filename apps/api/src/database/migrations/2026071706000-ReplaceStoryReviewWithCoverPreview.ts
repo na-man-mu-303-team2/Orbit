@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class ReplaceStoryReviewWithCoverPreview2026071705000 implements MigrationInterface {
-  name = "ReplaceStoryReviewWithCoverPreview2026071705000";
+export class ReplaceStoryReviewWithCoverPreview2026071706000 implements MigrationInterface {
+  name = "ReplaceStoryReviewWithCoverPreview2026071706000";
 
   async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`

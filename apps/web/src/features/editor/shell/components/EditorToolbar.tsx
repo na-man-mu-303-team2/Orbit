@@ -4,6 +4,7 @@ import {
   IconChartBar as BarChart3,
   IconChevronDown as ChevronDown,
   IconPhotoPlus as ImagePlus,
+  IconIcons,
   IconPointer as MousePointer2,
   IconShape as Shapes,
   IconSparkles as Sparkles,
@@ -19,11 +20,13 @@ type EditorToolbarProps = {
   insertTool: InsertTool;
   isAnimationPanelOpen: boolean;
   isImageUploadPending: boolean;
+  isIconPanelOpen: boolean;
   isShapeMenuOpen: boolean;
   onAddChart: () => void;
   onAddText: () => void;
   onOpenAnimation: () => void;
   onOpenImagePicker: () => void;
+  onOpenIconLibrary: () => void;
   onRedo: () => void;
   onSelectTool: () => void;
   onToggleShapeMenu: () => void;
@@ -74,6 +77,16 @@ export function EditorToolbar(props: EditorToolbarProps) {
           </div>
           <button aria-label="차트" className="tool-button" disabled={!props.canUseCurrentSlide} title={editDisabledTitle} type="button" onClick={props.onAddChart}>
             <BarChart3 size={14} /><span className="tool-button-label">차트</span>
+          </button>
+          <button
+            aria-label="아이콘"
+            className={`tool-button ${props.isIconPanelOpen ? "active" : ""}`}
+            disabled={!props.canUseCurrentSlide}
+            title={editDisabledTitle}
+            type="button"
+            onClick={props.onOpenIconLibrary}
+          >
+            <IconIcons size={14} /><span className="tool-button-label">아이콘</span>
           </button>
           <button aria-label="이미지" className="tool-button" disabled={!props.canUseCurrentSlide || props.isImageUploadPending} title={editDisabledTitle} type="button" onClick={props.onOpenImagePicker}>
             <ImagePlus size={14} /><span className="tool-button-label">이미지</span>

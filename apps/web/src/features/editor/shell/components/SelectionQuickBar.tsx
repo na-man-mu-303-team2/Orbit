@@ -588,9 +588,7 @@ function ElementQuickBarFields(props: {
           options={[
             { label: "막대", value: "bar" },
             { label: "선", value: "line" },
-            { label: "원형", value: "pie" },
-            { label: "도넛", value: "doughnut" },
-            { label: "산점도", value: "scatter" }
+            { label: "원형", value: "pie" }
           ]}
           value={chart.type}
           onChange={(value) =>
@@ -836,6 +834,7 @@ function convertChartData(chart: Chart, type: ChartType): Array<Record<string, n
 
   return chart.data.map((datum, index) => ({
     label: datum.label ?? `항목 ${index + 1}`,
+    ...(type === "line" && "series" in datum && datum.series ? { series: datum.series } : {}),
     value: "value" in datum ? datum.value : datum.y
   }));
 }
@@ -844,6 +843,12 @@ function chartDataDraft(chart: Chart) {
   if (chart.type === "scatter") {
     return chart.data
       .map((datum, index) => `${datum.label ?? `P${index + 1}`}:${datum.x}:${datum.y}`)
+      .join(", ");
+  }
+
+  if (chart.type === "line") {
+    return chart.data
+      .map((datum) => `${datum.series ?? "Series 1"}:${datum.label}:${datum.value}`)
       .join(", ");
   }
 
@@ -868,6 +873,17 @@ function parseChartDataDraft(value: string, type: ChartType): Array<Record<strin
         x: Number(first) || 0,
         y: Number(second) || 0
       };
+    });
+  }
+
+
+  if (type === "line") {
+    return entries.map((entry, index) => {
+      const parts = entry.split(":").map((part) => part.trim());
+      const [series, label, rawValue] = parts.length >= 3
+        ? parts
+        : ["Series 1", parts[0] ?? `항목 ${index + 1}`, parts[1] ?? "0"];
+      return { label, series, value: Number(rawValue) || 0 };
     });
   }
 

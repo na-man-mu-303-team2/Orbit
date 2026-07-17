@@ -1639,7 +1639,7 @@ historical `type` 값:
 - `apps/api/src/generate-deck/generate-deck.service.ts`
 - `apps/api/src/generate-deck/design-selection.controller.ts`
 - `apps/api/src/generate-deck/design-selection.service.ts`
-- `apps/api/src/database/migrations/2026071705000-ReplaceStoryReviewWithCoverPreview.ts`
+- `apps/api/src/database/migrations/2026071706000-ReplaceStoryReviewWithCoverPreview.ts`
 - `apps/api/src/database/migrations/2026071502000-CreateAiDeckGenerationStages.ts`
 - `apps/api/src/database/migrations/2026071503000-CreateAiDeckReferenceExtractionArtifacts.ts`
 - `apps/api/src/database/migrations/2026071601000-CreateAiDeckPlanningArtifacts.ts`

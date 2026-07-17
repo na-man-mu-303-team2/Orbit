@@ -139,6 +139,67 @@ export function getElementsIntersectingSelectionRect(
     .map((element) => element.elementId);
 }
 
+export type CanvasSnapGuide = {
+  axis: "x" | "y";
+  position: number;
+};
+
+export function getSnappedElementPosition(args: {
+  canvas: { height: number; width: number };
+  elementId: string;
+  elements: DeckElement[];
+  frame: { height: number; width: number; x: number; y: number };
+  threshold: number;
+}) {
+  const verticalTargets = [0, args.canvas.width / 2, args.canvas.width];
+  const horizontalTargets = [0, args.canvas.height / 2, args.canvas.height];
+
+  for (const element of args.elements) {
+    if (element.elementId === args.elementId || !element.visible) continue;
+    verticalTargets.push(element.x, element.x + element.width / 2, element.x + element.width);
+    horizontalTargets.push(element.y, element.y + element.height / 2, element.y + element.height);
+  }
+
+  const verticalSnap = findClosestSnap(
+    [0, args.frame.width / 2, args.frame.width],
+    verticalTargets,
+    args.frame.x,
+    args.threshold
+  );
+  const horizontalSnap = findClosestSnap(
+    [0, args.frame.height / 2, args.frame.height],
+    horizontalTargets,
+    args.frame.y,
+    args.threshold
+  );
+
+  return {
+    x: verticalSnap?.coordinate ?? args.frame.x,
+    y: horizontalSnap?.coordinate ?? args.frame.y,
+    guides: [
+      ...(verticalSnap ? [{ axis: "x" as const, position: verticalSnap.target }] : []),
+      ...(horizontalSnap ? [{ axis: "y" as const, position: horizontalSnap.target }] : [])
+    ]
+  };
+}
+
+function findClosestSnap(
+  anchorOffsets: number[],
+  targets: number[],
+  coordinate: number,
+  threshold: number
+) {
+  let closest: { coordinate: number; distance: number; target: number } | null = null;
+  for (const target of targets) {
+    for (const offset of anchorOffsets) {
+      const distance = Math.abs(target - (coordinate + offset));
+      if (distance > threshold || (closest && distance >= closest.distance)) continue;
+      closest = { coordinate: target - offset, distance, target };
+    }
+  }
+  return closest;
+}
+
 function getRotatedFrameBounds(element: DeckElement) {
   const radians = (element.rotation * Math.PI) / 180;
   const cos = Math.cos(radians);

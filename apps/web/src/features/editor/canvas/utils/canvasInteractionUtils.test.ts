@@ -1,7 +1,10 @@
 import type { DeckElement } from "@orbit/shared";
 import { describe, expect, it } from "vitest";
 
-import { getElementsIntersectingSelectionRect } from "./canvasInteractionUtils";
+import {
+  getElementsIntersectingSelectionRect,
+  getSnappedElementPosition
+} from "./canvasInteractionUtils";
 
 function element(
   elementId: string,
@@ -26,6 +29,28 @@ function element(
     }
   } as DeckElement;
 }
+
+describe("getSnappedElementPosition", () => {
+  it("snaps an element center to the canvas center", () => {
+    expect(getSnappedElementPosition({
+      canvas: { width: 1000, height: 600 },
+      elementId: "moving",
+      elements: [],
+      frame: { x: 397, y: 100, width: 200, height: 100 },
+      threshold: 5
+    })).toMatchObject({ x: 400, guides: [{ axis: "x", position: 500 }] });
+  });
+
+  it("snaps an element edge to another element edge", () => {
+    expect(getSnappedElementPosition({
+      canvas: { width: 1000, height: 600 },
+      elementId: "moving",
+      elements: [element("target", { x: 300, y: 200, width: 100, height: 80 })],
+      frame: { x: 196, y: 50, width: 100, height: 100 },
+      threshold: 5
+    })).toMatchObject({ x: 200, guides: [{ axis: "x", position: 300 }] });
+  });
+});
 
 describe("getElementsIntersectingSelectionRect", () => {
   it("returns visible elements intersecting the drag selection", () => {
