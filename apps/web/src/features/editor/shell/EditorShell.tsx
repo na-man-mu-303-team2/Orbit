@@ -20,6 +20,8 @@ import { EditorDebugPanels } from "./components/EditorDebugPanels";
 import { EditorTopbar } from "./components/EditorTopbar";
 import { createInitialAiChatState } from "./components/AiChatPanel";
 import { EditorSelectionProperties } from "./components/EditorSelectionProperties";
+import { MultiSelectionQuickBar } from "./components/MultiSelectionQuickBar";
+import { SelectionInspector } from "./components/SelectionInspector";
 import type {
   SaveErrorCode,
   SaveState
@@ -28,6 +30,14 @@ import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
 import { useEditorShellUiStore } from "./editorShellUiStore";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
 import { canEditSlideCanvas } from "./utils/slideEditingPolicy";
+import {
+  createSelectionInspectorModel,
+  resolveSelectionInspectorCompactMode
+} from "./selectionInspectorModel";
+import {
+  createDistributeSelectionPatch,
+  type DistributeAxis
+} from "./utils/selectionDistribution";
 import {
   canMutateProjectDeck,
   useProjectAccessMembership
@@ -120,6 +130,7 @@ import {
   EditorRightPanel,
   type AiPanelView
 } from "./components/EditorRightPanel";
+import type { EditorRightPanelMode } from "./utils/rightPanelMode";
 import {
   fetchDeck,
   flushEditorPersistenceBeforeManualAction
@@ -247,6 +258,11 @@ export function EditorShell(props: { projectId?: string }) {
   const setIsRightPanelOpen = useEditorShellUiStore(
     (state) => state.setIsRightPanelOpen
   );
+  const [rightPanelMode, setRightPanelMode] =
+    useState<EditorRightPanelMode>("assistant");
+  const [propertiesOpenRequestId, setPropertiesOpenRequestId] = useState(0);
+  const compactSelectionTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const selectionInspectorRef = useRef<HTMLElement | null>(null);
   const [aiPanelView, setAiPanelView] = useState<AiPanelView>("chat");
   const [aiChatState, setAiChatState] = useState(() =>
     createInitialAiChatState(projectId)
@@ -706,6 +722,7 @@ export function EditorShell(props: { projectId?: string }) {
   );
   const {
     canvasViewportRef: editorCanvasViewportRef,
+    editorViewportWidth,
     fitStageToViewport,
     isStageFitToViewport,
     stageScale,
@@ -771,6 +788,19 @@ export function EditorShell(props: { projectId?: string }) {
     selectedElementIds.length === 1
       ? selectedElements.find((element) => element.elementId === selectedElementId) ?? null
       : null;
+  const selectionInspectorCompactMode =
+    resolveSelectionInspectorCompactMode(editorViewportWidth);
+  const selectionInspectorModel = useMemo(
+    () =>
+      createSelectionInspectorModel({
+        compact: selectionInspectorCompactMode,
+        currentSlideElementIds: visibleElements.map((element) => element.elementId),
+        origin: "canvas",
+        selectedElementIds
+      }),
+    [selectionInspectorCompactMode, selectedElementIds, visibleElements]
+  );
+  const isCompactEditorLayout = selectionInspectorCompactMode === true;
   function setCurrentSlideIndex(index: number) {
     setCurrentSlideId(workingDeckRef.current.slides[index]?.slideId ?? null);
   }
@@ -1040,6 +1070,25 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
+  function requestPropertiesPanel() {
+    setIsIconPanelOpen(false);
+    setIsAnimationPanelOpen(false);
+    setPropertiesOpenRequestId((current) => current + 1);
+    setIsRightPanelOpen(true);
+  }
+
+  function openPropertiesForCanvasSelection(nextSelectedElementIds: string[]) {
+    const nextInspectorModel = createSelectionInspectorModel({
+      compact: selectionInspectorCompactMode,
+      currentSlideElementIds: visibleElements.map((element) => element.elementId),
+      origin: "canvas",
+      selectedElementIds: nextSelectedElementIds
+    });
+    if (nextInspectorModel.shouldAutoOpenDesignInspector) {
+      requestPropertiesPanel();
+    }
+  }
+
   function handleElementSelection(elementId: string, options?: { append?: boolean }) {
     setElementContextMenu(null);
     setCustomShapeEditElementId((current) =>
@@ -1048,15 +1097,18 @@ export function EditorShell(props: { projectId?: string }) {
 
     if (options?.append) {
       setEditingElementId(null);
-      setSelectedElementIds((current) =>
-        current.includes(elementId)
-          ? current.filter((currentElementId) => currentElementId !== elementId)
-          : [...current, elementId]
-      );
+      const nextSelectedElementIds = selectedElementIds.includes(elementId)
+        ? selectedElementIds.filter(
+            (currentElementId) => currentElementId !== elementId
+          )
+        : [...selectedElementIds, elementId];
+      setSelectedElementIds(nextSelectedElementIds);
+      openPropertiesForCanvasSelection(nextSelectedElementIds);
       return;
     }
 
     setSelectedElementIds([elementId]);
+    openPropertiesForCanvasSelection([elementId]);
   }
 
   function handleDuplicateSlide(slideId: string) {
@@ -1392,6 +1444,99 @@ export function EditorShell(props: { projectId?: string }) {
     };
   }, [currentSlide, selectedElement]);
 
+  function handleDistributeSelection(axis: DistributeAxis) {
+    if (!currentSlide || !canMutateDeck) return;
+    const patch = createDistributeSelectionPatch(
+      workingDeckRef.current,
+      currentSlide,
+      selectedElements,
+      axis
+    );
+    if (patch) commitPatch(patch);
+  }
+
+  function handleOpenCompactSelectionInspector() {
+    requestPropertiesPanel();
+    requestAnimationFrame(() => selectionInspectorRef.current?.focus());
+  }
+
+  function handleSelectionInspectorEscape() {
+    if (isCompactEditorLayout) {
+      setIsRightPanelOpen(false);
+      requestAnimationFrame(() => compactSelectionTriggerRef.current?.focus());
+      return;
+    }
+
+    requestAnimationFrame(() =>
+      document.getElementById("editor-properties-panel-tab")?.focus()
+    );
+  }
+
+  function renderSelectionInspector() {
+    const sharedProperties = {
+      animations: selectedElementAnimations,
+      animationDiagnostics: currentSlideAnimationDiagnostics,
+      canvas: deck.canvas,
+      customShapeEditActive: isCustomShapeEditingSelection,
+      onChangeElementFrame: handleElementFrameChange,
+      onChangeElementProps: handleElementPropsChange,
+      onChangeSlideStyle: (style: {
+        accentColor?: string | null;
+        backgroundColor?: string | null;
+        textColor?: string | null;
+      }) => {
+        if (currentSlide) handleSlideStyleChange(currentSlide.slideId, style);
+      },
+      onChangeTheme: handleThemeChange,
+      onCloseInlineEditing: () => setEditingElementId(null),
+      onCommitCustomShapeGeometry: handleCommitCustomShapeGeometry,
+      onDeleteAnimation: handleDeleteAnimation,
+      onOpenAnimationEditor: openAnimationInspector,
+      onToggleCustomShapeEdit: (elementId: string) =>
+        setCustomShapeEditElementId((current) =>
+          current === elementId ? null : elementId
+        ),
+      selectedKeywordLabel: selectedKeyword?.text ?? null,
+      showIds,
+      theme: deck.theme
+    };
+
+    return (
+      <SelectionInspector
+        canEdit={canMutateDeck && canEditCurrentSlideCanvas}
+        elementControls={
+          selectedElement ? (
+            <EditorSelectionProperties
+              {...sharedProperties}
+              element={selectedElement}
+              slide={currentSlide}
+            />
+          ) : null
+        }
+        elementLabel={selectedElement?.type}
+        focusRef={selectionInspectorRef}
+        model={selectionInspectorModel}
+        multiControls={
+          <MultiSelectionQuickBar
+            canDistribute={selectionInspectorModel.selectedCount >= 3}
+            selectedCount={selectionInspectorModel.selectedCount}
+            onDistributeX={() => handleDistributeSelection("x")}
+            onDistributeY={() => handleDistributeSelection("y")}
+          />
+        }
+        onEscape={handleSelectionInspectorEscape}
+        slideControls={
+          <EditorSelectionProperties
+            {...sharedProperties}
+            element={null}
+            slide={currentSlide}
+          />
+        }
+        slideLabel={currentSlide?.title}
+      />
+    );
+  }
+
   useEditorKeyboardShortcuts({
     canMutateDeck,
     copiedElementRef,
@@ -1640,6 +1785,29 @@ export function EditorShell(props: { projectId?: string }) {
               canZoomOut={stageScale > minimumManualEditorZoom}
               canMutate={canMutateDeck}
               canUseCurrentSlide={canEditCurrentSlideCanvas}
+              compactSelectionTrigger={
+                isCompactEditorLayout &&
+                canMutateDeck &&
+                selectionInspectorModel.selectedCount > 0 ? (
+                  <button
+                    aria-controls="editor-selection-inspector-pane"
+                    aria-describedby="compact-selection-count"
+                    aria-expanded={
+                      isRightPanelOpen && rightPanelMode === "properties"
+                    }
+                    aria-label="선택 항목 속성 열기"
+                    className="compact-selection-trigger"
+                    ref={compactSelectionTriggerRef}
+                    type="button"
+                    onClick={handleOpenCompactSelectionInspector}
+                  >
+                    <span>속성</span>
+                    <span id="compact-selection-count">
+                      {selectionInspectorModel.selectedCount}개 선택됨
+                    </span>
+                  </button>
+                ) : null
+              }
               insertTool={insertTool}
               isAnimationPanelOpen={isAnimationPanelOpen}
               isIconPanelOpen={isIconPanelOpen}
@@ -1736,6 +1904,7 @@ export function EditorShell(props: { projectId?: string }) {
                 setEditingElementId(null);
                 setCustomShapeEditElementId(null);
                 setSelectedElementIds(elementIds);
+                openPropertiesForCanvasSelection(elementIds);
               }
             }}
             renderingDeck={renderingDeck}
@@ -1899,32 +2068,7 @@ export function EditorShell(props: { projectId?: string }) {
                   handleSelectSlide(slideId);
                 }}
               />
-            ) : <EditorSelectionProperties
-              animations={selectedElementAnimations}
-              animationDiagnostics={currentSlideAnimationDiagnostics}
-              canvas={deck.canvas}
-              customShapeEditActive={isCustomShapeEditingSelection}
-              element={selectedElementIds.length === 1 ? selectedElement : null}
-              onChangeElementFrame={handleElementFrameChange}
-              onChangeElementProps={handleElementPropsChange}
-              onChangeSlideStyle={(style) => {
-                if (currentSlide) handleSlideStyleChange(currentSlide.slideId, style);
-              }}
-              onChangeTheme={handleThemeChange}
-              onCloseInlineEditing={() => setEditingElementId(null)}
-              onCommitCustomShapeGeometry={handleCommitCustomShapeGeometry}
-              onDeleteAnimation={handleDeleteAnimation}
-              onOpenAnimationEditor={openAnimationInspector}
-              onToggleCustomShapeEdit={(elementId) =>
-                setCustomShapeEditElementId((current) =>
-                  current === elementId ? null : elementId
-                )
-              }
-              selectedKeywordLabel={selectedKeyword?.text ?? null}
-              showIds={showIds}
-              slide={currentSlide}
-              theme={deck.theme}
-            />
+            ) : renderSelectionInspector()
           }
           editorValidationItems={editorValidationItems}
           iconLibrary={
@@ -1939,6 +2083,7 @@ export function EditorShell(props: { projectId?: string }) {
           isOpen={isRightPanelOpen}
           isAnimationPropertiesOpen={isAnimationPanelOpen}
           isPlayingAnimations={isPlayingCurrentSlideAnimations}
+          onActivePanelModeChange={setRightPanelMode}
           onAiChatStateChange={setAiChatState}
           onApplyAllValidationTextOverflow={handleApplyAllValidationTextOverflow}
           onHighlightElementIds={setValidationHighlightElementIds}
@@ -1953,6 +2098,7 @@ export function EditorShell(props: { projectId?: string }) {
           onSemanticCueExtract={(force) => void handleSemanticCueExtraction(force)}
           onTextOverflowAction={handleValidationTextOverflowAction}
           projectId={projectId}
+          propertiesOpenRequestId={propertiesOpenRequestId}
           pptxImportState={pptxImportState}
           rehearsalPanel={
             slideRehearsalReport ? (

@@ -152,6 +152,7 @@ export function useEditorViewport(args: {
 
   return {
     canvasViewportRef,
+    editorViewportWidth,
     fitStageToViewport,
     isStageFitToViewport: zoom.mode === "fit",
     stageScale,
