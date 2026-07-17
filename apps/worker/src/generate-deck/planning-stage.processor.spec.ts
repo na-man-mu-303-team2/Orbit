@@ -219,6 +219,9 @@ describe("processAiDeckPlanningStage", () => {
       if (compact.includes("FROM ai_deck_planning_artifacts artifacts")) {
         return [artifactRow("content-planning", contentPayload)];
       }
+      if (compact.includes("SELECT payload FROM jobs")) {
+        return [{ payload: { request: { topic: "Safe topic" } } }];
+      }
       if (compact.includes("SET status = 'failed', error_json")) {
         return [
           checkpointRow(
