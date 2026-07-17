@@ -41,11 +41,30 @@ import {
   measureTextContentBounds,
 } from "../../canvas/text/textLayout";
 import type { SlideAnimationDiagnostics } from "../../../../../../../packages/editor-core/src/index";
+import { resolveRedesignPalette } from "../../../../styles/redesignPalette";
 import { IdBadge } from "./EditorIdBadge";
 
 type TextFitContext = {
   fontFamily?: string;
 };
+
+function useEditorPrimaryColor(fallbackColor: string) {
+  const [primaryColor, setPrimaryColor] = useState(fallbackColor);
+
+  useEffect(() => {
+    const editorShell = document.querySelector<HTMLElement>(
+      ".orbit-shell.editor-professional",
+    );
+    if (!editorShell) return;
+
+    const palette = resolveRedesignPalette(editorShell);
+    if (palette) {
+      setPrimaryColor(palette.primary);
+    }
+  }, []);
+
+  return primaryColor;
+}
 
 export function SelectionQuickBar(props: {
   animations: DeckAnimation[];
@@ -81,6 +100,12 @@ export function SelectionQuickBar(props: {
   onToggleCustomShapeEdit: () => void;
   showIds: boolean;
 }) {
+  const editorPrimaryColor = useEditorPrimaryColor(
+    props.theme?.palette.primary ??
+      props.theme?.accentColor ??
+      props.slide?.style.accentColor ??
+      "",
+  );
   const {
     animationDiagnostics,
     customShapeEditActive,
@@ -137,7 +162,7 @@ export function SelectionQuickBar(props: {
           <PropertyColorField
             className="compact-property-field compact-property-field-color"
             label="강조색"
-            value={slide.style.accentColor ?? "#2563eb"}
+            value={slide.style.accentColor ?? editorPrimaryColor}
             onCommit={(value) => onChangeSlideStyle({ accentColor: value })}
           />
           <div className="quickbar-divider" />
@@ -150,7 +175,7 @@ export function SelectionQuickBar(props: {
           <PropertyColorField
             className="compact-property-field compact-property-field-color"
             label="테마 강조"
-            value={theme?.accentColor ?? "#2563eb"}
+            value={theme?.accentColor ?? editorPrimaryColor}
             onCommit={(value) =>
               onChangeTheme({ accentColor: value, palette: { primary: value } })
             }
@@ -428,6 +453,7 @@ export function SelectionQuickBar(props: {
               onChangeProps={onChangeProps}
               onToggleCustomShapeClosed={onToggleCustomShapeClosed}
               onToggleCustomShapeEdit={onToggleCustomShapeEdit}
+              primaryColor={editorPrimaryColor}
             />
           </div>
         </div>
@@ -471,6 +497,7 @@ function ElementQuickBarFields(props: {
   onChangeProps: (props: Record<string, unknown>) => void;
   onToggleCustomShapeClosed: () => void;
   onToggleCustomShapeEdit: () => void;
+  primaryColor: string;
 }) {
   const {
     customShapeEditActive,
@@ -478,6 +505,7 @@ function ElementQuickBarFields(props: {
     onChangeProps,
     onToggleCustomShapeClosed,
     onToggleCustomShapeEdit,
+    primaryColor,
   } = props;
 
   if (element.type === "text") {
@@ -562,13 +590,13 @@ function ElementQuickBarFields(props: {
         <PropertyColorField
           className="compact-property-field compact-property-field-color"
           label="채우기"
-          value={solidPaintForControl(shapeProps.fill, "#dbeafe")}
+          value={solidPaintForControl(shapeProps.fill, primaryColor)}
           onCommit={(value) => onChangeProps({ fill: value })}
         />
         <PropertyColorField
           className="compact-property-field compact-property-field-color"
           label="선 색"
-          value={solidPaintForControl(shapeProps.stroke, "#2563eb")}
+          value={solidPaintForControl(shapeProps.stroke, primaryColor)}
           onCommit={(value) => onChangeProps({ stroke: value })}
         />
         <PropertyNumberField
@@ -773,7 +801,7 @@ function ElementQuickBarFields(props: {
         <PropertyColorField
           className="compact-property-field compact-property-field-color"
           label="색상"
-          value={chart.style.colors[0] ?? "#2563eb"}
+          value={chart.style.colors[0] ?? primaryColor}
           onCommit={(value) =>
             onChangeProps({
               style: {

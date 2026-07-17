@@ -12,7 +12,7 @@
   --line: var(--redesign-color-outline-variant);
   --line-strong: color-mix(in srgb, var(--redesign-color-outline) 55%, var(--redesign-color-outline-variant));
   --blue: var(--redesign-color-primary);
-  --blue-strong: var(--redesign-color-on-primary-container);
+  --blue-strong: var(--redesign-color-primary);
   --blue-border: color-mix(in srgb, var(--redesign-color-primary) 45%, var(--redesign-color-outline-variant));
   --blue-soft: color-mix(in srgb, var(--redesign-color-primary) 14%, var(--redesign-color-surface-container-low));
   --on-accent: var(--redesign-color-on-primary);

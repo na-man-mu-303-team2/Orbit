@@ -52,6 +52,10 @@ export function EditableElementNode(props: {
   deck: Deck;
   disablePointerEvents: boolean;
   element: DeckElement;
+  editorPrimaryColor: string;
+  editorPrimaryMediumColor: string;
+  editorPrimarySoftColor: string;
+  editorPrimaryStrongSoftColor: string;
   isSelected: boolean;
   presentationState?: ElementPresentationState;
   selectedCount: number;
@@ -77,6 +81,10 @@ export function EditableElementNode(props: {
     deck,
     disablePointerEvents,
     element,
+    editorPrimaryColor,
+    editorPrimaryMediumColor,
+    editorPrimarySoftColor,
+    editorPrimaryStrongSoftColor,
     isSelected,
     presentationState,
     selectedCount,
@@ -107,10 +115,10 @@ export function EditableElementNode(props: {
   const isMultiSelected = isSelected && selectedCount > 1;
   const selectionHitFill = isSelected
     ? isMultiSelected
-      ? "rgba(37, 99, 235, 0.16)"
-      : "rgba(37, 99, 235, 0.08)"
+      ? editorPrimaryStrongSoftColor
+      : editorPrimarySoftColor
     : "rgba(15, 23, 42, 0.001)";
-  const selectionStroke = isSelected ? "#2563eb" : "transparent";
+  const selectionStroke = isSelected ? editorPrimaryColor : "transparent";
   const selectionStrokeWidth = isSelected ? (isMultiSelected ? 3 : 2) : 0;
   const selectionDash = isMultiSelected ? [12, 6] : undefined;
   const elementIdLabel = getDisplayIdLabel(element.elementId);
@@ -257,6 +265,9 @@ export function EditableElementNode(props: {
         <CustomShapeEditOverlay
           draft={customShapeEditDraft}
           frame={frame}
+          primaryColor={editorPrimaryColor}
+          primaryMediumColor={editorPrimaryMediumColor}
+          primarySoftColor={editorPrimarySoftColor}
           onChangeDraft={onChangeCustomShapeEditDraft}
           onCommitDraft={onCommitCustomShapeEditDraft}
           {...getCustomShapeOverlayViewBox({
@@ -279,7 +290,7 @@ export function EditableElementNode(props: {
             shadowBlur={14}
             shadowColor="rgba(15, 23, 42, 0.18)"
             shadowOpacity={0.28}
-            stroke="#2563eb"
+            stroke={editorPrimaryColor}
             strokeWidth={1.5}
             width={canvasIdBadgeWidth}
           />
