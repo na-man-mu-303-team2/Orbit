@@ -27,6 +27,7 @@ from app.ai.deck_generation.models import (
     SlidePlan,
     SlideType,
     SpeakerNotesRepairPlan,
+    SourceRecord,
     StylePromptContext,
 )
 from app.ai.deck_generation.source_grounding import (
@@ -77,8 +78,7 @@ Rules:
 
 def story_plan_response_format_for(raw_input: RawInput) -> dict[str, Any]:
     source_ids = sorted(
-        source.source_id
-        for source in (raw_input.source_records or initial_source_records(raw_input))
+        source.source_id for source in story_source_records(raw_input)
     )
     source_items: dict[str, Any] = {"type": "string"}
     if source_ids:
@@ -2532,7 +2532,7 @@ def deck_content_prompt(
     style_context: StylePromptContext,
 ) -> str:
     keywords = reference_keywords_for(raw_input.reference_keywords)
-    source_records = raw_input.source_records or initial_source_records(raw_input)
+    source_records = story_source_records(raw_input)
     allowed_numeric_values = sorted(
         {
             value
@@ -2553,7 +2553,7 @@ def deck_content_prompt(
                 source.content[:1600],
             ]
         )
-        for source in source_records[:12]
+        for source in source_records
     )
     lines = [
         f"Topic: {raw_input.topic}",
@@ -2644,6 +2644,25 @@ def deck_content_prompt(
         ]
     )
     return "\n".join(lines)
+
+
+def story_source_records(raw_input: RawInput) -> list[SourceRecord]:
+    records = raw_input.source_records or initial_source_records(raw_input)
+    topics = [record for record in records if record.source_type == "topic"][:1]
+    uploaded = [record for record in records if record.source_type == "uploaded"]
+    web = [record for record in records if record.source_type == "web"]
+    policy = raw_input.brief.reference_policy
+    if policy == "references-only":
+        evidence = uploaded[:12]
+    elif policy == "references-first":
+        evidence = [*uploaded[:12], *web[: max(0, 12 - len(uploaded))]]
+    elif policy == "research-first":
+        evidence = [*web[:8], *uploaded[:4]]
+    elif policy == "user-input-only":
+        evidence = []
+    else:
+        evidence = uploaded[:12]
+    return [*topics, *evidence]
 
 
 def narrative_design_prompt(

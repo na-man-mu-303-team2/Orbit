@@ -407,6 +407,51 @@ def search_reference_chunks(
     )
 
 
+def search_reference_chunks_by_file(
+    *,
+    repository: ReferenceRepository | None,
+    project_id: str,
+    query: str,
+    file_ids: list[str],
+    limit_per_file: int = 3,
+    embedding_client: EmbeddingClient | None = None,
+    model: str = DEFAULT_EMBEDDING_MODEL,
+    api_key: str | None = None,
+) -> tuple[list[ReferenceSearchResult], EmbeddingResult]:
+    if repository is None:
+        return [], EmbeddingResult(
+            status="unavailable",
+            message="DATABASE_URL is not configured.",
+            model=model,
+        )
+
+    embedding_result = create_embeddings(
+        [query],
+        client=embedding_client,
+        model=model,
+        api_key=api_key,
+    )
+    if embedding_result.status != "succeeded":
+        return [], embedding_result
+
+    query_embedding = embedding_result.embeddings[0]
+    results: list[ReferenceSearchResult] = []
+    # ponytail: selectors are capped at 10 files; use one window query if that grows.
+    for file_id in dict.fromkeys(file_ids):
+        try:
+            results.extend(
+                repository.search_chunks(
+                    project_id,
+                    query_embedding,
+                    limit=limit_per_file,
+                    file_ids=[file_id],
+                )
+            )
+        except Exception:
+            continue
+    return results, embedding_result
+
+
 def _normalize_text(text: str) -> str:
     return "\n".join(line.rstrip() for line in text.replace("\r\n", "\n").split("\n")).strip()
 
