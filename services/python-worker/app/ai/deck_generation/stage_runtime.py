@@ -18,6 +18,7 @@ from app.ai.deck_generation.layout_compiler import (
 )
 from app.ai.deck_generation.models import (
     ContentPlan,
+    DeckContentGenerationError,
     DesignPlan,
     GenerateDeckRequest,
     ImageReviewMode,
