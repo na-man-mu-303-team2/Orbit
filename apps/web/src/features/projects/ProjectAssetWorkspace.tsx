@@ -88,6 +88,23 @@ async function readErrorMessage(response: Response, fallback: string) {
   return message || fallback;
 }
 
+export async function fetchProjectDeckPreview(
+  projectId: string,
+  fetcher: Fetcher = fetch,
+): Promise<Deck | null> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/deck`,
+    { credentials: "include" },
+  );
+  if (!response.ok) return null;
+  try {
+    const body = (await response.json()) as { deck?: unknown };
+    return deckSchema.parse(body.deck);
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchProjects(fetcher: Fetcher = fetch) {
   const response = await fetcher(
     `/api/v1/workspaces/${demoIds.workspaceId}/projects`,

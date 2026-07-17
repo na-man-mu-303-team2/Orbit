@@ -10,12 +10,14 @@ import {
   IconSparkles,
   IconTrash
 } from "@tabler/icons-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
 import { OrbitButton, OrbitEmptyState, OrbitIconButton, OrbitInput } from "../../design-system";
 import "../../styles/tokens.css";
 import { createProject, deleteProject, fetchProjects } from "./ProjectAssetWorkspace";
 import "./orbit-project-hub.css";
 import "./workspace-home.css";
+
+const ProjectSlidePreview = lazy(() => import("./ProjectSlidePreview"));
 
 type ProjectHubProps = {
   onNavigate: (path: string) => void;
@@ -79,6 +81,9 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
                       <i />
                       <i />
                     </span>
+                    <Suspense fallback={null}>
+                      <ProjectSlidePreview projectId={project.projectId} />
+                    </Suspense>
                   </span>
                 </button>
                 <footer>

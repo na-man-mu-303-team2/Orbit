@@ -279,10 +279,12 @@
 /* Thumbnail — dark canvas with a miniature slide */
 
 .workspace-home-thumb {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   aspect-ratio: 16 / 10;
+  overflow: hidden;
   padding: var(--redesign-space-lg);
   border-bottom: 1px solid var(--redesign-color-outline-variant);
   background:
@@ -353,6 +355,20 @@
 
 .workspace-home-thumb-slide i:last-child {
   width: 52%;
+}
+
+/* Live first-slide preview — fills the whole thumbnail over the skeleton */
+
+.workspace-home-thumb-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--redesign-color-surface);
+  pointer-events: none;
 }
 
 /* Card footer */
