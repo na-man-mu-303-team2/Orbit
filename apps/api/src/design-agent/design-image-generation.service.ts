@@ -8,6 +8,7 @@ import {
   type CreateDesignImageGenerationRequest,
   type CreateDesignImageGenerationResponse,
   type Deck,
+  type DesignImageReferenceAttachment,
   type SelectedDesignImageReference,
   type Slide,
 } from "@orbit/shared";
@@ -29,6 +30,12 @@ export const DESIGN_IMAGE_GENERATION_ENQUEUE_JOB =
 export type DesignImageGenerationEnqueueJob = (
   input: EnqueueDesignImageGenerationJobInput,
 ) => Promise<void>;
+
+const designImageReferenceMimeTypes = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 
 @Injectable()
 export class DesignImageGenerationService {
@@ -65,6 +72,10 @@ export class DesignImageGenerationService {
       request.selectedImageReference,
       slide,
     );
+    const referenceImages = await this.resolveReferenceImages(
+      projectId,
+      request.referenceImages ?? [],
+    );
 
     const queuedJob = await this.jobsService.create({
       projectId,
@@ -82,6 +93,7 @@ export class DesignImageGenerationService {
       aspectRatio: resolveAspectRatio(current.deck),
       slideContext: buildSlideContext(current.deck, request.slideId),
       ...(selectedImageReference ? { selectedImageReference } : {}),
+      referenceImages,
     });
 
     try {
@@ -154,13 +166,36 @@ export class DesignImageGenerationService {
       throw new BadRequestException("Selected image reference must be a project asset.");
     }
     const asset = await this.filesService.getUploadedAsset(projectId, reference.fileId);
-    if (!asset.mimeType.startsWith("image/")) {
+    if (!designImageReferenceMimeTypes.has(asset.mimeType)) {
       throw new BadRequestException("Selected image reference must be an image asset.");
     }
     return {
       ...reference,
       alt: reference.alt || element.props.alt || asset.originalName,
     };
+  }
+
+  private async resolveReferenceImages(
+    projectId: string,
+    images: DesignImageReferenceAttachment[] = [],
+  ): Promise<DesignImageReferenceAttachment[]> {
+    const resolved = new Map<string, DesignImageReferenceAttachment>();
+    for (const image of images) {
+      const asset = await this.filesService.getUploadedAsset(
+        projectId,
+        image.fileId,
+        "reference-material",
+      );
+      if (!designImageReferenceMimeTypes.has(asset.mimeType)) {
+        throw new BadRequestException("Design image references must be image assets.");
+      }
+      resolved.set(asset.fileId, {
+        fileId: asset.fileId,
+        fileName: asset.originalName,
+        mimeType: asset.mimeType as DesignImageReferenceAttachment["mimeType"],
+      });
+    }
+    return [...resolved.values()];
   }
 }
 
@@ -178,6 +213,7 @@ function nullSafePayload(request: CreateDesignImageGenerationRequest) {
           },
         }
       : {}),
+    referenceImageFileIds: (request.referenceImages ?? []).map((image) => image.fileId),
   };
 }
 

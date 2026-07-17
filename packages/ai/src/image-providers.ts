@@ -29,7 +29,7 @@ export class OpenAiGeneratedImageProvider implements GeneratedImageProvider {
   }): Promise<ImageAssetCandidate> {
     const referenceImages = input.referenceImages;
     if (referenceImages?.length) {
-      return this.editFromReference({ ...input, referenceImages });
+      return this.editFromReferences({ ...input, referenceImages });
     }
     const response = await fetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
@@ -73,14 +73,13 @@ export class OpenAiGeneratedImageProvider implements GeneratedImageProvider {
     };
   }
 
-  private async editFromReference(input: {
+  private async editFromReferences(input: {
     prompt: string;
     aspectRatio?: "landscape" | "portrait" | "square";
     referenceImages: readonly GeneratedImageReferenceImage[];
     abortSignal?: AbortSignal;
   }): Promise<ImageAssetCandidate> {
     const form = new FormData();
-    const [reference] = input.referenceImages;
     form.set("model", this.model);
     form.set("prompt", input.prompt);
     form.set(
@@ -93,18 +92,18 @@ export class OpenAiGeneratedImageProvider implements GeneratedImageProvider {
     );
     form.set("quality", "medium");
     form.set("output_format", "png");
-    form.set("input_fidelity", reference?.inputFidelity ?? "high");
-    form.set(
-      "image",
-      new Blob(reference ? [reference.body] : [], {
-        type: reference?.mimeType ?? "image/png",
-      }),
-      reference?.fileName ?? "reference.png",
-    );
+    form.set("input_fidelity", "high");
+    for (const reference of input.referenceImages) {
+      form.append(
+        "image[]",
+        new Blob([reference.body], { type: reference.mimeType }),
+        reference.fileName,
+      );
+    }
     const response = await fetch("https://api.openai.com/v1/images/edits", {
       method: "POST",
       headers: {
-        authorization: `Bearer ${this.apiKey}`,
+        authorization: `Bearer ${this.apiKey}`
       },
       body: form,
       signal: input.abortSignal

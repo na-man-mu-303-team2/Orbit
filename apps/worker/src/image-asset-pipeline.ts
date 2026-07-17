@@ -51,11 +51,7 @@ export async function generateDesignImageAsset(
   }
 
   const enrichedPrompt = buildDesignImagePrompt(payload);
-  const referenceImages = await loadSelectedReferenceImages(
-    dataSource,
-    storage,
-    payload,
-  );
+  const referenceImages = await loadReferenceImages(dataSource, storage, payload);
   const asset = await retryImageRequest(
     () =>
       runtime.generated!.generate({
@@ -90,46 +86,81 @@ export async function generateDesignImageAsset(
   });
 }
 
-async function loadSelectedReferenceImages(
+async function loadReferenceImages(
   dataSource: DataSource,
   storage: Pick<StoragePort, "getSignedReadUrl">,
   payload: DesignImageGenerationJobPayload,
 ): Promise<GeneratedImageReferenceImage[]> {
-  const reference = payload.selectedImageReference;
-  if (!reference) return [];
-  if (reference.projectId !== payload.projectId) {
-    throw new Error("Selected image project mismatch");
+  const loaded: GeneratedImageReferenceImage[] = [];
+  const selectedReference = payload.selectedImageReference;
+  if (selectedReference) {
+    if (selectedReference.projectId !== payload.projectId) {
+      throw new Error("Selected image project mismatch");
+    }
+    const rows = (await dataSource.query(
+      `
+        SELECT file_id, project_id, storage_key, original_name, mime_type, size
+        FROM project_assets
+        WHERE project_id = $1
+          AND file_id = $2
+          AND status = 'uploaded'
+          AND mime_type IN ('image/png', 'image/jpeg', 'image/webp')
+        LIMIT 1
+      `,
+      [payload.projectId, selectedReference.fileId],
+    )) as StoredAssetRow[];
+    const asset = rows[0];
+    if (!asset) {
+      throw new Error("Selected image reference asset is unavailable");
+    }
+    loaded.push(await readReferenceImage(storage, asset, "Selected image reference content is unavailable"));
   }
-  const rows = (await dataSource.query(
-    `
-      SELECT file_id, project_id, storage_key, original_name, mime_type, size
-      FROM project_assets
-      WHERE project_id = $1
-        AND file_id = $2
-        AND status = 'uploaded'
-        AND mime_type IN ('image/png', 'image/jpeg', 'image/webp')
-      LIMIT 1
-    `,
-    [payload.projectId, reference.fileId],
-  )) as StoredAssetRow[];
-  const asset = rows[0];
-  if (!asset) {
-    throw new Error("Selected image reference asset is unavailable");
+
+  const attachments = payload.referenceImages ?? [];
+  if (attachments.length) {
+    const fileIds = attachments.map((image) => image.fileId);
+    const rows = (await dataSource.query(
+      `
+        SELECT file_id, project_id, storage_key, original_name, mime_type, size
+        FROM project_assets
+        WHERE project_id = $1
+          AND file_id = ANY($2::text[])
+          AND purpose = 'reference-material'
+          AND status = 'uploaded'
+          AND mime_type IN ('image/png', 'image/jpeg', 'image/webp')
+      `,
+      [payload.projectId, fileIds],
+    )) as StoredAssetRow[];
+    const rowsById = new Map(rows.map((row) => [row.file_id, row]));
+    for (const fileId of fileIds) {
+      const asset = rowsById.get(fileId);
+      if (!asset) {
+        throw new Error("Reference image asset is unavailable");
+      }
+      loaded.push(await readReferenceImage(storage, asset, "Reference image content is unavailable"));
+    }
   }
+
+  return loaded;
+}
+
+async function readReferenceImage(
+  storage: Pick<StoragePort, "getSignedReadUrl">,
+  asset: StoredAssetRow,
+  unavailableMessage: string,
+): Promise<GeneratedImageReferenceImage> {
   const response = await fetch(await storage.getSignedReadUrl(asset.storage_key), {
     signal: AbortSignal.timeout(30_000),
   });
   if (!response.ok) {
-    throw new Error("Selected image reference content is unavailable");
+    throw new Error(unavailableMessage);
   }
-  return [
-    {
-      body: new Uint8Array(await response.arrayBuffer()),
-      mimeType: asset.mime_type as GeneratedImageReferenceImage["mimeType"],
-      fileName: asset.original_name,
-      inputFidelity: "high",
-    },
-  ];
+  return {
+    body: new Uint8Array(await response.arrayBuffer()),
+    mimeType: asset.mime_type as GeneratedImageReferenceImage["mimeType"],
+    fileName: asset.original_name,
+    inputFidelity: "high",
+  };
 }
 
 function buildDesignImagePrompt(payload: DesignImageGenerationJobPayload) {

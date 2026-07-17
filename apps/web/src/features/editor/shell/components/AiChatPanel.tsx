@@ -3,6 +3,7 @@ import type {
   ApplyDesignAgentProposalResponse,
   Deck,
   DesignImageGenerationResult,
+  DesignImageReferenceAttachment,
   DesignAgentProposal,
   SelectedDesignImageReference,
   SpeakerNotesSuggestionMode,
@@ -10,7 +11,9 @@ import type {
 } from "@orbit/shared";
 import { IconArrowUp as ArrowUp, IconPhoto as Photo } from "@tabler/icons-react";
 import {
+  useRef,
   useState,
+  type ChangeEvent,
   type Dispatch,
   type FormEvent,
   type SetStateAction
@@ -21,6 +24,10 @@ import {
   createDesignImageGeneration,
   pollDesignImageGeneration
 } from "../../design-agent/designAgentApi";
+import {
+  getAssetValidationMessage,
+  uploadProjectAsset
+} from "../../../projects/ProjectAssetWorkspace";
 import {
   parseProjectAssetDescriptor,
   resolveEditorAssetUrl
@@ -89,13 +96,81 @@ export function AiChatPanel(props: AiChatPanelProps) {
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
+  const [isUploadingReferenceImage, setIsUploadingReferenceImage] = useState(false);
+  const [referenceImages, setReferenceImages] = useState<
+    DesignImageReferenceAttachment[]
+  >([]);
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
   const [mode, setMode] = useState<"design" | "image">("design");
+  const referenceImageInputRef = useRef<HTMLInputElement | null>(null);
+  const maxReferenceImages = 3;
   const selectedImagePreview = getSelectedImagePreview(
     props.projectId,
     props.currentSlide,
     props.selectedElementIds,
   );
+
+  async function handleReferenceImageSelection(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!files.length || !props.currentSlide || !designEditingEnabled) return;
+    const remainingSlots = maxReferenceImages - referenceImages.length;
+    if (remainingSlots <= 0) {
+      appendErrorMessage("이미지 참고자료는 최대 3개까지만 첨부할 수 있습니다.");
+      return;
+    }
+
+    const selectedFiles = files.slice(0, remainingSlots);
+    const invalidFile = selectedFiles.find((file) => {
+      const validationMessage = getAssetValidationMessage(file);
+      return validationMessage || !toDesignImageReferenceMimeType(file.type);
+    });
+    if (invalidFile) {
+      appendErrorMessage("이미지 생성 참고자료는 JPG, PNG, WebP 이미지만 첨부할 수 있습니다.");
+      return;
+    }
+
+    setIsUploadingReferenceImage(true);
+    try {
+      const uploadedImages = await Promise.all(
+        selectedFiles.map(async (file) => {
+          const uploaded = await uploadProjectAsset(
+            props.projectId,
+            file,
+            "reference-material",
+          );
+          const mimeType = toDesignImageReferenceMimeType(uploaded.mimeType);
+          if (!mimeType) {
+            throw new Error("이미지 생성 참고자료는 JPG, PNG, WebP 이미지만 첨부할 수 있습니다.");
+          }
+          return {
+            fileId: uploaded.fileId,
+            fileName: uploaded.originalName,
+            mimeType,
+          } satisfies DesignImageReferenceAttachment;
+        }),
+      );
+      setReferenceImages((current) => {
+        const next = [...current];
+        for (const image of uploadedImages) {
+          if (!next.some((item) => item.fileId === image.fileId)) {
+            next.push(image);
+          }
+        }
+        return next.slice(0, maxReferenceImages);
+      });
+    } catch (error) {
+      appendErrorMessage(error);
+    } finally {
+      setIsUploadingReferenceImage(false);
+    }
+  }
+
+  function removeReferenceImage(fileId: string) {
+    setReferenceImages((current) =>
+      current.filter((image) => image.fileId !== fileId)
+    );
+  }
 
   function updateMessages(
     updater: (current: AiChatMessage[]) => AiChatMessage[]
@@ -129,7 +204,8 @@ export function AiChatPanel(props: AiChatPanelProps) {
           baseVersion: props.deck.version,
           ...(selectedImagePreview
             ? { selectedImageReference: selectedImagePreview.reference }
-            : {})
+            : {}),
+          referenceImages
         });
         const result = await pollDesignImageGeneration(generation.job.jobId);
         updateMessages((current) => [
@@ -280,7 +356,11 @@ export function AiChatPanel(props: AiChatPanelProps) {
   }
 
   const canSend = Boolean(
-    draft.trim() && props.currentSlide && designEditingEnabled && !isSending
+    draft.trim() &&
+      props.currentSlide &&
+      designEditingEnabled &&
+      !isSending &&
+      !isUploadingReferenceImage
   );
 
   return (
@@ -374,6 +454,50 @@ export function AiChatPanel(props: AiChatPanelProps) {
             </div>
           </div>
         ) : null}
+        {mode === "image" ? (
+          <>
+            <div className="ai-chat-reference-images-header">
+              <span>참고 이미지</span>
+              <button
+                type="button"
+                onClick={() => referenceImageInputRef.current?.click()}
+                disabled={
+                  !designEditingEnabled ||
+                  !props.currentSlide ||
+                  isUploadingReferenceImage ||
+                  referenceImages.length >= maxReferenceImages
+                }
+                aria-label="이미지 생성 참고 이미지 첨부하기"
+              >
+                {isUploadingReferenceImage ? "첨부중..." : "이미지 첨부"}
+              </button>
+              <span>{referenceImages.length}/{maxReferenceImages}</span>
+            </div>
+            <div className="ai-chat-reference-images" aria-live="polite">
+              {referenceImages.map((image) => (
+                <div key={image.fileId} className="ai-chat-reference-image-item">
+                  <span>이미지: {image.fileName}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeReferenceImage(image.fileId)}
+                    aria-label={`${image.fileName} 삭제`}
+                    disabled={!designEditingEnabled || !props.currentSlide}
+                  >
+                    삭제
+                  </button>
+                </div>
+              ))}
+            </div>
+            <input
+              ref={referenceImageInputRef}
+              type="file"
+              accept=".jpeg,.jpg,.png,.webp,image/jpeg,image/png,image/webp"
+              multiple
+              onChange={handleReferenceImageSelection}
+              style={{ display: "none" }}
+            />
+          </>
+        ) : null}
         <textarea
           aria-label="AI에게 메시지 보내기"
           placeholder={designEditingEnabled
@@ -433,4 +557,12 @@ function getSelectedImagePreview(
       ...(element.props.alt ? { alt: element.props.alt } : {}),
     },
   };
+}
+
+function toDesignImageReferenceMimeType(value: string) {
+  return value === "image/jpeg" ||
+    value === "image/png" ||
+    value === "image/webp"
+    ? value
+    : null;
 }

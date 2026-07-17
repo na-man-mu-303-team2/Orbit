@@ -14,18 +14,7 @@ describe("DesignImageGenerationService", () => {
   it("queues a sanitized slide context without speaker notes", async () => {
     const deck = createDemoDeck();
     deck.slides[0]!.speakerNotes = "외부 provider에 보내면 안 되는 발표자 스크립트";
-    const job = {
-      jobId: "job_image_1",
-      projectId: deck.projectId,
-      type: "design-image-generation" as const,
-      status: "queued" as const,
-      progress: 0,
-      message: "queued",
-      result: null,
-      error: null,
-      createdAt: "2026-07-18T00:00:00.000Z",
-      updatedAt: "2026-07-18T00:00:00.000Z",
-    };
+    const job = queuedJob(deck.projectId, "job_image_1");
     const enqueue = vi.fn(async () => undefined);
     const service = new DesignImageGenerationService(
       { getDeck: vi.fn(async () => ({ projectId: deck.projectId, deck, updatedAt: job.updatedAt })) } as unknown as DecksService,
@@ -40,6 +29,7 @@ describe("DesignImageGenerationService", () => {
       deckId: deck.deckId,
       slideId: deck.slides[0]!.slideId,
       baseVersion: deck.version,
+      referenceImages: [],
     });
 
     expect(response.job.type).toBe("design-image-generation");
@@ -70,6 +60,7 @@ describe("DesignImageGenerationService", () => {
         deckId: deck.deckId,
         slideId: deck.slides[0]!.slideId,
         baseVersion: deck.version + 1,
+        referenceImages: [],
       }),
     ).rejects.toThrow("baseVersion is stale");
     expect(jobs.create).not.toHaveBeenCalled();
@@ -102,18 +93,7 @@ describe("DesignImageGenerationService", () => {
         },
       }),
     ];
-    const job = {
-      jobId: "job_image_2",
-      projectId: deck.projectId,
-      type: "design-image-generation" as const,
-      status: "queued" as const,
-      progress: 0,
-      message: "queued",
-      result: null,
-      error: null,
-      createdAt: "2026-07-18T00:00:00.000Z",
-      updatedAt: "2026-07-18T00:00:00.000Z",
-    };
+    const job = queuedJob(deck.projectId, "job_image_selected");
     const enqueue = vi.fn(async () => undefined);
     const service = new DesignImageGenerationService(
       { getDeck: vi.fn(async () => ({ projectId: deck.projectId, deck, updatedAt: job.updatedAt })) } as unknown as DecksService,
@@ -142,6 +122,7 @@ describe("DesignImageGenerationService", () => {
         projectId: deck.projectId,
         src: `/api/v1/projects/${deck.projectId}/assets/file_reference/content`,
       },
+      referenceImages: [],
     });
 
     expect(enqueue).toHaveBeenCalledWith(
@@ -149,8 +130,78 @@ describe("DesignImageGenerationService", () => {
         selectedImageReference: expect.objectContaining({
           fileId: "file_reference",
           elementId: "el_reference_image",
+          alt: "reference",
         }),
       }),
     );
   });
+
+  it("verifies image reference attachments before queueing", async () => {
+    const deck = createDemoDeck();
+    const job = queuedJob(deck.projectId, "job_image_reference");
+    const enqueue = vi.fn(async () => undefined);
+    const filesService = {
+      getUploadedAsset: vi.fn(async () => ({
+        fileId: "file_reference",
+        projectId: deck.projectId,
+        originalName: "reference.png",
+        mimeType: "image/png",
+        purpose: "reference-material",
+        status: "uploaded",
+      })),
+    };
+    const service = new DesignImageGenerationService(
+      { getDeck: vi.fn(async () => ({ projectId: deck.projectId, deck, updatedAt: job.updatedAt })) } as unknown as DecksService,
+      { create: vi.fn(async () => job), update: vi.fn() } as unknown as JobsService,
+      filesService as unknown as FilesService,
+      enqueue,
+      { info: vi.fn(), error: vi.fn() } as never,
+    );
+
+    await service.create(deck.projectId, "user_1", {
+      prompt: "첨부 이미지를 참고해서 생성",
+      deckId: deck.deckId,
+      slideId: deck.slides[0]!.slideId,
+      baseVersion: deck.version,
+      referenceImages: [
+        {
+          fileId: "file_reference",
+          fileName: "client-name.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(filesService.getUploadedAsset).toHaveBeenCalledWith(
+      deck.projectId,
+      "file_reference",
+      "reference-material",
+    );
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceImages: [
+          {
+            fileId: "file_reference",
+            fileName: "reference.png",
+            mimeType: "image/png",
+          },
+        ],
+      }),
+    );
+  });
 });
+
+function queuedJob(projectId: string, jobId: string) {
+  return {
+    jobId,
+    projectId,
+    type: "design-image-generation" as const,
+    status: "queued" as const,
+    progress: 0,
+    message: "queued",
+    result: null,
+    error: null,
+    createdAt: "2026-07-18T00:00:00.000Z",
+    updatedAt: "2026-07-18T00:00:00.000Z",
+  };
+}

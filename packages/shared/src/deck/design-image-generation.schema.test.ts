@@ -6,7 +6,7 @@ import {
 } from "./design-image-generation.schema";
 
 describe("design image generation contract", () => {
-  it("accepts a bounded generation request", () => {
+  it("accepts a bounded generation request with selected and attached references", () => {
     expect(
       createDesignImageGenerationRequestSchema.parse({
         prompt: "궤도를 도는 위성의 사실적인 일러스트",
@@ -15,15 +15,23 @@ describe("design image generation contract", () => {
         baseVersion: 3,
         selectedImageReference: {
           elementId: "el_reference_image",
-          fileId: "file_reference",
+          fileId: "file_selected",
           projectId: "project_demo",
-          src: "/api/v1/projects/project_demo/assets/file_reference/content",
-          alt: "참고 이미지",
+          src: "/api/v1/projects/project_demo/assets/file_selected/content",
+          alt: "선택 이미지",
         },
+        referenceImages: [
+          {
+            fileId: "file_reference",
+            fileName: "reference.png",
+            mimeType: "image/png",
+          },
+        ],
       }),
     ).toMatchObject({
       baseVersion: 3,
-      selectedImageReference: { fileId: "file_reference" },
+      selectedImageReference: { fileId: "file_selected" },
+      referenceImages: [{ fileId: "file_reference" }],
     });
   });
 

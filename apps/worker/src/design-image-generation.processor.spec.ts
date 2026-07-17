@@ -32,27 +32,7 @@ describe("design image generation asset", () => {
         "putObject" | "getSignedReadUrl"
       >,
       { generated: { generate }, maxPerDeck: 4, maxPerUserPerDay: 30 },
-      {
-        jobId: "job_1",
-        projectId: "project_1",
-        userId: "user_1",
-        deckId: "deck_1",
-        slideId: "slide_1",
-        baseVersion: 1,
-        prompt: "푸른 지구를 도는 위성",
-        aspectRatio: "landscape",
-        slideContext: {
-          title: "우주 기술",
-          text: ["저궤도 위성 네트워크"],
-          theme: {
-            name: "Orbit",
-            primaryColor: "#2563eb",
-            secondaryColor: "#7c3aed",
-            accentColor: "#2563eb",
-            backgroundColor: "#ffffff",
-          },
-        },
-      },
+      basePayload({ jobId: "job_1", prompt: "푸른 지구를 도는 위성" }),
     );
 
     expect(generate).toHaveBeenCalledWith(
@@ -63,39 +43,7 @@ describe("design image generation asset", () => {
   });
 
   it("passes selected image bytes to the generated image provider", async () => {
-    const generate = vi.fn<GeneratedImageProvider["generate"]>(async () => ({
-      body: pngHeader(1536, 1024),
-      mimeType: "image/png",
-      fileName: "generated.png",
-      provider: "openai",
-      usageBasis: "generated",
-    }));
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([{ user_count: "0" }])
-      .mockResolvedValueOnce([
-        {
-          file_id: "file_reference",
-          project_id: "project_1",
-          storage_key: "projects/project_1/assets/file_reference.png",
-          original_name: "reference.png",
-          mime_type: "image/png",
-          size: 24,
-        },
-      ])
-      .mockResolvedValueOnce([]);
-    const putObject = vi.fn(async () => ({
-      key: "key",
-      url: "url",
-      contentType: "image/png",
-      purpose: "design-asset" as const,
-      size: 24,
-    }));
-    const getSignedReadUrl = vi.fn(async () => "https://storage.local/reference.png");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(pngHeader(800, 600), { status: 200 })),
-    );
+    const { generate, query, putObject, getSignedReadUrl } = referenceImageMocks();
 
     await generateDesignImageAsset(
       { query } as unknown as DataSource,
@@ -105,25 +53,7 @@ describe("design image generation asset", () => {
       >,
       { generated: { generate }, maxPerDeck: 4, maxPerUserPerDay: 30 },
       {
-        jobId: "job_2",
-        projectId: "project_1",
-        userId: "user_1",
-        deckId: "deck_1",
-        slideId: "slide_1",
-        baseVersion: 1,
-        prompt: "참고 이미지와 비슷한 분위기",
-        aspectRatio: "landscape",
-        slideContext: {
-          title: "우주 기술",
-          text: [],
-          theme: {
-            name: "Orbit",
-            primaryColor: "#2563eb",
-            secondaryColor: "#7c3aed",
-            accentColor: "#2563eb",
-            backgroundColor: "#ffffff",
-          },
-        },
+        ...basePayload({ jobId: "job_2", prompt: "참고 이미지와 비슷한 분위기" }),
         selectedImageReference: {
           elementId: "el_reference_image",
           fileId: "file_reference",
@@ -145,7 +75,104 @@ describe("design image generation asset", () => {
       }),
     );
   });
+
+  it("passes chat reference image bytes to the generated image provider", async () => {
+    const { generate, query, putObject, getSignedReadUrl } = referenceImageMocks();
+
+    await generateDesignImageAsset(
+      { query } as unknown as DataSource,
+      { putObject, getSignedReadUrl } as Pick<
+        StoragePort,
+        "putObject" | "getSignedReadUrl"
+      >,
+      { generated: { generate }, maxPerDeck: 4, maxPerUserPerDay: 30 },
+      {
+        ...basePayload({ jobId: "job_3", prompt: "첨부 이미지를 참고해서 생성" }),
+        referenceImages: [
+          {
+            fileId: "file_reference",
+            fileName: "reference.png",
+            mimeType: "image/png",
+          },
+        ],
+      },
+    );
+
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceImages: [
+          expect.objectContaining({
+            fileName: "reference.png",
+            mimeType: "image/png",
+            inputFidelity: "high",
+          }),
+        ],
+      }),
+    );
+  });
 });
+
+function basePayload(input: { jobId: string; prompt: string }) {
+  return {
+    jobId: input.jobId,
+    projectId: "project_1",
+    userId: "user_1",
+    deckId: "deck_1",
+    slideId: "slide_1",
+    baseVersion: 1,
+    prompt: input.prompt,
+    aspectRatio: "landscape" as const,
+    referenceImages: [],
+    slideContext: {
+      title: "우주 기술",
+      text: ["저궤도 위성 네트워크"],
+      theme: {
+        name: "Orbit",
+        primaryColor: "#2563eb",
+        secondaryColor: "#7c3aed",
+        accentColor: "#2563eb",
+        backgroundColor: "#ffffff",
+      },
+    },
+  };
+}
+
+function referenceImageMocks() {
+  const generate = vi.fn<GeneratedImageProvider["generate"]>(async () => ({
+    body: pngHeader(1536, 1024),
+    mimeType: "image/png",
+    fileName: "generated.png",
+    provider: "openai",
+    usageBasis: "generated",
+  }));
+  const query = vi
+    .fn()
+    .mockResolvedValueOnce([{ user_count: "0" }])
+    .mockResolvedValueOnce([
+      {
+        file_id: "file_reference",
+        project_id: "project_1",
+        storage_key: "projects/project_1/assets/file_reference.png",
+        original_name: "reference.png",
+        mime_type: "image/png",
+        size: 24,
+      },
+    ])
+    .mockResolvedValueOnce([]);
+  const putObject = vi.fn(async () => ({
+    key: "key",
+    url: "url",
+    contentType: "image/png",
+    purpose: "design-asset" as const,
+    size: 24,
+  }));
+  const getSignedReadUrl = vi.fn(async () => "https://storage.local/reference.png");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(pngHeader(800, 600), { status: 200 })),
+  );
+  return { generate, query, putObject, getSignedReadUrl };
+}
 
 function pngHeader(width: number, height: number) {
   const body = new Uint8Array(24);
