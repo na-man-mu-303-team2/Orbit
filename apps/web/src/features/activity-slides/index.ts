@@ -12,6 +12,7 @@ export {
   ActivitySlidePreview,
   type ActivityPreviewRole
 } from "./editor/ActivitySlidePreview";
+export { ActivitySpecialSlideThumbnail } from "./editor/ActivitySpecialSlideThumbnail";
 export { activityQueryKeys } from "./model/activityQueryKeys";
 export {
   acceptActivityRevision,

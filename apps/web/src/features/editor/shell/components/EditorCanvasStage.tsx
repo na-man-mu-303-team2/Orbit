@@ -2,7 +2,11 @@ import type { Deck, Slide } from "@orbit/shared";
 import type Konva from "konva";
 import type { ComponentProps, MutableRefObject, ReactNode, RefObject } from "react";
 
-import { ActivitySlidePreview } from "../../../activity-slides";
+import {
+  ActivityResultSlideRenderer,
+  ActivitySlidePreview,
+  findActivityResultSource
+} from "../../../activity-slides";
 import {
   EditableCanvas,
   HiddenSlideRenderStages
@@ -39,6 +43,21 @@ export function EditorCanvasStage(props: EditorCanvasStageProps) {
             {props.currentSlide.kind === "activity" ? (
               <div aria-label="잠긴 시스템 레이어" className="activity-editor-system-layer">
                 <ActivitySlidePreview role="audience" slide={props.currentSlide} />
+              </div>
+            ) : props.currentSlide.kind === "activity-results" ? (
+              <div aria-label="잠긴 시스템 레이어" className="activity-editor-system-layer">
+                <ActivityResultSlideRenderer
+                  presenterResult={null}
+                  publicResult={null}
+                  role="presenter"
+                  run={null}
+                  scale={props.stageScale}
+                  slide={props.currentSlide}
+                  source={findActivityResultSource(
+                    props.deck,
+                    props.currentSlide.activityResult.sourceActivityId
+                  )}
+                />
               </div>
             ) : (
               <EditableCanvas

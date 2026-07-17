@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react";
 import { useState, type PointerEvent as ReactPointerEvent } from "react";
 
+import { ActivitySpecialSlideThumbnail } from "../../../activity-slides";
 import type { SlidePanelView } from "../editorShellUiStore";
 import { buildSlideThumbBackground } from "../utils/editorLayout";
 import { IdBadge } from "./EditorIdBadge";
@@ -86,13 +87,19 @@ export function SlideNavigatorPane(props: {
                   className="slide-thumb orbit-thumb"
                   style={{
                     aspectRatio: `${props.deck.canvas.width} / ${props.deck.canvas.height}`,
-                    background: buildSlideThumbBackground(
-                      slide,
-                      props.deck,
-                      props.slideThumbnailUrls[slide.slideId]
-                    )
+                    background: slide.kind === "content"
+                      ? buildSlideThumbBackground(
+                          slide,
+                          props.deck,
+                          props.slideThumbnailUrls[slide.slideId]
+                        )
+                      : undefined
                   }}
-                />
+                >
+                  {slide.kind === "activity" || slide.kind === "activity-results" ? (
+                    <ActivitySpecialSlideThumbnail deck={props.deck} slide={slide} />
+                  ) : null}
+                </span>
               </button>
             ))
           ) : (

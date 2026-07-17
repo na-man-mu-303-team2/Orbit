@@ -16,6 +16,7 @@ import {
 } from "./ActivitySlideInspector";
 import { ActivityEditorOperationsPanel } from "./ActivityEditorOperationsPanel";
 import { ActivitySlidePreview } from "./ActivitySlidePreview";
+import { ActivitySpecialSlideThumbnail } from "./ActivitySpecialSlideThumbnail";
 import {
   ActivityResultSlideInspector,
   findCurrentActivityResult,
@@ -45,6 +46,29 @@ describe("activity slide editor", () => {
     expect(html).toContain("잠긴 시스템 레이어");
     expect(html).toContain('data-activity-system-layer="locked"');
     expect(html).toContain('data-semantic-locked="false"');
+  });
+
+  it("renders meaningful thumbnails for activity and linked result slides", () => {
+    const deck = deckSchema.parse({
+      ...createDemoDeck(),
+      slides: [...createDemoDeck().slides, slide]
+    });
+    const resultSlide = createActivityResultsSlide(deck, slide.activity.activityId);
+
+    const activityHtml = renderToStaticMarkup(
+      <ActivitySpecialSlideThumbnail deck={deck} slide={slide} />
+    );
+    const resultHtml = renderToStaticMarkup(
+      <ActivitySpecialSlideThumbnail
+        deck={{ ...deck, slides: [...deck.slides, resultSlide] }}
+        slide={resultSlide}
+      />
+    );
+
+    expect(activityHtml).toContain('data-testid="activity-slide-thumbnail"');
+    expect(activityHtml).toContain(slide.activity.title);
+    expect(resultHtml).toContain('data-testid="activity-results-slide-thumbnail"');
+    expect(resultHtml).toContain(`${slide.activity.title} 결과`);
   });
 
   it("renders editor status, public state, direct link, and QR controls", () => {
