@@ -198,6 +198,6 @@ describe("AI PPT simplified input", () => {
     expect(source).not.toContain("Saved Design Pack");
     expect(source).not.toContain("referencePolicyOptions");
     expect(source).not.toContain("/generation/${encodeURIComponent(jobId)}/story");
-    expect(source).toContain("storyPlanPath(projectId, jobId)");
+    expect(source).toContain("styleColorPath(project.projectId, data.job.jobId)");
   });
 });

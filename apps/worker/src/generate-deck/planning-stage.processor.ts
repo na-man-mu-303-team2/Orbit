@@ -14,9 +14,14 @@ import {
   type JobError,
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { AiDeckPlanningArtifactRepository } from "./planning-artifact-repository";
+import {
+  completedSlideV2ArtifactPayloadSchema,
+  coverSlideArtifactPayloadSchema,
+} from "./execution-stage-contract";
 import {
   contentPlanningArtifactPayloadSchema,
   designPlanningArtifactPayloadSchema,
@@ -76,25 +81,6 @@ const parentJobRowSchema = z.object({
   error: jobErrorSchema.nullable(),
   created_at: timestampSchema,
   updated_at: timestampSchema,
-});
-const regenerationReviewRowSchema = z.object({
-  regeneration_instruction: z.string().max(240).nullable(),
-});
-const previousContentRowSchema = z.object({
-  payload_json: z
-    .object({
-      contentPlan: z
-        .object({
-          outline: z
-            .object({
-              slide_titles: z.array(z.string()).optional(),
-              slideTitles: z.array(z.string()).optional(),
-            })
-            .passthrough(),
-        })
-        .passthrough(),
-    })
-    .passthrough(),
 });
 
 const nextStageByStage: Partial<
@@ -313,7 +299,6 @@ async function buildStageInput(
       );
       return contentPlanningStageInput(
         sourceGroundingArtifactPayloadSchema.parse(artifact.payload),
-        await loadRegenerationContext(dataSource, message),
       );
     }
     case "design-planning": {
@@ -323,8 +308,8 @@ async function buildStageInput(
         "content-planning",
       );
       return designPlanningStageInput(
-        contentPlanningArtifactPayloadSchema.parse(artifact.payload),
-        await hasApprovedStoryReview(dataSource, message),
+        await applySelectedDesign(dataSource, message, artifact.payload),
+        true,
       );
     }
     case "layout-compile": {
@@ -340,70 +325,39 @@ async function buildStageInput(
   }
 }
 
-async function hasApprovedStoryReview(
+async function applySelectedDesign(
   dataSource: Pick<DataSource, "query">,
   message: AiDeckGenerationStageMessage,
-): Promise<boolean> {
-  return Boolean(
-    firstQueryRow(
-      await dataSource.query(
-        `
-          SELECT 1
-          FROM ai_deck_story_reviews
-          WHERE pipeline_job_id = $1
-            AND project_id = $2
-            AND status = 'approved'
-        `,
-        [message.pipelineJobId, message.projectId],
-      ),
-    ),
-  );
-}
-
-async function loadRegenerationContext(
-  dataSource: DataSource,
-  message: AiDeckGenerationStageMessage,
-): Promise<
-  | { instruction?: string; previousSlideTitles: string[] }
-  | undefined
-> {
-  const review = firstQueryRow(
+  rawContent: unknown,
+) {
+  const content = contentPlanningArtifactPayloadSchema.parse(rawContent);
+  const parent = firstQueryRow(
     await dataSource.query(
-      `
-        SELECT regeneration_instruction
-        FROM ai_deck_story_reviews
-        WHERE pipeline_job_id = $1
-          AND project_id = $2
-          AND status = 'regenerating'
-      `,
+      `SELECT payload FROM jobs
+       WHERE job_id = $1 AND project_id = $2 AND type = 'ai-deck-generation'`,
       [message.pipelineJobId, message.projectId],
     ),
   );
-  if (!review) return undefined;
-  const parsedReview = regenerationReviewRowSchema.parse(review);
-  const previous = firstQueryRow(
-    await dataSource.query(
-      `
-        SELECT payload_json
-        FROM ai_deck_planning_artifacts
-        WHERE pipeline_job_id = $1
-          AND project_id = $2
-          AND stage = 'content-planning'
-      `,
-      [message.pipelineJobId, message.projectId],
-    ),
-  );
-  const parsedPrevious = previous
-    ? previousContentRowSchema.parse(previous)
-    : null;
-  const outline = parsedPrevious?.payload_json.contentPlan.outline;
-  return {
-    ...(parsedReview.regeneration_instruction
-      ? { instruction: parsedReview.regeneration_instruction }
-      : {}),
-    previousSlideTitles:
-      outline?.slideTitles ?? outline?.slide_titles ?? [],
-  };
+  if (!parent || typeof parent !== "object" || !("payload" in parent)) {
+    throw new Error("AI deck generation parent job not found.");
+  }
+  const stored = generateDeckStoredJobPayloadSchema.parse(parent.payload);
+  if (!stored.designSelection) return content;
+  const rawInput = z.record(z.unknown()).parse(content.rawInput);
+  const rawDesign = z.record(z.unknown()).catch({}).parse(rawInput.design);
+  return contentPlanningArtifactPayloadSchema.parse({
+    ...content,
+    rawInput: {
+      ...rawInput,
+      designPrompt:
+        stored.designSelection.designPrompt ?? stored.request.designPrompt ?? "",
+      design: {
+        ...rawDesign,
+        paletteOverride: stored.designSelection.paletteOverride,
+        fontOverride: stored.designSelection.fontOverride,
+      },
+    },
+  });
 }
 
 async function loadGroundingRequest(
@@ -502,7 +456,7 @@ async function completeStage(
 
     if (
       message.stage === "content-planning" &&
-      (await completeStoryReview(manager, message))
+      !(await canStartDesignPlanning(manager, message))
     ) {
       return updateParentProgress(
         manager,
@@ -521,6 +475,7 @@ async function completeStage(
         throw new Error("Next AI deck planning checkpoint was not created.");
     } else {
       await ensureImageOrSemanticCheckpoints(
+        manager,
         checkpoints,
         message,
         payload,
@@ -535,7 +490,7 @@ async function completeStage(
   });
 }
 
-async function completeStoryReview(
+async function canStartDesignPlanning(
   manager: Pick<DataSource, "query">,
   message: AiDeckGenerationStageMessage,
 ): Promise<boolean> {
@@ -551,69 +506,31 @@ async function completeStoryReview(
       [message.pipelineJobId, message.projectId],
     ),
   );
-  if (
-    !parent ||
-    typeof parent !== "object" ||
-    !("payload" in parent) ||
-    !generateDeckStoredJobPayloadSchema.parse(parent.payload)
-      .storyReviewRequired
-  ) {
-    return false;
-  }
-  const review = firstQueryRow(
+  const designSelected = Boolean(
+    parent &&
+      typeof parent === "object" &&
+      "payload" in parent &&
+      generateDeckStoredJobPayloadSchema.parse(parent.payload).designSelection,
+  );
+  if (!designSelected) return false;
+  const cover = firstQueryRow(
     await manager.query(
-      `
-        SELECT status, revision
-        FROM ai_deck_story_reviews
-        WHERE pipeline_job_id = $1 AND project_id = $2
-        FOR UPDATE
-      `,
-      [message.pipelineJobId, message.projectId],
+      `SELECT status FROM ai_deck_generation_stages
+       WHERE pipeline_job_id = $1
+         AND stage = 'cover-slide' AND shard_key = ''`,
+      [message.pipelineJobId],
     ),
   );
-  if (!review) {
-    await manager.query(
-      `
-        INSERT INTO ai_deck_story_reviews (
-          pipeline_job_id, project_id, status, revision, regeneration_count
-        )
-        VALUES ($1, $2, 'review-pending', 1, 0)
-      `,
-      [message.pipelineJobId, message.projectId],
-    );
-    return true;
-  }
-  const status = z
-    .object({
-      status: z.enum([
-        "review-pending",
-        "regenerating",
-        "approved",
-        "cancelled",
-      ]),
-      revision: z.number().int().min(0),
-    })
-    .parse(review);
-  if (status.status !== "regenerating") {
-    throw new Error("Story Review is not waiting for regenerated content.");
-  }
-  await manager.query(
-    `
-      UPDATE ai_deck_story_reviews
-      SET status = 'review-pending',
-          revision = revision + 1,
-          regeneration_instruction = NULL,
-          last_error_json = NULL,
-          updated_at = now()
-      WHERE pipeline_job_id = $1 AND project_id = $2
-        AND status = 'regenerating'
-    `,
-    [message.pipelineJobId, message.projectId],
+  return Boolean(
+    cover &&
+      typeof cover === "object" &&
+      "status" in cover &&
+      (cover.status === "succeeded" || cover.status === "failed"),
   );
-  return true;
 }
 
 async function ensureImageOrSemanticCheckpoints(
+  db: Pick<DataSource, "query">,
   checkpoints: AiDeckGenerationStageCheckpointRepository,
   message: AiDeckGenerationStageMessage & { stage: AiDeckPlanningStage },
   payload: AiDeckPlanningArtifactPayload,
@@ -622,7 +539,15 @@ async function ensureImageOrSemanticCheckpoints(
   if (message.stage !== "layout-compile") return;
   const layout = layoutCompileArtifactPayloadSchema.parse(payload);
   if (isLayoutCompileV2Artifact(layout)) {
+    const reusedSourceOrder = await reuseCoverAsFirstSlide(
+      db,
+      message,
+      layout,
+      layoutReference,
+    );
+    let queued = 0;
     for (const slide of layout.slides) {
+      if (slide.sourceOrder === reusedSourceOrder) continue;
       const next = await checkpoints.ensureQueued(
         {
           ...message,
@@ -634,6 +559,13 @@ async function ensureImageOrSemanticCheckpoints(
       if (!next) {
         throw new Error("Next AI deck slide checkpoint was not created.");
       }
+      queued += 1;
+    }
+    if (queued === 0 && reusedSourceOrder !== null) {
+      await checkpoints.ensureQueued(
+        { ...message, stage: "semantic-quality", shardKey: "" },
+        layoutReference,
+      );
     }
     return;
   }
@@ -673,6 +605,91 @@ async function ensureImageOrSemanticCheckpoints(
   }
 }
 
+async function reuseCoverAsFirstSlide(
+  db: Pick<DataSource, "query">,
+  message: AiDeckGenerationStageMessage,
+  layout: Extract<
+    ReturnType<typeof layoutCompileArtifactPayloadSchema.parse>,
+    { artifactVersion: 2 }
+  >,
+  layoutReference: Record<string, unknown>,
+): Promise<number | null> {
+  const descriptor = [...layout.slides].sort(
+    (left, right) => left.order - right.order,
+  )[0];
+  if (!descriptor || descriptor.order !== 1) return null;
+  const rawCover = firstQueryRow(
+    await db.query(
+      `SELECT artifacts.payload_json
+       FROM ai_deck_execution_artifacts artifacts
+       JOIN ai_deck_generation_stages stages
+         ON stages.pipeline_job_id = artifacts.pipeline_job_id
+        AND stages.stage = artifacts.stage
+        AND stages.shard_key = artifacts.shard_key
+       WHERE artifacts.pipeline_job_id = $1 AND artifacts.project_id = $2
+         AND artifacts.stage = 'cover-slide' AND stages.status = 'succeeded'`,
+      [message.pipelineJobId, message.projectId],
+    ),
+  );
+  if (
+    !rawCover ||
+    typeof rawCover !== "object" ||
+    !("payload_json" in rawCover)
+  ) return null;
+  const cover = coverSlideArtifactPayloadSchema.parse(rawCover.payload_json);
+  const sourceSlide = cover.deck.slides[0];
+  if (!sourceSlide) return null;
+  const slide = {
+    ...sourceSlide,
+    slideId: descriptor.slideId,
+    order: descriptor.order,
+  };
+  const completed = completedSlideV2ArtifactPayloadSchema.parse({
+    artifactVersion: 2,
+    sourceOrder: descriptor.sourceOrder,
+    order: descriptor.order,
+    slideId: descriptor.slideId,
+    slide,
+    warnings: cover.warnings,
+    validation: cover.validation,
+  });
+  const checkpointRows = await db.query(
+    `INSERT INTO ai_deck_generation_stages (
+       pipeline_job_id, stage, shard_key, status, attempt,
+       input_ref_json, result_ref_json
+     ) VALUES ($1, 'image-slide', $2, 'succeeded', 0, $3::jsonb, NULL)
+     ON CONFLICT (pipeline_job_id, stage, shard_key) DO NOTHING
+     RETURNING pipeline_job_id`,
+    [message.pipelineJobId, descriptor.shardKey, layoutReference],
+  );
+  if (!firstQueryRow(checkpointRows)) return null;
+  const artifactId = randomUUID();
+  const artifactRows = await db.query(
+    `INSERT INTO ai_deck_execution_artifacts (
+       artifact_id, pipeline_job_id, project_id, stage, shard_key, payload_json
+     ) VALUES ($1, $2, $3, 'image-slide', $4, $5::jsonb)
+     ON CONFLICT (pipeline_job_id, stage, shard_key) DO UPDATE
+       SET payload_json = EXCLUDED.payload_json, updated_at = now()
+     RETURNING artifact_id`,
+    [artifactId, message.pipelineJobId, message.projectId, descriptor.shardKey, completed],
+  );
+  const storedArtifact = z
+    .object({ artifact_id: z.string().uuid() })
+    .parse(firstQueryRow(artifactRows));
+  await db.query(
+    `UPDATE ai_deck_generation_stages
+     SET result_ref_json = $3::jsonb, updated_at = now()
+     WHERE pipeline_job_id = $1 AND stage = 'image-slide'
+       AND shard_key = $2 AND status = 'succeeded'`,
+    [
+      message.pipelineJobId,
+      descriptor.shardKey,
+      { executionArtifactId: storedArtifact.artifact_id },
+    ],
+  );
+  return descriptor.sourceOrder;
+}
+
 async function failStageAndParent(
   dataSource: DataSource,
   message: AiDeckGenerationStageMessage & { stage: AiDeckPlanningStage },
@@ -686,12 +703,6 @@ async function failStageAndParent(
       manager,
     ).fail(message, leaseOwner, attempt, error);
     if (!failed) return;
-    if (
-      message.stage === "content-planning" &&
-      (await recoverStoryReviewRegeneration(manager, message, error))
-    ) {
-      return updateParentProgress(manager, message, 40);
-    }
     const rows = await manager.query(
       `
         UPDATE jobs
@@ -709,50 +720,6 @@ async function failStageAndParent(
     );
     return parentJobFromQuery(rows);
   });
-}
-
-async function recoverStoryReviewRegeneration(
-  manager: Pick<DataSource, "query">,
-  message: AiDeckGenerationStageMessage,
-  error: JobError,
-): Promise<boolean> {
-  const review = firstQueryRow(
-    await manager.query(
-      `
-        SELECT status
-        FROM ai_deck_story_reviews
-        WHERE pipeline_job_id = $1 AND project_id = $2
-        FOR UPDATE
-      `,
-      [message.pipelineJobId, message.projectId],
-    ),
-  );
-  if (
-    !review ||
-    z.object({ status: z.string() }).parse(review).status !== "regenerating"
-  ) {
-    return false;
-  }
-  await manager.query(
-    `
-      UPDATE ai_deck_story_reviews
-      SET status = 'review-pending',
-          regeneration_instruction = NULL,
-          last_error_json = $3::jsonb,
-          updated_at = now()
-      WHERE pipeline_job_id = $1 AND project_id = $2
-        AND status = 'regenerating'
-    `,
-    [
-      message.pipelineJobId,
-      message.projectId,
-      {
-        code: error.code,
-        message: "Story plan regeneration failed.",
-      },
-    ],
-  );
-  return true;
 }
 
 async function updateParentProgress(

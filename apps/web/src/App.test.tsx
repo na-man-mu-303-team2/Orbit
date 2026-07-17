@@ -242,12 +242,7 @@ describe("App shell routing", () => {
     });
   });
 
-  it("matches Story Review before the generic project route", () => {
-    expect(getRoute("/project/project_demo_1/story-plan/job-1")).toEqual({
-      name: "story-plan-review",
-      projectId: "project_demo_1",
-      jobId: "job-1",
-    });
+  it("matches Style & Color and generation before the generic project route", () => {
     expect(getRoute("/project/project_demo_1/style-color/job-1")).toEqual({
       name: "story-style-color",
       projectId: "project_demo_1",

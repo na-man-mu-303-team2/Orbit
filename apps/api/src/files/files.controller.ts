@@ -5,6 +5,7 @@ import {
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -92,6 +93,20 @@ export class FilesController {
 
     response.setHeader("content-type", asset.contentType);
     return new StreamableFile(asset.body);
+  }
+
+  @Delete(":fileId")
+  async deleteFile(
+    @Param("projectId") projectId: string,
+    @Param("fileId") fileId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return {
+      fileId,
+      deletedAt: await this.filesService.deleteUploadedAsset(projectId, fileId),
+    };
   }
 
   // local upload proxy가 받은 파일 binary를 서비스 계층 저장 흐름으로 넘긴다.

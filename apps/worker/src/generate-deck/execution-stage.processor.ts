@@ -24,6 +24,7 @@ import {
 import { AiDeckExecutionArtifactRepository } from "./execution-artifact-repository";
 import {
   completedSlideV2ArtifactPayloadSchema,
+  coverSlideArtifactPayloadSchema,
   imageSlideArtifactPayloadSchema,
   isCompletedSlideV2Artifact,
   isAiDeckExecutionStage,
@@ -224,15 +225,23 @@ export async function processAiDeckExecutionStage(
     const v2ImageShard =
       message.stage === "image-slide" &&
       (await isV2ImageShard(dataSource, message, claimed.inputRef));
-    const result = v2ImageShard
-      ? await failV2ImageShardAndJoin(
+    const result = message.stage === "cover-slide"
+      ? await failOptionalCoverStage(
           dataSource,
           message,
           claimed.leaseOwner,
           claimed.attempt,
           normalized.error,
         )
-      : await failStageAndParent(
+      : v2ImageShard
+        ? await failV2ImageShardAndJoin(
+          dataSource,
+          message,
+          claimed.leaseOwner,
+          claimed.attempt,
+          normalized.error,
+        )
+        : await failStageAndParent(
           dataSource,
           message,
           claimed.leaseOwner,
@@ -288,6 +297,8 @@ async function executeStage(input: {
   startedAt: number;
 }): Promise<AiDeckExecutionArtifactPayload> {
   switch (input.message.stage) {
+    case "cover-slide":
+      return executeCoverSlide(input);
     case "image-slide":
       return executeImageSlide(input);
     case "semantic-quality":
@@ -384,7 +395,193 @@ async function executeImageSlide(
   });
 }
 
-const storySlideSchema = z
+function executeCoverSlide(
+  input: Parameters<typeof executeStage>[0],
+): AiDeckExecutionArtifactPayload {
+  const plan = input.context.coverPlan;
+  const selection = input.context.designSelection;
+  if (!plan || !selection) {
+    throw new StageTerminalError(
+      "AI_DECK_COVER_INPUT_MISSING",
+      "AI deck cover input is unavailable.",
+    );
+  }
+  const palette = selection.paletteOverride;
+  const font = selection.fontOverride;
+  const deck = deckSchema.parse({
+    deckId: `deck_${input.message.pipelineJobId}`,
+    projectId: input.message.projectId,
+    title: plan.title,
+    version: 1,
+    metadata: {
+      language: "ko",
+      locale: "ko-KR",
+      sourceType: "ai",
+      generatedBy: "ai",
+      audience: input.context.request.metadata.audience,
+      purpose: input.context.request.metadata.purpose,
+      tone: input.context.request.metadata.tone,
+      createdFrom: {
+        topic: input.context.request.topic,
+        references: input.context.request.referenceFileIds.map((fileId) => ({ fileId })),
+        designReferences: [],
+      },
+    },
+    targetDurationMinutes: input.context.request.targetDurationMinutes,
+    canvas: {
+      preset: "wide-16-9",
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9",
+    },
+    theme: {
+      name: selection.paletteOptionId,
+      fontFamily: font.bodyFontFamily,
+      backgroundColor: palette.background,
+      textColor: palette.text,
+      accentColor: palette.accentColor,
+      palette: {
+        primary: palette.primary,
+        secondary: palette.secondary,
+        surface: palette.surface,
+        muted: palette.muted,
+        border: palette.border,
+      },
+      typography: {
+        headingFontFamily: font.headingFontFamily,
+        bodyFontFamily: font.bodyFontFamily,
+        titleSize: font.recommendedTitleSize,
+        headingSize: Math.max(32, font.recommendedTitleSize - 8),
+        bodySize: font.recommendedBodySize,
+        captionSize: Math.max(14, font.recommendedBodySize - 6),
+      },
+      effects: { borderRadius: 8 },
+    },
+    slides: [
+      {
+        kind: "content",
+        slideId: "slide_1",
+        order: 1,
+        title: plan.title,
+        thumbnailUrl: "",
+        style: {
+          layout: "title",
+          fontFamily: font.bodyFontFamily,
+          backgroundColor: palette.background,
+          textColor: palette.text,
+          accentColor: palette.accentColor,
+        },
+        speakerNotes: plan.message,
+        elements: [
+          {
+            elementId: "el_cover_accent",
+            type: "rect",
+            role: "decoration",
+            x: 112,
+            y: 148,
+            width: 18,
+            height: 530,
+            zIndex: 1,
+            props: { fill: palette.accentColor, borderRadius: 9 },
+          },
+          {
+            elementId: "el_cover_title",
+            type: "text",
+            role: "title",
+            x: 190,
+            y: 230,
+            width: 1450,
+            height: 250,
+            zIndex: 2,
+            props: {
+              text: plan.title,
+              fontFamily: font.headingFontFamily,
+              fontSize: font.recommendedTitleSize,
+              fontWeight: "bold",
+              color: palette.text,
+              lineHeight: font.lineHeight,
+            },
+          },
+          {
+            elementId: "el_cover_message",
+            type: "text",
+            role: "subtitle",
+            x: 195,
+            y: 520,
+            width: 1320,
+            height: 150,
+            zIndex: 2,
+            props: {
+              text: plan.message,
+              fontFamily: font.bodyFontFamily,
+              fontSize: font.recommendedBodySize,
+              color: palette.text,
+              lineHeight: font.lineHeight,
+            },
+          },
+          ...(plan.audience
+            ? [{
+                elementId: "el_cover_audience",
+                type: "text" as const,
+                role: "caption" as const,
+                x: 195,
+                y: 790,
+                width: 1320,
+                height: 70,
+                zIndex: 2,
+                props: {
+                  text: plan.audience,
+                  fontFamily: font.bodyFontFamily,
+                  fontSize: Math.max(16, font.recommendedBodySize - 4),
+                  color: palette.muted,
+                },
+              }]
+            : []),
+        ],
+        keywords: [],
+        semanticCues: [],
+        animations: [],
+        actions: [],
+        aiNotes: {
+          emphasisPoints: [plan.message],
+          sourceEvidence: [],
+          visualPlan: {
+            visualType: "minimal-cover",
+            imageNeeded: false,
+            imageSourcePolicy: "minimal",
+            reason: "Fast deterministic cover preview",
+          },
+          compositionPlan: {
+            compositionId: "minimal-cover",
+            variant: "selected-palette",
+            backgroundMode: "light",
+            focalType: "title",
+            primaryFocalElementId: "el_cover_title",
+            assetRole: "none",
+            requiredAsset: false,
+          },
+        },
+      },
+    ],
+  });
+  return coverSlideArtifactPayloadSchema.parse({
+    deck,
+    warnings: [],
+    validation: emptyValidation(),
+  });
+}
+
+function emptyValidation() {
+  return {
+    passed: true,
+    layoutIssues: [],
+    contentIssues: [],
+    designIssues: [],
+    presentationIssues: [],
+  } as const;
+}
+
+const contentPlanSlideSchema = z
   .object({
     order: z.number().int().positive(),
     title: z.string().min(1),
@@ -397,7 +594,7 @@ const storySlideSchema = z
   .passthrough();
 const v2ContentSchema = z.object({
   outline: z.record(z.unknown()),
-  slidePlans: z.array(storySlideSchema).min(1),
+  slidePlans: z.array(contentPlanSlideSchema).min(1),
 });
 
 async function executeV2ImageSlide(
@@ -425,24 +622,28 @@ async function executeV2ImageSlide(
     designArtifact.payload,
   );
   const contentPlan = v2ContentSchema.parse(content.contentPlan);
-  const approved = contentPlan.slidePlans.find(
+  const plannedSlide = contentPlan.slidePlans.find(
     (slide) => slide.order === descriptor.order,
   );
-  if (!approved) {
+  if (!plannedSlide) {
     throw new StageTerminalError(
-      "AI_DECK_STORY_SLIDE_MISSING",
-      "Approved story slide is missing from the content artifact.",
+      "AI_DECK_CONTENT_PLAN_SLIDE_MISSING",
+      "Content plan slide is missing from the content artifact.",
     );
   }
   const composed = await composeAiDeckSlide(input.pythonWorkerUrl, {
-    rawInput: scopeRawInputForSlide(content.rawInput, approved),
+    rawInput: scopeRawInputForSlide(content.rawInput, plannedSlide),
     contentPlan: content.contentPlan,
     designPlan: design.designPlan,
     sourceOrder: descriptor.sourceOrder,
     order: descriptor.order,
     slideId: descriptor.slideId,
   });
-  assertCompletedSlideMatchesStory(composed.slide, approved, descriptor);
+  assertCompletedSlideMatchesContentPlan(
+    composed.slide,
+    plannedSlide,
+    descriptor,
+  );
 
   let deck = markDeckForInitialThumbnailRefresh(
     deckSchema.parse({ ...layout.deckShell, slides: [composed.slide] }),
@@ -544,7 +745,7 @@ async function executeV2ImageSlide(
   }
   const slide = finalizedDeck.slides[0];
   if (!slide) throw new Error("Completed AI deck slide is missing.");
-  assertCompletedSlideMatchesStory(slide, approved, descriptor);
+  assertCompletedSlideMatchesContentPlan(slide, plannedSlide, descriptor);
   emit(input.eventLogger, "ai-ppt.slide.completed", {
     jobId: input.message.pipelineJobId,
     projectId: input.message.projectId,
@@ -565,9 +766,11 @@ async function executeV2ImageSlide(
 
 function scopeRawInputForSlide(
   rawInput: Record<string, unknown>,
-  approved: z.infer<typeof storySlideSchema>,
+  plannedSlide: z.infer<typeof contentPlanSlideSchema>,
 ): Record<string, unknown> {
-  const sourceRefs = new Set(approved.sourceRefs ?? approved.source_refs ?? []);
+  const sourceRefs = new Set(
+    plannedSlide.sourceRefs ?? plannedSlide.source_refs ?? [],
+  );
   const rawSources = Array.isArray(rawInput.sourceRecords)
     ? rawInput.sourceRecords
     : Array.isArray(rawInput.source_records)
@@ -590,22 +793,23 @@ function scopeRawInputForSlide(
   };
 }
 
-function assertCompletedSlideMatchesStory(
+function assertCompletedSlideMatchesContentPlan(
   slide: GenerateDeckResponse["deck"]["slides"][number],
-  approved: z.infer<typeof storySlideSchema>,
+  plannedSlide: z.infer<typeof contentPlanSlideSchema>,
   descriptor: LayoutCompileV2ArtifactPayload["slides"][number],
 ) {
-  const approvedNotes = approved.speakerNotes ?? approved.speaker_notes ?? "";
+  const plannedNotes =
+    plannedSlide.speakerNotes ?? plannedSlide.speaker_notes ?? "";
   if (
     slide.slideId !== descriptor.slideId ||
     slide.order !== descriptor.order ||
-    slide.title !== approved.title ||
-    !slide.aiNotes?.emphasisPoints?.includes(approved.message) ||
-    (approvedNotes.trim() && slide.speakerNotes !== approvedNotes)
+    slide.title !== plannedSlide.title ||
+    !slide.aiNotes?.emphasisPoints?.includes(plannedSlide.message) ||
+    (plannedNotes.trim() && slide.speakerNotes !== plannedNotes)
   ) {
     throw new StageTerminalError(
       "AI_DECK_COMPLETED_SLIDE_IDENTITY_INVALID",
-      "Completed slide changed approved story fields.",
+      "Completed slide changed content plan fields.",
     );
   }
 }
@@ -898,6 +1102,11 @@ async function completeStage(
     );
     if (!succeeded) throw new AiDeckExecutionFencingLostError();
 
+    if (message.stage === "cover-slide") {
+      await ensureDesignPlanningAfterCover(manager, checkpoints, message);
+      return updateParentProgress(manager, message, 42);
+    }
+
     if (message.stage === "image-slide") {
       if (isCompletedSlideV2Artifact(payload)) {
         return joinV2ImageShards(manager, checkpoints, message, inputRef);
@@ -939,6 +1148,45 @@ async function completeStage(
       message.stage === "semantic-quality" ? 80 : 95,
     );
   });
+}
+
+async function failOptionalCoverStage(
+  dataSource: DataSource,
+  message: AiDeckGenerationStageMessage & { stage: AiDeckExecutionStage },
+  leaseOwner: string,
+  attempt: number,
+  error: JobError,
+): Promise<Job | void> {
+  return dataSource.transaction(async (manager) => {
+    const checkpoints = new AiDeckGenerationStageCheckpointRepository(manager);
+    const failed = await checkpoints.fail(message, leaseOwner, attempt, error);
+    if (!failed) return;
+    await ensureDesignPlanningAfterCover(manager, checkpoints, message);
+    return updateParentProgress(manager, message, 40);
+  });
+}
+
+async function ensureDesignPlanningAfterCover(
+  manager: Pick<DataSource, "query">,
+  checkpoints: AiDeckGenerationStageCheckpointRepository,
+  message: AiDeckGenerationStageMessage,
+): Promise<void> {
+  const content = firstQueryRow(
+    await manager.query(
+      `SELECT artifact_id FROM ai_deck_planning_artifacts
+       WHERE pipeline_job_id = $1 AND project_id = $2
+         AND stage = 'content-planning'`,
+      [message.pipelineJobId, message.projectId],
+    ),
+  );
+  const parsedContent = z
+    .object({ artifact_id: z.string().uuid() })
+    .safeParse(content);
+  if (!parsedContent.success) return;
+  await checkpoints.ensureQueued(
+    { ...message, stage: "design-planning", shardKey: "" },
+    { planningArtifactId: parsedContent.data.artifact_id },
+  );
 }
 
 async function isV2ImageShard(

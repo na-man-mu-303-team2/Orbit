@@ -92,6 +92,14 @@ const imageV2PayloadSchema = z
   })
   .strict();
 const qualityRowSchema = z.object({ payload_json: z.unknown() });
+const coverRowSchema = z.object({ payload_json: z.unknown() });
+const coverPayloadSchema = z
+  .object({
+    deck: deckSchema,
+    warnings: z.array(z.string()),
+    validation: z.record(z.unknown()),
+  })
+  .strict();
 const qualityPayloadSchema = z
   .object({ workerPayload: generateDeckResponseSchema })
   .strict();
@@ -116,7 +124,7 @@ export class AiDeckPreviewService {
     if (!job) throw new NotFoundException(`Job not found: ${jobId}`);
     const parsedJob = jobRowSchema.parse(job);
 
-    const [planningRows, imageRows, qualityRows, deckRows] = await Promise.all([
+    const [planningRows, imageRows, qualityRows, deckRows, coverRows] = await Promise.all([
       this.dataSource.query(
         `
           SELECT artifacts.stage, artifacts.payload_json
@@ -168,6 +176,22 @@ export class AiDeckPreviewService {
             [projectId],
           )
         : Promise.resolve([]),
+      this.dataSource.query(
+        `
+          SELECT artifacts.payload_json
+          FROM ai_deck_execution_artifacts artifacts
+          JOIN ai_deck_generation_stages stages
+            ON stages.pipeline_job_id = artifacts.pipeline_job_id
+           AND stages.stage = artifacts.stage
+           AND stages.shard_key = artifacts.shard_key
+           AND stages.status = 'succeeded'
+          WHERE artifacts.pipeline_job_id = $1
+            AND artifacts.project_id = $2
+            AND artifacts.stage = 'cover-slide'
+          LIMIT 1
+        `,
+        [jobId, projectId],
+      ),
     ]);
 
     return projectAiDeckPreview({
@@ -178,6 +202,7 @@ export class AiDeckPreviewService {
       imageRows: rows(imageRows).map((row) => imageRowSchema.parse(row)),
       qualityRow: firstRow(qualityRows),
       deckRow: firstRow(deckRows),
+      coverRow: firstRow(coverRows),
     });
   }
 }
@@ -188,6 +213,7 @@ export function projectAiDeckPreview(input: {
   imageRows: z.infer<typeof imageRowSchema>[];
   qualityRow: Record<string, unknown> | null;
   deckRow: Record<string, unknown> | null;
+  coverRow?: Record<string, unknown> | null;
 }): AiDeckPreviewResponse {
   const contentRow = input.planningRows.find(
     (row) => row.stage === "content-planning",
@@ -290,6 +316,14 @@ export function projectAiDeckPreview(input: {
         )
         .map((slide) => slide.slideId);
     }
+  } else if (input.coverRow) {
+    deck = coverPayloadSchema.parse(
+      coverRowSchema.parse(input.coverRow).payload_json,
+    ).deck;
+    completedSlideIds = deck.slides.map((slide) => slide.slideId);
+    pendingSlideIds = outline
+      .slice(completedSlideIds.length)
+      .map((item) => `slide_${item.order}`);
   }
 
   const cancelled =
@@ -305,9 +339,11 @@ export function projectAiDeckPreview(input: {
           ? outline.length
             ? "composing"
             : "planning"
-          : pendingSlideIds.length
+          : layoutRow && pendingSlideIds.length
             ? "rendering"
-            : "quality-check";
+            : layoutRow
+              ? "quality-check"
+              : "composing";
 
   return aiDeckPreviewResponseSchema.parse({
     jobId: input.job.job_id,

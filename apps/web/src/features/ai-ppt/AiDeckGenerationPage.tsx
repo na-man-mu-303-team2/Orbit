@@ -29,7 +29,27 @@ export function AiDeckGenerationPage(props: {
     preview?.deck ?? null,
     preview?.completedSlideIds ?? [],
   );
-  const revealedCount = availableCount;
+  const [revealedCount, setRevealedCount] = useState(0);
+
+  useEffect(() => {
+    if (revealedCount > availableCount) {
+      setRevealedCount(availableCount);
+      return;
+    }
+    if (revealedCount >= availableCount) return;
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    if (reducedMotion) {
+      setRevealedCount(availableCount);
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setRevealedCount((count) => Math.min(count + 1, availableCount)),
+      500,
+    );
+    return () => window.clearTimeout(timer);
+  }, [availableCount, revealedCount]);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,8 +140,10 @@ export function AiDeckGenerationPage(props: {
         </div>
       </header>
 
-      {preview?.status === "quality-check" ? (
+      {preview ? (
         <div className="ai-deck-generation-banner">
+          현재 화면은 슬라이드 구성 미리보기이며 검증 중 변경될 수 있습니다.
+          Vision QA가 끝나면 편집기로 이동합니다.
           모든 슬라이드를 만들었습니다. 최종 품질을 확인하고 있어 일부 표현이
           달라질 수 있습니다.
         </div>
