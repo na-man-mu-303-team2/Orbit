@@ -12,10 +12,12 @@ import {
   type CreateDesignAgentMessageResponse,
   type Deck,
   type DeckCanvas,
+  type DeckElement,
   type DeckPatchOperation,
   type DesignAgentContext,
   type DesignAgentMessage,
   type DesignAgentProposal,
+  type Slide,
   type SmartArtItem,
   type SmartArtRequest,
 } from "@orbit/shared";
@@ -121,21 +123,6 @@ export class DesignAgentService {
       requestMessage.updatedAt = responseNow;
       await this.messagesRepository.save(requestMessage);
 
-      const smartArtSourceElementIds = new Set(
-        aiResult.smartArtRequest?.sourceElementIds ?? [],
-      );
-      if (
-        aiResult.operations.some(
-          (operation) =>
-            "elementId" in operation &&
-            smartArtSourceElementIds.has(operation.elementId),
-        )
-      ) {
-        throw new BadRequestException(
-          "SmartArt source elements must not also be targeted by direct operations.",
-        );
-      }
-
       const smartArtOperations = aiResult.smartArtRequest
         ? await this.expandSmartArtRequest(
             aiResult.smartArtRequest,
@@ -143,6 +130,23 @@ export class DesignAgentService {
             aiResult.interpretedIntent.target,
           )
         : [];
+      const smartArtDeletedElementIds = new Set(
+        smartArtOperations.flatMap((operation) =>
+          operation.type === "delete_element" ? [operation.elementId] : [],
+        ),
+      );
+      if (
+        aiResult.operations.some(
+          (operation) =>
+            "elementId" in operation &&
+            smartArtDeletedElementIds.has(operation.elementId),
+        )
+      ) {
+        throw new BadRequestException(
+          "SmartArt replacement elements must not also be targeted by direct operations.",
+        );
+      }
+
       const operations = [...aiResult.operations, ...smartArtOperations];
       if (operations.length > 0) {
         const preview = applyDeckPatch(currentDeck, {
@@ -381,12 +385,18 @@ export class DesignAgentService {
       );
     }
 
-    return buildSmartArtOperations(
+    const operations = buildSmartArtOperations(
       layout,
       smartArtRequest.items,
       context.slide.slideId,
       context.canvas,
       smartArtRequest.sourceElementIds,
+    );
+    return replaceOverlappingSmartArtElements(
+      context.slide,
+      context.canvas,
+      smartArtRequest.sourceElementIds,
+      operations,
     );
   }
 }
@@ -534,6 +544,166 @@ export function buildSmartArtOperations(
   }
 
   return operations;
+}
+
+type ElementBounds = Pick<DeckElement, "x" | "y" | "width" | "height">;
+const SMART_ART_REPLACEMENT_PADDING_RATIO = 0.03;
+
+function replaceOverlappingSmartArtElements(
+  slide: Slide,
+  canvas: DeckCanvas,
+  sourceElementIds: string[],
+  smartArtOperations: DeckPatchOperation[],
+): DeckPatchOperation[] {
+  const generatedElements = smartArtOperations.flatMap((operation) =>
+    operation.type === "add_element" ? [operation.element] : [],
+  );
+  const footprint = getSmartArtFootprint(generatedElements, canvas);
+  if (!footprint) return smartArtOperations;
+
+  const replacementElementIds = findSmartArtReplacementElementIds(
+    slide,
+    canvas,
+    footprint,
+    sourceElementIds,
+  );
+  return [
+    ...replacementElementIds.map((elementId) =>
+      deckPatchOperationSchema.parse({
+        type: "delete_element",
+        slideId: slide.slideId,
+        elementId,
+      }),
+    ),
+    ...smartArtOperations.filter((operation) => operation.type !== "delete_element"),
+  ];
+}
+
+function getSmartArtFootprint(
+  elements: DeckElement[],
+  canvas: DeckCanvas,
+): ElementBounds | null {
+  if (elements.length === 0) return null;
+
+  const paddingX = canvas.width * SMART_ART_REPLACEMENT_PADDING_RATIO;
+  const paddingY = canvas.height * SMART_ART_REPLACEMENT_PADDING_RATIO;
+  const left = Math.max(0, Math.min(...elements.map((element) => element.x)) - paddingX);
+  const top = Math.max(0, Math.min(...elements.map((element) => element.y)) - paddingY);
+  const right = Math.min(
+    canvas.width,
+    Math.max(...elements.map((element) => element.x + element.width)) + paddingX,
+  );
+  const bottom = Math.min(
+    canvas.height,
+    Math.max(...elements.map((element) => element.y + element.height)) + paddingY,
+  );
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+function findSmartArtReplacementElementIds(
+  slide: Slide,
+  canvas: DeckCanvas,
+  footprint: ElementBounds,
+  sourceElementIds: string[],
+): string[] {
+  const explicitSourceIds = new Set(sourceElementIds);
+  const protectedElementIds = getProtectedSmartArtReplacementElementIds(slide, canvas);
+  const replacementElementIds = new Set(sourceElementIds);
+
+  for (const element of slide.elements) {
+    if (
+      protectedElementIds.has(element.elementId) ||
+      !elementBoundsOverlap(element, footprint)
+    ) {
+      continue;
+    }
+    replacementElementIds.add(element.elementId);
+  }
+
+  const groups = slide.elements.filter((element) => element.type === "group");
+  let expandedGroup = true;
+  while (expandedGroup) {
+    expandedGroup = false;
+    for (const group of groups) {
+      const memberIds = [group.elementId, ...group.props.childElementIds];
+      if (!memberIds.some((elementId) => replacementElementIds.has(elementId))) {
+        continue;
+      }
+      for (const elementId of memberIds) {
+        if (
+          replacementElementIds.has(elementId) ||
+          (protectedElementIds.has(elementId) && !explicitSourceIds.has(elementId))
+        ) {
+          continue;
+        }
+        replacementElementIds.add(elementId);
+        expandedGroup = true;
+      }
+    }
+  }
+
+  return [
+    ...slide.elements
+      .filter(
+        (element) =>
+          element.type !== "group" && replacementElementIds.has(element.elementId),
+      )
+      .map((element) => element.elementId),
+    ...slide.elements
+      .filter(
+        (element) =>
+          element.type === "group" && replacementElementIds.has(element.elementId),
+      )
+      .map((element) => element.elementId),
+  ];
+}
+
+function getProtectedSmartArtReplacementElementIds(slide: Slide, canvas: DeckCanvas) {
+  const protectedElementIds = new Set(
+    slide.elements
+      .filter(
+        (element) =>
+          element.visible === false ||
+          element.role === "background" ||
+          coversCanvas(element, canvas),
+      )
+      .map((element) => element.elementId),
+  );
+
+  const groups = slide.elements.filter((element) => element.type === "group");
+  let expandedGroup = true;
+  while (expandedGroup) {
+    expandedGroup = false;
+    for (const group of groups) {
+      if (!protectedElementIds.has(group.elementId)) continue;
+      for (const childElementId of group.props.childElementIds) {
+        if (protectedElementIds.has(childElementId)) continue;
+        protectedElementIds.add(childElementId);
+        expandedGroup = true;
+      }
+    }
+  }
+
+  return protectedElementIds;
+}
+
+function coversCanvas(element: DeckElement, canvas: DeckCanvas) {
+  const toleranceX = canvas.width * 0.01;
+  const toleranceY = canvas.height * 0.01;
+  return (
+    element.x <= toleranceX &&
+    element.y <= toleranceY &&
+    element.x + element.width >= canvas.width - toleranceX &&
+    element.y + element.height >= canvas.height - toleranceY
+  );
+}
+
+function elementBoundsOverlap(first: ElementBounds, second: ElementBounds) {
+  const overlapWidth =
+    Math.min(first.x + first.width, second.x + second.width) - Math.max(first.x, second.x);
+  const overlapHeight =
+    Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y);
+  return overlapWidth > 0 && overlapHeight > 0;
 }
 
 function toMessageDto(entity: DesignAgentMessageEntity): DesignAgentMessage {
