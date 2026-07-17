@@ -16,6 +16,11 @@ describe("CreatePresentationSessionAudienceRegistry migration", () => {
     expect(sql).toContain("REFERENCES presentation_sessions(project_id, session_id)");
     expect(sql).toContain("MIN(responses.submitted_at)");
     expect(sql).toContain("ON CONFLICT (project_id, session_id, audience_id) DO NOTHING");
+    expect(sql).toContain("UPDATE activity_result_snapshots AS snapshots");
+    expect(sql).toContain("'participantCount'");
+    expect(sql).toContain("'responseRate'");
+    expect(sql).toContain("GREATEST(");
+    expect(sql).toContain("runs.response_count");
   });
 
   it("drops the registry on rollback", async () => {
@@ -26,6 +31,9 @@ describe("CreatePresentationSessionAudienceRegistry migration", () => {
     } as never);
 
     expect(String(query.mock.calls[0]?.[0])).toContain(
+      "aggregate_json - 'participantCount' - 'responseRate'"
+    );
+    expect(String(query.mock.calls[1]?.[0])).toContain(
       "DROP TABLE IF EXISTS presentation_session_audiences"
     );
   });

@@ -10,7 +10,8 @@ import {
   IconExternalLink,
   IconPlayerPause,
   IconPlayerPlay,
-  IconPresentationAnalytics
+  IconPresentationAnalytics,
+  IconUsers
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -85,10 +86,6 @@ export function ActivityPresenterPanel(props: {
     () => getActivityPrimaryCommand(runtime?.run.status ?? "draft"),
     [runtime?.run.status]
   );
-  const average = runtime?.result.aggregates.find(
-    (aggregate) => aggregate.type === "rating"
-  )?.average;
-
   const updateStatus = async () => {
     if (!runtime || pending) return;
     setPending(true);
@@ -162,18 +159,7 @@ export function ActivityPresenterPanel(props: {
         <ActivityStatusBadge status={runtime?.run.status ?? "draft"} />
       </div>
 
-      <div className="activity-presenter-metrics" aria-live="polite">
-        <div>
-          <IconChartBar aria-hidden="true" size={20} stroke={1.7} />
-          <span>실시간 응답</span>
-          <strong>{runtime?.result.responseCount ?? 0}</strong>
-        </div>
-        <div>
-          <IconPresentationAnalytics aria-hidden="true" size={20} stroke={1.7} />
-          <span>평균 평점</span>
-          <strong>{average == null ? "–" : average.toFixed(1)}</strong>
-        </div>
-      </div>
+      <ActivityPresenterMetrics result={runtime?.result ?? null} />
 
       {runtime ? (
         <a href={runtime.audienceUrl} rel="noreferrer" target="_blank">
@@ -204,6 +190,33 @@ export function ActivityPresenterPanel(props: {
         {pending ? "상태 변경 중" : primary.label}
       </button>
     </section>
+  );
+}
+
+export function ActivityPresenterMetrics(props: {
+  result: ActivityPresenterResult | null;
+}) {
+  const average = props.result?.aggregates.find(
+    (aggregate) => aggregate.type === "rating"
+  )?.average;
+  return (
+    <div className="activity-presenter-metrics" aria-live="polite">
+      <div>
+        <IconChartBar aria-hidden="true" size={20} stroke={1.7} />
+        <span>실시간 응답</span>
+        <strong>{props.result?.responseCount ?? 0}</strong>
+      </div>
+      <div>
+        <IconPresentationAnalytics aria-hidden="true" size={20} stroke={1.7} />
+        <span>평균 평점</span>
+        <strong>{average == null ? "–" : average.toFixed(1)}</strong>
+      </div>
+      <div>
+        <IconUsers aria-hidden="true" size={20} stroke={1.7} />
+        <span>응답률</span>
+        <strong>{props.result ? `${props.result.responseRate}%` : "–"}</strong>
+      </div>
+    </div>
   );
 }
 

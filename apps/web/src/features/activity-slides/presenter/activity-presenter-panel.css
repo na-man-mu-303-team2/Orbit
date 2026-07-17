@@ -31,7 +31,7 @@
 .activity-presenter-status--closed { background: #fff7ed; color: #9a3412; }
 .activity-presenter-status--results { background: #f3e8ff; color: #6b21a8; }
 
-.activity-presenter-metrics { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; }
+.activity-presenter-metrics { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); }
 .activity-presenter-metrics > div { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 7px; display: grid; gap: 3px; grid-template-columns: 22px 1fr; padding: 9px; }
 .activity-presenter-metrics svg { color: #64748b; grid-row: 1 / span 2; }
 .activity-presenter-metrics span { color: #64748b; font-size: 0.67rem; font-weight: 850; }

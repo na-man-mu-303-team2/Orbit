@@ -1,5 +1,6 @@
 import {
   activityAnswerSchema,
+  calculateActivityResponseRate,
   activityDefinitionSchema,
   activityPresenterResultSchema,
   activityRetentionSnapshotSchema,
@@ -45,9 +46,10 @@ export class ActivityResultsService {
       projectId,
       sessionId
     );
-    const [runs, snapshots] = await Promise.all([
+    const [runs, snapshots, participantCount] = await Promise.all([
       this.repository.listSessionRuns(projectId, sessionId),
-      this.repository.listSessionSnapshots(projectId, sessionId)
+      this.repository.listSessionSnapshots(projectId, sessionId),
+      this.repository.countSessionAudiences(projectId, sessionId)
     ]);
     const snapshotsByRun = new Map(
       snapshots.map((snapshot) => [snapshot.activity_run_id, snapshot.aggregate_json])
@@ -62,7 +64,7 @@ export class ActivityResultsService {
         availability,
         result:
           availability === "raw-retained"
-            ? await this.buildPresenterResult(run)
+            ? await this.buildPresenterResult(run, participantCount)
             : availability === "aggregate-only"
               ? this.parseRetentionSnapshot(snapshotsByRun.get(run.activity_run_id))
               : null,
@@ -121,8 +123,12 @@ export class ActivityResultsService {
     const run = await this.repository.findRun(projectId, sessionId, runId);
     if (!run) throw new NotFoundException("Activity run not found");
     if (run.results_deleted_at) throw new NotFoundException("Activity results deleted");
+    const participantCount = await this.repository.countSessionAudiences(
+      projectId,
+      sessionId
+    );
     return getActivityPresenterResultResponseSchema.parse({
-      result: await this.buildPresenterResult(run)
+      result: await this.buildPresenterResult(run, participantCount)
     });
   }
 
@@ -177,7 +183,8 @@ export class ActivityResultsService {
   }
 
   private async buildPresenterResult(
-    run: ActivityResultRunRow
+    run: ActivityResultRunRow,
+    participantCount: number
   ): Promise<ActivityPresenterResult> {
     const definition = activityDefinitionSchema.parse(run.definition_snapshot);
     const [responses, textEntries] = await Promise.all([
@@ -186,6 +193,8 @@ export class ActivityResultsService {
     ]);
     return activityPresenterResultSchema.parse({
       ...this.resultBase(run, buildActivityAggregates(definition, responses.map(toAnswers))),
+      participantCount,
+      responseRate: calculateActivityResponseRate(run.response_count, participantCount),
       textEntries: textEntries.map((entry) => ({
         entryId: entry.entry_id,
         questionId: entry.question_id,

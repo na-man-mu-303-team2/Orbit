@@ -5,6 +5,7 @@ import {
   activityResponseRetentionJobPayloadSchema,
   activityResponseRetentionJobResultSchema,
   buildActivityAggregates,
+  calculateActivityResponseRate,
   type ActivityAnswer,
   type Job,
 } from "@orbit/shared";
@@ -13,6 +14,7 @@ import type { DataSource, EntityManager } from "typeorm";
 type SessionRow = {
   raw_responses_deleted_at: Date | string | null;
   results_deleted_at: Date | string | null;
+  participant_count: number;
 };
 
 type RunRow = {
@@ -114,9 +116,13 @@ async function retainSessionResponses(
   const sessions = readQueryRows<SessionRow>(
     await manager.query(
       `
-        SELECT raw_responses_deleted_at, results_deleted_at
-        FROM presentation_sessions
-        WHERE project_id = $1 AND session_id = $2
+        SELECT sessions.raw_responses_deleted_at, sessions.results_deleted_at,
+               (SELECT COUNT(*)::int
+                FROM presentation_session_audiences AS audiences
+                WHERE audiences.project_id = sessions.project_id
+                  AND audiences.session_id = sessions.session_id) AS participant_count
+        FROM presentation_sessions AS sessions
+        WHERE sessions.project_id = $1 AND sessions.session_id = $2
         LIMIT 1
         FOR UPDATE
       `,
@@ -183,6 +189,11 @@ async function retainSessionResponses(
       status: run.status,
       revision: run.revision,
       responseCount: run.response_count,
+      participantCount: session.participant_count,
+      responseRate: calculateActivityResponseRate(
+        run.response_count,
+        session.participant_count,
+      ),
       aggregates: buildActivityAggregates(definition, answers as ActivityAnswer[][]),
       textEntries: readQueryRows<TextRow>(approvedText).map((entry) => ({
         entryId: entry.entry_id,
@@ -228,6 +239,13 @@ async function retainSessionResponses(
       `,
       [projectId, sessionId],
     ),
+  );
+  await manager.query(
+    `
+      DELETE FROM presentation_session_audiences
+      WHERE project_id = $1 AND session_id = $2
+    `,
+    [projectId, sessionId],
   );
   await manager.query(
     `

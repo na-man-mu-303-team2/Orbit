@@ -40,6 +40,8 @@ const result = activityPresenterResultSchema.parse({
   status: "results",
   revision: 3,
   responseCount: 1,
+  participantCount: 2,
+  responseRate: 50,
   aggregates: [{
     questionId: source.activity.questions[0]!.questionId,
     type: "free-text",
@@ -75,6 +77,8 @@ describe("ActivityResultsPage detail states", () => {
     );
     expect(html).toContain("보존 중인 질문");
     expect(html).toContain("주관식 응답");
+    expect(html).toContain("응답률");
+    expect(html).toContain("50%");
   });
 
   it("renders an aggregate-only retention state without raw text", () => {

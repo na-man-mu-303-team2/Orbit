@@ -46,6 +46,7 @@ describe("projectActivityDeckForStaticExport", () => {
             status: "results",
             revision: 3,
             response_count: 2,
+            participant_count: 4,
             aggregate_json: null,
             raw_responses_deleted_at: null,
           },
@@ -124,6 +125,7 @@ describe("projectActivityDeckForStaticExport", () => {
               status: "results",
               revision: 4,
               response_count: 7,
+              participant_count: 10,
               raw_responses_deleted_at: "2026-07-01T00:00:00.000Z",
               aggregate_json: {
                 activityRunId: "activity_run_1",
@@ -131,6 +133,8 @@ describe("projectActivityDeckForStaticExport", () => {
                 status: "results",
                 revision: 4,
                 responseCount: 7,
+                participantCount: 10,
+                responseRate: 70,
                 aggregates: [
                   {
                     questionId: "question_rating",

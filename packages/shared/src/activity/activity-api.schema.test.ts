@@ -34,6 +34,8 @@ describe("activity API boundary schemas", () => {
     expect(
       activityPresenterResultSchema.safeParse({
         ...resultBase,
+        participantCount: 2,
+        responseRate: 50,
         textEntries: [
           {
             entryId: "activity_text_1",

@@ -65,6 +65,8 @@ const activityResultBaseShape = {
 export const activityPresenterResultSchema = z
   .object({
     ...activityResultBaseShape,
+    participantCount: z.number().int().nonnegative(),
+    responseRate: z.number().int().min(0).max(100),
     textEntries: z.array(activityPresenterTextEntrySchema)
   })
   .strict();
@@ -106,6 +108,14 @@ export type ActivityPublicResult = z.infer<typeof activityPublicResultSchema>;
 export type ActivityEditorSummary = z.infer<
   typeof activityEditorSummarySchema
 >;
+
+export function calculateActivityResponseRate(
+  responseCount: number,
+  participantCount: number
+): number {
+  if (participantCount === 0) return 0;
+  return Math.min(100, Math.round((responseCount / participantCount) * 100));
+}
 
 export function createAudienceActivityProjection(
   result: ActivityPresenterResult
