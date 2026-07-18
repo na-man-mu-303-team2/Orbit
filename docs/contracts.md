@@ -1004,6 +1004,18 @@ Job result:
 }
 ```
 
+Worker에서 Python Worker로 보내는 `/ai/pptx-ooxml-sync` multipart 요청은 PPTX package를 `file` file part로, `TemplateBlueprint`, operation 배열, Deck canvas를 각각 `template_blueprint_file`, `operations_file`, `deck_canvas_file`의 `application/json` file part로 전송한다. JSON을 일반 multipart text field로 보내지 않는다. 배포 중 rolling compatibility를 위해 Python Worker는 기존 `template_blueprint`, `operations`, `deck_canvas` text field도 소형 요청에 한해 읽지만, 신규 Worker는 file part만 사용한다.
+
+전송 경계는 저장소의 50 MiB asset upload 제한과 image data URL의 base64 증가분, bounded OOXML metadata 규모를 기준으로 다음과 같이 제한한다.
+
+- `file`: 50 MiB
+- `template_blueprint_file`: 16 MiB
+- `operations_file`: 72 MiB
+- `deck_canvas_file`: 4 KiB
+- operation 배열: 최대 500개
+
+Python Worker는 각 file part를 최대 크기보다 1 byte만 더 읽는 bounded read 후 JSON object/array 외형을 Pydantic으로 검증한다. 누락·중복, 잘못된 MIME type, 최대 크기 초과, malformed JSON, 잘못된 JSON 외형은 `PPTX_OOXML_SYNC_*` bounded code와 field 이름만 포함해 non-retryable로 실패한다. package/JSON 원문과 자유 형식 parser 오류는 Job 오류나 로그에 포함하지 않는다. 이 transport 단계가 실패하면 새 asset 저장, `currentPackageFileId`, `ooxmlSyncedDeckVersion`, patch compaction을 변경하지 않는다.
+
 Supported first-pass patch operations:
 
 - `update_element_frame`
