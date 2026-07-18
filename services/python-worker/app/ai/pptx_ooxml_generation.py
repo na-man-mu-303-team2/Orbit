@@ -945,9 +945,16 @@ def apply_sync_operation(
             "visible",
         }:
             return "FRAME_FIELDS_UNSUPPORTED"
-        if float(frame.get("opacity", 1)) != 1 or not bool(
-            frame.get("visible", True)
+        opacity = frame.get("opacity", 1)
+        if (
+            isinstance(opacity, bool)
+            or not isinstance(opacity, (int, float))
+            or not math.isfinite(float(opacity))
+            or not 0 <= float(opacity) <= 1
         ):
+            return "FRAME_FIELDS_UNSUPPORTED"
+        visible = frame.get("visible", True)
+        if not isinstance(visible, bool):
             return "FRAME_FIELDS_UNSUPPORTED"
         geometry_fields = set(frame) & {"x", "y", "width", "height", "rotation"}
         if geometry_fields and has_group_shape_ancestor(root, shape):
@@ -980,6 +987,22 @@ def apply_sync_operation(
                 and not resize_authored_table_tracks_to_frame(shape)
             ):
                 return "TABLE_STRUCTURE_UNSUPPORTED"
+            shape_changed = True
+        if "opacity" in frame and float(opacity) != 1:
+            if source.get("elementType") != "image" or not set_picture_opacity(
+                shape,
+                source,
+                float(opacity),
+            ):
+                return "FRAME_FIELDS_UNSUPPORTED"
+            shape_changed = True
+        elif "opacity" in frame and source.get("elementType") == "image":
+            if not set_picture_opacity(shape, source, 1):
+                return "FRAME_FIELDS_UNSUPPORTED"
+            shape_changed = True
+        if "visible" in frame:
+            if not set_shape_visibility(shape, visible):
+                return "FRAME_FIELDS_UNSUPPORTED"
             shape_changed = True
         if "zIndex" in frame:
             if parent is None or not reorder_visual_shape(
@@ -1791,6 +1814,53 @@ def direct_image_blip(
     ):
         return None
     return blip
+
+
+def set_picture_opacity(
+    shape: ET.Element[Any],
+    source: dict[str, Any],
+    opacity: float,
+) -> bool:
+    blip = direct_image_blip(shape, source)
+    if blip is None:
+        return False
+    for child in list(blip):
+        if local_name(child) == "alphaModFix":
+            blip.remove(child)
+    if opacity < 1:
+        alpha = ET.Element(
+            f"{{{DML_NS}}}alphaModFix",
+            {"amt": str(round(opacity * 100000))},
+        )
+        extension_list = first_local_child(blip, "extLst")
+        if extension_list is None:
+            blip.append(alpha)
+        else:
+            blip.insert(list(blip).index(extension_list), alpha)
+    return True
+
+
+def set_shape_visibility(shape: ET.Element[Any], visible: bool) -> bool:
+    non_visual_name = {
+        P_SP: "nvSpPr",
+        P_PIC: "nvPicPr",
+        P_GRAPHIC_FRAME: "nvGraphicFramePr",
+    }.get(shape.tag)
+    if non_visual_name is None:
+        return False
+    non_visual = first_local_child(shape, non_visual_name)
+    c_nv_pr = (
+        first_local_child(non_visual, "cNvPr")
+        if non_visual is not None
+        else None
+    )
+    if c_nv_pr is None:
+        return False
+    if visible:
+        c_nv_pr.attrib.pop("hidden", None)
+    else:
+        c_nv_pr.set("hidden", "1")
+    return True
 
 
 def image_crop_capability_for_shape(
