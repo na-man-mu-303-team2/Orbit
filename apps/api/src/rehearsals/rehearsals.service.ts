@@ -57,6 +57,7 @@ import {
   deckContentHash,
 } from "../practice-goals/evaluation-plan";
 import { RehearsalRunEntity } from "./rehearsal-run.entity";
+import { buildRehearsalProjectSummary } from "./rehearsal-project-summary";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import { buildRehearsalRunComparison } from "./rehearsal-run-comparison";
 
@@ -1040,37 +1041,12 @@ export class RehearsalsService {
       return getRehearsalProjectSummaryResponseSchema.parse({ summary: null });
     }
 
-    const runDurationSeries = runs.map((run) => ({
-      runId: run.runId,
-      createdAt: run.createdAt.toISOString(),
-      durationSeconds: extractReportDurationSeconds(run.rehearsalReport),
-    }));
-
-    const slideAccum = new Map<string, { total: number; count: number }>();
-    for (const run of runs) {
-      for (const t of extractReportSlideTimings(run.rehearsalReport)) {
-        const entry = slideAccum.get(t.slideId) ?? { total: 0, count: 0 };
-        entry.total += t.actualSeconds;
-        entry.count += 1;
-        slideAccum.set(t.slideId, entry);
-      }
-    }
-    const slideAvgTimings = Array.from(slideAccum.entries()).map(
-      ([slideId, { total, count }]) => ({
-      slideId,
-      avgSeconds: Math.round(total / count),
-        sampleCount: count,
-      }),
-    );
-
     return getRehearsalProjectSummaryResponseSchema.parse({
-      summary: {
+      summary: buildRehearsalProjectSummary({
         projectId,
-        runCount: runs.length,
-        runDurationSeries,
-        slideAvgTimings,
+        runs,
         progressComment: project?.progressComment ?? null,
-      },
+      }),
     });
   }
 
@@ -1172,24 +1148,4 @@ function databaseDateToIso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === "string") return new Date(value).toISOString();
   throw new Error("Rehearsal focus profile date is invalid.");
-}
-
-type ReportJsonShape = {
-  metrics?: { durationSeconds?: number };
-  slideTimings?: { slideId: string; actualSeconds: number }[];
-};
-
-function extractReportDurationSeconds(
-  report: Record<string, unknown> | null,
-): number {
-  const metrics = (report as ReportJsonShape | null)?.metrics;
-  return typeof metrics?.durationSeconds === "number"
-    ? metrics.durationSeconds
-    : 0;
-}
-
-function extractReportSlideTimings(
-  report: Record<string, unknown> | null,
-): { slideId: string; actualSeconds: number }[] {
-  return (report as ReportJsonShape | null)?.slideTimings ?? [];
 }
