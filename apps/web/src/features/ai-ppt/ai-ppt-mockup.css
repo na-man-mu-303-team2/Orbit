@@ -1998,6 +1998,45 @@
   color: inherit;
 }
 
+/* 보류된 스테퍼 시안 1: 플로팅 캡슐
+.ai-ppt-steps {
+  gap: var(--redesign-space-1);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: var(--redesign-space-1);
+}
+
+.ai-ppt-step,
+.ai-ppt-step:first-child,
+.ai-ppt-step:last-child {
+  border-radius: var(--redesign-radius-full);
+  clip-path: none;
+  margin: 0;
+  min-height: 48px;
+  padding-inline: var(--redesign-space-5);
+}
+
+.ai-ppt-step-marker {
+  align-items: center;
+  background: var(--redesign-color-surface-container-lowest);
+  border: var(--redesign-border-subtle);
+  border-radius: 50%;
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  letter-spacing: 0;
+  width: 30px;
+}
+
+.ai-ppt-step.active {
+  box-shadow: var(--redesign-shadow-sm);
+}
+
+.ai-ppt-step.active .ai-ppt-step-marker {
+  background: var(--redesign-color-surface-container-lowest);
+  color: var(--redesign-color-primary-emphasis);
+}
+*/
+
 .ai-ppt-panel {
   min-height: 0;
   padding: 0;
