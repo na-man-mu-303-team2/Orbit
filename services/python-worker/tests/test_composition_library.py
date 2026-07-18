@@ -1857,6 +1857,38 @@ def test_diagram_hub_uses_grid_width_for_korean_focal_copy() -> None:
     ) == 3
 
 
+@pytest.mark.parametrize("item_count", [4, 6])
+def test_diagram_hub_connects_every_outer_node(item_count: int) -> None:
+    slide = slide_payload("architecture", item_count)
+    design_program = program(
+        [
+            {
+                "order": 1,
+                "compositionId": "diagram-hub",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "diagram",
+                "assetRole": "none",
+                "requiredAsset": False,
+            }
+        ]
+    )
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+    connectors = [
+        element
+        for element in compiled.elements
+        if "_connector_" in element["elementId"]
+    ]
+
+    assert len(connectors) == item_count
+    assert all(connector["zIndex"] == 2 for connector in connectors)
+
+
 def test_cta_closing_duplicate_message_uses_single_full_height_focal() -> None:
     slide = slide_payload("summary", 1)
     slide["message"] = slide["contentItems"][0]["text"]
