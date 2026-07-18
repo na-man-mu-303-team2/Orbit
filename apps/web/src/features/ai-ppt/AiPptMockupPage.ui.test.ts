@@ -1,12 +1,27 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AiPptMockupPage,
   AiPptStyleColorPage,
 } from "./AiPptMockupPage";
 
 describe("AI PPT wizard UI", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("shows the Style & Color loading preview from the development query", () => {
+    vi.stubGlobal("window", { location: { search: "?preview=style-loading" } });
+
+    const html = renderToStaticMarkup(createElement(AiPptMockupPage));
+
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain("Style &amp; Color");
+    expect(html).toContain("ai-ppt-style-loader");
+    // Block loading animation is intentionally parked.
+    // expect(html).toContain("ai-ppt-block-loader");
+    // expect(html).toContain("발표 구성을 블록으로 쌓는 중");
+  });
+
   it("starts with one content screen and multiple attachments", () => {
     const html = renderToStaticMarkup(createElement(AiPptMockupPage));
 

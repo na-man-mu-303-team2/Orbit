@@ -19,6 +19,7 @@ import {
   IconFileText,
   IconFileDescription,
   IconListDetails,
+  IconLoader2,
   IconMessageCircle,
   IconMessageCircleHeart,
   IconPaperclip,
@@ -27,6 +28,7 @@ import {
   IconPlus,
   IconPresentationAnalytics,
   IconSparkles,
+  // IconSquareFilled,
   IconTrash,
   IconUpload,
   IconUsers,
@@ -564,6 +566,11 @@ export function AiPptMockupPage() {
   const projectIdRef = useRef<string | null>(null);
   const referenceFilesRef = useRef<File[]>([]);
   const generationStartedRef = useRef(false);
+  const showStyleLoadingPreview =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("preview") ===
+      "style-loading";
 
   useEffect(() => {
     return () => {
@@ -757,7 +764,7 @@ export function AiPptMockupPage() {
     }
   }
 
-  if (isGenerating) {
+  if (isGenerating || showStyleLoadingPreview) {
     return <AiPptStyleStartingPage />;
   }
 
@@ -821,31 +828,42 @@ export function AiPptMockupPage() {
 }
 
 function AiPptStyleStartingPage() {
-  const font = recommendGenerateDeckFonts(defaultFontMood)[0];
-  const palette = defaultPaletteOptions[0];
   return (
     <WorkspaceContainer as="section" className="ai-ppt-page" width="content">
-      <header className="ai-ppt-header">
-        <div>
-          <span>AI PPT</span>
-          <h1>Style &amp; Color</h1>
-          <p>콘텐츠 생성을 시작하면서 스타일 선택 화면을 준비하고 있습니다.</p>
-        </div>
-      </header>
       <div className="ai-ppt-layout">
         <WizardSteps activeIndex={1} />
-        <main className="ai-ppt-workspace">
-          <section className="ai-ppt-panel" aria-busy="true">
+        <main className="ai-ppt-workspace ai-ppt-loading-workspace">
+          <section className="ai-ppt-panel ai-ppt-loading-panel" aria-busy="true">
             <p className="ai-ppt-status" role="status">
               프로젝트를 확정하고 발표 구성을 백그라운드에서 시작하는 중입니다.
             </p>
-          </section>
-          <aside className="ai-ppt-preview-panel">
-            <MiniSlide
-              font={font}
-              palette={palette.palette}
+            <IconLoader2
+              aria-hidden="true"
+              className="ai-ppt-style-loader"
+              size={48}
             />
-          </aside>
+            {/* Block loading animation is intentionally parked.
+            <div
+              aria-label="발표 구성을 블록으로 쌓는 중"
+              className="ai-ppt-block-loader"
+              role="img"
+            >
+              <div aria-hidden="true" className="ai-ppt-block-stack">
+                {Array.from({ length: 32 }, (_, index) => (
+                  <IconSquareFilled key={index} size={38} />
+                ))}
+              </div>
+              {Array.from({ length: 4 }, (_, index) => (
+                <IconSquareFilled
+                  aria-hidden="true"
+                  className={`ai-ppt-falling-block ai-ppt-falling-block-${index + 1}`}
+                  key={index}
+                  size={38}
+                />
+              ))}
+            </div>
+            */}
+          </section>
         </main>
       </div>
     </WorkspaceContainer>
@@ -1619,75 +1637,6 @@ export function miniSlideFontStyles(
     heading: { fontFamily: stack(font.headingFontFamily) },
     body: { fontFamily: stack(font.bodyFontFamily) },
   };
-}
-
-function MiniSlide(props: {
-  dense?: boolean;
-  font: GenerateDeckFontOption;
-  palette: Required<PaletteOverride>;
-}) {
-  const fontStyles = miniSlideFontStyles(props.font);
-  const { palette } = props;
-  return (
-    <div
-      className={[
-        "ai-ppt-mini-slide",
-        props.dense ? "ai-ppt-mini-slide-dense" : "ai-ppt-mini-slide-cover",
-      ].join(" ")}
-      style={{
-        background: palette.background,
-        borderColor: palette.border,
-        color: palette.text,
-        ...fontStyles.body,
-      }}
-    >
-      <i
-        className="ai-ppt-mini-top-rule"
-        style={{ background: palette.primary }}
-      />
-      <header className="ai-ppt-mini-section" style={fontStyles.heading}>
-        <span style={{ color: palette.primary }}>01</span>
-        <b>발표 디자인</b>
-      </header>
-      {props.dense ? (
-        <main className="ai-ppt-mini-body-recipe">
-          {[palette.primary, palette.secondary, palette.accentColor].map(
-            (color, index) => (
-              <section
-                key={`${color}-${index}`}
-                style={{ borderColor: palette.border }}
-              >
-                <i style={{ background: color }} />
-                <strong style={fontStyles.heading}>
-                  {index === 0 ? "과정" : index === 1 ? "핵심" : "근거"}
-                </strong>
-                <p style={{ background: palette.muted }} />
-              </section>
-            ),
-          )}
-        </main>
-      ) : (
-        <main className="ai-ppt-mini-cover-recipe">
-          <section>
-            <strong style={fontStyles.heading}>핵심 메시지</strong>
-            <p style={fontStyles.body}>발표 흐름과 실행안</p>
-          </section>
-          <aside
-            style={{ background: palette.muted, borderColor: palette.border }}
-          >
-            <i style={{ background: palette.primary }} />
-            <span style={{ borderColor: palette.border }} />
-            <span style={{ borderColor: palette.border }} />
-            <span style={{ borderColor: palette.border }} />
-          </aside>
-        </main>
-      )}
-      <i
-        className="ai-ppt-mini-bottom-rule"
-        style={{ background: palette.secondary }}
-      />
-    </div>
-  );
 }
 
 function AttachmentField(props: {
