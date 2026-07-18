@@ -213,6 +213,8 @@ describe("App shell routing", () => {
 
       expect(html).toContain("발표 내용부터 빠르게 시작하세요");
       expect(html).toContain("Style &amp; Color");
+      expect(html).toContain("kdh@orbit.com");
+      expect(html).not.toContain("demo@orbit.test");
     } finally {
       vi.unstubAllGlobals();
       queryClient.clear();
