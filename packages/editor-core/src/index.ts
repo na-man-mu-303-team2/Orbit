@@ -113,7 +113,23 @@ export {
   createAddSlidePatch,
   createDuplicateSlidePatch,
   createSlideId,
+  createUpdateSlideTransitionPatch,
 } from "./patches/slideOperations";
+export {
+  animationTimelineDiagnosticLimit,
+  createAnimationTimeline,
+  getAnimationTimelineRoot
+} from "./playback/animationTimeline";
+export type {
+  AnimationStartMode,
+  AnimationTimelineBaseReference,
+  AnimationTimelineDiagnostic,
+  AnimationTimelinePlan,
+  AnimationTimelineRoot,
+  PlannedAnimationTimelineEffect,
+  TimelineAnimationInput
+} from "./playback/animationTimeline";
+export { normalizeLegacyAnimationStartModes } from "./patches/legacyAnimationStartModeMigration";
 export {
   createActivityResultsSlide,
   createActivitySlide,

@@ -181,6 +181,11 @@ export const slideKeywordsSchema = z
 
 export const slideOrderSchema = z.number().int().positive();
 
+export const slideTransitionSchema = z.object({
+  type: z.literal("fade"),
+  durationMs: z.number().int().positive()
+});
+
 export const slideLayoutSchema = z.enum([
   "title",
   "title-content",
@@ -310,6 +315,7 @@ const slideBaseSchema = z.object({
     title: z.string().default(""),
     thumbnailUrl: z.string().default(""),
     estimatedSeconds: z.number().int().positive().optional(),
+    transition: slideTransitionSchema.optional(),
     style: slideStyleSchema,
     speakerNotes: z.string().default(""),
     elements: z.array(deckElementSchema).default([]),
@@ -345,6 +351,7 @@ const normalizedSlideSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type Slide = z.infer<typeof normalizedSlideSchema>;
+export type SlideTransition = z.infer<typeof slideTransitionSchema>;
 
 export const slideSchema: z.ZodType<Slide, z.ZodTypeDef, unknown> = z
   .preprocess((input) => {
