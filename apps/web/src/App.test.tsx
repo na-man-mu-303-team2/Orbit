@@ -401,7 +401,7 @@ describe("workspace project surfaces", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(
       ["projects"],
-      Array.from({ length: 9 }, (_, index) => ({
+      Array.from({ length: 11 }, (_, index) => ({
         createdAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
         createdBy: "user_1",
         isPinned: index === 0,
@@ -423,7 +423,7 @@ describe("workspace project surfaces", () => {
     expect(html).toContain("AI로 발표자료 만들기");
     expect(html).toContain("발표자료 초안을 만들어드려요.");
     expect(html).not.toContain("빈 슬라이드로 시작하세요.");
-    expect(html.match(/<article class="workspace-home-card/g)).toHaveLength(7);
+    expect(html.match(/<article class="workspace-home-card/g)).toHaveLength(10);
     expect(html).toContain('class="workspace-home-card is-pinned"');
     expect(html).not.toContain("워크스페이스 메뉴");
   });
