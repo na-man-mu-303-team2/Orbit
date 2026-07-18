@@ -965,6 +965,7 @@ TemplateBlueprint optional OOXML tracking fields:
 - `slides[].elementSources[]`
 - `slides[].sourceSlidePart`, `slides[].ooxmlOrigin`
 - `slides[].slideId`: Deck의 opaque slide ID와 `sourceSlidePart`를 직접 연결한다. 신규 import는 반드시 기록하며 숫자 suffix로 slide part를 추론하지 않는다. legacy blueprint는 OOXML 변경을 적용하기 전 현재 Deck의 유일한 slide order와 `slideIndex`를 대응해 복구한 뒤 저장한다.
+- `slides[].ooxmlMotionCapabilities`: `{ transitionWritable, importedMainSequenceCoverage }`를 사용한다. `importedMainSequenceCoverage`는 `unknown | absent | partial | complete`이며, writable motion capability는 유일한 `sourceSlidePart`가 있을 때만 유효하다. 여러 slide가 같은 locator를 공유하면 motion authoring을 활성화하지 않는다.
 - `slides[].elementSources[]`: `{ elementId, elementType?, ooxmlOrigin?, ooxmlEditCapabilities?, slidePart, shapeId, relationshipId?, sourceType, writable, tableCellLocators?, fallbackReason? }`. 신규 importer/sync 결과는 `elementType`을 기록하며, 이 값이 없거나 실제 patch 대상 type과 다르면 property sync를 fail-closed한다.
 - table source의 optional `tableCellLocators[]`는 `{ rowIndex, columnIndex, fingerprint }`이며 0-based `(0, 0)`에서 시작하는 완전한 직사각형 grid를 row-major 순서로 모두 기록한다. 각 index는 `0..999`, locator는 `1..10,000`개이고 `fingerprint`는 lowercase SHA-256 64자리다. fingerprint는 canonical `a:tc`에서 DrawingML `a:t`의 text와 그 `xml:space`만 제외해 셀 문구 변경에는 안정적이되 formatting·extension·구조 drift는 탐지한다. locator 존재만으로 `tableCellText` capability를 부여하지 않으며 direct table, unmerged rectangular grid, track 정합성, writable source mapping을 함께 증명한 경우에만 targeted sync gate가 활성화된다.
 - `slots[].source.slidePart`
@@ -984,7 +985,9 @@ OOXML provenance와 요소 편집 capability는 다음 계약을 사용한다.
 - 새 요소·새 슬라이드·복제본은 `authored`로 전환하며 원본 imported capability를 승계하지 않는다.
 - Crop capability는 relationship이 일치하는 direct `p:pic`을 `picture`, direct picture-filled `p:sp`를 `picture-fill`로 판정한다. capability와 실제 shape locator가 일치할 때만 normalized crop을 OOXML `srcRect`에 기록하고 `null`은 기존 `srcRect`를 제거한다. 새로 작성한 image는 `picture` capability를 갖는다.
 - generic exporter와 OOXML sync는 동일한 normalized crop edge와 최소 가시 영역 규칙을 사용한다. imported image의 locator 또는 capability가 불완전하면 원본 package를 유지하고 fail-closed 처리한다.
-- Rich text, Table, Motion capability는 각 보존 serializer가 병합되기 전까지 보수적으로 비활성화한다.
+- Rich text와 Table capability는 각 보존 serializer 계약을 따른다. Motion은 transition과 imported main sequence coverage를 import 시 판정하고, 불완전 locator 또는 `partial`/`unknown` coverage에서는 보수적으로 비활성화한다.
+
+OOXML importer는 지원되는 fade transition과 main-sequence entrance effect를 Deck `transition`/`animations`로 변환하고 bounded `qualityReport.motionDiagnostics`에 unsupported, downgraded, unresolved, excluded 집계를 기록한다. detail은 정해진 `PPTX_MOTION_*` code, slide index, count만 포함하고 최대 500개다. Generic exporter는 같은 canonical motion을 직렬화하며, group animation은 지원되는 flattened target fallback을 warning으로 반환한다. 그 외 motion 손실 진단이 있으면 export Worker는 결과 asset을 저장하기 전에 fail-closed한다.
 
 구현 위치:
 
@@ -1034,13 +1037,14 @@ Job result:
 }
 ```
 
-Worker에서 Python Worker로 보내는 `/ai/pptx-ooxml-sync` multipart 요청은 PPTX package를 `file` file part로, `TemplateBlueprint`, operation 배열, Deck canvas를 각각 `template_blueprint_file`, `operations_file`, `deck_canvas_file`의 `application/json` file part로 전송한다. JSON을 일반 multipart text field로 보내지 않는다. 배포 중 rolling compatibility를 위해 Python Worker는 기존 `template_blueprint`, `operations`, `deck_canvas` text field도 소형 요청에 한해 읽지만, 신규 Worker는 file part만 사용한다.
+Worker에서 Python Worker로 보내는 `/ai/pptx-ooxml-sync` multipart 요청은 PPTX package를 `file` file part로, `TemplateBlueprint`, operation 배열, slide motion full-state 배열, Deck canvas를 각각 `template_blueprint_file`, `operations_file`, `slide_motion_file`, `deck_canvas_file`의 `application/json` file part로 전송한다. JSON을 일반 multipart text field로 보내지 않는다. 배포 중 rolling compatibility를 위해 Python Worker는 기존 `template_blueprint`, `operations`, `slide_motion`, `deck_canvas` text field도 소형 요청에 한해 읽지만, 신규 Worker는 file part만 사용한다.
 
 전송 경계는 저장소의 50 MiB asset upload 제한과 image data URL의 base64 증가분, bounded OOXML metadata 규모를 기준으로 다음과 같이 제한한다.
 
 - `file`: 50 MiB
 - `template_blueprint_file`: 16 MiB
 - `operations_file`: 72 MiB
+- `slide_motion_file`: 16 MiB
 - `deck_canvas_file`: 4 KiB
 - operation 배열: 최대 500개
 
@@ -1054,6 +1058,10 @@ Supported first-pass patch operations:
 - `delete_element`
 - `add_slide`
 - `reorder_slides`
+
+Motion operation은 `update_slide_transition`, `add_animation`, `update_animation`, `delete_animation`을 지원한다. Worker는 해당 patch들을 최신 Deck의 slide별 full-state로 coalesce하여 `slide_motion_file`에 보낸다. transition은 `transitionWritable=true`인 경우만 허용하고, imported animation full-state 교체는 `importedMainSequenceCoverage`가 `absent` 또는 `complete`이며 Deck과 TemplateBlueprint capability가 일치할 때만 허용한다. `partial`, `unknown`, interactive sequence, media timing은 원본 OOXML subtree를 보존하고 authoring을 fail-closed한다.
+
+Python serializer는 transition 변경 시 기존 timing subtree bytes를 유지하고, main sequence 변경 시 지원되는 root chain만 교체하면서 interactive/media timing subtree를 보존한다. target은 `sourceSlidePart`와 authoritative element source의 shape identity로 해석하며, locator·coverage·target이 불완전하면 package 원본 bytes를 반환한다. element 삭제가 complete main sequence의 target을 제거하면 element operation과 최종 animation full-state를 같은 요청에서 원자적으로 적용한다.
 
 ORBIT editor의 `group` element는 PPTX shape group이 아니라 interaction 전용 논리 그룹이다. `TemplateBlueprint.logicalGroupElementIds`는 이전 sync에서 존재했던 논리 group ID를 보존하며, Worker는 현재 Deck의 group ID와 합쳐 group 자체의 `add_element`, `update_element_frame`, `update_element_props`, `delete_element`를 package-neutral operation으로 제외한다. group 이동으로 함께 생성된 실제 자식 element frame operation은 기존 OOXML source에 정상 반영한다. sync 성공 후 sidecar는 현재 Deck의 논리 group ID로 갱신한다.
 
@@ -1082,9 +1090,13 @@ Python Worker의 sync 응답은 bounded array인 `appliedOperations`와 `unsuppo
 - `SYNC_RESPONSE_INCOMPLETE`
 - `TABLE_CELL_CAPABILITY_UNSAFE`, `TABLE_STRUCTURE_UNSUPPORTED`
 
+Motion 응답은 별도의 bounded `appliedSlideMotion`과 `unsupportedSlideMotion` 배열을 사용한다. applied 항목은 요청 순서대로 `{ slideId, transition, animations }` scope 승인을 반환하며, unsupported 항목은 `slideId`, `transition | animations` scope와 bounded `SLIDE_MOTION_*`, `SLIDE_TRANSITION_*`, `SLIDE_ANIMATION_*` reason을 반환한다.
+
 Worker는 전송한 operation과 `appliedOperations`의 순서·type·slide·element identity가 정확히 일치하는지 검증한다. 하나라도 unsupported이거나 응답 승인이 누락·추가·재정렬되면 non-retryable `PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION`으로 실패한다. 이때 새 asset을 저장하지 않고 `currentPackageFileId`, `ooxmlSyncedDeckVersion`, patch compaction을 변경하지 않는다. Python도 요청 안의 operation 하나라도 적용할 수 없으면 원본 package bytes를 반환하고 해당 요청의 applied 목록을 비운다.
 
-speaker notes, keywords, semantic cues, slide action처럼 package visual tree를 바꾸지 않는 operation은 package-neutral로 취급한다. 그 외 아직 지원하지 않는 slide/theme/animation operation은 Python 호출 전에 같은 fail-closed 오류로 거부한다. 단순 fidelity warning은 사용자 변경이 실제로 적용된 경우에만 성공 응답과 함께 반환할 수 있다.
+Worker는 `slide_motion_file`과 `appliedSlideMotion`의 순서·slide ID·scope boolean도 정확히 비교한다. motion 거부 또는 승인 누락·추가·재정렬 역시 같은 freshness fail-closed 계약을 적용한다.
+
+speaker notes, keywords, semantic cues, slide action처럼 package visual tree를 바꾸지 않는 operation은 package-neutral로 취급한다. 그 외 아직 지원하지 않는 slide/theme operation은 Python 호출 전에 같은 fail-closed 오류로 거부한다. 단순 fidelity warning은 사용자 변경이 실제로 적용된 경우에만 성공 응답과 함께 반환할 수 있다.
 
 동시성·최신성 규칙:
 
