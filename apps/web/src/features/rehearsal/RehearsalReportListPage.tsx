@@ -89,10 +89,15 @@ export function RehearsalReportListPage({ projectId }: { projectId?: string }) {
         {state === "ready" && items.length === 0 ? <OrbitEmptyState action={<OrbitButton onClick={() => navigateTo("/project?intent=rehearsal")} variant="secondary">리포트용 리허설 시작하기</OrbitButton>} description="마이크 녹음과 AI 분석까지 완료한 리허설이 프로젝트별 리포트로 쌓입니다." title="아직 분석된 리허설이 없습니다." /> : null}
         {state === "ready" && items.length > 0 ? (
           <div className="orbit-report-project-table" role="table" aria-label="프로젝트별 리허설 리포트">
-            <div className="orbit-report-project-row heading" role="row"><span role="columnheader">프로젝트</span><span role="columnheader">최근 리허설</span><span role="columnheader">누적 회차</span><span /></div>
+            <div className="orbit-report-project-row heading" role="row">
+              <span className="orbit-report-project-col-project" role="columnheader">프로젝트</span>
+              <span className="orbit-report-project-col-date" role="columnheader">최근 리허설</span>
+              <span className="orbit-report-project-col-count" role="columnheader">누적 회차</span>
+              <span aria-hidden="true" className="orbit-report-project-col-action" />
+            </div>
             {pagedItems.map(({ project, latestRun, totalCount }) => (
               <button className="orbit-report-project-row" key={project.projectId} onClick={() => navigateTo(`/reports/${encodeURIComponent(project.projectId)}`)} role="row" type="button">
-                <span className="orbit-report-project-name" role="cell">
+                <span className="orbit-report-project-name orbit-report-project-col-project" role="cell">
                   <i aria-hidden="true" className="orbit-report-project-thumb">
                     <IconFileText size={18} />
                     <Suspense fallback={null}>
@@ -104,9 +109,9 @@ export function RehearsalReportListPage({ projectId }: { projectId?: string }) {
                   </i>
                   <span><strong>{project.title}</strong><small>프로젝트 종합 리포트</small></span>
                 </span>
-                <span role="cell">{formatRunDate(latestRun.createdAt)}</span>
-                <strong role="cell">{totalCount}회</strong>
-                <IconChevronRight aria-hidden="true" size={18} />
+                <span className="orbit-report-project-col-date" role="cell">{formatRunDate(latestRun.createdAt)}</span>
+                <strong className="orbit-report-project-col-count" role="cell">{totalCount}회</strong>
+                <IconChevronRight aria-hidden="true" className="orbit-report-project-col-action" size={18} />
               </button>
             ))}
           </div>
