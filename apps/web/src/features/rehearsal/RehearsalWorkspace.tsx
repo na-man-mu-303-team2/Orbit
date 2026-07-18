@@ -4964,6 +4964,7 @@ export function RehearsalWorkspace(props: {
             <ActivityPresenterPanel
               autoStart
               deckId={deck.deckId}
+              deckVersion={deck.version}
               projectId={deck.projectId}
               slide={currentSlide}
             />

@@ -41,6 +41,7 @@ import {
 } from "./utils/canvasInteractionUtils";
 import { getSelectionTransformerConfig } from "./utils/selectionTransformer";
 import {
+  getHighlightOverlayElements,
   HighlightOverlay,
   ReadOnlySlideCanvas,
   type ElementPresentationState,
@@ -432,6 +433,12 @@ export function EditableCanvas(props: {
   const validationHighlightElementIdSet = new Set(
     validationHighlightElementIds,
   );
+  const validationHighlightElements = getHighlightOverlayElements({
+    activeHighlightElementIds: validationHighlightElementIdSet,
+    deck,
+    elementStates: elementStates ?? undefined,
+    slide,
+  });
   const editorPrimarySoftColor = withColorAlpha(editorPrimaryColor, 0.08);
   const editorPrimaryMediumColor = withColorAlpha(editorPrimaryColor, 0.55);
   const selectedElementIdSet = new Set(selectedElementIds);
@@ -681,6 +688,7 @@ export function EditableCanvas(props: {
               selectedCount={selectedElementIds.length}
               showIds={showIds}
               slide={slide}
+              stageScale={stageScale}
               customShapeEditDraft={
                 customShapeEditDraft?.elementId === element.elementId
                   ? customShapeEditDraft
@@ -730,11 +738,7 @@ export function EditableCanvas(props: {
               strokeWidth={1.5 / Math.max(stageScale, 0.01)}
             />
           ))}
-          {visibleElements
-            .filter((element) =>
-              validationHighlightElementIdSet.has(element.elementId),
-            )
-            .map((element) => (
+          {validationHighlightElements.map((element) => (
               <HighlightOverlay
                 color={editorPrimaryColor}
                 element={element}

@@ -129,6 +129,10 @@ API:
       "title": "Opening",
       "thumbnailUrl": "/files/thumbnails/slide_1.png",
       "estimatedSeconds": 60,
+      "transition": {
+        "type": "fade",
+        "durationMs": 700
+      },
       "style": {
         "layout": "title-content",
         "backgroundColor": "#ffffff"
@@ -165,6 +169,7 @@ API:
           "elementId": "el_1",
           "type": "fade-in",
           "order": 1,
+          "startMode": "on-click",
           "durationMs": 400,
           "delayMs": 0,
           "easing": "ease-out"
@@ -226,7 +231,8 @@ API:
 - PPTX import와 기존 Deck 호환을 위해 이미 존재하는 full-canvas `background` element는 보존할 수 있으며, 이 경우 배경 변경 동작은 `slide.style.backgroundColor`와 element fill을 함께 동기화한다.
 - `theme` 변경은 기존 `slide.style`이나 object props를 자동으로 덮어쓰지 않는다. 전체 테마 적용은 별도의 apply theme 동작으로 처리한다.
 - `slides`는 최소 1개 이상이어야 한다. 새 덱 생성 시에는 빈 덱 대신 기본 슬라이드 1장을 생성한다.
-- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`, `actions`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에만 사용하고, 일반 편집 썸네일 캐시는 Deck에 저장하지 않는다.
+- SlideSchema 필드는 `slideId`, `order`, `title`, `thumbnailUrl`, `estimatedSeconds`, `transition`, `style`, `speakerNotes`, `elements`, `keywords`, `animations`, `actions`를 유지한다. `thumbnailUrl`은 imported/image-only slide처럼 `elements`가 비어 있는 발표자 렌더링 fallback에만 사용하고, 일반 편집 썸네일 캐시는 Deck에 저장하지 않는다.
+- `slide.transition`은 destination slide가 소유하는 optional `{ type: "fade", durationMs }` 상태다. field가 없으면 transition 없음이며, 첫 slide와 transition이 없는 slide는 즉시 표시한다. `durationMs`는 양의 정수다.
 - `estimatedSeconds`는 슬라이드별 목표 발표 시간(초)이며 선택 필드다. 생략된 경우 presenter UI는 `targetDurationMinutes / slides.length` 기반 균등 분배로 폴백한다.
 - AI 생성 slide는 선택적 `aiNotes`를 포함할 수 있다. `aiNotes`는 `emphasisPoints`와 검토용 `sourceEvidence`만 담고, 디자인 전용 배열은 만들지 않는다.
 - design-pack slide의 `aiNotes.timingPlan`은 선택적으로 `speakingTimeRatio`와 `targetSpokenSeconds`를 포함할 수 있다. `targetSeconds`는 전환을 포함한 장표 점유 시간이고 `targetSpokenSeconds`는 해당 장표의 발화 목표 시간이다. 기존 Deck은 두 필드를 생략할 수 있다.
@@ -283,6 +289,8 @@ API:
 - `element.animations`에는 저장하지 않는다.
 - 각 animation은 `anim_` prefix를 따르는 `animationId`와 `el_` prefix를 따르는 `elementId`를 필수로 가지고 대상 객체를 참조한다. slide 단위 animation은 1차 스프린트 MVP에서 제외한다.
 - animation `order`는 `1`부터 시작하는 양의 정수로 관리한다.
+- animation `startMode`는 `on-slide-enter | on-click | with-previous | after-previous` 중 하나다. `order`는 stable logical sequence만 나타내며 같은 `order` 자체는 동시 실행 의미를 갖지 않는다. `on-slide-enter`와 `on-click`은 root를 만들고, `with-previous`는 직전 logical effect와 같은 base reference, `after-previous`는 직전 effect 종료를 base reference로 사용한다. root 앞의 첫 `with-previous`는 slide entry, 첫 `after-previous`는 destination slide transition end를 기준으로 한다.
+- 새 animation authoring의 기본 `startMode`는 `on-click`이다. 기존 raw Deck에서 `startMode`가 생략된 animation은 editor-core가 schema parse 전에 같은 legacy `order`별로 묶어 one-time 정규화한다. group 안에 `play-animation` action 참조가 하나라도 있으면 누락된 root는 `on-click`, 없으면 `on-slide-enter`, 나머지 누락 follower는 `with-previous`가 된다. 이미 명시된 `startMode`와 legacy `order` 값은 변경하지 않으며 다음 저장 시 정규화된 mode가 Deck JSON에 영속화된다.
 - `durationMs`, `delayMs`, `easing`은 입력에서 생략할 수 있지만, schema parse 후 normalized Deck JSON에는 각각 `400`, `0`, `"ease-out"` 기본값으로 포함한다.
 - `easing`은 `linear`, `ease-in`, `ease-out`, `ease-in-out`만 허용한다.
 - `slide.keywords[]`는 `required` boolean을 포함한다. 이 값은 발표 중 반드시 언급해야 하는 keyword 여부를 나타내며 기본값은 `true`다.
@@ -292,6 +300,7 @@ API:
 - 각 action은 `act_` prefix를 따르는 `actionId`와 `cue`, legacy `keyword`, 또는 `keyword-occurrence` 기반 trigger를 가진다.
 - action effect는 `play-animation`, `go-to-next-slide`만 허용한다.
 - `play-animation` effect는 같은 slide 안에 있는 `animationId`만 참조할 수 있다.
+- `play-animation` action은 `on-click` root chain만 가리킬 수 있다. follower를 가리켜도 해당 root chain 전체를 실행하며, action trigger는 main timeline을 대체하지 않고 이미 계획된 root를 실행하는 overlay로 동작한다.
 - `keyword` trigger는 같은 slide 안에 있는 `keywordId`만 참조할 수 있다.
 - `keyword-occurrence` trigger는 같은 slide 안에 있는 `keywordId`와 현재 `speakerNotes`에서 재계산 가능한 `occurrenceId`를 함께 참조해야 한다.
 - `keyword-occurrence.occurrenceId`는 `kwo_` prefix를 따르고, opaque string으로 취급한다. 현재 권장 형식은 `kwo_<slideId>_<keywordId>_<start>_<end>`이며 `start`, `end`는 `speakerNotes` UTF-16 index 기준이다.
@@ -415,6 +424,7 @@ DeckPatch 결정 사항:
 - `update_deck`: deck 제목 수정
 - `add_slide`: slide 전체 추가
 - `update_slide`: slide 제목 또는 thumbnail URL 수정
+- `update_slide_transition`: destination slide의 fade transition 전체 설정 또는 `null`로 제거
 - `delete_slide`: slide 삭제
 - `reorder_slides`: slide order 재정렬
 - `update_theme`: deck theme token 부분 수정
@@ -454,7 +464,8 @@ Semantic Cue extraction 동시성 계약:
 
 patch 적용 규칙:
 
-- `update_theme`, `update_slide_style`, `update_element_frame`, `update_animation`은 전달된 필드만 기존 값에 병합한다.
+- `update_theme`, `update_slide_style`, `update_element_frame`, `update_animation`은 전달된 필드만 기존 값에 병합한다. `animationPatch.startMode`는 네 가지 explicit mode 중 하나만 허용한다.
+- `update_slide_transition`은 transition full-state를 교체하고 `null`이면 field를 제거한다.
 - `update_slide_style`에서 `layout`, `fontFamily`, `backgroundColor`, `textColor`, `accentColor`, `backgroundImage`에 `null`을 전달하면 해당 slide override를 제거한다.
 - `update_theme.effects.shadow`에 `null`을 전달하면 theme shadow override를 제거한다.
 - `update_element_frame.role`에 `null`을 전달하면 element role을 제거한다.
@@ -954,6 +965,7 @@ TemplateBlueprint optional OOXML tracking fields:
 - `slides[].elementSources[]`
 - `slides[].sourceSlidePart`, `slides[].ooxmlOrigin`
 - `slides[].slideId`: Deck의 opaque slide ID와 `sourceSlidePart`를 직접 연결한다. 신규 import는 반드시 기록하며 숫자 suffix로 slide part를 추론하지 않는다. legacy blueprint는 OOXML 변경을 적용하기 전 현재 Deck의 유일한 slide order와 `slideIndex`를 대응해 복구한 뒤 저장한다.
+- `slides[].ooxmlMotionCapabilities`: `{ transitionWritable, importedMainSequenceCoverage }`를 사용한다. `importedMainSequenceCoverage`는 `unknown | absent | partial | complete`이며, writable motion capability는 유일한 `sourceSlidePart`가 있을 때만 유효하다. 여러 slide가 같은 locator를 공유하면 motion authoring을 활성화하지 않는다.
 - `slides[].elementSources[]`: `{ elementId, elementType?, ooxmlOrigin?, ooxmlEditCapabilities?, slidePart, shapeId, relationshipId?, sourceType, writable, tableCellLocators?, fallbackReason? }`. 신규 importer/sync 결과는 `elementType`을 기록하며, 이 값이 없거나 실제 patch 대상 type과 다르면 property sync를 fail-closed한다.
 - table source의 optional `tableCellLocators[]`는 `{ rowIndex, columnIndex, fingerprint }`이며 0-based `(0, 0)`에서 시작하는 완전한 직사각형 grid를 row-major 순서로 모두 기록한다. 각 index는 `0..999`, locator는 `1..10,000`개이고 `fingerprint`는 lowercase SHA-256 64자리다. fingerprint는 canonical `a:tc`에서 DrawingML `a:t`의 text와 그 `xml:space`만 제외해 셀 문구 변경에는 안정적이되 formatting·extension·구조 drift는 탐지한다. locator 존재만으로 `tableCellText` capability를 부여하지 않으며 direct table, unmerged rectangular grid, track 정합성, writable source mapping을 함께 증명한 경우에만 targeted sync gate가 활성화된다.
 - `slots[].source.slidePart`
@@ -973,7 +985,9 @@ OOXML provenance와 요소 편집 capability는 다음 계약을 사용한다.
 - 새 요소·새 슬라이드·복제본은 `authored`로 전환하며 원본 imported capability를 승계하지 않는다.
 - Crop capability는 relationship이 일치하는 direct `p:pic`을 `picture`, direct picture-filled `p:sp`를 `picture-fill`로 판정한다. capability와 실제 shape locator가 일치할 때만 normalized crop을 OOXML `srcRect`에 기록하고 `null`은 기존 `srcRect`를 제거한다. 새로 작성한 image는 `picture` capability를 갖는다.
 - generic exporter와 OOXML sync는 동일한 normalized crop edge와 최소 가시 영역 규칙을 사용한다. imported image의 locator 또는 capability가 불완전하면 원본 package를 유지하고 fail-closed 처리한다.
-- Rich text, Table, Motion capability는 각 보존 serializer가 병합되기 전까지 보수적으로 비활성화한다.
+- Rich text와 Table capability는 각 보존 serializer 계약을 따른다. Motion은 transition과 imported main sequence coverage를 import 시 판정하고, 불완전 locator 또는 `partial`/`unknown` coverage에서는 보수적으로 비활성화한다.
+
+OOXML importer는 지원되는 fade transition과 main-sequence entrance effect를 Deck `transition`/`animations`로 변환하고 bounded `qualityReport.motionDiagnostics`에 unsupported, downgraded, unresolved, excluded 집계를 기록한다. detail은 정해진 `PPTX_MOTION_*` code, slide index, count만 포함하고 최대 500개다. Generic exporter는 같은 canonical motion을 직렬화하며, group animation은 지원되는 flattened target fallback을 warning으로 반환한다. 그 외 motion 손실 진단이 있으면 export Worker는 결과 asset을 저장하기 전에 fail-closed한다.
 
 구현 위치:
 
@@ -1023,13 +1037,14 @@ Job result:
 }
 ```
 
-Worker에서 Python Worker로 보내는 `/ai/pptx-ooxml-sync` multipart 요청은 PPTX package를 `file` file part로, `TemplateBlueprint`, operation 배열, Deck canvas를 각각 `template_blueprint_file`, `operations_file`, `deck_canvas_file`의 `application/json` file part로 전송한다. JSON을 일반 multipart text field로 보내지 않는다. 배포 중 rolling compatibility를 위해 Python Worker는 기존 `template_blueprint`, `operations`, `deck_canvas` text field도 소형 요청에 한해 읽지만, 신규 Worker는 file part만 사용한다.
+Worker에서 Python Worker로 보내는 `/ai/pptx-ooxml-sync` multipart 요청은 PPTX package를 `file` file part로, `TemplateBlueprint`, operation 배열, slide motion full-state 배열, Deck canvas를 각각 `template_blueprint_file`, `operations_file`, `slide_motion_file`, `deck_canvas_file`의 `application/json` file part로 전송한다. JSON을 일반 multipart text field로 보내지 않는다. 배포 중 rolling compatibility를 위해 Python Worker는 기존 `template_blueprint`, `operations`, `slide_motion`, `deck_canvas` text field도 소형 요청에 한해 읽지만, 신규 Worker는 file part만 사용한다.
 
 전송 경계는 저장소의 50 MiB asset upload 제한과 image data URL의 base64 증가분, bounded OOXML metadata 규모를 기준으로 다음과 같이 제한한다.
 
 - `file`: 50 MiB
 - `template_blueprint_file`: 16 MiB
 - `operations_file`: 72 MiB
+- `slide_motion_file`: 16 MiB
 - `deck_canvas_file`: 4 KiB
 - operation 배열: 최대 500개
 
@@ -1043,6 +1058,10 @@ Supported first-pass patch operations:
 - `delete_element`
 - `add_slide`
 - `reorder_slides`
+
+Motion operation은 `update_slide_transition`, `add_animation`, `update_animation`, `delete_animation`을 지원한다. Worker는 해당 patch들을 최신 Deck의 slide별 full-state로 coalesce하여 `slide_motion_file`에 보낸다. transition은 `transitionWritable=true`인 경우만 허용하고, imported animation full-state 교체는 `importedMainSequenceCoverage`가 `absent` 또는 `complete`이며 Deck과 TemplateBlueprint capability가 일치할 때만 허용한다. `partial`, `unknown`, interactive sequence, media timing은 원본 OOXML subtree를 보존하고 authoring을 fail-closed한다.
+
+Python serializer는 transition 변경 시 기존 timing subtree bytes를 유지하고, main sequence 변경 시 지원되는 root chain만 교체하면서 interactive/media timing subtree를 보존한다. target은 `sourceSlidePart`와 authoritative element source의 shape identity로 해석하며, locator·coverage·target이 불완전하면 package 원본 bytes를 반환한다. element 삭제가 complete main sequence의 target을 제거하면 element operation과 최종 animation full-state를 같은 요청에서 원자적으로 적용한다.
 
 ORBIT editor의 `group` element는 PPTX shape group이 아니라 interaction 전용 논리 그룹이다. `TemplateBlueprint.logicalGroupElementIds`는 이전 sync에서 존재했던 논리 group ID를 보존하며, Worker는 현재 Deck의 group ID와 합쳐 group 자체의 `add_element`, `update_element_frame`, `update_element_props`, `delete_element`를 package-neutral operation으로 제외한다. group 이동으로 함께 생성된 실제 자식 element frame operation은 기존 OOXML source에 정상 반영한다. sync 성공 후 sidecar는 현재 Deck의 논리 group ID로 갱신한다.
 
@@ -1071,9 +1090,13 @@ Python Worker의 sync 응답은 bounded array인 `appliedOperations`와 `unsuppo
 - `SYNC_RESPONSE_INCOMPLETE`
 - `TABLE_CELL_CAPABILITY_UNSAFE`, `TABLE_STRUCTURE_UNSUPPORTED`
 
+Motion 응답은 별도의 bounded `appliedSlideMotion`과 `unsupportedSlideMotion` 배열을 사용한다. applied 항목은 요청 순서대로 `{ slideId, transition, animations }` scope 승인을 반환하며, unsupported 항목은 `slideId`, `transition | animations` scope와 bounded `SLIDE_MOTION_*`, `SLIDE_TRANSITION_*`, `SLIDE_ANIMATION_*` reason을 반환한다.
+
 Worker는 전송한 operation과 `appliedOperations`의 순서·type·slide·element identity가 정확히 일치하는지 검증한다. 하나라도 unsupported이거나 응답 승인이 누락·추가·재정렬되면 non-retryable `PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION`으로 실패한다. 이때 새 asset을 저장하지 않고 `currentPackageFileId`, `ooxmlSyncedDeckVersion`, patch compaction을 변경하지 않는다. Python도 요청 안의 operation 하나라도 적용할 수 없으면 원본 package bytes를 반환하고 해당 요청의 applied 목록을 비운다.
 
-speaker notes, keywords, semantic cues, slide action처럼 package visual tree를 바꾸지 않는 operation은 package-neutral로 취급한다. 그 외 아직 지원하지 않는 slide/theme/animation operation은 Python 호출 전에 같은 fail-closed 오류로 거부한다. 단순 fidelity warning은 사용자 변경이 실제로 적용된 경우에만 성공 응답과 함께 반환할 수 있다.
+Worker는 `slide_motion_file`과 `appliedSlideMotion`의 순서·slide ID·scope boolean도 정확히 비교한다. motion 거부 또는 승인 누락·추가·재정렬 역시 같은 freshness fail-closed 계약을 적용한다.
+
+speaker notes, keywords, semantic cues, slide action처럼 package visual tree를 바꾸지 않는 operation은 package-neutral로 취급한다. 그 외 아직 지원하지 않는 slide/theme operation은 Python 호출 전에 같은 fail-closed 오류로 거부한다. 단순 fidelity warning은 사용자 변경이 실제로 적용된 경우에만 성공 응답과 함께 반환할 수 있다.
 
 동시성·최신성 규칙:
 

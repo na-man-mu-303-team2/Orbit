@@ -53,7 +53,13 @@ export function getEditorValidationItems(
 function uniqueValidationItems(items: EditorValidationItem[]) {
   const seen = new Set<string>();
   return items.filter((item) => {
-    const key = `${item.issue ?? ""}:${item.slideId ?? ""}:${item.message}`;
+    const key = [
+      item.issue ?? "",
+      item.slideId ?? "",
+      item.elementId ?? "",
+      [...(item.elementIds ?? [])].sort().join(","),
+      item.message
+    ].join(":");
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -223,6 +229,7 @@ function getEditorSlideValidationItems(
       items.push({
         elementId: element.elementId,
         message: "이미지 자리 표시자가 남아 있습니다.",
+        slideId: slide.slideId,
         severity: "warning"
       });
     }
@@ -234,6 +241,7 @@ function getEditorSlideValidationItems(
       items.push({
         elementId: element.elementId,
         message: "이미지 대체 텍스트가 비어 있습니다.",
+        slideId: slide.slideId,
         severity: "warning"
       });
     }
@@ -242,6 +250,7 @@ function getEditorSlideValidationItems(
       items.push({
         elementId: element.elementId,
         message: "차트 데이터가 비어 있습니다.",
+        slideId: slide.slideId,
         severity: "warning"
       });
     }
@@ -253,6 +262,7 @@ function getEditorSlideValidationItems(
           issue: "textOverflow",
           canonicalIssue: "TEXT_OVERFLOW",
           message: "텍스트가 상자 높이를 넘을 수 있습니다.",
+          slideId: slide.slideId,
           severity: "warning"
         });
       }
@@ -264,6 +274,7 @@ function getEditorSlideValidationItems(
           message: deck.metadata.presentationProfile
             ? "제목이 세 줄 이상으로 줄바꿈되었습니다."
             : "제목이 여러 줄로 줄바꿈되었습니다.",
+          slideId: slide.slideId,
           severity: "warning"
         });
       }
@@ -273,6 +284,7 @@ function getEditorSlideValidationItems(
           elementId: element.elementId,
           issue: "labelWrap",
           message: "짧은 라벨이 여러 줄로 줄바꿈되었습니다.",
+          slideId: slide.slideId,
           severity: "warning"
         });
       }
@@ -289,6 +301,7 @@ function getEditorSlideValidationItems(
           elementId: element.elementId,
           issue: "contrastUnverifiable",
           message: "이미지, 그라데이션 또는 반투명 배경의 텍스트 대비는 자동 검증할 수 없습니다.",
+          slideId: slide.slideId,
           severity: "risk"
         });
         continue;
@@ -302,6 +315,7 @@ function getEditorSlideValidationItems(
           elementId: element.elementId,
           issue: "textContrast",
           message: "텍스트와 배경 대비가 낮습니다.",
+          slideId: slide.slideId,
           severity: "warning"
         });
       }
@@ -311,6 +325,7 @@ function getEditorSlideValidationItems(
       items.push({
         elementId: element.elementId,
         message: "내보내기에서 모양이 달라질 수 있습니다.",
+        slideId: slide.slideId,
         severity: "risk"
       });
     }
@@ -502,7 +517,7 @@ function getEditorTypographyValidationItems(
   return slide.elements.flatMap((element) => {
     if (!element.visible || element.type !== "text") return [];
     const role = element.role ?? "";
-    const minimumSize = minimumPresentationFontSize(slideIndex, role);
+    const minimumSize = getMinimumPresentationFontSize(slideIndex, element.role);
     const items: EditorValidationItem[] = [];
     if (element.props.fontSize < minimumSize) {
       items.push({
@@ -533,9 +548,12 @@ function getEditorTypographyValidationItems(
   });
 }
 
-function minimumPresentationFontSize(slideIndex: number, role: string) {
+export function getMinimumPresentationFontSize(
+  slideIndex: number,
+  role: DeckElement["role"]
+) {
   if (role === "title") return slideIndex === 0 ? 44 : 32;
-  if (["body", "highlight", "subtitle"].includes(role)) return 18;
+  if (role && ["body", "highlight", "subtitle"].includes(role)) return 18;
   if (role === "caption") return 14;
   if (role === "footer") return 12;
   return 12;
@@ -1066,6 +1084,7 @@ function getEditorTextOverlapValidationItems(
 
       items.push({
         elementIds: [first.elementId, second.elementId],
+        issue: "textOverlap",
         level: "warning",
         message: "텍스트 요소가 겹쳐 읽기 어려울 수 있습니다.",
         severity: "warning",

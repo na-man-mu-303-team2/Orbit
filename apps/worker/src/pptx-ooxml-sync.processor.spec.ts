@@ -385,6 +385,199 @@ describe("processPptxOoxmlSyncJob", () => {
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
   });
 
+  it("coalesces motion patches into the latest slide full-state file part", async () => {
+    const baseBlueprint = templateBlueprint(1);
+    const blueprint = {
+      ...baseBlueprint,
+      slides: baseBlueprint.slides.map((slide) => ({
+        ...slide,
+        ooxmlOrigin: "imported" as const,
+        ooxmlMotionCapabilities: {
+          transitionWritable: true,
+          importedMainSequenceCoverage: "complete" as const,
+        },
+      })),
+    };
+    const animation = {
+      animationId: "anim_1",
+      elementId: "el_title",
+      type: "fade-in" as const,
+      order: 1,
+      durationMs: 500,
+      delayMs: 0,
+      easing: "ease-out" as const,
+      startMode: "on-click" as const,
+    };
+    const { dataSource } = createDataSource({
+      blueprint,
+      deckSlides: [
+        {
+          slideId: "slide_1",
+          ooxmlOrigin: "imported",
+          ooxmlSourceSlidePart: "ppt/slides/slide1.xml",
+          ooxmlMotionCapabilities: {
+            transitionWritable: true,
+            importedMainSequenceCoverage: "complete",
+          },
+          order: 1,
+          title: "Slide 1",
+          elements: [],
+          transition: { type: "fade", durationMs: 700 },
+          animations: [animation],
+        },
+      ],
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_slide_transition",
+          slideId: "slide_1",
+          transition: { type: "fade", durationMs: 700 },
+        },
+        { type: "add_animation", slideId: "slide_1", animation },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+        const form = init?.body as FormData;
+        const motionPart = form.get("slide_motion_file");
+        expect(motionPart).toBeInstanceOf(Blob);
+        expect((motionPart as Blob).type).toBe("application/json");
+        expect(JSON.parse(await (motionPart as Blob).text())).toEqual([
+          {
+            slideId: "slide_1",
+            sourceSlidePart: "ppt/slides/slide1.xml",
+            transition: { type: "fade", durationMs: 700 },
+            animations: [animation],
+            capabilities: {
+              transitionWritable: true,
+              importedMainSequenceCoverage: "complete",
+            },
+            touched: { transition: true, animations: true },
+          },
+        ]);
+        return new Response(
+          JSON.stringify({
+            ...workerResponse(),
+            appliedSlideMotion: [
+              { slideId: "slide_1", transition: true, animations: true },
+            ],
+          }),
+        );
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(job.result).toMatchObject({ syncedDeckVersion: 2 });
+  });
+
+  it.each([
+    [
+      "an unsupported scope",
+      {
+        unsupportedSlideMotion: [
+          {
+            slideId: "slide_1",
+            scope: "transition",
+            reasonCode: "SLIDE_TRANSITION_UNSUPPORTED",
+          },
+        ],
+      },
+    ],
+    ["a missing acknowledgment", { appliedSlideMotion: [] }],
+  ])(
+    "fails closed without persistence when Python returns %s",
+    async (_caseName, responsePatch) => {
+      const baseBlueprint = templateBlueprint(1);
+      const blueprint = {
+        ...baseBlueprint,
+        slides: baseBlueprint.slides.map((slide) => ({
+          ...slide,
+          ooxmlOrigin: "imported" as const,
+          ooxmlMotionCapabilities: {
+            transitionWritable: true,
+            importedMainSequenceCoverage: "absent" as const,
+          },
+        })),
+      };
+      const { dataSource, query } = createDataSource({
+        blueprint,
+        deckSlides: [
+          {
+            slideId: "slide_1",
+            ooxmlOrigin: "imported",
+            ooxmlSourceSlidePart: "ppt/slides/slide1.xml",
+            ooxmlMotionCapabilities: {
+              transitionWritable: true,
+              importedMainSequenceCoverage: "absent",
+            },
+            order: 1,
+            title: "Slide 1",
+            elements: [],
+            transition: { type: "fade", durationMs: 700 },
+            animations: [],
+          },
+        ],
+        deckVersion: 2,
+        syncedVersion: 1,
+        operations: [
+          {
+            type: "update_slide_transition",
+            slideId: "slide_1",
+            transition: { type: "fade", durationMs: 700 },
+          },
+        ],
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL) =>
+          String(input).endsWith("current.pptx")
+            ? new Response("pptx-bytes")
+            : new Response(
+                JSON.stringify({
+                  ...workerResponse(),
+                  ...responsePatch,
+                }),
+              ),
+        ),
+      );
+
+      const job = await processPptxOoxmlSyncJob(
+        dataSource,
+        storage,
+        "http://localhost:8000",
+        payload,
+      );
+
+      expect(job.status).toBe("failed");
+      expect(job.error).toMatchObject({
+        code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+      });
+      expect(storage.putObject).not.toHaveBeenCalled();
+      expect(
+        query.mock.calls.some(([sql]) =>
+          String(sql).includes("UPDATE template_blueprints"),
+        ),
+      ).toBe(false);
+      expect(
+        query.mock.calls.some(([sql]) =>
+          String(sql).includes("DELETE FROM deck_patches"),
+        ),
+      ).toBe(false);
+    },
+  );
+
   it("syncs a slide reorder with unique source slide locators and a large blueprint", async () => {
     const blueprint = reorderTemplateBlueprint(1);
     const slideIds = ["slide_cover", "slide_metrics", "slide_close"];
@@ -1111,6 +1304,7 @@ function createDataSource(input: {
     logicalGroupElementIds?: string[];
   };
   deckElements?: unknown[];
+  deckSlides?: unknown[];
   deckSlideIds?: string[];
   deckVersion: number;
   syncedVersion: number;
@@ -1159,12 +1353,14 @@ function createDataSource(input: {
               height: 1080,
               aspectRatio: "16:9",
             },
-            slides: slideIds.map((slideId, index) => ({
-              slideId,
-              order: index + 1,
-              title: `Slide ${index + 1}`,
-              elements: index === 0 ? (input.deckElements ?? []) : [],
-            })),
+            slides:
+              input.deckSlides ??
+              slideIds.map((slideId, index) => ({
+                slideId,
+                order: index + 1,
+                title: `Slide ${index + 1}`,
+                elements: index === 0 ? (input.deckElements ?? []) : [],
+              })),
           },
           version: input.deckVersion,
         },

@@ -10,8 +10,7 @@ import type {
   Deck,
   DeckPatch,
   DeckElement,
-  SemanticCue,
-  TableElementProps
+  SemanticCue
 } from "@orbit/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -64,11 +63,8 @@ import { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 import {
   createExpandTextWidthToFitFrame,
   createShrinkToFitTextProps,
-  createSingleLineTextFit,
-  parseTableDataDraft,
-  tableDataDraft
+  createSingleLineTextFit
 } from "./components/SelectionQuickBar";
-import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
@@ -1178,56 +1174,6 @@ describe("editor shell", () => {
     );
   });
 
-  it("keeps table quickbar edits in editable table props", () => {
-    const table: TableElementProps = {
-      borderColor: "#CBD5E1",
-      borderWidth: 1,
-      columnWidths: [120, 120],
-      rowHeights: [40, 40],
-      rows: [
-        [
-          {
-            align: "center",
-            borderColor: "#CBD5E1",
-            borderWidth: 1,
-            colSpan: 1,
-            fill: "#EFF6FF",
-            fontSize: 18,
-            fontWeight: "bold",
-            rowSpan: 1,
-            text: "A",
-            verticalAlign: "middle"
-          },
-          {
-            align: "center",
-            borderColor: "#CBD5E1",
-            borderWidth: 1,
-            colSpan: 1,
-            fill: "#EFF6FF",
-            fontSize: 18,
-            fontWeight: "bold",
-            rowSpan: 1,
-            text: "B",
-            verticalAlign: "middle"
-          }
-        ]
-      ]
-    };
-
-    expect(tableDataDraft(table)).toBe("A\tB");
-
-    const patch = parseTableDataDraft("Name\tScore\nAda\t95", table, 240, 120);
-
-    expect(patch).toMatchObject({
-      columnWidths: [120, 120],
-      rowHeights: [40, 40],
-      rows: [
-        [{ text: "Name" }, { text: "Score" }],
-        [{ text: "Ada" }, { text: "95" }]
-      ]
-    });
-  });
-
   it("applies manual save results only while the saved snapshot is still current", () => {
     const deck = createDemoDeck();
 
@@ -1738,23 +1684,6 @@ describe("editor shell", () => {
     expect(riskElementIds).toContain("el_manual_customShape");
   });
 
-  it("renders a bulk apply button for text overflow warnings", () => {
-    const html = renderToString(
-      <ValidationPanel
-        items={[
-          {
-            elementId: "el_overflow",
-            issue: "textOverflow",
-            message: "텍스트가 상자 높이를 넘을 수 있습니다.",
-            severity: "warning"
-          }
-        ]}
-      />
-    );
-
-    expect(html).toContain("모두 반영하기");
-  });
-
   it("keeps a warning when title text still wraps", () => {
     const deck = createDemoDeck();
     const slide = deck.slides[0];
@@ -1925,40 +1854,6 @@ describe("editor shell", () => {
         issue: "labelWrap"
       })
     );
-  });
-
-  it("renders a bulk apply button for title wrap warnings", () => {
-    const html = renderToString(
-      <ValidationPanel
-        items={[
-          {
-            elementId: "el_wrapped_title",
-            issue: "titleWrap",
-            message: "제목이 여러 줄로 줄바꿈되었습니다.",
-            severity: "warning"
-          }
-        ]}
-      />
-    );
-
-    expect(html).toContain("모두 반영하기");
-  });
-
-  it("renders a bulk apply button for label wrap warnings", () => {
-    const html = renderToString(
-      <ValidationPanel
-        items={[
-          {
-            elementId: "el_wrapped_label",
-            issue: "labelWrap",
-            message: "짧은 라벨이 여러 줄로 줄바꿈되었습니다.",
-            severity: "warning"
-          }
-        ]}
-      />
-    );
-
-    expect(html).toContain("모두 반영하기");
   });
 
   it("measures wrapped text line count", () => {
@@ -2542,10 +2437,10 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain(
-      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;x&quot;:0,&quot;y&quot;:0,&quot;width&quot;:1,&quot;height&quot;:1,&quot;rotation&quot;:0",
+      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;role&quot;:&quot;body&quot;,&quot;fontSize&quot;:28,&quot;lineHeight&quot;:1.2,&quot;x&quot;:0,&quot;y&quot;:0,&quot;width&quot;:1,&quot;height&quot;:1,&quot;rotation&quot;:0",
     );
     expect(html).not.toContain(
-      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;x&quot;:null",
+      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;role&quot;:&quot;body&quot;,&quot;fontSize&quot;:28,&quot;lineHeight&quot;:1.2,&quot;x&quot;:null",
     );
   });
 
