@@ -7,6 +7,7 @@ import difflib
 import importlib
 import json
 import math
+import posixpath
 import shutil
 import subprocess
 import zipfile
@@ -128,6 +129,7 @@ PptxOoxmlSyncOperationType = Literal[
     "update_element_frame",
     "update_element_props",
     "delete_element",
+    "reorder_slides",
 ]
 
 PptxOoxmlUnsupportedReasonCode = Literal[
@@ -143,6 +145,9 @@ PptxOoxmlUnsupportedReasonCode = Literal[
     "PROPS_UPDATE_FAILED",
     "SHAPE_MISSING",
     "SLIDE_PART_MISSING",
+    "SLIDE_REORDER_LOCATOR_UNSAFE",
+    "SLIDE_REORDER_PERMUTATION_INVALID",
+    "SLIDE_REORDER_RELATIONSHIP_UNSAFE",
     "SOURCE_MISSING",
     "SOURCE_NOT_WRITABLE",
     "SOURCE_PROVENANCE_UNSAFE",
@@ -703,6 +708,12 @@ def apply_patch_operations_to_package(
             package_entries["[Content_Types].xml"] = source.read(
                 "[Content_Types].xml"
             )
+        for presentation_part in (
+            "ppt/presentation.xml",
+            "ppt/_rels/presentation.xml.rels",
+        ):
+            if presentation_part in source_names:
+                package_entries[presentation_part] = source.read(presentation_part)
         added_entries: dict[str, bytes] = {}
 
         for operation in operations:
@@ -715,6 +726,7 @@ def apply_patch_operations_to_package(
                 scale,
                 warnings,
                 source,
+                template_blueprint,
             )
             if reason_code is None:
                 applied_operations.append(applied_operation(operation))
@@ -757,8 +769,16 @@ def apply_sync_operation(
     scale: PackageFrameScale,
     warnings: list[str],
     source_package: zipfile.ZipFile,
+    template_blueprint: dict[str, Any],
 ) -> PptxOoxmlUnsupportedReasonCode | None:
     operation_type = str(operation.get("type", ""))
+    if operation_type == "reorder_slides":
+        return reorder_presentation_slides(
+            operation,
+            package_entries,
+            source_package,
+            template_blueprint,
+        )
     element_id = operation_element_id(operation)
     operation_slide_part = slide_part_for_operation(operation)
 
@@ -909,6 +929,149 @@ def apply_sync_operation(
     if shape_changed:
         package_entries[slide_part] = xml_bytes(root)
     return None
+
+
+def reorder_presentation_slides(
+    operation: dict[str, Any],
+    package_entries: dict[str, bytes],
+    source_package: zipfile.ZipFile,
+    template_blueprint: dict[str, Any],
+) -> PptxOoxmlUnsupportedReasonCode | None:
+    raw_slide_orders = operation.get("slideOrders")
+    if not isinstance(raw_slide_orders, list) or not raw_slide_orders:
+        return "SLIDE_REORDER_PERMUTATION_INVALID"
+
+    blueprint_locators: set[tuple[int, str]] = set()
+    for raw_blueprint_slide in template_blueprint.get("slides", []):
+        if not isinstance(raw_blueprint_slide, dict):
+            return "SLIDE_REORDER_LOCATOR_UNSAFE"
+        slide_index = raw_blueprint_slide.get("slideIndex")
+        source_slide_part = raw_blueprint_slide.get("sourceSlidePart")
+        if (
+            not isinstance(slide_index, int)
+            or isinstance(slide_index, bool)
+            or slide_index <= 0
+            or not isinstance(source_slide_part, str)
+            or not source_slide_part
+            or raw_blueprint_slide.get("ooxmlOrigin") == "authored"
+        ):
+            return "SLIDE_REORDER_LOCATOR_UNSAFE"
+        locator = (slide_index, source_slide_part)
+        if locator in blueprint_locators:
+            return "SLIDE_REORDER_LOCATOR_UNSAFE"
+        blueprint_locators.add(locator)
+
+    requested: list[tuple[int, str, str, int]] = []
+    for raw_slide_order in raw_slide_orders:
+        if not isinstance(raw_slide_order, dict):
+            return "SLIDE_REORDER_PERMUTATION_INVALID"
+        slide_id = raw_slide_order.get("slideId")
+        order = raw_slide_order.get("order")
+        blueprint_slide_index = raw_slide_order.get("blueprintSlideIndex")
+        source_slide_part = raw_slide_order.get("sourceSlidePart")
+        if (
+            not isinstance(slide_id, str)
+            or not slide_id
+            or not isinstance(order, int)
+            or isinstance(order, bool)
+        ):
+            return "SLIDE_REORDER_PERMUTATION_INVALID"
+        if (
+            not isinstance(blueprint_slide_index, int)
+            or isinstance(blueprint_slide_index, bool)
+            or blueprint_slide_index <= 0
+            or not isinstance(source_slide_part, str)
+            or not source_slide_part
+        ):
+            return "SLIDE_REORDER_LOCATOR_UNSAFE"
+        requested.append(
+            (order, slide_id, source_slide_part, blueprint_slide_index)
+        )
+
+    requested_orders = [item[0] for item in requested]
+    requested_ids = [item[1] for item in requested]
+    expected_orders = set(range(1, len(requested) + 1))
+    if (
+        len(blueprint_locators) != len(requested)
+        or len(set(requested_ids)) != len(requested_ids)
+        or set(requested_orders) != expected_orders
+    ):
+        return "SLIDE_REORDER_PERMUTATION_INVALID"
+    if any(
+        (item[3], item[2]) not in blueprint_locators
+        or slide_id_suffix_index(item[1]) != item[3]
+        for item in requested
+    ):
+        return "SLIDE_REORDER_LOCATOR_UNSAFE"
+
+    presentation_xml = package_entries.get("ppt/presentation.xml")
+    presentation_rels_xml = package_entries.get(
+        "ppt/_rels/presentation.xml.rels"
+    )
+    if presentation_xml is None or presentation_rels_xml is None:
+        return "SLIDE_REORDER_RELATIONSHIP_UNSAFE"
+
+    try:
+        presentation_root = ET.fromstring(presentation_xml)
+        relationships_root = ET.fromstring(presentation_rels_xml)
+    except ET.ParseError:
+        return "SLIDE_REORDER_RELATIONSHIP_UNSAFE"
+
+    slide_id_list = presentation_root.find(f"{{{PML_NS}}}sldIdLst")
+    if slide_id_list is None:
+        return "SLIDE_REORDER_RELATIONSHIP_UNSAFE"
+    slide_id_nodes = list(slide_id_list)
+    if not slide_id_nodes or any(
+        node.tag != f"{{{PML_NS}}}sldId" for node in slide_id_nodes
+    ):
+        return "SLIDE_REORDER_RELATIONSHIP_UNSAFE"
+
+    relationships_by_id: dict[str, ET.Element[Any]] = {}
+    for relationship in relationships_root:
+        relationship_id = str(relationship.get("Id", ""))
+        if not relationship_id or relationship_id in relationships_by_id:
+            return "SLIDE_REORDER_RELATIONSHIP_UNSAFE"
+        relationships_by_id[relationship_id] = relationship
+
+    slide_nodes_by_part: dict[str, ET.Element[Any]] = {}
+    source_names = set(source_package.namelist())
+    for slide_id_node in slide_id_nodes:
+        relationship_id = str(slide_id_node.get(f"{{{REL_NS}}}id", ""))
+        mapped_relationship = relationships_by_id.get(relationship_id)
+        if mapped_relationship is None:
+            return "SLIDE_REORDER_RELATIONSHIP_UNSAFE"
+        target = str(mapped_relationship.get("Target", ""))
+        slide_part = resolve_relationship_part("ppt/presentation.xml", target)
+        if (
+            not slide_part.startswith("ppt/slides/")
+            or slide_part not in source_names
+            or slide_part in slide_nodes_by_part
+        ):
+            return "SLIDE_REORDER_RELATIONSHIP_UNSAFE"
+        slide_nodes_by_part[slide_part] = slide_id_node
+
+    requested_parts = [item[2] for item in sorted(requested)]
+    if (
+        len(requested_parts) != len(slide_id_nodes)
+        or len(set(requested_parts)) != len(requested_parts)
+        or set(requested_parts) != set(slide_nodes_by_part)
+    ):
+        return "SLIDE_REORDER_LOCATOR_UNSAFE"
+
+    slide_id_list[:] = [slide_nodes_by_part[part] for part in requested_parts]
+    package_entries["ppt/presentation.xml"] = xml_bytes(presentation_root)
+    return None
+
+
+def resolve_relationship_part(source_part: str, target: str) -> str:
+    if target.startswith("/"):
+        return posixpath.normpath(target).lstrip("/")
+    return posixpath.normpath(posixpath.join(posixpath.dirname(source_part), target))
+
+
+def slide_id_suffix_index(slide_id: str) -> int | None:
+    suffix = slide_id.rsplit("_", 1)[-1]
+    return int(suffix) if suffix.isdigit() and int(suffix) > 0 else None
 
 
 def add_element_has_unsupported_props(element: dict[str, Any]) -> bool:

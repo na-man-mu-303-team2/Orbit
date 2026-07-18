@@ -193,6 +193,85 @@ describe("processPptxOoxmlSyncJob", () => {
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
   });
 
+  it("syncs a slide reorder with unique source slide locators and a large blueprint", async () => {
+    const blueprint = reorderTemplateBlueprint(1);
+    blueprint.slides[0]!.elementSources = Array.from(
+      { length: 9_000 },
+      (_, index) => ({
+        elementId: `el_large_${index}`,
+        slidePart: "ppt/slides/slide1.xml",
+        shapeId: String(index + 1),
+        sourceType: "slide" as const,
+        writable: true,
+      }),
+    );
+    const { dataSource } = createDataSource({
+      blueprint,
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "reorder_slides",
+          slideOrders: [
+            { slideId: "slide_ooxml_file_3", order: 1 },
+            { slideId: "slide_ooxml_file_1", order: 2 },
+            { slideId: "slide_ooxml_file_2", order: 3 },
+          ],
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+        const form = init?.body as FormData;
+        const blueprintPart = form.get("template_blueprint_file") as Blob;
+        expect(blueprintPart.size).toBeGreaterThan(1024 * 1024);
+        const operationsPart = form.get("operations_file") as Blob;
+        expect(JSON.parse(await operationsPart.text())).toEqual([
+          {
+            type: "reorder_slides",
+            slideOrders: [
+              {
+                slideId: "slide_ooxml_file_3",
+                order: 1,
+                blueprintSlideIndex: 3,
+                sourceSlidePart: "ppt/slides/slide3.xml",
+              },
+              {
+                slideId: "slide_ooxml_file_1",
+                order: 2,
+                blueprintSlideIndex: 1,
+                sourceSlidePart: "ppt/slides/slide1.xml",
+              },
+              {
+                slideId: "slide_ooxml_file_2",
+                order: 3,
+                blueprintSlideIndex: 2,
+                sourceSlidePart: "ppt/slides/slide2.xml",
+              },
+            ],
+          },
+        ]);
+        return new Response(
+          JSON.stringify(workerResponse([{ operationType: "reorder_slides" }])),
+        );
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(job.result).toMatchObject({ syncedDeckVersion: 2 });
+  });
+
   it("rejects a JSON part over its explicit limit before adding it to multipart", () => {
     const form = new FormData();
 
@@ -599,14 +678,129 @@ describe("processPptxOoxmlSyncJob", () => {
     ).toBe(false);
   });
 
+  it("rejects a reordered applied-operation acknowledgement without advancing freshness", async () => {
+    const { dataSource, query } = createDataSource({
+      blueprint: reorderTemplateBlueprint(1),
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "reorder_slides",
+          slideOrders: [
+            { slideId: "slide_ooxml_file_3", order: 1 },
+            { slideId: "slide_ooxml_file_1", order: 2 },
+            { slideId: "slide_ooxml_file_2", order: 3 },
+          ],
+        },
+        {
+          type: "update_element_props",
+          slideId: "slide_ooxml_file_1",
+          elementId: "el_title",
+          props: { text: "Updated" },
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("current.pptx")
+          ? new Response("pptx-bytes")
+          : new Response(
+              JSON.stringify(
+                workerResponse([
+                  {
+                    operationType: "update_element_props",
+                    slideId: "slide_ooxml_file_1",
+                    elementId: "el_title",
+                  },
+                  { operationType: "reorder_slides" },
+                ]),
+              ),
+            ),
+      ),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.error).toMatchObject({
+      code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+      retryable: false,
+    });
+    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("UPDATE template_blueprints"),
+      ),
+    ).toBe(false);
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("DELETE FROM deck_patches"),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects an incomplete reorder permutation before downloading the package", async () => {
+    const { dataSource, query } = createDataSource({
+      blueprint: reorderTemplateBlueprint(1),
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "reorder_slides",
+          slideOrders: [
+            { slideId: "slide_ooxml_file_3", order: 1 },
+            { slideId: "slide_ooxml_file_1", order: 2 },
+          ],
+        },
+      ],
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.error).toEqual({
+      code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+      message: "reorder_slides:SLIDE_REORDER_PERMUTATION_INVALID",
+      retryable: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("UPDATE template_blueprints"),
+      ),
+    ).toBe(false);
+  });
+
   it("rejects package-changing patch types before calling Python", async () => {
     const { dataSource, query } = createDataSource({
       deckVersion: 2,
       syncedVersion: 1,
       operations: [
         {
-          type: "reorder_slides",
-          slideOrders: [{ slideId: "slide_1", order: 1 }],
+          type: "add_slide",
+          slide: {
+            slideId: "slide_authored",
+            order: 2,
+            title: "Authored slide",
+            speakerNotes: "",
+            elements: [],
+            animations: [],
+            actions: [],
+            keywords: [],
+            semanticCues: [],
+          },
         },
       ],
     });
@@ -636,6 +830,7 @@ describe("processPptxOoxmlSyncJob", () => {
 
 function createDataSource(input: {
   blueprint?: ReturnType<typeof templateBlueprint>;
+  deckSlideIds?: string[];
   deckVersion: number;
   syncedVersion: number;
   operations: unknown[];
@@ -664,15 +859,31 @@ function createDataSource(input: {
       ];
     }
     if (sql.includes("SELECT deck_json, version")) {
+      const slideIds =
+        input.deckSlideIds ??
+        (input.blueprint?.slides.length === 3
+          ? ["slide_ooxml_file_1", "slide_ooxml_file_2", "slide_ooxml_file_3"]
+          : ["slide_1"]);
       return [
         {
           deck_json: {
+            deckId: "deck_a",
+            projectId: "project-a",
+            title: "Imported deck",
+            version: input.deckVersion,
+            metadata: { sourceType: "import" },
             canvas: {
               preset: "wide-16-9",
               width: 1920,
               height: 1080,
               aspectRatio: "16:9",
             },
+            slides: slideIds.map((slideId, index) => ({
+              slideId,
+              order: index + 1,
+              title: `Slide ${index + 1}`,
+              elements: [],
+            })),
           },
           version: input.deckVersion,
         },
@@ -736,6 +947,7 @@ function templateBlueprint(syncedVersion: number) {
       {
         slideIndex: 1,
         sourceSlideIndex: 1,
+        sourceSlidePart: "ppt/slides/slide1.xml",
         renderAssetFileId: "file_render_1",
         elementSources: [
           {
@@ -758,6 +970,31 @@ function templateBlueprint(syncedVersion: number) {
       },
     ],
   };
+}
+
+function reorderTemplateBlueprint(syncedVersion: number) {
+  const blueprint = templateBlueprint(syncedVersion);
+  blueprint.slides = Array.from({ length: 3 }, (_, index) => ({
+    slideIndex: index + 1,
+    sourceSlideIndex: index + 1,
+    sourceSlidePart: `ppt/slides/slide${index + 1}.xml`,
+    renderAssetFileId: `file_render_${index + 1}`,
+    ooxmlOrigin: "imported" as const,
+    elementSources:
+      index === 0
+        ? [
+            {
+              elementId: "el_title",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "2",
+              sourceType: "slide" as const,
+              writable: true,
+            },
+          ]
+        : [],
+    slots: [],
+  }));
+  return blueprint;
 }
 
 function tableElementSource(
@@ -798,7 +1035,8 @@ function workerResponse(
       | "add_element"
       | "update_element_frame"
       | "update_element_props"
-      | "delete_element";
+      | "delete_element"
+      | "reorder_slides";
     slideId?: string;
     elementId?: string;
   }> = [],

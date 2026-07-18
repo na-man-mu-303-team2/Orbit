@@ -1005,6 +1005,109 @@ describe("DecksService", () => {
     );
   });
 
+  it("records an imported full-save slide reorder as one exact permutation", async () => {
+    const { dataSource, service } = createService();
+    const base = createDeck();
+    const current = deckSchema.parse({
+      ...base,
+      version: 2,
+      slides: Array.from({ length: 3 }, (_, index) => ({
+        ...base.slides[0],
+        slideId: `slide_ooxml_file_${index + 1}`,
+        order: index + 1,
+        title: `Slide ${index + 1}`,
+      })),
+    });
+    await service.putDeck(current.projectId, { deck: current });
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: current.projectId,
+      deck_id: current.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 2,
+        slides: Array.from({ length: 3 }, (_, index) => ({
+          slideIndex: index + 1,
+          sourceSlideIndex: index + 1,
+          sourceSlidePart: `ppt/slides/slide${index + 1}.xml`,
+          slots: [],
+        })),
+      },
+    });
+    const requested = deckSchema.parse({
+      ...current,
+      slides: [
+        { ...current.slides[2], order: 1 },
+        { ...current.slides[0], order: 2 },
+        { ...current.slides[1], order: 3 },
+      ],
+    });
+
+    await service.putDeck(current.projectId, {
+      baseVersion: current.version,
+      deck: requested,
+    });
+
+    expect(dataSource.patchRows).toHaveLength(1);
+    expect(dataSource.patchRows[0]?.operations).toEqual([
+      {
+        type: "reorder_slides",
+        slideOrders: [
+          { slideId: "slide_ooxml_file_3", order: 1 },
+          { slideId: "slide_ooxml_file_1", order: 2 },
+          { slideId: "slide_ooxml_file_2", order: 3 },
+        ],
+      },
+    ]);
+  });
+
+  it("rejects an imported full save with a non-permutation slide order", async () => {
+    const { dataSource, service } = createService();
+    const base = createDeck();
+    const current = deckSchema.parse({
+      ...base,
+      version: 2,
+      slides: [
+        { ...base.slides[0], slideId: "slide_ooxml_file_1", order: 1 },
+        { ...base.slides[0], slideId: "slide_ooxml_file_2", order: 2 },
+      ],
+    });
+    await service.putDeck(current.projectId, { deck: current });
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: current.projectId,
+      deck_id: current.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 2,
+        slides: [
+          { slideIndex: 1, sourceSlideIndex: 1, slots: [] },
+          { slideIndex: 2, sourceSlideIndex: 2, slots: [] },
+        ],
+      },
+    });
+
+    const error = await expectDeckApiError(
+      () =>
+        service.putDeck(current.projectId, {
+          baseVersion: current.version,
+          deck: {
+            ...current,
+            slides: current.slides.map((slide) => ({ ...slide, order: 1 })),
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "DECK_VALIDATION_FAILED",
+    );
+
+    expect(error.message).toContain("exact permutations");
+    expect(dataSource.patchRows).toHaveLength(0);
+  });
+
   it("diffs equal element IDs independently across imported slides", async () => {
     const { dataSource, service } = createService();
     const base = createDeck();

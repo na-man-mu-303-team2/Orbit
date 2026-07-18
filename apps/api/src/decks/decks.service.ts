@@ -1320,7 +1320,11 @@ function createOoxmlReplacement(
     ...requestedDeck,
     version: currentDeck.version + 1,
   });
-  const operations = createOoxmlElementDiff(currentDeck, deck);
+  const slideOperations = createOoxmlSlideDiff(currentDeck, deck);
+  const operations = [
+    ...slideOperations,
+    ...createOoxmlElementDiff(currentDeck, deck),
+  ];
 
   return {
     deck,
@@ -1339,12 +1343,86 @@ function createOoxmlReplacement(
   };
 }
 
+function createOoxmlSlideDiff(
+  currentDeck: Deck,
+  nextDeck: Deck,
+): DeckPatchOperation[] {
+  const currentSlides = validateAndSortSlides(currentDeck);
+  const nextSlides = validateAndSortSlides(nextDeck);
+  const currentIds = currentSlides.map((slide) => slide.slideId);
+  const nextIds = nextSlides.map((slide) => slide.slideId);
+  const currentIdSet = new Set(currentIds);
+  const nextIdSet = new Set(nextIds);
+  const hasSameSlides =
+    currentIds.length === nextIds.length &&
+    currentIdSet.size === currentIds.length &&
+    nextIdSet.size === nextIds.length &&
+    nextIds.every((slideId) => currentIdSet.has(slideId));
+
+  if (hasSameSlides) {
+    if (isDeepStrictEqual(currentIds, nextIds)) return [];
+    return [
+      {
+        type: "reorder_slides",
+        slideOrders: nextSlides.map((slide) => ({
+          slideId: slide.slideId,
+          order: slide.order,
+        })),
+      },
+    ];
+  }
+
+  return [
+    ...currentSlides
+      .filter((slide) => !nextIdSet.has(slide.slideId))
+      .map(
+        (slide): DeckPatchOperation => ({
+          type: "delete_slide",
+          slideId: slide.slideId,
+        }),
+      ),
+    ...nextSlides
+      .filter((slide) => !currentIdSet.has(slide.slideId))
+      .map(
+        (slide): DeckPatchOperation => ({
+          type: "add_slide",
+          slide,
+        }),
+      ),
+  ];
+}
+
+function validateAndSortSlides(deck: Deck): Deck["slides"] {
+  const slideIds = deck.slides.map((slide) => slide.slideId);
+  const orders = deck.slides.map((slide) => slide.order);
+  const expectedOrders = new Set(deck.slides.map((_, index) => index + 1));
+  const hasUniqueIds = new Set(slideIds).size === slideIds.length;
+  const hasExactOrders =
+    new Set(orders).size === orders.length &&
+    orders.every((order) => expectedOrders.has(order));
+  if (!hasUniqueIds || !hasExactOrders) {
+    throwDeckApiException(
+      "DECK_VALIDATION_FAILED",
+      HttpStatus.BAD_REQUEST,
+      "Deck slide IDs and orders must be exact permutations",
+      [`slideIds=${slideIds.join(",")}`, `slideOrders=${orders.join(",")}`],
+    );
+  }
+  return [...deck.slides].sort((left, right) => left.order - right.order);
+}
+
 function createOoxmlElementDiff(
   currentDeck: Deck,
   nextDeck: Deck,
 ): DeckPatchOperation[] {
-  const currentElements = indexDeckElements(currentDeck);
-  const nextElements = indexDeckElements(nextDeck);
+  const nextSlideIds = new Set(nextDeck.slides.map((slide) => slide.slideId));
+  const sharedSlideIds = new Set(
+    currentDeck.slides
+      .map((slide) => slide.slideId)
+      .filter((slideId) => nextSlideIds.has(slideId)),
+  );
+  const currentElements = indexDeckElements(currentDeck, sharedSlideIds);
+  const nextElements = indexDeckElements(nextDeck, sharedSlideIds);
   const operations: DeckPatchOperation[] = [];
 
   for (const [elementKey, current] of currentElements) {
@@ -1421,12 +1499,13 @@ function changedOoxmlElementProps(
   return changed;
 }
 
-function indexDeckElements(deck: Deck) {
+function indexDeckElements(deck: Deck, includedSlideIds?: ReadonlySet<string>) {
   const elements = new Map<
     string,
     { slideId: Deck["slides"][number]["slideId"]; element: DeckElement }
   >();
   for (const slide of deck.slides) {
+    if (includedSlideIds && !includedSlideIds.has(slide.slideId)) continue;
     for (const element of slide.elements) {
       elements.set(`${slide.slideId}\0${element.elementId}`, {
         slideId: slide.slideId,

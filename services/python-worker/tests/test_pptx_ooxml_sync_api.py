@@ -83,6 +83,32 @@ def test_small_legacy_text_fields_remain_compatible(
     assert captured_sync["render"] is False
 
 
+def test_reorder_acknowledgment_omits_element_locator_nulls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_sync(*args: Any, **kwargs: Any) -> PptxOoxmlSyncResult:
+        del args, kwargs
+        return PptxOoxmlSyncResult(
+            appliedOperations=[{"operationType": "reorder_slides"}],
+        )
+
+    monkeypatch.setattr(api_module, "sync_pptx_ooxml", fake_sync)
+
+    response = post_sync(
+        operations=[
+            {
+                "type": "reorder_slides",
+                "slideOrders": [{"slideId": "slide_1", "order": 1}],
+            }
+        ],
+    )
+
+    assert response.status_code == 200
+    assert response.json()["appliedOperations"] == [
+        {"operationType": "reorder_slides"}
+    ]
+
+
 def test_json_file_part_over_explicit_limit_is_bounded(
     monkeypatch: pytest.MonkeyPatch,
     captured_sync: dict[str, Any],
