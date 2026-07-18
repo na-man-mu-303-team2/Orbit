@@ -59,7 +59,7 @@ describe("AI PPT wizard UI", () => {
     expect(html).not.toContain(">Color<");
   });
 
-  it("restores font selection and live preview on Style & Color", () => {
+  it("restores font and palette selection on Style & Color", () => {
     const html = renderToStaticMarkup(
       createElement(AiPptStyleColorPage, {
         jobId: "job-1",
@@ -70,7 +70,6 @@ describe("AI PPT wizard UI", () => {
     expect(html).toContain("폰트");
     expect(html).toContain("Pretendard");
     expect(html).toContain("컬러 팔레트");
-    expect(html).toContain("Live Preview");
     expect(html).toContain(">Aa<");
     expect(html).toContain("가나다라 · 핵심을 선명하게");
     expect(html).toContain("임원 브리프");

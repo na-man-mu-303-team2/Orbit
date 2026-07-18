@@ -1023,14 +1023,6 @@ export function AiPptStyleColorPage(props: {
               </p>
             ) : null}
           </section>
-          <aside className="ai-ppt-live-preview">
-            {selectedFont ? (
-              <LivePreview
-                selectedFont={selectedFont}
-                selectedPalette={selectedPalette}
-              />
-            ) : null}
-          </aside>
         </main>
       </div>
       <footer className="ai-ppt-footer">
@@ -1638,29 +1630,6 @@ function hexToRgb(hex: string) {
     : value;
   const number = Number.parseInt(normalized, 16);
   return `${(number >> 16) & 255}, ${(number >> 8) & 255}, ${number & 255}`;
-}
-
-function LivePreview(props: {
-  selectedFont: GenerateDeckFontOption;
-  selectedPalette: PaletteOption;
-}) {
-  return (
-    <div className="ai-ppt-preview-card ai-ppt-live-preview-card">
-      <div className="ai-ppt-preview-top">
-        <span>Live Preview · Slide 04</span>
-        <strong>
-          {props.selectedPalette.name} · {props.selectedFont.name}
-        </strong>
-      </div>
-      <div className="ai-ppt-live-slide-frame" style={{ fontFamily: props.selectedFont.headingFontFamily }}>
-        <PaletteMockupSlide large option={props.selectedPalette} />
-      </div>
-      <div className="ai-ppt-live-preview-meta">
-        <span>이 슬라이드에 적용된 컬러 DNA</span>
-        <PaletteSwatches palette={props.selectedPalette.palette} />
-      </div>
-    </div>
-  );
 }
 
 export function miniSlideFontStyles(
