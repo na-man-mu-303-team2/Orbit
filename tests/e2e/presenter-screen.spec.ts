@@ -129,6 +129,7 @@ test.describe("P1 presenter screen and slide window", () => {
     await slideWindow.waitForLoadState();
 
     await expect(slideWindow.getByLabel("슬라이드 전용 창")).toBeVisible();
+    await expectPresentWindowFillsViewport(slideWindow);
     await expect(page.getByText("슬라이드 화면 연결됨")).toBeVisible();
     await expect(
       slideWindow.locator('[data-slide-id="slide_presenter_1"]'),
@@ -208,6 +209,7 @@ test.describe("P1 presenter screen and slide window", () => {
 
     await page.getByRole("button", { name: "청중 화면 가리기" }).click();
     await expect(slideWindow.getByLabel("청중 화면 가림")).toBeVisible();
+    await expectPresentWindowFillsViewport(slideWindow);
     await expect(slideWindow.locator(".slideshow-renderer")).toHaveCount(0);
     await expect(slideWindow.locator("video")).toHaveCount(0);
     await page.getByRole("button", { name: "슬라이드로 돌아가기" }).click();
@@ -276,6 +278,7 @@ test.describe("P1 presenter screen and slide window", () => {
     await remoteWindow.waitForLoadState();
 
     await expect(page.getByLabel("슬라이드 전용 창")).toBeVisible();
+    await expectPresentWindowFillsViewport(page);
     await expect(remoteWindow.getByLabel("발표자 제어 창")).toBeVisible();
     await expect(remoteWindow.getByText("팝업 연결됨")).toBeVisible();
     await expect
@@ -332,6 +335,7 @@ test.describe("P1 presenter screen and slide window", () => {
       .getByRole("button", { name: "청중 화면 가리기" })
       .click();
     await expect(page.getByLabel("청중 화면 가림")).toBeVisible();
+    await expectPresentWindowFillsViewport(page);
     await remoteWindow
       .getByRole("button", { name: "슬라이드로 돌아가기" })
       .click();
@@ -440,6 +444,76 @@ test.describe("P1 presenter screen and slide window", () => {
     await expect(page.getByRole("radio", { name: /HDMI B/ })).toBeVisible();
   });
 });
+
+async function expectPresentWindowFillsViewport(
+  page: import("@playwright/test").Page,
+) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const shell = document.querySelector<HTMLElement>(
+          ".present-window-shell",
+        );
+        if (!shell) return null;
+
+        const shellRect = shell.getBoundingClientRect();
+        return {
+          bodyScrollHeight: document.body.scrollHeight,
+          bodyScrollWidth: document.body.scrollWidth,
+          documentOverflow: getComputedStyle(document.documentElement).overflow,
+          documentScrollHeight: document.documentElement.scrollHeight,
+          documentScrollWidth: document.documentElement.scrollWidth,
+          scrollbarGutter: getComputedStyle(document.documentElement)
+            .scrollbarGutter,
+          shellBottom: shellRect.bottom,
+          shellLeft: shellRect.left,
+          shellRight: shellRect.right,
+          shellTop: shellRect.top,
+          viewportHeight: window.innerHeight,
+          viewportWidth: window.innerWidth,
+        };
+      }),
+    )
+    .toEqual({
+      bodyScrollHeight: expect.any(Number),
+      bodyScrollWidth: expect.any(Number),
+      documentOverflow: "hidden",
+      documentScrollHeight: expect.any(Number),
+      documentScrollWidth: expect.any(Number),
+      scrollbarGutter: "auto",
+      shellBottom: expect.any(Number),
+      shellLeft: 0,
+      shellRight: expect.any(Number),
+      shellTop: 0,
+      viewportHeight: expect.any(Number),
+      viewportWidth: expect.any(Number),
+    });
+
+  const layout = await page.evaluate(() => {
+    const shell = document.querySelector<HTMLElement>(".present-window-shell");
+    if (!shell) throw new Error("present window shell is missing");
+    const shellRect = shell.getBoundingClientRect();
+    return {
+      bodyScrollHeight: document.body.scrollHeight,
+      bodyScrollWidth: document.body.scrollWidth,
+      documentScrollHeight: document.documentElement.scrollHeight,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      shellBottom: shellRect.bottom,
+      shellRight: shellRect.right,
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+    };
+  });
+
+  expect(layout).toMatchObject({
+    bodyScrollHeight: layout.viewportHeight,
+    bodyScrollWidth: layout.viewportWidth,
+    documentScrollHeight: layout.viewportHeight,
+    documentScrollWidth: layout.viewportWidth,
+    shellBottom: layout.viewportHeight,
+    shellRight: layout.viewportWidth,
+  });
+}
 
 async function installScreenShareMock(page: import("@playwright/test").Page) {
   await page.context().addInitScript(() => {
