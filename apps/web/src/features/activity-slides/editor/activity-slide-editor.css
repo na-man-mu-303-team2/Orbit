@@ -483,15 +483,16 @@
   background: transparent;
   border: 0;
   border-radius: var(--redesign-radius-xl);
-  color: var(--redesign-color-on-surface-variant);
-  font-size: var(--redesign-type-label-sm-size);
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-md-size);
   font-weight: 700;
+  min-height: 40px;
   padding: var(--redesign-space-2);
 }
 
 .activity-preview-tabs button.active {
   background: var(--redesign-color-light-surface);
-  color: var(--redesign-color-on-surface);
+  color: var(--redesign-color-on-light);
 }
 
 .activity-system-layer-lock {
