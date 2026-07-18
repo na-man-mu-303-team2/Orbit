@@ -58,6 +58,7 @@ export function EditableElementNode(props: {
   deck: Deck;
   disablePointerEvents: boolean;
   element: DeckElement;
+  hideContent?: boolean;
   editorPrimaryColor: string;
   editorPrimaryMediumColor: string;
   editorPrimarySoftColor: string;
@@ -88,6 +89,7 @@ export function EditableElementNode(props: {
     deck,
     disablePointerEvents,
     element,
+    hideContent = false,
     editorPrimaryColor,
     editorPrimaryMediumColor,
     editorPrimarySoftColor,
@@ -293,14 +295,16 @@ export function EditableElementNode(props: {
         width={frame.width}
         height={frame.height}
       />
-      <ElementNodeContent
-        accentColor={accentColor}
-        customShapePreview={customShapeEditDraft}
-        deck={deck}
-        element={element}
-        frame={frame}
-        slide={slide}
-      />
+      {hideContent ? null : (
+        <ElementNodeContent
+          accentColor={accentColor}
+          customShapePreview={customShapeEditDraft}
+          deck={deck}
+          element={element}
+          frame={frame}
+          slide={slide}
+        />
+      )}
       {customShapeEditDraft && element.type === "customShape" ? (
         <CustomShapeEditOverlay
           draft={customShapeEditDraft}

@@ -672,6 +672,10 @@ export function EditableCanvas(props: {
                 canvasInteractionDisabled || insertTool !== "select"
               }
               element={element}
+              hideContent={
+                element.type === "text" &&
+                element.elementId === editingElementId
+              }
               isSelected={selectedElementIds.includes(element.elementId)}
               presentationState={elementStates?.[element.elementId]}
               selectedCount={selectedElementIds.length}
