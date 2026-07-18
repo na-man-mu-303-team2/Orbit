@@ -110,6 +110,10 @@ import type {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import {
+  presentEditorValidationItems,
+  type EditorValidationTargetView
+} from "../ai/quality/validationPresentation";
+import {
   ActivityResultSlideInspector,
   ActivitySlideInspector
 } from "../../activity-slides";
@@ -798,8 +802,12 @@ export function EditorShell(props: { projectId?: string }) {
     ? getRenderableSlideElements(currentSlide, deck.canvas)
     : [];
   const editorValidationItems = useMemo(
-    () => getEditorValidationItems(deck, currentSlide ?? undefined),
-    [deck, currentSlide]
+    () => getEditorValidationItems(deck),
+    [deck]
+  );
+  const presentedEditorValidationItems = useMemo(
+    () => presentEditorValidationItems(deck, editorValidationItems),
+    [deck, editorValidationItems]
   );
   const {
     canvasViewportRef: editorCanvasViewportRef,
@@ -957,8 +965,6 @@ export function EditorShell(props: { projectId?: string }) {
     workingDeckRef
   });
   const handleAddAnimation = editorSlideActions.addAnimation;
-  const handleApplyAllValidationTextOverflow =
-    editorSlideActions.applyAllValidationTextOverflow;
   const handleElementPropsChange = editorSlideActions.changeElementProps;
   const handleSlideStyleChange = editorSlideActions.changeSlideStyle;
   const handleThemeChange = editorSlideActions.changeTheme;
@@ -972,11 +978,39 @@ export function EditorShell(props: { projectId?: string }) {
   const handleToggleKeywordRequired = editorSlideActions.toggleKeywordRequired;
   const handleUpdateAnimation = editorSlideActions.updateAnimation;
   const handleUpdateSlideTransition = editorSlideActions.updateSlideTransition;
-  const handleValidationTextOverflowAction =
-    editorSlideActions.handleValidationTextOverflowAction;
   function clearSelectedKeyword() {
     editorSlideActions.clearSelectedKeyword();
   }
+
+  function handleValidationTargetFocus(target: EditorValidationTargetView) {
+    if (target.status !== "resolved" || !target.slideId) return;
+
+    const activeDeck = workingDeckRef.current;
+    const nextSlide = activeDeck.slides.find(
+      (candidate) => candidate.slideId === target.slideId
+    );
+    if (!nextSlide) return;
+
+    if (target.slideId !== resolvedCurrentSlideId) {
+      if (!confirmDiscardSpeakerNotesDraft()) {
+        setValidationHighlightElementIds([]);
+        return;
+      }
+      resetSpeakerNotesEditState(nextSlide.speakerNotes);
+      speakerNotesEditorActions.closeAssistant();
+      setCurrentSlideId(target.slideId);
+    }
+
+    setSelectedElementIds(target.elementIds);
+    setValidationHighlightElementIds(target.elementIds);
+    clearSelectedKeyword();
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+    setAiPanelView("tools");
+    setIsRightPanelOpen(true);
+  }
+
   const selectedAnimationPanelElement =
     selectedElement ??
     (selectedElementIds.length === 1
@@ -2292,7 +2326,8 @@ export function EditorShell(props: { projectId?: string }) {
               />
             ) : renderSelectionInspector()
           }
-          editorValidationItems={editorValidationItems}
+          canRepairValidation={false}
+          editorValidationItems={presentedEditorValidationItems}
           iconLibrary={
             <IconLibrarySidePanel
               accentColor={
@@ -2307,7 +2342,7 @@ export function EditorShell(props: { projectId?: string }) {
           isPlayingAnimations={isPlayingCurrentSlideAnimations}
           onActivePanelModeChange={setRightPanelMode}
           onAiChatStateChange={setAiChatState}
-          onApplyAllValidationTextOverflow={handleApplyAllValidationTextOverflow}
+          onFocusValidationTarget={handleValidationTargetFocus}
           onHighlightElementIds={setValidationHighlightElementIds}
           onProposalApplied={handleDesignAgentProposalApplied}
           onGeneratedImageInsert={editorFileTransferActions.insertGeneratedImage}
@@ -2318,7 +2353,6 @@ export function EditorShell(props: { projectId?: string }) {
           onResizeStart={handleRightPaneResizeStart}
           onSemanticCueChange={handleSemanticCueReviewChange}
           onSemanticCueExtract={(force) => void handleSemanticCueExtraction(force)}
-          onTextOverflowAction={handleValidationTextOverflowAction}
           projectId={projectId}
           propertiesOpenRequestId={propertiesOpenRequestId}
           pptxImportState={pptxImportState}
@@ -2328,6 +2362,8 @@ export function EditorShell(props: { projectId?: string }) {
           setIsIconPanelOpen={setIsIconPanelOpen}
           setIsAnimationPropertiesOpen={setIsAnimationPanelOpen}
           setIsOpen={setIsRightPanelOpen}
+          validationRepairableElementIds={[]}
+          validationRepairStatus=""
         />
       </section>
 
