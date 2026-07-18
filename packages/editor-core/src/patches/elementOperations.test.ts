@@ -41,6 +41,33 @@ describe("element operation helpers", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("marks added imported-deck elements as authored without inherited capabilities", () => {
+    const deck = createDemoDeck();
+    deck.metadata.sourceType = "import";
+    const source = {
+      ...deck.slides[0].elements[0],
+      elementId: "el_import_copy",
+      ooxmlOrigin: "imported" as const,
+      ooxmlEditCapabilities: {
+        richText: "none" as const,
+        crop: "none" as const,
+        tableCellText: false,
+        frame: true
+      }
+    };
+
+    const patch = createAddElementPatch(deck, "slide_1", source);
+    const operation = patch.operations[0];
+
+    expect(operation.type).toBe("add_element");
+    if (operation.type === "add_element") {
+      expect(operation.element.ooxmlOrigin).toBe("authored");
+      expect(operation.element.ooxmlEditCapabilities).toBeUndefined();
+    }
+    expect(source.ooxmlOrigin).toBe("imported");
+    expect(source.ooxmlEditCapabilities).toBeDefined();
+  });
+
   it("creates an update_element_props patch", () => {
     const deck = createDemoDeck();
     const patch = createUpdateElementPropsPatch(deck, "slide_1", "el_1", {

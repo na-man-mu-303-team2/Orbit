@@ -1,0 +1,596 @@
+.orbit-shell .editor-practice-result {
+  display: grid;
+  gap: var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-filler-chart {
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  padding: var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-filler-chart > header {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--redesign-space-4);
+  justify-content: space-between;
+}
+
+.orbit-shell .editor-practice-filler-chart h3,
+.orbit-shell .editor-practice-filler-chart p {
+  margin: 0;
+}
+
+.orbit-shell .editor-practice-filler-chart h3 {
+  font-size: var(--redesign-type-body-sm-size);
+}
+
+.orbit-shell .editor-practice-filler-chart header p {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  margin-top: 3px;
+}
+
+.orbit-shell .editor-practice-filler-chart header > strong {
+  color: var(--redesign-color-on-secondary-container);
+  font-size: var(--redesign-type-title-md-size);
+  white-space: nowrap;
+}
+
+.orbit-shell .editor-practice-filler-chart-body {
+  align-items: center;
+  display: grid;
+  gap: var(--redesign-space-6);
+  grid-template-columns: minmax(170px, 220px) minmax(240px, 360px);
+  justify-content: center;
+  margin-top: var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-filler-pie {
+  display: block;
+  height: auto;
+  margin: 0 auto;
+  max-width: 220px;
+  width: 100%;
+}
+
+.orbit-shell .editor-practice-filler-legend {
+  display: grid;
+  gap: var(--redesign-space-2);
+  list-style: none;
+  margin: 0 auto;
+  max-width: 360px;
+  padding: 0;
+  width: 100%;
+}
+
+.orbit-shell .editor-practice-filler-legend-item {
+  align-items: center;
+  display: grid;
+  gap: var(--redesign-space-2);
+  grid-template-columns: 10px minmax(72px, 1fr) max-content 38px;
+  min-width: 0;
+}
+
+.orbit-shell .editor-practice-filler-legend-color {
+  border-radius: 50%;
+  height: 10px;
+  width: 10px;
+}
+
+.orbit-shell .editor-practice-filler-legend-word {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orbit-shell .editor-practice-filler-legend-item > strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.orbit-shell .editor-practice-filler-legend-item > span:last-child {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.orbit-shell .editor-practice-filler-empty {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  padding: var(--redesign-space-6) 0 var(--redesign-space-3);
+  text-align: center;
+}
+
+.orbit-shell .editor-practice-summary {
+  border-top: 1px solid var(--redesign-color-outline-variant);
+  padding-top: var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-style-copy {
+  display: grid;
+  gap: var(--redesign-space-2);
+  min-width: 0;
+}
+
+.orbit-shell .editor-practice-style-evidence {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--redesign-space-2);
+}
+
+.orbit-shell .editor-practice-style-evidence > span {
+  color: var(--redesign-color-on-surface-variant);
+  flex: 0 0 auto;
+  font-size: var(--redesign-type-label-sm-size);
+  padding-top: 3px;
+}
+
+.orbit-shell .editor-practice-style-evidence ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--redesign-space-1);
+  list-style: none;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.orbit-shell .editor-practice-style-evidence li {
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-full);
+  font-size: var(--redesign-type-label-sm-size);
+  overflow-wrap: anywhere;
+  padding: 2px var(--redesign-space-2);
+}
+
+.orbit-shell .editor-practice-summary > .editor-practice-metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.orbit-shell .editor-practice-history-item .editor-practice-history-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.orbit-shell .editor-practice-history-metrics strong {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .orbit-shell .editor-practice-filler-chart-body {
+    gap: var(--redesign-space-4);
+    grid-template-columns: minmax(140px, 190px) minmax(220px, 320px);
+  }
+
+  .orbit-shell .editor-practice-filler-pie {
+    max-width: 190px;
+  }
+
+  .orbit-shell .editor-practice-summary > .editor-practice-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .orbit-shell .editor-practice-filler-chart-body {
+    grid-template-columns: 1fr;
+  }
+
+  .orbit-shell .editor-practice-filler-pie {
+    max-width: 200px;
+  }
+
+  .orbit-shell .editor-practice-summary > .editor-practice-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .orbit-shell .editor-practice-history-item .editor-practice-history-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.orbit-shell .editor-practice-report-content {
+  display: grid;
+  font-size: var(--redesign-type-body-sm-size);
+  gap: var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-graph-grid {
+  display: grid;
+  gap: var(--redesign-space-4);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.orbit-shell .editor-practice-graph-card,
+.orbit-shell .editor-practice-coaching {
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  min-width: 0;
+  padding: var(--redesign-space-5);
+}
+
+.orbit-shell .editor-practice-graph-card {
+  background: var(--redesign-color-light-surface);
+  border-color: color-mix(in srgb, var(--redesign-color-on-light) 18%, transparent);
+  color: var(--redesign-color-on-light);
+}
+
+.orbit-shell .editor-practice-graph-card > header,
+.orbit-shell .editor-practice-coaching > header {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--redesign-space-3);
+  justify-content: space-between;
+}
+
+.orbit-shell .editor-practice-graph-card h3,
+.orbit-shell .editor-practice-graph-card p,
+.orbit-shell .editor-practice-coaching h3,
+.orbit-shell .editor-practice-coaching h4,
+.orbit-shell .editor-practice-coaching p {
+  margin: 0;
+}
+
+.orbit-shell .editor-practice-graph-card h3 {
+  color: var(--redesign-color-on-light);
+  font-size: var(--redesign-type-title-lg-size);
+}
+
+.orbit-shell .editor-practice-coaching h3 {
+  font-size: var(--redesign-type-headline-md-size);
+}
+
+.orbit-shell .editor-practice-graph-card header p {
+  color: color-mix(in srgb, var(--redesign-color-on-light) 66%, transparent);
+  font-size: var(--redesign-type-body-sm-size);
+  margin-top: var(--redesign-space-1);
+}
+
+.orbit-shell .editor-practice-graph-card header > strong {
+  background: var(--redesign-color-secondary-container);
+  border-radius: var(--redesign-radius-md);
+  color: var(--redesign-color-on-secondary-container);
+  font-size: var(--redesign-type-body-sm-size);
+  padding: var(--redesign-space-1) var(--redesign-space-2);
+  white-space: nowrap;
+}
+
+.orbit-shell .editor-practice-graph {
+  background: var(--redesign-color-light-surface);
+  display: block;
+  height: auto;
+  margin-top: var(--redesign-space-1);
+  overflow: visible;
+  width: 100%;
+}
+
+.orbit-shell .editor-practice-recommended-band {
+  fill: var(--redesign-color-secondary-container);
+}
+
+.orbit-shell .editor-practice-grid-line {
+  stroke: color-mix(in srgb, var(--redesign-color-on-light) 18%, transparent);
+  stroke-width: 1;
+}
+
+.orbit-shell .editor-practice-axis-label {
+  fill: color-mix(in srgb, var(--redesign-color-on-light) 72%, transparent);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.orbit-shell .editor-practice-loudness-bar.quiet,
+.orbit-shell .editor-practice-graph-legend i.quiet {
+  fill: var(--redesign-color-primary);
+  background: var(--redesign-color-primary);
+}
+
+.orbit-shell .editor-practice-loudness-bar.recommended,
+.orbit-shell .editor-practice-graph-legend i.recommended {
+  fill: var(--redesign-color-secondary);
+  background: var(--redesign-color-secondary);
+}
+
+.orbit-shell .editor-practice-loudness-bar.loud,
+.orbit-shell .editor-practice-graph-legend i.loud {
+  fill: var(--redesign-color-error);
+  background: var(--redesign-color-error);
+}
+
+.orbit-shell .editor-practice-graph-legend {
+  color: color-mix(in srgb, var(--redesign-color-on-light) 80%, transparent);
+  display: flex;
+  font-size: var(--redesign-type-label-sm-size);
+  gap: var(--redesign-space-3);
+  justify-content: flex-end;
+  margin-top: var(--redesign-space-2);
+}
+
+.orbit-shell .editor-practice-graph-legend span {
+  align-items: center;
+  display: inline-flex;
+  gap: var(--redesign-space-1);
+}
+
+.orbit-shell .editor-practice-graph-legend i {
+  border-radius: var(--redesign-radius-sm);
+  display: inline-block;
+  height: 10px;
+  width: 10px;
+}
+
+.orbit-shell .editor-practice-speed-line {
+  fill: none;
+  stroke: var(--redesign-color-secondary);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.orbit-shell .editor-practice-speed-point {
+  fill: var(--redesign-color-light-surface);
+  stroke: var(--redesign-color-secondary);
+  stroke-width: 3;
+}
+
+.orbit-shell .editor-practice-graph-note {
+  color: color-mix(in srgb, var(--redesign-color-on-light) 66%, transparent);
+  font-size: var(--redesign-type-label-sm-size);
+  text-align: right;
+}
+
+.orbit-shell .editor-practice-graph-empty {
+  align-items: center;
+  color: color-mix(in srgb, var(--redesign-color-on-light) 66%, transparent);
+  display: flex;
+  font-size: var(--redesign-type-body-sm-size);
+  justify-content: center;
+  min-height: 244px;
+  text-align: center;
+}
+
+.orbit-shell .editor-practice-coaching-summary,
+.orbit-shell .editor-practice-coaching-state {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-lg-size);
+  line-height: 1.6;
+  margin-top: var(--redesign-space-3) !important;
+}
+
+.orbit-shell .editor-practice-coaching-grid {
+  display: grid;
+  gap: var(--redesign-space-3);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-coaching-item {
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
+  display: grid;
+  gap: var(--redesign-space-3);
+  min-width: 0;
+  padding: var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-coaching-single {
+  gap: var(--redesign-space-4);
+  margin-top: var(--redesign-space-4);
+  padding: var(--redesign-space-6);
+}
+
+.orbit-shell .editor-practice-coaching-item > header {
+  align-items: center;
+  display: flex;
+  gap: var(--redesign-space-2);
+}
+
+.orbit-shell .editor-practice-coaching-item > header span {
+  align-items: center;
+  background: var(--redesign-color-secondary);
+  border-radius: 50%;
+  color: var(--redesign-color-light-surface);
+  display: inline-flex;
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 800;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.orbit-shell .editor-practice-coaching-item h4 {
+  font-size: var(--redesign-type-title-lg-size);
+  line-height: 1.45;
+}
+
+.orbit-shell .editor-practice-coaching-single h4 {
+  font-size: var(--redesign-type-headline-md-size);
+}
+
+.orbit-shell .editor-practice-coaching-item > p,
+.orbit-shell .editor-practice-coaching-action p,
+.orbit-shell .editor-practice-script-edit p {
+  font-size: var(--redesign-type-body-lg-size);
+  line-height: 1.65;
+}
+
+.orbit-shell .editor-practice-script-evidence {
+  background: var(--redesign-color-surface-container-low);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-md);
+  display: grid;
+  gap: var(--redesign-space-3);
+  padding: var(--redesign-space-5);
+}
+
+.orbit-shell .editor-practice-script-evidence > strong,
+.orbit-shell .editor-practice-coaching-methods strong {
+  color: var(--redesign-color-primary);
+  font-size: var(--redesign-type-title-md-size);
+}
+
+.orbit-shell .editor-practice-script-evidence blockquote {
+  border-left: var(--redesign-space-1) solid var(--redesign-color-primary);
+  font-size: var(--redesign-type-title-lg-size);
+  font-weight: var(--redesign-type-title-lg-weight);
+  line-height: var(--redesign-type-title-lg-line-height);
+  margin: 0;
+  padding: var(--redesign-space-3) var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-evidence-metrics {
+  display: grid;
+  gap: var(--redesign-space-2);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.orbit-shell .editor-practice-evidence-metrics > div {
+  background: var(--redesign-color-surface-container-lowest);
+  border-radius: var(--redesign-radius-sm);
+  padding: var(--redesign-space-3);
+}
+
+.orbit-shell .editor-practice-evidence-metrics dt {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-md-size);
+}
+
+.orbit-shell .editor-practice-evidence-metrics dd {
+  font-size: var(--redesign-type-body-lg-size);
+  font-weight: var(--redesign-type-title-md-weight);
+  margin: var(--redesign-space-1) 0 0;
+}
+
+.orbit-shell .editor-practice-coaching-methods {
+  display: grid;
+  gap: var(--redesign-space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.orbit-shell .editor-practice-coaching-methods > section {
+  background: var(--redesign-color-surface-container-low);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-md);
+  display: grid;
+  gap: var(--redesign-space-2);
+  padding: var(--redesign-space-5);
+}
+
+.orbit-shell .editor-practice-coaching-methods p {
+  font-size: var(--redesign-type-body-lg-size);
+  line-height: var(--redesign-type-body-lg-line-height);
+  margin: 0;
+}
+
+.orbit-shell .editor-practice-script-edit {
+  align-items: stretch;
+  display: grid;
+  gap: var(--redesign-space-2);
+  grid-template-columns: 1fr auto 1fr;
+}
+
+.orbit-shell .editor-practice-script-edit > div,
+.orbit-shell .editor-practice-coaching-action {
+  background: var(--redesign-color-surface-container-low);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
+  padding: var(--redesign-space-3);
+}
+
+.orbit-shell .editor-practice-script-edit > span {
+  align-self: center;
+  color: var(--redesign-color-secondary);
+  font-size: var(--redesign-type-title-lg-size);
+}
+
+.orbit-shell .editor-practice-script-edit strong,
+.orbit-shell .editor-practice-coaching-action strong {
+  color: var(--redesign-color-on-secondary-container);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.orbit-shell .editor-practice-script-edit small {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-md-size);
+  grid-column: 1 / -1;
+}
+
+.orbit-shell .editor-practice-coaching-action {
+  display: grid;
+  gap: var(--redesign-space-2);
+}
+
+.orbit-shell .editor-practice-coaching-action small {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-md-size);
+  line-height: 1.55;
+}
+
+.orbit-shell .editor-practice-coaching-item ol {
+  display: grid;
+  font-size: var(--redesign-type-body-lg-size);
+  gap: var(--redesign-space-2);
+  line-height: 1.6;
+  margin: 0;
+  padding-left: var(--redesign-space-6);
+}
+
+.orbit-shell .editor-practice-coaching-success {
+  align-items: center;
+  background: var(--redesign-color-success-subtle);
+  border: 1px solid var(--redesign-color-success);
+  border-radius: var(--redesign-radius-lg);
+  color: var(--redesign-color-on-success-container);
+  display: flex;
+  gap: var(--redesign-space-3);
+  margin-top: var(--redesign-space-3);
+  padding: var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-coaching-success > strong {
+  font-size: var(--redesign-type-body-md-size);
+  line-height: 1.5;
+}
+
+.orbit-shell .editor-practice-coaching-success > span {
+  align-items: center;
+  background: var(--redesign-color-success);
+  border-radius: 50%;
+  color: var(--redesign-color-light-surface);
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+@media (max-width: 960px) {
+  .orbit-shell .editor-practice-graph-grid,
+  .orbit-shell .editor-practice-coaching-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .orbit-shell .editor-practice-evidence-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .orbit-shell .editor-practice-script-edit {
+    grid-template-columns: 1fr;
+  }
+
+  .orbit-shell .editor-practice-script-edit > span {
+    justify-self: center;
+    transform: rotate(90deg);
+  }
+
+  .orbit-shell .editor-practice-coaching-methods,
+  .orbit-shell .editor-practice-evidence-metrics {
+    grid-template-columns: 1fr;
+  }
+}

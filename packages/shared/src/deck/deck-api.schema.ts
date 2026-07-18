@@ -132,6 +132,31 @@ export const getDeckResponseSchema = z
     ]);
   });
 
+export const ooxmlSyncStatusSchema = z.enum([
+  "not-applicable",
+  "pending",
+  "synced",
+  "stale",
+  "failed",
+]);
+
+export const ooxmlSyncStateSchema = z.object({
+  status: ooxmlSyncStatusSchema,
+  deckId: deckIdSchema,
+  deckVersion: z.number().int().positive(),
+  syncedDeckVersion: z.number().int().positive().nullable(),
+  retryable: z.boolean(),
+  job: jobSchema.optional(),
+});
+
+export const getOoxmlSyncStateResponseSchema = z.object({
+  ooxmlSyncState: ooxmlSyncStateSchema,
+});
+
+export const retryOoxmlSyncResponseSchema = z.object({
+  ooxmlSyncState: ooxmlSyncStateSchema,
+});
+
 export const putDeckRequestSchema = z.object({
   baseVersion: z.number().int().positive().optional(),
   deck: deckSchema,
@@ -322,6 +347,14 @@ export type DeckSnapshot = z.infer<typeof deckSnapshotSchema>;
 export type DeckSnapshotDetail = z.infer<typeof deckSnapshotDetailSchema>;
 export type DeckPatchLogEntry = z.infer<typeof deckPatchLogEntrySchema>;
 export type GetDeckResponse = z.infer<typeof getDeckResponseSchema>;
+export type OoxmlSyncStatus = z.infer<typeof ooxmlSyncStatusSchema>;
+export type OoxmlSyncState = z.infer<typeof ooxmlSyncStateSchema>;
+export type GetOoxmlSyncStateResponse = z.infer<
+  typeof getOoxmlSyncStateResponseSchema
+>;
+export type RetryOoxmlSyncResponse = z.infer<
+  typeof retryOoxmlSyncResponseSchema
+>;
 export type PutDeckRequest = z.infer<typeof putDeckRequestSchema>;
 export type PutDeckResponse = z.infer<typeof putDeckResponseSchema>;
 export type AppendDeckPatchRequest = z.infer<

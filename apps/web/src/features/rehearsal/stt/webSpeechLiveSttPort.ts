@@ -48,6 +48,12 @@ type WebSpeechLiveSttPortOptions = {
   now?: () => number;
 };
 
+type PendingStop = {
+  recognition: BrowserSpeechRecognition;
+  promise: Promise<void>;
+  resolve: () => void;
+};
+
 export class WebSpeechLiveSttPort implements LiveSttPort {
   readonly engineId = "web-speech";
   readonly capabilities: LiveSttCapabilities;
@@ -64,6 +70,7 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
   private activeAudioTrack: MediaStreamTrack | null = null;
   private activeLang = WEB_SPEECH_LANGUAGE;
   private biasPhrases: LiveSttBiasPhrase[] = [];
+  private pendingStop: PendingStop | null = null;
 
   constructor(private readonly options: WebSpeechLiveSttPortOptions) {
     const Recognition =
@@ -159,11 +166,28 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
   }
 
   async stop() {
+    if (this.pendingStop) {
+      return this.pendingStop.promise;
+    }
+
     const recognition = this.recognition;
-    this.startedAtMs = null;
-    this.recognition = null;
-    this.activeAudioTrack = null;
-    recognition?.stop();
+    if (!recognition) {
+      return;
+    }
+
+    let resolveStop = () => {};
+    const promise = new Promise<void>((resolve) => {
+      resolveStop = resolve;
+    });
+    this.pendingStop = { recognition, promise, resolve: resolveStop };
+
+    try {
+      recognition.stop();
+      await promise;
+    } catch (error) {
+      this.completeStop(recognition);
+      throw error;
+    }
   }
 
   updateBiasPhrases(phrases: readonly LiveSttBiasPhrase[]) {
@@ -194,11 +218,15 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
   }
 
   dispose() {
+    const recognition = this.recognition;
     this.startedAtMs = null;
     this.activeAudioTrack = null;
     this.resultSubscribers.clear();
     this.errorSubscribers.clear();
-    this.recognition?.abort();
+    recognition?.abort();
+    if (recognition) {
+      this.completeStop(recognition);
+    }
     this.recognition = null;
   }
 
@@ -280,9 +308,14 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
 
   private handleError(event: BrowserSpeechRecognitionErrorEvent) {
     if (shouldStopAfterWebSpeechError(event.error)) {
-      this.startedAtMs = null;
-      this.recognition = null;
-      this.activeAudioTrack = null;
+      const recognition = this.recognition;
+      if (recognition && this.pendingStop?.recognition === recognition) {
+        this.completeStop(recognition);
+      } else {
+        this.startedAtMs = null;
+        this.recognition = null;
+        this.activeAudioTrack = null;
+      }
     }
 
     this.emitError(
@@ -296,6 +329,11 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
   }
 
   private handleEnd(recognition: BrowserSpeechRecognition) {
+    if (this.pendingStop?.recognition === recognition) {
+      this.completeStop(recognition);
+      return;
+    }
+
     if (this.recognition !== recognition || this.startedAtMs === null) {
       return;
     }
@@ -331,6 +369,21 @@ export class WebSpeechLiveSttPort implements LiveSttPort {
     for (const subscriber of this.errorSubscribers) {
       subscriber(error);
     }
+  }
+
+  private completeStop(recognition: BrowserSpeechRecognition) {
+    const pendingStop = this.pendingStop;
+    if (!pendingStop || pendingStop.recognition !== recognition) {
+      return;
+    }
+
+    this.startedAtMs = null;
+    this.activeAudioTrack = null;
+    if (this.recognition === recognition) {
+      this.recognition = null;
+    }
+    this.pendingStop = null;
+    pendingStop.resolve();
   }
 }
 

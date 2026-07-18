@@ -121,6 +121,34 @@ describe("slide operation helpers", () => {
       expect(result.deck.slides.map((slide) => slide.order)).toEqual([1, 2, 3]);
     }
   });
+
+  it("does not inherit imported OOXML capabilities when duplicating a slide", () => {
+    const deck = createDemoDeck();
+    deck.metadata.sourceType = "import";
+    deck.slides[0]!.ooxmlOrigin = "imported";
+    deck.slides[0]!.elements[0]!.ooxmlOrigin = "imported";
+    deck.slides[0]!.elements[0]!.ooxmlEditCapabilities = {
+      richText: "none",
+      crop: "none",
+      tableCellText: false,
+      frame: true,
+    };
+
+    const patch = createDuplicateSlidePatch(deck, "slide_1");
+    const operation = patch.operations[0];
+
+    expect(operation.type).toBe("add_slide");
+    if (operation.type === "add_slide") {
+      expect(operation.slide.ooxmlOrigin).toBe("authored");
+      expect(
+        operation.slide.elements.every(
+          (element) =>
+            element.ooxmlOrigin === "authored" &&
+            element.ooxmlEditCapabilities === undefined,
+        ),
+      ).toBe(true);
+    }
+  });
 });
 
 function createReferenceRichDeck(): Deck {

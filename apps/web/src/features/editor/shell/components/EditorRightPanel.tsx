@@ -1,6 +1,7 @@
 import type {
   ApplyDesignAgentProposalResponse,
   Deck,
+  DesignImageGenerationResult,
   SemanticCue,
   Slide,
   SpeakerNotesSuggestionMode,
@@ -68,6 +69,10 @@ type EditorRightPanelProps = {
   onHighlightElementIds: (elementIds: string[]) => void;
   onExitRehearsal?: () => void;
   onProposalApplied: (response: ApplyDesignAgentProposalResponse) => void;
+  onGeneratedImageInsert: (
+    result: DesignImageGenerationResult,
+    slideId: string
+  ) => boolean;
   onPlayAnimations: () => void;
   onSpeakerNotesAssistantRequest: (mode: SpeakerNotesSuggestionMode) => void;
   onResizeStart: (event: PointerEvent<HTMLButtonElement>) => void;
@@ -393,6 +398,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                         chatState={props.aiChatState}
                         onChatStateChange={props.onAiChatStateChange}
                         onProposalApplied={props.onProposalApplied}
+                        onGeneratedImageInsert={props.onGeneratedImageInsert}
                         onSpeakerNotesAssistantRequest={
                           props.onSpeakerNotesAssistantRequest
                         }

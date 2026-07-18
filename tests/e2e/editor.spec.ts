@@ -107,11 +107,19 @@ test.describe("ORBIT-18 ORBIT-107 editor manipulation", () => {
       initialFrame.y + 18
     );
 
-    await page.mouse.click(initialSelectionPoint.x, initialSelectionPoint.y);
+    await page.mouse.move(initialSelectionPoint.x, initialSelectionPoint.y);
+    await page.mouse.down();
+    await page.mouse.move(
+      initialSelectionPoint.x + 80 * initialSelectionPoint.scale,
+      initialSelectionPoint.y + 60 * initialSelectionPoint.scale,
+      { steps: 8 }
+    );
+    await page.mouse.up();
 
     const elementQuickBar = page.getByTestId("editor-element-quickbar");
     await expect(elementQuickBar).toBeVisible();
     await expect(elementQuickBar.getByLabel("채우기")).toBeVisible();
+    expect(await getElementFrame(page, "el_3")).toEqual(initialFrame);
 
     await page.mouse.move(initialSelectionPoint.x, initialSelectionPoint.y);
     await page.mouse.down();
@@ -122,18 +130,12 @@ test.describe("ORBIT-18 ORBIT-107 editor manipulation", () => {
     );
     await page.mouse.up();
 
-    await expectFrameValueNear({
-      page,
-      elementId: "el_3",
-      key: "x",
-      expected: 1200
-    });
-    await expectFrameValueNear({
-      page,
-      elementId: "el_3",
-      key: "y",
-      expected: 188
-    });
+    await expect
+      .poll(async () => {
+        const frame = await getElementFrame(page, "el_3");
+        return frame.x !== initialFrame.x && frame.y !== initialFrame.y;
+      })
+      .toBe(true);
     await expectFrameValueNear({
       page,
       elementId: "el_3",
@@ -161,14 +163,14 @@ test.describe("ORBIT-18 ORBIT-107 editor manipulation", () => {
       page,
       elementId: "el_3",
       key: "x",
-      expected: 1200,
+      expected: draggedFrame.x,
       tolerance: 2
     });
     await expectFrameValueNear({
       page,
       elementId: "el_3",
       key: "y",
-      expected: 188,
+      expected: draggedFrame.y,
       tolerance: 2
     });
     await expectFrameValueNear({

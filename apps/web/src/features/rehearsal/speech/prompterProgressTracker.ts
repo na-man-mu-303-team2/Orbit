@@ -42,6 +42,7 @@ export type PrompterProgressTracker = {
   acceptBoundary: (boundary: PrompterBoundary) => boolean;
   manualNext: (atMs: number) => boolean;
   manualPrevious: (atMs: number) => boolean;
+  skipCurrent: (atMs: number) => boolean;
   reset: () => void;
   snapshot: () => PrompterProgressSnapshot;
 };
@@ -161,6 +162,23 @@ export function createPrompterProgressTracker(options: {
     return true;
   }
 
+  function skipCurrent(_atMs: number) {
+    const currentSentence = sentences[currentIndex];
+    const nextSentence = sentences[currentIndex + 1];
+    if (!currentSentence || !nextSentence) {
+      return false;
+    }
+
+    if (!skippedSentenceIds.includes(currentSentence.sentenceId)) {
+      skippedSentenceIds = [...skippedSentenceIds, currentSentence.sentenceId];
+    }
+    currentIndex += 1;
+    revision += 1;
+    hasCurrentLexicalEvidence = false;
+    clearCandidate();
+    return true;
+  }
+
   function reset() {
     currentIndex = 0;
     committedSentenceIds = [];
@@ -233,6 +251,7 @@ export function createPrompterProgressTracker(options: {
     acceptBoundary,
     manualNext,
     manualPrevious,
+    skipCurrent,
     reset,
     snapshot
   };

@@ -10,6 +10,7 @@ import {
 import { demoIds, type Slide } from "@orbit/shared";
 import type { Job } from "../../../../../../packages/shared/src/jobs/job.schema";
 import { getRenderableSlideElements } from "../canvas/EditorCanvas";
+import { getImageCropActionState } from "../canvas/image/imageCropSession";
 import {
   AnimationInspectorPanel,
   buildAnimationKeywordTriggerPolicy,
@@ -91,6 +92,7 @@ import type {
   DeckAnimation,
   DeckExportFormat,
   DeckExportRequest,
+  OoxmlSyncState,
   SemanticCue,
 } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -113,11 +115,13 @@ import { createSemanticCueReviewPatch } from "../semantic-cues/semanticCueReview
 import {
   SpeakerNotesAssistantDialog
 } from "./components/SpeakerNotesAssistantDialog";
-import { SpeakerNotesPanel } from "./components/SpeakerNotesPanel";
+import {
+  SpeakerNotesPanel,
+  type SpeakerNotesTab
+} from "./components/SpeakerNotesPanel";
 import {
   EditorSlideRehearsalBottomPanel,
-  EditorSlideRehearsalLeftPanel,
-  EditorSlideRehearsalRightPanel
+  EditorSlideRehearsalLeftPanel
 } from "./components/EditorSlideRehearsal";
 import { SlideNavigatorPane } from "./components/SlideNavigatorPane";
 import { EditorUndoToast } from "./components/EditorUndoToast";
@@ -147,7 +151,10 @@ import { useEditorKeyboardShortcuts } from "./hooks/useEditorKeyboardShortcuts";
 import type { EditorEscapeLayer } from "./editorKeyboardCommands";
 import { useOoxmlSyncJob } from "./hooks/useOoxmlSyncJob";
 import { useSpeakerNotesEditor } from "./hooks/useSpeakerNotesEditor";
-import { useEditorFileTransfer } from "./hooks/useEditorFileTransfer";
+import {
+  canAcceptCanvasImageDrop,
+  useEditorFileTransfer
+} from "./hooks/useEditorFileTransfer";
 import { useEditorDocumentController } from "./hooks/useEditorDocumentController";
 import { useEditorCanvasCommands } from "./hooks/useEditorCanvasCommands";
 import {
@@ -156,10 +163,8 @@ import {
 } from "./hooks/useSpeakerNotesPanelLayout";
 import { useEditorSlideCommands } from "./hooks/useEditorSlideCommands";
 import { useEditorPresentationActions } from "./hooks/useEditorPresentationActions";
-import {
-  useEditorSlideRehearsal,
-  type EditorSlideRehearsalState
-} from "./hooks/useEditorSlideRehearsal";
+import { useEditorSlideRehearsal } from "./hooks/useEditorSlideRehearsal";
+import { useSlidePracticeSession } from "../practice/useSlidePracticeSession";
 import { useShapeMenuPlacement } from "./hooks/useShapeMenuPlacement";
 import { createSelectionNudgePatch } from "./utils/selectionNudge";
 import {
@@ -343,6 +348,9 @@ export function EditorShell(props: { projectId?: string }) {
   const setCustomShapeEditElementId = useEditorShellUiStore(
     (state) => state.setCustomShapeEditElementId
   );
+  const [imageCropElementId, setImageCropElementId] = useState<string | null>(
+    null
+  );
   const isShapeMenuOpen = useEditorShellUiStore((state) => state.isShapeMenuOpen);
   const setIsShapeMenuOpen = useEditorShellUiStore(
     (state) => state.setIsShapeMenuOpen
@@ -355,6 +363,16 @@ export function EditorShell(props: { projectId?: string }) {
     isOpen: isShapeMenuOpen,
     setIsOpen: setIsShapeMenuOpen,
     setPosition: setShapeMenuPosition
+  });
+  const [isChartMenuOpen, setIsChartMenuOpen] = useState(false);
+  const [chartMenuPosition, setChartMenuPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const chartMenuButtonRef = useShapeMenuPlacement({
+    isOpen: isChartMenuOpen,
+    setIsOpen: setIsChartMenuOpen,
+    setPosition: setChartMenuPosition
   });
   const elementContextMenu = useEditorShellUiStore((state) => state.elementContextMenu);
   const setElementContextMenu = useEditorShellUiStore(
@@ -370,7 +388,11 @@ export function EditorShell(props: { projectId?: string }) {
     isRightPanelOpen: boolean;
     isSlidesPaneCollapsed: boolean;
   } | null>(null);
-  const ooxmlSyncJob = useOoxmlSyncJob();
+  const {
+    job: ooxmlSyncJob,
+    retry: retryOoxmlSync,
+    state: ooxmlSyncState
+  } = useOoxmlSyncJob(projectId);
 
   const health = useQuery({
     queryKey: ["health"],
@@ -511,6 +533,7 @@ export function EditorShell(props: { projectId?: string }) {
   useEffect(() => {
     if (canEditCurrentSlideCanvas) return;
     setInsertTool("select");
+    setIsChartMenuOpen(false);
     setIsShapeMenuOpen(false);
     setIsAnimationPanelOpen(false);
     setSelectedElementIds([]);
@@ -525,25 +548,66 @@ export function EditorShell(props: { projectId?: string }) {
     setElementContextMenu,
     setInsertTool,
     setIsAnimationPanelOpen,
+    setIsChartMenuOpen,
     setIsShapeMenuOpen,
     setSelectedElementIds
   ]);
   const {
     enter: enterSlideRehearsal,
     exit: exitSlideRehearsal,
+    moveToNextSentence: moveSlideRehearsalToNextSentence,
+    moveToPreviousSentence: moveSlideRehearsalToPreviousSentence,
+    skipCurrentSentence: skipCurrentSlideRehearsalSentence,
     start: startSlideRehearsal,
     state: slideRehearsalState,
     stop: stopSlideRehearsal
   } = useEditorSlideRehearsal({ projectId });
   const isSlideRehearsalActive = Boolean(slideRehearsalState.activeSlideId);
-  const [slideRehearsalReport, setSlideRehearsalReport] = useState<{
-    slide: Slide;
-    state: EditorSlideRehearsalState;
-  } | null>(null);
   const rehearsalSlide =
     deck.slides.find(
       (slide) => slide.slideId === slideRehearsalState.activeSlideId
     ) ?? currentSlide;
+  const slidePracticeSession = useSlidePracticeSession({
+    beforeStart: flushPendingSavesBeforeManualAction,
+    projectId,
+    deckId: deck.deckId,
+    deckVersion: deck.version,
+    slideId: rehearsalSlide?.slideId ?? null,
+    slideOrder: rehearsalSlide?.order ?? 0
+  });
+  const [practiceReportRefreshToken, setPracticeReportRefreshToken] = useState(0);
+  const [requestedSpeakerNotesTab, setRequestedSpeakerNotesTab] =
+    useState<SpeakerNotesTab | null>(null);
+  const handledPracticeReportIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const practiceSessionId = slidePracticeSession.report?.practiceSessionId;
+    if (
+      !practiceSessionId ||
+      handledPracticeReportIdRef.current === practiceSessionId
+    ) {
+      return;
+    }
+    handledPracticeReportIdRef.current = practiceSessionId;
+    setPracticeReportRefreshToken((current) => current + 1);
+    setRequestedSpeakerNotesTab("report");
+    speakerNotesPanelActions.expand();
+    void handleExitSlideRehearsal({ force: true });
+  }, [slidePracticeSession.report?.practiceSessionId]);
+
+  useEffect(() => {
+    if (
+      slidePracticeSession.state !== "stopping" ||
+      slideRehearsalState.status !== "listening"
+    ) {
+      return;
+    }
+    void stopSlideRehearsal();
+  }, [
+    slidePracticeSession.state,
+    slideRehearsalState.status,
+    stopSlideRehearsal
+  ]);
 
   function handleSelectSlideForNavigator(slideId: string) {
     const index = deck.slides.findIndex((slide) => slide.slideId === slideId);
@@ -556,18 +620,19 @@ export function EditorShell(props: { projectId?: string }) {
 
     const nextSlide = deck.slides[index];
     if (!nextSlide) return;
+    if (
+      slidePracticeSession.state === "starting" ||
+      slidePracticeSession.state === "recording" ||
+      slidePracticeSession.state === "stopping"
+    ) {
+      return;
+    }
 
     resetSpeakerNotesEditState(nextSlide.speakerNotes);
     speakerNotesEditorActions.closeAssistant();
     setCurrentSlideId(slideId);
-    if (
-      slideRehearsalState.status === "listening" ||
-      slideRehearsalState.status === "starting"
-    ) {
-      void startSlideRehearsal(nextSlide);
-    } else {
-      enterSlideRehearsal(nextSlide);
-    }
+    slidePracticeSession.reset();
+    enterSlideRehearsal(nextSlide);
   }
   const {
     actions: speakerNotesEditorActions,
@@ -669,6 +734,8 @@ export function EditorShell(props: { projectId?: string }) {
   });
   const { imageFileInputRef, pptxFileInputRef } = editorFileTransferRefs;
   const {
+    imageUploadError,
+    imageUploadStatus,
     isImageUploadPending,
     isPptxExporting,
     pptxExportError,
@@ -676,12 +743,21 @@ export function EditorShell(props: { projectId?: string }) {
     pptxImportState
   } = editorFileTransferState;
   const openImageFilePicker = editorFileTransferActions.openImageFilePicker;
+  const insertImageFiles = editorFileTransferActions.insertImageFiles;
   const handleImageFileInputChange = editorFileTransferActions.handleImageFileInputChange;
   const handlePptxFileInputChange = editorFileTransferActions.handlePptxFileInputChange;
   function openPptxFilePicker() {
     setActiveTopMenu(null);
     editorFileTransferActions.openPptxFilePicker();
   }
+  const hasBlockingEditorDialog = Boolean(
+    isAudienceLinkModalOpen ||
+    isExitConfirmOpen ||
+    isExportDialogOpen ||
+    isPresenceDebugOpen ||
+    isSharePanelOpen ||
+    isSpeakerNotesAssistantOpen
+  );
   const {
     activeStartAction: activePresentationAction,
     startPresentation: handleStartPresentation
@@ -709,7 +785,7 @@ export function EditorShell(props: { projectId?: string }) {
     isUsingFallbackDeck,
     saveState
   });
-  const ooxmlSyncStatus = getOoxmlSyncStatus(ooxmlSyncJob);
+  const ooxmlSyncStatus = getOoxmlSyncStatus(ooxmlSyncJob, ooxmlSyncState);
   function hasUnsavedEditorChanges() {
     return editorDocumentActions.hasUnsavedChanges();
   }
@@ -788,6 +864,10 @@ export function EditorShell(props: { projectId?: string }) {
     selectedElementIds.length === 1
       ? selectedElements.find((element) => element.elementId === selectedElementId) ?? null
       : null;
+  const imageCropActionState = getImageCropActionState(deck, selectedElement);
+  const isCropEditing =
+    selectedElement?.type === "image" &&
+    selectedElement.elementId === imageCropElementId;
   const selectionInspectorCompactMode =
     resolveSelectionInspectorCompactMode(editorViewportWidth);
   const selectionInspectorModel = useMemo(
@@ -835,6 +915,7 @@ export function EditorShell(props: { projectId?: string }) {
   const handleAddTextElement = editorCanvasActions.addTextElement;
   const handleCanvasBackgroundSelectionClear = editorCanvasActions.clearCanvasSelection;
   const handleCommitCustomShapeGeometry = editorCanvasActions.commitCustomShapeGeometry;
+  const handleConvertChartToTable = editorCanvasActions.convertChartToTable;
   const handleCopySelectedElement = editorCanvasActions.copySelectedElement;
   const handleCreateCustomShape = editorCanvasActions.createCustomShape;
   const handleCreateDrawnElement = editorCanvasActions.createDrawnElement;
@@ -974,6 +1055,21 @@ export function EditorShell(props: { projectId?: string }) {
   const isCustomShapeEditingSelection =
     selectedElement?.type === "customShape" &&
     selectedElement.elementId === customShapeEditElementId;
+  const currentImageInsertCapability = currentSlide
+    ? editorFileTransferActions.getImageInsertCapability(currentSlide.slideId)
+    : null;
+  const imageDropEnabled =
+    !isCropEditing &&
+    !isCustomShapeEditingSelection &&
+    canAcceptCanvasImageDrop({
+      canMutateDeck,
+      hasBlockingDialog: hasBlockingEditorDialog,
+      hasCurrentSlide: Boolean(currentSlide),
+      inlineTextEditing: Boolean(editingElementId),
+      insertCapabilityEnabled: currentImageInsertCapability?.enabled ?? false,
+      isUploadPending: isImageUploadPending,
+      speakerNotesEditing: isSpeakerNotesEditing
+    });
   const isDev = import.meta.env.DEV;
   function handleDesignAgentProposalApplied(
     response: ApplyDesignAgentProposalResponse
@@ -1219,6 +1315,7 @@ export function EditorShell(props: { projectId?: string }) {
         setActiveTopMenu(null);
         return;
       case "crop-edit":
+        finishImageCrop();
         return;
       case "custom-shape-edit":
         setCustomShapeEditElementId(null);
@@ -1242,6 +1339,7 @@ export function EditorShell(props: { projectId?: string }) {
       clearSelectedKeyword();
       setEditingElementId(null);
       setCustomShapeEditElementId(null);
+      setImageCropElementId(null);
       setElementContextMenu(null);
     },
     refreshThumbnails: refreshChangedSlideThumbnails,
@@ -1254,13 +1352,62 @@ export function EditorShell(props: { projectId?: string }) {
     editorDocumentActions.redo(historyCallbacks);
   }
 
+  function finishImageCrop() {
+    const finishedElementId = imageCropElementId;
+    setImageCropElementId(null);
+    if (!finishedElementId) return;
+
+    requestAnimationFrame(() =>
+      document.getElementById(`image-crop-trigger-${finishedElementId}`)?.focus()
+    );
+  }
+
+  function startImageCrop() {
+    if (
+      !canMutateDeck ||
+      !selectedElement ||
+      !imageCropActionState.enabled
+    ) {
+      return;
+    }
+
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+    setImageCropElementId(selectedElement.elementId);
+  }
+
   function openAnimationInspector() {
     setIsIconPanelOpen(false);
     setIsAnimationPanelOpen(true);
     setIsRightPanelOpen(true);
   }
 
-  async function handleExitSlideRehearsal() {
+  async function handleStartSlidePractice() {
+    if (!rehearsalSlide) return;
+    const stream = await slidePracticeSession.start();
+    if (!stream) return;
+    await startSlideRehearsal(rehearsalSlide, { audioSource: stream });
+  }
+
+  async function handleStopSlidePractice() {
+    await stopSlideRehearsal();
+    await slidePracticeSession.stop();
+  }
+
+  async function handleExitSlideRehearsal(options?: { force?: boolean }) {
+    if (!options?.force) {
+      if (slidePracticeSession.state === "recording") {
+        await handleStopSlidePractice();
+        return;
+      }
+      if (
+        slidePracticeSession.state === "starting" ||
+        slidePracticeSession.state === "stopping"
+      ) {
+        return;
+      }
+    }
     const previousPanelState = panelStateBeforeRehearsalRef.current;
     panelStateBeforeRehearsalRef.current = null;
     await exitSlideRehearsal();
@@ -1271,24 +1418,8 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
-  async function handleFinishSlideRehearsal() {
-    const reportSlide = rehearsalSlide;
-    const reportState: EditorSlideRehearsalState = {
-      ...slideRehearsalState,
-      audioLevelPercent: 0,
-      interimTranscript: "",
-      status: "stopped"
-    };
-    await stopSlideRehearsal();
-    if (reportSlide) {
-      setSlideRehearsalReport({ slide: reportSlide, state: reportState });
-    }
-    await handleExitSlideRehearsal();
-    setIsRightPanelOpen(true);
-  }
-
   function beginSlideRehearsalMode(slide: Slide) {
-    setSlideRehearsalReport(null);
+    slidePracticeSession.reset();
     panelStateBeforeRehearsalRef.current = {
       isRightPanelOpen,
       isSlidesPaneCollapsed
@@ -1311,13 +1442,6 @@ export function EditorShell(props: { projectId?: string }) {
     }
     if (!currentSlide || !commitSpeakerNotesDraftIfDirty()) return;
     beginSlideRehearsalMode(currentSlide);
-  }
-
-  function handleRestartFromRehearsalReport() {
-    const report = slideRehearsalReport;
-    if (!report) return;
-    beginSlideRehearsalMode(report.slide);
-    void startSlideRehearsal(report.slide);
   }
 
   function toggleIconLibrary() {
@@ -1409,6 +1533,15 @@ export function EditorShell(props: { projectId?: string }) {
   ]);
 
   useEffect(() => {
+    if (
+      imageCropElementId &&
+      (!isCropEditing || !imageCropActionState.enabled)
+    ) {
+      setImageCropElementId(null);
+    }
+  }, [imageCropActionState.enabled, imageCropElementId, isCropEditing]);
+
+  useEffect(() => {
     if (resolvedCurrentSlideId !== currentSlideId) {
       setCurrentSlideId(resolvedCurrentSlideId);
     }
@@ -1478,8 +1611,10 @@ export function EditorShell(props: { projectId?: string }) {
       animationDiagnostics: currentSlideAnimationDiagnostics,
       canvas: deck.canvas,
       customShapeEditActive: isCustomShapeEditingSelection,
+      imageCropActionState,
       onChangeElementFrame: handleElementFrameChange,
       onChangeElementProps: handleElementPropsChange,
+      onConvertChartToTable: handleConvertChartToTable,
       onChangeSlideStyle: (style: {
         accentColor?: string | null;
         backgroundColor?: string | null;
@@ -1492,6 +1627,7 @@ export function EditorShell(props: { projectId?: string }) {
       onCommitCustomShapeGeometry: handleCommitCustomShapeGeometry,
       onDeleteAnimation: handleDeleteAnimation,
       onOpenAnimationEditor: openAnimationInspector,
+      onStartImageCrop: startImageCrop,
       onToggleCustomShapeEdit: (elementId: string) =>
         setCustomShapeEditElementId((current) =>
           current === elementId ? null : elementId
@@ -1539,21 +1675,19 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEditorKeyboardShortcuts({
     canMutateDeck,
+    canPasteImage: imageDropEnabled,
     copiedElementRef,
     editingElementId,
     hasOpenMenu: Boolean(activeTopMenu || isShapeMenuOpen || elementContextMenu),
-    hasOpenModal: Boolean(
-      isAudienceLinkModalOpen ||
-        isExitConfirmOpen ||
-        isExportDialogOpen ||
-        isPresenceDebugOpen ||
-        isSharePanelOpen ||
-        isSpeakerNotesAssistantOpen
-    ),
+    hasOpenModal: hasBlockingEditorDialog,
     insertToolActive: insertTool !== "select",
-    isCropEditing: false,
+    isCropEditing,
     isCustomShapeEditingSelection,
     onCopy: handleCopySelectedElement,
+    onCommitInlineTextEditing: () => {
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement) activeElement.blur();
+    },
     onDelete: handleDeleteSelectedElement,
     onDismissLayer: handleDismissKeyboardLayer,
     onDuplicate: handleDuplicateSelectedElement,
@@ -1577,6 +1711,17 @@ export function EditorShell(props: { projectId?: string }) {
       if (patch) commitPatch(patch);
     },
     onPaste: handlePasteCopiedElement,
+    onPasteImageFiles: (files) => {
+      if (!currentSlide) return;
+      void insertImageFiles(
+        files,
+        { slideId: currentSlide.slideId, type: "insert" },
+        {
+          centerX: deck.canvas.width / 2,
+          centerY: deck.canvas.height / 2
+        }
+      );
+    },
     onRedo: handleRedo,
     onSave: () => void handleSaveDeck(),
     onUndo: handleUndo,
@@ -1629,6 +1774,9 @@ export function EditorShell(props: { projectId?: string }) {
               operations: [{ type: "update_deck", title }],
               source: "user"
             }));
+          }}
+          onRetryOoxmlSync={() => {
+            void retryOoxmlSync().catch(() => undefined);
           }}
           onSave={() => void handleSaveDeck()}
           onStartPresentation={() => void handleStartPresentation()}
@@ -1743,8 +1891,6 @@ export function EditorShell(props: { projectId?: string }) {
         {isSlideRehearsalActive && rehearsalSlide ? (
           <EditorSlideRehearsalLeftPanel
             onResizeStart={handleSlidesPaneResizeStart}
-            onRestart={() => void startSlideRehearsal(rehearsalSlide)}
-            onStop={() => void handleFinishSlideRehearsal()}
             slide={rehearsalSlide}
             state={slideRehearsalState}
           />
@@ -1808,13 +1954,14 @@ export function EditorShell(props: { projectId?: string }) {
                   </button>
                 ) : null
               }
+              chartMenuButtonRef={chartMenuButtonRef}
               insertTool={insertTool}
               isAnimationPanelOpen={isAnimationPanelOpen}
+              isChartMenuOpen={isChartMenuOpen}
               isIconPanelOpen={isIconPanelOpen}
               isImageUploadPending={isImageUploadPending}
               isShapeMenuOpen={isShapeMenuOpen}
               isStageFitToViewport={isStageFitToViewport}
-              onAddChart={handleAddChartElement}
               onAddText={handleAddTextElement}
               onOpenAnimation={openAnimationInspector}
               onOpenIconLibrary={toggleIconLibrary}
@@ -1828,7 +1975,14 @@ export function EditorShell(props: { projectId?: string }) {
               }}
               onRedo={handleRedo}
               onSelectTool={() => setInsertTool("select")}
-              onToggleShapeMenu={() => setIsShapeMenuOpen((current) => !current)}
+              onToggleChartMenu={() => {
+                setIsShapeMenuOpen(false);
+                setIsChartMenuOpen((current) => !current);
+              }}
+              onToggleShapeMenu={() => {
+                setIsChartMenuOpen(false);
+                setIsShapeMenuOpen((current) => !current);
+              }}
               onUndo={handleUndo}
               onFitStageToViewport={fitStageToViewport}
               onZoomIn={zoomCanvasIn}
@@ -1866,6 +2020,7 @@ export function EditorShell(props: { projectId?: string }) {
                 disableInteractions:
                   isPlayingCurrentSlideAnimations || isSlideRehearsalActive,
               editingElementId,
+              imageCropElementId: canMutateDeck ? imageCropElementId : null,
               elementStates: animationPreviewElementStates,
               insertTool,
               selectedElementIds,
@@ -1895,6 +2050,7 @@ export function EditorShell(props: { projectId?: string }) {
               },
               onDoubleClickElement: (elementId) => setEditingElementId(elementId),
               onFinishEditing: () => setEditingElementId(null),
+              onFinishImageCrop: finishImageCrop,
               onSetCustomShapeEditElementId: setCustomShapeEditElementId,
               onSetInsertTool: setInsertTool,
               onOpenElementContextMenu: handleOpenElementContextMenu,
@@ -1907,6 +2063,22 @@ export function EditorShell(props: { projectId?: string }) {
                 openPropertiesForCanvasSelection(elementIds);
               }
             }}
+            imageDropEnabled={imageDropEnabled}
+            imageTransferMessage={
+              imageUploadError
+                ? { kind: "error", message: imageUploadError }
+                : imageUploadStatus
+                  ? { kind: "status", message: imageUploadStatus }
+                  : null
+            }
+            onImageFilesDrop={(files, placement) => {
+              if (!currentSlide) return;
+              void insertImageFiles(
+                files,
+                { slideId: currentSlide.slideId, type: "insert" },
+                placement
+              );
+            }}
             renderingDeck={renderingDeck}
             slideRenderStageRefs={slideRenderStageRefs}
             stageScale={stageScale}
@@ -1915,8 +2087,14 @@ export function EditorShell(props: { projectId?: string }) {
 
             {isSlideRehearsalActive && rehearsalSlide ? (
               <EditorSlideRehearsalBottomPanel
-                onRestart={() => void startSlideRehearsal(rehearsalSlide)}
-                onStop={() => void handleFinishSlideRehearsal()}
+                elapsedMs={slidePracticeSession.elapsedMs}
+                message={slidePracticeSession.message}
+                onNextSentence={moveSlideRehearsalToNextSentence}
+                onPreviousSentence={moveSlideRehearsalToPreviousSentence}
+                onSkipSentence={skipCurrentSlideRehearsalSentence}
+                onStart={() => void handleStartSlidePractice()}
+                onStop={() => void handleStopSlidePractice()}
+                practiceState={slidePracticeSession.state}
                 slide={rehearsalSlide}
                 state={slideRehearsalState}
               />
@@ -1924,7 +2102,9 @@ export function EditorShell(props: { projectId?: string }) {
               <SpeakerNotesPanel
                 contentRef={speakerNotesContentRef}
                 currentSlide={currentSlide}
+                deck={deck}
                 draft={speakerNotesDraft}
+                flushPendingSaves={flushPendingSavesBeforeManualAction}
                 guidance={speakerNotesLengthGuidance}
                 height={speakerNotesPanelHeight}
                 isEditing={isSpeakerNotesEditing}
@@ -1950,6 +2130,7 @@ export function EditorShell(props: { projectId?: string }) {
                 onSelectKeyword={handleSelectKeyword}
                 onSelectKeywordText={handleSpeakerNotesKeywordSelection}
                 onStartEdit={handleStartSpeakerNotesEdit}
+                onTabSelected={() => setRequestedSpeakerNotesTab(null)}
                 onToggleAdvanceSlide={() => {
                   if (currentSlide && selectedKeyword) {
                     handleToggleAdvanceSlideKeyword(
@@ -1974,6 +2155,9 @@ export function EditorShell(props: { projectId?: string }) {
                 selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
                 selectedKeywordRequiredActive={selectedKeywordRequiredActive}
                 selectedKeywordUsage={selectedKeywordUsage}
+                projectId={projectId}
+                reportRefreshToken={practiceReportRefreshToken}
+                requestedTab={requestedSpeakerNotesTab}
                 showIds={showIds}
                 usageByKeywordId={currentSlideKeywordUsage}
               />
@@ -2087,8 +2271,8 @@ export function EditorShell(props: { projectId?: string }) {
           onAiChatStateChange={setAiChatState}
           onApplyAllValidationTextOverflow={handleApplyAllValidationTextOverflow}
           onHighlightElementIds={setValidationHighlightElementIds}
-          onExitRehearsal={() => setSlideRehearsalReport(null)}
           onProposalApplied={handleDesignAgentProposalApplied}
+          onGeneratedImageInsert={editorFileTransferActions.insertGeneratedImage}
           onPlayAnimations={playCurrentSlideAnimations}
           onSpeakerNotesAssistantRequest={
             speakerNotesEditorActions.openAssistantAndGenerate
@@ -2100,17 +2284,6 @@ export function EditorShell(props: { projectId?: string }) {
           projectId={projectId}
           propertiesOpenRequestId={propertiesOpenRequestId}
           pptxImportState={pptxImportState}
-          rehearsalPanel={
-            slideRehearsalReport ? (
-              <EditorSlideRehearsalRightPanel
-                onRestart={handleRestartFromRehearsalReport}
-                onStop={() => setSlideRehearsalReport(null)}
-                slide={slideRehearsalReport.slide}
-                state={slideRehearsalReport.state}
-              />
-            ) : undefined
-          }
-          rehearsalTitle="리허설 리포트"
           selectedElementIds={selectedElementIds}
           semanticCueExtractionState={semanticCueExtractionState}
           setAiPanelView={setAiPanelView}
@@ -2157,12 +2330,19 @@ export function EditorShell(props: { projectId?: string }) {
         />
       ) : null}
       <EditorContextMenus
+        chartMenuPosition={chartMenuPosition}
         elementContextMenu={elementContextMenu}
+        isChartMenuOpen={isChartMenuOpen}
         isImageUploadPending={isImageUploadPending}
         isShapeMenuOpen={isShapeMenuOpen}
+        onCloseChartMenu={() => setIsChartMenuOpen(false)}
         onCloseElementContextMenu={() => setElementContextMenu(null)}
         onCloseShapeMenu={() => setIsShapeMenuOpen(false)}
         onCreateGroup={handleCreateGroupFromSelection}
+        onInsertChart={(type) => {
+          handleAddChartElement(type);
+          setIsChartMenuOpen(false);
+        }}
         onInsertShape={handleInsertShapeElement}
         onReplaceImage={openImageFilePicker}
         onUngroup={handleUngroupElement}
@@ -2217,17 +2397,29 @@ function getEditorStatusLabel(props: {
   return "저장됨";
 }
 
-function getOoxmlSyncStatus(job: Job | null) {
-  if (!job || job.type !== "pptx-ooxml-sync") {
+function getOoxmlSyncStatus(job: Job | null, state: OoxmlSyncState | null) {
+  if (state?.status === "not-applicable") {
     return null;
   }
+
+  if (state?.status === "stale") {
+    return {
+      detail: `현재 Deck version ${state.deckVersion}, 동기화 version ${state.syncedDeckVersion ?? "없음"}`,
+      kind: "failed",
+      label: "동기화 재시도",
+      retryable: true
+    };
+  }
+
+  if (!job || job.type !== "pptx-ooxml-sync") return null;
 
   const warnings = readOoxmlSyncWarnings(job);
   if (job.status === "failed") {
     return {
       detail: job.error?.message ?? "PPTX OOXML sync failed.",
       kind: "failed",
-      label: "OOXML sync failed"
+      label: "동기화 재시도",
+      retryable: true
     };
   }
 
@@ -2235,14 +2427,16 @@ function getOoxmlSyncStatus(job: Job | null) {
     return {
       detail: warnings.join("\n") || "PPTX OOXML sync completed.",
       kind: warnings.length > 0 ? "warning" : "succeeded",
-      label: warnings.length > 0 ? "OOXML sync warnings" : "OOXML synced"
+      label: warnings.length > 0 ? "OOXML 동기화 경고" : "OOXML 동기화 완료",
+      retryable: false
     };
   }
 
   return {
     detail: job.message || "PPTX OOXML sync is queued.",
     kind: "pending",
-    label: "OOXML sync pending"
+    label: "OOXML 동기화 중",
+    retryable: false
   };
 }
 

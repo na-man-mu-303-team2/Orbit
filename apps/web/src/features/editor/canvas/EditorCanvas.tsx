@@ -1,3 +1,4 @@
+import { normalizeRichTextProps } from "@orbit/editor-core";
 import {
   maxAssetUploadSizeBytes,
   type CustomShapeNode,
@@ -5,6 +6,7 @@ import {
   type DeckCanvas,
   type DeckElement,
   type Slide,
+  type TextElementProps,
 } from "@orbit/shared";
 import type Konva from "konva";
 import type { Box as TransformerBox } from "konva/lib/shapes/Transformer";
@@ -24,8 +26,13 @@ import { useCanvasBackgroundPointerCapture } from "./hooks/useCanvasBackgroundPo
 import { useCanvasKeyboardShortcuts } from "./hooks/useCanvasKeyboardShortcuts";
 import { useCanvasStageInteractions } from "./hooks/useCanvasStageInteractions";
 import { useSyncCustomShapeEditDraft } from "./hooks/useSyncCustomShapeEditDraft";
-import { InlineTextEditorOverlay } from "./text/InlineTextEditorOverlay";
+import { ImageCropOverlay } from "./image/ImageCropOverlay";
 import { InlineDataEditorOverlay } from "./data/InlineDataEditorOverlay";
+import {
+  InlineTextEditorOverlay,
+  type InlineTextEditorController,
+} from "./text/InlineTextEditorOverlay";
+import { TextContextToolbar } from "./text/TextContextToolbar";
 import {
   type CanvasSnapGuide,
   commitCustomShapeEditGeometry,
@@ -265,6 +272,7 @@ export function EditableCanvas(props: {
   deck: Deck;
   disableInteractions?: boolean;
   editingElementId: string | null;
+  imageCropElementId?: string | null;
   insertTool: InsertTool;
   elementStates?: Record<string, ElementPresentationState> | null;
   selectedElementIds: string[];
@@ -309,6 +317,7 @@ export function EditableCanvas(props: {
   ) => void;
   onDoubleClickElement: (elementId: string) => void;
   onFinishEditing: () => void;
+  onFinishImageCrop?: () => void;
   onOpenElementContextMenu: (args: {
     clientX: number;
     clientY: number;
@@ -325,6 +334,7 @@ export function EditableCanvas(props: {
     deck,
     disableInteractions = false,
     editingElementId,
+    imageCropElementId = null,
     elementStates,
     insertTool,
     selectedElementIds,
@@ -342,6 +352,7 @@ export function EditableCanvas(props: {
     onCommitCustomShapeGeometry,
     onDoubleClickElement,
     onFinishEditing,
+    onFinishImageCrop = () => {},
     onOpenElementContextMenu,
     onSetCustomShapeEditElementId,
     onSetInsertTool,
@@ -349,8 +360,10 @@ export function EditableCanvas(props: {
     onSelectElements,
   } = props;
   const transformerRef = useRef<Konva.Transformer | null>(null);
+  const inlineTextEditorRef = useRef<InlineTextEditorController | null>(null);
   const nodeRefs = useRef<Record<string, Konva.Group | null>>({});
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerElement, setContainerElement] =
+    useState<HTMLDivElement | null>(null);
   const [editorPrimaryColor, setEditorPrimaryColor] = useState(
     () => deck.theme.palette.primary,
   );
@@ -369,6 +382,44 @@ export function EditableCanvas(props: {
     end: CanvasPoint;
   } | null>(null);
   const [snapGuides, setSnapGuides] = useState<CanvasSnapGuide[]>([]);
+  const imageCropElement =
+    !disableInteractions &&
+    imageCropElementId &&
+    selectedElementIds.length === 1 &&
+    selectedElementIds[0] === imageCropElementId
+      ? (visibleElements.find(
+          (candidate): candidate is Extract<DeckElement, { type: "image" }> =>
+            candidate.elementId === imageCropElementId &&
+            candidate.type === "image",
+        ) ?? null)
+      : null;
+  const canvasInteractionDisabled =
+    disableInteractions || Boolean(imageCropElement);
+  const [activeTextRange, setActiveTextRange] = useState<{
+    elementId: string;
+    end: number;
+    start: number;
+  } | null>(null);
+  const [editingTextDraft, setEditingTextDraft] = useState<{
+    elementId: string;
+    props: TextElementProps;
+  } | null>(null);
+  const selectedTextElement =
+    selectedElementIds.length === 1
+      ? (visibleElements.find(
+          (candidate): candidate is Extract<DeckElement, { type: "text" }> =>
+            candidate.elementId === selectedElementIds[0] &&
+            candidate.type === "text",
+        ) ?? null)
+      : null;
+  const textToolbarElement =
+    selectedTextElement &&
+    editingTextDraft?.elementId === selectedTextElement.elementId
+      ? { ...selectedTextElement, props: editingTextDraft.props }
+      : selectedTextElement;
+  const textEditCompositeId = editingElementId
+    ? `inline-text-edit-${editingElementId}`
+    : undefined;
   const editingCustomShapeElement =
     customShapeEditElementId && customShapeEditElementId !== editingElementId
       ? (visibleElements.find(
@@ -381,11 +432,10 @@ export function EditableCanvas(props: {
     validationHighlightElementIds,
   );
   const editorPrimarySoftColor = withColorAlpha(editorPrimaryColor, 0.08);
-  const editorPrimaryStrongSoftColor = withColorAlpha(editorPrimaryColor, 0.16);
   const editorPrimaryMediumColor = withColorAlpha(editorPrimaryColor, 0.55);
 
   useEffect(() => {
-    const editorShell = containerRef.current?.closest<HTMLElement>(
+    const editorShell = containerElement?.closest<HTMLElement>(
       ".orbit-shell.editor-professional",
     );
     if (!editorShell) return;
@@ -394,7 +444,7 @@ export function EditableCanvas(props: {
     if (palette) {
       setEditorPrimaryColor(palette.primary);
     }
-  }, []);
+  }, [containerElement]);
 
   useEffect(() => {
     const transformer = transformerRef.current;
@@ -403,7 +453,7 @@ export function EditableCanvas(props: {
       return;
     }
 
-    if (customShapeEditElementId) {
+    if (canvasInteractionDisabled || customShapeEditElementId) {
       transformer.nodes([]);
       transformer.getLayer()?.batchDraw();
       return;
@@ -415,7 +465,12 @@ export function EditableCanvas(props: {
 
     transformer.nodes(selectedNodes);
     transformer.getLayer()?.batchDraw();
-  }, [customShapeEditElementId, selectedElementIds, visibleElements]);
+  }, [
+    canvasInteractionDisabled,
+    customShapeEditElementId,
+    selectedElementIds,
+    visibleElements,
+  ]);
 
   useEffect(() => {
     if (insertTool !== "customShape") {
@@ -425,6 +480,8 @@ export function EditableCanvas(props: {
 
   useEffect(() => {
     pendingTextBlurActionRef.current = null;
+    setActiveTextRange(null);
+    setEditingTextDraft(null);
   }, [editingElementId]);
 
   useSyncCustomShapeEditDraft({
@@ -466,6 +523,22 @@ export function EditableCanvas(props: {
     onFinishEditing();
   }
 
+  function handleTextToolbarCommit(
+    elementId: string,
+    props: Record<string, unknown>,
+  ) {
+    if (editingElementId === elementId && inlineTextEditorRef.current) {
+      const nextProps = normalizeRichTextProps({
+        ...inlineTextEditorRef.current.getDraftProps(),
+        ...props,
+      } as TextElementProps);
+      inlineTextEditorRef.current.applyDraftProps(nextProps);
+      setEditingTextDraft({ elementId, props: nextProps });
+      return;
+    }
+    onCommitElementProps(elementId, props);
+  }
+
   useCanvasKeyboardShortcuts({
     customShapeEditDraft,
     customShapeInsertDraft,
@@ -487,14 +560,21 @@ export function EditableCanvas(props: {
     insertTool,
     isKeyboardEditableTarget: isEditorKeyboardCommandSuppressedTarget,
     onClearSelection,
-    onSelectionDragStart: (point) => setSelectionDraft({ start: point, end: point }),
+    onSelectionDragStart: (point) =>
+      setSelectionDraft({ start: point, end: point }),
     onSelectionDragMove: (point) =>
-      setSelectionDraft((current) => (current ? { ...current, end: point } : current)),
+      setSelectionDraft((current) =>
+        current ? { ...current, end: point } : current,
+      ),
     onSelectionDragEnd: () =>
       setSelectionDraft((current) => {
-        const rect = current ? normalizeDraftRect(current.start, current.end) : null;
+        const rect = current
+          ? normalizeDraftRect(current.start, current.end)
+          : null;
         if (rect) {
-          onSelectElements(getElementsIntersectingSelectionRect(visibleElements, rect));
+          onSelectElements(
+            getElementsIntersectingSelectionRect(visibleElements, rect),
+          );
         }
         return null;
       }),
@@ -531,7 +611,7 @@ export function EditableCanvas(props: {
     <div
       className="konva-editor-stage"
       data-testid="editor-canvas-stage"
-      ref={containerRef}
+      ref={setContainerElement}
       onContextMenu={(event) => {
         if (selectedElementIds.length > 1) event.preventDefault();
       }}
@@ -544,18 +624,19 @@ export function EditableCanvas(props: {
         scaleY={stageScale}
         width={deck.canvas.width * stageScale}
         onMouseDown={
-          disableInteractions ? undefined : stageMouseHandlers.onMouseDown
+          canvasInteractionDisabled ? undefined : stageMouseHandlers.onMouseDown
         }
         onMouseMove={
-          disableInteractions ? undefined : stageMouseHandlers.onMouseMove
+          canvasInteractionDisabled ? undefined : stageMouseHandlers.onMouseMove
         }
         onMouseUp={
-          disableInteractions ? undefined : stageMouseHandlers.onMouseUp
+          canvasInteractionDisabled ? undefined : stageMouseHandlers.onMouseUp
         }
         onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
-          if (disableInteractions || selectedElementIds.length < 2) return;
+          if (canvasInteractionDisabled || selectedElementIds.length < 2)
+            return;
           const selectedElement = visibleElements.find((element) =>
-            selectedElementIds.includes(element.elementId)
+            selectedElementIds.includes(element.elementId),
           );
           if (!selectedElement) return;
 
@@ -577,10 +658,9 @@ export function EditableCanvas(props: {
               editorPrimaryColor={editorPrimaryColor}
               editorPrimaryMediumColor={editorPrimaryMediumColor}
               editorPrimarySoftColor={editorPrimarySoftColor}
-              editorPrimaryStrongSoftColor={editorPrimaryStrongSoftColor}
               deck={deck}
               disablePointerEvents={
-                disableInteractions || insertTool !== "select"
+                canvasInteractionDisabled || insertTool !== "select"
               }
               element={element}
               isSelected={selectedElementIds.includes(element.elementId)}
@@ -622,12 +702,17 @@ export function EditableCanvas(props: {
           ))}
           {snapGuides.map((guide) => (
             <Line
-              dash={[8 / Math.max(stageScale, 0.01), 5 / Math.max(stageScale, 0.01)]}
+              dash={[
+                8 / Math.max(stageScale, 0.01),
+                5 / Math.max(stageScale, 0.01),
+              ]}
               key={`${guide.axis}-${guide.position}`}
               listening={false}
-              points={guide.axis === "x"
-                ? [guide.position, 0, guide.position, deck.canvas.height]
-                : [0, guide.position, deck.canvas.width, guide.position]}
+              points={
+                guide.axis === "x"
+                  ? [guide.position, 0, guide.position, deck.canvas.height]
+                  : [0, guide.position, deck.canvas.width, guide.position]
+              }
               stroke="#ec4899"
               strokeWidth={1.5 / Math.max(stageScale, 0.01)}
             />
@@ -680,11 +765,14 @@ export function EditableCanvas(props: {
               listening={false}
               stroke="#2563eb"
               strokeWidth={1.5}
-              {...(normalizeDraftRect(selectionDraft.start, selectionDraft.end) ?? {
+              {...(normalizeDraftRect(
+                selectionDraft.start,
+                selectionDraft.end,
+              ) ?? {
                 x: selectionDraft.start.x,
                 y: selectionDraft.start.y,
                 width: 1,
-                height: 1
+                height: 1,
               })}
             />
           ) : null}
@@ -699,7 +787,7 @@ export function EditableCanvas(props: {
               height: Math.max(1, nextBox.height),
             })}
             enabledAnchors={
-              disableInteractions
+              canvasInteractionDisabled
                 ? []
                 : [
                     "top-left",
@@ -713,24 +801,85 @@ export function EditableCanvas(props: {
                   ]
             }
             ignoreStroke
-            rotateEnabled={!disableInteractions}
+            rotateEnabled={!canvasInteractionDisabled}
             rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
           />
         </Layer>
       </Stage>
-      {editingElementId ? (
+      {imageCropElement ? (
+        <ImageCropOverlay
+          frame={{
+            x: imageCropElement.x,
+            y: imageCropElement.y,
+            width: imageCropElement.width,
+            height: imageCropElement.height,
+            rotation: imageCropElement.rotation,
+          }}
+          imageProps={imageCropElement.props}
+          stageScale={stageScale}
+          onApply={(crop) => {
+            onCommitElementProps(imageCropElement.elementId, { crop });
+            onFinishImageCrop();
+          }}
+          onCancel={onFinishImageCrop}
+          onReset={() => {
+            onCommitElementProps(imageCropElement.elementId, { crop: null });
+            onFinishImageCrop();
+          }}
+        />
+      ) : null}
+      {textToolbarElement &&
+      !imageCropElement &&
+      insertTool === "select" &&
+      !customShapeEditElementId ? (
+        <TextContextToolbar
+          deck={deck}
+          editCompositeId={
+            editingElementId === textToolbarElement.elementId
+              ? textEditCompositeId
+              : undefined
+          }
+          element={textToolbarElement}
+          range={
+            activeTextRange?.elementId === textToolbarElement.elementId
+              ? activeTextRange
+              : null
+          }
+          readOnly={disableInteractions}
+          slide={slide}
+          stageElement={containerElement}
+          stageScale={stageScale}
+          onCommitProps={handleTextToolbarCommit}
+          onEditCompositeBlur={(nextTarget) =>
+            inlineTextEditorRef.current?.handleCompositeBlur(nextTarget)
+          }
+          onPreserveRange={() => inlineTextEditorRef.current?.preserveRange()}
+        />
+      ) : null}
+      {!canvasInteractionDisabled && editingElementId ? (
         <>
           <InlineTextEditorOverlay
             deck={deck}
+            editCompositeId={textEditCompositeId}
             element={
               visibleElements.find(
                 (candidate) => candidate.elementId === editingElementId,
               ) ?? null
             }
+            key={editingElementId}
+            ref={inlineTextEditorRef}
             slide={slide}
             stageScale={stageScale}
             onCommitProps={onCommitElementProps}
+            onDraftPropsChange={(props) =>
+              setEditingTextDraft({ elementId: editingElementId, props })
+            }
             onFinishEditing={handleInlineTextEditingFinish}
+            onRangeChange={(range) =>
+              setActiveTextRange(
+                range ? { elementId: editingElementId, ...range } : null,
+              )
+            }
           />
           <InlineDataEditorOverlay
             element={

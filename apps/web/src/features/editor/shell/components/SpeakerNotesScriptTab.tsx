@@ -50,7 +50,18 @@ export function SpeakerNotesScriptTab(props: SpeakerNotesScriptTabProps) {
     >
       {props.isEditing ? (
         <div className="script-panel-body">
-          <div className="script-notes-editor-shell">
+          <div
+            className="script-notes-editor-shell"
+            onBlur={(event) => {
+              if (
+                event.relatedTarget &&
+                event.currentTarget.contains(event.relatedTarget as Node)
+              ) {
+                return;
+              }
+              props.onSaveEdit();
+            }}
+          >
             <div className="script-notes-surface-actions">
               <button aria-label="메모 편집 취소" className="script-panel-action" title="취소" type="button" onClick={props.onCancelEdit}>
                 <X aria-hidden="true" size={15} />

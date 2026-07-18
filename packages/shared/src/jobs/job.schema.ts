@@ -18,6 +18,7 @@ export const historicalJobTypeSchema = z.enum([
   "ai-template-deck-generation",
   "semantic-cue-extraction",
   "speaker-notes-suggestion",
+  "design-image-generation",
   "pptx-ooxml-generation",
   "pptx-ooxml-sync",
   "worker-health-check",
@@ -26,8 +27,10 @@ export const historicalJobTypeSchema = z.enum([
   "final-report-generation",
   "report-pdf-export",
   "focused-practice-analysis",
+  "slide-practice-analysis",
   "challenge-qna-generation",
   "challenge-qna-answer-analysis",
+  "slide-question-guide-generation",
   "private-audio-cleanup",
   "activity-response-retention",
 ]);
@@ -40,8 +43,10 @@ export const activeJobTypeSchema = historicalJobTypeSchema.exclude([
 
 export const internalCoachingJobTypeSchema = z.enum([
   "focused-practice-analysis",
+  "slide-practice-analysis",
   "challenge-qna-generation",
   "challenge-qna-answer-analysis",
+  "slide-question-guide-generation",
   "private-audio-cleanup",
 ]);
 

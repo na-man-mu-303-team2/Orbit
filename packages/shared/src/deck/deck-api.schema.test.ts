@@ -3,9 +3,51 @@ import { describe, expect, it } from "vitest";
 import {
   appendDeckPatchAckResponseSchema,
   appendDeckPatchRequestSchema,
+  getOoxmlSyncStateResponseSchema,
   putDeckResponseSchema,
+  retryOoxmlSyncResponseSchema,
   restoreDeckSnapshotResponseSchema,
 } from "./deck-api.schema";
+
+describe("OOXML sync state API schema", () => {
+  const state = {
+    status: "stale" as const,
+    deckId: "deck_test_1",
+    deckVersion: 145,
+    syncedDeckVersion: 1,
+    retryable: true,
+  };
+
+  it("accepts stale state with the synced package version", () => {
+    expect(
+      getOoxmlSyncStateResponseSchema.parse({ ooxmlSyncState: state }),
+    ).toEqual({ ooxmlSyncState: state });
+  });
+
+  it("accepts the retry response contract", () => {
+    const parsed = retryOoxmlSyncResponseSchema.parse({
+      ooxmlSyncState: {
+        ...state,
+        status: "pending",
+        retryable: false,
+        job: {
+          jobId: "job_sync_retry_1",
+          projectId: "project_test_1",
+          type: "pptx-ooxml-sync",
+          status: "queued",
+          progress: 0,
+          message: "Job queued",
+          result: null,
+          error: null,
+          createdAt: "2026-07-18T00:00:00.000Z",
+          updatedAt: "2026-07-18T00:00:00.000Z",
+        },
+      },
+    });
+
+    expect(parsed.ooxmlSyncState.status).toBe("pending");
+  });
+});
 
 const changeRecord = {
   changeId: "change_test_1",

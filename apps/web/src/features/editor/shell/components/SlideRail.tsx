@@ -70,6 +70,16 @@ export function SlideRail(props: SlideRailProps) {
     event: KeyboardEvent<HTMLButtonElement>,
     slideId: string,
   ) {
+    if (event.key === "Delete" || event.key === "Backspace") {
+      const item = props.items.find((candidate) => candidate.slideId === slideId);
+      if (!props.canMutate || !item?.canDelete) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      props.onDelete(slideId);
+      return;
+    }
+
     const targetSlideId = getSlideRailKeyboardTargetSlideId({
       currentSlideId: slideId,
       items: props.items,

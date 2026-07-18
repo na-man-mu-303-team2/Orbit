@@ -36,7 +36,12 @@ type EditorTopbarProps = {
   isSlideRehearsalActive: boolean;
   isUsingFallbackDeck: boolean;
   lastSavedAtLabel: string | null;
-  ooxmlSyncStatus: { detail: string; kind: string; label: string } | null;
+  ooxmlSyncStatus: {
+    detail: string;
+    kind: string;
+    label: string;
+    retryable: boolean;
+  } | null;
   onExitToHome: () => void;
   onOpenExport: (format: DeckExportFormat) => void;
   onImportPptx: () => void;
@@ -45,6 +50,7 @@ type EditorTopbarProps = {
   onOpenShare: () => void;
   onRefresh: () => void;
   onRenameDeckTitle: (title: string) => void;
+  onRetryOoxmlSync: () => void;
   onSave: () => void;
   onStartPresentation: () => void;
   onStartRehearsal: () => void;
@@ -88,6 +94,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
     onOpenShare,
     onRefresh,
     onRenameDeckTitle,
+    onRetryOoxmlSync,
     onSave,
     onStartPresentation,
     onStartRehearsal,
@@ -304,12 +311,15 @@ export function EditorTopbar(props: EditorTopbarProps) {
           />
         ) : null}
         {ooxmlSyncStatus ? (
-          <span
+          <button
             className={`ooxml-sync-pill ${ooxmlSyncStatus.kind}`}
+            disabled={!ooxmlSyncStatus.retryable}
+            onClick={onRetryOoxmlSync}
             title={ooxmlSyncStatus.detail}
+            type="button"
           >
             {ooxmlSyncStatus.label}
-          </span>
+          </button>
         ) : null}
         {/* 에디터 상단에서는 브리프 이동 버튼을 숨긴다.
         <button aria-label="브리프" className="editor-context-top-button" title="브리프" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }} type="button">...</button>

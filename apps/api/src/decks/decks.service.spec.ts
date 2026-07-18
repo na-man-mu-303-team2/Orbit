@@ -54,6 +54,7 @@ type StoredTemplateBlueprintRow = {
 
 class InMemoryDeckDataSource {
   readonly decks = new Map<string, StoredDeckRow>();
+  readonly projectTitles = new Map<string, string>();
   readonly patchRows: StoredPatchRow[] = [];
   readonly snapshotRows: StoredSnapshotRow[] = [];
   readonly templateBlueprintRows: StoredTemplateBlueprintRow[] = [];
@@ -139,6 +140,12 @@ class InMemoryDeckDataSource {
 
       this.decks.set(projectId, row);
       return [cloneDeckRow(row)] as T;
+    }
+
+    if (query.startsWith("UPDATE projects SET title = $2")) {
+      const [projectId, title] = params as [string, string];
+      this.projectTitles.set(projectId, title);
+      return [] as T;
     }
 
     if (query.startsWith("INSERT INTO deck_patches")) {
@@ -270,6 +277,18 @@ class InMemoryDeckDataSource {
           template_id: row.template_id,
           blueprint_json: cloneJson(row.blueprint_json),
         })) as T;
+    }
+
+    if (
+      query.startsWith("UPDATE template_blueprints") &&
+      query.includes("WHERE template_id = $1")
+    ) {
+      const [templateId, blueprint] = params as [string, unknown];
+      const row = this.templateBlueprintRows.find(
+        (candidate) => candidate.template_id === templateId,
+      );
+      if (row) row.blueprint_json = cloneJson(blueprint);
+      return [] as T;
     }
 
     if (
@@ -621,7 +640,7 @@ describe("DecksService", () => {
   });
 
   it("stores and reads a current deck with an automatic snapshot", async () => {
-    const { service } = createService();
+    const { dataSource, service } = createService();
     const deck = createDeck();
 
     const putResponse = await service.putDeck(deck.projectId, { deck });
@@ -642,6 +661,7 @@ describe("DecksService", () => {
     });
     expect(putResponse.snapshot.snapshotId).toMatch(/^snapshot_/);
     expect(getResponse.deck.title).toBe(deck.title);
+    expect(dataSource.projectTitles.get(deck.projectId)).toBe(deck.title);
     expect(snapshotResponse.snapshots).toHaveLength(1);
     expect(snapshotResponse.snapshots[0]?.snapshotId).toBe(
       putResponse.snapshot.snapshotId,
@@ -728,6 +748,7 @@ describe("DecksService", () => {
     const snapshotResponse = await service.listSnapshots(deck.projectId);
 
     expect(patchResponse.deck.title).toBe("수정된 덱");
+    expect(dataSource.projectTitles.get(deck.projectId)).toBe("수정된 덱");
     expect(patchResponse.deck.version).toBe(2);
     expect(patchResponse.changeRecord).toMatchObject({
       deckId: deck.deckId,
@@ -979,7 +1000,7 @@ describe("DecksService", () => {
         expect.objectContaining({
           type: "update_element_props",
           elementId: "el_keep",
-          props: expect.objectContaining({ text: "After" }),
+          props: { text: "After" },
         }),
         expect.objectContaining({
           type: "add_element",
@@ -1003,6 +1024,122 @@ describe("DecksService", () => {
         targetDeckVersion: 3,
       }),
     );
+  });
+
+  it("records an imported full-save slide reorder as one exact permutation", async () => {
+    const { dataSource, service } = createService();
+    const base = createDeck();
+    const slideIds = ["slide_cover", "slide_metrics", "slide_close"];
+    const current = deckSchema.parse({
+      ...base,
+      version: 2,
+      slides: Array.from({ length: 3 }, (_, index) => ({
+        ...base.slides[0],
+        slideId: slideIds[index],
+        order: index + 1,
+        title: `Slide ${index + 1}`,
+      })),
+    });
+    await service.putDeck(current.projectId, { deck: current });
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: current.projectId,
+      deck_id: current.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 2,
+        slides: Array.from({ length: 3 }, (_, index) => ({
+          slideIndex: index + 1,
+          sourceSlideIndex: index + 1,
+          sourceSlidePart: `ppt/slides/slide${index + 1}.xml`,
+          slots: [],
+        })),
+      },
+    });
+    const requested = deckSchema.parse({
+      ...current,
+      slides: [
+        { ...current.slides[2], order: 1 },
+        { ...current.slides[0], order: 2 },
+        { ...current.slides[1], order: 3 },
+      ],
+    });
+
+    await service.putDeck(current.projectId, {
+      baseVersion: current.version,
+      deck: requested,
+    });
+
+    expect(dataSource.patchRows).toHaveLength(1);
+    expect(dataSource.patchRows[0]?.operations).toEqual([
+      {
+        type: "reorder_slides",
+        slideOrders: [
+          { slideId: "slide_close", order: 1 },
+          { slideId: "slide_cover", order: 2 },
+          { slideId: "slide_metrics", order: 3 },
+        ],
+      },
+    ]);
+    expect(
+      dataSource.templateBlueprintRows[0]?.blueprint_json,
+    ).toMatchObject({
+      slides: [
+        { slideId: "slide_cover", sourceSlidePart: "ppt/slides/slide1.xml" },
+        {
+          slideId: "slide_metrics",
+          sourceSlidePart: "ppt/slides/slide2.xml",
+        },
+        { slideId: "slide_close", sourceSlidePart: "ppt/slides/slide3.xml" },
+      ],
+    });
+  });
+
+  it("rejects an imported full save with a non-permutation slide order", async () => {
+    const { dataSource, service } = createService();
+    const base = createDeck();
+    const current = deckSchema.parse({
+      ...base,
+      version: 2,
+      slides: [
+        { ...base.slides[0], slideId: "slide_ooxml_file_1", order: 1 },
+        { ...base.slides[0], slideId: "slide_ooxml_file_2", order: 2 },
+      ],
+    });
+    await service.putDeck(current.projectId, { deck: current });
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: current.projectId,
+      deck_id: current.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 2,
+        slides: [
+          { slideIndex: 1, sourceSlideIndex: 1, slots: [] },
+          { slideIndex: 2, sourceSlideIndex: 2, slots: [] },
+        ],
+      },
+    });
+
+    const error = await expectDeckApiError(
+      () =>
+        service.putDeck(current.projectId, {
+          baseVersion: current.version,
+          deck: {
+            ...current,
+            slides: current.slides.map((slide) => ({ ...slide, order: 1 })),
+          },
+        }),
+      HttpStatus.BAD_REQUEST,
+      "DECK_VALIDATION_FAILED",
+    );
+
+    expect(error.message).toContain("exact permutations");
+    expect(dataSource.patchRows).toHaveLength(0);
   });
 
   it("diffs equal element IDs independently across imported slides", async () => {
@@ -1176,6 +1313,53 @@ describe("DecksService", () => {
         format: "pptx",
       }),
     );
+  });
+
+  it("blocks imported PPTX export while its package is stale", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = deckSchema.parse({ ...createDeck(), version: 145 });
+    seedStoredDeck(dataSource, deck, deck);
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 1,
+        slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
+      },
+    });
+    const jobsService = {
+      create: vi.fn(),
+      update: vi.fn(),
+      getLatestPptxOoxmlSync: vi.fn(async () => null),
+    };
+    const enqueueExportJob = vi.fn(async () => undefined);
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      vi.fn(async () => undefined),
+      enqueueExportJob,
+    );
+
+    await expect(
+      service.createExportJob(deck.projectId, { format: "pptx" }),
+    ).rejects.toMatchObject({
+      status: HttpStatus.CONFLICT,
+      response: expect.objectContaining({
+        code: "DECK_EXPORT_OOXML_SYNC_NOT_READY",
+        ooxmlSyncState: expect.objectContaining({
+          status: "stale",
+          deckVersion: 145,
+          syncedDeckVersion: 1,
+        }),
+      }),
+    });
+    expect(jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueExportJob).not.toHaveBeenCalled();
   });
 
   it("authorizes and forwards the selected presentation session for export", async () => {
@@ -1522,6 +1706,7 @@ describe("DecksService", () => {
       title: deck.title,
       version: 1,
     });
+    expect(dataSource.projectTitles.get(deck.projectId)).toBe(deck.title);
     const snapshots = await service.listSnapshots(deck.projectId);
     expect(snapshots.snapshots).toEqual(
       expect.arrayContaining([
@@ -2115,5 +2300,102 @@ describe("DecksService", () => {
       "projectId=project_other_1",
       "deck.projectId=project_demo_1",
     ]);
+  });
+
+  it("reports a failed OOXML sync for the current Deck version", async () => {
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = deckSchema.parse({ ...createDeck(), version: 145 });
+    seedStoredDeck(dataSource, deck, deck);
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 1,
+        slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
+      },
+    });
+    const failedJob = jobSchema.parse({
+      ...createJob("job_sync_failed"),
+      status: "failed",
+      error: { code: "PPTX_OOXML_SYNC_FAILED", message: "sync failed" },
+    });
+    const jobsService = {
+      getLatestPptxOoxmlSync: vi.fn(async () => failedJob),
+    };
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+    );
+
+    const response = await service.getOoxmlSyncState(deck.projectId);
+
+    expect(response.ooxmlSyncState).toMatchObject({
+      status: "failed",
+      deckVersion: 145,
+      syncedDeckVersion: 1,
+      retryable: true,
+      job: { jobId: "job_sync_failed" },
+    });
+    expect(jobsService.getLatestPptxOoxmlSync).toHaveBeenCalledWith(
+      deck.projectId,
+      deck.deckId,
+      145,
+    );
+  });
+
+  it("retries OOXML sync against the current Deck version", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = deckSchema.parse({ ...createDeck(), version: 145 });
+    seedStoredDeck(dataSource, deck, deck);
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 1,
+        slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
+      },
+    });
+    const queuedJob = createJob("job_sync_retry");
+    const jobsService = {
+      create: vi.fn(async () => queuedJob),
+      update: vi.fn(),
+      getLatestPptxOoxmlSync: vi.fn(async () => null),
+    };
+    const enqueueSyncJob = vi.fn(async () => undefined);
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      enqueueSyncJob,
+    );
+
+    const response = await service.retryOoxmlSync(deck.projectId);
+
+    expect(response.ooxmlSyncState).toMatchObject({
+      status: "pending",
+      deckVersion: 145,
+      syncedDeckVersion: 1,
+      retryable: false,
+      job: { jobId: "job_sync_retry" },
+    });
+    expect(jobsService.create).toHaveBeenCalledWith({
+      projectId: deck.projectId,
+      type: "pptx-ooxml-sync",
+      payload: expect.objectContaining({
+        deckId: deck.deckId,
+        targetDeckVersion: 145,
+      }),
+    });
+    expect(enqueueSyncJob).toHaveBeenCalledWith(
+      expect.objectContaining({ targetDeckVersion: 145 }),
+    );
   });
 });
