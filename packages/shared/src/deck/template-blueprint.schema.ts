@@ -291,7 +291,7 @@ export function recoverTemplateBlueprintSlideIds(
   blueprint: TemplateBlueprint,
   deckSlides: ReadonlyArray<{ slideId: string; order: number }>,
 ): { blueprint: TemplateBlueprint; recovered: boolean } | null {
-  if (blueprint.slides.length !== deckSlides.length) return null;
+  if (blueprint.slides.length > deckSlides.length) return null;
 
   const deckSlideIds = new Set(deckSlides.map((slide) => slide.slideId));
   const slidesByOrder = new Map(
@@ -321,7 +321,7 @@ export function recoverTemplateBlueprintSlideIds(
     slides.push({ ...slide, slideId: deckSlide.slideId });
   }
 
-  if (usedSlideIds.size !== deckSlideIds.size) return null;
+  if (usedSlideIds.size !== blueprint.slides.length) return null;
   return {
     blueprint: templateBlueprintSchema.parse({ ...blueprint, slides }),
     recovered,
