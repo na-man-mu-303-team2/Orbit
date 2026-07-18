@@ -4667,7 +4667,7 @@ export function RehearsalWorkspace(props: {
   }
 
   return (
-    <main className="rehearsal-presenter-shell redesign-dark">
+    <main className="rehearsal-presenter-shell">
       {isLiveStopModalOpen ? (
         <div className="rehearsal-live-stop-modal-backdrop" role="presentation">
           <section

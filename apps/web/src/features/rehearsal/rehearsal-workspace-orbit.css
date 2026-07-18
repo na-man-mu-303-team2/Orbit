@@ -1,25 +1,13 @@
 main.rehearsal-presenter-shell {
-  background:
-    radial-gradient(
-      circle at top left,
-      color-mix(in srgb, var(--redesign-color-primary-subtle) 62%, transparent),
-      transparent 30rem
-    ),
-    linear-gradient(
-      180deg,
-      var(--redesign-color-surface-container-low) 0%,
-      var(--redesign-color-background) 100%
-    );
+  background: var(--redesign-color-surface-container-low);
   color: var(--redesign-color-on-surface);
   font-family: var(--redesign-font-family);
   grid-template-rows: auto minmax(0, 1fr);
-  min-height: 100dvh;
-  overflow: hidden;
+  min-height: 100vh;
 }
 
 .rehearsal-presenter-shell .rehearsal-presenter-topbar {
   background: color-mix(in srgb, var(--redesign-color-surface-container-lowest) 96%, transparent);
-  backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--redesign-color-outline-variant);
   box-shadow: var(--redesign-shadow-none);
   height: auto;
@@ -30,23 +18,11 @@ main.rehearsal-presenter-shell {
   z-index: 30;
 }
 
-.rehearsal-presenter-shell .rehearsal-display-toolbar {
-  align-items: center;
-  background: var(--redesign-color-surface-container-low);
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-xl);
-  display: flex;
-  gap: var(--redesign-space-2);
-  justify-content: center;
-  min-width: 0;
-  padding: var(--redesign-space-1);
-}
-
 .rehearsal-presenter-shell .rehearsal-exit-button,
 .rehearsal-presenter-shell .presenter-single-screen-button {
   background: var(--redesign-color-surface-container-lowest);
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-lg);
+  border: 1px solid var(--redesign-color-outline);
+  border-radius: var(--redesign-radius-full);
   box-shadow: var(--redesign-shadow-none);
   color: var(--redesign-color-on-surface);
   min-height: 44px;
@@ -239,18 +215,18 @@ main.rehearsal-presenter-shell {
 }
 
 .rehearsal-presenter-shell .rehearsal-stage-wrap {
-  background: var(--redesign-color-surface-container);
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-xl);
-  box-shadow: var(--redesign-shadow-none);
-  padding: var(--redesign-space-4);
-}
-
-.rehearsal-presenter-shell .rehearsal-stage-surface {
-  background: var(--redesign-color-dark-surface);
+  background: var(--redesign-color-surface-container-lowest);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-lg);
   box-shadow: var(--redesign-shadow-none);
+  padding: var(--redesign-space-5);
+}
+
+.rehearsal-presenter-shell .rehearsal-stage-surface {
+  background: var(--redesign-color-surface-container-low);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  box-shadow: var(--redesign-shadow-overlay);
   overflow: hidden;
 }
 
@@ -276,17 +252,16 @@ main.rehearsal-presenter-shell {
 
 .rehearsal-presenter-shell .rehearsal-slide-controls button {
   background: var(--redesign-color-surface-container-lowest);
-  border-color: var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-lg);
+  border-color: var(--redesign-color-outline);
   color: var(--redesign-color-on-surface);
-  height: var(--redesign-size-control-md);
-  width: var(--redesign-size-control-md);
+  height: 44px;
+  width: 44px;
 }
 
 .rehearsal-presenter-shell .rehearsal-slide-controls button:hover:not(:disabled) {
-  background: var(--redesign-color-primary-subtle);
-  border-color: var(--redesign-color-primary-outline);
-  color: var(--redesign-color-primary);
+  background: var(--redesign-color-secondary-container);
+  border-color: var(--redesign-color-secondary);
+  color: var(--redesign-color-secondary);
 }
 
 .rehearsal-presenter-shell .rehearsal-slide-controls button:disabled {
@@ -324,7 +299,7 @@ main.rehearsal-presenter-shell {
 
 .rehearsal-presenter-shell .rehearsal-presenter-side > section,
 .rehearsal-presenter-shell .rehearsal-presenter-side > .rehearsal-panel {
-  background: var(--redesign-color-surface-container-low);
+  background: var(--redesign-color-surface-container-lowest);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-lg);
   box-shadow: var(--redesign-shadow-none);
@@ -340,22 +315,16 @@ main.rehearsal-presenter-shell {
 }
 
 .rehearsal-presenter-shell .rehearsal-side-timer-hero {
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--redesign-color-primary-subtle) 78%, transparent),
-      var(--redesign-color-surface-container-lowest)
-    );
-  border-bottom: 1px solid var(--redesign-color-outline-variant);
+  background: var(--redesign-color-secondary-fixed-dim);
+  border-bottom: 1px solid color-mix(in srgb, var(--redesign-color-secondary) 18%, transparent);
   color: var(--redesign-color-on-surface);
   gap: var(--redesign-space-4);
   padding: var(--redesign-space-4);
 }
 
 .rehearsal-presenter-shell .rehearsal-side-timer-title {
-  color: var(--redesign-color-on-surface-variant);
+  color: color-mix(in srgb, var(--redesign-color-on-surface) 70%, transparent);
   font-size: var(--redesign-type-body-sm-size);
-  font-weight: 750;
 }
 
 .rehearsal-presenter-shell .rehearsal-side-timer-time {
@@ -367,18 +336,17 @@ main.rehearsal-presenter-shell {
 }
 
 .rehearsal-presenter-shell .rehearsal-side-timer-actions button {
-  background: var(--redesign-color-surface-container-low);
-  border-color: var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-lg);
+  background: color-mix(in srgb, var(--redesign-color-surface-container-lowest) 52%, transparent);
+  border-color: color-mix(in srgb, var(--redesign-color-on-surface) 20%, transparent);
   color: var(--redesign-color-on-surface);
   height: 44px;
   width: 44px;
 }
 
 .rehearsal-presenter-shell .rehearsal-side-timer-actions button:first-child {
-  background: var(--redesign-color-primary);
-  border-color: var(--redesign-color-primary);
-  color: var(--redesign-color-on-primary);
+  background: var(--redesign-color-on-surface);
+  border-color: var(--redesign-color-on-surface);
+  color: var(--redesign-color-surface-container-lowest);
 }
 
 .rehearsal-presenter-shell .rehearsal-side-timer-actions button:hover:not(:disabled) {
@@ -387,9 +355,8 @@ main.rehearsal-presenter-shell {
 }
 
 .rehearsal-presenter-shell .rehearsal-side-timer-actions button:first-child:hover:not(:disabled) {
-  background: var(--redesign-color-primary-emphasis);
-  border-color: var(--redesign-color-primary-emphasis);
-  color: var(--redesign-color-on-primary);
+  background: color-mix(in srgb, var(--redesign-color-on-surface) 82%, var(--redesign-color-secondary-fixed-dim));
+  color: var(--redesign-color-surface-container-lowest);
 }
 
 .rehearsal-presenter-shell .rehearsal-side-timing-progress-list {
@@ -450,14 +417,14 @@ main.rehearsal-presenter-shell {
 
 .rehearsal-presenter-shell .rehearsal-side-detail-grid {
   border-top: 1px solid var(--redesign-color-outline-variant);
-  gap: var(--redesign-space-2);
-  padding: var(--redesign-space-3);
+  gap: 0;
+  padding: 0;
 }
 
 .rehearsal-presenter-shell .rehearsal-side-detail-card {
   background: var(--redesign-color-surface-container-lowest);
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-lg);
+  border: 0;
+  border-radius: 0;
   box-shadow: var(--redesign-shadow-none);
 }
 
@@ -477,7 +444,6 @@ main.rehearsal-presenter-shell {
 
 .rehearsal-presenter-shell .rehearsal-presenter-side > .rehearsal-panel {
   gap: var(--redesign-space-3);
-  overflow: auto;
   padding: var(--redesign-space-3);
 }
 
@@ -493,110 +459,6 @@ main.rehearsal-presenter-shell {
   display: grid;
   gap: var(--redesign-space-3);
   padding: var(--redesign-space-4);
-}
-
-.rehearsal-presenter-shell .rehearsal-comparison-reminder,
-.rehearsal-presenter-shell .semantic-cue-checklist {
-  background: var(--redesign-color-surface-container-lowest);
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-lg);
-  color: var(--redesign-color-on-surface);
-  display: grid;
-  gap: var(--redesign-space-3);
-  padding: var(--redesign-space-4);
-}
-
-.rehearsal-presenter-shell .rehearsal-comparison-reminder {
-  align-items: center;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
-}
-
-.rehearsal-presenter-shell .rehearsal-comparison-reminder svg {
-  color: var(--redesign-color-warning);
-}
-
-.rehearsal-presenter-shell .rehearsal-comparison-reminder span {
-  color: var(--redesign-color-on-surface-variant);
-  font-size: var(--redesign-type-body-sm-size);
-}
-
-.rehearsal-presenter-shell .rehearsal-comparison-reminder button {
-  background: transparent;
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-full);
-  color: var(--redesign-color-on-surface-variant);
-  display: inline-flex;
-  padding: var(--redesign-space-1);
-}
-
-.rehearsal-presenter-shell .semantic-cue-checklist-heading {
-  align-items: center;
-  border-bottom: 1px solid var(--redesign-color-outline-variant);
-  display: flex;
-  justify-content: space-between;
-  padding-bottom: var(--redesign-space-3);
-}
-
-.rehearsal-presenter-shell .semantic-cue-checklist-heading span {
-  color: var(--redesign-color-on-surface-variant);
-  font-size: var(--redesign-type-body-sm-size);
-  font-weight: 750;
-}
-
-.rehearsal-presenter-shell .semantic-cue-checklist-heading strong {
-  background: var(--redesign-color-primary-container);
-  border-radius: var(--redesign-radius-full);
-  color: var(--redesign-color-on-primary);
-  font-size: var(--redesign-type-label-sm-size);
-  min-width: 36px;
-  padding: var(--redesign-space-1) var(--redesign-space-2);
-  text-align: center;
-}
-
-.rehearsal-presenter-shell .semantic-cue-checklist ul {
-  display: grid;
-  gap: var(--redesign-space-2);
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.rehearsal-presenter-shell .semantic-cue-checklist-row {
-  align-items: center;
-  background: var(--redesign-color-surface-container-low);
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-lg);
-  display: grid;
-  gap: var(--redesign-space-2);
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  min-height: 40px;
-  padding: var(--redesign-space-2) var(--redesign-space-3);
-}
-
-.rehearsal-presenter-shell .semantic-cue-checklist-row span {
-  font-size: var(--redesign-type-body-sm-size);
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rehearsal-presenter-shell .semantic-cue-checklist-row small,
-.rehearsal-presenter-shell .semantic-cue-checklist-supporting summary {
-  color: var(--redesign-color-on-surface-variant);
-  font-size: var(--redesign-type-label-sm-size);
-  font-weight: 700;
-}
-
-.rehearsal-presenter-shell .semantic-cue-checklist-row--covered {
-  border-color: color-mix(in srgb, var(--redesign-color-success) 32%, var(--redesign-color-outline-variant));
-  color: var(--redesign-color-success);
-}
-
-.rehearsal-presenter-shell .semantic-cue-checklist-row--needs-review {
-  background: var(--redesign-color-warning-subtle);
-  border-color: color-mix(in srgb, var(--redesign-color-warning) 32%, var(--redesign-color-outline-variant));
-  color: var(--redesign-color-warning);
 }
 
 .rehearsal-presenter-shell .semantic-capability-status > header {
@@ -727,21 +589,8 @@ main.rehearsal-presenter-shell {
 .rehearsal-presenter-shell .rehearsal-panel-section-heading span,
 .rehearsal-presenter-shell .rehearsal-panel-live-slot .rehearsal-assist-card header span {
   color: var(--redesign-color-on-surface-variant);
-  font-size: var(--redesign-type-body-sm-size);
-  font-weight: 750;
   letter-spacing: 0;
   text-transform: none;
-}
-
-.rehearsal-presenter-shell .rehearsal-panel-section-heading strong {
-  align-items: center;
-  background: var(--redesign-color-primary-container);
-  border-radius: var(--redesign-radius-full);
-  color: var(--redesign-color-on-primary);
-  display: inline-flex;
-  font-size: var(--redesign-type-label-sm-size);
-  min-height: 24px;
-  padding: 0 var(--redesign-space-2);
 }
 
 .rehearsal-presenter-shell .rehearsal-panel-live-slot .rehearsal-assist-card header svg {
@@ -773,43 +622,17 @@ main.rehearsal-presenter-shell {
   color: var(--redesign-color-secondary);
 }
 
-.rehearsal-presenter-shell .rehearsal-panel-keywords {
-  gap: var(--redesign-space-2);
+.rehearsal-presenter-shell .rehearsal-panel-keyword-hit {
+  background: var(--redesign-color-success-container);
 }
 
-.rehearsal-presenter-shell .rehearsal-panel-top-grid .rehearsal-panel-keyword {
-  background: var(--redesign-color-surface-container-low);
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-lg);
-  gap: var(--redesign-space-2);
-  grid-template-columns: 22px minmax(0, 1fr);
-  min-height: 40px;
-  padding: var(--redesign-space-2) var(--redesign-space-3);
-}
-
-.rehearsal-presenter-shell .rehearsal-panel-top-grid .rehearsal-panel-keyword span {
-  color: var(--redesign-color-on-surface);
-  font-size: var(--redesign-type-body-sm-size);
-  font-weight: 700;
-}
-
-.rehearsal-presenter-shell .rehearsal-panel-top-grid .rehearsal-panel-keyword em {
-  background: transparent;
-  border-color: var(--redesign-color-outline);
-}
-
-.rehearsal-presenter-shell .rehearsal-panel-top-grid .rehearsal-panel-keyword-hit {
-  background: var(--redesign-color-success-subtle);
-  border-color: color-mix(in srgb, var(--redesign-color-success) 30%, var(--redesign-color-outline-variant));
-}
-
-.rehearsal-presenter-shell .rehearsal-panel-top-grid .rehearsal-panel-keyword-hit em {
+.rehearsal-presenter-shell .rehearsal-panel-keyword-hit em {
   background: var(--redesign-color-success);
   border-color: var(--redesign-color-success);
   color: var(--redesign-color-surface-container-lowest);
 }
 
-.rehearsal-presenter-shell .rehearsal-panel-top-grid .rehearsal-panel-keyword-missing em {
+.rehearsal-presenter-shell .rehearsal-panel-keyword-missing em {
   background: var(--redesign-color-warning-container);
   border-color: color-mix(in srgb, var(--redesign-color-warning) 24%, transparent);
   color: var(--redesign-color-warning);
@@ -825,51 +648,11 @@ main.rehearsal-presenter-shell {
 }
 
 .rehearsal-presenter-shell .rehearsal-teleprompter-band {
-  background: var(--redesign-color-dark-surface);
-  border: 1px solid color-mix(in srgb, var(--redesign-color-on-dark) 10%, transparent);
+  background: var(--redesign-color-on-surface);
+  border: 0;
   border-radius: var(--redesign-radius-lg);
   box-shadow: var(--redesign-shadow-none);
-  color: var(--redesign-color-on-dark);
-}
-
-.rehearsal-presenter-shell .rehearsal-teleprompter-lyrics {
-  scrollbar-color: color-mix(in srgb, var(--redesign-color-on-dark) 34%, transparent) transparent;
-}
-
-.rehearsal-presenter-shell
-  .rehearsal-teleprompter-lyrics
-  .rehearsal-teleprompter-line {
-  color: color-mix(in srgb, var(--redesign-color-on-dark) 38%, transparent);
-}
-
-.rehearsal-presenter-shell
-  .rehearsal-teleprompter-lyrics
-  .rehearsal-teleprompter-line-next {
-  color: color-mix(in srgb, var(--redesign-color-on-dark) 70%, transparent);
-}
-
-.rehearsal-presenter-shell
-  .rehearsal-teleprompter-lyrics
-  .rehearsal-teleprompter-current {
-  color: var(--redesign-color-on-dark);
-}
-
-.rehearsal-presenter-shell .rehearsal-auto-advance-card {
-  background: var(--redesign-color-surface-container-lowest);
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-lg);
-  box-shadow: var(--redesign-shadow-none);
-  color: var(--redesign-color-on-surface);
-}
-
-.rehearsal-presenter-shell .rehearsal-auto-advance-card > strong {
-  border-color: var(--redesign-color-primary-container);
-  color: var(--redesign-color-primary);
-}
-
-.rehearsal-presenter-shell .rehearsal-auto-advance-card button {
-  border-color: var(--redesign-color-outline-variant);
-  color: var(--redesign-color-on-surface);
+  color: var(--redesign-color-surface-container-lowest);
 }
 
 .rehearsal-presenter-shell button:focus-visible,
