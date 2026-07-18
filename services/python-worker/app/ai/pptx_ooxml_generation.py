@@ -533,6 +533,7 @@ def imported_element_capabilities(
 ) -> dict[str, Any]:
     frame_writable = False
     image_source_writable = False
+    delete_writable = False
     crop_capability = "none"
     rich_text_capability = "none"
     table_cell_text_writable = False
@@ -545,6 +546,13 @@ def imported_element_capabilities(
             shape_cohort_size == 1
             and shape is not None
             and not has_group_shape_ancestor(slide_root, shape)
+            and element_type != "table"
+        )
+        delete_writable = (
+            shape_cohort_size == 1
+            and shape is not None
+            and not has_group_shape_ancestor(slide_root, shape)
+            and not source.get("fallbackReason")
             and element_type != "table"
         )
         crop_capability = imported_image_crop_capability(
@@ -574,7 +582,7 @@ def imported_element_capabilities(
         "crop": crop_capability,
         "tableCellText": table_cell_text_writable,
         "frame": frame_writable,
-        "delete": False,
+        "delete": delete_writable,
         "imageSource": image_source_writable,
     }
 
