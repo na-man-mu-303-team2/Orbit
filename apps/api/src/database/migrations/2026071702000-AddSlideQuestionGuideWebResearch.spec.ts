@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { AddSlideQuestionGuideWebResearch2026071702000 } from "./2026071702000-AddSlideQuestionGuideWebResearch";
 
 describe("AddSlideQuestionGuideWebResearch2026071702000", () => {
   it("is registered in the API data source", () => {
-    const dataSource = readFileSync(new URL("../data-source.ts", import.meta.url), "utf8");
+    const dataSource = readFileSync(join(__dirname, "../data-source.ts"), "utf8");
 
     expect(dataSource).toContain("AddSlideQuestionGuideWebResearch2026071702000");
   });
