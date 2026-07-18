@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createActivitySlide, createDemoDeck } from "@orbit/editor-core";
 import type { ActivityPublicResult } from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -12,6 +14,10 @@ const slide = {
   ...createActivitySlide(createDemoDeck(), "satisfaction"),
   speakerNotes: "SPEAKER_NOTE_SENTINEL"
 };
+
+const activityAudienceSlideCssPath = fileURLToPath(
+  new URL("./activity-audience-slide.css", import.meta.url)
+);
 
 const publicResult: ActivityPublicResult = {
   activityRunId: "activity_run_1",
@@ -67,6 +73,16 @@ describe("ActivityAudienceSlideRenderer", () => {
     expect(canonicalActivityUrl("/audience/session_1", "activity_1")).toBe(
       "/audience/session_1/a/activity_1"
     );
+  });
+
+  it("keeps the presentation QR square, large, and unclipped", () => {
+    const css = fs.readFileSync(activityAudienceSlideCssPath, "utf8");
+    const qrFrameRule = css.match(/\.activity-audience-qr-frame\s*\{([^}]*)\}/)?.[1];
+
+    expect(qrFrameRule).toContain("border-radius: var(--redesign-radius-xl)");
+    expect(qrFrameRule).toContain("padding: var(--redesign-space-6)");
+    expect(qrFrameRule).not.toContain("overflow: hidden");
+    expect(css).toContain("grid-template-columns: 560px minmax(0, 1fr)");
   });
 
   it("reveals poll ratios only from the public result projection", () => {
