@@ -263,6 +263,7 @@ import type { PrompterProgressSnapshot } from "./speech/prompterProgressTracker"
 import { PracticeGoalSummary } from "../coaching/PracticeGoalSummary";
 import { PracticeGoalReminder } from "../coaching/PracticeGoalReminder";
 import { fetchPresentationBrief } from "../coaching/presentationBriefApi";
+import { ActivityPresenterPanel } from "../activity-slides";
 
 export {
   LiveSttAdapterError,
@@ -4959,32 +4960,40 @@ export function RehearsalWorkspace(props: {
             title="발표 스톱워치"
           />
 
-          <RehearsalPanel
-            mode="rehearsal"
-            timing={p3TimingSnapshot}
-            wordsPerMinute={p3WordsPerMinute}
-            adviceState={p3AdviceState}
-            highlightedKeywordOccurrences={highlightedKeywordOccurrences}
-            keywords={checklistKeywords}
-            scriptAutoFollowKey={scriptAutoFollowKey}
-            sentences={p3Sentences}
-            showAdvicePanel={false}
-            showScriptPanel={true}
-            speakerNotes={currentSlide?.speakerNotes ?? ""}
-            snapshot={p3PanelSnapshot}
-            semanticCapabilityItems={semanticCapabilityItems}
-            semanticCueItems={
-              ENABLE_REHEARSAL_NLI &&
-              p3SessionState?.slideIndex === currentSlideIndex
-                ? p3SessionState.semanticCueProgress
-                : []
-            }
-            onSemanticCapabilityAction={handleSemanticCapabilityAction}
-            comparisonReminder={comparisonReminderState.active}
-            onDismissComparisonReminder={() =>
-              setComparisonReminderState(dismissComparisonReminder)
-            }
-            liveSlot={
+          {currentSlide?.kind === "activity" && deck ? (
+            <ActivityPresenterPanel
+              autoStart
+              deckId={deck.deckId}
+              projectId={deck.projectId}
+              slide={currentSlide}
+            />
+          ) : (
+            <RehearsalPanel
+              mode="rehearsal"
+              timing={p3TimingSnapshot}
+              wordsPerMinute={p3WordsPerMinute}
+              adviceState={p3AdviceState}
+              highlightedKeywordOccurrences={highlightedKeywordOccurrences}
+              keywords={checklistKeywords}
+              scriptAutoFollowKey={scriptAutoFollowKey}
+              sentences={p3Sentences}
+              showAdvicePanel={false}
+              showScriptPanel={true}
+              speakerNotes={currentSlide?.speakerNotes ?? ""}
+              snapshot={p3PanelSnapshot}
+              semanticCapabilityItems={semanticCapabilityItems}
+              semanticCueItems={
+                ENABLE_REHEARSAL_NLI &&
+                p3SessionState?.slideIndex === currentSlideIndex
+                  ? p3SessionState.semanticCueProgress
+                  : []
+              }
+              onSemanticCapabilityAction={handleSemanticCapabilityAction}
+              comparisonReminder={comparisonReminderState.active}
+              onDismissComparisonReminder={() =>
+                setComparisonReminderState(dismissComparisonReminder)
+              }
+              liveSlot={
               <section className="rehearsal-assist-card checklist-card">
                 <header>
                   <span>
@@ -5115,8 +5124,9 @@ export function RehearsalWorkspace(props: {
                   </div>
                 )}
               </section>
-            }
-          />
+              }
+            />
+          )}
         </aside>
 
         <RehearsalTeleprompter
