@@ -11109,11 +11109,17 @@ body.is-resizing-speaker-notes {
   }
 
   .orbit-shell.editor-professional .stage-top-controls > .editor-toolbar {
-    grid-column: 1 / 4;
+    grid-column: 2;
     grid-row: 1;
     height: var(--editor-chrome-height);
     min-height: var(--editor-chrome-height);
     box-sizing: border-box;
+  }
+
+  .orbit-shell.editor-professional
+    .editor-panel.animation-panel-open
+    .stage-top-controls > .editor-toolbar {
+    grid-column: 2 / 4;
   }
 
   .orbit-shell.editor-professional .stage-top-controls > .editor-panel-toolbar-actions {
