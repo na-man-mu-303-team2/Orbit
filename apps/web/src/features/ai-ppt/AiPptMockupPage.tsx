@@ -28,7 +28,6 @@ import {
   IconPlus,
   IconPresentationAnalytics,
   IconSparkles,
-  // IconSquareFilled,
   IconTrash,
   IconUpload,
   IconUsers,
@@ -842,27 +841,6 @@ function AiPptStyleStartingPage() {
               className="ai-ppt-style-loader"
               size={48}
             />
-            {/* Block loading animation is intentionally parked.
-            <div
-              aria-label="발표 구성을 블록으로 쌓는 중"
-              className="ai-ppt-block-loader"
-              role="img"
-            >
-              <div aria-hidden="true" className="ai-ppt-block-stack">
-                {Array.from({ length: 32 }, (_, index) => (
-                  <IconSquareFilled key={index} size={38} />
-                ))}
-              </div>
-              {Array.from({ length: 4 }, (_, index) => (
-                <IconSquareFilled
-                  aria-hidden="true"
-                  className={`ai-ppt-falling-block ai-ppt-falling-block-${index + 1}`}
-                  key={index}
-                  size={38}
-                />
-              ))}
-            </div>
-            */}
           </section>
         </main>
       </div>

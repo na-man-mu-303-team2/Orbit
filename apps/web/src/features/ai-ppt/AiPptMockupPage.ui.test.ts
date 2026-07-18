@@ -17,9 +17,6 @@ describe("AI PPT wizard UI", () => {
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain("Style &amp; Color");
     expect(html).toContain("ai-ppt-style-loader");
-    // Block loading animation is intentionally parked.
-    // expect(html).toContain("ai-ppt-block-loader");
-    // expect(html).toContain("발표 구성을 블록으로 쌓는 중");
   });
 
   it("starts with one content screen and multiple attachments", () => {
