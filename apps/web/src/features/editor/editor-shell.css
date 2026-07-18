@@ -11657,6 +11657,19 @@ body.is-resizing-speaker-notes {
   text-align: center;
 }
 
+.orbit-shell.editor-professional .speaker-notes-report-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.orbit-shell.editor-professional .speaker-notes-report-panel > .editor-dock-empty {
+  box-sizing: border-box;
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  padding: var(--redesign-space-4) var(--redesign-space-5);
+}
+
 /* Navigation controls stay visually lightweight in the editor chrome. */
 .orbit-shell.editor-professional .editor-home-button,
 .orbit-shell.editor-professional .collapse-slides-button,
