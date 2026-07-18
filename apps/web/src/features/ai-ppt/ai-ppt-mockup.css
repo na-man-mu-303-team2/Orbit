@@ -472,8 +472,8 @@
 
 .ai-ppt-font-grid button.selected,
 .ai-ppt-palette-grid button.selected {
-  background: var(--redesign-color-secondary-container);
-  border-color: var(--redesign-color-secondary);
+  background: var(--redesign-color-primary-container);
+  border-color: var(--redesign-color-primary);
 }
 
 .ai-ppt-font-grid span,
@@ -535,28 +535,66 @@
   display: block;
 }
 
-.ai-ppt-ai-palette-tile {
-  background: var(--redesign-color-surface-container-low);
-  border: 1px dashed var(--redesign-color-secondary);
-  border-radius: var(--redesign-radius);
+.ai-ppt-ai-palette-flow {
   display: grid;
-  gap: var(--redesign-space-2);
-  min-width: 0;
-  padding: var(--redesign-space-4);
+  gap: var(--redesign-space-4);
+  grid-auto-rows: 304px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: var(--redesign-space-4);
 }
 
-.ai-ppt-ai-palette-tile.selected {
-  background: var(--redesign-color-secondary-container);
-  border-style: solid;
+.ai-ppt-ai-palette-create {
+  border-radius: var(--redesign-radius);
+  min-height: 240px;
+}
+
+.workspace-home-create.ai-ppt-ai-palette-create:hover {
+  transform: none;
+}
+
+.ai-ppt-ai-palette-panel {
+  align-content: start;
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius);
+  display: grid;
+  gap: var(--redesign-space-4);
+  grid-column: span 2;
+  min-width: 0;
+  padding: var(--redesign-space-5);
+}
+
+.ai-ppt-ai-palette-panel.has-result {
+  transition: background-color var(--redesign-duration-fast) var(--redesign-ease-standard),
+    border-color var(--redesign-duration-fast) var(--redesign-ease-standard),
+    box-shadow var(--redesign-duration-fast) var(--redesign-ease-standard),
+    transform var(--redesign-duration-fast) var(--redesign-ease-standard);
+}
+
+.ai-ppt-ai-palette-panel.has-result:hover {
+  background: var(--redesign-color-surface-container-low);
+  border-color: var(--redesign-color-outline);
+  box-shadow: var(--redesign-shadow-card-hover);
+  transform: translateY(calc(var(--redesign-space-1) * -1));
+}
+
+.ai-ppt-ai-palette-panel.selected {
+  background: var(--redesign-color-primary-container);
+  border-color: var(--redesign-color-primary);
+  box-shadow: var(--redesign-glow-primary);
+}
+
+.ai-ppt-ai-palette-panel:not(.selected) {
+  border: 1px solid var(--redesign-color-outline-variant);
 }
 
 .ai-ppt-ai-palette-heading {
   align-items: center;
+  color: var(--redesign-color-on-surface-variant);
   display: flex;
   gap: var(--redesign-space-2);
 }
 
-.ai-ppt-ai-palette-tile p,
 .ai-ppt-ai-palette-result span {
   color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-label-sm-size);
@@ -564,34 +602,65 @@
   margin: 0;
 }
 
-.ai-ppt-ai-palette-tile textarea {
+.ai-ppt-ai-palette-panel textarea {
   background: var(--redesign-color-surface-container-lowest);
-  border: 1px solid var(--redesign-color-outline);
+  border: var(--redesign-border-subtle);
   border-radius: var(--redesign-radius);
   color: var(--redesign-color-on-surface);
-  min-height: 68px;
-  padding: var(--redesign-space-2);
+  min-height: 112px;
+  padding: var(--redesign-space-3);
   resize: vertical;
   width: 100%;
 }
 
-.ai-ppt-ai-palette-tile textarea:focus {
-  border-color: var(--redesign-color-secondary);
+.ai-ppt-ai-palette-panel.has-result textarea {
+  min-height: 68px;
+}
+
+.ai-ppt-ai-palette-panel textarea:focus {
+  border-color: var(--redesign-color-primary);
   box-shadow: var(--redesign-focus-ring);
   outline: 0;
 }
 
-.ai-ppt-ai-palette-tile > .ai-ppt-secondary {
-  justify-self: start;
+.redesign-button.ai-ppt-ai-palette-action {
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+  justify-self: center;
+  min-width: 168px;
 }
 
 .ai-ppt-ai-palette-result {
   background: transparent;
   border: 0;
+  border-radius: var(--redesign-radius);
+  cursor: pointer;
   display: grid;
   gap: var(--redesign-space-2);
   padding: 0;
   text-align: left;
+  width: 100%;
+}
+
+.ai-ppt-ai-palette-result:focus-visible {
+  box-shadow: var(--redesign-focus-ring);
+  outline: 0;
+}
+
+.ai-ppt-ai-palette-result-topline {
+  align-items: center;
+  display: flex;
+  gap: var(--redesign-space-3);
+}
+
+.ai-ppt-ai-palette-result-topline .ai-ppt-palette-swatches {
+  flex: 1;
+}
+
+.ai-ppt-ai-palette-result > strong {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-title-md-size);
+  font-weight: var(--redesign-type-title-md-weight);
 }
 
 .ai-ppt-attachments {
@@ -2101,9 +2170,9 @@
 .ai-ppt-font-check,
 .ai-ppt-palette-selected-mark {
   align-items: center;
-  background: var(--redesign-color-secondary);
+  background: var(--redesign-color-primary);
   border-radius: var(--redesign-radius-full);
-  color: var(--redesign-color-on-secondary);
+  color: var(--redesign-color-on-primary);
   display: inline-flex;
   height: var(--redesign-size-control-sm);
   justify-content: center;
@@ -2111,15 +2180,18 @@
 }
 
 .ai-ppt-font-grid button.selected .ai-ppt-font-check {
-  color: var(--redesign-color-light-surface);
+  color: var(--redesign-color-on-primary);
 }
 
-.ai-ppt-palette-grid button.selected .ai-ppt-palette-selected-mark {
-  color: var(--redesign-color-on-secondary);
+.ai-ppt-palette-grid button.selected .ai-ppt-palette-selected-mark,
+.ai-ppt-ai-palette-panel.selected .ai-ppt-palette-selected-mark {
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
 }
 
 .ai-ppt-font-grid button:not(.selected) .ai-ppt-font-check,
-.ai-ppt-palette-grid button:not(.selected) .ai-ppt-palette-selected-mark {
+.ai-ppt-palette-grid button:not(.selected) .ai-ppt-palette-selected-mark,
+.ai-ppt-ai-palette-panel:not(.selected) .ai-ppt-palette-selected-mark {
   background: var(--redesign-color-surface-container);
   color: transparent;
 }
@@ -2162,9 +2234,9 @@
 }
 
 .ai-ppt-palette-grid > button.selected {
-  background: var(--redesign-color-surface-container-lowest);
-  border-color: var(--redesign-color-secondary);
-  box-shadow: var(--redesign-glow-secondary);
+  background: var(--redesign-color-primary-container);
+  border-color: var(--redesign-color-primary);
+  box-shadow: var(--redesign-glow-primary);
 }
 
 .ai-ppt-palette-card-meta {
@@ -2173,7 +2245,8 @@
   padding: var(--redesign-space-3) var(--redesign-space-4) var(--redesign-space-4);
 }
 
-.ai-ppt-palette-card-heading strong {
+.ai-ppt-palette-card-heading strong,
+.ai-ppt-ai-palette-heading strong {
   font-size: var(--redesign-type-title-md-size);
   font-weight: 750;
 }
@@ -2187,10 +2260,6 @@
   font-size: var(--redesign-type-label-sm-size);
   line-height: 1.4;
   text-align: left;
-}
-
-.ai-ppt-ai-palette-tile {
-  min-height: 0;
 }
 
 .ai-ppt-palette-mockup {
@@ -2554,11 +2623,20 @@
   .ai-ppt-palette-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .ai-ppt-ai-palette-flow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ai-ppt-ai-palette-panel {
+    grid-column: auto;
+  }
 }
 
 @media (max-width: 620px) {
   .ai-ppt-font-grid,
-  .ai-ppt-palette-grid {
+  .ai-ppt-palette-grid,
+  .ai-ppt-ai-palette-flow {
     grid-template-columns: 1fr;
   }
 

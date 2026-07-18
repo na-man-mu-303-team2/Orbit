@@ -24,6 +24,7 @@ import {
   IconPaperclip,
   IconPhoto,
   IconPlayerPlay,
+  IconPlus,
   IconPresentationAnalytics,
   IconSparkles,
   IconTrash,
@@ -866,6 +867,7 @@ export function AiPptStyleColorPage(props: {
     null,
   );
   const [palettePrompt, setPalettePrompt] = useState("");
+  const [isAiPaletteOpen, setIsAiPaletteOpen] = useState(false);
   const [isCustomizingPalette, setIsCustomizingPalette] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [status, setStatus] = useState("스타일 정보를 불러오는 중...");
@@ -989,10 +991,12 @@ export function AiPptStyleColorPage(props: {
         <main className="ai-ppt-workspace ai-ppt-workspace-single ai-ppt-context-panel">
           <section className="ai-ppt-panel">
             <StyleColorStep
+              isAiPaletteOpen={isAiPaletteOpen}
               customPalette={customPalette}
               fontOptions={fontOptions}
               isCustomizing={isCustomizingPalette}
               onCustomize={() => void customizePalette()}
+              onOpenAiPalette={() => setIsAiPaletteOpen(true)}
               onFontSelect={setSelectedFontId}
               onPalettePromptChange={setPalettePrompt}
               onSelectPalette={setSelectedPaletteId}
@@ -1282,10 +1286,12 @@ function PolicySelect<T extends string>(props: {
 }
 
 function StyleColorStep(props: {
+  isAiPaletteOpen: boolean;
   customPalette: PaletteOption | null;
   fontOptions: GenerateDeckFontOption[];
   isCustomizing: boolean;
   onCustomize: () => void;
+  onOpenAiPalette: () => void;
   onFontSelect: (fontId: string) => void;
   onPalettePromptChange: (value: string) => void;
   onSelectPalette: (optionId: string) => void;
@@ -1336,46 +1342,77 @@ function StyleColorStep(props: {
               onSelect={props.onSelectPalette}
             />
           ))}
-          <div
-            className={[
-              "ai-ppt-ai-palette-tile",
-              props.selectedPaletteId === "ai-custom" ? "selected" : "",
-            ].join(" ")}
+        </div>
+        <div className="ai-ppt-ai-palette-flow">
+          <button
+            aria-controls="ai-ppt-ai-palette-panel"
+            aria-expanded={props.isAiPaletteOpen}
+            className="workspace-home-create ai-ppt-ai-palette-create"
+            type="button"
+            onClick={props.onOpenAiPalette}
           >
-            <div className="ai-ppt-ai-palette-heading">
-              <IconSparkles size={18} />
-              <strong>{props.customPalette?.name ?? "AI 팔레트"}</strong>
-            </div>
-            {props.customPalette ? (
-              <button
-                className="ai-ppt-ai-palette-result"
-                type="button"
-                onClick={() => props.onSelectPalette("ai-custom")}
-              >
-                <PaletteSwatches palette={props.customPalette.palette} />
-                <span>{props.customPalette.rationale}</span>
-              </button>
-            ) : (
-              <p>선택한 팔레트를 수정하거나 새로운 분위기를 추천받으세요.</p>
-            )}
-            <textarea
-              aria-label="AI 팔레트 요청"
-              placeholder="예: 배경은 유지하고 포인트 컬러만 더 따뜻하게"
-              value={props.palettePrompt}
-              onChange={(event) =>
-                props.onPalettePromptChange(event.target.value)
-              }
-            />
-            <button
-              className="ai-ppt-secondary"
-              disabled={props.isCustomizing}
-              type="button"
-              onClick={props.onCustomize}
+            <span aria-hidden="true" className="workspace-home-create-icon">
+              <IconPlus size={22} stroke={1.8} />
+            </span>
+            <strong>AI로 컬러 팔레트 만들기</strong>
+            <small>
+              선택한 팔레트를 수정하거나
+              <br />
+              새로운 컬러를 추천 받으세요.
+            </small>
+          </button>
+          {props.isAiPaletteOpen ? (
+            <section
+              aria-live="polite"
+              className={[
+                "ai-ppt-ai-palette-panel",
+                props.customPalette ? "has-result" : "",
+                props.selectedPaletteId === "ai-custom" ? "selected" : "",
+              ].join(" ")}
+              id="ai-ppt-ai-palette-panel"
             >
-              <IconSparkles size={16} />
-              {props.isCustomizing ? "추천 중..." : "AI로 적용"}
-            </button>
-          </div>
+              {props.customPalette ? (
+                <button
+                  aria-pressed={props.selectedPaletteId === "ai-custom"}
+                  className="ai-ppt-ai-palette-result"
+                  type="button"
+                  onClick={() => props.onSelectPalette("ai-custom")}
+                >
+                  <span className="ai-ppt-ai-palette-result-topline">
+                    <PaletteSwatches palette={props.customPalette.palette} />
+                    <span className="ai-ppt-palette-selected-mark" aria-hidden="true">
+                      {props.selectedPaletteId === "ai-custom" ? (
+                        <IconCheck size={14} />
+                      ) : null}
+                    </span>
+                  </span>
+                  <strong>{props.customPalette.name}</strong>
+                  <span>{props.customPalette.rationale}</span>
+                </button>
+              ) : (
+                <div className="ai-ppt-ai-palette-heading">
+                  <IconSparkles size={18} />
+                  <strong>AI 팔레트</strong>
+                </div>
+              )}
+              <textarea
+                aria-label="AI 팔레트 요청"
+                placeholder="예: 배경은 유지하고 포인트 컬러만 더 따뜻하게"
+                value={props.palettePrompt}
+                onChange={(event) =>
+                  props.onPalettePromptChange(event.target.value)
+                }
+              />
+              <OrbitButton
+                className="ai-ppt-ai-palette-action"
+                loading={props.isCustomizing}
+                type="button"
+                onClick={props.onCustomize}
+              >
+                {props.customPalette ? "다시 생성하기" : "AI로 생성하기"}
+              </OrbitButton>
+            </section>
+          ) : null}
         </div>
       </fieldset>
     </>
