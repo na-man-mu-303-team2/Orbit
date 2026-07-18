@@ -1189,13 +1189,19 @@ def add_element_has_unsupported_props(element: dict[str, Any]) -> bool:
         return not valid_text_props(props)
     if element_type == "rect":
         fill = props.get("fill", "transparent")
+        stroke = props.get("stroke", "transparent")
+        stroke_width = props.get("strokeWidth", 0)
+        border_radius = props.get("borderRadius", 0)
         return (
             not (
                 fill == "transparent" or isinstance(fill, str) and valid_hex_color(fill)
             )
-            or props.get("stroke", "transparent") != "transparent"
-            or float(props.get("strokeWidth", 0)) != 0
-            or float(props.get("borderRadius", 0)) != 0
+            or not (
+                stroke == "transparent"
+                or isinstance(stroke, str) and valid_hex_color(stroke)
+            )
+            or not valid_nonnegative_number(stroke_width)
+            or not valid_nonnegative_number(border_radius)
             or bool(set(props) - {"fill", "stroke", "strokeWidth", "borderRadius"})
         )
     if element_type == "image":
@@ -3894,16 +3900,40 @@ def rect_shape_element(
 ) -> ET.Element[Any]:
     shape = base_shape_element(shape_id, "Orbit rect", element, scale)
     sp_pr = ensure_shape_properties(shape)
-    ET.SubElement(
-        ET.SubElement(sp_pr, f"{{{DML_NS}}}prstGeom", {"prst": "rect"}),
-        f"{{{DML_NS}}}avLst",
+    props = dict_value(element, "props")
+    border_radius = float(props.get("borderRadius", 0))
+    geometry = ET.SubElement(
+        sp_pr,
+        f"{{{DML_NS}}}prstGeom",
+        {"prst": "roundRect" if border_radius > 0 else "rect"},
     )
-    fill = dict_value(element, "props").get("fill")
+    adjustments = ET.SubElement(geometry, f"{{{DML_NS}}}avLst")
+    if border_radius > 0:
+        shortest_side = min(float(element["width"]), float(element["height"]))
+        adjustment = round(min(0.5, border_radius / shortest_side) * 100000)
+        ET.SubElement(
+            adjustments,
+            f"{{{DML_NS}}}gd",
+            {"name": "adj", "fmla": f"val {adjustment}"},
+        )
+    fill = props.get("fill")
     if fill == "transparent":
         ET.SubElement(sp_pr, f"{{{DML_NS}}}noFill")
     elif isinstance(fill, str) and valid_hex_color(fill):
         solid_fill = ET.SubElement(sp_pr, f"{{{DML_NS}}}solidFill")
         ET.SubElement(solid_fill, f"{{{DML_NS}}}srgbClr", {"val": fill[1:]})
+    stroke = props.get("stroke", "transparent")
+    stroke_width = float(props.get("strokeWidth", 0))
+    line = ET.SubElement(
+        sp_pr,
+        f"{{{DML_NS}}}ln",
+        {"w": str(table_border_width_to_emu(stroke_width, scale))},
+    )
+    if stroke == "transparent" or stroke_width == 0:
+        ET.SubElement(line, f"{{{DML_NS}}}noFill")
+    elif isinstance(stroke, str) and valid_hex_color(stroke):
+        line_fill = ET.SubElement(line, f"{{{DML_NS}}}solidFill")
+        ET.SubElement(line_fill, f"{{{DML_NS}}}srgbClr", {"val": stroke[1:]})
     return shape
 
 
