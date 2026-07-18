@@ -9,6 +9,24 @@ const slideComposeResponseSchema = z
     slide: slideSchema,
     validation: generateDeckValidationSchema,
     warnings: z.array(z.string()),
+    factDiagnostics: z
+      .object({
+        validationDurationMs: z.number().int().nonnegative(),
+        issueCodes: z.array(z.string()),
+        slideOrders: z.array(z.number().int().positive()),
+        repairAttempted: z.boolean(),
+        repairSucceeded: z.boolean(),
+        repairDurationMs: z.number().int().nonnegative(),
+      })
+      .strict()
+      .default({
+        validationDurationMs: 0,
+        issueCodes: [],
+        slideOrders: [],
+        repairAttempted: false,
+        repairSucceeded: false,
+        repairDurationMs: 0,
+      }),
   })
   .strict();
 

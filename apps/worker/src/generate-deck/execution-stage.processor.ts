@@ -618,6 +618,23 @@ async function executeV2ImageSlide(
     order: descriptor.order,
     slideId: descriptor.slideId,
   });
+  emit(input.eventLogger, "ai-ppt.fact-validation.completed", {
+    jobId: input.message.pipelineJobId,
+    projectId: input.message.projectId,
+    durationMs: composed.factDiagnostics.validationDurationMs,
+    issueCodes: composed.factDiagnostics.issueCodes,
+    slideOrders: composed.factDiagnostics.slideOrders,
+  });
+  if (composed.factDiagnostics.repairAttempted) {
+    emit(input.eventLogger, "ai-ppt.fact-repair.attempted", {
+      jobId: input.message.pipelineJobId,
+      projectId: input.message.projectId,
+      durationMs: composed.factDiagnostics.repairDurationMs,
+      slideOrders: [descriptor.order],
+      repairCount: 1,
+      succeeded: composed.factDiagnostics.repairSucceeded,
+    });
+  }
   assertCompletedSlideMatchesContentPlan(
     composed.slide,
     plannedSlide,

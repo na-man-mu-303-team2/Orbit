@@ -256,6 +256,44 @@ describe("editor design-pack validation", () => {
     expect(messages).not.toContain("전체 발표의 초점이 약합니다.");
   });
 
+  it("shows Content/Fact advisories only on their assigned slide", () => {
+    const deck: Deck = structuredClone(designPackDeck);
+    deck.metadata.generationQuality = {
+      status: "advisory",
+      issues: [
+        {
+          code: "FACT_AMOUNT_MISMATCH",
+          message: "현재 슬라이드의 금액이 원문과 다릅니다.",
+          severity: "warning",
+          slideId: "slide_1",
+          slideOrder: 1,
+        },
+        {
+          code: "FACT_APPROVAL_RELATION_MISMATCH",
+          message: "다른 슬라이드의 승인 주체가 원문과 다릅니다.",
+          severity: "warning",
+          slideId: "slide_2",
+          slideOrder: 2,
+        },
+      ],
+    };
+
+    const items = getEditorValidationItems(deck, deck.slides[0]);
+
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ issue: "FACT_AMOUNT_MISMATCH" }),
+      ]),
+    );
+    expect(items).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issue: "FACT_APPROVAL_RELATION_MISMATCH",
+        }),
+      ]),
+    );
+  });
+
   it("recomputes character warnings for the current slide instead of using stored copies", () => {
     const deck: Deck = structuredClone(designPackDeck);
     deck.metadata.generationQuality = {

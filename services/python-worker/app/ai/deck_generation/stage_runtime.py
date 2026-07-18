@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import time
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -9,6 +10,10 @@ from app.ai.composition_library import COMPOSITION_SPECS
 from app.ai.deck_generation.content_planning import (
     compose_slide_detail_with_llm,
     plan_story_content,
+)
+from app.ai.deck_generation.content_fact_quality import (
+    as_validation_issues,
+    validate_slide_detail,
 )
 from app.ai.deck_generation.design_planning import (
     plan_design,
@@ -114,10 +119,27 @@ class SlideComposeStageInput(StageModel):
     slide_id: str = Field(alias="slideId", min_length=1)
 
 
+class FactDiagnostics(StageModel):
+    validation_duration_ms: int = Field(
+        default=0,
+        alias="validationDurationMs",
+        ge=0,
+    )
+    issue_codes: list[str] = Field(default_factory=list, alias="issueCodes")
+    slide_orders: list[int] = Field(default_factory=list, alias="slideOrders")
+    repair_attempted: bool = Field(default=False, alias="repairAttempted")
+    repair_succeeded: bool = Field(default=False, alias="repairSucceeded")
+    repair_duration_ms: int = Field(default=0, alias="repairDurationMs", ge=0)
+
+
 class SlideComposeStageResult(StageModel):
     slide: dict[str, Any]
     validation: ValidationResult
     warnings: list[str] = Field(default_factory=list)
+    fact_diagnostics: FactDiagnostics = Field(
+        default_factory=FactDiagnostics,
+        alias="factDiagnostics",
+    )
 
 
 def run_source_grounding_stage(
@@ -266,6 +288,41 @@ def run_slide_compose_stage(
         api_key=api_key,
         content_item_range=(composition.min_items, composition.max_items),
     )
+    fact_issues, validation_duration_ms = validate_slide_detail(
+        scoped_raw_input,
+        detailed,
+        stage_input.content_plan.slide_plans,
+    )
+    repair_attempted = bool(
+        fact_issues
+        and target.order in scoped_raw_input.fact_repair_eligible_slide_orders
+    )
+    repair_succeeded = False
+    repair_duration_ms = 0
+    if repair_attempted:
+        repair_started = time.perf_counter()
+        try:
+            detailed = compose_slide_detail_with_llm(
+                scoped_raw_input,
+                detailed,
+                resolve_style_prompt_context(scoped_raw_input),
+                client=client,
+                model=model,
+                api_key=api_key,
+                content_item_range=(composition.min_items, composition.max_items),
+                repair_issue_codes=tuple(issue.code for issue in fact_issues),
+            )
+            repair_succeeded = True
+        except DeckContentGenerationError:
+            repair_succeeded = False
+        repair_duration_ms = round((time.perf_counter() - repair_started) * 1000)
+        fact_issues, second_validation_duration_ms = validate_slide_detail(
+            scoped_raw_input,
+            detailed,
+            stage_input.content_plan.slide_plans,
+        )
+        validation_duration_ms += second_validation_duration_ms
+        repair_succeeded = repair_succeeded and not fact_issues
     slide = assemble_program_v2_slide(
         scoped_raw_input,
         detailed,
@@ -297,8 +354,17 @@ def run_slide_compose_stage(
     finalized = finalize_python_quality(
         PythonQualityInput(rawInput=scoped_raw_input, deck=deck)
     )
+    finalized.validation.content_issues.extend(as_validation_issues(fact_issues))
     final_slide = finalized.deck.get("slides", [])[0]
     return SlideComposeStageResult(
         slide=final_slide,
         validation=finalized.validation,
+        factDiagnostics=FactDiagnostics(
+            validationDurationMs=validation_duration_ms,
+            issueCodes=sorted({issue.code for issue in fact_issues}),
+            slideOrders=[target.order] if fact_issues else [],
+            repairAttempted=repair_attempted,
+            repairSucceeded=repair_succeeded,
+            repairDurationMs=repair_duration_ms,
+        ),
     )

@@ -67,6 +67,10 @@ clean minimal styling unless the user explicitly requests it.
 Keep focal and secondary palette roles visibly distinct when constraints allow it.
 Use evidence images only for factual proof, AI atmosphere only for mood, and native
 shapes for processes, comparisons, timelines, and diagrams.
+Prefer process-horizontal for journeys and processes, timeline for roadmaps and
+schedules, diagram-hub for architectures, metric-poster or kpi-strip-evidence for
+metrics and budgets, and feature-comparison for comparisons. Preserve official
+evidence images when they are the factual proof instead of replacing them.
 Use the requested media budget across the whole deck, not on every slide.
 Respect forbidden styles and locked design values.
 """.strip()
