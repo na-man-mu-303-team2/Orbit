@@ -2057,7 +2057,7 @@
 .ai-ppt-font-grid button {
   align-content: start;
   gap: var(--redesign-space-2);
-  min-height: 204px;
+  min-height: 184px;
   overflow: hidden;
   padding: var(--redesign-space-4);
   position: relative;
@@ -2080,7 +2080,10 @@
   justify-content: space-between;
 }
 
-.ai-ppt-font-badge,
+.ai-ppt-font-card-topline {
+  justify-content: flex-end;
+}
+
 .ai-ppt-palette-mockup-category {
   border-radius: var(--redesign-radius-full);
   font-size: var(--redesign-type-label-sm-size);
@@ -2088,16 +2091,6 @@
   letter-spacing: var(--redesign-type-label-sm-tracking);
   padding: var(--redesign-space-1) var(--redesign-space-2);
   text-transform: uppercase;
-}
-
-.ai-ppt-font-badge {
-  background: var(--redesign-color-surface-container);
-  color: var(--redesign-color-on-surface-variant);
-}
-
-.ai-ppt-font-grid button.selected .ai-ppt-font-badge {
-  background: var(--redesign-color-secondary);
-  color: var(--redesign-color-on-secondary);
 }
 
 .ai-ppt-font-check,
@@ -2112,15 +2105,19 @@
   width: var(--redesign-size-control-sm);
 }
 
+.ai-ppt-font-grid button.selected .ai-ppt-font-check {
+  color: #fff;
+}
+
 .ai-ppt-font-grid button:not(.selected) .ai-ppt-font-check,
 .ai-ppt-palette-grid button:not(.selected) .ai-ppt-palette-selected-mark {
   background: var(--redesign-color-surface-container);
   color: transparent;
 }
 
-.ai-ppt-font-glyph {
+.ai-ppt-font-grid .ai-ppt-font-glyph {
   color: var(--redesign-color-on-surface);
-  font-size: var(--redesign-type-display-sm-size);
+  font-size: var(--redesign-type-display-md-size);
   font-weight: 700;
   letter-spacing: -0.08em;
   line-height: 0.9;
@@ -2130,25 +2127,6 @@
 .ai-ppt-font-grid button > strong {
   font-size: var(--redesign-type-title-md-size);
   font-weight: 750;
-}
-
-.ai-ppt-font-korean,
-.ai-ppt-font-latin {
-  color: var(--redesign-color-on-surface);
-  font-size: var(--redesign-type-body-sm-size);
-  line-height: 1.35;
-}
-
-.ai-ppt-font-latin {
-  color: var(--redesign-color-on-surface-variant);
-  font-size: var(--redesign-type-label-sm-size);
-}
-
-.ai-ppt-font-grid button small {
-  color: var(--redesign-color-on-surface-variant);
-  font-size: var(--redesign-type-label-sm-size);
-  line-height: 1.35;
-  margin-top: auto;
 }
 
 .ai-ppt-palette-grid {
@@ -2191,12 +2169,6 @@
   font-weight: 750;
 }
 
-.ai-ppt-palette-hex {
-  color: var(--redesign-color-on-surface-variant);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--redesign-type-label-sm-size);
-}
-
 .ai-ppt-palette-swatches {
   height: 28px;
 }
@@ -2206,6 +2178,7 @@
   color: var(--redesign-color-on-surface-variant);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--redesign-type-label-sm-size);
+  justify-content: flex-end;
   padding-top: var(--redesign-space-2);
 }
 
@@ -2225,7 +2198,7 @@
   border: var(--redesign-border-width) solid;
   display: grid;
   gap: var(--redesign-space-2);
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 1fr auto;
   min-width: 0;
   overflow: hidden;
   padding: var(--redesign-space-3);
@@ -2240,7 +2213,6 @@
   padding: var(--redesign-space-4);
 }
 
-.ai-ppt-palette-mockup-header,
 .ai-ppt-palette-mockup-footer {
   align-items: center;
   display: flex;
@@ -2251,17 +2223,10 @@
   min-width: 0;
 }
 
-.ai-ppt-palette-mockup-header > span:first-child,
 .ai-ppt-palette-mockup-footer > span:first-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.ai-ppt-palette-mockup-category {
-  font-size: var(--redesign-type-micro-sm-size);
-  line-height: 1.1;
-  padding: var(--redesign-space-1) var(--redesign-space-2);
 }
 
 .ai-ppt-palette-mockup-content {

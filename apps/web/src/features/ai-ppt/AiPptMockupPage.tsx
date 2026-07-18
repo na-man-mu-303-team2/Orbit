@@ -989,13 +989,6 @@ export function AiPptStyleColorPage(props: {
 
   return (
     <WorkspaceContainer as="section" className="ai-ppt-page" width="content">
-      <header className="ai-ppt-header">
-        <div>
-          <span>AI PPT</span>
-          <h1>발표에 어울리는 스타일을 선택하세요</h1>
-          <p>컬러와 폰트를 선택하면 미리보기와 최종 슬라이드에 반영됩니다.</p>
-        </div>
-      </header>
       <div className="ai-ppt-layout">
         <WizardSteps activeIndex={1} />
         <main className="ai-ppt-workspace ai-ppt-workspace-single ai-ppt-context-panel">
@@ -1308,15 +1301,11 @@ function StyleColorStep(props: {
   return (
     <>
       <PanelHeading
-        description="발표 분위기에 맞는 폰트와 컬러를 선택하면 슬라이드 전체에 일관되게 적용됩니다."
         kicker="2단계 · Style & Color"
-        title="폰트와 색상을 선택하세요"
+        title="폰트와 색상 선택"
       />
       <fieldset className="ai-ppt-style-fieldset">
         <legend>폰트</legend>
-        <p className="ai-ppt-field-hint">
-          이름만 보고 고르지 않도록 제목과 본문에 적용된 글자 모양을 함께 확인하세요.
-        </p>
         <div className="ai-ppt-font-grid" role="list">
           {props.fontOptions.map((font) => (
             <button
@@ -1327,9 +1316,6 @@ function StyleColorStep(props: {
               onClick={() => props.onFontSelect(font.fontId)}
             >
               <span className="ai-ppt-font-card-topline">
-                <span className="ai-ppt-font-badge">
-                  {props.selectedFontId === font.fontId ? "선택됨" : "폰트"}
-                </span>
                 <span className="ai-ppt-font-check" aria-hidden="true">
                   {props.selectedFontId === font.fontId ? <IconCheck size={14} /> : null}
                 </span>
@@ -1344,22 +1330,12 @@ function StyleColorStep(props: {
               <strong style={{ fontFamily: font.headingFontFamily }}>
                 {font.name}
               </strong>
-              <span className="ai-ppt-font-korean" style={{ fontFamily: font.bodyFontFamily }}>
-                가나다라 · 핵심을 선명하게
-              </span>
-              <span className="ai-ppt-font-latin" style={{ fontFamily: font.bodyFontFamily }}>
-                Aa Bb Cc 123
-              </span>
-              <small>{font.rationale}</small>
             </button>
           ))}
         </div>
       </fieldset>
       <fieldset className="ai-ppt-style-fieldset">
         <legend>컬러 팔레트</legend>
-        <p className="ai-ppt-field-hint">
-          색상만 바꾸는 것이 아니라, 해당 팔레트로 만든 대표 슬라이드 구조까지 미리 확인하세요.
-        </p>
         <div className="ai-ppt-palette-grid ai-ppt-palette-grid-expanded" role="list">
           {defaultPaletteOptions.map((option) => (
             <PaletteButton
@@ -1436,12 +1412,8 @@ function PaletteButton(props: {
             {props.selected ? <IconCheck size={14} /> : null}
           </span>
         </span>
-        <span className="ai-ppt-palette-hex">
-          {props.option.palette.primary.toUpperCase()} · {hexToRgb(props.option.palette.primary)}
-        </span>
         <PaletteSwatches palette={props.option.palette} />
         <span className="ai-ppt-palette-card-footer">
-          <span>{paletteMockupPresets[props.option.optionId]?.role ?? "--color-custom"}</span>
           <span>{paletteMockupPresets[props.option.optionId]?.version ?? "v1.0.0"}</span>
         </span>
         <small>{props.option.rationale}</small>
@@ -1482,15 +1454,6 @@ function PaletteMockupSlide(props: { option: PaletteOption; large?: boolean }) {
         color: option.palette.text,
       }}
     >
-      <span className="ai-ppt-palette-mockup-header">
-        <span>{preset.eyebrow}</span>
-        <span
-          className="ai-ppt-palette-mockup-category"
-          style={{ background: option.palette.primary, color: option.palette.background }}
-        >
-          {preset.category}
-        </span>
-      </span>
       <span className="ai-ppt-palette-mockup-content">
         <strong style={{ color: option.palette.primary }}>{preset.title}</strong>
         <span>{preset.subtitle}</span>
@@ -1621,15 +1584,6 @@ function PaletteSwatches(props: { palette: Required<PaletteOverride> }) {
       ))}
     </span>
   );
-}
-
-function hexToRgb(hex: string) {
-  const value = hex.replace("#", "");
-  const normalized = value.length === 3
-    ? value.split("").map((character) => `${character}${character}`).join("")
-    : value;
-  const number = Number.parseInt(normalized, 16);
-  return `${(number >> 16) & 255}, ${(number >> 8) & 255}, ${number & 255}`;
 }
 
 export function miniSlideFontStyles(
