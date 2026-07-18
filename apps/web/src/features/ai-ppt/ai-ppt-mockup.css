@@ -1408,6 +1408,50 @@
   color: var(--redesign-color-info);
 }
 
+.ai-ppt-loading-workspace {
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: calc(var(--redesign-space-8) + var(--redesign-space-6));
+}
+
+.ai-ppt-loading-panel {
+  align-content: start;
+  display: grid;
+  justify-items: center;
+  min-height: 600px;
+  padding-top: 0;
+}
+
+.ai-ppt-loading-panel .ai-ppt-status {
+  margin: 0;
+  max-width: 960px;
+  text-align: center;
+  width: 100%;
+}
+
+.ai-ppt-style-loader {
+  animation: ai-ppt-style-loader-spin var(--redesign-duration-loop) linear infinite;
+  color: var(--redesign-color-surface-tint);
+  margin-top: calc(var(--redesign-space-12) * 3);
+}
+
+@keyframes ai-ppt-style-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-ppt-style-loader {
+    animation: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .ai-ppt-loading-workspace {
+    margin-top: var(--redesign-space-4);
+  }
+}
+
 .ai-ppt-pack-manager {
   align-items: end;
   display: grid;
@@ -1813,6 +1857,129 @@
   box-shadow: var(--redesign-shadow-none);
   color: inherit;
 }
+
+/* 활성 스테퍼 시안: 플로팅 캡슐 */
+.ai-ppt-steps {
+  gap: var(--redesign-space-1);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: var(--redesign-space-1);
+}
+
+.ai-ppt-step,
+.ai-ppt-step:first-child,
+.ai-ppt-step:last-child {
+  border-radius: var(--redesign-radius-full);
+  clip-path: none;
+  margin: 0;
+  min-height: 48px;
+  padding-inline: var(--redesign-space-5);
+}
+
+.ai-ppt-step-marker {
+  align-items: center;
+  background: var(--redesign-color-surface-container-lowest);
+  border: var(--redesign-border-subtle);
+  border-radius: 50%;
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  letter-spacing: 0;
+  width: 30px;
+}
+
+.ai-ppt-step.active {
+  box-shadow: var(--redesign-shadow-none);
+}
+
+.ai-ppt-step.active .ai-ppt-step-marker {
+  background: var(--redesign-color-surface-container-lowest);
+  color: var(--redesign-color-primary-emphasis);
+}
+
+/* 보류된 스테퍼 시안 3: 마일스톤 트랙
+.ai-ppt-steps {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  gap: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: visible;
+  padding: 0;
+  position: relative;
+}
+
+.ai-ppt-steps::before {
+  background: var(--redesign-color-outline-variant);
+  content: "";
+  height: 4px;
+  left: 25%;
+  position: absolute;
+  right: 25%;
+  top: 24px;
+}
+
+.ai-ppt-steps:has(.ai-ppt-step:last-child.active)::before {
+  background: linear-gradient(
+    112deg,
+    var(--redesign-color-primary) 0%,
+    var(--redesign-color-secondary) 100%
+  );
+}
+
+.ai-ppt-step,
+.ai-ppt-step:first-child,
+.ai-ppt-step:last-child {
+  background: transparent;
+  border-radius: 0;
+  clip-path: none;
+  flex-direction: column;
+  gap: var(--redesign-space-2);
+  margin: 0;
+  min-height: 86px;
+  padding: 0 var(--redesign-space-3);
+  z-index: 1;
+}
+
+.ai-ppt-step-marker {
+  align-items: center;
+  background: var(--redesign-color-surface-container-lowest);
+  border: 3px solid var(--redesign-color-outline-variant);
+  border-radius: 50%;
+  display: inline-flex;
+  flex: 0 0 52px;
+  font-size: var(--redesign-type-title-md-size);
+  height: 52px;
+  justify-content: center;
+  letter-spacing: 0.04em;
+  width: 52px;
+}
+
+.ai-ppt-step.active,
+.ai-ppt-step.done {
+  background: transparent;
+}
+
+.ai-ppt-step.active .ai-ppt-step-marker {
+  background: linear-gradient(
+    112deg,
+    var(--redesign-color-primary) 0%,
+    var(--redesign-color-secondary) 100%
+  );
+  border-color: var(--redesign-color-surface-container-lowest);
+  color: var(--redesign-color-on-primary);
+  outline: 6px solid var(--redesign-color-primary-container);
+}
+
+.ai-ppt-step.done .ai-ppt-step-marker {
+  background: var(--redesign-color-primary-subtle);
+  border-color: var(--redesign-color-primary-outline);
+  color: var(--redesign-color-primary-emphasis);
+}
+
+.ai-ppt-step.active .ai-ppt-step-copy strong {
+  color: var(--redesign-color-primary-emphasis);
+}
+*/
 
 .ai-ppt-panel {
   min-height: 0;

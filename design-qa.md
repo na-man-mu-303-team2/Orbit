@@ -60,6 +60,57 @@ final result: passed
 
 ---
 
+# Style loading spinner design QA
+
+- Source visual truth: `.tmp/design-qa/style-loading-final.png`의 기존 로딩 화면 레이아웃과 사용자 지정 스피너 요구.
+- Implementation screenshot: `.tmp/design-qa/style-loading-spinner.png`.
+- Route: `/createdeck?preview=style-loading`.
+- Viewport/state: 1453×874 CSS px, Style & Color 시작 로딩 상태.
+
+## Comparison evidence
+
+- Full view: 단계 표시, 상태 문구 너비·위치, 화면 여백은 기존 로딩 레이아웃과 동일하게 유지했다.
+- Focused region: 폐기된 블록 영역만 기존 AI PPT 로딩 화면에서 사용 중인 Tabler `IconLoader2` 기반 스피너로 교체했다.
+- Typography, spacing, color tokens, copy는 기존 상태를 유지했다. 추가 이미지 자산은 없다.
+- 300ms 간격의 computed transform 값이 달라 회전 동작을 확인했다.
+- 브라우저 콘솔 warning/error 없음. P0/P1/P2 시각 차이 없음.
+
+## Verification
+
+- AI PPT UI Vitest 4개 통과.
+- `tsc -p tsconfig.json --noEmit` 통과.
+
+final result: passed
+
+---
+
+# Style loading block animation design QA
+
+> 2026-07-19: 사용자 요청으로 블록 애니메이션 렌더링과 CSS를 삭제하지 않고 주석 처리했다. 상태 문구의 중앙 정렬만 유지한다.
+
+- Source visual truth: `C:/Users/Runner/Desktop/Frame 3.png`.
+- Implementation captures: `.tmp/design-qa/style-loading-a.png`, `.tmp/design-qa/style-loading-b.png`, `.tmp/design-qa/style-loading-final.png`.
+- Route: `/createdeck?preview=style-loading`.
+- Viewport: 1453×874 CSS px.
+
+## Fidelity and motion checks
+
+- `ai-ppt-status`는 960px 너비로 중앙 정렬하고 단계 표시와 로딩 모션 사이에 기준 이미지와 유사한 수직 여백을 확보했다.
+- Tabler `IconSquareFilled`로 구성한 블록이 위에서 회전하며 낙하하고, 하단의 불규칙한 블록 더미 위로 쌓이는 동작을 확인했다.
+- 700ms 간격의 두 캡처에서 낙하 블록 위치가 달라 실제 애니메이션 재생을 확인했다.
+- `prefers-reduced-motion: reduce` 환경에서는 낙하 애니메이션을 정지하도록 처리했다.
+- 브라우저 콘솔 warning/error 없음. P0/P1/P2 시각 차이 없음.
+
+## Verification
+
+- AI PPT UI Vitest 4개 통과.
+- `tsc -p tsconfig.json --noEmit` 통과.
+- `git diff --check` 통과(CRLF 변환 안내만 존재).
+
+final result: discarded
+
+---
+
 # AI 컬러 팔레트 생성 흐름 design QA
 
 - Source visual truth: `C:/Users/Runner/Desktop/Frame 1.png`, `C:/Users/Runner/Desktop/Frame 2.png`.
