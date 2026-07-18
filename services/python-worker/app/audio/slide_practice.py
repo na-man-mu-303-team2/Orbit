@@ -22,6 +22,8 @@ FRAME_INTERVAL_MS = 60
 LOUDNESS_BUCKET_MS = 1_000
 SPEED_BUCKET_MS = 5_000
 ACTIVE_SPEECH_THRESHOLD_DB = -48.0
+MINIMUM_PAUSE_MS = 250
+MAXIMUM_TRANSCRIPT_SEGMENTS = 100
 RMS_FLOOR = 1e-6
 
 
@@ -63,6 +65,22 @@ class SlidePracticeSpeedSample(BaseModel):
     )
 
 
+class SlidePracticeTranscriptSegment(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    text: str = Field(min_length=1, max_length=1_000)
+    start_ms: int = Field(alias="startMs", ge=0, le=300_000)
+    end_ms: int = Field(alias="endMs", gt=0, le=300_000)
+
+
+class SlidePracticePauseSegment(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    start_ms: int = Field(alias="startMs", ge=0, le=300_000)
+    end_ms: int = Field(alias="endMs", gt=0, le=300_000)
+    duration_ms: int = Field(alias="durationMs", gt=0, le=300_000)
+
+
 class SlidePracticeAudioResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -80,6 +98,14 @@ class SlidePracticeAudioResponse(BaseModel):
     speed_samples: list[SlidePracticeSpeedSample] = Field(
         alias="speedSamples",
         max_length=60,
+    )
+    transcript_segments: list[SlidePracticeTranscriptSegment] = Field(
+        alias="transcriptSegments",
+        max_length=MAXIMUM_TRANSCRIPT_SEGMENTS,
+    )
+    pause_segments: list[SlidePracticePauseSegment] = Field(
+        alias="pauseSegments",
+        max_length=MAXIMUM_TRANSCRIPT_SEGMENTS,
     )
 
 
@@ -102,6 +128,9 @@ def process_slide_practice_audio(
         loudness_samples = build_slide_practice_loudness_samples(decoded_audio)
     except Exception:
         voice = _unmeasured_metrics(np.asarray([], dtype=np.float32))
+    transcript_segments = build_slide_practice_transcript_segments(
+        transcription.segments
+    )
     return SlidePracticeAudioResponse(
         transcript=transcription.transcript,
         provider=transcription.provider,
@@ -112,6 +141,8 @@ def process_slide_practice_audio(
             transcription.segments,
             duration_ms,
         ),
+        transcriptSegments=transcript_segments,
+        pauseSegments=build_slide_practice_pause_segments(transcript_segments),
     )
 
 
@@ -285,6 +316,55 @@ def build_slide_practice_speed_samples(
         if min(resolved_duration_ms, (index + 1) * SPEED_BUCKET_MS)
         > index * SPEED_BUCKET_MS
     ]
+
+
+def build_slide_practice_transcript_segments(
+    segments: list[TranscriptSegment],
+) -> list[SlidePracticeTranscriptSegment]:
+    result: list[SlidePracticeTranscriptSegment] = []
+    for segment in segments:
+        text = segment.text.strip()
+        if (
+            not text
+            or segment.start_seconds is None
+            or segment.end_seconds is None
+            or segment.end_seconds <= segment.start_seconds
+        ):
+            continue
+        start_ms = max(0, min(300_000, int(round(segment.start_seconds * 1_000))))
+        end_ms = max(0, min(300_000, int(round(segment.end_seconds * 1_000))))
+        if end_ms <= start_ms:
+            continue
+        result.append(
+            SlidePracticeTranscriptSegment(
+                text=text[:1_000],
+                startMs=start_ms,
+                endMs=end_ms,
+            )
+        )
+        if len(result) >= MAXIMUM_TRANSCRIPT_SEGMENTS:
+            break
+    return sorted(result, key=lambda segment: (segment.start_ms, segment.end_ms))
+
+
+def build_slide_practice_pause_segments(
+    segments: list[SlidePracticeTranscriptSegment],
+) -> list[SlidePracticePauseSegment]:
+    result: list[SlidePracticePauseSegment] = []
+    for previous, current in zip(segments, segments[1:], strict=False):
+        duration_ms = current.start_ms - previous.end_ms
+        if duration_ms < MINIMUM_PAUSE_MS:
+            continue
+        result.append(
+            SlidePracticePauseSegment(
+                startMs=previous.end_ms,
+                endMs=current.start_ms,
+                durationMs=duration_ms,
+            )
+        )
+        if len(result) >= MAXIMUM_TRANSCRIPT_SEGMENTS:
+            break
+    return result
 
 
 def _count_spoken_syllables(text: str) -> int:

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { findSlidePracticeCoachingIssues } from "./slide-practice-analysis";
+import {
+  buildSlidePracticeCoachingEvidence,
+  findSlidePracticeCoachingIssues,
+} from "./slide-practice-analysis";
 import {
   createSlidePracticeAnalysisRequestSchema,
   createSlidePracticeReportRequestSchema,
@@ -187,6 +190,49 @@ describe("slidePracticeReportSchema", () => {
     }).success).toBe(true);
   });
 
+  it("accepts one script-linked coaching item for prompt v2", () => {
+    expect(slidePracticeReportSchema.safeParse({
+      ...report,
+      reportVersion: 2,
+      coaching: {
+        status: "succeeded",
+        summary: "핵심 문장을 천천히 강조해 보세요.",
+        issueCodes: ["pace-fast"],
+        items: [{
+          category: "pace",
+          title: "핵심 숫자를 천천히 강조하세요",
+          reason: "이 구간의 말 속도가 빠릅니다.",
+          action: "숫자 앞뒤에서 잠깐 쉬어 말해 보세요.",
+          practiceTip: "숫자만 강조해 세 번 반복하세요.",
+          scriptEdit: null,
+          scriptEvidence: {
+            originalText: "최대 4명이 함께 협동합니다.",
+            alignment: "matched",
+            startMs: 0,
+            endMs: 2_000,
+            issueCodes: ["pace-fast"],
+            metrics: {
+              syllablesPerSecond: 5.2,
+              loudnessDb: -34,
+              pauseBeforeMs: null,
+              pauseAfterMs: 200,
+              pitchSpanHz: 42,
+              fillerTotalCount: 0,
+              fillerWords: [],
+              loudnessVariationDb: 2.1,
+              rhythmRegularity: 0.82,
+            },
+          },
+        }],
+        practicePlan: null,
+        model: "gpt-test",
+        policyVersion: 1,
+        promptVersion: 2,
+        generatedAt: "2026-07-17T00:00:31.000Z",
+      },
+    }).success).toBe(true);
+  });
+
   it("requires the approved no-improvement message", () => {
     expect(slidePracticeReportSchema.safeParse({
       ...report,
@@ -267,6 +313,8 @@ describe("slide practice server analysis contract", () => {
       voice: report.voice,
       loudnessSamples: [{ startMs: 0, endMs: 1_000, loudnessDb: -35 }],
       speedSamples: [{ startMs: 0, endMs: 5_000, syllablesPerSecond: 4 }],
+      transcriptSegments: [{ text: "발표를 시작합니다", startMs: 0, endMs: 2_000 }],
+      pauseSegments: [],
     }).success).toBe(true);
   });
 });
@@ -292,5 +340,45 @@ describe("findSlidePracticeCoachingIssues", () => {
       "pitch-flat",
       "loudness-low",
     ]);
+  });
+});
+
+describe("buildSlidePracticeCoachingEvidence", () => {
+  it("aligns transcript memory to the real script and keeps only derived metrics", () => {
+    const candidates = buildSlidePracticeCoachingEvidence({
+      speakerNotes: "최대 4명이 함께 협동합니다. 다음 기능을 설명합니다.",
+      transcriptSegments: [{
+        text: "최대 네 명이 함께 협동합니다",
+        startMs: 0,
+        endMs: 2_000,
+      }],
+      pauseSegments: [{ startMs: 2_000, endMs: 3_200, durationMs: 1_200 }],
+      loudnessSamples: [
+        { startMs: 0, endMs: 1_000, loudnessDb: -27 },
+        { startMs: 1_000, endMs: 2_000, loudnessDb: -29 },
+      ],
+      voice: {
+        ...report.voice,
+        syllablesPerSecond: 5.2,
+        pauseRatio: 0.08,
+        pitchSpanHz: 35,
+        loudnessMadDb: 2.1,
+        rhythmRegularity: 0.82,
+      },
+      issueCodes: ["pace-fast", "pause-low", "pitch-flat", "loudness-high"],
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      originalText: "최대 4명이 함께 협동합니다.",
+      alignment: "matched",
+      metrics: {
+        loudnessDb: -28,
+        pitchSpanHz: 35,
+        loudnessVariationDb: 2.1,
+        rhythmRegularity: 0.82,
+      },
+    });
+    expect(JSON.stringify(candidates)).not.toContain("최대 네 명");
   });
 });

@@ -2,6 +2,7 @@ import type { StoragePort } from "@orbit/storage";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createTestDeck } from "./generate-deck/test-deck.fixture";
 import { processSlidePracticeAnalysisJob } from "./slide-practice-analysis.processor";
 
 const payload = {
@@ -20,17 +21,13 @@ describe("processSlidePracticeAnalysisJob", () => {
       if (String(url).endsWith("/slide-practice/coaching")) {
         return new Response(JSON.stringify({
           summary: "습관어와 말 속도를 함께 연습해 보세요.",
-          items: [{
+          item: {
+            evidenceId: "evidence-1",
             category: "filler",
             title: "습관어 줄이기",
             reason: "습관어가 반복됐습니다.",
             action: "핵심 문장부터 시작해 보세요.",
             practiceTip: "추천 문장을 세 번 읽어 보세요.",
-            scriptEdit: null,
-          }],
-          practicePlan: {
-            title: "30초 연습",
-            steps: ["습관어 없이 세 번 읽어 보세요."],
           },
           model: "gpt-test",
         }), { status: 200 });
@@ -47,6 +44,12 @@ describe("processSlidePracticeAnalysisJob", () => {
         speedSamples: [
           { startMs: 0, endMs: 5_000, syllablesPerSecond: 2.2 },
         ],
+        transcriptSegments: [{
+          text: "음 어 발표를 시작합니다",
+          startMs: 0,
+          endMs: 2_000,
+        }],
+        pauseSegments: [],
       }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetcher);
@@ -68,12 +71,14 @@ describe("processSlidePracticeAnalysisJob", () => {
       .filter(([sql]) => String(sql).includes("INSERT INTO slide_practice_reports"))
       .flatMap(([, parameters]) => parameters ?? []);
     const persisted = JSON.stringify(persistedParameters);
-    expect(persisted).not.toContain("발표를 시작합니다");
+    expect(persisted).not.toContain("음 어 발표를 시작합니다");
     expect(persisted).toContain('"reportVersion":2');
     expect(persisted).toContain('"loudnessSamples"');
     expect(persisted).toContain('"speedSamples"');
     expect(persisted).toContain('"coaching"');
     expect(persisted).toContain('"status":"succeeded"');
+    expect(persisted).toContain('"promptVersion":2');
+    expect(persisted).toContain('"scriptEvidence"');
     expect(persisted).toContain('"classifierVersion":4');
     expect(persisted).toContain('"mode":"lullaby"');
     const coachingRequest = fetcher.mock.calls.find(([url]) => (
@@ -81,6 +86,7 @@ describe("processSlidePracticeAnalysisJob", () => {
     ));
     expect(String(coachingRequest?.[1]?.body)).not.toContain("transcript");
     expect(String(coachingRequest?.[1]?.body)).not.toContain("audio");
+    expect(String(coachingRequest?.[1]?.body)).not.toContain("음 어 발표를 시작합니다");
   });
 
   it("queues raw audio deletion when server analysis fails", async () => {
@@ -106,6 +112,11 @@ function createQuery() {
   return vi.fn(async (sql: string, parameters?: unknown[]) => {
     if (sql.includes("FROM slide_practice_audio_analyses analyses")) return [inputRow()];
     if (sql.includes("FROM user_voice_baselines")) return [];
+    if (sql.includes("FROM decks d")) return [{
+      deck_json: deckFixture(),
+      version: 2,
+      patch_rows: [],
+    }];
     if (sql.includes("SELECT report_id FROM slide_practice_reports")) return [];
     if (sql.includes("INSERT INTO slide_practice_reports")) return [{ report_id: "report-a" }];
     if (sql.includes("UPDATE jobs") && parameters?.[1] === "running") return [jobRow("running", null, null)];
@@ -122,10 +133,10 @@ function inputRow() {
     created_by: "user-a",
     client_request_id: "request-a",
     practice_session_id: "practice-a",
-    deck_id: "deck-a",
+    deck_id: "deck_test_a",
     deck_version: 2,
-    slide_id: "slide-a",
-    slide_order: 0,
+    slide_id: "slide_test_a",
+    slide_order: 1,
     started_at: "2026-07-17T00:00:00.000Z",
     duration_ms: 12_000,
     device_id_hash: null,
@@ -135,6 +146,21 @@ function inputRow() {
     mime_type: "audio/webm",
     asset_status: "uploaded",
     purpose: "slide-practice-audio",
+  };
+}
+
+function deckFixture() {
+  const deck = createTestDeck("project-a");
+  return {
+    ...deck,
+    deckId: "deck_test_a",
+    version: 2,
+    slides: [{
+      ...deck.slides[0],
+      slideId: "slide_test_a",
+      order: 1,
+      speakerNotes: "발표를 시작합니다.",
+    }],
   };
 }
 

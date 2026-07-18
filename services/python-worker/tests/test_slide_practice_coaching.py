@@ -25,7 +25,7 @@ class FakeOpenAIClient:
         self.responses = FakeResponses(payload)
 
 
-def test_generates_bounded_coaching_and_keeps_verified_script_edit() -> None:
+def test_selects_one_verified_script_metric_evidence() -> None:
     client = FakeOpenAIClient(valid_response())
     result = generate_slide_practice_coaching(
         request(),
@@ -35,31 +35,31 @@ def test_generates_bounded_coaching_and_keeps_verified_script_edit() -> None:
     )
 
     assert result.model == "gpt-test"
-    assert result.items[0].script_edit is not None
-    assert result.items[0].script_edit.original_text in request().speaker_notes
+    assert result.item.evidence_id == "evidence-1"
     sent_payload = str(client.responses.calls[0]["input"])
     assert "fillerTotalCount" in sent_payload
+    assert "loudnessVariationDb" in sent_payload
+    assert "rhythmRegularity" in sent_payload
     assert "transcript" not in sent_payload
     assert "audio" not in sent_payload
 
 
-def test_drops_script_edit_that_is_not_in_speaker_notes() -> None:
+def test_rejects_unknown_evidence_id() -> None:
     payload = valid_response()
-    payload["items"][0]["scriptEdit"]["originalText"] = "존재하지 않는 문장입니다."
+    payload["item"]["evidenceId"] = "evidence-unknown"
 
-    result = generate_slide_practice_coaching(
-        request(),
-        model="gpt-test",
-        api_key=None,
-        client=FakeOpenAIClient(payload),
-    )
-
-    assert result.items[0].script_edit is None
+    with pytest.raises(SlidePracticeCoachingError):
+        generate_slide_practice_coaching(
+            request(),
+            model="gpt-test",
+            api_key=None,
+            client=FakeOpenAIClient(payload),
+        )
 
 
 def test_rejects_coaching_for_an_unmeasured_issue_category() -> None:
     payload = valid_response()
-    payload["items"][0]["category"] = "loudness"
+    payload["item"]["category"] = "loudness"
 
     with pytest.raises(SlidePracticeCoachingError):
         generate_slide_practice_coaching(
@@ -81,31 +81,40 @@ def request() -> SlidePracticeCoachingRequest:
             "pauseRatio": 0.29,
             "pitchSpanHz": 50,
             "loudnessDb": -35.4,
+            "loudnessVariationDb": 2.1,
+            "rhythmRegularity": 0.78,
         },
+        "evidenceCandidates": [{
+            "evidenceId": "evidence-1",
+            "originalText": "그러니까 이 기능을 통해서 사용자 경험을 개선할 수 있습니다.",
+            "alignment": "matched",
+            "startMs": 0,
+            "endMs": 4_000,
+            "issueCodes": ["filler-use"],
+            "metrics": {
+                "syllablesPerSecond": 4.3,
+                "loudnessDb": -35.4,
+                "pauseBeforeMs": None,
+                "pauseAfterMs": 300,
+                "pitchSpanHz": 50,
+                "fillerTotalCount": 2,
+                "fillerWords": ["그러니까"],
+                "loudnessVariationDb": 2.1,
+                "rhythmRegularity": 0.78,
+            },
+        }],
     })
 
 
 def valid_response() -> dict[str, object]:
     return {
         "summary": "습관어를 줄이면 핵심이 더 분명해집니다.",
-        "items": [{
+        "item": {
+            "evidenceId": "evidence-1",
             "category": "filler",
             "title": "습관어 줄이기",
             "reason": "연결 표현이 반복됩니다.",
             "action": "핵심 문장부터 바로 시작해 보세요.",
             "practiceTip": "추천 문장을 세 번 읽어 보세요.",
-            "scriptEdit": {
-                "originalText": "그러니까 이 기능을 통해서 사용자 경험을 개선할 수 있습니다.",
-                "suggestedText": "이 기능은 사용자 경험을 개선합니다.",
-                "reason": "핵심이 더 분명해집니다.",
-            },
-        }],
-        "practicePlan": {
-            "title": "30초 연습",
-            "steps": [
-                "추천 대본을 읽습니다.",
-                "속도와 쉼을 조절해 읽습니다.",
-                "자연스럽게 이어 말합니다.",
-            ],
         },
     }

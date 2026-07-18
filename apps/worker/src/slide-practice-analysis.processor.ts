@@ -1,6 +1,7 @@
 import type { StoragePort } from "@orbit/storage";
 import {
   analyzeKoreanFillers,
+  buildSlidePracticeCoachingEvidence,
   classifyVoiceStyle,
   countSpokenSyllables,
   createUnmeasuredVoiceStyleResult,
@@ -10,12 +11,13 @@ import {
   jobSchema,
   slidePracticeAnalysisJobPayloadSchema,
   slidePracticeAnalysisJobResultSchema,
-  slidePracticeCoachingContentSchema,
+  slidePracticeCoachingSelectionContentSchema,
   slidePracticeReportSchema,
   slidePracticeServerAudioResponseSchema,
   voiceBaselineMetricsSchema,
   type Job,
   type SlidePracticeCoaching,
+  type SlidePracticeCoachingEvidenceCandidate,
   type SlidePracticeCoachingIssueCode,
   type SlidePracticeReport,
 } from "@orbit/shared";
@@ -189,10 +191,19 @@ export async function processSlidePracticeAnalysisJob(
     const speakerNotes = issueCodes.length > 0
       ? await loadSpeakerNotes(dataSource, row).catch(() => "")
       : "";
+    const evidenceCandidates = buildSlidePracticeCoachingEvidence({
+      speakerNotes,
+      transcriptSegments: evidence.transcriptSegments,
+      pauseSegments: evidence.pauseSegments,
+      loudnessSamples: evidence.loudnessSamples,
+      voice,
+      issueCodes,
+    });
     const coaching = await createSlidePracticeCoaching({
       pythonWorkerUrl,
       speakerNotes,
       issueCodes,
+      evidenceCandidates,
       report: reportWithoutCoaching,
     });
     emitBusinessEvent(onEvent, {
@@ -246,6 +257,7 @@ async function createSlidePracticeCoaching(input: {
   pythonWorkerUrl: string;
   speakerNotes: string;
   issueCodes: SlidePracticeCoachingIssueCode[];
+  evidenceCandidates: SlidePracticeCoachingEvidenceCandidate[];
   report: SlidePracticeReport;
 }): Promise<SlidePracticeCoaching> {
   if (input.issueCodes.length === 0) {
@@ -258,13 +270,20 @@ async function createSlidePracticeCoaching(input: {
           practicePlan: null,
           model: null,
           policyVersion: 1,
-          promptVersion: 1,
+          promptVersion: 2,
           generatedAt: null,
         }
       : unavailableCoaching(
           "측정 데이터가 부족해 개선점을 생성하지 못했습니다.",
           [],
         );
+  }
+
+  if (input.evidenceCandidates.length === 0) {
+    return unavailableCoaching(
+      "대본과 측정 구간을 안전하게 연결하지 못해 개선점을 생성하지 않았습니다.",
+      input.issueCodes,
+    );
   }
 
   try {
@@ -284,7 +303,10 @@ async function createSlidePracticeCoaching(input: {
             pauseRatio: input.report.voice.pauseRatio,
             pitchSpanHz: input.report.voice.pitchSpanHz,
             loudnessDb: input.report.voice.loudnessDb,
+            loudnessVariationDb: input.report.voice.loudnessMadDb,
+            rhythmRegularity: input.report.voice.rhythmRegularity,
           },
+          evidenceCandidates: input.evidenceCandidates,
         }),
       },
     );
@@ -294,21 +316,40 @@ async function createSlidePracticeCoaching(input: {
         input.issueCodes,
       );
     }
-    const generated = slidePracticeCoachingContentSchema.parse(await response.json());
+    const generated = slidePracticeCoachingSelectionContentSchema.parse(await response.json());
+    const selectedEvidence = input.evidenceCandidates.find(
+      (candidate) => candidate.evidenceId === generated.item.evidenceId,
+    );
+    if (
+      !selectedEvidence
+      || !input.speakerNotes.includes(selectedEvidence.originalText)
+      || !selectedEvidence.issueCodes.some(
+        (issueCode) => coachingCategory(issueCode) === generated.item.category,
+      )
+    ) {
+      return unavailableCoaching(
+        "AI 개선점의 대본 근거를 확인하지 못했습니다. 그래프와 측정 결과는 정상적으로 확인할 수 있습니다.",
+        input.issueCodes,
+      );
+    }
+    const { evidenceId: _evidenceId, ...scriptEvidence } = selectedEvidence;
     return {
       status: "succeeded",
       summary: generated.summary,
       issueCodes: input.issueCodes,
-      items: generated.items.map((item) => ({
-        ...item,
-        scriptEdit: item.scriptEdit && input.speakerNotes.includes(item.scriptEdit.originalText)
-          ? item.scriptEdit
-          : null,
-      })),
-      practicePlan: generated.practicePlan,
+      items: [{
+        category: generated.item.category,
+        title: generated.item.title,
+        reason: generated.item.reason,
+        action: generated.item.action,
+        practiceTip: generated.item.practiceTip,
+        scriptEdit: null,
+        scriptEvidence,
+      }],
+      practicePlan: null,
       model: generated.model,
       policyVersion: 1,
-      promptVersion: 1,
+      promptVersion: 2,
       generatedAt: new Date().toISOString(),
     };
   } catch {
@@ -331,9 +372,28 @@ function unavailableCoaching(
     practicePlan: null,
     model: null,
     policyVersion: 1,
-    promptVersion: 1,
+    promptVersion: 2,
     generatedAt: null,
   };
+}
+
+function coachingCategory(issueCode: SlidePracticeCoachingIssueCode) {
+  switch (issueCode) {
+    case "filler-use":
+      return "filler";
+    case "pace-slow":
+    case "pace-fast":
+      return "pace";
+    case "pause-low":
+    case "pause-high":
+      return "pause";
+    case "pitch-flat":
+    case "pitch-wide":
+      return "pitch";
+    case "loudness-low":
+    case "loudness-high":
+      return "loudness";
+  }
 }
 
 async function loadSpeakerNotes(

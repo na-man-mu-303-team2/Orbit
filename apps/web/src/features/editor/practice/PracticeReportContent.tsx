@@ -110,9 +110,6 @@ export function LoudnessBarChart(props: {
               );
             })}
             <GraphTimeTicks durationMs={durationMs} />
-            <text className="editor-practice-band-label" x={graphPadding.left + graphPlotWidth - 8} y={scaleY(-37.5, yMin, yMax) + 4} textAnchor="end">
-              권장 범위 -45~-30 dBFS
-            </text>
           </svg>
           <p className="editor-practice-graph-note">0 dBFS에 가까울수록 더 큰 소리예요.</p>
         </>
@@ -193,9 +190,6 @@ export function SpeedLineChart(props: {
             );
           })}
           <GraphTimeTicks durationMs={durationMs} />
-          <text className="editor-practice-band-label" x={graphPadding.left + graphPlotWidth - 8} y={scaleY(4, yMin, yMax) + 4} textAnchor="end">
-            권장 범위 3.5~4.5 음절/초
-          </text>
         </svg>
       )}
     </section>
@@ -210,7 +204,6 @@ export function PracticeCoachingCard(props: {
     <section className="editor-practice-coaching" aria-labelledby="practice-coaching-title">
       <header>
         <h3 id="practice-coaching-title">개선할 점</h3>
-        <span>AI 코칭</span>
       </header>
       {!coaching || coaching.status === "unavailable" ? (
         <p className="editor-practice-coaching-state">
@@ -224,40 +217,74 @@ export function PracticeCoachingCard(props: {
       ) : (
         <>
           <p className="editor-practice-coaching-summary">{coaching.summary}</p>
-          <div className="editor-practice-coaching-grid">
-            {coaching.items.map((item, index) => (
-              <article className="editor-practice-coaching-item" key={`${item.category}-${item.title}`}>
-                <header><span>{String.fromCharCode(65 + index)}</span><h4>{item.title}</h4></header>
-                <p>{item.reason}</p>
-                {item.scriptEdit ? (
-                  <div className="editor-practice-script-edit">
-                    <div><strong>현재 대본</strong><p>{item.scriptEdit.originalText}</p></div>
-                    <span aria-hidden="true">→</span>
-                    <div><strong>추천 대본</strong><p>{item.scriptEdit.suggestedText}</p></div>
-                    <small><strong>이유</strong> {item.scriptEdit.reason}</small>
-                  </div>
-                ) : (
-                  <div className="editor-practice-coaching-action">
-                    <strong>바로 해보기</strong>
-                    <p>{item.action}</p>
-                    <small>{item.practiceTip}</small>
-                  </div>
-                )}
-              </article>
-            ))}
-            {coaching.practicePlan ? (
-              <article className="editor-practice-coaching-item practice-plan">
-                <header><span>{String.fromCharCode(65 + coaching.items.length)}</span><h4>{coaching.practicePlan.title}</h4></header>
-                <ol>
-                  {coaching.practicePlan.steps.map((step) => <li key={step}>{step}</li>)}
-                </ol>
-              </article>
-            ) : null}
-          </div>
+          {coaching.items[0] ? <SingleCoachingItem item={coaching.items[0]} /> : null}
         </>
       )}
     </section>
   );
+}
+
+function SingleCoachingItem({ item }: { item: SlidePracticeCoaching["items"][number] }) {
+  const evidence = item.scriptEvidence;
+  return (
+    <article className="editor-practice-coaching-item editor-practice-coaching-single">
+      <header><h4>{item.title}</h4></header>
+      <p>{item.reason}</p>
+      {evidence ? (
+        <>
+          <section className="editor-practice-script-evidence">
+            <strong>{evidence.alignment === "matched" ? "측정된 실제 대본" : "연습할 실제 대본"}</strong>
+            <blockquote>{evidence.originalText}</blockquote>
+            <dl className="editor-practice-evidence-metrics">
+              <Metric label="말 속도" value={formatMetric(evidence.metrics.syllablesPerSecond, "음절/초")} />
+              <Metric label="음량" value={formatMetric(evidence.metrics.loudnessDb, "dBFS")} />
+              <Metric label="쉼 구간" value={formatPause(evidence.metrics.pauseBeforeMs, evidence.metrics.pauseAfterMs)} />
+              <Metric label="피치폭" value={formatMetric(evidence.metrics.pitchSpanHz, "Hz")} />
+              <Metric label="습관어" value={formatFillers(evidence.metrics.fillerTotalCount, evidence.metrics.fillerWords)} />
+              <Metric label="음량 변화폭" value={formatMetric(evidence.metrics.loudnessVariationDb, "dB")} />
+              <Metric label="리듬 규칙성" value={formatRatio(evidence.metrics.rhythmRegularity)} />
+            </dl>
+          </section>
+          <div className="editor-practice-coaching-methods">
+            <section><strong>대본과 연결한 방법</strong><p>{item.action}</p></section>
+            <section><strong>다른 연습 방법</strong><p>{item.practiceTip}</p></section>
+          </div>
+        </>
+      ) : item.scriptEdit ? (
+        <div className="editor-practice-script-edit">
+          <div><strong>현재 대본</strong><p>{item.scriptEdit.originalText}</p></div>
+          <span aria-hidden="true">→</span>
+          <div><strong>추천 대본</strong><p>{item.scriptEdit.suggestedText}</p></div>
+          <small><strong>이유</strong> {item.scriptEdit.reason}</small>
+        </div>
+      ) : (
+        <div className="editor-practice-coaching-action">
+          <strong>바로 해보기</strong>
+          <p>{item.action}</p>
+          <small>{item.practiceTip}</small>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return <div><dt>{label}</dt><dd>{value}</dd></div>;
+}
+
+function formatPause(beforeMs: number | null, afterMs: number | null) {
+  if (beforeMs === null && afterMs === null) return "측정 안 됨";
+  const values = [beforeMs, afterMs].filter((value): value is number => value !== null);
+  return `${Math.max(...values) / 1_000}초`;
+}
+
+function formatFillers(totalCount: number, words: readonly string[]) {
+  if (totalCount === 0) return "0회";
+  return `${totalCount}회${words.length > 0 ? ` (${words.join(", ")})` : ""}`;
+}
+
+function formatRatio(value: number | null) {
+  return value === null ? "측정 안 됨" : `${Math.round(value * 100)}%`;
 }
 
 function GraphEmptyState({ children }: { children: string }) {

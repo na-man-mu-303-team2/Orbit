@@ -60,11 +60,17 @@ describe("FillerWordPieChart", () => {
     expect(html).toContain("시간별 데시벨 세로 막대 그래프");
     expect(html).toContain("시간별 말 속도 선 그래프");
     expect(html).toContain("습관어 줄이기");
-    expect(html).toContain("현재 대본");
-    expect(html).toContain("추천 대본");
-    expect(html).toContain("30초 연습");
+    expect(html).toContain("측정된 실제 대본");
+    expect(html).toContain("대본과 연결한 방법");
+    expect(html).toContain("다른 연습 방법");
+    expect(html).toContain("말 속도");
+    expect(html).toContain("음량 변화폭");
+    expect(html).toContain("리듬 규칙성");
+    expect(html).not.toContain("30초 연습");
     expect(html).not.toContain("습관어 사용 비율");
     expect(html).not.toContain("판단 근거");
+    expect(html).not.toContain(">AI 코칭<");
+    expect(html).not.toContain("권장 범위");
   });
 
   it("이전 기록은 그래프와 AI 코칭이 없는 상태를 명시한다", () => {
@@ -197,19 +203,30 @@ function practiceReport(): SlidePracticeReport {
         reason: "연결 표현이 반복됩니다.",
         action: "핵심 문장부터 시작해 보세요.",
         practiceTip: "추천 문장을 세 번 읽어 보세요.",
-        scriptEdit: {
+        scriptEdit: null,
+        scriptEvidence: {
           originalText: "그러니까 이 기능을 통해서 사용자 경험을 개선할 수 있습니다.",
-          suggestedText: "이 기능은 사용자 경험을 개선합니다.",
-          reason: "핵심이 더 분명해집니다.",
+          alignment: "matched",
+          startMs: 0,
+          endMs: 3_000,
+          issueCodes: ["filler-use"],
+          metrics: {
+            syllablesPerSecond: 5.2,
+            loudnessDb: -34,
+            pauseBeforeMs: null,
+            pauseAfterMs: 300,
+            pitchSpanHz: 34.3,
+            fillerTotalCount: 3,
+            fillerWords: ["음"],
+            loudnessVariationDb: 2,
+            rhythmRegularity: 0.8,
+          },
         },
       }],
-      practicePlan: {
-        title: "30초 연습",
-        steps: ["추천 대본을 세 번 읽어 보세요."],
-      },
+      practicePlan: null,
       model: "gpt-test",
       policyVersion: 1,
-      promptVersion: 1,
+      promptVersion: 2,
       generatedAt: "2026-07-17T00:00:10.000Z",
     },
     style: {
