@@ -1315,6 +1315,53 @@ describe("DecksService", () => {
     );
   });
 
+  it("blocks imported PPTX export while its package is stale", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = deckSchema.parse({ ...createDeck(), version: 145 });
+    seedStoredDeck(dataSource, deck, deck);
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 1,
+        slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
+      },
+    });
+    const jobsService = {
+      create: vi.fn(),
+      update: vi.fn(),
+      getLatestPptxOoxmlSync: vi.fn(async () => null),
+    };
+    const enqueueExportJob = vi.fn(async () => undefined);
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      vi.fn(async () => undefined),
+      enqueueExportJob,
+    );
+
+    await expect(
+      service.createExportJob(deck.projectId, { format: "pptx" }),
+    ).rejects.toMatchObject({
+      status: HttpStatus.CONFLICT,
+      response: expect.objectContaining({
+        code: "DECK_EXPORT_OOXML_SYNC_NOT_READY",
+        ooxmlSyncState: expect.objectContaining({
+          status: "stale",
+          deckVersion: 145,
+          syncedDeckVersion: 1,
+        }),
+      }),
+    });
+    expect(jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueExportJob).not.toHaveBeenCalled();
+  });
+
   it("authorizes and forwards the selected presentation session for export", async () => {
     stubOrbitEnv();
     const dataSource = new InMemoryDeckDataSource();
@@ -2253,5 +2300,102 @@ describe("DecksService", () => {
       "projectId=project_other_1",
       "deck.projectId=project_demo_1",
     ]);
+  });
+
+  it("reports a failed OOXML sync for the current Deck version", async () => {
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = deckSchema.parse({ ...createDeck(), version: 145 });
+    seedStoredDeck(dataSource, deck, deck);
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 1,
+        slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
+      },
+    });
+    const failedJob = jobSchema.parse({
+      ...createJob("job_sync_failed"),
+      status: "failed",
+      error: { code: "PPTX_OOXML_SYNC_FAILED", message: "sync failed" },
+    });
+    const jobsService = {
+      getLatestPptxOoxmlSync: vi.fn(async () => failedJob),
+    };
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+    );
+
+    const response = await service.getOoxmlSyncState(deck.projectId);
+
+    expect(response.ooxmlSyncState).toMatchObject({
+      status: "failed",
+      deckVersion: 145,
+      syncedDeckVersion: 1,
+      retryable: true,
+      job: { jobId: "job_sync_failed" },
+    });
+    expect(jobsService.getLatestPptxOoxmlSync).toHaveBeenCalledWith(
+      deck.projectId,
+      deck.deckId,
+      145,
+    );
+  });
+
+  it("retries OOXML sync against the current Deck version", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = deckSchema.parse({ ...createDeck(), version: 145 });
+    seedStoredDeck(dataSource, deck, deck);
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 1,
+        slides: [{ slideIndex: 1, sourceSlideIndex: 1, slots: [] }],
+      },
+    });
+    const queuedJob = createJob("job_sync_retry");
+    const jobsService = {
+      create: vi.fn(async () => queuedJob),
+      update: vi.fn(),
+      getLatestPptxOoxmlSync: vi.fn(async () => null),
+    };
+    const enqueueSyncJob = vi.fn(async () => undefined);
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      enqueueSyncJob,
+    );
+
+    const response = await service.retryOoxmlSync(deck.projectId);
+
+    expect(response.ooxmlSyncState).toMatchObject({
+      status: "pending",
+      deckVersion: 145,
+      syncedDeckVersion: 1,
+      retryable: false,
+      job: { jobId: "job_sync_retry" },
+    });
+    expect(jobsService.create).toHaveBeenCalledWith({
+      projectId: deck.projectId,
+      type: "pptx-ooxml-sync",
+      payload: expect.objectContaining({
+        deckId: deck.deckId,
+        targetDeckVersion: 145,
+      }),
+    });
+    expect(enqueueSyncJob).toHaveBeenCalledWith(
+      expect.objectContaining({ targetDeckVersion: 145 }),
+    );
   });
 });

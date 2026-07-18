@@ -92,6 +92,7 @@ import type {
   DeckAnimation,
   DeckExportFormat,
   DeckExportRequest,
+  OoxmlSyncState,
   SemanticCue,
 } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -377,7 +378,11 @@ export function EditorShell(props: { projectId?: string }) {
     isRightPanelOpen: boolean;
     isSlidesPaneCollapsed: boolean;
   } | null>(null);
-  const ooxmlSyncJob = useOoxmlSyncJob();
+  const {
+    job: ooxmlSyncJob,
+    retry: retryOoxmlSync,
+    state: ooxmlSyncState
+  } = useOoxmlSyncJob(projectId);
 
   const health = useQuery({
     queryKey: ["health"],
@@ -768,7 +773,7 @@ export function EditorShell(props: { projectId?: string }) {
     isUsingFallbackDeck,
     saveState
   });
-  const ooxmlSyncStatus = getOoxmlSyncStatus(ooxmlSyncJob);
+  const ooxmlSyncStatus = getOoxmlSyncStatus(ooxmlSyncJob, ooxmlSyncState);
   function hasUnsavedEditorChanges() {
     return editorDocumentActions.hasUnsavedChanges();
   }
@@ -1756,6 +1761,9 @@ export function EditorShell(props: { projectId?: string }) {
               source: "user"
             }));
           }}
+          onRetryOoxmlSync={() => {
+            void retryOoxmlSync().catch(() => undefined);
+          }}
           onSave={() => void handleSaveDeck()}
           onStartPresentation={() => void handleStartPresentation()}
           onStartRehearsal={handleToggleSlideRehearsal}
@@ -2360,17 +2368,29 @@ function getEditorStatusLabel(props: {
   return "저장됨";
 }
 
-function getOoxmlSyncStatus(job: Job | null) {
-  if (!job || job.type !== "pptx-ooxml-sync") {
+function getOoxmlSyncStatus(job: Job | null, state: OoxmlSyncState | null) {
+  if (state?.status === "not-applicable") {
     return null;
   }
+
+  if (state?.status === "stale") {
+    return {
+      detail: `현재 Deck version ${state.deckVersion}, 동기화 version ${state.syncedDeckVersion ?? "없음"}`,
+      kind: "failed",
+      label: "동기화 재시도",
+      retryable: true
+    };
+  }
+
+  if (!job || job.type !== "pptx-ooxml-sync") return null;
 
   const warnings = readOoxmlSyncWarnings(job);
   if (job.status === "failed") {
     return {
       detail: job.error?.message ?? "PPTX OOXML sync failed.",
       kind: "failed",
-      label: "OOXML sync failed"
+      label: "동기화 재시도",
+      retryable: true
     };
   }
 
@@ -2378,14 +2398,16 @@ function getOoxmlSyncStatus(job: Job | null) {
     return {
       detail: warnings.join("\n") || "PPTX OOXML sync completed.",
       kind: warnings.length > 0 ? "warning" : "succeeded",
-      label: warnings.length > 0 ? "OOXML sync warnings" : "OOXML synced"
+      label: warnings.length > 0 ? "OOXML 동기화 경고" : "OOXML 동기화 완료",
+      retryable: false
     };
   }
 
   return {
     detail: job.message || "PPTX OOXML sync is queued.",
     kind: "pending",
-    label: "OOXML sync pending"
+    label: "OOXML 동기화 중",
+    retryable: false
   };
 }
 

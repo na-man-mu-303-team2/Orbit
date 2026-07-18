@@ -27,10 +27,12 @@ import {
   deckSnapshotReasonSchema,
   deckSnapshotSchema,
   getDeckResponseSchema,
+  getOoxmlSyncStateResponseSchema,
   jobSchema,
   listDeckSnapshotsResponseSchema,
   putDeckRequestSchema,
   putDeckResponseSchema,
+  retryOoxmlSyncResponseSchema,
   restoreDeckSnapshotResponseSchema,
   recoverTemplateBlueprintSlideIds,
   createSemanticCueExtractionJobResponseSchema,
@@ -56,6 +58,8 @@ import type {
   DeckSnapshot,
   DeckSnapshotReason,
   GetDeckResponse,
+  Job,
+  OoxmlSyncState,
   ListDeckSnapshotsResponse,
   PutDeckRequest,
   PutDeckResponse,
@@ -200,6 +204,23 @@ export class DecksService {
 
     const request = deckExportRequestSchema.parse(body ?? {});
     const { deck } = await this.getDeck(projectId);
+    if (request.format === "pptx") {
+      const syncState = await this.readOoxmlSyncState(projectId, deck);
+      if (
+        syncState.status !== "not-applicable" &&
+        syncState.status !== "synced"
+      ) {
+        throw new HttpException(
+          {
+            code: "DECK_EXPORT_OOXML_SYNC_NOT_READY",
+            message:
+              "최신 편집 내용의 PPTX 동기화가 완료되지 않았습니다. 동기화 재시도 후 다시 내보내세요.",
+            ooxmlSyncState: syncState,
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+    }
     if (request.presentationSessionId) {
       await this.assertExportSession(
         projectId,
@@ -258,6 +279,34 @@ export class DecksService {
     }
 
     return { job: jobSchema.parse(queuedJob) };
+  }
+
+  async getOoxmlSyncState(projectId: string) {
+    const { deck } = await this.getDeck(projectId);
+    const state = await this.readOoxmlSyncState(projectId, deck);
+    return getOoxmlSyncStateResponseSchema.parse({ ooxmlSyncState: state });
+  }
+
+  async retryOoxmlSync(projectId: string) {
+    const { deck } = await this.getDeck(projectId);
+    const current = await this.readOoxmlSyncState(projectId, deck);
+    if (current.status === "not-applicable" || current.status === "synced") {
+      return retryOoxmlSyncResponseSchema.parse({ ooxmlSyncState: current });
+    }
+    if (
+      current.status === "pending" &&
+      current.job?.status !== "failed"
+    ) {
+      return retryOoxmlSyncResponseSchema.parse({ ooxmlSyncState: current });
+    }
+
+    const job = await this.enqueueOoxmlSync(projectId, {
+      deckId: deck.deckId,
+      changeId: `retry_${randomUUID()}`,
+      targetDeckVersion: deck.version,
+    });
+    const state = await this.readOoxmlSyncState(projectId, deck, job);
+    return retryOoxmlSyncResponseSchema.parse({ ooxmlSyncState: state });
   }
 
   private async assertExportSession(
@@ -1283,6 +1332,55 @@ export class DecksService {
     }
 
     return { ...row, blueprint: recovered.blueprint };
+  }
+
+  private async readOoxmlSyncState(
+    projectId: string,
+    deck: Deck,
+    suppliedJob?: Job,
+  ): Promise<OoxmlSyncState> {
+    const imported = await this.findOoxmlTemplateBlueprint(
+      this.dataSource,
+      projectId,
+      deck.deckId,
+      deck,
+    );
+    if (!imported) {
+      return {
+        status: "not-applicable",
+        deckId: deck.deckId,
+        deckVersion: deck.version,
+        syncedDeckVersion: null,
+        retryable: false,
+      };
+    }
+
+    const syncedDeckVersion =
+      imported.blueprint.ooxmlSyncedDeckVersion ?? null;
+    const job =
+      suppliedJob ??
+      (await this.jobsService?.getLatestPptxOoxmlSync(
+        projectId,
+        deck.deckId,
+        deck.version,
+      ));
+    const status =
+      syncedDeckVersion === deck.version
+        ? "synced"
+        : job?.status === "failed"
+          ? "failed"
+          : job?.status === "queued" || job?.status === "running"
+            ? "pending"
+            : "stale";
+
+    return {
+      status,
+      deckId: deck.deckId,
+      deckVersion: deck.version,
+      syncedDeckVersion,
+      retryable: status === "stale" || status === "failed",
+      ...(job ? { job } : {}),
+    };
   }
 
   private async enqueueOoxmlSync(
