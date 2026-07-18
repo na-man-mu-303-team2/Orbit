@@ -211,7 +211,9 @@ describe("App shell routing", () => {
         </QueryClientProvider>
       );
 
-      expect(html).toContain("발표 내용부터 빠르게 시작하세요");
+      expect(html).not.toContain("핵심 컨텍스트");
+      expect(html).toContain("대본 톤");
+      expect(html).toContain("다음 단계");
       expect(html).toContain("Style &amp; Color");
     } finally {
       vi.unstubAllGlobals();
