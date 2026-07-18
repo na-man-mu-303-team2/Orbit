@@ -9,7 +9,6 @@ import type {
   ImageElementProps,
   ShapeElementProps,
   Slide,
-  TableCellProps,
   TableElementProps,
   TextElementProps,
 } from "@orbit/shared";
@@ -47,6 +46,7 @@ import type { SlideAnimationDiagnostics } from "../../../../../../../packages/ed
 import { resolveRedesignPalette } from "../../../../styles/redesignPalette";
 import { IdBadge } from "./EditorIdBadge";
 import type { ElementLayerOrderAction } from "../utils/elementLayerOrder";
+import { useEditorShellUiStore } from "../editorShellUiStore";
 
 type TextFitContext = {
   fontFamily?: string;
@@ -503,15 +503,22 @@ export function SelectionQuickBar(props: {
                 ) : null}
               </>
             ) : null}
-            <ElementQuickBarFields
-              customShapeEditActive={customShapeEditActive}
-              element={element}
-              onChangeProps={onChangeProps}
-              onConvertChartToTable={onConvertChartToTable}
-              onToggleCustomShapeClosed={onToggleCustomShapeClosed}
-              onToggleCustomShapeEdit={onToggleCustomShapeEdit}
-              primaryColor={editorPrimaryColor}
-            />
+            {element.type === "table" ? (
+              <TableQuickBarFields
+                element={element}
+                onChangeProps={onChangeProps}
+              />
+            ) : (
+              <ElementQuickBarFields
+                customShapeEditActive={customShapeEditActive}
+                element={element}
+                onChangeProps={onChangeProps}
+                onConvertChartToTable={onConvertChartToTable}
+                onToggleCustomShapeClosed={onToggleCustomShapeClosed}
+                onToggleCustomShapeEdit={onToggleCustomShapeEdit}
+                primaryColor={editorPrimaryColor}
+              />
+            )}
           </div>
         </div>
       ) : null}
@@ -783,46 +790,6 @@ function ElementQuickBarFields(props: {
     );
   }
 
-  if (element.type === "table") {
-    const tableProps = element.props as TableElementProps;
-
-    return (
-      <>
-        <PropertyTextAreaField
-          className="compact-property-field compact-property-field-table"
-          label="표 내용"
-          value={tableDataDraft(tableProps)}
-          onCommit={(value) =>
-            onChangeProps(
-              parseTableDataDraft(
-                value,
-                tableProps,
-                element.width,
-                element.height,
-              ),
-            )
-          }
-        />
-        <PropertyColorField
-          className="compact-property-field compact-property-field-color"
-          label="선"
-          value={tableProps.borderColor ?? "#CBD5E1"}
-          onCommit={(value) => onChangeProps({ borderColor: value })}
-        />
-        <PropertyNumberField
-          className="compact-property-field compact-property-field-sm"
-          label="선두께"
-          min={0}
-          onCommit={(value) => onChangeProps({ borderWidth: value })}
-          value={tableProps.borderWidth ?? 1}
-        />
-        <span className="quickbar-inline-hint">
-          행은 줄바꿈, 셀은 탭으로 구분합니다.
-        </span>
-      </>
-    );
-  }
-
   if (element.type === "chart") {
     const chart = element.props as Chart;
 
@@ -878,6 +845,72 @@ function ElementQuickBarFields(props: {
   }
 
   return null;
+}
+
+function TableQuickBarFields(props: {
+  element: Extract<DeckElement, { type: "table" }>;
+  onChangeProps: (props: Record<string, unknown>) => void;
+}) {
+  const activeTableCell = useEditorShellUiStore((state) => state.activeTableCell);
+  const setEditingElementId = useEditorShellUiStore(
+    (state) => state.setEditingElementId
+  );
+  const tableProps = props.element.props as TableElementProps;
+  const selectedCell =
+    activeTableCell?.elementId === props.element.elementId
+      ? activeTableCell
+      : null;
+  const disabledReason = selectedCell?.cellEditDisabledReason ?? null;
+  const styleDisabledReason =
+    props.element.ooxmlOrigin === "imported"
+      ? "가져온 표의 셀 스타일과 테두리는 원본 OOXML 보존을 위해 편집할 수 없습니다."
+      : null;
+
+  return (
+    <>
+      <button
+        aria-describedby={disabledReason ? "table-cell-edit-disabled-reason" : undefined}
+        className="quickbar-action-chip"
+        disabled={!selectedCell || Boolean(disabledReason)}
+        title={disabledReason ?? "선택한 셀 편집"}
+        type="button"
+        onClick={() => setEditingElementId(props.element.elementId)}
+      >
+        셀 편집
+      </button>
+      <PropertyColorField
+        className="compact-property-field compact-property-field-color"
+        disabled={Boolean(styleDisabledReason)}
+        label="선"
+        title={styleDisabledReason ?? undefined}
+        value={tableProps.borderColor ?? "#CBD5E1"}
+        onCommit={(value) => props.onChangeProps({ borderColor: value })}
+      />
+      <PropertyNumberField
+        className="compact-property-field compact-property-field-sm"
+        disabled={Boolean(styleDisabledReason)}
+        label="선두께"
+        min={0}
+        onCommit={(value) => props.onChangeProps({ borderWidth: value })}
+        value={tableProps.borderWidth ?? 1}
+      />
+      <span
+        className={`quickbar-inline-hint${disabledReason ? " quickbar-inline-hint-warning" : ""}`}
+        id={disabledReason ? "table-cell-edit-disabled-reason" : undefined}
+        role={disabledReason ? "status" : undefined}
+      >
+        {disabledReason ??
+          (selectedCell
+            ? `${selectedCell.rowIndex + 1}행 ${selectedCell.columnIndex + 1}열 선택됨`
+            : "캔버스에서 편집할 셀을 선택하세요.")}
+      </span>
+      {styleDisabledReason ? (
+        <span className="quickbar-inline-hint quickbar-inline-hint-warning">
+          {styleDisabledReason}
+        </span>
+      ) : null}
+    </>
+  );
 }
 
 export function createShrinkToFitTextProps(
@@ -1180,89 +1213,6 @@ function parseChartDataDraft(
   });
 }
 
-export function tableDataDraft(table: TableElementProps) {
-  return table.rows
-    .map((row) => row.map((cell) => cell.text).join("\t"))
-    .join("\n");
-}
-
-export function parseTableDataDraft(
-  value: string,
-  table: TableElementProps,
-  width: number,
-  height: number,
-): Record<string, unknown> {
-  const rowTexts = value
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((row) => row.split("\t"));
-  const rowCount = Math.max(1, rowTexts.length);
-  const columnCount = Math.max(
-    1,
-    rowTexts.reduce((maxColumns, row) => Math.max(maxColumns, row.length), 0),
-  );
-  const rows = rowTexts.map((row, rowIndex) =>
-    Array.from({ length: columnCount }, (_, columnIndex) => ({
-      ...getTableCellTemplate(table, rowIndex, columnIndex),
-      text: row[columnIndex] ?? "",
-    })),
-  );
-
-  return {
-    columnWidths: normalizeTableTrackSizes(
-      table.columnWidths,
-      columnCount,
-      width,
-    ),
-    rowHeights: normalizeTableTrackSizes(table.rowHeights, rowCount, height),
-    rows,
-  };
-}
-
-function getTableCellTemplate(
-  table: TableElementProps,
-  rowIndex: number,
-  columnIndex: number,
-): TableCellProps {
-  return {
-    ...(table.rows[rowIndex]?.[columnIndex] ??
-      table.rows[rowIndex]?.[0] ??
-      table.rows[0]?.[columnIndex] ??
-      table.rows[0]?.[0] ??
-      createQuickBarTableCell()),
-  };
-}
-
-function normalizeTableTrackSizes(
-  sizes: number[] | undefined,
-  count: number,
-  total: number,
-) {
-  const fallbackSize = Math.max(1, total / Math.max(1, count));
-
-  return Array.from({ length: count }, (_, index) =>
-    Number.isFinite(sizes?.[index]) && Number(sizes?.[index]) > 0
-      ? Number(sizes?.[index])
-      : fallbackSize,
-  );
-}
-
-function createQuickBarTableCell(): TableCellProps {
-  return {
-    align: "left",
-    borderColor: "#CBD5E1",
-    borderWidth: 1,
-    colSpan: 1,
-    fill: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "normal",
-    rowSpan: 1,
-    text: "",
-    textColor: "#111827",
-    verticalAlign: "middle",
-  };
-}
-
 function solidPaintForControl(paint: DeckElementPaint, fallback: string) {
   if (paint === "transparent") {
     return fallback;
@@ -1412,50 +1362,15 @@ function PropertyTextField(props: {
   );
 }
 
-function PropertyTextAreaField(props: {
-  className?: string;
-  label: string;
-  value: string;
-  onCommit: (value: string) => void;
-}) {
-  const { className, label, onCommit, value } = props;
-  const [draftValue, setDraftValue] = useState(value);
-
-  useEffect(() => {
-    setDraftValue(value);
-  }, [value]);
-
-  function commitValue(nextValue: string) {
-    onCommit(nextValue);
-    setDraftValue(nextValue);
-  }
-
-  return (
-    <label className={["property-field", className].filter(Boolean).join(" ")}>
-      <span>{label}</span>
-      <textarea
-        rows={2}
-        value={draftValue}
-        onBlur={(event) => commitValue(event.target.value)}
-        onChange={(event) => setDraftValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            commitValue(event.currentTarget.value);
-            event.currentTarget.blur();
-          }
-        }}
-      />
-    </label>
-  );
-}
-
 function PropertyColorField(props: {
   className?: string;
+  disabled?: boolean;
   label: string;
+  title?: string;
   value: string;
   onCommit: (value: string) => void;
 }) {
-  const { className, label, onCommit, value } = props;
+  const { className, disabled = false, label, onCommit, title, value } = props;
   const [draftValue, setDraftValue] = useState(value);
 
   useEffect(() => {
@@ -1478,6 +1393,8 @@ function PropertyColorField(props: {
       <span className="property-color-control">
         <input
           aria-label={`${label} 색상 선택`}
+          disabled={disabled}
+          title={title}
           type="color"
           value={draftValue}
           onBlur={(event) => commitValue(event.target.value)}

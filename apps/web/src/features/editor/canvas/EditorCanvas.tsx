@@ -681,6 +681,7 @@ export function EditableCanvas(props: {
               selectedCount={selectedElementIds.length}
               showIds={showIds}
               slide={slide}
+              stageScale={stageScale}
               customShapeEditDraft={
                 customShapeEditDraft?.elementId === element.elementId
                   ? customShapeEditDraft

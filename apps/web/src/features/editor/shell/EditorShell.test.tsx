@@ -10,8 +10,7 @@ import type {
   Deck,
   DeckPatch,
   DeckElement,
-  SemanticCue,
-  TableElementProps
+  SemanticCue
 } from "@orbit/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -64,9 +63,7 @@ import { createDistributeSelectionPatch } from "./utils/selectionDistribution";
 import {
   createExpandTextWidthToFitFrame,
   createShrinkToFitTextProps,
-  createSingleLineTextFit,
-  parseTableDataDraft,
-  tableDataDraft
+  createSingleLineTextFit
 } from "./components/SelectionQuickBar";
 import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
@@ -1176,56 +1173,6 @@ describe("editor shell", () => {
     expect(getDeckThumbnailRefreshSlideIds(previousDeck, themeDeck)).toEqual(
       themeDeck.slides.map((slide) => slide.slideId),
     );
-  });
-
-  it("keeps table quickbar edits in editable table props", () => {
-    const table: TableElementProps = {
-      borderColor: "#CBD5E1",
-      borderWidth: 1,
-      columnWidths: [120, 120],
-      rowHeights: [40, 40],
-      rows: [
-        [
-          {
-            align: "center",
-            borderColor: "#CBD5E1",
-            borderWidth: 1,
-            colSpan: 1,
-            fill: "#EFF6FF",
-            fontSize: 18,
-            fontWeight: "bold",
-            rowSpan: 1,
-            text: "A",
-            verticalAlign: "middle"
-          },
-          {
-            align: "center",
-            borderColor: "#CBD5E1",
-            borderWidth: 1,
-            colSpan: 1,
-            fill: "#EFF6FF",
-            fontSize: 18,
-            fontWeight: "bold",
-            rowSpan: 1,
-            text: "B",
-            verticalAlign: "middle"
-          }
-        ]
-      ]
-    };
-
-    expect(tableDataDraft(table)).toBe("A\tB");
-
-    const patch = parseTableDataDraft("Name\tScore\nAda\t95", table, 240, 120);
-
-    expect(patch).toMatchObject({
-      columnWidths: [120, 120],
-      rowHeights: [40, 40],
-      rows: [
-        [{ text: "Name" }, { text: "Score" }],
-        [{ text: "Ada" }, { text: "95" }]
-      ]
-    });
   });
 
   it("applies manual save results only while the saved snapshot is still current", () => {
