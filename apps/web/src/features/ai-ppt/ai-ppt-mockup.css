@@ -504,8 +504,11 @@
 }
 
 .ai-ppt-style-fieldset legend {
-  font-size: var(--redesign-type-body-sm-size);
-  font-weight: 750;
+  font-family: var(--redesign-font-family);
+  font-size: var(--redesign-type-label-md-size);
+  font-weight: var(--redesign-type-label-md-weight);
+  letter-spacing: var(--redesign-type-label-md-tracking);
+  line-height: var(--redesign-type-label-md-line-height);
   margin-bottom: var(--redesign-space-3);
 }
 
