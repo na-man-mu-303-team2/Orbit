@@ -366,7 +366,6 @@ export function EditorSlideRehearsalRightPanel(
                     <IconCircle aria-hidden="true" size={16} />
                   )}
                   <span>{keyword.text}</span>
-                  {keyword.required ? <small>필수</small> : null}
                 </li>
               );
             })}
