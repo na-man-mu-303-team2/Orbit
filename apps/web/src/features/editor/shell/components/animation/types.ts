@@ -19,6 +19,7 @@ export type AnimationEditorPanelProps = {
   animations: DeckAnimation[];
   canCreateAnimation: boolean;
   element: DeckElement | null;
+  mutationDisabledReason?: string | null;
   keywordOptions: AnimationKeywordTriggerOption[];
   keywordTriggerRestrictionMessage?: string | null;
   keywordTriggerWarningMessage?: string | null;

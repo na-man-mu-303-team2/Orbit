@@ -17,6 +17,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     keywordOptions,
     keywordTriggerRestrictionMessage,
     keywordTriggerWarningMessage,
+    mutationDisabledReason = null,
     preferredAnimationId,
     selectedKeywordId,
     selectedKeywordLabel,
@@ -64,6 +65,11 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
 
   return (
     <section className="property-panel animation-inspector-panel">
+      {mutationDisabledReason ? (
+        <div className="animation-editor-warning" role="status">
+          {mutationDisabledReason}
+        </div>
+      ) : null}
       <AnimationSelectionSummary
         element={element}
         showIds={showIds}
@@ -102,11 +108,16 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
       />
 
       {mode === "editing-existing" && selectedAnimation ? (
-        <AnimationExistingEditor
-          animation={selectedAnimation}
-          onDeleteAnimation={onDeleteAnimation}
-          onUpdateAnimation={onUpdateAnimation}
-        />
+        <fieldset
+          disabled={Boolean(mutationDisabledReason)}
+          style={{ display: "contents" }}
+        >
+          <AnimationExistingEditor
+            animation={selectedAnimation}
+            onDeleteAnimation={onDeleteAnimation}
+            onUpdateAnimation={onUpdateAnimation}
+          />
+        </fieldset>
       ) : null}
 
       {mode === "idle" ? (

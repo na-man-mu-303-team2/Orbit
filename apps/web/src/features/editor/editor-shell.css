@@ -4921,6 +4921,36 @@
   gap: var(--redesign-space-4);
 }
 
+.animation-transition-panel {
+  margin-bottom: var(--redesign-space-4);
+}
+
+.animation-start-mode-field {
+  display: grid;
+  gap: var(--redesign-space-2);
+}
+
+.animation-start-mode-field strong {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-sm-size);
+}
+
+.animation-start-mode-field select {
+  min-height: var(--redesign-space-10);
+  width: 100%;
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  background: var(--redesign-color-surface);
+  color: var(--redesign-color-on-surface);
+  font: inherit;
+  padding: 0 var(--redesign-space-3);
+}
+
+.animation-start-mode-field select:focus-visible {
+  box-shadow: var(--redesign-focus-ring);
+  outline: none;
+}
+
 .animation-panel-selection-card {
   display: flex;
   align-items: center;
