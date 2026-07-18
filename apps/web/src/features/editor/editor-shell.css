@@ -2511,10 +2511,6 @@
   width: 240px;
 }
 
-.compact-property-field-table {
-  width: 320px;
-}
-
 .compact-property-field-color {
   width: 82px;
 }
@@ -2949,10 +2945,6 @@
   overflow: auto;
 }
 
-.inline-data-editor-table {
-  overflow: visible;
-}
-
 .floating-chart-editor {
   position: fixed;
   z-index: 120;
@@ -2979,32 +2971,6 @@
   color: var(--redesign-color-on-surface-variant);
 }
 
-.inline-table-editor-grid {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  display: grid;
-}
-
-.inline-table-editor-actions {
-  position: absolute;
-  left: 0;
-  top: calc(100% + var(--redesign-space-2));
-  z-index: 3;
-  display: flex;
-  align-items: end;
-  flex-wrap: wrap;
-  gap: var(--redesign-space-1);
-  width: max-content;
-  max-width: calc(100vw - var(--redesign-space-8));
-  padding: var(--redesign-space-1);
-  border: var(--redesign-border-subtle);
-  border-radius: var(--redesign-radius-xl);
-  background: color-mix(in srgb, var(--redesign-color-light-surface) 94%, transparent);
-  box-shadow: var(--redesign-glow-primary);
-}
-
-.inline-table-editor-actions button,
 .inline-chart-add-row {
   min-height: 28px;
   display: inline-flex;
@@ -3020,33 +2986,14 @@
   font-weight: 800;
 }
 
-.inline-table-editor-actions button:hover,
 .inline-chart-add-row:hover {
   border-color: var(--redesign-color-primary-emphasis);
   color: var(--redesign-color-primary-emphasis);
 }
 
-.inline-table-editor-actions button:disabled,
 .inline-data-row-remove:disabled {
   cursor: not-allowed;
   opacity: 0.4;
-}
-
-.inline-table-editor-grid > input {
-  min-width: 0;
-  min-height: 0;
-  box-sizing: border-box;
-  padding: var(--redesign-space-1) var(--redesign-space-2);
-  border: var(--redesign-border-strong);
-  border-radius: 0;
-  outline: none;
-}
-
-.inline-table-editor-grid > input:focus {
-  position: relative;
-  z-index: 1;
-  border-color: var(--redesign-color-primary-emphasis);
-  box-shadow: var(--redesign-shadow-inset-primary-emphasis);
 }
 
 .inline-chart-editor-card {
@@ -6362,8 +6309,7 @@
   }
 
   .orbit-shell .selection-quickbar[data-testid="editor-element-quickbar"] .compact-property-field-lg,
-  .orbit-shell .selection-quickbar[data-testid="editor-element-quickbar"] .compact-property-field-xl,
-  .orbit-shell .selection-quickbar[data-testid="editor-element-quickbar"] .compact-property-field-table {
+  .orbit-shell .selection-quickbar[data-testid="editor-element-quickbar"] .compact-property-field-xl {
     flex-basis: 160px;
   }
 
@@ -9132,7 +9078,7 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional .script-notes-editor,
 .orbit-shell.editor-professional input,
 .orbit-shell.editor-professional select,
-.orbit-shell.editor-professional textarea:not(.inline-text-editor) {
+.orbit-shell.editor-professional textarea:not(.inline-text-editor):not(.table-cell-editor-overlay) {
   background: var(--redesign-color-surface-container);
   border-color: var(--redesign-color-outline);
   color: var(--redesign-color-on-surface);
@@ -9148,14 +9094,6 @@ body.is-resizing-speaker-notes {
 
 .inline-data-editor-control > input {
   width: var(--redesign-space-18);
-}
-
-.inline-table-cell-selection {
-  align-self: center;
-  color: var(--redesign-color-on-surface-variant);
-  font-size: var(--redesign-type-label-sm-size);
-  font-weight: 800;
-  padding-inline: var(--redesign-space-1);
 }
 
 .compact-color-control > input,
