@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createDemoDeck } from "@orbit/editor-core";
+import { createActivitySlide, createDemoDeck } from "@orbit/editor-core";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -58,5 +58,16 @@ describe("PresentationWorkspace", () => {
     expect(source).toContain("<PresentationScreen");
     expect(source).not.toContain('<header className="rehearsal-presenter-topbar">');
     expect(source).not.toContain('<section className="rehearsal-presenter-layout">');
+  });
+
+  it("renders the auto-start presenter controls for an Activity slide", () => {
+    const deck = createDemoDeck();
+    const activitySlide = createActivitySlide(deck, "pre-question");
+    const html = renderToStaticMarkup(
+      <PresentationWorkspace initialDeck={{ ...deck, slides: [activitySlide] }} />,
+    );
+
+    expect(html).toContain('aria-label="참여 장표 운영"');
+    expect(html).toContain("ACTIVITY CONTROL");
   });
 });
