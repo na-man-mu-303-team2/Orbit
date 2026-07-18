@@ -314,6 +314,16 @@ export function EditorShell(props: { projectId?: string }) {
     setIsOpen: setIsShapeMenuOpen,
     setPosition: setShapeMenuPosition
   });
+  const [isChartMenuOpen, setIsChartMenuOpen] = useState(false);
+  const [chartMenuPosition, setChartMenuPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const chartMenuButtonRef = useShapeMenuPlacement({
+    isOpen: isChartMenuOpen,
+    setIsOpen: setIsChartMenuOpen,
+    setPosition: setChartMenuPosition
+  });
   const elementContextMenu = useEditorShellUiStore((state) => state.elementContextMenu);
   const setElementContextMenu = useEditorShellUiStore(
     (state) => state.setElementContextMenu
@@ -459,6 +469,7 @@ export function EditorShell(props: { projectId?: string }) {
   useEffect(() => {
     if (canEditCurrentSlideCanvas) return;
     setInsertTool("select");
+    setIsChartMenuOpen(false);
     setIsShapeMenuOpen(false);
     setIsAnimationPanelOpen(false);
     setSelectedElementIds([]);
@@ -473,6 +484,7 @@ export function EditorShell(props: { projectId?: string }) {
     setElementContextMenu,
     setInsertTool,
     setIsAnimationPanelOpen,
+    setIsChartMenuOpen,
     setIsShapeMenuOpen,
     setSelectedElementIds
   ]);
@@ -756,10 +768,12 @@ export function EditorShell(props: { projectId?: string }) {
   const handleAddTextElement = editorCanvasActions.addTextElement;
   const handleCanvasBackgroundSelectionClear = editorCanvasActions.clearCanvasSelection;
   const handleCommitCustomShapeGeometry = editorCanvasActions.commitCustomShapeGeometry;
+  const handleConvertChartToTable = editorCanvasActions.convertChartToTable;
   const handleCopySelectedElement = editorCanvasActions.copySelectedElement;
   const handleCreateCustomShape = editorCanvasActions.createCustomShape;
   const handleCreateDrawnElement = editorCanvasActions.createDrawnElement;
   const handleCreateGroupFromSelection = editorCanvasActions.createGroupFromSelection;
+  const handleDeleteSlide = editorCanvasActions.deleteSlide;
   const handleDeleteSelectedElement = editorCanvasActions.deleteSelectedElement;
   const handleDuplicateSelectedElement = editorCanvasActions.duplicateSelectedElement;
   const handleElementFrameChange = editorCanvasActions.changeElementFrame;
@@ -1416,6 +1430,7 @@ export function EditorShell(props: { projectId?: string }) {
               setIsRightPanelOpen(true);
             }}
             onAddSlide={handleAddSlide}
+            onDeleteSlide={handleDeleteSlide}
             onResizeStart={handleSlidesPaneResizeStart}
             onSelectSlide={handleSelectSlideForNavigator}
             onSetView={setSlidePanelView}
@@ -1431,13 +1446,14 @@ export function EditorShell(props: { projectId?: string }) {
           {!isSlideRehearsalActive ? (
             <EditorToolbar
               canUseCurrentSlide={canEditCurrentSlideCanvas}
+              chartMenuButtonRef={chartMenuButtonRef}
               insertTool={insertTool}
               isAnimationPanelOpen={isAnimationPanelOpen}
+              isChartMenuOpen={isChartMenuOpen}
               isIconPanelOpen={isIconPanelOpen}
               isImageUploadPending={isImageUploadPending}
               isShapeMenuOpen={isShapeMenuOpen}
               isStageFitToViewport={isStageFitToViewport}
-              onAddChart={handleAddChartElement}
               onAddText={handleAddTextElement}
               onOpenAnimation={openAnimationInspector}
               onOpenIconLibrary={toggleIconLibrary}
@@ -1451,7 +1467,14 @@ export function EditorShell(props: { projectId?: string }) {
               }}
               onRedo={handleRedo}
               onSelectTool={() => setInsertTool("select")}
-              onToggleShapeMenu={() => setIsShapeMenuOpen((current) => !current)}
+              onToggleChartMenu={() => {
+                setIsShapeMenuOpen(false);
+                setIsChartMenuOpen((current) => !current);
+              }}
+              onToggleShapeMenu={() => {
+                setIsChartMenuOpen(false);
+                setIsShapeMenuOpen((current) => !current);
+              }}
               onUndo={handleUndo}
               onFitStageToViewport={fitStageToViewport}
               onZoomIn={zoomCanvasIn}
@@ -1699,6 +1722,7 @@ export function EditorShell(props: { projectId?: string }) {
               element={selectedElementIds.length === 1 ? selectedElement : null}
               onChangeElementFrame={handleElementFrameChange}
               onChangeElementProps={handleElementPropsChange}
+              onConvertChartToTable={handleConvertChartToTable}
               onChangeSlideStyle={(style) => {
                 if (currentSlide) handleSlideStyleChange(currentSlide.slideId, style);
               }}
@@ -1795,12 +1819,19 @@ export function EditorShell(props: { projectId?: string }) {
         />
       </main>
       <EditorContextMenus
+        chartMenuPosition={chartMenuPosition}
         elementContextMenu={elementContextMenu}
+        isChartMenuOpen={isChartMenuOpen}
         isImageUploadPending={isImageUploadPending}
         isShapeMenuOpen={isShapeMenuOpen}
+        onCloseChartMenu={() => setIsChartMenuOpen(false)}
         onCloseElementContextMenu={() => setElementContextMenu(null)}
         onCloseShapeMenu={() => setIsShapeMenuOpen(false)}
         onCreateGroup={handleCreateGroupFromSelection}
+        onInsertChart={(type) => {
+          handleAddChartElement(type);
+          setIsChartMenuOpen(false);
+        }}
         onInsertShape={handleInsertShapeElement}
         onReplaceImage={openImageFilePicker}
         onUngroup={handleUngroupElement}

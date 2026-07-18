@@ -21,6 +21,7 @@ export function SlideNavigatorPane(props: {
   onAddActivitySlide: (template: ActivityTemplate) => void;
   onAddActivityResultsSlide: () => void;
   onAddSlide: () => void;
+  onDeleteSlide: (index: number) => void;
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onSelectSlide: (index: number) => void;
   onSetView: (view: SlidePanelView) => void;
@@ -67,10 +68,22 @@ export function SlideNavigatorPane(props: {
               return (
                 <button
                   aria-label={`슬라이드 ${index + 1}: ${slideTitle}`}
+                  aria-keyshortcuts="Delete Backspace"
                   className={`slide-item ${index === props.currentSlideIndex ? "active" : ""}`}
                   key={slide.slideId}
                   type="button"
                   onClick={() => props.onSelectSlide(index)}
+                  onKeyDown={(event) => {
+                    if (
+                      index !== props.currentSlideIndex ||
+                      !isSlideDeleteKey(event.key)
+                    ) {
+                      return;
+                    }
+                    event.preventDefault();
+                    event.stopPropagation();
+                    props.onDeleteSlide(index);
+                  }}
                 >
                   <span className="slide-item-meta">
                     <span className="slide-number">{index + 1}</span>
@@ -226,4 +239,8 @@ export function SlideNavigatorPane(props: {
 
 export function canAddActivitySlide(deck: Pick<Deck, "canvas">): boolean {
   return deck.canvas.preset === "wide-16-9";
+}
+
+export function isSlideDeleteKey(key: string): boolean {
+  return key === "Delete" || key === "Backspace";
 }

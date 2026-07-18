@@ -27,6 +27,7 @@ type EditorSelectionPropertiesProps = {
     elementId: string,
     props: Parameters<ComponentProps<typeof SelectionQuickBar>["onChangeProps"]>[0]
   ) => void;
+  onConvertChartToTable: (slideId: string, elementId: string) => void;
   onChangeSlideStyle: ComponentProps<typeof SelectionQuickBar>["onChangeSlideStyle"];
   onChangeTheme: ComponentProps<typeof SelectionQuickBar>["onChangeTheme"];
   onCloseInlineEditing: () => void;
@@ -71,6 +72,11 @@ export function EditorSelectionProperties(props: EditorSelectionPropertiesProps)
       }}
       onChangeProps={(nextProps) => {
         if (element && slide) props.onChangeElementProps(slide.slideId, element.elementId, nextProps);
+      }}
+      onConvertChartToTable={() => {
+        if (element?.type === "chart" && slide) {
+          props.onConvertChartToTable(slide.slideId, element.elementId);
+        }
       }}
       onChangeSlideStyle={props.onChangeSlideStyle}
       onChangeTheme={props.onChangeTheme}

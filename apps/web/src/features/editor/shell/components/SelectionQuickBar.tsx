@@ -89,6 +89,7 @@ export function SelectionQuickBar(props: {
     visible?: boolean;
   }) => void;
   onChangeProps: (props: Record<string, unknown>) => void;
+  onConvertChartToTable: () => void;
   onChangeSlideStyle: (style: {
     backgroundColor?: string | null;
     textColor?: string | null;
@@ -113,6 +114,7 @@ export function SelectionQuickBar(props: {
     element,
     onChangeFrame,
     onChangeProps,
+    onConvertChartToTable,
     onChangeSlideStyle,
     onChangeTheme,
     onDeleteAnimation,
@@ -451,6 +453,7 @@ export function SelectionQuickBar(props: {
               customShapeEditActive={customShapeEditActive}
               element={element}
               onChangeProps={onChangeProps}
+              onConvertChartToTable={onConvertChartToTable}
               onToggleCustomShapeClosed={onToggleCustomShapeClosed}
               onToggleCustomShapeEdit={onToggleCustomShapeEdit}
               primaryColor={editorPrimaryColor}
@@ -495,6 +498,7 @@ function ElementQuickBarFields(props: {
   customShapeEditActive: boolean;
   element: DeckElement;
   onChangeProps: (props: Record<string, unknown>) => void;
+  onConvertChartToTable: () => void;
   onToggleCustomShapeClosed: () => void;
   onToggleCustomShapeEdit: () => void;
   primaryColor: string;
@@ -503,6 +507,7 @@ function ElementQuickBarFields(props: {
     customShapeEditActive,
     element,
     onChangeProps,
+    onConvertChartToTable,
     onToggleCustomShapeClosed,
     onToggleCustomShapeEdit,
     primaryColor,
@@ -782,13 +787,16 @@ function ElementQuickBarFields(props: {
             { label: "막대", value: "bar" },
             { label: "선", value: "line" },
             { label: "원형", value: "pie" },
-            { label: "도넛", value: "doughnut" },
-            { label: "산점도", value: "scatter" },
+            { label: "표", value: "table" },
           ]}
           value={chart.type}
-          onChange={(value) =>
-            onChangeProps(chartTypePatch(chart, value as ChartType))
-          }
+          onChange={(value) => {
+            if (value === "table") {
+              onConvertChartToTable();
+              return;
+            }
+            onChangeProps(chartTypePatch(chart, value as ChartType));
+          }}
         />
         <PropertyTextField
           className="compact-property-field compact-property-field-lg"
