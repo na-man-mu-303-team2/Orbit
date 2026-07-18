@@ -17,6 +17,9 @@ export class ProjectMemberEntity {
   @Column({ type: "text" })
   status!: ProjectMemberStatus;
 
+  @Column({ name: "is_pinned", type: "boolean", default: false })
+  isPinned!: boolean;
+
   @Column({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;
 }

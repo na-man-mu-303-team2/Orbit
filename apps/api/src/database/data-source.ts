@@ -56,6 +56,7 @@ import { IncreaseSmartArtTypography2026071703000 } from "./migrations/2026071703
 import { RepairActivityRetentionPrivacy2026071704000 } from "./migrations/2026071704000-RepairActivityRetentionPrivacy";
 import { CenterSmartArtCardText2026071705000 } from "./migrations/2026071705000-CenterSmartArtCardText";
 import { ReplaceStoryReviewWithCoverPreview2026071706000 } from "./migrations/2026071706000-ReplaceStoryReviewWithCoverPreview";
+import { AddProjectMemberPins2026071801000 } from "./migrations/2026071801000-AddProjectMemberPins";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -123,7 +124,8 @@ export const databaseOptions: DataSourceOptions = {
     IncreaseSmartArtTypography2026071703000,
     RepairActivityRetentionPrivacy2026071704000,
     CenterSmartArtCardText2026071705000,
-    ReplaceStoryReviewWithCoverPreview2026071706000
+    ReplaceStoryReviewWithCoverPreview2026071706000,
+    AddProjectMemberPins2026071801000
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

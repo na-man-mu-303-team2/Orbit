@@ -249,7 +249,7 @@ describe("ProjectsService", () => {
     expect(project.workspaceId).toBe(demoIds.workspaceId);
     expect(project.createdBy).toBe("user_1");
     expect(project.title).toBe("Quarterly Review");
-    expect(projects).toEqual([project]);
+    expect(projects).toEqual([{ ...project, isPinned: false }]);
   });
 
   it("rejects workspace access outside the demo boundary", async () => {
@@ -345,6 +345,51 @@ describe("ProjectsService", () => {
 
     await expect(service.list(demoIds.workspaceId, "user_1")).resolves.toEqual([
       expect.objectContaining({ projectId: "project_accepted" }),
+    ]);
+  });
+
+  it("stores project pins independently for each accepted member", async () => {
+    const project = new ProjectEntity();
+    project.projectId = "project_shared_pin";
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "Shared pin";
+    project.createdBy = "user_owner";
+    project.createdAt = new Date("2026-07-18T00:00:00.000Z");
+
+    const owner = new ProjectMemberEntity();
+    owner.projectId = project.projectId;
+    owner.userId = "user_owner";
+    owner.role = "owner";
+    owner.status = "accepted";
+    owner.isPinned = false;
+    owner.createdAt = project.createdAt;
+
+    const viewer = new ProjectMemberEntity();
+    viewer.projectId = project.projectId;
+    viewer.userId = "user_viewer";
+    viewer.role = "viewer";
+    viewer.status = "accepted";
+    viewer.isPinned = false;
+    viewer.createdAt = project.createdAt;
+
+    const service = createService({
+      projects: [project],
+      members: [owner, viewer],
+    });
+
+    await expect(
+      service.updatePin(
+        demoIds.workspaceId,
+        project.projectId,
+        owner.userId,
+        true,
+      ),
+    ).resolves.toEqual({ projectId: project.projectId, isPinned: true });
+    await expect(service.list(demoIds.workspaceId, owner.userId)).resolves.toEqual([
+      expect.objectContaining({ projectId: project.projectId, isPinned: true }),
+    ]);
+    await expect(service.list(demoIds.workspaceId, viewer.userId)).resolves.toEqual([
+      expect.objectContaining({ projectId: project.projectId, isPinned: false }),
     ]);
   });
 
