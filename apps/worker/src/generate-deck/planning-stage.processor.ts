@@ -14,14 +14,10 @@ import {
   type JobError,
 } from "@orbit/shared";
 import type { DataSource } from "typeorm";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { AiDeckPlanningArtifactRepository } from "./planning-artifact-repository";
-import {
-  completedSlideV2ArtifactPayloadSchema,
-  coverSlideArtifactPayloadSchema,
-} from "./execution-stage-contract";
+import { coverSlideArtifactPayloadSchema } from "./execution-stage-contract";
 import {
   contentPlanningArtifactPayloadSchema,
   designPlanningArtifactPayloadSchema,
@@ -672,15 +668,14 @@ async function ensureImageOrSemanticCheckpoints(
   if (message.stage !== "layout-compile") return;
   const layout = layoutCompileArtifactPayloadSchema.parse(payload);
   if (isLayoutCompileV2Artifact(layout)) {
-    const reusedSourceOrder = await reuseCoverAsFirstSlide(
+    const coverSourceOrder = await finalizeCoverForLayout(
       db,
       message,
       layout,
-      layoutReference,
     );
     let queued = 0;
     for (const slide of layout.slides) {
-      if (slide.sourceOrder === reusedSourceOrder) continue;
+      if (slide.sourceOrder === coverSourceOrder) continue;
       const next = await checkpoints.ensureQueued(
         {
           ...message,
@@ -694,7 +689,7 @@ async function ensureImageOrSemanticCheckpoints(
       }
       queued += 1;
     }
-    if (queued === 0 && reusedSourceOrder !== null) {
+    if (queued === 0 && coverSourceOrder !== null) {
       await checkpoints.ensureQueued(
         { ...message, stage: "semantic-quality", shardKey: "" },
         layoutReference,
@@ -738,14 +733,13 @@ async function ensureImageOrSemanticCheckpoints(
   }
 }
 
-async function reuseCoverAsFirstSlide(
+async function finalizeCoverForLayout(
   db: Pick<DataSource, "query">,
   message: AiDeckGenerationStageMessage,
   layout: Extract<
     ReturnType<typeof layoutCompileArtifactPayloadSchema.parse>,
     { artifactVersion: 2 }
   >,
-  layoutReference: Record<string, unknown>,
 ): Promise<number | null> {
   const descriptor = [...layout.slides].sort(
     (left, right) => left.order - right.order,
@@ -798,53 +792,32 @@ async function reuseCoverAsFirstSlide(
       path: "slides.0.content",
       message: issue.message,
     }));
-  const completed = completedSlideV2ArtifactPayloadSchema.parse({
-    artifactVersion: 2,
-    sourceOrder: descriptor.sourceOrder,
-    order: descriptor.order,
-    slideId: descriptor.slideId,
-    slide,
+  const mergedContentIssues = [
+    ...cover.validation.contentIssues,
+    ...contentIssues,
+  ];
+  const finalizedCover = coverSlideArtifactPayloadSchema.parse({
+    deck: { ...cover.deck, slides: [slide] },
     warnings: cover.warnings,
     validation: {
       ...cover.validation,
-      contentIssues: [...cover.validation.contentIssues, ...contentIssues],
+      passed: cover.validation.passed && mergedContentIssues.length === 0,
+      contentIssues: mergedContentIssues,
     },
   });
-  const checkpointRows = await db.query(
-    `INSERT INTO ai_deck_generation_stages (
-       pipeline_job_id, stage, shard_key, status, attempt,
-       input_ref_json, result_ref_json
-     ) VALUES ($1, 'image-slide', $2, 'succeeded', 0, $3::jsonb, NULL)
-     ON CONFLICT (pipeline_job_id, stage, shard_key) DO NOTHING
-     RETURNING pipeline_job_id`,
-    [message.pipelineJobId, descriptor.shardKey, layoutReference],
-  );
-  if (!firstQueryRow(checkpointRows)) return null;
-  const artifactId = randomUUID();
-  const artifactRows = await db.query(
-    `INSERT INTO ai_deck_execution_artifacts (
-       artifact_id, pipeline_job_id, project_id, stage, shard_key, payload_json
-     ) VALUES ($1, $2, $3, 'image-slide', $4, $5::jsonb)
-     ON CONFLICT (pipeline_job_id, stage, shard_key) DO UPDATE
-       SET payload_json = EXCLUDED.payload_json, updated_at = now()
+  const updatedRows = await db.query(
+    `UPDATE ai_deck_execution_artifacts
+     SET payload_json = $3::jsonb, updated_at = now()
+     WHERE pipeline_job_id = $1 AND project_id = $2
+       AND stage = 'cover-slide' AND shard_key = ''
      RETURNING artifact_id`,
-    [artifactId, message.pipelineJobId, message.projectId, descriptor.shardKey, completed],
-  );
-  const storedArtifact = z
-    .object({ artifact_id: z.string().uuid() })
-    .parse(firstQueryRow(artifactRows));
-  await db.query(
-    `UPDATE ai_deck_generation_stages
-     SET result_ref_json = $3::jsonb, updated_at = now()
-     WHERE pipeline_job_id = $1 AND stage = 'image-slide'
-       AND shard_key = $2 AND status = 'succeeded'`,
     [
       message.pipelineJobId,
-      descriptor.shardKey,
-      { executionArtifactId: storedArtifact.artifact_id },
+      message.projectId,
+      finalizedCover,
     ],
   );
-  return descriptor.sourceOrder;
+  return firstQueryRow(updatedRows) ? descriptor.sourceOrder : null;
 }
 
 async function loadCoverFactContext(

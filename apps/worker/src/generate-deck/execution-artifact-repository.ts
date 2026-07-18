@@ -139,6 +139,38 @@ export class AiDeckExecutionArtifactRepository {
     );
     return queryRows(rows).map(artifactFromRow);
   }
+
+  async findByStage(
+    rawMessage: unknown,
+    expectedStage: AiDeckExecutionStage,
+    expectedShardKey = "",
+  ): Promise<AiDeckExecutionArtifact | undefined> {
+    const message = aiDeckGenerationStageMessageSchema.parse(rawMessage);
+    const rows = await this.db.query(
+      `
+        SELECT artifacts.*
+        FROM ai_deck_execution_artifacts artifacts
+        JOIN jobs
+          ON jobs.job_id = artifacts.pipeline_job_id
+         AND jobs.project_id = artifacts.project_id
+        WHERE artifacts.pipeline_job_id = $1
+          AND artifacts.project_id = $2
+          AND artifacts.stage = $3
+          AND artifacts.shard_key = $4
+          AND jobs.type = 'ai-deck-generation'
+          AND jobs.status IN ('queued','running')
+        LIMIT 1
+      `,
+      [
+        message.pipelineJobId,
+        message.projectId,
+        expectedStage,
+        expectedShardKey,
+      ],
+    );
+    const row = queryRows(rows)[0];
+    return row ? artifactFromRow(row) : undefined;
+  }
 }
 
 function executionMessage(

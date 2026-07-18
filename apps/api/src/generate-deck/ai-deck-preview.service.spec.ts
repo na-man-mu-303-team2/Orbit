@@ -115,6 +115,28 @@ describe("projectAiDeckPreview", () => {
       manifest.map((slide) => slide.slideId),
     );
 
+    const coverAndBody = projectAiDeckPreview({
+      ...base,
+      coverRow: {
+        payload_json: {
+          deck: { ...source, slides: [slides[0]!] },
+          warnings: [],
+          validation: {},
+        },
+      },
+      imageRows: [
+        {
+          shard_key: manifest[1]!.shardKey,
+          status: "succeeded" as const,
+          payload_json: completed(1),
+        },
+      ],
+    });
+    expect(coverAndBody.deck?.slides.map((slide) => slide.slideId)).toEqual(
+      manifest.map((slide) => slide.slideId),
+    );
+    expect(coverAndBody.pendingSlideIds).toEqual([]);
+
     const prefix = projectAiDeckPreview({
       ...base,
       imageRows: [
