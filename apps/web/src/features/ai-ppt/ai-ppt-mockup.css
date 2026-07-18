@@ -2109,6 +2109,10 @@
   color: #fff;
 }
 
+.ai-ppt-palette-grid button.selected .ai-ppt-palette-selected-mark {
+  color: var(--redesign-color-on-secondary);
+}
+
 .ai-ppt-font-grid button:not(.selected) .ai-ppt-font-check,
 .ai-ppt-palette-grid button:not(.selected) .ai-ppt-palette-selected-mark {
   background: var(--redesign-color-surface-container);
