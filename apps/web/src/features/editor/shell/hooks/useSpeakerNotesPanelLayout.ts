@@ -9,6 +9,15 @@ const initialHeight = 360;
 export const minSpeakerNotesPanelHeight = 120;
 const hideThreshold = 84;
 const keyboardStep = 24;
+const defaultViewportHeight = 960;
+const maxViewportHeightRatio = 2 / 3;
+
+export function getSpeakerNotesPanelMaxHeight(viewportHeight: number) {
+  return Math.max(
+    minSpeakerNotesPanelHeight,
+    Math.floor(viewportHeight * maxViewportHeightRatio),
+  );
+}
 
 export function useSpeakerNotesPanelLayout(args: {
   projectId: string;
@@ -22,9 +31,9 @@ export function useSpeakerNotesPanelLayout(args: {
   const shouldMeasureInitialHeightRef = useRef(false);
 
   function getMaxHeight() {
-    return typeof window === "undefined"
-      ? 640
-      : Math.max(minSpeakerNotesPanelHeight, Math.floor(window.innerHeight * 0.7));
+    return getSpeakerNotesPanelMaxHeight(
+      typeof window === "undefined" ? defaultViewportHeight : window.innerHeight,
+    );
   }
 
   function commitHeight(nextHeight: number) {
@@ -110,6 +119,18 @@ export function useSpeakerNotesPanelLayout(args: {
     setHeight(defaultHeight);
     heightRef.current = defaultHeight;
   }, [args.projectId]);
+
+  useEffect(() => {
+    function clampHeightToViewport() {
+      const maxHeight = getSpeakerNotesPanelMaxHeight(window.innerHeight);
+      if (heightRef.current <= maxHeight) return;
+      heightRef.current = maxHeight;
+      setHeight(maxHeight);
+    }
+
+    window.addEventListener("resize", clampHeightToViewport);
+    return () => window.removeEventListener("resize", clampHeightToViewport);
+  }, []);
 
   useEffect(() => {
     if (!isExpanded || !shouldMeasureInitialHeightRef.current || !contentRef.current) {

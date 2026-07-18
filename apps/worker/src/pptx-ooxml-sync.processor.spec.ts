@@ -252,6 +252,87 @@ describe("processPptxOoxmlSyncJob", () => {
     });
   });
 
+  it("compacts a transient element that is added and deleted before sync", async () => {
+    const { dataSource } = createDataSource({
+      deckVersion: 4,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "add_element",
+          slideId: "slide_1",
+          element: {
+            elementId: "el_transient_chart",
+            type: "chart",
+            role: "chart",
+            x: 100,
+            y: 100,
+            width: 500,
+            height: 280,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 2,
+            locked: false,
+            visible: true,
+            props: { type: "bar", title: "Temporary", data: [] },
+          },
+        },
+        {
+          type: "update_element_frame",
+          slideId: "slide_1",
+          elementId: "el_transient_chart",
+          frame: { x: 120 },
+        },
+        {
+          type: "delete_element",
+          slideId: "slide_1",
+          elementId: "el_transient_chart",
+        },
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_title",
+          props: { text: "Current title" },
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+        const operationsPart = (init?.body as FormData).get("operations_file");
+        expect(JSON.parse(await (operationsPart as Blob).text())).toEqual([
+          expect.objectContaining({
+            type: "update_element_props",
+            slideId: "slide_1",
+            elementId: "el_title",
+          }),
+        ]);
+        return new Response(
+          JSON.stringify(
+            workerResponse([
+              {
+                operationType: "update_element_props",
+                slideId: "slide_1",
+                elementId: "el_title",
+              },
+            ]),
+          ),
+        );
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+  });
+
   it("sends operations larger than the parser's former 1 MiB limit as a JSON file part", async () => {
     const largeText = "x".repeat(1024 * 1024 + 32);
     const { dataSource } = createDataSource({

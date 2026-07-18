@@ -20,6 +20,18 @@ export function isEditorKeyboardCompositionEvent(
 }
 
 export function isEditorSaveShortcut(
+  event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "key" | "metaKey"> &
+    Partial<Pick<KeyboardEvent, "repeat">>,
+) {
+  return (
+    !event.altKey &&
+    !event.repeat &&
+    (event.metaKey || event.ctrlKey) &&
+    event.key.toLowerCase() === "s"
+  );
+}
+
+function isEditorSaveKeyCombination(
   event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "key" | "metaKey">,
 ) {
   return (
@@ -95,6 +107,11 @@ export function useEditorKeyboardShortcuts(args: {
 }) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (event.repeat && isEditorSaveKeyCombination(event)) {
+        event.preventDefault();
+        return;
+      }
+
       if (isEditorKeyboardCompositionEvent(event)) {
         if (isEditorSaveShortcut(event)) event.preventDefault();
         return;
@@ -116,6 +133,7 @@ export function useEditorKeyboardShortcuts(args: {
         isInsertToolActive: args.insertToolActive,
         key: event.key,
         metaKey: event.metaKey,
+        repeat: event.repeat,
         shiftKey: event.shiftKey,
         target: event.target,
       });

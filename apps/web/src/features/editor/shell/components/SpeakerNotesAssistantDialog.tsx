@@ -52,7 +52,7 @@ export function SpeakerNotesLengthMeter(props: {
 const refinementModes: Array<{
   description: string;
   label: string;
-  value: Exclude<SpeakerNotesSuggestionMode, "draft">;
+  value: Exclude<SpeakerNotesSuggestionMode, "draft" | "icebreaker">;
 }> = [
   {
     value: "shorten",
@@ -85,35 +85,50 @@ export function SpeakerNotesAssistantDialog(props: {
   status: SpeakerNotesAssistantStatus;
 }) {
   const isDraft = props.originalNotes.trim().length === 0;
+  const isIcebreaker = props.mode === "icebreaker";
   const isRunning = props.status === "running";
 
   return (
     <OrbitDialog
       className="speaker-notes-assistant-dialog"
-      description="AI 제안을 먼저 비교하고, 원하는 경우 편집 초안에만 넣을 수 있습니다."
+      description={isIcebreaker
+        ? "현재 슬라이드 내용에 어울리는 짧은 오프닝을 만들어 발표 메모에 추가합니다."
+        : "AI 제안을 먼저 비교하고, 원하는 경우 편집 초안에만 넣을 수 있습니다."}
       footer={
         <>
           <OrbitButton onClick={props.onClose} variant="secondary">
             닫기
           </OrbitButton>
           {props.result ? (
-            <OrbitButton onClick={props.onApply}>편집 초안에 넣기</OrbitButton>
+            <OrbitButton onClick={props.onApply}>
+              {isIcebreaker ? "대본에 적용" : "편집 초안에 넣기"}
+            </OrbitButton>
           ) : (
             <OrbitButton
               disabled={isRunning}
               icon={<Sparkles aria-hidden="true" size={16} />}
               onClick={props.onGenerate}
             >
-              {isRunning ? "제안 만드는 중" : isDraft ? "초안 생성" : "제안 생성"}
+              {isRunning
+                ? "제안 만드는 중"
+                : isIcebreaker
+                  ? "인트로 생성"
+                  : isDraft
+                    ? "초안 생성"
+                    : "제안 생성"}
             </OrbitButton>
           )}
         </>
       }
       onClose={props.onClose}
       open={props.open}
-      title={isDraft ? "AI 발표 메모 초안" : "AI로 발표 메모 다듬기"}
+      title={isIcebreaker
+        ? "아이스브레이킹 인트로 만들기"
+        : isDraft
+          ? "AI 발표 메모 초안"
+          : "AI로 발표 메모 다듬기"}
     >
-      {!isDraft && !props.result ? (
+      {!isDraft && !isIcebreaker && !props.result ? (
         <fieldset className="speaker-notes-mode-list" disabled={isRunning}>
           <legend>어떻게 다듬을까요?</legend>
           {refinementModes.map((option) => (

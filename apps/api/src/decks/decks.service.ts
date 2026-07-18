@@ -773,7 +773,11 @@ export class DecksService {
         );
       }
       const hasNotes = slide.speakerNotes.trim().length > 0;
-      if ((request.mode === "draft") === hasNotes) {
+      const requiresExistingNotes = request.mode !== "draft" && request.mode !== "icebreaker";
+      if (
+        (request.mode === "draft" && hasNotes) ||
+        (requiresExistingNotes && !hasNotes)
+      ) {
         throwDeckApiException(
           "DECK_VALIDATION_FAILED",
           HttpStatus.BAD_REQUEST,

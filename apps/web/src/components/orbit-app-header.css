@@ -103,3 +103,10 @@
   outline: none;
   box-shadow: var(--redesign-focus-ring);
 }
+
+@media (max-width: 760px) {
+  .orbit-app-header-redesign .orbit-app-header-inner {
+    height: auto;
+    min-height: var(--redesign-size-header);
+  }
+}

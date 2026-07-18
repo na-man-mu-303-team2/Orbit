@@ -115,4 +115,18 @@ describe("databaseOptions", () => {
       names.indexOf("AddSmartArtTemplateLayouts2026071702000"),
     );
   });
+
+  it("registers project member pins after the existing project migrations", () => {
+    const migrations = Array.isArray(databaseOptions.migrations)
+      ? databaseOptions.migrations
+      : [];
+    const names = migrations.map((migration) =>
+      typeof migration === "function" ? migration.name : "",
+    );
+
+    expect(names).toContain("AddProjectMemberPins2026071801000");
+    expect(names.indexOf("AddProjectMemberPins2026071801000")).toBeGreaterThan(
+      names.indexOf("CreateProjectMembers2026063001000"),
+    );
+  });
 });

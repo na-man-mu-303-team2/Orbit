@@ -6,6 +6,59 @@ import {
   resolveEditorPasteAction,
 } from "./useEditorKeyboardShortcuts";
 
+describe("isEditorSaveShortcut", () => {
+  it("accepts Ctrl+S and Cmd+S", () => {
+    expect(
+      isEditorSaveShortcut({
+        altKey: false,
+        ctrlKey: true,
+        key: "s",
+        metaKey: false,
+        repeat: false,
+      }),
+    ).toBe(true);
+    expect(
+      isEditorSaveShortcut({
+        altKey: false,
+        ctrlKey: false,
+        key: "S",
+        metaKey: true,
+        repeat: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("ignores unrelated, alternate, and repeated shortcuts", () => {
+    expect(
+      isEditorSaveShortcut({
+        altKey: false,
+        ctrlKey: true,
+        key: "p",
+        metaKey: false,
+        repeat: false,
+      }),
+    ).toBe(false);
+    expect(
+      isEditorSaveShortcut({
+        altKey: true,
+        ctrlKey: true,
+        key: "s",
+        metaKey: false,
+        repeat: false,
+      }),
+    ).toBe(false);
+    expect(
+      isEditorSaveShortcut({
+        altKey: false,
+        ctrlKey: true,
+        key: "s",
+        metaKey: false,
+        repeat: true,
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("editor IME keyboard boundary", () => {
   it.each([
     ["event.isComposing", { isComposing: true, keyCode: 0 }],

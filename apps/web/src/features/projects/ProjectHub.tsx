@@ -7,7 +7,7 @@ import {
 import { useMemo, useState } from "react";
 import { WorkspaceContainer } from "../../components/patterns";
 import "../../styles/tokens.css";
-import { fetchProjects } from "./ProjectAssetWorkspace";
+import { fetchProjects, updateProjectPin } from "./ProjectAssetWorkspace";
 import { WorkspaceProjectCard } from "./WorkspaceProjectCard";
 import "./workspace-home.css";
 
@@ -17,22 +17,31 @@ type ProjectHubProps = {
 
 export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string }) {
   const projects = useProjectList();
-  const [pinnedIds, setPinnedIds] = useState<string[]>(readPinnedProjectIds);
+  const [pinningId, setPinningId] = useState<string | null>(null);
+  const [pinError, setPinError] = useState("");
   const recentProjects = useMemo(() => {
     const sorted = sortProjects(projects.data ?? []);
-    const pinned = sorted.filter((project) => pinnedIds.includes(project.projectId));
-    const rest = sorted.filter((project) => !pinnedIds.includes(project.projectId));
+    const pinned = sorted.filter((project) => project.isPinned);
+    const rest = sorted.filter((project) => !project.isPinned);
     return [...pinned, ...rest].slice(0, 7);
-  }, [projects.data, pinnedIds]);
+  }, [projects.data]);
 
-  function togglePinnedProject(projectId: string) {
-    setPinnedIds((current) => {
-      const next = current.includes(projectId)
-        ? current.filter((id) => id !== projectId)
-        : [projectId, ...current];
-      writePinnedProjectIds(next);
-      return next;
-    });
+  async function togglePinnedProject(projectId: string, isPinned: boolean) {
+    if (pinningId) return;
+    setPinningId(projectId);
+    setPinError("");
+    try {
+      await updateProjectPin(projectId, !isPinned);
+      await projects.refetch();
+    } catch (cause) {
+      setPinError(
+        cause instanceof Error
+          ? cause.message
+          : "프로젝트 고정 상태를 변경하지 못했습니다.",
+      );
+    } finally {
+      setPinningId(null);
+    }
   }
 
   return (
@@ -56,6 +65,12 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
           </button>
         </header>
 
+        {pinError ? (
+          <p className="workspace-home-pin-error" role="alert">
+            {pinError}
+          </p>
+        ) : null}
+
         <div className="workspace-home-grid">
           <button
             aria-label="AI 발표자료 만들기"
@@ -66,11 +81,11 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
             <span aria-hidden="true" className="workspace-home-create-icon">
               <IconPlus size={22} stroke={1.8} />
             </span>
-            <strong>새 발표자료 만들기</strong>
+            <strong>AI로 발표자료 만들기</strong>
             <small>
-              AI로 초안을 만들거나
+              아이디어를 입력하면 AI가
               <br />
-              빈 슬라이드로 시작하세요.
+              발표자료 초안을 만들어드려요.
             </small>
           </button>
 
@@ -84,15 +99,17 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
             </div>
           ) : (
             recentProjects.map((project) => {
-              const isPinned = pinnedIds.includes(project.projectId);
               return (
                 <WorkspaceProjectCard
                   createdAtLabel={formatProjectDate(project)}
-                  isPinned={isPinned}
+                  isPinned={project.isPinned}
                   key={project.projectId}
                   onOpen={() => props.onNavigate(projectPath(project))}
                   onRehearse={() => props.onNavigate(`/rehearsal/${encodeURIComponent(project.projectId)}`)}
-                  onTogglePinned={() => togglePinnedProject(project.projectId)}
+                  onTogglePinned={() =>
+                    void togglePinnedProject(project.projectId, project.isPinned)
+                  }
+                  pinning={pinningId === project.projectId}
                   project={project}
                 />
               );
@@ -108,7 +125,10 @@ function useProjectList() {
   return useQuery({ queryKey: ["projects"], queryFn: () => fetchProjects(), retry: false });
 }
 
-function sortProjects(projects: Project[], sort: "newest" | "oldest" | "title" = "newest") {
+function sortProjects<T extends Project>(
+  projects: T[],
+  sort: "newest" | "oldest" | "title" = "newest",
+): T[] {
   return [...projects].sort((left, right) => {
     if (sort === "title") return left.title.localeCompare(right.title, "ko-KR");
     const difference = Date.parse(right.createdAt) - Date.parse(left.createdAt);
@@ -123,28 +143,4 @@ function formatProjectDate(project: Project) {
 
 function projectPath(project: Project) {
   return `/project/${encodeURIComponent(project.projectId)}`;
-}
-
-const pinnedProjectsStorageKey = "orbit.workspace.pinned-projects";
-
-function readPinnedProjectIds(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(pinnedProjectsStorageKey);
-    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-    return Array.isArray(parsed)
-      ? parsed.filter((id): id is string => typeof id === "string")
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function writePinnedProjectIds(ids: string[]) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(pinnedProjectsStorageKey, JSON.stringify(ids));
-  } catch {
-    /* storage unavailable — pinning stays session-only */
-  }
 }

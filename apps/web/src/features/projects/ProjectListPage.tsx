@@ -1,17 +1,29 @@
-import type { Project } from "@orbit/shared";
+import type { Project, ProjectListItem } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
 import {
+  IconArrowsSort,
+  IconCheck,
+  IconChevronDown,
   IconFileText,
+  IconFileUpload,
   IconPlus,
   IconRefresh,
   IconSearch,
   IconSparkles,
   IconTrash,
 } from "@tabler/icons-react";
-import { useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { WorkspaceContainer } from "../../components/patterns";
 import {
+  DropdownMenu,
+  DropdownMenuItem,
   OrbitButton,
   OrbitEmptyState,
   OrbitIconButton,
@@ -19,9 +31,17 @@ import {
 } from "../../components/ui";
 import {
   createProject,
+  createProjectWithoutDeck,
   deleteProject,
   fetchProjects,
+  updateProjectPin,
 } from "./ProjectAssetWorkspace";
+import { uploadAndImportPptxTemplate } from "../editor/shell/api/editorJobApi";
+import {
+  getPptxImportValidationMessage,
+  pptxImportAccept,
+} from "../editor/shell/utils/editorFileValidation";
+import { ProjectGalleryCard } from "./ProjectGalleryCard";
 import "./orbit-project-hub.css";
 
 export type ProjectListPageMode = "project" | "rehearsal";
@@ -34,19 +54,28 @@ export function ProjectListPage(props: {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"newest" | "oldest" | "title">("newest");
   const [isCreating, setIsCreating] = useState(false);
+  const [pptxImportPhase, setPptxImportPhase] = useState<
+    "idle" | "uploading" | "importing"
+  >("idle");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pinningId, setPinningId] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState("");
+  const pptxInputRef = useRef<HTMLInputElement>(null);
   const isRehearsal = props.mode === "rehearsal";
+  const isImportingPptx = pptxImportPhase !== "idle";
   const filteredProjects = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ko-KR");
     const matches = (projects.data ?? []).filter((project) =>
       project.title.toLocaleLowerCase("ko-KR").includes(normalized),
     );
-    return sortProjects(matches, sort);
+    const sorted = sortProjects(matches, sort);
+    const pinned = sorted.filter((project) => project.isPinned);
+    const unpinned = sorted.filter((project) => !project.isPinned);
+    return [...pinned, ...unpinned];
   }, [projects.data, query, sort]);
 
   async function createBlankProject() {
-    if (isCreating) return;
+    if (isCreating || isImportingPptx) return;
     setIsCreating(true);
     setMutationError("");
     try {
@@ -59,6 +88,40 @@ export function ProjectListPage(props: {
       );
     } finally {
       setIsCreating(false);
+    }
+  }
+
+  async function importPptxProject(file: File) {
+    const validationMessage = getPptxImportValidationMessage(file);
+    if (validationMessage) {
+      setMutationError(validationMessage);
+      return;
+    }
+
+    let project: Project | null = null;
+    setMutationError("");
+    setPptxImportPhase("uploading");
+    try {
+      project = await createProjectWithoutDeck(projectTitleFromFile(file.name));
+      await uploadAndImportPptxTemplate(project.projectId, file, {
+        onPhase: setPptxImportPhase,
+      });
+      await projects.refetch();
+      props.onNavigate(projectPath(project));
+    } catch (cause) {
+      if (project) {
+        try {
+          await deleteProject(project.projectId);
+          await projects.refetch();
+        } catch {
+          // The original import error is more actionable than cleanup failure.
+        }
+      }
+      setMutationError(
+        cause instanceof Error ? cause.message : "PPTX를 가져오지 못했습니다.",
+      );
+    } finally {
+      setPptxImportPhase("idle");
     }
   }
 
@@ -83,6 +146,24 @@ export function ProjectListPage(props: {
     }
   }
 
+  async function togglePinnedProject(project: ProjectListItem) {
+    if (pinningId) return;
+    setPinningId(project.projectId);
+    setMutationError("");
+    try {
+      await updateProjectPin(project.projectId, !project.isPinned);
+      await projects.refetch();
+    } catch (cause) {
+      setMutationError(
+        cause instanceof Error
+          ? cause.message
+          : "프로젝트 고정 상태를 변경하지 못했습니다.",
+      );
+    } finally {
+      setPinningId(null);
+    }
+  }
+
   return (
     <WorkspaceContainer
       as="section"
@@ -91,98 +172,288 @@ export function ProjectListPage(props: {
       }`}
       width="content"
     >
-      <header className="orbit-hub-heading">
-        <div>
-          <h1>{isRehearsal ? "리허설" : "프로젝트"}</h1>
-          <p>
-            {isRehearsal
-              ? "연습할 발표자료를 선택하세요."
-              : "발표자료를 만들고 편집하거나 리허설을 시작하세요."}
-          </p>
-        </div>
-        {isRehearsal ? (
+      {isRehearsal ? (
+        <header className="orbit-hub-heading">
+          <div>
+            <h1>리허설</h1>
+            <p>연습할 발표자료를 선택하세요.</p>
+          </div>
           <OrbitButton
             onClick={() => props.onNavigate("/project")}
             variant="quiet"
           >
             프로젝트 보기
           </OrbitButton>
-        ) : (
-          <OrbitButton
-            icon={<IconSparkles aria-hidden="true" size={18} />}
-            onClick={() => props.onNavigate("/createdeck")}
-          >
-            AI 발표자료 만들기
-          </OrbitButton>
-        )}
-      </header>
+        </header>
+      ) : null}
 
-      <section className="orbit-project-table-shell">
-        <header className="orbit-project-toolbar">
-          <label>
-            <IconSearch aria-hidden="true" size={18} />
-            <OrbitInput
-              aria-label="프로젝트 검색"
-              onChange={(event) => setQuery(event.currentTarget.value)}
-              placeholder={isRehearsal ? "연습할 발표자료 검색" : "프로젝트 검색"}
+      {isRehearsal ? (
+        <section className="orbit-project-table-shell">
+          <header className="orbit-project-toolbar">
+            <ProjectSearch
+              onChange={setQuery}
+              placeholder="연습할 발표자료 검색"
               value={query}
             />
-          </label>
-          <select
-            aria-label="프로젝트 정렬"
-            onChange={(event) =>
-              setSort(event.currentTarget.value as typeof sort)
-            }
-            value={sort}
-          >
-            <option value="newest">최근 생성순</option>
-            <option value="oldest">오래된순</option>
-            <option value="title">이름순</option>
-          </select>
-          <OrbitIconButton
-            aria-label="프로젝트 새로고침"
-            onClick={() => void projects.refetch()}
-            variant="surface"
-          >
-            <IconRefresh aria-hidden="true" size={18} />
-          </OrbitIconButton>
-          {!isRehearsal ? (
-            <OrbitButton
-              icon={<IconPlus aria-hidden="true" size={18} />}
-              loading={isCreating}
-              onClick={() => void createBlankProject()}
-              variant="secondary"
+            <ProjectSortSelect onChange={setSort} value={sort} />
+            <OrbitIconButton
+              aria-label="프로젝트 새로고침"
+              onClick={() => void projects.refetch()}
+              variant="surface"
             >
-              {isCreating ? "생성 중" : "빈 프로젝트"}
-            </OrbitButton>
+              <IconRefresh aria-hidden="true" size={18} />
+            </OrbitIconButton>
+          </header>
+
+          <ProjectState
+            emptyDescription="먼저 프로젝트를 만든 뒤 리허설을 시작하세요."
+            emptySearch={Boolean(query.trim()) && !filteredProjects.length}
+            query={projects}
+          >
+            <ProjectTable
+              deletingId={deletingId}
+              mode={props.mode}
+              onNavigate={props.onNavigate}
+              projects={filteredProjects}
+            />
+          </ProjectState>
+        </section>
+      ) : (
+        <>
+          <header className="orbit-project-commandbar">
+            <div
+              aria-label="새 발표자료 만들기"
+              className="orbit-project-create-actions"
+              role="group"
+            >
+              <OrbitButton
+                className="orbit-project-commandbar-ai"
+                icon={<IconSparkles aria-hidden="true" size={18} />}
+                onClick={() => props.onNavigate("/createdeck")}
+              >
+                AI 발표자료 만들기
+              </OrbitButton>
+              <OrbitButton
+                className="orbit-project-commandbar-blank"
+                disabled={isImportingPptx}
+                icon={<IconPlus aria-hidden="true" size={18} />}
+                loading={isCreating}
+                onClick={() => void createBlankProject()}
+                variant="secondary"
+              >
+                {isCreating ? "생성 중" : "빈 프로젝트"}
+              </OrbitButton>
+              <OrbitButton
+                className="orbit-project-commandbar-upload"
+                disabled={isCreating}
+                icon={<IconFileUpload aria-hidden="true" size={18} />}
+                loading={isImportingPptx}
+                onClick={() => pptxInputRef.current?.click()}
+                variant="quiet"
+              >
+                {pptxImportPhase === "importing"
+                  ? "PPTX 변환 중"
+                  : "PPTX 업로드"}
+              </OrbitButton>
+              <input
+                accept={pptxImportAccept}
+                aria-label="PPTX 파일 선택"
+                className="orbit-project-file-input"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = "";
+                  if (file) void importPptxProject(file);
+                }}
+                ref={pptxInputRef}
+                type="file"
+              />
+            </div>
+
+            <div className="orbit-project-browse-tools">
+              <ProjectSearch
+                onChange={setQuery}
+                placeholder="프로젝트 검색"
+                value={query}
+              />
+              <ProjectSortMenu onChange={setSort} value={sort} />
+            </div>
+          </header>
+
+          {mutationError ? (
+            <p className="orbit-project-error" role="alert">
+              {mutationError}
+            </p>
           ) : null}
-        </header>
 
-        {mutationError ? (
-          <p className="orbit-project-error" role="alert">
-            {mutationError}
-          </p>
-        ) : null}
-
-        <ProjectState
-          emptyDescription={
-            isRehearsal
-              ? "먼저 프로젝트를 만든 뒤 리허설을 시작하세요."
-              : undefined
-          }
-          emptySearch={Boolean(query.trim()) && !filteredProjects.length}
-          query={projects}
-        >
-          <ProjectTable
-            deletingId={deletingId}
-            mode={props.mode}
-            onDelete={isRehearsal ? undefined : removeProject}
-            onNavigate={props.onNavigate}
-            projects={filteredProjects}
-          />
-        </ProjectState>
-      </section>
+          <ProjectState
+            emptySearch={Boolean(query.trim()) && !filteredProjects.length}
+            query={projects}
+          >
+            <ProjectGallery
+              deletingId={deletingId}
+              onDelete={removeProject}
+              onNavigate={props.onNavigate}
+              onTogglePinned={togglePinnedProject}
+              pinningId={pinningId}
+              projects={filteredProjects}
+            />
+          </ProjectState>
+        </>
+      )}
     </WorkspaceContainer>
+  );
+}
+
+function ProjectSearch(props: {
+  onChange: (value: string) => void;
+  placeholder: string;
+  value: string;
+}) {
+  return (
+    <label className="orbit-project-search">
+      <IconSearch aria-hidden="true" size={18} />
+      <OrbitInput
+        aria-label="프로젝트 검색"
+        onChange={(event) => props.onChange(event.currentTarget.value)}
+        placeholder={props.placeholder}
+        value={props.value}
+      />
+    </label>
+  );
+}
+
+function ProjectSortSelect(props: {
+  onChange: (value: "newest" | "oldest" | "title") => void;
+  value: "newest" | "oldest" | "title";
+}) {
+  return (
+    <select
+      aria-label="프로젝트 정렬"
+      onChange={(event) =>
+        props.onChange(event.currentTarget.value as typeof props.value)
+      }
+      value={props.value}
+    >
+      <option value="newest">최근 생성순</option>
+      <option value="oldest">오래된순</option>
+      <option value="title">이름순</option>
+    </select>
+  );
+}
+
+const projectSortOptions = [
+  { label: "최근 생성순", value: "newest" },
+  { label: "오래된순", value: "oldest" },
+  { label: "이름순", value: "title" },
+] as const;
+
+function ProjectSortMenu(props: {
+  onChange: (value: "newest" | "oldest" | "title") => void;
+  value: "newest" | "oldest" | "title";
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const selected = projectSortOptions.find((option) => option.value === props.value);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function closeOnPointerDown(event: PointerEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) setIsOpen(false);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closeOnPointerDown);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointerDown);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isOpen]);
+
+  return (
+    <div className="orbit-project-sort-menu" ref={menuRef}>
+      <OrbitButton
+        aria-expanded={isOpen}
+        aria-haspopup="menu"
+        aria-label={`프로젝트 정렬: ${selected?.label ?? "최근 생성순"}`}
+        className="orbit-project-sort-trigger"
+        icon={<IconArrowsSort aria-hidden="true" size={17} />}
+        onClick={() => setIsOpen((current) => !current)}
+        variant="quiet"
+      >
+        {selected?.label ?? "최근 생성순"}
+        <IconChevronDown aria-hidden="true" size={15} />
+      </OrbitButton>
+      {isOpen ? (
+        <DropdownMenu
+          align="end"
+          aria-label="프로젝트 정렬"
+          className="orbit-project-sort-dropdown"
+          variant="white"
+        >
+          {projectSortOptions.map((option) => (
+            <DropdownMenuItem
+              aria-checked={option.value === props.value}
+              icon={
+                option.value === props.value ? (
+                  <IconCheck aria-hidden="true" size={16} />
+                ) : (
+                  <span className="orbit-project-sort-icon-spacer" />
+                )
+              }
+              key={option.value}
+              onClick={() => {
+                props.onChange(option.value);
+                setIsOpen(false);
+              }}
+              role="menuitemradio"
+            >
+              {option.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenu>
+      ) : null}
+    </div>
+  );
+}
+
+function ProjectGallery(props: {
+  deletingId: string | null;
+  onDelete: (project: Project) => void;
+  onNavigate: (path: string) => void;
+  onTogglePinned: (project: ProjectListItem) => void;
+  pinningId: string | null;
+  projects: ProjectListItem[];
+}) {
+  return (
+    <div
+      aria-label="프로젝트 목록"
+      className="orbit-project-gallery"
+      role="list"
+    >
+      {props.projects.map((project) => (
+        <ProjectGalleryCard
+          createdAtLabel={formatProjectDate(project)}
+          deleting={props.deletingId === project.projectId}
+          isPinned={project.isPinned}
+          key={project.projectId}
+          onDelete={() => props.onDelete(project)}
+          onOpen={() => props.onNavigate(projectPath(project))}
+          onRehearse={() =>
+            props.onNavigate(
+              `/rehearsal/${encodeURIComponent(project.projectId)}`,
+            )
+          }
+          onTogglePinned={() => props.onTogglePinned(project)}
+          pinning={props.pinningId === project.projectId}
+          project={project}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -335,10 +606,10 @@ function ProjectTable(props: {
   );
 }
 
-function sortProjects(
-  projects: Project[],
+function sortProjects<T extends Project>(
+  projects: T[],
   sort: "newest" | "oldest" | "title" = "newest",
-) {
+): T[] {
   return [...projects].sort((left, right) => {
     if (sort === "title") return left.title.localeCompare(right.title, "ko-KR");
     const difference = Date.parse(right.createdAt) - Date.parse(left.createdAt);
@@ -355,4 +626,9 @@ function formatProjectDate(project: Project) {
 
 function projectPath(project: Project) {
   return `/project/${encodeURIComponent(project.projectId)}`;
+}
+
+function projectTitleFromFile(fileName: string) {
+  const title = fileName.replace(/\.pptx$/i, "").trim();
+  return title || "가져온 프레젠테이션";
 }

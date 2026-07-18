@@ -923,6 +923,8 @@ export function EditorShell(props: { projectId?: string }) {
   const handleDeleteSelectedElement = editorCanvasActions.deleteSelectedElement;
   const handleDuplicateSelectedElement = editorCanvasActions.duplicateSelectedElement;
   const handleElementFrameChange = editorCanvasActions.changeElementFrame;
+  const handleElementLayerOrderChange =
+    editorCanvasActions.changeElementLayerOrder;
   const handleInsertShapeElement = editorCanvasActions.insertShapeElement;
   const handleOpenElementContextMenu = editorCanvasActions.openElementContextMenu;
   const handlePasteCopiedElement = editorCanvasActions.pasteCopiedElement;
@@ -1613,6 +1615,7 @@ export function EditorShell(props: { projectId?: string }) {
       customShapeEditActive: isCustomShapeEditingSelection,
       imageCropActionState,
       onChangeElementFrame: handleElementFrameChange,
+      onChangeElementLayerOrder: handleElementLayerOrderChange,
       onChangeElementProps: handleElementPropsChange,
       onConvertChartToTable: handleConvertChartToTable,
       onChangeSlideStyle: (style: {
@@ -2324,6 +2327,7 @@ export function EditorShell(props: { projectId?: string }) {
       {canMutateDeck && isDeleteUndoToastOpen ? (
         <EditorUndoToast
           message="슬라이드가 삭제되었습니다"
+          onClose={() => setIsDeleteUndoToastOpen(false)}
           onUndo={() => {
             if (handleUndo()) setIsDeleteUndoToastOpen(false);
           }}

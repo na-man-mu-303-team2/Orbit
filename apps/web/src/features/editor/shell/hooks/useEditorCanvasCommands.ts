@@ -46,6 +46,10 @@ import {
   getContextMenuPosition,
   getNextElementZIndex,
 } from "../utils/editorLayout";
+import {
+  getElementLayerOrderUpdates,
+  type ElementLayerOrderAction,
+} from "../utils/elementLayerOrder";
 import { canEditSlideCanvas } from "../utils/slideEditingPolicy";
 import type { PatchProducer } from "./useEditorPersistenceState";
 
@@ -249,17 +253,18 @@ export function useEditorCanvasCommands(args: {
   function addIconElement(icon: SlideIconDefinition, color: string) {
     if (!canEditSlideCanvas(args.currentSlide)) return;
     const elementId = createElementId(args.deck);
-    const size = 96;
-    const x = Math.max(0, (args.deck.canvas.width - size) / 2);
-    const y = Math.max(0, (args.deck.canvas.height - size) / 2);
+    const width = icon.defaultWidth ?? 96;
+    const height = icon.defaultHeight ?? 96;
+    const x = Math.max(0, (args.deck.canvas.width - width) / 2);
+    const y = Math.max(0, (args.deck.canvas.height - height) / 2);
     args.commitPatch((currentDeck) => createAddElementPatch(currentDeck, args.currentSlide!.slideId, {
       elementId,
       type: "svg",
       role: "decoration",
       x,
       y,
-      width: size,
-      height: size,
+      width,
+      height,
       rotation: 0,
       opacity: 1,
       zIndex: getNextElementZIndex(args.currentSlide!.elements),
@@ -268,7 +273,7 @@ export function useEditorCanvasCommands(args: {
       props: {
         src: createSlideIconDataUrl(icon, color),
         alt: icon.label,
-        fit: "contain",
+        fit: "stretch",
         focusX: 0.5,
         focusY: 0.5
       }
@@ -843,6 +848,53 @@ export function useEditorCanvasCommands(args: {
     }
   }
 
+  function changeElementLayerOrder(
+    slideId: string,
+    elementId: string,
+    action: ElementLayerOrderAction,
+  ) {
+    const slide = args.deck.slides.find(
+      (candidate) => candidate.slideId === slideId,
+    );
+    if (!canEditSlideCanvas(slide)) return;
+    const updates = getElementLayerOrderUpdates(
+      slide.elements,
+      elementId,
+      action,
+    );
+    if (updates.length === 0) return;
+
+    args.commitPatch((currentDeck) => {
+      const currentSlide = currentDeck.slides.find(
+        (candidate) => candidate.slideId === slideId,
+      );
+      if (!currentSlide) {
+        throw new Error(`Slide ${slideId} was not found`);
+      }
+      return {
+        deckId: currentDeck.deckId,
+        baseVersion: currentDeck.version,
+        source: "user",
+        operations: updates.map((update) => {
+          const element = currentSlide.elements.find(
+            (candidate) => candidate.elementId === update.elementId,
+          );
+          if (!element) {
+            throw new Error(`Element ${update.elementId} was not found`);
+          }
+          return {
+            type: "update_element_frame" as const,
+            slideId,
+            elementId: update.elementId,
+            frame: normalizeElementFrameDraft(currentDeck.canvas, element, {
+              zIndex: update.zIndex,
+            }),
+          };
+        }),
+      };
+    });
+  }
+
   function createGroupFromSelection() {
     if (!canEditSlideCanvas(args.currentSlide) || args.selectedElements.length < 2) return;
     const elementId = createElementId(args.deck);
@@ -976,6 +1028,7 @@ export function useEditorCanvasCommands(args: {
       addActivitySlide,
       addTextElement,
       changeElementFrame,
+      changeElementLayerOrder,
       clearCanvasSelection,
       commitCustomShapeGeometry,
       convertChartToTable,

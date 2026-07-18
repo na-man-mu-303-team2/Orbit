@@ -93,6 +93,10 @@ describe("SelectionQuickBar", () => {
     expect(html).toContain('aria-label="아래쪽 정렬"');
     expect(html).toContain("불투명도 (%)");
     expect(html).toContain('aria-label="세로 가운데 정렬"');
+    expect(html).toContain('aria-label="맨 앞으로 가져오기"');
+    expect(html).toContain('aria-label="앞으로 가져오기"');
+    expect(html).toContain('aria-label="뒤로 가져오기"');
+    expect(html).toContain('aria-label="맨 뒤로 보내기"');
     expect(html).not.toContain("애니메이션 편집");
   });
 

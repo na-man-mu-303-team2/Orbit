@@ -37,6 +37,7 @@ import {
   getSnappedElementPosition,
   type CanvasSnapGuide
 } from "../utils/canvasInteractionUtils";
+import { resolveTransformedElementFrame } from "../utils/selectionTransformer";
 
 type KonvaComponent = ComponentType<any>;
 
@@ -241,13 +242,16 @@ export function EditableElementNode(props: {
         }
 
         const node = event.target;
-        const nextFrame = {
-          x: node.x(),
-          y: node.y(),
-          width: Math.max(1, frame.width * node.scaleX()),
-          height: Math.max(1, frame.height * node.scaleY()),
-          rotation: node.rotation(),
-        };
+        const nextFrame = resolveTransformedElementFrame({
+          frame,
+          transform: {
+            x: node.x(),
+            y: node.y(),
+            scaleX: node.scaleX(),
+            scaleY: node.scaleY(),
+            rotation: node.rotation(),
+          },
+        });
 
         node.scaleX(1);
         node.scaleY(1);
@@ -255,20 +259,22 @@ export function EditableElementNode(props: {
       }}
       onTransformEnd={(event: Konva.KonvaEventObject<Event>) => {
         const node = event.target;
-        const nextWidth = Math.max(1, frame.width * node.scaleX());
-        const nextHeight = Math.max(1, frame.height * node.scaleY());
+        const nextFrame = resolveTransformedElementFrame({
+          frame,
+          transform: {
+            x: node.x(),
+            y: node.y(),
+            scaleX: node.scaleX(),
+            scaleY: node.scaleY(),
+            rotation: node.rotation(),
+          },
+        });
 
         node.scaleX(1);
         node.scaleY(1);
 
         setPreviewFrame(null);
-        onCommitFrame({
-          x: node.x(),
-          y: node.y(),
-          width: nextWidth,
-          height: nextHeight,
-          rotation: node.rotation(),
-        });
+        onCommitFrame(nextFrame);
       }}
     >
       <ElementInteractionHitTargets

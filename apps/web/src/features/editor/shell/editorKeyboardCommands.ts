@@ -35,6 +35,7 @@ export type EditorKeyboardCommandInput = {
   isInsertToolActive?: boolean;
   key: string;
   metaKey?: boolean;
+  repeat?: boolean;
   shiftKey?: boolean;
   target?: EventTarget | null;
 };
@@ -66,6 +67,7 @@ export function resolveEditorKeyboardCommand(
     return {
       canExecute: Boolean(
         input.canMutateDeck &&
+          !input.repeat &&
           !input.hasOpenModal &&
           !input.hasOpenMenu &&
           !input.isCropEditing &&

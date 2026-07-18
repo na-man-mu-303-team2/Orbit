@@ -9,19 +9,24 @@ export function IconLibrarySidePanel(props: {
 }) {
   const [query, setQuery] = useState("");
   const [color, setColor] = useState(props.accentColor);
+  const [category, setCategory] = useState<"all" | "arrow" | "general">("all");
   const useDarkPreview = isLightColor(color);
   const icons = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    if (!normalizedQuery) return slideIconDefinitions;
-    return slideIconDefinitions.filter((icon) =>
-      [icon.label, icon.name, ...icon.keywords].join(" ").toLocaleLowerCase().includes(normalizedQuery)
-    );
-  }, [query]);
+    return slideIconDefinitions.filter((icon) => {
+      if (category !== "all" && icon.category !== category) return false;
+      if (!normalizedQuery) return true;
+      return [icon.label, icon.name, ...icon.keywords]
+        .join(" ")
+        .toLocaleLowerCase()
+        .includes(normalizedQuery);
+    });
+  }, [category, query]);
 
   return (
     <section aria-label="아이콘 라이브러리" className="icon-library-panel">
       <p className="icon-library-description">
-        슬라이드에 사용할 아이콘을 선택하세요.
+        정보 아이콘과 발표 흐름을 구성할 장표용 화살표를 선택하세요.
       </p>
       <div className="icon-library-controls">
         <label className="icon-library-search">
@@ -33,13 +38,41 @@ export function IconLibrarySidePanel(props: {
           <input aria-label="아이콘 색상" type="color" value={color} onChange={(event) => setColor(event.target.value)} />
         </label>
       </div>
+      <div aria-label="아이콘 종류" className="icon-library-categories" role="group">
+        <button
+          aria-pressed={category === "all"}
+          type="button"
+          onClick={() => setCategory("all")}
+        >
+          전체
+        </button>
+        <button
+          aria-pressed={category === "general"}
+          type="button"
+          onClick={() => setCategory("general")}
+        >
+          아이콘
+        </button>
+        <button
+          aria-pressed={category === "arrow"}
+          type="button"
+          onClick={() => setCategory("arrow")}
+        >
+          장표 화살표
+        </button>
+      </div>
       <div className="icon-library-scroll">
         {icons.length > 0 ? (
-          <div className="icon-library-grid">
+          <div className={`icon-library-grid${category === "arrow" ? " presentation-arrows" : ""}`}>
             {icons.map((icon) => (
-              <button aria-label={`${icon.label} 아이콘 추가`} className="icon-library-item" key={icon.name} title={icon.label} type="button" onClick={() => props.onInsert(icon, color)}>
+              <button aria-label={`${icon.label} 추가`} className={`icon-library-item${icon.category === "arrow" ? " presentation-arrow" : ""}`} key={icon.name} title={icon.label} type="button" onClick={() => props.onInsert(icon, color)}>
                 <span className={`icon-library-preview${useDarkPreview ? " dark" : ""}`}>
-                  <icon.Icon color={color} size={28} stroke={2} />
+                  <icon.Icon
+                    color={color}
+                    height={icon.category === "arrow" ? 42 : 28}
+                    stroke={2}
+                    width={icon.category === "arrow" ? 76 : 28}
+                  />
                 </span>
                 <span>{icon.label}</span>
               </button>
