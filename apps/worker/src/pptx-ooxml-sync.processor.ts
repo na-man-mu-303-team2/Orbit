@@ -315,7 +315,29 @@ export async function processPptxOoxmlSyncJob(
         syncedDeckVersion,
         latestDeckVersion,
       );
-      const invalidReorder = operations.find(
+      const currentLogicalGroupElementIds = storedDeck.slides.flatMap((slide) =>
+        slide.elements
+          .filter((element) => element.type === "group")
+          .map((element) => element.elementId),
+      );
+      const knownLogicalGroupElementIds = new Set([
+        ...templateBlueprint.logicalGroupElementIds,
+        ...currentLogicalGroupElementIds,
+        ...operations.flatMap((operation) =>
+          operation.type === "add_element" && operation.element.type === "group"
+            ? [operation.element.elementId]
+            : [],
+        ),
+      ]);
+      const packageOperations = operations.filter(
+        (operation) =>
+          !isLogicalGroupOperation(operation, knownLogicalGroupElementIds),
+      );
+      const blueprintWithLogicalGroups = templateBlueprintSchema.parse({
+        ...templateBlueprint,
+        logicalGroupElementIds: currentLogicalGroupElementIds,
+      });
+      const invalidReorder = packageOperations.find(
         (operation) =>
           operation.type === "reorder_slides" &&
           !isExactSlidePermutation(operation, storedDeck),
@@ -326,7 +348,7 @@ export async function processPptxOoxmlSyncJob(
           reasonCode: "SLIDE_REORDER_PERMUTATION_INVALID",
         });
       }
-      const unsupportedPendingOperation = operations.find(
+      const unsupportedPendingOperation = packageOperations.find(
         (operation) =>
           !isOoxmlSyncOperation(operation) &&
           !isOoxmlPackageNeutralOperation(operation),
@@ -341,10 +363,10 @@ export async function processPptxOoxmlSyncJob(
         manager,
         storage,
         payload.projectId,
-        operations,
+        packageOperations,
       );
       const syncPlan = prepareAuthoredSlideSync(
-        templateBlueprint,
+        blueprintWithLogicalGroups,
         embeddedOperations,
       );
       const synced = await syncPptxOoxmlWithPython(
@@ -899,6 +921,23 @@ function isOoxmlPackageNeutralOperation(
     "update_slide_action",
     "delete_slide_action",
   ].includes(operation.type);
+}
+
+function isLogicalGroupOperation(
+  operation: DeckPatchOperation,
+  logicalGroupElementIds: Set<string>,
+): boolean {
+  if (operation.type === "add_element") {
+    return operation.element.type === "group";
+  }
+  if (
+    operation.type === "update_element_frame" ||
+    operation.type === "update_element_props" ||
+    operation.type === "delete_element"
+  ) {
+    return logicalGroupElementIds.has(operation.elementId);
+  }
+  return false;
 }
 
 function isExactSlidePermutation(

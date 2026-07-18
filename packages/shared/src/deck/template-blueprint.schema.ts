@@ -220,6 +220,7 @@ export const templateBlueprintSchema = z.object({
   sourcePackageFileId: z.string().min(1).optional(),
   currentPackageFileId: z.string().min(1).optional(),
   ooxmlSyncedDeckVersion: z.number().int().positive().optional(),
+  logicalGroupElementIds: z.array(deckElementIdSchema).default([]),
   slides: z.array(templateBlueprintSlideSchema).min(1),
 });
 
