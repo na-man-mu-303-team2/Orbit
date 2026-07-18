@@ -25,6 +25,16 @@ const storage: Pick<StoragePort, "getSignedReadUrl" | "putObject"> = {
   }))
 };
 
+function createTransactionalDataSource(query: ReturnType<typeof vi.fn>) {
+  const manager = { query };
+  return {
+    query,
+    transaction: async (
+      run: (transactionManager: typeof manager) => Promise<unknown>
+    ) => run(manager)
+  } as unknown as DataSource;
+}
+
 describe("processPptxOoxmlGenerationJob", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -84,7 +94,7 @@ describe("processPptxOoxmlGenerationJob", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const job = await processPptxOoxmlGenerationJob(
-      { query } as unknown as DataSource,
+      createTransactionalDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -110,6 +120,10 @@ describe("processPptxOoxmlGenerationJob", () => {
       }>;
     };
     expect(deck.metadata.thumbnailSource).toBe("import-render");
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE projects"),
+      ["project-a", "template"]
+    );
     expect(deck.slides[0].thumbnailUrl).toMatch(
       /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
     );
@@ -228,7 +242,7 @@ describe("processPptxOoxmlGenerationJob", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const job = await processPptxOoxmlGenerationJob(
-      { query } as unknown as DataSource,
+      createTransactionalDataSource(query),
       storage,
       "http://localhost:8000",
       payload
@@ -311,7 +325,7 @@ describe("processPptxOoxmlGenerationJob", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const job = await processPptxOoxmlGenerationJob(
-      { query } as unknown as DataSource,
+      createTransactionalDataSource(query),
       storage,
       "http://localhost:8000",
       payload

@@ -54,6 +54,7 @@ type StoredTemplateBlueprintRow = {
 
 class InMemoryDeckDataSource {
   readonly decks = new Map<string, StoredDeckRow>();
+  readonly projectTitles = new Map<string, string>();
   readonly patchRows: StoredPatchRow[] = [];
   readonly snapshotRows: StoredSnapshotRow[] = [];
   readonly templateBlueprintRows: StoredTemplateBlueprintRow[] = [];
@@ -139,6 +140,12 @@ class InMemoryDeckDataSource {
 
       this.decks.set(projectId, row);
       return [cloneDeckRow(row)] as T;
+    }
+
+    if (query.startsWith("UPDATE projects SET title = $2")) {
+      const [projectId, title] = params as [string, string];
+      this.projectTitles.set(projectId, title);
+      return [] as T;
     }
 
     if (query.startsWith("INSERT INTO deck_patches")) {
@@ -621,7 +628,7 @@ describe("DecksService", () => {
   });
 
   it("stores and reads a current deck with an automatic snapshot", async () => {
-    const { service } = createService();
+    const { dataSource, service } = createService();
     const deck = createDeck();
 
     const putResponse = await service.putDeck(deck.projectId, { deck });
@@ -642,6 +649,7 @@ describe("DecksService", () => {
     });
     expect(putResponse.snapshot.snapshotId).toMatch(/^snapshot_/);
     expect(getResponse.deck.title).toBe(deck.title);
+    expect(dataSource.projectTitles.get(deck.projectId)).toBe(deck.title);
     expect(snapshotResponse.snapshots).toHaveLength(1);
     expect(snapshotResponse.snapshots[0]?.snapshotId).toBe(
       putResponse.snapshot.snapshotId,
@@ -728,6 +736,7 @@ describe("DecksService", () => {
     const snapshotResponse = await service.listSnapshots(deck.projectId);
 
     expect(patchResponse.deck.title).toBe("수정된 덱");
+    expect(dataSource.projectTitles.get(deck.projectId)).toBe("수정된 덱");
     expect(patchResponse.deck.version).toBe(2);
     expect(patchResponse.changeRecord).toMatchObject({
       deckId: deck.deckId,
@@ -1625,6 +1634,7 @@ describe("DecksService", () => {
       title: deck.title,
       version: 1,
     });
+    expect(dataSource.projectTitles.get(deck.projectId)).toBe(deck.title);
     const snapshots = await service.listSnapshots(deck.projectId);
     expect(snapshots.snapshots).toEqual(
       expect.arrayContaining([
