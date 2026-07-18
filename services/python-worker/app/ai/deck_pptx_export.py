@@ -23,6 +23,9 @@ RICH_TEXT_UNSUPPORTED_LETTER_SPACING = (
     "PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING"
 )
 RICH_TEXT_UNSUPPORTED_RUN_PROPERTY = "PPTX_RICH_TEXT_UNSUPPORTED_RUN_PROPERTY"
+TABLE_STRUCTURE_UNSUPPORTED = "PPTX_TABLE_STRUCTURE_UNSUPPORTED"
+TABLE_STYLE_UNSUPPORTED = "PPTX_TABLE_STYLE_UNSUPPORTED"
+TABLE_TRACK_MISMATCH = "PPTX_TABLE_TRACK_MISMATCH"
 SUPPORTED_RUN_PROPERTIES = {
     "baseline",
     "color",
@@ -127,7 +130,7 @@ def add_element(
     elif element_type == "chart":
         add_chart(slide, element, warnings)
     elif element_type == "table":
-        add_table(slide, element)
+        add_table(slide, element, deck, warnings)
     else:
         warnings.append(f"Skipped unsupported element type: {element_type}")
 
@@ -459,12 +462,23 @@ def add_chart(slide: Any, element: dict[str, Any], warnings: list[str]) -> None:
     )
 
 
-def add_table(slide: Any, element: dict[str, Any]) -> None:
-    rows = element.get("props", {}).get("rows") or []
+def add_table(
+    slide: Any,
+    element: dict[str, Any],
+    deck: dict[str, Any],
+    warnings: list[str],
+) -> None:
+    props = element.get("props", {})
+    rows = props.get("rows") or []
+    element_id = str(element.get("elementId", "unknown"))
+    issue = table_export_issue(props, element_id)
+    if issue is not None:
+        warnings.append(issue)
+        return
     if not rows:
         return
     row_count = len(rows)
-    col_count = max(len(row) for row in rows)
+    col_count = len(rows[0])
     table_shape = slide.shapes.add_table(
         row_count,
         col_count,
@@ -474,14 +488,174 @@ def add_table(slide: Any, element: dict[str, Any]) -> None:
         emu_height(element),
     )
     table = table_shape.table
+    column_widths = normalized_table_track_emu(
+        props.get("columnWidths"),
+        total=float(element["width"]),
+        count=col_count,
+    )
+    row_heights = normalized_table_track_emu(
+        props.get("rowHeights"),
+        total=float(element["height"]),
+        count=row_count,
+    )
+    for column_index, width in enumerate(column_widths):
+        table.columns[column_index].width = width
+    for row_index, height in enumerate(row_heights):
+        table.rows[row_index].height = height
+
     for row_index, row in enumerate(rows):
         for col_index, cell_payload in enumerate(row):
             cell = table.cell(row_index, col_index)
-            cell.text = str(cell_payload.get("text", ""))
+            text_frame = cell.text_frame
+            text_frame.clear()
+            cell.vertical_anchor = vertical_anchor(
+                str(cell_payload.get("verticalAlign", "middle"))
+            )
+            paragraph = text_frame.paragraphs[0]
+            paragraph.alignment = paragraph_alignment(
+                str(cell_payload.get("align", "left"))
+            )
+            run = paragraph.add_run()
+            run.text = str(cell_payload.get("text", ""))
+            apply_font(
+                run.font,
+                {
+                    **cell_payload,
+                    "color": cell_payload.get("textColor"),
+                },
+                deck,
+            )
             fill = cell_payload.get("fill")
             if is_hex_color(fill):
                 cell.fill.solid()
                 cell.fill.fore_color.rgb = rgb(fill)
+            elif fill == "transparent":
+                cell.fill.background()
+            apply_table_cell_border(
+                cell,
+                str(
+                    cell_payload.get("borderColor")
+                    or props.get("borderColor")
+                    or "#CBD5E1"
+                ),
+                cell_payload.get("borderWidth", props.get("borderWidth", 1)),
+            )
+
+
+def table_export_issue(props: Any, element_id: str) -> str | None:
+    rows = props.get("rows") if isinstance(props, dict) else None
+    if not isinstance(rows, list) or not rows:
+        return (
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; "
+            "reason=empty-grid"
+        )
+    if not isinstance(rows[0], list) or not rows[0]:
+        return f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; reason=jagged-grid"
+    column_count = len(rows[0])
+    if any(not isinstance(row, list) or len(row) != column_count for row in rows):
+        return f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; reason=jagged-grid"
+    if any(not isinstance(cell, dict) for row in rows for cell in row):
+        return (
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; "
+            "reason=invalid-cell"
+        )
+    if any(
+        int(cell.get("colSpan", 1)) != 1 or int(cell.get("rowSpan", 1)) != 1
+        for row in rows
+        for cell in row
+    ):
+        return f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; reason=merged-cell"
+
+    for row_index, row in enumerate(rows):
+        for column_index, cell in enumerate(row):
+            fill = cell.get("fill", "transparent")
+            if fill != "transparent" and not is_hex_color(fill):
+                return (
+                    f"{TABLE_STYLE_UNSUPPORTED}: element={element_id}; "
+                    f"row={row_index}; column={column_index}; property=fill"
+                )
+
+    column_widths = props.get("columnWidths")
+    if isinstance(column_widths, list) and len(column_widths) != column_count:
+        return (
+            f"{TABLE_TRACK_MISMATCH}: element={element_id}; track=columnWidths; "
+            f"expected={column_count}; actual={len(column_widths)}"
+        )
+    row_heights = props.get("rowHeights")
+    if isinstance(row_heights, list) and len(row_heights) != len(rows):
+        return (
+            f"{TABLE_TRACK_MISMATCH}: element={element_id}; track=rowHeights; "
+            f"expected={len(rows)}; actual={len(row_heights)}"
+        )
+    return None
+
+
+def normalized_table_track_emu(
+    tracks: Any,
+    *,
+    total: float,
+    count: int,
+) -> list[int]:
+    weights = (
+        [float(value) for value in tracks]
+        if isinstance(tracks, list) and tracks
+        else [1.0] * count
+    )
+    total_emu = max(count, canvas_units_to_emu(total))
+    max_weight = max(weights)
+    scaled_weights = [weight / max_weight for weight in weights]
+    weight_total = sum(scaled_weights)
+    distributable = total_emu - count
+    exact_extras = [
+        distributable * weight / weight_total for weight in scaled_weights
+    ]
+    floor_extras = [math.floor(value) for value in exact_extras]
+    normalized = [1 + value for value in floor_extras]
+    remainder = distributable - sum(floor_extras)
+    remainder_order = sorted(
+        range(count),
+        key=lambda index: (-(exact_extras[index] - floor_extras[index]), index),
+    )
+    for index in remainder_order[:remainder]:
+        normalized[index] += 1
+    return normalized
+
+
+def apply_table_cell_border(cell: Any, color: str, width: Any) -> None:
+    cell_properties = cell._tc.get_or_add_tcPr()
+    border_width = max(0.0, float(width))
+    borders: list[Any] = []
+    for border_name in ("lnL", "lnR", "lnT", "lnB"):
+        for existing in list(cell_properties):
+            if existing.tag.rsplit("}", maxsplit=1)[-1] == border_name:
+                cell_properties.remove(existing)
+        border = OxmlElement(f"a:{border_name}")
+        border.set("w", str(canvas_units_to_emu(border_width)))
+        if not is_hex_color(color) or border_width <= 0:
+            border.append(OxmlElement("a:noFill"))
+            borders.append(border)
+            continue
+        solid_fill = OxmlElement("a:solidFill")
+        color_value = OxmlElement("a:srgbClr")
+        color_value.set("val", color[1:])
+        solid_fill.append(color_value)
+        border.append(solid_fill)
+        dash = OxmlElement("a:prstDash")
+        dash.set("val", "solid")
+        border.append(dash)
+        borders.append(border)
+
+    fill_names = {"noFill", "solidFill", "gradFill", "blipFill", "pattFill", "grpFill"}
+    insertion_index = next(
+        (
+            index
+            for index, child in enumerate(cell_properties)
+            if child.tag.rsplit("}", maxsplit=1)[-1] in fill_names
+        ),
+        0,
+    )
+    for offset, border in enumerate(borders):
+        cell_properties.insert(insertion_index + offset, border)
 
 
 def apply_fill(shape: Any, fill: Any) -> None:
