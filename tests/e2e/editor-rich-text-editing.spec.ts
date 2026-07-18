@@ -1,4 +1,10 @@
-import { expect, test, type Page, type Request } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Locator,
+  type Page,
+  type Request,
+} from "@playwright/test";
 import { createDemoDeck, normalizeRichTextProps } from "@orbit/editor-core";
 import type { Deck, DeckPatch } from "@orbit/shared";
 
@@ -47,6 +53,13 @@ function isDeckPatchRequest(request: Request, projectId: string) {
   );
 }
 
+function isDeckPutRequest(request: Request, projectId: string) {
+  return (
+    request.method() === "PUT" &&
+    new URL(request.url()).pathname === projectDeckPath(projectId)
+  );
+}
+
 async function fetchPersistedDeck(page: Page, projectId: string) {
   const response = await page.request.get(projectDeckPath(projectId));
   expect(response.ok(), await response.text()).toBe(true);
@@ -87,8 +100,113 @@ async function beginInlineEditing(page: Page, elementId: string) {
   return editor;
 }
 
+async function moveCaretToEnd(editor: Locator) {
+  await editor.evaluate((root) => {
+    (root as HTMLElement).focus();
+    const range = document.createRange();
+    range.selectNodeContents(root);
+    range.collapse(false);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+}
+
+async function composeKoreanTextAtEnd(editor: Locator) {
+  return editor.evaluate(
+    (root, { compositionStages, useMetaKey }) => {
+      const lastRun = root.querySelector<HTMLElement>(
+        "[data-text-paragraph-index]:last-child [data-text-run-index]:last-child",
+      );
+      const textNode = lastRun?.firstChild;
+      if (!(textNode instanceof Text)) {
+        throw new Error("Rich text composition requires a trailing text node.");
+      }
+
+      const initialRunText = textNode.data;
+      root.dispatchEvent(
+        new CompositionEvent("compositionstart", {
+          bubbles: true,
+          composed: true,
+          data: "",
+        }),
+      );
+
+      for (const stage of compositionStages) {
+        root.dispatchEvent(
+          new CompositionEvent("compositionupdate", {
+            bubbles: true,
+            composed: true,
+            data: stage,
+          }),
+        );
+        root.dispatchEvent(
+          new InputEvent("beforeinput", {
+            bubbles: true,
+            cancelable: false,
+            composed: true,
+            data: stage,
+            inputType: "insertCompositionText",
+            isComposing: true,
+          }),
+        );
+        textNode.data = `${initialRunText}${stage}`;
+        root.dispatchEvent(
+          new InputEvent("input", {
+            bubbles: true,
+            composed: true,
+            data: stage,
+            inputType: "insertCompositionText",
+            isComposing: true,
+          }),
+        );
+      }
+
+      for (const key of ["Enter", "Escape"]) {
+        root.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            composed: true,
+            ctrlKey: !useMetaKey && key === "Enter",
+            isComposing: true,
+            key,
+            metaKey: useMetaKey && key === "Enter",
+          }),
+        );
+      }
+
+      const saveEvent = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        ctrlKey: !useMetaKey,
+        isComposing: true,
+        key: "s",
+        metaKey: useMetaKey,
+      });
+      return root.dispatchEvent(saveEvent) === false;
+    },
+    {
+      compositionStages: ["ㅎ", "하", "한", "한ㄱ", "한그", "한글"],
+      useMetaKey: primaryModifier === "Meta",
+    },
+  );
+}
+
+async function finishKoreanComposition(editor: Locator) {
+  await editor.evaluate((root) => {
+    root.dispatchEvent(
+      new CompositionEvent("compositionend", {
+        bubbles: true,
+        composed: true,
+        data: "한글",
+      }),
+    );
+  });
+}
+
 test.describe("B4 IME-safe contentEditable session", () => {
-  test("keeps format and typing local, commits once, and cancels Escape", async ({
+  test("keeps format and Korean composition local, commits once, and cancels Escape", async ({
     page,
   }) => {
     const consoleErrors: string[] = [];
@@ -100,9 +218,13 @@ test.describe("B4 IME-safe contentEditable session", () => {
       label: "rich-text-editing",
     });
     const patchRequests: Request[] = [];
+    const deckPutRequests: Request[] = [];
     page.on("request", (request) => {
       if (isDeckPatchRequest(request, project.projectId)) {
         patchRequests.push(request);
+      }
+      if (isDeckPutRequest(request, project.projectId)) {
+        deckPutRequests.push(request);
       }
     });
     await openEditor(page, project.projectId);
@@ -120,23 +242,48 @@ test.describe("B4 IME-safe contentEditable session", () => {
       "font-weight",
       "700",
     );
+    await expect(editor).toContainText("Alpha Beta");
     expect(patchRequests).toHaveLength(0);
 
     const fontSizeInput = page.locator('input[aria-label="글자 크기"]');
     await fontSizeInput.click();
     await expect(fontSizeInput).toBeFocused();
     await fontSizeInput.fill("30");
+    await expect(editor).toContainText("Alpha Beta");
     expect(patchRequests).toHaveLength(0);
 
-    await editor.focus();
-    await editor.press("End");
-    await editor.pressSequentially(" 한글");
+    await moveCaretToEnd(editor);
+    await expect(editor).toContainText("Alpha Beta");
+    await editor.pressSequentially(" ");
+    await expect(editor).toContainText("Alpha Beta ");
+    expect(await composeKoreanTextAtEnd(editor)).toBe(true);
+    await expect(editor).toContainText("Alpha Beta 한글");
+    await expect(editor).toBeFocused();
+    expect(patchRequests).toHaveLength(0);
+    await expect(
+      page.getByRole("button", { name: "실행 취소", exact: true }),
+    ).toBeDisabled();
+    const persistedDuringComposition = await fetchPersistedDeck(
+      page,
+      project.projectId,
+    );
+    const textDuringComposition = persistedDuringComposition.slides[0]?.elements.find(
+      (candidate) => candidate.elementId === "el_1",
+    );
+    expect(
+      textDuringComposition?.type === "text"
+        ? textDuringComposition.props.text
+        : null,
+    ).toBe("Alpha Beta");
+
+    await finishKoreanComposition(editor);
+    await expect(editor).toBeFocused();
     expect(patchRequests).toHaveLength(0);
 
     const patchResponsePromise = page.waitForResponse((response) =>
       isDeckPatchRequest(response.request(), project.projectId),
     );
-    await editor.press(`${primaryModifier}+Enter`);
+    await editor.press(`${primaryModifier}+S`);
     const patchResponse = await patchResponsePromise;
     expect(patchResponse.ok(), await patchResponse.text()).toBe(true);
     await expect(page.getByRole("textbox", { name: "텍스트 편집" })).toHaveCount(
@@ -150,6 +297,7 @@ test.describe("B4 IME-safe contentEditable session", () => {
     expect(patchBody.patch?.operations).toHaveLength(1);
     expect(patchBody.patch?.operations[0]).toMatchObject({
       elementId: "el_1",
+      props: expect.objectContaining({ text: "Alpha Beta 한글" }),
       type: "update_element_props",
     });
 
@@ -171,9 +319,16 @@ test.describe("B4 IME-safe contentEditable session", () => {
         ],
         text: "Alpha Beta 한글",
       });
+    const persistedAfterCommit = await fetchPersistedDeck(page, project.projectId);
+    const committedText = persistedAfterCommit.slides[0]?.elements.find(
+      (candidate) => candidate.elementId === "el_1",
+    );
+    expect(
+      committedText?.type === "text" ? committedText.props.text : null,
+    ).toBe("Alpha Beta 한글".normalize("NFC"));
 
     const cancelEditor = await beginInlineEditing(page, "el_1");
-    await cancelEditor.press("End");
+    await moveCaretToEnd(cancelEditor);
     await cancelEditor.pressSequentially(" 버림");
     await cancelEditor.press("Escape");
     await expect(page.getByRole("textbox", { name: "텍스트 편집" })).toHaveCount(
@@ -189,10 +344,32 @@ test.describe("B4 IME-safe contentEditable session", () => {
       "Alpha Beta 한글",
     );
 
+    const undoResponsePromise = page.waitForResponse((response) =>
+      isDeckPutRequest(response.request(), project.projectId),
+    );
     await page.getByRole("button", { name: "실행 취소", exact: true }).click();
+    const undoResponse = await undoResponsePromise;
+    expect(undoResponse.ok(), await undoResponse.text()).toBe(true);
     await expect(
       page.getByRole("button", { name: "실행 취소", exact: true }),
     ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "다시 실행", exact: true }),
+    ).toBeEnabled();
+    expect(patchRequests).toHaveLength(1);
+    expect(deckPutRequests).toHaveLength(1);
+    const persistedAfterUndo = await fetchPersistedDeck(page, project.projectId);
+    const undoneText = persistedAfterUndo.slides[0]?.elements.find(
+      (candidate) => candidate.elementId === "el_1",
+    );
+    expect(undoneText?.type === "text" ? undoneText.props.text : null).toBe(
+      "Alpha Beta",
+    );
+
+    const restoredEditor = await beginInlineEditing(page, "el_1");
+    await expect(restoredEditor).toContainText("Alpha Beta");
+    await expect(restoredEditor).not.toContainText("한글");
+    await restoredEditor.press("Escape");
     expect(consoleErrors).toEqual([]);
   });
 });

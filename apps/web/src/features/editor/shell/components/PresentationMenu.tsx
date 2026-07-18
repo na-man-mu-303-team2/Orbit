@@ -92,6 +92,7 @@ export function PresentationMenu(props: PresentationMenuProps) {
           <DropdownMenu
             align="end"
             className="editor-presentation-menu"
+            data-editor-keyboard-scope="popup-menu"
             variant="white"
           >
             <DropdownMenuItem

@@ -158,12 +158,20 @@ const InlineTextEditorSurface = forwardRef<
   }
 
   function handleCompositeBlur(nextTarget: Node | null) {
-    session.handleBlur({
-      nextTargetInsideComposite: isContentEditableCompositeTarget(
-        nextTarget,
-        getCompositeRoots(),
-      ),
-    });
+    const resolveBlur = (target: Node | null) =>
+      session.handleBlur({
+        nextTargetInsideComposite: isContentEditableCompositeTarget(
+          target,
+          getCompositeRoots(),
+        ),
+      });
+
+    if (nextTarget) {
+      resolveBlur(nextTarget);
+      return;
+    }
+
+    queueMicrotask(() => resolveBlur(document.activeElement));
   }
 
   useImperativeHandle(
@@ -182,12 +190,6 @@ const InlineTextEditorSurface = forwardRef<
     publishDraft(session.getDraft());
     rootRef.current?.focus();
   }, [session]);
-
-  useEffect(() => {
-    if (!pendingRangeRestoreRef.current) return;
-    pendingRangeRestoreRef.current = false;
-    restoreRange();
-  }, [renderedProps]);
 
   useEffect(() => {
     function handleSelectionChange() {
@@ -238,6 +240,11 @@ const InlineTextEditorSurface = forwardRef<
       }}
       onCompositionStart={() => {
         session.handleCompositionStart();
+      }}
+      onFocus={() => {
+        if (!pendingRangeRestoreRef.current) return;
+        pendingRangeRestoreRef.current = false;
+        restoreRange();
       }}
       onInput={(event) => {
         const nextDraft = session.replaceDraft(
