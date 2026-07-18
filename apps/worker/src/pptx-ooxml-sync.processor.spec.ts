@@ -131,6 +131,78 @@ describe("processPptxOoxmlSyncJob", () => {
     );
   });
 
+  it("persists refreshed authored table locators returned by Python", async () => {
+    let savedBlueprint: Record<string, unknown> | null = null;
+    const initialBlueprint = templateBlueprint(1);
+    initialBlueprint.slides[0]!.elementSources = [
+      tableElementSource("el_table", 2, 2),
+    ];
+    const { dataSource } = createDataSource({
+      blueprint: initialBlueprint,
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_table",
+          props: {
+            rows: [
+              [{ text: "A" }, { text: "B" }, { text: "C" }],
+              [{ text: "D" }, { text: "E" }, { text: "F" }],
+            ],
+            columnWidths: [100, 100, 100],
+            rowHeights: [60, 60],
+          },
+        },
+      ],
+      onBlueprintUpdate: (blueprint) => {
+        savedBlueprint = blueprint;
+        return true;
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("current.pptx")
+          ? new Response("pptx-bytes")
+          : new Response(
+              JSON.stringify({
+                ...workerResponse([
+                  {
+                    operationType: "update_element_props",
+                    slideId: "slide_1",
+                    elementId: "el_table",
+                  },
+                ]),
+                elementSources: [tableElementSource("el_table", 2, 3)],
+              }),
+            ),
+      ),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    const savedSources = ((
+      savedBlueprint as unknown as {
+        slides?: Array<{ elementSources?: unknown[] }>;
+      }
+    ).slides?.[0]?.elementSources ?? []) as Array<{
+      elementId?: string;
+      tableCellLocators?: unknown[];
+    }>;
+    expect(
+      savedSources.find((source) => source.elementId === "el_table")
+        ?.tableCellLocators,
+    ).toHaveLength(6);
+  });
+
   it("treats a lower queued version as a no-op after a newer package is synced", async () => {
     const { dataSource, query } = createDataSource({
       deckVersion: 3,
@@ -274,6 +346,74 @@ describe("processPptxOoxmlSyncJob", () => {
     ).toBe(false);
   });
 
+  it.each([
+    "TABLE_CELL_CAPABILITY_UNSAFE",
+    "TABLE_STRUCTURE_UNSUPPORTED",
+  ] as const)(
+    "parses %s as a non-retryable table edit failure without exposing cell text",
+    async (reasonCode) => {
+      const privateCellText = "비공개 표 셀 내용";
+      const { dataSource, query } = createDataSource({
+        deckVersion: 2,
+        syncedVersion: 1,
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: "slide_1",
+            elementId: "el_table",
+            props: { rows: [[{ text: privateCellText }]] },
+          },
+        ],
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL) =>
+          String(input).endsWith("current.pptx")
+            ? new Response("pptx-bytes")
+            : new Response(
+                JSON.stringify({
+                  ...workerResponse([]),
+                  unsupportedOperations: [
+                    {
+                      operationType: "update_element_props",
+                      slideId: "slide_1",
+                      elementId: "el_table",
+                      reasonCode,
+                    },
+                  ],
+                }),
+              ),
+        ),
+      );
+
+      const job = await processPptxOoxmlSyncJob(
+        dataSource,
+        storage,
+        "http://localhost:8000",
+        payload,
+      );
+
+      expect(job.status).toBe("failed");
+      expect(job.error).toEqual({
+        code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+        message: `update_element_props:${reasonCode}:slide_1:el_table`,
+        retryable: false,
+      });
+      expect(JSON.stringify(job.error)).not.toContain(privateCellText);
+      expect(storage.putObject).not.toHaveBeenCalled();
+      expect(
+        query.mock.calls.some(([sql]) =>
+          String(sql).includes("UPDATE template_blueprints"),
+        ),
+      ).toBe(false);
+      expect(
+        query.mock.calls.some(([sql]) =>
+          String(sql).includes("DELETE FROM deck_patches"),
+        ),
+      ).toBe(false);
+    },
+  );
+
   it("rejects an incomplete applied-operation acknowledgement", async () => {
     const { dataSource, query } = createDataSource({
       deckVersion: 2,
@@ -351,6 +491,7 @@ describe("processPptxOoxmlSyncJob", () => {
 });
 
 function createDataSource(input: {
+  blueprint?: ReturnType<typeof templateBlueprint>;
   deckVersion: number;
   syncedVersion: number;
   operations: unknown[];
@@ -372,7 +513,8 @@ function createDataSource(input: {
       return [
         {
           template_id: "template_a",
-          blueprint_json: templateBlueprint(input.syncedVersion),
+          blueprint_json:
+            input.blueprint ?? templateBlueprint(input.syncedVersion),
           quality_report_json: {},
         },
       ];
@@ -471,6 +613,38 @@ function templateBlueprint(syncedVersion: number) {
         slots: [],
       },
     ],
+  };
+}
+
+function tableElementSource(
+  elementId: string,
+  rowCount: number,
+  columnCount: number,
+) {
+  return {
+    elementId,
+    elementType: "table" as const,
+    ooxmlOrigin: "authored" as const,
+    ooxmlEditCapabilities: {
+      richText: "none" as const,
+      crop: "none" as const,
+      tableCellText: true,
+      frame: true,
+      delete: true,
+      imageSource: false,
+    },
+    slidePart: "ppt/slides/slide1.xml",
+    shapeId: "9",
+    sourceType: "table" as const,
+    writable: true,
+    tableCellLocators: Array.from(
+      { length: rowCount * columnCount },
+      (_, index) => ({
+        rowIndex: Math.floor(index / columnCount),
+        columnIndex: index % columnCount,
+        fingerprint: index.toString(16).padStart(64, "0"),
+      }),
+    ),
   };
 }
 

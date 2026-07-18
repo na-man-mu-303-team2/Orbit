@@ -189,9 +189,7 @@ describe("templateBlueprintSchema", () => {
       ],
     });
 
-    expect(
-      blueprint.slides[0].elementSources[0]?.tableCellLocators,
-    ).toEqual([
+    expect(blueprint.slides[0].elementSources[0]?.tableCellLocators).toEqual([
       { rowIndex: 0, columnIndex: 0, fingerprint: "a".repeat(64) },
       { rowIndex: 0, columnIndex: 1, fingerprint: "b".repeat(64) },
     ]);
@@ -404,6 +402,51 @@ describe("templateBlueprintSchema", () => {
                   fingerprint: "a".repeat(64),
                 },
               ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it.each([
+    ["missing locators", { tableCellLocators: undefined }],
+    ["read-only source", { writable: false }],
+    ["fallback source", { fallbackReason: "render fallback" }],
+    ["wrong element type", { elementType: "text" }],
+    ["wrong source type", { sourceType: "shape" }],
+  ])("rejects table cell text capability with a %s", (_, sourceOverride) => {
+    const tableCellLocators = [
+      {
+        rowIndex: 0,
+        columnIndex: 0,
+        fingerprint: "a".repeat(64),
+      },
+    ];
+    const result = templateBlueprintSchema.safeParse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          elementSources: [
+            {
+              elementId: "el_table",
+              elementType: "table",
+              ooxmlEditCapabilities: {
+                richText: "none",
+                crop: "none",
+                tableCellText: true,
+              },
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "7",
+              sourceType: "table",
+              writable: true,
+              tableCellLocators,
+              ...sourceOverride,
             },
           ],
         },
