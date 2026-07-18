@@ -432,7 +432,12 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
             "y": 600,
             "width": 300,
             "height": 100,
-            "props": {"fill": "#336699"},
+            "props": {
+                "fill": "#336699",
+                "stroke": "#0090FF",
+                "strokeWidth": 3,
+                "borderRadius": 18,
+            },
         },
         {
             "elementId": "el_added_image",
@@ -542,6 +547,12 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
     assert b'x="2032000"' in shape_xml(
         edited_bytes, added_sources["el_added_rect"]["shapeId"]
     )
+    edited_rect_xml = shape_xml(
+        edited_bytes, added_sources["el_added_rect"]["shapeId"]
+    )
+    assert b'prst="roundRect"' in edited_rect_xml
+    assert b'name="adj" fmla="val 18000"' in edited_rect_xml
+    assert b'<a:ln w="19050"><a:solidFill><a:srgbClr val="0090FF"' in edited_rect_xml
     edited_image_source = source_for_element(
         edited.element_sources,
         "el_added_image",
