@@ -7,7 +7,8 @@ export const speakerNotesSuggestionModeSchema = z.enum([
   "draft",
   "shorten",
   "naturalize",
-  "emphasize"
+  "emphasize",
+  "icebreaker"
 ]);
 
 export const speakerNotesSuggestionRequestSchema = z

@@ -54,4 +54,24 @@ describe("SpeakerNotesAssistantDialog", () => {
     expect(html).toContain("편집 초안에 넣기");
     expect(html).not.toContain(">저장<");
   });
+  it("shows the dedicated icebreaker flow even when notes are empty", () => {
+    const html = renderToStaticMarkup(
+      <SpeakerNotesAssistantDialog
+        errorMessage=""
+        mode="icebreaker"
+        onApply={() => undefined}
+        onClose={() => undefined}
+        onGenerate={() => undefined}
+        onModeChange={() => undefined}
+        open
+        originalNotes=""
+        result={null}
+        status="idle"
+      />,
+    );
+
+    expect(html).toContain("아이스브레이킹 인트로 만들기");
+    expect(html).toContain("인트로 생성");
+    expect(html).not.toContain("어떻게 다듬을까요?");
+  });
 });

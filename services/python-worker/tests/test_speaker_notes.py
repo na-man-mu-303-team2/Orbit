@@ -56,6 +56,34 @@ def test_generates_structured_spoken_korean_suggestion() -> None:
     assert "untrusted data" in fake.calls[0]["instructions"]
 
 
+def test_generates_an_icebreaker_before_existing_notes() -> None:
+    fake = FakeOpenAIClient(
+        {
+            "suggestedNotes": "여러분은 발표를 시작할 때 무엇이 가장 궁금하신가요? 기존 설명을 이어가겠습니다.",
+            "summary": "기존 대본 앞에 아이스브레이킹을 추가했습니다.",
+            "warnings": [],
+        }
+    )
+    payload = SpeakerNotesSuggestionRequest.model_validate(
+        {
+            "mode": "icebreaker",
+            "slideTitle": "서비스 소개",
+            "slideContent": ["사용자 경험 개선"],
+            "currentNotes": "기존 설명을 이어가겠습니다.",
+        }
+    )
+
+    result = generate_speaker_notes_suggestion(
+        payload,
+        model="test-model",
+        api_key=None,
+        client=fake,
+    )
+
+    assert result.suggested_notes.startswith("여러분은")
+    assert "icebreaker introduction" in fake.calls[0]["instructions"]
+
+
 def test_does_not_generate_fallback_without_openai_key() -> None:
     payload = SpeakerNotesSuggestionRequest.model_validate(
         {

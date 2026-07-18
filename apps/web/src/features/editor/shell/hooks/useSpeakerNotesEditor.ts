@@ -133,9 +133,11 @@ export function useSpeakerNotesEditor(args: {
       if (!requestSlide) throw new Error("현재 슬라이드를 찾을 수 없습니다.");
 
       const preferredMode = options?.mode ?? assistantMode;
-      const requestMode = requestSlide.speakerNotes.trim()
-        ? preferredMode === "draft" ? "naturalize" : preferredMode
-        : "draft";
+      const requestMode = preferredMode === "icebreaker"
+        ? "icebreaker"
+        : requestSlide.speakerNotes.trim()
+          ? preferredMode === "draft" ? "naturalize" : preferredMode
+          : "draft";
       const source = {
         slideId: requestSlide.slideId,
         baseVersion: requestDeck.version,
@@ -172,7 +174,9 @@ export function useSpeakerNotesEditor(args: {
       baseVersion: args.deck.version,
       notes: args.currentSlide.speakerNotes
     };
-    const requestMode = source.notes.trim() ? (mode === "draft" ? "naturalize" : mode) : "draft";
+    const requestMode = mode === "icebreaker"
+      ? "icebreaker"
+      : source.notes.trim() ? (mode === "draft" ? "naturalize" : mode) : "draft";
     setAssistantSource(source);
     setAssistantMode(requestMode);
     setAssistantStatus("idle");

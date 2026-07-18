@@ -4035,6 +4035,40 @@
   font-weight: 900;
 }
 
+.ai-chat-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--redesign-space-2);
+}
+
+.ai-chat-suggestions button {
+  min-height: 32px;
+  padding: var(--redesign-space-1) var(--redesign-space-3);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-full);
+  background: var(--redesign-color-surface-container-low);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.ai-chat-suggestions button:hover:not(:disabled) {
+  border-color: var(--redesign-color-primary);
+  background: var(--redesign-color-primary-subtle);
+  color: var(--redesign-color-primary);
+}
+
+.ai-chat-suggestions button:focus-visible {
+  box-shadow: var(--redesign-focus-ring);
+  outline: none;
+}
+
+.ai-chat-suggestions button:disabled {
+  opacity: 0.5;
+}
+
 .ai-chat-composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
