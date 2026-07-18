@@ -84,6 +84,19 @@ export type {
   RichTextSelectionValue
 } from "./text/richTextOperations";
 export {
+  createTableOperationPatch,
+  getTableOperationCapability,
+  getTableStructureCapability
+} from "./table/tableOperations";
+export type {
+  TableOperation,
+  TableOperationCapability,
+  TableOperationDisabledReason,
+  TableOperationPatchResult,
+  TableStructureCapability,
+  TableStructureDisabledReason
+} from "./table/tableOperations";
+export {
   buildGroupedFrameOperations,
   createGroupedElementFramePatch,
   getGroupChildElements,
