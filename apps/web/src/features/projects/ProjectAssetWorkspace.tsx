@@ -4,11 +4,14 @@ import {
   deleteProjectResponseSchema,
   demoIds,
   maxAssetUploadSizeBytes,
+  projectListResponseSchema,
+  updateProjectPinResponseSchema,
   type AssetUploadUrlRequest,
   type AssetUploadUrlResponse,
   type Deck,
   type FilePurpose,
   type Project,
+  type ProjectListItem,
   type UploadedFile,
 } from "@orbit/shared";
 
@@ -112,7 +115,9 @@ export async function fetchProjectDeckPreview(
   }
 }
 
-export async function fetchProjects(fetcher: Fetcher = fetch) {
+export async function fetchProjects(
+  fetcher: Fetcher = fetch,
+): Promise<ProjectListItem[]> {
   const response = await fetcher(
     `/api/v1/workspaces/${demoIds.workspaceId}/projects`,
     { credentials: "include" },
@@ -124,7 +129,31 @@ export async function fetchProjects(fetcher: Fetcher = fetch) {
     );
   }
 
-  return (await response.json()) as Project[];
+  return projectListResponseSchema.parse(await response.json());
+}
+
+export async function updateProjectPin(
+  projectId: string,
+  isPinned: boolean,
+  fetcher: Fetcher = fetch,
+) {
+  const response = await fetcher(
+    `/api/v1/workspaces/${demoIds.workspaceId}/projects/${encodeURIComponent(projectId)}/pin`,
+    {
+      body: JSON.stringify({ isPinned }),
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
+
+  if (!response.ok) {
+    throw new ProjectAssetError(
+      await readErrorMessage(response, "프로젝트 고정 상태를 변경하지 못했습니다."),
+    );
+  }
+
+  return updateProjectPinResponseSchema.parse(await response.json());
 }
 
 export async function createProject(title: string, fetcher: Fetcher = fetch) {

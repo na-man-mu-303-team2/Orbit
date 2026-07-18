@@ -117,6 +117,9 @@ describe("resolveEditorKeyboardCommand", () => {
     expect(
       resolve({ isInlineTextEditing: true, key: "s", metaKey: true }),
     ).toEqual({ canExecute: true, type: "save" });
+    expect(
+      resolve({ ctrlKey: true, key: "s", repeat: true }),
+    ).toEqual({ canExecute: false, type: "save" });
   });
 
   it("allows role-neutral PageUp and PageDown navigation", () => {

@@ -170,7 +170,12 @@ export function ElementNodeContent(props: {
   }
 
   if (element.type === "svg") {
-    return <ImageElementContent frame={frame} imageProps={element.props} />;
+    return (
+      <ImageElementContent
+        frame={frame}
+        imageProps={{ ...element.props, fit: "stretch" }}
+      />
+    );
   }
 
   if (element.type === "table") {

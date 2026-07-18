@@ -923,6 +923,8 @@ export function EditorShell(props: { projectId?: string }) {
   const handleDeleteSelectedElement = editorCanvasActions.deleteSelectedElement;
   const handleDuplicateSelectedElement = editorCanvasActions.duplicateSelectedElement;
   const handleElementFrameChange = editorCanvasActions.changeElementFrame;
+  const handleElementLayerOrderChange =
+    editorCanvasActions.changeElementLayerOrder;
   const handleInsertShapeElement = editorCanvasActions.insertShapeElement;
   const handleOpenElementContextMenu = editorCanvasActions.openElementContextMenu;
   const handlePasteCopiedElement = editorCanvasActions.pasteCopiedElement;
@@ -1613,6 +1615,7 @@ export function EditorShell(props: { projectId?: string }) {
       customShapeEditActive: isCustomShapeEditingSelection,
       imageCropActionState,
       onChangeElementFrame: handleElementFrameChange,
+      onChangeElementLayerOrder: handleElementLayerOrderChange,
       onChangeElementProps: handleElementPropsChange,
       onConvertChartToTable: handleConvertChartToTable,
       onChangeSlideStyle: (style: {

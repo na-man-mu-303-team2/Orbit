@@ -14,6 +14,7 @@ import {
   createProjectAccessRequestSchema,
   updateProjectMemberRoleRequestSchema,
   updateProjectMemberStatusRequestSchema,
+  updateProjectPinRequestSchema,
   updateProjectRequestSchema,
   upsertProjectMemberRequestSchema,
 } from "@orbit/shared";
@@ -82,6 +83,23 @@ export class ProjectsController {
       projectId,
       user.userId,
       input.title,
+    );
+  }
+
+  @Patch(":projectId/pin")
+  async updateProjectPin(
+    @Param("workspaceId") workspaceId: string,
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const input = parseRequest(updateProjectPinRequestSchema, body ?? {});
+    const user = await this.getCurrentUser(request);
+    return this.projectsService.updatePin(
+      workspaceId,
+      projectId,
+      user.userId,
+      input.isPinned,
     );
   }
 

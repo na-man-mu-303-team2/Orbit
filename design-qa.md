@@ -1,5 +1,46 @@
 # ORBIT mockup-to-production design QA
 
+## Project thumbnail gallery — option 1 (2026-07-18)
+
+- Source visual truth: `/Users/choeyeongbin/.codex/generated_images/019f6a51-9c6f-7de3-b051-0591e8b43d0a/exec-77874d3d-15dd-48ec-9295-94f027ea6a2d.png`.
+- Implementation screenshot: `/private/tmp/orbit-project-gallery-qa-2.png`.
+- Full comparison: `/private/tmp/orbit-project-gallery-comparison-full.png`.
+- Focused command-bar comparison: `/private/tmp/orbit-project-gallery-comparison-focus.png`.
+- Viewport/state: `1440×1024`, authenticated `/project`, newest-first sort, 30 real projects loaded.
+
+### Full-view and focused comparison evidence
+
+The source and implementation were placed side by side at the same desktop viewport. Both use the existing ORBIT application header, a single compact command bar, and a four-column 16:9 project gallery without a redundant page title or description. The production implementation intentionally renders each project's real first slide instead of illustrative placeholder covers, preserving the chosen thumbnail-first hierarchy while making the gallery truthful to saved content.
+
+The focused comparison confirms a two-level command hierarchy. `AI 발표자료 만들기`, `빈 프로젝트`, and `PPTX 업로드` form a dedicated creation group, while search, the shared newest-first dropdown, and refresh sit in a separate browse row after a `space-10` gap. The first comparison exposed approximately 16px of excess top spacing and an overly dark primary action; the project-only top padding was reduced to the redesign `space-8` token and the primary action now uses the redesign primary token.
+
+### Interaction and responsive verification
+
+- Search filtered 30 cards to the single `점심 추천 발표자료` result and was restored afterward.
+- Sort selection accepted the `이름순` option through the shared `DropdownMenu` and was restored to `최근 생성순`; outside click and `Escape` close behavior are wired.
+- Project thumbnails expose direct `리허설` and `삭제` icon actions on hover/focus, matching the home-card interaction. Touch layouts keep both actions visible.
+- `PPTX 업로드` uses the existing upload, OOXML conversion, and Deck hydration pipeline; failed imports clean up their temporary project.
+- Desktop uses four columns, `760px` uses two columns, and `480px` uses one column with the three creation paths stacked above the browse controls. Both compact checks reported `scrollWidth === innerWidth`.
+- First-slide previews are lazy-loaded with `IntersectionObserver`; cards outside the near viewport do not eagerly mount a deck canvas.
+- Browser console errors: none.
+
+### Findings and comparison history
+
+1. P2 — the initial production capture started the command bar lower than the selected source. Reduced only the project gallery's top padding, preserving rehearsal-list spacing.
+2. P2 — the initial primary CTA used the darker emphasis token and looked heavier than the selected source. Applied the redesign primary token and retained the emphasis token for hover.
+3. Post-fix comparison — no actionable P0/P1/P2 mismatch remains. Real project content, current ORBIT navigation labels, and authentic creation dates are intentional production differences.
+
+### Verification
+
+- `pnpm --filter @orbit/web typecheck` — passed.
+- Targeted Web tests — 2 files, 35 tests passed.
+- `pnpm --filter @orbit/web build` — passed with the existing Vite chunk-size advisory only.
+- `git diff --check` — passed.
+
+final result: passed
+
+---
+
 ## Editor Practice Filler Chart (2026-07-17)
 
 - Source visual truth: `C:\Users\home\AppData\Local\Temp\codex-clipboard-3231a434-5fc9-4bb5-a91a-258eb4826554.png` and `C:\Users\home\AppData\Local\Temp\codex-clipboard-4c167aae-4e63-4431-baf3-1aacfbf36c4b.png`.

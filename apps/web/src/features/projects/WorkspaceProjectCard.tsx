@@ -14,6 +14,7 @@ type WorkspaceProjectCardProps = {
   onOpen: () => void;
   onRehearse: () => void;
   onTogglePinned: () => void;
+  pinning: boolean;
   project: Project;
 };
 
@@ -23,6 +24,7 @@ export function WorkspaceProjectCard({
   onOpen,
   onRehearse,
   onTogglePinned,
+  pinning,
   project
 }: WorkspaceProjectCardProps) {
   return (
@@ -56,6 +58,7 @@ export function WorkspaceProjectCard({
           aria-label={isPinned ? `${project.title} 고정 해제` : `${project.title} 고정`}
           aria-pressed={isPinned}
           className={`workspace-home-card-pin ${isPinned ? "is-pinned" : ""}`}
+          disabled={pinning}
           onClick={onTogglePinned}
           type="button"
         >

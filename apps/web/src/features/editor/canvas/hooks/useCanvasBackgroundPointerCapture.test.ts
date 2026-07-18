@@ -2,6 +2,10 @@ import { createDemoDeck } from "@orbit/editor-core";
 import type { DeckElement } from "@orbit/shared";
 import { describe, expect, it } from "vitest";
 
+import {
+  isCanvasPointInsideSelectedTransformerArea,
+  isTransformerControlHit
+} from "./useCanvasBackgroundPointerCapture";
 import { isCanvasPointInsideElementSelectionArea } from "../utils/canvasInteractionUtils";
 
 type RectElement = Extract<DeckElement, { type: "rect" }>;
@@ -45,5 +49,64 @@ describe("canvas background selection", () => {
         slide
       })
     ).toBe(true);
+  });
+
+  it("does not treat transformer resize and rotation anchors as canvas background", () => {
+    const stage = {
+      getIntersection: () => ({
+        hasName: (name: string) => name === "_anchor"
+      })
+    };
+
+    expect(
+      isTransformerControlHit(
+        stage,
+        { x: 120, y: 80 }
+      )
+    ).toBe(true);
+  });
+
+  it("keeps ordinary canvas hits eligible for background selection", () => {
+    const stage = {
+      getIntersection: () => ({
+        hasName: () => false
+      })
+    };
+
+    expect(
+      isTransformerControlHit(
+        stage,
+        { x: 120, y: 80 }
+      )
+    ).toBe(false);
+  });
+
+  it("preserves selection around resize and rotation controls at low zoom", () => {
+    const selectedElement = createBackgroundElement({
+      elementId: "el_selected",
+      role: "decoration",
+      locked: false,
+      x: 200,
+      y: 300,
+      width: 400,
+      height: 120
+    });
+
+    expect(
+      isCanvasPointInsideSelectedTransformerArea({
+        elements: [selectedElement],
+        point: { x: 400, y: 100 },
+        selectedElementIds: [selectedElement.elementId],
+        stageScale: 0.25
+      })
+    ).toBe(true);
+    expect(
+      isCanvasPointInsideSelectedTransformerArea({
+        elements: [selectedElement],
+        point: { x: 1_000, y: 800 },
+        selectedElementIds: [selectedElement.elementId],
+        stageScale: 0.25
+      })
+    ).toBe(false);
   });
 });

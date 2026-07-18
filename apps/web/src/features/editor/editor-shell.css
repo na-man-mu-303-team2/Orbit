@@ -1988,6 +1988,40 @@
   gap: var(--redesign-space-2);
 }
 
+.icon-library-grid.presentation-arrows {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.icon-library-categories {
+  display: flex;
+  gap: var(--redesign-space-1);
+  padding: 0 var(--redesign-space-3) var(--redesign-space-2);
+}
+
+.icon-library-categories button {
+  min-height: 30px;
+  padding: 0 var(--redesign-space-3);
+  border: 0;
+  border-radius: var(--redesign-radius);
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  font: inherit;
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: var(--redesign-type-label-sm-weight);
+  cursor: pointer;
+}
+
+.icon-library-categories button:hover,
+.icon-library-categories button[aria-pressed="true"] {
+  background: var(--redesign-color-primary-subtle);
+  color: var(--redesign-color-primary);
+}
+
+.icon-library-categories button:focus-visible {
+  outline: none;
+  box-shadow: var(--redesign-focus-ring);
+}
+
 .icon-library-item {
   min-width: 0;
   min-height: 78px;
@@ -2020,6 +2054,19 @@
   white-space: nowrap;
 }
 
+.icon-library-item.presentation-arrow {
+  min-height: 98px;
+}
+
+.icon-library-item.presentation-arrow > span:last-child {
+  overflow: visible;
+  padding-inline: var(--redesign-space-1);
+  line-height: var(--redesign-type-label-sm-line-height);
+  text-align: center;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .icon-library-preview {
   width: 42px;
   height: 42px;
@@ -2037,6 +2084,12 @@
   background-size: 12px 12px;
 }
 
+.icon-library-item.presentation-arrow .icon-library-preview {
+  width: 92px;
+  height: 52px;
+  border-radius: var(--redesign-radius);
+}
+
 .icon-library-preview.dark {
   border-color: color-mix(in srgb, var(--redesign-color-light-surface) 28%, transparent);
   background: var(--redesign-color-dark-surface);
@@ -2051,7 +2104,7 @@
 
 .icon-library-panel {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   min-height: 0;
   height: 100%;
   overflow: hidden;
@@ -2866,9 +2919,8 @@
   padding: var(--redesign-space-1) var(--redesign-space-1);
   border: 2px solid var(--redesign-color-primary);
   border-radius: var(--redesign-radius-xl);
-  background: var(--redesign-color-light-surface);
-  caret-color: var(--redesign-color-on-surface);
-  color-scheme: light;
+  background: transparent;
+  caret-color: currentColor;
   resize: none;
   outline: 0;
   overflow: auto;
@@ -7013,7 +7065,7 @@
   box-shadow: var(--redesign-shadow-none);
   display: grid;
   margin: 0;
-  max-height: min(480px, 52vh);
+  max-height: 66.6667vh;
   max-width: none;
   min-height: 54px;
   overflow: hidden;
@@ -7028,7 +7080,7 @@
 
 .orbit-shell .stage-speaker-notes-panel.expanded {
   grid-template-rows: 12px auto minmax(0, 1fr);
-  height: min(var(--speaker-notes-panel-height, 240px), 52vh);
+  height: min(var(--speaker-notes-panel-height, 240px), 66.6667vh);
   min-height: 120px;
   transition: height var(--redesign-duration-fast) var(--redesign-ease-standard);
 }
@@ -7166,7 +7218,7 @@ body.is-resizing-speaker-notes {
 
 @media (max-width: 860px) {
   .orbit-shell .stage-speaker-notes-panel {
-    max-height: min(480px, 52vh);
+    max-height: 66.6667vh;
   }
 
   .orbit-shell .stage-speaker-notes-panel .script-panel-header {
@@ -7196,7 +7248,7 @@ body.is-resizing-speaker-notes {
   }
 
   .orbit-shell .editor-panel:has(.stage-speaker-notes-panel.expanded) .ai-pane:not(.collapsed) {
-    bottom: min(var(--speaker-notes-panel-height, 240px), 52vh);
+    bottom: min(var(--speaker-notes-panel-height, 240px), 66.6667vh);
     max-height: 32vh;
   }
 
@@ -8547,7 +8599,7 @@ body.is-resizing-speaker-notes {
   }
 
   .orbit-shell .editor-panel:has(.stage-speaker-notes-panel.expanded) .ai-pane.collapsed {
-    bottom: calc(min(var(--speaker-notes-panel-height, 240px), 52vh) + 16px);
+    bottom: calc(min(var(--speaker-notes-panel-height, 240px), 66.6667vh) + 16px);
   }
 
   .orbit-shell .ai-pane:not(.collapsed) {
@@ -13187,7 +13239,7 @@ body.is-resizing-speaker-notes {
 
 .orbit-shell.editor-professional .element-property-layer-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   align-self: end;
   overflow: hidden;
   height: 40px;
