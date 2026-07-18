@@ -154,7 +154,8 @@ describe("EditorSlideRehearsal", () => {
       />
     );
 
-    expect(html).toContain("CURRENT SLIDE");
+    expect(html).not.toContain("CURRENT SLIDE");
+    expect(html).not.toContain("현재 슬라이드만 반복해서 연습합니다.");
     expect(html).toContain(slide.title);
     expect(html).toContain("발표 체크포인트");
     expect(html).not.toContain(">필수</small>");
