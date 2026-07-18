@@ -257,7 +257,7 @@ body .rehearsal-report-page .report-overview-panel > * {
   color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-label-sm-size);
   font-weight: 800;
-  padding: 4px var(--redesign-space-2);
+  padding: var(--redesign-space-1) var(--redesign-space-2);
 }
 
 .project-summary-kpi.is-positive .project-summary-kpi-value > span {
@@ -272,7 +272,7 @@ body .rehearsal-report-page .report-overview-panel > * {
 
 .project-summary-kpi.is-unavailable {
   background: var(--redesign-color-surface-container-low);
-  box-shadow: none;
+  box-shadow: var(--redesign-shadow-none);
 }
 
 .project-summary-kpi p {
@@ -479,7 +479,7 @@ a.project-summary-slide-row:hover {
   font-size: var(--redesign-type-label-sm-size);
   font-weight: 850;
   justify-self: start;
-  padding: 6px var(--redesign-space-2);
+  padding: var(--redesign-space-1) var(--redesign-space-2);
   white-space: nowrap;
 }
 
@@ -565,7 +565,7 @@ a.project-summary-slide-row:hover {
 
 .report-project-chart-axis-value {
   fill: var(--redesign-color-on-surface-variant);
-  font-size: 10px;
+  font-size: var(--redesign-type-label-sm-size);
 }
 
 .report-project-chart-target {
@@ -577,7 +577,7 @@ a.project-summary-slide-row:hover {
 .report-project-chart-target-label,
 .report-project-chart-latest-value {
   fill: var(--redesign-color-secondary);
-  font-size: 12px;
+  font-size: var(--redesign-type-label-sm-size);
   font-weight: 850;
 }
 
@@ -602,7 +602,7 @@ a.project-summary-slide-row:hover {
 
 .report-project-chart-axis-label {
   fill: var(--redesign-color-on-surface-variant);
-  font-size: 11px;
+  font-size: var(--redesign-type-label-sm-size);
 }
 
 .project-summary-mini-chart-grid {
@@ -833,7 +833,7 @@ a.project-summary-slide-row:hover {
 }
 
 .project-summary-kpi-section {
-  box-shadow: none;
+  box-shadow: var(--redesign-shadow-none);
   padding: var(--redesign-space-4);
 }
 
@@ -847,7 +847,7 @@ a.project-summary-slide-row:hover {
   border: 0;
   border-left: 1px solid var(--redesign-color-outline-variant);
   border-radius: 0;
-  box-shadow: none;
+  box-shadow: var(--redesign-shadow-none);
   gap: var(--redesign-space-1);
   min-height: 124px;
   padding: var(--redesign-space-2) var(--redesign-space-4);
@@ -894,7 +894,7 @@ a.project-summary-slide-row:hover {
 }
 
 .project-summary-card {
-  box-shadow: none;
+  box-shadow: var(--redesign-shadow-none);
 }
 
 .project-summary-section-heading {
@@ -1130,7 +1130,7 @@ a.project-summary-slide-row:hover {
   }
 
   .report-project-overview-page .report-overview-hero-copy h1 {
-    font-size: 1.75rem;
+    font-size: var(--redesign-type-headline-lg-mobile-size);
     max-width: 500px;
   }
 
@@ -1148,7 +1148,7 @@ a.project-summary-slide-row:hover {
   }
 
   .project-summary-kpi-section .project-summary-kpi-value {
-    font-size: 1.7rem;
+    font-size: var(--redesign-type-headline-md-size);
   }
 
   .project-summary-slide-section,
