@@ -2,9 +2,40 @@ import type { DeckElement } from "@orbit/shared";
 import { describe, expect, it } from "vitest";
 
 import {
+  canDragCanvasElement,
   getElementsIntersectingSelectionRect,
   getSnappedElementPosition
 } from "./canvasInteractionUtils";
+
+describe("canDragCanvasElement", () => {
+  it("allows the selected unlocked element to move", () => {
+    expect(
+      canDragCanvasElement({
+        interactionDisabled: false,
+        isCustomShapeEditing: false,
+        isSelected: true,
+        locked: false
+      })
+    ).toBe(true);
+  });
+
+  it.each([
+    ["unselected image", { isSelected: false }],
+    ["locked text", { locked: true }],
+    ["image crop interaction", { interactionDisabled: true }],
+    ["custom shape node editing", { isCustomShapeEditing: true }]
+  ])("blocks %s dragging", (_label, override) => {
+    expect(
+      canDragCanvasElement({
+        interactionDisabled: false,
+        isCustomShapeEditing: false,
+        isSelected: true,
+        locked: false,
+        ...override
+      })
+    ).toBe(false);
+  });
+});
 
 function element(
   elementId: string,

@@ -13,6 +13,20 @@ import {
 } from "../custom-shape/geometry";
 import { getTextElementLayout } from "../text/textLayout";
 
+export function canDragCanvasElement(args: {
+  interactionDisabled: boolean;
+  isCustomShapeEditing: boolean;
+  isSelected: boolean;
+  locked: boolean;
+}): boolean {
+  return (
+    args.isSelected &&
+    !args.locked &&
+    !args.interactionDisabled &&
+    !args.isCustomShapeEditing
+  );
+}
+
 export function commitCustomShapeEditGeometry(args: {
   element: DeckElement;
   draft: {
