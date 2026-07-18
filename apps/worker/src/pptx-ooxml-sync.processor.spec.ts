@@ -1,7 +1,11 @@
 import type { StoragePort } from "@orbit/storage";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { processPptxOoxmlSyncJob } from "./pptx-ooxml-sync.processor";
+import {
+  appendJsonFilePart,
+  OoxmlSyncTransportError,
+  processPptxOoxmlSyncJob,
+} from "./pptx-ooxml-sync.processor";
 
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -70,7 +74,13 @@ describe("processPptxOoxmlSyncJob", () => {
       if (url.endsWith("/ai/pptx-ooxml-sync")) {
         const form = init?.body as FormData;
         expect(form.get("synced_deck_version")).toBe("3");
-        expect(JSON.parse(String(form.get("operations")))).toEqual([
+        expect(form.get("template_blueprint")).toBeNull();
+        expect(form.get("operations")).toBeNull();
+        expect(form.get("deck_canvas")).toBeNull();
+        const operationsPart = form.get("operations_file");
+        expect(operationsPart).toBeInstanceOf(Blob);
+        expect((operationsPart as Blob).type).toBe("application/json");
+        expect(JSON.parse(await (operationsPart as Blob).text())).toEqual([
           expect.objectContaining({
             type: "update_element_props",
             props: { text: "Updated title" },
@@ -129,6 +139,79 @@ describe("processPptxOoxmlSyncJob", () => {
       expect.stringContaining("DELETE FROM deck_patches"),
       ["project-a", "deck_a", 3],
     );
+  });
+
+  it("sends operations larger than the parser's former 1 MiB limit as a JSON file part", async () => {
+    const largeText = "x".repeat(1024 * 1024 + 32);
+    const { dataSource } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_title",
+          props: { text: largeText },
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+        const form = init?.body as FormData;
+        const operationsPart = form.get("operations_file");
+        expect(operationsPart).toBeInstanceOf(Blob);
+        expect((operationsPart as Blob).size).toBeGreaterThan(1024 * 1024);
+        const sentOperations = JSON.parse(
+          await (operationsPart as Blob).text(),
+        ) as Array<{ props: { text: string } }>;
+        expect(sentOperations[0]?.props.text).toBe(largeText);
+        return new Response(
+          JSON.stringify(
+            workerResponse([
+              {
+                operationType: "update_element_props",
+                slideId: "slide_1",
+                elementId: "el_title",
+              },
+            ]),
+          ),
+        );
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+  });
+
+  it("rejects a JSON part over its explicit limit before adding it to multipart", () => {
+    const form = new FormData();
+
+    expect(() =>
+      appendJsonFilePart(
+        form,
+        "deck_canvas_file",
+        "deck-canvas.json",
+        "deck_canvas",
+        { padding: "x".repeat(4 * 1024) },
+      ),
+    ).toThrow(
+      new OoxmlSyncTransportError(
+        "PPTX_OOXML_SYNC_PART_TOO_LARGE",
+        "deck_canvas",
+        4 * 1024,
+      ),
+    );
+    expect(form.get("deck_canvas_file")).toBeNull();
   });
 
   it("persists refreshed authored table locators returned by Python", async () => {
@@ -328,6 +411,67 @@ describe("processPptxOoxmlSyncJob", () => {
       code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
       retryable: false,
     });
+    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("INSERT INTO project_assets"),
+      ),
+    ).toBe(false);
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("UPDATE template_blueprints"),
+      ),
+    ).toBe(false);
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("DELETE FROM deck_patches"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps assets and freshness unchanged for a bounded Python transport failure", async () => {
+    const { dataSource, query } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_title",
+          props: { text: "private deck text" },
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("current.pptx")
+          ? new Response("pptx-bytes")
+          : new Response(
+              JSON.stringify({
+                detail: {
+                  code: "PPTX_OOXML_SYNC_JSON_INVALID",
+                  field: "operations",
+                },
+              }),
+              { status: 400, headers: { "content-type": "application/json" } },
+            ),
+      ),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.error).toEqual({
+      code: "PPTX_OOXML_SYNC_JSON_INVALID",
+      message: "PPTX_OOXML_SYNC_JSON_INVALID:operations",
+      retryable: false,
+    });
+    expect(JSON.stringify(job.error)).not.toContain("private deck text");
     expect(storage.putObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
