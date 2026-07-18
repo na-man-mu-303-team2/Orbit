@@ -59,7 +59,7 @@ describe("AI PPT wizard UI", () => {
     expect(html).not.toContain(">Color<");
   });
 
-  it("restores font selection and live preview on Style & Color", () => {
+  it("shows compact font and palette selection on Style & Color", () => {
     const html = renderToStaticMarkup(
       createElement(AiPptStyleColorPage, {
         jobId: "job-1",
@@ -70,12 +70,24 @@ describe("AI PPT wizard UI", () => {
     expect(html).toContain("폰트");
     expect(html).toContain("Pretendard");
     expect(html).toContain("컬러 팔레트");
-    expect(html).toContain("Live Preview");
+    expect(html).not.toContain("ai-ppt-panel-heading");
     expect(html).toContain(">Aa<");
-    expect(html).toContain("가나다라 · 핵심을 선명하게");
-    expect(html).toContain("임원 브리프");
     expect(html).toContain("다음 액션");
     expect(html).toContain('aria-pressed="true"');
-    expect(html).toContain("AI 팔레트");
+    expect(html).toContain("AI로 컬러 팔레트 만들기");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain('id="ai-ppt-ai-palette-panel"');
+    expect(html.indexOf("ai-ppt-palette-swatches")).toBeLessThan(
+      html.indexOf("ai-ppt-palette-mockup"),
+    );
+    expect(html).not.toContain("ai-ppt-font-korean");
+    expect(html).not.toContain("ai-ppt-font-latin");
+    expect(html).not.toContain("ai-ppt-font-badge");
+    expect(html).not.toContain("ai-ppt-palette-hex");
+    expect(html).not.toContain("ai-ppt-palette-card-footer");
+    expect(html).not.toContain("ai-ppt-palette-mockup-header");
+    expect(html).not.toContain("ai-ppt-palette-mockup-footer");
+    expect(html).not.toContain("Pretendard matches professional presentation tone.");
+    expect(html).not.toContain("--color-primary-main");
   });
 });

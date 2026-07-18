@@ -60,6 +60,30 @@ final result: passed
 
 ---
 
+# AI 컬러 팔레트 생성 흐름 design QA
+
+- Source visual truth: `C:/Users/Runner/Desktop/Frame 1.png`, `C:/Users/Runner/Desktop/Frame 2.png`.
+- Implementation captures: `.tmp/design-qa/ai-palette-initial.png`, `.tmp/design-qa/compare-ai-palette-open-normalized.png`, `.tmp/design-qa/compare-ai-palette-result-normalized.png`.
+- Route: `/project/:projectId/style-color/:jobId`.
+- Viewport: 1453×874 CSS px.
+
+## Fidelity and interaction checks
+
+- 초기 상태는 `workspace-home-create` 스타일의 `AI로 컬러 팔레트 만들기` 타일만 표시한다.
+- 타일을 누르면 오른쪽 두 열에 프롬프트 패널이 열리고, 생성 후 선택 가능한 팔레트·LLM 설명·재생성 입력창으로 전환한다.
+- 기존 AI 팔레트 API와 선택 동작을 재사용하며 생성 및 재생성 결과가 즉시 선택 상태로 반영된다.
+- 콘솔 warning/error 없음. P0/P1/P2 시각 차이 없음.
+
+## Verification
+
+- UI 및 design-system boundary Vitest 11개 통과.
+- `tsc -p tsconfig.json --noEmit` 통과.
+- 실제 브라우저에서 초기 → 열기 → 생성 → 프롬프트 변경 → 재생성 흐름 통과.
+
+final result: passed
+
+---
+
 # Project 02 — Style & Color design QA
 
 - Source visual truth: `/var/folders/bz/br99y0bj2395vd1507vwbqmm0000gn/T/codex-clipboard-103a0d56-0330-426e-98a7-81f9a705b4ff.png`.
