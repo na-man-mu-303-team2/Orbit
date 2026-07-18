@@ -1,7 +1,7 @@
 import type { Deck, Slide, SlideQuestionGuide } from "@orbit/shared";
 import { useEffect, useState } from "react";
 
-import { fetchLiveSttRuntimeConfig } from "../../../rehearsal/stt/liveSttRuntimeConfig";
+import { fetchLiveSttRuntimeConfig } from "../../rehearsal/stt/liveSttRuntimeConfig";
 import { fetchDeck } from "../shell/api/deckPersistenceApi";
 import {
   createSlideQuestionGuide,
