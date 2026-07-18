@@ -13143,8 +13143,8 @@ body.is-resizing-speaker-notes {
   .editor-ai-assistant-panel
   .editor-ai-coach-panel {
   display: grid;
-  grid-template-rows: 36px minmax(0, 1fr);
-  gap: var(--redesign-space-2);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
   min-width: 0;
   min-height: 0;
   padding: var(--redesign-space-2);
@@ -13187,8 +13187,15 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional
   .editor-ai-assistant-panel
   .assistant-panel-subview {
+  height: 100%;
   min-height: 0;
   overflow: auto;
+}
+
+.orbit-shell.editor-professional
+  .editor-ai-assistant-panel
+  #editor-ai-chat-panel {
+  overflow: hidden;
 }
 
 .orbit-shell.editor-professional
@@ -13790,7 +13797,15 @@ body.is-resizing-speaker-notes {
 }
 
 .orbit-shell.editor-professional
-  .ai-pane:not(.collapsed):not(.rehearsal-mode),
+  .ai-pane:not(.collapsed):not(.rehearsal-mode) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
 .orbit-shell.editor-professional .ai-pane.collapsed:not(.rehearsal-mode) {
   display: grid;
   grid-template-columns:
