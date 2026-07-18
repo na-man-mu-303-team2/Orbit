@@ -124,7 +124,7 @@ export const editorShellUiInitialState: EditorShellUiStateValues = {
   isDataViewOpen: false,
   isExitConfirmOpen: false,
   isPresenceDebugOpen: false,
-  isRightPanelOpen: true,
+  isRightPanelOpen: false,
   isShapeMenuOpen: false,
   isSlidesPaneCollapsed: false,
   rightPaneWidth: defaultRightPaneWidth,

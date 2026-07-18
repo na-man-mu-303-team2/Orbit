@@ -266,6 +266,7 @@ export function EditorShell(props: { projectId?: string }) {
   const [rightPanelMode, setRightPanelMode] =
     useState<EditorRightPanelMode>("assistant");
   const [propertiesOpenRequestId, setPropertiesOpenRequestId] = useState(0);
+  const [assistantOpenRequestId, setAssistantOpenRequestId] = useState(0);
   const compactSelectionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const selectionInspectorRef = useRef<HTMLElement | null>(null);
   const [aiPanelView, setAiPanelView] = useState<AiPanelView>("chat");
@@ -429,6 +430,8 @@ export function EditorShell(props: { projectId?: string }) {
 
   useEffect(() => {
     resetProjectUiState();
+    setPropertiesOpenRequestId(0);
+    setAssistantOpenRequestId(0);
     setAiPanelView("chat");
     setAiChatState(createInitialAiChatState(projectId));
     setSemanticCueExtractionState({ status: "idle", message: "" });
@@ -804,8 +807,7 @@ export function EditorShell(props: { projectId?: string }) {
     stageScale,
     zoom: editorZoom,
     zoomIn: zoomCanvasIn,
-    zoomOut: zoomCanvasOut,
-    zoomToActualSize
+    zoomOut: zoomCanvasOut
   } = useEditorViewport({
     canvas: deck.canvas,
     isRightPanelOpen,
@@ -1385,6 +1387,14 @@ export function EditorShell(props: { projectId?: string }) {
     setIsRightPanelOpen(true);
   }
 
+  function openAssistantPanel() {
+    setIsIconPanelOpen(false);
+    setIsAnimationPanelOpen(false);
+    setAiPanelView("chat");
+    setAssistantOpenRequestId((current) => current + 1);
+    setIsRightPanelOpen(true);
+  }
+
   async function handleStartSlidePractice() {
     if (!rehearsalSlide) return;
     const stream = await slidePracticeSession.start();
@@ -1959,14 +1969,16 @@ export function EditorShell(props: { projectId?: string }) {
               }
               chartMenuButtonRef={chartMenuButtonRef}
               insertTool={insertTool}
-              isAnimationPanelOpen={isAnimationPanelOpen}
               isChartMenuOpen={isChartMenuOpen}
               isIconPanelOpen={isIconPanelOpen}
               isImageUploadPending={isImageUploadPending}
+              isRightPanelOpen={isRightPanelOpen}
+              rightPanelMode={rightPanelMode}
               isShapeMenuOpen={isShapeMenuOpen}
               isStageFitToViewport={isStageFitToViewport}
               onAddText={handleAddTextElement}
               onOpenAnimation={openAnimationInspector}
+              onOpenAssistant={openAssistantPanel}
               onOpenIconLibrary={toggleIconLibrary}
               onOpenImagePicker={() => {
                 if (currentSlide) {
@@ -1976,6 +1988,7 @@ export function EditorShell(props: { projectId?: string }) {
                   });
                 }
               }}
+              onOpenProperties={requestPropertiesPanel}
               onRedo={handleRedo}
               onSelectTool={() => setInsertTool("select")}
               onToggleChartMenu={() => {
@@ -1990,9 +2003,7 @@ export function EditorShell(props: { projectId?: string }) {
               onFitStageToViewport={fitStageToViewport}
               onZoomIn={zoomCanvasIn}
               onZoomOut={zoomCanvasOut}
-              onZoomToActualSize={zoomToActualSize}
               redoDisabled={redoStack.length === 0}
-              selectedElementAnimationCount={selectedElementAnimations.length}
               shapeMenuButtonRef={shapeMenuButtonRef}
               stageScale={stageScale}
               undoDisabled={undoStack.length === 0}
@@ -2167,7 +2178,9 @@ export function EditorShell(props: { projectId?: string }) {
             )}
         </section>
 
-        <EditorRightPanel
+        {isRightPanelOpen ? (
+          <EditorRightPanel
+          assistantOpenRequestId={assistantOpenRequestId}
           aiChatState={aiChatState}
           aiPanelView={aiPanelView}
           animationCount={selectedElementAnimations.length}
@@ -2292,8 +2305,9 @@ export function EditorShell(props: { projectId?: string }) {
           setAiPanelView={setAiPanelView}
           setIsIconPanelOpen={setIsIconPanelOpen}
           setIsAnimationPropertiesOpen={setIsAnimationPanelOpen}
-          setIsOpen={setIsRightPanelOpen}
-        />
+            setIsOpen={setIsRightPanelOpen}
+          />
+        ) : null}
       </section>
 
       <EditorDebugPanels

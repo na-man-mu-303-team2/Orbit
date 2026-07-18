@@ -14,17 +14,20 @@ describe("EditorToolbar", () => {
         canZoomOut
         chartMenuButtonRef={createRef<HTMLButtonElement>()}
         insertTool="select"
-        isAnimationPanelOpen={false}
         isChartMenuOpen={false}
         isIconPanelOpen={false}
         isImageUploadPending={false}
         isShapeMenuOpen={false}
         isStageFitToViewport
+        isRightPanelOpen={false}
+        rightPanelMode="properties"
         onAddText={vi.fn()}
         onFitStageToViewport={vi.fn()}
         onOpenAnimation={vi.fn()}
+        onOpenAssistant={vi.fn()}
         onOpenIconLibrary={vi.fn()}
         onOpenImagePicker={vi.fn()}
+        onOpenProperties={vi.fn()}
         onRedo={vi.fn()}
         onSelectTool={vi.fn()}
         onToggleChartMenu={vi.fn()}
@@ -32,9 +35,7 @@ describe("EditorToolbar", () => {
         onUndo={vi.fn()}
         onZoomIn={vi.fn()}
         onZoomOut={vi.fn()}
-        onZoomToActualSize={vi.fn()}
         redoDisabled
-        selectedElementAnimationCount={0}
         shapeMenuButtonRef={createRef<HTMLButtonElement>()}
         stageScale={0.8}
         undoDisabled
@@ -47,8 +48,7 @@ describe("EditorToolbar", () => {
       "도형",
       "차트",
       "아이콘",
-      "이미지",
-      "애니메이션"
+      "이미지"
     ]) {
       const control = html.match(
         new RegExp(`<(?:button|select)[^>]*aria-label="${label}"[^>]*>`),

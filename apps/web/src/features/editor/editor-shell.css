@@ -1537,6 +1537,83 @@
   color: var(--redesign-color-primary);
 }
 
+.add-slide-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  position: relative;
+  width: 100%;
+}
+
+.side-footer .add-slide-split > .add-slide-button {
+  border-radius: var(--redesign-radius-lg) 0 0 var(--redesign-radius-lg);
+  width: 100%;
+}
+
+.side-footer .add-slide-menu-button {
+  align-items: center;
+  border-left: var(--redesign-border-subtle);
+  border-radius: 0 var(--redesign-radius-lg) var(--redesign-radius-lg) 0;
+  display: flex;
+  justify-content: center;
+}
+
+.add-slide-menu {
+  background: var(--redesign-color-overlay);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-lg);
+  bottom: calc(100% + var(--redesign-space-2));
+  box-shadow: var(--redesign-shadow-overlay);
+  left: 0;
+  min-width: 224px;
+  padding: var(--redesign-space-1);
+  position: absolute;
+  z-index: var(--redesign-z-dropdown);
+}
+
+.side-footer .add-slide-menu button {
+  align-items: flex-start;
+  background: transparent;
+  border: 0;
+  border-radius: var(--redesign-radius-md);
+  color: var(--redesign-color-on-surface);
+  display: flex;
+  flex-direction: column;
+  gap: var(--redesign-space-1);
+  justify-content: center;
+  min-height: var(--redesign-size-control-xl);
+  padding: var(--redesign-space-2);
+  text-align: left;
+  width: 100%;
+}
+
+.side-footer .add-slide-menu button:hover:not(:disabled) {
+  background: var(--redesign-color-primary-subtle);
+}
+
+.side-footer .add-slide-menu button:disabled {
+  color: var(--redesign-color-on-surface-variant);
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
+.side-footer .add-slide-menu button:focus-visible {
+  box-shadow: var(--redesign-focus-ring);
+  outline: none;
+}
+
+.add-slide-menu strong {
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: var(--redesign-type-label-md-weight);
+  line-height: var(--redesign-type-label-sm-line-height);
+}
+
+.add-slide-menu span {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: var(--redesign-type-body-sm-weight);
+  line-height: var(--redesign-type-label-sm-line-height);
+}
+
 .collapse-slides-button {
   width: 38px;
   height: 42px;
@@ -1583,38 +1660,6 @@
 
 .slide-rail-row .slide-title {
   padding-right: var(--redesign-space-14);
-}
-
-.slide-rail-row-actions {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.slide-rail-drag-handle,
-.slide-rail-menu-button {
-  width: 26px;
-  height: 26px;
-  display: inline-grid;
-  place-items: center;
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-md);
-  background: var(--redesign-color-surface-container-lowest);
-  color: var(--redesign-color-on-surface-variant);
-  padding: 0;
-}
-
-.slide-rail-drag-handle {
-  cursor: grab;
-  touch-action: none;
-}
-
-.slide-rail-drag-handle:active {
-  cursor: grabbing;
 }
 
 .slide-rail-menu {
@@ -1665,8 +1710,6 @@
 }
 
 .slide-rail-row .slide-item:focus-visible,
-.slide-rail-drag-handle:focus-visible,
-.slide-rail-menu-button:focus-visible,
 .slide-rail-menu button:focus-visible {
   box-shadow: var(--redesign-focus-ring);
   outline: none;
@@ -1720,6 +1763,16 @@
   background: var(--redesign-color-surface-container-low);
   padding: var(--redesign-space-2);
   text-align: left;
+}
+
+.slide-item.is-draggable {
+  cursor: grab;
+  touch-action: manipulation;
+}
+
+.slide-item.is-draggable.is-dragging {
+  cursor: grabbing;
+  opacity: 0.68;
 }
 
 .slides-list.thumbnail-view .slide-item {
@@ -9111,12 +9164,32 @@ body.is-resizing-speaker-notes {
   padding-bottom: var(--redesign-space-2);
 }
 
+.orbit-shell.editor-professional .ai-chat-history {
+  padding: var(--redesign-space-2);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius);
+  background: var(--redesign-color-surface-container-high);
+}
+
+.orbit-shell.editor-professional .editor-ai-coach-panel {
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  padding: var(--redesign-space-2);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius);
+  background: var(--redesign-color-surface-container-high);
+}
+
 .orbit-shell.editor-professional .ai-chat-message p {
   padding: var(--redesign-space-2) var(--redesign-space-2);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius);
   background: var(--redesign-color-surface-container);
   font-size: var(--redesign-type-label-sm-size);
+}
+
+.orbit-shell.editor-professional .ai-chat-message.assistant p {
+  background: var(--redesign-color-surface-container-lowest);
 }
 
 .orbit-shell.editor-professional .ai-chat-avatar {
@@ -11014,16 +11087,47 @@ body.is-resizing-speaker-notes {
   text-align: right;
 }
 
+.editor-panel-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--redesign-space-1);
+  min-height: var(--editor-chrome-height);
+  padding: 0 var(--redesign-space-1);
+  background: var(--redesign-color-surface-container-low);
+  border-left: 1px solid var(--redesign-color-outline-variant);
+}
+
+.orbit-shell.editor-professional .editor-panel-toolbar-actions .tool-button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 var(--redesign-space-2);
+}
+
 @media (min-width: 861px) {
+  .orbit-shell.editor-professional .stage-top-controls {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
   .orbit-shell.editor-professional .stage-top-controls > .editor-toolbar {
+    grid-column: 1 / 4;
+    grid-row: 1;
     height: var(--editor-chrome-height);
     min-height: var(--editor-chrome-height);
     box-sizing: border-box;
   }
 
-  .orbit-shell.editor-professional .stage-top-controls > .canvas-zoom-controls {
+  .orbit-shell.editor-professional .stage-top-controls > .editor-panel-toolbar-actions {
     align-self: start;
     grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    z-index: 18;
+    margin-top: var(--redesign-space-3);
+  }
+
+  .orbit-shell.editor-professional .stage-top-controls > .canvas-zoom-controls {
+    align-self: start;
+    grid-column: 3;
     grid-row: 1;
     justify-self: end;
     z-index: 18;
@@ -11246,6 +11350,7 @@ body.is-resizing-speaker-notes {
 }
 
 .orbit-shell.editor-professional .slides-list .slide-thumb {
+  position: relative;
   display: block;
   flex: 0 0 auto;
   align-self: stretch;
@@ -11359,15 +11464,20 @@ body.is-resizing-speaker-notes {
 }
 
 /* Thumbnail numbers sit on the slide preview; list numbers remain in-flow. */
-.orbit-shell.editor-professional .slides-list.thumbnail-view .slide-item-meta {
+.orbit-shell.editor-professional .slides-list.thumbnail-view .slide-thumb {
+  position: relative;
+}
+
+.orbit-shell.editor-professional .slides-list.thumbnail-view .slide-number {
   position: absolute;
   top: 10px;
   left: 10px;
   z-index: 2;
-  display: block;
-}
-
-.orbit-shell.editor-professional .slides-list.thumbnail-view .slide-number {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 20px;
+  border-radius: var(--redesign-radius-sm);
   border: 1px solid color-mix(in srgb, var(--redesign-color-outline) 72%, transparent);
   background: color-mix(
     in srgb,
@@ -12224,7 +12334,7 @@ body.is-resizing-speaker-notes {
 
 .orbit-shell.editor-professional .editor-slide-rehearsal-checkpoints li {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
+  grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
   gap: var(--redesign-space-2);
   min-height: 30px;
@@ -12245,19 +12355,6 @@ body.is-resizing-speaker-notes {
   li.hit
   > svg {
   color: var(--redesign-color-primary);
-}
-
-.orbit-shell.editor-professional .editor-slide-rehearsal-checkpoints li small {
-  padding: 1px var(--redesign-space-1);
-  border-radius: var(--redesign-radius-sm);
-  background: color-mix(
-    in srgb,
-    var(--redesign-color-tertiary) 14%,
-    transparent
-  );
-  color: var(--redesign-color-tertiary);
-  font-size: var(--redesign-type-label-sm-size);
-  font-weight: 750;
 }
 
 .orbit-shell.editor-professional .editor-slide-rehearsal-notes p {
@@ -13412,7 +13509,7 @@ body.is-resizing-speaker-notes {
     grid-template-columns:
       clamp(160px, var(--slides-pane-width, 184px), 280px)
       minmax(0, 1fr)
-      var(--right-pane-collapsed-width, 52px);
+      0;
   }
 
   .orbit-shell.editor-professional
@@ -13420,7 +13517,7 @@ body.is-resizing-speaker-notes {
   .orbit-shell.editor-professional
     .editor-panel.slides-panel-collapsed.right-panel-closed:has(.selection-quickbar) {
     grid-template-columns:
-      0 minmax(0, 1fr) var(--right-pane-collapsed-width, 52px);
+      0 minmax(0, 1fr) 0;
   }
 
   .orbit-shell.editor-professional .ai-pane.collapsed {
@@ -13711,48 +13808,6 @@ body.is-resizing-speaker-notes {
     visibility var(--redesign-duration-none) var(--redesign-duration-fast);
 }
 
-.orbit-shell.editor-professional .editor-right-panel-rail {
-  grid-column: 2;
-  grid-row: 1;
-  z-index: 7;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--redesign-space-2);
-  width: var(--right-pane-collapsed-width, 52px);
-  min-width: var(--right-pane-collapsed-width, 52px);
-  min-height: 100%;
-  padding: var(--redesign-space-2) var(--redesign-space-1);
-  border-left: 1px solid var(--redesign-color-outline-variant);
-  background: var(--redesign-color-surface-container-lowest);
-  transform: none;
-  transition: none;
-}
-
-.orbit-shell.editor-professional .editor-right-panel-rail button {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--redesign-radius-sm);
-  background: transparent;
-  color: var(--redesign-color-on-surface-variant);
-}
-
-.orbit-shell.editor-professional .editor-right-panel-rail button:hover {
-  background: var(--redesign-color-surface-container-high);
-  color: var(--redesign-color-primary);
-}
-
-.orbit-shell.editor-professional .editor-right-panel-rail button.active {
-  background: var(--redesign-color-primary-subtle);
-  color: var(--redesign-color-primary);
-}
-
 .orbit-shell.editor-professional
   .ai-pane.collapsed:not(.rehearsal-mode)
   .right-pane-resizer {
@@ -13870,4 +13925,39 @@ body.is-resizing-speaker-notes {
   margin: 0;
   color: var(--redesign-color-on-surface-variant);
   line-height: 1.6;
+}
+
+/* Panel controls live in the canvas toolbar; keep the old collapsed rail hidden. */
+.orbit-shell.editor-professional .ai-pane.collapsed {
+  display: none;
+}
+
+/* A closed inspector must not reserve space for the removed right rail. */
+@media (min-width: 861px) {
+  .orbit-shell.editor-professional .editor-panel.right-panel-closed,
+  .orbit-shell.editor-professional
+    .editor-panel.right-panel-closed:has(.selection-quickbar) {
+    grid-template-columns:
+      clamp(160px, var(--slides-pane-width, 184px), 280px)
+      minmax(0, 1fr)
+      0 !important;
+  }
+
+  .orbit-shell.editor-professional
+    .editor-panel.animation-panel-open.right-panel-closed,
+  .orbit-shell.editor-professional
+    .editor-panel.animation-panel-open.right-panel-closed:has(.selection-quickbar) {
+    grid-template-columns:
+      clamp(160px, var(--slides-pane-width, 184px), 280px)
+      minmax(0, 2fr)
+      minmax(240px, 1fr)
+      0 !important;
+  }
+
+  .orbit-shell.editor-professional
+    .editor-panel.slides-panel-collapsed.right-panel-closed,
+  .orbit-shell.editor-professional
+    .editor-panel.slides-panel-collapsed.right-panel-closed:has(.selection-quickbar) {
+    grid-template-columns: 0 minmax(0, 1fr) 0 !important;
+  }
 }

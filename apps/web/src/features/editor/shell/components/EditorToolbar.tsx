@@ -1,8 +1,10 @@
 import {
   IconArrowLeft,
   IconArrowRight,
+  IconAdjustmentsHorizontal as Properties,
   IconChartBar as BarChart3,
   IconChevronDown as ChevronDown,
+  IconMovie as Animation,
   IconPhotoPlus as ImagePlus,
   IconIcons,
   IconPointer as MousePointer2,
@@ -23,16 +25,19 @@ type EditorToolbarProps = {
   compactSelectionTrigger?: ReactNode;
   chartMenuButtonRef: RefObject<HTMLButtonElement | null>;
   insertTool: InsertTool;
-  isAnimationPanelOpen: boolean;
   isChartMenuOpen: boolean;
   isImageUploadPending: boolean;
   isIconPanelOpen: boolean;
+  isRightPanelOpen: boolean;
+  rightPanelMode: "properties" | "animation" | "icons" | "assistant";
   isShapeMenuOpen: boolean;
   isStageFitToViewport: boolean;
   onAddText: () => void;
   onOpenAnimation: () => void;
+  onOpenAssistant: () => void;
   onOpenImagePicker: () => void;
   onOpenIconLibrary: () => void;
+  onOpenProperties: () => void;
   onRedo: () => void;
   onSelectTool: () => void;
   onToggleShapeMenu: () => void;
@@ -41,9 +46,7 @@ type EditorToolbarProps = {
   onFitStageToViewport: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
-  onZoomToActualSize: () => void;
   redoDisabled: boolean;
-  selectedElementAnimationCount: number;
   shapeMenuButtonRef: RefObject<HTMLButtonElement | null>;
   stageScale: number;
   undoDisabled: boolean;
@@ -132,16 +135,6 @@ export function EditorToolbar(props: EditorToolbarProps) {
           >
             <ImagePlus size={17} />
           </button>
-          <button
-            aria-label="애니메이션"
-            className={`tool-button ${props.isAnimationPanelOpen || props.selectedElementAnimationCount > 0 ? "active" : ""}`}
-            disabled={!props.canUseCurrentSlide}
-            title={editDisabledTitle ?? "애니메이션"}
-            type="button"
-            onClick={props.onOpenAnimation}
-          >
-            <Sparkles size={17} />
-          </button>
         </div>
       </div> : null}
       <EditorZoomControls
@@ -151,9 +144,43 @@ export function EditorToolbar(props: EditorToolbarProps) {
         onFitToViewport={props.onFitStageToViewport}
         onZoomIn={props.onZoomIn}
         onZoomOut={props.onZoomOut}
-        onZoomToActualSize={props.onZoomToActualSize}
         scale={props.stageScale}
       />
+      <div className="editor-panel-toolbar-actions" aria-label="에디터 패널 도구">
+        <button
+          aria-controls="editor-selection-inspector-pane"
+          aria-expanded={props.isRightPanelOpen && props.rightPanelMode === "properties"}
+          aria-label="속성"
+          className={`tool-button ${props.isRightPanelOpen && props.rightPanelMode === "properties" ? "active" : ""}`}
+          title="속성 패널 열기"
+          type="button"
+          onClick={props.onOpenProperties}
+        >
+          <Properties aria-hidden="true" size={17} />
+        </button>
+        <button
+          aria-controls="editor-selection-inspector-pane"
+          aria-expanded={props.isRightPanelOpen && props.rightPanelMode === "animation"}
+          aria-label="애니메이션"
+          className={`tool-button ${props.isRightPanelOpen && props.rightPanelMode === "animation" ? "active" : ""}`}
+          title="애니메이션 패널 열기"
+          type="button"
+          onClick={props.onOpenAnimation}
+        >
+          <Animation aria-hidden="true" size={17} />
+        </button>
+        <button
+          aria-controls="editor-selection-inspector-pane"
+          aria-expanded={props.isRightPanelOpen && props.rightPanelMode === "assistant"}
+          aria-label="AI 어시스턴트"
+          className={`tool-button ${props.isRightPanelOpen && props.rightPanelMode === "assistant" ? "active" : ""}`}
+          title="AI 어시스턴트 패널 열기"
+          type="button"
+          onClick={props.onOpenAssistant}
+        >
+          <Sparkles aria-hidden="true" size={17} />
+        </button>
+      </div>
     </div>
   );
 }

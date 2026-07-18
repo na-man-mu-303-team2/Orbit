@@ -114,13 +114,6 @@ export function useEditorViewport(args: {
     }
   }, [projectId]);
 
-  const zoomToActualSize = useCallback(() => {
-    setProjectEditorZoom({
-      projectId,
-      zoom: { mode: "manual", scale: 1 }
-    });
-  }, [projectId]);
-
   useEffect(() => {
     const viewport = canvasViewportRef.current;
     if (!viewport) return;
@@ -158,7 +151,6 @@ export function useEditorViewport(args: {
     stageScale,
     zoom,
     zoomIn: () => changeStageScale("in"),
-    zoomOut: () => changeStageScale("out"),
-    zoomToActualSize
+    zoomOut: () => changeStageScale("out")
   };
 }
