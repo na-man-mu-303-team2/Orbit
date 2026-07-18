@@ -786,8 +786,10 @@ describe("processPptxOoxmlSyncJob", () => {
     ).toBe(false);
   });
 
-  it("rejects package-changing patch types before calling Python", async () => {
-    const { dataSource, query } = createDataSource({
+  it("creates an authored slide and embeds an image from the same sync batch", async () => {
+    let savedBlueprint: Record<string, unknown> | null = null;
+    const { dataSource } = createDataSource({
+      deckSlideIds: ["slide_1", "slide_authored"],
       deckVersion: 2,
       syncedVersion: 1,
       operations: [
@@ -805,9 +807,88 @@ describe("processPptxOoxmlSyncJob", () => {
             semanticCues: [],
           },
         },
+        {
+          type: "add_element",
+          slideId: "slide_authored",
+          element: {
+            elementId: "el_authored_image",
+            type: "image",
+            x: 100,
+            y: 100,
+            width: 320,
+            height: 180,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 0,
+            locked: false,
+            visible: true,
+            ooxmlOrigin: "authored",
+            props: {
+              src: "/api/v1/projects/project-a/assets/file_image/content",
+              fit: "contain",
+            },
+          },
+        },
       ],
+      onBlueprintUpdate: (blueprint) => {
+        savedBlueprint = blueprint;
+        return true;
+      },
     });
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("current.pptx")) return new Response("pptx-bytes");
+      if (url.endsWith("image.png")) {
+        return new Response(new Uint8Array([1, 2, 3]));
+      }
+      if (url.endsWith("/ai/pptx-ooxml-sync")) {
+        const form = init?.body as FormData;
+        const operations = JSON.parse(
+          await (form.get("operations_file") as Blob).text(),
+        );
+        expect(operations).toEqual([
+          expect.objectContaining({
+            type: "add_slide",
+            sourceSlidePart: "ppt/slides/slide2.xml",
+          }),
+          expect.objectContaining({
+            type: "add_element",
+            slideId: "slide_authored",
+            sourceSlidePart: "ppt/slides/slide2.xml",
+            element: expect.objectContaining({
+              props: expect.objectContaining({
+                src: "data:image/png;base64,AQID",
+              }),
+            }),
+          }),
+        ]);
+        return new Response(
+          JSON.stringify({
+            ...workerResponse([
+              { operationType: "add_slide", slideId: "slide_authored" },
+              {
+                operationType: "add_element",
+                slideId: "slide_authored",
+                elementId: "el_authored_image",
+              },
+            ]),
+            elementSources: [
+              {
+                elementId: "el_authored_image",
+                elementType: "image",
+                ooxmlOrigin: "authored",
+                slidePart: "ppt/slides/slide2.xml",
+                shapeId: "2",
+                relationshipId: "rId2",
+                sourceType: "image",
+                writable: true,
+              },
+            ],
+          }),
+        );
+      }
+      return new Response("unexpected", { status: 500 });
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const job = await processPptxOoxmlSyncJob(
@@ -817,17 +898,19 @@ describe("processPptxOoxmlSyncJob", () => {
       payload,
     );
 
-    expect(job.error).toMatchObject({
-      code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
-      retryable: false,
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(savedBlueprint).toMatchObject({
+      slides: expect.arrayContaining([
+        expect.objectContaining({
+          slideId: "slide_authored",
+          sourceSlidePart: "ppt/slides/slide2.xml",
+          ooxmlOrigin: "authored",
+          elementSources: [
+            expect.objectContaining({ elementId: "el_authored_image" }),
+          ],
+        }),
+      ]),
     });
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(storage.putObject).not.toHaveBeenCalled();
-    expect(
-      query.mock.calls.some(([sql]) =>
-        String(sql).includes("DELETE FROM deck_patches"),
-      ),
-    ).toBe(false);
   });
 });
 
@@ -948,6 +1031,7 @@ function templateBlueprint(syncedVersion: number) {
     ooxmlSyncedDeckVersion: syncedVersion,
     slides: [
       {
+        slideId: "slide_1",
         slideIndex: 1,
         sourceSlideIndex: 1,
         sourceSlidePart: "ppt/slides/slide1.xml",
@@ -978,6 +1062,7 @@ function templateBlueprint(syncedVersion: number) {
 function reorderTemplateBlueprint(syncedVersion: number) {
   const blueprint = templateBlueprint(syncedVersion);
   blueprint.slides = Array.from({ length: 3 }, (_, index) => ({
+    slideId: `slide_ooxml_file_${index + 1}`,
     slideIndex: index + 1,
     sourceSlideIndex: index + 1,
     sourceSlidePart: `ppt/slides/slide${index + 1}.xml`,
@@ -1036,6 +1121,7 @@ function workerResponse(
   appliedOperations: Array<{
     operationType:
       | "add_element"
+      | "add_slide"
       | "update_element_frame"
       | "update_element_props"
       | "delete_element"
