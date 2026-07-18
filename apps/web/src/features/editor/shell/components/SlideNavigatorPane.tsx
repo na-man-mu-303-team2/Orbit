@@ -225,3 +225,7 @@ export function SlideNavigatorPane(props: {
 export function canAddActivitySlide(deck: Pick<Deck, "canvas">): boolean {
   return deck.canvas.preset === "wide-16-9";
 }
+
+export function isSlideDeleteKey(key: string): boolean {
+  return key === "Delete" || key === "Backspace";
+}

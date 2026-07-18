@@ -9,7 +9,11 @@ export {
   clampBackgroundOverlayOpacity,
   getSlideBackgroundSize
 } from "./SlideBackground";
-export { ElementNodeContent, type SlideElementFrame } from "./elementRendering";
+export {
+  ElementNodeContent,
+  verticalAxisTitleText,
+  type SlideElementFrame,
+} from "./elementRendering";
 export { getActiveHighlightElementIds, HighlightOverlay } from "./highlightOverlay";
 export {
   getRenderableSlideElements,

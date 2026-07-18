@@ -12,13 +12,14 @@ describe("EditorToolbar", () => {
         canUseCurrentSlide={false}
         canZoomIn
         canZoomOut
+        chartMenuButtonRef={createRef<HTMLButtonElement>()}
         insertTool="select"
         isAnimationPanelOpen={false}
+        isChartMenuOpen={false}
         isIconPanelOpen={false}
         isImageUploadPending={false}
         isShapeMenuOpen={false}
         isStageFitToViewport
-        onAddChart={vi.fn()}
         onAddText={vi.fn()}
         onFitStageToViewport={vi.fn()}
         onOpenAnimation={vi.fn()}
@@ -26,6 +27,7 @@ describe("EditorToolbar", () => {
         onOpenImagePicker={vi.fn()}
         onRedo={vi.fn()}
         onSelectTool={vi.fn()}
+        onToggleChartMenu={vi.fn()}
         onToggleShapeMenu={vi.fn()}
         onUndo={vi.fn()}
         onZoomIn={vi.fn()}
@@ -48,8 +50,11 @@ describe("EditorToolbar", () => {
       "이미지",
       "애니메이션"
     ]) {
-      const button = html.match(new RegExp(`<button[^>]*aria-label="${label}"[^>]*>`))?.[0];
-      expect(button, label).toContain("disabled");
+      const control = html.match(
+        new RegExp(`<(?:button|select)[^>]*aria-label="${label}"[^>]*>`),
+      )?.[0];
+      expect(control, label).toContain("disabled");
     }
+
   });
 });

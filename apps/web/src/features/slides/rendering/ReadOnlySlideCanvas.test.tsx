@@ -7,7 +7,8 @@ import {
   buildSlideBackgroundStyle,
   getActiveHighlightElementIds,
   getRenderableSlideElements,
-  ReadOnlySlideCanvas
+  ReadOnlySlideCanvas,
+  verticalAxisTitleText
 } from "./index";
 
 vi.mock("react-konva", () => {
@@ -583,5 +584,9 @@ describe("ReadOnlySlideCanvas", () => {
         { elementId: "el_body", active: false }
       ])].sort()
     ).toEqual(["el_image"]);
+  });
+
+  it("lays out vertical axis titles without rotating their glyphs", () => {
+    expect(verticalAxisTitleText("매출액")).toBe("매\n출\n액");
   });
 });
