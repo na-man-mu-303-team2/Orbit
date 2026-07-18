@@ -1,6 +1,7 @@
 import type { Deck, Slide, SlideQuestionGuide } from "@orbit/shared";
 import { useEffect, useState } from "react";
 
+import { fetchLiveSttRuntimeConfig } from "../../../rehearsal/stt/liveSttRuntimeConfig";
 import { fetchDeck } from "../shell/api/deckPersistenceApi";
 import {
   createSlideQuestionGuide,
@@ -20,9 +21,26 @@ export function SlideQuestionGuidePanel(props: {
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "generating" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [slideQuestionGuidesEnabled, setSlideQuestionGuidesEnabled] = useState<boolean | null>(null);
 
   useEffect(() => {
     let active = true;
+    void fetchLiveSttRuntimeConfig().then((runtimeConfig) => {
+      if (active) setSlideQuestionGuidesEnabled(runtimeConfig.slideQuestionGuidesEnabled);
+    }).catch(() => {
+      if (active) setSlideQuestionGuidesEnabled(false);
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (slideQuestionGuidesEnabled !== true) {
+      setGuide(null);
+      setHasStaleGuide(false);
+      setStatus("idle");
+      return () => { active = false; };
+    }
     if (!props.slide) {
       setGuide(null);
       setHasStaleGuide(false);
@@ -44,10 +62,10 @@ export function SlideQuestionGuidePanel(props: {
       if (active) setStatus("error");
     });
     return () => { active = false; };
-  }, [props.deck.deckId, props.deck.version, props.projectId, props.slide]);
+  }, [props.deck.deckId, props.deck.version, props.projectId, props.slide, slideQuestionGuidesEnabled]);
 
   async function generate() {
-    if (!props.slide) return;
+    if (!props.slide || slideQuestionGuidesEnabled !== true) return;
     setStatus("generating");
     setMessage("");
     try {
@@ -77,10 +95,11 @@ export function SlideQuestionGuidePanel(props: {
   return (
     <div className="editor-question-guide-panel">
       <div className="editor-question-guide-actions">
-        <button disabled={!props.slide || status === "generating"} type="button" onClick={() => void generate()}>
-          {status === "generating" ? "공식 자료 검색 중…" : guide ? "다시 생성" : "질문 생성"}
+        <button disabled={!props.slide || status === "generating" || slideQuestionGuidesEnabled !== true} type="button" onClick={() => void generate()}>
+          {slideQuestionGuidesEnabled === null ? "질문 생성 준비 중…" : status === "generating" ? "공식 자료 검색 중…" : guide ? "다시 생성" : "질문 생성"}
         </button>
       </div>
+      {slideQuestionGuidesEnabled === false ? <p className="editor-practice-message">이 환경에서는 슬라이드별 예상 질문 기능을 사용할 수 없습니다.</p> : null}
       {message ? <p className="editor-practice-message">{message}</p> : null}
       {hasStaleGuide ? <p className="editor-question-stale">덱이 바뀌어 이전 질문은 숨겼습니다. 현재 버전으로 다시 생성해 주세요.</p> : null}
       {guide && guide.items.length > 0 ? (
