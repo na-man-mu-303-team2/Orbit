@@ -14036,4 +14036,25 @@ body.is-resizing-speaker-notes {
     .editor-panel.slides-panel-collapsed.right-panel-closed:has(.selection-quickbar) {
     grid-template-columns: 0 minmax(0, 1fr) 0 !important;
   }
+
+  .orbit-shell.editor-professional
+    .editor-panel:has(.stage-speaker-notes-panel.expanded)
+    .ai-pane:not(.collapsed) {
+    grid-row: 1;
+    min-height: 0;
+  }
+
+  .orbit-shell.editor-professional
+    .editor-panel:has(.stage-speaker-notes-panel.expanded):not(.animation-panel-open)
+    .stage-pane
+    > .stage-speaker-notes-panel.expanded {
+    grid-column: 2 / -1;
+  }
+
+  .orbit-shell.editor-professional
+    .editor-panel.animation-panel-open:has(.stage-speaker-notes-panel.expanded)
+    .stage-pane
+    > .stage-speaker-notes-panel.expanded {
+    grid-column: 3 / -1;
+  }
 }
