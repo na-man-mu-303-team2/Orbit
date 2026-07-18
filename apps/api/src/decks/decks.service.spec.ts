@@ -280,6 +280,18 @@ class InMemoryDeckDataSource {
     }
 
     if (
+      query.startsWith("UPDATE template_blueprints") &&
+      query.includes("WHERE template_id = $1")
+    ) {
+      const [templateId, blueprint] = params as [string, unknown];
+      const row = this.templateBlueprintRows.find(
+        (candidate) => candidate.template_id === templateId,
+      );
+      if (row) row.blueprint_json = cloneJson(blueprint);
+      return [] as T;
+    }
+
+    if (
       query.startsWith("SELECT snapshot_id, project_id, deck_id") &&
       query.includes("WHERE snapshot_id = $1")
     ) {
@@ -1017,12 +1029,13 @@ describe("DecksService", () => {
   it("records an imported full-save slide reorder as one exact permutation", async () => {
     const { dataSource, service } = createService();
     const base = createDeck();
+    const slideIds = ["slide_cover", "slide_metrics", "slide_close"];
     const current = deckSchema.parse({
       ...base,
       version: 2,
       slides: Array.from({ length: 3 }, (_, index) => ({
         ...base.slides[0],
-        slideId: `slide_ooxml_file_${index + 1}`,
+        slideId: slideIds[index],
         order: index + 1,
         title: `Slide ${index + 1}`,
       })),
@@ -1064,12 +1077,24 @@ describe("DecksService", () => {
       {
         type: "reorder_slides",
         slideOrders: [
-          { slideId: "slide_ooxml_file_3", order: 1 },
-          { slideId: "slide_ooxml_file_1", order: 2 },
-          { slideId: "slide_ooxml_file_2", order: 3 },
+          { slideId: "slide_close", order: 1 },
+          { slideId: "slide_cover", order: 2 },
+          { slideId: "slide_metrics", order: 3 },
         ],
       },
     ]);
+    expect(
+      dataSource.templateBlueprintRows[0]?.blueprint_json,
+    ).toMatchObject({
+      slides: [
+        { slideId: "slide_cover", sourceSlidePart: "ppt/slides/slide1.xml" },
+        {
+          slideId: "slide_metrics",
+          sourceSlidePart: "ppt/slides/slide2.xml",
+        },
+        { slideId: "slide_close", sourceSlidePart: "ppt/slides/slide3.xml" },
+      ],
+    });
   });
 
   it("rejects an imported full save with a non-permutation slide order", async () => {

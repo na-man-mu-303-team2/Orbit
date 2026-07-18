@@ -4,6 +4,7 @@ import {
   deckPatchOperationTypeSchema,
   deckSchema,
   pptxOoxmlSyncJobResultSchema,
+  recoverTemplateBlueprintSlideIds,
   templateElementSourceSchema,
   templateBlueprintSchema,
   type DeckCanvas,
@@ -256,7 +257,7 @@ export async function processPptxOoxmlSyncJob(
         payload.projectId,
         payload.deckId,
       );
-      const templateBlueprint = templateBlueprintSchema.parse(
+      const parsedTemplateBlueprint = templateBlueprintSchema.parse(
         templateRow.blueprint_json,
       );
       const deck = await loadStoredDeck(
@@ -265,6 +266,17 @@ export async function processPptxOoxmlSyncJob(
         payload.deckId,
       );
       const storedDeck = deckSchema.parse(deck.deck_json);
+      const recoveredTemplateBlueprint = recoverTemplateBlueprintSlideIds(
+        parsedTemplateBlueprint,
+        storedDeck.slides,
+      );
+      if (!recoveredTemplateBlueprint) {
+        throw new UnsupportedOoxmlOperationsError({
+          operationType: "reorder_slides",
+          reasonCode: "SLIDE_REORDER_LOCATOR_UNSAFE",
+        });
+      }
+      const templateBlueprint = recoveredTemplateBlueprint.blueprint;
       const latestDeckVersion = deck.version;
       const syncedDeckVersion = templateBlueprint.ooxmlSyncedDeckVersion ?? 1;
 
@@ -678,7 +690,7 @@ async function syncPptxOoxmlWithPython(
 ): Promise<PptxOoxmlSyncWorkerResponse> {
   const ooxmlOperations = operations
     .filter(isOoxmlSyncOperation)
-    .map((operation) => withSourceSlideId(operation, templateBlueprint));
+    .map((operation) => withSourceSlideLocator(operation, templateBlueprint));
   const form = new FormData();
   appendJsonFilePart(
     form,
@@ -972,15 +984,15 @@ function withSyncResult(
         slide.renderAssetFileId,
       elementSources: mergeElementSources(
         slide.elementSources,
-        synced.elementSources.filter((source) =>
-          source.slidePart.endsWith(`slide${slide.sourceSlideIndex}.xml`),
+        synced.elementSources.filter(
+          (source) => source.slidePart === slide.sourceSlidePart,
         ),
       ),
     })),
   });
 }
 
-function withSourceSlideId(
+function withSourceSlideLocator(
   operation: OoxmlSyncOperation,
   templateBlueprint: TemplateBlueprint,
 ): OoxmlSyncOperation {
@@ -994,32 +1006,28 @@ function withSourceSlideId(
         );
         return {
           ...slideOrder,
-          blueprintSlideIndex: locator?.slideIndex ?? 0,
           sourceSlidePart: locator?.sourceSlidePart ?? "",
         };
       }),
     } as OoxmlSyncOperation;
   }
   if (!("slideId" in operation)) return operation;
-  const generatedSlideIndex = slideIndexFromId(operation.slideId);
-  const sourceSlideIndex = templateBlueprint.slides.find(
-    (slide) => slide.slideIndex === generatedSlideIndex,
-  )?.sourceSlideIndex;
-  if (!sourceSlideIndex || sourceSlideIndex === generatedSlideIndex)
-    return operation;
+  const locator = sourceSlideLocatorForDeckSlide(
+    operation.slideId,
+    templateBlueprint,
+  );
   return {
     ...operation,
-    slideId: `slide_${sourceSlideIndex}`,
-  } as OoxmlSyncOperation;
+    sourceSlidePart: locator?.sourceSlidePart ?? "",
+  } as unknown as OoxmlSyncOperation;
 }
 
 function sourceSlideLocatorForDeckSlide(
   slideId: string,
   templateBlueprint: TemplateBlueprint,
-): { slideIndex: number; sourceSlidePart: string } | null {
-  const generatedSlideIndex = slideIndexFromId(slideId);
+): { sourceSlidePart: string } | null {
   const matches = templateBlueprint.slides.filter(
-    (slide) => slide.slideIndex === generatedSlideIndex,
+    (slide) => slide.slideId === slideId,
   );
   const slide = matches[0];
   if (
@@ -1030,15 +1038,8 @@ function sourceSlideLocatorForDeckSlide(
     return null;
   }
   return {
-    slideIndex: slide.slideIndex,
     sourceSlidePart: slide.sourceSlidePart,
   };
-}
-
-function slideIndexFromId(slideId: string): number {
-  const suffix = slideId.split("_").at(-1);
-  const index = Number.parseInt(suffix ?? "", 10);
-  return Number.isFinite(index) && index > 0 ? index : 1;
 }
 
 function mergeElementSources(

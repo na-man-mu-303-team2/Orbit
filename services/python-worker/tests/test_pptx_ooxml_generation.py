@@ -25,6 +25,10 @@ from app.ai.pptx_design_importer import ImportedDesignAsset
 from app.main import app
 
 
+def template_slide_id(generated: object, slide_index: int = 0) -> str:
+    return generated.template_blueprint["slides"][slide_index]["slideId"]
+
+
 def test_pure_generation_preserves_package_entries_and_source_text(
     tmp_path: Path,
 ) -> None:
@@ -128,13 +132,13 @@ def test_sync_pptx_ooxml_applies_text_and_frame_patch(tmp_path: Path) -> None:
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_template_1",
+                "slideId": template_slide_id(generated),
                 "elementId": title_slot["elementId"],
                 "props": {"text": "Synced Title"},
             },
             {
                 "type": "update_element_frame",
-                "slideId": "slide_import_file_template_1",
+                "slideId": template_slide_id(generated),
                 "elementId": title_slot["elementId"],
                 "frame": {
                     "role": title_element.get("role"),
@@ -187,7 +191,7 @@ def test_sync_pptx_ooxml_skips_grouped_child_frame_patch(tmp_path: Path) -> None
         operations=[
             {
                 "type": "update_element_frame",
-                "slideId": "slide_import_file_template_1",
+                "slideId": template_slide_id(generated),
                 "elementId": target["elementId"],
                 "frame": {
                     "x": target["x"] + 100,
@@ -256,13 +260,13 @@ def test_sync_pptx_ooxml_round_trips_text_and_target_image(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_template_1",
+                "slideId": template_slide_id(generated),
                 "elementId": title["elementId"],
                 "props": {"text": "Synced round-trip title"},
             },
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_template_1",
+                "slideId": template_slide_id(generated),
                 "elementId": target_image["elementId"],
                 "props": {"src": replacement_data_url},
             },
@@ -346,7 +350,7 @@ def test_sync_pptx_ooxml_round_trips_image_crop_and_rejects_unsafe_capability(
     crop = {"left": 0.2, "top": 0.1, "right": 0.15, "bottom": 0.05}
     operation = {
         "type": "update_element_props",
-        "slideId": "slide_import_file_template_1",
+        "slideId": template_slide_id(generated),
         "elementId": target["elementId"],
         "props": {"crop": crop},
     }
@@ -453,7 +457,7 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
         operations=[
             {
                 "type": "add_element",
-                "slideId": "slide_import_file_template_1",
+                "slideId": template_slide_id(generated),
                 "element": element,
             }
             for element in added_elements
@@ -492,19 +496,19 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_template_1",
+                "slideId": template_slide_id(generated),
                 "elementId": "el_added_text",
                 "props": {"text": "Edited added text"},
             },
             {
                 "type": "update_element_frame",
-                "slideId": "slide_import_file_template_1",
+                "slideId": template_slide_id(generated),
                 "elementId": "el_added_rect",
                 "frame": {"x": 320, "y": 600, "width": 300, "height": 100},
             },
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_template_1",
+                "slideId": template_slide_id(generated),
                 "elementId": "el_added_image",
                 "props": {
                     "src": "data:image/png;base64,"
@@ -602,19 +606,19 @@ def test_sync_pptx_ooxml_scopes_duplicate_element_ids_to_slide_part(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_2",
+                "slideId": blueprint["slides"][1]["slideId"],
                 "elementId": "el_shared_text",
                 "props": {"text": "Only slide two"},
             },
             {
                 "type": "update_element_frame",
-                "slideId": "slide_2",
+                "slideId": blueprint["slides"][1]["slideId"],
                 "elementId": "el_shared_image",
                 "frame": {"x": 400, "y": 300, "width": 240, "height": 180},
             },
             {
                 "type": "update_element_props",
-                "slideId": "slide_2",
+                "slideId": blueprint["slides"][1]["slideId"],
                 "elementId": "el_shared_image",
                 "props": {
                     "src": "data:image/png;base64,"
@@ -623,7 +627,7 @@ def test_sync_pptx_ooxml_scopes_duplicate_element_ids_to_slide_part(
             },
             {
                 "type": "delete_element",
-                "slideId": "slide_2",
+                "slideId": blueprint["slides"][1]["slideId"],
                 "elementId": "el_shared_delete",
             },
         ],
@@ -676,7 +680,7 @@ def test_sync_pptx_ooxml_scopes_duplicate_element_ids_to_slide_part(
         operations=[
             {
                 "type": "add_element",
-                "slideId": f"slide_{slide_index}",
+                "slideId": blueprint["slides"][slide_index - 1]["slideId"],
                 "element": {
                     "elementId": "el_shared_added",
                     "type": "text",
@@ -733,13 +737,13 @@ def test_sync_pptx_ooxml_rejects_invalid_image_data_without_package_changes(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_template_1",
+                "slideId": template_slide_id(generated),
                 "elementId": image["elementId"],
                 "props": {"src": src},
             },
             {
                 "type": "add_element",
-                "slideId": "slide_import_file_template_1",
+                "slideId": template_slide_id(generated),
                 "element": {
                     "elementId": "el_invalid_image",
                     "type": "image",

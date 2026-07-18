@@ -25,6 +25,10 @@ TEST_NS = "urn:orbit:test:table-sync"
 SLIDE_PART = "ppt/slides/slide1.xml"
 
 
+def template_slide_id(generated: PptxOoxmlGenerationResult) -> str:
+    return generated.template_blueprint["slides"][0]["slideId"]
+
+
 def test_find_shape_by_id_finds_nested_direct_graphic_frame_without_payload_spoof() -> (
     None
 ):
@@ -74,7 +78,11 @@ def test_imported_table_updates_one_cell_and_preserves_non_text_xml(
     result = sync_pptx_ooxml(
         pptx_path,
         template_blueprint=generated.template_blueprint,
-        operations=[table_props_operation(element["elementId"], props)],
+        operations=[
+            table_props_operation(
+                template_slide_id(generated), element["elementId"], props
+            )
+        ],
         deck_canvas=generated.canvas,
         synced_deck_version=2,
         render=False,
@@ -122,7 +130,11 @@ def test_imported_table_rejects_missing_or_forged_locator_atomically(
     result = sync_pptx_ooxml(
         pptx_path,
         template_blueprint=blueprint,
-        operations=[table_props_operation(element["elementId"], props)],
+        operations=[
+            table_props_operation(
+                template_slide_id(generated), element["elementId"], props
+            )
+        ],
         deck_canvas=generated.canvas,
         synced_deck_version=2,
         render=False,
@@ -151,7 +163,11 @@ def test_imported_table_rejects_stale_locator_atomically(tmp_path: Path) -> None
     result = sync_pptx_ooxml(
         stale_path,
         template_blueprint=generated.template_blueprint,
-        operations=[table_props_operation(element["elementId"], props)],
+        operations=[
+            table_props_operation(
+                template_slide_id(generated), element["elementId"], props
+            )
+        ],
         deck_canvas=generated.canvas,
         synced_deck_version=2,
         render=False,
@@ -225,7 +241,11 @@ def test_imported_table_rejects_multi_cell_or_structure_changes_atomically(
     result = sync_pptx_ooxml(
         pptx_path,
         template_blueprint=generated.template_blueprint,
-        operations=[table_props_operation(element["elementId"], props)],
+        operations=[
+            table_props_operation(
+                template_slide_id(generated), element["elementId"], props
+            )
+        ],
         deck_canvas=generated.canvas,
         synced_deck_version=2,
         render=False,
@@ -255,7 +275,11 @@ def test_imported_empty_cell_clones_end_style_without_mutating_existing_xml(
     result = sync_pptx_ooxml(
         pptx_path,
         template_blueprint=generated.template_blueprint,
-        operations=[table_props_operation(element["elementId"], props)],
+        operations=[
+            table_props_operation(
+                template_slide_id(generated), element["elementId"], props
+            )
+        ],
         deck_canvas=generated.canvas,
         synced_deck_version=2,
         render=False,
@@ -294,13 +318,15 @@ def test_authored_table_add_structure_update_frame_delete_and_reimport(
         operations=[
             {
                 "type": "add_element",
-                "slideId": "slide_import_file_table_1",
+                "slideId": template_slide_id(generated),
                 "element": initial,
             },
-            table_props_operation("el_authored", updated_props),
+            table_props_operation(
+                template_slide_id(generated), "el_authored", updated_props
+            ),
             {
                 "type": "update_element_frame",
-                "slideId": "slide_import_file_table_1",
+                "slideId": template_slide_id(generated),
                 "elementId": "el_authored",
                 "frame": {"x": 300, "y": 240, "width": 900, "height": 360},
             },
@@ -356,7 +382,7 @@ def test_authored_table_add_structure_update_frame_delete_and_reimport(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_table_1",
+                "slideId": template_slide_id(generated),
                 "elementId": "el_authored",
                 "props": {"rows": cell_edit_rows},
             }
@@ -409,7 +435,7 @@ def test_authored_table_add_structure_update_frame_delete_and_reimport(
         operations=[
             {
                 "type": "delete_element",
-                "slideId": "slide_import_file_table_1",
+                "slideId": template_slide_id(generated),
                 "elementId": "el_authored",
             }
         ],
@@ -525,11 +551,11 @@ def cell(
 
 
 def table_props_operation(
-    element_id: str, props: dict[str, object]
+    slide_id: str, element_id: str, props: dict[str, object]
 ) -> dict[str, object]:
     return {
         "type": "update_element_props",
-        "slideId": "slide_import_file_table_1",
+        "slideId": slide_id,
         "elementId": element_id,
         "props": props,
     }

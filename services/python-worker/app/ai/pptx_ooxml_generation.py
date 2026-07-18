@@ -255,6 +255,19 @@ def generate_pptx_ooxml(
         source_file_id=file_id,
         source_canvas=imported.blueprint.get("canvas", {}),
     )
+    for index, slide in enumerate(template_blueprint.get("slides", [])):
+        imported_slides = imported.blueprint.get("slides", [])
+        imported_slide = (
+            imported_slides[index]
+            if isinstance(imported_slides, list) and index < len(imported_slides)
+            else None
+        )
+        if (
+            isinstance(slide, dict)
+            and isinstance(imported_slide, dict)
+            and isinstance(imported_slide.get("slideId"), str)
+        ):
+            slide["slideId"] = imported_slide["slideId"]
     warnings = list(imported.warnings)
     package_bytes = path.read_bytes()
     add_imported_ooxml_capabilities(
@@ -392,10 +405,13 @@ def prepare_template_blueprint(
             slide.get("sourceSlideIndex"),
             int_value(slide.get("slideIndex"), 1),
         )
-        slide_part = str(slide.get("sourceSlidePart", "")) or (
-            f"ppt/slides/slide{slide_index}.xml"
+        slide_part = str(slide.get("sourceSlidePart", ""))
+        if not slide_part:
+            continue
+        slide.setdefault(
+            "slideId",
+            f"slide_ooxml_{safe_id_component(source_file_id)}_{slide_index}",
         )
-        slide["sourceSlidePart"] = slide_part
         slide["renderAssetFileId"] = f"asset:slide_render_{slide_index}"
         for slot_index, slot in enumerate(slide.get("slots", []), start=1):
             if not isinstance(slot, dict):
@@ -435,10 +451,9 @@ def add_imported_ooxml_capabilities(
                 slide.get("sourceSlideIndex"),
                 int_value(slide.get("slideIndex"), index + 1),
             )
-            slide_part = str(slide.get("sourceSlidePart", "")) or (
-                f"ppt/slides/slide{source_slide_index}.xml"
-            )
-            slide["sourceSlidePart"] = slide_part
+            slide_part = str(slide.get("sourceSlidePart", ""))
+            if not slide_part:
+                continue
             slide["ooxmlOrigin"] = "imported"
 
             blueprint_slide = blueprint_slides.get(source_slide_index, {})
@@ -686,9 +701,9 @@ def apply_patch_operations_to_package(
     with zipfile.ZipFile(BytesIO(package_bytes), "r") as source:
         source_names = set(source.namelist())
         slide_parts = {
-            f"ppt/slides/slide{int_value(slide.get('sourceSlideIndex'), int_value(slide.get('slideIndex'), 1))}.xml"
+            str(slide.get("sourceSlidePart", ""))
             for slide in template_blueprint.get("slides", [])
-            if isinstance(slide, dict)
+            if isinstance(slide, dict) and slide.get("sourceSlidePart")
         }
         slide_parts.update(
             str(item.get("slidePart", ""))
@@ -780,7 +795,10 @@ def apply_sync_operation(
             template_blueprint,
         )
     element_id = operation_element_id(operation)
-    operation_slide_part = slide_part_for_operation(operation)
+    operation_slide_part = slide_part_for_operation(
+        operation,
+        template_blueprint,
+    )
 
     if operation_type == "add_element":
         element = operation.get("element")
@@ -793,7 +811,7 @@ def apply_sync_operation(
         if add_element_has_unsupported_props(element):
             return "PROPS_FIELDS_UNSUPPORTED"
         added_source = add_element_to_slide_xml(
-            operation,
+            operation_slide_part,
             element,
             package_entries,
             added_entries,
@@ -941,33 +959,32 @@ def reorder_presentation_slides(
     if not isinstance(raw_slide_orders, list) or not raw_slide_orders:
         return "SLIDE_REORDER_PERMUTATION_INVALID"
 
-    blueprint_locators: set[tuple[int, str]] = set()
+    blueprint_locators: dict[str, str] = {}
+    blueprint_parts: set[str] = set()
     for raw_blueprint_slide in template_blueprint.get("slides", []):
         if not isinstance(raw_blueprint_slide, dict):
             return "SLIDE_REORDER_LOCATOR_UNSAFE"
-        slide_index = raw_blueprint_slide.get("slideIndex")
+        slide_id = raw_blueprint_slide.get("slideId")
         source_slide_part = raw_blueprint_slide.get("sourceSlidePart")
         if (
-            not isinstance(slide_index, int)
-            or isinstance(slide_index, bool)
-            or slide_index <= 0
+            not isinstance(slide_id, str)
+            or not slide_id
             or not isinstance(source_slide_part, str)
             or not source_slide_part
             or raw_blueprint_slide.get("ooxmlOrigin") == "authored"
         ):
             return "SLIDE_REORDER_LOCATOR_UNSAFE"
-        locator = (slide_index, source_slide_part)
-        if locator in blueprint_locators:
+        if slide_id in blueprint_locators or source_slide_part in blueprint_parts:
             return "SLIDE_REORDER_LOCATOR_UNSAFE"
-        blueprint_locators.add(locator)
+        blueprint_locators[slide_id] = source_slide_part
+        blueprint_parts.add(source_slide_part)
 
-    requested: list[tuple[int, str, str, int]] = []
+    requested: list[tuple[int, str, str]] = []
     for raw_slide_order in raw_slide_orders:
         if not isinstance(raw_slide_order, dict):
             return "SLIDE_REORDER_PERMUTATION_INVALID"
         slide_id = raw_slide_order.get("slideId")
         order = raw_slide_order.get("order")
-        blueprint_slide_index = raw_slide_order.get("blueprintSlideIndex")
         source_slide_part = raw_slide_order.get("sourceSlidePart")
         if (
             not isinstance(slide_id, str)
@@ -977,16 +994,11 @@ def reorder_presentation_slides(
         ):
             return "SLIDE_REORDER_PERMUTATION_INVALID"
         if (
-            not isinstance(blueprint_slide_index, int)
-            or isinstance(blueprint_slide_index, bool)
-            or blueprint_slide_index <= 0
-            or not isinstance(source_slide_part, str)
+            not isinstance(source_slide_part, str)
             or not source_slide_part
         ):
             return "SLIDE_REORDER_LOCATOR_UNSAFE"
-        requested.append(
-            (order, slide_id, source_slide_part, blueprint_slide_index)
-        )
+        requested.append((order, slide_id, source_slide_part))
 
     requested_orders = [item[0] for item in requested]
     requested_ids = [item[1] for item in requested]
@@ -997,11 +1009,7 @@ def reorder_presentation_slides(
         or set(requested_orders) != expected_orders
     ):
         return "SLIDE_REORDER_PERMUTATION_INVALID"
-    if any(
-        (item[3], item[2]) not in blueprint_locators
-        or slide_id_suffix_index(item[1]) != item[3]
-        for item in requested
-    ):
+    if any(blueprint_locators.get(item[1]) != item[2] for item in requested):
         return "SLIDE_REORDER_LOCATOR_UNSAFE"
 
     presentation_xml = package_entries.get("ppt/presentation.xml")
@@ -1067,11 +1075,6 @@ def resolve_relationship_part(source_part: str, target: str) -> str:
     if target.startswith("/"):
         return posixpath.normpath(target).lstrip("/")
     return posixpath.normpath(posixpath.join(posixpath.dirname(source_part), target))
-
-
-def slide_id_suffix_index(slide_id: str) -> int | None:
-    suffix = slide_id.rsplit("_", 1)[-1]
-    return int(suffix) if suffix.isdigit() and int(suffix) > 0 else None
 
 
 def add_element_has_unsupported_props(element: dict[str, Any]) -> bool:
@@ -3390,14 +3393,13 @@ def visual_insert_end_index(parent: ET.Element[Any]) -> int:
 
 
 def add_element_to_slide_xml(
-    operation: dict[str, Any],
+    slide_part: str,
     element: dict[str, Any],
     package_entries: dict[str, bytes],
     added_entries: dict[str, bytes],
     scale: PackageFrameScale,
     warnings: list[str],
 ) -> dict[str, Any] | None:
-    slide_part = slide_part_for_operation(operation)
     slide_xml = package_entries.get(slide_part)
     if slide_xml is None:
         warnings.append(
@@ -3504,9 +3506,20 @@ def add_element_to_slide_xml(
     return source
 
 
-def slide_part_for_operation(operation: dict[str, Any]) -> str:
-    slide_index = slide_index_from_id(str(operation.get("slideId", "")))
-    return f"ppt/slides/slide{slide_index}.xml"
+def slide_part_for_operation(
+    operation: dict[str, Any],
+    template_blueprint: dict[str, Any],
+) -> str:
+    explicit_slide_part = str(operation.get("sourceSlidePart", ""))
+    if explicit_slide_part:
+        return explicit_slide_part
+    operation_slide_id = str(operation.get("slideId", ""))
+    matches = [
+        str(slide.get("sourceSlidePart", ""))
+        for slide in template_blueprint.get("slides", [])
+        if isinstance(slide, dict) and slide.get("slideId") == operation_slide_id
+    ]
+    return matches[0] if len(matches) == 1 else ""
 
 
 def text_shape_element(
@@ -3783,11 +3796,6 @@ def frame_to_emu(
             ),
         ),
     )
-
-
-def slide_index_from_id(slide_id: str) -> int:
-    suffix = slide_id.rsplit("_", maxsplit=1)[-1]
-    return max(1, int_value(suffix, 1))
 
 
 def next_c_nv_pr_id(root: ET.Element[Any]) -> int:
@@ -4205,3 +4213,11 @@ def safe_file_stem(path: Path) -> str:
         char if char.isascii() and (char.isalnum() or char in "_-") else "_"
         for char in stem
     )
+
+
+def safe_id_component(value: str) -> str:
+    normalized = "".join(
+        char if char.isascii() and (char.isalnum() or char in "_-") else "_"
+        for char in value
+    )
+    return normalized or "pptx"

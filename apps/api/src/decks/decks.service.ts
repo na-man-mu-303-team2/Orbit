@@ -32,6 +32,7 @@ import {
   putDeckRequestSchema,
   putDeckResponseSchema,
   restoreDeckSnapshotResponseSchema,
+  recoverTemplateBlueprintSlideIds,
   createSemanticCueExtractionJobResponseSchema,
   semanticCueExtractionJobPayloadSchema,
   semanticCueExtractionRequestSchema,
@@ -345,6 +346,7 @@ export class DecksService {
           manager,
           projectId,
           currentDeck.deckId,
+          currentDeck,
         );
       }
 
@@ -473,6 +475,7 @@ export class DecksService {
         manager,
         projectId,
         applyResult.deck.deckId,
+        currentDeck,
       );
       const shouldCheckpoint =
         !templateBlueprint &&
@@ -875,6 +878,7 @@ export class DecksService {
           manager,
           projectId,
           currentDeck.deckId,
+          currentDeck,
         );
         await this.createSnapshot(
           manager,
@@ -1096,6 +1100,7 @@ export class DecksService {
             executor,
             deck.projectId,
             deck.deckId,
+            deck,
           )
         : (knownTemplateBlueprint ?? undefined);
     const checkpointDeck = await this.upsertDeck(executor, deck, updatedAt);
@@ -1235,6 +1240,7 @@ export class DecksService {
     executor: QueryExecutor,
     projectId: string,
     deckId: string,
+    deck: Deck,
   ): Promise<OoxmlTemplateBlueprint | undefined> {
     const rows = await executor.query<TemplateBlueprintRow[]>(
       `
@@ -1260,7 +1266,23 @@ export class DecksService {
       return undefined;
     }
 
-    return { ...row, blueprint: parsed.data };
+    const recovered = recoverTemplateBlueprintSlideIds(
+      parsed.data,
+      deck.slides,
+    );
+    if (!recovered) return undefined;
+    if (recovered.recovered) {
+      await executor.query(
+        `
+          UPDATE template_blueprints
+          SET blueprint_json = $2, updated_at = now()
+          WHERE template_id = $1
+        `,
+        [row.template_id, recovered.blueprint],
+      );
+    }
+
+    return { ...row, blueprint: recovered.blueprint };
   }
 
   private async enqueueOoxmlSync(
