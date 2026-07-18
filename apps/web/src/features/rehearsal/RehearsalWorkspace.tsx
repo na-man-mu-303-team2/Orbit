@@ -5942,6 +5942,7 @@ export function RehearsalReportPage(props: {
 }) {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
   const [run, setRun] = useState<RehearsalRun | null>(props.initialRun ?? null);
+  const [audioPlaybackAvailable, setAudioPlaybackAvailable] = useState(true);
   const [report, setReport] = useState<RehearsalReport | null>(
     props.initialReport ?? null,
   );
@@ -5965,6 +5966,7 @@ export function RehearsalReportPage(props: {
 
   useEffect(() => {
     setRun(props.initialRun ?? null);
+    setAudioPlaybackAvailable(true);
     setReport(props.initialReport ?? null);
     setStatus(props.initialReport ? "ready" : "loading");
     setError("");
@@ -6007,6 +6009,9 @@ export function RehearsalReportPage(props: {
           props.projectId,
         );
         setRun(response.run);
+        setAudioPlaybackAvailable(
+          response.audioPlaybackAvailable ?? Boolean(response.run.audioFileId),
+        );
         setReport(nextState.status === "ready" ? response.report : null);
         setStatus(nextState.status);
         setError(nextState.error);
@@ -6022,6 +6027,9 @@ export function RehearsalReportPage(props: {
                 void fetchRehearsalReport(props.runId).then((r) => {
                   if (!isMounted) return;
                   setRun(r.run);
+                  setAudioPlaybackAvailable(
+                    r.audioPlaybackAvailable ?? Boolean(r.run.audioFileId),
+                  );
                   setReport(r.report);
                   setStatus(r.report ? "ready" : "failed");
                 });
@@ -6180,6 +6188,7 @@ export function RehearsalReportPage(props: {
             <RehearsalReportLoadingShell />
           ) : report ? (
             <RehearsalReportDocument
+              audioPlaybackAvailable={audioPlaybackAvailable}
               report={report}
               deck={deck}
               onSemanticRetry={handleSemanticRetry}
