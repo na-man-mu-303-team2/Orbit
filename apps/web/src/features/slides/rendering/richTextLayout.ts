@@ -386,10 +386,6 @@ function addWrappedToken(args: {
   const whitespace = /^\s+$/u.test(token);
   let current = getCurrent();
 
-  if (whitespace && !hasTextFragment(current)) {
-    return;
-  }
-
   const tokenWidth = measureText(token, style);
   if (draftLineWidth(current) + tokenWidth <= current.availableWidth) {
     addDraftFragment(current, token, style, measureText, false, whitespace);
@@ -403,7 +399,7 @@ function addWrappedToken(args: {
       addDraftFragment(current, token, style, measureText, false, false);
       return;
     }
-  } else if (whitespace) {
+  } else if (whitespace && hasTextFragment(current)) {
     finishLine(false);
     return;
   }
@@ -418,7 +414,7 @@ function addWrappedToken(args: {
       finishLine(false);
       current = getCurrent();
     }
-    addDraftFragment(current, character, style, measureText, false, false);
+    addDraftFragment(current, character, style, measureText, false, whitespace);
   }
 }
 
