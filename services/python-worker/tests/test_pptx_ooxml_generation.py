@@ -591,7 +591,7 @@ def test_sync_pptx_ooxml_scopes_duplicate_element_ids_to_slide_part(
         text_source["elementId"] = "el_shared_text"
         image_source["elementId"] = "el_shared_image"
         delete_source["elementId"] = "el_shared_delete"
-        delete_source["ooxmlEditCapabilities"]["delete"] = True
+        assert delete_source["ooxmlEditCapabilities"]["delete"] is True
         mapped_sources.append(
             {"text": text_source, "image": image_source, "delete": delete_source}
         )
