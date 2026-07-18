@@ -568,6 +568,129 @@
   width: 24px;
 }
 
+.orbit-shell .speaker-notes-report-panel .editor-practice-history {
+  gap: var(--redesign-space-4);
+  padding: 0;
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-history-detail {
+  gap: var(--redesign-space-4);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-history-detail > header {
+  gap: var(--redesign-space-3);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-history-detail > header strong {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-title-md-size);
+  font-weight: 850;
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-history-detail > header span {
+  color: var(--redesign-color-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph-card,
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching {
+  background: var(--redesign-color-surface-container-low);
+  border-color: var(--redesign-color-outline-variant);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph-card h3,
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching h3,
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching h4 {
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph-card header p,
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph-note,
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph-empty,
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph-legend {
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph-card header > strong {
+  background: var(--redesign-color-primary-subtle);
+  border: 1px solid var(--redesign-color-primary-outline);
+  color: var(--redesign-color-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph {
+  background: transparent;
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-recommended-band {
+  fill: color-mix(in srgb, var(--redesign-color-primary) 14%, transparent);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-grid-line {
+  stroke: color-mix(in srgb, var(--redesign-color-outline) 38%, transparent);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-axis-label {
+  fill: var(--redesign-color-on-surface-variant);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-loudness-bar.quiet,
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph-legend i.quiet {
+  fill: var(--redesign-color-primary-outline);
+  background: var(--redesign-color-primary-outline);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-loudness-bar.recommended,
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph-legend i.recommended {
+  fill: var(--redesign-color-primary);
+  background: var(--redesign-color-primary);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-loudness-bar.loud,
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph-legend i.loud {
+  fill: var(--redesign-color-error);
+  background: var(--redesign-color-error);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-speed-line {
+  stroke: var(--redesign-color-primary);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-speed-point {
+  fill: var(--redesign-color-surface-container-low);
+  stroke: var(--redesign-color-primary);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching-summary,
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching-state {
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching-item {
+  background: var(--redesign-color-surface-container);
+  border-color: var(--redesign-color-outline-variant);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-script-evidence,
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching-methods > section,
+.orbit-shell .speaker-notes-report-panel .editor-practice-script-edit > div,
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching-action {
+  background: var(--redesign-color-surface-container-lowest);
+  border-color: var(--redesign-color-outline-variant);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-evidence-metrics > div {
+  background: var(--redesign-color-surface-container-low);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-script-evidence > strong,
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching-methods strong,
+.orbit-shell .speaker-notes-report-panel .editor-practice-script-edit strong,
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching-action strong {
+  color: var(--redesign-color-primary);
+}
+
 @media (max-width: 960px) {
   .orbit-shell .editor-practice-graph-grid,
   .orbit-shell .editor-practice-coaching-grid {
