@@ -27,6 +27,7 @@ import { OrbitButton, OrbitEmptyState } from "../../components/ui";
 import { getRehearsalReportPath } from "./RehearsalWorkspace";
 import orbitReportMascot from "../../assets/orbit-report-mascot-transparent.png";
 import {
+  formatRunDate,
   navigateTo,
   sortRehearsalRunsByCreatedAt,
 } from "./rehearsalUtils";
@@ -102,7 +103,7 @@ export function RehearsalProjectOverviewPage({
     : null;
 
   return (
-    <main className="rehearsal-report-page">
+    <main className="rehearsal-report-page report-project-overview-page">
       <header className="rehearsal-report-topbar">
         <div className="rehearsal-report-topbar-left">
           <button
@@ -162,12 +163,12 @@ export function RehearsalProjectOverviewPage({
                   <h1>{project?.title ?? "프로젝트 리포트"}</h1>
                   <p>{runs.length}회차 발표 기록을 한눈에 비교해보세요.</p>
                   <div className="report-overview-hero-actions">
-                    <span className="report-overview-hero-status">
-                      <i aria-hidden="true" /> AI 분석 준비 완료
-                    </span>
                     {latestRun ? (
                       <a href={getRehearsalReportPath(projectId, latestRun.runId)}>
-                        최신 상세 리포트
+                        <strong>LATEST REPORT</strong>
+                        <span>
+                          {formatRunDate(latestRun.createdAt)} · {runs.length}회차 중 최신 완료 리포트
+                        </span>
                         <ArrowUpRight size={16} />
                       </a>
                     ) : null}

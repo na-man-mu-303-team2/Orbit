@@ -65,9 +65,10 @@ function TrendLineChart({
   const range = Math.max(rawMax - rawMin, 1);
   const max = rawMax + range * 0.16;
   const min = Math.max(0, rawMin - range * 0.08);
-  const width = 720;
-  const height = className === "is-compact" ? 160 : 250;
-  const padX = 48;
+  const isCompact = className === "is-compact";
+  const width = isCompact ? 320 : 720;
+  const height = isCompact ? 120 : 350;
+  const padX = isCompact ? 30 : 48;
   const padTop = 30;
   const bottomPad = 38;
   const chartW = width - padX * 2;
@@ -87,6 +88,11 @@ function TrendLineChart({
   }));
   const polyline = points.map((point) => `${point.x},${point.y}`).join(" ");
   const latest = points.at(-1)!;
+  const maxPointIndex = points.reduce(
+    (bestIndex, point, index, allPoints) =>
+      point.value > allPoints[bestIndex].value ? index : bestIndex,
+    0,
+  );
 
   return (
     <svg
@@ -95,17 +101,37 @@ function TrendLineChart({
       role="img"
       aria-label={ariaLabel}
     >
+      {targetValue !== null ? (
+        <rect
+          x={padX}
+          y={toY(targetValue + 30)}
+          width={chartW}
+          height={Math.max(0, toY(Math.max(0, targetValue - 30)) - toY(targetValue + 30))}
+          className="report-project-chart-target-band"
+        />
+      ) : null}
+
       {[0, 0.5, 1].map((ratio) => {
         const y = padTop + ratio * chartH;
+        const tickValue = max - ratio * (max - min);
         return (
-          <line
-            key={ratio}
-            x1={padX}
-            x2={width - padX}
-            y1={y}
-            y2={y}
-            className="report-project-chart-grid"
-          />
+          <g key={ratio}>
+            <line
+              x1={padX}
+              x2={width - padX}
+              y1={y}
+              y2={y}
+              className="report-project-chart-grid"
+            />
+            <text
+              x={padX - 7}
+              y={y + 4}
+              textAnchor="end"
+              className="report-project-chart-axis-value"
+            >
+              {isCompact ? Math.round(tickValue) : valueFormatter(tickValue)}
+            </text>
+          </g>
         );
       })}
 
@@ -142,11 +168,11 @@ function TrendLineChart({
                 : "report-project-chart-point"
             }
           />
-          {index === points.length - 1 ? (
+          {isCompact || index === points.length - 1 || index === maxPointIndex ? (
             <text
               x={point.x}
               y={Math.max(14, point.y - 13)}
-              textAnchor="end"
+              textAnchor={index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"}
               className="report-project-chart-latest-value"
             >
               {valueFormatter(point.value)}

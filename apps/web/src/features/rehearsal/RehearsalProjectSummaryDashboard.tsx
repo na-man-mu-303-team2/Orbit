@@ -1,16 +1,10 @@
 import {
   ArrowUpRight,
   CheckCircle2,
-  Clock3,
   ImageOff,
-  MessageSquare,
-  PauseCircle,
-  Sparkles,
   Target,
-  TimerOff,
-  TrendingUp,
 } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 import type { RehearsalProjectSummary } from "@orbit/shared";
 import { DurationLineChart, MetricTrendChart } from "./ReportProgressCharts";
 import {
@@ -33,7 +27,7 @@ export function RehearsalProjectSummaryDashboard({
   if (!model) {
     return (
       <section className="project-summary-dashboard is-empty">
-        <TrendingUp size={22} />
+        <Target size={22} />
         <div>
           <h2>회차별 분석을 준비하고 있습니다</h2>
           <p>측정 가능한 리허설이 완료되면 변화 추이가 이곳에 나타납니다.</p>
@@ -44,24 +38,20 @@ export function RehearsalProjectSummaryDashboard({
 
   return (
     <section className="project-summary-dashboard" aria-labelledby="project-summary-title">
-      <header className="project-summary-dashboard-header">
-        <div>
-          <span className="report-section-kicker">REHEARSAL PROGRESS</span>
-          <h2 id="project-summary-title">회차별 발표 변화</h2>
-          <p>최근 회차를 기준으로 무엇이 좋아졌고, 어디를 먼저 다듬을지 확인하세요.</p>
+      <section className="project-summary-card project-summary-kpi-section">
+        <header className="project-summary-plain-heading">
+          <h2 id="project-summary-title">발표 개선 요약</h2>
+          <span>{summary.runCount}회차 기반</span>
+        </header>
+        <div className="project-summary-kpi-grid" aria-label="최신 회차 핵심 지표">
+          {model.kpis.map((kpi) => (
+            <KpiCard key={kpi.key} kpi={kpi} />
+          ))}
         </div>
-        <span className="project-summary-run-count">{summary.runCount}회차 기반</span>
-      </header>
-
-      <div className="project-summary-kpi-grid" aria-label="최신 회차 핵심 지표">
-        {model.kpis.map((kpi) => (
-          <KpiCard key={kpi.key} kpi={kpi} />
-        ))}
-      </div>
+      </section>
 
       <section className="project-summary-card project-summary-slide-section">
         <SectionHeading
-          icon={<Target size={19} />}
           title="슬라이드별 누적 패턴"
           description="모든 완료 회차의 평균과 최신 슬라이드 기준을 함께 봅니다."
           aside={`${model.slideRows.length}개 슬라이드`}
@@ -70,10 +60,12 @@ export function RehearsalProjectSummaryDashboard({
           <div className="project-summary-slide-table-wrap">
             <div className="project-summary-slide-table" role="table" aria-label="슬라이드별 누적 발표 지표">
               <div className="project-summary-slide-row is-header" role="row">
+                <span role="columnheader">#</span>
                 <span role="columnheader">슬라이드</span>
-                <span role="columnheader">평균 / 권장 시간</span>
-                <span role="columnheader">시간 초과</span>
-                <span role="columnheader">핵심 메시지</span>
+                <span role="columnheader">평균 소요시간</span>
+                <span role="columnheader">권장 시간</span>
+                <span role="columnheader">시간 초과<br />회차 비율</span>
+                <span role="columnheader">핵심 메시지<br />전달률</span>
                 <span role="columnheader">상태</span>
               </div>
               {model.slideRows.map((slide) => (
@@ -88,8 +80,7 @@ export function RehearsalProjectSummaryDashboard({
 
       <section className="project-summary-card project-summary-trends-section">
         <SectionHeading
-          icon={<TrendingUp size={19} />}
-          title="회차별 개선 추이"
+          title="회차별 변화"
           description="미측정 회차는 0으로 바꾸지 않고 추이에서 제외합니다."
           aside={model.latestMeasuredRunLabel ? `최근 측정 ${model.latestMeasuredRunLabel}` : "측정 대기"}
         />
@@ -118,6 +109,7 @@ export function RehearsalProjectSummaryDashboard({
 
         <div className="project-summary-mini-chart-grid">
           <TrendPanel
+            tone="primary"
             title="긴 침묵 추이"
             description="3초 이상 침묵 횟수"
             series={model.metricSeries.longSilence}
@@ -125,6 +117,7 @@ export function RehearsalProjectSummaryDashboard({
             valueFormatter={(value) => `${Math.round(value)}회`}
           />
           <TrendPanel
+            tone="secondary"
             title="핵심 메시지 전달률"
             description="완전히 전달된 핵심 Cue 비율"
             series={model.metricSeries.coreMessage}
@@ -132,6 +125,7 @@ export function RehearsalProjectSummaryDashboard({
             valueFormatter={formatPercent}
           />
           <TrendPanel
+            tone="danger"
             title="시간 초과 슬라이드 비율"
             description="권장 시간의 120%를 넘긴 비율"
             series={model.metricSeries.timingOverrun}
@@ -143,7 +137,7 @@ export function RehearsalProjectSummaryDashboard({
 
       <article className="project-summary-next-action">
         <span className="project-summary-next-action-icon" aria-hidden="true">
-          <Sparkles size={21} />
+          <Target size={23} />
         </span>
         <div>
           <span>다음 연습에서 먼저 할 일</span>
@@ -167,23 +161,12 @@ export function RehearsalProjectSummaryDashboard({
 }
 
 function KpiCard({ kpi }: { kpi: ProjectSummaryKpi }) {
-  const icons: Record<ProjectSummaryKpi["key"], ReactNode> = {
-    duration: <Clock3 size={20} />,
-    silence: <PauseCircle size={20} />,
-    "core-message": <MessageSquare size={20} />,
-    "timing-overrun": <TimerOff size={20} />,
-  };
   return (
     <article className={`project-summary-kpi is-${kpi.state}`}>
-      <div className="project-summary-kpi-label">
-        <span>{icons[kpi.key]}</span>
-        <strong>{kpi.label}</strong>
-      </div>
-      <div className="project-summary-kpi-value">
-        <strong>{kpi.value}</strong>
-        {kpi.deltaLabel ? <span>{kpi.deltaLabel}</span> : null}
-      </div>
+      <strong className="project-summary-kpi-label">{kpi.label}</strong>
+      <strong className="project-summary-kpi-value">{kpi.value}</strong>
       <p>{kpi.detail}</p>
+      {kpi.deltaLabel ? <span className="project-summary-kpi-delta">{kpi.deltaLabel}</span> : null}
     </article>
   );
 }
@@ -191,17 +174,14 @@ function KpiCard({ kpi }: { kpi: ProjectSummaryKpi }) {
 function SectionHeading({
   aside,
   description,
-  icon,
   title,
 }: {
   aside: string;
   description: string;
-  icon: ReactNode;
   title: string;
 }) {
   return (
     <header className="project-summary-section-heading">
-      <span className="project-summary-section-icon" aria-hidden="true">{icon}</span>
       <div>
         <h3>{title}</h3>
         <p>{description}</p>
@@ -215,13 +195,25 @@ function SlidePerformanceRow({ slide }: { slide: ProjectSummarySlideRow }) {
   const average = slide.avgActualSeconds;
   const target = slide.targetSeconds;
   const chartMax = Math.max(average ?? 0, target ?? 0, 1);
-  const style = {
+  const timeStyle = {
     "--actual-width": `${((average ?? 0) / chartMax) * 100}%`,
-    "--target-position": `${((target ?? 0) / chartMax) * 100}%`,
   } as CSSProperties;
+  const overrunRate =
+    slide.timingOverrun.measurementState === "measured"
+      ? slide.timingOverrun.rate
+      : null;
+  const coverageRate =
+    slide.coreMessageCoverage.measurementState === "measured"
+      ? slide.coreMessageCoverage.rate
+      : null;
+  const metricStyle = (rate: number | null) =>
+    ({ "--metric-width": `${(rate ?? 0) * 100}%` }) as CSSProperties;
 
   const content = (
     <>
+      <span className="project-summary-slide-number" role="cell">
+        {slide.order}
+      </span>
       <span className="project-summary-slide-identity" role="cell">
         <span className="project-summary-slide-thumbnail">
           {slide.thumbnailUrl ? (
@@ -231,47 +223,50 @@ function SlidePerformanceRow({ slide }: { slide: ProjectSummarySlideRow }) {
           )}
         </span>
         <span>
-          <small>슬라이드 {slide.order}</small>
           <strong>{slide.title}</strong>
-          <em>{slide.sampleCount}회 측정</em>
         </span>
       </span>
 
       <span className="project-summary-slide-time" role="cell">
-        <span>
-          <strong>{average === null ? "N/A" : formatDuration(average)}</strong>
-          <small>{target === null ? "권장 없음" : `권장 ${formatDuration(target)}`}</small>
-        </span>
-        <span className="project-summary-slide-time-track" style={style} aria-hidden="true">
+        <span className="project-summary-slide-time-track" style={timeStyle} aria-hidden="true">
           <i />
-          {target !== null ? <b /> : null}
+        </span>
+        <strong>{average === null ? "N/A" : formatDuration(average)}</strong>
+      </span>
+
+      <span className="project-summary-slide-target" role="cell">
+        <i aria-hidden="true" />
+        <strong>{target === null ? "N/A" : formatDuration(target)}</strong>
+      </span>
+
+      <span className="project-summary-slide-metric" role="cell">
+        <strong>
+          {overrunRate !== null
+            ? formatPercent(overrunRate * 100)
+            : "N/A"}
+        </strong>
+        <span
+          className="project-summary-slide-metric-track is-overrun"
+          style={metricStyle(overrunRate)}
+          aria-hidden="true"
+        >
+          <i />
         </span>
       </span>
 
       <span className="project-summary-slide-metric" role="cell">
         <strong>
-          {slide.timingOverrun.measurementState === "measured"
-            ? formatPercent(slide.timingOverrun.rate * 100)
+          {coverageRate !== null
+            ? formatPercent(coverageRate * 100)
             : "N/A"}
         </strong>
-        <small>
-          {slide.timingOverrun.measurementState === "measured"
-            ? `${slide.timingOverrun.overrunCount}/${slide.timingOverrun.measurableCount}회`
-            : "미측정"}
-        </small>
-      </span>
-
-      <span className="project-summary-slide-metric" role="cell">
-        <strong>
-          {slide.coreMessageCoverage.measurementState === "measured"
-            ? `${slide.coreMessageCoverage.coveredCount}/${slide.coreMessageCoverage.measurableCount}`
-            : "N/A"}
-        </strong>
-        <small>
-          {slide.coreMessageCoverage.measurementState === "measured"
-            ? formatPercent(slide.coreMessageCoverage.rate * 100)
-            : "미측정"}
-        </small>
+        <span
+          className="project-summary-slide-metric-track is-coverage"
+          style={metricStyle(coverageRate)}
+          aria-hidden="true"
+        >
+          <i />
+        </span>
       </span>
 
       <span className={`project-summary-slide-status is-${slide.statusTone}`} role="cell">
@@ -280,12 +275,16 @@ function SlidePerformanceRow({ slide }: { slide: ProjectSummarySlideRow }) {
     </>
   );
 
+  const rowClass = `project-summary-slide-row${
+    slide.statusTone === "danger" ? " is-attention" : ""
+  }`;
+
   return slide.href ? (
-    <a className="project-summary-slide-row" role="row" href={slide.href}>
+    <a className={rowClass} role="row" href={slide.href}>
       {content}
     </a>
   ) : (
-    <div className="project-summary-slide-row" role="row">
+    <div className={rowClass} role="row">
       {content}
     </div>
   );
@@ -296,16 +295,18 @@ function TrendPanel({
   description,
   series,
   title,
+  tone,
   valueFormatter,
 }: {
   ariaLabel: string;
   description: string;
   series: Array<{ label: string; value: number }>;
   title: string;
+  tone: "danger" | "primary" | "secondary";
   valueFormatter: (value: number) => string;
 }) {
   return (
-    <article className="project-summary-mini-chart">
+    <article className={`project-summary-mini-chart is-${tone}`}>
       <div className="project-summary-chart-title">
         <div>
           <span>{title}</span>

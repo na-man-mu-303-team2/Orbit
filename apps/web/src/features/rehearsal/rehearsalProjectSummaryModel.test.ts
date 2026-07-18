@@ -16,25 +16,25 @@ describe("buildRehearsalProjectSummaryDashboardModel", () => {
       expect.objectContaining({
         key: "duration",
         value: "8:42",
-        deltaLabel: "+42초",
+        deltaLabel: "+0:42 초과",
         state: "negative",
       }),
       expect.objectContaining({
         key: "silence",
         value: "2회",
-        deltaLabel: "직전보다 1회 감소",
+        deltaLabel: "1회 감소",
         state: "positive",
       }),
       expect.objectContaining({
         key: "core-message",
-        value: "7/8",
-        deltaLabel: "직전보다 13%p 향상",
+        value: "7/8 전달",
+        deltaLabel: "1개 개선",
         state: "positive",
       }),
       expect.objectContaining({
         key: "timing-overrun",
-        value: "2/8",
-        deltaLabel: "직전보다 13%p 감소",
+        value: "2/8장",
+        deltaLabel: "1장 감소",
         state: "positive",
       }),
     ]);
@@ -76,7 +76,7 @@ describe("buildRehearsalProjectSummaryDashboardModel", () => {
     );
 
     expect(model?.slideRows[0]).toEqual(
-      expect.objectContaining({ status: "점검 필요", statusTone: "warning" }),
+      expect.objectContaining({ status: "개선 필요", statusTone: "danger" }),
     );
   });
 

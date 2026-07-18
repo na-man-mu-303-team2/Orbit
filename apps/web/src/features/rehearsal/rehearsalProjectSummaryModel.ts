@@ -19,7 +19,7 @@ export type ProjectSummaryKpi = {
 export type ProjectSummarySlideRow =
   RehearsalProjectSummary["slidePerformanceSummaries"][number] & {
     href: string | null;
-    status: "개선 필요" | "점검 필요" | "개선됨" | "비교 제외" | "안정";
+    status: "개선 필요" | "보통" | "개선됨" | "비교 제외" | "좋음";
     statusTone: "danger" | "warning" | "success" | "neutral";
   };
 
@@ -85,17 +85,17 @@ export function buildRehearsalProjectSummaryDashboardModel(
         run.longSilence.metricDefinitionVersion === latestSilenceVersion
           ? [{ label, value: run.longSilence.count }]
           : [],
-      ),
+      ).slice(-5),
       coreMessage: labeledRuns.flatMap(({ label, run }) =>
         run.coreMessageCoverage.measurementState === "measured"
           ? [{ label, value: run.coreMessageCoverage.rate * 100 }]
           : [],
-      ),
+      ).slice(-5),
       timingOverrun: labeledRuns.flatMap(({ label, run }) =>
         run.timingOverrun.measurementState === "measured"
           ? [{ label, value: run.timingOverrun.rate * 100 }]
           : [],
-      ),
+      ).slice(-5),
     },
     kpis: [
       buildDurationKpi(latest),
@@ -125,13 +125,13 @@ function buildDurationKpi(
     key: "duration",
     label: "총 발표 시간",
     value: formatDuration(latest.duration.actualSeconds),
-    detail: target === null ? "권장 시간 없음" : `권장 ${formatDuration(target)}`,
+    detail: target === null ? "권장 시간 없음" : `/ 권장 ${formatDuration(target)}`,
     deltaLabel:
       delta === null
         ? null
         : delta === 0
           ? "권장과 일치"
-          : `${delta > 0 ? "+" : "-"}${formatDuration(Math.abs(delta))}`,
+          : `${delta > 0 ? "+" : "-"}${formatClockDelta(Math.abs(delta))} ${delta > 0 ? "초과" : "부족"}`,
     state:
       delta === null || Math.abs(delta) <= 5
         ? "neutral"
@@ -164,15 +164,17 @@ function buildSilenceKpi(
     : null;
   return {
     key: "silence",
-    label: "긴 침묵 (3초 이상)",
+    label: "긴 침묵",
     value: `${latest.longSilence.count}회`,
-    detail: `측정 기준 v${latest.longSilence.metricDefinitionVersion}`,
+    detail: comparablePrevious
+      ? `/ 직전 ${comparablePrevious.count}회`
+      : `측정 기준 v${latest.longSilence.metricDefinitionVersion}`,
     deltaLabel:
       delta === null
         ? "직전 회차 비교 불가"
         : delta === 0
           ? "직전과 동일"
-          : `직전보다 ${Math.abs(delta)}회 ${delta < 0 ? "감소" : "증가"}`,
+          : `${Math.abs(delta)}회 ${delta < 0 ? "감소" : "증가"}`,
     state:
       delta === null || delta === 0
         ? "neutral"
@@ -192,19 +194,19 @@ function buildCoreMessageKpi(
 
   const delta =
     previous?.measurementState === "measured"
-      ? (latest.rate - previous.rate) * 100
+      ? latest.coveredCount - previous.coveredCount
       : null;
   return {
     key: "core-message",
     label: "핵심 메시지 전달",
-    value: `${latest.coveredCount}/${latest.measurableCount}`,
-    detail: `전달률 ${formatPercent(latest.rate * 100)}`,
+    value: `${latest.coveredCount}/${latest.measurableCount} 전달`,
+    detail: formatPercent(latest.rate * 100),
     deltaLabel:
       delta === null
         ? "직전 회차 비교 불가"
         : delta === 0
           ? "직전과 동일"
-          : `직전보다 ${Math.round(Math.abs(delta))}%p ${delta > 0 ? "향상" : "하락"}`,
+          : `${Math.abs(delta)}개 ${delta > 0 ? "개선" : "감소"}`,
     state:
       delta === null || delta === 0
         ? "neutral"
@@ -228,19 +230,19 @@ function buildTimingOverrunKpi(
 
   const delta =
     previous?.measurementState === "measured"
-      ? (latest.rate - previous.rate) * 100
+      ? latest.overrunCount - previous.overrunCount
       : null;
   return {
     key: "timing-overrun",
     label: "시간 초과 슬라이드",
-    value: `${latest.overrunCount}/${latest.measurableCount}`,
-    detail: `초과 비율 ${formatPercent(latest.rate * 100)}`,
+    value: `${latest.overrunCount}/${latest.measurableCount}장`,
+    detail: formatPercent(latest.rate * 100),
     deltaLabel:
       delta === null
         ? "직전 회차 비교 불가"
         : delta === 0
           ? "직전과 동일"
-          : `직전보다 ${Math.round(Math.abs(delta))}%p ${delta < 0 ? "감소" : "증가"}`,
+          : `${Math.abs(delta)}장 ${delta < 0 ? "감소" : "증가"}`,
     state:
       delta === null || delta === 0
         ? "neutral"
@@ -289,7 +291,7 @@ function buildSlideRows(
       return {
         ...slide,
         href: issue.href,
-        status: issue.group === "repeated" ? "개선 필요" : "점검 필요",
+        status: issue.group === "repeated" ? "개선 필요" : "보통",
         statusTone: issue.group === "repeated" ? "danger" : "warning",
       };
     }
@@ -310,16 +312,22 @@ function buildSlideRows(
       };
     }
 
-    const needsReview =
+    const needsImprovement =
       (slide.timingOverrun.measurementState === "measured" &&
-        slide.timingOverrun.rate >= 0.5) ||
+        slide.timingOverrun.rate >= 0.4) ||
       (slide.coreMessageCoverage.measurementState === "measured" &&
         slide.coreMessageCoverage.rate < 0.7);
+    const needsAttention =
+      !needsImprovement &&
+      ((slide.timingOverrun.measurementState === "measured" &&
+        slide.timingOverrun.rate >= 0.2) ||
+        (slide.coreMessageCoverage.measurementState === "measured" &&
+          slide.coreMessageCoverage.rate < 0.9));
     return {
       ...slide,
       href: null,
-      status: needsReview ? "점검 필요" : "안정",
-      statusTone: needsReview ? "warning" : "success",
+      status: needsImprovement ? "개선 필요" : needsAttention ? "보통" : "좋음",
+      statusTone: needsImprovement ? "danger" : needsAttention ? "warning" : "success",
     };
   });
 }
@@ -389,4 +397,9 @@ export function formatDuration(totalSeconds: number) {
 
 export function formatPercent(value: number) {
   return `${Math.round(value)}%`;
+}
+
+function formatClockDelta(totalSeconds: number) {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
