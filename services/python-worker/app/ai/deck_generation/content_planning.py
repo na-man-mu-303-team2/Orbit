@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import re
+import time
 from typing import Any
 import unicodedata
 
@@ -19,6 +20,7 @@ from app.ai.deck_generation.models import (
     GeneratedContentItem,
     GeneratedDeckContentPlan,
     GeneratedStoryPlan,
+    GeneratedStoryRepairPlan,
     PresentationProfile,
     PresentationTimingPlan,
     RawInput,
@@ -27,7 +29,15 @@ from app.ai.deck_generation.models import (
     SlidePlan,
     SlideType,
     SpeakerNotesRepairPlan,
+    SourceRecord,
     StylePromptContext,
+)
+from app.ai.deck_generation.content_fact_quality import (
+    apply_explicit_user_placements,
+    apply_user_required_obligations,
+    sanitize_evidence_obligations,
+    select_repair_slide_orders,
+    validate_story_plan,
 )
 from app.ai.deck_generation.source_grounding import (
     default_source_refs,
@@ -70,19 +80,28 @@ Rules:
 - Use only sourceRefs listed in the supplied source records.
 - Preserve exact product names, dates, platforms, availability, and defining
   features from sources. Omit unsupported details instead of guessing.
+- Return typed criticalFacts for every high-risk identifier, product name,
+  amount, date, actor relation, metric, condition, and required phrase that the
+  story uses or must preserve. Keep sourceRefs exact.
+- Return evidenceObligations for open-ended domain claims, constraints, and
+  exceptions. User wording such as 반드시 포함, 주의, 제외, 예외, 조건, and 금지
+  is always a candidate. evidenceText must be copied from the referenced source.
+- Assign every obligation to a slide through obligationRefs.
+- Return one communicationContract. Explicit user placement wins over inference;
+  for example, a request to put an identifier in the cover subtitle must become
+  a cover/subtitle placementConstraint. Assumptions never satisfy evidence.
 - Do not create speaker notes, content items, keywords, visual intent, media
   intent, coordinates, or final Deck JSON.
 """.strip()
 
 
 def story_plan_response_format_for(raw_input: RawInput) -> dict[str, Any]:
-    source_ids = sorted(
-        source.source_id
-        for source in (raw_input.source_records or initial_source_records(raw_input))
-    )
+    source_ids = sorted(source.source_id for source in story_source_records(raw_input))
     source_items: dict[str, Any] = {"type": "string"}
     if source_ids:
         source_items["enum"] = source_ids
+    fact_id_items = {"type": "string"}
+    obligation_id_items = {"type": "string"}
     return {
         "format": {
             "type": "json_schema",
@@ -140,17 +159,238 @@ def story_plan_response_format_for(raw_input: RawInput) -> dict[str, Any]:
                                     "type": "array",
                                     "items": source_items,
                                 },
+                                "obligationRefs": {
+                                    "type": "array",
+                                    "items": obligation_id_items,
+                                },
                             },
                             "required": [
                                 "title",
                                 "message",
                                 "slideType",
                                 "sourceRefs",
+                                "obligationRefs",
                             ],
                         },
                     },
+                    "criticalFacts": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "factId": {"type": "string"},
+                                "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                        "identifier",
+                                        "product-name",
+                                        "amount",
+                                        "date",
+                                        "actor-relation",
+                                        "metric",
+                                        "condition",
+                                        "required-phrase",
+                                    ],
+                                },
+                                "canonicalText": {"type": "string"},
+                                "sourceRefs": {"type": "array", "items": source_items},
+                                "value": {"type": "string"},
+                                "unit": {"type": "string"},
+                                "qualifier": {"type": "string"},
+                                "actors": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "relation": {"type": "string"},
+                                "joint": {"type": "boolean"},
+                                "conditionType": {"type": "string"},
+                                "operator": {"type": "string"},
+                                "threshold": {"type": "string"},
+                                "deadline": {"type": "string"},
+                            },
+                            "required": [
+                                "factId",
+                                "kind",
+                                "canonicalText",
+                                "sourceRefs",
+                                "value",
+                                "unit",
+                                "qualifier",
+                                "actors",
+                                "relation",
+                                "joint",
+                                "conditionType",
+                                "operator",
+                                "threshold",
+                                "deadline",
+                            ],
+                        },
+                    },
+                    "evidenceObligations": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "obligationId": {"type": "string"},
+                                "kind": {"type": "string", "enum": ["domain-claim"]},
+                                "canonicalText": {"type": "string"},
+                                "evidenceText": {"type": "string"},
+                                "sourceRefs": {"type": "array", "items": source_items},
+                                "reason": {
+                                    "type": "string",
+                                    "enum": [
+                                        "user-required",
+                                        "decision-critical",
+                                        "source-emphasized",
+                                    ],
+                                },
+                                "mustInclude": {"type": "boolean"},
+                            },
+                            "required": [
+                                "obligationId",
+                                "kind",
+                                "canonicalText",
+                                "evidenceText",
+                                "sourceRefs",
+                                "reason",
+                                "mustInclude",
+                            ],
+                        },
+                    },
+                    "communicationContract": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "narrativeThesis": {"type": "string"},
+                            "audienceTakeaway": {"type": "string"},
+                            "requiredFacts": {"type": "array", "items": fact_id_items},
+                            "placementConstraints": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "targetId": {"type": "string"},
+                                        "slideRole": {
+                                            "type": "string",
+                                            "enum": ["cover", "body", "closing"],
+                                        },
+                                        "elementRole": {
+                                            "type": "string",
+                                            "enum": [
+                                                "title",
+                                                "subtitle",
+                                                "message",
+                                                "body",
+                                            ],
+                                        },
+                                        "slideOrder": {
+                                            "type": ["integer", "null"],
+                                            "minimum": 1,
+                                        },
+                                    },
+                                    "required": [
+                                        "targetId",
+                                        "slideRole",
+                                        "elementRole",
+                                        "slideOrder",
+                                    ],
+                                },
+                            },
+                            "forbiddenClaims": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "assumptions": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        },
+                        "required": [
+                            "narrativeThesis",
+                            "audienceTakeaway",
+                            "requiredFacts",
+                            "placementConstraints",
+                            "forbiddenClaims",
+                            "assumptions",
+                        ],
+                    },
                 },
-                "required": ["title", "briefAnalysis", "slides"],
+                "required": [
+                    "title",
+                    "briefAnalysis",
+                    "slides",
+                    "criticalFacts",
+                    "evidenceObligations",
+                    "communicationContract",
+                ],
+            },
+        }
+    }
+
+
+def story_repair_response_format_for(
+    raw_input: RawInput,
+    eligible_orders: list[int],
+    obligation_ids: list[str],
+) -> dict[str, Any]:
+    source_ids = sorted(source.source_id for source in story_source_records(raw_input))
+    source_items: dict[str, Any] = {"type": "string"}
+    if source_ids:
+        source_items["enum"] = source_ids
+    obligation_items: dict[str, Any] = {"type": "string"}
+    if obligation_ids:
+        obligation_items["enum"] = sorted(obligation_ids)
+    return {
+        "format": {
+            "type": "json_schema",
+            "name": "deck_story_fact_repair_v1",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "slides": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": len(eligible_orders),
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "order": {
+                                    "type": "integer",
+                                    "enum": eligible_orders,
+                                },
+                                "title": {"type": "string"},
+                                "message": {"type": "string"},
+                                "slideType": {
+                                    "type": "string",
+                                    "enum": list(SLIDE_TYPES),
+                                },
+                                "sourceRefs": {
+                                    "type": "array",
+                                    "items": source_items,
+                                },
+                                "obligationRefs": {
+                                    "type": "array",
+                                    "items": obligation_items,
+                                },
+                            },
+                            "required": [
+                                "order",
+                                "title",
+                                "message",
+                                "slideType",
+                                "sourceRefs",
+                                "obligationRefs",
+                            ],
+                        },
+                    }
+                },
+                "required": ["slides"],
             },
         }
     }
@@ -2114,6 +2354,89 @@ def generate_story_plan_with_llm(
     return plan
 
 
+def repair_story_plan_with_llm(
+    raw_input: RawInput,
+    plan: GeneratedStoryPlan,
+    eligible_orders: list[int],
+    issue_codes: list[str],
+    style_context: StylePromptContext,
+    *,
+    client: Any | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> GeneratedStoryPlan | None:
+    if not eligible_orders:
+        return None
+    api_client: Any = client
+    if api_client is None:
+        if not api_key:
+            return None
+        from openai import OpenAI
+
+        api_client = OpenAI(api_key=api_key)
+    prompt = "\n".join(
+        [
+            deck_content_prompt(raw_input, style_context),
+            "Repair only the listed story slide orders for factual fidelity.",
+            f"Eligible orders: {eligible_orders}",
+            f"Issue codes: {sorted(set(issue_codes))}",
+            "Current story plan:",
+            json.dumps(plan.model_dump(by_alias=True), ensure_ascii=False),
+        ]
+    )
+    try:
+        response = api_client.responses.create(
+            model=model or "gpt-4.1-mini",
+            instructions=(
+                "Return only JSON matching the schema. Repair only eligible slides. "
+                "Do not add, delete, or reorder slides. Preserve source fidelity and "
+                "change only title, message, slideType, sourceRefs, and obligationRefs."
+            ),
+            input=prompt,
+            text=story_repair_response_format_for(
+                raw_input,
+                eligible_orders,
+                [item.obligation_id for item in plan.evidence_obligations],
+            ),
+        )
+        repair = GeneratedStoryRepairPlan.model_validate_json(
+            str(getattr(response, "output_text", "")).strip()
+        )
+    except Exception:
+        return None
+    replacements = {slide.order: slide for slide in repair.slides}
+    available_source_ids = {
+        source.source_id for source in story_source_records(raw_input)
+    }
+    available_obligation_ids = {
+        obligation.obligation_id for obligation in plan.evidence_obligations
+    }
+    repaired = plan.model_copy(deep=True)
+    for order in eligible_orders:
+        replacement = replacements.get(order)
+        if replacement is None or order > len(repaired.slides):
+            continue
+        original = repaired.slides[order - 1]
+        repaired.slides[order - 1] = original.model_copy(
+            update={
+                "title": replacement.title,
+                "message": replacement.message,
+                "slide_type": replacement.slide_type,
+                "source_refs": [
+                    source_id
+                    for source_id in replacement.source_refs
+                    if source_id in available_source_ids
+                ],
+                "obligation_refs": [
+                    obligation_id
+                    for obligation_id in replacement.obligation_refs
+                    if obligation_id in available_obligation_ids
+                ],
+            }
+        )
+    return repaired
+
+
 def plan_story_content(
     raw_input: RawInput,
     style_context: StylePromptContext,
@@ -2137,20 +2460,148 @@ def plan_story_content(
             planned_slide.keywords = []
             planned_slide.content_items = []
     else:
+        generated = apply_explicit_user_placements(raw_input, generated)
+        generated = apply_user_required_obligations(raw_input, generated)
+        validation_started = time.perf_counter()
+        valid_obligations, invalid_evidence_issues = sanitize_evidence_obligations(
+            raw_input,
+            generated.evidence_obligations,
+        )
+        critical_facts = list(
+            {fact.fact_id: fact for fact in generated.critical_facts}.values()
+        )
+        valid_obligations = list(
+            {
+                obligation.obligation_id: obligation
+                for obligation in valid_obligations
+            }.values()
+        )
+        valid_obligation_ids = {
+            obligation.obligation_id for obligation in valid_obligations
+        }
+        known_target_ids = {
+            *[fact.fact_id for fact in critical_facts],
+            *valid_obligation_ids,
+        }
+        communication_contract = generated.communication_contract.model_copy(
+            deep=True,
+            update={
+                "required_facts": [
+                    fact_id
+                    for fact_id in generated.communication_contract.required_facts
+                    if fact_id in known_target_ids
+                ],
+                "placement_constraints": [
+                    constraint
+                    for constraint in generated.communication_contract.placement_constraints
+                    if constraint.target_id in known_target_ids
+                ],
+            },
+        )
+        generated = generated.model_copy(
+            deep=True,
+            update={
+                "critical_facts": critical_facts,
+                "evidence_obligations": valid_obligations,
+                "communication_contract": communication_contract,
+                "slides": [
+                    slide.model_copy(
+                        update={
+                            "obligation_refs": [
+                                obligation_id
+                                for obligation_id in slide.obligation_refs
+                                if obligation_id in valid_obligation_ids
+                            ]
+                        }
+                    )
+                    for slide in generated.slides
+                ],
+            },
+        )
+        initial_fact_issues = validate_story_plan(
+            raw_input,
+            generated,
+            seed_issues=invalid_evidence_issues,
+        )
+        validation_duration_ms = round(
+            (time.perf_counter() - validation_started) * 1000
+        )
+        eligible_orders = select_repair_slide_orders(initial_fact_issues)
+        repair_started = time.perf_counter()
+        repaired = (
+            repair_story_plan_with_llm(
+                raw_input,
+                generated,
+                eligible_orders,
+                [issue.code for issue in initial_fact_issues],
+                style_context,
+                client=client,
+                model=model,
+                api_key=api_key,
+            )
+            if eligible_orders
+            else None
+        )
+        repair_duration_ms = round((time.perf_counter() - repair_started) * 1000)
+        if repaired is not None:
+            generated = repaired
+        second_validation_started = time.perf_counter()
+        final_fact_issues = validate_story_plan(
+            raw_input,
+            generated,
+            seed_issues=invalid_evidence_issues,
+        )
+        validation_duration_ms += round(
+            (time.perf_counter() - second_validation_started) * 1000
+        )
+        repair_succeeded = repaired is not None and not any(
+            issue.slide_order in eligible_orders
+            and issue.code != "EVIDENCE_OBLIGATION_SOURCE_INVALID"
+            for issue in final_fact_issues
+        )
+        raw_input.critical_facts = list(generated.critical_facts)
+        raw_input.evidence_obligations = list(generated.evidence_obligations)
+        raw_input.communication_contract = generated.communication_contract.model_copy(
+            deep=True
+        )
+        raw_input.fact_repair_eligible_slide_orders = eligible_orders
+        raw_input.fact_quality_issues = final_fact_issues
+        raw_input.fact_validation_duration_ms = validation_duration_ms
+        raw_input.fact_repair_attempted = bool(eligible_orders)
+        raw_input.fact_repair_succeeded = repair_succeeded
+        raw_input.fact_repair_duration_ms = repair_duration_ms
         apply_story_brief_analysis(raw_input, generated)
         available_source_ids = {
             source.source_id
-            for source in (raw_input.source_records or initial_source_records(raw_input))
+            for source in (
+                raw_input.source_records or initial_source_records(raw_input)
+            )
+        }
+        obligation_sources = {
+            obligation.obligation_id: obligation.source_refs
+            for obligation in generated.evidence_obligations
         }
         slide_plans = []
         for order, story_slide in enumerate(generated.slides, start=1):
-            unknown_refs = set(story_slide.source_refs) - available_source_ids
+            story_source_refs = list(
+                dict.fromkeys(
+                    [
+                        *story_slide.source_refs,
+                        *[
+                            source_id
+                            for obligation_id in story_slide.obligation_refs
+                            for source_id in obligation_sources.get(obligation_id, [])
+                        ],
+                    ]
+                )
+            )
+            unknown_refs = set(story_source_refs) - available_source_ids
             if unknown_refs:
                 raise DeckContentGenerationError(
                     "LLM story plan referenced unavailable source IDs: "
                     + ", ".join(sorted(unknown_refs))
                 )
-            source_refs = list(story_slide.source_refs) or default_source_refs(raw_input, order)
+            source_refs = story_source_refs or default_source_refs(raw_input, order)
             fallback_type = slide_type_for(order, raw_input.slide_count)
             slide_type = normalize_slide_type(story_slide.slide_type, fallback_type)
             if slide_type == "cover" and order != 1:
@@ -2161,13 +2612,16 @@ def plan_story_content(
                 SlidePlan(
                     order=order,
                     slide_type=slide_type,
-                    title=normalize_design_pack_slide_title(story_slide.title, slide_type),
+                    title=normalize_design_pack_slide_title(
+                        story_slide.title, slide_type
+                    ),
                     message=story_slide.message,
                     speaker_notes="",
                     keywords=[],
                     evidence=evidence_for(raw_input.references, story_slide.title),
                     content_items=[],
                     source_refs=source_refs,
+                    obligationRefs=list(story_slide.obligation_refs),
                 )
             )
         outline = DeckOutline(
@@ -2224,6 +2678,7 @@ def compose_slide_detail_with_llm(
     model: str | None = None,
     api_key: str | None = None,
     content_item_range: tuple[int, int] = (1, 5),
+    repair_issue_codes: tuple[str, ...] = (),
 ) -> SlidePlan:
     api_client: Any = client
     if api_client is None:
@@ -2245,8 +2700,10 @@ def compose_slide_detail_with_llm(
                     "message": target.message,
                     "slideType": target.slide_type,
                     "sourceRefs": target.source_refs,
+                    "obligationRefs": target.obligation_refs,
                     "targetSeconds": target.target_seconds,
                     "targetSpeakerNotesChars": target.target_speaker_notes_chars,
+                    "repairIssueCodes": list(repair_issue_codes),
                 },
                 ensure_ascii=False,
             ),
@@ -2532,7 +2989,7 @@ def deck_content_prompt(
     style_context: StylePromptContext,
 ) -> str:
     keywords = reference_keywords_for(raw_input.reference_keywords)
-    source_records = raw_input.source_records or initial_source_records(raw_input)
+    source_records = story_source_records(raw_input)
     allowed_numeric_values = sorted(
         {
             value
@@ -2553,7 +3010,7 @@ def deck_content_prompt(
                 source.content[:1600],
             ]
         )
-        for source in source_records[:12]
+        for source in source_records
     )
     lines = [
         f"Topic: {raw_input.topic}",
@@ -2644,6 +3101,25 @@ def deck_content_prompt(
         ]
     )
     return "\n".join(lines)
+
+
+def story_source_records(raw_input: RawInput) -> list[SourceRecord]:
+    records = raw_input.source_records or initial_source_records(raw_input)
+    topics = [record for record in records if record.source_type == "topic"][:1]
+    uploaded = [record for record in records if record.source_type == "uploaded"]
+    web = [record for record in records if record.source_type == "web"]
+    policy = raw_input.brief.reference_policy
+    if policy == "references-only":
+        evidence = uploaded[:12]
+    elif policy == "references-first":
+        evidence = [*uploaded[:12], *web[: max(0, 12 - len(uploaded))]]
+    elif policy == "research-first":
+        evidence = [*web[:8], *uploaded[:4]]
+    elif policy == "user-input-only":
+        evidence = []
+    else:
+        evidence = uploaded[:12]
+    return [*topics, *evidence]
 
 
 def narrative_design_prompt(

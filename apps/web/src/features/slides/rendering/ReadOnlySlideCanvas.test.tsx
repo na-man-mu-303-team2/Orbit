@@ -7,7 +7,8 @@ import {
   buildSlideBackgroundStyle,
   getActiveHighlightElementIds,
   getRenderableSlideElements,
-  ReadOnlySlideCanvas
+  ReadOnlySlideCanvas,
+  verticalAxisTitleText
 } from "./index";
 
 vi.mock("react-konva", () => {
@@ -47,19 +48,31 @@ vi.mock("react-konva", () => {
   );
   const Text = ({
     fill,
+    fontStyle,
     fontSize,
     rotation,
-    text
+    text,
+    textDecoration,
+    x,
+    y
   }: {
     fill?: string;
+    fontStyle?: string;
     fontSize?: number;
     rotation?: number;
     text?: string;
+    textDecoration?: string;
+    x?: number;
+    y?: number;
   }) => (
     <span
       data-fill={fill}
+      data-font-style={fontStyle}
       data-font-size={fontSize === undefined ? undefined : String(fontSize)}
       data-rotation={rotation === undefined ? undefined : String(rotation)}
+      data-text-decoration={textDecoration}
+      data-x={x === undefined ? undefined : String(x)}
+      data-y={y === undefined ? undefined : String(y)}
     >
       {text}
     </span>
@@ -103,11 +116,45 @@ describe("ReadOnlySlideCanvas", () => {
     const elements = getRenderableSlideElements(slide, p0AnimationDeck.canvas);
 
     expect(elements.map((element) => element.elementId)).toContain("el_group");
-    expect(elements.map((element) => element.elementId)).not.toContain("el_group_rect");
-    expect(elements.map((element) => element.elementId)).not.toContain("el_group_label");
+    expect(elements.map((element) => element.elementId)).toContain("el_group_rect");
+    expect(elements.map((element) => element.elementId)).toContain("el_group_label");
     expect(elements.map((element) => element.zIndex)).toEqual(
       [...elements.map((element) => element.zIndex)].sort((left, right) => left - right)
     );
+  });
+
+  it("keeps grouped children in their original global layer order", () => {
+    const rect = slide.elements.find(
+      (element) => element.elementId === "el_group_rect"
+    )!;
+    const image = slide.elements.find(
+      (element) => element.elementId === "el_image"
+    )!;
+    const group = slide.elements.find(
+      (element) => element.elementId === "el_group"
+    )!;
+    if (group.type !== "group") throw new Error("group fixture is invalid");
+    const elements = getRenderableSlideElements(
+      {
+        ...slide,
+        elements: [
+          { ...image, zIndex: 2 },
+          {
+            ...group,
+            zIndex: 3,
+            props: { childElementIds: [image.elementId, rect.elementId] }
+          },
+          { ...rect, zIndex: 1 }
+        ]
+      },
+      p0AnimationDeck.canvas
+    );
+
+    expect(elements.map((element) => element.elementId)).toEqual([
+      rect.elementId,
+      image.elementId,
+      group.elementId
+    ]);
   });
 
   it("matches editor slide background image behavior", () => {
@@ -214,14 +261,16 @@ describe("ReadOnlySlideCanvas", () => {
                 baseline: "normal" as const,
                 color: "#111827",
                 fontSize: 48,
-                fontWeight: "bold" as const
+                fontWeight: "bold" as const,
+                italic: true
               },
               {
                 text: "World",
                 baseline: "normal" as const,
                 color: "#2563eb",
                 fontSize: 36,
-                fontWeight: "normal" as const
+                fontWeight: "normal" as const,
+                underline: true
               }
             ],
             fontSize: 48,
@@ -242,8 +291,10 @@ describe("ReadOnlySlideCanvas", () => {
 
     expect(html).toContain("data-fill=\"#111827\"");
     expect(html).toContain("data-font-size=\"48\"");
+    expect(html).toContain("data-font-style=\"bold italic\"");
     expect(html).toContain("data-fill=\"#2563eb\"");
     expect(html).toContain("data-font-size=\"36\"");
+    expect(html).toContain("data-text-decoration=\"underline\"");
   });
 
   it("renders PPT text paragraphs from paragraph props", () => {
@@ -567,5 +618,9 @@ describe("ReadOnlySlideCanvas", () => {
         { elementId: "el_body", active: false }
       ])].sort()
     ).toEqual(["el_image"]);
+  });
+
+  it("lays out vertical axis titles without rotating their glyphs", () => {
+    expect(verticalAxisTitleText("매출액")).toBe("매\n출\n액");
   });
 });

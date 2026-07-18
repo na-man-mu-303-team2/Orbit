@@ -410,7 +410,6 @@
 - Rationale: 앱 secret과 서버 credential을 GitHub로 복사하지 않고 기존 self-hosted runner·Doppler read-only token·배포 lock을 재사용한다. 검증 실패를 서비스 교체 전에 확정하고, 코드 변경이 없는 secret 갱신에는 image build를 생략한다. 짧은 수명의 GitHub App installation token은 relay가 없는 정적 Webhook 인증에 사용하지 않는다.
 - Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/deploy-personal-server.sh`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
 - Follow-up review notes: merge 전에 서버 wrapper를 mode와 SHA를 받되 `full`은 기존 script 호환을 위해 SHA-only로 전달하는 버전으로 갱신하고, PR #264의 단순 full redeploy 경로는 중복으로 merge하지 않는다. merge 뒤 Doppler `stg` Webhook과 `Actions: write` fine-grained token을 저장소 범위로 설정한다. 첫 변경에서 preflight 실패 시 기존 컨테이너가 유지되는지, 성공 시 네 앱 컨테이너만 재생성되는지, 중복 delivery가 직렬화되는지 확인한다.
-
 ## ORBIT personal staging env source policy and safe Doppler sync
 
 - Context: 새 env key가 예시 파일에 추가돼도 Doppler key 생성과 개인 서버 Compose 전달은 별개여서, 운영자가 key를 하나씩 만들고 서버 배포 script를 다시 실행했다. 모든 예시 값을 Doppler에 일괄 복사하면 secret placeholder나 환경별 URL을 실제 값처럼 저장하고 기존 secret을 덮어쓸 위험이 있다.
@@ -422,6 +421,150 @@
 - Rationale: 일반 설정은 저장소의 검토 가능한 기본값으로 자동화하면서 secret 값의 출처와 변경 권한은 Doppler에 남긴다. 동기화가 기존 값을 수정하지 않고 하나의 Doppler 변경으로 처리되므로 webhook 재배포도 key 수만큼 반복되지 않는다. 개인 서버 runtime의 read-only Doppler token과 GitHub-hosted sync job의 `orbit / stg` 전용 read/write token을 분리하며, full 배포와 webhook 후속 배포는 같은 concurrency group에서 직렬화한다.
 - Affected files: `.github/workflows/deploy-personal-staging.yml`, `.github/workflows/environment-contract-ci.yml`, `infra/env/personal-staging-env-policy.json`, `infra/scripts/personal-staging-env.mjs`, `infra/scripts/personal-staging-env.test.mjs`, `infra/scripts/sync-personal-staging-doppler.mjs`, `infra/scripts/check-env.mjs`, `docker-compose.staging.yml`, `package.json`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `docs/decision-log.md`.
 - Follow-up review notes: merge 전에 GitHub Environment `personal-staging`에 `DOPPLER_STG_SYNC_TOKEN`을 등록한다. 첫 `develop` push에서 key 이름만 출력되는지, sync job 성공 뒤 full 배포가 실행되는지, Doppler Webhook Logs와 `trigger_source=doppler-stg-secrets-update` 후속 실행이 직렬화되는지 확인하고 실제 값 또는 token은 로그에 남기지 않는다.
+
+## ORBIT editor one-slide practice privacy and retention
+
+- Context: 편집기에서 현재 슬라이드를 바로 연습하고 습관어와 목소리 스타일을 즉시 분석하되, 발표 음성과 전사 원문은 민감 데이터이며 기존 공식 리허설 리포트와 권한·수명주기가 다르다.
+- Options considered:
+  - raw audio와 transcript를 서버에 저장해 재분석한다.
+  - 모든 결과를 기존 `rehearsal_runs.report_json`에 합친다.
+  - 브라우저에서 원음과 전사를 일시 처리하고 파생 지표만 creator-private 전용 테이블에 저장한다.
+- Final decision: raw audio와 transcript는 브라우저 메모리에서만 처리하고 서버에는 저장하지 않는다. 파생 연습 보고서는 `slide_practice_reports`에 90일, user/device voice baseline은 `user_voice_baselines`에 180일 보관한다. 연습 보고서는 생성 사용자만 조회하고 공식 `RehearsalReport`와 분리한다.
+- Rationale: 즉시 피드백과 기록 비교를 제공하면서 민감한 원문 보존을 최소화하고 공식 리허설 계약을 흔들지 않는다.
+- Affected files: `packages/shared/src/slide-practice/**`, `apps/api/src/slide-practice/**`, `apps/web/src/features/editor/practice/**`, `apps/api/src/database/migrations/2026071701000-CreateSlidePracticeAndQuestionGuides.ts`, `docs/contracts.md`.
+- Follow-up review notes: worker의 주기적 retention cleanup은 구현했다. 사용자의 즉시 삭제 UI는 후속 운영 작업으로 남기고, 원음 보존이 필요해지면 별도 opt-in·암호화·삭제 정책 승인을 먼저 받는다.
+
+## ORBIT editor practice voice classifier v2
+
+- Context: 실제 한 장 연습의 파생 지표 분포에서 `classifierVersion: 1`의 pitch·음량·속도·리듬 조건이 지나치게 좁고, `turbo`의 `pauseRatio < 0.12` 조건은 전체 연습 구간 무음 비율의 의미와 맞지 않아 대부분 `neutral`로 저장됐다. 측정 분량이 부족한 결과에도 `neutral` 유형이 붙어 판정 결과처럼 보였다.
+- Options considered:
+  - UI의 유형 이름만 바꾸고 기존 판정식을 유지한다.
+  - 과거 보고서를 조회할 때마다 새 기준으로 재분류한다.
+  - 과거 v1 결과는 보존하고 신규 결과에만 완화된 v2 기준과 측정 보류 정책을 적용한다.
+- Final decision: shared report schema는 `classifierVersion: 1 | 2`를 읽고 신규 Web 보고서는 v2로 저장한다. v2는 pitch, 속도, 음량, 리듬 경계를 실제 파생 지표 범위에 맞게 완화하고 `lullaby -> announcer -> turbo -> cloud -> neutral` 순서로 판정한다. `unmeasured`는 호환 가능한 neutral mode와 confidence 0으로 저장하지만 UI에서는 `판단 보류`로 표시하고 voice baseline 갱신에서도 제외한다. 판단 근거와 `loudnessDb`는 즉시 결과와 저장 기록에서 함께 보여준다.
+- Rationale: 저장된 결과의 의미를 소급 변경하지 않으면서 신규 연습에서 구분 가능한 피드백을 늘리고, 측정되지 않은 결과를 안정형으로 오해하는 문제를 막는다. 원음이나 전사 원문을 추가 저장하지 않고 기존 파생 지표만 사용한다.
+- Affected files: `packages/shared/src/slide-practice/slide-practice.schema.ts`, `apps/web/src/features/editor/practice/voiceStyleClassifier.ts`, `apps/web/src/features/editor/practice/useSlidePracticeSession.ts`, `apps/web/src/features/editor/practice/SlidePracticePanel.tsx`, `apps/web/src/features/editor/practice/SlidePracticeHistoryPanel.tsx`, 관련 테스트와 스타일, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: staging에서 classifier v2의 유형별 aggregate 분포와 `quality.state`만 확인한다. raw audio, transcript, 사용자별 상세 음성 지표는 운영 로그에 남기지 않는다. 데이터가 충분히 쌓이면 경계값 변경은 새 classifier version으로 관리한다.
+
+## ORBIT editor slide question guide canonical storage
+
+- Context: 현재 슬라이드의 예상 질문과 추천 답변은 project-private 원문이며, 공통 계약은 Question·AnswerGuide·발표 메모·참고자료 원문을 generic Job payload/result에 저장하지 못하게 한다.
+- Options considered:
+  - Job result에 질문과 추천 답변을 직접 넣는다.
+  - 질문 생성 전체를 브라우저에서 수행한다.
+  - Job은 `guideId` 같은 식별자만 운반하고 canonical 질문은 권한이 적용되는 전용 table에서 조회한다.
+- Final decision: `slide-question-guide-generation` Job payload/result는 bounded identifier와 상태 메타데이터만 가진다. 질문과 추천 답변은 `slide_question_guides`와 `slide_question_guide_items`에 저장하며 project read 권한 API를 통해서만 반환한다. 생성 시 deck version과 slide canonical hash를 고정하고, 같은 private guide row에 해당 버전의 최소 텍스트 snapshot을 저장한다. worker는 Presentation Brief에서 승인되고 file hash가 유지된 reference chunk만 strict Python/OpenAI provider 경계로 전달하며, 반환된 source ID·version·hash를 allowlist로 재검증한다. source가 바뀌면 stale failure로 처리하고 과거 guide 원문은 UI에서 숨긴다.
+- Rationale: 기존 Job privacy 계약을 지키고, 저장된 checkpoint보다 앞선 live deck patch를 worker가 잘못 읽는 경쟁 조건을 피하며, 승인되지 않은 참고자료나 덱 수정 전 질문이 최신 근거처럼 노출되는 것을 방지한다.
+- Affected files: `packages/shared/src/slide-practice/slide-question-guide.schema.ts`, `packages/shared/src/jobs/job.schema.ts`, `packages/job-queue/src/index.ts`, `apps/api/src/slide-question-guides/**`, `apps/worker/src/slide-question-guide-generation.processor.ts`, `services/python-worker/app/slide_question_guides.py`, `docs/contracts.md`.
+- Follow-up review notes: OpenAI model이나 prompt를 바꿀 때도 worker의 allowlisted source reference 검증과 insufficient remediation을 유지하고, `prompt_version`을 올려 별도 cache identity로 취급한다.
+
+## ORBIT editor slide question official web research
+
+- Context: 슬라이드와 승인 참고자료만으로는 외부 프로그램·기관·제품의 구체적인 사실을 답하기 어려워 `insufficient`가 반복되지만, 무제한 검색이나 웹 원문 저장은 비용·privacy·prompt injection·출처 위조 위험을 만든다.
+- Options considered:
+  - 검색 결과 전체와 본문을 guide 또는 Job에 저장한다.
+  - 검색 결과를 검증하지 않고 질문 생성 모델에 그대로 전달한다.
+  - 제한된 slide title·Brief 용어만 최대 2회 검색하고, 별도 strict 판정에서 official로 확인된 cited excerpt만 생성 중 메모리에서 사용한다.
+- Final decision: 신규 guide는 `schemaVersion: 2`, `promptVersion: slide-question-guide-v2`를 사용하며 과거 v1 guide는 계속 읽는다. OpenAI Responses `web_search`는 slide title과 bounded `challengeTopics`·terminology만 질의에 사용하고 최대 2회 실행한다. 검색 citation은 공급된 source ID만 반환할 수 있는 strict vetting을 거쳐 정부·학교·회사·표준기관·프로그램 운영 주체의 official source만 최대 5개 허용한다. worker는 Python response의 별도 web source allowlist와 item source ref의 URL·제목·hash·조회시각을 정확히 대조한다. DB에는 검색 상태·시도 횟수·공식 출처 수·issue code·조회시각과 표시용 source metadata만 저장하고 검색어·웹 원문·cited excerpt는 저장하거나 로그에 남기지 않는다. 검색이 실패하면 기존 slide·승인 참고자료 생성으로 degrade한다.
+- Rationale: 예상 질문의 외부 사실 근거를 보강하면서도 검색 질의로 전송되는 project-private 텍스트와 영구 보존 데이터를 최소화하고, 모델이 임의 URL을 출처처럼 추가하지 못하게 한다. 검색 장애가 기존 질문 생성을 막지 않으며 사용자에게 fallback 여부와 클릭 가능한 공식 출처를 명확히 보여준다.
+- Affected files: `packages/shared/src/slide-practice/slide-question-guide.schema.ts`, `apps/api/src/database/migrations/2026071702000-AddSlideQuestionGuideWebResearch.ts`, `apps/api/src/slide-question-guides/slide-question-guides.service.ts`, `apps/worker/src/slide-question-guide-generation.processor.ts`, `services/python-worker/app/slide_question_web_research.py`, `services/python-worker/app/slide_question_guides.py`, `apps/web/src/features/editor/practice/SlideQuestionGuidePanel.tsx`, `docs/contracts.md`.
+- Follow-up review notes: 실제 provider 비용과 official source 성공률은 staging에서 aggregate event의 `status`, `attempts`, `officialSourceCount`, `issueCodes`만으로 점검한다. URL, 질의, slide/reference 원문은 운영 로그에 추가하지 않는다. domain allowlist가 필요한 regulated project는 별도 정책과 UI 승인을 거쳐 도입한다.
+
+## ORBIT slide question guide bounded fast path
+
+- Context: 로컬 성공 Job도 약 33초가 걸리고 provider가 응답하지 않으면 Python request 단계에서 약 129초 뒤 실패했다. 기존 경로는 web search, 별도 official source vetting, 질문·답변 생성의 OpenAI 호출 3개를 직렬 실행하며 대상 외 slide와 승인 참고자료도 큰 transient prompt로 전달했다.
+- Options considered:
+  - UI polling 간격만 줄인다.
+  - official source 판정을 생략하거나 URL suffix만으로 official 여부를 결정한다.
+  - web search는 유지하되 official source 판정을 질문 생성 strict output에 합치고, provider 단계별 timeout과 bounded context를 적용한다.
+- Final decision: 예상 질문 provider 경로는 최대 1회의 `web_search`와 1회의 strict 질문 생성 호출만 사용한다. 생성 output의 `officialSourceIds`는 검색 candidate allowlist에 존재해야 하고, item의 web source ref는 해당 ID의 canonical URL·제목·hash·조회시각과 정확히 일치해야 한다. 검색은 12초 뒤 slide/reference fallback, 생성은 45초, Worker 요청은 70초로 제한한다. 대상 slide는 content 4,000자와 speaker notes 6,000자, 나머지 slide는 각 600자, 승인 reference는 최대 4개와 각 1,200자로 제한한다. `webSearchMs`, `generationMs`, `totalProviderMs`는 로그용 transient metadata로만 반환하고 저장하지 않는다.
+- Rationale: source allowlist와 official 판정 경계를 유지하면서 provider 호출을 3회에서 2회로 줄이고, 긴 검색 장애가 전체 질문 생성을 막지 않게 한다. 대상 slide의 근거는 유지하고 주변 slide는 흐름 파악에 필요한 bounded context만 전달해 입력 처리 시간을 줄인다.
+- Affected files: `services/python-worker/app/slide_question_web_research.py`, `services/python-worker/app/slide_question_guides.py`, `apps/worker/src/slide-question-guide-generation.processor.ts`, 관련 테스트, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: staging에서는 단계별 duration과 research status aggregate만 확인한다. 검색어, cited excerpt, slide/reference 원문, speaker notes, provider response는 로그에 남기지 않는다. 공식 source 성공률이 하락하면 호출 수를 다시 늘리기 전에 prompt와 candidate 품질을 먼저 검토한다.
+
+## ORBIT editor practice rollout and transcription fallback
+
+- Context: 브라우저별 온디바이스 Web Speech 지원이 다르고, 기존 per-session 체크박스가 연습 시작 흐름을 복잡하게 만들었다. 외부 실시간 전사로 전환하더라도 raw audio와 transcript를 영구 저장하지 않는 기존 privacy boundary는 유지해야 한다.
+- Options considered:
+  - 모든 브라우저에서 OpenAI Realtime을 기본 사용한다.
+  - 온디바이스 전사가 실패하면 연습 전체를 막는다.
+  - 온디바이스를 우선하고 실패 시 OpenAI Realtime으로 자동 fallback하며, 전사가 없어도 PCM 음성 분석은 계속한다.
+- Final decision: `SLIDE_PRACTICE_ENABLED`와 `SLIDE_QUESTION_GUIDES_ENABLED`를 독립 runtime flag로 둔다. 사용자가 연습 시작을 선택하면 온디바이스 Web Speech를 우선하고, 사용할 수 없을 때 별도 체크 없이 OpenAI Realtime으로 자동 fallback한다. 전사가 모두 실패하면 `stt-unavailable` 품질 reason을 남기고 음성 파생 측정만 계속한다. raw audio와 transcript는 브라우저 메모리에서만 처리하고 서버 저장소에는 보관하지 않는다.
+- Rationale: 한 번의 연습 시작 동작으로 브라우저 capability 차이를 흡수하면서도 원음과 전사 원문을 영구 저장하지 않는 최소 보존 원칙을 유지한다.
+- Affected files: `packages/config/src/index.ts`, `packages/shared/src/config/runtime-config.schema.ts`, `apps/api/src/runtime-config/runtime-config.controller.ts`, `apps/web/src/features/editor/shell/components/EditorBottomDock.tsx`, `apps/web/src/features/editor/practice/useSlidePracticeSession.ts`, environment examples, `docker-compose.yml`.
+- Follow-up review notes: staging에서 Chrome/Edge 언어팩 지원율, 자동 fallback 비율, `quality.reason` 분포를 확인한 뒤 production flag를 활성화한다. 개인정보 처리방침에는 서버 실시간 전사로 자동 전환될 수 있다는 점과 원문 비보존 정책을 일관되게 반영한다.
+
+## ORBIT editor slide practice server analysis cutover
+
+- Context: 브라우저 Web Speech와 Web Audio를 동시에 사용하면 브라우저별 지원·마이크 처리 차이 때문에 말 속도, pitch, 음량, 습관어 결과가 불안정했다. 사용자는 바로 연습 원본을 서버에 임시 전송하는 것을 허용했고, 저장소에는 이미 Report STT, private audio upload, BullMQ, Storage deletion outbox 경계가 있다.
+- Options considered:
+  - 기존 Web Speech + Web Audio 분석을 유지하고 임계값만 다시 조정한다.
+  - 공식 리허설 run/report를 바로 연습에도 그대로 생성한다.
+  - `MediaRecorder`로만 녹음하고 별도 creator-private analysis aggregate에서 기존 Report STT와 서버 PCM 분석을 실행한다.
+- Final decision: 신규 바로 연습은 `slide-practice-audio` private purpose, `slide_practice_audio_analyses`, `slide-practice-analysis` Job을 사용한다. Web은 `MediaRecorder`만 사용한다. Python worker는 기존 Report STT provider와 16kHz PCM decoder를 재사용하고, 서버 metric v2에서 기존 60ms frame·`-48 dBFS`·70~420Hz·correlation 0.55 기준을 적용한다. TypeScript worker는 transcript를 메모리에서만 사용해 습관어와 음절 속도를 계산하고 파생 report만 90일 저장한다. raw audio는 성공·실패 직후 삭제하고 실패 시 deletion outbox로 재시도하며, transcript는 API·Job·DB·report·로그에 저장하지 않는다. classifier v2 임계값과 유형 우선순위는 변경하지 않는다. 이 결정은 앞선 브라우저 메모리 전용 및 Web Speech fallback 결정을 신규 바로 연습 경로에 한해 대체한다.
+- Rationale: 공식 리허설 aggregate와 바로 연습 기록을 분리한 채 검증된 서버 STT·storage lifecycle을 재사용하고, 브라우저 capability 차이를 제거한다. 원음 보존 시간을 분석 처리 구간으로 제한하고 transcript 영구 저장을 막아 서버 분석 도입에 따른 개인정보 범위를 최소화한다.
+- Affected files: `packages/shared/src/files/file.schema.ts`, `packages/shared/src/slide-practice/**`, `packages/shared/src/coaching/private-audio-cleanup.schema.ts`, `packages/shared/src/jobs/job.schema.ts`, `packages/job-queue/src/index.ts`, `apps/api/src/slide-practice/**`, `apps/api/src/database/migrations/2026071703000-CreateSlidePracticeAudioAnalyses.ts`, `apps/worker/src/slide-practice-analysis.processor.ts`, `apps/worker/src/storage-deletion-reconciler.ts`, `services/python-worker/app/audio/slide_practice.py`, `services/python-worker/app/main.py`, `apps/web/src/features/editor/practice/**`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: staging에서 analysis latency, bounded error code, raw audio deletion retry 상태만 aggregate로 확인한다. transcript, storage URL/key, audio file ID, 사용자별 세부 음성 지표는 운영 로그에 추가하지 않는다. 30분 만료 upload의 삭제 outbox enqueue와 project/user 삭제 cascade를 운영 점검한다.
+
+## ORBIT editor practice voice classifier v3 two-style rollout
+
+- Context: 바로 연습 결과에서 아나운서형·구름형·기본형을 신규 판정으로 계속 제공하기보다 사용자가 요청한 자장가형·터보형 두 피드백에 집중하고, 자장가형에는 작은 음량과 낮은 pitch 폭뿐 아니라 실제 느린 발화 근거가 필요하다. 기존 v1·v2 보고서에는 제거 대상 유형이 이미 저장될 수 있어 enum을 물리적으로 삭제하면 creator-private 연습 기록 조회가 깨진다.
+- Options considered:
+  - shared enum에서 `announcer`, `cloud`, `neutral`을 제거하고 과거 기록을 읽지 못하게 한다.
+  - classifier v2 의미를 제자리에서 바꾸고 과거 결과도 조회 시 재분류한다.
+  - 과거 enum과 결과는 읽기 호환으로 유지하고 신규 classifier v3만 자장가형·터보형을 생성하며 나머지는 유형 없는 판단 보류로 표시한다.
+- Final decision: 신규 server report는 `classifierVersion: 3`을 저장한다. v3는 `lullaby -> turbo -> neutral` 순서로 평가하며 `announcer`와 `cloud`를 생성하지 않는다. `lullaby`는 `loudnessDb < -38`, 낮은 pitch 폭, `syllablesPerSecond < 3.2` 또는 사용자 baseline보다 `0.8` 이상 느린 조건을 모두 요구한다. `turbo`의 `syllablesPerSecond > 4.8` 또는 baseline보다 `0.8` 초과와 `pauseRatio < 0.70` 기준은 유지한다. 어느 조건도 만족하지 않거나 측정 분량이 부족하면 저장 호환용 `neutral`, `confidence: 0`을 사용하고 UI에는 `판단 보류`로 표시한다. v1·v2의 `announcer`, `cloud`, `neutral`은 과거 보고서 읽기 전용으로 유지한다.
+- Rationale: 사용자에게 노출되는 신규 유형을 두 개로 제한하면서도 과거 보고서와 공통 API 계약을 깨지 않는다. 느린 속도를 자장가형의 필수 근거로 추가해 작고 단조롭지만 빠른 발화를 자장가형으로 분류하는 오판을 줄인다.
+- Affected files: `packages/shared/src/slide-practice/slide-practice-analysis.ts`, `packages/shared/src/slide-practice/slide-practice.schema.ts`, `apps/worker/src/slide-practice-analysis.processor.ts`, `apps/web/src/features/editor/practice/SlidePracticePanel.tsx`, 관련 테스트, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: staging에서는 유형별 aggregate count와 판단 보류 비율만 확인한다. 사용자별 음량·pitch·속도 원값, transcript, raw audio는 운영 로그에 남기지 않는다. 실제 분포상 자장가형이 지나치게 적으면 기존 결과를 재분류하지 않고 classifier v4로만 임계값을 조정한다.
+
+## ORBIT editor practice voice classifier v4 pitch-and-slow lullaby
+
+- Context: 정상 측정된 바로 연습에서도 v3의 음량·낮은 pitch 폭·느린 속도 결합 조건 때문에 자장가형이 거의 생성되지 않았다. 실제 저장 지표에서 낮은 pitch 폭은 충족했지만 속도가 기존 절대 경계에 근소하게 미달했고, 사용자는 음량을 자장가형 판정에서 제외하기를 원했다.
+- Options considered:
+  - v3의 음량 임계값만 완화하고 세 조건 결합을 유지한다.
+  - 음량 조건을 제거하고 기존 pitch·속도 경계를 그대로 유지한다.
+  - 음량 조건을 제거하고 낮은 pitch 폭을 유지하면서 절대 속도 경계를 완화한다.
+- Final decision: 신규 server report는 `classifierVersion: 4`를 저장한다. v4 `lullaby`는 `pitchSpanHz < max(45, baselinePitchSpanHz * 0.80)`와 `syllablesPerSecond < 3.5` 또는 사용자 baseline보다 `0.8` 이상 느린 조건을 함께 요구하며 `loudnessDb`는 판정에 사용하지 않는다. `turbo` 기준, `lullaby -> turbo -> neutral` 우선순위, 측정 부족 시 판단 보류 정책은 유지한다. v1·v2·v3 결과는 조회 시 재분류하지 않는다.
+- Rationale: 음량 측정 차이가 자장가형 판정을 막지 않게 하면서도 낮은 억양 변화와 느린 속도라는 두 근거를 유지한다. 새 classifier version으로 저장해 과거 보고서의 판정 의미와 API 읽기 호환성을 보존한다.
+- Affected files: `packages/shared/src/slide-practice/slide-practice-analysis.ts`, `packages/shared/src/slide-practice/slide-practice.schema.ts`, `apps/worker/src/slide-practice-analysis.processor.ts`, 관련 테스트, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: staging에서는 v4의 자장가형·터보형·판단 보류 aggregate count만 확인한다. 사용자별 음량·pitch·속도 원값, transcript, raw audio는 운영 로그에 남기지 않는다. 경계 변경이 다시 필요하면 기존 결과를 재분류하지 않고 새 classifier version으로 관리한다.
+
+## ORBIT editor slide practice graph and AI coaching report
+
+- Context: 슬라이드별 바로 연습 리포트는 aggregate 음성 지표와 유형만 보여서 어느 시간대에 음량·속도가 달라졌는지 알기 어려웠다. 사용자는 데시벨 세로 막대, 속도 선 그래프, 습관어·속도·쉼·pitch·음량을 함께 보는 대본 기반 개선점만 리포트에 표시하기를 요청했다.
+- Options considered:
+  - Web Audio를 다시 사용해 브라우저에서 그래프와 조언을 만든다.
+  - raw audio 또는 transcript를 저장하고 별도 비동기 코칭 Job에서 다시 분석한다.
+  - 기존 server PCM/STT 분석에서 bounded numeric sample을 만들고, 같은 분석 Job이 private deck version의 발표 메모와 파생 지표만 OpenAI에 보내 코칭을 생성한다.
+- Final decision: 신규 `reportVersion: 2`는 1초 `loudnessSamples`와 5초 `speedSamples`, `coaching.policyVersion: 1` 결과를 creator-private `slide_practice_reports.report_json`에 저장한다. 원음은 STT/PCM 응답 검증 직후 삭제하고 코칭 provider에는 보내지 않는다. Report STT transcript도 코칭 입력·Job·DB·로그에 넣지 않는다. 대본 수정 원문은 frozen deck version의 `speakerNotes`와 완전히 일치할 때만 최대 1,000자로 저장한다. deterministic policy에 issue가 없으면 OpenAI 호출 없이 승인 문구를 저장하고, provider 실패는 코칭만 `unavailable`로 처리한다. UI는 데시벨 세로 막대, 속도 선 그래프, 개선할 점 세 영역만 보여주며 v1 기록은 빈 그래프/코칭 상태로 읽는다.
+- Rationale: 기존 Report STT와 PCM 분석을 재사용해 브라우저별 차이를 다시 만들지 않고, 원음·전사 원문 보존 범위를 넓히지 않으면서 시간별 피드백과 대본 수정 조언을 제공할 수 있다. deterministic gate가 개선 필요 여부를 소유하므로 LLM 결과의 변동성과 과도한 판단을 제한한다.
+- Affected files: `packages/shared/src/slide-practice/**`, `services/python-worker/app/audio/slide_practice.py`, `services/python-worker/app/slide_practice_coaching.py`, `services/python-worker/app/main.py`, `apps/worker/src/slide-practice-analysis.processor.ts`, `apps/web/src/features/editor/practice/**`, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: staging에서는 graph sample 개수, coaching status·issue code·latency aggregate만 확인한다. transcript, 전체 speaker notes, raw audio, storage URL, 사용자별 원시 sample 값은 로그에 남기지 않는다. 임계값 변경은 기존 report를 재분류하지 않고 새 policy version으로 관리한다.
+
+## ORBIT slide question guide single-item carousel
+
+- Context: 예상 질문 3개 목록과 답변 영역을 동시에 보여주면 작은 editor dock에서 질문·답변의 대응 관계를 따라가기 어렵다. 사용자는 한 번에 질문과 답변 한 세트만 보고 좌우 화살표로 이동하기를 요청했다.
+- Options considered:
+  - 기존 왼쪽 질문 목록을 유지한다.
+  - 질문만 carousel로 바꾸고 추천 답변은 접힌 상태를 유지한다.
+  - 질문·추천 답변을 하나의 card로 묶고 이전/다음 화살표와 현재 번호를 제공한다.
+- Final decision: 예상 질문 UI는 한 번에 하나의 질문, 핵심 개념, 추천 답변 또는 근거 부족 remediation, 공식 출처를 표시한다. `이전 질문`·`다음 질문` 버튼과 `현재/전체` 번호를 제공하고 첫·마지막 버튼은 비활성화한다. focus된 carousel에서는 좌우 방향키도 같은 이동을 수행한다. 저장/API/Job 계약은 변경하지 않는다.
+- Rationale: question-guide privacy와 생성 계약을 건드리지 않고 작은 화면에서 한 질문과 답변에 집중할 수 있으며, 버튼 label과 disabled state로 접근 가능한 순차 탐색을 제공한다.
+- Affected files: `apps/web/src/features/editor/practice/SlideQuestionGuidePanel.tsx`, `apps/web/src/features/editor/practice/SlideQuestionGuidePanel.test.tsx`, `apps/web/src/features/editor/editor-shell.css`.
+- Follow-up review notes: 실제 dock 폭에서 답변 길이, keyboard focus, 공식 출처 링크가 화살표 탐색 후 올바른 질문에 맞춰 바뀌는지 확인한다.
+
+## ORBIT slide question guide current deck reconstruction
+
+- Context: 예상 질문 API는 `DecksService`를 통해 `decks` checkpoint와 이후 `deck_patches`를 재생한 최신 deck version으로 guide를 고정하지만, Worker는 `decks` row만 읽었다. checkpoint가 v1이고 유효한 patch tail이 v2를 만든 상태에서 guide v2를 실제 변경으로 오인해 `SLIDE_QUESTION_GUIDE_SOURCE_STALE`로 실패했다.
+- Options considered:
+  - 예상 질문 생성 전에 API가 항상 전체 deck checkpoint를 다시 저장하고 patch tail을 compact한다.
+  - Worker가 질문 생성 Job의 identifier-only payload에 전체 Deck을 추가한다.
+  - Worker가 같은 DB snapshot에서 checkpoint와 patch tail을 읽고 canonical `applyDeckPatch`로 최신 deck을 재구성한다.
+- Final decision: `slide-question-guide-generation` Worker는 단일 DB query snapshot에서 `decks` checkpoint와 정렬된 `deck_patches` tail을 읽고 `@orbit/editor-core`의 `applyDeckPatch`로 최신 Deck을 재구성한다. 재구성된 version과 slide canonical hash가 frozen guide source와 다를 때만 기존 stale failure를 유지한다. Job payload/result와 guide 저장 계약은 변경하지 않는다.
+- Rationale: 일반 편집마다 전체 Deck checkpoint를 강제하지 않고 기존 persistence 구조를 유지하며, 전체 Deck을 Job에 복제하지 않아 privacy 계약을 지킨다. API와 같은 canonical patch 적용기를 사용해 element, notes, style 등 모든 patch operation을 빠짐없이 반영한다.
+- Affected files: `apps/worker/src/slide-question-guide-generation.processor.ts`, `apps/worker/src/slide-question-guide-generation.processor.spec.ts`, `apps/worker/package.json`, `pnpm-lock.yaml`, `docs/decision-log.md`.
+- Follow-up review notes: checkpoint v1 + patch tail v2 + guide v2 회귀 테스트를 유지한다. 향후 다른 Worker에서도 current Deck 전체가 필요하면 중복 SQL을 늘리지 말고 공용 server-side deck state reader 경계를 별도 검토한다.
 
 ## ORBIT stable privileged shim and Git-managed deploy implementation
 
@@ -459,3 +602,99 @@
 - Rationale: GitHub Environment secret을 실제 job이 선언된 workflow에서 직접 읽고, 자동 환경 계약부터 서버 full 배포까지 수동·webhook 배포와 겹치지 않게 한다. token scope를 넓히거나 secret을 Repository 수준으로 내리지 않으며, sync 실패 시 self-hosted runner를 시작하지 않는다.
 - Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/personal-staging-env.test.mjs`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `docs/decision-log.md`.
 - Follow-up review notes: merge push로 생성된 새 run에서 direct sync job의 token 존재 확인과 Doppler sync 성공을 확인하고, 이어지는 full 배포의 검증 SHA·서버 HEAD·health check를 확인한다. 별도 `environment-only` run에서는 Git pull, image build, migration 로그가 없고 앱 컨테이너 재생성 및 health check만 실행되는지 확인한다.
+
+## ORBIT editor rehearsal UI and server practice integration
+
+- Context: 최신 `develop` 에디터는 마이크 버튼으로 한 장 리허설 모드에 들어가 별도 live STT 세션을 시작하지만, 기존 슬라이드 연습 기능은 `MediaRecorder` 녹음과 서버 `slide-practice-analysis` Job을 통해 DB 리포트를 생성한다. 두 마이크 경로를 동시에 시작하면 브라우저별 장치 점유와 서로 다른 분석 결과가 다시 발생하며, 최신 QnA·리포트 탭은 아직 placeholder였다.
+- Options considered:
+  - 최신 live STT와 서버 저장형 연습 녹음을 동시에 시작한다.
+  - 최신 리허설 UI를 제거하고 병합 전 별도 하단 도크를 복원한다.
+  - 마이크 버튼은 리허설 모드 진입에만 사용하고, `연습 시작`부터 기존 서버 저장형 연습 세션 하나만 실행하며 QnA·리포트 탭에 기존 기능을 연결한다.
+- Final decision: 마이크 버튼은 현재 슬라이드를 한 장 연습 모드로 전환하지만 오디오 캡처를 시작하지 않는다. 사용자가 `연습 시작`을 누르면 pending deck save를 먼저 flush한 뒤 기존 `useSlidePracticeSession`의 `MediaRecorder`·private upload·서버 분석 경로만 실행한다. 녹음 중 마이크 버튼으로 나가려 하면 같은 세션을 정상 종료하고, 분석 완료 후 하단 패널을 펼쳐 `리포트` 탭으로 자동 이동한다. QnA 탭은 기존 `SlideQuestionGuidePanel`, 리포트 탭은 DB에서 해당 슬라이드의 최신 1개를 읽는 `SlidePracticeHistoryPanel`을 사용한다. API, Job, 저장 기간, raw audio·transcript 보존 계약은 변경하지 않는다.
+- Rationale: 최신 에디터 레이아웃을 유지하면서 이미 검증된 서버 분석과 DB 리포트를 단일 오디오 경로로 재사용한다. 별도 live STT를 함께 실행하지 않아 마이크 중복 점유와 브라우저 파생 지표의 재도입을 피하고, 생성 결과를 사용자가 찾는 QnA·리포트 탭에 일관되게 배치한다.
+- Affected files: `apps/web/src/features/editor/shell/EditorShell.tsx`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, `apps/web/src/features/editor/shell/components/SpeakerNotesPanel.tsx`, `apps/web/src/features/editor/shell/components/SpeakerNotesQnaTab.tsx`, `apps/web/src/features/editor/shell/components/SpeakerNotesReportTab.tsx`, `apps/web/src/features/editor/practice/useSlidePracticeSession.ts`, 관련 테스트와 `apps/web/src/features/editor/editor-shell.css`.
+- Follow-up review notes: 로컬 Chrome에서 마이크 진입 전 권한 요청이 발생하지 않는지, `연습 시작` 한 번에 하나의 MediaStream만 생성되는지, 종료 후 서버 분석 지연 동안 버튼이 중복 실행되지 않는지, 완료 뒤 현재 슬라이드의 최신 DB 기록이 리포트 탭에 표시되는지 확인한다. 운영 로그에는 raw audio, transcript, 발표 메모 원문을 추가하지 않는다.
+
+## ORBIT editor rehearsal shared-stream script tracking
+
+- Context: 서버 저장형 한 장 연습만 실행하면 DB 리포트는 생성되지만, 최신 리허설 UI의 대본 진행률·문장 자동 이동·프롬프터 자동 스크롤은 live transcript가 없어 항상 첫 문장에 머물렀다. 별도 `getUserMedia`를 다시 호출하면 하나의 연습에서 마이크 입력을 중복 획득하고 종료 시점이 달라질 수 있다.
+- Options considered:
+  - 서버 분석이 끝난 뒤 최종 transcript로만 대본 진행을 표시한다.
+  - 서버 녹음과 live STT가 각각 별도 `MediaStream`을 획득한다.
+  - 서버 녹음이 획득한 하나의 `MediaStream`을 live STT에도 전달하고, 종료 시 live STT를 먼저 마무리한 뒤 같은 stream의 `MediaRecorder`를 종료한다.
+- Final decision: `연습 시작`은 `useSlidePracticeSession`이 획득한 단일 `MediaStream`으로 private server-report 녹음을 시작하고 같은 stream을 `useEditorSlideRehearsal`의 live STT 입력으로 공유한다. live STT transcript는 브라우저 메모리에서 대본 문장 진행·체크포인트에만 사용하고 API, Job, DB, 로그에 추가하지 않는다. 사용자가 종료하면 live STT의 마지막 final/interim을 먼저 확정한 뒤 녹음을 닫고 기존 서버 분석·DB 저장을 수행한다. 자동 따라가기를 끄면 이전·다음 버튼이 로컬 UI 상태만 변경하며, 서버 리포트 값에는 영향을 주지 않는다.
+- Rationale: 한 번의 마이크 권한과 동일한 오디오 입력으로 실시간 프롬프터와 기존 서버 리포트를 함께 제공한다. 서버의 말 속도·쉼·pitch·음량·습관어 분석 및 저장 계약은 그대로 유지하고, live transcript의 보존 범위를 넓히지 않는다.
+- Affected files: `apps/web/src/features/coaching/useFocusedPracticeAudio.ts`, `apps/web/src/features/editor/practice/useSlidePracticeSession.ts`, `apps/web/src/features/editor/shell/hooks/useEditorSlideRehearsal.ts`, `apps/web/src/features/editor/shell/EditorShell.tsx`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, 관련 테스트와 `apps/web/src/features/editor/editor-shell.css`, `docs/decision-log.md`.
+- Follow-up review notes: 로컬 Chrome에서 `연습 시작` 한 번에 `getUserMedia`가 한 번만 호출되는지, 확정 문장마다 진행률과 중앙 스크롤이 이동하는지, 수동 이전·다음과 자동 복귀가 동작하는지, 종료 직전 발화가 누락되지 않는지, 완료 뒤 리포트 탭의 최신 DB 기록이 표시되는지 확인한다. live transcript, raw audio, 발표 메모 원문은 운영 로그에 남기지 않는다.
+
+## ORBIT editor one-slide rehearsal prompter tracker reuse
+
+- Context: 한 장 연습의 프롬프터가 누적 transcript 안에 대본 문장 전체가 포함되는지만 비교해, STT가 한 문장을 여러 partial/final 조각으로 나누면 문장 완료와 다음 문장 focus 이동을 놓쳤다. 반면 전체 리허설은 조각난 lexical evidence를 누적하고 final 경계에서만 문장을 확정하는 `createSpeechTracker`를 이미 사용한다.
+- Options considered:
+  - 한 장 연습의 문자열 포함 조건만 완화한다.
+  - 한 장 연습 전용 누적 matcher를 새로 만든다.
+  - 기존 `createSpeechTracker`와 `createRehearsalScriptPrompterRows`를 한 장 연습에서도 재사용한다.
+- Final decision: 한 장 연습의 live STT 결과를 기존 `createSpeechTracker`에 그대로 전달하고, tracker snapshot의 `prompterProgress`를 공용 프롬프터 row 변환에 사용한다. partial은 lexical evidence만 누적하고 final에서 확정된 경우에만 다음 문장으로 focus를 옮긴다. 수동 이전·다음도 같은 tracker의 manual API를 사용한다. 마지막 문장 완료 시 슬라이드 자동 전환은 하지 않으며 현재 한 장 연습의 slide별 녹음·리포트 경계를 유지한다.
+- Rationale: 전체 리허설에서 검증된 final deduplication, 조각 누적, 문장 commit 규칙을 재사용해 서로 다른 진행 판정 기준을 만들지 않는다. live transcript는 계속 브라우저 메모리의 프롬프터 제어에만 사용하고 API, Job, DB, 로그에는 추가하지 않는다.
+- Affected files: `apps/web/src/features/editor/shell/hooks/useEditorSlideRehearsal.ts`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, `apps/web/src/features/editor/shell/EditorShell.tsx`, 관련 테스트, `docs/decision-log.md`.
+- Follow-up review notes: 조각난 partial 뒤 final에서 정확히 한 문장만 진행하는지, 같은 final 재수신이 두 번 진행되지 않는지, focus 변경 시 중앙 스크롤이 실행되는지, 마지막 문장 완료 후 현재 슬라이드가 유지되는지 브라우저에서 확인한다.
+
+## ORBIT editor one-slide rehearsal wheel sentence navigation
+
+- Context: 한 장 리허설의 마우스 휠과 트랙패드는 대본 영역을 픽셀 단위로만 스크롤해, 음성 인식과 화살표가 사용하는 `SpeechTracker` 문장 위치와 화면 위치가 서로 달라질 수 있었다. 트랙패드는 한 동작에서도 여러 wheel event를 연속 발생시킨다.
+- Options considered:
+  - 브라우저 기본 픽셀 스크롤을 유지한다.
+  - 휠마다 즉시 문장을 이동한다.
+  - 한 휠 gesture의 delta를 누적해 임계값을 넘을 때 문장 하나만 이동하고, 기존 manual prompter API를 호출한다.
+- Final decision: 한 장 리허설에서만 휠 아래를 다음 문장, 휠 위를 이전 문장으로 연결한다. pixel·line·page delta를 정규화하고 24px 임계값과 180ms gesture 종료 기준을 적용해 한 gesture가 여러 문장을 건너뛰지 않게 한다. 문장 이동은 화살표와 같은 `manualNextPrompter`·`manualPreviousPrompter` 경로를 사용하며 마지막 문장에서 슬라이드를 전환하지 않는다.
+- Rationale: 입력 수단과 관계없이 하나의 tracker snapshot을 기준으로 진행률·focus·자동 중앙 스크롤을 동기화하고, 트랙패드 과다 입력으로 문장을 건너뛰는 것을 막는다. 공용 프롬프터에는 optional callback만 추가해 전체 리허설의 기존 wheel 동작은 바꾸지 않는다.
+- Affected files: `apps/web/src/features/rehearsal/presenter/RehearsalScriptTeleprompter.tsx`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, 관련 테스트, `docs/decision-log.md`.
+- Follow-up review notes: Windows 마우스 휠과 노트북 트랙패드에서 한 gesture당 한 문장만 이동하는지, 첫·마지막 문장 경계와 화살표·음성 자동 이동 복귀가 일관적인지 확인한다.
+
+## ORBIT editor slide practice graph version diagnostics
+
+- Context: 현재 소스는 `reportVersion: 2`에서 시간별 `loudnessSamples`와 `speedSamples`를 생성·저장·표시하지만, 5174 로컬 스택의 API·Worker·Python Worker는 이전 이미지였다. DB의 최근 기록은 모두 `reportVersion: 1`이고 두 sample이 없어서 Web은 그래프를 그릴 수 없었다. v1 원본 음성은 계약에 따라 이미 삭제돼 재분석할 수 없다.
+- Options considered:
+  - 그래프 재계산을 위해 raw audio 보관 기간을 늘린다.
+  - v1 기록에 평균값을 복제해 가짜 시간별 그래프를 만든다.
+  - 원본 삭제 계약을 유지하고 분석 서비스를 v2 이미지로 맞추며, v1과 v2 분석 실패의 empty state를 구분한다.
+- Final decision: raw audio와 transcript 보존 범위를 넓히거나 v1 기록을 추정 backfill하지 않는다. `orbit-editor-report-qa`의 API·Worker·Python Worker를 현재 v2 코드로 재빌드하고 새 연습부터 실제 sample을 저장한다. UI는 v1 기록, v2 audio 분석 실패, v2 STT 실패, 발화량 부족을 서로 다른 문구로 표시한다.
+- Rationale: 그래프는 원본이 아니라 분석 중 계산한 bounded 파생 sample만 필요하다. 개인정보 보존 정책을 바꾸지 않고도 신규 기록을 정확히 표시할 수 있으며, 과거 형식과 실제 분석 실패를 구분해 사용자가 재시도 방법을 알 수 있다.
+- Affected files: `apps/web/src/features/editor/practice/PracticeReportContent.tsx`, 관련 테스트, `docs/decision-log.md`. 런타임에서는 `orbit-editor-report-qa`의 `api`, `worker`, `python-worker`, `web` 이미지를 현재 소스와 맞춘다.
+- Follow-up review notes: 10초 이상 새 연습 후 DB에서 `reportVersion: 2`, `loudnessSamples > 0`, `speedSamples > 0`인지 확인한다. v2에서도 speed sample이 비면 Report STT segment timestamp 반환을, loudness sample이 비면 PCM decoder 경로를 별도로 진단한다.
+
+## ORBIT editor slide practice same-origin upload proxy
+
+- Context: 5174 side-port에서 한 장 연습 분석 생성은 성공했지만, API가 local MinIO upload proxy 주소를 고정 `WEB_ORIGIN`인 5173으로 반환해 브라우저의 녹음 `PUT`이 API에 도달하지 못했다. 일반 파일 업로드는 이미 요청 `Origin`을 정규화해 같은 브라우저 origin으로 upload proxy URL을 만들지만, slide practice 생성 경로는 이 값을 전달하지 않았다.
+- Options considered:
+  - 5174 테스트 스택의 `WEB_ORIGIN`만 수동 변경한다.
+  - Web이 API가 반환한 upload URL의 host와 port를 현재 location으로 다시 쓴다.
+  - API가 검증된 요청 `Origin`을 `FilesService.createUploadUrl`에 전달해 기존 same-origin upload proxy 규칙을 재사용한다.
+- Final decision: `SlidePracticeController`는 요청 `Origin`을 `normalizeHttpOrigin`으로 제한한 뒤 `SlidePracticeService.createAnalysis`에 전달한다. 서비스는 이 값을 `FilesService.createUploadUrl`의 `requestOrigin`으로 넘기고, Web은 API가 발급한 private upload command를 그대로 사용한다. Origin이 없거나 http/https가 아니면 기존 `WEB_ORIGIN` fallback을 유지한다.
+- Rationale: `localhost`와 `127.0.0.1`, 기본 포트와 side-port의 차이를 API 경계에서 한 번만 처리하고, 브라우저가 인증 cookie를 같은 origin의 private upload endpoint에 보낼 수 있게 한다. Web에서 signed 또는 proxy URL을 임의 재작성하지 않아 운영 S3 경로와 local MinIO 경로의 분리를 보존한다.
+- Affected files: `apps/api/src/slide-practice/slide-practice.controller.ts`, `apps/api/src/slide-practice/slide-practice.service.ts`, `apps/api/src/slide-practice/slide-practice.controller.spec.ts`, `apps/web/src/features/editor/practice/slidePracticeApi.ts`, `apps/web/src/features/editor/practice/slidePracticeApi.test.ts`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, 관련 UI 테스트, `docs/decision-log.md`.
+- Follow-up review notes: 5174의 `127.0.0.1`과 `localhost`에서 각각 분석 생성 뒤 `PUT /api/v1/projects/:projectId/assets/:fileId/content`가 같은 origin으로 204를 반환하는지 확인한다. 연결 자체가 실패하면 Web에 단계별 한국어 오류가 표시되는지 확인하고 raw audio, upload URL, cookie는 로그에 추가하지 않는다.
+
+## ORBIT editor slide practice single script-linked coaching
+
+- Context: 한 장 연습 리포트의 코칭은 대본과 전체 파생 지표를 함께 입력했지만 최대 2개 개선 item과 별도 30초 계획을 A·B·C 카드처럼 표시했다. 시간별 STT segment와 실제 대본 문장이 연결되지 않아 특정 대본 구간에 속도, 음량, 쉼 근거를 적용할 수 없었고, 여러 조언 중 무엇을 먼저 실행해야 하는지도 불분명했다.
+- Options considered:
+  - 전체 평균 지표만 LLM에 보내 대본 문장을 임의로 선택하게 한다.
+  - timestamp transcript 원문을 LLM과 report에 함께 저장한다.
+  - transcript segment는 Worker 메모리에서만 실제 대본 문장과 정렬하고, 원문을 제거한 bounded 파생 근거 후보 중 LLM이 하나만 선택하게 한다.
+- Final decision: Python worker는 timestamp transcript segment 최대 100개와 인접 segment 사이 250ms 이상 pause 구간을 Worker 메모리에만 반환한다. Worker는 실제 `speakerNotes` 문장과 순서 기반 lexical 정렬을 수행하고 속도, 음량, 쉼, pitch 폭, 습관어, 음량 변화폭, 리듬 규칙성을 포함한 후보를 최대 8개 만든다. OpenAI는 후보 ID 하나와 단일 개선 item만 반환한다. Worker는 ID, issue category, 실제 대본 포함 여부를 재검사하고 `promptVersion: 2`, item 1개, `practicePlan: null`로 저장한다. UI는 한 카드 안에 실제 대본, 7개 근거, 대본 적용 방법, 다른 연습 방법을 표시한다.
+- Rationale: transcript와 raw audio 보존 범위를 넓히지 않으면서 측정 근거를 실제 대본에 연결하고, 사용자에게 가장 중요한 행동 하나만 제시한다. 정렬이 부족한 fallback은 `practice-target`으로 구분해 실제 오류 구간으로 단정하지 않는다.
+- Affected files: `docs/contracts.md`, `packages/shared/src/slide-practice`, `services/python-worker/app/audio/slide_practice.py`, `services/python-worker/app/slide_practice_coaching.py`, `apps/worker/src/slide-practice-analysis.processor.ts`, `apps/web/src/features/editor/practice/PracticeReportContent.tsx`, 관련 테스트와 `docs/decision-log.md`.
+- Follow-up review notes: 실제 10초 이상 연습에서 transcript 원문이 코칭 요청, report JSON, Job 결과, 로그에 없는지 확인한다. 선택된 대본이 frozen deck version의 `speakerNotes`에 포함되는지, 신규 report가 item 하나만 가지는지, matched와 practice-target 문구가 구분되는지 확인한다.
+
+## ORBIT editor one-slide rehearsal automatic wheel skip fallback
+
+- Context: 한 장 연습 시 문장을 실제로 말했지만 live STT가 완료 경계를 놓치면 자동 프롬프터가 현재 문장에 머물 수 있다. 기존 휠 아래 동작은 `manualNextPrompter`로 현재 문장을 완료 처리하고 UI를 수동 모드로 전환해, 시연자가 자동 인식을 계속 사용하려는 의도와 달랐다.
+- Options considered:
+  - 휠을 화면 미리보기로만 처리하고 잠시 후 기존 문장으로 복귀한다.
+  - 기존 manual commit을 유지한 채 자동 모드 표시만 유지한다.
+  - 현재 문장을 완료하지 않고 `skippedSentenceIds`에 기록한 뒤 다음 문장을 새 자동 인식 대상으로 설정한다.
+- Final decision: 자동 따라가기 상태에서 휠 아래는 `skipCurrentPrompter`를 사용한다. 현재 문장은 committed/covered 처리하지 않고 skipped로만 기록하며, revision과 lexical evidence를 초기화한 뒤 다음 문장부터 자동 STT를 계속한다. 휠 위는 이전 문장으로 돌아가되 자동 모드를 유지한다. 명시적으로 수동 모드를 선택한 경우 기존 manual API를 유지하고, 마지막 문장에서는 skip을 거부해 잘못된 100% 진행이나 슬라이드 전환 신호를 만들지 않는다.
+- Rationale: 시연자가 STT 누락을 즉시 복구하면서도 읽지 않은 문장을 완료했다고 기록하지 않고, 화면 포커스와 다음 음성 판정을 같은 문장에 맞춘다.
+- Affected files: `apps/web/src/features/rehearsal/speech/prompterProgressTracker.ts`, `apps/web/src/features/rehearsal/speech/speechTracker.ts`, `apps/web/src/features/editor/shell/hooks/useEditorSlideRehearsal.ts`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, `apps/web/src/features/editor/shell/EditorShell.tsx`, 관련 테스트와 `docs/decision-log.md`.
+- Follow-up review notes: 자동 모드에서 첫 문장을 skip한 뒤 진행률이 오르지 않는지, 다음 문장 final STT만 commit되는지, 마지막 문장 skip이 거부되는지, 수동 모드의 화살표 동작과 전체 리허설 wheel 동작이 유지되는지 확인한다.

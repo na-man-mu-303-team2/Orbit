@@ -50,6 +50,9 @@ import { ExpandPresentationSessionsForActivities2026071701000 } from "./migratio
 import { CreateActivityRuntime2026071702000 } from "./migrations/2026071702000-CreateActivityRuntime";
 import { CreatePresentationSessionAudienceRegistry2026071703000 } from "./migrations/2026071703000-CreatePresentationSessionAudienceRegistry";
 import { CreateAiDeckStoryReviews2026071604000 } from "./migrations/2026071604000-CreateAiDeckStoryReviews";
+import { CreateSlidePracticeAndQuestionGuides2026071701000 } from "./migrations/2026071701000-CreateSlidePracticeAndQuestionGuides";
+import { AddSlideQuestionGuideWebResearch2026071702000 } from "./migrations/2026071702000-AddSlideQuestionGuideWebResearch";
+import { CreateSlidePracticeAudioAnalyses2026071703000 } from "./migrations/2026071703000-CreateSlidePracticeAudioAnalyses";
 import { CreateSmartArtLayouts2026071701000 } from "./migrations/2026071701000-CreateSmartArtLayouts";
 import { AddSmartArtTemplateLayouts2026071702000 } from "./migrations/2026071702000-AddSmartArtTemplateLayouts";
 import { IncreaseSmartArtTypography2026071703000 } from "./migrations/2026071703000-IncreaseSmartArtTypography";
@@ -116,10 +119,13 @@ export const databaseOptions: DataSourceOptions = {
     AddRehearsalAudioRetention2026071603000,
     AddRehearsalTranscriptArtifacts2026071603000,
     CreateAiDeckStoryReviews2026071604000,
+    CreateSlidePracticeAndQuestionGuides2026071701000,
     CreateSmartArtLayouts2026071701000,
     ExpandPresentationSessionsForActivities2026071701000,
+    AddSlideQuestionGuideWebResearch2026071702000,
     CreateActivityRuntime2026071702000,
     AddSmartArtTemplateLayouts2026071702000,
+    CreateSlidePracticeAudioAnalyses2026071703000,
     CreatePresentationSessionAudienceRegistry2026071703000,
     IncreaseSmartArtTypography2026071703000,
     RepairActivityRetentionPrivacy2026071704000,

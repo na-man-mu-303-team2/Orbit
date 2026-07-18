@@ -7,6 +7,10 @@ export function createAddElementPatch(
   slideId: string,
   element: DeckElement
 ): DeckPatch {
+  const nextElement =
+    deck.metadata.sourceType === "import"
+      ? asAuthoredOoxmlElement(element)
+      : element;
   return {
     deckId: deck.deckId,
     baseVersion: deck.version,
@@ -15,10 +19,19 @@ export function createAddElementPatch(
       {
         type: "add_element",
         slideId,
-        element
+        element: nextElement
       }
     ]
   };
+}
+
+function asAuthoredOoxmlElement(element: DeckElement): DeckElement {
+  const authored = {
+    ...structuredClone(element),
+    ooxmlOrigin: "authored" as const
+  };
+  delete authored.ooxmlEditCapabilities;
+  return authored;
 }
 
 export function createUpdateElementPropsPatch(

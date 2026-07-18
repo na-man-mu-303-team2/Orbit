@@ -1007,6 +1007,40 @@ def design_pack_source_ledgers(
             ledger["authority"] = record.authority
         ledgers.append(ledger)
         used_source_ids.add(source_id)
+    obligations = {
+        obligation.obligation_id: obligation
+        for obligation in raw_input.evidence_obligations
+    }
+    for obligation_id in slide_plan.obligation_refs:
+        obligation = obligations.get(obligation_id)
+        if obligation is None:
+            continue
+        obligation_source_id = next(
+            (source_id for source_id in obligation.source_refs if source_id in records),
+            None,
+        )
+        if obligation_source_id is None:
+            continue
+        record = records[obligation_source_id]
+        ledger = {
+            "claim": obligation.canonical_text,
+            "source": record.url or record.title or record.file_id or record.source_id,
+            "sourceType": record.source_type,
+            "sourceId": record.source_id,
+            "confidence": record.confidence,
+            "usedInSlideId": slide_id,
+        }
+        if record.file_id:
+            ledger["fileId"] = record.file_id
+        if record.chunk_id:
+            ledger["chunkId"] = record.chunk_id
+        if record.url:
+            ledger["url"] = record.url
+        if record.title:
+            ledger["title"] = record.title
+        if record.source_type == "web":
+            ledger["authority"] = record.authority
+        ledgers.append(ledger)
     if raw_input.brief.reference_policy == "research-first" and claims:
         for source_id in source_refs:
             record = records.get(source_id)

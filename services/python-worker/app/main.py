@@ -1,7 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-import json
 from typing import Any, Literal, Self, cast
 from uuid import uuid4
 
@@ -51,7 +50,7 @@ from app.ai.deck_generation.stage_runtime import (
     run_slide_compose_stage,
     run_source_grounding_stage,
 )
-from app.ai.deck_generation.models import SourceGroundingResult
+from app.ai.deck_generation.models import ReferencePolicy, SourceGroundingResult
 from app.ai.pptx_design_importer import (
     ImportedDesignAsset,
     PptxDesignImportResult,
@@ -64,6 +63,14 @@ from app.ai.pptx_ooxml_generation import (
     UnsupportedPptxAspectRatioError,
     generate_pptx_ooxml,
     sync_pptx_ooxml,
+)
+from app.ai.pptx_ooxml_sync_transport import (
+    DECK_CANVAS_MAX_BYTES,
+    OPERATIONS_MAX_BYTES,
+    TEMPLATE_BLUEPRINT_MAX_BYTES,
+    PptxOoxmlSyncTransportError,
+    parse_json_part,
+    read_pptx_package,
 )
 from app.ai.pptx_ooxml_vector_importer import (
     import_pptx_design_with_optional_ooxml_vector,
@@ -108,11 +115,22 @@ from app.audio.processing import (
     RehearsalAudioProcessingResponse,
     process_rehearsal_audio,
 )
+from app.audio.slide_practice import (
+    SlidePracticeAudioResponse,
+    process_slide_practice_audio,
+)
 from app.audio.analysis.models import (
     RehearsalSilenceAnalysis,
     unmeasured_silence_analysis,
 )
 from app.challenge_qna import router as challenge_qna_router
+from app.slide_practice_coaching import (
+    SlidePracticeCoachingError,
+    SlidePracticeCoachingRequest,
+    SlidePracticeCoachingResponse,
+    generate_slide_practice_coaching,
+)
+from app.slide_question_guides import router as slide_question_guides_router
 from app.config import PythonWorkerConfig, load_config
 from app.extraction import (
     ExtractConfig,
@@ -125,8 +143,10 @@ from app.extraction import (
 from app.focused_practice import router as focused_practice_router
 from app.references import (
     PostgresReferenceRepository,
+    ReferenceSearchResult,
     index_reference_text,
     search_reference_chunks,
+    search_reference_chunks_by_file,
 )
 from app.rehearsal import (
     DeckKeyword,
@@ -438,6 +458,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="ORBIT Python Worker", version="0.1.0", lifespan=lifespan)
 app.include_router(challenge_qna_router)
+app.include_router(slide_question_guides_router)
 app.include_router(focused_practice_router)
 
 
@@ -650,32 +671,77 @@ async def generate_pptx_ooxml_endpoint(
             raise HTTPException(status_code=503, detail=str(error)) from error
 
 
-@app.post("/ai/pptx-ooxml-sync", response_model=PptxOoxmlSyncResult)
+@app.post(
+    "/ai/pptx-ooxml-sync",
+    response_model=PptxOoxmlSyncResult,
+    response_model_exclude_none=True,
+)
 async def sync_pptx_ooxml_endpoint(
     file: UploadFile = File(...),
-    template_blueprint: str = Form(...),
-    operations: str = Form(...),
-    deck_canvas: str = Form(...),
+    template_blueprint_file: UploadFile | None = File(None),
+    operations_file: UploadFile | None = File(None),
+    deck_canvas_file: UploadFile | None = File(None),
+    template_blueprint: str | None = Form(None),
+    operations: str | None = Form(None),
+    deck_canvas: str | None = Form(None),
     synced_deck_version: int = Form(...),
     render: bool = Form(True),
 ) -> PptxOoxmlSyncResult:
     from pathlib import Path
     from tempfile import TemporaryDirectory
 
+    try:
+        package_bytes = await read_pptx_package(file)
+        parsed_template_blueprint = cast(
+            dict[str, Any],
+            await parse_json_part(
+                field="template_blueprint",
+                upload=template_blueprint_file,
+                legacy_text=template_blueprint,
+                max_bytes=TEMPLATE_BLUEPRINT_MAX_BYTES,
+                expected="object",
+            ),
+        )
+        parsed_operations = cast(
+            list[dict[str, Any]],
+            await parse_json_part(
+                field="operations",
+                upload=operations_file,
+                legacy_text=operations,
+                max_bytes=OPERATIONS_MAX_BYTES,
+                expected="operations",
+            ),
+        )
+        parsed_deck_canvas = cast(
+            dict[str, Any],
+            await parse_json_part(
+                field="deck_canvas",
+                upload=deck_canvas_file,
+                legacy_text=deck_canvas,
+                max_bytes=DECK_CANVAS_MAX_BYTES,
+                expected="object",
+            ),
+        )
+    except PptxOoxmlSyncTransportError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.detail(),
+        ) from error
+
     with TemporaryDirectory(prefix="orbit-ooxml-sync-") as temp_dir:
         source_path = Path(temp_dir) / Path(file.filename or "current.pptx").name
-        source_path.write_bytes(await file.read())
+        source_path.write_bytes(package_bytes)
         try:
             return await run_in_threadpool(
                 sync_pptx_ooxml,
                 source_path,
-                template_blueprint=json.loads(template_blueprint),
-                operations=json.loads(operations),
-                deck_canvas=json.loads(deck_canvas),
+                template_blueprint=parsed_template_blueprint,
+                operations=parsed_operations,
+                deck_canvas=parsed_deck_canvas,
                 synced_deck_version=synced_deck_version,
                 render=render,
             )
-        except (json.JSONDecodeError, TypeError, ValueError) as error:
+        except (TypeError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         except PptxOoxmlGenerationError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
@@ -701,6 +767,39 @@ def process_rehearsal_audio_endpoint(
         return process_rehearsal_audio(payload, provider)
     except AudioTranscriptionError as exc:
         raise to_http_exception(exc) from exc
+
+
+@app.post("/slide-practice/analyze-audio", response_model=SlidePracticeAudioResponse)
+def process_slide_practice_audio_endpoint(
+    payload: AudioTranscribeRequest,
+    provider: ReportSttProviderDependency,
+) -> SlidePracticeAudioResponse:
+    try:
+        return process_slide_practice_audio(payload, provider)
+    except AudioTranscriptionError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@app.post(
+    "/slide-practice/coaching",
+    response_model=SlidePracticeCoachingResponse,
+)
+def generate_slide_practice_coaching_endpoint(
+    payload: SlidePracticeCoachingRequest,
+    request: Request,
+) -> SlidePracticeCoachingResponse:
+    config = _config(request)
+    try:
+        return generate_slide_practice_coaching(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except SlidePracticeCoachingError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Slide practice coaching generation failed.",
+        ) from error
 
 
 @app.post("/ai/generate-deck", response_model=GenerateDeckResponse)
@@ -733,11 +832,34 @@ def source_grounding_stage(
 ) -> SourceGroundingResult:
     config = _config(request)
     try:
-        return run_source_grounding_stage(
-            payload,
+        reference_context, degraded = _staged_reference_context(
+            payload.request,
+            config,
+        )
+        result = run_source_grounding_stage(
+            payload.model_copy(
+                update={
+                    "request": payload.request.model_copy(
+                        update={"reference_context": reference_context}
+                    )
+                }
+            ),
             model=config.openai_model,
             api_key=config.openai_api_key,
         )
+        if degraded:
+            result.warnings.append(
+                "Reference chunk retrieval was unavailable for some files; "
+                "generation continued with extracted text or web research."
+            )
+            if (
+                "REFERENCE_CHUNK_RETRIEVAL_DEGRADED"
+                not in result.raw_input.warning_codes
+            ):
+                result.raw_input.warning_codes.append(
+                    "REFERENCE_CHUNK_RETRIEVAL_DEGRADED"
+                )
+        return result
     except DeckContentGenerationError as error:
         raise HTTPException(
             status_code=503, detail=_planning_failure_detail(error)
@@ -1304,6 +1426,198 @@ def _generate_deck_reference_context(
         if result.file_id in file_ids and result.content.strip()
     ]
     return unique_reference_context([*direct_context, *searched_context])[:6]
+
+
+def _staged_reference_context(
+    payload: GenerateDeckRequest,
+    config: PythonWorkerConfig,
+) -> tuple[list[ReferenceContext], bool]:
+    policy = _reference_policy(payload)
+    if policy == "user-input-only":
+        return [], False
+
+    file_ids = list(
+        dict.fromkeys(
+            [reference.file_id for reference in payload.references]
+            or payload.reference_file_ids
+        )
+    )
+    if not file_ids:
+        return unique_reference_context(payload.reference_context), False
+
+    direct_by_file: dict[str, ReferenceContext] = {}
+    for context in payload.reference_context:
+        if (
+            context.file_id in file_ids
+            and context.content.strip()
+            and context.file_id not in direct_by_file
+        ):
+            direct_by_file[context.file_id] = context
+
+    if policy == "topic-only":
+        return list(direct_by_file.values()), False
+
+    query = " ".join(
+        dict.fromkeys(
+            value.strip()
+            for value in [
+                payload.topic,
+                payload.prompt,
+                payload.brief.audience_text,
+                str(payload.metadata.audience),
+                *[keyword.text for keyword in payload.reference_keywords],
+            ]
+            if value.strip()
+        )
+    )
+    try:
+        candidates, embedding_result = search_reference_chunks_by_file(
+            repository=PostgresReferenceRepository(config.database_url),
+            project_id=payload.project_id,
+            query=query or payload.topic,
+            file_ids=file_ids,
+            limit_per_file=3,
+            model=config.openai_embedding_model,
+            api_key=config.openai_api_key,
+        )
+    except Exception:
+        candidates = []
+        embedding_result = None
+
+    candidates = _unique_reference_chunks(
+        candidates,
+        project_id=payload.project_id,
+        file_ids=file_ids,
+    )
+    available_file_ids = {candidate.file_id for candidate in candidates}
+    missing_file_ids = [
+        file_id for file_id in file_ids if file_id not in available_file_ids
+    ]
+    search_succeeded = (
+        embedding_result is not None and embedding_result.status == "succeeded"
+    )
+    if policy == "references-only" and (
+        not search_succeeded or missing_file_ids
+    ):
+        raise DeckContentGenerationError(
+            "SOURCE_GROUNDING_REQUIRED: every selected reference requires an "
+            "indexed chunk."
+        )
+
+    if policy == "research-first":
+        research_chunks = sorted(candidates, key=_chunk_rank)[:4]
+        return _chunk_contexts(research_chunks, direct_by_file), bool(
+            not search_succeeded or missing_file_ids
+        )
+
+    selected: list[ReferenceSearchResult] = []
+    selected_keys: set[tuple[str, str]] = set()
+    fallback_contexts: list[ReferenceContext] = []
+    for file_id in file_ids:
+        best = next(
+            (candidate for candidate in candidates if candidate.file_id == file_id),
+            None,
+        )
+        if best is not None:
+            selected.append(best)
+            selected_keys.add((best.file_id, best.chunk_id))
+        elif policy == "references-first" and file_id in direct_by_file:
+            fallback_contexts.append(direct_by_file[file_id])
+
+    selected.extend(
+        candidate
+        for candidate in sorted(candidates, key=_chunk_rank)
+        if (candidate.file_id, candidate.chunk_id) not in selected_keys
+    )
+    selected = selected[: 12 - len(fallback_contexts)]
+    return [
+        *_chunk_contexts(selected, direct_by_file),
+        *fallback_contexts,
+    ], bool(not search_succeeded or missing_file_ids)
+
+
+def _reference_policy(payload: GenerateDeckRequest) -> ReferencePolicy:
+    return (
+        payload.reference_policy
+        or payload.design.reference_policy
+        or payload.brief.reference_policy
+    )
+
+
+def _unique_reference_chunks(
+    candidates: list[ReferenceSearchResult],
+    *,
+    project_id: str,
+    file_ids: list[str],
+) -> list[ReferenceSearchResult]:
+    allowed_file_ids = set(file_ids)
+    seen: set[tuple[str, str]] = set()
+    counts: dict[str, int] = {}
+    unique: list[ReferenceSearchResult] = []
+    for candidate in sorted(candidates, key=_chunk_rank):
+        normalized = " ".join(candidate.content.split()).casefold()
+        key = (candidate.file_id, normalized)
+        if (
+            candidate.project_id != project_id
+            or candidate.file_id not in allowed_file_ids
+            or not normalized
+            or key in seen
+            or counts.get(candidate.file_id, 0) >= 3
+        ):
+            continue
+        seen.add(key)
+        counts[candidate.file_id] = counts.get(candidate.file_id, 0) + 1
+        unique.append(candidate)
+    return unique
+
+
+def _chunk_rank(candidate: ReferenceSearchResult) -> tuple[float, int, str]:
+    return (-candidate.score, candidate.chunk_index, candidate.chunk_id)
+
+
+def _chunk_contexts(
+    candidates: list[ReferenceSearchResult],
+    direct_by_file: dict[str, ReferenceContext],
+) -> list[ReferenceContext]:
+    content_by_key = {
+        (candidate.file_id, candidate.chunk_id): candidate.content.strip()
+        for candidate in candidates
+    }
+    by_file: dict[str, list[ReferenceSearchResult]] = {}
+    for candidate in candidates:
+        by_file.setdefault(candidate.file_id, []).append(candidate)
+    for file_candidates in by_file.values():
+        ordered = sorted(file_candidates, key=lambda candidate: candidate.chunk_index)
+        for previous, current in zip(ordered, ordered[1:]):
+            if current.chunk_index == previous.chunk_index + 1:
+                key = (current.file_id, current.chunk_id)
+                content_by_key[key] = _remove_chunk_overlap(
+                    content_by_key[(previous.file_id, previous.chunk_id)],
+                    content_by_key[key],
+                )
+
+    contexts: list[ReferenceContext] = []
+    for candidate in candidates:
+        direct = direct_by_file.get(candidate.file_id)
+        contexts.append(ReferenceContext(
+            fileId=candidate.file_id,
+            sourceId=f"uploaded:{candidate.file_id}:{candidate.chunk_id}",
+            chunkId=candidate.chunk_id,
+            title=(
+                str(candidate.metadata.get("fileName", "")).strip()
+                or (direct.title if direct else "")
+            ),
+            content=content_by_key[(candidate.file_id, candidate.chunk_id)],
+        ))
+    return contexts
+
+
+def _remove_chunk_overlap(previous: str, current: str) -> str:
+    max_overlap = min(150, len(previous), len(current))
+    for size in range(max_overlap, 19, -1):
+        if previous[-size:] == current[:size]:
+            return current[size:].lstrip() or current
+    return current
 
 
 def unique_reference_context(items: list[ReferenceContext]) -> list[ReferenceContext]:

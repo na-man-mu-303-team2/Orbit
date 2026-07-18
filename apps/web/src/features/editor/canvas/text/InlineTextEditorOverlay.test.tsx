@@ -1,0 +1,93 @@
+import { createDemoDeck, normalizeRichTextProps } from "@orbit/editor-core";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+
+import { InlineTextEditorOverlay } from "./InlineTextEditorOverlay";
+
+function getRichTextFixture() {
+  const deck = createDemoDeck();
+  const slide = deck.slides[0]!;
+  const source = slide.elements.find((candidate) => candidate.type === "text");
+  if (!source || source.type !== "text") {
+    throw new Error("text fixture is required");
+  }
+
+  const firstParagraphText = "A😀 <script>alert(1)</script>";
+  const secondParagraphText = "둘째 줄";
+  const element = {
+    ...source,
+    props: normalizeRichTextProps({
+      ...source.props,
+      paragraphs: [
+        {
+          align: "left",
+          indent: 0,
+          lineHeight: 1.2,
+          runs: [
+            {
+              baseline: "normal",
+              fontWeight: "bold",
+              text: "A😀",
+            },
+            {
+              baseline: "normal",
+              italic: true,
+              text: " <script>alert(1)</script>",
+            },
+          ],
+          spaceAfter: 0,
+          spaceBefore: 0,
+          text: firstParagraphText,
+        },
+        {
+          align: "right",
+          indent: 0,
+          lineHeight: 1.4,
+          runs: [
+            {
+              baseline: "normal",
+              text: secondParagraphText,
+              underline: true,
+            },
+          ],
+          spaceAfter: 0,
+          spaceBefore: 0,
+          text: secondParagraphText,
+        },
+      ],
+      text: `${firstParagraphText}\n${secondParagraphText}`,
+    }),
+  };
+
+  return { deck, element, slide };
+}
+
+describe("InlineTextEditorOverlay", () => {
+  it("renders an accessible uncontrolled contentEditable tree from canonical paragraphs and runs", () => {
+    const { deck, element, slide } = getRichTextFixture();
+
+    const html = renderToStaticMarkup(
+      <InlineTextEditorOverlay
+        deck={deck}
+        element={element}
+        slide={slide}
+        stageScale={1}
+        onCommitProps={vi.fn()}
+        onFinishEditing={vi.fn()}
+      />,
+    );
+
+    expect(html).toMatch(/contenteditable="true"/i);
+    expect(html).toContain('role="textbox"');
+    expect(html).toContain('aria-multiline="true"');
+    expect(html).toContain('data-text-paragraph-index="0"');
+    expect(html).toContain('data-text-paragraph-index="1"');
+    expect(html.match(/data-text-run-index=/g)).toHaveLength(3);
+    expect(html).toContain("A😀");
+    expect(html).toContain("둘째 줄");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("<textarea");
+    expect(html).not.toMatch(/\svalue=/i);
+  });
+});

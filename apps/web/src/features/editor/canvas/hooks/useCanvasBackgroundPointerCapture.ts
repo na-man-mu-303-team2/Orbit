@@ -3,7 +3,7 @@ import type Konva from "konva";
 import { useEffect, useRef } from "react";
 
 import {
-  getRotatedFrameBounds,
+  getRotatedElementAabb,
   isCanvasPointInsideElementSelectionArea
 } from "../utils/canvasInteractionUtils";
 import type { CustomShapeEditDraft } from "./types";
@@ -29,7 +29,7 @@ export function isCanvasPointInsideSelectedTransformerArea(args: {
   const selectedElementIdSet = new Set(args.selectedElementIds);
   const selectedBounds = args.elements
     .filter((element) => selectedElementIdSet.has(element.elementId))
-    .map(getRotatedFrameBounds);
+    .map(getRotatedElementAabb);
 
   if (selectedBounds.length === 0) {
     return false;

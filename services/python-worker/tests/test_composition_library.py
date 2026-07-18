@@ -12,7 +12,7 @@ from app.ai.composition_library import (
     design_program_snapshot,
     normalize_design_program,
 )
-from app.ai.design_program import DeckDesignProgram
+from app.ai.design_program import ART_DIRECTOR_INSTRUCTIONS, DeckDesignProgram
 
 
 def program(slides: list[dict[str, Any]]) -> DeckDesignProgram:
@@ -85,9 +85,25 @@ def test_each_composition_compiles_editable_elements(composition_id: str) -> Non
 
     element_ids = {element["elementId"] for element in compiled.elements}
     assert compiled.primary_focal_element_id in element_ids
-    assert all(element["width"] > 0 and element["height"] > 0 for element in compiled.elements)
+    assert all(
+        element["width"] > 0 and element["height"] > 0 for element in compiled.elements
+    )
     assert all(element["x"] + element["width"] <= 1920 for element in compiled.elements)
-    assert all(element["y"] + element["height"] <= 1080 for element in compiled.elements)
+    assert all(
+        element["y"] + element["height"] <= 1080 for element in compiled.elements
+    )
+
+
+def test_diagram_first_policy_is_explicit_in_art_director_contract() -> None:
+    for composition_id in (
+        "process-horizontal",
+        "timeline",
+        "diagram-hub",
+        "metric-poster",
+        "kpi-strip-evidence",
+        "feature-comparison",
+    ):
+        assert composition_id in ART_DIRECTOR_INSTRUCTIONS
 
 
 def test_full_bleed_cover_omits_visible_placeholder_caption() -> None:

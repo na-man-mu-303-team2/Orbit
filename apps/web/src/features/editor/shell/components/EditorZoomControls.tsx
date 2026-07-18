@@ -5,8 +5,11 @@ import {
 } from "@tabler/icons-react";
 
 type EditorZoomControlsProps = {
+  canZoomIn: boolean;
+  canZoomOut: boolean;
   isFitToViewport: boolean;
   onFitToViewport: () => void;
+  onZoomToActualSize: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   scale: number;
@@ -14,22 +17,33 @@ type EditorZoomControlsProps = {
 
 export function EditorZoomControls(props: EditorZoomControlsProps) {
   return (
-    <div className="canvas-zoom-controls" role="group" aria-label="슬라이드 확대 및 축소">
-      <button aria-label="슬라이드 축소" title="축소" type="button" onClick={props.onZoomOut}>
+    <div className="canvas-zoom-controls" role="group" aria-label="캔버스 확대/축소">
+      <button aria-label="캔버스 축소" disabled={!props.canZoomOut} title="축소" type="button" onClick={props.onZoomOut}>
         <IconZoomOut size={16} />
       </button>
       <button
-        aria-label="슬라이드를 작업 영역에 맞춤"
+        aria-label="캔버스에 맞추기"
+        aria-pressed={props.isFitToViewport}
         className={props.isFitToViewport ? "active" : ""}
         title="작업 영역에 맞춤"
         type="button"
         onClick={props.onFitToViewport}
       >
         <IconFocusCentered size={16} />
-        <span>{Math.round(props.scale * 100)}%</span>
+        <output aria-label="현재 확대/축소" aria-live="polite">
+          {Math.round(props.scale * 100)}%
+        </output>
       </button>
-      <button aria-label="슬라이드 확대" title="확대" type="button" onClick={props.onZoomIn}>
+      <button aria-label="캔버스 확대" disabled={!props.canZoomIn} title="확대" type="button" onClick={props.onZoomIn}>
         <IconZoomIn size={16} />
+      </button>
+      <button
+        aria-label="100%로 보기"
+        aria-pressed={!props.isFitToViewport && Math.round(props.scale * 100) === 100}
+        type="button"
+        onClick={props.onZoomToActualSize}
+      >
+        100%
       </button>
     </div>
   );

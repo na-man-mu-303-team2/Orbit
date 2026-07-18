@@ -41,6 +41,22 @@ final result: passed
 
 ---
 
+## Editor Practice Filler Chart (2026-07-17)
+
+- Source visual truth: `C:\Users\home\AppData\Local\Temp\codex-clipboard-3231a434-5fc9-4bb5-a91a-258eb4826554.png` and `C:\Users\home\AppData\Local\Temp\codex-clipboard-4c167aae-4e63-4431-baf3-1aacfbf36c4b.png`.
+- Implementation evidence: `C:\Users\home\AppData\Local\Temp\orbit-practice-result-qa-v2.png` and `C:\Users\home\AppData\Local\Temp\orbit-practice-result-qa-mobile-v2.png`.
+- Viewport/state: `1000x650` and `600x760`; completed practice with 3 filler expressions, 6 total uses, `lullaby` style, and measured voice metrics.
+- Full-view comparison: the filler-share pie chart and its expression/count/percentage legend render above the existing style, filler total, speech rate, pause ratio, and pitch span summary. The source images are conceptual layout references rather than a pixel-complete mock.
+- Focused comparison: a separate crop was unnecessary because the desktop capture keeps every slice, legend value, style message, and metric readable; the second viewport separately verifies the compact layout.
+- Fonts and typography: existing Pretendard/ORBIT hierarchy is preserved. Spacing and layout: chart and legend read as one centered group, and the compact layout stacks without horizontal overflow. Colors and tokens: the existing color-blind-safe rehearsal palette and ORBIT surface/border/text tokens are reused. Image quality: the dynamic vector data visualization stays sharp without a raster asset. Copy: expression, count, percentage, and the existing voice feedback remain visible.
+- Comparison history: the first desktop capture (`orbit-practice-result-qa.png`) exposed a P2 overly wide legend; limiting both chart columns fixed it in `orbit-practice-result-qa-v2.png`. The first 600px capture (`orbit-practice-result-qa-mobile.png`) exposed the same P2 after stacking; a 360px legend maximum fixed it in `orbit-practice-result-qa-mobile-v2.png`.
+- Browser verification: Chrome reported 3 legend items, chart-before-summary DOM order, no horizontal overflow, no console errors, and no HTTP 4xx/5xx resources at both viewports. The result visualization has no independent interactive control, so the completed state was the primary checked state.
+- Findings: no remaining P0/P1/P2 or P3 visual issue.
+
+final result: passed
+
+---
+
 ## AI Deck Story Review — 시안 3 (2026-07-16)
 
 - Source visual truth: current task attachment `codex-clipboard-28cf4a8d-d18b-4153-8ce6-48ede150c5a9.png`, 1680×941.

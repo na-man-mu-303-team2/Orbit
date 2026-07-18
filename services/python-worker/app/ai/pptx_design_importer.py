@@ -876,6 +876,11 @@ def build_template_blueprint(
             {
                 "slideIndex": index + 1,
                 "sourceSlideIndex": int(slide.get("sourceSlideIndex", index + 1)),
+                **(
+                    {"sourceSlidePart": str(slide["sourceSlidePart"])}
+                    if slide.get("sourceSlidePart")
+                    else {}
+                ),
                 **template_slide_metadata(slide),
                 "elementSources": [
                     source

@@ -9,6 +9,7 @@ import type {
 import type { ComponentProps } from "react";
 
 import { getCustomShapeAbsoluteNodes } from "../../canvas/custom-shape/geometry";
+import type { ImageCropActionState } from "../../canvas/image/imageCropSession";
 import { SelectionQuickBar } from "./SelectionQuickBar";
 import type { ElementLayerOrderAction } from "../utils/elementLayerOrder";
 
@@ -18,6 +19,7 @@ type EditorSelectionPropertiesProps = {
   canvas: Deck["canvas"];
   customShapeEditActive: boolean;
   element: DeckElement | null;
+  imageCropActionState?: ImageCropActionState;
   onChangeElementFrame: (
     slideId: string,
     elementId: string,
@@ -33,6 +35,7 @@ type EditorSelectionPropertiesProps = {
     elementId: string,
     action: ElementLayerOrderAction,
   ) => void;
+  onConvertChartToTable: (slideId: string, elementId: string) => void;
   onChangeSlideStyle: ComponentProps<typeof SelectionQuickBar>["onChangeSlideStyle"];
   onChangeTheme: ComponentProps<typeof SelectionQuickBar>["onChangeTheme"];
   onCloseInlineEditing: () => void;
@@ -44,6 +47,7 @@ type EditorSelectionPropertiesProps = {
   ) => void;
   onDeleteAnimation: (slideId: string, animationId: string) => void;
   onOpenAnimationEditor: () => void;
+  onStartImageCrop?: () => void;
   onToggleCustomShapeEdit: (elementId: string) => void;
   selectedKeywordLabel: string | null;
   showIds: boolean;
@@ -67,6 +71,7 @@ export function EditorSelectionProperties(props: EditorSelectionPropertiesProps)
       canvas={props.canvas}
       customShapeEditActive={props.customShapeEditActive}
       element={element}
+      imageCropActionState={props.imageCropActionState}
       key={element?.elementId ?? slide?.slideId ?? "none"}
       selectedKeywordLabel={props.selectedKeywordLabel}
       showIds={props.showIds}
@@ -83,12 +88,18 @@ export function EditorSelectionProperties(props: EditorSelectionPropertiesProps)
       onChangeProps={(nextProps) => {
         if (element && slide) props.onChangeElementProps(slide.slideId, element.elementId, nextProps);
       }}
+      onConvertChartToTable={() => {
+        if (element?.type === "chart" && slide) {
+          props.onConvertChartToTable(slide.slideId, element.elementId);
+        }
+      }}
       onChangeSlideStyle={props.onChangeSlideStyle}
       onChangeTheme={props.onChangeTheme}
       onDeleteAnimation={(animationId) => {
         if (slide) props.onDeleteAnimation(slide.slideId, animationId);
       }}
       onOpenAnimationEditor={props.onOpenAnimationEditor}
+      onStartImageCrop={props.onStartImageCrop}
       onToggleCustomShapeClosed={() => {
         if (!element || !slide || element.type !== "customShape") return;
         props.onCommitCustomShapeGeometry(

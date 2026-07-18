@@ -74,6 +74,7 @@ export type SpeechTracker = {
   acceptPrompterBoundary: (boundary: PrompterBoundary) => boolean;
   manualNextPrompter: (atMs: number) => boolean;
   manualPreviousPrompter: (atMs: number) => boolean;
+  skipCurrentPrompter: (atMs: number) => boolean;
   exitSlide: (atMs: number) => SpeechTrackingEvent[];
   resetForSlideVisit: () => void;
   snapshot: () => SpeechTrackerSnapshot;
@@ -380,6 +381,14 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     return moved;
   }
 
+  function skipCurrentPrompter(atMs: number) {
+    const moved = prompterProgressTracker.skipCurrent(atMs);
+    if (moved) {
+      refreshPrompterLexicalEvidence();
+    }
+    return moved;
+  }
+
   function resetForSlideVisit() {
     const nextVisit = createVisitState();
     Object.assign(visit, nextVisit);
@@ -414,6 +423,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     acceptPrompterBoundary,
     manualNextPrompter,
     manualPreviousPrompter,
+    skipCurrentPrompter,
     exitSlide,
     resetForSlideVisit,
     snapshot

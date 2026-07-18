@@ -10,6 +10,7 @@ import type {
 } from "@orbit/shared";
 
 import { createDemoDeck } from "../index";
+import { applyRichTextCharacterStyle } from "../text/richTextOperations";
 import { applyDeckPatch } from "./applyPatch";
 import type { ApplyDeckPatchResult, ApplyDeckPatchSuccess } from "./deckPatch";
 
@@ -331,6 +332,40 @@ describe("applyDeckPatch", () => {
     expect(result.deck.slides.map((slide) => slide.slideId)).toEqual([
       "slide_1",
     ]);
+    expect(result.deck.slides.map((slide) => slide.order)).toEqual([1]);
+  });
+
+  it("normalizes remaining slide orders after deleting a middle slide", () => {
+    const deck = createDeckWithSecondSlide();
+    deck.slides.push(createSlide("slide_3", 3));
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([{ type: "delete_slide", slideId: "slide_2" }]),
+    );
+
+    expect(
+      result.deck.slides.map((slide) => [slide.slideId, slide.order]),
+    ).toEqual([
+      ["slide_1", 1],
+      ["slide_3", 2],
+    ]);
+  });
+
+  it("rejects deleting the final slide without mutating the input deck", () => {
+    const deck = createPatchTestDeck();
+    const before = structuredClone(deck);
+
+    const result = applyDeckPatch(
+      deck,
+      createPatch([{ type: "delete_slide", slideId: "slide_1" }]),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "LAST_SLIDE_DELETE_FORBIDDEN" },
+    });
+    expect(deck).toEqual(before);
   });
 
   it("reorders slides", () => {
@@ -357,6 +392,56 @@ describe("applyDeckPatch", () => {
       "slide_2",
       "slide_1",
     ]);
+    expect(result.deck.slides.map((slide) => slide.order)).toEqual([1, 2]);
+  });
+
+  it.each([
+    {
+      name: "missing slide ID",
+      slideOrders: [{ slideId: "slide_1", order: 1 }],
+    },
+    {
+      name: "duplicate slide ID",
+      slideOrders: [
+        { slideId: "slide_1", order: 1 },
+        { slideId: "slide_1", order: 2 },
+      ],
+    },
+    {
+      name: "unknown slide ID",
+      slideOrders: [
+        { slideId: "slide_1", order: 1 },
+        { slideId: "slide_missing", order: 2 },
+      ],
+    },
+    {
+      name: "duplicate order",
+      slideOrders: [
+        { slideId: "slide_1", order: 1 },
+        { slideId: "slide_2", order: 1 },
+      ],
+    },
+    {
+      name: "out-of-range order",
+      slideOrders: [
+        { slideId: "slide_1", order: 1 },
+        { slideId: "slide_2", order: 3 },
+      ],
+    },
+  ])("rejects reorder input with $name without mutating the deck", ({ slideOrders }) => {
+    const deck = createDeckWithSecondSlide();
+    const before = structuredClone(deck);
+
+    const result = applyDeckPatch(
+      deck,
+      createPatch([{ type: "reorder_slides", slideOrders }]),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_SLIDE_REORDER" },
+    });
+    expect(deck).toEqual(before);
   });
 
   it("adds an element", () => {
@@ -477,6 +562,33 @@ describe("applyDeckPatch", () => {
           props: { fontSize: 36, color: "#111827" },
         },
       ]),
+    );
+
+    expect(result.deck.slides[0].semanticCues[0].freshness).toBe("current");
+  });
+
+  it("does not mark cues stale when a style edit canonicalizes legacy text", () => {
+    const deck = createPatchTestDeck();
+    deck.slides[0].semanticCues = [createSemanticCue()];
+    const element = deck.slides[0].elements[0];
+    expect(element?.type).toBe("text");
+    if (!element || element.type !== "text") return;
+    const props = applyRichTextCharacterStyle(
+      element.props,
+      { start: 0, end: 2 },
+      { italic: true }
+    );
+
+    const result = applyPatchOrFail(
+      deck,
+      createPatch([
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: element.elementId,
+          props
+        }
+      ])
     );
 
     expect(result.deck.slides[0].semanticCues[0].freshness).toBe("current");
@@ -1202,8 +1314,10 @@ describe("applyDeckPatch", () => {
       createPatchTestDeck(),
       createPatch([
         {
-          type: "delete_slide",
+          type: "update_element_props",
           slideId: "slide_1",
+          elementId: "el_1",
+          props: { fontSize: -1 },
         },
       ]),
     );
