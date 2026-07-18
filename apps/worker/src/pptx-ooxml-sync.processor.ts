@@ -157,6 +157,29 @@ type ImageAssetRow = {
 
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const jsonMimeType = "application/json";
+export const ooxmlSyncJsonPartLimits = {
+  template_blueprint: 16 * 1024 * 1024,
+  operations: 72 * 1024 * 1024,
+  deck_canvas: 4 * 1024,
+} as const;
+
+const ooxmlSyncTransportErrorDetailSchema = z.object({
+  detail: z.object({
+    code: z.enum([
+      "PPTX_OOXML_SYNC_PACKAGE_MIME_INVALID",
+      "PPTX_OOXML_SYNC_PACKAGE_TOO_LARGE",
+      "PPTX_OOXML_SYNC_PART_DUPLICATED",
+      "PPTX_OOXML_SYNC_PART_MIME_INVALID",
+      "PPTX_OOXML_SYNC_PART_MISSING",
+      "PPTX_OOXML_SYNC_PART_TOO_LARGE",
+      "PPTX_OOXML_SYNC_JSON_INVALID",
+      "PPTX_OOXML_SYNC_JSON_SCHEMA_INVALID",
+    ]),
+    field: z.enum(["file", "template_blueprint", "operations", "deck_canvas"]),
+    maxBytes: z.number().int().positive().optional(),
+  }),
+});
 
 class UnsupportedOoxmlOperationsError extends Error {
   constructor(
@@ -169,6 +192,21 @@ class UnsupportedOoxmlOperationsError extends Error {
       `${operation.operationType}:${operation.reasonCode}${target ? `:${target}` : ""}`,
     );
     this.name = "UnsupportedOoxmlOperationsError";
+  }
+}
+
+export class OoxmlSyncTransportError extends Error {
+  constructor(
+    readonly code: z.infer<
+      typeof ooxmlSyncTransportErrorDetailSchema
+    >["detail"]["code"],
+    readonly field: z.infer<
+      typeof ooxmlSyncTransportErrorDetailSchema
+    >["detail"]["field"],
+    readonly maxBytes?: number,
+  ) {
+    super(`${code}:${field}${maxBytes === undefined ? "" : `:${maxBytes}`}`);
+    this.name = "OoxmlSyncTransportError";
   }
 }
 
@@ -324,6 +362,16 @@ export async function processPptxOoxmlSyncJob(
         payload.jobId,
         50,
         "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+        error.message,
+        false,
+      );
+    }
+    if (error instanceof OoxmlSyncTransportError) {
+      return failJob(
+        dataSource,
+        payload.jobId,
+        50,
+        error.code,
         error.message,
         false,
       );
@@ -609,21 +657,40 @@ async function syncPptxOoxmlWithPython(
   deckCanvas: DeckCanvas,
   operations: DeckPatchOperation[],
 ): Promise<PptxOoxmlSyncWorkerResponse> {
+  const ooxmlOperations = operations
+    .filter(isOoxmlSyncOperation)
+    .map((operation) => withSourceSlideId(operation, templateBlueprint));
+  const form = new FormData();
+  appendJsonFilePart(
+    form,
+    "template_blueprint_file",
+    "template-blueprint.json",
+    "template_blueprint",
+    templateBlueprint,
+  );
+  appendJsonFilePart(
+    form,
+    "operations_file",
+    "operations.json",
+    "operations",
+    ooxmlOperations,
+  );
+  appendJsonFilePart(
+    form,
+    "deck_canvas_file",
+    "deck-canvas.json",
+    "deck_canvas",
+    deckCanvas,
+  );
+  form.append("synced_deck_version", String(targetDeckVersion));
+  form.append("render", "true");
+
   const readUrl = await storage.getSignedReadUrl(asset.storage_key);
   const sourceResponse = await fetch(readUrl);
   if (!sourceResponse.ok) {
     throw new Error(`PPTX package content unavailable: ${asset.file_id}`);
   }
 
-  const form = new FormData();
-  const ooxmlOperations = operations
-    .filter(isOoxmlSyncOperation)
-    .map((operation) => withSourceSlideId(operation, templateBlueprint));
-  form.append("template_blueprint", JSON.stringify(templateBlueprint));
-  form.append("operations", JSON.stringify(ooxmlOperations));
-  form.append("deck_canvas", JSON.stringify(deckCanvas));
-  form.append("synced_deck_version", String(targetDeckVersion));
-  form.append("render", "true");
   form.append(
     "file",
     new Blob([Buffer.from(await sourceResponse.arrayBuffer())], {
@@ -642,14 +709,10 @@ async function syncPptxOoxmlWithPython(
   );
 
   if (!response.ok) {
-    throw new Error(
-      (await response.text()) || "Python worker PPTX sync failed.",
-    );
+    throw await parseOoxmlSyncFailure(response);
   }
 
-  const synced = pptxOoxmlSyncWorkerResponseSchema.parse(
-    await response.json(),
-  );
+  const synced = pptxOoxmlSyncWorkerResponseSchema.parse(await response.json());
   const unsupported = synced.unsupportedOperations[0];
   if (unsupported) {
     throw new UnsupportedOoxmlOperationsError(unsupported);
@@ -662,6 +725,49 @@ async function syncPptxOoxmlWithPython(
     throw new UnsupportedOoxmlOperationsError(incompleteOperation);
   }
   return synced;
+}
+
+export function appendJsonFilePart(
+  form: FormData,
+  multipartField: string,
+  fileName: string,
+  logicalField: keyof typeof ooxmlSyncJsonPartLimits,
+  value: unknown,
+): void {
+  const content = JSON.stringify(value);
+  const maxBytes = ooxmlSyncJsonPartLimits[logicalField];
+  if (Buffer.byteLength(content, "utf8") > maxBytes) {
+    throw new OoxmlSyncTransportError(
+      "PPTX_OOXML_SYNC_PART_TOO_LARGE",
+      logicalField,
+      maxBytes,
+    );
+  }
+  form.append(
+    multipartField,
+    new Blob([content], { type: jsonMimeType }),
+    fileName,
+  );
+}
+
+async function parseOoxmlSyncFailure(response: Response): Promise<Error> {
+  try {
+    const parsed = ooxmlSyncTransportErrorDetailSchema.safeParse(
+      await response.json(),
+    );
+    if (parsed.success) {
+      return new OoxmlSyncTransportError(
+        parsed.data.detail.code,
+        parsed.data.detail.field,
+        parsed.data.detail.maxBytes,
+      );
+    }
+  } catch {
+    // The bounded generic error below deliberately excludes provider response text.
+  }
+  return new Error(
+    `Python worker PPTX sync failed with HTTP ${response.status}.`,
+  );
 }
 
 function findIncompleteAppliedOperation(

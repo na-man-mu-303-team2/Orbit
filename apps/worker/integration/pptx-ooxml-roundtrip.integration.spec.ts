@@ -545,7 +545,9 @@ async function startFakePythonWorker() {
       body.match(/name="synced_deck_version"\r\n\r\n(\d+)/)?.[1] ?? 0,
     );
     const operations = JSON.parse(
-      body.match(/name="operations"\r\n\r\n([^\r\n]+)/)?.[1] ?? "[]",
+      body.match(
+        /name="operations_file"; filename="operations.json"\r\nContent-Type: application\/json\r\n\r\n([^\r\n]+)/,
+      )?.[1] ?? "[]",
     ) as Array<{
       type: string;
       slideId?: string;
