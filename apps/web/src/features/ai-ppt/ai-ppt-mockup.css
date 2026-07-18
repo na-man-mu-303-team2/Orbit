@@ -1867,6 +1867,8 @@
 }
 
 .ai-ppt-policy-trigger.redesign-button {
+  background: var(--redesign-color-surface-container-lowest);
+  border: var(--redesign-border-subtle);
   color: var(--redesign-color-on-surface);
   cursor: pointer;
   font-weight: 450;
