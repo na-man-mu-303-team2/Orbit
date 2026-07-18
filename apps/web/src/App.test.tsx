@@ -451,6 +451,8 @@ describe("workspace project surfaces", () => {
     expect(html).not.toContain('aria-label="프로젝트 새로고침"');
     expect(html).toContain("빈 프로젝트");
     expect(html).toContain("PPTX 업로드");
+    expect(html).toContain("orbit-project-commandbar-action orbit-project-commandbar-blank");
+    expect(html).toContain("orbit-project-commandbar-action orbit-project-commandbar-upload");
     expect(html).toContain('class="orbit-project-gallery"');
     expect(html).toContain('aria-label="프로젝트 1 고정"');
     expect(html).toContain('aria-label="프로젝트 1 리허설 시작"');

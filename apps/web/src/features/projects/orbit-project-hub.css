@@ -58,9 +58,15 @@
   background: var(--redesign-color-primary-emphasis);
 }
 
-.orbit-project-commandbar-upload {
+.orbit-project-commandbar-action {
   border: var(--redesign-border-subtle);
-  background: var(--redesign-color-light-surface);
+  background: var(--redesign-color-surface-container-lowest);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-project-commandbar-action:hover:not(:disabled) {
+  border-color: var(--redesign-color-outline);
+  background: var(--redesign-color-surface-container-low);
 }
 
 .orbit-project-sort-menu {

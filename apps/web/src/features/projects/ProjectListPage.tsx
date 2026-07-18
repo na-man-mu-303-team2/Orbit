@@ -284,28 +284,26 @@ export function ProjectListPage(props: {
               >
                 AI 발표자료 만들기
               </OrbitButton>
-              <OrbitButton
+              <ProjectCommandbarAction
                 className="orbit-project-commandbar-blank"
                 disabled={isImportingPptx}
                 icon={<IconPlus aria-hidden="true" size={18} />}
                 loading={isCreating}
                 onClick={() => void createBlankProject()}
-                variant="secondary"
               >
                 {isCreating ? "생성 중" : "빈 프로젝트"}
-              </OrbitButton>
-              <OrbitButton
+              </ProjectCommandbarAction>
+              <ProjectCommandbarAction
                 className="orbit-project-commandbar-upload"
                 disabled={isCreating}
                 icon={<IconFileUpload aria-hidden="true" size={18} />}
                 loading={isImportingPptx}
                 onClick={() => pptxInputRef.current?.click()}
-                variant="quiet"
               >
                 {pptxImportPhase === "importing"
                   ? "PPTX 변환 중"
                   : "PPTX 업로드"}
-              </OrbitButton>
+              </ProjectCommandbarAction>
               <input
                 accept={pptxImportAccept}
                 aria-label="PPTX 파일 선택"
@@ -352,6 +350,33 @@ export function ProjectListPage(props: {
         </>
       )}
     </WorkspaceContainer>
+  );
+}
+
+function ProjectCommandbarAction(props: {
+  children: ReactNode;
+  className?: string;
+  disabled?: boolean;
+  icon: ReactNode;
+  loading?: boolean;
+  onClick: () => void;
+}) {
+  const className = [
+    "orbit-project-commandbar-action",
+    props.className,
+  ].filter(Boolean).join(" ");
+
+  return (
+    <OrbitButton
+      className={className}
+      disabled={props.disabled}
+      icon={props.icon}
+      loading={props.loading}
+      onClick={props.onClick}
+      variant="quiet"
+    >
+      {props.children}
+    </OrbitButton>
   );
 }
 
