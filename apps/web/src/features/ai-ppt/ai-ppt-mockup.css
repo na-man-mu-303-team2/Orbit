@@ -1646,11 +1646,16 @@
 }
 
 .ai-ppt-steps {
+  --ai-ppt-step-arrow-balance: 11px;
+  --ai-ppt-step-arrow-depth: 22px;
+
   background: var(--redesign-color-surface-container-lowest);
   border: 1px solid var(--redesign-color-primary-outline);
   border-radius: var(--redesign-radius-full);
   gap: 0;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns:
+    calc(50% + var(--ai-ppt-step-arrow-balance))
+    calc(50% - var(--ai-ppt-step-arrow-balance));
   margin: 0 auto;
   max-width: 640px;
   overflow: hidden;
@@ -1672,13 +1677,14 @@
 }
 
 .ai-ppt-step:first-child {
-  clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 50%, calc(100% - 22px) 100%, 0 100%);
-  padding-right: var(--redesign-space-11);
-  z-index: 1;
+  clip-path: polygon(0 0, calc(100% - var(--ai-ppt-step-arrow-depth)) 0, 100% 50%, calc(100% - var(--ai-ppt-step-arrow-depth)) 100%, 0 100%);
+  padding-right: var(--redesign-space-8);
+  z-index: 2;
 }
 
 .ai-ppt-step:last-child {
-  padding-left: var(--redesign-space-11);
+  margin-left: calc(0px - var(--ai-ppt-step-arrow-depth));
+  padding-left: var(--redesign-space-8);
 }
 
 .ai-ppt-step:not(:last-child)::after {
