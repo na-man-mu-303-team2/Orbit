@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fitEditorZoomState,
   persistProjectEditorZoom,
-  readProjectEditorZoom,
   resolveEditorStageScale,
   stepEditorZoom,
   type EditorZoomState
@@ -25,12 +24,12 @@ export function useEditorViewport(args: {
   const [projectEditorZoom, setProjectEditorZoom] =
     useState<ProjectEditorZoomState>(() => ({
       projectId,
-      zoom: readProjectEditorZoom(projectId)
+      zoom: fitEditorZoomState
     }));
   const zoom =
     projectEditorZoom.projectId === projectId
       ? projectEditorZoom.zoom
-      : readProjectEditorZoom(projectId);
+      : fitEditorZoomState;
   const [editorViewportWidth, setEditorViewportWidth] = useState<number | null>(null);
   const [canvasViewport, setCanvasViewport] = useState<{
     height: number;
@@ -43,7 +42,7 @@ export function useEditorViewport(args: {
     setProjectEditorZoom((current) =>
       current.projectId === projectId
         ? current
-        : { projectId, zoom: readProjectEditorZoom(projectId) }
+        : { projectId, zoom: fitEditorZoomState }
     );
   }, [projectId]);
 
