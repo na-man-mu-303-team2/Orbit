@@ -1,5 +1,6 @@
 import type {
   GeneratedImageProvider,
+  GeneratedImageReferenceImage,
   ImageAssetCandidate,
   OfficialImageProvider,
   PublicImageSearchProvider
@@ -23,8 +24,13 @@ export class OpenAiGeneratedImageProvider implements GeneratedImageProvider {
   async generate(input: {
     prompt: string;
     aspectRatio?: "landscape" | "portrait" | "square";
+    referenceImages?: readonly GeneratedImageReferenceImage[];
     abortSignal?: AbortSignal;
   }): Promise<ImageAssetCandidate> {
+    const referenceImages = input.referenceImages;
+    if (referenceImages?.length) {
+      return this.editFromReferences({ ...input, referenceImages });
+    }
     const response = await fetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: {
@@ -43,6 +49,63 @@ export class OpenAiGeneratedImageProvider implements GeneratedImageProvider {
         quality: "medium",
         output_format: "png"
       }),
+      signal: input.abortSignal
+    });
+    if (!response.ok) {
+      throw new Error(`OpenAI image generation failed with status ${response.status}`);
+    }
+    const payload = (await response.json()) as {
+      data?: Array<{ b64_json?: string }>;
+    };
+    const encoded = payload.data?.[0]?.b64_json;
+    if (!encoded) throw new Error("OpenAI image generation returned no image data");
+    const body = Uint8Array.from(Buffer.from(encoded, "base64"));
+    assertImageSize(body);
+    return {
+      body,
+      mimeType: "image/png",
+      fileName: "ai-generated.png",
+      provider: "openai",
+      checkedAt: new Date().toISOString(),
+      generationPrompt: input.prompt,
+      sourceAuthority: "unknown",
+      usageBasis: "generated"
+    };
+  }
+
+  private async editFromReferences(input: {
+    prompt: string;
+    aspectRatio?: "landscape" | "portrait" | "square";
+    referenceImages: readonly GeneratedImageReferenceImage[];
+    abortSignal?: AbortSignal;
+  }): Promise<ImageAssetCandidate> {
+    const form = new FormData();
+    form.set("model", this.model);
+    form.set("prompt", input.prompt);
+    form.set(
+      "size",
+      input.aspectRatio === "portrait"
+        ? "1024x1536"
+        : input.aspectRatio === "square"
+          ? "1024x1024"
+          : "1536x1024",
+    );
+    form.set("quality", "medium");
+    form.set("output_format", "png");
+    form.set("input_fidelity", "high");
+    for (const reference of input.referenceImages) {
+      form.append(
+        "image[]",
+        new Blob([reference.body], { type: reference.mimeType }),
+        reference.fileName,
+      );
+    }
+    const response = await fetch("https://api.openai.com/v1/images/edits", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${this.apiKey}`
+      },
+      body: form,
       signal: input.abortSignal
     });
     if (!response.ok) {

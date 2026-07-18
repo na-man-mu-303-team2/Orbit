@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { jobSchema } from "../jobs/job.schema";
-import { deckIdSchema, deckSlideIdSchema } from "./id.schema";
+import { deckElementIdSchema, deckIdSchema, deckSlideIdSchema } from "./id.schema";
 
 export const designImageAspectRatioSchema = z.enum([
   "landscape",
@@ -9,11 +9,30 @@ export const designImageAspectRatioSchema = z.enum([
   "square",
 ]);
 
+export const selectedDesignImageReferenceSchema = z.object({
+  elementId: deckElementIdSchema,
+  fileId: z.string().trim().min(1),
+  projectId: z.string().trim().min(1),
+  src: z.string().trim().min(1),
+  alt: z.string().trim().max(500).optional(),
+});
+
+export const designImageReferenceAttachmentSchema = z.object({
+  fileId: z.string().trim().min(1),
+  fileName: z.string().trim().min(1),
+  mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+});
+
 export const createDesignImageGenerationRequestSchema = z.object({
   prompt: z.string().trim().min(1).max(2_000),
   deckId: deckIdSchema,
   slideId: deckSlideIdSchema,
   baseVersion: z.number().int().positive(),
+  selectedImageReference: selectedDesignImageReferenceSchema.optional(),
+  referenceImages: z
+    .array(designImageReferenceAttachmentSchema)
+    .max(3)
+    .default([]),
 });
 
 export const designImageSlideContextSchema = z.object({
@@ -38,6 +57,11 @@ export const designImageGenerationJobPayloadSchema = z.object({
   prompt: z.string().trim().min(1).max(2_000),
   aspectRatio: designImageAspectRatioSchema,
   slideContext: designImageSlideContextSchema,
+  selectedImageReference: selectedDesignImageReferenceSchema.optional(),
+  referenceImages: z
+    .array(designImageReferenceAttachmentSchema)
+    .max(3)
+    .default([]),
 });
 
 export const designImageGenerationResultSchema = z.object({
@@ -59,8 +83,14 @@ export const createDesignImageGenerationResponseSchema = z.object({
 });
 
 export type DesignImageAspectRatio = z.infer<typeof designImageAspectRatioSchema>;
+export type DesignImageReferenceAttachment = z.infer<
+  typeof designImageReferenceAttachmentSchema
+>;
 export type CreateDesignImageGenerationRequest = z.infer<
   typeof createDesignImageGenerationRequestSchema
+>;
+export type SelectedDesignImageReference = z.infer<
+  typeof selectedDesignImageReferenceSchema
 >;
 export type DesignImageSlideContext = z.infer<typeof designImageSlideContextSchema>;
 export type DesignImageGenerationJobPayload = z.infer<

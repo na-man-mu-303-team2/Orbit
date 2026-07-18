@@ -12,7 +12,7 @@ import {
 
 export async function processDesignImageGenerationJob(
   dataSource: DataSource,
-  storage: Pick<StoragePort, "putObject">,
+  storage: Pick<StoragePort, "putObject" | "getSignedReadUrl">,
   runtime: ImageAssetRuntime,
   rawPayload: unknown,
 ): Promise<Job> {
