@@ -975,7 +975,24 @@ def apply_sync_operation(
             shape_changed = True
     elif operation_type == "delete_element":
         capabilities = dict_value(source, "ooxmlEditCapabilities")
-        if source.get("ooxmlOrigin") == "imported" and not capabilities.get("delete"):
+        source_shape_cohort_size = sum(
+            1
+            for candidate in sources.values()
+            if str(candidate.get("slidePart", "")) == slide_part
+            and str(candidate.get("shapeId", "")) == str(source.get("shapeId", ""))
+        )
+        safe_legacy_imported_delete = (
+            source.get("ooxmlOrigin") == "imported"
+            and source_shape_cohort_size == 1
+            and source.get("elementType") != "table"
+            and not source.get("fallbackReason")
+            and not has_group_shape_ancestor(root, shape)
+        )
+        if (
+            source.get("ooxmlOrigin") == "imported"
+            and not capabilities.get("delete")
+            and not safe_legacy_imported_delete
+        ):
             return "PROPS_FIELDS_UNSUPPORTED"
         if parent is None:
             return "SHAPE_MISSING"
