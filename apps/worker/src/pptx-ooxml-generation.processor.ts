@@ -16,7 +16,7 @@ import {
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
 import { randomUUID } from "crypto";
-import type { DataSource } from "typeorm";
+import type { DataSource, EntityManager } from "typeorm";
 import { z } from "zod";
 
 const pptxOoxmlGenerationPayloadSchema = z.object({
@@ -180,14 +180,17 @@ export async function processPptxOoxmlGenerationJob(
       assetRefs.urls,
     );
 
-    await saveDeck(dataSource, deck);
-    await saveTemplateBlueprint(
-      dataSource,
-      payload.projectId,
-      deck.deckId,
-      templateBlueprint,
-      generated.qualityReport,
-    );
+    await dataSource.transaction(async (manager) => {
+      await saveDeck(manager, deck);
+      await saveTemplateBlueprint(
+        manager,
+        payload.projectId,
+        deck.deckId,
+        templateBlueprint,
+        generated.qualityReport,
+      );
+      await updateProjectTitle(manager, payload.projectId, deck.title);
+    });
 
     const result = pptxOoxmlGenerationJobResultSchema.parse({
       deckId: deck.deckId,
@@ -446,8 +449,8 @@ function elementHasUnresolvedAssetRef(element: unknown): boolean {
   return typeof src === "string" && src.startsWith("asset:");
 }
 
-async function saveDeck(dataSource: DataSource, deck: Deck): Promise<void> {
-  await dataSource.query(
+async function saveDeck(executor: EntityManager, deck: Deck): Promise<void> {
+  await executor.query(
     `
       INSERT INTO decks (project_id, deck_id, deck_json, version, updated_at)
       VALUES ($1, $2, $3, $4, now())
@@ -463,13 +466,13 @@ async function saveDeck(dataSource: DataSource, deck: Deck): Promise<void> {
 }
 
 async function saveTemplateBlueprint(
-  dataSource: DataSource,
+  executor: EntityManager,
   projectId: string,
   deckId: string,
   templateBlueprint: TemplateBlueprint,
   qualityReport: QualityReport,
 ): Promise<void> {
-  await dataSource.query(
+  await executor.query(
     `
       INSERT INTO template_blueprints (
         template_id, project_id, deck_id, source_file_id,
@@ -493,6 +496,21 @@ async function saveTemplateBlueprint(
       templateBlueprint,
       qualityReport,
     ],
+  );
+}
+
+async function updateProjectTitle(
+  executor: EntityManager,
+  projectId: string,
+  title: string,
+): Promise<void> {
+  await executor.query(
+    `
+      UPDATE projects
+      SET title = $2
+      WHERE project_id = $1
+    `,
+    [projectId, title],
   );
 }
 

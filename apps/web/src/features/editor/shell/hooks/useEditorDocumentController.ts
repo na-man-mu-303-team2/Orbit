@@ -28,6 +28,7 @@ import {
 } from "../utils/editorHistory";
 import { resolveSelectedSlideId } from "../slideRailModel";
 import { toEditorErrorMessage } from "../utils/editorFileValidation";
+import { syncProjectTitleQueryCache } from "../utils/projectTitleCache";
 import { normalizeDeckAssetUrls } from "../utils/slideRenderUtils";
 import {
   useEditorPersistenceState,
@@ -80,6 +81,7 @@ export function useEditorDocumentController(args: {
   useEffect(() => {
     const persistedDeck = args.persistedDeck;
     if (!persistedDeck) return;
+    syncProjectTitleQueryCache(queryClient, persistedDeck);
     if (!shouldHydrateDeckFromQuery({
       currentDeck: workingDeckRef.current,
       nextDeck: persistedDeck,
@@ -189,6 +191,7 @@ export function useEditorDocumentController(args: {
 
       persistedBaseDeckRef.current = persistedDeck;
       setLastSavedAt(new Date().toISOString());
+      syncProjectTitleQueryCache(queryClient, persistedDeck);
       queryClient.setQueryData(["deck", args.projectId], (current?: Deck) =>
         mergeDeckIntoQueryCache(current, persistedDeck)
       );
@@ -217,6 +220,7 @@ export function useEditorDocumentController(args: {
     const persistedDeck = await putProjectDeck(activeProjectId, snapshotDeck, {
       baseVersion: persistedBaseDeckRef.current?.version ?? snapshotDeck.version
     });
+    syncProjectTitleQueryCache(queryClient, persistedDeck);
     if (
       pendingPatchInputsRef.current.length > 0 ||
       !shouldApplyManualSaveResult({ snapshotDeck, currentDeck: workingDeckRef.current })

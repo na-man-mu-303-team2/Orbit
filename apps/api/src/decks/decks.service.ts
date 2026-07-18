@@ -374,6 +374,7 @@ export class DecksService {
         updatedAt,
         templateBlueprint ?? null,
       );
+      await this.updateProjectTitle(manager, projectId, deck.title);
       const snapshot = await this.createSnapshot(
         manager,
         deck,
@@ -487,6 +488,14 @@ export class DecksService {
               templateBlueprint ?? null,
             )
           : applyResult.deck;
+
+      if (applyResult.deck.title !== currentDeck.title) {
+        await this.updateProjectTitle(
+          manager,
+          projectId,
+          applyResult.deck.title,
+        );
+      }
 
       const snapshot = request.snapshotReason
         ? await this.createSnapshot(
@@ -888,6 +897,11 @@ export class DecksService {
           updatedAt,
           templateBlueprint,
         );
+        await this.updateProjectTitle(
+          manager,
+          projectId,
+          restoredDeck.title,
+        );
         syncInput = {
           deckId: restoredDeck.deckId,
           changeId: replacement.changeRecord.changeId,
@@ -904,6 +918,7 @@ export class DecksService {
         deck.version,
       );
       await this.writeDeckCheckpoint(manager, deck, updatedAt);
+      await this.updateProjectTitle(manager, projectId, deck.title);
 
       return { deck, restoredSnapshot, updatedAt };
     });
@@ -1052,6 +1067,21 @@ export class DecksService {
     );
 
     return parseDeckRow(rows[0]);
+  }
+
+  private async updateProjectTitle(
+    executor: QueryExecutor,
+    projectId: string,
+    title: string,
+  ): Promise<void> {
+    await executor.query(
+      `
+        UPDATE projects
+        SET title = $2
+        WHERE project_id = $1
+      `,
+      [projectId, title],
+    );
   }
 
   private async writeDeckCheckpoint(
