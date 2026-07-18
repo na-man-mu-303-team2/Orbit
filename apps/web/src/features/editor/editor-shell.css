@@ -13803,6 +13803,13 @@ body.is-resizing-speaker-notes {
   gap: var(--redesign-space-1);
 }
 
+.orbit-shell.editor-professional.redesign-dark
+  .inspector-panel-slot
+  .editor-design-panel:has(.element-property-inspector)
+  .selection-inspector-header {
+  padding: var(--redesign-space-3) var(--redesign-space-3) 0;
+}
+
 .orbit-shell.editor-professional .selection-inspector-header span {
   color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-label-sm-size);
