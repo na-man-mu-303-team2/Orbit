@@ -954,7 +954,23 @@ def apply_sync_operation(
             warnings.append(f"OOXML grouped frame sync skipped for {element_id}.")
             return "GROUPED_FRAME_UNSUPPORTED"
         capabilities = dict_value(source, "ooxmlEditCapabilities")
-        if source.get("ooxmlOrigin") == "imported" and not capabilities.get("frame"):
+        source_shape_cohort_size = sum(
+            1
+            for candidate in sources.values()
+            if str(candidate.get("slidePart", "")) == slide_part
+            and str(candidate.get("shapeId", "")) == str(source.get("shapeId", ""))
+        )
+        safe_legacy_imported_frame = (
+            source.get("ooxmlOrigin") == "imported"
+            and source_shape_cohort_size == 1
+            and source.get("elementType") != "table"
+            and not has_group_shape_ancestor(root, shape)
+        )
+        if (
+            source.get("ooxmlOrigin") == "imported"
+            and not capabilities.get("frame")
+            and not safe_legacy_imported_frame
+        ):
             return "FRAME_FIELDS_UNSUPPORTED"
         if geometry_fields:
             update_shape_frame(shape, frame, scale)
