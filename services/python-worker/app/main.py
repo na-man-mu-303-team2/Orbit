@@ -115,11 +115,22 @@ from app.audio.processing import (
     RehearsalAudioProcessingResponse,
     process_rehearsal_audio,
 )
+from app.audio.slide_practice import (
+    SlidePracticeAudioResponse,
+    process_slide_practice_audio,
+)
 from app.audio.analysis.models import (
     RehearsalSilenceAnalysis,
     unmeasured_silence_analysis,
 )
 from app.challenge_qna import router as challenge_qna_router
+from app.slide_practice_coaching import (
+    SlidePracticeCoachingError,
+    SlidePracticeCoachingRequest,
+    SlidePracticeCoachingResponse,
+    generate_slide_practice_coaching,
+)
+from app.slide_question_guides import router as slide_question_guides_router
 from app.config import PythonWorkerConfig, load_config
 from app.extraction import (
     ExtractConfig,
@@ -447,6 +458,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="ORBIT Python Worker", version="0.1.0", lifespan=lifespan)
 app.include_router(challenge_qna_router)
+app.include_router(slide_question_guides_router)
 app.include_router(focused_practice_router)
 
 
@@ -755,6 +767,39 @@ def process_rehearsal_audio_endpoint(
         return process_rehearsal_audio(payload, provider)
     except AudioTranscriptionError as exc:
         raise to_http_exception(exc) from exc
+
+
+@app.post("/slide-practice/analyze-audio", response_model=SlidePracticeAudioResponse)
+def process_slide_practice_audio_endpoint(
+    payload: AudioTranscribeRequest,
+    provider: ReportSttProviderDependency,
+) -> SlidePracticeAudioResponse:
+    try:
+        return process_slide_practice_audio(payload, provider)
+    except AudioTranscriptionError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@app.post(
+    "/slide-practice/coaching",
+    response_model=SlidePracticeCoachingResponse,
+)
+def generate_slide_practice_coaching_endpoint(
+    payload: SlidePracticeCoachingRequest,
+    request: Request,
+) -> SlidePracticeCoachingResponse:
+    config = _config(request)
+    try:
+        return generate_slide_practice_coaching(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except SlidePracticeCoachingError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Slide practice coaching generation failed.",
+        ) from error
 
 
 @app.post("/ai/generate-deck", response_model=GenerateDeckResponse)

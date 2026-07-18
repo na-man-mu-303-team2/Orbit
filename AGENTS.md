@@ -62,6 +62,22 @@
 - 사용자가 요청하지 않은 Git 원격 상태 변경을 하지 않는다.
 - Git과 PR 세부 기준은 `docs/git-rules.md`를 따른다.
 
+### 최신 `develop`을 현재 작업 브랜치에 반영하는 절차
+
+현재 작업 브랜치에 최신 `origin/develop`을 반영해 달라는 요청을 받으면 아래 순서를 사용한다.
+
+1. 현재 tracked/untracked 변경을 확인하고 기능별 최소 단위로 검증·커밋한다.
+2. `git fetch origin develop --prune`으로 원격 기준만 갱신한다.
+3. 깨끗한 작업 트리에서 `git merge origin/develop`을 실행한다.
+4. 충돌이 발생하면 파일별 conflict block을 확인하고 현재 기능과 `develop`의 의도를 모두 보존한 뒤 관련 계약·테스트를 함께 정합화한다.
+5. 변경 범위의 테스트와 빌드를 실행하고, 로컬 서버를 재빌드한 경우 liveness와 readiness를 모두 재검증한다.
+6. 충돌 해결 파일을 stage하고 `git commit`으로 merge commit을 완료한다. 충돌 없이 merge commit이 자동 생성된 경우에는 같은 내용을 중복 커밋하지 않는다.
+
+- 공유 브랜치에서는 최신 base 반영을 위해 rebase나 force push를 사용하지 않는다.
+- 작업 트리가 dirty인 상태에서 `git pull`이나 `git merge`를 실행하지 않는다.
+- 이력과 실패 지점을 명확히 하기 위해 `git pull origin develop`보다 `fetch`와 명시적 `merge`를 우선한다.
+- 사용자가 `main` 등 다른 base branch를 명시한 경우에만 위 절차의 `develop`을 해당 branch로 바꾼다.
+
 ## 코드와 테스트 필수 규칙
 
 - 불필요한 추상화보다 명확한 구조를 우선한다.

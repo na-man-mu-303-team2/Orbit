@@ -8,7 +8,7 @@
     "dev": "nest start --watch",
     "lint": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/main.js",
-    "test": "corepack pnpm --filter @orbit/shared build && corepack pnpm --filter @orbit/ai build && corepack pnpm --filter @orbit/config build && corepack pnpm --filter @orbit/storage build && corepack pnpm --filter @orbit/job-queue build && vitest run --passWithNoTests",
+    "test": "corepack pnpm --filter @orbit/shared build && corepack pnpm --filter @orbit/editor-core build && corepack pnpm --filter @orbit/ai build && corepack pnpm --filter @orbit/config build && corepack pnpm --filter @orbit/storage build && corepack pnpm --filter @orbit/job-queue build && vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -16,6 +16,7 @@
     "@nestjs/core": "^11.1.3",
     "@nestjs/typeorm": "^11.0.0",
     "@orbit/config": "workspace:*",
+    "@orbit/editor-core": "workspace:*",
     "@orbit/ai": "workspace:*",
     "@orbit/job-queue": "workspace:*",
     "@orbit/shared": "workspace:*",

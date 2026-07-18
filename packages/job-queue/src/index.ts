@@ -14,8 +14,10 @@ import {
   speakerNotesSuggestionJobPayloadSchema,
   rehearsalSemanticEvaluationJobPayloadSchema,
   focusedPracticeAnalysisJobPayloadSchema,
+  slidePracticeAnalysisJobPayloadSchema,
   challengeQnaGenerationJobPayloadSchema,
   challengeQnaAnswerAnalysisJobPayloadSchema,
+  slideQuestionGuideJobPayloadSchema,
   designImageGenerationJobPayloadSchema,
   activityResponseRetentionJobPayloadSchema,
   nowIso,
@@ -58,10 +60,14 @@ export const rehearsalSemanticEvaluationJobName =
   "rehearsal-semantic-evaluation";
 export const focusedPracticeAnalysisQueueName = "focused-practice-analysis";
 export const focusedPracticeAnalysisJobName = "focused-practice-analysis";
+export const slidePracticeAnalysisQueueName = "slide-practice-analysis";
+export const slidePracticeAnalysisJobName = "slide-practice-analysis";
 export const challengeQnaGenerationQueueName = "challenge-qna-generation";
 export const challengeQnaGenerationJobName = "challenge-qna-generation";
 export const challengeQnaAnswerAnalysisQueueName = "challenge-qna-answer-analysis";
 export const challengeQnaAnswerAnalysisJobName = "challenge-qna-answer-analysis";
+export const slideQuestionGuideGenerationQueueName = "slide-question-guide-generation";
+export const slideQuestionGuideGenerationJobName = "slide-question-guide-generation";
 export const generateDeckQueueName = "generate-deck";
 export const generateDeckJobName = "generate-deck";
 export const generateDeckStagedCoordinatorJobName =
@@ -144,6 +150,14 @@ export type EnqueueFocusedPracticeAnalysisJobInput = {
   audioFileId: string;
 };
 
+export type EnqueueSlidePracticeAnalysisJobInput = {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+  jobId: string;
+  projectId: string;
+  analysisId: string;
+};
+
 export type EnqueueChallengeQnaGenerationJobInput = {
   driver: "bullmq" | "sqs"; redisUrl: string; jobId: string; projectId: string;
   qnaSessionId: string; generationRevision: number;
@@ -152,6 +166,14 @@ export type EnqueueChallengeQnaGenerationJobInput = {
 export type EnqueueChallengeQnaAnswerAnalysisJobInput = {
   driver: "bullmq" | "sqs"; redisUrl: string; jobId: string; projectId: string;
   answerAttemptId: string;
+};
+
+export type EnqueueSlideQuestionGuideGenerationJobInput = {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+  jobId: string;
+  projectId: string;
+  guideId: string;
 };
 
 export interface GenerateDeckBullMqPayload {
@@ -467,6 +489,28 @@ export async function enqueueFocusedPracticeAnalysisJob(
   }
 }
 
+export async function enqueueSlidePracticeAnalysisJob(
+  input: EnqueueSlidePracticeAnalysisJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
+  const queue = new Queue(slidePracticeAnalysisQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+  try {
+    await queue.add(
+      slidePracticeAnalysisJobName,
+      slidePracticeAnalysisJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        analysisId: input.analysisId,
+      }),
+      canonicalJobOptions(input.jobId),
+    );
+  } finally {
+    await queue.close();
+  }
+}
+
 export async function enqueueChallengeQnaGenerationJob(input: EnqueueChallengeQnaGenerationJobInput): Promise<void> {
   if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
   const queue = new Queue(challengeQnaGenerationQueueName, { connection: redisConnectionOptions(input.redisUrl) });
@@ -486,6 +530,28 @@ export async function enqueueChallengeQnaAnswerAnalysisJob(input: EnqueueChallen
       jobId: input.jobId, projectId: input.projectId, answerAttemptId: input.answerAttemptId,
     }), canonicalJobOptions(input.jobId));
   } finally { await queue.close(); }
+}
+
+export async function enqueueSlideQuestionGuideGenerationJob(
+  input: EnqueueSlideQuestionGuideGenerationJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
+  const queue = new Queue(slideQuestionGuideGenerationQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+  try {
+    await queue.add(
+      slideQuestionGuideGenerationJobName,
+      slideQuestionGuideJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        guideId: input.guideId,
+      }),
+      canonicalJobOptions(input.jobId),
+    );
+  } finally {
+    await queue.close();
+  }
 }
 
 export async function enqueueDeckExportJob(

@@ -2,6 +2,13 @@ import type { Slide } from "@orbit/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { LiveSttAudioLevelEvent } from "../../../rehearsal/liveStt";
+import {
+  createSpeechTracker,
+  type SpeechTracker
+} from "../../../rehearsal/speech/speechTracker";
+import type {
+  SpeechTrackerSnapshot
+} from "../../../rehearsal/speech/speechTrackingEvents";
 import { createLiveSttPort } from "../../../rehearsal/stt/liveSttEngineRegistry";
 import {
   type LiveSttBiasPhrase,
@@ -28,7 +35,12 @@ export type EditorSlideRehearsalState = {
   finalTranscript: string;
   hitKeywordIds: string[];
   interimTranscript: string;
+  speechTrackerSnapshot: SpeechTrackerSnapshot | null;
   status: EditorSlideRehearsalStatus;
+};
+
+export type EditorSlideRehearsalStartOptions = {
+  audioSource?: MediaStream;
 };
 
 const initialState: EditorSlideRehearsalState = {
@@ -40,6 +52,7 @@ const initialState: EditorSlideRehearsalState = {
   finalTranscript: "",
   hitKeywordIds: [],
   interimTranscript: "",
+  speechTrackerSnapshot: null,
   status: "idle"
 };
 
@@ -54,54 +67,76 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
   const [state, setState] = useState<EditorSlideRehearsalState>(initialState);
   const portRef = useRef<LiveSttPort | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const ownsStreamRef = useRef(false);
   const unsubscribeRef = useRef<Array<() => void>>([]);
   const sessionRef = useRef(0);
   const committedTranscriptRef = useRef("");
   const activeSlideRef = useRef<Slide | null>(null);
+  const speechTrackerRef = useRef<SpeechTracker | null>(null);
 
-  const releaseResources = useCallback(async () => {
+  const releaseResources = useCallback(async (flushFinalResults = false) => {
     const port = portRef.current;
     const stream = streamRef.current;
+    const ownsStream = ownsStreamRef.current;
+    const unsubscribers = unsubscribeRef.current.splice(0);
     portRef.current = null;
     streamRef.current = null;
-    unsubscribeRef.current.splice(0).forEach((unsubscribe) => unsubscribe());
+    ownsStreamRef.current = false;
+
+    if (!flushFinalResults) {
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+    }
 
     if (port) {
       await port.stop().catch(() => undefined);
+      if (flushFinalResults) {
+        unsubscribers.forEach((unsubscribe) => unsubscribe());
+      }
       await Promise.resolve(port.dispose()).catch(() => undefined);
+    } else if (flushFinalResults) {
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
     }
-    stream?.getTracks().forEach((track) => track.stop());
+    if (ownsStream) {
+      stream?.getTracks().forEach((track) => track.stop());
+    }
   }, []);
 
   const start = useCallback(
-    async (slide: Slide) => {
+    async (slide: Slide, options: EditorSlideRehearsalStartOptions = {}) => {
       const sessionId = sessionRef.current + 1;
       sessionRef.current = sessionId;
       await releaseResources();
       if (sessionRef.current !== sessionId) return;
 
       activeSlideRef.current = slide;
+      speechTrackerRef.current = createEditorSlideRehearsalSpeechTracker(slide);
       committedTranscriptRef.current = "";
       setState({
         ...initialState,
         activeSlideId: slide.slideId,
+        speechTrackerSnapshot: speechTrackerRef.current.snapshot(),
         status: "starting"
       });
 
       try {
-        if (!navigator.mediaDevices?.getUserMedia) {
+        if (!options.audioSource && !navigator.mediaDevices?.getUserMedia) {
           throw new Error("이 브라우저에서는 마이크 입력을 사용할 수 없습니다.");
         }
 
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: microphoneAudioConstraints,
-          video: false
-        });
+        const stream =
+          options.audioSource ??
+          (await navigator.mediaDevices.getUserMedia({
+            audio: microphoneAudioConstraints,
+            video: false
+          }));
         if (sessionRef.current !== sessionId) {
-          stream.getTracks().forEach((track) => track.stop());
+          if (!options.audioSource) {
+            stream.getTracks().forEach((track) => track.stop());
+          }
           return;
         }
         streamRef.current = stream;
+        ownsStreamRef.current = !options.audioSource;
 
         const runtimeConfig = await fetchLiveSttRuntimeConfig();
         if (sessionRef.current !== sessionId) return;
@@ -130,16 +165,25 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
             }
             const finalTranscript = committedTranscriptRef.current;
             const interimTranscript = result.isFinal ? "" : result.text.trim();
-            const transcript = appendTranscript(finalTranscript, interimTranscript);
+            const transcript = appendTranscript(
+              finalTranscript,
+              interimTranscript
+            );
             const activeSlide = activeSlideRef.current;
+            const speechTracker = speechTrackerRef.current;
+            speechTracker?.acceptResult(result);
+            const speechTrackerSnapshot = speechTracker?.snapshot() ?? null;
 
             setState((current) => ({
               ...current,
               finalTranscript,
-              hitKeywordIds: activeSlide
-                ? getHitSlideKeywordIds(activeSlide, transcript)
-                : [],
-              interimTranscript
+              hitKeywordIds:
+                speechTrackerSnapshot?.hitKeywordIds ??
+                (activeSlide
+                  ? getHitSlideKeywordIds(activeSlide, transcript)
+                  : []),
+              interimTranscript,
+              speechTrackerSnapshot
             }));
           }),
           port.onError((error) => {
@@ -186,10 +230,12 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
       sessionRef.current += 1;
       void releaseResources();
       activeSlideRef.current = slide;
+      speechTrackerRef.current = createEditorSlideRehearsalSpeechTracker(slide);
       committedTranscriptRef.current = "";
       setState({
         ...initialState,
         activeSlideId: slide.slideId,
+        speechTrackerSnapshot: speechTrackerRef.current.snapshot(),
         status: "idle"
       });
     },
@@ -197,11 +243,17 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
   );
 
   const stop = useCallback(async () => {
+    const sessionId = sessionRef.current;
+    await releaseResources(true);
+    if (sessionRef.current !== sessionId) return;
     sessionRef.current += 1;
-    await releaseResources();
     setState((current) => ({
       ...current,
       audioLevelPercent: 0,
+      finalTranscript: appendTranscript(
+        current.finalTranscript,
+        current.interimTranscript
+      ),
       interimTranscript: "",
       status: current.activeSlideId ? "stopped" : "idle"
     }));
@@ -211,9 +263,34 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
     sessionRef.current += 1;
     await releaseResources();
     activeSlideRef.current = null;
+    speechTrackerRef.current = null;
     committedTranscriptRef.current = "";
     setState(initialState);
   }, [releaseResources]);
+
+  const moveToNextSentence = useCallback(() => {
+    const speechTracker = speechTrackerRef.current;
+    if (!speechTracker?.manualNextPrompter(Date.now())) return null;
+    const speechTrackerSnapshot = speechTracker.snapshot();
+    setState((current) => ({ ...current, speechTrackerSnapshot }));
+    return speechTrackerSnapshot;
+  }, []);
+
+  const moveToPreviousSentence = useCallback(() => {
+    const speechTracker = speechTrackerRef.current;
+    if (!speechTracker?.manualPreviousPrompter(Date.now())) return null;
+    const speechTrackerSnapshot = speechTracker.snapshot();
+    setState((current) => ({ ...current, speechTrackerSnapshot }));
+    return speechTrackerSnapshot;
+  }, []);
+
+  const skipCurrentSentence = useCallback(() => {
+    const speechTracker = speechTrackerRef.current;
+    if (!speechTracker?.skipCurrentPrompter(Date.now())) return null;
+    const speechTrackerSnapshot = speechTracker.snapshot();
+    setState((current) => ({ ...current, speechTrackerSnapshot }));
+    return speechTrackerSnapshot;
+  }, []);
 
   useEffect(() => {
     if (state.status !== "listening") return;
@@ -234,7 +311,24 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
     [releaseResources]
   );
 
-  return { enter, exit, start, state, stop };
+  return {
+    enter,
+    exit,
+    moveToNextSentence,
+    moveToPreviousSentence,
+    skipCurrentSentence,
+    start,
+    state,
+    stop
+  };
+}
+
+export function createEditorSlideRehearsalSpeechTracker(slide: Slide) {
+  return createSpeechTracker({
+    keywords: slide.keywords,
+    slideId: slide.slideId,
+    speakerNotes: slide.speakerNotes
+  });
 }
 
 export function buildEditorSlideRehearsalBiasPhrases(

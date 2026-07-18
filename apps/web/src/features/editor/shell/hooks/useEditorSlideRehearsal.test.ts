@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildEditorSlideRehearsalBiasPhrases,
+  createEditorSlideRehearsalSpeechTracker,
   getEditorLiveAudioLevelPercent,
   getHitSlideKeywordIds
 } from "./useEditorSlideRehearsal";
@@ -65,5 +66,25 @@ describe("useEditorSlideRehearsal utilities", () => {
         type: "audio-level",
       }),
     ).toBe(0);
+  });
+
+  it("같은 final 결과가 반복돼도 대본 문장을 두 번 넘기지 않는다", () => {
+    const slide = createDemoDeck().slides[0]!;
+    slide.speakerNotes =
+      "첫 번째 핵심 내용을 차분하게 설명합니다. 두 번째 비교 결과를 이어서 설명합니다. 마지막 결론을 정리합니다.";
+    const tracker = createEditorSlideRehearsalSpeechTracker(slide);
+    const result = {
+      isFinal: true,
+      text: "첫 번째 핵심 내용을 차분하게 설명합니다",
+      timestampMs: [0, 1_000] as [number, number]
+    };
+
+    tracker.acceptResult(result);
+    tracker.acceptResult(result);
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      committedSentenceIds: ["sentence_1"],
+      currentSentenceId: "sentence_2"
+    });
   });
 });

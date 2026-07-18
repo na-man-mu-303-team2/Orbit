@@ -114,11 +114,13 @@ import { createSemanticCueReviewPatch } from "../semantic-cues/semanticCueReview
 import {
   SpeakerNotesAssistantDialog
 } from "./components/SpeakerNotesAssistantDialog";
-import { SpeakerNotesPanel } from "./components/SpeakerNotesPanel";
+import {
+  SpeakerNotesPanel,
+  type SpeakerNotesTab
+} from "./components/SpeakerNotesPanel";
 import {
   EditorSlideRehearsalBottomPanel,
-  EditorSlideRehearsalLeftPanel,
-  EditorSlideRehearsalRightPanel
+  EditorSlideRehearsalLeftPanel
 } from "./components/EditorSlideRehearsal";
 import { SlideNavigatorPane } from "./components/SlideNavigatorPane";
 import { EditorUndoToast } from "./components/EditorUndoToast";
@@ -160,10 +162,8 @@ import {
 } from "./hooks/useSpeakerNotesPanelLayout";
 import { useEditorSlideCommands } from "./hooks/useEditorSlideCommands";
 import { useEditorPresentationActions } from "./hooks/useEditorPresentationActions";
-import {
-  useEditorSlideRehearsal,
-  type EditorSlideRehearsalState
-} from "./hooks/useEditorSlideRehearsal";
+import { useEditorSlideRehearsal } from "./hooks/useEditorSlideRehearsal";
+import { useSlidePracticeSession } from "../practice/useSlidePracticeSession";
 import { useShapeMenuPlacement } from "./hooks/useShapeMenuPlacement";
 import { createSelectionNudgePatch } from "./utils/selectionNudge";
 import {
@@ -538,19 +538,59 @@ export function EditorShell(props: { projectId?: string }) {
   const {
     enter: enterSlideRehearsal,
     exit: exitSlideRehearsal,
+    moveToNextSentence: moveSlideRehearsalToNextSentence,
+    moveToPreviousSentence: moveSlideRehearsalToPreviousSentence,
+    skipCurrentSentence: skipCurrentSlideRehearsalSentence,
     start: startSlideRehearsal,
     state: slideRehearsalState,
     stop: stopSlideRehearsal
   } = useEditorSlideRehearsal({ projectId });
   const isSlideRehearsalActive = Boolean(slideRehearsalState.activeSlideId);
-  const [slideRehearsalReport, setSlideRehearsalReport] = useState<{
-    slide: Slide;
-    state: EditorSlideRehearsalState;
-  } | null>(null);
   const rehearsalSlide =
     deck.slides.find(
       (slide) => slide.slideId === slideRehearsalState.activeSlideId
     ) ?? currentSlide;
+  const slidePracticeSession = useSlidePracticeSession({
+    beforeStart: flushPendingSavesBeforeManualAction,
+    projectId,
+    deckId: deck.deckId,
+    deckVersion: deck.version,
+    slideId: rehearsalSlide?.slideId ?? null,
+    slideOrder: rehearsalSlide?.order ?? 0
+  });
+  const [practiceReportRefreshToken, setPracticeReportRefreshToken] = useState(0);
+  const [requestedSpeakerNotesTab, setRequestedSpeakerNotesTab] =
+    useState<SpeakerNotesTab | null>(null);
+  const handledPracticeReportIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const practiceSessionId = slidePracticeSession.report?.practiceSessionId;
+    if (
+      !practiceSessionId ||
+      handledPracticeReportIdRef.current === practiceSessionId
+    ) {
+      return;
+    }
+    handledPracticeReportIdRef.current = practiceSessionId;
+    setPracticeReportRefreshToken((current) => current + 1);
+    setRequestedSpeakerNotesTab("report");
+    speakerNotesPanelActions.expand();
+    void handleExitSlideRehearsal({ force: true });
+  }, [slidePracticeSession.report?.practiceSessionId]);
+
+  useEffect(() => {
+    if (
+      slidePracticeSession.state !== "stopping" ||
+      slideRehearsalState.status !== "listening"
+    ) {
+      return;
+    }
+    void stopSlideRehearsal();
+  }, [
+    slidePracticeSession.state,
+    slideRehearsalState.status,
+    stopSlideRehearsal
+  ]);
 
   function handleSelectSlideForNavigator(slideId: string) {
     const index = deck.slides.findIndex((slide) => slide.slideId === slideId);
@@ -563,18 +603,19 @@ export function EditorShell(props: { projectId?: string }) {
 
     const nextSlide = deck.slides[index];
     if (!nextSlide) return;
+    if (
+      slidePracticeSession.state === "starting" ||
+      slidePracticeSession.state === "recording" ||
+      slidePracticeSession.state === "stopping"
+    ) {
+      return;
+    }
 
     resetSpeakerNotesEditState(nextSlide.speakerNotes);
     speakerNotesEditorActions.closeAssistant();
     setCurrentSlideId(slideId);
-    if (
-      slideRehearsalState.status === "listening" ||
-      slideRehearsalState.status === "starting"
-    ) {
-      void startSlideRehearsal(nextSlide);
-    } else {
-      enterSlideRehearsal(nextSlide);
-    }
+    slidePracticeSession.reset();
+    enterSlideRehearsal(nextSlide);
   }
   const {
     actions: speakerNotesEditorActions,
@@ -1324,7 +1365,31 @@ export function EditorShell(props: { projectId?: string }) {
     setIsRightPanelOpen(true);
   }
 
-  async function handleExitSlideRehearsal() {
+  async function handleStartSlidePractice() {
+    if (!rehearsalSlide) return;
+    const stream = await slidePracticeSession.start();
+    if (!stream) return;
+    await startSlideRehearsal(rehearsalSlide, { audioSource: stream });
+  }
+
+  async function handleStopSlidePractice() {
+    await stopSlideRehearsal();
+    await slidePracticeSession.stop();
+  }
+
+  async function handleExitSlideRehearsal(options?: { force?: boolean }) {
+    if (!options?.force) {
+      if (slidePracticeSession.state === "recording") {
+        await handleStopSlidePractice();
+        return;
+      }
+      if (
+        slidePracticeSession.state === "starting" ||
+        slidePracticeSession.state === "stopping"
+      ) {
+        return;
+      }
+    }
     const previousPanelState = panelStateBeforeRehearsalRef.current;
     panelStateBeforeRehearsalRef.current = null;
     await exitSlideRehearsal();
@@ -1335,24 +1400,8 @@ export function EditorShell(props: { projectId?: string }) {
     }
   }
 
-  async function handleFinishSlideRehearsal() {
-    const reportSlide = rehearsalSlide;
-    const reportState: EditorSlideRehearsalState = {
-      ...slideRehearsalState,
-      audioLevelPercent: 0,
-      interimTranscript: "",
-      status: "stopped"
-    };
-    await stopSlideRehearsal();
-    if (reportSlide) {
-      setSlideRehearsalReport({ slide: reportSlide, state: reportState });
-    }
-    await handleExitSlideRehearsal();
-    setIsRightPanelOpen(true);
-  }
-
   function beginSlideRehearsalMode(slide: Slide) {
-    setSlideRehearsalReport(null);
+    slidePracticeSession.reset();
     panelStateBeforeRehearsalRef.current = {
       isRightPanelOpen,
       isSlidesPaneCollapsed
@@ -1375,13 +1424,6 @@ export function EditorShell(props: { projectId?: string }) {
     }
     if (!currentSlide || !commitSpeakerNotesDraftIfDirty()) return;
     beginSlideRehearsalMode(currentSlide);
-  }
-
-  function handleRestartFromRehearsalReport() {
-    const report = slideRehearsalReport;
-    if (!report) return;
-    beginSlideRehearsalMode(report.slide);
-    void startSlideRehearsal(report.slide);
   }
 
   function toggleIconLibrary() {
@@ -1827,8 +1869,6 @@ export function EditorShell(props: { projectId?: string }) {
         {isSlideRehearsalActive && rehearsalSlide ? (
           <EditorSlideRehearsalLeftPanel
             onResizeStart={handleSlidesPaneResizeStart}
-            onRestart={() => void startSlideRehearsal(rehearsalSlide)}
-            onStop={() => void handleFinishSlideRehearsal()}
             slide={rehearsalSlide}
             state={slideRehearsalState}
           />
@@ -2017,8 +2057,14 @@ export function EditorShell(props: { projectId?: string }) {
 
             {isSlideRehearsalActive && rehearsalSlide ? (
               <EditorSlideRehearsalBottomPanel
-                onRestart={() => void startSlideRehearsal(rehearsalSlide)}
-                onStop={() => void handleFinishSlideRehearsal()}
+                elapsedMs={slidePracticeSession.elapsedMs}
+                message={slidePracticeSession.message}
+                onNextSentence={moveSlideRehearsalToNextSentence}
+                onPreviousSentence={moveSlideRehearsalToPreviousSentence}
+                onSkipSentence={skipCurrentSlideRehearsalSentence}
+                onStart={() => void handleStartSlidePractice()}
+                onStop={() => void handleStopSlidePractice()}
+                practiceState={slidePracticeSession.state}
                 slide={rehearsalSlide}
                 state={slideRehearsalState}
               />
@@ -2026,7 +2072,9 @@ export function EditorShell(props: { projectId?: string }) {
               <SpeakerNotesPanel
                 contentRef={speakerNotesContentRef}
                 currentSlide={currentSlide}
+                deck={deck}
                 draft={speakerNotesDraft}
+                flushPendingSaves={flushPendingSavesBeforeManualAction}
                 guidance={speakerNotesLengthGuidance}
                 height={speakerNotesPanelHeight}
                 isEditing={isSpeakerNotesEditing}
@@ -2052,6 +2100,7 @@ export function EditorShell(props: { projectId?: string }) {
                 onSelectKeyword={handleSelectKeyword}
                 onSelectKeywordText={handleSpeakerNotesKeywordSelection}
                 onStartEdit={handleStartSpeakerNotesEdit}
+                onTabSelected={() => setRequestedSpeakerNotesTab(null)}
                 onToggleAdvanceSlide={() => {
                   if (currentSlide && selectedKeyword) {
                     handleToggleAdvanceSlideKeyword(
@@ -2076,6 +2125,9 @@ export function EditorShell(props: { projectId?: string }) {
                 selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
                 selectedKeywordRequiredActive={selectedKeywordRequiredActive}
                 selectedKeywordUsage={selectedKeywordUsage}
+                projectId={projectId}
+                reportRefreshToken={practiceReportRefreshToken}
+                requestedTab={requestedSpeakerNotesTab}
                 showIds={showIds}
                 usageByKeywordId={currentSlideKeywordUsage}
               />
@@ -2189,7 +2241,6 @@ export function EditorShell(props: { projectId?: string }) {
           onAiChatStateChange={setAiChatState}
           onApplyAllValidationTextOverflow={handleApplyAllValidationTextOverflow}
           onHighlightElementIds={setValidationHighlightElementIds}
-          onExitRehearsal={() => setSlideRehearsalReport(null)}
           onProposalApplied={handleDesignAgentProposalApplied}
           onGeneratedImageInsert={editorFileTransferActions.insertGeneratedImage}
           onPlayAnimations={playCurrentSlideAnimations}
@@ -2203,17 +2254,6 @@ export function EditorShell(props: { projectId?: string }) {
           projectId={projectId}
           propertiesOpenRequestId={propertiesOpenRequestId}
           pptxImportState={pptxImportState}
-          rehearsalPanel={
-            slideRehearsalReport ? (
-              <EditorSlideRehearsalRightPanel
-                onRestart={handleRestartFromRehearsalReport}
-                onStop={() => setSlideRehearsalReport(null)}
-                slide={slideRehearsalReport.slide}
-                state={slideRehearsalReport.state}
-              />
-            ) : undefined
-          }
-          rehearsalTitle="리허설 리포트"
           selectedElementIds={selectedElementIds}
           semanticCueExtractionState={semanticCueExtractionState}
           setAiPanelView={setAiPanelView}
