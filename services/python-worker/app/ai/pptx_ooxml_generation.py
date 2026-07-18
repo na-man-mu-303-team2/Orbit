@@ -945,16 +945,39 @@ def apply_sync_operation(
             "visible",
         }:
             return "FRAME_FIELDS_UNSUPPORTED"
-        if float(frame.get("opacity", 1)) != 1 or not bool(
-            frame.get("visible", True)
+        opacity = frame.get("opacity", 1)
+        if (
+            isinstance(opacity, bool)
+            or not isinstance(opacity, (int, float))
+            or not math.isfinite(float(opacity))
+            or not 0 <= float(opacity) <= 1
         ):
+            return "FRAME_FIELDS_UNSUPPORTED"
+        visible = frame.get("visible", True)
+        if not isinstance(visible, bool):
             return "FRAME_FIELDS_UNSUPPORTED"
         geometry_fields = set(frame) & {"x", "y", "width", "height", "rotation"}
         if geometry_fields and has_group_shape_ancestor(root, shape):
             warnings.append(f"OOXML grouped frame sync skipped for {element_id}.")
             return "GROUPED_FRAME_UNSUPPORTED"
         capabilities = dict_value(source, "ooxmlEditCapabilities")
-        if source.get("ooxmlOrigin") == "imported" and not capabilities.get("frame"):
+        source_shape_cohort_size = sum(
+            1
+            for candidate in sources.values()
+            if str(candidate.get("slidePart", "")) == slide_part
+            and str(candidate.get("shapeId", "")) == str(source.get("shapeId", ""))
+        )
+        safe_legacy_imported_frame = (
+            source.get("ooxmlOrigin") == "imported"
+            and source_shape_cohort_size == 1
+            and source.get("elementType") != "table"
+            and not has_group_shape_ancestor(root, shape)
+        )
+        if (
+            source.get("ooxmlOrigin") == "imported"
+            and not capabilities.get("frame")
+            and not safe_legacy_imported_frame
+        ):
             return "FRAME_FIELDS_UNSUPPORTED"
         if geometry_fields:
             update_shape_frame(shape, frame, scale)
@@ -964,6 +987,22 @@ def apply_sync_operation(
                 and not resize_authored_table_tracks_to_frame(shape)
             ):
                 return "TABLE_STRUCTURE_UNSUPPORTED"
+            shape_changed = True
+        if "opacity" in frame and float(opacity) != 1:
+            if source.get("elementType") != "image" or not set_picture_opacity(
+                shape,
+                source,
+                float(opacity),
+            ):
+                return "FRAME_FIELDS_UNSUPPORTED"
+            shape_changed = True
+        elif "opacity" in frame and source.get("elementType") == "image":
+            if not set_picture_opacity(shape, source, 1):
+                return "FRAME_FIELDS_UNSUPPORTED"
+            shape_changed = True
+        if "visible" in frame:
+            if not set_shape_visibility(shape, visible):
+                return "FRAME_FIELDS_UNSUPPORTED"
             shape_changed = True
         if "zIndex" in frame:
             if parent is None or not reorder_visual_shape(
@@ -1149,16 +1188,7 @@ def add_element_has_unsupported_props(element: dict[str, Any]) -> bool:
     if element_type == "text":
         return not valid_text_props(props)
     if element_type == "rect":
-        fill = props.get("fill", "transparent")
-        return (
-            not (
-                fill == "transparent" or isinstance(fill, str) and valid_hex_color(fill)
-            )
-            or props.get("stroke", "transparent") != "transparent"
-            or float(props.get("strokeWidth", 0)) != 0
-            or float(props.get("borderRadius", 0)) != 0
-            or bool(set(props) - {"fill", "stroke", "strokeWidth", "borderRadius"})
-        )
+        return not valid_rect_props(props)
     if element_type == "image":
         crop = props.get("crop")
         return (
@@ -1184,6 +1214,16 @@ def validate_source_props_update(
 ) -> PptxOoxmlUnsupportedReasonCode | None:
     prop_names = set(props)
     element_type = str(source.get("elementType", ""))
+    if prop_names and prop_names.issubset(
+        {"fill", "stroke", "strokeWidth", "borderRadius"}
+    ):
+        if (
+            element_type != "rect"
+            or shape.tag != P_SP
+            or source.get("ooxmlOrigin") != "authored"
+        ):
+            return "ELEMENT_TYPE_MISMATCH"
+        return None if valid_rect_props(props) else "PROPS_FIELDS_UNSUPPORTED"
     if prop_names and prop_names.issubset(SUPPORTED_TABLE_PROPS):
         if element_type != "table" or shape.tag != P_GRAPHIC_FRAME:
             return "ELEMENT_TYPE_MISMATCH"
@@ -1568,6 +1608,23 @@ def valid_nonnegative_number(value: Any) -> bool:
     return valid_finite_number(value) and float(value) >= 0
 
 
+def valid_rect_props(props: dict[str, Any]) -> bool:
+    if set(props) - {"fill", "stroke", "strokeWidth", "borderRadius"}:
+        return False
+    for color_name in ("fill", "stroke"):
+        if color_name not in props:
+            continue
+        color = props[color_name]
+        if color != "transparent" and not (
+            isinstance(color, str) and valid_hex_color(color)
+        ):
+            return False
+    return all(
+        name not in props or valid_nonnegative_number(props[name])
+        for name in ("strokeWidth", "borderRadius")
+    )
+
+
 def canonical_text_value(props: dict[str, Any]) -> str | None:
     paragraphs = canonical_text_paragraphs(props)
     if paragraphs is None:
@@ -1777,6 +1834,53 @@ def direct_image_blip(
     return blip
 
 
+def set_picture_opacity(
+    shape: ET.Element[Any],
+    source: dict[str, Any],
+    opacity: float,
+) -> bool:
+    blip = direct_image_blip(shape, source)
+    if blip is None:
+        return False
+    for child in list(blip):
+        if local_name(child) == "alphaModFix":
+            blip.remove(child)
+    if opacity < 1:
+        alpha = ET.Element(
+            f"{{{DML_NS}}}alphaModFix",
+            {"amt": str(round(opacity * 100000))},
+        )
+        extension_list = first_local_child(blip, "extLst")
+        if extension_list is None:
+            blip.append(alpha)
+        else:
+            blip.insert(list(blip).index(extension_list), alpha)
+    return True
+
+
+def set_shape_visibility(shape: ET.Element[Any], visible: bool) -> bool:
+    non_visual_name = {
+        P_SP: "nvSpPr",
+        P_PIC: "nvPicPr",
+        P_GRAPHIC_FRAME: "nvGraphicFramePr",
+    }.get(shape.tag)
+    if non_visual_name is None:
+        return False
+    non_visual = first_local_child(shape, non_visual_name)
+    c_nv_pr = (
+        first_local_child(non_visual, "cNvPr")
+        if non_visual is not None
+        else None
+    )
+    if c_nv_pr is None:
+        return False
+    if visible:
+        c_nv_pr.attrib.pop("hidden", None)
+    else:
+        c_nv_pr.set("hidden", "1")
+    return True
+
+
 def image_crop_capability_for_shape(
     shape: ET.Element[Any],
     source: dict[str, Any],
@@ -1816,6 +1920,8 @@ def update_shape_props(
     element_id: str,
 ) -> bool:
     changed = False
+    if source.get("elementType") == "rect":
+        return update_authored_rect_props(shape, props, scale)
     if source.get("elementType") == "table":
         if source.get("ooxmlOrigin") == "imported":
             changed = sync_imported_table_cell_text(shape, props)
@@ -3808,17 +3914,123 @@ def rect_shape_element(
 ) -> ET.Element[Any]:
     shape = base_shape_element(shape_id, "Orbit rect", element, scale)
     sp_pr = ensure_shape_properties(shape)
-    ET.SubElement(
-        ET.SubElement(sp_pr, f"{{{DML_NS}}}prstGeom", {"prst": "rect"}),
-        f"{{{DML_NS}}}avLst",
+    props = dict_value(element, "props")
+    border_radius = float(props.get("borderRadius", 0))
+    geometry = ET.SubElement(
+        sp_pr,
+        f"{{{DML_NS}}}prstGeom",
+        {"prst": "roundRect" if border_radius > 0 else "rect"},
     )
-    fill = dict_value(element, "props").get("fill")
+    adjustments = ET.SubElement(geometry, f"{{{DML_NS}}}avLst")
+    if border_radius > 0:
+        shortest_side = min(float(element["width"]), float(element["height"]))
+        adjustment = round(min(0.5, border_radius / shortest_side) * 100000)
+        ET.SubElement(
+            adjustments,
+            f"{{{DML_NS}}}gd",
+            {"name": "adj", "fmla": f"val {adjustment}"},
+        )
+    fill = props.get("fill")
     if fill == "transparent":
         ET.SubElement(sp_pr, f"{{{DML_NS}}}noFill")
     elif isinstance(fill, str) and valid_hex_color(fill):
         solid_fill = ET.SubElement(sp_pr, f"{{{DML_NS}}}solidFill")
         ET.SubElement(solid_fill, f"{{{DML_NS}}}srgbClr", {"val": fill[1:]})
+    stroke = props.get("stroke", "transparent")
+    stroke_width = float(props.get("strokeWidth", 0))
+    line = ET.SubElement(
+        sp_pr,
+        f"{{{DML_NS}}}ln",
+        {"w": str(table_border_width_to_emu(stroke_width, scale))},
+    )
+    if stroke == "transparent" or stroke_width == 0:
+        ET.SubElement(line, f"{{{DML_NS}}}noFill")
+    elif isinstance(stroke, str) and valid_hex_color(stroke):
+        line_fill = ET.SubElement(line, f"{{{DML_NS}}}solidFill")
+        ET.SubElement(line_fill, f"{{{DML_NS}}}srgbClr", {"val": stroke[1:]})
     return shape
+
+
+def update_authored_rect_props(
+    shape: ET.Element[Any],
+    props: dict[str, Any],
+    scale: PackageFrameScale,
+) -> bool:
+    sp_pr = first_local_child(shape, "spPr")
+    if sp_pr is None:
+        return False
+    if "borderRadius" in props:
+        geometry = first_local_child(sp_pr, "prstGeom")
+        xfrm = first_local_child(sp_pr, "xfrm")
+        ext = first_local_child(xfrm, "ext") if xfrm is not None else None
+        if geometry is None or ext is None:
+            return False
+        border_radius = float(props["borderRadius"])
+        geometry.set("prst", "roundRect" if border_radius > 0 else "rect")
+        adjustments = first_local_child(geometry, "avLst")
+        if adjustments is None:
+            adjustments = ET.SubElement(geometry, f"{{{DML_NS}}}avLst")
+        adjustments.clear()
+        if border_radius > 0:
+            width = int_value(ext.get("cx"), 0) * scale.canvas_width / scale.slide_width_emu
+            height = int_value(ext.get("cy"), 0) * scale.canvas_height / scale.slide_height_emu
+            if width <= 0 or height <= 0:
+                return False
+            adjustment = round(min(0.5, border_radius / min(width, height)) * 100000)
+            ET.SubElement(
+                adjustments,
+                f"{{{DML_NS}}}gd",
+                {"name": "adj", "fmla": f"val {adjustment}"},
+            )
+    if "fill" in props:
+        for child in list(sp_pr):
+            if local_name(child) in {
+                "blipFill",
+                "gradFill",
+                "grpFill",
+                "noFill",
+                "pattFill",
+                "solidFill",
+            }:
+                sp_pr.remove(child)
+        fill = props["fill"]
+        fill_node = ET.Element(
+            f"{{{DML_NS}}}{'noFill' if fill == 'transparent' else 'solidFill'}"
+        )
+        if fill != "transparent":
+            ET.SubElement(fill_node, f"{{{DML_NS}}}srgbClr", {"val": fill[1:]})
+        line = first_local_child(sp_pr, "ln")
+        sp_pr.insert(list(sp_pr).index(line) if line is not None else len(sp_pr), fill_node)
+    if "stroke" in props or "strokeWidth" in props:
+        line = first_local_child(sp_pr, "ln")
+        if line is None:
+            line = ET.SubElement(sp_pr, f"{{{DML_NS}}}ln")
+        if "strokeWidth" in props:
+            line.set(
+                "w",
+                str(table_border_width_to_emu(props["strokeWidth"], scale)),
+            )
+        if "stroke" in props:
+            for child in list(line):
+                if local_name(child) in {
+                    "gradFill",
+                    "noFill",
+                    "pattFill",
+                    "solidFill",
+                }:
+                    line.remove(child)
+            stroke = props["stroke"]
+            line_fill = ET.Element(
+                f"{{{DML_NS}}}{'noFill' if stroke == 'transparent' else 'solidFill'}"
+            )
+            if stroke != "transparent":
+                ET.SubElement(
+                    line_fill,
+                    f"{{{DML_NS}}}srgbClr",
+                    {"val": stroke[1:]},
+                )
+            line.insert(0, line_fill)
+    return True
 
 
 def picture_shape_element(

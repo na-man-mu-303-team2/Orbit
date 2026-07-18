@@ -432,7 +432,12 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
             "y": 600,
             "width": 300,
             "height": 100,
-            "props": {"fill": "#336699"},
+            "props": {
+                "fill": "#336699",
+                "stroke": "#0090FF",
+                "strokeWidth": 3,
+                "borderRadius": 18,
+            },
         },
         {
             "elementId": "el_added_image",
@@ -509,6 +514,18 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
             {
                 "type": "update_element_props",
                 "slideId": template_slide_id(generated),
+                "elementId": "el_added_rect",
+                "props": {"fill": "#FEFEFE"},
+            },
+            {
+                "type": "update_element_props",
+                "slideId": template_slide_id(generated),
+                "elementId": "el_added_rect",
+                "props": {"stroke": "#FEFEFE"},
+            },
+            {
+                "type": "update_element_props",
+                "slideId": template_slide_id(generated),
                 "elementId": "el_added_image",
                 "props": {
                     "src": "data:image/png;base64,"
@@ -519,6 +536,16 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
                         "right": 0.15,
                         "bottom": 0.05,
                     },
+                },
+            },
+            {
+                "type": "update_element_frame",
+                "slideId": template_slide_id(generated),
+                "elementId": "el_added_image",
+                "frame": {
+                    "opacity": 0.29,
+                    "visible": False,
+                    "zIndex": 17,
                 },
             },
         ],
@@ -532,6 +559,12 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
     assert b'x="2032000"' in shape_xml(
         edited_bytes, added_sources["el_added_rect"]["shapeId"]
     )
+    edited_rect_xml = shape_xml(
+        edited_bytes, added_sources["el_added_rect"]["shapeId"]
+    )
+    assert b'prst="roundRect"' in edited_rect_xml
+    assert b'name="adj" fmla="val 18000"' in edited_rect_xml
+    assert edited_rect_xml.count(b'<a:srgbClr val="FEFEFE"') == 2
     edited_image_source = source_for_element(
         edited.element_sources,
         "el_added_image",
@@ -544,9 +577,44 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
     assert picture_crop_rect(
         edited_bytes, added_sources["el_added_image"]["shapeId"]
     ) == {"l": "10000", "t": "20000", "r": "15000", "b": "5000"}
+    edited_image_xml = shape_xml(
+        edited_bytes, added_sources["el_added_image"]["shapeId"]
+    )
+    assert b'alphaModFix amt="29000"' in edited_image_xml
+    assert b'hidden="1"' in edited_image_xml
 
     edited_path = tmp_path / "edited-added.pptx"
     edited_path.write_bytes(edited_bytes)
+    reshown_blueprint = copy.deepcopy(next_blueprint)
+    reshown_blueprint["slides"][0]["elementSources"] = [
+        edited_image_source
+        if source["elementId"] == "el_added_image"
+        else source
+        for source in reshown_blueprint["slides"][0]["elementSources"]
+    ]
+    reshown = sync_pptx_ooxml(
+        edited_path,
+        template_blueprint=reshown_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=4,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_frame",
+                "slideId": template_slide_id(generated),
+                "elementId": "el_added_image",
+                "frame": {"opacity": 0.29, "visible": True},
+            }
+        ],
+    )
+    reshown_bytes = current_package_bytes(reshown.assets)
+    reshown_image_xml = shape_xml(
+        reshown_bytes, added_sources["el_added_image"]["shapeId"]
+    )
+    assert b'alphaModFix amt="29000"' in reshown_image_xml
+    assert b'hidden="1"' not in reshown_image_xml
+
+    edited_path.write_bytes(reshown_bytes)
     round_trip = generate_pptx_ooxml(
         edited_path,
         "file_round_trip",
@@ -591,6 +659,8 @@ def test_sync_pptx_ooxml_scopes_duplicate_element_ids_to_slide_part(
         text_source["elementId"] = "el_shared_text"
         image_source["elementId"] = "el_shared_image"
         delete_source["elementId"] = "el_shared_delete"
+        assert image_source["ooxmlEditCapabilities"]["frame"] is True
+        image_source["ooxmlEditCapabilities"]["frame"] = False
         assert delete_source["ooxmlEditCapabilities"]["delete"] is True
         delete_source["ooxmlEditCapabilities"]["delete"] = False
         mapped_sources.append(
