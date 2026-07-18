@@ -204,6 +204,23 @@ export class DecksService {
 
     const request = deckExportRequestSchema.parse(body ?? {});
     const { deck } = await this.getDeck(projectId);
+    if (request.format === "pptx") {
+      const syncState = await this.readOoxmlSyncState(projectId, deck);
+      if (
+        syncState.status !== "not-applicable" &&
+        syncState.status !== "synced"
+      ) {
+        throw new HttpException(
+          {
+            code: "DECK_EXPORT_OOXML_SYNC_NOT_READY",
+            message:
+              "최신 편집 내용의 PPTX 동기화가 완료되지 않았습니다. 동기화 재시도 후 다시 내보내세요.",
+            ooxmlSyncState: syncState,
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+    }
     if (request.presentationSessionId) {
       await this.assertExportSession(
         projectId,
