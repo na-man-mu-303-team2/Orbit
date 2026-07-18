@@ -1,19 +1,19 @@
 .orbit-shell .editor-practice-result {
   display: grid;
-  gap: 14px;
+  gap: var(--redesign-space-4);
 }
 
 .orbit-shell .editor-practice-filler-chart {
-  background: var(--orbit-ds-canvas);
-  border: 1px solid var(--orbit-ds-border);
-  border-radius: 10px;
-  padding: 14px;
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  padding: var(--redesign-space-4);
 }
 
 .orbit-shell .editor-practice-filler-chart > header {
   align-items: flex-start;
   display: flex;
-  gap: 16px;
+  gap: var(--redesign-space-4);
   justify-content: space-between;
 }
 
@@ -23,28 +23,28 @@
 }
 
 .orbit-shell .editor-practice-filler-chart h3 {
-  font-size: 15px;
+  font-size: var(--redesign-type-body-sm-size);
 }
 
 .orbit-shell .editor-practice-filler-chart header p {
-  color: var(--orbit-ds-text-muted);
-  font-size: 12px;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
   margin-top: 3px;
 }
 
 .orbit-shell .editor-practice-filler-chart header > strong {
-  color: #5546d4;
-  font-size: 18px;
+  color: var(--redesign-color-on-secondary-container);
+  font-size: var(--redesign-type-title-md-size);
   white-space: nowrap;
 }
 
 .orbit-shell .editor-practice-filler-chart-body {
   align-items: center;
   display: grid;
-  gap: 24px;
+  gap: var(--redesign-space-6);
   grid-template-columns: minmax(170px, 220px) minmax(240px, 360px);
   justify-content: center;
-  margin-top: 14px;
+  margin-top: var(--redesign-space-4);
 }
 
 .orbit-shell .editor-practice-filler-pie {
@@ -57,7 +57,7 @@
 
 .orbit-shell .editor-practice-filler-legend {
   display: grid;
-  gap: 8px;
+  gap: var(--redesign-space-2);
   list-style: none;
   margin: 0 auto;
   max-width: 360px;
@@ -68,7 +68,7 @@
 .orbit-shell .editor-practice-filler-legend-item {
   align-items: center;
   display: grid;
-  gap: 8px;
+  gap: var(--redesign-space-2);
   grid-template-columns: 10px minmax(72px, 1fr) max-content 38px;
   min-width: 0;
 }
@@ -90,27 +90,27 @@
 }
 
 .orbit-shell .editor-practice-filler-legend-item > span:last-child {
-  color: var(--orbit-ds-text-muted);
-  font-size: 12px;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
 
 .orbit-shell .editor-practice-filler-empty {
-  color: var(--orbit-ds-text-muted);
-  font-size: 13px;
-  padding: 24px 0 10px;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  padding: var(--redesign-space-6) 0 var(--redesign-space-3);
   text-align: center;
 }
 
 .orbit-shell .editor-practice-summary {
-  border-top: 1px solid var(--orbit-ds-border);
-  padding-top: 14px;
+  border-top: 1px solid var(--redesign-color-outline-variant);
+  padding-top: var(--redesign-space-4);
 }
 
 .orbit-shell .editor-practice-style-copy {
   display: grid;
-  gap: 7px;
+  gap: var(--redesign-space-2);
   min-width: 0;
 }
 
@@ -118,20 +118,20 @@
   align-items: flex-start;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--redesign-space-2);
 }
 
 .orbit-shell .editor-practice-style-evidence > span {
-  color: var(--orbit-ds-text-muted);
+  color: var(--redesign-color-on-surface-variant);
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: var(--redesign-type-label-sm-size);
   padding-top: 3px;
 }
 
 .orbit-shell .editor-practice-style-evidence ul {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: var(--redesign-space-1);
   list-style: none;
   margin: 0;
   min-width: 0;
@@ -139,12 +139,12 @@
 }
 
 .orbit-shell .editor-practice-style-evidence li {
-  background: var(--orbit-ds-surface);
-  border: 1px solid var(--orbit-ds-border);
-  border-radius: 999px;
-  font-size: 11px;
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-full);
+  font-size: var(--redesign-type-label-sm-size);
   overflow-wrap: anywhere;
-  padding: 2px 7px;
+  padding: 2px var(--redesign-space-2);
 }
 
 .orbit-shell .editor-practice-summary > .editor-practice-metrics {
@@ -162,7 +162,7 @@
 
 @media (max-width: 860px) {
   .orbit-shell .editor-practice-filler-chart-body {
-    gap: 16px;
+    gap: var(--redesign-space-4);
     grid-template-columns: minmax(140px, 190px) minmax(220px, 320px);
   }
 
@@ -195,23 +195,23 @@
 
 .orbit-shell .editor-practice-report-content {
   display: grid;
-  font-size: 15px;
-  gap: 14px;
+  font-size: var(--redesign-type-body-sm-size);
+  gap: var(--redesign-space-4);
 }
 
 .orbit-shell .editor-practice-graph-grid {
   display: grid;
-  gap: 14px;
+  gap: var(--redesign-space-4);
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .orbit-shell .editor-practice-graph-card,
 .orbit-shell .editor-practice-coaching {
-  background: var(--orbit-ds-canvas);
-  border: 1px solid var(--orbit-ds-border);
-  border-radius: 10px;
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
   min-width: 0;
-  padding: 20px;
+  padding: var(--redesign-space-5);
 }
 
 .orbit-shell .editor-practice-graph-card {
@@ -224,7 +224,7 @@
 .orbit-shell .editor-practice-coaching > header {
   align-items: flex-start;
   display: flex;
-  gap: 12px;
+  gap: var(--redesign-space-3);
   justify-content: space-between;
 }
 
@@ -247,16 +247,16 @@
 
 .orbit-shell .editor-practice-graph-card header p {
   color: color-mix(in srgb, var(--redesign-color-on-light) 66%, transparent);
-  font-size: 14px;
-  margin-top: 4px;
+  font-size: var(--redesign-type-body-sm-size);
+  margin-top: var(--redesign-space-1);
 }
 
 .orbit-shell .editor-practice-graph-card header > strong {
-  background: #ece9ff;
-  border-radius: 7px;
-  color: #5546d4;
-  font-size: 14px;
-  padding: 5px 9px;
+  background: var(--redesign-color-secondary-container);
+  border-radius: var(--redesign-radius-md);
+  color: var(--redesign-color-on-secondary-container);
+  font-size: var(--redesign-type-body-sm-size);
+  padding: var(--redesign-space-1) var(--redesign-space-2);
   white-space: nowrap;
 }
 
@@ -264,13 +264,13 @@
   background: var(--redesign-color-light-surface);
   display: block;
   height: auto;
-  margin-top: 4px;
+  margin-top: var(--redesign-space-1);
   overflow: visible;
   width: 100%;
 }
 
 .orbit-shell .editor-practice-recommended-band {
-  fill: #f0eeff;
+  fill: var(--redesign-color-secondary-container);
 }
 
 .orbit-shell .editor-practice-grid-line {
@@ -280,44 +280,44 @@
 
 .orbit-shell .editor-practice-axis-label {
   fill: color-mix(in srgb, var(--redesign-color-on-light) 72%, transparent);
-  font-size: 13px;
+  font-size: var(--redesign-type-label-sm-size);
 }
 
 .orbit-shell .editor-practice-loudness-bar.quiet,
 .orbit-shell .editor-practice-graph-legend i.quiet {
-  fill: #3f6df6;
-  background: #3f6df6;
+  fill: var(--redesign-color-primary);
+  background: var(--redesign-color-primary);
 }
 
 .orbit-shell .editor-practice-loudness-bar.recommended,
 .orbit-shell .editor-practice-graph-legend i.recommended {
-  fill: #7a4df3;
-  background: #7a4df3;
+  fill: var(--redesign-color-secondary);
+  background: var(--redesign-color-secondary);
 }
 
 .orbit-shell .editor-practice-loudness-bar.loud,
 .orbit-shell .editor-practice-graph-legend i.loud {
-  fill: #f15b52;
-  background: #f15b52;
+  fill: var(--redesign-color-error);
+  background: var(--redesign-color-error);
 }
 
 .orbit-shell .editor-practice-graph-legend {
   color: color-mix(in srgb, var(--redesign-color-on-light) 80%, transparent);
   display: flex;
-  font-size: 13px;
-  gap: 12px;
+  font-size: var(--redesign-type-label-sm-size);
+  gap: var(--redesign-space-3);
   justify-content: flex-end;
-  margin-top: 8px;
+  margin-top: var(--redesign-space-2);
 }
 
 .orbit-shell .editor-practice-graph-legend span {
   align-items: center;
   display: inline-flex;
-  gap: 5px;
+  gap: var(--redesign-space-1);
 }
 
 .orbit-shell .editor-practice-graph-legend i {
-  border-radius: 3px;
+  border-radius: var(--redesign-radius-sm);
   display: inline-block;
   height: 10px;
   width: 10px;
@@ -325,7 +325,7 @@
 
 .orbit-shell .editor-practice-speed-line {
   fill: none;
-  stroke: #5b4df5;
+  stroke: var(--redesign-color-secondary);
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 3;
@@ -333,13 +333,13 @@
 
 .orbit-shell .editor-practice-speed-point {
   fill: var(--redesign-color-light-surface);
-  stroke: #5b4df5;
+  stroke: var(--redesign-color-secondary);
   stroke-width: 3;
 }
 
 .orbit-shell .editor-practice-graph-note {
   color: color-mix(in srgb, var(--redesign-color-on-light) 66%, transparent);
-  font-size: 13px;
+  font-size: var(--redesign-type-label-sm-size);
   text-align: right;
 }
 
@@ -347,7 +347,7 @@
   align-items: center;
   color: color-mix(in srgb, var(--redesign-color-on-light) 66%, transparent);
   display: flex;
-  font-size: 15px;
+  font-size: var(--redesign-type-body-sm-size);
   justify-content: center;
   min-height: 244px;
   text-align: center;
@@ -355,26 +355,26 @@
 
 .orbit-shell .editor-practice-coaching-summary,
 .orbit-shell .editor-practice-coaching-state {
-  color: var(--orbit-ds-text-muted);
+  color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-body-lg-size);
   line-height: 1.6;
-  margin-top: 10px !important;
+  margin-top: var(--redesign-space-3) !important;
 }
 
 .orbit-shell .editor-practice-coaching-grid {
   display: grid;
-  gap: 12px;
+  gap: var(--redesign-space-3);
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 14px;
+  margin-top: var(--redesign-space-4);
 }
 
 .orbit-shell .editor-practice-coaching-item {
-  border: 1px solid var(--orbit-ds-border);
-  border-radius: 9px;
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
   display: grid;
-  gap: 10px;
+  gap: var(--redesign-space-3);
   min-width: 0;
-  padding: 14px;
+  padding: var(--redesign-space-4);
 }
 
 .orbit-shell .editor-practice-coaching-single {
@@ -386,16 +386,16 @@
 .orbit-shell .editor-practice-coaching-item > header {
   align-items: center;
   display: flex;
-  gap: 8px;
+  gap: var(--redesign-space-2);
 }
 
 .orbit-shell .editor-practice-coaching-item > header span {
   align-items: center;
-  background: #6558e8;
+  background: var(--redesign-color-secondary);
   border-radius: 50%;
-  color: #fff;
+  color: var(--redesign-color-light-surface);
   display: inline-flex;
-  font-size: 14px;
+  font-size: var(--redesign-type-body-sm-size);
   font-weight: 800;
   height: 24px;
   justify-content: center;
@@ -490,43 +490,43 @@
 .orbit-shell .editor-practice-script-edit {
   align-items: stretch;
   display: grid;
-  gap: 8px;
+  gap: var(--redesign-space-2);
   grid-template-columns: 1fr auto 1fr;
 }
 
 .orbit-shell .editor-practice-script-edit > div,
 .orbit-shell .editor-practice-coaching-action {
-  background: var(--orbit-ds-surface-soft);
-  border: 1px solid var(--orbit-ds-border);
-  border-radius: 8px;
-  padding: 10px;
+  background: var(--redesign-color-surface-container-low);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
+  padding: var(--redesign-space-3);
 }
 
 .orbit-shell .editor-practice-script-edit > span {
   align-self: center;
-  color: #6558e8;
-  font-size: 20px;
+  color: var(--redesign-color-secondary);
+  font-size: var(--redesign-type-title-lg-size);
 }
 
 .orbit-shell .editor-practice-script-edit strong,
 .orbit-shell .editor-practice-coaching-action strong {
-  color: #5546d4;
-  font-size: 13px;
+  color: var(--redesign-color-on-secondary-container);
+  font-size: var(--redesign-type-label-sm-size);
 }
 
 .orbit-shell .editor-practice-script-edit small {
-  color: var(--orbit-ds-text-muted);
+  color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-body-md-size);
   grid-column: 1 / -1;
 }
 
 .orbit-shell .editor-practice-coaching-action {
   display: grid;
-  gap: 6px;
+  gap: var(--redesign-space-2);
 }
 
 .orbit-shell .editor-practice-coaching-action small {
-  color: var(--orbit-ds-text-muted);
+  color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-body-md-size);
   line-height: 1.55;
 }
@@ -534,34 +534,34 @@
 .orbit-shell .editor-practice-coaching-item ol {
   display: grid;
   font-size: var(--redesign-type-body-lg-size);
-  gap: 8px;
+  gap: var(--redesign-space-2);
   line-height: 1.6;
   margin: 0;
-  padding-left: 22px;
+  padding-left: var(--redesign-space-6);
 }
 
 .orbit-shell .editor-practice-coaching-success {
   align-items: center;
-  background: #effaf2;
-  border: 1px solid #a9d8b5;
-  border-radius: 9px;
-  color: #23653c;
+  background: var(--redesign-color-success-subtle);
+  border: 1px solid var(--redesign-color-success);
+  border-radius: var(--redesign-radius-lg);
+  color: var(--redesign-color-on-success-container);
   display: flex;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 14px;
+  gap: var(--redesign-space-3);
+  margin-top: var(--redesign-space-3);
+  padding: var(--redesign-space-4);
 }
 
 .orbit-shell .editor-practice-coaching-success > strong {
-  font-size: 16px;
+  font-size: var(--redesign-type-body-md-size);
   line-height: 1.5;
 }
 
 .orbit-shell .editor-practice-coaching-success > span {
   align-items: center;
-  background: #16a34a;
+  background: var(--redesign-color-success);
   border-radius: 50%;
-  color: #fff;
+  color: var(--redesign-color-light-surface);
   display: inline-flex;
   height: 24px;
   justify-content: center;
