@@ -24,6 +24,10 @@ DML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
 
+def template_slide_id(generated: object) -> str:
+    return generated.template_blueprint["slides"][0]["slideId"]
+
+
 def test_imported_rich_text_capability_distinguishes_simple_and_hyperlink(
     tmp_path: Path,
 ) -> None:
@@ -51,7 +55,7 @@ def test_equal_plain_text_projection_preserves_full_mixed_run_bytes(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_rich_text_1",
+                "slideId": template_slide_id(generated),
                 "elementId": text["elementId"],
                 "props": {"text": "Simple source"},
             }
@@ -79,7 +83,7 @@ def test_equal_text_with_style_preserves_mixed_run_structure(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_rich_text_1",
+                "slideId": template_slide_id(generated),
                 "elementId": text["elementId"],
                 "props": {"text": "Simple source", "underline": True},
             }
@@ -110,7 +114,7 @@ def test_equal_text_with_style_preserves_mixed_run_structure(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_rich_text_1",
+                "slideId": template_slide_id(generated),
                 "elementId": text["elementId"],
                 "props": {"text": "Simple source", "verticalAlign": "middle"},
             }
@@ -148,7 +152,7 @@ def test_imported_field_text_is_fail_closed_without_package_mutation(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_rich_text_1",
+                "slideId": template_slide_id(generated),
                 "elementId": text["elementId"],
                 "props": props,
             }
@@ -184,7 +188,7 @@ def test_imported_rich_text_style_sync_preserves_unknown_rpr_and_unselected_run(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_rich_text_1",
+                "slideId": template_slide_id(generated),
                 "elementId": text["elementId"],
                 "props": props,
             }
@@ -244,7 +248,7 @@ def test_partial_style_props_preserve_existing_text_and_hyperlink(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_rich_text_1",
+                "slideId": template_slide_id(simple_generated),
                 "elementId": simple_text["elementId"],
                 "props": {"underline": True},
             }
@@ -278,7 +282,7 @@ def test_partial_style_props_preserve_existing_text_and_hyperlink(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_linked_text_1",
+                "slideId": template_slide_id(linked_generated),
                 "elementId": linked_text["elementId"],
                 "props": {"fontWeight": "bold"},
             }
@@ -324,7 +328,7 @@ def test_full_content_prefix_insertion_keeps_unknown_properties_on_unchanged_run
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_rich_text_1",
+                "slideId": template_slide_id(generated),
                 "elementId": text["elementId"],
                 "props": props,
             }
@@ -359,7 +363,7 @@ def test_hyperlink_style_only_sync_preserves_link_and_rejects_content_change(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_rich_text_1",
+                "slideId": template_slide_id(generated),
                 "elementId": text["elementId"],
                 "props": style_props,
             }
@@ -391,7 +395,7 @@ def test_hyperlink_style_only_sync_preserves_link_and_rejects_content_change(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_rich_text_1",
+                "slideId": template_slide_id(generated),
                 "elementId": text["elementId"],
                 "props": segmented_props,
             }
@@ -421,7 +425,7 @@ def test_hyperlink_style_only_sync_preserves_link_and_rejects_content_change(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_rich_text_1",
+                "slideId": template_slide_id(generated),
                 "elementId": text["elementId"],
                 "props": content_props,
             }
@@ -461,7 +465,7 @@ def test_style_only_merge_keeps_distinct_hyperlink_run_boundaries(
         operations=[
             {
                 "type": "update_element_props",
-                "slideId": "slide_import_file_rich_text_1",
+                "slideId": template_slide_id(generated),
                 "elementId": text["elementId"],
                 "props": props,
             }
@@ -486,7 +490,7 @@ def test_authored_canonical_text_add_and_same_batch_edit_round_trip(
 ) -> None:
     pptx_path = rich_text_source_pptx(tmp_path)
     generated = generate_pptx_ooxml(pptx_path, "file_rich_text", render=False)
-    slide_id = "slide_import_file_rich_text_1"
+    slide_id = template_slide_id(generated)
     element = authored_text_element("Authored first\nSecond")
     edited_props = copy.deepcopy(element["props"])
     edited_props["paragraphs"][0]["runs"][1]["text"] = " edited"
@@ -565,7 +569,7 @@ def test_authored_empty_runs_follow_text_fallback_contract(tmp_path: Path) -> No
 
     pptx_path = rich_text_source_pptx(tmp_path)
     generated = generate_pptx_ooxml(pptx_path, "file_rich_text", render=False)
-    slide_id = "slide_import_file_rich_text_1"
+    slide_id = template_slide_id(generated)
     elements: list[dict[str, object]] = []
     for index, props in enumerate(
         (

@@ -2,6 +2,7 @@ import base64
 import copy
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 import zipfile
 from xml.etree import ElementTree as ET
 
@@ -64,6 +65,36 @@ def test_reorders_slide_id_list_without_changing_relationship_identity(
         render=False,
     )
     assert imported_slide_texts(round_trip.blueprint) == [
+        "Slide 3",
+        "Slide 1",
+        "Slide 2",
+    ]
+
+
+def test_reorders_opaque_slide_ids_from_explicit_source_mapping(
+    tmp_path: Path,
+) -> None:
+    source_path = three_slide_pptx(tmp_path)
+    generated = generate_pptx_ooxml(source_path, "file_reorder", render=False)
+    blueprint = copy.deepcopy(generated.template_blueprint)
+    slide_ids = ["slide_cover", "slide_metrics", "slide_close"]
+    for slide, slide_id in zip(blueprint["slides"], slide_ids, strict=True):
+        slide["slideId"] = slide_id
+
+    result = sync_pptx_ooxml(
+        source_path,
+        template_blueprint=blueprint,
+        operations=[reorder_operation_from_blueprint(blueprint, [2, 0, 1])],
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+    )
+
+    assert [item.operation_type for item in result.applied_operations] == [
+        "reorder_slides"
+    ]
+    assert result.unsupported_operations == []
+    assert presentation_slide_texts(current_package_bytes(result)) == [
         "Slide 3",
         "Slide 1",
         "Slide 2",
@@ -176,15 +207,19 @@ def three_slide_pptx(tmp_path: Path) -> Path:
 
 def reorder_operation(generated: object, indices: list[int]) -> dict[str, object]:
     template_blueprint = getattr(generated, "template_blueprint")
+    return reorder_operation_from_blueprint(template_blueprint, indices)
+
+
+def reorder_operation_from_blueprint(
+    template_blueprint: dict[str, Any],
+    indices: list[int],
+) -> dict[str, object]:
     return {
         "type": "reorder_slides",
         "slideOrders": [
             {
-                "slideId": f"slide_ooxml_file_reorder_{index + 1}",
+                "slideId": template_blueprint["slides"][index]["slideId"],
                 "order": order,
-                "blueprintSlideIndex": template_blueprint["slides"][index][
-                    "slideIndex"
-                ],
                 "sourceSlidePart": template_blueprint["slides"][index][
                     "sourceSlidePart"
                 ],

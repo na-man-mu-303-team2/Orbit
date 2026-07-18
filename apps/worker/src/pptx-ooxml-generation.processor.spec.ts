@@ -179,13 +179,16 @@ describe("processPptxOoxmlGenerationJob", () => {
       sourceFileId: string;
       sourcePackageFileId: string;
       currentPackageFileId: string;
-      slides: Array<{ renderAssetFileId: string }>;
+      slides: Array<{ slideId: string; renderAssetFileId: string }>;
     };
     expect(blueprint.sourceFileId).toBe("file_template");
     expect(blueprint.sourcePackageFileId).toBe("file_template");
     expect(blueprint.currentPackageFileId).toMatch(/^file_/);
     expect(blueprint.currentPackageFileId).not.toBe(
       blueprint.sourcePackageFileId
+    );
+    expect(blueprint.slides[0].slideId).toBe(
+      "slide_ooxml_file_template_1"
     );
     expect(blueprint.slides[0].renderAssetFileId).toMatch(/^file_/);
     expect(job.result).toMatchObject({

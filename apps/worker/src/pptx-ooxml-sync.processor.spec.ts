@@ -195,6 +195,11 @@ describe("processPptxOoxmlSyncJob", () => {
 
   it("syncs a slide reorder with unique source slide locators and a large blueprint", async () => {
     const blueprint = reorderTemplateBlueprint(1);
+    const slideIds = ["slide_cover", "slide_metrics", "slide_close"];
+    blueprint.slides = blueprint.slides.map((slide, index) => ({
+      ...slide,
+      slideId: slideIds[index],
+    }));
     blueprint.slides[0]!.elementSources = Array.from(
       { length: 9_000 },
       (_, index) => ({
@@ -207,15 +212,16 @@ describe("processPptxOoxmlSyncJob", () => {
     );
     const { dataSource } = createDataSource({
       blueprint,
+      deckSlideIds: slideIds,
       deckVersion: 2,
       syncedVersion: 1,
       operations: [
         {
           type: "reorder_slides",
           slideOrders: [
-            { slideId: "slide_ooxml_file_3", order: 1 },
-            { slideId: "slide_ooxml_file_1", order: 2 },
-            { slideId: "slide_ooxml_file_2", order: 3 },
+            { slideId: "slide_close", order: 1 },
+            { slideId: "slide_cover", order: 2 },
+            { slideId: "slide_metrics", order: 3 },
           ],
         },
       ],
@@ -235,21 +241,18 @@ describe("processPptxOoxmlSyncJob", () => {
             type: "reorder_slides",
             slideOrders: [
               {
-                slideId: "slide_ooxml_file_3",
+                slideId: "slide_close",
                 order: 1,
-                blueprintSlideIndex: 3,
                 sourceSlidePart: "ppt/slides/slide3.xml",
               },
               {
-                slideId: "slide_ooxml_file_1",
+                slideId: "slide_cover",
                 order: 2,
-                blueprintSlideIndex: 1,
                 sourceSlidePart: "ppt/slides/slide1.xml",
               },
               {
-                slideId: "slide_ooxml_file_2",
+                slideId: "slide_metrics",
                 order: 3,
-                blueprintSlideIndex: 2,
                 sourceSlidePart: "ppt/slides/slide2.xml",
               },
             ],
