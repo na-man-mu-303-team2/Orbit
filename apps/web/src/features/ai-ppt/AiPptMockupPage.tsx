@@ -996,7 +996,7 @@ export function AiPptStyleColorPage(props: {
               fontOptions={fontOptions}
               isCustomizing={isCustomizingPalette}
               onCustomize={() => void customizePalette()}
-              onOpenAiPalette={() => setIsAiPaletteOpen(true)}
+              onOpenAiPalette={() => setIsAiPaletteOpen((isOpen) => !isOpen)}
               onFontSelect={setSelectedFontId}
               onPalettePromptChange={setPalettePrompt}
               onSelectPalette={setSelectedPaletteId}

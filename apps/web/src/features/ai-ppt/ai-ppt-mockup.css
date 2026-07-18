@@ -543,7 +543,7 @@
   margin-top: var(--redesign-space-4);
 }
 
-.ai-ppt-ai-palette-create {
+.workspace-home-create.ai-ppt-ai-palette-create {
   border-radius: var(--redesign-radius);
   min-height: 240px;
 }
@@ -571,7 +571,7 @@
     transform var(--redesign-duration-fast) var(--redesign-ease-standard);
 }
 
-.ai-ppt-ai-palette-panel.has-result:hover {
+.ai-ppt-ai-palette-panel:where(.has-result):hover {
   background: var(--redesign-color-surface-container-low);
   border-color: var(--redesign-color-outline);
   box-shadow: var(--redesign-shadow-card-hover);
