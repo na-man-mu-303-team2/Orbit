@@ -70,7 +70,7 @@ describe("AI PPT wizard UI", () => {
     expect(html).toContain("폰트");
     expect(html).toContain("Pretendard");
     expect(html).toContain("컬러 팔레트");
-    expect(html).toContain("폰트와 색상 선택");
+    expect(html).not.toContain("ai-ppt-panel-heading");
     expect(html).toContain(">Aa<");
     expect(html).toContain("다음 액션");
     expect(html).toContain('aria-pressed="true"');

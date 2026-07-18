@@ -835,11 +835,6 @@ function AiPptStyleStartingPage() {
         <WizardSteps activeIndex={1} />
         <main className="ai-ppt-workspace">
           <section className="ai-ppt-panel" aria-busy="true">
-            <PanelHeading
-              description="발표 분위기에 맞는 폰트와 컬러를 준비하고 있습니다."
-              kicker="2단계 · Style & Color"
-              title="폰트와 색상을 선택하세요"
-            />
             <p className="ai-ppt-status" role="status">
               프로젝트를 확정하고 발표 구성을 백그라운드에서 시작하는 중입니다.
             </p>
@@ -1300,10 +1295,6 @@ function StyleColorStep(props: {
 }) {
   return (
     <>
-      <PanelHeading
-        kicker="2단계 · Style & Color"
-        title="폰트와 색상 선택"
-      />
       <fieldset className="ai-ppt-style-fieldset">
         <legend>폰트</legend>
         <div className="ai-ppt-font-grid" role="list">
@@ -1931,16 +1922,6 @@ function TextAreaField(props: {
         onChange={(event) => props.onChange(event.target.value)}
       />
     </OrbitField>
-  );
-}
-
-function PanelHeading(props: { description?: string; kicker: string; title: string }) {
-  return (
-    <div className="ai-ppt-panel-heading">
-      <span>{props.kicker}</span>
-      <h2>{props.title}</h2>
-      {props.description ? <p>{props.description}</p> : null}
-    </div>
   );
 }
 
