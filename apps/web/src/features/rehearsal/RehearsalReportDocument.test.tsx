@@ -37,9 +37,7 @@ describe("RehearsalReportDocument", () => {
       'aria-controls="rrd-panel-overview" aria-selected="true"',
     );
     expect(html).toMatch(/id="rrd-panel-slides"[^>]*hidden=""/);
-    expect(html).toMatch(
-      /rrd-top-overview[\s\S]*rrd-ai-card[\s\S]*practice-report-summary/,
-    );
+    expect(html).toContain("practice-report-summary");
     expect(html.indexOf("rrd-analysis-tabs")).toBeLessThan(
       html.indexOf("rrd-top-overview"),
     );
@@ -163,7 +161,7 @@ describe("RehearsalReportDocument", () => {
       />,
     );
 
-    expect(html).toContain("AI 총평");
+    expect(html).not.toContain("AI 총평");
     expect(html).toContain("말버릇");
     expect(html).toContain("긴 침묵 구간 분석");
     expect(html).toContain("소요 시간 분석");
