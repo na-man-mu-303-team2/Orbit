@@ -11,7 +11,6 @@ import type { ReactNode } from "react";
 import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
 import { OrbitButton } from "../../components/ui";
 import { navigateTo } from "./rehearsalUtils";
-import { RehearsalAiSummaryOverview } from "./RehearsalAiSummaryOverview";
 import { RehearsalHabitOverview } from "./RehearsalHabitOverview";
 import { RehearsalSilenceOverview } from "./RehearsalSilenceOverview";
 import { RehearsalVolumeOverview } from "./RehearsalVolumeOverview";
@@ -167,25 +166,21 @@ export function RehearsalReportDocument({
         aria-labelledby="rrd-tab-overview"
         hidden={activeTab !== "overview"}
       >
-        {/* ── 1. AI summary ── */}
         <div className="rrd-top-overview">
-          <RehearsalAiSummaryOverview report={report} />
           {practiceGoalSummary}
+          <RehearsalHabitOverview prevReport={prevReport} report={report} />
         </div>
 
       <div className="rrd-top-overview rrd-speech-overview">
-        {/* ── 2. 말버릇 ── */}
-        <RehearsalHabitOverview prevReport={prevReport} report={report} />
-
         {/* ── 3. 음성 타임라인 / 긴 침묵 ── */}
         <RehearsalSilenceOverview
           deck={deck}
           formatDuration={fmt}
           report={report}
         />
+        <RehearsalVolumeOverview formatDuration={fmt} report={report} />
       </div>
 
-      <RehearsalVolumeOverview formatDuration={fmt} report={report} />
 
       {/* ── 4. 전사본 ── */}
       {transcriptAvailable && (
