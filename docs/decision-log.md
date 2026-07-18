@@ -674,3 +674,27 @@
 - Rationale: `localhost`와 `127.0.0.1`, 기본 포트와 side-port의 차이를 API 경계에서 한 번만 처리하고, 브라우저가 인증 cookie를 같은 origin의 private upload endpoint에 보낼 수 있게 한다. Web에서 signed 또는 proxy URL을 임의 재작성하지 않아 운영 S3 경로와 local MinIO 경로의 분리를 보존한다.
 - Affected files: `apps/api/src/slide-practice/slide-practice.controller.ts`, `apps/api/src/slide-practice/slide-practice.service.ts`, `apps/api/src/slide-practice/slide-practice.controller.spec.ts`, `apps/web/src/features/editor/practice/slidePracticeApi.ts`, `apps/web/src/features/editor/practice/slidePracticeApi.test.ts`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, 관련 UI 테스트, `docs/decision-log.md`.
 - Follow-up review notes: 5174의 `127.0.0.1`과 `localhost`에서 각각 분석 생성 뒤 `PUT /api/v1/projects/:projectId/assets/:fileId/content`가 같은 origin으로 204를 반환하는지 확인한다. 연결 자체가 실패하면 Web에 단계별 한국어 오류가 표시되는지 확인하고 raw audio, upload URL, cookie는 로그에 추가하지 않는다.
+
+## ORBIT editor slide practice single script-linked coaching
+
+- Context: 한 장 연습 리포트의 코칭은 대본과 전체 파생 지표를 함께 입력했지만 최대 2개 개선 item과 별도 30초 계획을 A·B·C 카드처럼 표시했다. 시간별 STT segment와 실제 대본 문장이 연결되지 않아 특정 대본 구간에 속도, 음량, 쉼 근거를 적용할 수 없었고, 여러 조언 중 무엇을 먼저 실행해야 하는지도 불분명했다.
+- Options considered:
+  - 전체 평균 지표만 LLM에 보내 대본 문장을 임의로 선택하게 한다.
+  - timestamp transcript 원문을 LLM과 report에 함께 저장한다.
+  - transcript segment는 Worker 메모리에서만 실제 대본 문장과 정렬하고, 원문을 제거한 bounded 파생 근거 후보 중 LLM이 하나만 선택하게 한다.
+- Final decision: Python worker는 timestamp transcript segment 최대 100개와 인접 segment 사이 250ms 이상 pause 구간을 Worker 메모리에만 반환한다. Worker는 실제 `speakerNotes` 문장과 순서 기반 lexical 정렬을 수행하고 속도, 음량, 쉼, pitch 폭, 습관어, 음량 변화폭, 리듬 규칙성을 포함한 후보를 최대 8개 만든다. OpenAI는 후보 ID 하나와 단일 개선 item만 반환한다. Worker는 ID, issue category, 실제 대본 포함 여부를 재검사하고 `promptVersion: 2`, item 1개, `practicePlan: null`로 저장한다. UI는 한 카드 안에 실제 대본, 7개 근거, 대본 적용 방법, 다른 연습 방법을 표시한다.
+- Rationale: transcript와 raw audio 보존 범위를 넓히지 않으면서 측정 근거를 실제 대본에 연결하고, 사용자에게 가장 중요한 행동 하나만 제시한다. 정렬이 부족한 fallback은 `practice-target`으로 구분해 실제 오류 구간으로 단정하지 않는다.
+- Affected files: `docs/contracts.md`, `packages/shared/src/slide-practice`, `services/python-worker/app/audio/slide_practice.py`, `services/python-worker/app/slide_practice_coaching.py`, `apps/worker/src/slide-practice-analysis.processor.ts`, `apps/web/src/features/editor/practice/PracticeReportContent.tsx`, 관련 테스트와 `docs/decision-log.md`.
+- Follow-up review notes: 실제 10초 이상 연습에서 transcript 원문이 코칭 요청, report JSON, Job 결과, 로그에 없는지 확인한다. 선택된 대본이 frozen deck version의 `speakerNotes`에 포함되는지, 신규 report가 item 하나만 가지는지, matched와 practice-target 문구가 구분되는지 확인한다.
+
+## ORBIT editor one-slide rehearsal automatic wheel skip fallback
+
+- Context: 한 장 연습 시 문장을 실제로 말했지만 live STT가 완료 경계를 놓치면 자동 프롬프터가 현재 문장에 머물 수 있다. 기존 휠 아래 동작은 `manualNextPrompter`로 현재 문장을 완료 처리하고 UI를 수동 모드로 전환해, 시연자가 자동 인식을 계속 사용하려는 의도와 달랐다.
+- Options considered:
+  - 휠을 화면 미리보기로만 처리하고 잠시 후 기존 문장으로 복귀한다.
+  - 기존 manual commit을 유지한 채 자동 모드 표시만 유지한다.
+  - 현재 문장을 완료하지 않고 `skippedSentenceIds`에 기록한 뒤 다음 문장을 새 자동 인식 대상으로 설정한다.
+- Final decision: 자동 따라가기 상태에서 휠 아래는 `skipCurrentPrompter`를 사용한다. 현재 문장은 committed/covered 처리하지 않고 skipped로만 기록하며, revision과 lexical evidence를 초기화한 뒤 다음 문장부터 자동 STT를 계속한다. 휠 위는 이전 문장으로 돌아가되 자동 모드를 유지한다. 명시적으로 수동 모드를 선택한 경우 기존 manual API를 유지하고, 마지막 문장에서는 skip을 거부해 잘못된 100% 진행이나 슬라이드 전환 신호를 만들지 않는다.
+- Rationale: 시연자가 STT 누락을 즉시 복구하면서도 읽지 않은 문장을 완료했다고 기록하지 않고, 화면 포커스와 다음 음성 판정을 같은 문장에 맞춘다.
+- Affected files: `apps/web/src/features/rehearsal/speech/prompterProgressTracker.ts`, `apps/web/src/features/rehearsal/speech/speechTracker.ts`, `apps/web/src/features/editor/shell/hooks/useEditorSlideRehearsal.ts`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, `apps/web/src/features/editor/shell/EditorShell.tsx`, 관련 테스트와 `docs/decision-log.md`.
+- Follow-up review notes: 자동 모드에서 첫 문장을 skip한 뒤 진행률이 오르지 않는지, 다음 문장 final STT만 commit되는지, 마지막 문장 skip이 거부되는지, 수동 모드의 화살표 동작과 전체 리허설 wheel 동작이 유지되는지 확인한다.
