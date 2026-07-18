@@ -56,7 +56,7 @@ describe("SlideNavigatorPane", () => {
     const html = renderNavigator("thumbnail", true);
 
     expect(html).toContain('aria-label="슬라이드 목록 열기"');
-    expect(html).toContain("tabler-icon-list");
+    expect(html).toContain("tabler-icon-layout-sidebar-left-expand");
     expect(html).not.toContain("tabler-icon-list-details");
     expect(html).not.toContain("collapsed-slide-rail");
     expect(html).not.toContain("slides-list");

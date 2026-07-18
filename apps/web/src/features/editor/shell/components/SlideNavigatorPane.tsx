@@ -3,6 +3,7 @@ import {
   IconChevronDown as ChevronDown,
   IconLayoutGrid as Grid,
   IconLayoutSidebarLeftCollapse as PanelLeftClose,
+  IconLayoutSidebarLeftExpand as PanelLeftOpen,
   IconList as List,
   IconPlus as Plus
 } from "@tabler/icons-react";
@@ -87,7 +88,7 @@ export function SlideNavigatorPane(props: {
           title={props.isCollapsed ? "슬라이드 목록 열기" : "슬라이드 패널 접기"}
           onClick={props.onToggleCollapsed}
         >
-          {props.isCollapsed ? <List aria-hidden="true" size={16} /> : <PanelLeftClose size={16} />}
+          {props.isCollapsed ? <PanelLeftOpen aria-hidden="true" size={16} /> : <PanelLeftClose size={16} />}
         </button>
       </div>
 
