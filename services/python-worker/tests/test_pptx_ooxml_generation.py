@@ -521,6 +521,16 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
                     },
                 },
             },
+            {
+                "type": "update_element_frame",
+                "slideId": template_slide_id(generated),
+                "elementId": "el_added_image",
+                "frame": {
+                    "opacity": 0.29,
+                    "visible": False,
+                    "zIndex": 17,
+                },
+            },
         ],
     )
     edited_bytes = current_package_bytes(edited.assets)
@@ -544,9 +554,44 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
     assert picture_crop_rect(
         edited_bytes, added_sources["el_added_image"]["shapeId"]
     ) == {"l": "10000", "t": "20000", "r": "15000", "b": "5000"}
+    edited_image_xml = shape_xml(
+        edited_bytes, added_sources["el_added_image"]["shapeId"]
+    )
+    assert b'alphaModFix amt="29000"' in edited_image_xml
+    assert b'hidden="1"' in edited_image_xml
 
     edited_path = tmp_path / "edited-added.pptx"
     edited_path.write_bytes(edited_bytes)
+    reshown_blueprint = copy.deepcopy(next_blueprint)
+    reshown_blueprint["slides"][0]["elementSources"] = [
+        edited_image_source
+        if source["elementId"] == "el_added_image"
+        else source
+        for source in reshown_blueprint["slides"][0]["elementSources"]
+    ]
+    reshown = sync_pptx_ooxml(
+        edited_path,
+        template_blueprint=reshown_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=4,
+        render=False,
+        operations=[
+            {
+                "type": "update_element_frame",
+                "slideId": template_slide_id(generated),
+                "elementId": "el_added_image",
+                "frame": {"opacity": 0.29, "visible": True},
+            }
+        ],
+    )
+    reshown_bytes = current_package_bytes(reshown.assets)
+    reshown_image_xml = shape_xml(
+        reshown_bytes, added_sources["el_added_image"]["shapeId"]
+    )
+    assert b'alphaModFix amt="29000"' in reshown_image_xml
+    assert b'hidden="1"' not in reshown_image_xml
+
+    edited_path.write_bytes(reshown_bytes)
     round_trip = generate_pptx_ooxml(
         edited_path,
         "file_round_trip",
