@@ -184,6 +184,146 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     expect(reimportedText.height).toBeCloseTo(expectedFrame.height, 0);
   }, 120_000);
 
+  it("persists a large-blueprint slide reorder through sync, export, and re-import", async () => {
+    const projectId = integrationId("project");
+    const sourceFileId = integrationId("file");
+    const sourceStorageKey = `integration/${projectId}/source.pptx`;
+    const storage = new MemoryStorage();
+    projectIds.add(projectId);
+
+    await expectPythonWorkerHealthy(pythonWorkerUrl);
+    const baseDeck = createDeck(projectId, integrationId("deck"), 1);
+    const sourceDeck = deckSchema.parse({
+      ...baseDeck,
+      slides: ["Slide 1", "Slide 2", "Slide 3"].map((text, index) => ({
+        ...baseDeck.slides[0],
+        slideId: `slide_source_${index + 1}`,
+        order: index + 1,
+        title: text,
+        elements: [createTextElement(text, `el_source_${index + 1}`)],
+      })),
+    });
+    const sourceBytes = await exportDeckWithPython(pythonWorkerUrl, sourceDeck);
+    storage.seed(sourceStorageKey, sourceBytes, pptxMimeType, "pptx-import");
+    await seedProject(dataSource, projectId);
+    await seedAsset(dataSource, {
+      projectId,
+      fileId: sourceFileId,
+      storageKey: sourceStorageKey,
+      purpose: "pptx-import",
+      body: sourceBytes,
+    });
+
+    const harness = createServiceHarness(dataSource);
+    const importJob = await harness.jobs.create({
+      projectId,
+      type: "pptx-ooxml-generation",
+      payload: { request: { fileId: sourceFileId } },
+    });
+    const importedJob = await processPptxOoxmlGenerationJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      {
+        jobId: importJob.jobId,
+        projectId,
+        request: { fileId: sourceFileId },
+      },
+    );
+    expect(importedJob.status, JSON.stringify(importedJob.error)).toBe(
+      "succeeded",
+    );
+
+    const imported = (await harness.decks.getDeck(projectId)).deck;
+    const largeBlueprint = await loadTemplateBlueprint(
+      dataSource,
+      projectId,
+      imported.deckId,
+    );
+    largeBlueprint.slides[0]!.elementSources.push(
+      ...Array.from({ length: 9_000 }, (_, index) => ({
+        elementId: `el_large_${index}`,
+        slidePart: largeBlueprint.slides[0]!.sourceSlidePart!,
+        shapeId: String(index + 10_000),
+        sourceType: "slide" as const,
+        writable: false,
+      })),
+    );
+    expect(Buffer.byteLength(JSON.stringify(largeBlueprint))).toBeGreaterThan(
+      1024 * 1024,
+    );
+    await dataSource.query(
+      `UPDATE template_blueprints
+       SET blueprint_json = $3
+       WHERE project_id = $1 AND deck_id = $2`,
+      [projectId, imported.deckId, largeBlueprint],
+    );
+
+    const desiredSlideIds = [
+      imported.slides[2]!.slideId,
+      imported.slides[0]!.slideId,
+      imported.slides[1]!.slideId,
+    ];
+    const saved = await harness.decks.appendPatch(projectId, {
+      patch: {
+        deckId: imported.deckId,
+        baseVersion: imported.version,
+        source: "user",
+        operations: [
+          {
+            type: "reorder_slides",
+            slideOrders: desiredSlideIds.map((slideId, index) => ({
+              slideId,
+              order: index + 1,
+            })),
+          },
+        ],
+      },
+    });
+    expect(saved.changeRecord.operations).toHaveLength(1);
+    const syncPayload = await enqueueSync(harness, projectId, {
+      deckId: imported.deckId,
+      changeId: saved.changeRecord.changeId,
+      targetDeckVersion: saved.deck.version,
+    });
+    const syncJob = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      syncPayload,
+    );
+    expect(syncJob.status, JSON.stringify(syncJob.error)).toBe("succeeded");
+
+    const exportPayload = await enqueueExport(harness, projectId);
+    const exportedJob = await processDeckExportJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      exportPayload,
+      { ooxmlReadyAttempts: 2, ooxmlReadyDelayMs: 0 },
+    );
+    expect(exportedJob.status, JSON.stringify(exportedJob.error)).toBe(
+      "succeeded",
+    );
+    const exportedBytes = await jobAssetBytes(dataSource, storage, exportedJob);
+    const reimported = await importPptxWithPython(
+      pythonWorkerUrl,
+      exportedBytes,
+      projectId,
+      integrationId("file"),
+    );
+
+    expect(importedSlideTextOrder(reimported)).toEqual([
+      "Slide 3",
+      "Slide 1",
+      "Slide 2",
+    ]);
+    const reloaded = (await harness.decks.getDeck(projectId)).deck;
+    expect(reloaded.slides.map((slide) => slide.slideId)).toEqual(
+      desiredSlideIds,
+    );
+  }, 120_000);
+
   it("serializes inverted v2/v3 sync jobs and coalesces them to v3", async () => {
     const fixture = await seedFakeImportedFixture(dataSource, projectIds);
     const fake = await startFakePythonWorker();
@@ -648,6 +788,22 @@ function findImportedText(
   return element as { x: number; y: number; width: number; height: number };
 }
 
+function importedSlideTextOrder(
+  imported: Awaited<ReturnType<typeof importPptxWithPython>>,
+) {
+  return (imported.blueprint.slides ?? []).map((slide) => {
+    const element = (slide.elements ?? []).find(
+      (candidate) =>
+        candidate.type === "text" &&
+        String(
+          (candidate.props as Record<string, unknown> | undefined)?.text,
+        ).startsWith("Slide "),
+    );
+    if (!element) throw new Error("Re-imported slide text not found.");
+    return String((element.props as Record<string, unknown>).text);
+  });
+}
+
 async function loadTemplateBlueprint(
   dataSource: DataSource,
   projectId: string,
@@ -763,9 +919,12 @@ function createDeck(projectId: string, deckId: string, version: number): Deck {
   });
 }
 
-function createTextElement(): DeckElement {
+function createTextElement(
+  text = "Initial integration text",
+  elementId = "el_integration_text",
+): DeckElement {
   return {
-    elementId: "el_integration_text",
+    elementId,
     type: "text",
     role: "body",
     x: 180,
@@ -778,7 +937,7 @@ function createTextElement(): DeckElement {
     locked: false,
     visible: true,
     props: {
-      text: "Initial integration text",
+      text,
       fontSize: 36,
       fontWeight: "normal",
       color: "#111827",
