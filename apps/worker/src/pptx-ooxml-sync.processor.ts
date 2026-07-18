@@ -2,10 +2,12 @@ import {
   deckCanvasSchema,
   deckPatchOperationSchema,
   deckPatchOperationTypeSchema,
+  deckSchema,
   pptxOoxmlSyncJobResultSchema,
   templateElementSourceSchema,
   templateBlueprintSchema,
   type DeckCanvas,
+  type Deck,
   type DeckPatchOperation,
   type Job,
   type TemplateBlueprint,
@@ -35,6 +37,7 @@ const ooxmlSyncOperationTypeSchema = z.enum([
   "update_element_frame",
   "update_element_props",
   "delete_element",
+  "reorder_slides",
 ]);
 
 const ooxmlUnsupportedReasonCodeSchema = z.enum([
@@ -50,6 +53,9 @@ const ooxmlUnsupportedReasonCodeSchema = z.enum([
   "PROPS_UPDATE_FAILED",
   "SHAPE_MISSING",
   "SLIDE_PART_MISSING",
+  "SLIDE_REORDER_LOCATOR_UNSAFE",
+  "SLIDE_REORDER_PERMUTATION_INVALID",
+  "SLIDE_REORDER_RELATIONSHIP_UNSAFE",
   "SOURCE_MISSING",
   "SOURCE_NOT_WRITABLE",
   "SOURCE_PROVENANCE_UNSAFE",
@@ -96,7 +102,8 @@ type OoxmlSyncOperation = Extract<
       | "add_element"
       | "update_element_frame"
       | "update_element_props"
-      | "delete_element";
+      | "delete_element"
+      | "reorder_slides";
   }
 >;
 
@@ -257,6 +264,7 @@ export async function processPptxOoxmlSyncJob(
         payload.projectId,
         payload.deckId,
       );
+      const storedDeck = deckSchema.parse(deck.deck_json);
       const latestDeckVersion = deck.version;
       const syncedDeckVersion = templateBlueprint.ooxmlSyncedDeckVersion ?? 1;
 
@@ -290,6 +298,17 @@ export async function processPptxOoxmlSyncJob(
         syncedDeckVersion,
         latestDeckVersion,
       );
+      const invalidReorder = operations.find(
+        (operation) =>
+          operation.type === "reorder_slides" &&
+          !isExactSlidePermutation(operation, storedDeck),
+      );
+      if (invalidReorder) {
+        throw new UnsupportedOoxmlOperationsError({
+          ...operationIdentity(invalidReorder),
+          reasonCode: "SLIDE_REORDER_PERMUTATION_INVALID",
+        });
+      }
       const unsupportedPendingOperation = operations.find(
         (operation) =>
           !isOoxmlSyncOperation(operation) &&
@@ -313,7 +332,7 @@ export async function processPptxOoxmlSyncJob(
         latestDeckVersion,
         packageAsset,
         templateBlueprint,
-        deckCanvasSchema.parse((deck.deck_json as { canvas?: unknown }).canvas),
+        storedDeck.canvas,
         embeddedOperations,
       );
       const savedAssets = await saveSyncAssets(
@@ -817,6 +836,7 @@ function isOoxmlSyncOperation(
     "update_element_props",
     "add_element",
     "delete_element",
+    "reorder_slides",
   ].includes(operation.type);
 }
 
@@ -833,6 +853,24 @@ function isOoxmlPackageNeutralOperation(
     "update_slide_action",
     "delete_slide_action",
   ].includes(operation.type);
+}
+
+function isExactSlidePermutation(
+  operation: Extract<DeckPatchOperation, { type: "reorder_slides" }>,
+  deck: Deck,
+): boolean {
+  const currentSlideIds = deck.slides.map((slide) => slide.slideId);
+  const requestedSlideIds = operation.slideOrders.map((item) => item.slideId);
+  const requestedOrders = operation.slideOrders.map((item) => item.order);
+  const expectedOrders = new Set(deck.slides.map((_, index) => index + 1));
+  return (
+    currentSlideIds.length === requestedSlideIds.length &&
+    new Set(currentSlideIds).size === currentSlideIds.length &&
+    new Set(requestedSlideIds).size === requestedSlideIds.length &&
+    requestedSlideIds.every((slideId) => currentSlideIds.includes(slideId)) &&
+    new Set(requestedOrders).size === requestedOrders.length &&
+    requestedOrders.every((order) => expectedOrders.has(order))
+  );
 }
 
 function operationIdentity(operation: DeckPatchOperation) {
@@ -946,6 +984,22 @@ function withSourceSlideId(
   operation: OoxmlSyncOperation,
   templateBlueprint: TemplateBlueprint,
 ): OoxmlSyncOperation {
+  if (operation.type === "reorder_slides") {
+    return {
+      ...operation,
+      slideOrders: operation.slideOrders.map((slideOrder) => {
+        const locator = sourceSlideLocatorForDeckSlide(
+          slideOrder.slideId,
+          templateBlueprint,
+        );
+        return {
+          ...slideOrder,
+          blueprintSlideIndex: locator?.slideIndex ?? 0,
+          sourceSlidePart: locator?.sourceSlidePart ?? "",
+        };
+      }),
+    } as OoxmlSyncOperation;
+  }
   if (!("slideId" in operation)) return operation;
   const generatedSlideIndex = slideIndexFromId(operation.slideId);
   const sourceSlideIndex = templateBlueprint.slides.find(
@@ -957,6 +1011,28 @@ function withSourceSlideId(
     ...operation,
     slideId: `slide_${sourceSlideIndex}`,
   } as OoxmlSyncOperation;
+}
+
+function sourceSlideLocatorForDeckSlide(
+  slideId: string,
+  templateBlueprint: TemplateBlueprint,
+): { slideIndex: number; sourceSlidePart: string } | null {
+  const generatedSlideIndex = slideIndexFromId(slideId);
+  const matches = templateBlueprint.slides.filter(
+    (slide) => slide.slideIndex === generatedSlideIndex,
+  );
+  const slide = matches[0];
+  if (
+    matches.length !== 1 ||
+    !slide?.sourceSlidePart ||
+    slide.ooxmlOrigin === "authored"
+  ) {
+    return null;
+  }
+  return {
+    slideIndex: slide.slideIndex,
+    sourceSlidePart: slide.sourceSlidePart,
+  };
 }
 
 function slideIndexFromId(slideId: string): number {

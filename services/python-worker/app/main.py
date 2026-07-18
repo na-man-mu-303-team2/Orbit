@@ -659,7 +659,11 @@ async def generate_pptx_ooxml_endpoint(
             raise HTTPException(status_code=503, detail=str(error)) from error
 
 
-@app.post("/ai/pptx-ooxml-sync", response_model=PptxOoxmlSyncResult)
+@app.post(
+    "/ai/pptx-ooxml-sync",
+    response_model=PptxOoxmlSyncResult,
+    response_model_exclude_none=True,
+)
 async def sync_pptx_ooxml_endpoint(
     file: UploadFile = File(...),
     template_blueprint_file: UploadFile | None = File(None),

@@ -1022,6 +1022,11 @@ Supported first-pass patch operations:
 - `update_element_props`
 - `add_element`
 - `delete_element`
+- `reorder_slides`
+
+`reorder_slides`는 기존 DeckPatch의 `slideOrders` 계약을 재사용하며 현재 Deck slide ID 전체와 `1..N` order를 각각 정확히 한 번씩 포함해야 한다. imported PPTX sync에서 Worker는 각 slide ID를 TemplateBlueprint의 유일한 `sourceSlidePart`에 대응시킨다. Python serializer는 `ppt/presentation.xml`의 `p:sldIdLst` 자식 순서만 바꾸고 각 `p:sldId@id`, `r:id`, `ppt/_rels/presentation.xml.rels`, slide part 이름과 slide별 package entry를 유지한다.
+
+locator 누락, authored/duplicated slide, 두 Deck slide가 같은 source part를 가리키는 경우, 끊어진 presentation relationship, 중복·누락·unknown slide 또는 불완전 permutation은 bounded slide reorder reason으로 package 원본 bytes를 반환하고 freshness를 올리지 않는다. `add_slide`, `delete_slide`의 OOXML part 생성/제거와 layout/master 복제는 아직 미지원이며 Worker preflight에서 fail-closed한다.
 
 `update_element_props`의 text serializer는 `text`, `runs`, `paragraphs`, `bodyInset`, `fontFamily`, `fontSize`, `fontWeight`, `italic`, `underline`, `color`, `align`, `verticalAlign`, `writingMode`, `lineHeight`, `bullet`만 지원한다. targeted sync의 `fontWeight`는 lossless round-trip이 가능한 `normal | bold`만 허용하며, 미지원 field나 canonical projection 불일치는 fail-closed 대상이다.
 
@@ -1037,6 +1042,7 @@ Python Worker의 sync 응답은 bounded array인 `appliedOperations`와 `unsuppo
 - `ELEMENT_TYPE_MISMATCH`, `FRAME_FIELDS_UNSUPPORTED`, `GROUPED_FRAME_UNSUPPORTED`
 - `OPERATION_TYPE_UNSUPPORTED`, `PROPS_FIELDS_UNSUPPORTED`, `PROPS_UPDATE_FAILED`
 - `SHAPE_MISSING`, `SLIDE_PART_MISSING`
+- `SLIDE_REORDER_LOCATOR_UNSAFE`, `SLIDE_REORDER_PERMUTATION_INVALID`, `SLIDE_REORDER_RELATIONSHIP_UNSAFE`
 - `SOURCE_MISSING`, `SOURCE_NOT_WRITABLE`, `SOURCE_PROVENANCE_UNSAFE`
 - `SYNC_RESPONSE_INCOMPLETE`
 - `TABLE_CELL_CAPABILITY_UNSAFE`, `TABLE_STRUCTURE_UNSUPPORTED`
