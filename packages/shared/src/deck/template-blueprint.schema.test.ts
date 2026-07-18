@@ -583,6 +583,24 @@ describe("pptxOoxmlGeneration schemas", () => {
     expect(result.syncedDeckVersion).toBe(2);
   });
 
+  it("keeps logical group IDs as package-neutral blueprint sidecar data", () => {
+    const blueprint = templateBlueprintSchema.parse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      logicalGroupElementIds: ["el_group_1"],
+      slides: [{ slideIndex: 1, sourceSlideIndex: 1 }],
+    });
+
+    expect(blueprint.logicalGroupElementIds).toEqual(["el_group_1"]);
+    expect(
+      templateBlueprintSchema.parse({
+        templateId: "template_file_legacy",
+        sourceFileId: "file_legacy",
+        slides: [{ slideIndex: 1, sourceSlideIndex: 1 }],
+      }).logicalGroupElementIds,
+    ).toEqual([]);
+  });
+
   it("recovers legacy slide mappings from deck order without parsing slide IDs", () => {
     const blueprint = templateBlueprintSchema.parse({
       templateId: "template_file_1",

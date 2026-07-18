@@ -141,6 +141,117 @@ describe("processPptxOoxmlSyncJob", () => {
     );
   });
 
+  it("keeps logical group operations out of the OOXML package", async () => {
+    let savedBlueprint: Record<string, unknown> | null = null;
+    const { dataSource } = createDataSource({
+      blueprint: {
+        ...templateBlueprint(1),
+        logicalGroupElementIds: ["el_group_old"],
+      },
+      deckElements: [
+        {
+          elementId: "el_group_new",
+          type: "group",
+          role: "decoration",
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 10,
+          locked: false,
+          visible: true,
+          props: { childElementIds: ["el_title"] },
+        },
+      ],
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "add_element",
+          slideId: "slide_1",
+          element: {
+            elementId: "el_group_new",
+            type: "group",
+            role: "decoration",
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 10,
+            locked: false,
+            visible: true,
+            props: { childElementIds: ["el_title"] },
+          },
+        },
+        {
+          type: "update_element_frame",
+          slideId: "slide_1",
+          elementId: "el_group_new",
+          frame: { x: 20 },
+        },
+        {
+          type: "delete_element",
+          slideId: "slide_1",
+          elementId: "el_group_old",
+        },
+        {
+          type: "update_element_frame",
+          slideId: "slide_1",
+          elementId: "el_title",
+          frame: { x: 120 },
+        },
+      ],
+      onBlueprintUpdate: (blueprint) => {
+        savedBlueprint = blueprint;
+        return true;
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+        const operationsPart = (init?.body as FormData).get("operations_file");
+        expect(JSON.parse(await (operationsPart as Blob).text())).toEqual([
+          expect.objectContaining({
+            type: "update_element_frame",
+            slideId: "slide_1",
+            elementId: "el_title",
+            frame: { x: 120 },
+          }),
+        ]);
+        return new Response(
+          JSON.stringify(
+            workerResponse([
+              {
+                operationType: "update_element_frame",
+                slideId: "slide_1",
+                elementId: "el_title",
+              },
+            ]),
+          ),
+        );
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(savedBlueprint).toMatchObject({
+      logicalGroupElementIds: ["el_group_new"],
+    });
+  });
+
   it("sends operations larger than the parser's former 1 MiB limit as a JSON file part", async () => {
     const largeText = "x".repeat(1024 * 1024 + 32);
     const { dataSource } = createDataSource({
@@ -915,7 +1026,10 @@ describe("processPptxOoxmlSyncJob", () => {
 });
 
 function createDataSource(input: {
-  blueprint?: ReturnType<typeof templateBlueprint>;
+  blueprint?: ReturnType<typeof templateBlueprint> & {
+    logicalGroupElementIds?: string[];
+  };
+  deckElements?: unknown[];
   deckSlideIds?: string[];
   deckVersion: number;
   syncedVersion: number;
@@ -968,7 +1082,7 @@ function createDataSource(input: {
               slideId,
               order: index + 1,
               title: `Slide ${index + 1}`,
-              elements: [],
+              elements: index === 0 ? (input.deckElements ?? []) : [],
             })),
           },
           version: input.deckVersion,

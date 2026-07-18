@@ -4,13 +4,11 @@ import type {
   Deck,
   DeckElementPaint,
   DeckElement,
-  GroupElementProps,
   ShapeElementProps,
   TableElementProps,
   Slide,
   TextElementProps
 } from "@orbit/shared";
-import { getGroupChildElements } from "@orbit/editor-core";
 import type Konva from "konva";
 import {
   Arrow as KonvaArrowComponent,
@@ -25,8 +23,6 @@ import {
 } from "react-konva";
 import type { ComponentType } from "react";
 import type { ElementPresentationState } from "./ReadOnlySlideCanvas";
-import { normalizeRenderableElement } from "./elementNormalization";
-import { HighlightOverlay } from "./highlightOverlay";
 
 import { ImageElementContent } from "./ImageElementContent";
 import {
@@ -44,7 +40,6 @@ import {
   getKonvaFontStyle,
   getTextElementLayout
 } from "../../editor/canvas/text/textLayout";
-import { getGroupedChildPreviewFrame } from "../../editor/canvas/utils/canvasElementUtils";
 
 type KonvaComponent = ComponentType<any>;
 
@@ -87,11 +82,9 @@ export function ElementNodeContent(props: {
 }) {
   const {
     accentColor,
-    activeHighlightElementIds,
     customShapePreview,
     deck,
     element,
-    elementStates,
     frame,
     slide
   } = props;
@@ -200,78 +193,7 @@ export function ElementNodeContent(props: {
   }
 
   if (element.type === "group") {
-    const groupProps = element.props as GroupElementProps;
-    const childElements = getGroupChildElements(slide, groupProps.childElementIds);
-
-    if (childElements.length === 0) {
-      return null;
-    }
-
-    return (
-      <Group listening={false}>
-        {childElements.map((childElement) => {
-          const renderableChildElement = normalizeRenderableElement(deck.canvas, childElement);
-          const childPresentationState = elementStates?.[childElement.elementId];
-          const presentedChildElement = applyPresentationStateToElement(
-            renderableChildElement,
-            childPresentationState
-          );
-          const childFrame = getGroupedChildPreviewFrame({
-            childElement: presentedChildElement,
-            currentGroupFrame: element,
-            previewGroupFrame: frame
-          });
-          const childVisible = childPresentationState?.visible ?? childElement.visible;
-          const childOpacity = childVisible
-            ? (childPresentationState?.opacity ?? childElement.opacity)
-            : 0;
-
-          return (
-            <Group
-              data-element-id={childElement.elementId}
-              key={childElement.elementId}
-              listening={false}
-              opacity={childOpacity}
-              rotation={childFrame.rotation}
-              scaleX={childPresentationState?.scaleX ?? 1}
-              scaleY={childPresentationState?.scaleY ?? 1}
-              x={childFrame.x}
-              y={childFrame.y}
-            >
-              <ElementNodeContent
-                activeHighlightElementIds={activeHighlightElementIds}
-                accentColor={accentColor}
-                deck={deck}
-                element={presentedChildElement}
-                elementStates={elementStates}
-                frame={{
-                  x: 0,
-                  y: 0,
-                  width: childFrame.width,
-                  height: childFrame.height,
-                  rotation: childFrame.rotation
-                }}
-                slide={slide}
-              />
-              {activeHighlightElementIds?.has(childElement.elementId) ? (
-                <HighlightOverlay
-                  element={{
-                    ...presentedChildElement,
-                    height: childFrame.height,
-                    opacity: childOpacity,
-                    rotation: 0,
-                    visible: childVisible,
-                    width: childFrame.width,
-                    x: 0,
-                    y: 0
-                  }}
-                />
-              ) : null}
-            </Group>
-          );
-        })}
-      </Group>
-    );
+    return null;
   }
 
   if (element.type === "customShape") {
@@ -1022,26 +944,4 @@ function withOpacity(color: string, opacity: number) {
   const blue = Number.parseInt(color.slice(5, 7), 16);
 
   return `rgba(${red}, ${green}, ${blue}, ${opacity})`;
-}
-
-function applyPresentationStateToElement<T extends DeckElement>(
-  element: T,
-  state: ElementPresentationState | undefined
-): T {
-  if (!state) {
-    return element;
-  }
-
-  const presentedElement: T = {
-    ...element,
-    height: state.height ?? element.height,
-    opacity: state.opacity ?? element.opacity,
-    rotation: state.rotation ?? element.rotation,
-    visible: state.visible ?? element.visible,
-    width: state.width ?? element.width,
-    x: state.x ?? element.x,
-    y: state.y ?? element.y
-  };
-
-  return presentedElement;
 }
