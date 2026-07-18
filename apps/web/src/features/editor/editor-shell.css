@@ -11124,6 +11124,38 @@ body.is-resizing-speaker-notes {
   padding: 0 var(--redesign-space-2);
 }
 
+.orbit-shell.editor-professional .editor-panel-toolbar-actions .editor-ai-chat-toggle {
+  min-width: 40px;
+}
+
+.orbit-shell.editor-professional .editor-ai-chat-toggle-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.orbit-shell.editor-professional .editor-ai-chat-toggle-badge {
+  position: absolute;
+  right: -9px;
+  bottom: -6px;
+  min-width: 16px;
+  height: 12px;
+  padding: 0 3px;
+  border-radius: var(--redesign-radius-full);
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+  font-size: var(--redesign-type-micro-md-size);
+  font-weight: 800;
+  line-height: 12px;
+  letter-spacing: 0.02em;
+}
+
+.orbit-shell.editor-professional .editor-ai-chat-toggle.active .editor-ai-chat-toggle-badge {
+  background: var(--redesign-color-on-primary);
+  color: var(--redesign-color-primary);
+}
+
 @media (min-width: 861px) {
   .orbit-shell.editor-professional .stage-top-controls {
     align-self: stretch;

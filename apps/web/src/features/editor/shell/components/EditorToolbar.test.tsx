@@ -57,4 +57,45 @@ describe("EditorToolbar", () => {
     }
 
   });
+
+  it("labels the assistant panel trigger as an AI chatbot", () => {
+    const html = renderToStaticMarkup(
+      <EditorToolbar
+        canMutate
+        canUseCurrentSlide
+        canZoomIn
+        canZoomOut
+        chartMenuButtonRef={createRef<HTMLButtonElement>()}
+        insertTool="select"
+        isChartMenuOpen={false}
+        isIconPanelOpen={false}
+        isImageUploadPending={false}
+        isShapeMenuOpen={false}
+        isStageFitToViewport
+        isRightPanelOpen={false}
+        rightPanelMode="properties"
+        onAddText={vi.fn()}
+        onFitStageToViewport={vi.fn()}
+        onOpenAnimation={vi.fn()}
+        onOpenAssistant={vi.fn()}
+        onOpenIconLibrary={vi.fn()}
+        onOpenImagePicker={vi.fn()}
+        onOpenProperties={vi.fn()}
+        onRedo={vi.fn()}
+        onSelectTool={vi.fn()}
+        onToggleChartMenu={vi.fn()}
+        onToggleShapeMenu={vi.fn()}
+        onUndo={vi.fn()}
+        onZoomIn={vi.fn()}
+        onZoomOut={vi.fn()}
+        redoDisabled
+        shapeMenuButtonRef={createRef<HTMLButtonElement>()}
+        stageScale={0.8}
+        undoDisabled
+      />
+    );
+
+    expect(html).toContain('aria-label="AI 챗봇"');
+    expect(html).toContain('class="editor-ai-chat-toggle-badge"');
+  });
 });

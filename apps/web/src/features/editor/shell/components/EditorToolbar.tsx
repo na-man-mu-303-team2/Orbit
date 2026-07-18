@@ -7,9 +7,9 @@ import {
   IconMovie as Animation,
   IconPhotoPlus as ImagePlus,
   IconIcons,
+  IconMessageCircle as MessageCircle,
   IconPointer as MousePointer2,
   IconShape as Shapes,
-  IconSparkles as Sparkles,
   IconTypography as Type
 } from "@tabler/icons-react";
 import type { ReactNode, RefObject } from "react";
@@ -172,13 +172,16 @@ export function EditorToolbar(props: EditorToolbarProps) {
         <button
           aria-controls="editor-selection-inspector-pane"
           aria-expanded={props.isRightPanelOpen && props.rightPanelMode === "assistant"}
-          aria-label="AI 어시스턴트"
-          className={`tool-button ${props.isRightPanelOpen && props.rightPanelMode === "assistant" ? "active" : ""}`}
-          title="AI 어시스턴트 패널 열기"
+          aria-label="AI 챗봇"
+          className={`tool-button editor-ai-chat-toggle ${props.isRightPanelOpen && props.rightPanelMode === "assistant" ? "active" : ""}`}
+          title="AI 챗봇 패널 열기"
           type="button"
           onClick={props.onOpenAssistant}
         >
-          <Sparkles aria-hidden="true" size={17} />
+          <span className="editor-ai-chat-toggle-icon" aria-hidden="true">
+            <MessageCircle size={18} />
+            <span className="editor-ai-chat-toggle-badge">AI</span>
+          </span>
         </button>
       </div>
     </div>
