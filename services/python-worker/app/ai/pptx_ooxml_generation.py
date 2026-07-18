@@ -47,6 +47,15 @@ CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types
 IMAGE_REL_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 )
+SLIDE_REL_TYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
+)
+SLIDE_LAYOUT_REL_TYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"
+)
+SLIDE_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.presentationml.slide+xml"
+)
 P_SP = f"{{{PML_NS}}}sp"
 P_PIC = f"{{{PML_NS}}}pic"
 P_GRAPHIC_FRAME = f"{{{PML_NS}}}graphicFrame"
@@ -125,6 +134,7 @@ class PptxOoxmlGenerationResult(BaseModel):
 
 
 PptxOoxmlSyncOperationType = Literal[
+    "add_slide",
     "add_element",
     "update_element_frame",
     "update_element_props",
@@ -133,6 +143,8 @@ PptxOoxmlSyncOperationType = Literal[
 ]
 
 PptxOoxmlUnsupportedReasonCode = Literal[
+    "ADD_SLIDE_FAILED",
+    "ADD_SLIDE_LAYOUT_UNSAFE",
     "ADD_ELEMENT_FAILED",
     "ADD_ELEMENT_TYPE_UNSUPPORTED",
     "CROP_CAPABILITY_UNSAFE",
@@ -787,6 +799,26 @@ def apply_sync_operation(
     template_blueprint: dict[str, Any],
 ) -> PptxOoxmlUnsupportedReasonCode | None:
     operation_type = str(operation.get("type", ""))
+    if operation_type == "add_slide":
+        added_sources, reason_code = add_authored_slide_to_package(
+            operation,
+            package_entries,
+            added_entries,
+            scale,
+            warnings,
+            source_package,
+            template_blueprint,
+        )
+        if reason_code is not None:
+            return reason_code
+        for added_source in added_sources:
+            added_key = (
+                str(added_source["slidePart"]),
+                str(added_source["elementId"]),
+            )
+            sources[added_key] = added_source
+            updated_sources[added_key] = added_source
+        return None
     if operation_type == "reorder_slides":
         return reorder_presentation_slides(
             operation,
@@ -810,7 +842,7 @@ def apply_sync_operation(
             return "ADD_ELEMENT_TYPE_UNSUPPORTED"
         if add_element_has_unsupported_props(element):
             return "PROPS_FIELDS_UNSUPPORTED"
-        added_source = add_element_to_slide_xml(
+        element_source = add_element_to_slide_xml(
             operation_slide_part,
             element,
             package_entries,
@@ -818,14 +850,14 @@ def apply_sync_operation(
             scale,
             warnings,
         )
-        if added_source is None:
+        if element_source is None:
             return "ADD_ELEMENT_FAILED"
         added_key = (
-            str(added_source["slidePart"]),
-            str(added_source["elementId"]),
+            str(element_source["slidePart"]),
+            str(element_source["elementId"]),
         )
-        sources[added_key] = added_source
-        updated_sources[added_key] = added_source
+        sources[added_key] = element_source
+        updated_sources[added_key] = element_source
         return None
 
     source_key = (operation_slide_part, element_id)
@@ -971,7 +1003,6 @@ def reorder_presentation_slides(
             or not slide_id
             or not isinstance(source_slide_part, str)
             or not source_slide_part
-            or raw_blueprint_slide.get("ooxmlOrigin") == "authored"
         ):
             return "SLIDE_REORDER_LOCATOR_UNSAFE"
         if slide_id in blueprint_locators or source_slide_part in blueprint_parts:
@@ -1052,7 +1083,10 @@ def reorder_presentation_slides(
         slide_part = resolve_relationship_part("ppt/presentation.xml", target)
         if (
             not slide_part.startswith("ppt/slides/")
-            or slide_part not in source_names
+            or (
+                slide_part not in source_names
+                and slide_part not in package_entries
+            )
             or slide_part in slide_nodes_by_part
         ):
             return "SLIDE_REORDER_RELATIONSHIP_UNSAFE"
@@ -1621,7 +1655,7 @@ def operation_element_id(operation: dict[str, Any]) -> str:
 def applied_operation(operation: dict[str, Any]) -> PptxOoxmlAppliedOperation:
     return PptxOoxmlAppliedOperation(
         operationType=cast(PptxOoxmlSyncOperationType, operation.get("type")),
-        slideId=str(operation.get("slideId", "")) or None,
+        slideId=operation_slide_id(operation) or None,
         elementId=operation_element_id(operation) or None,
     )
 
@@ -1632,10 +1666,20 @@ def unsupported_operation(
 ) -> PptxOoxmlUnsupportedOperation:
     return PptxOoxmlUnsupportedOperation(
         operationType=cast(PptxOoxmlSyncOperationType, operation.get("type")),
-        slideId=str(operation.get("slideId", "")) or None,
+        slideId=operation_slide_id(operation) or None,
         elementId=operation_element_id(operation) or None,
         reasonCode=reason_code,
     )
+
+
+def operation_slide_id(operation: dict[str, Any]) -> str:
+    slide_id = operation.get("slideId")
+    if isinstance(slide_id, str):
+        return slide_id
+    slide = operation.get("slide")
+    if isinstance(slide, dict) and isinstance(slide.get("slideId"), str):
+        return str(slide["slideId"])
+    return ""
 
 
 def element_source_map(
@@ -3390,6 +3434,197 @@ def visual_insert_end_index(parent: ET.Element[Any]) -> int:
         if local_name(child) == "extLst":
             return index
     return len(children)
+
+
+def add_authored_slide_to_package(
+    operation: dict[str, Any],
+    package_entries: dict[str, bytes],
+    added_entries: dict[str, bytes],
+    scale: PackageFrameScale,
+    warnings: list[str],
+    source_package: zipfile.ZipFile,
+    template_blueprint: dict[str, Any],
+) -> tuple[list[dict[str, Any]], PptxOoxmlUnsupportedReasonCode | None]:
+    slide = operation.get("slide")
+    slide_part = slide_part_for_operation(operation, template_blueprint)
+    if not isinstance(slide, dict) or not slide_part:
+        return [], "ADD_SLIDE_FAILED"
+    if (
+        slide_part in source_package.namelist()
+        or slide_part in package_entries
+        or not slide_part.startswith("ppt/slides/")
+        or not slide_part.endswith(".xml")
+    ):
+        return [], "ADD_SLIDE_FAILED"
+
+    layout_target = authored_slide_layout_target(
+        package_entries,
+        template_blueprint,
+    )
+    if not layout_target:
+        return [], "ADD_SLIDE_LAYOUT_UNSAFE"
+    presentation_xml = package_entries.get("ppt/presentation.xml")
+    presentation_rels_xml = package_entries.get(
+        "ppt/_rels/presentation.xml.rels"
+    )
+    content_types_xml = package_entries.get("[Content_Types].xml")
+    if (
+        presentation_xml is None
+        or presentation_rels_xml is None
+        or content_types_xml is None
+    ):
+        return [], "ADD_SLIDE_FAILED"
+
+    try:
+        presentation_root = ET.fromstring(presentation_xml)
+        presentation_rels_root = ET.fromstring(presentation_rels_xml)
+        content_types_root = ET.fromstring(content_types_xml)
+    except ET.ParseError:
+        return [], "ADD_SLIDE_FAILED"
+    slide_id_list = presentation_root.find(f"{{{PML_NS}}}sldIdLst")
+    if slide_id_list is None:
+        return [], "ADD_SLIDE_FAILED"
+
+    relationship_id = next_relationship_id(presentation_rels_root)
+    ET.SubElement(
+        presentation_rels_root,
+        f"{{{PKG_REL_NS}}}Relationship",
+        {
+            "Id": relationship_id,
+            "Type": SLIDE_REL_TYPE,
+            "Target": posixpath.relpath(slide_part, "ppt"),
+        },
+    )
+    current_slide_ids = [
+        int(str(node.get("id", "0")))
+        for node in list(slide_id_list)
+        if str(node.get("id", "")).isdigit()
+    ]
+    slide_id_node = ET.Element(
+        f"{{{PML_NS}}}sldId",
+        {
+            "id": str(max(current_slide_ids, default=255) + 1),
+            f"{{{REL_NS}}}id": relationship_id,
+        },
+    )
+    requested_order = slide.get("order")
+    if not isinstance(requested_order, int) or isinstance(requested_order, bool):
+        return [], "ADD_SLIDE_FAILED"
+    insert_index = max(0, min(requested_order - 1, len(slide_id_list)))
+    slide_id_list.insert(insert_index, slide_id_node)
+
+    part_name = f"/{slide_part}"
+    if not any(
+        child.tag.endswith("Override") and child.get("PartName") == part_name
+        for child in list(content_types_root)
+    ):
+        ET.SubElement(
+            content_types_root,
+            f"{{{CONTENT_TYPES_NS}}}Override",
+            {"PartName": part_name, "ContentType": SLIDE_CONTENT_TYPE},
+        )
+
+    rels_part = rels_part_for_slide_part(slide_part)
+    package_entries[slide_part] = empty_slide_xml()
+    package_entries[rels_part] = slide_layout_relationships_xml(layout_target)
+    package_entries["ppt/presentation.xml"] = xml_bytes(presentation_root)
+    package_entries["ppt/_rels/presentation.xml.rels"] = xml_bytes(
+        presentation_rels_root
+    )
+    package_entries["[Content_Types].xml"] = xml_bytes(content_types_root)
+
+    added_sources: list[dict[str, Any]] = []
+    elements = slide.get("elements", [])
+    if not isinstance(elements, list):
+        return [], "ADD_SLIDE_FAILED"
+    for element in elements:
+        if not isinstance(element, dict) or str(element.get("type", "")) not in {
+            "text",
+            "rect",
+            "image",
+            "table",
+        }:
+            return [], "ADD_SLIDE_FAILED"
+        added_source = add_element_to_slide_xml(
+            slide_part,
+            element,
+            package_entries,
+            added_entries,
+            scale,
+            warnings,
+        )
+        if added_source is None:
+            return [], "ADD_SLIDE_FAILED"
+        added_sources.append(added_source)
+    return added_sources, None
+
+
+def authored_slide_layout_target(
+    package_entries: dict[str, bytes],
+    template_blueprint: dict[str, Any],
+) -> str:
+    for raw_slide in template_blueprint.get("slides", []):
+        if not isinstance(raw_slide, dict) or raw_slide.get("ooxmlOrigin") == "authored":
+            continue
+        slide_part = str(raw_slide.get("sourceSlidePart", ""))
+        if not slide_part:
+            continue
+        rels_xml = package_entries.get(rels_part_for_slide_part(slide_part))
+        if rels_xml is None:
+            continue
+        try:
+            relationships_root = ET.fromstring(rels_xml)
+        except ET.ParseError:
+            continue
+        for relationship in list(relationships_root):
+            if relationship.get("Type") == SLIDE_LAYOUT_REL_TYPE:
+                target = str(relationship.get("Target", ""))
+                if target:
+                    return target
+    return ""
+
+
+def next_relationship_id(root: ET.Element[Any]) -> str:
+    ids = [
+        int(str(child.get("Id", "")).removeprefix("rId"))
+        for child in list(root)
+        if str(child.get("Id", "")).startswith("rId")
+        and str(child.get("Id", "")).removeprefix("rId").isdigit()
+    ]
+    return f"rId{max(ids, default=0) + 1}"
+
+
+def empty_slide_xml() -> bytes:
+    slide = ET.Element(f"{{{PML_NS}}}sld")
+    common = ET.SubElement(slide, f"{{{PML_NS}}}cSld")
+    shape_tree = ET.SubElement(common, f"{{{PML_NS}}}spTree")
+    non_visual = ET.SubElement(shape_tree, f"{{{PML_NS}}}nvGrpSpPr")
+    ET.SubElement(
+        non_visual,
+        f"{{{PML_NS}}}cNvPr",
+        {"id": "1", "name": ""},
+    )
+    ET.SubElement(non_visual, f"{{{PML_NS}}}cNvGrpSpPr")
+    ET.SubElement(non_visual, f"{{{PML_NS}}}nvPr")
+    group_properties = ET.SubElement(shape_tree, f"{{{PML_NS}}}grpSpPr")
+    transform = ET.SubElement(group_properties, f"{{{DML_NS}}}xfrm")
+    for name in ("off", "chOff"):
+        ET.SubElement(transform, f"{{{DML_NS}}}{name}", {"x": "0", "y": "0"})
+    for name in ("ext", "chExt"):
+        ET.SubElement(transform, f"{{{DML_NS}}}{name}", {"cx": "0", "cy": "0"})
+    color_map = ET.SubElement(slide, f"{{{PML_NS}}}clrMapOvr")
+    ET.SubElement(color_map, f"{{{DML_NS}}}masterClrMapping")
+    return xml_bytes(slide)
+
+
+def slide_layout_relationships_xml(target: str) -> bytes:
+    root = ET.Element(f"{{{PKG_REL_NS}}}Relationships")
+    ET.SubElement(
+        root,
+        f"{{{PKG_REL_NS}}}Relationship",
+        {"Id": "rId1", "Type": SLIDE_LAYOUT_REL_TYPE, "Target": target},
+    )
+    return xml_bytes(root)
 
 
 def add_element_to_slide_xml(

@@ -1024,11 +1024,14 @@ Supported first-pass patch operations:
 - `update_element_props`
 - `add_element`
 - `delete_element`
+- `add_slide`
 - `reorder_slides`
 
 `reorder_slides`는 기존 DeckPatch의 `slideOrders` 계약을 재사용하며 현재 Deck slide ID 전체와 `1..N` order를 각각 정확히 한 번씩 포함해야 한다. imported PPTX sync에서 Worker는 `TemplateBlueprint.slides[].slideId`로 각 opaque Deck slide ID를 유일한 `sourceSlidePart`에 대응시킨다. Python serializer는 전달된 `slideId ↔ sourceSlidePart`를 다시 검증하고 `ppt/presentation.xml`의 `p:sldIdLst` 자식 순서만 바꾸며 각 `p:sldId@id`, `r:id`, `ppt/_rels/presentation.xml.rels`, slide part 이름과 slide별 package entry를 유지한다. slide ID의 숫자 suffix 또는 `slideIndex`로 package part를 추론하지 않는다.
 
-locator 누락, authored/duplicated slide, 두 Deck slide가 같은 source part를 가리키는 경우, 끊어진 presentation relationship, 중복·누락·unknown slide 또는 불완전 permutation은 bounded slide reorder reason으로 package 원본 bytes를 반환하고 freshness를 올리지 않는다. `add_slide`, `delete_slide`의 OOXML part 생성/제거와 layout/master 복제는 아직 미지원이며 Worker preflight에서 fail-closed한다.
+`add_slide`는 imported Deck에서 생성된 `ooxmlOrigin: authored` 슬라이드에 새 `ppt/slides/slideN.xml`, presentation relationship, content type override, 기존 slide layout relationship을 원자적으로 연결한다. 같은 sync batch의 `text`, `rect`, `image`, `table` authored element를 새 slide part에 추가하고 `elementSources`를 반환한다. Worker는 생성한 opaque `slideId ↔ sourceSlidePart`를 TemplateBlueprint에 저장하므로 이후 이미지 추가와 재정렬도 동일한 locator를 사용한다.
+
+locator 누락, 두 Deck slide가 같은 source part를 가리키는 경우, 끊어진 presentation relationship, 중복·누락·unknown slide 또는 불완전 permutation은 bounded slide reorder reason으로 package 원본 bytes를 반환하고 freshness를 올리지 않는다. `delete_slide`의 OOXML part 제거는 아직 미지원이며 Worker preflight에서 fail-closed한다.
 
 `update_element_props`의 text serializer는 `text`, `runs`, `paragraphs`, `bodyInset`, `fontFamily`, `fontSize`, `fontWeight`, `italic`, `underline`, `color`, `align`, `verticalAlign`, `writingMode`, `lineHeight`, `bullet`만 지원한다. targeted sync의 `fontWeight`는 lossless round-trip이 가능한 `normal | bold`만 허용하며, 미지원 field나 canonical projection 불일치는 fail-closed 대상이다.
 
