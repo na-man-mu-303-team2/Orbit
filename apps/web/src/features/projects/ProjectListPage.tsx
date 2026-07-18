@@ -4,8 +4,12 @@ import {
   IconArrowsSort,
   IconCheck,
   IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
   IconFileText,
   IconFileUpload,
+  IconPinFilled,
+  IconPlayerPlayFilled,
   IconPlus,
   IconRefresh,
   IconSearch,
@@ -13,6 +17,8 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import {
+  lazy,
+  Suspense,
   useEffect,
   useMemo,
   useRef,
@@ -44,6 +50,8 @@ import {
 import { ProjectGalleryCard } from "./ProjectGalleryCard";
 import "./orbit-project-hub.css";
 
+const ProjectRowSlidePreview = lazy(() => import("./ProjectSlidePreview"));
+
 export type ProjectListPageMode = "project" | "rehearsal";
 
 export function ProjectListPage(props: {
@@ -73,6 +81,25 @@ export function ProjectListPage(props: {
     const unpinned = sorted.filter((project) => !project.isPinned);
     return [...pinned, ...unpinned];
   }, [projects.data, query, sort]);
+  const [rehearsalPage, setRehearsalPage] = useState(1);
+  const rehearsalPageSize = 6;
+  const rehearsalPageCount = Math.max(
+    1,
+    Math.ceil(filteredProjects.length / rehearsalPageSize),
+  );
+  const currentRehearsalPage = Math.min(rehearsalPage, rehearsalPageCount);
+  const pagedRehearsalProjects = useMemo(
+    () =>
+      filteredProjects.slice(
+        (currentRehearsalPage - 1) * rehearsalPageSize,
+        currentRehearsalPage * rehearsalPageSize,
+      ),
+    [filteredProjects, currentRehearsalPage],
+  );
+
+  useEffect(() => {
+    setRehearsalPage(1);
+  }, [query, sort]);
 
   async function createBlankProject() {
     if (isCreating || isImportingPptx) return;
@@ -173,21 +200,6 @@ export function ProjectListPage(props: {
       width="content"
     >
       {isRehearsal ? (
-        <header className="orbit-hub-heading">
-          <div>
-            <h1>리허설</h1>
-            <p>연습할 발표자료를 선택하세요.</p>
-          </div>
-          <OrbitButton
-            onClick={() => props.onNavigate("/project")}
-            variant="quiet"
-          >
-            프로젝트 보기
-          </OrbitButton>
-        </header>
-      ) : null}
-
-      {isRehearsal ? (
         <section className="orbit-project-table-shell">
           <header className="orbit-project-toolbar">
             <ProjectSearch
@@ -214,8 +226,46 @@ export function ProjectListPage(props: {
               deletingId={deletingId}
               mode={props.mode}
               onNavigate={props.onNavigate}
-              projects={filteredProjects}
+              projects={pagedRehearsalProjects}
             />
+            {rehearsalPageCount > 1 ? (
+              <nav
+                aria-label="리허설 목록 페이지"
+                className="orbit-project-pagination"
+              >
+                <button
+                  aria-label="이전 페이지"
+                  disabled={currentRehearsalPage <= 1}
+                  onClick={() => setRehearsalPage(currentRehearsalPage - 1)}
+                  type="button"
+                >
+                  <IconChevronLeft aria-hidden="true" size={15} />
+                </button>
+                {Array.from({ length: rehearsalPageCount }, (_, index) => (
+                  <button
+                    aria-current={
+                      currentRehearsalPage === index + 1 ? "page" : undefined
+                    }
+                    className={
+                      currentRehearsalPage === index + 1 ? "is-active" : ""
+                    }
+                    key={index}
+                    onClick={() => setRehearsalPage(index + 1)}
+                    type="button"
+                  >
+                    {index + 1}
+                  </button>
+                ))}
+                <button
+                  aria-label="다음 페이지"
+                  disabled={currentRehearsalPage >= rehearsalPageCount}
+                  onClick={() => setRehearsalPage(currentRehearsalPage + 1)}
+                  type="button"
+                >
+                  <IconChevronRight aria-hidden="true" size={15} />
+                </button>
+              </nav>
+            ) : null}
           </ProjectState>
         </section>
       ) : (
@@ -521,7 +571,7 @@ function ProjectTable(props: {
   mode: ProjectListPageMode;
   onDelete?: (project: Project) => void;
   onNavigate: (path: string) => void;
-  projects: Project[];
+  projects: ProjectListItem[];
 }) {
   const isRehearsal = props.mode === "rehearsal";
 
@@ -539,7 +589,11 @@ function ProjectTable(props: {
       {props.projects.map((project) => {
         const rehearsalPath = `/rehearsal/${encodeURIComponent(project.projectId)}`;
         return (
-          <div className="orbit-project-row" key={project.projectId} role="row">
+          <div
+            className={`orbit-project-row${project.isPinned ? " is-pinned" : ""}`}
+            key={project.projectId}
+            role="row"
+          >
             <button
               className="orbit-project-title"
               onClick={() =>
@@ -550,12 +604,26 @@ function ProjectTable(props: {
               role="cell"
               type="button"
             >
-              <span className="orbit-project-thumb">
-                <IconFileText aria-hidden="true" size={20} />
+              <span aria-hidden="true" className="orbit-project-thumb">
+                <IconFileText size={18} />
+                <Suspense fallback={null}>
+                  <ProjectRowSlidePreview
+                    className="orbit-project-thumb-canvas"
+                    projectId={project.projectId}
+                  />
+                </Suspense>
               </span>
               <span>
-                <strong>{project.title}</strong>
-                <small>{project.projectId}</small>
+                <strong>
+                  {project.isPinned ? (
+                    <IconPinFilled
+                      aria-label="고정됨"
+                      className="orbit-project-pin-badge"
+                      size={13}
+                    />
+                  ) : null}
+                  {project.title}
+                </strong>
               </span>
             </button>
             <span className="orbit-project-date" role="cell">
@@ -563,13 +631,14 @@ function ProjectTable(props: {
             </span>
             <span className="orbit-project-actions" role="cell">
               {isRehearsal ? (
-                <button
-                  className="orbit-project-action primary"
+                <OrbitButton
+                  className="orbit-project-practice-cta"
+                  icon={<IconPlayerPlayFilled aria-hidden="true" size={14} />}
                   onClick={() => props.onNavigate(rehearsalPath)}
-                  type="button"
+                  size="compact"
                 >
-                  리허설 시작
-                </button>
+                  연습하러 가기
+                </OrbitButton>
               ) : (
                 <>
                   <button

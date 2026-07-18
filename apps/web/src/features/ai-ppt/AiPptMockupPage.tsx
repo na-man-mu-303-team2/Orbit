@@ -9,19 +9,43 @@ import type {
 } from "@orbit/shared";
 import { demoIds, recommendGenerateDeckFonts } from "@orbit/shared";
 import {
+  IconArrowRight,
+  IconBolt,
+  IconBriefcase2,
   IconCheck,
+  IconChevronDown,
   IconChevronLeft,
+  IconFileUpload,
   IconFileText,
-  IconInfoCircle,
+  IconFileDescription,
+  IconListDetails,
+  IconMessageCircle,
+  IconMessageCircleHeart,
   IconPaperclip,
+  IconPhoto,
   IconPlayerPlay,
+  IconPresentationAnalytics,
   IconSparkles,
   IconTrash,
   IconUpload,
+  IconUsers,
 } from "@tabler/icons-react";
-import type { DragEvent, Ref } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { DragEvent, ReactNode, Ref } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import strategyImage from "../../assets/ai-ppt/orbit-ai-strategy.png";
+import roadmapImage from "../../assets/ai-ppt/orbit-ai-roadmap.png";
 import { WorkspaceContainer } from "../../components/patterns";
+import {
+  DropdownMenu,
+  DropdownMenuItem,
+  GradientButton,
+  OrbitButton,
+  OrbitField,
+  OrbitIconLabel,
+  OrbitIconButton,
+  OrbitInput,
+  OrbitTextarea,
+} from "../../components/ui";
 import {
   createProjectWithoutDeck,
   deleteProject,
@@ -64,18 +88,36 @@ type PolicyChoiceOption<T extends string> = {
 
 const stylePackId = "brandlogy-modern";
 const defaultFontMood = "professional trustworthy Korean sans font";
-const flowSteps = ["내용 입력", "Style & Color", "슬라이드 구성 미리보기"];
+const flowSteps = [
+  { label: "내용 입력" },
+  { label: "Style & Color" },
+];
 
 type UploadState = {
   status: "uploading" | "uploaded" | "failed";
   fileId?: string;
   error?: string;
 };
-const toneOptions: Array<{ value: Tone; label: string }> = [
-  { value: "professional", label: "전문적인" },
-  { value: "friendly", label: "친근한" },
-  { value: "confident", label: "자신감 있는" },
-  { value: "concise", label: "간결한" },
+const toneOptions: Array<{
+  value: Tone;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "professional",
+    label: "전문적인",
+    description: "객관적이고 구조적인 문장",
+  },
+  {
+    value: "confident",
+    label: "자신감 있는",
+    description: "단정적이고 힘 있는 문장",
+  },
+  {
+    value: "friendly",
+    label: "친근한",
+    description: "부드럽고 대화하듯 자연스러운 문장",
+  },
 ];
 
 export const referencePolicyOptions = [
@@ -274,6 +316,115 @@ export const defaultPaletteOptions: PaletteOption[] = [
     },
   },
 ];
+
+type PaletteSlideKind =
+  | "cover"
+  | "metrics"
+  | "timeline"
+  | "quote"
+  | "comparison"
+  | "roadmap"
+  | "chart"
+  | "agenda"
+  | "matrix";
+
+export type PaletteMockupPreset = {
+  category: string;
+  kind: PaletteSlideKind;
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  role: string;
+  version: string;
+  image?: string;
+};
+
+/** 고정된 디자인 샘플 데이터. 팔레트 선택과 무관하게 같은 목업 구조를 재현한다. */
+export const paletteMockupPresets: Record<string, PaletteMockupPreset> = {
+  "brandlogy-blue": {
+    category: "PRIMARY",
+    kind: "cover",
+    eyebrow: "ORBIT / 2026",
+    title: "우리가 만드는 다음 장면",
+    subtitle: "선명한 대비로 제품 전략의 시작점을 만듭니다.",
+    role: "--color-primary-main",
+    version: "v2.1.0",
+    image: strategyImage,
+  },
+  "executive-slate": {
+    category: "FUNCTIONAL",
+    kind: "metrics",
+    eyebrow: "임원 브리프",
+    title: "데이터로 결정하는 다음 우선순위",
+    subtitle: "핵심 지표와 결론을 한 화면에 정리합니다.",
+    role: "--color-neutral-dark",
+    version: "v1.4.2",
+  },
+  "modern-violet": {
+    category: "CREATIVE",
+    kind: "timeline",
+    eyebrow: "제품 스토리",
+    title: "아이디어를 제품으로",
+    subtitle: "발견부터 확장까지 실행의 흐름을 보여줍니다.",
+    role: "--color-secondary-main",
+    version: "v1.8.0",
+  },
+  "resort-blue": {
+    category: "ATMOSPHERE",
+    kind: "quote",
+    eyebrow: "현장 인사이트 / 04",
+    title: "더 가벼운 다음 단계",
+    subtitle: "고객의 목소리를 중심에 둔 스토리 슬라이드입니다.",
+    role: "--color-sky-accent",
+    version: "v1.2.6",
+  },
+  "calm-green": {
+    category: "IMPACT",
+    kind: "comparison",
+    eyebrow: "임팩트 리포트",
+    title: "작은 변화가 만드는 실제 성과",
+    subtitle: "전후의 차이와 다음 행동을 나란히 비교합니다.",
+    role: "--color-success-main",
+    version: "v2.0.1",
+  },
+  "energetic-coral": {
+    category: "LAUNCH",
+    kind: "roadmap",
+    eyebrow: "런치 플랜",
+    title: "출시의 순간을 설계하다",
+    subtitle: "출시 단계와 팀의 역할을 빠르게 공유합니다.",
+    role: "--color-coral-accent",
+    version: "v0.9.8",
+  },
+  "warm-amber": {
+    category: "EDITORIAL",
+    kind: "chart",
+    eyebrow: "인사이트 / 2026",
+    title: "성장의 신호가 보입니다",
+    subtitle: "숫자의 흐름을 따뜻한 시선으로 해석합니다.",
+    role: "--color-amber-main",
+    version: "v1.6.3",
+  },
+  "editorial-rose": {
+    category: "BRAND",
+    kind: "agenda",
+    eyebrow: "브랜드 시스템",
+    title: "이야기가 느껴지게",
+    subtitle: "콘텐츠의 순서와 감정을 하나의 리듬으로 묶습니다.",
+    role: "--color-brand-rose",
+    version: "v2.3.1",
+  },
+  "graphite-night": {
+    category: "EXPERIMENTAL",
+    kind: "matrix",
+    eyebrow: "AI / 시스템",
+    title: "복잡함 너머를 보다",
+    subtitle: "복잡한 기술 이야기를 구조와 대비로 단순화합니다.",
+    role: "--color-accent-ai",
+    version: "v0.9.5-beta",
+    image: roadmapImage,
+  },
+};
 
 export const initialAiPptWizardState: AiPptWizardState = {
   topic: "",
@@ -611,30 +762,6 @@ export function AiPptMockupPage() {
 
   return (
     <WorkspaceContainer as="section" className="ai-ppt-page" width="content">
-      <header className="ai-ppt-header">
-        <div>
-          <span>AI PPT</span>
-          <h1>발표 내용부터 빠르게 시작하세요</h1>
-          <p>
-            내용, 청중, 발표 톤과 참고자료를 입력하면 AI가 슬라이드 구성을
-            백그라운드에서 준비합니다.
-          </p>
-        </div>
-        <button
-          className="ai-ppt-primary"
-          type="button"
-          onClick={() => {
-            setForm(initialAiPptWizardState);
-            changeReferenceFiles([]);
-            setError("");
-            void cleanupTemporaryProjectIfUnused();
-          }}
-        >
-          <IconSparkles size={17} />
-          처음부터 입력
-        </button>
-      </header>
-
       <div className="ai-ppt-layout">
         <WizardSteps activeIndex={0} />
 
@@ -648,6 +775,32 @@ export function AiPptMockupPage() {
               onFilesChange={changeReferenceFiles}
               onRetryUpload={(file) => void uploadReference(file)}
               uploadStates={uploadStates}
+              nextAction={
+                <GradientButton
+                  className="ai-ppt-next-action"
+                  disabled={
+                    isGenerating ||
+                    Object.values(uploadStates).some(
+                      (item) => item.status !== "uploaded",
+                    )
+                  }
+                  type="button"
+                  onClick={() => void submitGeneration()}
+                >
+                  {referenceFiles.some(
+                    (file) =>
+                      uploadStates[referenceFileKey(file)]?.status !== "uploaded",
+                  ) ? (
+                    <>
+                      <IconUpload size={17} /> 업로드 완료 후 계속
+                    </>
+                  ) : (
+                    <>
+                      다음 단계 <IconArrowRight size={18} />
+                    </>
+                  )}
+                </GradientButton>
+              }
             />
             {error ? (
               <p className="ai-ppt-error" role="alert">
@@ -662,38 +815,6 @@ export function AiPptMockupPage() {
           </section>
         </main>
       </div>
-
-      <footer className="ai-ppt-footer">
-        <button className="ai-ppt-secondary" disabled type="button">
-          <IconChevronLeft size={17} />
-          이전
-        </button>
-        <button
-          className="ai-ppt-primary"
-          disabled={
-            isGenerating ||
-            Object.values(uploadStates).some((item) => item.status !== "uploaded")
-          }
-          type="button"
-          onClick={() => void submitGeneration()}
-        >
-          {isGenerating ? (
-            <>
-              <IconPlayerPlay size={17} /> Style &amp; Color 여는 중
-            </>
-          ) : referenceFiles.some(
-              (file) => uploadStates[referenceFileKey(file)]?.status !== "uploaded",
-            ) ? (
-            <>
-              <IconUpload size={17} /> 업로드 완료 후 계속
-            </>
-          ) : (
-            <>
-              <IconPlayerPlay size={17} /> 다음 단계
-            </>
-          )}
-        </button>
-      </footer>
     </WorkspaceContainer>
   );
 }
@@ -715,7 +836,8 @@ function AiPptStyleStartingPage() {
         <main className="ai-ppt-workspace">
           <section className="ai-ppt-panel" aria-busy="true">
             <PanelHeading
-              kicker="2. Style & Color"
+              description="발표 분위기에 맞는 폰트와 컬러를 준비하고 있습니다."
+              kicker="2단계 · Style & Color"
               title="폰트와 색상을 선택하세요"
             />
             <p className="ai-ppt-status" role="status">
@@ -912,18 +1034,18 @@ export function AiPptStyleColorPage(props: {
         </main>
       </div>
       <footer className="ai-ppt-footer">
-        <button
-          className="ai-ppt-secondary"
+        <OrbitButton
           disabled={isGenerating}
+          icon={<IconChevronLeft size={17} />}
           type="button"
           onClick={() =>
             navigateToPath("/createdeck")
           }
+          variant="secondary"
         >
-          <IconChevronLeft size={17} /> 이전
-        </button>
-        <button
-          className="ai-ppt-primary"
+          이전
+        </OrbitButton>
+        <GradientButton
           disabled={
             isGenerating || isCustomizingPalette || !designState?.styleContext
           }
@@ -932,7 +1054,7 @@ export function AiPptStyleColorPage(props: {
         >
           <IconPlayerPlay size={17} />
           {isGenerating ? "생성 중" : "슬라이드 생성"}
-        </button>
+        </GradientButton>
       </footer>
     </WorkspaceContainer>
   );
@@ -941,19 +1063,22 @@ export function AiPptStyleColorPage(props: {
 function WizardSteps({ activeIndex }: { activeIndex: number }) {
   return (
     <aside className="ai-ppt-steps" aria-label="AI PPT 생성 단계">
-      {flowSteps.map((label, index) => (
+      {flowSteps.map((step, index) => (
         <div
+          aria-current={index === activeIndex ? "step" : undefined}
           className={[
             "ai-ppt-step",
             index === activeIndex ? "active" : "",
             index < activeIndex ? "done" : "",
           ].join(" ")}
-          key={label}
+          key={step.label}
         >
-          <span>
-            {index < activeIndex ? <IconCheck size={14} /> : index + 1}
+          <span className="ai-ppt-step-marker">
+            {index < activeIndex ? <IconCheck size={18} /> : `0${index + 1}`}
           </span>
-          <strong>{label}</strong>
+          <span className="ai-ppt-step-copy">
+            <strong>{step.label}</strong>
+          </span>
         </div>
       ))}
     </aside>
@@ -971,117 +1096,208 @@ function ContentStep(props: {
   onFilesChange: (files: File[]) => void;
   onRetryUpload: (file: File) => void;
   uploadStates: Record<string, UploadState>;
+  nextAction: ReactNode;
 }) {
   return (
-    <>
-      <PanelHeading kicker="1. 내용 입력" title="무엇을 누구에게 발표하나요?" />
-      <form
-        ref={props.formRef}
-        aria-label="발표 내용 입력"
-        className="ai-ppt-field-grid"
-        onSubmit={(event) => event.preventDefault()}
-      >
-        <TextField
-          name="topic"
-          label="발표 주제"
-          placeholder="예: 2026년 하반기 제품 전략"
-          value={props.form.topic}
-          onChange={(value) => props.onChange("topic", value)}
-        />
-        <TextAreaField
-          name="content"
-          label="발표 내용"
-          placeholder="다루고 싶은 배경, 핵심 메시지와 반드시 포함할 내용을 자유롭게 적어주세요."
-          value={props.form.content}
-          onChange={(value) => props.onChange("content", value)}
-        />
-        <TextField
-          name="audience"
-          label="청중은 누구인가요?"
-          placeholder="예: 제품·개발 리드와 경영진"
-          value={props.form.audience}
-          onChange={(value) => props.onChange("audience", value)}
-        />
-      </form>
-      <fieldset className="ai-ppt-style-fieldset">
-        <legend>발표 톤</legend>
-        <div className="ai-ppt-tone-grid">
-          {toneOptions.map((tone) => (
-            <button
-              key={tone.value}
-              className={props.form.tone === tone.value ? "selected" : ""}
-              type="button"
-              onClick={() => props.onChange("tone", tone.value)}
-            >
-              {tone.label}
-            </button>
-          ))}
+    <div className="ai-ppt-content-layout">
+      <section className="ai-ppt-context-panel" aria-label="발표 자료 내용 입력">
+        <form
+          ref={props.formRef}
+          aria-label="발표 내용 입력"
+          className="ai-ppt-field-grid"
+          onSubmit={(event) => event.preventDefault()}
+        >
+          <TextField
+            name="topic"
+            label={
+              <OrbitIconLabel
+                icon={<IconPresentationAnalytics size={17} />}
+              >
+                발표 주제
+              </OrbitIconLabel>
+            }
+            placeholder="예: 2026년 하반기 제품 전략"
+            value={props.form.topic}
+            onChange={(value) => props.onChange("topic", value)}
+          />
+          <TextField
+            name="audience"
+            label={
+              <OrbitIconLabel icon={<IconUsers size={17} />}>
+                타깃 청중
+              </OrbitIconLabel>
+            }
+            placeholder="예: 제품·개발 리드와 경영진"
+            value={props.form.audience}
+            onChange={(value) => props.onChange("audience", value)}
+          />
+          <TextAreaField
+            name="content"
+            label={
+              <OrbitIconLabel icon={<IconListDetails size={17} />}>
+                상세 내용 및 컨텍스트
+              </OrbitIconLabel>
+            }
+            placeholder="발표에 포함되어야 할 핵심 데이터, 논점과 구체적인 배경을 입력하세요."
+            value={props.form.content}
+            onChange={(value) => props.onChange("content", value)}
+          />
+        </form>
+        <div className="ai-ppt-policy-select-grid">
+          <PolicySelect
+            icon={<IconFileDescription />}
+            label="내용 구성"
+            options={referencePolicyOptions}
+            value={props.form.referencePolicy}
+            onChange={(value) => props.onChange("referencePolicy", value)}
+          />
+          <PolicySelect
+            icon={<IconPhoto size={17} />}
+            label="이미지 구성"
+            options={mediaPolicyOptions}
+            value={props.form.mediaPolicy}
+            onChange={(value) => props.onChange("mediaPolicy", value)}
+          />
         </div>
-      </fieldset>
-      <AttachmentField
-        files={props.files}
-        onFilesChange={props.onFilesChange}
-        onRetryUpload={props.onRetryUpload}
-        uploadStates={props.uploadStates}
-      />
-      <div className="ai-ppt-reference-policy-grid">
-        <fieldset className="ai-ppt-reference-policy">
-          <legend>내용 구성</legend>
-          <p>발표 내용을 구성할 때 우선 사용할 근거를 선택합니다.</p>
-          <div className="ai-ppt-choice-list">
-            {referencePolicyOptions.map((option) => (
-              <PolicyChoiceButton
-                key={option.value}
-                option={option}
-                selected={props.form.referencePolicy === option.value}
-                tooltipId={`reference-policy-${option.value}`}
-                onSelect={(value) => props.onChange("referencePolicy", value)}
-              />
-            ))}
+        <AttachmentField
+          files={props.files}
+          onFilesChange={props.onFilesChange}
+          onRetryUpload={props.onRetryUpload}
+          uploadStates={props.uploadStates}
+        />
+        <fieldset className="ai-ppt-tone-field">
+          <legend>
+            <OrbitIconLabel icon={<IconMessageCircle />}>
+              대본 톤
+            </OrbitIconLabel>
+          </legend>
+          <div className="ai-ppt-tone-cards">
+            {toneOptions.map((tone) => {
+              const selected = props.form.tone === tone.value;
+              const ToneIcon =
+                tone.value === "professional"
+                  ? IconBriefcase2
+                  : tone.value === "confident"
+                    ? IconBolt
+                    : IconMessageCircleHeart;
+              return (
+                <button
+                  aria-pressed={selected}
+                  className={selected ? "selected" : ""}
+                  key={tone.value}
+                  onClick={() => props.onChange("tone", tone.value)}
+                  type="button"
+                >
+                  <span className="ai-ppt-tone-icon" aria-hidden="true">
+                    <ToneIcon size={24} stroke={1.7} />
+                  </span>
+                  <span className="ai-ppt-tone-card-copy">
+                    <strong>{tone.label}</strong>
+                    <small>{tone.description}</small>
+                  </span>
+                  {selected ? (
+                    <span aria-hidden="true" className="ai-ppt-tone-check">
+                      <IconCheck size={16} />
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
         </fieldset>
-        <fieldset className="ai-ppt-reference-policy">
-          <legend>이미지 구성</legend>
-          <p>슬라이드에서 사용할 이미지 소스와 생성 방식을 선택합니다.</p>
-          <div className="ai-ppt-choice-list">
-            {mediaPolicyOptions.map((option) => (
-              <PolicyChoiceButton
-                key={option.value}
-                option={option}
-                selected={props.form.mediaPolicy === option.value}
-                tooltipId={`media-policy-${option.value}`}
-                onSelect={(value) => props.onChange("mediaPolicy", value)}
-              />
-            ))}
-          </div>
-        </fieldset>
-      </div>
-    </>
+        <div className="ai-ppt-content-action">{props.nextAction}</div>
+      </section>
+    </div>
   );
 }
 
-function PolicyChoiceButton<T extends string>(props: {
-  onSelect: (value: T) => void;
-  option: PolicyChoiceOption<T>;
-  selected: boolean;
-  tooltipId: string;
+function PolicySelect<T extends string>(props: {
+  icon: ReactNode;
+  label: string;
+  onChange: (value: T) => void;
+  options: readonly PolicyChoiceOption<T>[];
+  value: T;
 }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuId = useId();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const selectedOption = props.options.find(
+    (option) => option.value === props.value,
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function closeOnPointerDown(event: PointerEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) setIsOpen(false);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closeOnPointerDown);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointerDown);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isOpen]);
+
   return (
-    <span className="ai-ppt-policy-option">
-      <button
-        aria-describedby={props.tooltipId}
-        aria-pressed={props.selected}
-        className={props.selected ? "selected" : ""}
-        onClick={() => props.onSelect(props.option.value)}
+    <div className="ai-ppt-policy-select" ref={menuRef}>
+      <OrbitIconLabel id={`${menuId}-label`} icon={props.icon}>
+        {props.label}
+      </OrbitIconLabel>
+      <OrbitButton
+        aria-describedby={`${menuId}-description`}
+        aria-expanded={isOpen}
+        aria-haspopup="menu"
+        aria-labelledby={`${menuId}-label ${menuId}-value`}
+        className="ai-ppt-policy-trigger"
+        id={`${menuId}-value`}
+        onClick={() => setIsOpen((current) => !current)}
+        title={selectedOption?.description}
         type="button"
+        variant="quiet"
       >
-        {props.option.label}
-        <IconInfoCircle aria-hidden="true" size={15} stroke={1.8} />
-      </button>
-      <span className="ai-ppt-policy-tooltip" id={props.tooltipId} role="tooltip">
-        {props.option.description}
-      </span>
-    </span>
+        <span>{selectedOption?.label}</span>
+        <IconChevronDown aria-hidden="true" size={16} />
+      </OrbitButton>
+      <small className="ai-ppt-policy-description" id={`${menuId}-description`}>
+        {selectedOption?.description}
+      </small>
+      {isOpen ? (
+        <DropdownMenu
+          align="start"
+          aria-label={`${props.label} 선택`}
+          className="ai-ppt-policy-dropdown"
+          variant="white"
+        >
+          {props.options.map((option) => (
+            <DropdownMenuItem
+              aria-checked={option.value === props.value}
+              icon={
+                option.value === props.value ? (
+                  <IconCheck aria-hidden="true" size={16} />
+                ) : (
+                  <span className="ai-ppt-policy-icon-spacer" />
+                )
+              }
+              key={option.value}
+              onClick={() => {
+                props.onChange(option.value);
+                setIsOpen(false);
+              }}
+              role="menuitemradio"
+              title={option.description}
+            >
+              {option.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenu>
+      ) : null}
+    </div>
   );
 }
 
@@ -1100,34 +1316,59 @@ function StyleColorStep(props: {
   return (
     <>
       <PanelHeading
-        kicker="2. Style & Color"
+        description="발표 분위기에 맞는 폰트와 컬러를 선택하면 슬라이드 전체에 일관되게 적용됩니다."
+        kicker="2단계 · Style & Color"
         title="폰트와 색상을 선택하세요"
       />
       <fieldset className="ai-ppt-style-fieldset">
         <legend>폰트</legend>
-        <div className="ai-ppt-font-grid">
+        <p className="ai-ppt-field-hint">
+          이름만 보고 고르지 않도록 제목과 본문에 적용된 글자 모양을 함께 확인하세요.
+        </p>
+        <div className="ai-ppt-font-grid" role="list">
           {props.fontOptions.map((font) => (
             <button
+              aria-pressed={props.selectedFontId === font.fontId}
               key={font.fontId}
               className={props.selectedFontId === font.fontId ? "selected" : ""}
               type="button"
               onClick={() => props.onFontSelect(font.fontId)}
             >
+              <span className="ai-ppt-font-card-topline">
+                <span className="ai-ppt-font-badge">
+                  {props.selectedFontId === font.fontId ? "선택됨" : "폰트"}
+                </span>
+                <span className="ai-ppt-font-check" aria-hidden="true">
+                  {props.selectedFontId === font.fontId ? <IconCheck size={14} /> : null}
+                </span>
+              </span>
+              <span
+                aria-hidden="true"
+                className="ai-ppt-font-glyph"
+                style={{ fontFamily: font.headingFontFamily }}
+              >
+                Aa
+              </span>
               <strong style={{ fontFamily: font.headingFontFamily }}>
                 {font.name}
               </strong>
-              <span style={{ fontFamily: font.bodyFontFamily }}>
-                핵심을 선명하게 전달하는 문장
+              <span className="ai-ppt-font-korean" style={{ fontFamily: font.bodyFontFamily }}>
+                가나다라 · 핵심을 선명하게
+              </span>
+              <span className="ai-ppt-font-latin" style={{ fontFamily: font.bodyFontFamily }}>
+                Aa Bb Cc 123
               </span>
               <small>{font.rationale}</small>
-              <em>{font.license}</em>
             </button>
           ))}
         </div>
       </fieldset>
       <fieldset className="ai-ppt-style-fieldset">
         <legend>컬러 팔레트</legend>
-        <div className="ai-ppt-palette-grid ai-ppt-palette-grid-expanded">
+        <p className="ai-ppt-field-hint">
+          색상만 바꾸는 것이 아니라, 해당 팔레트로 만든 대표 슬라이드 구조까지 미리 확인하세요.
+        </p>
+        <div className="ai-ppt-palette-grid ai-ppt-palette-grid-expanded" role="list">
           {defaultPaletteOptions.map((option) => (
             <PaletteButton
               key={option.optionId}
@@ -1189,14 +1430,189 @@ function PaletteButton(props: {
 }) {
   return (
     <button
+      aria-label={`${props.option.name} ${props.selected ? "선택됨" : "선택"}`}
+      aria-pressed={props.selected}
       className={props.selected ? "selected" : ""}
       type="button"
       onClick={() => props.onSelect(props.option.optionId)}
     >
-      <PaletteSwatches palette={props.option.palette} />
-      <strong>{props.option.name}</strong>
-      <small>{props.option.rationale}</small>
+      <PaletteMockupSlide option={props.option} />
+      <span className="ai-ppt-palette-card-meta">
+        <span className="ai-ppt-palette-card-heading">
+          <strong>{props.option.name}</strong>
+          <span className="ai-ppt-palette-selected-mark" aria-hidden="true">
+            {props.selected ? <IconCheck size={14} /> : null}
+          </span>
+        </span>
+        <span className="ai-ppt-palette-hex">
+          {props.option.palette.primary.toUpperCase()} · {hexToRgb(props.option.palette.primary)}
+        </span>
+        <PaletteSwatches palette={props.option.palette} />
+        <span className="ai-ppt-palette-card-footer">
+          <span>{paletteMockupPresets[props.option.optionId]?.role ?? "--color-custom"}</span>
+          <span>{paletteMockupPresets[props.option.optionId]?.version ?? "v1.0.0"}</span>
+        </span>
+        <small>{props.option.rationale}</small>
+      </span>
     </button>
+  );
+}
+
+function PaletteMockupSlide(props: { option: PaletteOption; large?: boolean }) {
+  const { option } = props;
+  const preset = paletteMockupPresets[option.optionId] ?? {
+    category: "CUSTOM",
+    kind: "cover" as const,
+    eyebrow: "사용자 정의 스타일",
+    title: "다음 이야기를 시작하세요",
+    subtitle: "선택한 색상으로 만든 사용자 정의 슬라이드입니다.",
+    role: "--color-custom",
+    version: "v1.0.0",
+  };
+  const colors = [
+    option.palette.primary,
+    option.palette.secondary,
+    option.palette.accentColor,
+  ];
+  const mockupClass = [
+    "ai-ppt-palette-mockup",
+    `ai-ppt-palette-mockup-${preset.kind}`,
+    props.large ? "ai-ppt-palette-mockup-large" : "",
+  ].join(" ");
+
+  return (
+    <span
+      aria-hidden="true"
+      className={mockupClass}
+      style={{
+        background: option.palette.background,
+        borderColor: option.palette.border,
+        color: option.palette.text,
+      }}
+    >
+      <span className="ai-ppt-palette-mockup-header">
+        <span>{preset.eyebrow}</span>
+        <span
+          className="ai-ppt-palette-mockup-category"
+          style={{ background: option.palette.primary, color: option.palette.background }}
+        >
+          {preset.category}
+        </span>
+      </span>
+      <span className="ai-ppt-palette-mockup-content">
+        <strong style={{ color: option.palette.primary }}>{preset.title}</strong>
+        <span>{preset.subtitle}</span>
+        {preset.image ? (
+          <span className="ai-ppt-mockup-image">
+            <img alt="" src={preset.image} />
+          </span>
+        ) : null}
+        <PaletteMockupBody kind={preset.kind} colors={colors} palette={option.palette} />
+      </span>
+      <span className="ai-ppt-palette-mockup-footer">
+        <span>ORBIT · 02</span>
+        <span>{preset.version}</span>
+      </span>
+    </span>
+  );
+}
+
+function PaletteMockupBody(props: {
+  colors: string[];
+  kind: PaletteSlideKind;
+  palette: Required<PaletteOverride>;
+}) {
+  const [primary, secondary, accent] = props.colors;
+  const surfaceStyle = { background: props.palette.surface, borderColor: props.palette.border };
+  if (props.kind === "metrics") {
+    return (
+      <span className="ai-ppt-mockup-metrics">
+        {["+42%", "8.4k", "92.6"].map((value, index) => (
+          <span key={value} style={surfaceStyle}>
+            <strong style={{ color: props.colors[index] }}>{value}</strong>
+            <span>{["재방문율", "활성 사용자", "확신도"][index]}</span>
+          </span>
+        ))}
+      </span>
+    );
+  }
+  if (props.kind === "timeline" || props.kind === "roadmap") {
+    return (
+      <span className="ai-ppt-mockup-steps">
+        {["발견", "정의", "실행", "확장"].map((label, index) => (
+          <span key={label}>
+            <i style={{ background: props.colors[index % props.colors.length] }} />
+            <strong>{label}</strong>
+            <span>{String(index + 1).padStart(2, "0")}</span>
+          </span>
+        ))}
+      </span>
+    );
+  }
+  if (props.kind === "quote") {
+    return (
+      <span className="ai-ppt-mockup-quote" style={surfaceStyle}>
+        <strong style={{ color: accent }}>“</strong>
+        <span>좋은 디자인은 더 많이 보여주는 일이 아니라, 중요한 것을 남기는 일입니다.</span>
+        <small>— ORBIT design team</small>
+      </span>
+    );
+  }
+  if (props.kind === "comparison") {
+    return (
+      <span className="ai-ppt-mockup-comparison">
+        <span style={{ background: props.palette.muted, borderColor: props.palette.border }}>
+          <strong>이전</strong><i style={{ background: secondary }} /><i style={{ background: props.palette.border }} />
+        </span>
+        <span style={{ background: props.palette.surface, borderColor: props.palette.border }}>
+          <strong style={{ color: primary }}>지금</strong><i style={{ background: primary }} /><i style={{ background: accent }} />
+        </span>
+      </span>
+    );
+  }
+  if (props.kind === "chart") {
+    return (
+      <span className="ai-ppt-mockup-chart" style={surfaceStyle}>
+        {[44, 62, 52, 84, 72, 96].map((height, index) => (
+          <i key={height} style={{ background: props.colors[index % props.colors.length], height: `${height}%` }} />
+        ))}
+      </span>
+    );
+  }
+  if (props.kind === "agenda") {
+    return (
+      <span className="ai-ppt-mockup-agenda">
+        {["배경", "변화", "다음 액션"].map((label, index) => (
+          <span key={label} style={{ borderColor: props.palette.border }}>
+            <strong style={{ color: props.colors[index] }}>{`0${index + 1}`}</strong><span>{label}</span><i style={{ background: props.colors[index] }} />
+          </span>
+        ))}
+      </span>
+    );
+  }
+  if (props.kind === "matrix") {
+    return (
+      <span className="ai-ppt-mockup-matrix">
+        {[
+          ["신호", primary],
+          ["확장", accent],
+          ["리스크", secondary],
+          ["집중", props.palette.text],
+        ].map(([label, color]) => (
+          <span key={label} style={{ background: props.palette.surface, borderColor: props.palette.border }}>
+            <i style={{ background: color }} /><strong>{label}</strong>
+          </span>
+        ))}
+      </span>
+    );
+  }
+  return (
+    <span className="ai-ppt-mockup-cover-art" style={{ background: props.palette.muted, borderColor: props.palette.border }}>
+      <i style={{ background: primary }} />
+      <i style={{ background: secondary }} />
+      <i style={{ background: accent }} />
+      <span>제품 전략 · 2026</span>
+    </span>
   );
 }
 
@@ -1215,28 +1631,33 @@ function PaletteSwatches(props: { palette: Required<PaletteOverride> }) {
   );
 }
 
+function hexToRgb(hex: string) {
+  const value = hex.replace("#", "");
+  const normalized = value.length === 3
+    ? value.split("").map((character) => `${character}${character}`).join("")
+    : value;
+  const number = Number.parseInt(normalized, 16);
+  return `${(number >> 16) & 255}, ${(number >> 8) & 255}, ${number & 255}`;
+}
+
 function LivePreview(props: {
   selectedFont: GenerateDeckFontOption;
   selectedPalette: PaletteOption;
 }) {
   return (
-    <div className="ai-ppt-preview-card">
+    <div className="ai-ppt-preview-card ai-ppt-live-preview-card">
       <div className="ai-ppt-preview-top">
-        <span>Live Preview</span>
+        <span>Live Preview · Slide 04</span>
         <strong>
           {props.selectedPalette.name} · {props.selectedFont.name}
         </strong>
       </div>
-      <div className="ai-ppt-slide-grid">
-        <MiniSlide
-          font={props.selectedFont}
-          palette={props.selectedPalette.palette}
-        />
-        <MiniSlide
-          dense
-          font={props.selectedFont}
-          palette={props.selectedPalette.palette}
-        />
+      <div className="ai-ppt-live-slide-frame" style={{ fontFamily: props.selectedFont.headingFontFamily }}>
+        <PaletteMockupSlide large option={props.selectedPalette} />
+      </div>
+      <div className="ai-ppt-live-preview-meta">
+        <span>이 슬라이드에 적용된 컬러 DNA</span>
+        <PaletteSwatches palette={props.selectedPalette.palette} />
       </div>
     </div>
   );
@@ -1332,15 +1753,35 @@ function AttachmentField(props: {
   uploadStates: Record<string, UploadState>;
 }) {
   const [isDragging, setIsDragging] = useState(false);
+  const [dragPreviewNames, setDragPreviewNames] = useState<string[]>([]);
+  const dragDepthRef = useRef(0);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
 
   function addFiles(files: FileList | File[]) {
     props.onFilesChange(mergeReferenceFiles(props.files, Array.from(files)));
   }
 
-  function handleDrop(event: DragEvent<HTMLLabelElement>) {
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
+    dragDepthRef.current = 0;
     setIsDragging(false);
+    setDragPreviewNames([]);
     addFiles(event.dataTransfer.files);
+  }
+
+  function handleDragEnter(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDragging(true);
+    setDragPreviewNames(getDraggedFileNames(event.dataTransfer));
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current > 0) return;
+    setIsDragging(false);
+    setDragPreviewNames([]);
   }
 
   return (
@@ -1348,31 +1789,69 @@ function AttachmentField(props: {
       className="ai-ppt-attachments"
       aria-labelledby="ai-ppt-attachments-title"
     >
-      <h3 id="ai-ppt-attachments-title">참고 자료</h3>
-      <p>
-        선택 사항 · PDF, PPTX, DOCX 또는 이미지 파일을 여러 개 첨부할 수
-        있습니다.
-      </p>
-      <label
+      <h3 id="ai-ppt-attachments-title">
+        <OrbitIconLabel icon={<IconPaperclip size={18} />}>
+          참고 자료
+        </OrbitIconLabel>
+      </h3>
+      <div
+        aria-label="참고 자료 파일 업로드"
         className={[
           "ai-ppt-reference-drop",
           isDragging ? "is-dragging" : "",
           props.files.length ? "has-files" : "",
         ].join(" ")}
-        onDragEnter={() => setIsDragging(true)}
-        onDragLeave={() => setIsDragging(false)}
-        onDragOver={(event) => event.preventDefault()}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        }}
         onDrop={handleDrop}
+        role="group"
       >
-        <span className="ai-ppt-reference-icon" aria-hidden="true">
-          <IconPaperclip size={24} />
+        <span className="ai-ppt-drop-idle">
+          <span className="ai-ppt-reference-icon" aria-hidden="true">
+            <IconFileUpload size={22} />
+          </span>
+          <span className="ai-ppt-drop-copy">
+            <strong>참고 자료를 여기에 놓으세요</strong>
+            <span>PDF, PPTX, DOCX, JPG, PNG, WEBP</span>
+          </span>
         </span>
-        <strong>파일을 끌어놓거나 선택하세요</strong>
-        <span className="ai-ppt-reference-action">
-          <IconUpload size={16} /> 파일 선택
+        <OrbitButton
+          className="ai-ppt-reference-select"
+          icon={<IconUpload aria-hidden="true" size={16} />}
+          onClick={() => attachmentInputRef.current?.click()}
+          size="compact"
+          variant="secondary"
+        >
+          파일 선택
+        </OrbitButton>
+        <span aria-hidden="true" className="ai-ppt-drop-preview">
+          <span className="ai-ppt-drop-preview-icon">
+            <IconFileUpload size={25} />
+          </span>
+          <strong>
+            {dragPreviewNames.length
+              ? `${dragPreviewNames.length}개 파일을 놓아 미리보기`
+              : "여기에 놓아 미리보기"}
+          </strong>
+          {dragPreviewNames.length ? (
+            <span className="ai-ppt-drop-preview-names">
+              {dragPreviewNames.slice(0, 3).map((name) => (
+                <span key={name}>{name}</span>
+              ))}
+              {dragPreviewNames.length > 3 ? (
+                <span>+{dragPreviewNames.length - 3}</span>
+              ) : null}
+            </span>
+          ) : null}
         </span>
         <input
           className="ai-ppt-reference-input"
+          hidden
+          ref={attachmentInputRef}
           type="file"
           multiple
           accept=".pdf,.pptx,.docx,.jpg,.jpeg,.png,.webp"
@@ -1381,96 +1860,170 @@ function AttachmentField(props: {
             event.target.value = "";
           }}
         />
-      </label>
+      </div>
       {props.files.length ? (
-        <ul className="ai-ppt-attachment-list">
+        <ul aria-label="첨부 파일 미리보기" className="ai-ppt-attachment-preview-grid">
           {props.files.map((file) => {
             const upload = props.uploadStates[referenceFileKey(file)];
             return (
-            <li key={referenceFileKey(file)}>
-              <IconFileText size={18} />
-              <span>
-                {file.name}
-                <small>
-                  {upload?.status === "uploaded"
-                    ? "업로드 완료"
-                    : upload?.status === "failed"
-                      ? upload.error ?? "업로드 실패"
-                      : "업로드 중"}
-                </small>
-              </span>
-              {upload?.status === "failed" ? (
-                <button type="button" onClick={() => props.onRetryUpload(file)}>
-                  재시도
-                </button>
-              ) : null}
-              <button
-                aria-label={`${file.name} 제거`}
-                type="button"
-                onClick={() =>
-                  props.onFilesChange(
-                    props.files.filter(
-                      (candidate) =>
-                        referenceFileKey(candidate) !== referenceFileKey(file),
-                    ),
-                  )
-                }
+              <li
+                className="ai-ppt-attachment-preview-card"
+                data-status={upload?.status ?? "uploading"}
+                key={referenceFileKey(file)}
               >
-                <IconTrash size={16} />
-              </button>
-            </li>
-          )})}
+                <ReferenceFilePreview file={file} />
+                <OrbitIconButton
+                  aria-label={`${file.name} 제거`}
+                  className="ai-ppt-attachment-remove"
+                  onClick={() =>
+                    props.onFilesChange(
+                      props.files.filter(
+                        (candidate) =>
+                          referenceFileKey(candidate) !== referenceFileKey(file),
+                      ),
+                    )
+                  }
+                  variant="surface"
+                >
+                  <IconTrash aria-hidden="true" size={16} />
+                </OrbitIconButton>
+                <div className="ai-ppt-attachment-preview-meta">
+                  <strong title={file.name}>{file.name}</strong>
+                  <span>
+                    {referenceFileTypeLabel(file)} · {formatReferenceFileSize(file.size)}
+                  </span>
+                  <small className="ai-ppt-attachment-upload-status">
+                    {upload?.status === "uploaded"
+                      ? "업로드 완료"
+                      : upload?.status === "failed"
+                        ? upload.error ?? "업로드 실패"
+                        : "업로드 중"}
+                  </small>
+                  {upload?.status === "failed" ? (
+                    <OrbitButton
+                      onClick={() => props.onRetryUpload(file)}
+                      size="compact"
+                      variant="quiet"
+                    >
+                      다시 시도
+                    </OrbitButton>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </section>
   );
 }
 
+function ReferenceFilePreview(props: { file: File }) {
+  const [previewUrl, setPreviewUrl] = useState("");
+  const isImage = isReferenceImage(props.file);
+
+  useEffect(() => {
+    if (!isImage) {
+      setPreviewUrl("");
+      return;
+    }
+    const nextUrl = URL.createObjectURL(props.file);
+    setPreviewUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [isImage, props.file]);
+
+  return (
+    <div
+      className="ai-ppt-attachment-preview-media"
+      data-preview-kind={isImage ? "image" : "document"}
+    >
+      {previewUrl ? (
+        <img alt={`${props.file.name} 미리보기`} src={previewUrl} />
+      ) : (
+        <span className="ai-ppt-document-cover" aria-hidden="true">
+          {isImage ? <IconPhoto size={28} /> : <IconFileText size={28} />}
+          <strong>{referenceFileExtension(props.file)}</strong>
+        </span>
+      )}
+    </div>
+  );
+}
+
+function getDraggedFileNames(dataTransfer: DataTransfer) {
+  const files = Array.from(dataTransfer.files);
+  if (files.length) return files.map((file) => file.name);
+  return Array.from(dataTransfer.items)
+    .filter((item) => item.kind === "file")
+    .map((item) => item.getAsFile()?.name)
+    .filter((name): name is string => Boolean(name));
+}
+
+function isReferenceImage(file: Pick<File, "name" | "type">) {
+  return file.type.startsWith("image/") || /\.(?:jpe?g|png|webp)$/i.test(file.name);
+}
+
+function referenceFileExtension(file: Pick<File, "name">) {
+  return file.name.split(".").pop()?.toUpperCase() || "FILE";
+}
+
+function referenceFileTypeLabel(file: Pick<File, "name" | "type">) {
+  return isReferenceImage(file) ? "이미지" : referenceFileExtension(file);
+}
+
+function formatReferenceFileSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function TextField(props: {
-  label: string;
+  label: ReactNode;
   name: string;
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="ai-ppt-field">
-      <span>{props.label}</span>
-      <input
+    <OrbitField id={`ai-ppt-${props.name}`} label={props.label}>
+      <OrbitInput
         name={props.name}
         placeholder={props.placeholder}
         value={props.value}
         onChange={(event) => props.onChange(event.target.value)}
       />
-    </label>
+    </OrbitField>
   );
 }
 
 function TextAreaField(props: {
-  label: string;
+  label: ReactNode;
   name: string;
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="ai-ppt-textarea ai-ppt-field-wide">
-      <span>{props.label}</span>
-      <textarea
+    <OrbitField
+      className="ai-ppt-field-wide"
+      id={`ai-ppt-${props.name}`}
+      label={props.label}
+    >
+      <OrbitTextarea
         name={props.name}
         placeholder={props.placeholder}
         value={props.value}
         onChange={(event) => props.onChange(event.target.value)}
       />
-    </label>
+    </OrbitField>
   );
 }
 
-function PanelHeading(props: { kicker: string; title: string }) {
+function PanelHeading(props: { description?: string; kicker: string; title: string }) {
   return (
     <div className="ai-ppt-panel-heading">
       <span>{props.kicker}</span>
       <h2>{props.title}</h2>
+      {props.description ? <p>{props.description}</p> : null}
     </div>
   );
 }

@@ -211,7 +211,9 @@ describe("App shell routing", () => {
         </QueryClientProvider>
       );
 
-      expect(html).toContain("발표 내용부터 빠르게 시작하세요");
+      expect(html).not.toContain("핵심 컨텍스트");
+      expect(html).toContain("대본 톤");
+      expect(html).toContain("다음 단계");
       expect(html).toContain("Style &amp; Color");
     } finally {
       vi.unstubAllGlobals();
@@ -464,14 +466,28 @@ describe("workspace project surfaces", () => {
   });
 
   it("renders a dedicated rehearsal project picker without creation or delete actions", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["projects"], [
+      {
+        createdAt: "2026-07-18T00:00:00.000Z",
+        createdBy: "user_1",
+        isPinned: false,
+        projectId: "project_private_identifier",
+        title: "리허설 발표자료",
+        workspaceId: "workspace_1",
+      },
+    ]);
     const html = renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={queryClient}>
         <RehearsalProjectPickerPage onNavigate={() => undefined} />
       </QueryClientProvider>
     );
 
-    expect(html).toContain(">리허설<");
-    expect(html).toContain("연습할 발표자료를 선택하세요.");
+    expect(html).toContain('aria-label="리허설 프로젝트 목록"');
+    expect(html).toContain("리허설 발표자료");
+    expect(html).toContain("연습하러 가기");
+    expect(html).toContain("redesign-button-primary");
+    expect(html).not.toContain("project_private_identifier");
     expect(html).toContain('aria-label="프로젝트 새로고침"');
     expect(html).not.toContain("빈 프로젝트");
   });
