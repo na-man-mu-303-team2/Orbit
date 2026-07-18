@@ -637,4 +637,42 @@ describe("pptxOoxmlGeneration schemas", () => {
       },
     });
   });
+
+  it("recovers legacy imported slide mappings when the deck has an authored slide", () => {
+    const blueprint = templateBlueprintSchema.parse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          sourceSlidePart: "ppt/slides/slide7.xml",
+        },
+        {
+          slideIndex: 2,
+          sourceSlideIndex: 2,
+          sourceSlidePart: "ppt/slides/slide11.xml",
+        },
+      ],
+    });
+
+    const recovered = recoverTemplateBlueprintSlideIds(blueprint, [
+      { slideId: "slide_cover", order: 1 },
+      { slideId: "slide_appendix", order: 2 },
+      { slideId: "slide_authored", order: 3 },
+    ]);
+
+    expect(recovered).toMatchObject({
+      recovered: true,
+      blueprint: {
+        slides: [
+          { slideId: "slide_cover", sourceSlidePart: "ppt/slides/slide7.xml" },
+          {
+            slideId: "slide_appendix",
+            sourceSlidePart: "ppt/slides/slide11.xml",
+          },
+        ],
+      },
+    });
+  });
 });
