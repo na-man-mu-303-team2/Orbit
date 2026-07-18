@@ -11105,11 +11105,21 @@ body.is-resizing-speaker-notes {
 
 @media (min-width: 861px) {
   .orbit-shell.editor-professional .stage-top-controls {
+    align-self: stretch;
+    display: grid;
+    grid-column: 2;
+    grid-row: 1;
     grid-template-columns: minmax(0, 1fr) auto auto;
+    min-width: 0;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    pointer-events: none;
+    z-index: 18;
   }
 
   .orbit-shell.editor-professional .stage-top-controls > .editor-toolbar {
-    grid-column: 2;
+    grid-column: 1 / 4;
     grid-row: 1;
     height: var(--editor-chrome-height);
     min-height: var(--editor-chrome-height);
@@ -11118,8 +11128,19 @@ body.is-resizing-speaker-notes {
 
   .orbit-shell.editor-professional
     .editor-panel.animation-panel-open
-    .stage-top-controls > .editor-toolbar {
+    .stage-top-controls {
     grid-column: 2 / 4;
+  }
+
+  .orbit-shell.editor-professional .stage-top-controls > .editor-toolbar,
+  .orbit-shell.editor-professional .stage-top-controls > .selection-quickbar,
+  .orbit-shell.editor-professional .stage-top-controls > .editor-panel-toolbar-actions,
+  .orbit-shell.editor-professional .stage-top-controls > .canvas-zoom-controls {
+    pointer-events: auto;
+  }
+
+  .orbit-shell.editor-professional .stage-top-controls > .selection-quickbar {
+    grid-column: 1 / 4;
   }
 
   .orbit-shell.editor-professional .stage-top-controls > .editor-panel-toolbar-actions {
