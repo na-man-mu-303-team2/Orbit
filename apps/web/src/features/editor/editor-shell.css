@@ -2919,9 +2919,8 @@
   padding: var(--redesign-space-1) var(--redesign-space-1);
   border: 2px solid var(--redesign-color-primary);
   border-radius: var(--redesign-radius-xl);
-  background: var(--redesign-color-light-surface);
-  caret-color: var(--redesign-color-on-surface);
-  color-scheme: light;
+  background: transparent;
+  caret-color: currentColor;
   resize: none;
   outline: 0;
   overflow: auto;

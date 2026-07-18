@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { createDemoDeck, normalizeRichTextProps } from "@orbit/editor-core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -63,6 +65,18 @@ function getRichTextFixture() {
 }
 
 describe("InlineTextEditorOverlay", () => {
+  it("keeps the editing surface transparent so slide colors remain visible", () => {
+    const editorCss = fs.readFileSync(
+      path.join(process.cwd(), "src/features/editor/editor-shell.css"),
+      "utf8",
+    );
+    const rule = editorCss.match(/\.inline-text-editor\s*\{([\s\S]*?)\}/)?.[1];
+
+    expect(rule).toContain("background: transparent;");
+    expect(rule).toContain("caret-color: currentColor;");
+    expect(rule).not.toContain("color-scheme: light;");
+  });
+
   it("renders an accessible uncontrolled contentEditable tree from canonical paragraphs and runs", () => {
     const { deck, element, slide } = getRichTextFixture();
 
