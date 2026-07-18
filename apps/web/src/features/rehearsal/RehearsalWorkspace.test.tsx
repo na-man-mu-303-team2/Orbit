@@ -1352,7 +1352,9 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("슬라이드별 소요 시간");
     expect(html).toContain("rrd-cumulative-chart");
     expect(html).toContain("1번 슬라이드");
-    expect(html).toContain("누적 0분 52초");
+    expect(html).toContain("rrd-timing-slide-option-times");
+    expect(html).toContain("소요</small><strong>0분 52초");
+    expect(html).toContain("권장</small><strong>1분 00초");
     expect(html).not.toContain("이번 시간");
     expect(html).not.toContain("계속 문제였던 장표");
     expect(html).not.toContain("종합 발표 점수");

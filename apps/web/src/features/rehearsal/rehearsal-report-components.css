@@ -274,7 +274,7 @@
 .rrd-timing-graph-pane .rrd-timing-legend { background: var(--redesign-color-surface-container-low); border-radius: var(--redesign-radius-lg); gap: var(--redesign-space-2) var(--redesign-space-4); padding: var(--redesign-space-2) var(--redesign-space-3); }
 .rrd-timing-graph-pane .rrd-timing-legend-item { font-size: var(--redesign-type-label-sm-size); }
 .rrd-timing-graph-pane .rrd-cumulative-chart-shell { gap: var(--redesign-space-2); grid-template-columns: 48px minmax(0, 1fr); }
-.rrd-timing-bar, .rrd-timing-target-marker, .rrd-cumulative-x-label { transition: opacity 160ms ease, filter 160ms ease; }
+.rrd-timing-bar, .rrd-timing-target-marker, .rrd-cumulative-x-label { transition: opacity var(--redesign-duration-fast) var(--redesign-ease-standard), filter var(--redesign-duration-fast) var(--redesign-ease-standard); }
 .rrd-timing-bar.is-muted { opacity: 0.58; }
 .rrd-timing-target-marker.is-muted, .rrd-cumulative-x-label.is-muted { opacity: 0.52; }
 .rrd-timing-bar.is-selected { filter: drop-shadow(0 2px 3px color-mix(in srgb, var(--redesign-color-primary-emphasis) 18%, transparent)); opacity: 1; }
@@ -286,9 +286,9 @@
 .rrd-timing-slide-rail { background: var(--redesign-color-surface-container-low); border: 1px solid var(--redesign-color-outline-variant); border-radius: var(--redesign-radius-xl); display: grid; gap: var(--redesign-space-3); grid-template-rows: auto minmax(0, 1fr); max-height: 560px; min-width: 0; padding: var(--redesign-space-3); }
 .rrd-timing-slide-rail-head { align-items: center; display: flex; justify-content: space-between; min-width: 0; padding: 2px var(--redesign-space-1); }
 .rrd-timing-slide-rail-head span { color: var(--redesign-color-on-surface); font-size: var(--redesign-type-body-sm-size); font-weight: 900; }
-.rrd-timing-slide-rail-head strong { align-items: center; background: var(--redesign-color-light-surface); border: 1px solid var(--redesign-color-outline-variant); border-radius: 999px; color: var(--redesign-color-on-surface-variant); display: inline-flex; font-size: 11px; font-weight: 850; height: 22px; justify-content: center; min-width: 22px; padding-inline: 6px; }
+.rrd-timing-slide-rail-head strong { align-items: center; background: var(--redesign-color-light-surface); border: 1px solid var(--redesign-color-outline-variant); border-radius: var(--redesign-radius-full); color: var(--redesign-color-on-surface-variant); display: inline-flex; font-size: var(--redesign-type-label-sm-size); font-weight: 850; height: 22px; justify-content: center; min-width: 22px; padding-inline: var(--redesign-space-2); }
 .rrd-timing-slide-rail-list { align-content: start; display: grid; gap: var(--redesign-space-2); min-height: 0; overflow-y: auto; padding-right: 2px; }
-.rrd-timing-slide-option { background: var(--redesign-color-light-surface); border: 1px solid var(--redesign-color-outline-variant); border-radius: var(--redesign-radius-xl); color: inherit; cursor: pointer; display: grid; gap: var(--redesign-space-2); padding: var(--redesign-space-3); text-align: left; transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease; width: 100%; }
+.rrd-timing-slide-option { background: var(--redesign-color-light-surface); border: 1px solid var(--redesign-color-outline-variant); border-radius: var(--redesign-radius-xl); color: inherit; cursor: pointer; display: grid; gap: var(--redesign-space-2); padding: var(--redesign-space-3); text-align: left; transition: background-color var(--redesign-duration-fast) var(--redesign-ease-standard), border-color var(--redesign-duration-fast) var(--redesign-ease-standard), box-shadow var(--redesign-duration-fast) var(--redesign-ease-standard); width: 100%; }
 .rrd-timing-slide-option:hover { border-color: var(--redesign-color-primary-outline); box-shadow: var(--redesign-shadow-card); }
 .rrd-timing-slide-option:focus-visible { outline: 3px solid color-mix(in srgb, var(--redesign-color-primary) 24%, transparent); outline-offset: 1px; }
 .rrd-timing-slide-option.is-selected { background: var(--redesign-color-primary-subtle); border-color: var(--redesign-color-primary-outline); box-shadow: var(--redesign-shadow-inset-primary-start), var(--redesign-shadow-card); }
@@ -296,13 +296,13 @@
 .rrd-timing-slide-option.is-selected .rrd-timing-slide-thumb { border-color: var(--redesign-color-primary-outline); }
 .rrd-timing-slide-option-meta { align-items: center; display: flex; gap: var(--redesign-space-1); justify-content: space-between; min-width: 0; padding-inline: 2px; }
 .rrd-timing-slide-option-meta strong { color: var(--redesign-color-on-surface); font-size: var(--redesign-type-body-sm-size); font-weight: 900; }
-.rrd-timing-slide-option-meta em { background: var(--redesign-color-surface-container-low); border-radius: var(--redesign-radius-full); color: var(--redesign-color-on-surface-variant); font-size: 11px; font-style: normal; font-weight: 800; padding: 3px 7px; white-space: nowrap; }
+.rrd-timing-slide-option-meta em { background: var(--redesign-color-surface-container-low); border-radius: var(--redesign-radius-full); color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-label-sm-size); font-style: normal; font-weight: 800; padding: var(--redesign-space-1) var(--redesign-space-2); white-space: nowrap; }
 .rrd-timing-slide-option-meta em.is-over { background: color-mix(in srgb, var(--redesign-color-error) 9%, transparent); color: var(--redesign-color-error); }
 .rrd-timing-slide-option-title { color: var(--redesign-color-on-surface-variant); display: -webkit-box; font-size: var(--redesign-type-body-sm-size); font-weight: 750; line-height: 1.45; min-height: 2.9em; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .rrd-timing-slide-option.is-selected .rrd-timing-slide-option-title { color: var(--redesign-color-on-surface); }
 .rrd-timing-slide-option-times { border-top: 1px solid var(--redesign-color-outline-variant); display: grid; gap: var(--redesign-space-2); grid-template-columns: repeat(2, minmax(0, 1fr)); padding-top: var(--redesign-space-2); }
 .rrd-timing-slide-option-times > span { display: grid; gap: 2px; }
-.rrd-timing-slide-option-times small { color: var(--redesign-color-on-surface-variant); font-size: 11px; font-weight: 700; }
+.rrd-timing-slide-option-times small { color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-label-sm-size); font-weight: 700; }
 .rrd-timing-slide-option-times strong { color: var(--redesign-color-on-surface); font-size: var(--redesign-type-body-sm-size); font-weight: 900; }
 @media (max-width: 760px) {
   .rrd-slide-analysis-controls { align-items: flex-end; flex-direction: column; }
