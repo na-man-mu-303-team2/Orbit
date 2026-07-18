@@ -42,6 +42,7 @@ function formatDate(iso: string) {
 }
 
 type Props = {
+  audioPlaybackAvailable?: boolean;
   deck: Deck | null;
   onSemanticRetry?: () => void;
   practiceGoalSummary?: ReactNode;
@@ -57,6 +58,7 @@ type ReportTab = "overview" | "slides";
 
 
 export function RehearsalReportDocument({
+  audioPlaybackAvailable = true,
   deck,
   practiceGoalSummary,
   prevReports,
@@ -174,11 +176,16 @@ export function RehearsalReportDocument({
       <div className="rrd-top-overview rrd-speech-overview">
         {/* ── 3. 음성 타임라인 / 긴 침묵 ── */}
         <RehearsalSilenceOverview
+          audioPlaybackAvailable={audioPlaybackAvailable}
           deck={deck}
           formatDuration={fmt}
           report={report}
         />
-        <RehearsalVolumeOverview formatDuration={fmt} report={report} />
+        <RehearsalVolumeOverview
+          audioPlaybackAvailable={audioPlaybackAvailable}
+          formatDuration={fmt}
+          report={report}
+        />
       </div>
 
 

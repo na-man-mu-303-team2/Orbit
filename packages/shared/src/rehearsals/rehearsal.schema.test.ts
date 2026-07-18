@@ -6,6 +6,7 @@ import {
   completeRehearsalAudioChunkUploadRequestSchema,
   completeRehearsalAudioUploadRequestSchema,
   createRehearsalRunRequestSchema,
+  createRehearsalAudioClipRequestSchema,
   createRehearsalAudioUploadUrlRequestSchema,
   getRehearsalReportResponseSchema,
   rehearsalAudioPlaybackUrlResponseSchema,
@@ -750,6 +751,31 @@ describe("getRehearsalReportResponseSchema", () => {
   });
 });
 
+describe("createRehearsalAudioClipRequestSchema", () => {
+  it("accepts positive clips up to sixty seconds", () => {
+    expect(
+      createRehearsalAudioClipRequestSchema.parse({
+        startSeconds: 10,
+        endSeconds: 12.5,
+      }),
+    ).toEqual({ startSeconds: 10, endSeconds: 12.5 });
+  });
+
+  it("rejects reversed and overlong clip ranges", () => {
+    expect(
+      createRehearsalAudioClipRequestSchema.safeParse({
+        startSeconds: 10,
+        endSeconds: 9,
+      }).success,
+    ).toBe(false);
+    expect(
+      createRehearsalAudioClipRequestSchema.safeParse({
+        startSeconds: 0,
+        endSeconds: 60.1,
+      }).success,
+    ).toBe(false);
+  });
+});
 describe("createRehearsalAudioUploadUrlRequestSchema", () => {
   it("accepts audio MIME types without exposing purpose in the request", () => {
     const request = createRehearsalAudioUploadUrlRequestSchema.parse({

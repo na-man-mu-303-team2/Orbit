@@ -274,6 +274,19 @@ def test_classify_relative_pace_includes_thresholds_in_similar() -> None:
     assert classify_relative_pace(1.1501) == "faster"
 
 
+def test_build_slide_speaking_rates_accepts_provider_korean_language_name() -> None:
+    rates = build_slide_speaking_rates(
+        language="korean",
+        duration_seconds=3,
+        segments=[
+            TranscriptSegment(text="가나다라마바사아자차", startSeconds=0, endSeconds=3),
+        ],
+        slide_timeline=[SlideTimelineEntry(slide_id="slide_1", entered_second=0)],
+    )
+
+    assert rates["slide_1"].measurement_state == "measured"
+    assert rates["slide_1"].reason_code is None
+
 def test_build_slide_speaking_rates_marks_unsupported_language_unmeasured() -> None:
     rates = build_slide_speaking_rates(
         language="en-US",

@@ -660,6 +660,22 @@ const rehearsalReportObjectSchema = z
     const silenceMeasured =
       report.silenceAnalysis.measurementState === "measured";
     if (
+      report.metrics.measurements.longSilenceCount.metricDefinitionVersion !==
+      report.silenceAnalysis.metricDefinitionVersion
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "long silence measurement version must match silence analysis.",
+        path: [
+          "metrics",
+          "measurements",
+          "longSilenceCount",
+          "metricDefinitionVersion",
+        ],
+      });
+    }
+    if (
       silenceMeasured !==
       (report.metrics.measurements.longSilenceCount.measurementState ===
         "measured")
@@ -933,6 +949,23 @@ export const completeRehearsalAudioUploadResponseSchema = z.object({
   job: jobSchema,
 });
 
+export const createRehearsalAudioClipRequestSchema = z
+  .object({
+    startSeconds: z.number().finite().nonnegative(),
+    endSeconds: z.number().finite().positive(),
+  })
+  .strict()
+  .superRefine((request, context) => {
+    const durationSeconds = request.endSeconds - request.startSeconds;
+    if (durationSeconds <= 0 || durationSeconds > 60) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "audio clip duration must be greater than zero and at most 60 seconds.",
+        path: ["endSeconds"],
+      });
+    }
+  });
 export const rehearsalAudioPlaybackUrlResponseSchema = z
   .object({
     playbackUrl: z.string().url(),
@@ -941,7 +974,9 @@ export const rehearsalAudioPlaybackUrlResponseSchema = z
   })
   .strict()
   .superRefine((response, context) => {
-    if (Date.parse(response.expiresAt) > Date.parse(response.retentionExpiresAt)) {
+    if (
+      Date.parse(response.expiresAt) > Date.parse(response.retentionExpiresAt)
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "playback URL cannot outlive audio retention.",
@@ -1017,6 +1052,7 @@ export const retryRehearsalSemanticEvaluationResponseSchema = z.object({
 export const getRehearsalReportResponseSchema = z.object({
   run: rehearsalRunSchema,
   report: rehearsalReportSchema.nullable(),
+  audioPlaybackAvailable: z.boolean().optional(),
 });
 
 export const rehearsalComparisonIssueSchema = z
@@ -1588,6 +1624,9 @@ export type CompleteRehearsalAudioChunkUploadRequest = z.infer<
 >;
 export type CompleteRehearsalAudioUploadResponse = z.infer<
   typeof completeRehearsalAudioUploadResponseSchema
+>;
+export type CreateRehearsalAudioClipRequest = z.infer<
+  typeof createRehearsalAudioClipRequestSchema
 >;
 export type RehearsalAudioPlaybackUrlResponse = z.infer<
   typeof rehearsalAudioPlaybackUrlResponseSchema
