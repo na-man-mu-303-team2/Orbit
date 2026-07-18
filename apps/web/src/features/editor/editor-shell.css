@@ -355,7 +355,7 @@
   left: 0;
   width: 356px;
   border-radius: var(--redesign-radius-xl);
-  background: color-mix(in srgb, var(--redesign-color-surface-container-low) 96%, transparent);
+  background: var(--redesign-color-light-surface);
   color: var(--redesign-color-on-surface);
   box-shadow: var(--redesign-shadow-overlay);
   border: 1px solid var(--redesign-color-outline-variant);
@@ -2025,21 +2025,21 @@
   height: 42px;
   display: grid;
   place-items: center;
-  border: var(--redesign-border-subtle);
+  border: 1px solid color-mix(in srgb, var(--redesign-color-dark-surface) 18%, transparent);
   border-radius: var(--redesign-radius-xl);
   background:
-    linear-gradient(45deg, var(--redesign-color-surface-container) 25%, transparent 25%),
-    linear-gradient(-45deg, var(--redesign-color-surface-container) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, var(--redesign-color-surface-container) 75%),
-    linear-gradient(-45deg, transparent 75%, var(--redesign-color-surface-container) 75%),
-    var(--redesign-color-surface-container-lowest);
+    linear-gradient(45deg, color-mix(in srgb, var(--redesign-color-dark-surface) 10%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--redesign-color-dark-surface) 10%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--redesign-color-dark-surface) 10%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--redesign-color-dark-surface) 10%, transparent) 75%),
+    var(--redesign-color-light-surface);
   background-position: 0 0, 0 6px, 6px -6px, -6px 0;
   background-size: 12px 12px;
 }
 
 .icon-library-preview.dark {
-  border-color: var(--redesign-color-outline);
-  background: var(--redesign-color-inverse-surface);
+  border-color: color-mix(in srgb, var(--redesign-color-light-surface) 28%, transparent);
+  background: var(--redesign-color-dark-surface);
 }
 
 .icon-library-empty {
@@ -2295,7 +2295,7 @@
   padding: var(--redesign-space-2);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-xl);
-  background: color-mix(in srgb, var(--redesign-color-surface-container-low) 96%, transparent);
+  background: var(--redesign-color-light-surface);
   box-shadow: var(--redesign-shadow-overlay);
   backdrop-filter: blur(18px);
 }
@@ -2390,9 +2390,16 @@
   display: inline-grid;
   place-items: center;
   width: 18px;
+  flex: 0 0 18px;
   color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-body-md-size);
   line-height: 1;
+}
+
+.shape-menu-symbol svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.8;
 }
 
 .selection-quickbar {
@@ -2859,8 +2866,10 @@
   padding: var(--redesign-space-1) var(--redesign-space-1);
   border: 2px solid var(--redesign-color-primary);
   border-radius: var(--redesign-radius-xl);
-  background: color-mix(in srgb, var(--redesign-color-surface-container-low) 96%, transparent);
+  background: var(--redesign-color-light-surface);
   caret-color: var(--redesign-color-on-surface);
+  color-scheme: light;
+  resize: none;
   outline: 0;
   overflow: auto;
   white-space: pre-wrap;
@@ -2926,12 +2935,15 @@
 
 .inline-table-editor-actions {
   position: absolute;
-  left: 8px;
-  bottom: -42px;
+  left: 0;
+  top: calc(100% + var(--redesign-space-2));
   z-index: 3;
   display: flex;
+  align-items: end;
   flex-wrap: wrap;
   gap: var(--redesign-space-1);
+  width: max-content;
+  max-width: calc(100vw - var(--redesign-space-8));
   padding: var(--redesign-space-1);
   border: var(--redesign-border-subtle);
   border-radius: var(--redesign-radius-xl);
@@ -2967,7 +2979,7 @@
   opacity: 0.4;
 }
 
-.inline-table-editor-grid input {
+.inline-table-editor-grid > input {
   min-width: 0;
   min-height: 0;
   box-sizing: border-box;
@@ -2977,7 +2989,7 @@
   outline: none;
 }
 
-.inline-table-editor-grid input:focus {
+.inline-table-editor-grid > input:focus {
   position: relative;
   z-index: 1;
   border-color: var(--redesign-color-primary-emphasis);
@@ -3006,7 +3018,9 @@
 }
 
 .inline-chart-title-input,
-.inline-chart-data-grid input {
+.inline-chart-data-grid input,
+.inline-chart-text-controls input,
+.inline-chart-font-controls input {
   min-width: 0;
   height: 32px;
   box-sizing: border-box;
@@ -3019,7 +3033,9 @@
 }
 
 .inline-chart-title-input:focus,
-.inline-chart-data-grid input:focus {
+.inline-chart-data-grid input:focus,
+.inline-chart-text-controls input:focus,
+.inline-chart-font-controls input:focus {
   border-color: var(--redesign-color-primary-emphasis);
   box-shadow: var(--redesign-glow-primary);
 }
@@ -7615,7 +7631,7 @@ body.is-resizing-speaker-notes {
     padding: var(--redesign-space-1) var(--redesign-space-2);
     border: 1px solid var(--redesign-color-outline);
     border-radius: var(--redesign-radius);
-    background: color-mix(in srgb, var(--redesign-color-surface-container-low) 96%, transparent);
+    background: var(--redesign-color-light-surface);
     box-shadow: var(--redesign-shadow-raised);
     backdrop-filter: blur(12px);
   }
@@ -7730,7 +7746,7 @@ body.is-resizing-speaker-notes {
     padding: var(--redesign-space-1) var(--redesign-space-2);
     border: 1px solid var(--redesign-color-outline);
     border-radius: var(--redesign-radius);
-    background: color-mix(in srgb, var(--redesign-color-surface-container-low) 96%, transparent);
+    background: var(--redesign-color-light-surface);
     box-shadow: var(--redesign-shadow-raised);
     backdrop-filter: blur(12px);
   }
@@ -9028,10 +9044,64 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional .script-notes-editor,
 .orbit-shell.editor-professional input,
 .orbit-shell.editor-professional select,
-.orbit-shell.editor-professional textarea {
+.orbit-shell.editor-professional textarea:not(.inline-text-editor) {
   background: var(--redesign-color-surface-container);
   border-color: var(--redesign-color-outline);
   color: var(--redesign-color-on-surface);
+}
+
+.inline-data-editor-control {
+  display: grid;
+  gap: var(--redesign-space-1);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 700;
+}
+
+.inline-data-editor-control > input {
+  width: var(--redesign-space-18);
+}
+
+.inline-table-cell-selection {
+  align-self: center;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 800;
+  padding-inline: var(--redesign-space-1);
+}
+
+.compact-color-control > input,
+.inline-data-editor-control > input[type="color"] {
+  width: var(--redesign-size-control-md);
+  min-width: var(--redesign-size-control-md);
+  height: var(--redesign-size-control-sm);
+  padding: var(--redesign-space-1);
+  cursor: pointer;
+}
+
+.inline-chart-text-controls,
+.inline-chart-font-controls,
+.inline-chart-visibility-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--redesign-space-2);
+}
+
+.inline-chart-text-controls .inline-data-editor-control {
+  flex: 1 1 var(--redesign-space-32);
+}
+
+.inline-chart-text-controls .inline-data-editor-control > input {
+  width: 100%;
+}
+
+.inline-chart-visibility-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--redesign-space-1);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 700;
 }
 
 .orbit-shell.editor-professional .ai-chat-composer {
@@ -9246,7 +9316,7 @@ body.is-resizing-speaker-notes {
     padding: var(--redesign-space-1) var(--redesign-space-2);
     border: 1px solid var(--redesign-color-outline);
     border-radius: var(--redesign-radius);
-    background: color-mix(in srgb, var(--redesign-color-surface-container-low) 96%, transparent);
+    background: var(--redesign-color-light-surface);
     box-shadow: var(--redesign-shadow-raised);
     backdrop-filter: blur(12px);
   }

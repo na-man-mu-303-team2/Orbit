@@ -21,13 +21,14 @@ type EditorToolbarProps = {
   canMutate: boolean;
   canUseCurrentSlide: boolean;
   compactSelectionTrigger?: ReactNode;
+  chartMenuButtonRef: RefObject<HTMLButtonElement | null>;
   insertTool: InsertTool;
   isAnimationPanelOpen: boolean;
+  isChartMenuOpen: boolean;
   isImageUploadPending: boolean;
   isIconPanelOpen: boolean;
   isShapeMenuOpen: boolean;
   isStageFitToViewport: boolean;
-  onAddChart: () => void;
   onAddText: () => void;
   onOpenAnimation: () => void;
   onOpenImagePicker: () => void;
@@ -35,6 +36,7 @@ type EditorToolbarProps = {
   onRedo: () => void;
   onSelectTool: () => void;
   onToggleShapeMenu: () => void;
+  onToggleChartMenu: () => void;
   onUndo: () => void;
   onFitStageToViewport: () => void;
   onZoomIn: () => void;
@@ -46,6 +48,8 @@ type EditorToolbarProps = {
   stageScale: number;
   undoDisabled: boolean;
 };
+
+export type ChartInsertType = "bar" | "line" | "pie" | "table";
 
 export function EditorToolbar(props: EditorToolbarProps) {
   const editDisabledTitle = props.canUseCurrentSlide
@@ -92,16 +96,22 @@ export function EditorToolbar(props: EditorToolbarProps) {
               <Shapes size={17} /><ChevronDown size={12} />
             </button>
           </div>
-          <button
-            aria-label="차트"
-            className="tool-button"
-            disabled={!props.canUseCurrentSlide}
-            title={editDisabledTitle ?? "차트 추가"}
-            type="button"
-            onClick={props.onAddChart}
-          >
-            <BarChart3 size={17} />
-          </button>
+          <div className="shape-menu-anchor">
+            <button
+              aria-expanded={props.isChartMenuOpen}
+              aria-haspopup="menu"
+              aria-label="차트"
+              className={`tool-button ${props.isChartMenuOpen ? "active" : ""}`}
+              disabled={!props.canUseCurrentSlide}
+              ref={props.chartMenuButtonRef}
+              title={editDisabledTitle ?? "차트 또는 표 추가"}
+              type="button"
+              onClick={props.onToggleChartMenu}
+            >
+              <BarChart3 aria-hidden="true" size={17} />
+              <ChevronDown aria-hidden="true" size={12} />
+            </button>
+          </div>
           <button
             aria-label="아이콘"
             className={`tool-button ${props.isIconPanelOpen ? "active" : ""}`}

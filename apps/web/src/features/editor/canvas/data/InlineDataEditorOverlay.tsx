@@ -1,4 +1,10 @@
-import type { Chart, DeckElement, TableCellProps, TableElementProps } from "@orbit/shared";
+import type {
+  Chart,
+  ChartStyle,
+  DeckElement,
+  TableCellProps,
+  TableElementProps
+} from "@orbit/shared";
 import { IconMinus, IconPlus, IconX } from "@tabler/icons-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -95,6 +101,7 @@ function InlineTableEditor(props: {
 }) {
   const table = props.element.props as TableElementProps;
   const [rows, setRows] = useState(() => table.rows.map((row) => row.map((cell) => ({ ...cell }))));
+  const [activeCell, setActiveCell] = useState({ rowIndex: 0, columnIndex: 0 });
   const rowsRef = useRef(rows);
   const columnCount = Math.max(1, ...rows.map((row) => row.length));
   const rowCount = Math.max(1, rows.length);
@@ -136,6 +143,15 @@ function InlineTableEditor(props: {
     commit(nextRows);
   }
 
+  function updateActiveCell(patch: Partial<TableCellProps>) {
+    updateRows(updateTableCell(rows, activeCell.rowIndex, activeCell.columnIndex, patch));
+  }
+
+  const selectedCell =
+    rows[activeCell.rowIndex]?.[activeCell.columnIndex] ??
+    rows[0]?.[0] ??
+    createDefaultTableCell();
+
   function addRow() {
     const template = rows.at(-1) ?? rows[0] ?? [createDefaultTableCell()];
     updateRows([...rows, template.map((cell) => ({ ...cell, text: "" }))]);
@@ -143,7 +159,12 @@ function InlineTableEditor(props: {
 
   function removeRow() {
     if (rows.length <= 1) return;
-    updateRows(rows.slice(0, -1));
+    const nextRows = rows.slice(0, -1);
+    setActiveCell((current) => ({
+      rowIndex: Math.min(current.rowIndex, nextRows.length - 1),
+      columnIndex: current.columnIndex
+    }));
+    updateRows(nextRows);
   }
 
   function addColumn() {
@@ -155,7 +176,12 @@ function InlineTableEditor(props: {
 
   function removeColumn() {
     if (columnCount <= 1) return;
-    updateRows(rows.map((row) => row.slice(0, -1)));
+    const nextRows = rows.map((row) => row.slice(0, -1));
+    setActiveCell((current) => ({
+      rowIndex: current.rowIndex,
+      columnIndex: Math.min(current.columnIndex, columnCount - 2)
+    }));
+    updateRows(nextRows);
   }
 
   return (
@@ -187,6 +213,7 @@ function InlineTableEditor(props: {
               textAlign: cell.align === "center" || cell.align === "right" ? cell.align : "left"
             }}
             value={cell.text}
+            onFocus={() => setActiveCell({ rowIndex, columnIndex })}
             onBlur={() => commit()}
             onChange={(event) => {
               const nextRows = rows.map((nextRow, nextRowIndex) =>
@@ -202,6 +229,26 @@ function InlineTableEditor(props: {
         ))
       )}
       <div className="inline-table-editor-actions">
+        <span className="inline-table-cell-selection">
+          {activeCell.rowIndex + 1}행 {activeCell.columnIndex + 1}열
+        </span>
+        <label className="inline-data-editor-control">
+          <span>글자 크기</span>
+          <FontSizeInput
+            ariaLabel="선택한 표 셀 글자 크기"
+            value={selectedCell.fontSize ?? 18}
+            onCommit={(value) => updateActiveCell({ fontSize: value })}
+          />
+        </label>
+        <label className="inline-data-editor-control compact-color-control">
+          <span>채우기</span>
+          <input
+            aria-label="선택한 표 셀 채우기 색상"
+            type="color"
+            value={solidColor(selectedCell.fill, String(createDefaultTableCell().fill))}
+            onChange={(event) => updateActiveCell({ fill: event.target.value })}
+          />
+        </label>
         <DataEditorAction label="행 추가" onClick={addRow} type="add" />
         <DataEditorAction disabled={rows.length <= 1} label="행 삭제" onClick={removeRow} type="remove" />
         <DataEditorAction label="열 추가" onClick={addColumn} type="add" />
@@ -222,12 +269,15 @@ function InlineChartEditor(props: {
   const [data, setData] = useState<Array<Record<string, unknown>>>(() =>
     chart.data.map((datum) => ({ ...datum }))
   );
-  const [colors, setColors] = useState(() => [...chart.style.colors]);
-  const draftRef = useRef({ colors, data, title });
+  const [style, setStyle] = useState<ChartStyle>(() => ({
+    ...chart.style,
+    colors: [...chart.style.colors]
+  }));
+  const draftRef = useRef({ data, style, title });
 
   useEffect(() => {
-    draftRef.current = { colors, data, title };
-  }, [colors, data, title]);
+    draftRef.current = { data, style, title };
+  }, [data, style, title]);
 
   useEffect(() => {
     function handleOutsidePointerDown(event: PointerEvent) {
@@ -239,17 +289,24 @@ function InlineChartEditor(props: {
     return () => document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
   });
 
-  function commit(nextTitle = title, nextData = data, nextColors = colors) {
+  function commit(nextTitle = title, nextData = data, nextStyle = style) {
     props.onCommitProps(props.element.elementId, {
       title: nextTitle,
       data: nextData,
-      style: { ...chart.style, colors: nextColors }
+      style: nextStyle
     });
   }
 
   function finishWithCommit() {
-    commit(draftRef.current.title, draftRef.current.data, draftRef.current.colors);
+    commit(draftRef.current.title, draftRef.current.data, draftRef.current.style);
     props.onFinishEditing();
+  }
+
+  function updateStyle(patch: Partial<ChartStyle>) {
+    const nextStyle = mergeChartStyle(style, patch);
+    draftRef.current = { data, style: nextStyle, title };
+    setStyle(nextStyle);
+    commit(title, data, nextStyle);
   }
 
   function addDatum() {
@@ -261,7 +318,7 @@ function InlineChartEditor(props: {
           ? { label: `항목 ${data.length + 1}`, series: "Series 1", value: 0 }
           : { label: `항목 ${data.length + 1}`, value: 0 }
     ];
-    draftRef.current = { colors, data: nextData, title };
+    draftRef.current = { data: nextData, style, title };
     setData(nextData);
     commit(title, nextData);
   }
@@ -269,7 +326,7 @@ function InlineChartEditor(props: {
   function removeDatum(index: number) {
     if (data.length <= 1) return;
     const nextData = data.filter((_, itemIndex) => itemIndex !== index);
-    draftRef.current = { colors, data: nextData, title };
+    draftRef.current = { data: nextData, style, title };
     setData(nextData);
     commit(title, nextData);
   }
@@ -292,11 +349,72 @@ function InlineChartEditor(props: {
         onBlur={() => commit()}
         onChange={(event) => {
           const nextTitle = event.target.value;
-          draftRef.current = { colors, data, title: nextTitle };
+          draftRef.current = { data, style, title: nextTitle };
           setTitle(nextTitle);
-          commit(nextTitle, data, colors);
+          commit(nextTitle, data, style);
         }}
       />
+      <div className="inline-chart-text-controls">
+        {chart.type === "bar" || chart.type === "line" || chart.type === "scatter" ? (
+          <>
+            <ChartTextControl
+              label="가로축 제목"
+              value={style.xAxisTitle}
+              onChange={(value) => updateStyle({ xAxisTitle: value })}
+            />
+            <ChartTextControl
+              label="세로축 제목"
+              value={style.yAxisTitle}
+              onChange={(value) => updateStyle({ yAxisTitle: value })}
+            />
+          </>
+        ) : null}
+        <ChartTextControl
+          label="값 단위"
+          value={style.unit}
+          onChange={(value) => updateStyle({ unit: value })}
+        />
+      </div>
+      <div className="inline-chart-font-controls">
+        <ChartFontSizeControl
+          label="제목"
+          value={style.titleFontSize ?? 34}
+          onChange={(value) => updateStyle({ titleFontSize: value })}
+        />
+        <ChartFontSizeControl
+          label="축 글자"
+          value={style.axisLabelFontSize ?? 28}
+          onChange={(value) => updateStyle({ axisLabelFontSize: value })}
+        />
+        <ChartFontSizeControl
+          label="범례"
+          value={style.legendFontSize ?? 24}
+          onChange={(value) => updateStyle({ legendFontSize: value })}
+        />
+        <ChartFontSizeControl
+          label="값 라벨"
+          value={style.dataLabelFontSize ?? 22}
+          onChange={(value) => updateStyle({ dataLabelFontSize: value })}
+        />
+      </div>
+      <div className="inline-chart-visibility-controls">
+        <label>
+          <input
+            type="checkbox"
+            checked={style.showLegend !== false}
+            onChange={(event) => updateStyle({ showLegend: event.target.checked })}
+          />
+          범례 표시
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={style.showDataLabels === true}
+            onChange={(event) => updateStyle({ showDataLabels: event.target.checked })}
+          />
+          값 라벨 표시
+        </label>
+      </div>
       <div className={`inline-chart-data-grid ${chart.type === "scatter" ? "scatter" : chart.type === "line" ? "line" : "colored"}`}>
         <strong>항목</strong>
         {chart.type === "line" ? <strong>시리즈</strong> : null}
@@ -311,15 +429,15 @@ function InlineChartEditor(props: {
             key={index}
             onChange={(nextDatum) => {
               const nextData = data.map((item, itemIndex) => itemIndex === index ? nextDatum : item);
-              draftRef.current = { colors, data: nextData, title };
+              draftRef.current = { data: nextData, style, title };
               setData(nextData);
-              commit(title, nextData, colors);
+              commit(title, nextData, style);
             }}
             onCommit={() => commit()}
             onRemove={() => removeDatum(index)}
             removeDisabled={data.length <= 1}
             color={chart.type !== "scatter"
-              ? colors[chartColorIndex(chart.type, data, datum, index)] ?? defaultChartColor(chartColorIndex(chart.type, data, datum, index))
+              ? style.colors[chartColorIndex(chart.type, data, datum, index)] ?? defaultChartColor(chartColorIndex(chart.type, data, datum, index))
               : null}
             onColorChange={(color) => {
               const targetColorIndex = chartColorIndex(chart.type, data, datum, index);
@@ -327,14 +445,12 @@ function InlineChartEditor(props: {
                 ? new Set(data.map((item) => String(item.series ?? "Series 1"))).size
                 : data.length;
               const nextColors = Array.from(
-                { length: Math.max(colors.length, colorCount) },
+                { length: Math.max(style.colors.length, colorCount) },
                 (_, colorIndex) => colorIndex === targetColorIndex
                   ? color
-                  : colors[colorIndex] ?? defaultChartColor(colorIndex)
+                  : style.colors[colorIndex] ?? defaultChartColor(colorIndex)
               );
-              draftRef.current = { colors: nextColors, data, title };
-              setColors(nextColors);
-              commit(title, data, nextColors);
+              updateStyle({ colors: nextColors });
             }}
           />
         ))}
@@ -345,6 +461,74 @@ function InlineChartEditor(props: {
       <span className="inline-data-editor-hint">Tab으로 다음 칸 이동 · Esc로 종료</span>
       <EditorCloseButton onClose={finishWithCommit} />
     </div>
+  );
+}
+
+function ChartTextControl(props: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="inline-data-editor-control">
+      <span>{props.label}</span>
+      <input
+        value={props.value}
+        onChange={(event) => props.onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function ChartFontSizeControl(props: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="inline-data-editor-control">
+      <span>{props.label}</span>
+      <FontSizeInput
+        ariaLabel={`${props.label} 글자 크기`}
+        value={props.value}
+        onCommit={props.onChange}
+      />
+    </label>
+  );
+}
+
+function FontSizeInput(props: {
+  ariaLabel: string;
+  onCommit: (value: number) => void;
+  value: number;
+}) {
+  const [draft, setDraft] = useState(String(props.value));
+
+  useEffect(() => {
+    setDraft(String(props.value));
+  }, [props.value]);
+
+  function commitDraft() {
+    const nextValue = clampDataEditorFontSize(draft);
+    setDraft(String(nextValue));
+    props.onCommit(nextValue);
+  }
+
+  return (
+    <input
+      aria-label={props.ariaLabel}
+      max={200}
+      min={6}
+      type="number"
+      value={draft}
+      onBlur={commitDraft}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        event.currentTarget.blur();
+      }}
+    />
   );
 }
 
@@ -425,6 +609,35 @@ function DataEditorAction(props: {
 
 function NumberInput(props: { value: number; onBlur: () => void; onChange: (value: number) => void }) {
   return <input type="number" value={props.value} onBlur={props.onBlur} onChange={(event) => props.onChange(Number(event.target.value) || 0)} />;
+}
+
+export function clampDataEditorFontSize(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 18;
+  return Math.min(200, Math.max(6, parsed));
+}
+
+export function updateTableCell(
+  rows: TableCellProps[][],
+  rowIndex: number,
+  columnIndex: number,
+  patch: Partial<TableCellProps>
+) {
+  return rows.map((row, nextRowIndex) =>
+    row.map((cell, nextColumnIndex) =>
+      nextRowIndex === rowIndex && nextColumnIndex === columnIndex
+        ? { ...cell, ...patch }
+        : cell
+    )
+  );
+}
+
+export function mergeChartStyle(style: ChartStyle, patch: Partial<ChartStyle>): ChartStyle {
+  return {
+    ...style,
+    ...patch,
+    colors: patch.colors ? [...patch.colors] : style.colors
+  };
 }
 
 function trackTemplate(sizes: number[] | undefined, count: number) {
