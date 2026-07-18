@@ -19,15 +19,10 @@ describe("EditorToolbar", () => {
         isImageUploadPending={false}
         isShapeMenuOpen={false}
         isStageFitToViewport
-        isRightPanelOpen={false}
-        rightPanelMode="properties"
         onAddText={vi.fn()}
         onFitStageToViewport={vi.fn()}
-        onOpenAnimation={vi.fn()}
-        onOpenAssistant={vi.fn()}
         onOpenIconLibrary={vi.fn()}
         onOpenImagePicker={vi.fn()}
-        onOpenProperties={vi.fn()}
         onRedo={vi.fn()}
         onSelectTool={vi.fn()}
         onToggleChartMenu={vi.fn()}
@@ -58,7 +53,7 @@ describe("EditorToolbar", () => {
 
   });
 
-  it("labels the assistant panel trigger as an AI chatbot", () => {
+  it("does not render the floating panel shortcut group", () => {
     const html = renderToStaticMarkup(
       <EditorToolbar
         canMutate
@@ -72,15 +67,10 @@ describe("EditorToolbar", () => {
         isImageUploadPending={false}
         isShapeMenuOpen={false}
         isStageFitToViewport
-        isRightPanelOpen={false}
-        rightPanelMode="properties"
         onAddText={vi.fn()}
         onFitStageToViewport={vi.fn()}
-        onOpenAnimation={vi.fn()}
-        onOpenAssistant={vi.fn()}
         onOpenIconLibrary={vi.fn()}
         onOpenImagePicker={vi.fn()}
-        onOpenProperties={vi.fn()}
         onRedo={vi.fn()}
         onSelectTool={vi.fn()}
         onToggleChartMenu={vi.fn()}
@@ -95,7 +85,8 @@ describe("EditorToolbar", () => {
       />
     );
 
-    expect(html).toContain('aria-label="AI 챗봇"');
-    expect(html).toContain('class="editor-ai-chat-toggle-badge"');
+    expect(html).not.toContain('aria-label="에디터 패널 도구"');
+    expect(html).not.toContain('aria-label="AI 챗봇"');
+    expect(html).not.toContain('class="editor-ai-chat-toggle-badge"');
   });
 });

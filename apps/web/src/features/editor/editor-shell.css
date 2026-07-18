@@ -11170,61 +11170,13 @@ body.is-resizing-speaker-notes {
   text-align: right;
 }
 
-.editor-panel-toolbar-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--redesign-space-1);
-  min-height: var(--editor-chrome-height);
-  padding: 0 var(--redesign-space-1);
-  background: var(--redesign-color-surface-container-low);
-  border-left: 1px solid var(--redesign-color-outline-variant);
-}
-
-.orbit-shell.editor-professional .editor-panel-toolbar-actions .tool-button {
-  min-width: 32px;
-  min-height: 32px;
-  padding: 0 var(--redesign-space-2);
-}
-
-.orbit-shell.editor-professional .editor-panel-toolbar-actions .editor-ai-chat-toggle {
-  min-width: 40px;
-}
-
-.orbit-shell.editor-professional .editor-ai-chat-toggle-icon {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.orbit-shell.editor-professional .editor-ai-chat-toggle-badge {
-  position: absolute;
-  right: -9px;
-  bottom: -6px;
-  min-width: 16px;
-  height: 12px;
-  padding: 0 3px;
-  border-radius: var(--redesign-radius-full);
-  background: var(--redesign-color-primary);
-  color: var(--redesign-color-on-primary);
-  font-size: var(--redesign-type-micro-md-size);
-  font-weight: 800;
-  line-height: 12px;
-  letter-spacing: 0.02em;
-}
-
-.orbit-shell.editor-professional .editor-ai-chat-toggle.active .editor-ai-chat-toggle-badge {
-  background: var(--redesign-color-on-primary);
-  color: var(--redesign-color-primary);
-}
-
 @media (min-width: 861px) {
   .orbit-shell.editor-professional .stage-top-controls {
     align-self: stretch;
     display: grid;
     grid-column: 2;
     grid-row: 1;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     min-width: 0;
     width: 100%;
     border: 0;
@@ -11234,7 +11186,7 @@ body.is-resizing-speaker-notes {
   }
 
   .orbit-shell.editor-professional .stage-top-controls > .editor-toolbar {
-    grid-column: 1 / 4;
+    grid-column: 1 / 3;
     grid-row: 1;
     height: var(--editor-chrome-height);
     min-height: var(--editor-chrome-height);
@@ -11244,32 +11196,22 @@ body.is-resizing-speaker-notes {
   .orbit-shell.editor-professional
     .editor-panel.animation-panel-open
     .stage-top-controls {
-    grid-column: 2 / 4;
+    grid-column: 2 / 3;
   }
 
   .orbit-shell.editor-professional .stage-top-controls > .editor-toolbar,
   .orbit-shell.editor-professional .stage-top-controls > .selection-quickbar,
-  .orbit-shell.editor-professional .stage-top-controls > .editor-panel-toolbar-actions,
   .orbit-shell.editor-professional .stage-top-controls > .canvas-zoom-controls {
     pointer-events: auto;
   }
 
   .orbit-shell.editor-professional .stage-top-controls > .selection-quickbar {
-    grid-column: 1 / 4;
-  }
-
-  .orbit-shell.editor-professional .stage-top-controls > .editor-panel-toolbar-actions {
-    align-self: start;
-    grid-column: 2;
-    grid-row: 1;
-    justify-self: end;
-    z-index: 18;
-    margin-top: var(--redesign-space-3);
+    grid-column: 1 / 3;
   }
 
   .orbit-shell.editor-professional .stage-top-controls > .canvas-zoom-controls {
     align-self: start;
-    grid-column: 3;
+    grid-column: 2;
     grid-row: 1;
     justify-self: end;
     z-index: 18;

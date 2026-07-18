@@ -1387,14 +1387,6 @@ export function EditorShell(props: { projectId?: string }) {
     setIsRightPanelOpen(true);
   }
 
-  function openAssistantPanel() {
-    setIsIconPanelOpen(false);
-    setIsAnimationPanelOpen(false);
-    setAiPanelView("chat");
-    setAssistantOpenRequestId((current) => current + 1);
-    setIsRightPanelOpen(true);
-  }
-
   async function handleStartSlidePractice() {
     if (!rehearsalSlide) return;
     const stream = await slidePracticeSession.start();
@@ -1972,13 +1964,9 @@ export function EditorShell(props: { projectId?: string }) {
               isChartMenuOpen={isChartMenuOpen}
               isIconPanelOpen={isIconPanelOpen}
               isImageUploadPending={isImageUploadPending}
-              isRightPanelOpen={isRightPanelOpen}
-              rightPanelMode={rightPanelMode}
               isShapeMenuOpen={isShapeMenuOpen}
               isStageFitToViewport={isStageFitToViewport}
               onAddText={handleAddTextElement}
-              onOpenAnimation={openAnimationInspector}
-              onOpenAssistant={openAssistantPanel}
               onOpenIconLibrary={toggleIconLibrary}
               onOpenImagePicker={() => {
                 if (currentSlide) {
@@ -1988,7 +1976,6 @@ export function EditorShell(props: { projectId?: string }) {
                   });
                 }
               }}
-              onOpenProperties={requestPropertiesPanel}
               onRedo={handleRedo}
               onSelectTool={() => setInsertTool("select")}
               onToggleChartMenu={() => {

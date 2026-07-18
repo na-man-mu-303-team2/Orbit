@@ -1,13 +1,10 @@
 import {
   IconArrowLeft,
   IconArrowRight,
-  IconAdjustmentsHorizontal as Properties,
   IconChartBar as BarChart3,
   IconChevronDown as ChevronDown,
-  IconMovie as Animation,
   IconPhotoPlus as ImagePlus,
   IconIcons,
-  IconMessageCircle as MessageCircle,
   IconPointer as MousePointer2,
   IconShape as Shapes,
   IconTypography as Type
@@ -28,16 +25,11 @@ type EditorToolbarProps = {
   isChartMenuOpen: boolean;
   isImageUploadPending: boolean;
   isIconPanelOpen: boolean;
-  isRightPanelOpen: boolean;
-  rightPanelMode: "properties" | "animation" | "icons" | "assistant";
   isShapeMenuOpen: boolean;
   isStageFitToViewport: boolean;
   onAddText: () => void;
-  onOpenAnimation: () => void;
-  onOpenAssistant: () => void;
   onOpenImagePicker: () => void;
   onOpenIconLibrary: () => void;
-  onOpenProperties: () => void;
   onRedo: () => void;
   onSelectTool: () => void;
   onToggleShapeMenu: () => void;
@@ -146,44 +138,6 @@ export function EditorToolbar(props: EditorToolbarProps) {
         onZoomOut={props.onZoomOut}
         scale={props.stageScale}
       />
-      <div className="editor-panel-toolbar-actions" aria-label="에디터 패널 도구">
-        <button
-          aria-controls="editor-selection-inspector-pane"
-          aria-expanded={props.isRightPanelOpen && props.rightPanelMode === "properties"}
-          aria-label="속성"
-          className={`tool-button ${props.isRightPanelOpen && props.rightPanelMode === "properties" ? "active" : ""}`}
-          title="속성 패널 열기"
-          type="button"
-          onClick={props.onOpenProperties}
-        >
-          <Properties aria-hidden="true" size={17} />
-        </button>
-        <button
-          aria-controls="editor-selection-inspector-pane"
-          aria-expanded={props.isRightPanelOpen && props.rightPanelMode === "animation"}
-          aria-label="애니메이션"
-          className={`tool-button ${props.isRightPanelOpen && props.rightPanelMode === "animation" ? "active" : ""}`}
-          title="애니메이션 패널 열기"
-          type="button"
-          onClick={props.onOpenAnimation}
-        >
-          <Animation aria-hidden="true" size={17} />
-        </button>
-        <button
-          aria-controls="editor-selection-inspector-pane"
-          aria-expanded={props.isRightPanelOpen && props.rightPanelMode === "assistant"}
-          aria-label="AI 챗봇"
-          className={`tool-button editor-ai-chat-toggle ${props.isRightPanelOpen && props.rightPanelMode === "assistant" ? "active" : ""}`}
-          title="AI 챗봇 패널 열기"
-          type="button"
-          onClick={props.onOpenAssistant}
-        >
-          <span className="editor-ai-chat-toggle-icon" aria-hidden="true">
-            <MessageCircle size={18} />
-            <span className="editor-ai-chat-toggle-badge">AI</span>
-          </span>
-        </button>
-      </div>
     </div>
   );
 }
