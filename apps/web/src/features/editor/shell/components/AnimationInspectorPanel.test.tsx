@@ -172,4 +172,58 @@ describe("AnimationInspectorPanel", () => {
     expect(html).toContain("키워드 선택됨");
     expect(html).toContain("ORBIT");
   });
+
+  it("protects the root of an action-linked follower chain from edit and deletion", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      animations: [
+        {
+          animationId: "anim_root",
+          elementId: "el_1",
+          type: "fade-in" as const,
+          order: 1,
+          startMode: "on-click" as const,
+          durationMs: 400,
+          delayMs: 0,
+          easing: "ease-out" as const
+        },
+        {
+          animationId: "anim_action_follower",
+          elementId: "el_2",
+          type: "fade-in" as const,
+          order: 2,
+          startMode: "with-previous" as const,
+          durationMs: 400,
+          delayMs: 0,
+          easing: "ease-out" as const
+        }
+      ]
+    };
+    const element = slide.elements.find(({ elementId }) => elementId === "el_1")!;
+    const html = renderToString(
+      <AnimationInspectorPanel
+        actionAnimationIds={["anim_action_follower"]}
+        animations={getElementAnimations(slide, element.elementId)}
+        canCreateAnimation
+        element={element}
+        keywordOptions={[]}
+        preferredAnimationId="anim_root"
+        selectedKeywordId={null}
+        selectedKeywordLabel={null}
+        slideAnimations={slide.animations}
+        slideElements={slide.elements}
+        onAddAnimation={vi.fn()}
+        onDeleteAnimation={vi.fn()}
+        onSelectKeyword={vi.fn()}
+        onSelectSlideAnimation={vi.fn()}
+        showIds={false}
+        onUpdateAnimation={vi.fn()}
+      />
+    );
+
+    expect(html).toContain("action과 연결된 재생 체인");
+    expect(html).toMatch(/<select[^>]*disabled=""/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>애니메이션 제거<\/button>/);
+  });
 });

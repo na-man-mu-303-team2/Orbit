@@ -13,6 +13,7 @@ import { getRenderableSlideElements } from "../canvas/EditorCanvas";
 import { getImageCropActionState } from "../canvas/image/imageCropSession";
 import {
   AnimationInspectorPanel,
+  AnimationSlideTransitionEditor,
   buildAnimationKeywordTriggerPolicy,
   toAnimationKeywordTriggerOptions,
   useEditorAnimationPreview
@@ -31,6 +32,10 @@ import { useProjectShareAccess } from "./hooks/useProjectShareAccess";
 import { useEditorShellUiStore } from "./editorShellUiStore";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
 import { canEditSlideCanvas } from "./utils/slideEditingPolicy";
+import {
+  getAnimationMutationDisabledReason,
+  getTransitionMutationDisabledReason
+} from "./utils/motionEditingPolicy";
 import {
   createSelectionInspectorModel,
   resolveSelectionInspectorCompactMode
@@ -821,6 +826,12 @@ export function EditorShell(props: { projectId?: string }) {
         : [],
     [currentSlide]
   );
+  const animationMutationDisabledReason = currentSlide
+    ? getAnimationMutationDisabledReason(deck, currentSlide)
+    : null;
+  const transitionMutationDisabledReason = currentSlide
+    ? getTransitionMutationDisabledReason(deck, currentSlide)
+    : null;
   const currentSlideKeywordActionUsage = useMemo(
     () =>
       currentSlide
@@ -960,6 +971,7 @@ export function EditorShell(props: { projectId?: string }) {
     editorSlideActions.toggleAdvanceSlideKeyword;
   const handleToggleKeywordRequired = editorSlideActions.toggleKeywordRequired;
   const handleUpdateAnimation = editorSlideActions.updateAnimation;
+  const handleUpdateSlideTransition = editorSlideActions.updateSlideTransition;
   const handleValidationTextOverflowAction =
     editorSlideActions.handleValidationTextOverflowAction;
   function clearSelectedKeyword() {
@@ -2172,9 +2184,30 @@ export function EditorShell(props: { projectId?: string }) {
           aiPanelView={aiPanelView}
           animationCount={selectedElementAnimations.length}
           animationProperties={
+            <>
+            <AnimationSlideTransitionEditor
+              mutationDisabledReason={transitionMutationDisabledReason}
+              transition={currentSlide?.transition}
+              onUpdateTransition={(transition) => {
+                if (currentSlide) {
+                  handleUpdateSlideTransition(currentSlide.slideId, transition);
+                }
+              }}
+            />
             <AnimationInspectorPanel
+              actionAnimationIds={
+                currentSlide?.actions.flatMap((action) =>
+                  action.effect.kind === "play-animation"
+                    ? [action.effect.animationId]
+                    : []
+                ) ?? []
+              }
               animations={selectedElementAnimations}
-              canCreateAnimation={Boolean(currentSlide && selectedAnimationPanelElement)}
+              canCreateAnimation={Boolean(
+                currentSlide &&
+                selectedAnimationPanelElement &&
+                !animationMutationDisabledReason
+              )}
               element={selectedAnimationPanelElement}
               keywordOptions={animationPanelKeywordOptions}
               keywordTriggerRestrictionMessage={
@@ -2183,6 +2216,7 @@ export function EditorShell(props: { projectId?: string }) {
               keywordTriggerWarningMessage={
                 animationKeywordTriggerPolicy.warningMessage
               }
+              mutationDisabledReason={animationMutationDisabledReason}
               preferredAnimationId={animationPanelFocusedAnimationId}
               selectedKeywordId={selectedKeywordId}
               selectedKeywordLabel={selectedKeyword?.text ?? null}
@@ -2216,6 +2250,7 @@ export function EditorShell(props: { projectId?: string }) {
               }}
               showIds={showIds}
             />
+            </>
           }
           canPlayAnimations={canPlayCurrentSlideAnimations}
           currentSlide={currentSlide}
