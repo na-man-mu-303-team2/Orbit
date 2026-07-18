@@ -48,8 +48,8 @@ describe("SlideNavigatorPane", () => {
     const thumbnailCount = html.match(/slide-thumb orbit-thumb/g)?.length ?? 0;
 
     expect(thumbnailCount).toBe(createDemoDeck().slides.length);
-    expect(html).toContain("slide-title-text");
-    expect(html.indexOf("slide-number")).toBeLessThan(html.indexOf("slide-thumb"));
+    expect(html).not.toContain("slide-title-text");
+    expect(html.indexOf("slide-thumb")).toBeLessThan(html.indexOf("slide-number"));
   });
 
   it("접힌 상태에서는 목록을 의미하는 열기 버튼만 제공한다", () => {
