@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { deckElementIdSchema, deckIdSchema } from "./id.schema";
+import {
+  deckElementIdSchema,
+  deckIdSchema,
+  deckSlideIdSchema,
+} from "./id.schema";
 import {
   deckElementTypeSchema,
   ooxmlElementEditCapabilitiesSchema,
@@ -190,6 +194,7 @@ export const templateBlueprintSlotSchema = z.object({
 });
 
 export const templateBlueprintSlideSchema = z.object({
+  slideId: deckSlideIdSchema.optional(),
   slideIndex: z.number().int().positive(),
   sourceSlideIndex: z.number().int().positive(),
   sourceSlidePart: z
@@ -280,6 +285,47 @@ export type TemplateBlueprintSlide = z.infer<
   typeof templateBlueprintSlideSchema
 >;
 export type TemplateBlueprint = z.infer<typeof templateBlueprintSchema>;
+
+export function recoverTemplateBlueprintSlideIds(
+  blueprint: TemplateBlueprint,
+  deckSlides: ReadonlyArray<{ slideId: string; order: number }>,
+): { blueprint: TemplateBlueprint; recovered: boolean } | null {
+  if (blueprint.slides.length !== deckSlides.length) return null;
+
+  const deckSlideIds = new Set(deckSlides.map((slide) => slide.slideId));
+  const slidesByOrder = new Map(
+    deckSlides.map((slide) => [slide.order, slide]),
+  );
+  const usedSlideIds = new Set<string>();
+  let recovered = false;
+
+  const slides: TemplateBlueprintSlide[] = [];
+  for (const slide of blueprint.slides) {
+    const slideId = slide.slideId;
+    if (slideId) {
+      if (!deckSlideIds.has(slideId) || usedSlideIds.has(slideId)) {
+        return null;
+      }
+      usedSlideIds.add(slideId);
+      slides.push(slide);
+      continue;
+    }
+
+    const deckSlide = slidesByOrder.get(slide.slideIndex);
+    if (!deckSlide || usedSlideIds.has(deckSlide.slideId)) {
+      return null;
+    }
+    usedSlideIds.add(deckSlide.slideId);
+    recovered = true;
+    slides.push({ ...slide, slideId: deckSlide.slideId });
+  }
+
+  if (usedSlideIds.size !== deckSlideIds.size) return null;
+  return {
+    blueprint: templateBlueprintSchema.parse({ ...blueprint, slides }),
+    recovered,
+  };
+}
 export type QualityReport = z.infer<typeof qualityReportSchema>;
 export type QualityReportSlideStatus = z.infer<
   typeof qualityReportSlideStatusSchema

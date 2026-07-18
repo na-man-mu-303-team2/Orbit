@@ -862,6 +862,7 @@ TemplateBlueprint:
   "sourceFileId": "file_1",
   "slides": [
     {
+      "slideId": "slide_import_file_1_1",
       "slideIndex": 1,
       "sourceSlideIndex": 1,
       "slots": [
@@ -937,6 +938,7 @@ TemplateBlueprint optional OOXML tracking fields:
 - `slides[].fallbackRenderAssetFileId`
 - `slides[].elementSources[]`
 - `slides[].sourceSlidePart`, `slides[].ooxmlOrigin`
+- `slides[].slideId`: Deck의 opaque slide ID와 `sourceSlidePart`를 직접 연결한다. 신규 import는 반드시 기록하며 숫자 suffix로 slide part를 추론하지 않는다. legacy blueprint는 OOXML 변경을 적용하기 전 현재 Deck의 유일한 slide order와 `slideIndex`를 대응해 복구한 뒤 저장한다.
 - `slides[].elementSources[]`: `{ elementId, elementType?, ooxmlOrigin?, ooxmlEditCapabilities?, slidePart, shapeId, relationshipId?, sourceType, writable, tableCellLocators?, fallbackReason? }`. 신규 importer/sync 결과는 `elementType`을 기록하며, 이 값이 없거나 실제 patch 대상 type과 다르면 property sync를 fail-closed한다.
 - table source의 optional `tableCellLocators[]`는 `{ rowIndex, columnIndex, fingerprint }`이며 0-based `(0, 0)`에서 시작하는 완전한 직사각형 grid를 row-major 순서로 모두 기록한다. 각 index는 `0..999`, locator는 `1..10,000`개이고 `fingerprint`는 lowercase SHA-256 64자리다. fingerprint는 canonical `a:tc`에서 DrawingML `a:t`의 text와 그 `xml:space`만 제외해 셀 문구 변경에는 안정적이되 formatting·extension·구조 drift는 탐지한다. locator 존재만으로 `tableCellText` capability를 부여하지 않으며 direct table, unmerged rectangular grid, track 정합성, writable source mapping을 함께 증명한 경우에만 targeted sync gate가 활성화된다.
 - `slots[].source.slidePart`
@@ -1024,7 +1026,7 @@ Supported first-pass patch operations:
 - `delete_element`
 - `reorder_slides`
 
-`reorder_slides`는 기존 DeckPatch의 `slideOrders` 계약을 재사용하며 현재 Deck slide ID 전체와 `1..N` order를 각각 정확히 한 번씩 포함해야 한다. imported PPTX sync에서 Worker는 각 slide ID를 TemplateBlueprint의 유일한 `sourceSlidePart`에 대응시킨다. Python serializer는 `ppt/presentation.xml`의 `p:sldIdLst` 자식 순서만 바꾸고 각 `p:sldId@id`, `r:id`, `ppt/_rels/presentation.xml.rels`, slide part 이름과 slide별 package entry를 유지한다.
+`reorder_slides`는 기존 DeckPatch의 `slideOrders` 계약을 재사용하며 현재 Deck slide ID 전체와 `1..N` order를 각각 정확히 한 번씩 포함해야 한다. imported PPTX sync에서 Worker는 `TemplateBlueprint.slides[].slideId`로 각 opaque Deck slide ID를 유일한 `sourceSlidePart`에 대응시킨다. Python serializer는 전달된 `slideId ↔ sourceSlidePart`를 다시 검증하고 `ppt/presentation.xml`의 `p:sldIdLst` 자식 순서만 바꾸며 각 `p:sldId@id`, `r:id`, `ppt/_rels/presentation.xml.rels`, slide part 이름과 slide별 package entry를 유지한다. slide ID의 숫자 suffix 또는 `slideIndex`로 package part를 추론하지 않는다.
 
 locator 누락, authored/duplicated slide, 두 Deck slide가 같은 source part를 가리키는 경우, 끊어진 presentation relationship, 중복·누락·unknown slide 또는 불완전 permutation은 bounded slide reorder reason으로 package 원본 bytes를 반환하고 freshness를 올리지 않는다. `add_slide`, `delete_slide`의 OOXML part 생성/제거와 layout/master 복제는 아직 미지원이며 Worker preflight에서 fail-closed한다.
 

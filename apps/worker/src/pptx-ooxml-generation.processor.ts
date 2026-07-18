@@ -179,6 +179,13 @@ export async function processPptxOoxmlGenerationJob(
       templateBlueprint,
       assetRefs.urls,
     );
+    const mappedTemplateBlueprint = templateBlueprintSchema.parse({
+      ...templateBlueprint,
+      slides: templateBlueprint.slides.map((slide, index) => ({
+        ...slide,
+        slideId: deck.slides[index]?.slideId,
+      })),
+    });
 
     await dataSource.transaction(async (manager) => {
       await saveDeck(manager, deck);
@@ -186,7 +193,7 @@ export async function processPptxOoxmlGenerationJob(
         manager,
         payload.projectId,
         deck.deckId,
-        templateBlueprint,
+        mappedTemplateBlueprint,
         generated.qualityReport,
       );
       await updateProjectTitle(manager, payload.projectId, deck.title);
