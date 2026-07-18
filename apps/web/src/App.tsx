@@ -957,7 +957,8 @@ export function getAppNavigationItem(route: Route): OrbitAppNavigationItem {
   if (route.name === "home") return "home";
   if (
     route.name === "report-list" ||
-    route.name === "report-project-overview"
+    route.name === "report-project-overview" ||
+    route.name === "rehearsal-report"
   ) {
     return "reports";
   }

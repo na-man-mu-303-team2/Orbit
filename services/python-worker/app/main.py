@@ -5,6 +5,7 @@ from typing import Any, Literal, Self, cast
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -102,6 +103,8 @@ from app.ai.speaker_notes import (
     SpeakerNotesSuggestionResponse,
     generate_speaker_notes_suggestion,
 )
+from app.audio.clip import create_rehearsal_audio_clip
+from app.audio.models import AudioContent
 from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
@@ -224,10 +227,7 @@ def _planning_failure_detail(error: DeckContentGenerationError) -> dict[str, obj
         if isinstance(provider_status, int) and 100 <= provider_status <= 599:
             detail["providerHttpStatus"] = provider_status
         provider_request_id = getattr(provider_error, "request_id", None)
-        if (
-            isinstance(provider_request_id, str)
-            and 0 < len(provider_request_id) <= 256
-        ):
+        if isinstance(provider_request_id, str) and 0 < len(provider_request_id) <= 256:
             detail["providerRequestId"] = provider_request_id
         if "providerHttpStatus" in detail and "providerRequestId" in detail:
             break
@@ -379,13 +379,16 @@ class RehearsalSlideSpeakingRateResponse(BaseModel):
     measurement_state: Literal["measured", "unmeasured"] = Field(
         alias="measurementState"
     )
-    reason_code: Literal[
+    reason_code: (
+        Literal[
         "UNSUPPORTED_LANGUAGE",
         "SEGMENT_TIMESTAMPS_UNAVAILABLE",
         "INSUFFICIENT_SLIDE_SPEECH",
         "BASELINE_UNAVAILABLE",
         "LEGACY_REPORT",
-    ] | None = Field(alias="reasonCode")
+        ]
+        | None
+    ) = Field(alias="reasonCode")
     characters_per_second: float | None = Field(
         alias="charactersPerSecond",
         gt=0,
@@ -745,6 +748,43 @@ async def sync_pptx_ooxml_endpoint(
             raise HTTPException(status_code=400, detail=str(error)) from error
         except PptxOoxmlGenerationError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/audio/clip")
+async def create_rehearsal_audio_clip_endpoint(
+    request: Request,
+    file: UploadFile = File(...),
+    start_seconds: float = Form(..., alias="startSeconds"),
+    end_seconds: float = Form(..., alias="endSeconds"),
+) -> Response:
+    config = _config(request)
+    audio_bytes = await file.read(config.rehearsal_audio_max_bytes + 1)
+    if len(audio_bytes) > config.rehearsal_audio_max_bytes:
+        raise HTTPException(status_code=413, detail="rehearsal audio is too large")
+
+    try:
+        clip_bytes = await run_in_threadpool(
+            create_rehearsal_audio_clip,
+            AudioContent(
+                data=audio_bytes,
+                file_name=file.filename or "rehearsal-audio",
+                mime_type=file.content_type or "application/octet-stream",
+            ),
+            start_seconds,
+            end_seconds,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=422, detail="audio clip generation failed"
+        ) from error
+
+    return Response(
+        content=clip_bytes,
+        media_type="audio/wav",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @app.post("/audio/transcribe-private", response_model=AudioTranscribeResponse)
@@ -1159,9 +1199,7 @@ def analyze_rehearsal(
                     ),
                     measurementState=insight.speaking_rate.measurement_state,
                     reasonCode=insight.speaking_rate.reason_code,
-                    charactersPerSecond=(
-                        insight.speaking_rate.characters_per_second
-                    ),
+                    charactersPerSecond=(insight.speaking_rate.characters_per_second),
                     baselineCharactersPerSecond=(
                         insight.speaking_rate.baseline_characters_per_second
                     ),
@@ -1496,9 +1534,7 @@ def _staged_reference_context(
     search_succeeded = (
         embedding_result is not None and embedding_result.status == "succeeded"
     )
-    if policy == "references-only" and (
-        not search_succeeded or missing_file_ids
-    ):
+    if policy == "references-only" and (not search_succeeded or missing_file_ids):
         raise DeckContentGenerationError(
             "SOURCE_GROUNDING_REQUIRED: every selected reference requires an "
             "indexed chunk."
@@ -1599,7 +1635,8 @@ def _chunk_contexts(
     contexts: list[ReferenceContext] = []
     for candidate in candidates:
         direct = direct_by_file.get(candidate.file_id)
-        contexts.append(ReferenceContext(
+        contexts.append(
+            ReferenceContext(
             fileId=candidate.file_id,
             sourceId=f"uploaded:{candidate.file_id}:{candidate.chunk_id}",
             chunkId=candidate.chunk_id,
@@ -1608,7 +1645,8 @@ def _chunk_contexts(
                 or (direct.title if direct else "")
             ),
             content=content_by_key[(candidate.file_id, candidate.chunk_id)],
-        ))
+            )
+        )
     return contexts
 
 

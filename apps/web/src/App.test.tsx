@@ -70,6 +70,13 @@ describe("App shell routing", () => {
     expect(getAppNavigationItem({ name: "project-list" })).toBe("project");
     expect(getAppNavigationItem({ name: "rehearsal-project-list" })).toBe("rehearsal");
     expect(getAppNavigationItem({ name: "report-list" })).toBe("reports");
+    expect(
+      getAppNavigationItem({
+        name: "rehearsal-report",
+        projectId: "project_bcaee91d-3878-4bec-a9b1-9f41fad8bff5",
+        runId: "run_cdfd5478-97dc-4598-b556-3a2e1737e338"
+      })
+    ).toBe("reports");
     expect(getAppNavigationItem({ name: "create-deck" })).toBe("project");
   });
 
