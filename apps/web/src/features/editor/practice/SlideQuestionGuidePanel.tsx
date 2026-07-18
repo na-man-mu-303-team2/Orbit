@@ -38,7 +38,7 @@ export function SlideQuestionGuidePanel(props: {
       const current = guides.find((candidate) => candidate.deckVersion === props.deck.version) ?? null;
       setGuide(current);
       setHasStaleGuide(!current && guides.length > 0);
-      setSelectedQuestionId(current?.items[0]?.questionId ?? null);
+      setSelectedQuestionId(getInitialQuestionId(current));
       setStatus("idle");
     }).catch(() => {
       if (active) setStatus("error");
@@ -66,7 +66,7 @@ export function SlideQuestionGuidePanel(props: {
       const next = await getSlideQuestionGuide(props.projectId, created.guideId);
       setGuide(next);
       setHasStaleGuide(false);
-      setSelectedQuestionId(next.items[0]?.questionId ?? null);
+      setSelectedQuestionId(getInitialQuestionId(next));
       setStatus("idle");
     } catch (error) {
       setStatus("error");
@@ -96,6 +96,10 @@ export function SlideQuestionGuidePanel(props: {
       )}
     </div>
   );
+}
+
+export function getInitialQuestionId(guide: SlideQuestionGuide | null) {
+  return guide?.items[0]?.questionId ?? null;
 }
 
 export function SlideQuestionGuideCarousel(props: {

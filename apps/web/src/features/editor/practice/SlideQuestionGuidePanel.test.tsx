@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   getAdjacentQuestionId,
+  getInitialQuestionId,
   OfficialSourceLinks,
   SlideQuestionGuidePanel,
   SlideQuestionGuideCarousel,
@@ -72,6 +73,30 @@ describe("SlideQuestionGuidePanel official sources", () => {
     expect(html).toContain('aria-label="다음 질문"');
     expect(html).toContain("1 / 3");
     expect(html).toContain("disabled");
+  });
+
+  it("새로 생성한 질문은 첫 번째 질문부터 선택한다", () => {
+    const guide = {
+      items: [
+        question("question-1", "첫 번째 예상 질문", "첫 번째 추천 답변"),
+        question("question-2", "두 번째 예상 질문", "두 번째 추천 답변"),
+      ],
+    } as unknown as SlideQuestionGuide;
+
+    expect(getInitialQuestionId(guide)).toBe("question-1");
+    expect(getInitialQuestionId(null)).toBeNull();
+
+    const html = renderToStaticMarkup(
+      <SlideQuestionGuideCarousel
+        guide={guide}
+        selectedQuestionId={getInitialQuestionId(guide)}
+        onSelect={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("첫 번째 예상 질문");
+    expect(html).not.toContain("두 번째 예상 질문");
+    expect(html).toContain("1 / 2");
   });
 
   it("moves only to an adjacent question and stops at both ends", () => {
