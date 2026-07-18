@@ -289,7 +289,7 @@ API:
 - `element.animations`에는 저장하지 않는다.
 - 각 animation은 `anim_` prefix를 따르는 `animationId`와 `el_` prefix를 따르는 `elementId`를 필수로 가지고 대상 객체를 참조한다. slide 단위 animation은 1차 스프린트 MVP에서 제외한다.
 - animation `order`는 `1`부터 시작하는 양의 정수로 관리한다.
-- animation `startMode`는 `on-slide-enter | on-click | with-previous | after-previous` 중 하나다. `order`는 stable logical sequence만 나타내며 같은 `order` 자체는 동시 실행 의미를 갖지 않는다. `on-slide-enter`와 `on-click`은 root를 만들고, `with-previous`는 직전 logical effect와 같은 base reference, `after-previous`는 직전 effect 종료를 base reference로 사용한다.
+- animation `startMode`는 `on-slide-enter | on-click | with-previous | after-previous` 중 하나다. `order`는 stable logical sequence만 나타내며 같은 `order` 자체는 동시 실행 의미를 갖지 않는다. `on-slide-enter`와 `on-click`은 root를 만들고, `with-previous`는 직전 logical effect와 같은 base reference, `after-previous`는 직전 effect 종료를 base reference로 사용한다. root 앞의 첫 `with-previous`는 slide entry, 첫 `after-previous`는 destination slide transition end를 기준으로 한다.
 - 새 animation authoring의 기본 `startMode`는 `on-click`이다. 기존 raw Deck에서 `startMode`가 생략된 animation은 editor-core가 schema parse 전에 같은 legacy `order`별로 묶어 one-time 정규화한다. group 안에 `play-animation` action 참조가 하나라도 있으면 누락된 root는 `on-click`, 없으면 `on-slide-enter`, 나머지 누락 follower는 `with-previous`가 된다. 이미 명시된 `startMode`와 legacy `order` 값은 변경하지 않으며 다음 저장 시 정규화된 mode가 Deck JSON에 영속화된다.
 - `durationMs`, `delayMs`, `easing`은 입력에서 생략할 수 있지만, schema parse 후 normalized Deck JSON에는 각각 `400`, `0`, `"ease-out"` 기본값으로 포함한다.
 - `easing`은 `linear`, `ease-in`, `ease-out`, `ease-in-out`만 허용한다.
@@ -300,6 +300,7 @@ API:
 - 각 action은 `act_` prefix를 따르는 `actionId`와 `cue`, legacy `keyword`, 또는 `keyword-occurrence` 기반 trigger를 가진다.
 - action effect는 `play-animation`, `go-to-next-slide`만 허용한다.
 - `play-animation` effect는 같은 slide 안에 있는 `animationId`만 참조할 수 있다.
+- `play-animation` action은 `on-click` root chain만 가리킬 수 있다. follower를 가리켜도 해당 root chain 전체를 실행하며, action trigger는 main timeline을 대체하지 않고 이미 계획된 root를 실행하는 overlay로 동작한다.
 - `keyword` trigger는 같은 slide 안에 있는 `keywordId`만 참조할 수 있다.
 - `keyword-occurrence` trigger는 같은 slide 안에 있는 `keywordId`와 현재 `speakerNotes`에서 재계산 가능한 `occurrenceId`를 함께 참조해야 한다.
 - `keyword-occurrence.occurrenceId`는 `kwo_` prefix를 따르고, opaque string으로 취급한다. 현재 권장 형식은 `kwo_<slideId>_<keywordId>_<start>_<end>`이며 `start`, `end`는 `speakerNotes` UTF-16 index 기준이다.
