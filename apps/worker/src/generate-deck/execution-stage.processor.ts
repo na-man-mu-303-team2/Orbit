@@ -670,11 +670,7 @@ async function executeV2ImageSlide(
         ),
       ),
   });
-  deck = resolved.deck;
-  const semantic = runInitialSemanticQuality({
-    deck,
-    validation: composed.validation,
-  });
+  const semantic = runInitialSemanticQuality(resolved);
   if (
     hasBlockingQualityGateIssues(semantic.validation) ||
     semantic.unresolvedMedia
