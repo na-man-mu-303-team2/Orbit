@@ -2437,10 +2437,10 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain(
-      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;x&quot;:0,&quot;y&quot;:0,&quot;width&quot;:1,&quot;height&quot;:1,&quot;rotation&quot;:0",
+      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;role&quot;:&quot;body&quot;,&quot;fontSize&quot;:28,&quot;lineHeight&quot;:1.2,&quot;x&quot;:0,&quot;y&quot;:0,&quot;width&quot;:1,&quot;height&quot;:1,&quot;rotation&quot;:0",
     );
     expect(html).not.toContain(
-      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;x&quot;:null",
+      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;role&quot;:&quot;body&quot;,&quot;fontSize&quot;:28,&quot;lineHeight&quot;:1.2,&quot;x&quot;:null",
     );
   });
 

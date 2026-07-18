@@ -6,11 +6,6 @@ import type {
 } from "./validationPresentation";
 import "./validation-panel.css";
 
-export type ValidationTextOverflowAction =
-  | "expandTextBox"
-  | "shrinkText"
-  | "singleLineTextBox";
-
 type ValidationPanelProps = {
   canRepair: boolean;
   items: readonly EditorValidationPresentationItem[];

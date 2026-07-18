@@ -109,6 +109,7 @@ import type {
 } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
+import { createSafeTextOverflowRepair } from "../ai/quality/safeTextOverflowRepair";
 import {
   presentEditorValidationItems,
   type EditorValidationTargetView
@@ -343,6 +344,7 @@ export function EditorShell(props: { projectId?: string }) {
   );
   const [validationHighlightElementIds, setValidationHighlightElementIds] =
     useState<string[]>([]);
+  const [validationRepairStatus, setValidationRepairStatus] = useState("");
   const activeTopMenu = useEditorShellUiStore((state) => state.activeTopMenu);
   const setActiveTopMenu = useEditorShellUiStore((state) => state.setActiveTopMenu);
   const insertTool = useEditorShellUiStore((state) => state.insertTool);
@@ -440,6 +442,7 @@ export function EditorShell(props: { projectId?: string }) {
     resetProjectUiState();
     setAiPanelView("chat");
     setAiChatState(createInitialAiChatState(projectId));
+    setValidationRepairStatus("");
     setSemanticCueExtractionState({ status: "idle", message: "" });
   }, [projectId, resetProjectUiState]);
 
@@ -809,6 +812,10 @@ export function EditorShell(props: { projectId?: string }) {
     () => presentEditorValidationItems(deck, editorValidationItems),
     [deck, editorValidationItems]
   );
+  const safeTextOverflowRepair = useMemo(
+    () => createSafeTextOverflowRepair({ deck, items: editorValidationItems }),
+    [deck, editorValidationItems]
+  );
   const {
     canvasViewportRef: editorCanvasViewportRef,
     editorViewportWidth,
@@ -953,13 +960,10 @@ export function EditorShell(props: { projectId?: string }) {
     currentSlide,
     currentSlideKeywordUsage,
     deck,
-    editorValidationItems,
-    onChangeElementFrame: handleElementFrameChange,
     selectedKeywordId,
     selectedKeywordOccurrenceKey,
     setAnimationPanelFocusedAnimationId,
     setLastPatchLabel,
-    setSelectedElementIds,
     setSelectedKeywordId,
     setSelectedKeywordOccurrenceKey,
     workingDeckRef
@@ -1009,6 +1013,42 @@ export function EditorShell(props: { projectId?: string }) {
     setElementContextMenu(null);
     setAiPanelView("tools");
     setIsRightPanelOpen(true);
+  }
+
+  function handleSafeTextOverflowRepair(onlyElementIds?: readonly string[]) {
+    if (!canMutateDeck) return;
+
+    const activeDeck = workingDeckRef.current;
+    const result = createSafeTextOverflowRepair({
+      deck: activeDeck,
+      items: getEditorValidationItems(activeDeck),
+      onlyElementIds
+    });
+    if (!result.patch || result.repairedElementIds.length === 0) {
+      setValidationRepairStatus("안전 수정 가능한 텍스트 넘침이 없습니다.");
+      return;
+    }
+
+    const committed = commitPatch(result.patch, activeDeck);
+    if (!committed) {
+      setValidationRepairStatus(
+        "텍스트 넘침 안전 수정을 적용하지 못했습니다. 다시 시도해 주세요."
+      );
+      return;
+    }
+
+    const repairedElementIdSet = new Set(result.repairedElementIds);
+    const repairedOnCurrentSlide = activeDeck.slides
+      .find((slide) => slide.slideId === resolvedCurrentSlideId)
+      ?.elements.filter((element) =>
+        repairedElementIdSet.has(element.elementId)
+      )
+      .map((element) => element.elementId) ?? [];
+    setSelectedElementIds(repairedOnCurrentSlide);
+    setValidationHighlightElementIds(repairedOnCurrentSlide);
+    setValidationRepairStatus(
+      `텍스트 넘침 ${result.repairedElementIds.length}개를 안전 수정했습니다. 실행 취소로 되돌릴 수 있습니다.`
+    );
   }
 
   const selectedAnimationPanelElement =
@@ -2326,7 +2366,7 @@ export function EditorShell(props: { projectId?: string }) {
               />
             ) : renderSelectionInspector()
           }
-          canRepairValidation={false}
+          canRepairValidation={canMutateDeck}
           editorValidationItems={presentedEditorValidationItems}
           iconLibrary={
             <IconLibrarySidePanel
@@ -2353,6 +2393,7 @@ export function EditorShell(props: { projectId?: string }) {
           onResizeStart={handleRightPaneResizeStart}
           onSemanticCueChange={handleSemanticCueReviewChange}
           onSemanticCueExtract={(force) => void handleSemanticCueExtraction(force)}
+          onRepairValidationTextOverflow={handleSafeTextOverflowRepair}
           projectId={projectId}
           propertiesOpenRequestId={propertiesOpenRequestId}
           pptxImportState={pptxImportState}
@@ -2362,14 +2403,15 @@ export function EditorShell(props: { projectId?: string }) {
           setIsIconPanelOpen={setIsIconPanelOpen}
           setIsAnimationPropertiesOpen={setIsAnimationPanelOpen}
           setIsOpen={setIsRightPanelOpen}
-          validationRepairableElementIds={[]}
-          validationRepairStatus=""
+          validationRepairableElementIds={safeTextOverflowRepair.repairedElementIds}
+          validationRepairStatus={validationRepairStatus}
         />
       </section>
 
       <EditorDebugPanels
         currentSlide={currentSlide}
         currentSlideAnimations={currentSlideAnimations}
+        currentSlideId={resolvedCurrentSlideId}
         deck={deck}
         isDataViewOpen={isDataViewOpen}
         isDev={isDev}
@@ -2377,7 +2419,9 @@ export function EditorShell(props: { projectId?: string }) {
         onCloseDataView={() => setIsDataViewOpen(false)}
         redoCount={redoStack.length}
         saveStatusLabel={saveStatusLabel}
+        selectedElementIds={selectedElementIds}
         undoCount={undoStack.length}
+        validationHighlightElementIds={validationHighlightElementIds}
         visibleElements={visibleElements}
       />
         <input
