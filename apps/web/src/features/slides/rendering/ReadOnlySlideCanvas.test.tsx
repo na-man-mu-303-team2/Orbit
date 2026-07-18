@@ -115,11 +115,45 @@ describe("ReadOnlySlideCanvas", () => {
     const elements = getRenderableSlideElements(slide, p0AnimationDeck.canvas);
 
     expect(elements.map((element) => element.elementId)).toContain("el_group");
-    expect(elements.map((element) => element.elementId)).not.toContain("el_group_rect");
-    expect(elements.map((element) => element.elementId)).not.toContain("el_group_label");
+    expect(elements.map((element) => element.elementId)).toContain("el_group_rect");
+    expect(elements.map((element) => element.elementId)).toContain("el_group_label");
     expect(elements.map((element) => element.zIndex)).toEqual(
       [...elements.map((element) => element.zIndex)].sort((left, right) => left - right)
     );
+  });
+
+  it("keeps grouped children in their original global layer order", () => {
+    const rect = slide.elements.find(
+      (element) => element.elementId === "el_group_rect"
+    )!;
+    const image = slide.elements.find(
+      (element) => element.elementId === "el_image"
+    )!;
+    const group = slide.elements.find(
+      (element) => element.elementId === "el_group"
+    )!;
+    if (group.type !== "group") throw new Error("group fixture is invalid");
+    const elements = getRenderableSlideElements(
+      {
+        ...slide,
+        elements: [
+          { ...image, zIndex: 2 },
+          {
+            ...group,
+            zIndex: 3,
+            props: { childElementIds: [image.elementId, rect.elementId] }
+          },
+          { ...rect, zIndex: 1 }
+        ]
+      },
+      p0AnimationDeck.canvas
+    );
+
+    expect(elements.map((element) => element.elementId)).toEqual([
+      rect.elementId,
+      image.elementId,
+      group.elementId
+    ]);
   });
 
   it("matches editor slide background image behavior", () => {
