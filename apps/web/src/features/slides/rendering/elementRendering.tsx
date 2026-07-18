@@ -135,8 +135,6 @@ export function ElementNodeContent(props: {
               padding={0}
               text={fragment.text}
               textDecoration={fragment.style.underline ? "underline" : undefined}
-              width={Math.max(1, fragment.width)}
-              wrap="none"
               x={fragment.x}
               y={fragment.y}
             />

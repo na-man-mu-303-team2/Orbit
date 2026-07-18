@@ -1,14 +1,14 @@
 .rrd-root .rrd-ai-card {
-  background: linear-gradient(135deg, var(--redesign-color-surface-container-lowest) 0%, var(--redesign-color-secondary-container) 62%, var(--redesign-color-info-container) 100%);
+  background: linear-gradient(135deg, var(--redesign-color-surface-container-lowest) 0%, var(--redesign-color-secondary-container) 58%, var(--redesign-color-success-container) 100%);
   border-color: var(--redesign-color-secondary-fixed-dim);
   overflow: hidden;
   position: relative;
 }
 
 .rrd-root .rrd-ai-card::before {
-  background: linear-gradient(90deg, var(--redesign-color-primary-emphasis) 0%, var(--redesign-color-secondary) 48%, var(--redesign-color-info) 100%);
+  background: var(--redesign-color-primary-emphasis);
   content: "";
-  height: 5px;
+  height: calc(var(--redesign-border-width) * 3);
   inset: 0 0 auto;
   position: absolute;
 }
@@ -39,9 +39,9 @@
 }
 
 .rrd-ai-summary {
-  background: linear-gradient(100deg, var(--redesign-color-secondary-container), var(--redesign-color-info-container));
-  border: 1px solid var(--redesign-color-secondary-fixed-dim);
-  border-left: 5px solid var(--redesign-color-primary-emphasis);
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-left: calc(var(--redesign-border-width) * 3) solid var(--redesign-color-primary-emphasis);
   border-radius: var(--redesign-radius-xl);
   color: var(--redesign-color-secondary);
   font-size: clamp(1.05rem, 2vw, 1.34rem);
@@ -58,7 +58,7 @@
 }
 
 .rrd-ai-insight {
-  background: color-mix(in srgb, var(--redesign-color-surface-container-lowest) 86%, transparent);
+  background: var(--redesign-color-light-surface);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-xl);
   display: grid;

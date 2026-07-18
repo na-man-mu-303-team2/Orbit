@@ -38,6 +38,42 @@ describe("AiChatPanel", () => {
     expect(html).toContain("<textarea");
   });
 
+  it("renders design suggestions and limits the icebreaker action to the first slide", () => {
+    const deck = createDemoDeck();
+    const firstSlideHtml = renderToString(
+      <AiChatPanel
+        onSpeakerNotesAssistantRequest={() => undefined}
+        projectId={deck.projectId}
+        deck={deck}
+        currentSlide={deck.slides[0] ?? null}
+        selectedElementIds={[]}
+        chatState={createInitialAiChatState(deck.projectId)}
+        onChatStateChange={() => undefined}
+        onProposalApplied={() => undefined}
+        onGeneratedImageInsert={() => true}
+      />
+    );
+    const secondSlideHtml = renderToString(
+      <AiChatPanel
+        onSpeakerNotesAssistantRequest={() => undefined}
+        projectId={deck.projectId}
+        deck={deck}
+        currentSlide={deck.slides[1] ?? null}
+        selectedElementIds={[]}
+        chatState={createInitialAiChatState(deck.projectId)}
+        onChatStateChange={() => undefined}
+        onProposalApplied={() => undefined}
+        onGeneratedImageInsert={() => true}
+      />
+    );
+
+    expect(firstSlideHtml).toContain('aria-label="추천 AI 요청"');
+    expect(firstSlideHtml).toContain("가운데 내용을 SmartArt로 디자인");
+    expect(firstSlideHtml).toContain("아이스브레이킹 인트로 추가");
+    expect(secondSlideHtml).toContain("가운데 내용을 SmartArt로 디자인");
+    expect(secondSlideHtml).not.toContain("아이스브레이킹 인트로 추가");
+  });
+
   it("renders editor-owned history again after the panel remounts", () => {
     const deck = createDemoDeck();
     const chatState: AiChatState = {

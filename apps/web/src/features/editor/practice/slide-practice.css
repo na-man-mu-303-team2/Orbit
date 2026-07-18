@@ -252,9 +252,9 @@
 }
 
 .orbit-shell .editor-practice-graph-card header > strong {
-  background: var(--redesign-color-secondary-container);
+  background: var(--redesign-color-primary-container);
   border-radius: var(--redesign-radius-md);
-  color: var(--redesign-color-on-secondary-container);
+  color: var(--redesign-color-on-primary-container);
   font-size: var(--redesign-type-body-sm-size);
   padding: var(--redesign-space-1) var(--redesign-space-2);
   white-space: nowrap;
@@ -270,7 +270,7 @@
 }
 
 .orbit-shell .editor-practice-recommended-band {
-  fill: var(--redesign-color-secondary-container);
+  fill: color-mix(in srgb, var(--redesign-color-primary-container) 18%, transparent);
 }
 
 .orbit-shell .editor-practice-grid-line {
@@ -291,8 +291,8 @@
 
 .orbit-shell .editor-practice-loudness-bar.recommended,
 .orbit-shell .editor-practice-graph-legend i.recommended {
-  fill: var(--redesign-color-secondary);
-  background: var(--redesign-color-secondary);
+  fill: var(--redesign-color-primary-container);
+  background: var(--redesign-color-primary-container);
 }
 
 .orbit-shell .editor-practice-loudness-bar.loud,
@@ -325,7 +325,7 @@
 
 .orbit-shell .editor-practice-speed-line {
   fill: none;
-  stroke: var(--redesign-color-secondary);
+  stroke: var(--redesign-color-primary-container);
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 3;
@@ -333,7 +333,7 @@
 
 .orbit-shell .editor-practice-speed-point {
   fill: var(--redesign-color-light-surface);
-  stroke: var(--redesign-color-secondary);
+  stroke: var(--redesign-color-primary-container);
   stroke-width: 3;
 }
 
