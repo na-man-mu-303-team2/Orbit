@@ -66,6 +66,7 @@ type DeckValidationInput = {
       type: "fade";
       durationMs: number;
     };
+    ooxmlSourceSlidePart?: string;
     style: Record<string, unknown>;
     speakerNotes: string;
     aiNotes?: {
@@ -1824,6 +1825,18 @@ describe("deckSchema validation", () => {
 
     expect(parsed.slides[0].transition).toBeUndefined();
     expect(parsed.slides[0].animations[0].startMode).toBeUndefined();
+  });
+
+  it("accepts only a stable OOXML source slide part locator", () => {
+    const deck = createValidDeck();
+    deck.slides[0].ooxmlSourceSlidePart = "ppt/slides/slide3.xml";
+
+    expect(deckSchema.parse(deck).slides[0].ooxmlSourceSlidePart).toBe(
+      "ppt/slides/slide3.xml"
+    );
+
+    deck.slides[0].ooxmlSourceSlidePart = "../slide3.xml";
+    expectInvalidDeck(deck);
   });
 
   it.each([

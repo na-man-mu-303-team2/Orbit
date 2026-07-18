@@ -186,6 +186,18 @@ export const slideTransitionSchema = z.object({
   durationMs: z.number().int().positive()
 });
 
+export const importedMainSequenceCoverageSchema = z.enum([
+  "unknown",
+  "absent",
+  "partial",
+  "complete"
+]);
+
+export const ooxmlMotionCapabilitiesSchema = z.object({
+  transitionWritable: z.boolean(),
+  importedMainSequenceCoverage: importedMainSequenceCoverageSchema
+});
+
 export const slideLayoutSchema = z.enum([
   "title",
   "title-content",
@@ -311,6 +323,11 @@ export const slideKindSchema = z.enum([
 const slideBaseSchema = z.object({
     slideId: deckSlideIdSchema,
     ooxmlOrigin: ooxmlOriginSchema.optional(),
+    ooxmlSourceSlidePart: z
+      .string()
+      .regex(/^ppt\/slides\/slide[^/]+\.xml$/)
+      .optional(),
+    ooxmlMotionCapabilities: ooxmlMotionCapabilitiesSchema.optional(),
     order: slideOrderSchema,
     title: z.string().default(""),
     thumbnailUrl: z.string().default(""),
@@ -352,6 +369,12 @@ const normalizedSlideSchema = z.discriminatedUnion("kind", [
 
 export type Slide = z.infer<typeof normalizedSlideSchema>;
 export type SlideTransition = z.infer<typeof slideTransitionSchema>;
+export type ImportedMainSequenceCoverage = z.infer<
+  typeof importedMainSequenceCoverageSchema
+>;
+export type OoxmlMotionCapabilities = z.infer<
+  typeof ooxmlMotionCapabilitiesSchema
+>;
 
 export const slideSchema: z.ZodType<Slide, z.ZodTypeDef, unknown> = z
   .preprocess((input) => {
