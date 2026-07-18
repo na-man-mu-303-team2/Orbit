@@ -1732,7 +1732,7 @@
 }
 
 .ai-ppt-step.done {
-  background: var(--redesign-color-primary-container);
+  background: var(--redesign-color-primary-subtle);
   color: var(--redesign-color-primary-emphasis);
 }
 
