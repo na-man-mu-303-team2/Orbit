@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { slideSchema } from "@orbit/shared";
 import { DataSource } from "typeorm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -6,7 +7,7 @@ import { processSlideQuestionGuideGenerationJob } from "../src/slide-question-gu
 
 const databaseUrl = process.env.ORBIT_INTEGRATION_DATABASE_URL;
 const describeWithPostgres = databaseUrl ? describe : describe.skip;
-const slideHash = sha256Canonical(slideFixture());
+const slideHash = sha256Canonical(slideSchema.parse(slideFixture()));
 const researchedAt = "2026-07-17T00:00:00.000Z";
 
 const researchCases: ResearchCase[] = [
