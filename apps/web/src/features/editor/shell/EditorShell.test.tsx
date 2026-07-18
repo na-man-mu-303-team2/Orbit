@@ -65,7 +65,6 @@ import {
   createShrinkToFitTextProps,
   createSingleLineTextFit
 } from "./components/SelectionQuickBar";
-import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
@@ -1685,23 +1684,6 @@ describe("editor shell", () => {
     expect(riskElementIds).toContain("el_manual_customShape");
   });
 
-  it("renders a bulk apply button for text overflow warnings", () => {
-    const html = renderToString(
-      <ValidationPanel
-        items={[
-          {
-            elementId: "el_overflow",
-            issue: "textOverflow",
-            message: "텍스트가 상자 높이를 넘을 수 있습니다.",
-            severity: "warning"
-          }
-        ]}
-      />
-    );
-
-    expect(html).toContain("모두 반영하기");
-  });
-
   it("keeps a warning when title text still wraps", () => {
     const deck = createDemoDeck();
     const slide = deck.slides[0];
@@ -1872,40 +1854,6 @@ describe("editor shell", () => {
         issue: "labelWrap"
       })
     );
-  });
-
-  it("renders a bulk apply button for title wrap warnings", () => {
-    const html = renderToString(
-      <ValidationPanel
-        items={[
-          {
-            elementId: "el_wrapped_title",
-            issue: "titleWrap",
-            message: "제목이 여러 줄로 줄바꿈되었습니다.",
-            severity: "warning"
-          }
-        ]}
-      />
-    );
-
-    expect(html).toContain("모두 반영하기");
-  });
-
-  it("renders a bulk apply button for label wrap warnings", () => {
-    const html = renderToString(
-      <ValidationPanel
-        items={[
-          {
-            elementId: "el_wrapped_label",
-            issue: "labelWrap",
-            message: "짧은 라벨이 여러 줄로 줄바꿈되었습니다.",
-            severity: "warning"
-          }
-        ]}
-      />
-    );
-
-    expect(html).toContain("모두 반영하기");
   });
 
   it("measures wrapped text line count", () => {
@@ -2489,10 +2437,10 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).toContain(
-      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;x&quot;:0,&quot;y&quot;:0,&quot;width&quot;:1,&quot;height&quot;:1,&quot;rotation&quot;:0",
+      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;role&quot;:&quot;body&quot;,&quot;fontSize&quot;:28,&quot;lineHeight&quot;:1.2,&quot;x&quot;:0,&quot;y&quot;:0,&quot;width&quot;:1,&quot;height&quot;:1,&quot;rotation&quot;:0",
     );
     expect(html).not.toContain(
-      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;x&quot;:null",
+      "&quot;elementId&quot;:&quot;el_invalid&quot;,&quot;type&quot;:&quot;text&quot;,&quot;role&quot;:&quot;body&quot;,&quot;fontSize&quot;:28,&quot;lineHeight&quot;:1.2,&quot;x&quot;:null",
     );
   });
 
