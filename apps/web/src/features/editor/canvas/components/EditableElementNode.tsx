@@ -59,7 +59,6 @@ export function EditableElementNode(props: {
   editorPrimaryColor: string;
   editorPrimaryMediumColor: string;
   editorPrimarySoftColor: string;
-  editorPrimaryStrongSoftColor: string;
   isSelected: boolean;
   presentationState?: ElementPresentationState;
   selectedCount: number;
@@ -90,7 +89,6 @@ export function EditableElementNode(props: {
     editorPrimaryColor,
     editorPrimaryMediumColor,
     editorPrimarySoftColor,
-    editorPrimaryStrongSoftColor,
     isSelected,
     presentationState,
     selectedCount,
@@ -121,11 +119,6 @@ export function EditableElementNode(props: {
     rotation: presentationState?.rotation ?? element.rotation
   };
   const isMultiSelected = isSelected && selectedCount > 1;
-  const selectionHitFill = isSelected
-    ? isMultiSelected
-      ? editorPrimaryStrongSoftColor
-      : editorPrimarySoftColor
-    : "rgba(15, 23, 42, 0.001)";
   const selectionStroke = isSelected ? editorPrimaryColor : "transparent";
   const selectionStrokeWidth = isSelected ? (isMultiSelected ? 3 : 2) : 0;
   const selectionDash = isMultiSelected ? [12, 6] : undefined;
@@ -277,7 +270,7 @@ export function EditableElementNode(props: {
       <Rect
         cornerRadius={10}
         dash={selectionDash}
-        fill={selectionHitFill}
+        fill="transparent"
         listening={false}
         stroke={selectionStroke}
         strokeWidth={selectionStrokeWidth}

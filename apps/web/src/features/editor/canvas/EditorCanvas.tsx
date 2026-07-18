@@ -432,7 +432,6 @@ export function EditableCanvas(props: {
     validationHighlightElementIds,
   );
   const editorPrimarySoftColor = withColorAlpha(editorPrimaryColor, 0.08);
-  const editorPrimaryStrongSoftColor = withColorAlpha(editorPrimaryColor, 0.16);
   const editorPrimaryMediumColor = withColorAlpha(editorPrimaryColor, 0.55);
 
   useEffect(() => {
@@ -659,7 +658,6 @@ export function EditableCanvas(props: {
               editorPrimaryColor={editorPrimaryColor}
               editorPrimaryMediumColor={editorPrimaryMediumColor}
               editorPrimarySoftColor={editorPrimarySoftColor}
-              editorPrimaryStrongSoftColor={editorPrimaryStrongSoftColor}
               deck={deck}
               disablePointerEvents={
                 canvasInteractionDisabled || insertTool !== "select"
