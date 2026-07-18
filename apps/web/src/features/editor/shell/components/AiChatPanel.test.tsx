@@ -30,6 +30,8 @@ describe("AiChatPanel", () => {
     );
 
     expect(html).toContain('aria-label="AI 채팅"');
+    expect(html).toContain('aria-label="AI 챗봇 안내"');
+    expect(html).toContain("무엇을 도와드릴까요?");
     expect(html).toContain("현재 슬라이드에서 바꾸고 싶은 디자인");
     expect(html).toContain('placeholder="바꾸고 싶은 디자인을 말씀해 주세요"');
     expect(html).toContain('aria-label="메시지 보내기"');
