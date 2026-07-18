@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 
 describe("RehearsalReportDocument", () => {
-  it("separates the overview and slide coaching into analysis tabs", () => {
+  it("separates the overview, slide coaching, and test view into analysis tabs", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
         deck={deck}
@@ -33,10 +33,13 @@ describe("RehearsalReportDocument", () => {
 
     expect(html).toContain("전체 분석");
     expect(html).toContain("슬라이드 분석");
+    expect(html).toContain("테스트");
     expect(html).toContain(
       'aria-controls="rrd-panel-overview" aria-selected="true"',
     );
     expect(html).toMatch(/id="rrd-panel-slides"[^>]*hidden=""/);
+    expect(html).toMatch(/id="rrd-panel-test"[^>]*hidden=""/);
+    expect(html).toContain("슬라이드 상세 리포트 테스트");
     expect(html).toContain("practice-report-summary");
     expect(html.indexOf("rrd-analysis-tabs")).toBeLessThan(
       html.indexOf("rrd-top-overview"),
