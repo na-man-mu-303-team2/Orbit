@@ -352,6 +352,44 @@ def test_allows_smart_art_to_replace_selected_elements() -> None:
     assert result.smart_art_request.source_element_ids == ["el_image"]
 
 
+def test_normalizes_smart_art_source_operations_and_unknown_affected_ids() -> None:
+    payload = proposal_payload()
+    payload["operations"] = [
+        {
+            "type": "update_element_frame",
+            "slideId": "slide_1",
+            "elementId": "el_image",
+            "frame": {"x": 420},
+        },
+        {
+            "type": "delete_element",
+            "slideId": "slide_1",
+            "elementId": "el_image",
+        },
+    ]
+    payload["affectedElementIds"] = ["el_image", "el_smartart_future_group"]
+    payload["smartArtRequest"] = {
+        "layoutId": "smart_art_process_2",
+        "layoutType": "process",
+        "sourceElementIds": ["el_image"],
+        "items": [
+            {"title": "기획", "description": None},
+            {"title": "개발", "description": None},
+        ],
+    }
+
+    result = generate_design_proposal(
+        request_payload(),
+        model="test-model",
+        api_key=None,
+        client=FakeClient(payload),
+    )
+
+    assert result.operations == []
+    assert result.affected_element_ids == ["el_image"]
+    assert result.smart_art_request is not None
+
+
 def test_routes_broad_beautify_request_to_metric_card_preset_without_llm() -> None:
     request = request_payload()
     request.question = "현재 페이지를 보기 좋게 꾸며줘"

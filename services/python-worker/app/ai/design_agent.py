@@ -629,7 +629,9 @@ def generate_design_proposal(
 ) -> DesignAgentResponse:
     deterministic_animation = _build_deterministic_animation_proposal(request)
     if deterministic_animation is not None:
-        return validate_design_proposal(request, deterministic_animation)
+        return validate_design_proposal(
+            request, normalize_design_proposal(request, deterministic_animation)
+        )
 
     if client is None and not api_key:
         raise DesignAgentGenerationError("OPENAI_API_KEY is not configured.")
@@ -654,7 +656,9 @@ def generate_design_proposal(
         if not output_text:
             raise DesignAgentGenerationError("OpenAI response did not contain output text.")
         proposal = DesignAgentResponse.model_validate_json(output_text)
-        return validate_design_proposal(request, proposal)
+        return validate_design_proposal(
+            request, normalize_design_proposal(request, proposal)
+        )
     except DesignAgentGenerationError:
         raise
     except Exception as error:
@@ -1189,6 +1193,55 @@ def design_agent_user_prompt(request: DesignAgentRequest) -> str:
         ],
     }
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def normalize_design_proposal(
+    request: DesignAgentRequest,
+    response: DesignAgentResponse,
+) -> DesignAgentResponse:
+    """Repair non-semantic model metadata conflicts before strict validation."""
+    original_element_ids = {
+        str(item.get("elementId"))
+        for item in request.context.slide.get("elements", [])
+        if isinstance(item, dict) and item.get("elementId")
+    }
+    added_element_ids = {
+        operation.element.element_id
+        for operation in response.operations
+        if isinstance(operation, AddElementOperation)
+    }
+    valid_affected_element_ids = original_element_ids | added_element_ids
+    affected_element_ids = [
+        element_id
+        for element_id in response.affected_element_ids
+        if element_id in valid_affected_element_ids
+    ]
+
+    operations = response.operations
+    if response.smart_art_request is not None:
+        source_ids = set(response.smart_art_request.source_element_ids)
+        operations = [
+            operation
+            for operation in operations
+            if not (
+                isinstance(
+                    operation,
+                    (
+                        DeleteElementOperation,
+                        UpdateElementFrameOperation,
+                        UpdateElementPropsOperation,
+                    ),
+                )
+                and operation.element_id in source_ids
+            )
+        ]
+
+    return response.model_copy(
+        update={
+            "operations": operations,
+            "affected_element_ids": affected_element_ids,
+        }
+    )
 
 
 def validate_design_proposal(

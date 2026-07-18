@@ -91,6 +91,8 @@ export function createInitialAiChatState(projectId: string): AiChatState {
   };
 }
 
+const smartArtSuggestion = "현재 가운데에 있는 내용을 내용에 맞는 SmartArt 형태로 디자인해줘.";
+
 export function AiChatPanel(props: AiChatPanelProps) {
   const designEditingEnabled = props.designEditingEnabled ?? true;
   const [draft, setDraft] = useState("");
@@ -109,6 +111,14 @@ export function AiChatPanel(props: AiChatPanelProps) {
     props.currentSlide,
     props.selectedElementIds,
   );
+  const isFirstSlide = Boolean(
+    props.currentSlide && props.deck.slides[0]?.slideId === props.currentSlide.slideId,
+  );
+
+  function applySuggestedPrompt(prompt: string) {
+    setMode("design");
+    setDraft(prompt);
+  }
 
   async function handleReferenceImageSelection(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -416,6 +426,27 @@ export function AiChatPanel(props: AiChatPanelProps) {
           </div>
         ) : null}
       </div>
+
+      {mode === "design" && designEditingEnabled && props.currentSlide ? (
+        <div aria-label="추천 AI 요청" className="ai-chat-suggestions">
+          <button
+            type="button"
+            disabled={isSending}
+            onClick={() => applySuggestedPrompt(smartArtSuggestion)}
+          >
+            가운데 내용을 SmartArt로 디자인
+          </button>
+          {isFirstSlide ? (
+            <button
+              type="button"
+              disabled={isSending}
+              onClick={() => props.onSpeakerNotesAssistantRequest("icebreaker")}
+            >
+              아이스브레이킹 인트로 추가
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <form className="ai-chat-composer" onSubmit={handleSubmit}>
         <div aria-label="AI 작업 모드" className="ai-chat-mode-switch" role="group">

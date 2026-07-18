@@ -2327,6 +2327,7 @@ export function EditorShell(props: { projectId?: string }) {
       {canMutateDeck && isDeleteUndoToastOpen ? (
         <EditorUndoToast
           message="슬라이드가 삭제되었습니다"
+          onClose={() => setIsDeleteUndoToastOpen(false)}
           onUndo={() => {
             if (handleUndo()) setIsDeleteUndoToastOpen(false);
           }}
