@@ -66,6 +66,7 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["deck", props.projectId] }),
         queryClient.invalidateQueries({ queryKey: ["deck-history-preview", props.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
         snapshotsQuery.refetch(),
       ]);
     } catch (cause) {

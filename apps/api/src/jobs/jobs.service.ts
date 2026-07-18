@@ -105,6 +105,27 @@ export class JobsService {
     return this.queue.update(jobId, patch);
   }
 
+  async getLatestPptxOoxmlSync(
+    projectId: string,
+    deckId: string,
+    targetDeckVersion: number,
+  ) {
+    const rows = await this.dataSource.query(
+      `
+        SELECT * FROM jobs
+        WHERE project_id = $1
+          AND type = 'pptx-ooxml-sync'
+          AND payload ->> 'deckId' = $2
+          AND (payload ->> 'targetDeckVersion')::integer = $3
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+      [projectId, deckId, targetDeckVersion],
+    );
+    const row = firstQueryRow(rows);
+    return row ? jobSchema.parse(dbJobRowToJob(row)) : null;
+  }
+
   async retryAiDeckGeneration(projectId: string, jobId: string) {
     const retried = await this.dataSource.transaction(async (manager) => {
       const rows = await manager.query(

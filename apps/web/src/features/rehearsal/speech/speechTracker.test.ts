@@ -732,6 +732,57 @@ describe("SpeechTracker", () => {
     });
   });
 
+  it("skip API는 진행률을 올리지 않고 다음 문장부터 자동 인식을 계속한다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫 문장은 제품 맥락을 설명합니다. 둘째 문장은 해결 흐름을 정리합니다.",
+      keywords: []
+    });
+
+    expect(tracker.skipCurrentPrompter(1_000)).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      coveredSentenceIds: [],
+      prompterProgress: {
+        currentSentenceId: "sentence_2",
+        committedSentenceIds: [],
+        skippedSentenceIds: ["sentence_1"],
+        finalSentenceCommitted: false
+      }
+    });
+
+    tracker.acceptResult({
+      text: "둘째 문장은 해결 흐름을 정리합니다",
+      isFinal: true,
+      timestampMs: [1_100, 2_000]
+    });
+    expect(tracker.snapshot()).toMatchObject({
+      prompterProgress: {
+        currentSentenceId: null,
+        committedSentenceIds: ["sentence_2"],
+        skippedSentenceIds: ["sentence_1"],
+        finalSentenceCommitted: true
+      }
+    });
+  });
+
+  it("skip API는 마지막 문장에서 진행률을 올리지 않는다", () => {
+    const tracker = createSpeechTracker({
+      slideId: "slide_1",
+      speakerNotes:
+        "첫 문장은 제품 맥락을 설명합니다. 둘째 문장은 해결 흐름을 정리합니다.",
+      keywords: []
+    });
+
+    expect(tracker.skipCurrentPrompter(1_000)).toBe(true);
+    expect(tracker.skipCurrentPrompter(1_100)).toBe(false);
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      currentSentenceId: "sentence_2",
+      committedSentenceIds: [],
+      finalSentenceCommitted: false
+    });
+  });
+
   it("pause boundary는 충분한 lexical candidate가 있을 때만 현재 문장을 commit한다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",

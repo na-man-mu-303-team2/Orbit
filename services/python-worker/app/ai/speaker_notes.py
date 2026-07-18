@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class SpeakerNotesSuggestionRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    mode: Literal["draft", "shorten", "naturalize", "emphasize"]
+    mode: Literal["draft", "shorten", "naturalize", "emphasize", "icebreaker"]
     slide_title: str = Field(alias="slideTitle", max_length=500)
     slide_content: list[str] = Field(alias="slideContent", max_length=40)
     current_notes: str = Field(alias="currentNotes", max_length=20_000)
@@ -103,6 +103,10 @@ def _instructions(mode: str) -> str:
         "shorten": "Shorten the current notes while preserving every supported key claim.",
         "naturalize": "Rewrite the current notes as natural spoken Korean.",
         "emphasize": "Rewrite the current notes so the main point is clear and memorable.",
+        "icebreaker": (
+            "Add a concise audience-friendly icebreaker introduction before the current "
+            "notes, or create an introduction and short script when the notes are empty."
+        ),
     }[mode]
     return (
         "You are ORBIT's Korean presenter notes editor. "

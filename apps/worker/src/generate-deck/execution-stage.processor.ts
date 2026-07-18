@@ -618,6 +618,23 @@ async function executeV2ImageSlide(
     order: descriptor.order,
     slideId: descriptor.slideId,
   });
+  emit(input.eventLogger, "ai-ppt.fact-validation.completed", {
+    jobId: input.message.pipelineJobId,
+    projectId: input.message.projectId,
+    durationMs: composed.factDiagnostics.validationDurationMs,
+    issueCodes: composed.factDiagnostics.issueCodes,
+    slideOrders: composed.factDiagnostics.slideOrders,
+  });
+  if (composed.factDiagnostics.repairAttempted) {
+    emit(input.eventLogger, "ai-ppt.fact-repair.attempted", {
+      jobId: input.message.pipelineJobId,
+      projectId: input.message.projectId,
+      durationMs: composed.factDiagnostics.repairDurationMs,
+      slideOrders: [descriptor.order],
+      repairCount: 1,
+      succeeded: composed.factDiagnostics.repairSucceeded,
+    });
+  }
   assertCompletedSlideMatchesContentPlan(
     composed.slide,
     plannedSlide,
@@ -653,11 +670,7 @@ async function executeV2ImageSlide(
         ),
       ),
   });
-  deck = resolved.deck;
-  const semantic = runInitialSemanticQuality({
-    deck,
-    validation: composed.validation,
-  });
+  const semantic = runInitialSemanticQuality(resolved);
   if (
     hasBlockingQualityGateIssues(semantic.validation) ||
     semantic.unresolvedMedia
@@ -862,12 +875,40 @@ async function executeV2SemanticQuality(
   input: Parameters<typeof executeStage>[0],
   layout: LayoutCompileV2ArtifactPayload,
 ): Promise<AiDeckExecutionArtifactPayload> {
-  const artifacts = await new AiDeckExecutionArtifactRepository(
-    input.dataSource,
-  ).listImageSlides(input.message);
+  const repository = new AiDeckExecutionArtifactRepository(input.dataSource);
+  const artifacts = await repository.listImageSlides(input.message);
   const completed = artifacts.map((artifact) =>
     completedSlideV2ArtifactPayloadSchema.parse(artifact.payload),
   );
+  const firstDescriptor = layout.slides[0];
+  if (
+    firstDescriptor?.order === 1 &&
+    !completed.some(
+      (artifact) => artifact.sourceOrder === firstDescriptor.sourceOrder,
+    )
+  ) {
+    const coverArtifact = await repository.findByStage(
+      input.message,
+      "cover-slide",
+    );
+    const cover = coverArtifact
+      ? coverSlideArtifactPayloadSchema.parse(coverArtifact.payload)
+      : undefined;
+    const slide = cover?.deck.slides[0];
+    if (cover && slide) {
+      completed.push(
+        completedSlideV2ArtifactPayloadSchema.parse({
+          artifactVersion: 2,
+          sourceOrder: firstDescriptor.sourceOrder,
+          order: firstDescriptor.order,
+          slideId: firstDescriptor.slideId,
+          slide,
+          warnings: cover.warnings,
+          validation: cover.validation,
+        }),
+      );
+    }
+  }
   const bySourceOrder = new Map(
     completed.map((artifact) => [artifact.sourceOrder, artifact]),
   );

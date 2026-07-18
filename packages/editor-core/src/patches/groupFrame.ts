@@ -41,7 +41,8 @@ export function getGroupChildElements(slide: Slide, childElementIds: string[]) {
     .map((childElementId) =>
       slide.elements.find((candidate) => candidate.elementId === childElementId)
     )
-    .filter((candidate): candidate is DeckElement => Boolean(candidate));
+    .filter((candidate): candidate is DeckElement => Boolean(candidate))
+    .sort((left, right) => left.zIndex - right.zIndex);
 }
 
 export function transformGroupedChildFrame(args: {

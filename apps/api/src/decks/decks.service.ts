@@ -27,11 +27,14 @@ import {
   deckSnapshotReasonSchema,
   deckSnapshotSchema,
   getDeckResponseSchema,
+  getOoxmlSyncStateResponseSchema,
   jobSchema,
   listDeckSnapshotsResponseSchema,
   putDeckRequestSchema,
   putDeckResponseSchema,
+  retryOoxmlSyncResponseSchema,
   restoreDeckSnapshotResponseSchema,
+  recoverTemplateBlueprintSlideIds,
   createSemanticCueExtractionJobResponseSchema,
   semanticCueExtractionJobPayloadSchema,
   semanticCueExtractionRequestSchema,
@@ -55,6 +58,8 @@ import type {
   DeckSnapshot,
   DeckSnapshotReason,
   GetDeckResponse,
+  Job,
+  OoxmlSyncState,
   ListDeckSnapshotsResponse,
   PutDeckRequest,
   PutDeckResponse,
@@ -199,6 +204,23 @@ export class DecksService {
 
     const request = deckExportRequestSchema.parse(body ?? {});
     const { deck } = await this.getDeck(projectId);
+    if (request.format === "pptx") {
+      const syncState = await this.readOoxmlSyncState(projectId, deck);
+      if (
+        syncState.status !== "not-applicable" &&
+        syncState.status !== "synced"
+      ) {
+        throw new HttpException(
+          {
+            code: "DECK_EXPORT_OOXML_SYNC_NOT_READY",
+            message:
+              "최신 편집 내용의 PPTX 동기화가 완료되지 않았습니다. 동기화 재시도 후 다시 내보내세요.",
+            ooxmlSyncState: syncState,
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+    }
     if (request.presentationSessionId) {
       await this.assertExportSession(
         projectId,
@@ -257,6 +279,34 @@ export class DecksService {
     }
 
     return { job: jobSchema.parse(queuedJob) };
+  }
+
+  async getOoxmlSyncState(projectId: string) {
+    const { deck } = await this.getDeck(projectId);
+    const state = await this.readOoxmlSyncState(projectId, deck);
+    return getOoxmlSyncStateResponseSchema.parse({ ooxmlSyncState: state });
+  }
+
+  async retryOoxmlSync(projectId: string) {
+    const { deck } = await this.getDeck(projectId);
+    const current = await this.readOoxmlSyncState(projectId, deck);
+    if (current.status === "not-applicable" || current.status === "synced") {
+      return retryOoxmlSyncResponseSchema.parse({ ooxmlSyncState: current });
+    }
+    if (
+      current.status === "pending" &&
+      current.job?.status !== "failed"
+    ) {
+      return retryOoxmlSyncResponseSchema.parse({ ooxmlSyncState: current });
+    }
+
+    const job = await this.enqueueOoxmlSync(projectId, {
+      deckId: deck.deckId,
+      changeId: `retry_${randomUUID()}`,
+      targetDeckVersion: deck.version,
+    });
+    const state = await this.readOoxmlSyncState(projectId, deck, job);
+    return retryOoxmlSyncResponseSchema.parse({ ooxmlSyncState: state });
   }
 
   private async assertExportSession(
@@ -345,6 +395,7 @@ export class DecksService {
           manager,
           projectId,
           currentDeck.deckId,
+          currentDeck,
         );
       }
 
@@ -374,6 +425,7 @@ export class DecksService {
         updatedAt,
         templateBlueprint ?? null,
       );
+      await this.updateProjectTitle(manager, projectId, deck.title);
       const snapshot = await this.createSnapshot(
         manager,
         deck,
@@ -472,6 +524,7 @@ export class DecksService {
         manager,
         projectId,
         applyResult.deck.deckId,
+        currentDeck,
       );
       const shouldCheckpoint =
         !templateBlueprint &&
@@ -487,6 +540,14 @@ export class DecksService {
               templateBlueprint ?? null,
             )
           : applyResult.deck;
+
+      if (applyResult.deck.title !== currentDeck.title) {
+        await this.updateProjectTitle(
+          manager,
+          projectId,
+          applyResult.deck.title,
+        );
+      }
 
       const snapshot = request.snapshotReason
         ? await this.createSnapshot(
@@ -712,7 +773,11 @@ export class DecksService {
         );
       }
       const hasNotes = slide.speakerNotes.trim().length > 0;
-      if ((request.mode === "draft") === hasNotes) {
+      const requiresExistingNotes = request.mode !== "draft" && request.mode !== "icebreaker";
+      if (
+        (request.mode === "draft" && hasNotes) ||
+        (requiresExistingNotes && !hasNotes)
+      ) {
         throwDeckApiException(
           "DECK_VALIDATION_FAILED",
           HttpStatus.BAD_REQUEST,
@@ -866,6 +931,7 @@ export class DecksService {
           manager,
           projectId,
           currentDeck.deckId,
+          currentDeck,
         );
         await this.createSnapshot(
           manager,
@@ -888,6 +954,11 @@ export class DecksService {
           updatedAt,
           templateBlueprint,
         );
+        await this.updateProjectTitle(
+          manager,
+          projectId,
+          restoredDeck.title,
+        );
         syncInput = {
           deckId: restoredDeck.deckId,
           changeId: replacement.changeRecord.changeId,
@@ -904,6 +975,7 @@ export class DecksService {
         deck.version,
       );
       await this.writeDeckCheckpoint(manager, deck, updatedAt);
+      await this.updateProjectTitle(manager, projectId, deck.title);
 
       return { deck, restoredSnapshot, updatedAt };
     });
@@ -1054,6 +1126,21 @@ export class DecksService {
     return parseDeckRow(rows[0]);
   }
 
+  private async updateProjectTitle(
+    executor: QueryExecutor,
+    projectId: string,
+    title: string,
+  ): Promise<void> {
+    await executor.query(
+      `
+        UPDATE projects
+        SET title = $2
+        WHERE project_id = $1
+      `,
+      [projectId, title],
+    );
+  }
+
   private async writeDeckCheckpoint(
     executor: QueryExecutor,
     deck: Deck,
@@ -1066,6 +1153,7 @@ export class DecksService {
             executor,
             deck.projectId,
             deck.deckId,
+            deck,
           )
         : (knownTemplateBlueprint ?? undefined);
     const checkpointDeck = await this.upsertDeck(executor, deck, updatedAt);
@@ -1205,6 +1293,7 @@ export class DecksService {
     executor: QueryExecutor,
     projectId: string,
     deckId: string,
+    deck: Deck,
   ): Promise<OoxmlTemplateBlueprint | undefined> {
     const rows = await executor.query<TemplateBlueprintRow[]>(
       `
@@ -1230,7 +1319,72 @@ export class DecksService {
       return undefined;
     }
 
-    return { ...row, blueprint: parsed.data };
+    const recovered = recoverTemplateBlueprintSlideIds(
+      parsed.data,
+      deck.slides,
+    );
+    if (!recovered) return undefined;
+    if (recovered.recovered) {
+      await executor.query(
+        `
+          UPDATE template_blueprints
+          SET blueprint_json = $2, updated_at = now()
+          WHERE template_id = $1
+        `,
+        [row.template_id, recovered.blueprint],
+      );
+    }
+
+    return { ...row, blueprint: recovered.blueprint };
+  }
+
+  private async readOoxmlSyncState(
+    projectId: string,
+    deck: Deck,
+    suppliedJob?: Job,
+  ): Promise<OoxmlSyncState> {
+    const imported = await this.findOoxmlTemplateBlueprint(
+      this.dataSource,
+      projectId,
+      deck.deckId,
+      deck,
+    );
+    if (!imported) {
+      return {
+        status: "not-applicable",
+        deckId: deck.deckId,
+        deckVersion: deck.version,
+        syncedDeckVersion: null,
+        retryable: false,
+      };
+    }
+
+    const syncedDeckVersion =
+      imported.blueprint.ooxmlSyncedDeckVersion ?? null;
+    const job =
+      suppliedJob ??
+      (await this.jobsService?.getLatestPptxOoxmlSync(
+        projectId,
+        deck.deckId,
+        deck.version,
+      ));
+    const status =
+      syncedDeckVersion === deck.version
+        ? "synced"
+        : job?.status === "failed"
+          ? "failed"
+          : job?.status === "queued" || job?.status === "running"
+            ? "pending"
+            : "stale";
+
+    return {
+      status,
+      deckId: deck.deckId,
+      deckVersion: deck.version,
+      syncedDeckVersion,
+      retryable: status === "stale" || status === "failed",
+      ...(job ? { job } : {}),
+    };
   }
 
   private async enqueueOoxmlSync(
@@ -1320,7 +1474,11 @@ function createOoxmlReplacement(
     ...requestedDeck,
     version: currentDeck.version + 1,
   });
-  const operations = createOoxmlElementDiff(currentDeck, deck);
+  const slideOperations = createOoxmlSlideDiff(currentDeck, deck);
+  const operations = [
+    ...slideOperations,
+    ...createOoxmlElementDiff(currentDeck, deck),
+  ];
 
   return {
     deck,
@@ -1339,12 +1497,86 @@ function createOoxmlReplacement(
   };
 }
 
+function createOoxmlSlideDiff(
+  currentDeck: Deck,
+  nextDeck: Deck,
+): DeckPatchOperation[] {
+  const currentSlides = validateAndSortSlides(currentDeck);
+  const nextSlides = validateAndSortSlides(nextDeck);
+  const currentIds = currentSlides.map((slide) => slide.slideId);
+  const nextIds = nextSlides.map((slide) => slide.slideId);
+  const currentIdSet = new Set(currentIds);
+  const nextIdSet = new Set(nextIds);
+  const hasSameSlides =
+    currentIds.length === nextIds.length &&
+    currentIdSet.size === currentIds.length &&
+    nextIdSet.size === nextIds.length &&
+    nextIds.every((slideId) => currentIdSet.has(slideId));
+
+  if (hasSameSlides) {
+    if (isDeepStrictEqual(currentIds, nextIds)) return [];
+    return [
+      {
+        type: "reorder_slides",
+        slideOrders: nextSlides.map((slide) => ({
+          slideId: slide.slideId,
+          order: slide.order,
+        })),
+      },
+    ];
+  }
+
+  return [
+    ...currentSlides
+      .filter((slide) => !nextIdSet.has(slide.slideId))
+      .map(
+        (slide): DeckPatchOperation => ({
+          type: "delete_slide",
+          slideId: slide.slideId,
+        }),
+      ),
+    ...nextSlides
+      .filter((slide) => !currentIdSet.has(slide.slideId))
+      .map(
+        (slide): DeckPatchOperation => ({
+          type: "add_slide",
+          slide,
+        }),
+      ),
+  ];
+}
+
+function validateAndSortSlides(deck: Deck): Deck["slides"] {
+  const slideIds = deck.slides.map((slide) => slide.slideId);
+  const orders = deck.slides.map((slide) => slide.order);
+  const expectedOrders = new Set(deck.slides.map((_, index) => index + 1));
+  const hasUniqueIds = new Set(slideIds).size === slideIds.length;
+  const hasExactOrders =
+    new Set(orders).size === orders.length &&
+    orders.every((order) => expectedOrders.has(order));
+  if (!hasUniqueIds || !hasExactOrders) {
+    throwDeckApiException(
+      "DECK_VALIDATION_FAILED",
+      HttpStatus.BAD_REQUEST,
+      "Deck slide IDs and orders must be exact permutations",
+      [`slideIds=${slideIds.join(",")}`, `slideOrders=${orders.join(",")}`],
+    );
+  }
+  return [...deck.slides].sort((left, right) => left.order - right.order);
+}
+
 function createOoxmlElementDiff(
   currentDeck: Deck,
   nextDeck: Deck,
 ): DeckPatchOperation[] {
-  const currentElements = indexDeckElements(currentDeck);
-  const nextElements = indexDeckElements(nextDeck);
+  const nextSlideIds = new Set(nextDeck.slides.map((slide) => slide.slideId));
+  const sharedSlideIds = new Set(
+    currentDeck.slides
+      .map((slide) => slide.slideId)
+      .filter((slideId) => nextSlideIds.has(slideId)),
+  );
+  const currentElements = indexDeckElements(currentDeck, sharedSlideIds);
+  const nextElements = indexDeckElements(nextDeck, sharedSlideIds);
   const operations: DeckPatchOperation[] = [];
 
   for (const [elementKey, current] of currentElements) {
@@ -1392,7 +1624,10 @@ function createOoxmlElementDiff(
         type: "update_element_props",
         slideId: next.slideId,
         elementId: next.element.elementId,
-        props: next.element.props,
+        props: changedOoxmlElementProps(
+          current.element.props,
+          next.element.props,
+        ),
       });
     }
   }
@@ -1400,12 +1635,31 @@ function createOoxmlElementDiff(
   return operations;
 }
 
-function indexDeckElements(deck: Deck) {
+function changedOoxmlElementProps(
+  currentProps: DeckElement["props"],
+  nextProps: DeckElement["props"],
+): Record<string, unknown> {
+  const current = currentProps as Record<string, unknown>;
+  const next = nextProps as Record<string, unknown>;
+  const changed: Record<string, unknown> = {};
+
+  const propNames = new Set([...Object.keys(current), ...Object.keys(next)]);
+  for (const propName of propNames) {
+    if (!isDeepStrictEqual(current[propName], next[propName])) {
+      changed[propName] = propName in next ? next[propName] : null;
+    }
+  }
+
+  return changed;
+}
+
+function indexDeckElements(deck: Deck, includedSlideIds?: ReadonlySet<string>) {
   const elements = new Map<
     string,
     { slideId: Deck["slides"][number]["slideId"]; element: DeckElement }
   >();
   for (const slide of deck.slides) {
+    if (includedSlideIds && !includedSlideIds.has(slide.slideId)) continue;
     for (const element of slide.elements) {
       elements.set(`${slide.slideId}\0${element.elementId}`, {
         slideId: slide.slideId,

@@ -9,6 +9,7 @@ import type { ComponentType } from "react";
 import { useEffect, useState } from "react";
 
 import { resolveEditorAssetUrl } from "../../editor/shared/editorAssetUrl";
+import { getImageElementLayout } from "./imageElementLayout";
 
 type KonvaComponent = ComponentType<any>;
 
@@ -124,121 +125,6 @@ function useLoadedImage(src: string) {
   }, [src]);
 
   return image;
-}
-
-function getImageElementLayout(args: {
-  crop: ImageElementProps["crop"];
-  fit: ImageElementProps["fit"];
-  focusX: number;
-  focusY: number;
-  frameHeight: number;
-  frameWidth: number;
-  imageHeight: number;
-  imageWidth: number;
-}) {
-  const {
-    crop,
-    fit,
-    focusX,
-    focusY,
-    frameHeight,
-    frameWidth,
-    imageHeight,
-    imageWidth
-  } = args;
-
-  if (crop) {
-    const left = clampCrop(crop.left);
-    const top = clampCrop(crop.top);
-    const right = clampCrop(crop.right);
-    const bottom = clampCrop(crop.bottom);
-    const cropX = imageWidth * left;
-    const cropY = imageHeight * top;
-    const cropWidth = Math.max(1, imageWidth * (1 - left - right));
-    const cropHeight = Math.max(1, imageHeight * (1 - top - bottom));
-
-    return {
-      crop: {
-        height: cropHeight,
-        width: cropWidth,
-        x: cropX,
-        y: cropY
-      },
-      height: frameHeight,
-      width: frameWidth,
-      x: 0,
-      y: 0
-    };
-  }
-
-  if (fit === "stretch") {
-    return {
-      crop: undefined,
-      height: frameHeight,
-      width: frameWidth,
-      x: 0,
-      y: 0
-    };
-  }
-
-  if (fit === "contain") {
-    const scale = Math.min(frameWidth / imageWidth, frameHeight / imageHeight);
-    const width = imageWidth * scale;
-    const height = imageHeight * scale;
-
-    return {
-      crop: undefined,
-      height,
-      width,
-      x: (frameWidth - width) / 2,
-      y: (frameHeight - height) / 2
-    };
-  }
-
-  const frameRatio = frameWidth / frameHeight;
-  const imageRatio = imageWidth / imageHeight;
-
-  if (imageRatio > frameRatio) {
-    const cropWidth = imageHeight * frameRatio;
-    const maxCropX = Math.max(0, imageWidth - cropWidth);
-
-    return {
-      crop: {
-        height: imageHeight,
-        width: cropWidth,
-        x: maxCropX * clampFocus(focusX),
-        y: 0
-      },
-      height: frameHeight,
-      width: frameWidth,
-      x: 0,
-      y: 0
-    };
-  }
-
-  const cropHeight = imageWidth / frameRatio;
-  const maxCropY = Math.max(0, imageHeight - cropHeight);
-
-  return {
-    crop: {
-      height: cropHeight,
-      width: imageWidth,
-      x: 0,
-      y: maxCropY * clampFocus(focusY)
-    },
-    height: frameHeight,
-    width: frameWidth,
-    x: 0,
-    y: 0
-  };
-}
-
-function clampFocus(value: number) {
-  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
-}
-
-function clampCrop(value: number) {
-  return Math.max(0, Math.min(0.99, Number.isFinite(value) ? value : 0));
 }
 
 function truncateValue(value: string, maxLength: number) {

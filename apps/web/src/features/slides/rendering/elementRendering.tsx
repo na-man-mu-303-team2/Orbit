@@ -4,15 +4,11 @@ import type {
   Deck,
   DeckElementPaint,
   DeckElement,
-  GroupElementProps,
   ShapeElementProps,
   TableElementProps,
-  TextElementParagraph,
-  TextElementRun,
   Slide,
   TextElementProps
 } from "@orbit/shared";
-import { getGroupChildElements } from "@orbit/editor-core";
 import type Konva from "konva";
 import {
   Arrow as KonvaArrowComponent,
@@ -27,8 +23,6 @@ import {
 } from "react-konva";
 import type { ComponentType } from "react";
 import type { ElementPresentationState } from "./ReadOnlySlideCanvas";
-import { normalizeRenderableElement } from "./elementNormalization";
-import { HighlightOverlay } from "./highlightOverlay";
 
 import { ImageElementContent } from "./ImageElementContent";
 import {
@@ -46,7 +40,6 @@ import {
   getKonvaFontStyle,
   getTextElementLayout
 } from "../../editor/canvas/text/textLayout";
-import { getGroupedChildPreviewFrame } from "../../editor/canvas/utils/canvasElementUtils";
 
 type KonvaComponent = ComponentType<any>;
 
@@ -89,11 +82,9 @@ export function ElementNodeContent(props: {
 }) {
   const {
     accentColor,
-    activeHighlightElementIds,
     customShapePreview,
     deck,
     element,
-    elementStates,
     frame,
     slide
   } = props;
@@ -120,6 +111,7 @@ export function ElementNodeContent(props: {
           padding={0}
           rotation={-90}
           text={textLayout.text}
+          textDecoration={textLayout.textDecoration}
           width={frame.height}
           wrap="word"
           x={0}
@@ -128,48 +120,23 @@ export function ElementNodeContent(props: {
       );
     }
 
-    if (shouldRenderTextParagraphs(textProps)) {
+    if (textLayout.richText) {
       return (
         <Group listening={false}>
-          {layoutTextParagraphs(textProps, textLayout).map((paragraph, index) => (
+          {textLayout.richText.fragments.map((fragment, index) => (
             <Text
-              align={paragraph.align}
-              fill={paragraph.color}
-              fontFamily={paragraph.fontFamily}
-              fontSize={paragraph.fontSize}
-              fontStyle={paragraph.fontStyle}
-              key={`${paragraph.text}-${index}`}
-              lineHeight={paragraph.lineHeight}
+              fill={fragment.style.color}
+              fontFamily={fragment.style.fontFamily}
+              fontSize={fragment.style.fontSize}
+              fontStyle={fragment.style.fontStyle}
+              key={`${fragment.paragraphIndex}-${fragment.lineIndex}-${index}`}
+              lineHeight={1}
               listening={false}
               padding={0}
-              text={paragraph.text}
-              width={Math.max(1, paragraph.width)}
-              wrap="word"
-              x={paragraph.x}
-              y={paragraph.y}
-            />
-          ))}
-        </Group>
-      );
-    }
-
-    if (shouldRenderTextRuns(textProps)) {
-      return (
-        <Group listening={false}>
-          {layoutTextRuns(textProps, textLayout).map((segment, index) => (
-            <Text
-              fill={segment.color}
-              fontFamily={segment.fontFamily}
-              fontSize={segment.fontSize}
-              fontStyle={segment.fontStyle}
-              key={`${segment.text}-${index}`}
-              lineHeight={textProps.lineHeight}
-              listening={false}
-              padding={0}
-              text={segment.text}
-              width={Math.max(1, segment.width)}
-              x={segment.x}
-              y={segment.y}
+              text={fragment.text}
+              textDecoration={fragment.style.underline ? "underline" : undefined}
+              x={fragment.x}
+              y={fragment.y}
             />
           ))}
         </Group>
@@ -187,6 +154,7 @@ export function ElementNodeContent(props: {
         listening={false}
         padding={0}
         text={textLayout.text}
+        textDecoration={textLayout.textDecoration}
         width={textLayout.width}
         wrap="word"
         x={textLayout.x}
@@ -200,7 +168,12 @@ export function ElementNodeContent(props: {
   }
 
   if (element.type === "svg") {
-    return <ImageElementContent frame={frame} imageProps={element.props} />;
+    return (
+      <ImageElementContent
+        frame={frame}
+        imageProps={{ ...element.props, fit: "stretch" }}
+      />
+    );
   }
 
   if (element.type === "table") {
@@ -223,78 +196,7 @@ export function ElementNodeContent(props: {
   }
 
   if (element.type === "group") {
-    const groupProps = element.props as GroupElementProps;
-    const childElements = getGroupChildElements(slide, groupProps.childElementIds);
-
-    if (childElements.length === 0) {
-      return null;
-    }
-
-    return (
-      <Group listening={false}>
-        {childElements.map((childElement) => {
-          const renderableChildElement = normalizeRenderableElement(deck.canvas, childElement);
-          const childPresentationState = elementStates?.[childElement.elementId];
-          const presentedChildElement = applyPresentationStateToElement(
-            renderableChildElement,
-            childPresentationState
-          );
-          const childFrame = getGroupedChildPreviewFrame({
-            childElement: presentedChildElement,
-            currentGroupFrame: element,
-            previewGroupFrame: frame
-          });
-          const childVisible = childPresentationState?.visible ?? childElement.visible;
-          const childOpacity = childVisible
-            ? (childPresentationState?.opacity ?? childElement.opacity)
-            : 0;
-
-          return (
-            <Group
-              data-element-id={childElement.elementId}
-              key={childElement.elementId}
-              listening={false}
-              opacity={childOpacity}
-              rotation={childFrame.rotation}
-              scaleX={childPresentationState?.scaleX ?? 1}
-              scaleY={childPresentationState?.scaleY ?? 1}
-              x={childFrame.x}
-              y={childFrame.y}
-            >
-              <ElementNodeContent
-                activeHighlightElementIds={activeHighlightElementIds}
-                accentColor={accentColor}
-                deck={deck}
-                element={presentedChildElement}
-                elementStates={elementStates}
-                frame={{
-                  x: 0,
-                  y: 0,
-                  width: childFrame.width,
-                  height: childFrame.height,
-                  rotation: childFrame.rotation
-                }}
-                slide={slide}
-              />
-              {activeHighlightElementIds?.has(childElement.elementId) ? (
-                <HighlightOverlay
-                  element={{
-                    ...presentedChildElement,
-                    height: childFrame.height,
-                    opacity: childOpacity,
-                    rotation: 0,
-                    visible: childVisible,
-                    width: childFrame.width,
-                    x: 0,
-                    y: 0
-                  }}
-                />
-              ) : null}
-            </Group>
-          );
-        })}
-      </Group>
-    );
+    return null;
   }
 
   if (element.type === "customShape") {
@@ -555,8 +457,6 @@ export function ElementNodeContent(props: {
   );
 }
 
-type TextLayout = ReturnType<typeof getTextElementLayout>;
-
 function ChartElementContent(props: {
   accentColor: string;
   chart: Chart;
@@ -566,8 +466,144 @@ function ChartElementContent(props: {
   if (chart.type === "pie" || chart.type === "doughnut") {
     return <PieChartContent chart={chart} frame={frame} />;
   }
+  if (chart.type === "scatter") {
+    return <ScatterChartContent chart={chart} frame={frame} />;
+  }
 
   return <CartesianChartContent accentColor={accentColor} chart={chart} frame={frame} />;
+}
+
+function ScatterChartContent(props: {
+  chart: Extract<Chart, { type: "scatter" }>;
+  frame: SlideElementFrame;
+}) {
+  const { chart, frame } = props;
+  const textColor = chart.style.textColor ?? "#000000";
+  const axisLabelFontSize = chart.style.axisLabelFontSize ?? 28;
+  const dataLabelFontSize = chart.style.dataLabelFontSize ?? 22;
+  const plot = {
+    height: frame.height * 0.68,
+    width: frame.width * 0.78,
+    x: frame.width * 0.14,
+    y: frame.height * 0.18
+  };
+  const xValues = chart.data.map((datum) => datum.x);
+  const yValues = chart.data.map((datum) => datum.y);
+  const xRange = chartRange(xValues);
+  const yRange = chartRange(yValues);
+  const tickCount = 5;
+  const colors = chart.style.colors.length ? chart.style.colors : officeChartColors;
+
+  return (
+    <Group listening={false}>
+      <Text
+        align="center"
+        fill={textColor}
+        fontFamily={chart.style.fontFamily}
+        fontSize={chart.style.titleFontSize ?? 34}
+        fontStyle="bold"
+        listening={false}
+        text={chart.title || "Scatter chart"}
+        width={frame.width}
+        y={frame.height * 0.04}
+      />
+      {Array.from({ length: tickCount + 1 }, (_, index) => {
+        const ratio = index / tickCount;
+        const x = plot.x + plot.width * ratio;
+        const y = plot.y + plot.height - plot.height * ratio;
+        const xValue = xRange.min + (xRange.max - xRange.min) * ratio;
+        const yValue = yRange.min + (yRange.max - yRange.min) * ratio;
+        return (
+          <Group key={`scatter-tick-${index}`} listening={false}>
+            {chart.style.showGrid !== false ? (
+              <>
+                <Line points={[x, plot.y, x, plot.y + plot.height]} stroke="#8A8A8A" strokeWidth={1} />
+                <Line points={[plot.x, y, plot.x + plot.width, y]} stroke="#8A8A8A" strokeWidth={1} />
+              </>
+            ) : null}
+            <Text
+              align="center"
+              fill={textColor}
+              fontFamily={chart.style.fontFamily}
+              fontSize={axisLabelFontSize}
+              listening={false}
+              text={formatChartValue(xValue, chart.style.unit)}
+              width={plot.width / tickCount}
+              x={x - plot.width / tickCount / 2}
+              y={plot.y + plot.height + 8}
+            />
+            <Text
+              align="right"
+              fill={textColor}
+              fontFamily={chart.style.fontFamily}
+              fontSize={axisLabelFontSize}
+              listening={false}
+              text={formatChartValue(yValue, chart.style.unit)}
+              width={plot.x - 12}
+              y={y - axisLabelFontSize / 2}
+            />
+          </Group>
+        );
+      })}
+      <Line
+        points={[plot.x, plot.y, plot.x, plot.y + plot.height, plot.x + plot.width, plot.y + plot.height]}
+        stroke="#8A8A8A"
+        strokeWidth={1}
+      />
+      {chart.data.map((datum, index) => {
+        const x = plot.x + ((datum.x - xRange.min) / (xRange.max - xRange.min)) * plot.width;
+        const y = plot.y + plot.height - ((datum.y - yRange.min) / (yRange.max - yRange.min)) * plot.height;
+        const color = colors[index % colors.length] ?? officeChartColors[0];
+        return (
+          <Group key={`${datum.label ?? "point"}-${index}`} listening={false}>
+            <Circle fill={color} radius={7} x={x} y={y} />
+            {chart.style.showDataLabels === true ? (
+              <Text
+                align="center"
+                fill={textColor}
+                fontFamily={chart.style.fontFamily}
+                fontSize={dataLabelFontSize}
+                listening={false}
+                text={datum.label || `${formatChartTick(datum.x)}, ${formatChartTick(datum.y)}`}
+                width={plot.width / Math.max(2, chart.data.length)}
+                x={x - plot.width / Math.max(2, chart.data.length) / 2}
+                y={y - dataLabelFontSize - 10}
+              />
+            ) : null}
+          </Group>
+        );
+      })}
+      {chart.style.xAxisTitle ? (
+        <Text
+          align="center"
+          fill={textColor}
+          fontFamily={chart.style.fontFamily}
+          fontSize={axisLabelFontSize}
+          listening={false}
+          text={chart.style.xAxisTitle}
+          width={plot.width}
+          x={plot.x}
+          y={frame.height - axisLabelFontSize - 4}
+        />
+      ) : null}
+      {chart.style.yAxisTitle ? (
+        <Text
+          align="center"
+          fill={textColor}
+          fontFamily={chart.style.fontFamily}
+          fontSize={axisLabelFontSize}
+          height={plot.height}
+          listening={false}
+          lineHeight={1}
+          text={verticalAxisTitleText(chart.style.yAxisTitle)}
+          verticalAlign="middle"
+          width={Math.max(axisLabelFontSize * 1.4, plot.x - 8)}
+          x={0}
+          y={plot.y}
+        />
+      ) : null}
+    </Group>
+  );
 }
 
 function CartesianChartContent(props: {
@@ -600,12 +636,16 @@ function CartesianChartContent(props: {
   const slotWidth = plot.width / Math.max(1, categories.length);
   const seriesColor = chart.style.colors[0] ?? officeChartColors[0] ?? accentColor;
   const colors = chart.style.colors.length ? chart.style.colors : officeChartColors;
+  const textColor = chart.style.textColor ?? "#000000";
+  const axisLabelFontSize = chart.style.axisLabelFontSize ?? 28;
+  const dataLabelFontSize = chart.style.dataLabelFontSize ?? 22;
+  const legendFontSize = chart.style.legendFontSize ?? 24;
 
   return (
     <Group listening={false}>
       <Text
         align="center"
-        fill={chart.style.textColor ?? "#000000"}
+        fill={textColor}
         fontFamily={chart.style.fontFamily}
         fontSize={chart.style.titleFontSize ?? 34}
         fontStyle="bold"
@@ -620,17 +660,20 @@ function CartesianChartContent(props: {
         const y = plot.y + plot.height - (plot.height * value) / maxValue;
         return (
           <Group key={`tick-${index}`} listening={false}>
-            <Line
-              points={[plot.x, y, plot.x + plot.width, y]}
-              stroke="#8A8A8A"
-              strokeWidth={1}
-            />
+            {chart.style.showGrid !== false ? (
+              <Line
+                points={[plot.x, y, plot.x + plot.width, y]}
+                stroke="#8A8A8A"
+                strokeWidth={1}
+              />
+            ) : null}
             <Text
               align="right"
-              fill="#000000"
-              fontSize={28}
+              fill={textColor}
+              fontFamily={chart.style.fontFamily}
+              fontSize={axisLabelFontSize}
               listening={false}
-              text={formatChartTick(value)}
+              text={formatChartValue(value, chart.style.unit)}
               width={plot.x - 12}
               x={0}
               y={y - 16}
@@ -653,6 +696,11 @@ function CartesianChartContent(props: {
               maxValue={maxValue}
               plot={plot}
               seriesColor={colors[index % colors.length] ?? seriesColor}
+              dataLabelFontSize={dataLabelFontSize}
+              fontFamily={chart.style.fontFamily}
+              showDataLabels={chart.style.showDataLabels === true}
+              textColor={textColor}
+              unit={chart.style.unit}
             />
           ))}
         </>
@@ -660,24 +708,41 @@ function CartesianChartContent(props: {
         data.map((datum, index) => {
           const barHeight = (plot.height * datum.value) / maxValue;
           const barWidth = slotWidth * 0.4;
+          const x = plot.x + slotWidth * index + (slotWidth - barWidth) / 2;
+          const y = plot.y + plot.height - barHeight;
           return (
-            <Rect
-              fill={colors[index % colors.length] ?? seriesColor ?? accentColor}
-              height={barHeight}
-              key={`${datum.label}-${index}`}
-              listening={false}
-              width={barWidth}
-              x={plot.x + slotWidth * index + (slotWidth - barWidth) / 2}
-              y={plot.y + plot.height - barHeight}
-            />
+            <Group key={`${datum.label}-${index}`} listening={false}>
+              <Rect
+                fill={colors[index % colors.length] ?? seriesColor ?? accentColor}
+                height={barHeight}
+                listening={false}
+                width={barWidth}
+                x={x}
+                y={y}
+              />
+              {chart.style.showDataLabels === true ? (
+                <Text
+                  align="center"
+                  fill={textColor}
+                  fontFamily={chart.style.fontFamily}
+                  fontSize={dataLabelFontSize}
+                  listening={false}
+                  text={formatChartValue(datum.value, chart.style.unit)}
+                  width={slotWidth}
+                  x={plot.x + slotWidth * index}
+                  y={Math.max(plot.y, y - dataLabelFontSize - 4)}
+                />
+              ) : null}
+            </Group>
           );
         })
       )}
       {categories.map((label, index) => (
         <Text
           align="center"
-          fill="#000000"
-          fontSize={30}
+          fill={textColor}
+          fontFamily={chart.style.fontFamily}
+          fontSize={axisLabelFontSize}
           key={`${label}-label-${index}`}
           listening={false}
           text={label}
@@ -694,10 +759,42 @@ function CartesianChartContent(props: {
               index={index}
               key={name}
               label={name}
+              fontFamily={chart.style.fontFamily}
+              fontSize={legendFontSize}
               plot={plot}
+              textColor={textColor}
             />
           ))
         : null}
+      {chart.style.xAxisTitle ? (
+        <Text
+          align="center"
+          fill={textColor}
+          fontFamily={chart.style.fontFamily}
+          fontSize={axisLabelFontSize}
+          listening={false}
+          text={chart.style.xAxisTitle}
+          width={plot.width}
+          x={plot.x}
+          y={frame.height - axisLabelFontSize - 4}
+        />
+      ) : null}
+      {chart.style.yAxisTitle ? (
+        <Text
+          align="center"
+          fill={textColor}
+          fontFamily={chart.style.fontFamily}
+          fontSize={axisLabelFontSize}
+          height={plot.height}
+          listening={false}
+          lineHeight={1}
+          text={verticalAxisTitleText(chart.style.yAxisTitle)}
+          verticalAlign="middle"
+          width={Math.max(axisLabelFontSize * 1.4, plot.x - 8)}
+          x={0}
+          y={plot.y}
+        />
+      ) : null}
     </Group>
   );
 }
@@ -705,9 +802,14 @@ function CartesianChartContent(props: {
 function LineChartSeries(props: {
   categories: string[];
   data: Array<{ label: string; value: number }>;
+  dataLabelFontSize: number;
+  fontFamily?: string;
   maxValue: number;
   plot: { height: number; width: number; x: number; y: number };
   seriesColor: string;
+  showDataLabels: boolean;
+  textColor: string;
+  unit: string;
 }) {
   const { categories, data, maxValue, plot, seriesColor } = props;
   const slotWidth = plot.width / Math.max(1, categories.length);
@@ -719,28 +821,49 @@ function LineChartSeries(props: {
   return (
     <Group listening={false}>
       <Line points={points} stroke={seriesColor} strokeWidth={4} tension={0} />
-      {data.map((datum, index) => (
-        <Rect
-          fill={seriesColor}
-          key={`${datum.label}-marker-${index}`}
-          stroke={seriesColor}
-          strokeWidth={1}
-          width={10}
-          height={10}
-          x={plot.x + slotWidth * (Math.max(0, categories.indexOf(datum.label)) + 0.5) - 5}
-          y={plot.y + plot.height - (plot.height * datum.value) / maxValue - 5}
-        />
-      ))}
+      {data.map((datum, index) => {
+        const x = plot.x + slotWidth * (Math.max(0, categories.indexOf(datum.label)) + 0.5);
+        const y = plot.y + plot.height - (plot.height * datum.value) / maxValue;
+        return (
+          <Group key={`${datum.label}-marker-${index}`} listening={false}>
+            <Rect
+              fill={seriesColor}
+              stroke={seriesColor}
+              strokeWidth={1}
+              width={10}
+              height={10}
+              x={x - 5}
+              y={y - 5}
+            />
+            {props.showDataLabels ? (
+              <Text
+                align="center"
+                fill={props.textColor}
+                fontFamily={props.fontFamily}
+                fontSize={props.dataLabelFontSize}
+                listening={false}
+                text={formatChartValue(datum.value, props.unit)}
+                width={slotWidth}
+                x={x - slotWidth / 2}
+                y={y - props.dataLabelFontSize - 8}
+              />
+            ) : null}
+          </Group>
+        );
+      })}
     </Group>
   );
 }
 
 function ChartLegend(props: {
   color: string;
+  fontFamily?: string;
+  fontSize: number;
   frame: SlideElementFrame;
   index?: number;
   label: string;
   plot: { height: number; width: number; x: number; y: number };
+  textColor: string;
 }) {
   const { color, frame, index = 0, label, plot } = props;
   const x = Math.min(frame.width - 170, plot.x + plot.width + frame.width * 0.04);
@@ -750,7 +873,15 @@ function ChartLegend(props: {
     <Group listening={false} x={x} y={y}>
       <Line points={[0, 12, 42, 12]} stroke={color} strokeWidth={4} />
       <Rect fill={color} height={18} width={18} x={12} y={3} />
-      <Text fill="#000000" fontSize={32} listening={false} text={label} x={56} y={-5} />
+      <Text
+        fill={props.textColor}
+        fontFamily={props.fontFamily}
+        fontSize={props.fontSize}
+        listening={false}
+        text={label}
+        x={56}
+        y={-5}
+      />
     </Group>
   );
 }
@@ -761,16 +892,27 @@ function PieChartContent(props: { chart: Chart; frame: SlideElementFrame }) {
     "value" in datum
   );
   const total = data.reduce((sum, datum) => sum + Math.max(0, datum.value), 0) || 1;
-  const radius = Math.min(frame.width, frame.height) * 0.4;
-  const center = { x: frame.width / 2, y: frame.height * 0.57 };
+  const showLegend = chart.style.showLegend !== false;
+  const radius = Math.min(
+    frame.height * 0.36,
+    frame.width * (showLegend ? 0.28 : 0.4)
+  );
+  const center = {
+    x: frame.width * (showLegend ? 0.36 : 0.5),
+    y: frame.height * 0.57
+  };
   const colors = chart.style.colors.length ? chart.style.colors : officeChartColors;
+  const textColor = chart.style.textColor ?? "#000000";
+  const dataLabelFontSize = chart.style.dataLabelFontSize ?? 22;
+  const legendFontSize = chart.style.legendFontSize ?? 24;
   let startAngle = -90;
 
   return (
     <Group listening={false}>
       <Text
         align="center"
-        fill={chart.style.textColor ?? "#000000"}
+        fill={textColor}
+        fontFamily={chart.style.fontFamily}
         fontSize={chart.style.titleFontSize ?? 34}
         fontStyle="bold"
         listening={false}
@@ -784,24 +926,64 @@ function PieChartContent(props: { chart: Chart; frame: SlideElementFrame }) {
         const sliceStartAngle = startAngle;
         const sliceEndAngle = startAngle + angle;
         startAngle = sliceEndAngle;
-        const slice = (
-          <Shape
-            fill={colors[index % colors.length]}
-            key={`${datum.label}-${index}`}
-            listening={false}
-            sceneFunc={(context: Konva.Context, shape: Konva.Shape) => {
-              const start = (sliceStartAngle * Math.PI) / 180;
-              const end = (sliceEndAngle * Math.PI) / 180;
-              context.beginPath();
-              context.moveTo(center.x, center.y);
-              context.arc(center.x, center.y, radius, start, end, false);
-              context.closePath();
-              context.fillStrokeShape(shape);
-            }}
-          />
+        const middleAngle = ((sliceStartAngle + sliceEndAngle) / 2) * (Math.PI / 180);
+        const labelRadius = radius * 0.62;
+        return (
+          <Group key={`${datum.label}-${index}`} listening={false}>
+            <Shape
+              fill={colors[index % colors.length]}
+              listening={false}
+              sceneFunc={(context: Konva.Context, shape: Konva.Shape) => {
+                const start = (sliceStartAngle * Math.PI) / 180;
+                const end = (sliceEndAngle * Math.PI) / 180;
+                context.beginPath();
+                context.moveTo(center.x, center.y);
+                context.arc(center.x, center.y, radius, start, end, false);
+                context.closePath();
+                context.fillStrokeShape(shape);
+              }}
+            />
+            {chart.style.showDataLabels === true ? (
+              <Text
+                align="center"
+                fill={textColor}
+                fontFamily={chart.style.fontFamily}
+                fontSize={dataLabelFontSize}
+                listening={false}
+                text={formatChartValue(datum.value, chart.style.unit)}
+                width={radius}
+                x={center.x + Math.cos(middleAngle) * labelRadius - radius / 2}
+                y={center.y + Math.sin(middleAngle) * labelRadius - dataLabelFontSize / 2}
+              />
+            ) : null}
+          </Group>
         );
-        return slice;
       })}
+      {showLegend
+        ? data.map((datum, index) => (
+            <Group
+              key={`${datum.label}-legend-${index}`}
+              listening={false}
+              x={frame.width * 0.72}
+              y={frame.height * 0.22 + index * (legendFontSize + 12)}
+            >
+              <Rect
+                fill={colors[index % colors.length]}
+                height={legendFontSize * 0.7}
+                width={legendFontSize * 0.7}
+                y={legendFontSize * 0.15}
+              />
+              <Text
+                fill={textColor}
+                fontFamily={chart.style.fontFamily}
+                fontSize={legendFontSize}
+                listening={false}
+                text={datum.label}
+                x={legendFontSize}
+              />
+            </Group>
+          ))
+        : null}
     </Group>
   );
 }
@@ -818,6 +1000,21 @@ function niceChartMax(value: number) {
 
 function formatChartTick(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function formatChartValue(value: number, unit: string) {
+  return `${formatChartTick(value)}${unit}`;
+}
+
+export function verticalAxisTitleText(value: string) {
+  return Array.from(value).join("\n");
+}
+
+function chartRange(values: number[]) {
+  const min = Math.min(0, ...values);
+  const max = Math.max(1, ...values);
+  if (min === max) return { min, max: min + 1 };
+  return { min, max };
 }
 
 function TableElementContent(props: {
@@ -910,164 +1107,6 @@ function sumRange(values: number[], start: number, count: number) {
   return values
     .slice(start, Math.min(values.length, start + count))
     .reduce((sum, value) => sum + value, 0);
-}
-
-function shouldRenderTextRuns(props: TextElementProps) {
-  return (props.runs?.filter((run) => run.text.length > 0).length ?? 0) > 1;
-}
-
-function shouldRenderTextParagraphs(props: TextElementProps) {
-  return (
-    (props.paragraphs?.filter((paragraph) => paragraphText(paragraph)).length ?? 0) >
-    0
-  );
-}
-
-function layoutTextParagraphs(props: TextElementProps, layout: TextLayout) {
-  const paragraphs = props.paragraphs ?? [];
-  const result: Array<{
-    align: TextElementProps["align"];
-    color: string;
-    fontFamily: string;
-    fontSize: number;
-    fontStyle: "normal" | "bold";
-    lineHeight: number;
-    text: string;
-    width: number;
-    x: number;
-    y: number;
-  }> = [];
-  let y = layout.y;
-
-  for (const paragraph of paragraphs) {
-    const text = paragraphText(paragraph);
-    if (!text) {
-      continue;
-    }
-    y += paragraph.spaceBefore ?? 0;
-    const style = paragraphStyle(paragraph, props, layout);
-    const indent = paragraph.indent ?? 0;
-    const prefix = paragraph.bullet?.enabled ? `${paragraph.bullet.character} ` : "";
-    const width = Math.max(1, layout.width - indent);
-    result.push({
-      ...style,
-      text: `${prefix}${text}`,
-      width,
-      x: layout.contentX + indent,
-      y
-    });
-    const measured = measureRunText(text, style);
-    const lineCount = Math.max(1, Math.ceil(measured / width));
-    y += lineCount * style.fontSize * style.lineHeight + (paragraph.spaceAfter ?? 0);
-  }
-
-  return result;
-}
-
-function paragraphText(paragraph: TextElementParagraph) {
-  if (paragraph.runs?.length) {
-    return paragraph.runs.map((run) => run.text).join("");
-  }
-
-  return paragraph.text;
-}
-
-function paragraphStyle(
-  paragraph: TextElementParagraph,
-  props: TextElementProps,
-  layout: TextLayout
-) {
-  const run = paragraph.runs?.find((item) => item.text.trim()) ?? paragraph.runs?.[0];
-  const fontWeight = run?.fontWeight ?? paragraph.fontWeight ?? props.fontWeight;
-
-  return {
-    align: paragraph.align ?? props.align,
-    color: run?.color ?? paragraph.color ?? layout.color,
-    fontFamily: run?.fontFamily ?? paragraph.fontFamily ?? layout.fontFamily,
-    fontSize: run?.fontSize ?? paragraph.fontSize ?? layout.fontSize,
-    fontStyle: getKonvaFontStyle(fontWeight),
-    lineHeight: paragraph.lineHeight ?? props.lineHeight
-  };
-}
-
-function layoutTextRuns(props: TextElementProps, layout: TextLayout) {
-  const runs = props.runs ?? [];
-  const lineHeight = layout.fontSize * props.lineHeight;
-  let x = layout.contentX;
-  let y = layout.y;
-
-  return runs.flatMap((run) => {
-    const segments = run.text.split(/(\n)/);
-    const result: Array<{
-      color: string;
-      fontFamily: string;
-      fontSize: number;
-      fontStyle: "normal" | "bold";
-      text: string;
-      width: number;
-      x: number;
-      y: number;
-    }> = [];
-
-    for (const text of segments) {
-      if (text === "\n") {
-        x = layout.contentX;
-        y += lineHeight;
-        continue;
-      }
-      if (!text) {
-        continue;
-      }
-      const style = textRunStyle(run, props, layout);
-      const width = measureRunText(text, style);
-      result.push({ ...style, text, width, x, y });
-      x += width;
-    }
-
-    return result;
-  });
-}
-
-function textRunStyle(
-  run: TextElementRun,
-  props: TextElementProps,
-  layout: TextLayout
-): {
-  color: string;
-  fontFamily: string;
-  fontSize: number;
-  fontStyle: "normal" | "bold";
-} {
-  const fontWeight = run.fontWeight ?? props.fontWeight;
-
-  return {
-    color: run.color ?? layout.color,
-    fontFamily: run.fontFamily ?? layout.fontFamily,
-    fontSize: run.fontSize ?? layout.fontSize,
-    fontStyle: getKonvaFontStyle(fontWeight)
-  };
-}
-
-function measureRunText(
-  text: string,
-  style: {
-    fontFamily: string;
-    fontSize: number;
-    fontStyle: "normal" | "bold";
-  }
-) {
-  if (typeof document === "undefined") {
-    return text.length * style.fontSize * 0.55;
-  }
-
-  const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d");
-  if (!context) {
-    return text.length * style.fontSize * 0.55;
-  }
-  const weight = style.fontStyle === "bold" ? 700 : 400;
-  context.font = `${weight} ${style.fontSize}px ${style.fontFamily}`;
-  return context.measureText(text).width;
 }
 
 function getSolidPaint(paint: DeckElementPaint | undefined, fallback: string) {
@@ -1205,26 +1244,4 @@ function withOpacity(color: string, opacity: number) {
   const blue = Number.parseInt(color.slice(5, 7), 16);
 
   return `rgba(${red}, ${green}, ${blue}, ${opacity})`;
-}
-
-function applyPresentationStateToElement<T extends DeckElement>(
-  element: T,
-  state: ElementPresentationState | undefined
-): T {
-  if (!state) {
-    return element;
-  }
-
-  const presentedElement: T = {
-    ...element,
-    height: state.height ?? element.height,
-    opacity: state.opacity ?? element.opacity,
-    rotation: state.rotation ?? element.rotation,
-    visible: state.visible ?? element.visible,
-    width: state.width ?? element.width,
-    x: state.x ?? element.x,
-    y: state.y ?? element.y
-  };
-
-  return presentedElement;
 }

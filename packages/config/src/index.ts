@@ -214,6 +214,8 @@ export const orbitEnvSchema = z.object({
   ADAPTIVE_REHEARSAL_COACH_ENABLED: booleanStringSchema.default(false),
   FOCUSED_PRACTICE_ENABLED: booleanStringSchema.default(false),
   CHALLENGE_QNA_ENABLED: booleanStringSchema.default(false),
+  SLIDE_PRACTICE_ENABLED: booleanStringSchema.default(false),
+  SLIDE_QUESTION_GUIDES_ENABLED: booleanStringSchema.default(false),
   DEMO_COACHING_FIXTURE_ENABLED: booleanStringSchema.default(false),
   DEMO_FIXTURE_ENV_ALLOWLIST: commaSeparatedStringSchema.default([]),
   ADAPTIVE_COACHING_PROJECT_ALLOWLIST: commaSeparatedStringSchema.default([]),

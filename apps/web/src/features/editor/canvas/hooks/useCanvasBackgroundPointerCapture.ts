@@ -2,8 +2,56 @@ import type { Deck, DeckElement, Slide } from "@orbit/shared";
 import type Konva from "konva";
 import { useEffect, useRef } from "react";
 
-import { isCanvasPointInsideElementSelectionArea } from "../utils/canvasInteractionUtils";
+import {
+  getRotatedElementAabb,
+  isCanvasPointInsideElementSelectionArea
+} from "../utils/canvasInteractionUtils";
 import type { CustomShapeEditDraft } from "./types";
+
+export function isTransformerControlHit(
+  stage: {
+    getIntersection: (point: { x: number; y: number }) =>
+      | { hasName: (name: string) => boolean }
+      | null
+      | undefined;
+  } | null,
+  point: { x: number; y: number }
+) {
+  return Boolean(stage?.getIntersection(point)?.hasName("_anchor"));
+}
+
+export function isCanvasPointInsideSelectedTransformerArea(args: {
+  elements: DeckElement[];
+  point: { x: number; y: number };
+  selectedElementIds: string[];
+  stageScale: number;
+}) {
+  const selectedElementIdSet = new Set(args.selectedElementIds);
+  const selectedBounds = args.elements
+    .filter((element) => selectedElementIdSet.has(element.elementId))
+    .map(getRotatedElementAabb);
+
+  if (selectedBounds.length === 0) {
+    return false;
+  }
+
+  const left = Math.min(...selectedBounds.map((bounds) => bounds.x));
+  const top = Math.min(...selectedBounds.map((bounds) => bounds.y));
+  const right = Math.max(
+    ...selectedBounds.map((bounds) => bounds.x + bounds.width)
+  );
+  const bottom = Math.max(
+    ...selectedBounds.map((bounds) => bounds.y + bounds.height)
+  );
+  const controlPadding = 56 / Math.max(args.stageScale, 0.05);
+
+  return (
+    args.point.x >= left - controlPadding &&
+    args.point.x <= right + controlPadding &&
+    args.point.y >= top - controlPadding &&
+    args.point.y <= bottom + controlPadding
+  );
+}
 
 export function useCanvasBackgroundPointerCapture(args: {
   deck: Deck;
@@ -104,7 +152,30 @@ export function useCanvasBackgroundPointerCapture(args: {
         return;
       }
 
+      const containerRect = activeStageContainer.getBoundingClientRect();
+      const stagePoint = {
+        x: event.clientX - containerRect.left,
+        y: event.clientY - containerRect.top
+      };
+
+      if (isTransformerControlHit(stageRef.current, stagePoint)) {
+        return;
+      }
+
       const point = getCanvasPointFromClientPosition(event.clientX, event.clientY);
+
+      if (
+        point &&
+        isCanvasPointInsideSelectedTransformerArea({
+          elements: visibleElements,
+          point,
+          selectedElementIds,
+          stageScale
+        })
+      ) {
+        return;
+      }
+
       const isElementHit = visibleElements.some(
         (element) =>
           element.role !== "background" &&

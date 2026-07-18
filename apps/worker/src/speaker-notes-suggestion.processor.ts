@@ -87,7 +87,12 @@ export async function processSpeakerNotesSuggestionJob(
     );
   }
   const hasNotes = slide.speakerNotes.trim().length > 0;
-  if ((payload.request.mode === "draft") === hasNotes) {
+  const requiresExistingNotes =
+    payload.request.mode !== "draft" && payload.request.mode !== "icebreaker";
+  if (
+    (payload.request.mode === "draft" && hasNotes) ||
+    (requiresExistingNotes && !hasNotes)
+  ) {
     return failJob(
       dataSource,
       payload.jobId,

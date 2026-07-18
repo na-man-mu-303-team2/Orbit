@@ -54,6 +54,21 @@ RepairReasonCode = Literal[
     "SPEAKER_NOTES_LONG",
     "SPEAKER_NOTES_REPEATED",
 ]
+CriticalFactKind = Literal[
+    "identifier",
+    "product-name",
+    "amount",
+    "date",
+    "actor-relation",
+    "metric",
+    "condition",
+    "required-phrase",
+]
+EvidenceObligationReason = Literal[
+    "user-required",
+    "decision-critical",
+    "source-emphasized",
+]
 WarningCode = Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]*$")]
 ForbiddenStyle = Literal["gradient", "pastel"]
 CanvasBackground = Literal["auto", "white"]
@@ -488,6 +503,72 @@ class PresentationTimingPlan(BaseModel):
     )
 
 
+class CriticalFact(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    fact_id: str = Field(alias="factId", min_length=1)
+    kind: CriticalFactKind
+    canonical_text: str = Field(alias="canonicalText", min_length=1)
+    source_refs: list[str] = Field(default_factory=list, alias="sourceRefs")
+    value: str = ""
+    unit: str = ""
+    qualifier: str = ""
+    actors: list[str] = Field(default_factory=list)
+    relation: str = ""
+    joint: bool = False
+    condition_type: str = Field(default="", alias="conditionType")
+    operator: str = ""
+    threshold: str = ""
+    deadline: str = ""
+
+
+class EvidenceObligation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    obligation_id: str = Field(alias="obligationId", min_length=1)
+    kind: Literal["domain-claim"] = "domain-claim"
+    canonical_text: str = Field(alias="canonicalText", min_length=1)
+    evidence_text: str = Field(alias="evidenceText", min_length=1)
+    source_refs: list[str] = Field(default_factory=list, alias="sourceRefs")
+    reason: EvidenceObligationReason
+    must_include: bool = Field(alias="mustInclude")
+
+
+class PlacementConstraint(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    target_id: str = Field(alias="targetId", min_length=1)
+    slide_role: Literal["cover", "body", "closing"] = Field(alias="slideRole")
+    element_role: Literal["title", "subtitle", "message", "body"] = Field(
+        alias="elementRole"
+    )
+    slide_order: int | None = Field(default=None, alias="slideOrder", ge=1)
+
+
+class CommunicationContract(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    narrative_thesis: str = Field(default="", alias="narrativeThesis")
+    audience_takeaway: str = Field(default="", alias="audienceTakeaway")
+    required_facts: list[str] = Field(default_factory=list, alias="requiredFacts")
+    placement_constraints: list[PlacementConstraint] = Field(
+        default_factory=list,
+        alias="placementConstraints",
+    )
+    forbidden_claims: list[str] = Field(default_factory=list, alias="forbiddenClaims")
+    assumptions: list[str] = Field(default_factory=list)
+
+
+class ContentFactIssue(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    code: str
+    message: str
+    slide_order: int = Field(alias="slideOrder", ge=1)
+    priority: int = Field(ge=1, le=4)
+    must_include: bool = Field(default=False, alias="mustInclude")
+
+
 class RawInput(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -538,6 +619,38 @@ class RawInput(BaseModel):
     )
     design_program_context: InternalDesignProgramContext = Field(
         default_factory=InternalDesignProgramContext,
+    )
+    critical_facts: list[CriticalFact] = Field(
+        default_factory=list,
+        alias="criticalFacts",
+    )
+    evidence_obligations: list[EvidenceObligation] = Field(
+        default_factory=list,
+        alias="evidenceObligations",
+    )
+    communication_contract: CommunicationContract = Field(
+        default_factory=CommunicationContract,
+        alias="communicationContract",
+    )
+    fact_repair_eligible_slide_orders: list[int] = Field(
+        default_factory=list,
+        alias="factRepairEligibleSlideOrders",
+    )
+    fact_quality_issues: list[ContentFactIssue] = Field(
+        default_factory=list,
+        alias="factQualityIssues",
+    )
+    fact_validation_duration_ms: int = Field(
+        default=0,
+        alias="factValidationDurationMs",
+        ge=0,
+    )
+    fact_repair_attempted: bool = Field(default=False, alias="factRepairAttempted")
+    fact_repair_succeeded: bool = Field(default=False, alias="factRepairSucceeded")
+    fact_repair_duration_ms: int = Field(
+        default=0,
+        alias="factRepairDurationMs",
+        ge=0,
     )
 
 
@@ -638,6 +751,7 @@ class GeneratedStorySlide(BaseModel):
     message: str = Field(min_length=1)
     slide_type: SlideType = Field(alias="slideType")
     source_refs: list[str] = Field(default_factory=list, alias="sourceRefs")
+    obligation_refs: list[str] = Field(default_factory=list, alias="obligationRefs")
 
 
 class GeneratedStoryBriefAnalysis(BaseModel):
@@ -656,12 +770,41 @@ class GeneratedStoryBriefAnalysis(BaseModel):
 
 
 class GeneratedStoryPlan(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     title: str = Field(min_length=1)
     brief_analysis: GeneratedStoryBriefAnalysis = Field(
         default_factory=GeneratedStoryBriefAnalysis,
         alias="briefAnalysis",
     )
     slides: list[GeneratedStorySlide] = Field(min_length=1)
+    critical_facts: list[CriticalFact] = Field(
+        default_factory=list,
+        alias="criticalFacts",
+    )
+    evidence_obligations: list[EvidenceObligation] = Field(
+        default_factory=list,
+        alias="evidenceObligations",
+    )
+    communication_contract: CommunicationContract = Field(
+        default_factory=CommunicationContract,
+        alias="communicationContract",
+    )
+
+
+class GeneratedStoryRepairSlide(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    order: int = Field(ge=1)
+    title: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+    slide_type: SlideType = Field(alias="slideType")
+    source_refs: list[str] = Field(default_factory=list, alias="sourceRefs")
+    obligation_refs: list[str] = Field(default_factory=list, alias="obligationRefs")
+
+
+class GeneratedStoryRepairPlan(BaseModel):
+    slides: list[GeneratedStoryRepairSlide] = Field(min_length=1, max_length=3)
 
 
 class SpeakerNotesRepairItem(BaseModel):
@@ -690,6 +833,7 @@ class SlidePlan(BaseModel):
     target_speaker_notes_chars: int = 0
     content_items: list[GeneratedContentItem] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)
+    obligation_refs: list[str] = Field(default_factory=list, alias="obligationRefs")
 
 
 class ContentPlan(BaseModel):

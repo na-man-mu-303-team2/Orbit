@@ -24,6 +24,7 @@ type EditorTopbarProps = {
   activePresentationAction: "presentation" | "rehearsal" | null;
   activeTopMenu: TopMenu | null;
   canManageShare: boolean;
+  canMutateDeck: boolean;
   canOpenAudienceLink: boolean;
   canStartPresentation: boolean;
   canvas: Deck["canvas"];
@@ -35,7 +36,12 @@ type EditorTopbarProps = {
   isSlideRehearsalActive: boolean;
   isUsingFallbackDeck: boolean;
   lastSavedAtLabel: string | null;
-  ooxmlSyncStatus: { detail: string; kind: string; label: string } | null;
+  ooxmlSyncStatus: {
+    detail: string;
+    kind: string;
+    label: string;
+    retryable: boolean;
+  } | null;
   onExitToHome: () => void;
   onOpenExport: (format: DeckExportFormat) => void;
   onImportPptx: () => void;
@@ -44,6 +50,7 @@ type EditorTopbarProps = {
   onOpenShare: () => void;
   onRefresh: () => void;
   onRenameDeckTitle: (title: string) => void;
+  onRetryOoxmlSync: () => void;
   onSave: () => void;
   onStartPresentation: () => void;
   onStartRehearsal: () => void;
@@ -66,6 +73,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
     activePresentationAction,
     activeTopMenu,
     canManageShare,
+    canMutateDeck,
     canOpenAudienceLink,
     canStartPresentation,
     canvas,
@@ -86,6 +94,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
     onOpenShare,
     onRefresh,
     onRenameDeckTitle,
+    onRetryOoxmlSync,
     onSave,
     onStartPresentation,
     onStartRehearsal,
@@ -168,20 +177,22 @@ export function EditorTopbar(props: EditorTopbarProps) {
               ) : (
                 <strong>{deckTitle}</strong>
               )}
-              <button
-                aria-label="프레젠테이션 제목 수정"
-                className="editor-title-edit-button"
-                title="제목 수정"
-                type="button"
-                onClick={() => {
-                  titleEditCancelledRef.current = false;
-                  setTitleDraft(deckTitle);
-                  setIsEditingTitle(true);
-                  setActiveTopMenu(null);
-                }}
-              >
-                <PenLine size={14} />
-              </button>
+              {canMutateDeck ? (
+                <button
+                  aria-label="프레젠테이션 제목 수정"
+                  className="editor-title-edit-button"
+                  title="제목 수정"
+                  type="button"
+                  onClick={() => {
+                    titleEditCancelledRef.current = false;
+                    setTitleDraft(deckTitle);
+                    setIsEditingTitle(true);
+                    setActiveTopMenu(null);
+                  }}
+                >
+                  <PenLine size={14} />
+                </button>
+              ) : null}
               <small>{saveStatusLabel}</small>
               <button
                 aria-label="에디터 동기화"
@@ -212,7 +223,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
                 <EditorFileMenu
                   align="start"
                   groups={[
-                    {
+                    ...(canMutateDeck ? [{
                       items: [
                         {
                           id: "import",
@@ -227,7 +238,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
                           onSelect: onSave,
                         },
                       ],
-                    },
+                    }] : []),
                     {
                       items: [
                         {
@@ -286,24 +297,29 @@ export function EditorTopbar(props: EditorTopbarProps) {
             ) : null}
           </button>
         ) : null}
-        <EditorSaveControl
-          disabled={isDeckLoading || isUsingFallbackDeck}
-          emptyStateLabel={
-            showLoadedFileLabel ? "불러온 파일" : "저장 기록 없음"
-          }
-          isSaving={saving}
-          lastSavedAtLabel={lastSavedAtLabel}
-          onSave={onSave}
-          recoveryHint={recoveryHint}
-          statusLabel={saveStatusLabel}
-        />
+        {canMutateDeck ? (
+          <EditorSaveControl
+            disabled={isDeckLoading || isUsingFallbackDeck}
+            emptyStateLabel={
+              showLoadedFileLabel ? "불러온 파일" : "저장 기록 없음"
+            }
+            isSaving={saving}
+            lastSavedAtLabel={lastSavedAtLabel}
+            onSave={onSave}
+            recoveryHint={recoveryHint}
+            statusLabel={saveStatusLabel}
+          />
+        ) : null}
         {ooxmlSyncStatus ? (
-          <span
+          <button
             className={`ooxml-sync-pill ${ooxmlSyncStatus.kind}`}
+            disabled={!ooxmlSyncStatus.retryable}
+            onClick={onRetryOoxmlSync}
             title={ooxmlSyncStatus.detail}
+            type="button"
           >
             {ooxmlSyncStatus.label}
-          </span>
+          </button>
         ) : null}
         {/* 에디터 상단에서는 브리프 이동 버튼을 숨긴다.
         <button aria-label="브리프" className="editor-context-top-button" title="브리프" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }} type="button">...</button>

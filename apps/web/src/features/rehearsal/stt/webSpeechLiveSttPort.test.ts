@@ -142,6 +142,42 @@ describe("WebSpeechLiveSttPort", () => {
     expect(recognition.startCount).toBe(1);
   });
 
+  it("stop 중 도착한 마지막 final 결과를 방출한 뒤 종료한다", async () => {
+    const recognition = new FakeSpeechRecognition();
+    recognition.endOnStop = false;
+    const port = new WebSpeechLiveSttPort({
+      createRecognition: () => recognition,
+      recognitionConstructor: FakeSpeechRecognition,
+      now: () => 1000
+    });
+    const results: LiveSttResult[] = [];
+    port.onResult((result) => results.push(result));
+
+    await port.start({ language: "ko", audioSource: fakeMediaStream() });
+    const stopPromise = port.stop();
+    let stopCompleted = false;
+    void stopPromise.then(() => {
+      stopCompleted = true;
+    });
+    await Promise.resolve();
+
+    expect(stopCompleted).toBe(false);
+
+    recognition.emitResult({ text: "음 어", isFinal: true });
+    recognition.emitEnd();
+    await stopPromise;
+
+    expect(results).toEqual([
+      {
+        text: "음 어",
+        isFinal: true,
+        timestampMs: [0, 0]
+      }
+    ]);
+    expect(stopCompleted).toBe(true);
+    expect(recognition.startCount).toBe(1);
+  });
+
   it("fatal Web Speech 오류 후에는 onend가 와도 재시작하지 않는다", async () => {
     const recognition = new FakeSpeechRecognition();
     const port = new WebSpeechLiveSttPort({
@@ -365,6 +401,7 @@ class FakeSpeechRecognition {
   startCalls: Array<MediaStreamTrack | undefined> = [];
   stopCount = 0;
   abortCount = 0;
+  endOnStop = true;
 
   constructor(options: { phrases?: FakeSpeechRecognitionPhrase[] } = {}) {
     if (options.phrases) {
@@ -379,7 +416,9 @@ class FakeSpeechRecognition {
 
   stop() {
     this.stopCount += 1;
-    this.onend?.();
+    if (this.endOnStop) {
+      this.onend?.();
+    }
   }
 
   abort() {

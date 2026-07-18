@@ -1,3 +1,4 @@
+import type { Deck } from "@orbit/shared";
 import {
   IconChevronDown as ChevronDown,
   IconChevronUp as ChevronUp,
@@ -9,7 +10,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   RefObject
 } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { SpeakerNotesQnaTab } from "./SpeakerNotesQnaTab";
 import { SpeakerNotesReportTab } from "./SpeakerNotesReportTab";
@@ -18,7 +19,7 @@ import {
   type SpeakerNotesScriptTabProps,
 } from "./SpeakerNotesScriptTab";
 
-type SpeakerNotesTab = "script" | "qna" | "report";
+export type SpeakerNotesTab = "script" | "qna" | "report";
 
 const speakerNotesTabs: Array<{ id: SpeakerNotesTab; label: string }> = [
   { id: "script", label: "대본" },
@@ -28,17 +29,32 @@ const speakerNotesTabs: Array<{ id: SpeakerNotesTab; label: string }> = [
 
 export function SpeakerNotesPanel(props: SpeakerNotesScriptTabProps & {
   contentRef: RefObject<HTMLDivElement | null>;
+  deck: Deck;
+  flushPendingSaves: () => Promise<void>;
   height: number;
   isExpanded: boolean;
   isResizing: boolean;
   maxHeight: number;
   minHeight: number;
+  onTabSelected: (tab: SpeakerNotesTab) => void;
   onResizeKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onTogglePanel: () => void;
+  projectId: string;
+  reportRefreshToken: number;
+  requestedTab: SpeakerNotesTab | null;
 }) {
   const [activeTab, setActiveTab] = useState<SpeakerNotesTab>("script");
   const notesPreview = (props.currentSlide?.speakerNotes ?? "").trim();
+
+  useEffect(() => {
+    if (props.requestedTab) setActiveTab(props.requestedTab);
+  }, [props.requestedTab, props.reportRefreshToken]);
+
+  function selectTab(tab: SpeakerNotesTab) {
+    setActiveTab(tab);
+    props.onTabSelected(tab);
+  }
 
   return (
     <section
@@ -87,7 +103,7 @@ export function SpeakerNotesPanel(props: SpeakerNotesScriptTabProps & {
                   key={tab.id}
                   role="tab"
                   type="button"
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => selectTab(tab.id)}
                 >
                   {tab.label}
                 </button>
@@ -131,8 +147,22 @@ export function SpeakerNotesPanel(props: SpeakerNotesScriptTabProps & {
         {activeTab === "script" ? (
           <SpeakerNotesScriptTab {...props} />
         ) : null}
-        {activeTab === "qna" ? <SpeakerNotesQnaTab /> : null}
-        {activeTab === "report" ? <SpeakerNotesReportTab /> : null}
+        {activeTab === "qna" ? (
+          <SpeakerNotesQnaTab
+            deck={props.deck}
+            flushPendingSaves={props.flushPendingSaves}
+            projectId={props.projectId}
+            slide={props.currentSlide}
+          />
+        ) : null}
+        {activeTab === "report" ? (
+          <SpeakerNotesReportTab
+            deck={props.deck}
+            projectId={props.projectId}
+            refreshToken={props.reportRefreshToken}
+            slide={props.currentSlide}
+          />
+        ) : null}
       </div>
     </section>
   );

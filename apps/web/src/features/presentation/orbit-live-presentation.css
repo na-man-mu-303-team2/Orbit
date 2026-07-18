@@ -94,6 +94,20 @@
   }
 }
 
+html:has(.present-window-shell) {
+  background: var(--redesign-color-dark-surface);
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
+html:has(.present-window-shell) body,
+html:has(.present-window-shell) #root {
+  background: var(--redesign-color-dark-surface);
+  height: 100%;
+  overflow: hidden;
+  width: 100%;
+}
+
 .present-window-shell {
   background:
     radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--redesign-color-secondary) 12%, transparent), transparent 34%),

@@ -6,6 +6,7 @@ import {
   OrbitDialog,
   OrbitEmptyState,
   OrbitField,
+  OrbitIconLabel,
   OrbitIconButton,
   OrbitInput,
   OrbitStatus,
@@ -70,6 +71,16 @@ describe("Redesign System primitives", () => {
     expect(html).toContain('role="tablist"');
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain('role="tabpanel"');
+  });
+
+  it("renders a consistently spaced icon label", () => {
+    const html = renderToStaticMarkup(
+      <OrbitIconLabel icon={<span>icon</span>}>참고 자료</OrbitIconLabel>
+    );
+
+    expect(html).toContain("redesign-icon-label");
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain("참고 자료");
   });
 
   it("renders dialog and empty-state semantics", () => {

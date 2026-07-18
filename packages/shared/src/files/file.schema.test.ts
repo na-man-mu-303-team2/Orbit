@@ -48,6 +48,7 @@ describe("assetUploadUrlRequestSchema", () => {
     for (const purpose of [
       "rehearsal-audio",
       "focused-practice-audio",
+      "slide-practice-audio",
       "qna-answer-audio",
     ] as const) {
       expect(

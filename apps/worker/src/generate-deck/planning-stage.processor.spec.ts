@@ -377,6 +377,148 @@ describe("processAiDeckPlanningStage", () => {
     ).resolves.toMatchObject({ status: "running", progress: 60 });
     expect(queuedShards).toEqual(deck.slides.map((slide) => slide.slideId));
   });
+
+  it("keeps the cover separate, marks advisory facts, and queues body slides", async () => {
+    const message = { ...sourceMessage, stage: "layout-compile" as const };
+    const deck = createTestDeck(sourceMessage.projectId);
+    const coverSlide = {
+      ...structuredClone(deck.slides[0]),
+      slideId: "slide_1",
+      order: 1,
+    };
+    const { slides: ignoredSlides, ...deckShell } = deck;
+    void ignoredSlides;
+    const contentPayload = {
+      artifactVersion: 2,
+      rawInput: {
+        factQualityIssues: [
+          {
+            code: "FACT_REQUIRED_MISSING",
+            message: "Required cover fact is missing.",
+            slideOrder: 1,
+          },
+        ],
+      },
+      contentPlan: {
+        outline: { title: "Safe topic" },
+        slidePlans: [
+          { order: 1, title: "Safe topic", message: "Cover" },
+          { order: 2, title: "Body", message: "Body message" },
+        ],
+      },
+    };
+    const designPayload = { designPlan: { slidePlans: [] } };
+    const layoutPayload = {
+      artifactVersion: 2,
+      deckShell,
+      slides: [1, 2].map((order) => ({
+        sourceOrder: order,
+        order,
+        slideId: `slide_${order}`,
+        shardKey: `${String(order).padStart(3, "0")}-slide_${order}`,
+      })),
+      warnings: [],
+    };
+    const coverPayload = {
+      deck: { ...deck, slides: [coverSlide] },
+      warnings: [],
+      validation: {
+        passed: true,
+        layoutIssues: [],
+        contentIssues: [],
+        designIssues: [],
+        presentationIssues: [],
+      },
+    };
+    const queuedShards: string[] = [];
+    let finalizedCover: Record<string, unknown> | undefined;
+    const query = vi.fn(async (sql: string, parameters?: unknown[]) => {
+      const compact = compactSql(sql);
+      if (
+        compact.includes("SET status = 'running', attempt = stages.attempt + 1")
+      ) {
+        return [checkpointRow(message.stage, "running", 1, { planningArtifactId })];
+      }
+      if (compact.includes("FROM ai_deck_planning_artifacts artifacts")) {
+        const expectedStage = String(parameters?.[3] ?? parameters?.[2]);
+        if (expectedStage === "design-planning") {
+          return [artifactRow("design-planning", designPayload)];
+        }
+        if (expectedStage === "content-planning") {
+          return [artifactRow("content-planning", contentPayload)];
+        }
+        if (expectedStage === "source-grounding") {
+          return [artifactRow("source-grounding", sourcePayload)];
+        }
+      }
+      if (compact.includes("INSERT INTO ai_deck_planning_artifacts")) {
+        return [artifactRow("layout-compile", layoutPayload)];
+      }
+      if (compact.includes("SET status = 'succeeded'")) {
+        return [
+          checkpointRow(
+            message.stage,
+            "succeeded",
+            1,
+            { planningArtifactId },
+            { planningArtifactId },
+          ),
+        ];
+      }
+      if (compact.includes("artifacts.stage = 'cover-slide'")) {
+        return [{ payload_json: coverPayload }];
+      }
+      if (
+        compact.includes("SELECT payload_json") &&
+        compact.includes("stage = 'content-planning'")
+      ) {
+        return [{ payload_json: contentPayload }];
+      }
+      if (compact.includes("UPDATE ai_deck_execution_artifacts")) {
+        finalizedCover = parameters?.[2] as Record<string, unknown>;
+        return [{ artifact_id: "2e42f833-a1ca-47d0-a410-d25ca9ba4d2e" }];
+      }
+      if (compact.includes("INSERT INTO ai_deck_generation_stages")) {
+        expect(parameters?.[2]).toBe("image-slide");
+        queuedShards.push(String(parameters?.[3]));
+        return [
+          {
+            ...checkpointRow("image-slide", "queued", 0, {
+              planningArtifactId,
+            }),
+            shard_key: parameters?.[3],
+          },
+        ];
+      }
+      if (compact.includes("UPDATE jobs SET status = 'running'")) {
+        return [parentRow("running", 60)];
+      }
+      throw new Error(`Unexpected SQL: ${compact}`);
+    });
+
+    await expect(
+      processAiDeckPlanningStage(
+        fakeDataSource(query),
+        "http://python-worker:8000",
+        "worker-a",
+        message,
+        { fetchImpl: async () => jsonResponse(layoutPayload) },
+      ),
+    ).resolves.toMatchObject({ status: "running", progress: 60 });
+
+    expect(queuedShards).toEqual(["002-slide_2"]);
+    expect(finalizedCover).toMatchObject({
+      validation: {
+        passed: false,
+        contentIssues: [
+          expect.objectContaining({
+            code: "FACT_REQUIRED_MISSING",
+            blocking: false,
+          }),
+        ],
+      },
+    });
+  });
 });
 
 function fakeDataSource(query: ReturnType<typeof vi.fn>) {

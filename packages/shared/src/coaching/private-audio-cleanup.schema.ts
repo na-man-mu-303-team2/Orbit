@@ -20,6 +20,16 @@ export const focusedPracticeAnalysisJobResultSchema = z
   })
   .strict();
 
+export const slidePracticeAnalysisJobPayloadSchema = z
+  .object({ ...coachingJobIdentityShape, analysisId: coachingIdSchema })
+  .strict();
+export const slidePracticeAnalysisJobResultSchema = z
+  .object({
+    analysisId: coachingIdSchema,
+    reportId: coachingIdSchema,
+  })
+  .strict();
+
 export const challengeQnaGenerationJobPayloadSchema = z
   .object({
     ...coachingJobIdentityShape,
@@ -72,6 +82,9 @@ export const privateAudioCleanupJobResultSchema = z
 export type FocusedPracticeAnalysisJobPayload = z.infer<
   typeof focusedPracticeAnalysisJobPayloadSchema
 >;
+export type SlidePracticeAnalysisJobPayload = z.infer<
+  typeof slidePracticeAnalysisJobPayloadSchema
+>;
 export type ChallengeQnaGenerationJobPayload = z.infer<
   typeof challengeQnaGenerationJobPayloadSchema
 >;
@@ -81,4 +94,3 @@ export type ChallengeQnaAnswerAnalysisJobPayload = z.infer<
 export type PrivateAudioCleanupJobPayload = z.infer<
   typeof privateAudioCleanupJobPayloadSchema
 >;
-

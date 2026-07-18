@@ -4,7 +4,9 @@ import {
   buildAssetUploadRequest,
   createProject,
   deleteProject,
+  fetchProjects,
   getAssetValidationMessage,
+  updateProjectPin,
   uploadProjectAsset,
 } from "./ProjectAssetWorkspace";
 
@@ -16,6 +18,27 @@ afterEach(() => {
 });
 
 describe("ORBIT-93 project asset upload helpers", () => {
+  it("loads the current user's project pin state from the project list API", async () => {
+    const fetcher = vi.fn(async () =>
+      new Response(
+        JSON.stringify([
+          {
+            projectId: "project_pinned",
+            workspaceId: "workspace_demo_1",
+            title: "Pinned project",
+            createdBy: "user_1",
+            createdAt: "2026-07-18T00:00:00.000Z",
+            isPinned: true,
+          },
+        ]),
+      ),
+    );
+
+    await expect(fetchProjects(fetcher)).resolves.toEqual([
+      expect.objectContaining({ projectId: "project_pinned", isPinned: true }),
+    ]);
+  });
+
   it("creates an initial blank deck after creating a project", async () => {
     const fetcher = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -158,6 +181,28 @@ describe("ORBIT-93 project asset upload helpers", () => {
 
     await expect(deleteProject("project_smoke", fetcher)).resolves.toEqual({
       projectId: "project_smoke",
+    });
+  });
+
+  it("updates the current user's project pin through the workspace API", async () => {
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe(
+          "/api/v1/workspaces/workspace_demo_1/projects/project_smoke/pin",
+        );
+        expect(init?.method).toBe("PATCH");
+        expect(init?.credentials).toBe("include");
+        expect(JSON.parse(String(init?.body))).toEqual({ isPinned: true });
+
+        return new Response(
+          JSON.stringify({ projectId: "project_smoke", isPinned: true }),
+        );
+      },
+    );
+
+    await expect(updateProjectPin("project_smoke", true, fetcher)).resolves.toEqual({
+      projectId: "project_smoke",
+      isPinned: true,
     });
   });
 

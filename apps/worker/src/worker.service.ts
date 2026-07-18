@@ -14,12 +14,16 @@ import {
   speakerNotesSuggestionQueueName,
   workerHealthCheckQueueName,
   focusedPracticeAnalysisQueueName,
+  slidePracticeAnalysisQueueName,
   challengeQnaGenerationQueueName,
   challengeQnaAnswerAnalysisQueueName,
+  slideQuestionGuideGenerationQueueName,
   aiDeckResearchContentQueueName,
   aiDeckDesignLayoutQueueName,
   aiDeckImageQueueName,
   aiDeckQaFinalizeQueueName,
+  designImageGenerationJobName,
+  designImageGenerationQueueName,
   activityResponseRetentionQueueName,
   enqueueActivityResponseRetentionJob,
 } from "@orbit/job-queue";
@@ -62,13 +66,18 @@ import { processSpeakerNotesSuggestionJob } from "./speaker-notes-suggestion.pro
 import { workerStorage } from "./storage";
 import { processWorkerHealthCheckJob } from "./worker-health-check.processor";
 import { processFocusedPracticeAnalysisJob } from "./focused-practice-analysis.processor";
+import { processSlidePracticeAnalysisJob } from "./slide-practice-analysis.processor";
 import {
   enqueueExpiredRehearsalAudioDeletions,
+  enqueueExpiredSlidePracticeAudioDeletions,
   reconcileStorageDeletionOutbox,
 } from "./storage-deletion-reconciler";
 import { processChallengeQnaGenerationJob } from "./challenge-qna-generation.processor";
 import { processChallengeQnaAnswerJob } from "./challenge-qna-answer.processor";
 import { ChallengeQnaEvidenceCache } from "./challenge-qna-evidence-cache";
+import { processSlideQuestionGuideGenerationJob } from "./slide-question-guide-generation.processor";
+import { deleteExpiredSlidePracticeData } from "./slide-practice-retention";
+import { processDesignImageGenerationJob } from "./design-image-generation.processor";
 import { dispatchDueActivityRetentionJobs } from "./activity-retention.dispatcher";
 import { processActivityResponseRetentionJob } from "./activity-retention.processor";
 
@@ -87,12 +96,15 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     pptxOoxmlSyncQueueName,
     workerHealthCheckQueueName,
     focusedPracticeAnalysisQueueName,
+    slidePracticeAnalysisQueueName,
     challengeQnaGenerationQueueName,
     challengeQnaAnswerAnalysisQueueName,
+    slideQuestionGuideGenerationQueueName,
     aiDeckResearchContentQueueName,
     aiDeckDesignLayoutQueueName,
     aiDeckImageQueueName,
     aiDeckQaFinalizeQueueName,
+    designImageGenerationQueueName,
     activityResponseRetentionQueueName,
   ];
   private readonly workerId = `worker-${randomUUID()}`;
@@ -165,7 +177,17 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     const reconcileDeletions = () => {
       void (async () => {
         await enqueueExpiredRehearsalAudioDeletions(this.dataSource);
+        await enqueueExpiredSlidePracticeAudioDeletions(this.dataSource);
         await reconcileStorageDeletionOutbox(this.dataSource, storage);
+        const deleted = await deleteExpiredSlidePracticeData(this.dataSource);
+        if (deleted.analysisCount > 0 || deleted.reportCount > 0 || deleted.baselineCount > 0) {
+          this.logger.info({
+            event: "slide_practice.retention_deleted",
+            analysisCount: deleted.analysisCount,
+            reportCount: deleted.reportCount,
+            baselineCount: deleted.baselineCount,
+          }, "Expired slide practice data deleted.");
+        }
       })().catch(
         (error) => {
           this.logger.error(
@@ -390,6 +412,20 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         },
       },
       {
+        queueName: designImageGenerationQueueName,
+        handler: (job) => {
+          if (job.name !== designImageGenerationJobName) {
+            throw new Error(`Unsupported BullMQ job name: ${job.name}`);
+          }
+          return processDesignImageGenerationJob(
+            this.dataSource,
+            storage,
+            imageRuntime,
+            job.data,
+          );
+        },
+      },
+      {
         queueName: aiDeckQaFinalizeQueueName,
         handler: (job) => {
           if (
@@ -480,6 +516,23 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           ),
       },
       {
+        queueName: slidePracticeAnalysisQueueName,
+        handler: (job) =>
+          processSlidePracticeAnalysisJob(
+            this.dataSource,
+            storage,
+            this.config.PYTHON_WORKER_URL,
+            job.data,
+            (event) => {
+              const level = event.status === "unavailable" ? "warn" : "info";
+              this.logger[level](
+                event,
+                "Slide practice coaching completed.",
+              );
+            },
+          ),
+      },
+      {
         queueName: challengeQnaGenerationQueueName,
         handler: (job) =>
           processChallengeQnaGenerationJob(
@@ -497,6 +550,28 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             this.challengeQnaEvidenceCache!,
             this.config.PYTHON_WORKER_URL,
             job.data,
+          ),
+      },
+      {
+        queueName: slideQuestionGuideGenerationQueueName,
+        handler: (job) =>
+          processSlideQuestionGuideGenerationJob(
+            this.dataSource,
+            this.config.PYTHON_WORKER_URL,
+            job.data,
+            (event) => {
+              if (event.event === "slide_question_guide.generation.failed") {
+                this.logger.error(
+                  event,
+                  "Slide question guide generation failed.",
+                );
+                return;
+              }
+              this.logger.info(
+                event,
+                "Slide question guide web research completed.",
+              );
+            },
           ),
       },
       {
@@ -998,7 +1073,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       case "design-layout":
         return [aiDeckDesignLayoutQueueName];
       case "image":
-        return [aiDeckImageQueueName];
+        return [aiDeckImageQueueName, designImageGenerationQueueName];
       case "qa-finalize":
         return [aiDeckQaFinalizeQueueName];
       default:

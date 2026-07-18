@@ -23,13 +23,45 @@ describe("image providers", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await new OpenAiGeneratedImageProvider("secret-key").generate({
-      prompt: "presentation visual"
+      prompt: "presentation visual",
+      aspectRatio: "portrait"
     });
 
     expect(Array.from(result.body)).toEqual([1, 2]);
     expect(result.mimeType).toBe("image/png");
     const requestBody = String(fetchMock.mock.calls[0]?.[1]?.body ?? "");
     expect(requestBody).not.toContain("secret-key");
+    expect(JSON.parse(requestBody)).toMatchObject({ size: "1024x1536" });
+  });
+
+  it("sends reference images through the OpenAI image edit endpoint", async () => {
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({ data: [{ b64_json: Buffer.from([3, 4]).toString("base64") }] }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OpenAiGeneratedImageProvider("secret-key").generate({
+      prompt: "reference based visual",
+      referenceImages: [
+        {
+          body: new Uint8Array([1, 2, 3]),
+          mimeType: "image/png",
+          fileName: "reference.png",
+          inputFidelity: "high",
+        },
+      ],
+    });
+
+    expect(Array.from(result.body)).toEqual([3, 4]);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://api.openai.com/v1/images/edits",
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBeInstanceOf(FormData);
+    expect(String(fetchMock.mock.calls[0]?.[1]?.headers)).not.toContain("secret-key");
   });
 
   it("returns Openverse attribution and license metadata", async () => {

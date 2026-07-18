@@ -4,14 +4,17 @@ import {
   projectMembersResponseSchema,
   projectListResponseSchema,
   projectSchema,
+  updateProjectPinResponseSchema,
 } from "@orbit/shared";
 import type {
   CreateProjectRequest,
   DeleteProjectResponse,
   Project,
+  ProjectListItem,
   ProjectMemberRole,
   ProjectMemberStatus,
   ProjectMembersResponse,
+  UpdateProjectPinResponse,
 } from "@orbit/shared";
 import { randomUUID } from "crypto";
 import {
@@ -140,7 +143,7 @@ export class ProjectsService {
     );
   }
 
-  async list(workspaceId: string, userId: string): Promise<Project[]> {
+  async list(workspaceId: string, userId: string): Promise<ProjectListItem[]> {
     this.assertWorkspaceAccess(workspaceId);
 
     const acceptedMemberships = await this.projectMembersRepository.find({
@@ -160,9 +163,15 @@ export class ProjectsService {
       where: { workspaceId, projectId: In(projectIds) },
       order: { createdAt: "DESC" },
     });
+    const membershipsByProjectId = new Map(
+      acceptedMemberships.map((membership) => [membership.projectId, membership]),
+    );
 
     return projectListResponseSchema.parse(
-      projects.map((project) => this.toProjectDto(project)),
+      projects.map((project) => ({
+        ...this.toProjectDto(project),
+        isPinned: Boolean(membershipsByProjectId.get(project.projectId)?.isPinned),
+      })),
     );
   }
 
@@ -188,6 +197,23 @@ export class ProjectsService {
     }
     await this.projectsRepository.update({ projectId, workspaceId }, { title });
     return projectSchema.parse({ ...project, title });
+  }
+
+  async updatePin(
+    workspaceId: string,
+    projectId: string,
+    requesterUserId: string,
+    isPinned: boolean,
+  ): Promise<UpdateProjectPinResponse> {
+    const member = await this.assertAcceptedMember(
+      workspaceId,
+      projectId,
+      requesterUserId,
+    );
+    member.isPinned = isPinned;
+    await this.projectMembersRepository.save(member);
+
+    return updateProjectPinResponseSchema.parse({ projectId, isPinned });
   }
 
   async getAccessibleProject(projectId: string): Promise<Project> {

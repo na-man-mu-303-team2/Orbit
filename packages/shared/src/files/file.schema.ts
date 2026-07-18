@@ -10,6 +10,7 @@ export const filePurposeSchema = z.enum([
   "rehearsal-transcript-json",
   "rehearsal-transcript-text",
   "focused-practice-audio",
+  "slide-practice-audio",
   "qna-answer-audio",
   "export-result",
   "report-result",
@@ -21,6 +22,7 @@ export const filePurposeSchema = z.enum([
 export const privateAudioPurposeSchema = z.enum([
   "rehearsal-audio",
   "focused-practice-audio",
+  "slide-practice-audio",
   "qna-answer-audio",
 ]);
 export const privateAudioPurposes = new Set<string>(privateAudioPurposeSchema.options);
