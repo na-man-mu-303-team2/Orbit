@@ -10,7 +10,8 @@ import {
   EditorSlideRehearsalBottomPanel,
   EditorSlideRehearsalLeftPanel,
   EditorSlideRehearsalRightPanel,
-  formatRehearsalTime
+  formatRehearsalTime,
+  getEditorSlideRehearsalWheelAction
 } from "./EditorSlideRehearsal";
 
 const listeningState: EditorSlideRehearsalState = {
@@ -35,6 +36,7 @@ describe("EditorSlideRehearsal", () => {
         message=""
         onNextSentence={vi.fn(() => null)}
         onPreviousSentence={vi.fn(() => null)}
+        onSkipSentence={vi.fn(() => null)}
         onStart={vi.fn()}
         onStop={vi.fn()}
         practiceState="recording"
@@ -65,6 +67,7 @@ describe("EditorSlideRehearsal", () => {
         message="서버 분석을 완료했습니다."
         onNextSentence={vi.fn(() => null)}
         onPreviousSentence={vi.fn(() => null)}
+        onSkipSentence={vi.fn(() => null)}
         onStart={vi.fn()}
         onStop={vi.fn()}
         practiceState="completed"
@@ -89,6 +92,7 @@ describe("EditorSlideRehearsal", () => {
         message="녹음을 업로드하고 서버에서 분석하고 있습니다."
         onNextSentence={vi.fn(() => null)}
         onPreviousSentence={vi.fn(() => null)}
+        onSkipSentence={vi.fn(() => null)}
         onStart={vi.fn()}
         onStop={vi.fn()}
         practiceState="stopping"
@@ -111,6 +115,7 @@ describe("EditorSlideRehearsal", () => {
         message="연습 녹음 업로드 서버에 연결하지 못했습니다."
         onNextSentence={vi.fn(() => null)}
         onPreviousSentence={vi.fn(() => null)}
+        onSkipSentence={vi.fn(() => null)}
         onStart={vi.fn()}
         onStop={vi.fn()}
         practiceState="error"
@@ -122,6 +127,18 @@ describe("EditorSlideRehearsal", () => {
     expect(html).toContain("녹음 업로드 실패");
     expect(html).toContain("연습 녹음 업로드 서버에 연결하지 못했습니다.");
     expect(html).not.toContain("Failed to fetch");
+  });
+
+  it("자동 모드의 휠 아래는 skip하고 자동 모드를 유지한다", () => {
+    expect(getEditorSlideRehearsalWheelAction("auto", "next")).toBe(
+      "skip-next"
+    );
+    expect(getEditorSlideRehearsalWheelAction("auto", "previous")).toBe(
+      "auto-previous"
+    );
+    expect(getEditorSlideRehearsalWheelAction("manual", "next")).toBe(
+      "manual-next"
+    );
   });
 
   it("오른쪽 패널에 현재 슬라이드와 체크포인트를 표시한다", () => {

@@ -158,6 +158,34 @@ describe("createPrompterProgressTracker", () => {
     });
   });
 
+  it("skip current는 현재 문장을 완료하지 않고 다음 문장으로 이동한다", () => {
+    const tracker = createTracker();
+
+    expect(tracker.skipCurrent(1_000)).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      phase: "tracking",
+      currentSentenceId: "sentence_2",
+      committedSentenceIds: [],
+      skippedSentenceIds: ["sentence_1"],
+      lastCommittedSentenceId: null,
+      lastCommitSource: null,
+      finalSentenceCommitted: false
+    });
+  });
+
+  it("마지막 문장은 skip하지 않아 완료 상태를 만들지 않는다", () => {
+    const tracker = createTracker();
+    expect(tracker.skipCurrent(1_000)).toBe(true);
+
+    expect(tracker.skipCurrent(1_100)).toBe(false);
+    expect(tracker.snapshot()).toMatchObject({
+      currentSentenceId: "sentence_2",
+      committedSentenceIds: [],
+      skippedSentenceIds: ["sentence_1"],
+      finalSentenceCommitted: false
+    });
+  });
+
   it("마지막 문장 commit과 reset을 명시적으로 관리한다", () => {
     const tracker = createTracker();
     tracker.manualNext(1_000);

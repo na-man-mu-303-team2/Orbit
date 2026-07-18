@@ -30,6 +30,7 @@ export function EditorSlideRehearsalBottomPanel(
     message: string;
     onNextSentence: () => SpeechTrackerSnapshot | null;
     onPreviousSentence: () => SpeechTrackerSnapshot | null;
+    onSkipSentence: () => SpeechTrackerSnapshot | null;
     onStart: () => void;
     onStop: () => void;
     practiceState: PracticeSessionState;
@@ -90,6 +91,17 @@ export function EditorSlideRehearsalBottomPanel(
       return;
     }
     setFollowMode("auto");
+  }
+
+  function moveByWheel(direction: "next" | "previous") {
+    const action = getEditorSlideRehearsalWheelAction(followMode, direction);
+    if (action === "skip-next") {
+      return props.onSkipSentence() !== null;
+    }
+    if (action === "auto-previous") {
+      return props.onPreviousSentence() !== null;
+    }
+    return moveManually(direction === "next" ? 1 : -1);
   }
 
   return (
@@ -153,7 +165,7 @@ export function EditorSlideRehearsalBottomPanel(
       <RehearsalScriptTeleprompter
         focusScopeId={props.slide.slideId}
         onWheelNavigate={(direction) => {
-          moveManually(direction === "next" ? 1 : -1);
+          moveByWheel(direction);
         }}
         progressPercent={visibleProgress.progressPercent}
         rows={visibleProgress.rows}
@@ -203,6 +215,16 @@ export function EditorSlideRehearsalBottomPanel(
       </RehearsalScriptTeleprompter>
     </section>
   );
+}
+
+export function getEditorSlideRehearsalWheelAction(
+  followMode: "auto" | "manual",
+  direction: "next" | "previous"
+) {
+  if (followMode === "auto") {
+    return direction === "next" ? "skip-next" : "auto-previous";
+  }
+  return direction === "next" ? "manual-next" : "manual-previous";
 }
 
 export function createManualScriptProgress(

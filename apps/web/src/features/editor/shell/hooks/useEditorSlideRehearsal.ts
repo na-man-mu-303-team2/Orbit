@@ -284,6 +284,14 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
     return speechTrackerSnapshot;
   }, []);
 
+  const skipCurrentSentence = useCallback(() => {
+    const speechTracker = speechTrackerRef.current;
+    if (!speechTracker?.skipCurrentPrompter(Date.now())) return null;
+    const speechTrackerSnapshot = speechTracker.snapshot();
+    setState((current) => ({ ...current, speechTrackerSnapshot }));
+    return speechTrackerSnapshot;
+  }, []);
+
   useEffect(() => {
     if (state.status !== "listening") return;
     const timer = window.setInterval(() => {
@@ -308,6 +316,7 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
     exit,
     moveToNextSentence,
     moveToPreviousSentence,
+    skipCurrentSentence,
     start,
     state,
     stop

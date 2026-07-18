@@ -481,6 +481,7 @@ export function EditorShell(props: { projectId?: string }) {
     exit: exitSlideRehearsal,
     moveToNextSentence: moveSlideRehearsalToNextSentence,
     moveToPreviousSentence: moveSlideRehearsalToPreviousSentence,
+    skipCurrentSentence: skipCurrentSlideRehearsalSentence,
     start: startSlideRehearsal,
     state: slideRehearsalState,
     stop: stopSlideRehearsal
@@ -1571,6 +1572,7 @@ export function EditorShell(props: { projectId?: string }) {
                 message={slidePracticeSession.message}
                 onNextSentence={moveSlideRehearsalToNextSentence}
                 onPreviousSentence={moveSlideRehearsalToPreviousSentence}
+                onSkipSentence={skipCurrentSlideRehearsalSentence}
                 onStart={() => void handleStartSlidePractice()}
                 onStop={() => void handleStopSlidePractice()}
                 practiceState={slidePracticeSession.state}
