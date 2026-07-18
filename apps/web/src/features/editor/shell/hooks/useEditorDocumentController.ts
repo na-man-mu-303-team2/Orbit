@@ -26,6 +26,7 @@ import {
   resolveHistoryNavigation,
   type HistoryEntry
 } from "../utils/editorHistory";
+import { resolveSelectedSlideId } from "../slideRailModel";
 import { toEditorErrorMessage } from "../utils/editorFileValidation";
 import { normalizeDeckAssetUrls } from "../utils/slideRenderUtils";
 import {
@@ -36,13 +37,13 @@ import {
 
 type HistoryCallbacks = {
   confirmDiscard: () => boolean;
-  onNavigate: (deck: Deck, slideIndex: number) => void;
+  onNavigate: (deck: Deck, slideId: string | null) => void;
   refreshThumbnails: (deck: Deck) => void;
   resetNotes: (notes: string) => void;
 };
 
 export function useEditorDocumentController(args: {
-  currentSlideIndex: number;
+  currentSlideId: string | null;
   loadedDeck: Deck;
   onHydratedProjectChange: () => void;
   onManualSaveStart: () => void;
@@ -143,7 +144,7 @@ export function useEditorDocumentController(args: {
     setLastSavedAt(response.changeRecord.createdAt);
     setUndoStack((current) => appendAppliedDesignProposalHistory({
       currentDeck: previousDeck,
-      currentSlideIndex: args.currentSlideIndex,
+      currentSlideId: args.currentSlideId,
       undoStack: current
     }));
     setRedoStack([]);
@@ -362,7 +363,10 @@ export function useEditorDocumentController(args: {
     setSaveError(null, null);
     setUndoStack((current) => [
       ...current.slice(-49),
-      { deck: baseDeck, slideIndex: args.currentSlideIndex }
+      {
+        deck: baseDeck,
+        slideId: resolveSelectedSlideId(baseDeck.slides, args.currentSlideId)
+      }
     ]);
     setRedoStack([]);
     setDeck(result.deck);
@@ -395,44 +399,51 @@ export function useEditorDocumentController(args: {
   }
 
   function undo(callbacks: HistoryCallbacks) {
-    if (undoStack.length === 0 || !callbacks.confirmDiscard()) return;
+    if (undoStack.length === 0 || !callbacks.confirmDiscard()) return false;
     const transition = resolveHistoryNavigation({
       currentDeck: workingDeckRef.current,
-      currentSlideIndex: args.currentSlideIndex,
+      currentSlideId: args.currentSlideId,
       stack: undoStack
     });
-    if (!transition) return;
+    if (!transition) return false;
     const previous = transition.targetEntry;
-    callbacks.resetNotes(previous.deck.slides[transition.targetSlideIndex]?.speakerNotes ?? "");
+    const previousSlide = previous.deck.slides.find(
+      (slide) => slide.slideId === transition.targetSlideId
+    );
+    callbacks.resetNotes(previousSlide?.speakerNotes ?? "");
     replaceWorkingDeck(previous.deck);
     setUndoStack(transition.nextStack);
     setRedoStack((current) => [...current, transition.currentEntry]);
     setDeck(previous.deck);
     callbacks.refreshThumbnails(previous.deck);
-    callbacks.onNavigate(previous.deck, transition.targetSlideIndex);
+    callbacks.onNavigate(previous.deck, transition.targetSlideId);
     queryClient.setQueryData(["deck", args.projectId], (current?: Deck) =>
       mergeDeckIntoQueryCache(current, previous.deck)
     );
     setLastPatchLabel(`undo · v${previous.deck.version}`);
     scheduleUndoRedoPersist("undo");
+    return true;
   }
 
   function redo(callbacks: HistoryCallbacks) {
     if (redoStack.length === 0 || !callbacks.confirmDiscard()) return;
     const transition = resolveHistoryNavigation({
       currentDeck: workingDeckRef.current,
-      currentSlideIndex: args.currentSlideIndex,
+      currentSlideId: args.currentSlideId,
       stack: redoStack
     });
     if (!transition) return;
     const next = transition.targetEntry;
-    callbacks.resetNotes(next.deck.slides[transition.targetSlideIndex]?.speakerNotes ?? "");
+    const nextSlide = next.deck.slides.find(
+      (slide) => slide.slideId === transition.targetSlideId
+    );
+    callbacks.resetNotes(nextSlide?.speakerNotes ?? "");
     setRedoStack(transition.nextStack);
     setUndoStack((current) => [...current.slice(-49), transition.currentEntry]);
     replaceWorkingDeck(next.deck);
     setDeck(next.deck);
     callbacks.refreshThumbnails(next.deck);
-    callbacks.onNavigate(next.deck, transition.targetSlideIndex);
+    callbacks.onNavigate(next.deck, transition.targetSlideId);
     queryClient.setQueryData(["deck", args.projectId], (current?: Deck) =>
       mergeDeckIntoQueryCache(current, next.deck)
     );

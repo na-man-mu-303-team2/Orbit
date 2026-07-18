@@ -22,6 +22,8 @@ import {
   aiDeckDesignLayoutQueueName,
   aiDeckImageQueueName,
   aiDeckQaFinalizeQueueName,
+  designImageGenerationJobName,
+  designImageGenerationQueueName,
   activityResponseRetentionQueueName,
   enqueueActivityResponseRetentionJob,
 } from "@orbit/job-queue";
@@ -75,6 +77,7 @@ import { processChallengeQnaAnswerJob } from "./challenge-qna-answer.processor";
 import { ChallengeQnaEvidenceCache } from "./challenge-qna-evidence-cache";
 import { processSlideQuestionGuideGenerationJob } from "./slide-question-guide-generation.processor";
 import { deleteExpiredSlidePracticeData } from "./slide-practice-retention";
+import { processDesignImageGenerationJob } from "./design-image-generation.processor";
 import { dispatchDueActivityRetentionJobs } from "./activity-retention.dispatcher";
 import { processActivityResponseRetentionJob } from "./activity-retention.processor";
 
@@ -101,6 +104,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     aiDeckDesignLayoutQueueName,
     aiDeckImageQueueName,
     aiDeckQaFinalizeQueueName,
+    designImageGenerationQueueName,
     activityResponseRetentionQueueName,
   ];
   private readonly workerId = `worker-${randomUUID()}`;
@@ -404,6 +408,20 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             {
               eventLogger: this.aiPptEventLogger,
             },
+          );
+        },
+      },
+      {
+        queueName: designImageGenerationQueueName,
+        handler: (job) => {
+          if (job.name !== designImageGenerationJobName) {
+            throw new Error(`Unsupported BullMQ job name: ${job.name}`);
+          }
+          return processDesignImageGenerationJob(
+            this.dataSource,
+            storage,
+            imageRuntime,
+            job.data,
           );
         },
       },
@@ -1055,7 +1073,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       case "design-layout":
         return [aiDeckDesignLayoutQueueName];
       case "image":
-        return [aiDeckImageQueueName];
+        return [aiDeckImageQueueName, designImageGenerationQueueName];
       case "qa-finalize":
         return [aiDeckQaFinalizeQueueName];
       default:

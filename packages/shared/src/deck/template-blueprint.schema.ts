@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 import { deckElementIdSchema, deckIdSchema } from "./id.schema";
+import {
+  deckElementTypeSchema,
+  ooxmlElementEditCapabilitiesSchema,
+  ooxmlOriginSchema,
+} from "./slide-object.schema";
 
 export const templateBlueprintIdSchema = z
   .string()
@@ -62,24 +67,117 @@ export const templateSlotSourceSchema = z
   })
   .passthrough();
 
-export const templateElementSourceSchema = z.object({
-  elementId: deckElementIdSchema,
-  slidePart: z.string().min(1),
-  shapeId: z.string().min(1),
-  relationshipId: z.string().min(1).optional(),
-  sourceType: z.enum([
-    "placeholder",
-    "slide",
-    "layout",
-    "master",
-    "table",
-    "image",
-    "shape",
-    "unknown",
-  ]),
-  writable: z.boolean(),
-  fallbackReason: z.string().min(1).optional(),
+export const templateTableCellLocatorSchema = z.object({
+  rowIndex: z.number().int().min(0).max(999),
+  columnIndex: z.number().int().min(0).max(999),
+  fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
 });
+
+export const templateTableCellLocatorsSchema = z
+  .array(templateTableCellLocatorSchema)
+  .min(1)
+  .max(10_000)
+  .superRefine((locators, ctx) => {
+    const coordinates = new Set<string>();
+    const columnCount =
+      Math.max(...locators.map((locator) => locator.columnIndex)) + 1;
+    locators.forEach((locator, index) => {
+      const coordinate = `${locator.rowIndex}:${locator.columnIndex}`;
+      if (coordinates.has(coordinate)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "table cell locator coordinates must be unique",
+          path: [index],
+        });
+      }
+      coordinates.add(coordinate);
+      const previous = locators[index - 1];
+      if (
+        previous &&
+        (locator.rowIndex < previous.rowIndex ||
+          (locator.rowIndex === previous.rowIndex &&
+            locator.columnIndex <= previous.columnIndex))
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "table cell locators must be in row-major order",
+          path: [index],
+        });
+      }
+      const expectedRowIndex = Math.floor(index / columnCount);
+      const expectedColumnIndex = index % columnCount;
+      if (
+        locator.rowIndex !== expectedRowIndex ||
+        locator.columnIndex !== expectedColumnIndex
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "table cell locators must form a complete rectangular grid from 0:0",
+          path: [index],
+        });
+      }
+    });
+    if (locators.length % columnCount !== 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "table cell locator rows must have the same column count",
+      });
+    }
+  });
+
+export const templateElementSourceSchema = z
+  .object({
+    elementId: deckElementIdSchema,
+    elementType: deckElementTypeSchema.optional(),
+    ooxmlOrigin: ooxmlOriginSchema.optional(),
+    ooxmlEditCapabilities: ooxmlElementEditCapabilitiesSchema.optional(),
+    slidePart: z.string().min(1),
+    shapeId: z.string().min(1),
+    relationshipId: z.string().min(1).optional(),
+    sourceType: z.enum([
+      "placeholder",
+      "slide",
+      "layout",
+      "master",
+      "table",
+      "image",
+      "shape",
+      "unknown",
+    ]),
+    writable: z.boolean(),
+    tableCellLocators: templateTableCellLocatorsSchema.optional(),
+    fallbackReason: z.string().min(1).optional(),
+  })
+  .superRefine((source, ctx) => {
+    if (source.ooxmlEditCapabilities?.tableCellText === true) {
+      const hasAuthoritativeTableSource =
+        source.elementType === "table" &&
+        source.sourceType === "table" &&
+        source.writable &&
+        source.fallbackReason === undefined &&
+        source.tableCellLocators !== undefined;
+      if (!hasAuthoritativeTableSource) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "table cell text capability requires an authoritative writable table source",
+          path: ["ooxmlEditCapabilities", "tableCellText"],
+        });
+      }
+    }
+    if (
+      source.tableCellLocators &&
+      (source.sourceType !== "table" ||
+        (source.elementType !== undefined && source.elementType !== "table"))
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "table cell locators require a table source",
+        path: ["tableCellLocators"],
+      });
+    }
+  });
 
 export const templateBlueprintSlotSchema = z.object({
   elementId: deckElementIdSchema,
@@ -94,6 +192,11 @@ export const templateBlueprintSlotSchema = z.object({
 export const templateBlueprintSlideSchema = z.object({
   slideIndex: z.number().int().positive(),
   sourceSlideIndex: z.number().int().positive(),
+  sourceSlidePart: z
+    .string()
+    .regex(/^ppt\/slides\/slide[^/]+\.xml$/)
+    .optional(),
+  ooxmlOrigin: ooxmlOriginSchema.optional(),
   cloneSourceSlideIndex: z.number().int().positive().optional(),
   cloneSourceSlidePart: z.string().min(1).optional(),
   slideRole: z.string().trim().min(1).optional(),
@@ -170,6 +273,9 @@ export type TemplateSlotReplaceMode = z.infer<
 >;
 export type TemplateBlueprintSlot = z.infer<typeof templateBlueprintSlotSchema>;
 export type TemplateElementSource = z.infer<typeof templateElementSourceSchema>;
+export type TemplateTableCellLocator = z.infer<
+  typeof templateTableCellLocatorSchema
+>;
 export type TemplateBlueprintSlide = z.infer<
   typeof templateBlueprintSlideSchema
 >;

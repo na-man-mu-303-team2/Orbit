@@ -19,7 +19,7 @@ import {
 import { deriveKeywordOccurrences } from "./keyword-occurrences";
 import { semanticCueSchema } from "./semantic-cue.schema";
 import { slideActionSchema } from "./slide-action.schema";
-import { deckElementSchema } from "./slide-object.schema";
+import { deckElementSchema, ooxmlOriginSchema } from "./slide-object.schema";
 import { savedDesignPackSnapshotSchema } from "./saved-design-pack.schema";
 import { themeColorSchema, themeSchema } from "./theme.schema";
 
@@ -305,6 +305,7 @@ export const slideKindSchema = z.enum([
 
 const slideBaseSchema = z.object({
     slideId: deckSlideIdSchema,
+    ooxmlOrigin: ooxmlOriginSchema.optional(),
     order: slideOrderSchema,
     title: z.string().default(""),
     thumbnailUrl: z.string().default(""),

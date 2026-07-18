@@ -10,13 +10,17 @@ import {
   IconSparkles as Sparkles,
   IconTypography as Type
 } from "@tabler/icons-react";
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 
 import type { InsertTool } from "../editorShellUiStore";
 import { EditorZoomControls } from "./EditorZoomControls";
 
 type EditorToolbarProps = {
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  canMutate: boolean;
   canUseCurrentSlide: boolean;
+  compactSelectionTrigger?: ReactNode;
   insertTool: InsertTool;
   isAnimationPanelOpen: boolean;
   isImageUploadPending: boolean;
@@ -35,6 +39,7 @@ type EditorToolbarProps = {
   onFitStageToViewport: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  onZoomToActualSize: () => void;
   redoDisabled: boolean;
   selectedElementAnimationCount: number;
   shapeMenuButtonRef: RefObject<HTMLButtonElement | null>;
@@ -49,7 +54,8 @@ export function EditorToolbar(props: EditorToolbarProps) {
 
   return (
     <div className="stage-top-controls">
-      <div className="editor-toolbar">
+      {props.canMutate ? <div className="editor-toolbar">
+        {props.compactSelectionTrigger}
         <div className="tool-group">
           <button aria-label="실행 취소" className="icon-button history-nav-button" disabled={props.undoDisabled} title="Undo" type="button" onClick={props.onUndo}>
             <IconArrowLeft className="history-nav-icon" size={20} stroke={2} />
@@ -127,12 +133,15 @@ export function EditorToolbar(props: EditorToolbarProps) {
             <Sparkles size={17} />
           </button>
         </div>
-      </div>
+      </div> : null}
       <EditorZoomControls
+        canZoomIn={props.canZoomIn}
+        canZoomOut={props.canZoomOut}
         isFitToViewport={props.isStageFitToViewport}
         onFitToViewport={props.onFitStageToViewport}
         onZoomIn={props.onZoomIn}
         onZoomOut={props.onZoomOut}
+        onZoomToActualSize={props.onZoomToActualSize}
         scale={props.stageScale}
       />
     </div>

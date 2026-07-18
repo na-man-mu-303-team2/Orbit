@@ -979,7 +979,7 @@ describe("DecksService", () => {
         expect.objectContaining({
           type: "update_element_props",
           elementId: "el_keep",
-          props: expect.objectContaining({ text: "After" }),
+          props: { text: "After" },
         }),
         expect.objectContaining({
           type: "add_element",

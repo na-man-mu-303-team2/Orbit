@@ -89,11 +89,23 @@ describe("templateBlueprintSchema", () => {
         {
           slideIndex: 1,
           sourceSlideIndex: 1,
+          sourceSlidePart: "ppt/slides/slide1.xml",
+          ooxmlOrigin: "imported",
           renderAssetFileId: "file_slide_1",
           fallbackRenderAssetFileId: "file_fallback_1",
           elementSources: [
             {
               elementId: "el_title",
+              elementType: "text",
+              ooxmlOrigin: "imported",
+              ooxmlEditCapabilities: {
+                richText: "none",
+                crop: "none",
+                tableCellText: false,
+                frame: true,
+                delete: false,
+                imageSource: false,
+              },
               slidePart: "ppt/slides/slide1.xml",
               shapeId: "2",
               sourceType: "placeholder",
@@ -108,7 +120,371 @@ describe("templateBlueprintSchema", () => {
     expect(blueprint.currentPackageFileId).toBe("file_current");
     expect(blueprint.ooxmlSyncedDeckVersion).toBe(2);
     expect(blueprint.slides[0].renderAssetFileId).toBe("file_slide_1");
+    expect(blueprint.slides[0].ooxmlOrigin).toBe("imported");
+    expect(
+      blueprint.slides[0].elementSources[0]?.ooxmlEditCapabilities?.frame,
+    ).toBe(true);
     expect(blueprint.slides[0].elementSources[0]?.writable).toBe(true);
+  });
+
+  it("keeps OOXML provenance optional for existing blueprints", () => {
+    const blueprint = templateBlueprintSchema.parse({
+      templateId: "template_legacy",
+      sourceFileId: "file_legacy",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          elementSources: [
+            {
+              elementId: "el_legacy",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "2",
+              sourceType: "shape",
+              writable: true,
+            },
+          ],
+          slots: [],
+        },
+      ],
+    });
+
+    expect(blueprint.slides[0].ooxmlOrigin).toBeUndefined();
+    expect(
+      blueprint.slides[0].elementSources[0]?.ooxmlEditCapabilities,
+    ).toBeUndefined();
+  });
+
+  it("accepts bounded row-major table cell locators", () => {
+    const blueprint = templateBlueprintSchema.parse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          elementSources: [
+            {
+              elementId: "el_table",
+              elementType: "table",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "7",
+              sourceType: "table",
+              writable: true,
+              tableCellLocators: [
+                {
+                  rowIndex: 0,
+                  columnIndex: 0,
+                  fingerprint: "a".repeat(64),
+                },
+                {
+                  rowIndex: 0,
+                  columnIndex: 1,
+                  fingerprint: "b".repeat(64),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(blueprint.slides[0].elementSources[0]?.tableCellLocators).toEqual([
+      { rowIndex: 0, columnIndex: 0, fingerprint: "a".repeat(64) },
+      { rowIndex: 0, columnIndex: 1, fingerprint: "b".repeat(64) },
+    ]);
+  });
+
+  it("rejects duplicate table cell coordinates", () => {
+    const result = templateBlueprintSchema.safeParse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          elementSources: [
+            {
+              elementId: "el_table",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "7",
+              sourceType: "table",
+              writable: true,
+              tableCellLocators: [
+                {
+                  rowIndex: 0,
+                  columnIndex: 0,
+                  fingerprint: "a".repeat(64),
+                },
+                {
+                  rowIndex: 0,
+                  columnIndex: 0,
+                  fingerprint: "a".repeat(64),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects table cell locators that are not in row-major order", () => {
+    const result = templateBlueprintSchema.safeParse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          elementSources: [
+            {
+              elementId: "el_table",
+              elementType: "table",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "7",
+              sourceType: "table",
+              writable: true,
+              tableCellLocators: [
+                {
+                  rowIndex: 1,
+                  columnIndex: 0,
+                  fingerprint: "a".repeat(64),
+                },
+                {
+                  rowIndex: 0,
+                  columnIndex: 1,
+                  fingerprint: "b".repeat(64),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects table cell locators that do not start at the origin", () => {
+    const result = templateBlueprintSchema.safeParse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          elementSources: [
+            {
+              elementId: "el_table",
+              elementType: "table",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "7",
+              sourceType: "table",
+              writable: true,
+              tableCellLocators: [
+                {
+                  rowIndex: 0,
+                  columnIndex: 1,
+                  fingerprint: "a".repeat(64),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects table cell locator column gaps", () => {
+    const result = templateBlueprintSchema.safeParse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          elementSources: [
+            {
+              elementId: "el_table",
+              elementType: "table",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "7",
+              sourceType: "table",
+              writable: true,
+              tableCellLocators: [
+                {
+                  rowIndex: 0,
+                  columnIndex: 0,
+                  fingerprint: "a".repeat(64),
+                },
+                {
+                  rowIndex: 0,
+                  columnIndex: 2,
+                  fingerprint: "b".repeat(64),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects jagged table cell locator rows", () => {
+    const result = templateBlueprintSchema.safeParse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          elementSources: [
+            {
+              elementId: "el_table",
+              elementType: "table",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "7",
+              sourceType: "table",
+              writable: true,
+              tableCellLocators: [
+                {
+                  rowIndex: 0,
+                  columnIndex: 0,
+                  fingerprint: "a".repeat(64),
+                },
+                {
+                  rowIndex: 0,
+                  columnIndex: 1,
+                  fingerprint: "b".repeat(64),
+                },
+                {
+                  rowIndex: 1,
+                  columnIndex: 0,
+                  fingerprint: "c".repeat(64),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects table cell locators on a non-table source", () => {
+    const result = templateBlueprintSchema.safeParse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          elementSources: [
+            {
+              elementId: "el_title",
+              elementType: "text",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "2",
+              sourceType: "shape",
+              writable: true,
+              tableCellLocators: [
+                {
+                  rowIndex: 0,
+                  columnIndex: 0,
+                  fingerprint: "a".repeat(64),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it.each([
+    ["missing locators", { tableCellLocators: undefined }],
+    ["read-only source", { writable: false }],
+    ["fallback source", { fallbackReason: "render fallback" }],
+    ["wrong element type", { elementType: "text" }],
+    ["wrong source type", { sourceType: "shape" }],
+  ])("rejects table cell text capability with a %s", (_, sourceOverride) => {
+    const tableCellLocators = [
+      {
+        rowIndex: 0,
+        columnIndex: 0,
+        fingerprint: "a".repeat(64),
+      },
+    ];
+    const result = templateBlueprintSchema.safeParse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          elementSources: [
+            {
+              elementId: "el_table",
+              elementType: "table",
+              ooxmlEditCapabilities: {
+                richText: "none",
+                crop: "none",
+                tableCellText: true,
+              },
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "7",
+              sourceType: "table",
+              writable: true,
+              tableCellLocators,
+              ...sourceOverride,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects table cell locators outside the bounded grid", () => {
+    const result = templateBlueprintSchema.safeParse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          elementSources: [
+            {
+              elementId: "el_table",
+              slidePart: "ppt/slides/slide1.xml",
+              shapeId: "7",
+              sourceType: "table",
+              writable: true,
+              tableCellLocators: [
+                {
+                  rowIndex: 1000,
+                  columnIndex: 0,
+                  fingerprint: "a".repeat(64),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
   });
 });
 

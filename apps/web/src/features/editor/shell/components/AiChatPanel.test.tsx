@@ -1,4 +1,5 @@
 import { createActivitySlide, createDemoDeck } from "@orbit/editor-core";
+import { deckElementSchema } from "@orbit/shared";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -24,6 +25,7 @@ describe("AiChatPanel", () => {
         chatState={createInitialAiChatState(deck.projectId)}
         onChatStateChange={() => undefined}
         onProposalApplied={() => undefined}
+        onGeneratedImageInsert={() => true}
       />
     );
 
@@ -31,6 +33,8 @@ describe("AiChatPanel", () => {
     expect(html).toContain("현재 슬라이드에서 바꾸고 싶은 디자인");
     expect(html).toContain('placeholder="바꾸고 싶은 디자인을 말씀해 주세요"');
     expect(html).toContain('aria-label="메시지 보내기"');
+    expect(html).toContain('aria-label="AI 작업 모드"');
+    expect(html).toContain("이미지 생성");
     expect(html).toContain("<textarea");
   });
 
@@ -59,6 +63,7 @@ describe("AiChatPanel", () => {
           chatState={chatState}
           onChatStateChange={() => undefined}
           onProposalApplied={() => undefined}
+          onGeneratedImageInsert={() => true}
         />
       );
 
@@ -80,6 +85,7 @@ describe("AiChatPanel", () => {
         chatState={createInitialAiChatState(deck.projectId)}
         onChatStateChange={() => undefined}
         onProposalApplied={() => undefined}
+        onGeneratedImageInsert={() => true}
       />
     );
 
@@ -87,5 +93,79 @@ describe("AiChatPanel", () => {
     expect(html).toContain('placeholder="장표 설정에서 내용을 관리해 주세요"');
     expect(html).toContain('aria-label="AI에게 메시지 보내기"');
     expect(html).toContain("disabled");
+  });
+
+  it("renders a selected project image thumbnail for image generation context", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const image = deckElementSchema.parse({
+      elementId: "el_reference_image",
+      type: "image",
+      role: "media",
+      x: 100,
+      y: 100,
+      width: 320,
+      height: 180,
+      zIndex: 10,
+      props: {
+        src: `/api/v1/projects/${deck.projectId}/assets/file_reference/content`,
+        alt: "선택한 참고 이미지",
+      },
+    });
+    slide.elements = [...slide.elements, image];
+
+    const html = renderToString(
+      <AiChatPanel
+        onSpeakerNotesAssistantRequest={() => undefined}
+        projectId={deck.projectId}
+        deck={deck}
+        currentSlide={slide}
+        selectedElementIds={[image.elementId]}
+        chatState={createInitialAiChatState(deck.projectId)}
+        onChatStateChange={() => undefined}
+        onProposalApplied={() => undefined}
+        onGeneratedImageInsert={() => true}
+      />
+    );
+
+    expect(html).toContain("선택한 이미지");
+    expect(html).toContain("이미지 생성 모드에서 자동 사용됨");
+    expect(html).toContain("file_reference");
+  });
+
+  it("hides selected image context for non-project images", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const image = deckElementSchema.parse({
+      elementId: "el_external_image",
+      type: "image",
+      role: "media",
+      x: 100,
+      y: 100,
+      width: 320,
+      height: 180,
+      zIndex: 10,
+      props: {
+        src: "https://example.com/image.png",
+        alt: "외부 이미지",
+      },
+    });
+    slide.elements = [...slide.elements, image];
+
+    const html = renderToString(
+      <AiChatPanel
+        onSpeakerNotesAssistantRequest={() => undefined}
+        projectId={deck.projectId}
+        deck={deck}
+        currentSlide={slide}
+        selectedElementIds={[image.elementId]}
+        chatState={createInitialAiChatState(deck.projectId)}
+        onChatStateChange={() => undefined}
+        onProposalApplied={() => undefined}
+        onGeneratedImageInsert={() => true}
+      />
+    );
+
+    expect(html).not.toContain("이미지 생성 모드에서 자동 사용됨");
   });
 });

@@ -72,6 +72,7 @@ import { ValidationPanel } from "../ai/quality/ValidationPanel";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { measureTextContentBounds } from "../canvas/text/textLayout";
 import { resolveEditorAssetUrl } from "../shared/editorAssetUrl";
+import { ProjectAccessProvider } from "../../projects/ProjectAccessContext";
 
 vi.mock("react-konva", () => {
   function shapeAttrs(props: Record<string, unknown>) {
@@ -136,7 +137,9 @@ function createTestQueryClient() {
 function renderApp(queryClient: QueryClient, projectId?: string) {
   return renderToString(
     <QueryClientProvider client={queryClient}>
-      <EditorShell projectId={projectId} />
+      <ProjectAccessProvider membership={{ role: "owner", status: "accepted" }}>
+        <EditorShell projectId={projectId} />
+      </ProjectAccessProvider>
     </QueryClientProvider>
   );
 }
@@ -292,15 +295,18 @@ describe("editor shell", () => {
 
     const transition = resolveHistoryNavigation({
       currentDeck,
-      currentSlideIndex: 1,
-      stack: [{ deck: previousDeck, slideIndex: 999 }]
+      currentSlideId: currentDeck.slides[1]?.slideId ?? null,
+      stack: [{ deck: previousDeck, slideId: "slide_missing" }]
     });
 
     expect(transition).toMatchObject({
-      currentEntry: { deck: currentDeck, slideIndex: 1 },
+      currentEntry: {
+        deck: currentDeck,
+        slideId: currentDeck.slides[1]?.slideId ?? currentDeck.slides[0]?.slideId
+      },
       nextStack: [],
       targetEntry: { deck: previousDeck },
-      targetSlideIndex: previousDeck.slides.length - 1
+      targetSlideId: previousDeck.slides[0]?.slideId
     });
     expect(transition?.targetEntry.deck.slides[0].semanticCues[0].freshness).toBe(
       "current"
@@ -311,7 +317,7 @@ describe("editor shell", () => {
     expect(
       resolveHistoryNavigation({
         currentDeck,
-        currentSlideIndex: 0,
+        currentSlideId: currentDeck.slides[0]?.slideId ?? null,
         stack: []
       })
     ).toBeNull();
@@ -321,18 +327,21 @@ describe("editor shell", () => {
     const previousDeck = createDemoDeck();
     const olderEntries = Array.from({ length: 50 }, (_, index) => ({
       deck: { ...previousDeck, title: `이전 편집 ${index}` },
-      slideIndex: index % previousDeck.slides.length
+      slideId: previousDeck.slides[index % previousDeck.slides.length]?.slideId ?? null
     }));
 
     const history = appendAppliedDesignProposalHistory({
       currentDeck: previousDeck,
-      currentSlideIndex: 1,
+      currentSlideId: previousDeck.slides[1]?.slideId ?? null,
       undoStack: olderEntries
     });
 
     expect(history).toHaveLength(50);
     expect(history[0]?.deck.title).toBe("이전 편집 1");
-    expect(history.at(-1)).toEqual({ deck: previousDeck, slideIndex: 1 });
+    expect(history.at(-1)).toEqual({
+      deck: previousDeck,
+      slideId: previousDeck.slides[1]?.slideId ?? previousDeck.slides[0]?.slideId
+    });
   });
 
   it("prompts before discarding a dirty speaker notes draft", () => {
@@ -2137,6 +2146,75 @@ describe("editor shell", () => {
     if (result.ok) {
       expect(result.deck.slides[0].elements[1].x).toBe(500);
     }
+  });
+
+  it("moves grouped children when distributing a group selection", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0];
+    const rect = (elementId: string, x: number, zIndex: number) => ({
+      elementId,
+      type: "rect" as const,
+      role: "highlight" as const,
+      x,
+      y: 100,
+      width: 100,
+      height: 80,
+      rotation: 0,
+      opacity: 1,
+      zIndex,
+      locked: false,
+      visible: true,
+      props: {
+        fill: "#ffffff",
+        stroke: "#111827",
+        strokeWidth: 1,
+        borderRadius: 0
+      }
+    });
+    const child = rect("el_group_child", 420, 2);
+    const group = {
+      elementId: "el_group",
+      type: "group" as const,
+      role: "decoration" as const,
+      x: 400,
+      y: 80,
+      width: 100,
+      height: 120,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 3,
+      locked: false,
+      visible: true,
+      props: { childElementIds: [child.elementId] }
+    };
+    const first = rect("el_first", 100, 1);
+    const last = rect("el_last", 900, 4);
+    slide.elements = [first, child, group, last];
+
+    const patch = createDistributeSelectionPatch(
+      deck,
+      slide,
+      [first, group, last],
+      "x"
+    );
+    expect(patch).not.toBeNull();
+
+    const result = applyDeckPatch(deck, patch!);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(
+      result.deck.slides[0].elements.find(
+        (element) => element.elementId === group.elementId
+      )?.x
+    ).toBe(500);
+    expect(
+      result.deck.slides[0].elements.find(
+        (element) => element.elementId === child.elementId
+      )?.x
+    ).toBe(520);
   });
 
   it("stores new animation triggers on the selected speaker note occurrence", () => {

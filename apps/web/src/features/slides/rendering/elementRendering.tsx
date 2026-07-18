@@ -7,8 +7,6 @@ import type {
   GroupElementProps,
   ShapeElementProps,
   TableElementProps,
-  TextElementParagraph,
-  TextElementRun,
   Slide,
   TextElementProps
 } from "@orbit/shared";
@@ -120,6 +118,7 @@ export function ElementNodeContent(props: {
           padding={0}
           rotation={-90}
           text={textLayout.text}
+          textDecoration={textLayout.textDecoration}
           width={frame.height}
           wrap="word"
           x={0}
@@ -128,48 +127,25 @@ export function ElementNodeContent(props: {
       );
     }
 
-    if (shouldRenderTextParagraphs(textProps)) {
+    if (textLayout.richText) {
       return (
         <Group listening={false}>
-          {layoutTextParagraphs(textProps, textLayout).map((paragraph, index) => (
+          {textLayout.richText.fragments.map((fragment, index) => (
             <Text
-              align={paragraph.align}
-              fill={paragraph.color}
-              fontFamily={paragraph.fontFamily}
-              fontSize={paragraph.fontSize}
-              fontStyle={paragraph.fontStyle}
-              key={`${paragraph.text}-${index}`}
-              lineHeight={paragraph.lineHeight}
+              fill={fragment.style.color}
+              fontFamily={fragment.style.fontFamily}
+              fontSize={fragment.style.fontSize}
+              fontStyle={fragment.style.fontStyle}
+              key={`${fragment.paragraphIndex}-${fragment.lineIndex}-${index}`}
+              lineHeight={1}
               listening={false}
               padding={0}
-              text={paragraph.text}
-              width={Math.max(1, paragraph.width)}
-              wrap="word"
-              x={paragraph.x}
-              y={paragraph.y}
-            />
-          ))}
-        </Group>
-      );
-    }
-
-    if (shouldRenderTextRuns(textProps)) {
-      return (
-        <Group listening={false}>
-          {layoutTextRuns(textProps, textLayout).map((segment, index) => (
-            <Text
-              fill={segment.color}
-              fontFamily={segment.fontFamily}
-              fontSize={segment.fontSize}
-              fontStyle={segment.fontStyle}
-              key={`${segment.text}-${index}`}
-              lineHeight={textProps.lineHeight}
-              listening={false}
-              padding={0}
-              text={segment.text}
-              width={Math.max(1, segment.width)}
-              x={segment.x}
-              y={segment.y}
+              text={fragment.text}
+              textDecoration={fragment.style.underline ? "underline" : undefined}
+              width={Math.max(1, fragment.width)}
+              wrap="none"
+              x={fragment.x}
+              y={fragment.y}
             />
           ))}
         </Group>
@@ -187,6 +163,7 @@ export function ElementNodeContent(props: {
         listening={false}
         padding={0}
         text={textLayout.text}
+        textDecoration={textLayout.textDecoration}
         width={textLayout.width}
         wrap="word"
         x={textLayout.x}
@@ -555,8 +532,6 @@ export function ElementNodeContent(props: {
   );
 }
 
-type TextLayout = ReturnType<typeof getTextElementLayout>;
-
 function ChartElementContent(props: {
   accentColor: string;
   chart: Chart;
@@ -910,164 +885,6 @@ function sumRange(values: number[], start: number, count: number) {
   return values
     .slice(start, Math.min(values.length, start + count))
     .reduce((sum, value) => sum + value, 0);
-}
-
-function shouldRenderTextRuns(props: TextElementProps) {
-  return (props.runs?.filter((run) => run.text.length > 0).length ?? 0) > 1;
-}
-
-function shouldRenderTextParagraphs(props: TextElementProps) {
-  return (
-    (props.paragraphs?.filter((paragraph) => paragraphText(paragraph)).length ?? 0) >
-    0
-  );
-}
-
-function layoutTextParagraphs(props: TextElementProps, layout: TextLayout) {
-  const paragraphs = props.paragraphs ?? [];
-  const result: Array<{
-    align: TextElementProps["align"];
-    color: string;
-    fontFamily: string;
-    fontSize: number;
-    fontStyle: "normal" | "bold";
-    lineHeight: number;
-    text: string;
-    width: number;
-    x: number;
-    y: number;
-  }> = [];
-  let y = layout.y;
-
-  for (const paragraph of paragraphs) {
-    const text = paragraphText(paragraph);
-    if (!text) {
-      continue;
-    }
-    y += paragraph.spaceBefore ?? 0;
-    const style = paragraphStyle(paragraph, props, layout);
-    const indent = paragraph.indent ?? 0;
-    const prefix = paragraph.bullet?.enabled ? `${paragraph.bullet.character} ` : "";
-    const width = Math.max(1, layout.width - indent);
-    result.push({
-      ...style,
-      text: `${prefix}${text}`,
-      width,
-      x: layout.contentX + indent,
-      y
-    });
-    const measured = measureRunText(text, style);
-    const lineCount = Math.max(1, Math.ceil(measured / width));
-    y += lineCount * style.fontSize * style.lineHeight + (paragraph.spaceAfter ?? 0);
-  }
-
-  return result;
-}
-
-function paragraphText(paragraph: TextElementParagraph) {
-  if (paragraph.runs?.length) {
-    return paragraph.runs.map((run) => run.text).join("");
-  }
-
-  return paragraph.text;
-}
-
-function paragraphStyle(
-  paragraph: TextElementParagraph,
-  props: TextElementProps,
-  layout: TextLayout
-) {
-  const run = paragraph.runs?.find((item) => item.text.trim()) ?? paragraph.runs?.[0];
-  const fontWeight = run?.fontWeight ?? paragraph.fontWeight ?? props.fontWeight;
-
-  return {
-    align: paragraph.align ?? props.align,
-    color: run?.color ?? paragraph.color ?? layout.color,
-    fontFamily: run?.fontFamily ?? paragraph.fontFamily ?? layout.fontFamily,
-    fontSize: run?.fontSize ?? paragraph.fontSize ?? layout.fontSize,
-    fontStyle: getKonvaFontStyle(fontWeight),
-    lineHeight: paragraph.lineHeight ?? props.lineHeight
-  };
-}
-
-function layoutTextRuns(props: TextElementProps, layout: TextLayout) {
-  const runs = props.runs ?? [];
-  const lineHeight = layout.fontSize * props.lineHeight;
-  let x = layout.contentX;
-  let y = layout.y;
-
-  return runs.flatMap((run) => {
-    const segments = run.text.split(/(\n)/);
-    const result: Array<{
-      color: string;
-      fontFamily: string;
-      fontSize: number;
-      fontStyle: "normal" | "bold";
-      text: string;
-      width: number;
-      x: number;
-      y: number;
-    }> = [];
-
-    for (const text of segments) {
-      if (text === "\n") {
-        x = layout.contentX;
-        y += lineHeight;
-        continue;
-      }
-      if (!text) {
-        continue;
-      }
-      const style = textRunStyle(run, props, layout);
-      const width = measureRunText(text, style);
-      result.push({ ...style, text, width, x, y });
-      x += width;
-    }
-
-    return result;
-  });
-}
-
-function textRunStyle(
-  run: TextElementRun,
-  props: TextElementProps,
-  layout: TextLayout
-): {
-  color: string;
-  fontFamily: string;
-  fontSize: number;
-  fontStyle: "normal" | "bold";
-} {
-  const fontWeight = run.fontWeight ?? props.fontWeight;
-
-  return {
-    color: run.color ?? layout.color,
-    fontFamily: run.fontFamily ?? layout.fontFamily,
-    fontSize: run.fontSize ?? layout.fontSize,
-    fontStyle: getKonvaFontStyle(fontWeight)
-  };
-}
-
-function measureRunText(
-  text: string,
-  style: {
-    fontFamily: string;
-    fontSize: number;
-    fontStyle: "normal" | "bold";
-  }
-) {
-  if (typeof document === "undefined") {
-    return text.length * style.fontSize * 0.55;
-  }
-
-  const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d");
-  if (!context) {
-    return text.length * style.fontSize * 0.55;
-  }
-  const weight = style.fontStyle === "bold" ? 700 : 400;
-  context.font = `${weight} ${style.fontSize}px ${style.fontFamily}`;
-  return context.measureText(text).width;
 }
 
 function getSolidPaint(paint: DeckElementPaint | undefined, fallback: string) {

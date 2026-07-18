@@ -3,14 +3,23 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { SlideNavigatorPane } from "./SlideNavigatorPane";
+import { buildSlideRailItems } from "../slideRailModel";
 
 function renderNavigator(view: "list" | "thumbnail", isCollapsed = false) {
+  const deck = createDemoDeck();
   return renderToStaticMarkup(
     <SlideNavigatorPane
-      currentSlideIndex={0}
-      deck={createDemoDeck()}
+      canMutate
+      deck={deck}
       isCollapsed={isCollapsed}
+      items={buildSlideRailItems(deck.slides, deck.slides[0]?.slideId ?? null)}
+      onAddActivityResultsSlide={vi.fn()}
+      onAddActivitySlide={vi.fn()}
       onAddSlide={vi.fn()}
+      onDeleteSlide={vi.fn()}
+      onDuplicateSlide={vi.fn()}
+      onMoveSlide={vi.fn()}
+      onReorderSlides={vi.fn()}
       onResizeStart={vi.fn()}
       onSelectSlide={vi.fn()}
       onSetView={vi.fn()}
@@ -39,8 +48,7 @@ describe("SlideNavigatorPane", () => {
     const thumbnailCount = html.match(/slide-thumb orbit-thumb/g)?.length ?? 0;
 
     expect(thumbnailCount).toBe(createDemoDeck().slides.length);
-    expect(html).toContain("slide-item-meta");
-    expect(html).not.toContain("slide-item-title");
+    expect(html).toContain("slide-title-text");
     expect(html.indexOf("slide-number")).toBeLessThan(html.indexOf("slide-thumb"));
   });
 

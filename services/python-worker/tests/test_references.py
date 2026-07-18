@@ -12,6 +12,7 @@ from app.references import (
     create_embeddings,
     index_reference_text,
     search_reference_chunks,
+    search_reference_chunks_by_file,
     split_reference_text,
 )
 from tests.test_config import VALID_ENV
@@ -150,6 +151,67 @@ def test_search_reference_chunks_applies_project_boundary() -> None:
     assert repository.search_file_ids == ["file-1"]
     assert results[0].project_id == "project-a"
     assert results[0].content == "grounded evidence"
+
+
+def test_search_reference_chunks_by_file_embeds_once() -> None:
+    class PerFileRepository(FakeRepository):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[tuple[str, list[str] | None, int]] = []
+            self.failed_file_id = ""
+
+        def search_chunks(
+            self,
+            project_id: str,
+            query_embedding: list[float],
+            *,
+            limit: int = 6,
+            file_ids: list[str] | None = None,
+        ) -> list[ReferenceSearchResult]:
+            self.calls.append((project_id, file_ids, limit))
+            file_id = (file_ids or ["missing"])[0]
+            if file_id == self.failed_file_id:
+                raise RuntimeError("file search failed")
+            return [
+                ReferenceSearchResult(
+                    chunk_id=f"chunk-{file_id}",
+                    project_id=project_id,
+                    file_id=file_id,
+                    chunk_index=0,
+                    content=f"evidence {file_id}",
+                    metadata={},
+                    score=0.9,
+                )
+            ]
+
+    repository = PerFileRepository()
+    embedding_client = FakeEmbeddingClient()
+
+    results, embedding_result = search_reference_chunks_by_file(
+        repository=repository,
+        project_id="project-a",
+        query="topic prompt audience keyword",
+        file_ids=["file-1", "file-2", "file-1"],
+        embedding_client=embedding_client,
+    )
+
+    assert embedding_result.status == "succeeded"
+    assert len(embedding_client.requests) == 1
+    assert repository.calls == [
+        ("project-a", ["file-1"], 3),
+        ("project-a", ["file-2"], 3),
+    ]
+    assert [result.file_id for result in results] == ["file-1", "file-2"]
+
+    repository.failed_file_id = "file-2"
+    partial, _ = search_reference_chunks_by_file(
+        repository=repository,
+        project_id="project-a",
+        query="topic",
+        file_ids=["file-1", "file-2"],
+        embedding_client=FakeEmbeddingClient(),
+    )
+    assert [result.file_id for result in partial] == ["file-1"]
 
 
 def test_postgres_search_filters_file_ids_before_limit(monkeypatch) -> None:

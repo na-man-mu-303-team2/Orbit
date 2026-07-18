@@ -59,8 +59,7 @@ const pptxOoxmlGenerationWorkerResponseSchema = z.object({
 type PptxOoxmlGenerationWorkerResponse = z.infer<
   typeof pptxOoxmlGenerationWorkerResponseSchema
 >;
-type OoxmlGenerationBlueprint =
-  PptxOoxmlGenerationWorkerResponse["blueprint"];
+type OoxmlGenerationBlueprint = PptxOoxmlGenerationWorkerResponse["blueprint"];
 type OoxmlTemplateBlueprint =
   PptxOoxmlGenerationWorkerResponse["templateBlueprint"];
 
@@ -385,10 +384,30 @@ function buildOoxmlDeck(
       if (!renderUrl) {
         throw new Error(`Rendered slide asset missing: ${renderAssetRef}`);
       }
-      const elements = useSnapshotFallback ? [] : visualElements;
+      const elementSources = new Map(
+        slide.elementSources.map((source) => [source.elementId, source]),
+      );
+      const elements = useSnapshotFallback
+        ? []
+        : visualElements.map((element) =>
+            deckElementSchema.parse({
+              ...element,
+              ooxmlOrigin: "imported",
+              ooxmlEditCapabilities: elementSources.get(element.elementId)
+                ?.ooxmlEditCapabilities ?? {
+                richText: "none",
+                crop: "none",
+                tableCellText: false,
+                frame: false,
+                delete: false,
+                imageSource: false,
+              },
+            }),
+          );
 
       return {
         slideId: `slide_ooxml_${safeId(asset.file_id)}_${index + 1}`,
+        ooxmlOrigin: "imported",
         order: index + 1,
         title: `Slide ${index + 1}`,
         thumbnailUrl: renderUrl,

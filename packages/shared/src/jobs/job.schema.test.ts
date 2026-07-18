@@ -63,6 +63,15 @@ describe("jobTypeSchema", () => {
     ).toBe(false);
   });
 
+  it("keeps design image generation internal to its dedicated API", () => {
+    expect(activeJobTypeSchema.parse("design-image-generation")).toBe(
+      "design-image-generation",
+    );
+    expect(
+      publicCreatableJobTypeSchema.safeParse("design-image-generation").success,
+    ).toBe(false);
+  });
+
   it("accepts internal coaching jobs but never exposes them as public create types", () => {
     for (const type of internalCoachingJobTypeSchema.options) {
       expect(jobTypeSchema.parse(type)).toBe(type);

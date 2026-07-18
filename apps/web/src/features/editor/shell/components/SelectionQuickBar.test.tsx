@@ -136,4 +136,65 @@ describe("SelectionQuickBar", () => {
     expect(html).toContain("정리 필요한 애니메이션");
     expect(html).toContain("anim_dangling_1");
   });
+
+  it("renders the crop action and exposes an imported-image disable reason", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const element = slide.elements.find((candidate) => candidate.type === "image")!;
+    const enabledHtml = renderToString(
+      <SelectionQuickBar
+        animations={[]}
+        animationDiagnostics={validateSlideAnimations(slide, element.elementId)}
+        canCreateAnimation
+        canvas={deck.canvas}
+        customShapeEditActive={false}
+        element={element}
+        imageCropActionState={{ enabled: true, reason: null, visible: true }}
+        selectedKeywordLabel={null}
+        slide={slide}
+        theme={deck.theme}
+        showIds={false}
+        onOpenAnimationEditor={vi.fn()}
+        onChangeFrame={vi.fn()}
+        onChangeProps={vi.fn()}
+        onChangeSlideStyle={vi.fn()}
+        onChangeTheme={vi.fn()}
+        onDeleteAnimation={vi.fn()}
+        onStartImageCrop={vi.fn()}
+        onToggleCustomShapeClosed={vi.fn()}
+        onToggleCustomShapeEdit={vi.fn()}
+      />
+    );
+    const reason = "이 이미지는 원본 PPTX에 안전하게 자르기를 저장할 수 없습니다.";
+    const disabledHtml = renderToString(
+      <SelectionQuickBar
+        animations={[]}
+        animationDiagnostics={validateSlideAnimations(slide, element.elementId)}
+        canCreateAnimation
+        canvas={deck.canvas}
+        customShapeEditActive={false}
+        element={element}
+        imageCropActionState={{ enabled: false, reason, visible: true }}
+        selectedKeywordLabel={null}
+        slide={slide}
+        theme={deck.theme}
+        showIds={false}
+        onOpenAnimationEditor={vi.fn()}
+        onChangeFrame={vi.fn()}
+        onChangeProps={vi.fn()}
+        onChangeSlideStyle={vi.fn()}
+        onChangeTheme={vi.fn()}
+        onDeleteAnimation={vi.fn()}
+        onStartImageCrop={vi.fn()}
+        onToggleCustomShapeClosed={vi.fn()}
+        onToggleCustomShapeEdit={vi.fn()}
+      />
+    );
+
+    expect(enabledHtml).toContain("자르기");
+    expect(enabledHtml).toContain(`id="image-crop-trigger-${element.elementId}"`);
+    expect(disabledHtml).toContain("disabled");
+    expect(disabledHtml).toContain(reason);
+    expect(disabledHtml).toContain("aria-describedby");
+  });
 });
