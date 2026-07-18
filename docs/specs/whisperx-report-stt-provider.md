@@ -11,7 +11,6 @@ WHISPERX_API_URL=https://whisperx.example.test/transcribe
 WHISPERX_API_KEY=
 WHISPERX_MODEL=large-v3
 WHISPERX_TIMEOUT_MS=30000
-REPORT_TRANSCRIPTION_PROMPT="한국어 발표 리허설 음성입니다. 말을 매끄럽게 다듬지 말고 들리는 대로 전사하세요."
 ```
 
 `WHISPERX_API_KEY` is a secret and must come from local `.env.local` or the deployment secret store.
@@ -36,7 +35,6 @@ Multipart fields:
 | `language` | `ko` |
 | `model` | `WHISPERX_MODEL` |
 | `diarization` | `false` |
-| `initial_prompt` | `REPORT_TRANSCRIPTION_PROMPT` when non-empty |
 
 The provider receives only assembled report audio from the rehearsal upload flow. It never receives browser live-control microphone streams.
 

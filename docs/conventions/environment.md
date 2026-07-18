@@ -96,7 +96,6 @@ OpenAI 모델은 코드 상수가 아니라 env로 결정한다.
 ```txt
 OPENAI_MODEL=gpt-4.1-mini
 OPENAI_TRANSCRIPTION_MODEL=whisper-1
-REPORT_TRANSCRIPTION_PROMPT="한국어 발표 리허설 음성입니다. 말을 매끄럽게 다듬지 말고 들리는 대로 전사하세요."
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper
 OPENAI_REALTIME_TRANSCRIPTION_DELAY=minimal
@@ -106,7 +105,7 @@ AI_SLIDE_IMAGE_REVIEW_MODE=auto
 ORBIT_PPTX_OOXML_VECTOR_IMPORT=true
 ```
 
-리허설 리포트의 시간 기반 지표를 계산해야 하는 local/staging report STT는 `OPENAI_TRANSCRIPTION_MODEL=whisper-1`을 사용한다. `whisper-1`의 `verbose_json` 응답은 duration과 segment timestamp를 제공하므로 WPM, 구간별 속도, 긴 침묵 계산에 사용할 수 있다. production 모델은 전사 정확도와 시간 지표 요구를 함께 검토한 뒤 별도로 고정한다. `REPORT_TRANSCRIPTION_PROMPT`는 report STT 공통 prompt이며, 습관어·간투사·머뭇거림을 리포트 지표로 쓰기 위해 원문에 가깝게 전사하도록 유도한다. 빈 문자열이면 provider에 prompt를 보내지 않는다.
+리허설 리포트의 시간 기반 지표를 계산해야 하는 local/staging report STT는 `OPENAI_TRANSCRIPTION_MODEL=whisper-1`을 사용한다. `whisper-1`의 `verbose_json` 응답은 duration과 segment timestamp를 제공하므로 WPM, 구간별 속도, 긴 침묵 계산에 사용할 수 있다. production 모델은 전사 정확도와 시간 지표 요구를 함께 검토한 뒤 별도로 고정한다.
 
 브라우저 리허설 Live STT의 실행 엔진은 API runtime config가 내려주는 `LIVE_STT_ENGINE=openai-realtime | web-speech` 값이 우선한다. presenter localStorage의 `sttEngine` 값은 실행 엔진을 덮어쓰지 않는다. 기본값은 `web-speech`이며 Chrome Web Speech on-device 경로를 사용한다. `LIVE_STT_ENGINE=openai-realtime`로 설정하면 API가 프로젝트 권한 확인 후 OpenAI Realtime transcription client secret을 발급한다. `OPENAI_REALTIME_TRANSCRIPTION_MODEL` 기본값은 `gpt-realtime-whisper`이고, `OPENAI_REALTIME_TRANSCRIPTION_DELAY`는 `minimal | low | medium | high | xhigh`, `OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS`는 10초부터 7200초까지 허용한다.
 
@@ -123,7 +122,6 @@ STT/AI provider는 목적별로 분리한다.
 - `LIVE_STT_PROVIDER=sherpa`: device-local runtime provider 계약이다. 브라우저 리허설 실행 엔진 선택에는 사용하지 않는다.
 - `LIVE_STT_ENGINE=openai-realtime | web-speech`: 브라우저 Live STT 실행 엔진 계약이다. API가 `/api/v1/runtime-config`로 노출하고 web은 이 값을 presenter localStorage보다 우선한다.
 - `REPORT_STT_PROVIDER=openai | whisperx`: 리허설 종료 후 녹음 파일을 전사하고 코칭 리포트를 만들기 위한 서버 리포트 STT다. `whisperx`는 hosted API provider이며 live-control STT로 선택할 수 없다.
-- `REPORT_TRANSCRIPTION_PROMPT`: report STT에 전달하는 전사 prompt다. OpenAI provider는 `prompt`, WhisperX provider는 `initial_prompt` multipart field로 보낸다.
 - `LLM_PROVIDER=openai`: 전사 결과, 발표자료, 키워드, 청중 반응 등을 종합해 리포트와 코칭 문장을 생성하는 AI provider다.
 
 Report STT에 업로드하는 `rehearsal-audio`는 MP3, MP4, MPEG, MPGA, M4A, FLAC, WAV, WebM 계열만 허용한다. `REPORT_STT_PROVIDER=openai` 단일 파일 전사 경로에서는 `REHEARSAL_AUDIO_MAX_BYTES` 기본값과 최대값이 `25000000`이다. `REPORT_STT_PROVIDER=whisperx`를 사용하려면 `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`, `WHISPERX_TIMEOUT_MS`를 설정한다.

@@ -75,18 +75,10 @@ SpeechToTextProvider = ReportSttProvider
 class OpenAISpeechToTextProvider:
     name = "openai"
 
-    def __init__(
-        self,
-        *,
-        api_key: str,
-        model: str,
-        language: str,
-        prompt: str | None = None,
-    ) -> None:
+    def __init__(self, *, api_key: str, model: str, language: str) -> None:
         self.model = model
         self._api_key = api_key
         self._language = language
-        self._prompt = prompt.strip() if prompt and prompt.strip() else None
 
     def transcribe(self, audio: AudioContent) -> ProviderTranscription:
         try:
@@ -95,15 +87,12 @@ class OpenAISpeechToTextProvider:
             from openai import OpenAI
 
             client: Any = OpenAI(api_key=self._api_key)
-            request: dict[str, Any] = {
-                "model": self.model,
-                "file": (audio.file_name, BytesIO(audio.data), audio.mime_type),
-                "language": _openai_language(self._language),
-                "response_format": _openai_response_format(self.model),
-            }
-            if self._prompt and _openai_transcription_supports_prompt(self.model):
-                request["prompt"] = self._prompt
-            result: Any = client.audio.transcriptions.create(**request)
+            result: Any = client.audio.transcriptions.create(
+                model=self.model,
+                file=(audio.file_name, BytesIO(audio.data), audio.mime_type),
+                language=_openai_language(self._language),
+                response_format=_openai_response_format(self.model),
+            )
         except Exception as exc:  # pragma: no cover - exercised via fake provider.
             raise AudioTranscriptionError(
                 "stt_provider_failed",
@@ -145,7 +134,6 @@ class WhisperXSpeechToTextProvider:
         model: str,
         language: str,
         timeout_ms: int,
-        prompt: str | None = None,
         opener: Any = urlopen,
     ) -> None:
         self.model = model
@@ -153,21 +141,16 @@ class WhisperXSpeechToTextProvider:
         self._api_key = api_key
         self._language = language
         self._timeout_seconds = timeout_ms / 1000
-        self._prompt = prompt.strip() if prompt and prompt.strip() else None
         self._opener = opener
 
     def transcribe(self, audio: AudioContent) -> ProviderTranscription:
-        fields = {
-            "language": _openai_language(self._language),
-            "model": self.model,
-            "diarization": "false",
-        }
-        if self._prompt:
-            fields["initial_prompt"] = self._prompt
-
         body, content_type = _build_whisperx_multipart_body(
             audio,
-            fields,
+            {
+                "language": _openai_language(self._language),
+                "model": self.model,
+                "diarization": "false",
+            },
         )
         request = UrlRequest(
             self._api_url,
@@ -237,7 +220,6 @@ def create_speech_to_text_provider(
             model=config.whisperx_model,
             language=config.transcribe_language_code,
             timeout_ms=config.whisperx_timeout_ms,
-            prompt=config.report_transcription_prompt,
         )
 
     if not config.openai_api_key:
@@ -251,7 +233,6 @@ def create_speech_to_text_provider(
         api_key=config.openai_api_key,
         model=config.openai_transcription_model,
         language=config.transcribe_language_code,
-        prompt=config.report_transcription_prompt,
     )
 
 
@@ -326,10 +307,6 @@ def _openai_response_format(model: str) -> str:
         return "json"
 
     return "verbose_json"
-
-
-def _openai_transcription_supports_prompt(model: str) -> bool:
-    return model.strip().lower() != "gpt-4o-transcribe-diarize"
 
 
 def _read_field(data: Any, field: str, default: Any) -> Any:

@@ -1,8 +1,4 @@
-import {
-  defaultReportTranscriptionPrompt,
-  loadOrbitConfig,
-  OrbitConfigError
-} from "@orbit/config";
+import { loadOrbitConfig, OrbitConfigError } from "@orbit/config";
 import { describe, expect, it } from "vitest";
 
 const validEnv = {
@@ -39,7 +35,6 @@ const validEnv = {
   OPENAI_API_KEY: "",
   OPENAI_MODEL: "gpt-4.1-mini",
   OPENAI_TRANSCRIPTION_MODEL: "gpt-4o-transcribe",
-  REPORT_TRANSCRIPTION_PROMPT: defaultReportTranscriptionPrompt,
   OPENAI_EMBEDDING_MODEL: "text-embedding-3-small",
   OPENAI_REALTIME_TRANSCRIPTION_MODEL: "gpt-realtime-whisper",
   OPENAI_REALTIME_TRANSCRIPTION_DELAY: "minimal",
@@ -147,7 +142,6 @@ describe("ORBIT env validation", () => {
         ...validEnv,
         OPENAI_MODEL: "gpt-4.1",
         OPENAI_EMBEDDING_MODEL: "text-embedding-3-large",
-        REPORT_TRANSCRIPTION_PROMPT: "습관어를 그대로 전사하세요.",
         OPENAI_REALTIME_TRANSCRIPTION_MODEL: "gpt-realtime-whisper-2",
         OPENAI_REALTIME_TRANSCRIPTION_DELAY: "low",
         OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS: "900"
@@ -157,9 +151,6 @@ describe("ORBIT env validation", () => {
 
     expect(config.OPENAI_MODEL).toBe("gpt-4.1");
     expect(config.OPENAI_EMBEDDING_MODEL).toBe("text-embedding-3-large");
-    expect(config.REPORT_TRANSCRIPTION_PROMPT).toBe(
-      "습관어를 그대로 전사하세요."
-    );
     expect(config.OPENAI_REALTIME_TRANSCRIPTION_MODEL).toBe(
       "gpt-realtime-whisper-2"
     );
@@ -180,27 +171,6 @@ describe("ORBIT env validation", () => {
     );
     expect(config.OPENAI_REALTIME_TRANSCRIPTION_DELAY).toBe("minimal");
     expect(config.OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS).toBe(600);
-  });
-
-  it("defaults report transcription prompt to preserving filler words", () => {
-    const env = { ...validEnv } as Partial<typeof validEnv>;
-    delete env.REPORT_TRANSCRIPTION_PROMPT;
-
-    const config = loadOrbitConfig(env as NodeJS.ProcessEnv, { service: "api" });
-
-    expect(config.REPORT_TRANSCRIPTION_PROMPT).toBe(
-      defaultReportTranscriptionPrompt
-    );
-    expect(config.REPORT_TRANSCRIPTION_PROMPT).toContain("습관어");
-  });
-
-  it("allows report transcription prompt to be disabled with a blank value", () => {
-    const config = loadOrbitConfig(
-      { ...validEnv, REPORT_TRANSCRIPTION_PROMPT: "   " },
-      { service: "api" }
-    );
-
-    expect(config.REPORT_TRANSCRIPTION_PROMPT).toBe("");
   });
 
   it("validates realtime transcription delay and client secret ttl", () => {
