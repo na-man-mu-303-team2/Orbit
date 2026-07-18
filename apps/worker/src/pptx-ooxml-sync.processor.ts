@@ -308,12 +308,16 @@ export async function processPptxOoxmlSyncJob(
         payload.projectId,
         currentPackageFileId(templateBlueprint),
       );
-      const operations = await loadUnsyncedPatchOperations(
-        manager,
-        payload.projectId,
-        payload.deckId,
-        syncedDeckVersion,
-        latestDeckVersion,
+      const operations = compactTransientElementOperations(
+        await loadUnsyncedPatchOperations(
+          manager,
+          payload.projectId,
+          payload.deckId,
+          syncedDeckVersion,
+          latestDeckVersion,
+        ),
+        templateBlueprint,
+        storedDeck,
       );
       const currentLogicalGroupElementIds = storedDeck.slides.flatMap((slide) =>
         slide.elements
@@ -938,6 +942,79 @@ function isLogicalGroupOperation(
     return logicalGroupElementIds.has(operation.elementId);
   }
   return false;
+}
+
+function compactTransientElementOperations(
+  operations: DeckPatchOperation[],
+  templateBlueprint: TemplateBlueprint,
+  deck: Deck,
+): DeckPatchOperation[] {
+  const storedElementKeys = new Set(
+    templateBlueprint.slides.flatMap((slide) =>
+      slide.slideId
+        ? slide.elementSources.map((source) =>
+            elementOperationKey(slide.slideId as string, source.elementId),
+          )
+        : [],
+    ),
+  );
+  const currentElementKeys = new Set(
+    deck.slides.flatMap((slide) =>
+      slide.elements.map((element) =>
+        elementOperationKey(slide.slideId, element.elementId),
+      ),
+    ),
+  );
+  const histories = new Map<string, DeckPatchOperation[]>();
+  for (const operation of operations) {
+    const key = elementOperationKeyForOperation(operation);
+    if (!key) continue;
+    const history = histories.get(key) ?? [];
+    history.push(operation);
+    histories.set(key, history);
+  }
+  const transientKeys = new Set(
+    [...histories.entries()].flatMap(([key, history]) => {
+      const addCount = history.filter(
+        (operation) => operation.type === "add_element",
+      ).length;
+      const deleteCount = history.filter(
+        (operation) => operation.type === "delete_element",
+      ).length;
+      return !storedElementKeys.has(key) &&
+        !currentElementKeys.has(key) &&
+        addCount === 1 &&
+        deleteCount === 1 &&
+        history[0]?.type === "add_element" &&
+        history.at(-1)?.type === "delete_element"
+        ? [key]
+        : [];
+    }),
+  );
+  return operations.filter((operation) => {
+    const key = elementOperationKeyForOperation(operation);
+    return !key || !transientKeys.has(key);
+  });
+}
+
+function elementOperationKeyForOperation(
+  operation: DeckPatchOperation,
+): string | null {
+  if (operation.type === "add_element") {
+    return elementOperationKey(operation.slideId, operation.element.elementId);
+  }
+  if (
+    operation.type === "update_element_frame" ||
+    operation.type === "update_element_props" ||
+    operation.type === "delete_element"
+  ) {
+    return elementOperationKey(operation.slideId, operation.elementId);
+  }
+  return null;
+}
+
+function elementOperationKey(slideId: string, elementId: string): string {
+  return JSON.stringify([slideId, elementId]);
 }
 
 function isExactSlidePermutation(
