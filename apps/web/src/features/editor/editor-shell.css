@@ -11405,7 +11405,7 @@ body.is-resizing-speaker-notes {
   width: auto;
   height: auto;
   overflow: hidden;
-  border: 1px solid var(--redesign-color-outline-variant);
+  border: 1px solid transparent;
   border-radius: var(--redesign-radius-sm);
   background-position: center;
   background-repeat: no-repeat;
