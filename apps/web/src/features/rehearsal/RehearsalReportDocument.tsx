@@ -9,6 +9,7 @@ import {
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { Deck, RehearsalReport, RehearsalRun } from "@orbit/shared";
+import { OrbitButton } from "../../components/ui";
 import { navigateTo } from "./rehearsalUtils";
 import { RehearsalAiSummaryOverview } from "./RehearsalAiSummaryOverview";
 import { RehearsalHabitOverview } from "./RehearsalHabitOverview";
@@ -117,20 +118,21 @@ export function RehearsalReportDocument({
       {/* ── Hero ── */}
       <section className="rrd-hero">
         <div className="rrd-hero-text">
+          <span className="rrd-hero-eyebrow">REPORT DETAIL</span>
           <h1 className="rrd-hero-title">{title}</h1>
           <time className="rrd-hero-date">{runDate}</time>
           <span className="rrd-hero-status">
             <i aria-hidden="true" /> AI 코칭 완료
           </span>
         </div>
-        <button
-          type="button"
+        <OrbitButton
           className="rrd-hero-action"
+          icon={<Mic aria-hidden="true" size={17} />}
           onClick={() => navigateTo(`/rehearsal/${encodeURIComponent(projectId)}`)}
+          size="prominent"
         >
-          <Mic size={15} />
-          바로 다시 리허설
-        </button>
+          다시 리허설
+        </OrbitButton>
       </section>
 
       <div className="rrd-analysis-tabs" role="tablist" aria-label="리허설 분석 유형">
