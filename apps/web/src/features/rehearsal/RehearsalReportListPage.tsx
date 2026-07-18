@@ -2,12 +2,11 @@ import type { Project, RehearsalRun } from "@orbit/shared";
 import {
   IconChevronLeft,
   IconChevronRight,
-  IconFileText,
-  IconRefresh
+  IconFileText
 } from "@tabler/icons-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { WorkspaceContainer } from "../../components/patterns";
-import { OrbitButton, OrbitEmptyState } from "../../components/ui";
+import { OrbitButton, OrbitEmptyState, OrbitFailureState } from "../../components/ui";
 import { fetchProjects } from "../projects/ProjectAssetWorkspace";
 import { fetchProjectRehearsalReportRuns } from "./reportApi";
 import { navigateTo, formatRunDate } from "./rehearsalUtils";
@@ -80,14 +79,13 @@ export function RehearsalReportListPage({ projectId }: { projectId?: string }) {
     >
       <section className="orbit-report-list-shell" aria-label="프로젝트별 리허설 리포트">
         {state === "error" ? (
-          <div className="orbit-report-list-refresh">
-            <button onClick={() => setReloadKey((current) => current + 1)} type="button">
-              <IconRefresh aria-hidden="true" size={17} /> 다시 시도
-            </button>
-          </div>
+          <OrbitFailureState
+            description="연결을 확인한 뒤 프로젝트 리포트를 다시 불러오세요."
+            onRetry={() => setReloadKey((current) => current + 1)}
+            title="리포트를 불러오지 못했습니다."
+          />
         ) : null}
         {state === "loading" ? <div className="orbit-report-list-status" role="status">리포트를 불러오는 중입니다.</div> : null}
-        {state === "error" ? <OrbitEmptyState description="연결을 확인한 뒤 프로젝트 리포트를 다시 불러오세요." title="리포트를 불러오지 못했습니다." /> : null}
         {state === "ready" && items.length === 0 ? <OrbitEmptyState action={<OrbitButton onClick={() => navigateTo("/project?intent=rehearsal")} variant="secondary">리포트용 리허설 시작하기</OrbitButton>} description="마이크 녹음과 AI 분석까지 완료한 리허설이 프로젝트별 리포트로 쌓입니다." title="아직 분석된 리허설이 없습니다." /> : null}
         {state === "ready" && items.length > 0 ? (
           <div className="orbit-report-project-table" role="table" aria-label="프로젝트별 리허설 리포트">

@@ -1,6 +1,7 @@
 import type { Deck, Slide, SlideQuestionGuide } from "@orbit/shared";
 import { useEffect, useState } from "react";
 
+import { OrbitButton } from "../../../components/ui";
 import { fetchDeck } from "../shell/api/deckPersistenceApi";
 import {
   createSlideQuestionGuide,
@@ -16,7 +17,6 @@ export function SlideQuestionGuidePanel(props: {
   flushPendingSaves: () => Promise<void>;
 }) {
   const [guide, setGuide] = useState<SlideQuestionGuide | null>(null);
-  const [hasStaleGuide, setHasStaleGuide] = useState(false);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "generating" | "error">("idle");
   const [message, setMessage] = useState("");
@@ -25,7 +25,6 @@ export function SlideQuestionGuidePanel(props: {
     let active = true;
     if (!props.slide) {
       setGuide(null);
-      setHasStaleGuide(false);
       return;
     }
     setStatus("loading");
@@ -37,7 +36,6 @@ export function SlideQuestionGuidePanel(props: {
       if (!active) return;
       const current = guides.find((candidate) => candidate.deckVersion === props.deck.version) ?? null;
       setGuide(current);
-      setHasStaleGuide(!current && guides.length > 0);
       setSelectedQuestionId(getInitialQuestionId(current));
       setStatus("idle");
     }).catch(() => {
@@ -65,7 +63,6 @@ export function SlideQuestionGuidePanel(props: {
       await waitForSlideQuestionGuideJob(created.job.jobId);
       const next = await getSlideQuestionGuide(props.projectId, created.guideId);
       setGuide(next);
-      setHasStaleGuide(false);
       setSelectedQuestionId(getInitialQuestionId(next));
       setStatus("idle");
     } catch (error) {
@@ -77,12 +74,17 @@ export function SlideQuestionGuidePanel(props: {
   return (
     <div className="editor-question-guide-panel">
       <div className="editor-question-guide-actions">
-        <button disabled={!props.slide || status === "generating"} type="button" onClick={() => void generate()}>
+        <OrbitButton
+          className="editor-question-guide-generate-button"
+          disabled={!props.slide || status === "generating"}
+          onClick={() => void generate()}
+          size="compact"
+          variant="primary"
+        >
           {status === "generating" ? "공식 자료 검색 중…" : guide ? "다시 생성" : "질문 생성"}
-        </button>
+        </OrbitButton>
       </div>
       {message ? <p className="editor-practice-message">{message}</p> : null}
-      {hasStaleGuide ? <p className="editor-question-stale">덱이 바뀌어 이전 질문은 숨겼습니다. 현재 버전으로 다시 생성해 주세요.</p> : null}
       {guide && guide.items.length > 0 ? (
         <SlideQuestionGuideCarousel
           guide={guide}

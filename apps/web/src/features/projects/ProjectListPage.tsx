@@ -32,6 +32,7 @@ import {
   DropdownMenuItem,
   OrbitButton,
   OrbitEmptyState,
+  OrbitFailureState,
   OrbitIconButton,
   OrbitInput,
 } from "../../components/ui";
@@ -530,16 +531,9 @@ function ProjectState(props: {
   }
   if (props.query.isError) {
     return (
-      <OrbitEmptyState
-        action={
-          <OrbitButton
-            onClick={() => void props.query.refetch()}
-            variant="secondary"
-          >
-            다시 시도
-          </OrbitButton>
-        }
+      <OrbitFailureState
         description="연결을 확인한 뒤 프로젝트 목록을 다시 불러오세요."
+        onRetry={() => void props.query.refetch()}
         title="프로젝트를 불러오지 못했습니다."
       />
     );

@@ -22,7 +22,7 @@ import {
   type OrbitAppNavigationItem,
 } from "./components/OrbitAppHeader";
 import { RedesignSystemPage } from "./features/design-system/RedesignSystemPage";
-import { OrbitButton, OrbitEmptyState } from "./components/ui";
+import { OrbitButton, OrbitEmptyState, OrbitFailureState } from "./components/ui";
 import { OrbitAuthPage } from "./features/auth/AuthPage";
 import {
   authMeQueryKey,
@@ -1031,17 +1031,12 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
 function ProjectAccessError(props: { onRetry: () => void; projectId: string }) {
   return (
     <ProjectAccessLayout projectId={props.projectId}>
-      <article className="orbit-access-message">
-        <span className="redesign-eyebrow">PROJECT ACCESS</span>
-        <h1>프로젝트 권한을 확인하지 못했습니다.</h1>
-        <p>
-          잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요.
-        </p>
-        <OrbitButton type="button" onClick={props.onRetry}>
-          다시 확인
-        </OrbitButton>
-        <a href="/project">프로젝트 목록으로</a>
-      </article>
+      <OrbitFailureState
+        description="잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요."
+        onRetry={props.onRetry}
+        retryLabel="다시 확인"
+        title="프로젝트 권한을 확인하지 못했습니다."
+      />
     </ProjectAccessLayout>
   );
 }
@@ -1091,15 +1086,12 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
   if (access.isError) {
     return (
       <ProjectAccessLayout projectId={props.projectId}>
-        <div className="orbit-access-message">
-          <p className="redesign-eyebrow">ACCESS CHECK</p>
-          <h1>권한 상태를 확인하지 못했습니다.</h1>
-          <p>연결을 확인한 뒤 다시 시도해 주세요.</p>
-          <OrbitButton onClick={() => void access.refetch()}>
-            다시 확인
-          </OrbitButton>
-          <a href="/project">프로젝트 목록으로</a>
-        </div>
+        <OrbitFailureState
+          description="연결을 확인한 뒤 다시 시도해 주세요."
+          onRetry={() => void access.refetch()}
+          retryLabel="다시 확인"
+          title="권한 상태를 확인하지 못했습니다."
+        />
       </ProjectAccessLayout>
     );
   }

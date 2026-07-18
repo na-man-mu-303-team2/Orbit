@@ -8146,8 +8146,7 @@ body.is-resizing-speaker-notes {
 }
 
 .orbit-shell .editor-practice-start,
-.orbit-shell .editor-practice-stop,
-.orbit-shell .editor-question-guide-actions button {
+.orbit-shell .editor-practice-stop {
   border: 0;
   border-radius: var(--redesign-radius-lg);
   color: var(--redesign-color-light-surface);
@@ -8161,12 +8160,15 @@ body.is-resizing-speaker-notes {
   background: var(--redesign-color-secondary);
 }
 
-.orbit-shell .editor-question-guide-actions button {
-  background: var(--redesign-color-primary-container);
-  color: var(--redesign-color-on-primary-container);
-  min-height: 30px;
+.orbit-shell .editor-question-guide-actions .editor-question-guide-generate-button {
+  min-height: 34px;
   padding-inline: var(--redesign-space-3);
-  font-size: var(--redesign-type-label-sm-size);
+  border-color: var(--redesign-color-primary);
+  background: var(--redesign-color-primary);
+  box-shadow: var(--redesign-glow-primary);
+  color: var(--redesign-color-on-primary);
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 650;
 }
 
 .orbit-shell .editor-practice-stop {
@@ -11286,8 +11288,8 @@ body.is-resizing-speaker-notes {
 }
 
 .orbit-shell.editor-professional .slides-list .slide-item.active .slide-number {
-  background: var(--redesign-color-primary-container);
-  color: var(--redesign-color-on-primary-container);
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
 }
 
 .orbit-shell.editor-professional .slides-list .slide-item-title {
@@ -13620,9 +13622,42 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional
   .editor-presentation-split.rehearsal-disabled
   .editor-present-menu-button:disabled {
-  color: var(--redesign-color-on-surface-variant);
+  color: var(--redesign-color-on-surface);
   cursor: not-allowed;
   opacity: 1;
+}
+
+.orbit-shell.editor-professional .editor-presentation-split.rehearsal-disabled,
+.orbit-shell.editor-professional
+  .editor-presentation-split.rehearsal-disabled:hover,
+.orbit-shell.editor-professional
+  .editor-presentation-split.rehearsal-disabled.active {
+  background: var(--redesign-color-surface-container-lowest);
+  border-color: var(--redesign-color-outline-variant);
+  box-shadow: var(--redesign-shadow-none);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional
+  .editor-presentation-split.rehearsal-disabled
+  .editor-present-button:disabled,
+.orbit-shell.editor-professional
+  .editor-presentation-split.rehearsal-disabled
+  .editor-present-menu-button:disabled {
+  background: var(--redesign-color-surface-container-lowest);
+  border-color: transparent;
+  box-shadow: var(--redesign-shadow-none);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional
+  .editor-presentation-split.rehearsal-disabled
+  .editor-present-menu-button {
+  border-left-color: color-mix(
+    in srgb,
+    var(--redesign-color-on-surface) 26%,
+    transparent
+  );
 }
 
 /* The activity rail remains fixed while only the panel content collapses. */
@@ -13714,8 +13749,8 @@ body.is-resizing-speaker-notes {
 }
 
 .orbit-shell.editor-professional .editor-right-panel-rail button.active {
-  background: var(--redesign-color-primary-container);
-  color: var(--redesign-color-on-primary-container);
+  background: var(--redesign-color-primary-subtle);
+  color: var(--redesign-color-primary);
 }
 
 .orbit-shell.editor-professional
