@@ -38,8 +38,33 @@ export const deckElementRoleSchema = z.enum([
 export const deckElementCoordinateSchema = z.number().finite().nonnegative();
 export const deckElementSizeSchema = z.number().finite().positive();
 
+export const ooxmlOriginSchema = z.enum(["imported", "authored"]);
+
+export const ooxmlRichTextEditCapabilitySchema = z.enum([
+  "none",
+  "style-only",
+  "full"
+]);
+
+export const ooxmlCropEditCapabilitySchema = z.enum([
+  "none",
+  "picture",
+  "picture-fill"
+]);
+
+export const ooxmlElementEditCapabilitiesSchema = z.object({
+  richText: ooxmlRichTextEditCapabilitySchema,
+  crop: ooxmlCropEditCapabilitySchema,
+  tableCellText: z.boolean(),
+  frame: z.boolean().optional(),
+  delete: z.boolean().optional(),
+  imageSource: z.boolean().optional()
+});
+
 export const deckElementBaseSchema = z.object({
   elementId: deckElementIdSchema,
+  ooxmlOrigin: ooxmlOriginSchema.optional(),
+  ooxmlEditCapabilities: ooxmlElementEditCapabilitiesSchema.optional(),
   role: deckElementRoleSchema.optional(),
   x: deckElementCoordinateSchema,
   y: deckElementCoordinateSchema,
@@ -120,6 +145,8 @@ export const textElementRunSchema = z.object({
   fontFamily: z.string().min(1).optional(),
   fontSize: z.number().finite().positive().optional(),
   fontWeight: textFontWeightSchema.optional(),
+  italic: z.boolean().optional(),
+  underline: z.boolean().optional(),
   color: themeColorSchema.optional(),
   baseline: z.enum(["normal", "superscript", "subscript"]).default("normal")
 });
@@ -136,6 +163,8 @@ export const textElementParagraphSchema = z.object({
   fontFamily: z.string().min(1).optional(),
   fontSize: z.number().finite().positive().optional(),
   fontWeight: textFontWeightSchema.optional(),
+  italic: z.boolean().optional(),
+  underline: z.boolean().optional(),
   color: themeColorSchema.optional(),
   align: textAlignSchema.default("left"),
   lineHeight: z.number().finite().positive().default(1.2),
@@ -161,6 +190,8 @@ export const textElementPropsSchema = z
     fontFamily: z.string().min(1).optional(),
     fontSize: z.number().finite().positive().default(24),
     fontWeight: textFontWeightSchema.default("normal"),
+    italic: z.boolean().optional(),
+    underline: z.boolean().optional(),
     color: themeColorSchema.optional(),
     align: textAlignSchema.default("left"),
     verticalAlign: textVerticalAlignSchema.default("top"),

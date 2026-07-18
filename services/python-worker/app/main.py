@@ -1,7 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-import json
 from typing import Any, Literal, Self, cast
 from uuid import uuid4
 
@@ -65,6 +64,14 @@ from app.ai.pptx_ooxml_generation import (
     generate_pptx_ooxml,
     sync_pptx_ooxml,
 )
+from app.ai.pptx_ooxml_sync_transport import (
+    DECK_CANVAS_MAX_BYTES,
+    OPERATIONS_MAX_BYTES,
+    TEMPLATE_BLUEPRINT_MAX_BYTES,
+    PptxOoxmlSyncTransportError,
+    parse_json_part,
+    read_pptx_package,
+)
 from app.ai.pptx_ooxml_vector_importer import (
     import_pptx_design_with_optional_ooxml_vector,
 )
@@ -108,11 +115,22 @@ from app.audio.processing import (
     RehearsalAudioProcessingResponse,
     process_rehearsal_audio,
 )
+from app.audio.slide_practice import (
+    SlidePracticeAudioResponse,
+    process_slide_practice_audio,
+)
 from app.audio.analysis.models import (
     RehearsalSilenceAnalysis,
     unmeasured_silence_analysis,
 )
 from app.challenge_qna import router as challenge_qna_router
+from app.slide_practice_coaching import (
+    SlidePracticeCoachingError,
+    SlidePracticeCoachingRequest,
+    SlidePracticeCoachingResponse,
+    generate_slide_practice_coaching,
+)
+from app.slide_question_guides import router as slide_question_guides_router
 from app.config import PythonWorkerConfig, load_config
 from app.extraction import (
     ExtractConfig,
@@ -440,6 +458,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="ORBIT Python Worker", version="0.1.0", lifespan=lifespan)
 app.include_router(challenge_qna_router)
+app.include_router(slide_question_guides_router)
 app.include_router(focused_practice_router)
 
 
@@ -652,32 +671,77 @@ async def generate_pptx_ooxml_endpoint(
             raise HTTPException(status_code=503, detail=str(error)) from error
 
 
-@app.post("/ai/pptx-ooxml-sync", response_model=PptxOoxmlSyncResult)
+@app.post(
+    "/ai/pptx-ooxml-sync",
+    response_model=PptxOoxmlSyncResult,
+    response_model_exclude_none=True,
+)
 async def sync_pptx_ooxml_endpoint(
     file: UploadFile = File(...),
-    template_blueprint: str = Form(...),
-    operations: str = Form(...),
-    deck_canvas: str = Form(...),
+    template_blueprint_file: UploadFile | None = File(None),
+    operations_file: UploadFile | None = File(None),
+    deck_canvas_file: UploadFile | None = File(None),
+    template_blueprint: str | None = Form(None),
+    operations: str | None = Form(None),
+    deck_canvas: str | None = Form(None),
     synced_deck_version: int = Form(...),
     render: bool = Form(True),
 ) -> PptxOoxmlSyncResult:
     from pathlib import Path
     from tempfile import TemporaryDirectory
 
+    try:
+        package_bytes = await read_pptx_package(file)
+        parsed_template_blueprint = cast(
+            dict[str, Any],
+            await parse_json_part(
+                field="template_blueprint",
+                upload=template_blueprint_file,
+                legacy_text=template_blueprint,
+                max_bytes=TEMPLATE_BLUEPRINT_MAX_BYTES,
+                expected="object",
+            ),
+        )
+        parsed_operations = cast(
+            list[dict[str, Any]],
+            await parse_json_part(
+                field="operations",
+                upload=operations_file,
+                legacy_text=operations,
+                max_bytes=OPERATIONS_MAX_BYTES,
+                expected="operations",
+            ),
+        )
+        parsed_deck_canvas = cast(
+            dict[str, Any],
+            await parse_json_part(
+                field="deck_canvas",
+                upload=deck_canvas_file,
+                legacy_text=deck_canvas,
+                max_bytes=DECK_CANVAS_MAX_BYTES,
+                expected="object",
+            ),
+        )
+    except PptxOoxmlSyncTransportError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.detail(),
+        ) from error
+
     with TemporaryDirectory(prefix="orbit-ooxml-sync-") as temp_dir:
         source_path = Path(temp_dir) / Path(file.filename or "current.pptx").name
-        source_path.write_bytes(await file.read())
+        source_path.write_bytes(package_bytes)
         try:
             return await run_in_threadpool(
                 sync_pptx_ooxml,
                 source_path,
-                template_blueprint=json.loads(template_blueprint),
-                operations=json.loads(operations),
-                deck_canvas=json.loads(deck_canvas),
+                template_blueprint=parsed_template_blueprint,
+                operations=parsed_operations,
+                deck_canvas=parsed_deck_canvas,
                 synced_deck_version=synced_deck_version,
                 render=render,
             )
-        except (json.JSONDecodeError, TypeError, ValueError) as error:
+        except (TypeError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         except PptxOoxmlGenerationError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
@@ -703,6 +767,39 @@ def process_rehearsal_audio_endpoint(
         return process_rehearsal_audio(payload, provider)
     except AudioTranscriptionError as exc:
         raise to_http_exception(exc) from exc
+
+
+@app.post("/slide-practice/analyze-audio", response_model=SlidePracticeAudioResponse)
+def process_slide_practice_audio_endpoint(
+    payload: AudioTranscribeRequest,
+    provider: ReportSttProviderDependency,
+) -> SlidePracticeAudioResponse:
+    try:
+        return process_slide_practice_audio(payload, provider)
+    except AudioTranscriptionError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@app.post(
+    "/slide-practice/coaching",
+    response_model=SlidePracticeCoachingResponse,
+)
+def generate_slide_practice_coaching_endpoint(
+    payload: SlidePracticeCoachingRequest,
+    request: Request,
+) -> SlidePracticeCoachingResponse:
+    config = _config(request)
+    try:
+        return generate_slide_practice_coaching(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except SlidePracticeCoachingError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Slide practice coaching generation failed.",
+        ) from error
 
 
 @app.post("/ai/generate-deck", response_model=GenerateDeckResponse)

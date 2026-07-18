@@ -14,6 +14,7 @@ import {
   normalizeElementFrameDraft,
 } from "../../../../../../../packages/editor-core/src/patches/elementFrame";
 import type {
+  Chart,
   CustomShapeNode,
   ActivityTemplate,
   Deck,
@@ -23,6 +24,8 @@ import type {
   GroupElementProps,
   ShapeElementProps,
   Slide,
+  TableCellProps,
+  TableElementProps,
 } from "@orbit/shared";
 import { useRef, type MutableRefObject } from "react";
 
@@ -33,6 +36,7 @@ import {
   type SlideIconDefinition
 } from "../../icons/slideIconRegistry";
 import type { ShapeInsertType } from "../components/EditorContextMenus";
+import type { ChartInsertType } from "../components/EditorToolbar";
 import type {
   EditorShellUiUpdater,
   ElementContextMenuState,
@@ -42,6 +46,10 @@ import {
   getContextMenuPosition,
   getNextElementZIndex,
 } from "../utils/editorLayout";
+import {
+  getElementLayerOrderUpdates,
+  type ElementLayerOrderAction,
+} from "../utils/elementLayerOrder";
 import { canEditSlideCanvas } from "../utils/slideEditingPolicy";
 import type { PatchProducer } from "./useEditorPersistenceState";
 
@@ -129,7 +137,7 @@ export function useEditorCanvasCommands(args: {
     args.setInsertTool("select");
   }
 
-  function addChartElement() {
+  function addChartElement(type: ChartInsertType = "bar") {
     if (!canEditSlideCanvas(args.currentSlide)) return;
     const elementId = createElementId(args.deck);
     const redesignPalette = resolveRedesignPalette();
@@ -139,8 +147,28 @@ export function useEditorCanvasCommands(args: {
       redesignPalette?.primaryFixedDim ?? primaryColor;
     const primaryContainerColor =
       redesignPalette?.primaryContainer ?? primaryColor;
-    args.commitPatch((currentDeck) =>
-      createAddElementPatch(currentDeck, args.currentSlide!.slideId, {
+    args.commitPatch((currentDeck) => {
+      const nextElement: DeckElement = type === "table" ? {
+        elementId,
+        type: "table",
+        role: "table",
+        x: 240,
+        y: 180,
+        width: 520,
+        height: 280,
+        rotation: 0,
+        opacity: 1,
+        zIndex: getNextElementZIndex(args.currentSlide!.elements),
+        locked: false,
+        visible: true,
+        props: createDefaultTableProps({
+          width: 520,
+          height: 280,
+          headerFill: primaryContainerColor,
+          textColor: args.deck.theme.textColor,
+          fontFamily: args.deck.theme.typography.bodyFontFamily,
+        }),
+      } : {
         elementId,
         type: "chart",
         role: "chart",
@@ -154,7 +182,7 @@ export function useEditorCanvasCommands(args: {
         locked: false,
         visible: true,
         props: {
-          type: "bar",
+          type,
           title: "새 차트",
           data: [
             { label: "A", value: 48 },
@@ -179,25 +207,64 @@ export function useEditorCanvasCommands(args: {
             unit: "",
           },
         },
-      }),
-    );
+      };
+      return createAddElementPatch(currentDeck, args.currentSlide!.slideId, nextElement);
+    });
+    args.setSelectedElementIds([elementId]);
+  }
+
+  function convertChartToTable(slideId: string, elementId: string) {
+    const sourceElement = args.deck.slides
+      .find((candidate) => candidate.slideId === slideId)
+      ?.elements.find((candidate) => candidate.elementId === elementId);
+    if (!sourceElement || sourceElement.type !== "chart") return;
+
+    args.commitPatch((currentDeck) => {
+      const slide = currentDeck.slides.find((candidate) => candidate.slideId === slideId);
+      const element = slide?.elements.find((candidate) => candidate.elementId === elementId);
+      if (!slide || !element || element.type !== "chart") throw new Error("Chart element not found");
+      const chart = element.props as Chart;
+      const nextElement: DeckElement = {
+        ...element,
+        type: "table",
+        role: "table",
+        props: createTablePropsFromChart(
+          chart,
+          element.width,
+          element.height,
+          args.deck.theme.textColor,
+          args.deck.theme.typography.bodyFontFamily,
+        ),
+      };
+      return {
+        deckId: currentDeck.deckId,
+        baseVersion: currentDeck.version,
+        source: "user",
+        operations: [
+          { type: "delete_element", slideId, elementId },
+          { type: "add_element", slideId, element: nextElement },
+        ],
+      };
+    });
+    args.setEditingElementId(null);
     args.setSelectedElementIds([elementId]);
   }
 
   function addIconElement(icon: SlideIconDefinition, color: string) {
     if (!canEditSlideCanvas(args.currentSlide)) return;
     const elementId = createElementId(args.deck);
-    const size = 96;
-    const x = Math.max(0, (args.deck.canvas.width - size) / 2);
-    const y = Math.max(0, (args.deck.canvas.height - size) / 2);
+    const width = icon.defaultWidth ?? 96;
+    const height = icon.defaultHeight ?? 96;
+    const x = Math.max(0, (args.deck.canvas.width - width) / 2);
+    const y = Math.max(0, (args.deck.canvas.height - height) / 2);
     args.commitPatch((currentDeck) => createAddElementPatch(currentDeck, args.currentSlide!.slideId, {
       elementId,
       type: "svg",
       role: "decoration",
       x,
       y,
-      width: size,
-      height: size,
+      width,
+      height,
       rotation: 0,
       opacity: 1,
       zIndex: getNextElementZIndex(args.currentSlide!.elements),
@@ -206,7 +273,7 @@ export function useEditorCanvasCommands(args: {
       props: {
         src: createSlideIconDataUrl(icon, color),
         alt: icon.label,
-        fit: "contain",
+        fit: "stretch",
         focusX: 0.5,
         focusY: 0.5
       }
@@ -344,6 +411,44 @@ export function useEditorCanvasCommands(args: {
     if (!committed) return;
     args.setCurrentSlideIndex(nextSlideIndex);
     args.setSelectedElementIds([]);
+  }
+
+  function deleteSlide(slideIndex: number) {
+    const targetSlide = args.workingDeckRef.current.slides[slideIndex];
+    if (!targetSlide || args.workingDeckRef.current.slides.length <= 1) return false;
+    if (!args.confirmDiscardSpeakerNotesDraft()) return false;
+
+    let nextSlideIndex = Math.max(0, slideIndex - 1);
+    let nextSpeakerNotes = "";
+    const committed = args.commitPatch((currentDeck) => {
+      const targetIndex = currentDeck.slides.findIndex(
+        (slide) => slide.slideId === targetSlide.slideId,
+      );
+      const remainingSlides = currentDeck.slides.filter(
+        (slide) => slide.slideId !== targetSlide.slideId,
+      );
+      nextSlideIndex = Math.min(
+        targetIndex >= 0 ? targetIndex : slideIndex,
+        remainingSlides.length - 1,
+      );
+      nextSpeakerNotes = remainingSlides[nextSlideIndex]?.speakerNotes ?? "";
+
+      return {
+        deckId: currentDeck.deckId,
+        baseVersion: currentDeck.version,
+        source: "user",
+        operations: [{ type: "delete_slide", slideId: targetSlide.slideId }],
+      };
+    });
+    if (!committed) return false;
+
+    args.resetSpeakerNotesEditState(nextSpeakerNotes);
+    args.setCurrentSlideIndex(nextSlideIndex);
+    args.setSelectedElementIds([]);
+    args.setEditingElementId(null);
+    args.setCustomShapeEditElementId(null);
+    args.setElementContextMenu(null);
+    return true;
   }
 
   function addActivitySlide(template: ActivityTemplate) {
@@ -743,6 +848,53 @@ export function useEditorCanvasCommands(args: {
     }
   }
 
+  function changeElementLayerOrder(
+    slideId: string,
+    elementId: string,
+    action: ElementLayerOrderAction,
+  ) {
+    const slide = args.deck.slides.find(
+      (candidate) => candidate.slideId === slideId,
+    );
+    if (!canEditSlideCanvas(slide)) return;
+    const updates = getElementLayerOrderUpdates(
+      slide.elements,
+      elementId,
+      action,
+    );
+    if (updates.length === 0) return;
+
+    args.commitPatch((currentDeck) => {
+      const currentSlide = currentDeck.slides.find(
+        (candidate) => candidate.slideId === slideId,
+      );
+      if (!currentSlide) {
+        throw new Error(`Slide ${slideId} was not found`);
+      }
+      return {
+        deckId: currentDeck.deckId,
+        baseVersion: currentDeck.version,
+        source: "user",
+        operations: updates.map((update) => {
+          const element = currentSlide.elements.find(
+            (candidate) => candidate.elementId === update.elementId,
+          );
+          if (!element) {
+            throw new Error(`Element ${update.elementId} was not found`);
+          }
+          return {
+            type: "update_element_frame" as const,
+            slideId,
+            elementId: update.elementId,
+            frame: normalizeElementFrameDraft(currentDeck.canvas, element, {
+              zIndex: update.zIndex,
+            }),
+          };
+        }),
+      };
+    });
+  }
+
   function createGroupFromSelection() {
     if (!canEditSlideCanvas(args.currentSlide) || args.selectedElements.length < 2) return;
     const elementId = createElementId(args.deck);
@@ -876,12 +1028,15 @@ export function useEditorCanvasCommands(args: {
       addActivitySlide,
       addTextElement,
       changeElementFrame,
+      changeElementLayerOrder,
       clearCanvasSelection,
       commitCustomShapeGeometry,
+      convertChartToTable,
       copySelectedElement,
       createCustomShape,
       createDrawnElement,
       createGroupFromSelection,
+      deleteSlide,
       deleteSelectedElement,
       duplicateSelectedElement,
       insertShapeElement,
@@ -890,5 +1045,121 @@ export function useEditorCanvasCommands(args: {
       ungroupElement,
     },
     refs: { copiedElementRef },
+  };
+}
+
+function createDefaultTableProps(input: {
+  fontFamily: string;
+  headerFill: string;
+  height: number;
+  textColor: string;
+  width: number;
+}): TableElementProps {
+  const values = [
+    ["항목", "값"],
+    ["A", "48"],
+    ["B", "72"],
+    ["C", "56"],
+  ];
+  return createTableProps(values, {
+    bodyFill: "#ffffff",
+    fontFamily: input.fontFamily,
+    headerFill: input.headerFill,
+    height: input.height,
+    textColor: input.textColor,
+    width: input.width,
+  });
+}
+
+function createTablePropsFromChart(
+  chart: Chart,
+  width: number,
+  height: number,
+  fallbackTextColor: string,
+  fallbackFontFamily: string,
+): TableElementProps {
+  const hasSeries = chart.type === "line" && chart.data.some((datum) => Boolean(datum.series));
+  const headers = chart.type === "scatter"
+    ? ["항목", "X", "Y"]
+    : hasSeries
+      ? ["항목", "시리즈", "값"]
+      : ["항목", "값"];
+  const values = [
+    headers,
+    ...chart.data.map((datum, index) => {
+      if ("x" in datum) return [datum.label ?? String(index + 1), String(datum.x), String(datum.y)];
+      if (hasSeries) {
+        return [
+          datum.label,
+          "series" in datum ? datum.series ?? "" : "",
+          String(datum.value),
+        ];
+      }
+      return [datum.label, String(datum.value)];
+    }),
+  ];
+  return createTableProps(values, {
+    bodyFill: chart.style.backgroundColor ?? "#ffffff",
+    fontFamily: chart.style.fontFamily ?? fallbackFontFamily,
+    headerFill: chart.style.colors[0] ?? "#e0f3ff",
+    height,
+    textColor: chart.style.textColor ?? fallbackTextColor,
+    width,
+  });
+}
+
+function createTableProps(
+  values: string[][],
+  style: {
+    bodyFill: string;
+    fontFamily: string;
+    headerFill: string;
+    height: number;
+    textColor: string;
+    width: number;
+  },
+): TableElementProps {
+  const columnCount = Math.max(1, ...values.map((row) => row.length));
+  const rowCount = Math.max(1, values.length);
+  return {
+    borderColor: "#CBD5E1",
+    borderWidth: 1,
+    columnWidths: Array.from({ length: columnCount }, () => style.width / columnCount),
+    rowHeights: Array.from({ length: rowCount }, () => style.height / rowCount),
+    rows: values.map((row, rowIndex) =>
+      Array.from({ length: columnCount }, (_, columnIndex) =>
+        createTableCell(row[columnIndex] ?? "", {
+          fill: rowIndex === 0 ? style.headerFill : style.bodyFill,
+          fontFamily: style.fontFamily,
+          fontWeight: rowIndex === 0 ? "bold" : "normal",
+          textColor: style.textColor,
+        }),
+      ),
+    ),
+  };
+}
+
+function createTableCell(
+  text: string,
+  style: {
+    fill: string;
+    fontFamily: string;
+    fontWeight: TableCellProps["fontWeight"];
+    textColor: string;
+  },
+): TableCellProps {
+  return {
+    align: "center",
+    borderColor: "#CBD5E1",
+    borderWidth: 1,
+    colSpan: 1,
+    fill: style.fill,
+    fontFamily: style.fontFamily,
+    fontSize: 18,
+    fontWeight: style.fontWeight,
+    rowSpan: 1,
+    text,
+    textColor: style.textColor,
+    verticalAlign: "middle",
   };
 }

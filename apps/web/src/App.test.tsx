@@ -211,7 +211,9 @@ describe("App shell routing", () => {
         </QueryClientProvider>
       );
 
-      expect(html).toContain("발표 내용부터 빠르게 시작하세요");
+      expect(html).not.toContain("핵심 컨텍스트");
+      expect(html).toContain("대본 톤");
+      expect(html).toContain("다음 단계");
       expect(html).toContain("Style &amp; Color");
       expect(html).toContain("kdh@orbit.com");
       expect(html).not.toContain("demo@orbit.test");
@@ -402,6 +404,7 @@ describe("workspace project surfaces", () => {
       Array.from({ length: 9 }, (_, index) => ({
         createdAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
         createdBy: "user_1",
+        isPinned: index === 0,
         projectId: `project_${index + 1}`,
         title: `프로젝트 ${index + 1}`,
         workspaceId: "workspace_1"
@@ -417,32 +420,77 @@ describe("workspace project surfaces", () => {
     expect(html).not.toContain("Workspace");
     expect(html).toContain("더보기");
     expect(html).toContain('aria-label="AI 발표자료 만들기"');
-    expect(html.match(/class="workspace-home-card"/g)).toHaveLength(7);
+    expect(html).toContain("AI로 발표자료 만들기");
+    expect(html).toContain("발표자료 초안을 만들어드려요.");
+    expect(html).not.toContain("빈 슬라이드로 시작하세요.");
+    expect(html.match(/<article class="workspace-home-card/g)).toHaveLength(7);
+    expect(html).toContain('class="workspace-home-card is-pinned"');
     expect(html).not.toContain("워크스페이스 메뉴");
   });
 
-  it("renders search, sorting, refresh and creation controls in project explorer", () => {
+  it("renders search, sorting and creation controls in project explorer", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["projects"], [
+      {
+        createdAt: "2026-07-18T00:00:00.000Z",
+        createdBy: "user_1",
+        isPinned: false,
+        projectId: "project_1",
+        title: "프로젝트 1",
+        workspaceId: "workspace_1",
+      },
+    ]);
     const html = renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={queryClient}>
         <ProjectExplorerPage onNavigate={() => undefined} />
       </QueryClientProvider>
     );
 
     expect(html).toContain('aria-label="프로젝트 검색"');
-    expect(html).toContain('aria-label="프로젝트 정렬"');
-    expect(html).toContain('aria-label="프로젝트 새로고침"');
+    expect(html).toContain('aria-label="새 발표자료 만들기"');
+    expect(html).toContain('class="orbit-project-browse-tools"');
+    expect(html).toContain('aria-label="프로젝트 정렬: 최근 생성순"');
+    expect(html).not.toContain('aria-label="프로젝트 새로고침"');
     expect(html).toContain("빈 프로젝트");
+    expect(html).toContain("PPTX 업로드");
+    expect(html).toContain('class="orbit-project-gallery"');
+    expect(html).toContain('aria-label="프로젝트 1 고정"');
+    expect(html).toContain('aria-label="프로젝트 1 리허설 시작"');
+    expect(html).toContain('aria-label="프로젝트 1 삭제"');
+    expect(html.indexOf('aria-label="프로젝트 1 고정"')).toBeLessThan(
+      html.indexOf('aria-label="프로젝트 1 리허설 시작"'),
+    );
+    expect(html.indexOf('aria-label="프로젝트 1 리허설 시작"')).toBeLessThan(
+      html.indexOf('aria-label="프로젝트 1 삭제"'),
+    );
+    expect(html).not.toContain('aria-label="프로젝트 1 작업 메뉴"');
+    expect(html).not.toContain("<h1>프로젝트</h1>");
   });
 
   it("renders a dedicated rehearsal project picker without creation or delete actions", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["projects"], [
+      {
+        createdAt: "2026-07-18T00:00:00.000Z",
+        createdBy: "user_1",
+        isPinned: false,
+        projectId: "project_private_identifier",
+        title: "리허설 발표자료",
+        workspaceId: "workspace_1",
+      },
+    ]);
     const html = renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={queryClient}>
         <RehearsalProjectPickerPage onNavigate={() => undefined} />
       </QueryClientProvider>
     );
 
-    expect(html).toContain(">리허설<");
-    expect(html).toContain("연습할 발표자료를 선택하세요.");
+    expect(html).toContain('aria-label="리허설 프로젝트 목록"');
+    expect(html).toContain("리허설 발표자료");
+    expect(html).toContain("연습하러 가기");
+    expect(html).toContain("redesign-button-primary");
+    expect(html).not.toContain("project_private_identifier");
+    expect(html).toContain('aria-label="프로젝트 새로고침"');
     expect(html).not.toContain("빈 프로젝트");
   });
 });

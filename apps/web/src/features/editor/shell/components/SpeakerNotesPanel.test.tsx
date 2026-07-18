@@ -9,13 +9,16 @@ import { SpeakerNotesQnaTab } from "./SpeakerNotesQnaTab";
 import { SpeakerNotesReportTab } from "./SpeakerNotesReportTab";
 
 function renderPanel(isExpanded: boolean, isEditing = false) {
-  const currentSlide = createDemoDeck().slides[0] ?? null;
+  const deck = createDemoDeck();
+  const currentSlide = deck.slides[0] ?? null;
 
   return renderToStaticMarkup(
     <SpeakerNotesPanel
       contentRef={createRef<HTMLDivElement>()}
       currentSlide={currentSlide}
+      deck={deck}
       draft={currentSlide?.speakerNotes ?? ""}
+      flushPendingSaves={vi.fn()}
       guidance={getSpeakerNotesLengthGuidance(currentSlide?.speakerNotes ?? "")}
       height={240}
       isEditing={isEditing}
@@ -34,9 +37,13 @@ function renderPanel(isExpanded: boolean, isEditing = false) {
       onSelectKeyword={vi.fn()}
       onSelectKeywordText={vi.fn()}
       onStartEdit={vi.fn()}
+      onTabSelected={vi.fn()}
       onToggleAdvanceSlide={vi.fn()}
       onTogglePanel={vi.fn()}
       onToggleRequired={vi.fn()}
+      projectId={deck.projectId}
+      reportRefreshToken={0}
+      requestedTab={null}
       selectedKeyword={null}
       selectedKeywordId={null}
       selectedKeywordOccurrenceKey={null}
@@ -91,12 +98,29 @@ describe("SpeakerNotesPanel", () => {
   });
 
   it("QnA와 리포트 내용을 독립된 탭 컴포넌트로 렌더링한다", () => {
-    const qnaHtml = renderToStaticMarkup(<SpeakerNotesQnaTab />);
-    const reportHtml = renderToStaticMarkup(<SpeakerNotesReportTab />);
+    const deck = createDemoDeck();
+    const slide = deck.slides[0] ?? null;
+    const qnaHtml = renderToStaticMarkup(
+      <SpeakerNotesQnaTab
+        deck={deck}
+        flushPendingSaves={vi.fn()}
+        projectId={deck.projectId}
+        slide={slide}
+      />,
+    );
+    const reportHtml = renderToStaticMarkup(
+      <SpeakerNotesReportTab
+        deck={deck}
+        projectId={deck.projectId}
+        refreshToken={0}
+        slide={slide}
+      />,
+    );
 
     expect(qnaHtml).toContain('id="speaker-notes-qna-panel"');
-    expect(qnaHtml).toContain("예상 질문과 답변");
+    expect(qnaHtml).toContain("질문 생성");
+    expect(qnaHtml).not.toContain("현재 슬라이드 예상 질문");
     expect(reportHtml).toContain('id="speaker-notes-report-panel"');
-    expect(reportHtml).toContain("슬라이드별 분석 결과");
+    expect(reportHtml).toContain("연습 기록을 불러오는 중");
   });
 });

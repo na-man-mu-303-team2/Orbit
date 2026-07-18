@@ -19,6 +19,8 @@ import {
   IconAlignBoxCenterTop as AlignTop,
   IconAlignBoxLeftMiddle as AlignLeft,
   IconAlignBoxRightMiddle as AlignRight,
+  IconArrowBarToDown as ArrowToBack,
+  IconArrowBarToUp as ArrowToFront,
   IconArrowDown as ArrowDown,
   IconArrowUp as ArrowUp,
   IconArrowsMinimize as Shrink,
@@ -34,6 +36,7 @@ import {
   getCustomShapePaint,
   getCustomShapeStrokeWidth,
 } from "../../canvas/custom-shape/geometry";
+import type { ImageCropActionState } from "../../canvas/image/imageCropSession";
 import {
   getKonvaFontStyle,
   getPrimaryTextRun,
@@ -43,6 +46,7 @@ import {
 import type { SlideAnimationDiagnostics } from "../../../../../../../packages/editor-core/src/index";
 import { resolveRedesignPalette } from "../../../../styles/redesignPalette";
 import { IdBadge } from "./EditorIdBadge";
+import type { ElementLayerOrderAction } from "../utils/elementLayerOrder";
 
 type TextFitContext = {
   fontFamily?: string;
@@ -73,10 +77,12 @@ export function SelectionQuickBar(props: {
   canvas: Deck["canvas"] | null;
   customShapeEditActive: boolean;
   element: DeckElement | null;
+  imageCropActionState?: ImageCropActionState;
   selectedKeywordLabel: string | null;
   slide: Slide | null;
   theme: Deck["theme"] | null;
   onOpenAnimationEditor: () => void;
+  onStartImageCrop?: () => void;
   onChangeFrame: (frame: {
     role?: DeckElement["role"] | null;
     x?: number;
@@ -88,7 +94,9 @@ export function SelectionQuickBar(props: {
     zIndex?: number;
     visible?: boolean;
   }) => void;
+  onChangeLayerOrder?: (action: ElementLayerOrderAction) => void;
   onChangeProps: (props: Record<string, unknown>) => void;
+  onConvertChartToTable: () => void;
   onChangeSlideStyle: (style: {
     backgroundColor?: string | null;
     textColor?: string | null;
@@ -111,11 +119,15 @@ export function SelectionQuickBar(props: {
     customShapeEditActive,
     canvas,
     element,
+    imageCropActionState,
     onChangeFrame,
+    onChangeLayerOrder,
     onChangeProps,
+    onConvertChartToTable,
     onChangeSlideStyle,
     onChangeTheme,
     onDeleteAnimation,
+    onStartImageCrop,
     onToggleCustomShapeClosed,
     onToggleCustomShapeEdit,
     showIds,
@@ -373,24 +385,40 @@ export function SelectionQuickBar(props: {
             aria-label="레이어 순서"
           >
             <button
-              aria-label="앞으로 보내기"
+              aria-label="맨 앞으로 가져오기"
               className="quickbar-toggle"
-              title="앞으로 보내기"
+              title="맨 앞으로 가져오기"
               type="button"
-              onClick={() => onChangeFrame({ zIndex: element.zIndex + 1 })}
+              onClick={() => onChangeLayerOrder?.("bring-to-front")}
+            >
+              <ArrowToFront aria-hidden="true" size={17} />
+            </button>
+            <button
+              aria-label="앞으로 가져오기"
+              className="quickbar-toggle"
+              title="앞으로 가져오기"
+              type="button"
+              onClick={() => onChangeLayerOrder?.("bring-forward")}
             >
               <ArrowUp aria-hidden="true" size={17} />
             </button>
             <button
-              aria-label="뒤로 보내기"
+              aria-label="뒤로 가져오기"
               className="quickbar-toggle"
-              title="뒤로 보내기"
+              title="뒤로 가져오기"
               type="button"
-              onClick={() =>
-                onChangeFrame({ zIndex: Math.max(0, element.zIndex - 1) })
-              }
+              onClick={() => onChangeLayerOrder?.("send-backward")}
             >
               <ArrowDown aria-hidden="true" size={17} />
+            </button>
+            <button
+              aria-label="맨 뒤로 보내기"
+              className="quickbar-toggle"
+              title="맨 뒤로 보내기"
+              type="button"
+              onClick={() => onChangeLayerOrder?.("send-to-back")}
+            >
+              <ArrowToBack aria-hidden="true" size={17} />
             </button>
           </div>
         </div>
@@ -447,10 +475,39 @@ export function SelectionQuickBar(props: {
         <div className="element-property-section">
           <h4>{getElementContentSectionLabel(element.type)}</h4>
           <div className="selection-quickbar-fields element-property-content-fields">
+            {imageCropActionState?.visible ? (
+              <>
+                <button
+                  aria-describedby={
+                    imageCropActionState.reason
+                      ? `image-crop-disabled-reason-${element.elementId}`
+                      : undefined
+                  }
+                  className="quickbar-action-chip"
+                  disabled={!imageCropActionState.enabled || !onStartImageCrop}
+                  id={`image-crop-trigger-${element.elementId}`}
+                  title={imageCropActionState.reason ?? "이미지 자르기"}
+                  type="button"
+                  onClick={onStartImageCrop}
+                >
+                  자르기
+                </button>
+                {imageCropActionState.reason ? (
+                  <span
+                    className="quickbar-inline-hint quickbar-inline-hint-warning"
+                    id={`image-crop-disabled-reason-${element.elementId}`}
+                    role="status"
+                  >
+                    {imageCropActionState.reason}
+                  </span>
+                ) : null}
+              </>
+            ) : null}
             <ElementQuickBarFields
               customShapeEditActive={customShapeEditActive}
               element={element}
               onChangeProps={onChangeProps}
+              onConvertChartToTable={onConvertChartToTable}
               onToggleCustomShapeClosed={onToggleCustomShapeClosed}
               onToggleCustomShapeEdit={onToggleCustomShapeEdit}
               primaryColor={editorPrimaryColor}
@@ -495,6 +552,7 @@ function ElementQuickBarFields(props: {
   customShapeEditActive: boolean;
   element: DeckElement;
   onChangeProps: (props: Record<string, unknown>) => void;
+  onConvertChartToTable: () => void;
   onToggleCustomShapeClosed: () => void;
   onToggleCustomShapeEdit: () => void;
   primaryColor: string;
@@ -503,6 +561,7 @@ function ElementQuickBarFields(props: {
     customShapeEditActive,
     element,
     onChangeProps,
+    onConvertChartToTable,
     onToggleCustomShapeClosed,
     onToggleCustomShapeEdit,
     primaryColor,
@@ -782,13 +841,16 @@ function ElementQuickBarFields(props: {
             { label: "막대", value: "bar" },
             { label: "선", value: "line" },
             { label: "원형", value: "pie" },
-            { label: "도넛", value: "doughnut" },
-            { label: "산점도", value: "scatter" },
+            { label: "표", value: "table" },
           ]}
           value={chart.type}
-          onChange={(value) =>
-            onChangeProps(chartTypePatch(chart, value as ChartType))
-          }
+          onChange={(value) => {
+            if (value === "table") {
+              onConvertChartToTable();
+              return;
+            }
+            onChangeProps(chartTypePatch(chart, value as ChartType));
+          }}
         />
         <PropertyTextField
           className="compact-property-field compact-property-field-lg"

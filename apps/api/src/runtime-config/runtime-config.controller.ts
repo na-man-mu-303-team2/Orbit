@@ -13,6 +13,8 @@ export class RuntimeConfigController {
       adaptiveRehearsalCoachEnabled: this.config.ADAPTIVE_REHEARSAL_COACH_ENABLED,
       focusedPracticeEnabled: this.config.FOCUSED_PRACTICE_ENABLED,
       challengeQnaEnabled: this.config.CHALLENGE_QNA_ENABLED,
+      slidePracticeEnabled: this.config.SLIDE_PRACTICE_ENABLED,
+      slideQuestionGuidesEnabled: this.config.SLIDE_QUESTION_GUIDES_ENABLED,
     });
   }
 }

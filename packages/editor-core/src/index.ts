@@ -68,6 +68,35 @@ export {
 } from "./patches/elementFrame";
 export type { ElementFrameDraft } from "./patches/elementFrame";
 export {
+  applyRichTextCharacterStyle,
+  applyRichTextParagraphStyle,
+  getRichTextSelectionCharacterStyle,
+  getRichTextSelectionParagraphStyle,
+  getRichTextSemanticText,
+  normalizeRichTextProps
+} from "./text/richTextOperations";
+export type {
+  RichTextCharacterStylePatch,
+  RichTextParagraphStylePatch,
+  RichTextRange,
+  RichTextSelectionCharacterStyle,
+  RichTextSelectionParagraphStyle,
+  RichTextSelectionValue
+} from "./text/richTextOperations";
+export {
+  createTableOperationPatch,
+  getTableOperationCapability,
+  getTableStructureCapability
+} from "./table/tableOperations";
+export type {
+  TableOperation,
+  TableOperationCapability,
+  TableOperationDisabledReason,
+  TableOperationPatchResult,
+  TableStructureCapability,
+  TableStructureDisabledReason
+} from "./table/tableOperations";
+export {
   buildGroupedFrameOperations,
   createGroupedElementFramePatch,
   getGroupChildElements,

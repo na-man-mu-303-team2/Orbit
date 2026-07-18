@@ -26,7 +26,8 @@ export {
 export {
   ActivityPresenterPanel,
   getActivityPrimaryCommand,
-  getActivityReopenCommand
+  getActivityReopenCommand,
+  loadActivityPresenterRuntime
 } from "./presenter/ActivityPresenterPanel";
 export type { ActivitySurfaceRole } from "./rendering";
 export {

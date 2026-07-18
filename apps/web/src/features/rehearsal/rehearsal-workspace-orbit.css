@@ -447,6 +447,11 @@ main.rehearsal-presenter-shell {
   padding: var(--redesign-space-3);
 }
 
+.rehearsal-presenter-shell .rehearsal-presenter-side > .activity-presenter-panel {
+  min-height: 0;
+  overflow: auto;
+}
+
 .rehearsal-presenter-shell .semantic-capability-status {
   background: var(--redesign-color-info-container);
   border: 1px solid color-mix(in srgb, var(--redesign-color-info) 18%, transparent);

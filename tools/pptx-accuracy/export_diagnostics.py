@@ -63,6 +63,10 @@ SEMANTIC_EXPECTATION_CODES = {
     "transitionCount": "OOXML_TRANSITION_COUNT",
     "timingSlideCount": "OOXML_TIMING_SLIDE_COUNT",
     "cropCount": "OOXML_IMAGE_CROP_COUNT",
+    "cropLeft": "OOXML_IMAGE_CROP_LEFT",
+    "cropTop": "OOXML_IMAGE_CROP_TOP",
+    "cropRight": "OOXML_IMAGE_CROP_RIGHT",
+    "cropBottom": "OOXML_IMAGE_CROP_BOTTOM",
     "chartCount": "OOXML_CHART_REFERENCE_COUNT",
     "tableCount": "OOXML_TABLE_COUNT",
 }
@@ -123,29 +127,7 @@ def diagnostics_for_deck(deck: Mapping[str, Any]) -> list[ExportDiagnostic]:
                         **common,
                     )
                 )
-            if element_type == "image" and has_nonzero_crop(element):
-                diagnostics.append(
-                    ExportDiagnostic(
-                        code="EXPORT_IMAGE_CROP_NOT_SERIALIZED",
-                        disposition="degraded",
-                        reported_by_exporter=False,
-                        **common,
-                    )
-                )
     return diagnostics
-
-
-def has_nonzero_crop(element: Mapping[str, Any]) -> bool:
-    props = element.get("props")
-    if not isinstance(props, Mapping):
-        return False
-    crop = props.get("crop")
-    if not isinstance(crop, Mapping):
-        return False
-    return any(
-        float(crop.get(edge, 0) or 0) != 0
-        for edge in ("left", "top", "right", "bottom")
-    )
 
 
 def summarize_diagnostics(
@@ -228,9 +210,14 @@ def inspect_pptx_semantics(pptx_path: Path) -> dict[str, int]:
         "transitionCount": 0,
         "timingSlideCount": 0,
         "cropCount": 0,
+        "cropLeft": 0,
+        "cropTop": 0,
+        "cropRight": 0,
+        "cropBottom": 0,
         "chartCount": 0,
         "tableCount": 0,
     }
+    crop_edges_recorded = False
     with ZipFile(pptx_path) as archive:
         slide_names = sorted(
             name
@@ -244,9 +231,15 @@ def inspect_pptx_semantics(pptx_path: Path) -> dict[str, int]:
             )
             if root.find(f".//{{{PRESENTATION_NS}}}timing") is not None:
                 values["timingSlideCount"] += 1
-            values["cropCount"] += len(
-                root.findall(f".//{{{DRAWING_NS}}}srcRect")
-            )
+            crop_rectangles = root.findall(f".//{{{DRAWING_NS}}}srcRect")
+            values["cropCount"] += len(crop_rectangles)
+            if crop_rectangles and not crop_edges_recorded:
+                rectangle = crop_rectangles[0]
+                values["cropLeft"] = int(rectangle.get("l", "0"))
+                values["cropTop"] = int(rectangle.get("t", "0"))
+                values["cropRight"] = int(rectangle.get("r", "0"))
+                values["cropBottom"] = int(rectangle.get("b", "0"))
+                crop_edges_recorded = True
             values["chartCount"] += len(root.findall(f".//{{{CHART_NS}}}chart"))
             values["tableCount"] += len(root.findall(f".//{{{DRAWING_NS}}}tbl"))
     return values

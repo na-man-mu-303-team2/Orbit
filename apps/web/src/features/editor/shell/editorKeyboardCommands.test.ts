@@ -33,7 +33,16 @@ function resolve(overrides: Partial<EditorKeyboardCommandInput> = {}) {
 }
 
 describe("isEditorKeyboardCommandSuppressedTarget", () => {
-  it.each(["input", "textarea", "select", "dialog", "[role='dialog']", "[role='menu']"])(
+  it.each([
+    "input",
+    "textarea",
+    "select",
+    "dialog",
+    "[role='dialog']",
+    "[role='menu']",
+    "[data-editor-keyboard-owner]",
+    "[data-editor-keyboard-scope]",
+  ])(
     "suppresses commands inside %s",
     (selector) => {
       expect(isEditorKeyboardCommandSuppressedTarget(targetInside(selector))).toBe(true);
@@ -90,6 +99,27 @@ describe("resolveEditorKeyboardCommand", () => {
     expect(
       resolve({ canMutateDeck: false, ctrlKey: true, key: "S" }),
     ).toEqual({ canExecute: false, type: "save" });
+    expect(
+      resolve({
+        key: "s",
+        metaKey: true,
+        target: targetInside("[data-editor-keyboard-scope]"),
+      }),
+    ).toEqual({ canExecute: true, type: "save" });
+    expect(
+      resolve({
+        hasOpenMenu: true,
+        key: "s",
+        metaKey: true,
+        target: targetInside("[data-editor-keyboard-scope]"),
+      }),
+    ).toEqual({ canExecute: false, type: "save" });
+    expect(
+      resolve({ isInlineTextEditing: true, key: "s", metaKey: true }),
+    ).toEqual({ canExecute: true, type: "save" });
+    expect(
+      resolve({ ctrlKey: true, key: "s", repeat: true }),
+    ).toEqual({ canExecute: false, type: "save" });
   });
 
   it("allows role-neutral PageUp and PageDown navigation", () => {
@@ -117,13 +147,27 @@ describe("resolveEditorKeyboardCommand", () => {
 
   it.each([
     { isCropEditing: true },
-    { isInlineTextEditing: true },
     { isCustomShapeEditing: true },
   ])("suppresses mutation shortcuts during an editing mode: %o", (editingMode) => {
     expect(resolve({ hasSelection: true, ...editingMode })).toBeNull();
-    expect(resolve({ key: "s", metaKey: true, ...editingMode })).toBeNull();
+    expect(resolve({ key: "s", metaKey: true, ...editingMode })).toEqual({
+      canExecute: false,
+      type: "save",
+    });
     expect(resolve({ key: "z", metaKey: true, ...editingMode })).toBeNull();
     expect(resolve({ hasSelection: true, key: "Delete", ...editingMode })).toBeNull();
+  });
+
+  it("allows Save to commit an inline draft while suppressing other mutation shortcuts", () => {
+    const editingMode = { isInlineTextEditing: true };
+    expect(resolve({ key: "s", metaKey: true, ...editingMode })).toEqual({
+      canExecute: true,
+      type: "save",
+    });
+    expect(resolve({ key: "z", metaKey: true, ...editingMode })).toBeNull();
+    expect(
+      resolve({ hasSelection: true, key: "Delete", ...editingMode }),
+    ).toBeNull();
   });
 
   it("denies Viewer mutation commands", () => {
@@ -195,5 +239,23 @@ describe("resolveEditorKeyboardCommand", () => {
       key: "Escape",
       target: targetInside("[role='dialog']"),
     })).toEqual({ type: "dismiss-layer", layer: "modal" });
+  });
+
+  it("leaves Escape handling to a focused popup or inspector scope", () => {
+    expect(
+      resolve({
+        hasOpenMenu: true,
+        hasSelection: true,
+        key: "Escape",
+        target: targetInside("[data-editor-keyboard-scope]"),
+      }),
+    ).toBeNull();
+    expect(
+      resolve({
+        hasSelection: true,
+        key: "Escape",
+        target: targetInside("[data-editor-keyboard-scope]"),
+      }),
+    ).toBeNull();
   });
 });

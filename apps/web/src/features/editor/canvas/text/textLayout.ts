@@ -5,8 +5,13 @@ import type {
   TextElementProps
 } from "@orbit/shared";
 import { Text as KonvaTextShape } from "konva/lib/shapes/Text";
-
-const textElementPadding = 4;
+import type { RichTextFontStyle } from "../../../slides/rendering/richTextLayout";
+import {
+  getRichTextFontStyle,
+  hasRichTextLayout,
+  resolveTextBodyInset,
+  richTextLayout
+} from "../../../slides/rendering/richTextLayout";
 
 export function getCssFontWeight(fontWeight: TextElementProps["fontWeight"]) {
   if (typeof fontWeight === "number") {
@@ -33,7 +38,7 @@ export function getKonvaFontStyle(
 }
 
 export function getTextElementText(props: TextElementProps) {
-  if (props.paragraphs?.length) {
+  if (props.paragraphs !== undefined) {
     return props.paragraphs.map(getParagraphText).join("\n");
   }
 
@@ -55,7 +60,9 @@ export function getPrimaryTextRun(props: TextElementProps) {
       color: paragraphRun.color ?? paragraph?.color,
       fontFamily: paragraphRun.fontFamily ?? paragraph?.fontFamily,
       fontSize: paragraphRun.fontSize ?? paragraph?.fontSize,
-      fontWeight: paragraphRun.fontWeight ?? paragraph?.fontWeight
+      fontWeight: paragraphRun.fontWeight ?? paragraph?.fontWeight,
+      italic: paragraphRun.italic ?? paragraph?.italic,
+      underline: paragraphRun.underline ?? paragraph?.underline
     };
   }
 
@@ -83,7 +90,9 @@ export function getTextElementLayout(args: {
   theme: Deck["theme"];
 }) {
   const { frame, props, slide, theme } = args;
-  const primaryRun = getPrimaryTextRun(props);
+  const useRichText =
+    props.writingMode !== "vertical-270" && hasRichTextLayout(props);
+  const primaryRun = useRichText ? undefined : getPrimaryTextRun(props);
   const fontFamily =
     primaryRun?.fontFamily ??
     props.fontFamily ??
@@ -92,10 +101,48 @@ export function getTextElementLayout(args: {
   const color = primaryRun?.color ?? props.color ?? slide.style.textColor ?? theme.textColor;
   const fontSize = primaryRun?.fontSize ?? props.fontSize;
   const fontWeight = primaryRun?.fontWeight ?? props.fontWeight;
-  const fontStyle = getKonvaFontStyle(fontWeight);
+  const italic = primaryRun?.italic ?? props.italic ?? false;
+  const underline = primaryRun?.underline ?? props.underline ?? false;
+  const fontStyle = getRichTextFontStyle(fontWeight, italic);
   const text = getTextElementText(props);
-  const width = Math.max(1, frame.width - textElementPadding * 2);
-  const availableHeight = Math.max(1, frame.height - textElementPadding * 2);
+  const bodyInset = resolveTextBodyInset(props);
+  const width = Math.max(1, frame.width - bodyInset.left - bodyInset.right);
+  const availableHeight = Math.max(
+    1,
+    frame.height - bodyInset.top - bodyInset.bottom
+  );
+
+  if (useRichText) {
+    const richText = richTextLayout({
+      baseStyle: {
+        color,
+        fontFamily,
+        fontSize,
+        fontWeight,
+        italic,
+        underline
+      },
+      frame,
+      props
+    });
+
+    return {
+      color,
+      contentHeight: richText.contentHeight,
+      contentWidth: richText.contentWidth,
+      contentX: richText.contentX,
+      fontFamily,
+      fontSize,
+      fontStyle,
+      richText,
+      text,
+      textDecoration: underline ? ("underline" as const) : undefined,
+      width: richText.innerWidth,
+      x: richText.innerX,
+      y: richText.contentY
+    };
+  }
+
   const contentMetrics = measureTextContentBounds({
     align: props.align,
     fontFamily,
@@ -111,8 +158,8 @@ export function getTextElementLayout(args: {
     props.align === "justify"
       ? width
       : Math.max(1, Math.min(contentMetrics.width, width));
-  let y = textElementPadding;
-  let contentX = textElementPadding;
+  let y = bodyInset.top;
+  let contentX = bodyInset.left;
 
   if (props.verticalAlign === "middle") {
     y += spareHeight / 2;
@@ -134,9 +181,11 @@ export function getTextElementLayout(args: {
     fontFamily,
     fontSize,
     fontStyle,
+    richText: null,
     text,
+    textDecoration: underline ? ("underline" as const) : undefined,
     width,
-    x: textElementPadding,
+    x: bodyInset.left,
     y
   };
 }
@@ -177,7 +226,7 @@ export function measureTextContentBounds(args: {
   align: TextElementProps["align"];
   fontFamily: string;
   fontSize: number;
-  fontStyle: "normal" | "bold";
+  fontStyle: RichTextFontStyle;
   lineHeight: number;
   text: string;
   width: number;

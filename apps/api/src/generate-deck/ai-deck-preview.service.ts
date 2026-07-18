@@ -290,9 +290,23 @@ export function projectAiDeckPreview(input: {
             : [];
         }),
       );
+      const coverSlide = input.coverRow
+        ? coverPayloadSchema.parse(
+            coverRowSchema.parse(input.coverRow).payload_json,
+          ).deck.slides[0]
+        : undefined;
       const prefix: z.infer<typeof slideSchema>[] = [];
       for (const descriptor of v2Layout.slides) {
         const completed = completedBySourceOrder.get(descriptor.sourceOrder);
+        if (
+          !completed &&
+          descriptor.order === 1 &&
+          coverSlide?.slideId === descriptor.slideId &&
+          coverSlide.order === descriptor.order
+        ) {
+          prefix.push(coverSlide);
+          continue;
+        }
         if (
           !completed ||
           completed.slideId !== descriptor.slideId ||

@@ -853,6 +853,20 @@ describe("editor shell", () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
+      if (url.endsWith("/deck/ooxml-sync-state")) {
+        return new Response(
+          JSON.stringify({
+            ooxmlSyncState: {
+              status: "synced",
+              deckId: "deck_ai_1",
+              deckVersion: 1,
+              syncedDeckVersion: 1,
+              retryable: false
+            }
+          })
+        );
+      }
+
       if (url.endsWith("/deck/exports")) {
         expect(init?.method).toBe("POST");
         expect(JSON.parse(String(init?.body))).toEqual({ format: "pptx" });
@@ -890,6 +904,75 @@ describe("editor shell", () => {
       format: "pptx"
     });
     expect(jobPollCount).toBe(2);
+  });
+
+  it("retries a stale OOXML package and waits before PPTX export", async () => {
+    let stateRequestCount = 0;
+    const requestedPaths: string[] = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requestedPaths.push(url);
+
+      if (url.endsWith("/deck/ooxml-sync-state")) {
+        stateRequestCount += 1;
+        const synced = stateRequestCount > 1;
+        return new Response(
+          JSON.stringify({
+            ooxmlSyncState: {
+              status: synced ? "synced" : "stale",
+              deckId: "deck_ai_1",
+              deckVersion: 145,
+              syncedDeckVersion: synced ? 145 : 1,
+              retryable: !synced
+            }
+          })
+        );
+      }
+      if (url.endsWith("/deck/ooxml-sync/retry")) {
+        return new Response(
+          JSON.stringify({
+            ooxmlSyncState: {
+              status: "pending",
+              deckId: "deck_ai_1",
+              deckVersion: 145,
+              syncedDeckVersion: 1,
+              retryable: false,
+              job: jobPayload("queued", null, "pptx-ooxml-sync")
+            }
+          })
+        );
+      }
+      if (url.endsWith("/deck/exports")) {
+        return new Response(
+          JSON.stringify({ job: jobPayload("queued", null, "deck-export") })
+        );
+      }
+      if (url.endsWith("/api/jobs/job-pptx")) {
+        return new Response(
+          JSON.stringify(
+            jobPayload(
+              "succeeded",
+              {
+                deckId: "deck_ai_1",
+                fileId: "file_export_recovered",
+                url: "/api/v1/projects/project-a/assets/file_export_recovered/content",
+                format: "pptx",
+                warnings: []
+              },
+              "deck-export"
+            )
+          )
+        );
+      }
+      return new Response("unexpected request", { status: 500 });
+    });
+
+    await expect(exportDeckToPptx("project-a", fetcher)).resolves.toMatchObject({
+      fileId: "file_export_recovered"
+    });
+    expect(requestedPaths.findIndex((path) => path.endsWith("/deck/ooxml-sync/retry")))
+      .toBeLessThan(requestedPaths.findIndex((path) => path.endsWith("/deck/exports")));
+    expect(stateRequestCount).toBe(2);
   });
 
   it("passes PNG format and an explicitly selected session to export", async () => {

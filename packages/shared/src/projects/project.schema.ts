@@ -22,6 +22,19 @@ export const deleteProjectResponseSchema = z.object({
   projectId: z.string().min(1),
 });
 
+export const projectListItemSchema = projectSchema.extend({
+  isPinned: z.boolean(),
+});
+
+export const updateProjectPinRequestSchema = z
+  .object({ isPinned: z.boolean() })
+  .strict();
+
+export const updateProjectPinResponseSchema = z.object({
+  projectId: z.string().min(1),
+  isPinned: z.boolean(),
+});
+
 export const projectMemberRoleSchema = z.enum(["owner", "editor", "viewer"]);
 export const projectMemberStatusSchema = z.enum([
   "pending",
@@ -53,12 +66,15 @@ export const updateProjectMemberStatusRequestSchema = z.object({
   status: z.enum(["accepted", "rejected"]),
 });
 
-export const projectListResponseSchema = z.array(projectSchema);
+export const projectListResponseSchema = z.array(projectListItemSchema);
 
 export type Project = z.infer<typeof projectSchema>;
+export type ProjectListItem = z.infer<typeof projectListItemSchema>;
 export type CreateProjectRequest = z.infer<typeof createProjectRequestSchema>;
 export type UpdateProjectRequest = z.infer<typeof updateProjectRequestSchema>;
 export type DeleteProjectResponse = z.infer<typeof deleteProjectResponseSchema>;
+export type UpdateProjectPinRequest = z.infer<typeof updateProjectPinRequestSchema>;
+export type UpdateProjectPinResponse = z.infer<typeof updateProjectPinResponseSchema>;
 export type ProjectMemberRole = z.infer<typeof projectMemberRoleSchema>;
 export type ProjectMemberStatus = z.infer<typeof projectMemberStatusSchema>;
 export type ProjectMember = z.infer<typeof projectMemberSchema>;

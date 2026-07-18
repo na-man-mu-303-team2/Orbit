@@ -1,17 +1,27 @@
 import {
   IconArrowRight as MoveRight,
+  IconChartBar as BarChart,
+  IconChartLine as LineChart,
+  IconChartPie as PieChart,
+  IconCircle as Circle,
+  IconHexagon as Polygon,
   IconMinus as Minus,
   IconPencil as PenLine,
   IconPhotoPlus as ImagePlus,
-  IconShape as Shapes
+  IconRectangle as Rectangle,
+  IconShape as Shapes,
+  IconStar as Star,
+  IconTable as Table,
+  IconTriangle as Triangle
 } from "@tabler/icons-react";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import type {
   ElementContextMenuState,
   ShapeMenuPosition
 } from "../editorShellUiStore";
+import type { ChartInsertType } from "./EditorToolbar";
 
 export type ShapeInsertType =
   | "rect"
@@ -24,12 +34,16 @@ export type ShapeInsertType =
   | "customShape";
 
 export function EditorContextMenus(props: {
+  chartMenuPosition: ShapeMenuPosition | null;
   elementContextMenu: ElementContextMenuState | null;
+  isChartMenuOpen: boolean;
   isImageUploadPending: boolean;
   isShapeMenuOpen: boolean;
+  onCloseChartMenu: () => void;
   onCloseElementContextMenu: () => void;
   onCloseShapeMenu: () => void;
   onCreateGroup: () => void;
+  onInsertChart: (type: ChartInsertType) => void;
   onInsertShape: (shape: ShapeInsertType) => void;
   onReplaceImage: (target: {
     elementId: string;
@@ -55,6 +69,26 @@ export function EditorContextMenus(props: {
 
   return (
     <>
+      {props.isChartMenuOpen && props.chartMenuPosition
+        ? createPortal(
+            <div className="shape-menu-overlay" onMouseDown={props.onCloseChartMenu}>
+              <div
+                className="shape-menu-popover"
+                role="menu"
+                style={props.chartMenuPosition}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <span className="shape-menu-title">차트 및 표</span>
+                <ShapeMenuItem icon={<BarChart />} label="막대" onClick={() => props.onInsertChart("bar")} />
+                <ShapeMenuItem icon={<LineChart />} label="선" onClick={() => props.onInsertChart("line")} />
+                <ShapeMenuItem icon={<PieChart />} label="원형" onClick={() => props.onInsertChart("pie")} />
+                <ShapeMenuItem icon={<Table />} label="표" onClick={() => props.onInsertChart("table")} />
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+
       {props.isShapeMenuOpen && props.shapeMenuPosition
         ? createPortal(
             <div className="shape-menu-overlay" onMouseDown={props.onCloseShapeMenu}>
@@ -65,20 +99,14 @@ export function EditorContextMenus(props: {
                 onMouseDown={(event) => event.stopPropagation()}
               >
                 <span className="shape-menu-title">기본 도형</span>
-                <ShapeMenuItem symbol="▭" label="사각형" onClick={() => props.onInsertShape("rect")} />
-                <ShapeMenuItem symbol="◯" label="원" onClick={() => props.onInsertShape("ellipse")} />
-                <ShapeMenuItem symbol="⬡" label="삼각형" onClick={() => props.onInsertShape("triangle")} />
-                <ShapeMenuItem symbol="⬢" label="다각형" onClick={() => props.onInsertShape("polygon")} />
-                <ShapeMenuItem symbol="★" label="별" onClick={() => props.onInsertShape("star")} />
-                <button className="shape-menu-item" role="menuitem" type="button" onClick={() => props.onInsertShape("customShape")}>
-                  <PenLine size={14} /><span>커스텀 도형 그리기</span>
-                </button>
-                <button className="shape-menu-item" role="menuitem" type="button" onClick={() => props.onInsertShape("line")}>
-                  <Minus size={14} /><span>선</span>
-                </button>
-                <button className="shape-menu-item" role="menuitem" type="button" onClick={() => props.onInsertShape("arrow")}>
-                  <MoveRight size={14} /><span>화살표</span>
-                </button>
+                <ShapeMenuItem icon={<Rectangle />} label="사각형" onClick={() => props.onInsertShape("rect")} />
+                <ShapeMenuItem icon={<Circle />} label="원" onClick={() => props.onInsertShape("ellipse")} />
+                <ShapeMenuItem icon={<Triangle />} label="삼각형" onClick={() => props.onInsertShape("triangle")} />
+                <ShapeMenuItem icon={<Polygon />} label="다각형" onClick={() => props.onInsertShape("polygon")} />
+                <ShapeMenuItem icon={<Star />} label="별" onClick={() => props.onInsertShape("star")} />
+                <ShapeMenuItem icon={<PenLine />} label="커스텀 도형 그리기" onClick={() => props.onInsertShape("customShape")} />
+                <ShapeMenuItem icon={<Minus />} label="선" onClick={() => props.onInsertShape("line")} />
+                <ShapeMenuItem icon={<MoveRight />} label="화살표" onClick={() => props.onInsertShape("arrow")} />
               </div>
             </div>,
             document.body
@@ -143,13 +171,13 @@ export function EditorContextMenus(props: {
 }
 
 function ShapeMenuItem(props: {
+  icon: ReactNode;
   label: string;
   onClick: () => void;
-  symbol: string;
 }) {
   return (
     <button className="shape-menu-item" role="menuitem" type="button" onClick={props.onClick}>
-      <span className="shape-menu-symbol">{props.symbol}</span>
+      <span aria-hidden="true" className="shape-menu-symbol">{props.icon}</span>
       <span>{props.label}</span>
     </button>
   );

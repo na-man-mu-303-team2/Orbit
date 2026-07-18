@@ -2,6 +2,7 @@ import type { DataSource } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 import {
   enqueueExpiredRehearsalAudioDeletions,
+  enqueueExpiredSlidePracticeAudioDeletions,
   reconcileStorageDeletionOutbox,
 } from "./storage-deletion-reconciler";
 
@@ -63,6 +64,29 @@ describe("storage deletion reconciler", () => {
     expect(JSON.stringify(query.mock.calls[1])).not.toContain("provider details");
   });
 
+  it("enqueues expired slide practice audio even when upload completion was abandoned", async () => {
+    let queryCount = 0;
+    const query = vi.fn(async (sql: string): Promise<unknown[]> => {
+      queryCount += 1;
+      if (queryCount === 1) {
+        expect(sql).toContain("slide_practice_audio_analyses");
+        expect(sql).toContain("assets.status IN ('pending', 'uploaded')");
+        expect(sql).toContain("assets.purpose = 'slide-practice-audio'");
+        return [{
+          project_id: "project-a",
+          file_id: "file-slide",
+          storage_key: "private/slide-practice-audio",
+          purpose: "slide-practice-audio",
+        }];
+      }
+      return [{ deletion_id: "deletion-slide" }];
+    });
+
+    const count = await enqueueExpiredSlidePracticeAudioDeletions({ query } as never);
+
+    expect(count).toBe(1);
+  });
+
   it("nulls the storage key only after an idempotent successful delete", async () => {
     const query = vi.fn(async (_sql: string, _parameters?: unknown[]): Promise<unknown[]> => [{
       deletion_id: "deletion-1",
@@ -79,6 +103,7 @@ describe("storage deletion reconciler", () => {
 
     await reconcileStorageDeletionOutbox(dataSource, { removeObject: vi.fn(async () => undefined) });
 
-    expect(managerQuery.mock.calls[2]?.[0]).toContain("storage_key = NULL");
+    expect(managerQuery.mock.calls.some(([sql]) => String(sql).includes("slide_practice_audio_analyses"))).toBe(true);
+    expect(managerQuery.mock.calls.some(([sql]) => String(sql).includes("storage_key = NULL"))).toBe(true);
   });
 });

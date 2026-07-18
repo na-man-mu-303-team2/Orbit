@@ -137,6 +137,33 @@ describe("JobsService", () => {
     );
   });
 
+  it("loads the latest OOXML sync job for the requested Deck version", async () => {
+    const syncRow = {
+      ...queuedRow,
+      job_id: "job-sync-145",
+      type: "pptx-ooxml-sync",
+      payload: { deckId: "deck-a", targetDeckVersion: 145 },
+    };
+    const query = vi.fn().mockResolvedValueOnce([syncRow]);
+    const service = new JobsService(
+      { query } as unknown as DataSource,
+      vi.fn(async () => undefined),
+      createLogger(),
+    );
+
+    await expect(
+      service.getLatestPptxOoxmlSync("project-a", "deck-a", 145),
+    ).resolves.toMatchObject({
+      jobId: "job-sync-145",
+      type: "pptx-ooxml-sync",
+      status: "queued",
+    });
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("payload ->> 'targetDeckVersion'"),
+      ["project-a", "deck-a", 145],
+    );
+  });
+
   it("retries only failed image shards and invalidates downstream checkpoints", async () => {
     const failedRow = {
       ...queuedRow,

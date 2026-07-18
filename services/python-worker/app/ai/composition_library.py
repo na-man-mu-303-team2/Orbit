@@ -4,6 +4,7 @@ import re
 import textwrap
 from collections import Counter
 from dataclasses import dataclass
+from math import atan2, degrees, hypot
 from typing import Any, Callable, Literal
 
 from app.ai.design_program import (
@@ -1790,6 +1791,28 @@ def _diagram_hub(
             (_grid_x(0), 736, _grid_width(3), 168),
             (_grid_x(9), 736, _grid_width(3), 168),
         ][: len(items)]
+    if len(items) > 3:
+        hub_center_x = hub_x + hub_width // 2
+        hub_center_y = hub_y + hub_height // 2
+        for index, (x, y, width, height) in enumerate(frames):
+            target_x = x + width // 2
+            target_y = y + height // 2
+            delta_x = target_x - hub_center_x
+            delta_y = target_y - hub_center_y
+            connector = _rect(
+                order,
+                f"connector_{index + 1}",
+                "decoration",
+                hub_center_x,
+                hub_center_y - 4,
+                max(8, round(hypot(delta_x, delta_y))),
+                8,
+                2,
+                style.secondary,
+                radius=4,
+            )
+            connector["rotation"] = degrees(atan2(delta_y, delta_x))
+            elements.append(connector)
     colors = _editorial_field_colors(style)
     for index, ((identifier, value), (x, y, width, height)) in enumerate(
         zip(items, frames, strict=True)

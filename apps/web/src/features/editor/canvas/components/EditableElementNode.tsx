@@ -33,9 +33,11 @@ import {
   getGroupedChildPreviewFrame,
 } from "../utils/canvasElementUtils";
 import {
+  canDragCanvasElement,
   getSnappedElementPosition,
   type CanvasSnapGuide
 } from "../utils/canvasInteractionUtils";
+import { resolveTransformedElementFrame } from "../utils/selectionTransformer";
 
 type KonvaComponent = ComponentType<any>;
 
@@ -56,10 +58,10 @@ export function EditableElementNode(props: {
   deck: Deck;
   disablePointerEvents: boolean;
   element: DeckElement;
+  hideContent?: boolean;
   editorPrimaryColor: string;
   editorPrimaryMediumColor: string;
   editorPrimarySoftColor: string;
-  editorPrimaryStrongSoftColor: string;
   isSelected: boolean;
   presentationState?: ElementPresentationState;
   selectedCount: number;
@@ -87,10 +89,10 @@ export function EditableElementNode(props: {
     deck,
     disablePointerEvents,
     element,
+    hideContent = false,
     editorPrimaryColor,
     editorPrimaryMediumColor,
     editorPrimarySoftColor,
-    editorPrimaryStrongSoftColor,
     isSelected,
     presentationState,
     selectedCount,
@@ -121,11 +123,6 @@ export function EditableElementNode(props: {
     rotation: presentationState?.rotation ?? element.rotation
   };
   const isMultiSelected = isSelected && selectedCount > 1;
-  const selectionHitFill = isSelected
-    ? isMultiSelected
-      ? editorPrimaryStrongSoftColor
-      : editorPrimarySoftColor
-    : "rgba(15, 23, 42, 0.001)";
   const selectionStroke = isSelected ? editorPrimaryColor : "transparent";
   const selectionStrokeWidth = isSelected ? (isMultiSelected ? 3 : 2) : 0;
   const selectionDash = isMultiSelected ? [12, 6] : undefined;
@@ -159,7 +156,12 @@ export function EditableElementNode(props: {
   return (
     <Group
       draggable={
-        !disablePointerEvents && !customShapeEditDraft
+        canDragCanvasElement({
+          interactionDisabled: disablePointerEvents,
+          isCustomShapeEditing: Boolean(customShapeEditDraft),
+          isSelected,
+          locked: element.locked
+        })
       }
       listening={!disablePointerEvents}
       opacity={
@@ -176,6 +178,10 @@ export function EditableElementNode(props: {
       onClick={(event: Konva.KonvaEventObject<MouseEvent>) => {
         if (event.evt.button !== 0) return;
         handlePointerSelect(Boolean(event.evt.shiftKey));
+      }}
+      onMouseDown={(event: Konva.KonvaEventObject<MouseEvent>) => {
+        if (event.evt.button !== 0 || isSelected) return;
+        onSelect(Boolean(event.evt.shiftKey));
       }}
       onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
         const shouldKeepSelection = isSelected && selectedCount > 1;
@@ -238,13 +244,16 @@ export function EditableElementNode(props: {
         }
 
         const node = event.target;
-        const nextFrame = {
-          x: node.x(),
-          y: node.y(),
-          width: Math.max(1, frame.width * node.scaleX()),
-          height: Math.max(1, frame.height * node.scaleY()),
-          rotation: node.rotation(),
-        };
+        const nextFrame = resolveTransformedElementFrame({
+          frame,
+          transform: {
+            x: node.x(),
+            y: node.y(),
+            scaleX: node.scaleX(),
+            scaleY: node.scaleY(),
+            rotation: node.rotation(),
+          },
+        });
 
         node.scaleX(1);
         node.scaleY(1);
@@ -252,20 +261,22 @@ export function EditableElementNode(props: {
       }}
       onTransformEnd={(event: Konva.KonvaEventObject<Event>) => {
         const node = event.target;
-        const nextWidth = Math.max(1, frame.width * node.scaleX());
-        const nextHeight = Math.max(1, frame.height * node.scaleY());
+        const nextFrame = resolveTransformedElementFrame({
+          frame,
+          transform: {
+            x: node.x(),
+            y: node.y(),
+            scaleX: node.scaleX(),
+            scaleY: node.scaleY(),
+            rotation: node.rotation(),
+          },
+        });
 
         node.scaleX(1);
         node.scaleY(1);
 
         setPreviewFrame(null);
-        onCommitFrame({
-          x: node.x(),
-          y: node.y(),
-          width: nextWidth,
-          height: nextHeight,
-          rotation: node.rotation(),
-        });
+        onCommitFrame(nextFrame);
       }}
     >
       <ElementInteractionHitTargets
@@ -277,21 +288,23 @@ export function EditableElementNode(props: {
       <Rect
         cornerRadius={10}
         dash={selectionDash}
-        fill={selectionHitFill}
+        fill="transparent"
         listening={false}
         stroke={selectionStroke}
         strokeWidth={selectionStrokeWidth}
         width={frame.width}
         height={frame.height}
       />
-      <ElementNodeContent
-        accentColor={accentColor}
-        customShapePreview={customShapeEditDraft}
-        deck={deck}
-        element={element}
-        frame={frame}
-        slide={slide}
-      />
+      {hideContent ? null : (
+        <ElementNodeContent
+          accentColor={accentColor}
+          customShapePreview={customShapeEditDraft}
+          deck={deck}
+          element={element}
+          frame={frame}
+          slide={slide}
+        />
+      )}
       {customShapeEditDraft && element.type === "customShape" ? (
         <CustomShapeEditOverlay
           draft={customShapeEditDraft}

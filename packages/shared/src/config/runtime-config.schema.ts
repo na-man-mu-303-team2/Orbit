@@ -8,6 +8,8 @@ export const runtimeConfigResponseSchema = z
     adaptiveRehearsalCoachEnabled: z.boolean(),
     focusedPracticeEnabled: z.boolean(),
     challengeQnaEnabled: z.boolean(),
+    slidePracticeEnabled: z.boolean(),
+    slideQuestionGuidesEnabled: z.boolean(),
   })
   .strict();
 

@@ -41,6 +41,17 @@ describe("speaker notes assistant contract", () => {
     ).toMatchObject({ mode: "draft", targetSpeakerNotesChars: 220 });
   });
 
+  it("accepts the icebreaker mode for speaker notes generation", () => {
+    expect(
+      speakerNotesSuggestionProviderRequestSchema.parse({
+        mode: "icebreaker",
+        slideTitle: "서비스 소개",
+        slideContent: ["사용자 경험 개선"],
+        currentNotes: ""
+      })
+    ).toMatchObject({ mode: "icebreaker" });
+  });
+
   it("rejects empty suggestions", () => {
     expect(
       speakerNotesSuggestionResultSchema.safeParse({

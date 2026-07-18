@@ -6,38 +6,103 @@ import {
   IconPlayerPlay,
   IconPlayerStop,
 } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
+import { createRehearsalScriptPrompterRows } from "../../../rehearsal/panel/rehearsalScriptPrompter";
 import {
   RehearsalScriptTeleprompter,
   type RehearsalScriptTeleprompterRow
 } from "../../../rehearsal/presenter/RehearsalScriptTeleprompter";
 import { createDefaultPhraseExtractor } from "../../../rehearsal/speech/phraseExtractor";
-import type { ExtractedSentence } from "../../../rehearsal/speech/speechTrackingEvents";
-import { normalizeLiveTranscriptText } from "../../../rehearsal/stt/liveTranscriptText";
+import type { SpeechTrackerSnapshot } from "../../../rehearsal/speech/speechTrackingEvents";
+import type { PracticeSessionState } from "../../practice/useSlidePracticeSession";
 import type { EditorSlideRehearsalState } from "../hooks/useEditorSlideRehearsal";
 
-type EditorSlideRehearsalProps = {
-  onRestart: () => void;
-  onStop: () => void;
+type EditorSlideRehearsalSummaryProps = {
   slide: Slide;
   state: EditorSlideRehearsalState;
 };
 
 export function EditorSlideRehearsalBottomPanel(
-  props: EditorSlideRehearsalProps
+  props: EditorSlideRehearsalSummaryProps & {
+    elapsedMs: number;
+    message: string;
+    onNextSentence: () => SpeechTrackerSnapshot | null;
+    onPreviousSentence: () => SpeechTrackerSnapshot | null;
+    onSkipSentence: () => SpeechTrackerSnapshot | null;
+    onStart: () => void;
+    onStop: () => void;
+    practiceState: PracticeSessionState;
+  }
 ) {
-  const isListening = props.state.status === "listening";
+  const isRecording = props.practiceState === "recording";
+  const isBusy =
+    props.practiceState === "starting" || props.practiceState === "stopping";
   const scriptProgress = useMemo(
     () =>
       createEditorSlideRehearsalScriptProgress({
-        finalTranscript: props.state.finalTranscript,
-        interimTranscript: props.state.interimTranscript,
-        slide: props.slide
+        slide: props.slide,
+        speechTrackerSnapshot: props.state.speechTrackerSnapshot
       }),
-    [props.slide, props.state.finalTranscript, props.state.interimTranscript]
+    [props.slide, props.state.speechTrackerSnapshot]
   );
+  const [followMode, setFollowMode] = useState<"auto" | "manual">("auto");
+  const [manualCompletedCount, setManualCompletedCount] = useState(0);
+  const automaticCompletedCount = scriptProgress.rows.filter(
+    (row) => row.status === "covered"
+  ).length;
+  const visibleProgress =
+    followMode === "auto"
+      ? scriptProgress
+      : createManualScriptProgress(
+          scriptProgress.rows,
+          manualCompletedCount
+        );
+
+  useEffect(() => {
+    setFollowMode("auto");
+    setManualCompletedCount(0);
+  }, [props.slide.slideId]);
+
+  useEffect(() => {
+    if (props.practiceState !== "starting") return;
+    setFollowMode("auto");
+    setManualCompletedCount(0);
+  }, [props.practiceState]);
+
+  function moveManually(offset: -1 | 1) {
+    const speechTrackerSnapshot =
+      offset === -1
+        ? props.onPreviousSentence()
+        : props.onNextSentence();
+    if (!speechTrackerSnapshot) return false;
+    setFollowMode("manual");
+    setManualCompletedCount(
+      speechTrackerSnapshot.prompterProgress?.committedSentenceIds.length ?? 0
+    );
+    return true;
+  }
+
+  function toggleFollowMode() {
+    if (followMode === "auto") {
+      setManualCompletedCount(automaticCompletedCount);
+      setFollowMode("manual");
+      return;
+    }
+    setFollowMode("auto");
+  }
+
+  function moveByWheel(direction: "next" | "previous") {
+    const action = getEditorSlideRehearsalWheelAction(followMode, direction);
+    if (action === "skip-next") {
+      return props.onSkipSentence() !== null;
+    }
+    if (action === "auto-previous") {
+      return props.onPreviousSentence() !== null;
+    }
+    return moveManually(direction === "next" ? 1 : -1);
+  }
 
   return (
     <section
@@ -48,19 +113,28 @@ export function EditorSlideRehearsalBottomPanel(
         <div className="editor-slide-rehearsal-heading">
           <span
             aria-hidden="true"
-            className={`editor-slide-rehearsal-live-dot ${isListening ? "active" : ""}`}
+            className={`editor-slide-rehearsal-live-dot ${isRecording ? "active" : ""}`}
           />
           <strong>음성 인식</strong>
-          <span>{getRehearsalStatusLabel(props.state)}</span>
+          <span>{getRehearsalStatusLabel(props.practiceState, props.message)}</span>
           <span className="editor-slide-rehearsal-script-progress">
-            대본 {scriptProgress.progressPercent}%
+            대본 {visibleProgress.progressPercent}%
           </span>
+          {props.message ? (
+            <span
+              aria-live="polite"
+              className="editor-slide-rehearsal-message"
+              title={props.message}
+            >
+              {props.message}
+            </span>
+          ) : null}
         </div>
         <div className="editor-slide-rehearsal-controls">
           <span className="editor-slide-rehearsal-time">
-            {formatRehearsalTime(props.state.elapsedSeconds)}
+            {formatRehearsalTime(Math.floor(props.elapsedMs / 1_000))}
           </span>
-          {isListening || props.state.status === "starting" ? (
+          {isRecording ? (
             <button
               aria-label="슬라이드 연습 종료"
               className="editor-slide-rehearsal-stop"
@@ -74,28 +148,126 @@ export function EditorSlideRehearsalBottomPanel(
             <button
               aria-label="슬라이드 연습 시작"
               className="editor-slide-rehearsal-restart"
+              disabled={isBusy}
               type="button"
-              onClick={props.onRestart}
+              onClick={props.onStart}
             >
               <IconPlayerPlay aria-hidden="true" size={15} />
-              연습 시작
+              {props.practiceState === "starting"
+                ? "준비 중"
+                : props.practiceState === "stopping"
+                  ? "분석 중"
+                  : "연습 시작"}
             </button>
           )}
         </div>
       </header>
       <RehearsalScriptTeleprompter
         focusScopeId={props.slide.slideId}
-        progressPercent={scriptProgress.progressPercent}
-        rows={scriptProgress.rows}
-      />
+        onWheelNavigate={(direction) => {
+          moveByWheel(direction);
+        }}
+        progressPercent={visibleProgress.progressPercent}
+        rows={visibleProgress.rows}
+      >
+        <div
+          className="editor-slide-rehearsal-script-controls"
+          data-follow-mode={followMode}
+        >
+          <button
+            aria-label="이전 대본 문장"
+            disabled={
+              (followMode === "auto"
+                ? automaticCompletedCount
+                : manualCompletedCount) === 0
+            }
+            type="button"
+            onClick={() => moveManually(-1)}
+          >
+            ←
+          </button>
+          <button
+            aria-label={
+              followMode === "auto"
+                ? "자동 따라가기 끄기"
+                : "자동 따라가기 켜기"
+            }
+            aria-pressed={followMode === "auto"}
+            className="editor-slide-rehearsal-follow-toggle"
+            type="button"
+            onClick={toggleFollowMode}
+          >
+            {followMode === "auto" ? "자동 따라가기" : "수동 이동"}
+          </button>
+          <button
+            aria-label="다음 대본 문장"
+            disabled={
+              (followMode === "auto"
+                ? automaticCompletedCount
+                : manualCompletedCount) >= scriptProgress.rows.length
+            }
+            type="button"
+            onClick={() => moveManually(1)}
+          >
+            →
+          </button>
+        </div>
+      </RehearsalScriptTeleprompter>
     </section>
   );
 }
 
+export function getEditorSlideRehearsalWheelAction(
+  followMode: "auto" | "manual",
+  direction: "next" | "previous"
+) {
+  if (followMode === "auto") {
+    return direction === "next" ? "skip-next" : "auto-previous";
+  }
+  return direction === "next" ? "manual-next" : "manual-previous";
+}
+
+export function createManualScriptProgress(
+  rows: readonly RehearsalScriptTeleprompterRow[],
+  completedCount: number
+): {
+  focusSentenceId: string | null;
+  progressPercent: number;
+  rows: RehearsalScriptTeleprompterRow[];
+} {
+  if (rows.length === 0) {
+    return { focusSentenceId: null, progressPercent: 0, rows: [] };
+  }
+  const boundedCompletedCount = Math.min(
+    rows.length,
+    Math.max(0, completedCount)
+  );
+  const focusIndex =
+    boundedCompletedCount < rows.length ? boundedCompletedCount : -1;
+
+  return {
+    focusSentenceId: rows[focusIndex]?.id ?? null,
+    progressPercent: Math.round(
+      (boundedCompletedCount / rows.length) * 100
+    ),
+    rows: rows.map((row, index) => ({
+      ...row,
+      isFocusTarget: index === focusIndex,
+      status:
+        index < boundedCompletedCount
+          ? "covered"
+          : index === focusIndex
+            ? "current"
+            : index === focusIndex + 1
+              ? "next"
+              : "pending"
+    }))
+  };
+}
+
 export function createEditorSlideRehearsalScriptProgress(input: {
-  finalTranscript: string;
-  interimTranscript: string;
   slide: Slide;
+  speechTrackerSnapshot: SpeechTrackerSnapshot | null;
 }): {
   focusSentenceId: string | null;
   progressPercent: number;
@@ -124,70 +296,41 @@ export function createEditorSlideRehearsalScriptProgress(input: {
     };
   }
 
-  const finalTranscript = normalizeLiveTranscriptText(input.finalTranscript);
-  const liveTranscript = normalizeLiveTranscriptText(
-    `${input.finalTranscript} ${input.interimTranscript}`
-  );
-  const finalMatchedIndexes = sentences
-    .filter((sentence) => sentenceMatchesTranscript(sentence, finalTranscript))
-    .map((sentence) => sentence.index);
-  const liveMatchedIndexes = sentences
-    .filter((sentence) => sentenceMatchesTranscript(sentence, liveTranscript))
-    .map((sentence) => sentence.index);
-  const lastCommittedIndex = Math.max(-1, ...finalMatchedIndexes);
-  const lastLiveIndex = Math.max(-1, ...liveMatchedIndexes);
-  const committedCount = Math.min(lastCommittedIndex + 1, sentences.length);
-  const focusIndex =
-    committedCount === sentences.length
-      ? sentences.length
-      : Math.min(
-          Math.max(lastCommittedIndex + 1, lastLiveIndex, 0),
-          sentences.length - 1
-        );
+  const speechTrackerSnapshot = input.speechTrackerSnapshot;
+  const prompterRows = createRehearsalScriptPrompterRows({
+    sentences,
+    coveredSentenceIds: speechTrackerSnapshot?.coveredSentenceIds ?? [],
+    coveredSentenceMatchKinds:
+      speechTrackerSnapshot?.coveredSentenceMatchKinds,
+    prompterProgress: speechTrackerSnapshot?.prompterProgress
+  });
+  const focusSentenceId =
+    prompterRows.find((row) => row.isFocusTarget)?.sentence.sentenceId ?? null;
+  const matchableSentenceCount =
+    speechTrackerSnapshot?.matchableSentenceCount ??
+    sentences.filter((sentence) => sentence.matchable).length;
+  const committedSentenceCount =
+    speechTrackerSnapshot?.prompterProgress?.committedSentenceIds.length ?? 0;
 
   return {
-    focusSentenceId: sentences[focusIndex]?.sentenceId ?? null,
-    progressPercent: Math.round((committedCount / sentences.length) * 100),
-    rows: sentences.map(
-      (sentence): RehearsalScriptTeleprompterRow => ({
-        id: sentence.sentenceId,
-        isFocusTarget: sentence.index === focusIndex,
-        status:
-          sentence.index < focusIndex
-            ? "covered"
-            : sentence.index === focusIndex
-              ? "current"
-              : sentence.index === focusIndex + 1
-                ? "next"
-                : "pending",
-        text: sentence.text
+    focusSentenceId,
+    progressPercent:
+      matchableSentenceCount > 0
+        ? Math.round((committedSentenceCount / matchableSentenceCount) * 100)
+        : 0,
+    rows: prompterRows.map(
+      (row): RehearsalScriptTeleprompterRow => ({
+        id: row.sentence.sentenceId,
+        isFocusTarget: row.isFocusTarget,
+        status: row.status,
+        text: row.sentence.text
       })
     )
   };
 }
 
-function sentenceMatchesTranscript(
-  sentence: ExtractedSentence,
-  normalizedTranscript: string
-) {
-  if (!normalizedTranscript) return false;
-  const normalizedSentence = normalizeLiveTranscriptText(sentence.text);
-  if (
-    normalizedSentence.length >= 4 &&
-    normalizedTranscript.includes(normalizedSentence)
-  ) {
-    return true;
-  }
-
-  return sentence.candidates.some(
-    (candidate) =>
-      candidate.normalizedText.length >= 4 &&
-      normalizedTranscript.includes(candidate.normalizedText)
-  );
-}
-
 export function EditorSlideRehearsalRightPanel(
-  props: EditorSlideRehearsalProps
+  props: EditorSlideRehearsalSummaryProps
 ) {
   const hitKeywordIds = new Set(props.state.hitKeywordIds);
   const hitCount = props.slide.keywords.filter((keyword) =>
@@ -239,7 +382,7 @@ export function EditorSlideRehearsalRightPanel(
 }
 
 export function EditorSlideRehearsalLeftPanel(
-  props: EditorSlideRehearsalProps & {
+  props: EditorSlideRehearsalSummaryProps & {
     onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   }
 ) {
@@ -270,15 +413,19 @@ export function formatRehearsalTime(elapsedSeconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function getRehearsalStatusLabel(state: EditorSlideRehearsalState) {
-  switch (state.status) {
+function getRehearsalStatusLabel(state: PracticeSessionState, message: string) {
+  switch (state) {
     case "starting":
       return "준비 중";
-    case "listening":
-      return "인식 중";
-    case "stopped":
-      return "중지됨";
+    case "recording":
+      return "녹음 중";
+    case "stopping":
+      return "분석 중";
+    case "completed":
+      return "분석 완료";
     case "error":
+      if (message.includes("업로드")) return "녹음 업로드 실패";
+      if (message.includes("마이크")) return "마이크 확인 필요";
       return "연결 확인 필요";
     default:
       return "대기 중";

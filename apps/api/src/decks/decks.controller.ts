@@ -69,6 +69,26 @@ export class DecksController {
     return this.decksService.createExportJob(projectId, body);
   }
 
+  @Get("deck/ooxml-sync-state")
+  async getOoxmlSyncState(
+    @Param("projectId") projectId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.decksService.getOoxmlSyncState(projectId);
+  }
+
+  @Post("deck/ooxml-sync/retry")
+  async retryOoxmlSync(
+    @Param("projectId") projectId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.decksService.retryOoxmlSync(projectId);
+  }
+
   @Post("deck/semantic-cues")
   async createSemanticCueExtractionJob(
     @Param("projectId") projectId: string,
