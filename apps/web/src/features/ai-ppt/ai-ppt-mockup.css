@@ -798,10 +798,10 @@
 
 .ai-ppt-reference-icon {
   align-items: center;
-  background: var(--redesign-color-primary-subtle);
+  background: var(--redesign-color-primary-container);
   border: 0;
   border-radius: var(--redesign-radius);
-  color: var(--redesign-color-primary);
+  color: var(--redesign-color-primary-emphasis);
   display: inline-flex;
   height: 44px;
   justify-content: center;
