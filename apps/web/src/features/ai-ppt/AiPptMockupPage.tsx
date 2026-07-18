@@ -998,7 +998,7 @@ export function AiPptStyleColorPage(props: {
       </header>
       <div className="ai-ppt-layout">
         <WizardSteps activeIndex={1} />
-        <main className="ai-ppt-workspace">
+        <main className="ai-ppt-workspace ai-ppt-workspace-single ai-ppt-context-panel">
           <section className="ai-ppt-panel">
             <StyleColorStep
               customPalette={customPalette}
