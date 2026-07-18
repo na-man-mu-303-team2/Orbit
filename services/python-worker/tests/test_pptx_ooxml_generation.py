@@ -844,6 +844,124 @@ def test_strip_text_from_pptx_package_removes_text_bodies(tmp_path: Path) -> Non
     assert b"<p:txBody>" not in slide_xml
 
 
+def test_sync_pptx_ooxml_adds_authored_slide_and_same_batch_image(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    blueprint = copy.deepcopy(generated.template_blueprint)
+    blueprint["slides"].append(
+        {
+            "slideId": "slide_authored",
+            "slideIndex": 2,
+            "sourceSlideIndex": 2,
+            "sourceSlidePart": "ppt/slides/slide2.xml",
+            "ooxmlOrigin": "authored",
+            "slots": [],
+            "elementSources": [],
+        }
+    )
+    image_src = "data:image/png;base64," + base64.b64encode(
+        png_bytes("#22c55e")
+    ).decode("ascii")
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "add_slide",
+                "sourceSlidePart": "ppt/slides/slide2.xml",
+                "slide": {
+                    "slideId": "slide_authored",
+                    "order": 2,
+                    "title": "Authored slide",
+                    "elements": [
+                        {
+                            "elementId": "el_authored_text",
+                            "type": "text",
+                            "x": 120,
+                            "y": 100,
+                            "width": 600,
+                            "height": 100,
+                            "props": {"text": "Authored title"},
+                        },
+                        {
+                            "elementId": "el_authored_rect",
+                            "type": "rect",
+                            "x": 120,
+                            "y": 260,
+                            "width": 400,
+                            "height": 180,
+                            "props": {"fill": "#2563EB"},
+                        },
+                    ],
+                },
+            },
+            {
+                "type": "add_element",
+                "slideId": "slide_authored",
+                "sourceSlidePart": "ppt/slides/slide2.xml",
+                "element": {
+                    "elementId": "el_authored_image",
+                    "type": "image",
+                    "x": 800,
+                    "y": 260,
+                    "width": 320,
+                    "height": 180,
+                    "props": {"src": image_src, "fit": "contain"},
+                },
+            },
+            {
+                "type": "reorder_slides",
+                "slideOrders": [
+                    {
+                        "slideId": "slide_authored",
+                        "order": 1,
+                        "sourceSlidePart": "ppt/slides/slide2.xml",
+                    },
+                    {
+                        "slideId": template_slide_id(generated),
+                        "order": 2,
+                        "sourceSlidePart": "ppt/slides/slide1.xml",
+                    },
+                ],
+            },
+        ],
+    )
+
+    assert result.unsupported_operations == []
+    assert [item.operation_type for item in result.applied_operations] == [
+        "add_slide",
+        "add_element",
+        "reorder_slides",
+    ]
+    assert {source["elementId"] for source in result.element_sources} == {
+        "el_authored_text",
+        "el_authored_rect",
+        "el_authored_image",
+    }
+    package_bytes = current_package_bytes(result.assets)
+    round_trip = Presentation(BytesIO(package_bytes))
+    assert len(round_trip.slides) == 2
+    assert any(
+        "Authored title" in shape.text
+        for shape in round_trip.slides[0].shapes
+        if hasattr(shape, "text")
+    )
+    with zipfile.ZipFile(BytesIO(package_bytes), "r") as package:
+        assert "ppt/slides/slide2.xml" in package.namelist()
+        rels = ET.fromstring(package.read("ppt/slides/_rels/slide2.xml.rels"))
+        assert any(
+            str(relationship.get("Type", "")).endswith("/slideLayout")
+            for relationship in rels
+        )
+        assert b'/ppt/slides/slide2.xml' in package.read("[Content_Types].xml")
+
+
 def sample_pptx(tmp_path: Path, *, wide: bool = True) -> Path:
     pptx_path = tmp_path / "template.pptx"
     image_path = tmp_path / "image.png"

@@ -34,6 +34,7 @@ const syncAssetSchema = z.object({
 });
 
 const ooxmlSyncOperationTypeSchema = z.enum([
+  "add_slide",
   "add_element",
   "update_element_frame",
   "update_element_props",
@@ -42,6 +43,8 @@ const ooxmlSyncOperationTypeSchema = z.enum([
 ]);
 
 const ooxmlUnsupportedReasonCodeSchema = z.enum([
+  "ADD_SLIDE_FAILED",
+  "ADD_SLIDE_LAYOUT_UNSAFE",
   "ADD_ELEMENT_FAILED",
   "ADD_ELEMENT_TYPE_UNSUPPORTED",
   "CROP_CAPABILITY_UNSAFE",
@@ -101,6 +104,7 @@ type OoxmlSyncOperation = Extract<
   {
     type:
       | "add_element"
+      | "add_slide"
       | "update_element_frame"
       | "update_element_props"
       | "delete_element"
@@ -266,10 +270,11 @@ export async function processPptxOoxmlSyncJob(
         payload.deckId,
       );
       const storedDeck = deckSchema.parse(deck.deck_json);
-      const recoveredTemplateBlueprint = recoverTemplateBlueprintSlideIds(
-        parsedTemplateBlueprint,
-        storedDeck.slides,
-      );
+      const recoveredTemplateBlueprint =
+        recoverTemplateBlueprintForPendingSlides(
+          parsedTemplateBlueprint,
+          storedDeck,
+        );
       if (!recoveredTemplateBlueprint) {
         throw new UnsupportedOoxmlOperationsError({
           operationType: "reorder_slides",
@@ -338,14 +343,18 @@ export async function processPptxOoxmlSyncJob(
         payload.projectId,
         operations,
       );
+      const syncPlan = prepareAuthoredSlideSync(
+        templateBlueprint,
+        embeddedOperations,
+      );
       const synced = await syncPptxOoxmlWithPython(
         storage,
         pythonWorkerUrl,
         latestDeckVersion,
         packageAsset,
-        templateBlueprint,
+        syncPlan.templateBlueprint,
         storedDeck.canvas,
-        embeddedOperations,
+        syncPlan.operations,
       );
       const savedAssets = await saveSyncAssets(
         manager,
@@ -354,7 +363,7 @@ export async function processPptxOoxmlSyncJob(
         synced,
       );
       const nextTemplateBlueprint = withSyncResult(
-        templateBlueprint,
+        syncPlan.templateBlueprint,
         savedAssets,
         latestDeckVersion,
         synced,
@@ -575,14 +584,15 @@ async function embedProjectImageAssets(
   operations: DeckPatchOperation[],
 ): Promise<DeckPatchOperation[]> {
   const references = operations.flatMap((operation) => {
-    const src = operationImageSource(operation);
-    const reference = src ? parseInternalAssetReference(src) : null;
-    if (reference && reference.projectId !== projectId) {
-      throw new Error(
-        `OOXML image asset project mismatch: ${reference.fileId}`,
-      );
-    }
-    return reference ? [reference] : [];
+    return operationImageSources(operation).flatMap((src) => {
+      const reference = parseInternalAssetReference(src);
+      if (reference && reference.projectId !== projectId) {
+        throw new Error(
+          `OOXML image asset project mismatch: ${reference.fileId}`,
+        );
+      }
+      return reference ? [reference] : [];
+    });
   });
   const fileIds = [...new Set(references.map((reference) => reference.fileId))];
   if (fileIds.length === 0) return operations;
@@ -625,7 +635,25 @@ async function embedProjectImageAssets(
   }
 
   return operations.map((operation) => {
-    const src = operationImageSource(operation);
+    if (operation.type === "add_slide") {
+      return deckPatchOperationSchema.parse({
+        ...operation,
+        slide: {
+          ...operation.slide,
+          elements: operation.slide.elements.map((element) => {
+            if (element.type !== "image") return element;
+            const reference = parseInternalAssetReference(element.props.src);
+            const embedded = reference
+              ? dataUrls.get(reference.fileId)
+              : undefined;
+            return embedded
+              ? { ...element, props: { ...element.props, src: embedded } }
+              : element;
+          }),
+        },
+      });
+    }
+    const src = operationImageSources(operation)[0];
     const reference = src ? parseInternalAssetReference(src) : null;
     const dataUrl = reference ? dataUrls.get(reference.fileId) : undefined;
     if (!dataUrl) return operation;
@@ -651,17 +679,22 @@ async function embedProjectImageAssets(
   });
 }
 
-function operationImageSource(operation: DeckPatchOperation): string | null {
+function operationImageSources(operation: DeckPatchOperation): string[] {
   if (
     operation.type === "update_element_props" &&
     typeof operation.props.src === "string"
   ) {
-    return operation.props.src;
+    return [operation.props.src];
   }
   if (operation.type === "add_element" && operation.element.type === "image") {
-    return operation.element.props.src;
+    return [operation.element.props.src];
   }
-  return null;
+  if (operation.type === "add_slide") {
+    return operation.slide.elements.flatMap((element) =>
+      element.type === "image" ? [element.props.src] : [],
+    );
+  }
+  return [];
 }
 
 function parseInternalAssetReference(src: string) {
@@ -844,6 +877,7 @@ function isOoxmlSyncOperation(
   operation: DeckPatchOperation,
 ): operation is OoxmlSyncOperation {
   return [
+    "add_slide",
     "update_element_frame",
     "update_element_props",
     "add_element",
@@ -1011,6 +1045,16 @@ function withSourceSlideLocator(
       }),
     } as OoxmlSyncOperation;
   }
+  if (operation.type === "add_slide") {
+    const locator = sourceSlideLocatorForDeckSlide(
+      operation.slide.slideId,
+      templateBlueprint,
+    );
+    return {
+      ...operation,
+      sourceSlidePart: locator?.sourceSlidePart ?? "",
+    } as OoxmlSyncOperation;
+  }
   if (!("slideId" in operation)) return operation;
   const locator = sourceSlideLocatorForDeckSlide(
     operation.slideId,
@@ -1030,15 +1074,79 @@ function sourceSlideLocatorForDeckSlide(
     (slide) => slide.slideId === slideId,
   );
   const slide = matches[0];
-  if (
-    matches.length !== 1 ||
-    !slide?.sourceSlidePart ||
-    slide.ooxmlOrigin === "authored"
-  ) {
+  if (matches.length !== 1 || !slide?.sourceSlidePart) {
     return null;
   }
   return {
     sourceSlidePart: slide.sourceSlidePart,
+  };
+}
+
+function recoverTemplateBlueprintForPendingSlides(
+  blueprint: TemplateBlueprint,
+  deck: Deck,
+): { blueprint: TemplateBlueprint; recovered: boolean } | null {
+  const deckSlideIds = new Set(deck.slides.map((slide) => slide.slideId));
+  const mappedSlideIds = blueprint.slides.flatMap((slide) =>
+    slide.slideId ? [slide.slideId] : [],
+  );
+  if (
+    mappedSlideIds.length === blueprint.slides.length &&
+    new Set(mappedSlideIds).size === mappedSlideIds.length &&
+    mappedSlideIds.every((slideId) => deckSlideIds.has(slideId))
+  ) {
+    return { blueprint, recovered: false };
+  }
+  return recoverTemplateBlueprintSlideIds(blueprint, deck.slides);
+}
+
+function prepareAuthoredSlideSync(
+  templateBlueprint: TemplateBlueprint,
+  operations: DeckPatchOperation[],
+): {
+  templateBlueprint: TemplateBlueprint;
+  operations: DeckPatchOperation[];
+} {
+  const slides = [...templateBlueprint.slides];
+  const mappedSlideIds = new Set(slides.flatMap((slide) =>
+    slide.slideId ? [slide.slideId] : [],
+  ));
+  const usedPartNumbers = new Set(
+    slides.flatMap((slide) => {
+      const match = slide.sourceSlidePart?.match(/^ppt\/slides\/slide(\d+)\.xml$/);
+      return match ? [Number(match[1])] : [];
+    }),
+  );
+  let sourceSlideIndex = Math.max(
+    0,
+    ...slides.map((slide) => slide.sourceSlideIndex),
+  );
+
+  for (const operation of operations) {
+    if (operation.type !== "add_slide") continue;
+    if (mappedSlideIds.has(operation.slide.slideId)) continue;
+    let partNumber = 1;
+    while (usedPartNumbers.has(partNumber)) partNumber += 1;
+    usedPartNumbers.add(partNumber);
+    sourceSlideIndex += 1;
+    mappedSlideIds.add(operation.slide.slideId);
+    slides.push({
+      slideId: operation.slide.slideId,
+      slideIndex: operation.slide.order,
+      sourceSlideIndex,
+      sourceSlidePart: `ppt/slides/slide${partNumber}.xml`,
+      ooxmlOrigin: "authored",
+      slots: [],
+      elementSources: [],
+    });
+  }
+
+  return {
+    templateBlueprint: templateBlueprintSchema.parse({
+      ...templateBlueprint,
+      slides,
+    }),
+    operations,
   };
 }
 

@@ -152,7 +152,7 @@ export function getImageInsertCapability(deck: Deck, slideId: string) {
     };
   }
   if (deck.metadata.sourceType === "import") {
-    return slide.ooxmlOrigin === "imported"
+    return slide.ooxmlOrigin === "imported" || slide.ooxmlOrigin === "authored"
       ? { enabled: true, reason: null }
       : {
           enabled: false,

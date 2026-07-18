@@ -114,7 +114,7 @@ describe("useEditorFileTransfer image insert action", () => {
     ).toBe(false);
   });
 
-  it("allows imported Deck insertion only on a provenance-backed slide", () => {
+  it("allows imported Deck insertion on imported and authored OOXML slides", () => {
     const deck = createDemoDeck();
     deck.metadata.sourceType = "import";
 
@@ -125,6 +125,12 @@ describe("useEditorFileTransfer image insert action", () => {
     });
 
     deck.slides[0]!.ooxmlOrigin = "imported";
+    expect(getImageInsertCapability(deck, deck.slides[0]!.slideId)).toEqual({
+      enabled: true,
+      reason: null
+    });
+
+    deck.slides[0]!.ooxmlOrigin = "authored";
     expect(getImageInsertCapability(deck, deck.slides[0]!.slideId)).toEqual({
       enabled: true,
       reason: null
