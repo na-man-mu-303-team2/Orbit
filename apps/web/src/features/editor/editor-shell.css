@@ -2916,16 +2916,17 @@
   position: absolute;
   z-index: 5;
   box-sizing: border-box;
-  padding: var(--redesign-space-1) var(--redesign-space-1);
-  border: 2px solid var(--redesign-color-primary);
+  border: 0;
   border-radius: var(--redesign-radius-xl);
   background: transparent;
   caret-color: currentColor;
+  outline: 2px solid var(--redesign-color-primary);
+  outline-offset: -2px;
   resize: none;
-  outline: 0;
   overflow: auto;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
 }
 
 .inline-text-editor [data-text-paragraph-index] {

@@ -74,6 +74,11 @@ describe("InlineTextEditorOverlay", () => {
 
     expect(rule).toContain("background: transparent;");
     expect(rule).toContain("caret-color: currentColor;");
+    expect(rule).toContain("outline: 2px solid var(--redesign-color-primary);");
+    expect(rule).toContain("overflow-wrap: anywhere;");
+    expect(rule).toContain("word-break: keep-all;");
+    expect(rule).not.toContain("border: 2px solid");
+    expect(rule).not.toContain("word-break: break-word;");
     expect(rule).not.toContain("color-scheme: light;");
   });
 
@@ -97,6 +102,8 @@ describe("InlineTextEditorOverlay", () => {
     expect(html).toContain('data-text-paragraph-index="0"');
     expect(html).toContain('data-text-paragraph-index="1"');
     expect(html.match(/data-text-run-index=/g)).toHaveLength(3);
+    expect(html).toContain("padding-left:4px");
+    expect(html).toContain("padding-top:4px");
     expect(html).toContain("A😀");
     expect(html).toContain("둘째 줄");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");

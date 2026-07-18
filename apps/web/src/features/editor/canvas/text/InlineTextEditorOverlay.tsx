@@ -26,7 +26,8 @@ import {
   saveContentEditableRange,
   type ContentEditableLogicalRange,
 } from "./contentEditableRange";
-import { getCssFontWeight } from "./textLayout";
+import { resolveTextBodyInset } from "../../../slides/rendering/richTextLayout";
+import { getCssFontWeight, getTextElementLayout } from "./textLayout";
 
 type TextElement = Extract<DeckElement, { type: "text" }>;
 
@@ -208,6 +209,19 @@ const InlineTextEditorSurface = forwardRef<
     slide.style.fontFamily ??
     deck.theme.typography.bodyFontFamily;
   const paragraphs = renderedProps.paragraphs ?? [];
+  const bodyInset = resolveTextBodyInset(renderedProps);
+  const textLayout = getTextElementLayout({
+    frame: {
+      height: element.height,
+      rotation: element.rotation,
+      width: element.width,
+      x: element.x,
+      y: element.y,
+    },
+    props: renderedProps,
+    slide,
+    theme: deck.theme,
+  });
 
   return (
     <div
@@ -230,6 +244,10 @@ const InlineTextEditorSurface = forwardRef<
         fontSize: `${renderedProps.fontSize * stageScale}px`,
         fontWeight: String(getCssFontWeight(renderedProps.fontWeight)),
         lineHeight: String(renderedProps.lineHeight),
+        paddingBottom: `${Math.max(0, bodyInset.bottom) * stageScale}px`,
+        paddingLeft: `${Math.max(0, bodyInset.left) * stageScale}px`,
+        paddingRight: `${Math.max(0, bodyInset.right) * stageScale}px`,
+        paddingTop: `${Math.max(0, textLayout.y) * stageScale}px`,
         textAlign: renderedProps.align,
         transform: `rotate(${element.rotation}deg)`,
         transformOrigin: "top left",

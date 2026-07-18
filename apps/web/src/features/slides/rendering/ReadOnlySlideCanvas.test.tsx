@@ -53,6 +53,8 @@ vi.mock("react-konva", () => {
     rotation,
     text,
     textDecoration,
+    width,
+    wrap,
     x,
     y
   }: {
@@ -62,6 +64,8 @@ vi.mock("react-konva", () => {
     rotation?: number;
     text?: string;
     textDecoration?: string;
+    width?: number;
+    wrap?: string;
     x?: number;
     y?: number;
   }) => (
@@ -71,6 +75,8 @@ vi.mock("react-konva", () => {
       data-font-size={fontSize === undefined ? undefined : String(fontSize)}
       data-rotation={rotation === undefined ? undefined : String(rotation)}
       data-text-decoration={textDecoration}
+      data-width={width === undefined ? undefined : String(width)}
+      data-wrap={wrap}
       data-x={x === undefined ? undefined : String(x)}
       data-y={y === undefined ? undefined : String(y)}
     >
@@ -362,6 +368,8 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).toContain("First paragraph");
     expect(html).toContain("Second paragraph");
     expect(html).toContain("data-font-size=\"40\"");
+    expect(html).not.toContain("data-width=");
+    expect(html).not.toContain("data-wrap=\"none\"");
   });
 
   it("renders editable table cells", () => {
