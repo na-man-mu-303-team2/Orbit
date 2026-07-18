@@ -7,10 +7,15 @@ import { AnimationSelectionSummary } from "./AnimationSelectionSummary";
 import { AnimationSlideOverview } from "./AnimationSlideOverview";
 import type { AnimationEditorPanelProps } from "../types";
 import { useAnimationInspectorModel } from "../hooks/useAnimationInspectorModel";
-import { buildSlideAnimationOrdinalLabelMap } from "../utils/animationUi";
+import {
+  buildSlideAnimationOrdinalLabelMap,
+  formatPreviousAnimationSummary,
+  getPreviousSlideAnimation
+} from "../utils/animationUi";
 
 export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
   const {
+    actionAnimationIds = [],
     animations,
     canCreateAnimation,
     element,
@@ -45,6 +50,30 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
   } = useAnimationInspectorModel(animations, preferredAnimationId);
   const ordinalLabelByAnimationId =
     buildSlideAnimationOrdinalLabelMap(slideAnimations);
+  const previousSelectedAnimation = selectedAnimation
+    ? getPreviousSlideAnimation(slideAnimations, selectedAnimation.animationId)
+    : null;
+  const actionAnimationIdSet = new Set(actionAnimationIds);
+  const selectedTimelineRoot = selectedAnimation
+    ? getAnimationTimelineRoot(
+        createAnimationTimeline({
+          animations: slideAnimations,
+          legacyOnClickAnimationIds: actionAnimationIdSet
+        }),
+        selectedAnimation.animationId
+      )
+    : null;
+  const isSelectedRootActionLinked = Boolean(
+    selectedTimelineRoot?.effects.some((animation) =>
+      actionAnimationIdSet.has(animation.animationId)
+    )
+  );
+  const actionLinkedStartModeReason = isSelectedRootActionLinked
+    ? "action과 연결된 재생 체인의 시작 방식은 변경할 수 없습니다."
+    : null;
+  const actionLinkedDeleteReason = isSelectedRootActionLinked
+    ? "action을 먼저 제거한 뒤 재생 체인을 삭제할 수 있습니다."
+    : null;
 
   if (!element) {
     return slideAnimations.length > 0 ? (
@@ -114,6 +143,16 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
         >
           <AnimationExistingEditor
             animation={selectedAnimation}
+            deleteDisabledReason={actionLinkedDeleteReason}
+            previousEffectSummary={
+              previousSelectedAnimation
+                ? formatPreviousAnimationSummary(
+                    previousSelectedAnimation,
+                    ordinalLabelByAnimationId
+                  )
+                : null
+            }
+            startModeChangeDisabledReason={actionLinkedStartModeReason}
             onDeleteAnimation={onDeleteAnimation}
             onUpdateAnimation={onUpdateAnimation}
           />
@@ -126,3 +165,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     </section>
   );
 }
+import {
+  createAnimationTimeline,
+  getAnimationTimelineRoot
+} from "@orbit/editor-core";

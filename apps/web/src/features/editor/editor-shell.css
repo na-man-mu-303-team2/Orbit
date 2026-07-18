@@ -4951,6 +4951,16 @@
   outline: none;
 }
 
+.animation-previous-effect-summary {
+  margin: calc(var(--redesign-space-1) * -1) 0 0;
+  border-radius: var(--redesign-radius-xl);
+  background: var(--redesign-color-primary-subtle);
+  color: var(--redesign-color-primary-emphasis);
+  font-size: var(--redesign-type-label-sm-size);
+  line-height: 1.5;
+  padding: var(--redesign-space-2) var(--redesign-space-3);
+}
+
 .animation-panel-selection-card {
   display: flex;
   align-items: center;

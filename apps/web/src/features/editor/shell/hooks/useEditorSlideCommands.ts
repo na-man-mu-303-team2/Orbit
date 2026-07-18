@@ -1,6 +1,7 @@
 import {
   createAddAnimationPatch,
   createAddAnimationWithKeywordTriggerPatch,
+  createAnimationTimeline,
   createDefaultAnimation,
   createDeleteAnimationPatch,
   createKeyword,
@@ -9,7 +10,8 @@ import {
   createUpdateElementPropsPatch,
   createUpdateSlideTransitionPatch,
   createUpsertAdvanceSlideKeywordActionPatch,
-  findKeywordByTerm
+  findKeywordByTerm,
+  getAnimationTimelineRoot
 } from "../../../../../../../packages/editor-core/src/index";
 import { normalizeElementFrameDraft } from "../../../../../../../packages/editor-core/src/patches/elementFrame";
 import { createKeywordOccurrenceId } from "@orbit/shared";
@@ -322,6 +324,19 @@ export function useEditorSlideCommands(args: {
 
   function updateAnimation(slideId: string, animationId: string, animation: Partial<DeckAnimation>) {
     if (!allowMotionMutation(slideId, "animation")) return;
+    const slide = args.workingDeckRef.current.slides.find(
+      (candidate) => candidate.slideId === slideId
+    );
+    if (
+      animation.startMode !== undefined &&
+      slide &&
+      isAnimationInActionLinkedRoot(slide, animationId)
+    ) {
+      args.setLastPatchLabel(
+        "action과 연결된 재생 체인의 시작 방식은 변경할 수 없습니다."
+      );
+      return;
+    }
     const typeReason = animation.type
       ? getAnimationTypeMutationDisabledReason(animation.type)
       : null;
@@ -334,6 +349,15 @@ export function useEditorSlideCommands(args: {
 
   function deleteAnimation(slideId: string, animationId: string) {
     if (!allowMotionMutation(slideId, "animation")) return;
+    const slide = args.workingDeckRef.current.slides.find(
+      (candidate) => candidate.slideId === slideId
+    );
+    if (slide && isAnimationInActionLinkedRoot(slide, animationId)) {
+      args.setLastPatchLabel(
+        "action과 연결된 재생 체인은 action을 먼저 제거한 뒤 삭제할 수 있습니다."
+      );
+      return;
+    }
     args.commitPatch((deck) => createDeleteAnimationPatch(deck, slideId, animationId));
   }
 
@@ -380,6 +404,26 @@ export function useEditorSlideCommands(args: {
     updateAnimation,
     updateSlideTransition
   };
+}
+
+function isAnimationInActionLinkedRoot(slide: Slide, animationId: string) {
+  const actionAnimationIds = slide.actions.flatMap((action) =>
+    action.effect.kind === "play-animation"
+      ? [action.effect.animationId]
+      : []
+  );
+  if (actionAnimationIds.length === 0) return false;
+  const actionAnimationIdSet = new Set(actionAnimationIds);
+  const timeline = createAnimationTimeline({
+    animations: slide.animations,
+    legacyOnClickAnimationIds: actionAnimationIds
+  });
+  const root = getAnimationTimelineRoot(timeline, animationId);
+  return (
+    root?.effects.some((animation) =>
+      actionAnimationIdSet.has(animation.animationId)
+    ) ?? false
+  );
 }
 
 function isAutoFitTextValidationIssue(item: EditorValidationItem) {

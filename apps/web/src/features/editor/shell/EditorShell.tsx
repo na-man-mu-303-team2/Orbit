@@ -2195,6 +2195,13 @@ export function EditorShell(props: { projectId?: string }) {
               }}
             />
             <AnimationInspectorPanel
+              actionAnimationIds={
+                currentSlide?.actions.flatMap((action) =>
+                  action.effect.kind === "play-animation"
+                    ? [action.effect.animationId]
+                    : []
+                ) ?? []
+              }
               animations={selectedElementAnimations}
               canCreateAnimation={Boolean(
                 currentSlide &&
