@@ -37,6 +37,7 @@ export function SelectionInspector(props: SelectionInspectorProps) {
       aria-label="현재 선택"
       className="selection-inspector"
       data-editor-keyboard-owner="selection-inspector"
+      data-editor-keyboard-scope="selection-inspector"
       data-selection-mode={props.model.mode}
       ref={props.focusRef}
       role="region"

@@ -2855,13 +2855,25 @@
 .inline-text-editor {
   position: absolute;
   z-index: 5;
+  box-sizing: border-box;
   padding: var(--redesign-space-1) var(--redesign-space-1);
   border: 2px solid var(--redesign-color-primary);
   border-radius: var(--redesign-radius-xl);
   background: color-mix(in srgb, var(--redesign-color-surface-container-low) 96%, transparent);
-  resize: none;
+  caret-color: var(--redesign-color-on-surface);
   outline: 0;
-  overflow: hidden;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.inline-text-editor [data-text-paragraph-index] {
+  min-height: 1em;
+}
+
+.inline-text-editor [data-text-bullet]::before {
+  content: attr(data-text-bullet) " ";
+  user-select: none;
 }
 
 .inline-data-editor {

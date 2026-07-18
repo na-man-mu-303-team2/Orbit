@@ -1623,6 +1623,10 @@ export function EditorShell(props: { projectId?: string }) {
     isCropEditing,
     isCustomShapeEditingSelection,
     onCopy: handleCopySelectedElement,
+    onCommitInlineTextEditing: () => {
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement) activeElement.blur();
+    },
     onDelete: handleDeleteSelectedElement,
     onDismissLayer: handleDismissKeyboardLayer,
     onDuplicate: handleDuplicateSelectedElement,

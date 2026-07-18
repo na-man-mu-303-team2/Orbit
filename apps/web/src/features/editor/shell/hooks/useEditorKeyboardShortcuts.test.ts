@@ -1,6 +1,44 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveEditorPasteAction } from "./useEditorKeyboardShortcuts";
+import {
+  isEditorKeyboardCompositionEvent,
+  isEditorSaveShortcut,
+  resolveEditorPasteAction,
+} from "./useEditorKeyboardShortcuts";
+
+describe("editor IME keyboard boundary", () => {
+  it.each([
+    ["event.isComposing", { isComposing: true, keyCode: 0 }],
+    ["legacy keyCode 229", { isComposing: false, keyCode: 229 }],
+  ])("ignores global shortcuts during %s", (_label, event) => {
+    expect(isEditorKeyboardCompositionEvent(event)).toBe(true);
+  });
+
+  it("allows ordinary keyboard events", () => {
+    expect(
+      isEditorKeyboardCompositionEvent({ isComposing: false, keyCode: 0 }),
+    ).toBe(false);
+  });
+
+  it("still reserves Cmd/Ctrl+S while composition owns every other key", () => {
+    expect(
+      isEditorSaveShortcut({
+        altKey: false,
+        ctrlKey: false,
+        key: "S",
+        metaKey: true,
+      }),
+    ).toBe(true);
+    expect(
+      isEditorSaveShortcut({
+        altKey: true,
+        ctrlKey: true,
+        key: "s",
+        metaKey: false,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("editor paste precedence", () => {
   it("prioritizes image Files over the copied element clipboard", () => {

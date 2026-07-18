@@ -29,6 +29,7 @@ export function EditorFileMenu(props: EditorFileMenuProps) {
     <DropdownMenu
       align={props.align ?? "start"}
       className={`editor-file-menu editor-file-menu--${variant}`}
+      data-editor-keyboard-scope="popup-menu"
       data-variant={variant}
       variant={dropdownVariant}
     >

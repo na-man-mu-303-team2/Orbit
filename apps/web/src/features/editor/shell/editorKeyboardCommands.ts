@@ -49,18 +49,36 @@ export function resolveEditorKeyboardCommand(
   const isSuppressedTarget = isEditorKeyboardCommandSuppressedTarget(
     input.target ?? null,
   );
+  const key = input.key.toLowerCase();
+  const hasCommandModifier = Boolean(input.metaKey || input.ctrlKey);
+  const isMutationEditingBlocked = Boolean(
+    input.isCropEditing ||
+      input.isInlineTextEditing ||
+      input.isCustomShapeEditing,
+  );
 
   if (input.key === "Escape") {
     const escapeLayer = resolveEditorEscapeLayer(input, isSuppressedTarget);
     return escapeLayer ? { type: "dismiss-layer", layer: escapeLayer } : null;
   }
 
+  if (!input.altKey && hasCommandModifier && key === "s") {
+    return {
+      canExecute: Boolean(
+        input.canMutateDeck &&
+          !input.hasOpenModal &&
+          !input.hasOpenMenu &&
+          !input.isCropEditing &&
+          !input.isCustomShapeEditing,
+      ),
+      type: "save",
+    };
+  }
+
   if (isSuppressedTarget || input.hasOpenModal || input.hasOpenMenu) {
     return null;
   }
 
-  const key = input.key.toLowerCase();
-  const hasCommandModifier = Boolean(input.metaKey || input.ctrlKey);
   const hasUnsupportedNavigationModifier = Boolean(
     input.altKey || input.metaKey || input.ctrlKey,
   );
@@ -72,20 +90,6 @@ export function resolveEditorKeyboardCommand(
     if (input.key === "PageDown") {
       return { direction: "next", type: "navigate-slide" };
     }
-  }
-
-  const isMutationEditingBlocked = Boolean(
-    input.isCropEditing ||
-      input.isInlineTextEditing ||
-      input.isCustomShapeEditing,
-  );
-  if (
-    !input.altKey &&
-    hasCommandModifier &&
-    key === "s" &&
-    !isMutationEditingBlocked
-  ) {
-    return { canExecute: input.canMutateDeck, type: "save" };
   }
 
   if (!input.canMutateDeck || isMutationEditingBlocked) {
@@ -148,6 +152,7 @@ function resolveEditorEscapeLayer(
   input: EditorKeyboardCommandInput,
   isSuppressedTarget: boolean,
 ): EditorEscapeLayer | null {
+  if (isEditorKeyboardScopeTarget(input.target ?? null)) return null;
   if (input.hasOpenModal) return "modal";
   if (input.hasOpenMenu) return "menu";
   if (input.isCropEditing) return "crop-edit";
@@ -156,6 +161,12 @@ function resolveEditorEscapeLayer(
   if (input.isInsertToolActive) return "insert-tool";
   if (!isSuppressedTarget && input.hasSelection) return "selection";
   return null;
+}
+
+function isEditorKeyboardScopeTarget(target: EventTarget | null) {
+  return Boolean(
+    getClosestCapableElement(target)?.closest("[data-editor-keyboard-scope]"),
+  );
 }
 
 export function isEditorKeyboardCommandSuppressedTarget(
@@ -172,7 +183,7 @@ export function isEditorKeyboardCommandSuppressedTarget(
 
   if (
     element.closest(
-      "input, textarea, select, dialog, [role='dialog'], [role='menu'], [data-editor-keyboard-owner]",
+      "input, textarea, select, dialog, [role='dialog'], [role='menu'], [data-editor-keyboard-owner], [data-editor-keyboard-scope]",
     )
   ) {
     return true;
