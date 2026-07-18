@@ -266,7 +266,8 @@
 }
 
 .orbit-project-gallery-card:hover .orbit-project-gallery-hover-actions,
-.orbit-project-gallery-card:focus-within .orbit-project-gallery-hover-actions {
+.orbit-project-gallery-card:focus-within .orbit-project-gallery-hover-actions,
+.orbit-project-gallery-card.is-pinned .orbit-project-gallery-hover-actions {
   opacity: 1;
   pointer-events: auto;
 }
@@ -291,6 +292,11 @@
 
 .orbit-project-gallery-hover-actions > .orbit-project-gallery-delete {
   color: var(--redesign-color-error);
+}
+
+.orbit-project-gallery-hover-actions > .orbit-project-gallery-pin.is-pinned {
+  border-color: var(--redesign-color-primary-outline);
+  color: var(--redesign-color-primary);
 }
 
 .orbit-project-error {

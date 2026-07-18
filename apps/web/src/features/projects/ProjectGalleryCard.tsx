@@ -1,5 +1,7 @@
 import type { Project } from "@orbit/shared";
 import {
+  IconPin,
+  IconPinFilled,
   IconPresentation,
   IconPresentationAnalytics,
   IconTrash,
@@ -13,9 +15,12 @@ const ProjectSlidePreview = lazy(() => import("./ProjectSlidePreview"));
 export function ProjectGalleryCard(props: {
   createdAtLabel: string;
   deleting: boolean;
+  isPinned: boolean;
   onDelete: () => void;
   onOpen: () => void;
   onRehearse: () => void;
+  onTogglePinned: () => void;
+  pinning: boolean;
   project: Project;
 }) {
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
@@ -42,7 +47,14 @@ export function ProjectGalleryCard(props: {
   }, []);
 
   return (
-    <article className="orbit-project-gallery-card" role="listitem">
+    <article
+      className={
+        props.isPinned
+          ? "orbit-project-gallery-card is-pinned"
+          : "orbit-project-gallery-card"
+      }
+      role="listitem"
+    >
       <button
         aria-label={`${props.project.title} 편집`}
         className="orbit-project-gallery-preview"
@@ -64,6 +76,29 @@ export function ProjectGalleryCard(props: {
       </button>
 
       <div className="orbit-project-gallery-hover-actions">
+        <OrbitIconButton
+          aria-label={
+            props.isPinned
+              ? `${props.project.title} 고정 해제`
+              : `${props.project.title} 고정`
+          }
+          aria-pressed={props.isPinned}
+          className={
+            props.isPinned
+              ? "orbit-project-gallery-pin is-pinned"
+              : "orbit-project-gallery-pin"
+          }
+          disabled={props.pinning}
+          onClick={props.onTogglePinned}
+          title={props.isPinned ? "고정 해제" : "고정"}
+          variant="surface"
+        >
+          {props.isPinned ? (
+            <IconPinFilled aria-hidden="true" size={16} />
+          ) : (
+            <IconPin aria-hidden="true" size={16} stroke={1.8} />
+          )}
+        </OrbitIconButton>
         <OrbitIconButton
           aria-label={`${props.project.title} 리허설 시작`}
           onClick={props.onRehearse}

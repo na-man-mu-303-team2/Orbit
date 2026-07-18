@@ -1,4 +1,4 @@
-import type { Project } from "@orbit/shared";
+import type { Project, ProjectListItem } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconArrowsSort,
@@ -34,6 +34,7 @@ import {
   createProjectWithoutDeck,
   deleteProject,
   fetchProjects,
+  updateProjectPin,
 } from "./ProjectAssetWorkspace";
 import { uploadAndImportPptxTemplate } from "../editor/shell/api/editorJobApi";
 import {
@@ -57,6 +58,7 @@ export function ProjectListPage(props: {
     "idle" | "uploading" | "importing"
   >("idle");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pinningId, setPinningId] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState("");
   const pptxInputRef = useRef<HTMLInputElement>(null);
   const isRehearsal = props.mode === "rehearsal";
@@ -66,7 +68,10 @@ export function ProjectListPage(props: {
     const matches = (projects.data ?? []).filter((project) =>
       project.title.toLocaleLowerCase("ko-KR").includes(normalized),
     );
-    return sortProjects(matches, sort);
+    const sorted = sortProjects(matches, sort);
+    const pinned = sorted.filter((project) => project.isPinned);
+    const unpinned = sorted.filter((project) => !project.isPinned);
+    return [...pinned, ...unpinned];
   }, [projects.data, query, sort]);
 
   async function createBlankProject() {
@@ -138,6 +143,24 @@ export function ProjectListPage(props: {
       );
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function togglePinnedProject(project: ProjectListItem) {
+    if (pinningId) return;
+    setPinningId(project.projectId);
+    setMutationError("");
+    try {
+      await updateProjectPin(project.projectId, !project.isPinned);
+      await projects.refetch();
+    } catch (cause) {
+      setMutationError(
+        cause instanceof Error
+          ? cause.message
+          : "프로젝트 고정 상태를 변경하지 못했습니다.",
+      );
+    } finally {
+      setPinningId(null);
     }
   }
 
@@ -270,6 +293,8 @@ export function ProjectListPage(props: {
               deletingId={deletingId}
               onDelete={removeProject}
               onNavigate={props.onNavigate}
+              onTogglePinned={togglePinnedProject}
+              pinningId={pinningId}
               projects={filteredProjects}
             />
           </ProjectState>
@@ -400,7 +425,9 @@ function ProjectGallery(props: {
   deletingId: string | null;
   onDelete: (project: Project) => void;
   onNavigate: (path: string) => void;
-  projects: Project[];
+  onTogglePinned: (project: ProjectListItem) => void;
+  pinningId: string | null;
+  projects: ProjectListItem[];
 }) {
   return (
     <div
@@ -412,6 +439,7 @@ function ProjectGallery(props: {
         <ProjectGalleryCard
           createdAtLabel={formatProjectDate(project)}
           deleting={props.deletingId === project.projectId}
+          isPinned={project.isPinned}
           key={project.projectId}
           onDelete={() => props.onDelete(project)}
           onOpen={() => props.onNavigate(projectPath(project))}
@@ -420,6 +448,8 @@ function ProjectGallery(props: {
               `/rehearsal/${encodeURIComponent(project.projectId)}`,
             )
           }
+          onTogglePinned={() => props.onTogglePinned(project)}
+          pinning={props.pinningId === project.projectId}
           project={project}
         />
       ))}
@@ -576,10 +606,10 @@ function ProjectTable(props: {
   );
 }
 
-function sortProjects(
-  projects: Project[],
+function sortProjects<T extends Project>(
+  projects: T[],
   sort: "newest" | "oldest" | "title" = "newest",
-) {
+): T[] {
   return [...projects].sort((left, right) => {
     if (sort === "title") return left.title.localeCompare(right.title, "ko-KR");
     const difference = Date.parse(right.createdAt) - Date.parse(left.createdAt);
