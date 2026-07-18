@@ -1404,6 +1404,7 @@ function PaletteButton(props: {
       type="button"
       onClick={() => props.onSelect(props.option.optionId)}
     >
+      <PaletteSwatches palette={props.option.palette} />
       <PaletteMockupSlide option={props.option} />
       <span className="ai-ppt-palette-card-meta">
         <span className="ai-ppt-palette-card-heading">
@@ -1411,10 +1412,6 @@ function PaletteButton(props: {
           <span className="ai-ppt-palette-selected-mark" aria-hidden="true">
             {props.selected ? <IconCheck size={14} /> : null}
           </span>
-        </span>
-        <PaletteSwatches palette={props.option.palette} />
-        <span className="ai-ppt-palette-card-footer">
-          <span>{paletteMockupPresets[props.option.optionId]?.version ?? "v1.0.0"}</span>
         </span>
         <small>{props.option.rationale}</small>
       </span>
@@ -1463,10 +1460,6 @@ function PaletteMockupSlide(props: { option: PaletteOption; large?: boolean }) {
           </span>
         ) : null}
         <PaletteMockupBody kind={preset.kind} colors={colors} palette={option.palette} />
-      </span>
-      <span className="ai-ppt-palette-mockup-footer">
-        <span>ORBIT · 02</span>
-        <span>{preset.version}</span>
       </span>
     </span>
   );

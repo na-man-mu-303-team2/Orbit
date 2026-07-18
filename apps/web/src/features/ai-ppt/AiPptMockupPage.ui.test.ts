@@ -75,11 +75,16 @@ describe("AI PPT wizard UI", () => {
     expect(html).toContain("다음 액션");
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain("AI 팔레트");
+    expect(html.indexOf("ai-ppt-palette-swatches")).toBeLessThan(
+      html.indexOf("ai-ppt-palette-mockup"),
+    );
     expect(html).not.toContain("ai-ppt-font-korean");
     expect(html).not.toContain("ai-ppt-font-latin");
     expect(html).not.toContain("ai-ppt-font-badge");
     expect(html).not.toContain("ai-ppt-palette-hex");
+    expect(html).not.toContain("ai-ppt-palette-card-footer");
     expect(html).not.toContain("ai-ppt-palette-mockup-header");
+    expect(html).not.toContain("ai-ppt-palette-mockup-footer");
     expect(html).not.toContain("Pretendard matches professional presentation tone.");
     expect(html).not.toContain("--color-primary-main");
   });
