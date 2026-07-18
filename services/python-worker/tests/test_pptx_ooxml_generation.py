@@ -514,6 +514,18 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
             {
                 "type": "update_element_props",
                 "slideId": template_slide_id(generated),
+                "elementId": "el_added_rect",
+                "props": {"fill": "#FEFEFE"},
+            },
+            {
+                "type": "update_element_props",
+                "slideId": template_slide_id(generated),
+                "elementId": "el_added_rect",
+                "props": {"stroke": "#FEFEFE"},
+            },
+            {
+                "type": "update_element_props",
+                "slideId": template_slide_id(generated),
                 "elementId": "el_added_image",
                 "props": {
                     "src": "data:image/png;base64,"
@@ -552,7 +564,7 @@ def test_sync_pptx_ooxml_adds_writable_text_rect_and_image(
     )
     assert b'prst="roundRect"' in edited_rect_xml
     assert b'name="adj" fmla="val 18000"' in edited_rect_xml
-    assert b'<a:ln w="19050"><a:solidFill><a:srgbClr val="0090FF"' in edited_rect_xml
+    assert edited_rect_xml.count(b'<a:srgbClr val="FEFEFE"') == 2
     edited_image_source = source_for_element(
         edited.element_sources,
         "el_added_image",
