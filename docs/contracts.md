@@ -993,6 +993,8 @@ Job:
 - Job type: `pptx-ooxml-sync`
 - Queue name: `pptx-ooxml-sync`
 
+클라이언트는 `GET /api/v1/projects/:projectId/deck/ooxml-sync-state`로 현재 Deck version과 PPTX package의 동기화 상태를 조회한다. 응답의 `ooxmlSyncState.status`는 `not-applicable`, `pending`, `synced`, `stale`, `failed` 중 하나이며 `deckId`, `deckVersion`, nullable `syncedDeckVersion`, `retryable`, optional 최신 `job`을 포함한다. `POST /api/v1/projects/:projectId/deck/ooxml-sync/retry`는 stale 또는 failed imported Deck에 대해 현재 Deck version 대상 sync Job을 enqueue한다. 같은 version의 queued/running Job이 있으면 기존 Job을 반환하며 중복 enqueue하지 않는다.
+
 Job result:
 
 ```json
