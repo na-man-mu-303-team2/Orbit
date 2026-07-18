@@ -487,7 +487,9 @@ describe("workspace project surfaces", () => {
 
     expect(html).toContain('aria-label="리허설 프로젝트 목록"');
     expect(html).toContain("리허설 발표자료");
-    expect(html).toContain("연습하러 가기");
+    expect(html).toContain("연습하기");
+    expect(html).not.toContain("연습하러 가기");
+    expect(html).not.toContain(">작업</span>");
     expect(html).toContain("redesign-button-primary");
     expect(html).not.toContain("project_private_identifier");
     expect(html).toContain('aria-label="프로젝트 새로고침"');

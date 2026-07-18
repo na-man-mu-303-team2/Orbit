@@ -603,7 +603,7 @@ function ProjectTable(props: {
       <div className="orbit-project-row heading" role="row">
         <span role="columnheader">프로젝트</span>
         <span role="columnheader">생성일</span>
-        <span role="columnheader">작업</span>
+        <span aria-hidden="true" role="columnheader" />
       </div>
       {props.projects.map((project) => {
         const rehearsalPath = `/rehearsal/${encodeURIComponent(project.projectId)}`;
@@ -656,7 +656,7 @@ function ProjectTable(props: {
                   onClick={() => props.onNavigate(rehearsalPath)}
                   size="compact"
                 >
-                  연습하러 가기
+                  연습하기
                 </OrbitButton>
               ) : (
                 <>
