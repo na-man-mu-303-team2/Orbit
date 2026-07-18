@@ -11429,6 +11429,11 @@ body.is-resizing-speaker-notes {
   box-shadow: var(--redesign-shadow-none);
 }
 
+.orbit-shell.editor-professional .slides-list.thumbnail-view .slide-item.active {
+  border-color: transparent;
+  background: transparent;
+}
+
 .orbit-shell.editor-professional .slides-list .slide-thumb {
   position: relative;
   display: block;
