@@ -37,6 +37,7 @@ ENV_KEYS = {
     "OPENAI_MODEL",
     "AI_PPT_VISUAL_QA_MODEL",
     "OPENAI_TRANSCRIPTION_MODEL",
+    "REPORT_TRANSCRIPTION_PROMPT",
     "OPENAI_EMBEDDING_MODEL",
     "WHISPERX_API_URL",
     "WHISPERX_API_KEY",
@@ -60,6 +61,12 @@ LOCAL_DEFAULTS = {
 }
 
 OPENAI_REHEARSAL_AUDIO_MAX_BYTES = 25_000_000
+DEFAULT_REPORT_TRANSCRIPTION_PROMPT = (
+    "한국어 발표 리허설 음성입니다. 말을 매끄럽게 다듬지 말고 들리는 대로 "
+    "전사하세요. '음', '어', '아', '그', '그러니까', '뭐', '일단', "
+    "'사실', '뭐냐면', 'um', 'uh', 'you know' 같은 습관어, 간투사, "
+    "머뭇거림도 삭제하지 말고 가능한 한 그대로 포함하세요."
+)
 
 
 class ConfigError(RuntimeError):
@@ -109,6 +116,11 @@ class PythonWorkerConfig(BaseModel):
     )
     openai_transcription_model: str = Field(
         alias="OPENAI_TRANSCRIPTION_MODEL", min_length=1
+    )
+    report_transcription_prompt: str = Field(
+        default=DEFAULT_REPORT_TRANSCRIPTION_PROMPT,
+        alias="REPORT_TRANSCRIPTION_PROMPT",
+        max_length=1200,
     )
     openai_embedding_model: str = Field(alias="OPENAI_EMBEDDING_MODEL", min_length=1)
     whisperx_api_url: str | None = Field(
@@ -192,7 +204,8 @@ def load_config(environ: Mapping[str, str] | None = None) -> PythonWorkerConfig:
     data = {
         key: value.strip()
         for key, value in source.items()
-        if key in ENV_KEYS and value.strip()
+        if key in ENV_KEYS
+        and (value.strip() or key == "REPORT_TRANSCRIPTION_PROMPT")
     }
 
     try:

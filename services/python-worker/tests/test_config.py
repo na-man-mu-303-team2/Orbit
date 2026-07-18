@@ -1,6 +1,10 @@
 import pytest
 
-from app.config import ConfigError, load_config
+from app.config import (
+    DEFAULT_REPORT_TRANSCRIPTION_PROMPT,
+    ConfigError,
+    load_config,
+)
 
 
 VALID_ENV = {
@@ -42,13 +46,28 @@ def test_openai_model_defaults_are_loaded_from_env() -> None:
             **VALID_ENV,
             "OPENAI_MODEL": "gpt-4.1",
             "OPENAI_TRANSCRIPTION_MODEL": "gpt-4o-mini-transcribe",
+            "REPORT_TRANSCRIPTION_PROMPT": "습관어를 그대로 전사하세요.",
             "OPENAI_EMBEDDING_MODEL": "text-embedding-3-large",
         }
     )
 
     assert config.openai_model == "gpt-4.1"
     assert config.openai_transcription_model == "gpt-4o-mini-transcribe"
+    assert config.report_transcription_prompt == "습관어를 그대로 전사하세요."
     assert config.openai_embedding_model == "text-embedding-3-large"
+
+
+def test_report_transcription_prompt_defaults_to_filler_preservation() -> None:
+    config = load_config(VALID_ENV)
+
+    assert config.report_transcription_prompt == DEFAULT_REPORT_TRANSCRIPTION_PROMPT
+    assert "습관어" in config.report_transcription_prompt
+
+
+def test_report_transcription_prompt_can_be_disabled_with_blank_value() -> None:
+    config = load_config({**VALID_ENV, "REPORT_TRANSCRIPTION_PROMPT": "   "})
+
+    assert config.report_transcription_prompt == ""
 
 
 def test_visual_qa_model_falls_back_when_not_configured() -> None:

@@ -257,6 +257,75 @@ def test_gpt4o_transcribe_uses_json_response_format(
     assert calls[0]["response_format"] == "json"
 
 
+def test_openai_transcribe_sends_filler_preservation_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeTranscriptions:
+        def create(self, **kwargs: object) -> dict[str, str]:
+            calls.append(kwargs)
+            return {"text": "음 테스트 전사"}
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key: str) -> None:
+            self.api_key = api_key
+            self.audio = SimpleNamespace(transcriptions=FakeTranscriptions())
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+
+    provider = OpenAISpeechToTextProvider(
+        api_key="test-key",
+        model="gpt-4o-transcribe",
+        language="ko-KR",
+        prompt="  습관어와 간투사를 삭제하지 말고 전사하세요.  ",
+    )
+    result = provider.transcribe(
+        AudioContent(
+            data=b"fake webm bytes",
+            file_name="rehearsal.webm",
+            mime_type="audio/webm",
+        )
+    )
+
+    assert result.transcript == "음 테스트 전사"
+    assert calls[0]["prompt"] == "습관어와 간투사를 삭제하지 말고 전사하세요."
+
+
+def test_openai_transcribe_omits_prompt_for_diarization_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeTranscriptions:
+        def create(self, **kwargs: object) -> dict[str, str]:
+            calls.append(kwargs)
+            return {"text": "화자 분리 전사"}
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key: str) -> None:
+            self.api_key = api_key
+            self.audio = SimpleNamespace(transcriptions=FakeTranscriptions())
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+
+    provider = OpenAISpeechToTextProvider(
+        api_key="test-key",
+        model="gpt-4o-transcribe-diarize",
+        language="ko-KR",
+        prompt="습관어와 간투사를 삭제하지 말고 전사하세요.",
+    )
+    provider.transcribe(
+        AudioContent(
+            data=b"fake webm bytes",
+            file_name="rehearsal.webm",
+            mime_type="audio/webm",
+        )
+    )
+
+    assert "prompt" not in calls[0]
+
+
 def test_whisper1_uses_verbose_json_and_parses_segments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -333,6 +402,7 @@ def test_whisperx_provider_posts_multipart_and_normalizes_response() -> None:
         model="large-v3",
         language="ko-KR",
         timeout_ms=45_000,
+        prompt="  습관어와 간투사를 삭제하지 말고 전사하세요.  ",
         opener=fake_urlopen,
     )
 
@@ -345,7 +415,7 @@ def test_whisperx_provider_posts_multipart_and_normalizes_response() -> None:
     )
 
     request, timeout = calls[0]
-    body = request.data.decode("latin1")  # type: ignore[attr-defined]
+    body = request.data.decode("utf-8")  # type: ignore[attr-defined]
     assert timeout == 45
     assert request.headers["Authorization"] == "Bearer whisperx-test-key"  # type: ignore[attr-defined]
     assert "multipart/form-data" in request.headers["Content-type"]  # type: ignore[attr-defined]
@@ -353,6 +423,8 @@ def test_whisperx_provider_posts_multipart_and_normalizes_response() -> None:
     assert "ko" in body
     assert 'name="model"' in body
     assert "large-v3" in body
+    assert 'name="initial_prompt"' in body
+    assert "습관어와 간투사를 삭제하지 말고 전사하세요." in body
     assert 'name="file"; filename="rehearsal.flac"' in body
     assert "fake flac bytes" in body
     assert result.transcript == "발표 화면 테스트"

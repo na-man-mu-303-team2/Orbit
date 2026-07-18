@@ -93,6 +93,25 @@ const optionalString = z.preprocess((value) => {
   return trimmed.length === 0 ? undefined : trimmed;
 }, z.string().min(1).optional());
 
+export const defaultReportTranscriptionPrompt = [
+  "한국어 발표 리허설 음성입니다.",
+  "말을 매끄럽게 다듬지 말고 들리는 대로 전사하세요.",
+  "'음', '어', '아', '그', '그러니까', '뭐', '일단', '사실', '뭐냐면',",
+  "'um', 'uh', 'you know' 같은 습관어, 간투사, 머뭇거림도 삭제하지 말고 가능한 한 그대로 포함하세요."
+].join(" ");
+
+const reportTranscriptionPromptSchema = z.preprocess((value) => {
+  if (value === undefined || value === null) {
+    return defaultReportTranscriptionPrompt;
+  }
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  return value;
+}, z.string().max(1200, "REPORT_TRANSCRIPTION_PROMPT must be at most 1200 characters"));
+
 const commaSeparatedStringSchema = z.preprocess((value) => {
   if (Array.isArray(value)) return value;
   if (value === undefined || value === null || value === "") return [];
@@ -275,6 +294,7 @@ export const orbitEnvSchema = z.object({
     200
   ),
   OPENAI_TRANSCRIPTION_MODEL: requiredString("OPENAI_TRANSCRIPTION_MODEL"),
+  REPORT_TRANSCRIPTION_PROMPT: reportTranscriptionPromptSchema,
   OPENAI_EMBEDDING_MODEL: requiredString("OPENAI_EMBEDDING_MODEL"),
   OPENAI_REALTIME_TRANSCRIPTION_MODEL: defaultedString(
     openAiModelDefaults.realtimeTranscriptionModel

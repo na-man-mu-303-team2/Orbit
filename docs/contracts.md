@@ -1203,6 +1203,7 @@ OpenAI Realtime client secret API:
 
 - STT provider env: `REPORT_STT_PROVIDER=openai | whisperx`
 - WhisperX env: `WHISPERX_API_URL`, `WHISPERX_API_KEY`, `WHISPERX_MODEL`, `WHISPERX_TIMEOUT_MS`
+- report transcription prompt env: `REPORT_TRANSCRIPTION_PROMPT`
 - rehearsal audio limit env: `REHEARSAL_AUDIO_MAX_BYTES=25000000`
 - LLM provider env: `LLM_PROVIDER=openai`
 - 실행 위치: API/worker/Python worker
