@@ -33,6 +33,7 @@ import {
   getGroupedChildPreviewFrame,
 } from "../utils/canvasElementUtils";
 import {
+  canDragCanvasElement,
   getSnappedElementPosition,
   type CanvasSnapGuide
 } from "../utils/canvasInteractionUtils";
@@ -152,7 +153,12 @@ export function EditableElementNode(props: {
   return (
     <Group
       draggable={
-        !disablePointerEvents && !customShapeEditDraft
+        canDragCanvasElement({
+          interactionDisabled: disablePointerEvents,
+          isCustomShapeEditing: Boolean(customShapeEditDraft),
+          isSelected,
+          locked: element.locked
+        })
       }
       listening={!disablePointerEvents}
       opacity={
@@ -169,6 +175,10 @@ export function EditableElementNode(props: {
       onClick={(event: Konva.KonvaEventObject<MouseEvent>) => {
         if (event.evt.button !== 0) return;
         handlePointerSelect(Boolean(event.evt.shiftKey));
+      }}
+      onMouseDown={(event: Konva.KonvaEventObject<MouseEvent>) => {
+        if (event.evt.button !== 0 || isSelected) return;
+        onSelect(Boolean(event.evt.shiftKey));
       }}
       onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
         const shouldKeepSelection = isSelected && selectedCount > 1;
