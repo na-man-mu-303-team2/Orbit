@@ -22,7 +22,7 @@ const source = {
 };
 
 describe("SlideQuestionGuidePanel official sources", () => {
-  it("상단 설명 없이 질문 생성 액션과 질문 영역을 위로 배치한다", () => {
+  it("상단 설명 없이 런타임 설정을 확인한 뒤 질문 생성 액션을 표시한다", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(
       <SlideQuestionGuidePanel
@@ -33,7 +33,8 @@ describe("SlideQuestionGuidePanel official sources", () => {
       />,
     );
 
-    expect(html).toContain("질문 생성");
+    expect(html).toContain("질문 생성 준비 중…");
+    expect(html).toContain("disabled");
     expect(html).not.toContain("현재 슬라이드 예상 질문");
     expect(html).not.toContain("검증된 공식 웹사이트에 근거한 질문 3개");
     expect(html).not.toContain("공식 웹 근거를 찾지 못해");
