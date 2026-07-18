@@ -1846,6 +1846,7 @@
 }
 
 .ai-ppt-policy-select-grid {
+  align-items: start;
   border-top: 1px solid var(--redesign-color-outline-variant);
   display: grid;
   gap: var(--redesign-space-4);
