@@ -32,6 +32,7 @@ import {
   getElementsIntersectingSelectionRect,
   normalizeDraftRect,
 } from "./utils/canvasInteractionUtils";
+import { getSelectionTransformerConfig } from "./utils/selectionTransformer";
 import {
   HighlightOverlay,
   ReadOnlySlideCanvas,
@@ -406,6 +407,14 @@ export function EditableCanvas(props: {
   const editorPrimarySoftColor = withColorAlpha(editorPrimaryColor, 0.08);
   const editorPrimaryStrongSoftColor = withColorAlpha(editorPrimaryColor, 0.16);
   const editorPrimaryMediumColor = withColorAlpha(editorPrimaryColor, 0.55);
+  const selectedElementIdSet = new Set(selectedElementIds);
+  const transformerConfig = getSelectionTransformerConfig({
+    disableInteractions,
+    selectedElements: visibleElements.filter((element) =>
+      selectedElementIdSet.has(element.elementId),
+    ),
+    stageScale,
+  });
 
   useEffect(() => {
     const editorShell = containerRef.current?.closest<HTMLElement>(
@@ -713,6 +722,16 @@ export function EditableCanvas(props: {
           ) : null}
           <Transformer
             ref={transformerRef}
+            anchorCornerRadius={transformerConfig.anchorCornerRadius}
+            anchorFill="#ffffff"
+            anchorSize={transformerConfig.anchorSize}
+            anchorStroke={editorPrimaryColor}
+            anchorStrokeWidth={transformerConfig.anchorStrokeWidth}
+            anchorStyleFunc={(anchor: Konva.Rect) => {
+              anchor.hitStrokeWidth(transformerConfig.anchorHitStrokeWidth);
+            }}
+            borderStroke={editorPrimaryColor}
+            borderStrokeWidth={transformerConfig.borderStrokeWidth}
             boundBoxFunc={(
               _oldBox: TransformerBox,
               nextBox: TransformerBox,
@@ -721,22 +740,14 @@ export function EditableCanvas(props: {
               width: Math.max(1, nextBox.width),
               height: Math.max(1, nextBox.height),
             })}
-            enabledAnchors={
-              disableInteractions
-                ? []
-                : [
-                    "top-left",
-                    "top-center",
-                    "top-right",
-                    "middle-left",
-                    "middle-right",
-                    "bottom-left",
-                    "bottom-center",
-                    "bottom-right",
-                  ]
-            }
+            enabledAnchors={transformerConfig.enabledAnchors}
+            flipEnabled={false}
             ignoreStroke
+            keepRatio={transformerConfig.keepRatio}
+            padding={transformerConfig.padding}
+            rotateAnchorOffset={transformerConfig.rotateAnchorOffset}
             rotateEnabled={!disableInteractions}
+            rotationSnapTolerance={6}
             rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
           />
         </Layer>

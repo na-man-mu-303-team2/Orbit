@@ -200,7 +200,7 @@ function findClosestSnap(
   return closest;
 }
 
-function getRotatedFrameBounds(element: DeckElement) {
+export function getRotatedFrameBounds(element: DeckElement) {
   const radians = (element.rotation * Math.PI) / 180;
   const cos = Math.cos(radians);
   const sin = Math.sin(radians);

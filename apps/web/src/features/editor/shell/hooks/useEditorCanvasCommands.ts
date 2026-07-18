@@ -211,7 +211,7 @@ export function useEditorCanvasCommands(args: {
       props: {
         src: createSlideIconDataUrl(icon, color),
         alt: icon.label,
-        fit: "contain",
+        fit: "stretch",
         focusX: 0.5,
         focusY: 0.5
       }
