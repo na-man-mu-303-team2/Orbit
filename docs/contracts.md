@@ -1298,6 +1298,11 @@ API:
 - `GET /api/v1/rehearsals/:runId/report`
   - response: `{ "run": RehearsalRun, "report": RehearsalReport | null }`
   - run이 아직 `processing`이거나 과거 run에 `report_json`이 없으면 `report`는 `null`이다.
+- `GET /api/v1/projects/:projectId/rehearsal-summary`
+  - response: `{ "summary": RehearsalProjectSummary | null }`
+  - 성공한 리허설이 없으면 `summary=null`을 반환한다.
+  - `runMetricSeries`는 성공 회차별 총 소요시간, 긴 침묵, 핵심 메시지 전달률, 시간 초과 슬라이드 비율과 각 항목의 `measurementState`를 제공한다.
+  - `slidePerformanceSummaries`는 최신 성공 회차의 immutable `evaluationSnapshot`을 기준으로 슬라이드 순서·제목·썸네일·권장 시간을 제공하고, 같은 slide ID의 측정 가능한 과거 결과만 평균·비율에 집계한다.
 - `POST /api/v1/rehearsals/:runId/audio/clip`
   - request: `{ "startSeconds": 10, "endSeconds": 12.5 }`; 0초보다 길고 최대 60초인 구간만 허용한다.
   - 프로젝트 read 권한, `succeeded` run, 원본 보관기한과 녹음 길이를 확인한다.
@@ -1563,6 +1568,17 @@ Report 응답 구조:
 - 장표별 속도 측정 불가 reason code는 `UNSUPPORTED_LANGUAGE`, `SEGMENT_TIMESTAMPS_UNAVAILABLE`, `INSUFFICIENT_SLIDE_SPEECH`, `BASELINE_UNAVAILABLE`, `LEGACY_REPORT`로 제한한다. 기존 리포트는 `unmeasured/LEGACY_REPORT`로 정규화하며 회차 비교·PracticeGoal·Top 3 평가에는 사용하지 않는다.
 - 슬라이드별 목표/실제 시간은 `slideTimings`를 공식 필드로 사용한다. `targetSeconds`는 deck의 `estimatedSeconds` 또는 `targetDurationMinutes` 기반 목표값이고, `actualSeconds`는 `PATCH /api/v1/rehearsals/:runId/meta`의 `slideTimeline`에서 연속된 slide 진입 시각 차이로 계산한다. 종료 시각이 없는 마지막 slide는 실제 시간을 추정하지 않는다.
 - 청중 QnA 기반 피드백은 질문 원문을 저장하지 않고 `qnaSummary.questionCount`, `qnaSummary.questionSummary`, `qnaSummary.unclearTopics[].topic`, optional `slideId`만 report에 저장한다. 현재 audience 질문 저장 API가 없으면 기본값은 질문 수 0과 빈 요약이다.
+
+### 프로젝트 리허설 요약 집계 계약
+
+`RehearsalProjectSummary`는 성공 회차의 공식 `rehearsal_runs.report_json`과 각 run의 immutable `evaluationSnapshot`에서 계산하는 owner-only 파생 응답이며 별도 DB 원본이나 종합 점수로 저장하지 않는다.
+
+- 총 소요시간은 `metrics.measurements.duration.measurementState=measured`인 회차의 `metrics.durationSeconds`만 사용한다. 미측정·유효하지 않은 report는 `0`으로 대체하지 않고 `unmeasured`로 반환한다.
+- 긴 침묵은 `silenceAnalysis.measurementState=measured`인 회차의 `longSilenceCount`와 `metricDefinitionVersion`을 사용한다. UI는 서로 다른 버전을 같은 추세로 직접 비교하지 않는다.
+- 핵심 메시지 전달률은 `semanticEvaluation.state=succeeded`, `measurementMode=full`인 report에서 `importance=core`이고 상태가 `covered | partial | missed`인 outcome만 대상으로 `covered / (covered + partial + missed)`로 계산한다. `partial`은 측정 분모에는 포함하지만 완전 전달로 계산하지 않으며 `excluded | unmeasured`는 분모에서 제외한다.
+- 시간 초과 슬라이드는 `targetSeconds > 0`인 `slideTimings` 중 `actualSeconds > targetSeconds * 1.2`인 항목이다. 실제 시간이 없는 마지막 슬라이드와 측정 불가 항목은 분모에서 제외한다.
+- 슬라이드별 평균 소요시간은 같은 slide ID의 측정 가능한 `actualSeconds` 산술평균이며 `sampleCount`를 함께 반환한다. 최신 snapshot에 없는 과거 슬라이드는 현재 표에서 제외한다.
+- 최신 snapshot이 없는 legacy/delivery-only 회차는 슬라이드 메타데이터의 기준으로 사용하지 않는다. 측정 가능한 report가 없으면 해당 수치는 `N/A`로 표시한다.
 
 ### 리허설 회차 비교와 브리핑 계약
 
