@@ -60,6 +60,36 @@ final result: passed
 
 ---
 
+# 실시간 응답 결과 장표 design QA
+
+- Source visual truth: `/var/folders/bz/br99y0bj2395vd1507vwbqmm0000gn/T/codex-clipboard-a077d3c3-85a3-4179-988c-7b1cf6fd6c8e.png`.
+- Implementation capture: in-app browser의 `/project/project_972d5901-d92c-4dfb-9e3d-547a3079f940` 결과 장표 캔버스.
+- Viewport/state: 1194 × 882 CSS px, 12번 결과 장표, 실시간 투표 연결, 차트 레이아웃, 기록 미리보기 미선택 및 응답 없는 기록 상태.
+
+## Fidelity checks
+
+- 16:9 결과 장표를 왼쪽 제목·설명·진행 상태와 오른쪽 응답 수·질문·집계 카드의 2열 구조로 재구성했다.
+- 선택지 결과는 가로 비율 막대와 백분율을 사용하고 최다 응답은 강조 테두리와 `가장 많음` 상태로 구분한다.
+- 배경, surface, border, 강조색, 글자색은 덱 theme과 장표 style을 변환한 기존 특수 장표 CSS 변수만 사용한다.
+- 사전 질문, 실시간 투표, 만족도 조사에 공통으로 적용되며 한눈에 보기, 차트, 확인한 주관식 답변의 세 레이아웃을 유지한다.
+- 실행 전·집계 중·공개 전·연결 오류 상태도 동일한 2열 구조 안에서 잘림 없이 표시된다.
+
+## Verification
+
+- `pnpm --filter @orbit/web typecheck` passed.
+- `pnpm --filter @orbit/web exec vitest run src/features/activity-slides/rendering/ActivityResultSlideRenderer.test.tsx` passed: 10 tests.
+- `pnpm --filter @orbit/web build` passed with the existing chunk-size warning only.
+- Docker web image rebuild and in-app browser check passed.
+- 저장된 실시간 투표 기록은 현재 장표 revision과 일치하지 않아 실제 데이터 브라우저 캡처는 만들 수 없었고, 차트 데이터 구조와 보안 경계는 renderer test로 검증했다.
+
+## Findings
+
+No remaining P0, P1, or P2 visual issue in the requested result-slide renderer.
+
+final result: passed
+
+---
+
 # 덱 테마 기반 특수 장표 design QA
 
 - Reference: 사용자가 제공한 사전 질문, 실시간 투표, 만족도 조사 HTML 3종의 분할 레이아웃과 응답 카드 구조를 참고했다.

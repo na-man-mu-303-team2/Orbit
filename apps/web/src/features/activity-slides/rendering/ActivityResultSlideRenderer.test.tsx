@@ -91,6 +91,8 @@ describe("ActivityResultSlideRenderer", () => {
     );
 
     expect(html).toContain("ORBIT");
+    expect(html).toContain("실시간 참여 결과");
+    expect(html).toContain("시작 전");
     expect(html).toContain(source.activity.title);
     expect(html).not.toContain("ACTIVITY RESULTS");
     expect(html).not.toContain(resultSlide.title);
@@ -148,7 +150,8 @@ describe("ActivityResultSlideRenderer", () => {
 
     expect(html).toContain('data-result-state="presenter-live"');
     expect(html).toContain("공개 전 원문 sentinel");
-    expect(html).toContain("pending");
+    expect(html).toContain("확인 전");
+    expect(html).toContain("새 응답은 이 화면에 자동으로 반영됩니다.");
   });
 
   it("renders distinct summary and chart layouts", () => {
@@ -178,6 +181,7 @@ describe("ActivityResultSlideRenderer", () => {
 
     expect(summary).toContain('data-result-layout="summary"');
     expect(summary).toContain("결과 요약");
+    expect(summary).toContain("응답 결과 한눈에 보기");
     expect(chart).toContain('data-result-layout="chart"');
     expect(chart).toContain("집계 차트");
     expect(chart).toContain("activity-result-chart-track");
