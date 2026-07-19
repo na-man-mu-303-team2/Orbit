@@ -11932,11 +11932,12 @@ body.is-resizing-speaker-notes {
 }
 
 .orbit-shell.editor-professional .script-notes-editor-shell {
+  min-height: calc(var(--redesign-space-16) * 2 + var(--redesign-space-10));
   padding-right: var(--redesign-space-18);
 }
 
 .orbit-shell.editor-professional .script-notes-editor-shell .script-notes-editor {
-  min-height: 76px;
+  min-height: calc(var(--redesign-space-16) * 2);
   padding: 0;
   border: 0;
   border-radius: 0;

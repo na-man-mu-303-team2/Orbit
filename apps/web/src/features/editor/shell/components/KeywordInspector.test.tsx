@@ -146,6 +146,12 @@ describe("KeywordHighlightedNotes", () => {
     expect(css).toMatch(
       /\.orbit-shell \.script-notes-editor\s*\{[^}]*font-size:\s*var\(--redesign-type-body-sm-size\);[^}]*line-height:\s*1\.6;/s
     );
+    expect(css).toMatch(
+      /\.orbit-shell\.editor-professional \.script-notes-editor-shell\s*\{[^}]*min-height:\s*calc\(var\(--redesign-space-16\) \* 2 \+ var\(--redesign-space-10\)\);/s
+    );
+    expect(css).toMatch(
+      /\.orbit-shell\.editor-professional \.script-notes-editor-shell \.script-notes-editor\s*\{[^}]*min-height:\s*calc\(var\(--redesign-space-16\) \* 2\);/s
+    );
   });
 
   it("selects only the clicked keyword occurrence when the same keyword appears repeatedly", () => {
