@@ -69,7 +69,6 @@ export function ActivitySlideInspector(props: {
           <h3>{templateLabels[activity.template]}</h3>
           <p>청중에게 보일 문항을 설정하고 슬라이드에서 바로 확인합니다.</p>
         </div>
-        <OrbitStatus tone="info">캔버스 자동 반영</OrbitStatus>
       </div>
 
       <fieldset
@@ -125,7 +124,7 @@ export function ActivitySlideInspector(props: {
                   type="button"
                   onClick={() => updateActivity({ questions: moveQuestion(activity.questions, index, 1) })}
                 >↓</button>
-                {activity.template === "satisfaction" ? (
+                {activity.template !== "poll" ? (
                   <button
                     aria-label={`문항 ${index + 1} 삭제`}
                     disabled={activity.questions.length === 1}
@@ -231,7 +230,7 @@ export function ActivitySlideInspector(props: {
             ) : null}
           </section>
         ))}
-        {activity.template === "satisfaction" ? (
+        {activity.template !== "poll" ? (
           <button
             disabled={activity.questions.length >= 5}
             type="button"

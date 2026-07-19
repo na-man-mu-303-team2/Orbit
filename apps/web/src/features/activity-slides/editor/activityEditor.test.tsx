@@ -232,8 +232,9 @@ describe("activity slide editor", () => {
 
     expect(previewHtml).toContain(questionPrompt);
     expect(previewHtml).toContain("답변을 입력해 주세요");
-    expect(inspectorHtml).toContain("캔버스 자동 반영");
+    expect(inspectorHtml).not.toContain("캔버스 자동 반영");
     expect(inspectorHtml).toContain("입력한 질문은 슬라이드의 응답 카드에 바로 표시됩니다.");
+    expect(inspectorHtml).toContain("문항 추가 (1/5)");
   });
 
   it("renders result source recovery without persisting a session or response", () => {
