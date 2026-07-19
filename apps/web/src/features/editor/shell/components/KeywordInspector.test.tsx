@@ -144,7 +144,7 @@ describe("KeywordHighlightedNotes", () => {
       /\.keyword-note-token strong\s*\{[^}]*font-weight:\s*inherit;/s
     );
     expect(css).toMatch(
-      /\.keyword-token-dropdown\.redesign-dropdown-menu\s*\{[^}]*left:\s*calc\(100% \+ var\(--redesign-space-2\)\);[^}]*z-index:\s*var\(--redesign-z-dropdown\);/s
+      /\.keyword-token-dropdown\.redesign-dropdown-menu\s*\{[^}]*left:\s*0;[^}]*top:\s*calc\(100% \+ var\(--redesign-space-1\)\);[^}]*z-index:\s*var\(--redesign-z-dropdown\);/s
     );
     expect(css).toMatch(
       /\.orbit-shell\.editor-professional \.script-keyword-section \.keyword-strip\s*\{[^}]*flex-wrap:\s*wrap;[^}]*overflow:\s*visible;/s
