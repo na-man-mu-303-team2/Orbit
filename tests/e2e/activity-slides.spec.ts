@@ -264,12 +264,13 @@ test.describe("activity slides full story", () => {
     await page.goto(`/project/${encodeURIComponent(project.projectId)}`);
     await expect(page.getByLabel("Presentation editor")).toBeVisible();
     await page.locator(".slide-item").nth(1).click();
-    await page.getByRole("tab", { name: "디자인" }).click();
     await expect(page.getByText("연결 결과 장표", { exact: true })).toBeVisible();
     await page
       .getByLabel("미리 볼 발표 세션")
       .selectOption(passcodeSession.session.sessionId);
-    const resultPreview = page.getByLabel("결과 장표 미리보기");
+    const resultPreview = page.getByLabel("결과 장표 미리보기", {
+      exact: true
+    });
     await expect(resultPreview).toHaveAttribute("data-state", "presenter-live");
     await expect(
       resultPreview.getByRole("listitem").filter({ hasText: privateText })
