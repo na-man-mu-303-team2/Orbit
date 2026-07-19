@@ -3733,17 +3733,18 @@
 
 .keyword-token-menu {
   position: absolute;
-  z-index: 30;
-  left: 0;
-  top: calc(100% + var(--redesign-space-1));
+  z-index: 80;
+  left: calc(100% + var(--redesign-space-2));
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
   min-width: 156px;
   padding: var(--redesign-space-1);
-  border: 1px solid var(--redesign-color-outline);
+  border: 1px solid color-mix(in srgb, var(--redesign-color-on-light) 14%, transparent);
   border-radius: var(--redesign-radius-lg);
-  background: var(--redesign-dropdown-background);
+  background: var(--redesign-color-light-surface);
   box-shadow: var(--redesign-shadow-overlay);
-  color: var(--redesign-dropdown-text);
+  color: var(--redesign-color-on-light);
 }
 
 .keyword-token-menu-item {
@@ -3765,7 +3766,7 @@
 
 .keyword-token-menu-item:hover,
 .keyword-token-menu-item:focus-visible {
-  background: var(--redesign-dropdown-hover);
+  background: color-mix(in srgb, var(--redesign-color-on-light) 8%, transparent);
   outline: 0;
 }
 
