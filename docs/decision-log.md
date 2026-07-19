@@ -710,3 +710,14 @@
 - Rationale: 배포별 기능 활성화 결정은 API runtime config가 소유하고, Web은 이를 따라 사용 불가능한 작업을 시작하지 않는다. 네트워크 지연이나 설정 조회 실패 중에도 생성 요청을 낙관적으로 보내지 않아 사용자에게 403을 노출하지 않는다.
 - Affected files: `apps/web/src/features/editor/practice/SlideQuestionGuidePanel.tsx`, `apps/web/src/features/editor/practice/SlideQuestionGuidePanel.test.tsx`, `docs/decision-log.md`.
 - Follow-up review notes: enabled 환경에서는 runtime config 확인 뒤 버튼이 활성화되고 기존 guide 목록·생성 polling이 동작하는지, disabled 환경에서는 QnA 탭을 열어도 slide question guide API 요청이 발생하지 않는지 확인한다.
+
+## ORBIT editor slide question guide automatic batch snapshot
+
+- Context: 예상 질문은 사용자가 QnA 탭을 열고 slide별 생성 버튼을 눌러야만 예약됐고, Worker가 처리 시점의 live Deck을 재구성해 enqueue 뒤 편집으로 정상 작업이 stale 실패할 수 있었다. UI도 전체 `deckVersion`으로 freshness를 판단해 다른 slide 편집만으로 현재 slide 질문을 숨겼다.
+- Options considered:
+  - Web이 기존 단일 생성 API를 slide 수만큼 직접 호출하고 Worker가 계속 live Deck을 읽는다.
+  - 전체 Deck을 새 Job payload에 넣거나 전용 batch Queue와 전역 진행 UI를 추가한다.
+  - API가 Deck을 한 번 검증해 기존 Job을 slide별 예약하고, 기존 `deck_snapshots`를 frozen source로 참조하며 UI는 target slide hash만 비교한다.
+- Final decision: write 권한과 `SLIDE_QUESTION_GUIDES_ENABLED`가 유효한 editor mount는 persisted Deck 최초 로드 후 `POST /slide-question-guides/auto`를 한 번 호출한다. API는 current target hash와 `slide-question-guide-v2`의 active/succeeded guide를 재사용하고, deterministic batch·slide request ID로 나머지만 기존 Queue에 예약한다. 신규 guide의 `source_snapshot_json.deckSnapshotId`는 같은 version의 재사용 가능한 `deck_snapshots` row를 가리키며 Worker는 ID·project·deck·version·target hash를 검증한 frozen Deck을 사용한다. `deckSnapshotId`가 없는 guide는 checkpoint와 patch tail 재구성 경로를 유지한다. UI는 target slide canonical hash로 current guide를 선택하고 자동 생성 실패를 반복 재시도하지 않는다.
+- Rationale: 새 Queue·테이블·payload 원문 없이 기존 순차 Worker와 privacy 경계를 유지하면서 editor 진입 시 전체 slide를 준비한다. frozen snapshot은 live 편집과 생성 source를 분리하고, target hash freshness는 관련 없는 slide 수정으로 질문이 사라지는 문제를 막는다.
+- Affected files: `packages/shared/src/common/canonical-json.ts`, `packages/shared/src/slide-practice/slide-question-guide.schema.ts`, `apps/api/src/decks/decks.service.ts`, `apps/api/src/slide-question-guides/**`, `apps/worker/src/slide-question-guide-generation.processor.ts`, `apps/web/src/features/editor/practice/**`, `apps/web/src/features/editor/shell/**`, `docs/contracts.md`.
