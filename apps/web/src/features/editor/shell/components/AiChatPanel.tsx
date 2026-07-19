@@ -387,10 +387,12 @@ export function AiChatPanel(props: AiChatPanelProps) {
               {message.role === "assistant" ? "AI" : "Y"}
             </span>
             <div className="ai-chat-message-stack">
-              <div className="ai-chat-message-meta" aria-hidden="true">
-                <strong>{message.role === "assistant" ? "Response" : "You"}</strong>
-                <span>{message.role === "assistant" ? "just now" : "now"}</span>
-              </div>
+              {message.role === "user" ? (
+                <div className="ai-chat-message-meta" aria-hidden="true">
+                  <strong>You</strong>
+                  <span>now</span>
+                </div>
+              ) : null}
               <p className={message.tone === "error" ? "error" : undefined}>
                 {message.content}
               </p>
@@ -429,10 +431,6 @@ export function AiChatPanel(props: AiChatPanelProps) {
           <div className="ai-chat-message assistant">
             <span className="ai-chat-avatar" aria-hidden="true">AI</span>
             <div className="ai-chat-message-stack">
-              <div className="ai-chat-message-meta" aria-hidden="true">
-                <strong>Response</strong>
-                <span>typing</span>
-              </div>
               <p>{mode === "image" ? "이미지를 생성하고 있습니다..." : "디자인을 검토하고 있습니다..."}</p>
             </div>
           </div>
