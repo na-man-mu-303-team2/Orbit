@@ -40,6 +40,7 @@ describe("SlideQuestionGuidePanel official sources", () => {
 
     expect(html).toContain("질문 생성 준비 중…");
     expect(html).toContain("disabled");
+    expect(html).toContain("redesign-button-primary");
     expect(html).not.toContain("현재 슬라이드 예상 질문");
     expect(html).not.toContain("검증된 공식 웹사이트에 근거한 질문 3개");
     expect(html).not.toContain("공식 웹 근거를 찾지 못해");

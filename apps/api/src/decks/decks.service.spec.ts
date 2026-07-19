@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus } from "@nestjs/common";
+import { createActivitySlide, createAddSlidePatch } from "@orbit/editor-core";
 import {
   deckApiErrorSchema,
   deckSchema,
@@ -10,7 +11,7 @@ import {
   type DeckPatch,
   type DeckSnapshotReason,
 } from "@orbit/shared";
-import type { DataSource } from "typeorm";
+import type { DataSource, EntityManager } from "typeorm";
 import type { PinoLogger } from "nestjs-pino";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DecksService } from "./decks.service";
@@ -703,6 +704,52 @@ describe("DecksService", () => {
     expect(snapshotResponse.snapshots[0]?.snapshotId).toBe(
       putResponse.snapshot.snapshotId,
     );
+  });
+
+  it("materializes and locks patch-only activity slides for transactional reads", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    const activitySlide = createActivitySlide(deck, "pre-question");
+    seedStoredDeck(dataSource, deck, deck);
+    dataSource.patchRows.push({
+      change_id: "change_add_activity",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      before_version: 1,
+      after_version: 2,
+      source: "user",
+      actor_user_id: null,
+      operations: createAddSlidePatch(deck, activitySlide).operations,
+      created_at: "2026-07-19T00:00:00.000Z",
+    });
+
+    const materialized = await service.getDeckForUpdate(
+      dataSource as unknown as EntityManager,
+      deck.projectId,
+      deck.deckId,
+    );
+
+    expect(materialized.version).toBe(2);
+    expect(materialized.slides).toContainEqual(
+      expect.objectContaining({
+        kind: "activity",
+        slideId: activitySlide.slideId,
+      }),
+    );
+    expect(
+      dataSource.executedQueries.some(
+        (query) =>
+          query.includes("FROM decks") &&
+          query.includes("WHERE project_id = $1 AND deck_id = $2") &&
+          query.includes("FOR UPDATE"),
+      ),
+    ).toBe(true);
+    expect(
+      dataSource.executedQueries.some(
+        (query) =>
+          query.includes("FROM deck_patches") && query.includes("FOR UPDATE"),
+      ),
+    ).toBe(true);
   });
 
   it("creates at most one reusable snapshot for the same current deck version", async () => {

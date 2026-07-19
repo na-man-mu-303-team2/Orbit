@@ -148,6 +148,10 @@ import {
   EditorRightPanel,
   type AiPanelView
 } from "./components/EditorRightPanel";
+import type {
+  KeywordActionMode,
+  KeywordSelectionContext
+} from "./components/KeywordInspector";
 import type { EditorRightPanelMode } from "./utils/rightPanelMode";
 import {
   fetchDeck,
@@ -282,6 +286,7 @@ export function EditorShell(props: { projectId?: string }) {
   const [rightPanelMode, setRightPanelMode] =
     useState<EditorRightPanelMode>("assistant");
   const [propertiesOpenRequestId, setPropertiesOpenRequestId] = useState(0);
+  const [assistantOpenRequestId, setAssistantOpenRequestId] = useState(0);
   const compactSelectionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const selectionInspectorRef = useRef<HTMLElement | null>(null);
   const [aiPanelView, setAiPanelView] = useState<AiPanelView>("chat");
@@ -454,11 +459,14 @@ export function EditorShell(props: { projectId?: string }) {
   const {
     height: speakerNotesPanelHeight,
     isExpanded: isSpeakerNotesPanelExpanded,
+    isMaximized: isSpeakerNotesPanelMaximized,
     isResizing: isSpeakerNotesPanelResizing
   } = speakerNotesPanelState;
 
   useEffect(() => {
     resetProjectUiState();
+    setPropertiesOpenRequestId(0);
+    setAssistantOpenRequestId(0);
     setAiPanelView("chat");
     setAiChatState(createInitialAiChatState(projectId));
     setValidationRepairStatus("");
@@ -792,7 +800,8 @@ export function EditorShell(props: { projectId?: string }) {
   );
   const {
     activeStartAction: activePresentationAction,
-    startPresentation: handleStartPresentation
+    startPresentation: handleStartPresentation,
+    startRehearsal: handleStartFullRehearsal
   } = useEditorPresentationActions({
     applyPersistedDeck,
     commitSpeakerNotesDraftIfDirty,
@@ -844,8 +853,7 @@ export function EditorShell(props: { projectId?: string }) {
     stageScale,
     zoom: editorZoom,
     zoomIn: zoomCanvasIn,
-    zoomOut: zoomCanvasOut,
-    zoomToActualSize
+    zoomOut: zoomCanvasOut
   } = useEditorViewport({
     canvas: deck.canvas,
     isRightPanelOpen,
@@ -1005,6 +1013,77 @@ export function EditorShell(props: { projectId?: string }) {
   function clearSelectedKeyword() {
     editorSlideActions.clearSelectedKeyword();
   }
+  function handleSelectKeywordActionMode(
+    mode: KeywordActionMode,
+    selection: KeywordSelectionContext | null = null
+  ) {
+    const keywordId = selection?.keywordId ?? selectedKeyword?.keywordId ?? null;
+    const occurrenceKey =
+      selection?.occurrenceKey ?? selectedKeywordOccurrenceKey ?? null;
+    const keyword =
+      currentSlide?.keywords.find((candidate) => candidate.keywordId === keywordId) ??
+      selectedKeyword;
+    const usage = occurrenceKey
+      ? currentSlideKeywordActionUsage.byOccurrenceId[occurrenceKey] ?? {
+          advancesSlide: false,
+          animationIds: [],
+          keywordId: keywordId ?? "",
+          occurrenceId: occurrenceKey
+        }
+      : keywordId
+        ? currentSlideKeywordUsage[keywordId] ?? null
+        : selectedKeywordUsage;
+    const requiredActive = keyword
+      ? occurrenceKey
+        ? (keyword.requiredOccurrenceIds ?? []).includes(occurrenceKey)
+        : keyword.required
+      : selectedKeywordRequiredActive;
+
+    if (mode === "animation-trigger") {
+      openAnimationInspector();
+      return;
+    }
+
+    if (!currentSlide || !keywordId) {
+      return;
+    }
+
+    if (mode === "required-keyword") {
+      if (!requiredActive) {
+        handleToggleKeywordRequired(
+          currentSlide.slideId,
+          keywordId,
+          occurrenceKey
+        );
+      }
+      if (usage?.advancesSlide) {
+        handleToggleAdvanceSlideKeyword(
+          currentSlide.slideId,
+          keywordId,
+          false
+        );
+      }
+      return;
+    }
+
+    if (mode === "advance-slide") {
+      if (requiredActive) {
+        handleToggleKeywordRequired(
+          currentSlide.slideId,
+          keywordId,
+          occurrenceKey
+        );
+      }
+      if (!(usage?.advancesSlide ?? false)) {
+        handleToggleAdvanceSlideKeyword(
+          currentSlide.slideId,
+          keywordId,
+          true,
+          occurrenceKey
+        );
+      }
+    }
+  }
 
   function handleValidationTargetFocus(target: EditorValidationTargetView) {
     if (target.status !== "resolved" || !target.slideId) return;
@@ -1070,7 +1149,6 @@ export function EditorShell(props: { projectId?: string }) {
       `텍스트 넘침 ${result.repairedElementIds.length}개를 안전 수정했습니다. 실행 취소로 되돌릴 수 있습니다.`
     );
   }
-
   const selectedAnimationPanelElement =
     selectedElement ??
     (selectedElementIds.length === 1
@@ -1913,6 +1991,7 @@ export function EditorShell(props: { projectId?: string }) {
             void retryOoxmlSync().catch(() => undefined);
           }}
           onSave={() => void handleSaveDeck()}
+          onStartFullRehearsal={() => void handleStartFullRehearsal()}
           onStartPresentation={() => void handleStartPresentation()}
           onStartRehearsal={handleToggleSlideRehearsal}
           projectId={projectId}
@@ -2091,14 +2170,12 @@ export function EditorShell(props: { projectId?: string }) {
               }
               chartMenuButtonRef={chartMenuButtonRef}
               insertTool={insertTool}
-              isAnimationPanelOpen={isAnimationPanelOpen}
               isChartMenuOpen={isChartMenuOpen}
               isIconPanelOpen={isIconPanelOpen}
               isImageUploadPending={isImageUploadPending}
               isShapeMenuOpen={isShapeMenuOpen}
               isStageFitToViewport={isStageFitToViewport}
               onAddText={handleAddTextElement}
-              onOpenAnimation={openAnimationInspector}
               onOpenIconLibrary={toggleIconLibrary}
               onOpenImagePicker={() => {
                 if (currentSlide) {
@@ -2108,6 +2185,9 @@ export function EditorShell(props: { projectId?: string }) {
                   });
                 }
               }}
+              onOpenRightPanel={
+                isRightPanelOpen ? undefined : () => setIsRightPanelOpen(true)
+              }
               onRedo={handleRedo}
               onSelectTool={() => setInsertTool("select")}
               onToggleChartMenu={() => {
@@ -2122,9 +2202,7 @@ export function EditorShell(props: { projectId?: string }) {
               onFitStageToViewport={fitStageToViewport}
               onZoomIn={zoomCanvasIn}
               onZoomOut={zoomCanvasOut}
-              onZoomToActualSize={zoomToActualSize}
               redoDisabled={redoStack.length === 0}
-              selectedElementAnimationCount={selectedElementAnimations.length}
               shapeMenuButtonRef={shapeMenuButtonRef}
               stageScale={stageScale}
               undoDisabled={undoStack.length === 0}
@@ -2245,6 +2323,7 @@ export function EditorShell(props: { projectId?: string }) {
                 height={speakerNotesPanelHeight}
                 isEditing={isSpeakerNotesEditing}
                 isExpanded={isSpeakerNotesPanelExpanded}
+                isMaximized={isSpeakerNotesPanelMaximized}
                 isResizing={isSpeakerNotesPanelResizing}
                 maxHeight={getSpeakerNotesPanelMaxHeight()}
                 minHeight={minSpeakerNotesPanelHeight}
@@ -2264,28 +2343,12 @@ export function EditorShell(props: { projectId?: string }) {
                 onResizeStart={handleSpeakerNotesResizeStart}
                 onSaveEdit={handleSaveSpeakerNotesEdit}
                 onSelectKeyword={handleSelectKeyword}
+                onSelectKeywordActionMode={handleSelectKeywordActionMode}
                 onSelectKeywordText={handleSpeakerNotesKeywordSelection}
                 onStartEdit={handleStartSpeakerNotesEdit}
                 onTabSelected={() => setRequestedSpeakerNotesTab(null)}
-                onToggleAdvanceSlide={() => {
-                  if (currentSlide && selectedKeyword) {
-                    handleToggleAdvanceSlideKeyword(
-                      currentSlide.slideId,
-                      selectedKeyword.keywordId,
-                      !(selectedKeywordUsage?.advancesSlide ?? false)
-                    );
-                  }
-                }}
+                onToggleMaximized={speakerNotesPanelActions.toggleMaximized}
                 onTogglePanel={handleToggleSpeakerNotesPanel}
-                onToggleRequired={() => {
-                  if (currentSlide && selectedKeyword) {
-                    handleToggleKeywordRequired(
-                      currentSlide.slideId,
-                      selectedKeyword.keywordId,
-                      selectedKeywordOccurrenceKey
-                    );
-                  }
-                }}
                 selectedKeyword={selectedKeyword}
                 selectedKeywordId={selectedKeywordId}
                 selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}
@@ -2306,7 +2369,9 @@ export function EditorShell(props: { projectId?: string }) {
             )}
         </section>
 
-        <EditorRightPanel
+        {isRightPanelOpen ? (
+          <EditorRightPanel
+          assistantOpenRequestId={assistantOpenRequestId}
           aiChatState={aiChatState}
           aiPanelView={aiPanelView}
           animationCount={selectedElementAnimations.length}
@@ -2459,6 +2524,7 @@ export function EditorShell(props: { projectId?: string }) {
           validationRepairableElementIds={safeTextOverflowRepair.repairedElementIds}
           validationRepairStatus={validationRepairStatus}
         />
+        ) : null}
       </section>
 
       <EditorDebugPanels
