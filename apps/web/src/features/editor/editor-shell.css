@@ -14226,24 +14226,6 @@ body.is-resizing-speaker-notes {
   min-width: 0;
 }
 
-.orbit-shell.editor-professional .selection-inspector-header {
-  display: grid;
-  gap: var(--redesign-space-1);
-}
-
-.orbit-shell.editor-professional .selection-inspector-header span {
-  color: var(--redesign-color-on-surface-variant);
-  font-size: var(--redesign-type-label-sm-size);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.orbit-shell.editor-professional .selection-inspector-header strong {
-  color: var(--redesign-color-on-surface);
-  font-size: var(--redesign-type-title-md-size);
-}
-
 .orbit-shell.editor-professional .selection-inspector-read-only-summary {
   margin: 0;
   color: var(--redesign-color-on-surface-variant);
