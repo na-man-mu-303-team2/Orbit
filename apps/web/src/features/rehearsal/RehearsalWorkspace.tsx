@@ -4361,16 +4361,6 @@ export function RehearsalWorkspace(props: {
         deck?.projectId ?? props.projectId ?? demoIds.projectId,
       )
     : null;
-  const rehearsalRuntimeStatusLabel =
-    rehearsalRuntimeStatus === "paused"
-      ? "일시정지됨"
-      : phase === "recording"
-      ? "녹음 · 음성 인식 중"
-      : isLiveSttActive
-        ? "음성 인식 중"
-        : isTimerRunning
-          ? "리허설 진행 중"
-          : "준비됨";
   const nextSlideHint = nextSlide?.keywords?.[0]
     ? `"${nextSlide.keywords[0].text}"를 말하면 바로 이어집니다`
     : "마지막 문장을 정리하고 마무리하세요";
@@ -4850,8 +4840,6 @@ export function RehearsalWorkspace(props: {
         primaryActionRunning={
           rehearsalRuntimeStatus !== "paused" && isTimerRunning
         }
-        statusActive={isRehearsalRuntimeActive}
-        statusLabel={rehearsalRuntimeStatusLabel}
         timeMode={timeMode}
         timerDurationInput={timerDurationInput}
         title="리허설"

@@ -277,9 +277,6 @@ export function DisplayControls(props: {
           <ChevronDown size={15} />
         </button>
       </div>
-      <span className="presenter-display-status">
-        {getDisplayStatusLabel(channelStatus, displayState)}
-      </span>
       {canStartRemoteFullscreen ? (
         <button
           className="presenter-display-fullscreen-start"
@@ -562,20 +559,6 @@ function getSlideWindowRemoteFullscreenMessage(result: OpenSlideDisplayResult) {
   }
 
   return "슬라이드 창을 열었습니다. 연결되면 이 화면에서 전체화면 시작을 누르세요.";
-}
-
-export function getDisplayStatusLabel(
-  channelStatus: PresentationChannelStatus,
-  displayState: DisplayState,
-) {
-  if (displayState === "opening") return "발표자 창 여는 중";
-  if (channelStatus === "connected") return "슬라이드 화면 연결됨";
-  if (channelStatus === "stale") return "슬라이드 화면 응답 없음";
-  if (channelStatus === "closed") return "슬라이드 화면 닫힘";
-  if (channelStatus === "unsupported") return "동기화 미지원";
-  if (displayState === "manual-guide") return "전환 안내";
-  if (displayState === "failed") return "확인 필요";
-  return "대기";
 }
 
 function readBrowserMajor(userAgent: string, pattern: RegExp) {

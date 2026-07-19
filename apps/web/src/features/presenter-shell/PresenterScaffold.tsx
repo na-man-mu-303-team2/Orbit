@@ -36,7 +36,7 @@ export function PresenterTopbar(props: {
   onReset: () => void;
   onTimeModeChange: (value: PresenterTimeMode) => void;
   statusActive?: boolean;
-  statusLabel: string;
+  statusLabel?: string;
   subtitle?: string;
   timeMode: PresenterTimeMode;
   timerDurationInput: string;
@@ -63,14 +63,16 @@ export function PresenterTopbar(props: {
 
       {props.toolbar}
 
-      <span
-        className={`rehearsal-recording-status ${
-          props.statusActive ? "rehearsal-recording-status-active" : ""
-        }`}
-      >
-        <span aria-hidden="true" />
-        {props.statusLabel}
-      </span>
+      {props.statusLabel ? (
+        <span
+          className={`rehearsal-recording-status ${
+            props.statusActive ? "rehearsal-recording-status-active" : ""
+          }`}
+        >
+          <span aria-hidden="true" />
+          {props.statusLabel}
+        </span>
+      ) : null}
 
       <div className="rehearsal-timer-pill" aria-live="polite">
         <span className="timer-wave" aria-hidden="true">
