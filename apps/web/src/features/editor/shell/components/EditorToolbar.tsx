@@ -3,11 +3,11 @@ import {
   IconArrowRight,
   IconChartBar as BarChart3,
   IconChevronDown as ChevronDown,
+  IconChevronLeft as ChevronLeft,
   IconPhotoPlus as ImagePlus,
   IconIcons,
   IconPointer as MousePointer2,
   IconShape as Shapes,
-  IconSparkles as Sparkles,
   IconTypography as Type
 } from "@tabler/icons-react";
 import type { ReactNode, RefObject } from "react";
@@ -23,16 +23,15 @@ type EditorToolbarProps = {
   compactSelectionTrigger?: ReactNode;
   chartMenuButtonRef: RefObject<HTMLButtonElement | null>;
   insertTool: InsertTool;
-  isAnimationPanelOpen: boolean;
   isChartMenuOpen: boolean;
   isImageUploadPending: boolean;
   isIconPanelOpen: boolean;
   isShapeMenuOpen: boolean;
   isStageFitToViewport: boolean;
   onAddText: () => void;
-  onOpenAnimation: () => void;
   onOpenImagePicker: () => void;
   onOpenIconLibrary: () => void;
+  onOpenRightPanel?: () => void;
   onRedo: () => void;
   onSelectTool: () => void;
   onToggleShapeMenu: () => void;
@@ -41,9 +40,7 @@ type EditorToolbarProps = {
   onFitStageToViewport: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
-  onZoomToActualSize: () => void;
   redoDisabled: boolean;
-  selectedElementAnimationCount: number;
   shapeMenuButtonRef: RefObject<HTMLButtonElement | null>;
   stageScale: number;
   undoDisabled: boolean;
@@ -132,16 +129,6 @@ export function EditorToolbar(props: EditorToolbarProps) {
           >
             <ImagePlus size={17} />
           </button>
-          <button
-            aria-label="애니메이션"
-            className={`tool-button ${props.isAnimationPanelOpen || props.selectedElementAnimationCount > 0 ? "active" : ""}`}
-            disabled={!props.canUseCurrentSlide}
-            title={editDisabledTitle ?? "애니메이션"}
-            type="button"
-            onClick={props.onOpenAnimation}
-          >
-            <Sparkles size={17} />
-          </button>
         </div>
       </div> : null}
       <EditorZoomControls
@@ -151,9 +138,19 @@ export function EditorToolbar(props: EditorToolbarProps) {
         onFitToViewport={props.onFitStageToViewport}
         onZoomIn={props.onZoomIn}
         onZoomOut={props.onZoomOut}
-        onZoomToActualSize={props.onZoomToActualSize}
         scale={props.stageScale}
       />
+      {props.onOpenRightPanel ? (
+        <button
+          aria-label="오른쪽 패널 열기"
+          className="open-right-pane-floating-button"
+          title="오른쪽 패널 열기"
+          type="button"
+          onClick={props.onOpenRightPanel}
+        >
+          <ChevronLeft aria-hidden="true" size={18} />
+        </button>
+      ) : null}
     </div>
   );
 }

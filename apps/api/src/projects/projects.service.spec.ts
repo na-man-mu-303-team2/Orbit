@@ -1,7 +1,11 @@
-import { ForbiddenException, NotFoundException } from "@nestjs/common";
+import {
+  ForbiddenException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { demoIds } from "@orbit/shared";
-import { DataSource, Repository } from "typeorm";
-import { describe, expect, it } from "vitest";
+import { DataSource, QueryFailedError, Repository } from "typeorm";
+import { describe, expect, it, vi } from "vitest";
 import { ProjectEntity } from "./project.entity";
 import { ProjectMemberEntity } from "./project-member.entity";
 import { getKdhHomeProjectSeeds } from "./kdh-home-project-seed";
@@ -240,6 +244,70 @@ function createService(args?: {
 }
 
 describe("ProjectsService", () => {
+  it("returns a structured service unavailable error when access membership lookup fails", async () => {
+    const project = new ProjectEntity();
+    project.projectId = "project_schema_drift";
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "Schema drift";
+    project.createdBy = "user_owner";
+    project.createdAt = new Date("2026-07-18T00:00:00.000Z");
+    const memberRepository = createProjectMemberRepository();
+    vi.spyOn(memberRepository, "findOne").mockRejectedValue(
+      new QueryFailedError("SELECT", [], new Error("missing column")),
+    );
+    const service = new ProjectsService(
+      { query: vi.fn() } as unknown as DataSource,
+      createProjectRepository([project]),
+      memberRepository,
+    );
+
+    const failure = await service
+      .getProjectAccess(project.projectId, "user_owner")
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ServiceUnavailableException);
+    expect(failure).toMatchObject({
+      response: {
+        code: "PROJECT_ACCESS_UNAVAILABLE",
+        message: "프로젝트 권한 정보를 불러오지 못했습니다.",
+        details: [],
+      },
+      status: 503,
+    });
+  });
+
+  it("returns a structured service unavailable error when member listing fails", async () => {
+    const project = new ProjectEntity();
+    project.projectId = "project_members_schema_drift";
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "Members schema drift";
+    project.createdBy = "user_owner";
+    project.createdAt = new Date("2026-07-18T00:00:00.000Z");
+    const memberRepository = createProjectMemberRepository();
+    vi.spyOn(memberRepository, "findOne").mockRejectedValue(
+      new QueryFailedError("SELECT", [], new Error("missing column")),
+    );
+    const service = new ProjectsService(
+      { query: vi.fn() } as unknown as DataSource,
+      createProjectRepository([project]),
+      memberRepository,
+    );
+
+    const failure = await service
+      .listMembers(demoIds.workspaceId, project.projectId, "user_owner")
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ServiceUnavailableException);
+    expect(failure).toMatchObject({
+      response: {
+        code: "PROJECT_MEMBERS_UNAVAILABLE",
+        message: "프로젝트 구성원 정보를 불러오지 못했습니다.",
+        details: [],
+      },
+      status: 503,
+    });
+  });
+
   it("creates and lists projects inside the demo workspace", async () => {
     const service = createService();
 
