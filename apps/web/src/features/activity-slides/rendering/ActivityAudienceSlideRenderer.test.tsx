@@ -137,4 +137,19 @@ describe("ActivityAudienceSlideRenderer", () => {
     expect(revealed).toContain("100%");
     expect(hidden).not.toContain("100%");
   });
+
+  it("uses the full result grid width for a single question card", () => {
+    const css = fs.readFileSync(activityAudienceSlideCssPath, "utf8");
+    const resultCardRule = css.match(
+      /\.activity-public-result-grid article\s*\{([^}]*)\}/,
+    )?.[1];
+    const singleResultCardRule = css.match(
+      /\.activity-public-result-grid article:only-child\s*\{([^}]*)\}/,
+    )?.[1];
+
+    expect(resultCardRule).toContain(
+      "border-radius: var(--redesign-radius-xl)",
+    );
+    expect(singleResultCardRule).toContain("grid-column: 1 / -1");
+  });
 });

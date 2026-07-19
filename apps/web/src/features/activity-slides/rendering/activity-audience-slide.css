@@ -103,10 +103,14 @@
 .activity-public-result-grid article {
   background: color-mix(in srgb, var(--redesign-color-light-surface) 92%, transparent);
   border: 2px solid color-mix(in srgb, var(--redesign-color-on-surface) 8%, transparent);
-  border-radius: var(--redesign-radius-full);
+  border-radius: var(--redesign-radius-xl);
   display: grid;
   gap: var(--redesign-space-4);
   padding: var(--redesign-space-8);
+}
+
+.activity-public-result-grid article:only-child {
+  grid-column: 1 / -1;
 }
 
 .activity-public-result-grid article > span { color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-title-lg-size); font-weight: 800; }
