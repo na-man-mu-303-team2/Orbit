@@ -721,3 +721,10 @@
 - Final decision: write 권한과 `SLIDE_QUESTION_GUIDES_ENABLED`가 유효한 editor mount는 persisted Deck 최초 로드 후 `POST /slide-question-guides/auto`를 한 번 호출한다. API는 current target hash와 `slide-question-guide-v2`의 active/succeeded guide를 재사용하고, deterministic batch·slide request ID로 나머지만 기존 Queue에 예약한다. 신규 guide의 `source_snapshot_json.deckSnapshotId`는 같은 version의 재사용 가능한 `deck_snapshots` row를 가리키며 Worker는 ID·project·deck·version·target hash를 검증한 frozen Deck을 사용한다. `deckSnapshotId`가 없는 guide는 checkpoint와 patch tail 재구성 경로를 유지한다. UI는 target slide canonical hash로 current guide를 선택하고 자동 생성 실패를 반복 재시도하지 않는다.
 - Rationale: 새 Queue·테이블·payload 원문 없이 기존 순차 Worker와 privacy 경계를 유지하면서 editor 진입 시 전체 slide를 준비한다. frozen snapshot은 live 편집과 생성 source를 분리하고, target hash freshness는 관련 없는 slide 수정으로 질문이 사라지는 문제를 막는다.
 - Affected files: `packages/shared/src/common/canonical-json.ts`, `packages/shared/src/slide-practice/slide-question-guide.schema.ts`, `apps/api/src/decks/decks.service.ts`, `apps/api/src/slide-question-guides/**`, `apps/worker/src/slide-question-guide-generation.processor.ts`, `apps/web/src/features/editor/practice/**`, `apps/web/src/features/editor/shell/**`, `docs/contracts.md`.
+
+## ORBIT slide question text freshness and bounded parallelism
+
+- Context: 전체 slide JSON hash는 도형 색상·위치 같은 질문 근거와 무관한 시각 변경에도 기존 질문을 stale 처리했고, QnA Worker 기본 동시성 1은 여러 slide를 모두 준비하는 시간을 선형으로 늘렸다.
+- Final decision: API·Worker·Web은 shared `slideQuestionGuideTextHashInput`으로 title·text·alt·speaker notes만 canonical hash 입력에 포함한다. 신규 source snapshot은 `contentHashVersion: slide-text-v1`을 기록하고, version이 없는 기존 guide는 Worker에서 전체 slide hash 검증을 유지한다. 기존 `slide-question-guide-generation` Queue의 BullMQ Worker에만 `concurrency: 2`를 적용한다.
+- Rationale: 실제 질문 생성 입력이 달라질 때만 stale 처리하면서 새 Queue·dependency·전역 설정 없이 전체 준비 시간을 줄인다. 동시성 2는 provider 부하를 제한하면서 뒤쪽 Job의 120초 Web polling 초과 가능성도 낮춘다.
+- Affected files: `packages/shared/src/slide-practice/slide-question-guide.schema.ts`, `apps/api/src/slide-question-guides/**`, `apps/worker/src/slide-question-guide-generation.processor.ts`, `apps/worker/src/worker.service.ts`, `apps/web/src/features/editor/practice/**`, `docs/contracts.md`.
