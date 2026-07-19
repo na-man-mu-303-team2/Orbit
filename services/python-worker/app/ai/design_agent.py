@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+DECK_ELEMENT_COORDINATE_LIMIT = 1_000_000
 
 
 class DesignAgentHistoryItem(BaseModel):
@@ -109,8 +112,16 @@ class ElementFramePatch(BaseModel):
         ]
         | None
     ) = None
-    x: float | None = Field(default=None, ge=0)
-    y: float | None = Field(default=None, ge=0)
+    x: float | None = Field(
+        default=None,
+        ge=-DECK_ELEMENT_COORDINATE_LIMIT,
+        le=DECK_ELEMENT_COORDINATE_LIMIT,
+    )
+    y: float | None = Field(
+        default=None,
+        ge=-DECK_ELEMENT_COORDINATE_LIMIT,
+        le=DECK_ELEMENT_COORDINATE_LIMIT,
+    )
     width: float | None = Field(default=None, gt=0)
     height: float | None = Field(default=None, gt=0)
     rotation: float | None = None
@@ -1137,8 +1148,10 @@ def design_agent_system_prompt(
         "elements that the replacement supersedes. Never use classification_grid merely "
         "because a table has multiple rows. "
         "When the user requests new text, write concise content using existing slide context. "
-        "Preserve text meaning. Avoid overlap, keep every element inside the canvas, "
-        "maintain visual hierarchy, and emit the smallest necessary set of operations. "
+        "Preserve text meaning. Avoid overlap, keep newly added elements inside the canvas, "
+        "and maintain visual hierarchy. Existing elements remain valid update targets even "
+        "when their current frame is partially or fully outside the canvas. Validate the final "
+        "frame after applying the update and emit the smallest necessary set of operations. "
         "Broad requests such as '꾸며줘', '보기 좋게', '디자인해줘', beautify, or redesign "
         "mean a substantial composition redesign, not a minor frame or color adjustment. "
         "Prefer smartArtRequest and a server-side preset for those broad requests whenever "
@@ -1317,7 +1330,7 @@ def validate_design_proposal(
                 raise DesignAgentGenerationError("Element type is not enabled by capabilities.")
             if element_id in known_element_ids:
                 raise DesignAgentGenerationError("Added elementId already exists.")
-            _validate_frame_bounds(request.context.canvas, element, ElementFramePatch())
+            _validate_element_frame(element)
             elements[element_id] = element
             known_element_ids.add(element_id)
             valid_affected_element_ids.add(element_id)
@@ -1334,11 +1347,13 @@ def validate_design_proposal(
             continue
 
         if isinstance(operation, UpdateElementFrameOperation):
-            _validate_frame_bounds(request.context.canvas, target_element, operation.frame)
+            updated_element = _apply_element_frame_patch(target_element, operation.frame)
+            _validate_element_frame(updated_element)
             if str(target_element.get("type")) == "image":
                 warning = _image_aspect_warning(target_element, operation.frame)
                 if warning and warning not in warnings:
                     warnings.append(warning)
+            elements[operation.element_id] = updated_element
 
     canonical_affected_element_ids = [
         element_id
@@ -1467,19 +1482,33 @@ def _allows_unselected_slide_sources(question: str) -> bool:
     )
 
 
-def _validate_frame_bounds(
-    canvas: DesignAgentCanvas,
+def _apply_element_frame_patch(
     element: dict[str, Any],
     frame: ElementFramePatch,
-) -> None:
-    x = frame.x if frame.x is not None else float(element.get("x", 0))
-    y = frame.y if frame.y is not None else float(element.get("y", 0))
-    width = frame.width if frame.width is not None else float(element.get("width", 0))
-    height = frame.height if frame.height is not None else float(element.get("height", 0))
+) -> dict[str, Any]:
+    return {
+        **element,
+        **frame.model_dump(by_alias=True, exclude_none=True),
+    }
+
+
+def _validate_element_frame(element: dict[str, Any]) -> None:
+    x = float(element.get("x", 0))
+    y = float(element.get("y", 0))
+    width = float(element.get("width", 0))
+    height = float(element.get("height", 0))
+    values = (x, y, width, height)
+    if not all(math.isfinite(value) for value in values):
+        raise DesignAgentGenerationError("Operation produced a non-finite element frame.")
     if width <= 0 or height <= 0:
         raise DesignAgentGenerationError("Operation produced an invalid element size.")
-    if x + width > canvas.width or y + height > canvas.height:
-        raise DesignAgentGenerationError("Operation places an element outside the canvas.")
+    if any(
+        abs(coordinate) > DECK_ELEMENT_COORDINATE_LIMIT
+        for coordinate in (x, y)
+    ):
+        raise DesignAgentGenerationError(
+            "Operation produced an out-of-range element coordinate."
+        )
 
 
 def _fit_added_element_to_canvas(
@@ -1539,8 +1568,16 @@ def _frame_operation_json_schema() -> dict[str, Any]:
     frame = _nullable_properties(
         {
             "role": {"type": ["string", "null"], "enum": roles},
-            "x": {"type": ["number", "null"], "minimum": 0},
-            "y": {"type": ["number", "null"], "minimum": 0},
+            "x": {
+                "type": ["number", "null"],
+                "minimum": -DECK_ELEMENT_COORDINATE_LIMIT,
+                "maximum": DECK_ELEMENT_COORDINATE_LIMIT,
+            },
+            "y": {
+                "type": ["number", "null"],
+                "minimum": -DECK_ELEMENT_COORDINATE_LIMIT,
+                "maximum": DECK_ELEMENT_COORDINATE_LIMIT,
+            },
             "width": {"type": ["number", "null"], "exclusiveMinimum": 0},
             "height": {"type": ["number", "null"], "exclusiveMinimum": 0},
             "rotation": {"type": ["number", "null"]},

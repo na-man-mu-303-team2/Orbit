@@ -109,7 +109,18 @@ def proposal_payload(*, x: float = 1200) -> dict[str, Any]:
                 "type": "update_element_frame",
                 "slideId": "slide_1",
                 "elementId": "el_image",
-                "frame": {"x": x},
+                "frame": {
+                    "role": None,
+                    "x": x,
+                    "y": None,
+                    "width": None,
+                    "height": None,
+                    "rotation": None,
+                    "opacity": None,
+                    "zIndex": None,
+                    "visible": None,
+                    "locked": None,
+                },
             }
         ],
         "affectedElementIds": ["el_image"],
@@ -133,13 +144,38 @@ def test_generates_and_validates_design_operations() -> None:
     assert "untrusted presentation data" in client.responses.calls[0]["instructions"]
 
 
-def test_rejects_operations_outside_canvas() -> None:
-    with pytest.raises(DesignAgentGenerationError, match="outside the canvas"):
+def test_allows_frame_update_result_outside_canvas() -> None:
+    result = generate_design_proposal(
+        request_payload(),
+        model="test-model",
+        api_key=None,
+        client=FakeClient(proposal_payload(x=1500)),
+    )
+
+    assert result.operations[0].frame.x == 1500
+
+
+def test_allows_off_canvas_element_as_frame_update_target() -> None:
+    request = request_payload()
+    request.context.slide["elements"][0]["x"] = -240
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=FakeClient(proposal_payload(x=-80)),
+    )
+
+    assert result.operations[0].frame.x == -80
+
+
+def test_rejects_frame_coordinates_outside_supported_range() -> None:
+    with pytest.raises(DesignAgentGenerationError, match="generation failed"):
         generate_design_proposal(
             request_payload(),
             model="test-model",
             api_key=None,
-            client=FakeClient(proposal_payload(x=1500)),
+            client=FakeClient(proposal_payload(x=1_000_001)),
         )
 
 
