@@ -130,14 +130,12 @@
 }
 
 .workspace-home-create-icon {
-  position: relative;
-  isolation: isolate;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 48px;
   height: 48px;
-  margin-bottom: var(--redesign-space-3);
+  margin-bottom: var(--redesign-space-1);
   border: 1px solid var(--redesign-color-primary);
   border-radius: var(--redesign-radius-md);
   background: var(--redesign-color-primary);
@@ -145,45 +143,6 @@
   transition: background-color var(--redesign-duration-fast) var(--redesign-ease-standard), border-color var(--redesign-duration-fast) var(--redesign-ease-standard),
     color var(--redesign-duration-fast) var(--redesign-ease-standard), box-shadow var(--redesign-duration-normal) var(--redesign-ease-standard),
     transform var(--redesign-duration-normal) var(--redesign-ease-emphasized);
-}
-
-.workspace-home-create-icon::before,
-.workspace-home-create-icon::after {
-  position: absolute;
-  z-index: -1;
-  width: 62px;
-  height: 38px;
-  border: 1px solid color-mix(
-    in srgb,
-    var(--redesign-color-primary) 24%,
-    var(--redesign-color-light-surface)
-  );
-  border-radius: var(--redesign-radius-md);
-  box-shadow: var(--redesign-shadow-card);
-  content: "";
-}
-
-.workspace-home-create-icon::before {
-  background: linear-gradient(
-    135deg,
-    var(--redesign-color-secondary-container) 0 48%,
-    var(--redesign-color-secondary) 49% 100%
-  );
-  transform: translate(-26px, -8px) rotate(-8deg);
-}
-
-.workspace-home-create-icon::after {
-  background: linear-gradient(
-    135deg,
-    var(--redesign-color-warning-container) 0 48%,
-    var(--redesign-color-tertiary) 49% 100%
-  );
-  transform: translate(26px, -8px) rotate(8deg);
-}
-
-.workspace-home-create-icon > svg {
-  position: relative;
-  z-index: 1;
 }
 
 .workspace-home-create > strong {
