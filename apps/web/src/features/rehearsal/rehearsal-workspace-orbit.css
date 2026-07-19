@@ -287,6 +287,14 @@ main.rehearsal-presenter-shell {
   border-color: var(--redesign-color-outline-variant);
 }
 
+.rehearsal-presenter-shell .rehearsal-stage-wrap > .rehearsal-slide-controls button:not(:disabled):hover {
+  background: color-mix(in srgb, var(--redesign-color-primary) 18%, transparent);
+}
+
+.rehearsal-presenter-shell .rehearsal-stage-wrap > .rehearsal-slide-controls button:not(:disabled):hover svg {
+  color: var(--redesign-color-light-surface);
+}
+
 .rehearsal-presenter-shell .rehearsal-stage-wrap > .rehearsal-slide-controls button svg {
   height: 18px;
   width: 18px;
