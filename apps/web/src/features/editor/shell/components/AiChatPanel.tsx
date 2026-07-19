@@ -383,12 +383,18 @@ export function AiChatPanel(props: AiChatPanelProps) {
       <div className="ai-chat-history" aria-live="polite">
         {props.chatState.messages.map((message) => (
           <div className={`ai-chat-message ${message.role}`} key={message.id}>
-            {message.role === "assistant" ? (
-              <span className="ai-chat-avatar" aria-hidden="true">AI</span>
-            ) : null}
-            <p className={message.tone === "error" ? "error" : undefined}>
-              {message.content}
-            </p>
+            <span className="ai-chat-avatar" aria-hidden="true">
+              {message.role === "assistant" ? "AI" : "Y"}
+            </span>
+            <div className="ai-chat-message-stack">
+              <div className="ai-chat-message-meta" aria-hidden="true">
+                <strong>{message.role === "assistant" ? "Response" : "You"}</strong>
+                <span>{message.role === "assistant" ? "just now" : "now"}</span>
+              </div>
+              <p className={message.tone === "error" ? "error" : undefined}>
+                {message.content}
+              </p>
+            </div>
             {message.imagePreview ? (
               <div className="ai-generated-image-card">
                 <img
@@ -422,7 +428,13 @@ export function AiChatPanel(props: AiChatPanelProps) {
         {isSending ? (
           <div className="ai-chat-message assistant">
             <span className="ai-chat-avatar" aria-hidden="true">AI</span>
-            <p>{mode === "image" ? "이미지를 생성하고 있습니다..." : "디자인을 검토하고 있습니다..."}</p>
+            <div className="ai-chat-message-stack">
+              <div className="ai-chat-message-meta" aria-hidden="true">
+                <strong>Response</strong>
+                <span>typing</span>
+              </div>
+              <p>{mode === "image" ? "이미지를 생성하고 있습니다..." : "디자인을 검토하고 있습니다..."}</p>
+            </div>
           </div>
         ) : null}
       </div>
