@@ -2455,6 +2455,7 @@ export function EditorShell(props: { projectId?: string }) {
                 onOpenAudienceLink={() => setIsAudienceLinkModalOpen(true)}
                 projectId={deck.projectId}
                 slide={currentSlide}
+                theme={deck.theme}
                 onChange={(activity) => {
                   commitPatch((currentDeck) =>
                     createUpdateActivityDefinitionPatch(
