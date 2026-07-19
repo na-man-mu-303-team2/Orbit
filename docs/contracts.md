@@ -613,6 +613,22 @@ MVP 실패 코드:
 
 - `packages/shared/src/deck/deck-api.schema.ts`
 
+## Project access 오류 계약
+
+프로젝트 권한과 구성원 조회는 `projectAccessResponseSchema`를 사용한다. 데이터베이스
+schema drift 또는 일시적인 저장소 장애는 빈 500 대신 `projectApiErrorSchema`의
+`code`, `message`, `details` 구조와 HTTP 503으로 응답한다.
+
+지원하는 실패 코드는 다음과 같다.
+
+- `PROJECT_ACCESS_UNAVAILABLE`
+- `PROJECT_MEMBERS_UNAVAILABLE`
+- `PROJECT_SCHEMA_NOT_READY`
+
+API는 pending migration 또는 필수 `project_members.is_pinned` 컬럼 누락을 확인한 뒤
+schema가 준비되지 않았으면 listen 전에 기동을 중단한다. `/health/readiness`도 동일한
+검사를 사용한다.
+
 ## AI 덱 생성 계약
 
 AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job으로 실행한다. public 계약은 요청/응답과 최종 Deck JSON에 필요한 metadata/evidence만 포함하고, planner/layout 중간 모델은 Python worker 내부 구현으로 둔다.
