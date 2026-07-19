@@ -80,10 +80,10 @@ export function ActivitySlideInspector(props: {
       >
         <section className="activity-inspector-section">
           <div className="activity-inspector-section-heading">
-            <strong>슬라이드에 보이는 내용</strong>
-            <span>청중이 화면에서 먼저 보는 제목과 안내입니다.</span>
+            <strong>화면에 먼저 보이는 내용</strong>
+            <span>청중이 장표를 열었을 때 맨 위에 보여지는 문구입니다.</span>
           </div>
-          <OrbitField id="activity-slide-title" label="큰 제목">
+          <OrbitField id="activity-slide-title" label="슬라이드 제목">
             <OrbitInput
               maxLength={120}
               placeholder="예: 발표 전에 궁금한 점을 알려주세요"
@@ -91,7 +91,7 @@ export function ActivitySlideInspector(props: {
               onChange={(event) => updateActivity({ title: event.currentTarget.value })}
             />
           </OrbitField>
-          <OrbitField id="activity-slide-description" label="짧은 안내">
+          <OrbitField id="activity-slide-description" label="설명 문구">
             <OrbitTextarea
               maxLength={500}
               placeholder="청중이 무엇을 하면 되는지 짧게 알려주세요."
@@ -104,8 +104,8 @@ export function ActivitySlideInspector(props: {
 
         <section className="activity-inspector-section">
           <div className="activity-inspector-section-heading">
-            <strong>질문과 답변 만들기</strong>
-            <span>입력한 내용은 왼쪽 슬라이드에도 바로 나타납니다.</span>
+            <strong>참여자 질문 구성</strong>
+            <span>질문/보기는 에디터 미리보기와 실제 청중 화면에 바로 반영됩니다.</span>
           </div>
           <div className="activity-inspector-questions">
             {activity.questions.map((question, index) => (
@@ -181,7 +181,7 @@ export function ActivitySlideInspector(props: {
                   </OrbitField>
                 ) : null}
                 <OrbitField
-                  hint="입력하면 왼쪽 슬라이드에도 바로 나타납니다."
+                  hint="변경 즉시 에디터 미리보기에 반영돼요."
                   id={`activity-question-${question.questionId}-prompt`}
                   label="질문 내용"
                 >
@@ -361,17 +361,17 @@ export function ActivitySlideInspector(props: {
                 })
               }
             />
-            이름도 함께 받기
+            참여자 닉네임도 함께 받기
           </label>
         </section>
       </fieldset>
 
       {editorRuntime.locked && editorRuntime.runtime ? (
         <section className="activity-definition-lock" role="status">
-          <strong>응답을 받은 뒤에는 질문을 바꿀 수 없어요.</strong>
+          <strong>응답 후에는 질문 수정이 잠깁니다.</strong>
           <p>
-            지금까지 받은 응답 {editorRuntime.runtime.run.responseCount}개를 안전하게 보관하고 있습니다. 질문을 바꾸려면
-            새 질문으로 다시 시작해 주세요.
+            지금까지 {editorRuntime.runtime.run.responseCount}개 응답은 유지되며, 새 질문으로 다시 시작해야
+            이어서 받을 수 있어요.
           </p>
           <OrbitButton
             disabled={editorRuntime.pending}
@@ -428,7 +428,7 @@ export function ActivitySlideInspector(props: {
 
       <div aria-label="자동으로 만들어지는 응답 화면" className="activity-system-layer-lock">
         <strong>응답 화면은 자동으로 만들어져요.</strong>
-        <span>질문을 바꾸면 입력칸과 선택지도 함께 바뀝니다.</span>
+        <span>질문/선택지/필수항목 설정은 왼쪽 미리보기와 연결 화면에 자동 반영됩니다.</span>
       </div>
       {props.deckId && props.projectId ? (
         <ActivityEditorModerationPanel deckId={props.deckId} projectId={props.projectId} slide={props.slide} />

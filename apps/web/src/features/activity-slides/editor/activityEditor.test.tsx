@@ -44,8 +44,8 @@ describe("activity slide editor", () => {
   it("keeps generated response controls in a locked system layer", () => {
     const html = renderToStaticMarkup(<ActivitySlideInspector onChange={vi.fn()} slide={slide} />);
 
-    expect(html).toContain("청중에게 보이는 화면");
-    expect(html).toContain("내 화면");
+    expect(html).toContain("청중(에디터)");
+    expect(html).toContain("발표자(에디터)");
     expect(html).toContain("응답 화면은 자동으로 만들어져요.");
     expect(html).not.toContain("시스템 레이어");
     expect(html).toContain('data-activity-system-layer="locked"');
@@ -263,11 +263,11 @@ describe("activity slide editor", () => {
     expect(previewHtml).toContain(questionPrompt);
     expect(previewHtml).toContain("답변을 입력해 주세요");
     expect(inspectorHtml).not.toContain("캔버스 자동 반영");
-    expect(inspectorHtml).toContain("입력한 내용은 왼쪽 슬라이드에도 바로 나타납니다.");
+    expect(inspectorHtml).toContain("변경 즉시 에디터 미리보기에 반영돼요.");
     expect(inspectorHtml).toContain("질문 추가");
     expect(inspectorHtml).toContain("1/5");
-    expect(inspectorHtml).toContain("큰 제목");
-    expect(inspectorHtml).toContain("짧은 안내");
+    expect(inspectorHtml).toContain("슬라이드 제목");
+    expect(inspectorHtml).toContain("설명 문구");
     expect(inspectorHtml).toContain("꼭 답하게 하기");
     expect(inspectorHtml).toContain("청중 화면 새 창에서 보기");
     expect(inspectorHtml).toContain(

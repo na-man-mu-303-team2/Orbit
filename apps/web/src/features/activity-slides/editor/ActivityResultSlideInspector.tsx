@@ -58,14 +58,14 @@ export function ActivityResultSlideInspector(props: {
         <IconChartBar aria-hidden="true" size={24} />
         <div>
           <h3>{source ? `${source.activity.title} 결과` : "응답 결과 슬라이드"}</h3>
-          <p>어떤 참여 슬라이드의 결과를 보여줄지 선택하세요.</p>
+          <p>어떤 참여 장표의 응답을 이 슬라이드에 보여줄지 정할 수 있어요.</p>
         </div>
       </div>
 
       <section className="activity-inspector-section">
         <div className="activity-inspector-section-heading">
-          <strong>보여줄 결과 선택</strong>
-          <span>청중이 답한 슬라이드와 결과 모양을 고르세요.</span>
+          <strong>1) 어떤 참여 장표의 응답을 가져올지</strong>
+          <span>선택한 장표의 발표 답변만 집계해서 표시됩니다.</span>
         </div>
         <OrbitField id="activity-result-source" label="결과를 가져올 슬라이드">
           <OrbitSelect
@@ -123,8 +123,8 @@ export function ActivityResultSlideInspector(props: {
 
       <section className="activity-inspector-section">
         <div className="activity-inspector-section-heading">
-          <strong>실제 응답 미리보기</strong>
-          <span>지난 발표를 골라 실제 응답이 어떻게 보이는지 확인하세요.</span>
+          <strong>2) 실제 응답 확인</strong>
+          <span>발표를 고르면 발표별 응답 레이아웃을 바로 미리볼 수 있어요.</span>
         </div>
         <OrbitField id="activity-result-session" label="미리 볼 발표">
           <OrbitSelect value={selectedSessionId} onChange={(event) => setSelectedSessionId(event.currentTarget.value)}>

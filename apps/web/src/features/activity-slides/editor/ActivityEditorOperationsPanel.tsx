@@ -56,8 +56,8 @@ export function ActivityEditorOperationsPanel(props: {
     return (
       <section aria-label="참여 장표 운영" className="activity-editor-operations">
         <div>
-          <strong>먼저 발표를 준비해 주세요.</strong>
-          <p>발표를 준비하면 청중이 들어올 링크와 QR 코드를 만들 수 있어요.</p>
+          <strong>먼저 발표 준비를 시작하세요.</strong>
+          <p>세션을 만들면 청중 참여 링크와 QR을 사용할 수 있어요.</p>
         </div>
         {props.onOpenAudienceLink ? (
           <button type="button" onClick={props.onOpenAudienceLink}>
