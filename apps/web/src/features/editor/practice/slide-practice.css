@@ -569,34 +569,61 @@
 }
 
 .orbit-shell .speaker-notes-report-panel .editor-practice-history {
-  gap: var(--redesign-space-4);
+  gap: var(--redesign-space-3);
   padding: 0;
 }
 
 .orbit-shell .speaker-notes-report-panel .editor-practice-history-detail {
-  gap: var(--redesign-space-4);
+  gap: var(--redesign-space-3);
 }
 
 .orbit-shell .speaker-notes-report-panel .editor-practice-history-detail > header {
-  gap: var(--redesign-space-3);
+  gap: var(--redesign-space-2);
 }
 
 .orbit-shell .speaker-notes-report-panel .editor-practice-history-detail > header strong {
   color: var(--redesign-color-on-surface);
-  font-size: var(--redesign-type-title-md-size);
-  font-weight: 850;
+  font-size: var(--redesign-type-body-md-size);
+  font-weight: 780;
 }
 
 .orbit-shell .speaker-notes-report-panel .editor-practice-history-detail > header span {
   color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
   font-variant-numeric: tabular-nums;
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-report-content {
+  gap: var(--redesign-space-3);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph-grid {
+  gap: var(--redesign-space-3);
 }
 
 .orbit-shell .speaker-notes-report-panel .editor-practice-graph-card,
 .orbit-shell .speaker-notes-report-panel .editor-practice-coaching {
-  background: var(--redesign-color-surface-container-low);
+  padding: var(--redesign-space-4);
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface-container);
   border-color: var(--redesign-color-outline-variant);
   color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph-card > header,
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching > header {
+  gap: var(--redesign-space-2);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-graph-card h3 {
+  font-size: var(--redesign-type-body-md-size);
+  font-weight: 760;
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching h3 {
+  font-size: var(--redesign-type-title-md-size);
+  font-weight: 780;
 }
 
 .orbit-shell .speaker-notes-report-panel .editor-practice-graph-card h3,
@@ -610,16 +637,25 @@
 .orbit-shell .speaker-notes-report-panel .editor-practice-graph-empty,
 .orbit-shell .speaker-notes-report-panel .editor-practice-graph-legend {
   color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
 }
 
 .orbit-shell .speaker-notes-report-panel .editor-practice-graph-card header > strong {
-  background: var(--redesign-color-primary-subtle);
+  padding: 2px var(--redesign-space-2);
+  border-radius: var(--redesign-radius-sm);
+  background: color-mix(
+    in srgb,
+    var(--redesign-color-primary) 12%,
+    var(--redesign-color-surface-container-high)
+  );
   border: 1px solid var(--redesign-color-primary-outline);
   color: var(--redesign-color-primary);
+  font-size: var(--redesign-type-label-sm-size);
   font-variant-numeric: tabular-nums;
 }
 
 .orbit-shell .speaker-notes-report-panel .editor-practice-graph {
+  max-height: 150px;
   background: transparent;
 }
 
@@ -665,23 +701,43 @@
 .orbit-shell .speaker-notes-report-panel .editor-practice-coaching-summary,
 .orbit-shell .speaker-notes-report-panel .editor-practice-coaching-state {
   color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: 1.55;
+  margin-top: var(--redesign-space-2) !important;
 }
 
 .orbit-shell .speaker-notes-report-panel .editor-practice-coaching-item {
-  background: var(--redesign-color-surface-container);
+  gap: var(--redesign-space-2);
+  margin-top: var(--redesign-space-3);
+  padding: var(--redesign-space-4);
+  background: var(--redesign-color-surface-container-low);
   border-color: var(--redesign-color-outline-variant);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching-item h4 {
+  font-size: var(--redesign-type-body-md-size);
+  line-height: 1.45;
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching-item > p,
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching-action p,
+.orbit-shell .speaker-notes-report-panel .editor-practice-script-edit p {
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: 1.55;
 }
 
 .orbit-shell .speaker-notes-report-panel .editor-practice-script-evidence,
 .orbit-shell .speaker-notes-report-panel .editor-practice-coaching-methods > section,
 .orbit-shell .speaker-notes-report-panel .editor-practice-script-edit > div,
 .orbit-shell .speaker-notes-report-panel .editor-practice-coaching-action {
-  background: var(--redesign-color-surface-container-lowest);
+  padding: var(--redesign-space-3);
+  background: var(--redesign-color-surface-container);
   border-color: var(--redesign-color-outline-variant);
 }
 
 .orbit-shell .speaker-notes-report-panel .editor-practice-evidence-metrics > div {
-  background: var(--redesign-color-surface-container-low);
+  padding: var(--redesign-space-2);
+  background: var(--redesign-color-surface-container-high);
 }
 
 .orbit-shell .speaker-notes-report-panel .editor-practice-script-evidence > strong,
@@ -689,6 +745,23 @@
 .orbit-shell .speaker-notes-report-panel .editor-practice-script-edit strong,
 .orbit-shell .speaker-notes-report-panel .editor-practice-coaching-action strong {
   color: var(--redesign-color-primary);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-script-evidence blockquote,
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching-methods p {
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: 1.55;
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-evidence-metrics dt,
+.orbit-shell .speaker-notes-report-panel .editor-practice-script-edit small,
+.orbit-shell .speaker-notes-report-panel .editor-practice-coaching-action small {
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.orbit-shell .speaker-notes-report-panel .editor-practice-evidence-metrics dd {
+  font-size: var(--redesign-type-body-sm-size);
 }
 
 @media (max-width: 960px) {
