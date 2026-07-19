@@ -5,10 +5,11 @@ import {
   legacyRehearsalSlideSpeakingRate,
   legacyRehearsalSilenceAnalysis,
   legacyRehearsalVolumeAnalysis,
+  projectAccessResponseSchema,
   type Deck,
   type Project,
+  type ProjectAccessResponse,
   type ProjectMemberRole,
-  type ProjectMemberStatus,
   type RehearsalReport,
   type RehearsalRun,
 } from "@orbit/shared";
@@ -110,14 +111,6 @@ export type Route =
   | { name: "deck-render" };
 
 export const deckRenderPayloadStorageKey = "orbit.deckRenderPayload.v1";
-
-type ProjectAccessResponse = {
-  project: Project;
-  membership: {
-    role: ProjectMemberRole;
-    status: ProjectMemberStatus;
-  } | null;
-};
 
 const EditorShell = lazy(() =>
   import("./features/editor/shell/EditorShell").then((module) => ({
@@ -270,7 +263,7 @@ export async function fetchProjectAccess(
       response.status,
     );
   }
-  return response.json() as Promise<ProjectAccessResponse>;
+  return projectAccessResponseSchema.parse(await response.json());
 }
 
 export function shouldRetryProjectAccess(
@@ -315,7 +308,7 @@ async function requestProjectAccess(
       await readApiError(response, "프로젝트 권한 요청에 실패했습니다."),
     );
   }
-  return response.json() as Promise<ProjectAccessResponse>;
+  return projectAccessResponseSchema.parse(await response.json());
 }
 
 export function getRoute(pathname?: string, search?: string): Route {

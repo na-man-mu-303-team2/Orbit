@@ -19,6 +19,7 @@ import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
+  getEditorStatusLabel,
 } from "./EditorShell";
 import { EditorStateNotice } from "./components/EditorStateNotice";
 import {
@@ -150,6 +151,17 @@ function setDeckData(queryClient: QueryClient, deck: Deck) {
 }
 
 describe("editor shell", () => {
+  it("keeps a save failure visible when the deck refetch is also offline", () => {
+    expect(
+      getEditorStatusLabel({
+        isDeckError: true,
+        isDeckLoading: false,
+        isUsingFallbackDeck: false,
+        saveState: "error"
+      })
+    ).toBe("저장 실패");
+  });
+
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
   });

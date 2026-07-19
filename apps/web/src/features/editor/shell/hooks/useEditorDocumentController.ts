@@ -31,6 +31,10 @@ import { toEditorErrorMessage } from "../utils/editorFileValidation";
 import { syncProjectTitleQueryCache } from "../utils/projectTitleCache";
 import { normalizeDeckAssetUrls } from "../utils/slideRenderUtils";
 import {
+  createEditorSaveRetryCoordinator,
+  type EditorSaveRetryReason
+} from "../utils/editorSaveRetry";
+import {
   useEditorPersistenceState,
   type PatchProducer,
   type SaveErrorCode
@@ -59,6 +63,9 @@ export function useEditorDocumentController(args: {
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
   const undoRedoPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoRedoPersistLabelRef = useRef<string | null>(null);
+  const saveRetryCoordinatorRef = useRef<
+    ReturnType<typeof createEditorSaveRetryCoordinator> | null
+  >(null);
   const persistence = useEditorPersistenceState(args.loadedDeck);
   const {
     applyAckedPersistedDeck,
@@ -77,6 +84,30 @@ export function useEditorDocumentController(args: {
     setSaveState,
     workingDeckRef
   } = persistence;
+
+  if (!saveRetryCoordinatorRef.current) {
+    saveRetryCoordinatorRef.current = createEditorSaveRetryCoordinator({
+      flushNext: () => flushPendingSaveBatch(),
+      hasPending: () => pendingPatchInputsRef.current.length > 0,
+      onFailure: (error) => {
+        isSaveFlushInFlightRef.current = false;
+        setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
+        setSaveState("error");
+        setSaveError(
+          (error as { saveErrorCode?: SaveErrorCode })?.saveErrorCode ?? "auto-save-failed",
+          toEditorErrorMessage(error)
+        );
+        void args.refetchDeck();
+      },
+      onStart: () => {
+        setSaveState("auto-saving");
+        setSaveError(null, null);
+      },
+      onSuccess: () => {
+        isSaveFlushInFlightRef.current = false;
+      }
+    });
+  }
 
   useEffect(() => {
     const persistedDeck = args.persistedDeck;
@@ -113,6 +144,16 @@ export function useEditorDocumentController(args: {
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [persistence.saveState]);
+
+  useEffect(() => {
+    function handleOnline() {
+      if (pendingPatchInputsRef.current.length === 0) return;
+      void queuePendingSaveRetry("online").catch(() => undefined);
+    }
+
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, []);
 
   useEffect(() => () => {
     if (undoRedoPersistTimerRef.current) clearTimeout(undoRedoPersistTimerRef.current);
@@ -205,6 +246,12 @@ export function useEditorDocumentController(args: {
       pendingPatchInputsRef.current = [...batchInputs, ...pendingPatchInputsRef.current];
       throw error;
     }
+  }
+
+  function queuePendingSaveRetry(reason: EditorSaveRetryReason) {
+    const attempt = saveRetryCoordinatorRef.current!.retry(reason);
+    saveQueueRef.current = attempt;
+    return attempt;
   }
 
   async function persistUndoRedoDeckSnapshot(label: string) {
@@ -381,24 +428,7 @@ export function useEditorDocumentController(args: {
       mergeDeckIntoQueryCache(current, result.deck)
     );
     pendingPatchInputsRef.current.push(patchInput);
-    saveQueueRef.current = saveQueueRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        while (pendingPatchInputsRef.current.length > 0) await flushPendingSaveBatch();
-      })
-      .catch((error: unknown) => {
-        setLastPatchLabel(`저장 실패 · ${toEditorErrorMessage(error)}`);
-        setSaveState("error");
-        setSaveError(
-          (error as { saveErrorCode?: SaveErrorCode })?.saveErrorCode ?? "auto-save-failed",
-          toEditorErrorMessage(error)
-        );
-        void args.refetchDeck();
-      })
-      .finally(() => {
-        isSaveFlushInFlightRef.current = false;
-        if (pendingPatchInputsRef.current.length > 0) setSaveState("auto-pending");
-      });
+    void queuePendingSaveRetry("auto").catch(() => undefined);
     return true;
   }
 

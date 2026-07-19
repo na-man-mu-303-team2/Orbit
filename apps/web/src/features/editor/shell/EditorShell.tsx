@@ -1875,6 +1875,7 @@ export function EditorShell(props: { projectId?: string }) {
           pptxExportMessage={pptxExportError || pptxExportStatus}
           pptxImportMeta={pptxImportMenuMeta(pptxImportState)}
           recoveryHint={saveErrorMessage ? getSaveRecoveryHint(saveErrorCode) : null}
+          saveFailed={saveState === "error"}
           saveMenuMeta={
             saveErrorMessage
               ? getSaveErrorStatusLabel(saveErrorCode)
@@ -2471,7 +2472,7 @@ export function EditorShell(props: { projectId?: string }) {
   );
 }
 
-function getEditorStatusLabel(props: {
+export function getEditorStatusLabel(props: {
   isDeckError: boolean;
   isDeckLoading: boolean;
   isUsingFallbackDeck: boolean;
@@ -2481,16 +2482,16 @@ function getEditorStatusLabel(props: {
     return "불러오는 중";
   }
 
+  if (props.saveState === "error") {
+    return "저장 실패";
+  }
+
   if (props.isDeckError) {
     return "오프라인 데모";
   }
 
   if (props.isUsingFallbackDeck) {
     return "로컬 데모";
-  }
-
-  if (props.saveState === "error") {
-    return "저장 실패";
   }
 
   if (props.saveState === "manual-saving") {
@@ -2613,7 +2614,7 @@ function getSaveRecoveryHint(saveErrorCode: SaveErrorCode | null) {
     case "missing-persisted-base":
       return "새로고침 후 재시도";
     case "auto-save-failed":
-      return "다시 저장 필요";
+      return "저장 버튼으로 재시도";
     default:
       return null;
   }
