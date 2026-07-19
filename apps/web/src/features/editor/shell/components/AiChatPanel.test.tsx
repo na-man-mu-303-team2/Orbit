@@ -102,6 +102,9 @@ describe("AiChatPanel", () => {
     expect(css).toMatch(
       /\.editor-ai-assistant-panel\s*\.ai-chat-input-shell\s*textarea\s*\{[^}]*min-height:\s*44px;/s
     );
+    expect(css).toMatch(
+      /\.editor-ai-assistant-panel\s*\.ai-chat-message\.user\s*\.ai-chat-message-stack\s*\{[^}]*width:\s*fit-content;[^}]*max-width:\s*78%;/s
+    );
   });
 
   it("renders editor-owned history again after the panel remounts", () => {

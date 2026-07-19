@@ -4603,15 +4603,15 @@
 }
 
 .design-proposal-modal {
-  width: min(860px, calc(100vw - 48px));
+  width: min(760px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
   overflow: auto;
   display: grid;
-  gap: var(--redesign-space-4);
-  padding: var(--redesign-space-5);
+  gap: var(--redesign-space-3);
+  padding: var(--redesign-space-4);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-xl);
-  background: var(--redesign-color-surface-container-low);
+  background: var(--redesign-color-surface-container-lowest);
   box-shadow: var(--redesign-shadow-overlay);
 }
 
@@ -4639,25 +4639,18 @@
   line-height: 1.5;
 }
 
-.design-proposal-modal-header button {
-  display: inline-grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-xl);
-  background: var(--redesign-color-surface-container);
-  color: var(--redesign-color-on-surface-variant);
+.design-proposal-modal-header .design-proposal-close-button {
+  flex: 0 0 auto;
 }
 
 .design-proposal-canvas-wrap {
   display: flex;
   justify-content: center;
   overflow: auto;
-  padding: var(--redesign-space-4);
+  padding: var(--redesign-space-3);
   border: 1px solid var(--redesign-color-outline);
   border-radius: var(--redesign-radius-xl);
-  background: var(--redesign-color-surface-container);
+  background: var(--redesign-color-surface-container-low);
 }
 
 .design-proposal-stage-shell {
@@ -4679,7 +4672,7 @@
   justify-content: flex-end;
 }
 
-.design-proposal-modal-footer button {
+.design-proposal-modal-footer > button:not(.redesign-button) {
   min-width: 84px;
   height: 40px;
   padding: 0 var(--redesign-space-4);
@@ -4690,7 +4683,7 @@
   font-weight: 800;
 }
 
-.design-proposal-modal-footer button.primary {
+.design-proposal-modal-footer > button.primary:not(.redesign-button) {
   border-color: var(--redesign-color-secondary-container);
   background: var(--redesign-color-secondary-container);
   color: var(--redesign-color-on-surface);
@@ -13554,6 +13547,15 @@ body.is-resizing-speaker-notes {
 
 .orbit-shell.editor-professional
   .editor-ai-assistant-panel
+  .ai-chat-message.user
+  .ai-chat-message-stack {
+  justify-items: end;
+  width: fit-content;
+  max-width: 78%;
+}
+
+.orbit-shell.editor-professional
+  .editor-ai-assistant-panel
   .ai-chat-message-meta {
   display: none;
 }
@@ -13606,7 +13608,7 @@ body.is-resizing-speaker-notes {
   border-radius: var(--redesign-radius-sm);
   background: var(--redesign-color-primary);
   color: var(--redesign-color-on-primary);
-  max-width: 78%;
+  max-width: 100%;
 }
 
 .orbit-shell.editor-professional
