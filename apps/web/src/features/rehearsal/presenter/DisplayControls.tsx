@@ -467,6 +467,9 @@ export function DisplayControls(props: {
           </section>
           <div className="presenter-display-options-actions">
             <button type="button" onClick={() => void openSlideWindow(options)}>
+              <span aria-hidden="true" className="material-symbols-outlined">
+                slideshow
+              </span>
               슬라이드쇼 시작
             </button>
           </div>

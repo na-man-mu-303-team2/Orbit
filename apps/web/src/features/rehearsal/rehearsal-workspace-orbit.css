@@ -796,7 +796,7 @@ main.rehearsal-presenter-shell {
 .presenter-display-option-row, .presenter-display-option-group { border-color: var(--redesign-color-outline-variant); }
 .presenter-display-options-popover input[type="checkbox"], .presenter-display-options-popover input[type="radio"] { accent-color: var(--redesign-color-primary); }
 .presenter-display-options-popover .presenter-display-switch:checked { background: var(--redesign-color-primary); }
-.presenter-display-options-actions button:last-child { background: var(--redesign-color-on-surface); border-radius: var(--redesign-radius-lg); color: var(--redesign-color-light-surface); font-size: var(--redesign-type-body-sm-size); font-weight: 700; }
+.presenter-display-options-actions button:last-child { align-items: center; background: var(--redesign-color-on-surface); border-radius: var(--redesign-radius-lg); color: var(--redesign-color-light-surface); display: flex; font-size: var(--redesign-type-body-sm-size); font-weight: 700; gap: var(--redesign-space-2); justify-content: center; }
 
 .presenter-remote-shell { background: var(--redesign-color-dark-surface); color: var(--redesign-color-light-surface); min-height: 100vh; }
 .presenter-remote-header { background: var(--redesign-color-dark-surface); border-bottom-color: color-mix(in srgb, var(--redesign-color-light-surface) 14%, transparent); grid-template-columns: auto auto 1fr auto; }
