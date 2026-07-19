@@ -283,17 +283,6 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                     ) : null}
                   </button>
                   <button
-                    aria-label="아이콘 탭"
-                    aria-selected={activePanelMode === "icons"}
-                    className={activePanelMode === "icons" ? "active" : undefined}
-                    role="tab"
-                    title="아이콘"
-                    type="button"
-                    onClick={() => activatePanelMode("icons")}
-                  >
-                    <IconIcons aria-hidden="true" size={15} />
-                  </button>
-                  <button
                     aria-label="AI 어시스턴트 탭"
                     aria-selected={activePanelMode === "assistant"}
                     className={

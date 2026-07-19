@@ -13771,46 +13771,6 @@ body.is-resizing-speaker-notes {
 }
 
 @media (min-width: 861px) {
-  .orbit-shell.editor-professional .ai-pane:not(.collapsed):not(.rehearsal-mode) {
-    padding-right: var(--redesign-space-11);
-  }
-
-  .orbit-shell.editor-professional
-    .ai-pane:not(.collapsed):not(.rehearsal-mode)
-    .inspector-mode-switch {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    right: 0;
-    z-index: 6;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    gap: var(--redesign-space-2);
-    width: 44px;
-    padding: var(--redesign-space-2) var(--redesign-space-1);
-    border-left: 1px solid var(--redesign-color-outline-variant);
-    border-radius: 0;
-    background: var(--redesign-color-surface-container-lowest);
-  }
-
-  .orbit-shell.editor-professional
-    .ai-pane:not(.collapsed):not(.rehearsal-mode)
-    .inspector-mode-switch
-    button {
-    width: 32px;
-    height: 32px;
-    border-radius: var(--redesign-radius-sm);
-  }
-
-  .orbit-shell.editor-professional
-    .ai-pane:not(.collapsed):not(.rehearsal-mode)
-    .inspector-mode-switch
-    button.active {
-    background: var(--redesign-color-primary-container);
-    color: var(--redesign-color-on-primary-container);
-  }
-
   .orbit-shell.editor-professional
     .ai-pane:not(.collapsed):not(.rehearsal-mode)
     .collapse-right-pane-button {
