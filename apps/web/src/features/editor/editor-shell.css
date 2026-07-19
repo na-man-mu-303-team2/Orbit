@@ -3731,43 +3731,13 @@
   vertical-align: baseline;
 }
 
-.keyword-token-menu {
-  position: absolute;
-  z-index: 80;
+.keyword-token-dropdown.redesign-dropdown-menu {
   left: calc(100% + var(--redesign-space-2));
+  right: auto;
   top: 50%;
   transform: translateY(-50%);
-  display: inline-flex;
-  min-width: 156px;
-  padding: var(--redesign-space-1);
-  border: 1px solid color-mix(in srgb, var(--redesign-color-on-light) 14%, transparent);
-  border-radius: var(--redesign-radius-lg);
-  background: var(--redesign-color-light-surface);
-  box-shadow: var(--redesign-shadow-overlay);
-  color: var(--redesign-color-on-light);
-}
-
-.keyword-token-menu-item {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  width: 100%;
-  min-height: 32px;
-  padding: 0 var(--redesign-space-2);
-  border: 0;
-  border-radius: var(--redesign-radius);
-  background: transparent;
-  color: inherit;
-  font-size: var(--redesign-type-label-md-size);
-  font-weight: 700;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.keyword-token-menu-item:hover,
-.keyword-token-menu-item:focus-visible {
-  background: color-mix(in srgb, var(--redesign-color-on-light) 8%, transparent);
-  outline: 0;
+  z-index: var(--redesign-z-dropdown);
+  min-width: 180px;
 }
 
 .keyword-note-token {

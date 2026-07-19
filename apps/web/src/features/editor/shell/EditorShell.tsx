@@ -134,7 +134,10 @@ import {
   EditorRightPanel,
   type AiPanelView
 } from "./components/EditorRightPanel";
-import type { KeywordActionMode } from "./components/KeywordInspector";
+import type {
+  KeywordActionMode,
+  KeywordSelectionContext
+} from "./components/KeywordInspector";
 import type { EditorRightPanelMode } from "./utils/rightPanelMode";
 import {
   fetchDeck,
@@ -968,28 +971,53 @@ export function EditorShell(props: { projectId?: string }) {
   function clearSelectedKeyword() {
     editorSlideActions.clearSelectedKeyword();
   }
-  function handleSelectKeywordActionMode(mode: KeywordActionMode) {
+  function handleSelectKeywordActionMode(
+    mode: KeywordActionMode,
+    selection: KeywordSelectionContext | null = null
+  ) {
+    const keywordId = selection?.keywordId ?? selectedKeyword?.keywordId ?? null;
+    const occurrenceKey =
+      selection?.occurrenceKey ?? selectedKeywordOccurrenceKey ?? null;
+    const keyword =
+      currentSlide?.keywords.find((candidate) => candidate.keywordId === keywordId) ??
+      selectedKeyword;
+    const usage = occurrenceKey
+      ? currentSlideKeywordActionUsage.byOccurrenceId[occurrenceKey] ?? {
+          advancesSlide: false,
+          animationIds: [],
+          keywordId: keywordId ?? "",
+          occurrenceId: occurrenceKey
+        }
+      : keywordId
+        ? currentSlideKeywordUsage[keywordId] ?? null
+        : selectedKeywordUsage;
+    const requiredActive = keyword
+      ? occurrenceKey
+        ? (keyword.requiredOccurrenceIds ?? []).includes(occurrenceKey)
+        : keyword.required
+      : selectedKeywordRequiredActive;
+
     if (mode === "animation-trigger") {
       openAnimationInspector();
       return;
     }
 
-    if (!currentSlide || !selectedKeyword) {
+    if (!currentSlide || !keywordId) {
       return;
     }
 
     if (mode === "required-keyword") {
-      if (!selectedKeywordRequiredActive) {
+      if (!requiredActive) {
         handleToggleKeywordRequired(
           currentSlide.slideId,
-          selectedKeyword.keywordId,
-          selectedKeywordOccurrenceKey
+          keywordId,
+          occurrenceKey
         );
       }
-      if (selectedKeywordUsage?.advancesSlide) {
+      if (usage?.advancesSlide) {
         handleToggleAdvanceSlideKeyword(
           currentSlide.slideId,
-          selectedKeyword.keywordId,
+          keywordId,
           false
         );
       }
@@ -997,18 +1025,19 @@ export function EditorShell(props: { projectId?: string }) {
     }
 
     if (mode === "advance-slide") {
-      if (selectedKeywordRequiredActive) {
+      if (requiredActive) {
         handleToggleKeywordRequired(
           currentSlide.slideId,
-          selectedKeyword.keywordId,
-          selectedKeywordOccurrenceKey
+          keywordId,
+          occurrenceKey
         );
       }
-      if (!(selectedKeywordUsage?.advancesSlide ?? false)) {
+      if (!(usage?.advancesSlide ?? false)) {
         handleToggleAdvanceSlideKeyword(
           currentSlide.slideId,
-          selectedKeyword.keywordId,
-          true
+          keywordId,
+          true,
+          occurrenceKey
         );
       }
     }

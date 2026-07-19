@@ -1,6 +1,7 @@
 import { createKeywordOccurrenceId, type Keyword } from "@orbit/shared";
 import { useState } from "react";
 
+import { DropdownMenu, DropdownMenuItem } from "../../../../components/ui";
 import { IdBadge } from "./EditorIdBadge";
 
 export interface KeywordUsageSummary {
@@ -12,6 +13,11 @@ export type KeywordActionMode =
   | "advance-slide"
   | "animation-trigger"
   | "required-keyword";
+
+export type KeywordSelectionContext = {
+  keywordId: string;
+  occurrenceKey: string | null;
+};
 
 interface SpeakerNotesWordPart {
   keyword: Keyword | null;
@@ -40,8 +46,14 @@ export function KeywordHighlightedNotes(props: {
   showIds: boolean;
   slideId: string;
   onSelectKeyword: (keywordId: string, occurrenceKey?: string | null) => void;
-  onSelectKeywordActionMode?: (mode: KeywordActionMode) => void;
-  onSelectKeywordText: (value: string, start: number) => void;
+  onSelectKeywordActionMode?: (
+    mode: KeywordActionMode,
+    selection?: KeywordSelectionContext | null
+  ) => void;
+  onSelectKeywordText: (
+    value: string,
+    start: number
+  ) => KeywordSelectionContext | null;
 }) {
   const {
     keywords,
@@ -61,8 +73,29 @@ export function KeywordHighlightedNotes(props: {
 
   const parts = tokenizeSpeakerNotes(notes, keywords);
 
+  function selectTokenAction(
+    part: SpeakerNotesWordPart,
+    mode: KeywordActionMode,
+    keyword: Keyword | null,
+    occurrenceKey: string | null
+  ) {
+    const selection = keyword
+      ? {
+          keywordId: keyword.keywordId,
+          occurrenceKey
+        }
+      : onSelectKeywordText(part.value, part.start);
+
+    if (keyword) {
+      onSelectKeyword(keyword.keywordId, occurrenceKey);
+    }
+
+    onSelectKeywordActionMode?.(mode, selection);
+    setOpenTokenKey(null);
+  }
+
   return (
-    <p className="script-copy">
+    <div className="script-copy">
       {parts.map((part, index) => {
         if (part.kind === "text") {
           return part.value;
@@ -124,30 +157,55 @@ export function KeywordHighlightedNotes(props: {
               {showIds && keyword ? <IdBadge id={keyword.keywordId} /> : null}
             </button>
             {openTokenKey === tokenKey ? (
-              <span className="keyword-token-menu" role="menu">
-                <button
-                  className="keyword-token-menu-item"
-                  role="menuitem"
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (keyword) {
-                      onSelectKeyword(keyword.keywordId, occurrenceKey);
-                    } else {
-                      onSelectKeywordText(part.value, part.start);
-                    }
-                    onSelectKeywordActionMode?.("animation-trigger");
-                    setOpenTokenKey(null);
-                  }}
+              <DropdownMenu
+                align="start"
+                aria-label={`${part.value} 키워드 동작`}
+                className="keyword-token-dropdown"
+                variant="white"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <DropdownMenuItem
+                  onClick={() =>
+                    selectTokenAction(
+                      part,
+                      "animation-trigger",
+                      keyword,
+                      occurrenceKey
+                    )
+                  }
                 >
                   애니메이션 트리거
-                </button>
-              </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() =>
+                    selectTokenAction(
+                      part,
+                      "required-keyword",
+                      keyword,
+                      occurrenceKey
+                    )
+                  }
+                >
+                  필수 키워드
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() =>
+                    selectTokenAction(
+                      part,
+                      "advance-slide",
+                      keyword,
+                      occurrenceKey
+                    )
+                  }
+                >
+                  페이지 넘김
+                </DropdownMenuItem>
+              </DropdownMenu>
             ) : null}
           </span>
         );
       })}
-    </p>
+    </div>
   );
 }
 

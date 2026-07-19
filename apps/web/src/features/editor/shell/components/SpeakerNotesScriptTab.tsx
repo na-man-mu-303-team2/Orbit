@@ -6,7 +6,11 @@ import {
 } from "@tabler/icons-react";
 
 import type { getSpeakerNotesLengthGuidance } from "../speakerNotesAssistant";
-import type { KeywordActionMode, KeywordUsageSummary } from "./KeywordInspector";
+import type {
+  KeywordActionMode,
+  KeywordSelectionContext,
+  KeywordUsageSummary
+} from "./KeywordInspector";
 import {
   KeywordHighlightedNotes,
   KeywordList,
@@ -25,8 +29,14 @@ export type SpeakerNotesScriptTabProps = {
   onOpenAssistant: () => void;
   onSaveEdit: () => void;
   onSelectKeyword: (keywordId: string, occurrenceKey?: string | null) => void;
-  onSelectKeywordText: (value: string, start: number) => void;
-  onSelectKeywordActionMode: (mode: KeywordActionMode) => void;
+  onSelectKeywordText: (
+    value: string,
+    start: number
+  ) => KeywordSelectionContext | null;
+  onSelectKeywordActionMode: (
+    mode: KeywordActionMode,
+    selection?: KeywordSelectionContext | null
+  ) => void;
   onStartEdit: () => void;
   selectedKeyword: Keyword | null;
   selectedKeywordId: string | null;
