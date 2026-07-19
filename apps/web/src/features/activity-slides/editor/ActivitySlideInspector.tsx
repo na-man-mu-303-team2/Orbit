@@ -1,9 +1,10 @@
 import type { ActivityDefinition, ActivityQuestion, ActivityQuestionType, ActivitySlide, Deck } from "@orbit/shared";
-import { IconArrowDown, IconArrowUp, IconMessageQuestion, IconTrash } from "@tabler/icons-react";
+import { IconArrowDown, IconArrowUp, IconExternalLink, IconMessageQuestion, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 
 import {
   OrbitButton,
+  OrbitButtonLink,
   OrbitDialog,
   OrbitField,
   OrbitInput,
@@ -395,6 +396,19 @@ export function ActivitySlideInspector(props: {
         runtime={editorRuntime.runtime}
         slide={props.slide}
       />
+
+      {props.projectId ? (
+        <OrbitButtonLink
+          className="activity-audience-preview-link"
+          href={`/project/${encodeURIComponent(props.projectId)}/activity-preview/${encodeURIComponent(activity.activityId)}`}
+          icon={<IconExternalLink aria-hidden="true" size={18} />}
+          rel="noreferrer"
+          target="_blank"
+          variant="secondary"
+        >
+          청중 화면 새 창에서 보기
+        </OrbitButtonLink>
+      ) : null}
 
       <div aria-label="참여 장표 미리보기 역할" className="activity-preview-tabs" role="tablist">
         {(["audience", "presenter"] as const).map((role) => (

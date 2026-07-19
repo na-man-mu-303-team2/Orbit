@@ -252,7 +252,13 @@ describe("activity slide editor", () => {
     const preQuestionSlide = createActivitySlide(createDemoDeck(), "pre-question");
     const questionPrompt = preQuestionSlide.activity.questions[0]!.prompt;
     const previewHtml = renderToStaticMarkup(<ActivitySlidePreview role="audience" slide={preQuestionSlide} />);
-    const inspectorHtml = renderToStaticMarkup(<ActivitySlideInspector onChange={vi.fn()} slide={preQuestionSlide} />);
+    const inspectorHtml = renderToStaticMarkup(
+      <ActivitySlideInspector
+        onChange={vi.fn()}
+        projectId="project_demo_1"
+        slide={preQuestionSlide}
+      />
+    );
 
     expect(previewHtml).toContain(questionPrompt);
     expect(previewHtml).toContain("답변을 입력해 주세요");
@@ -263,6 +269,10 @@ describe("activity slide editor", () => {
     expect(inspectorHtml).toContain("큰 제목");
     expect(inspectorHtml).toContain("짧은 안내");
     expect(inspectorHtml).toContain("꼭 답하게 하기");
+    expect(inspectorHtml).toContain("청중 화면 새 창에서 보기");
+    expect(inspectorHtml).toContain(
+      `/project/project_demo_1/activity-preview/${preQuestionSlide.activity.activityId}`
+    );
     expect(inspectorHtml).not.toContain("문항 설정");
   });
 

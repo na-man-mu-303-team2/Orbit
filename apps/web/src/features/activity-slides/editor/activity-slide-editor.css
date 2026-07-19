@@ -685,6 +685,11 @@
   padding: 3px;
 }
 
+.activity-audience-preview-link {
+  justify-content: center;
+  width: 100%;
+}
+
 .activity-preview-tabs button {
   background: transparent;
   border: 0;

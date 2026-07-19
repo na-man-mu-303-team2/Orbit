@@ -62,7 +62,10 @@ import { PresentationWorkspace } from "./features/presentation/PresentationWorks
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
-import { ActivityResultsPage } from "./features/activity-slides";
+import {
+  ActivityAudiencePreviewPage,
+  ActivityResultsPage
+} from "./features/activity-slides";
 
 export type Route =
   | { name: "design-system" }
@@ -76,6 +79,7 @@ export type Route =
   | { name: "project-editor"; projectId: string }
   | { name: "project-brief"; projectId: string }
   | { name: "project-history"; projectId: string }
+  | { name: "activity-preview"; projectId: string; activityId: string }
   | { name: "activity-results"; projectId: string; sessionId: string }
   | { name: "story-style-color"; projectId: string; jobId: string }
   | { name: "ai-deck-generation"; projectId: string; jobId: string }
@@ -451,6 +455,17 @@ export function getRoute(pathname?: string, search?: string): Route {
       };
     }
 
+    const activityPreviewMatch = normalized.match(
+      /^\/project\/([^/]+)\/activity-preview\/([^/]+)$/,
+    );
+    if (activityPreviewMatch) {
+      return {
+        name: "activity-preview",
+        projectId: decodeURIComponent(activityPreviewMatch[1]),
+        activityId: decodeURIComponent(activityPreviewMatch[2]),
+      };
+    }
+
     const storyStyleColorMatch = normalized.match(
       /^\/project\/([^/]+)\/style-color\/([^/]+)$/,
     );
@@ -633,6 +648,7 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "design-system" &&
     route.name !== "mockup" &&
     route.name !== "project-editor" &&
+    route.name !== "activity-preview" &&
     route.name !== "presentation" &&
     route.name !== "present" &&
     route.name !== "rehearsal" &&
@@ -679,6 +695,16 @@ function renderRoute(route: Route, user?: AuthUser) {
         <Suspense fallback={<EditorLoadingFallback />}>
           <EditorShell projectId={route.projectId} />
         </Suspense>
+      </ProjectAccessGate>
+    );
+  }
+  if (route.name === "activity-preview") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <ActivityAudiencePreviewPage
+          activityId={route.activityId}
+          projectId={route.projectId}
+        />
       </ProjectAccessGate>
     );
   }
