@@ -13691,7 +13691,7 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional
   .editor-ai-assistant-panel
   .ai-chat-input-shell {
-  min-height: 42px;
+  min-height: 58px;
   padding: var(--redesign-space-1) var(--redesign-space-1) var(--redesign-space-1)
     var(--redesign-space-3);
   border: 0;
@@ -13710,6 +13710,7 @@ body.is-resizing-speaker-notes {
   .editor-ai-assistant-panel
   .ai-chat-input-shell
   textarea {
+  min-height: 44px;
   padding: 0;
   border: 0;
   background: transparent;
