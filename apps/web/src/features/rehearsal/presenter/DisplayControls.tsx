@@ -90,7 +90,6 @@ export function DisplayControls(props: {
     shouldShowRecoverAction(channelStatus) || displayState === "failed";
   const canUseFullscreenDelegation = canDelegateSlideWindowFullscreen();
   const canStartRemoteFullscreen =
-    channelStatus === "connected" &&
     remoteFullscreenState !== "idle" &&
     canUseFullscreenDelegation &&
     Boolean(onRequestSlideWindowFullscreen);
@@ -250,6 +249,16 @@ export function DisplayControls(props: {
       className="presenter-display-controls"
       aria-label="슬라이드 창 표시 제어"
     >
+      {canStartRemoteFullscreen ? (
+        <button
+          className="presenter-display-fullscreen-start"
+          type="button"
+          onClick={() => void requestSlideWindowFullscreen()}
+        >
+          <Maximize2 size={15} />
+          슬라이드쇼 전체화면
+        </button>
+      ) : null}
       <div className="presenter-display-split">
         <button
           className="presenter-display-primary"
@@ -270,18 +279,6 @@ export function DisplayControls(props: {
           <ChevronDown size={15} />
         </button>
       </div>
-      {canStartRemoteFullscreen ? (
-        <button
-          className="presenter-display-fullscreen-start"
-          type="button"
-          onClick={() => void requestSlideWindowFullscreen()}
-        >
-          <Maximize2 size={15} />
-          {remoteFullscreenState === "available"
-            ? "전체화면 시작"
-            : "전체화면 다시 시작"}
-        </button>
-      ) : null}
       {isOptionsOpen ? (
         <div
           aria-label="프레젠테이션 디스플레이 옵션"
