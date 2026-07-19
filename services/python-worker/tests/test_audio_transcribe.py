@@ -19,6 +19,7 @@ from app.audio.transcribe import (
     AudioTranscriptionError,
     AudioContent,
     OpenAISpeechToTextProvider,
+    PronunciationContextTerm,
     ProviderTranscription,
     SpeechToTextProvider,
     TranscriptSegment,
@@ -40,7 +41,11 @@ class FakeSpeechToTextProvider:
         self.transcript = transcript
         self.last_audio: AudioContent | None = None
 
-    def transcribe(self, audio: AudioContent) -> ProviderTranscription:
+    def transcribe(
+        self,
+        audio: AudioContent,
+        pronunciation_context: list[PronunciationContextTerm] | None = None,
+    ) -> ProviderTranscription:
         self.last_audio = audio
         return ProviderTranscription(
             transcript=self.transcript,
@@ -62,7 +67,11 @@ class FailingSpeechToTextProvider:
     name = "fake"
     model = "failing-transcriber"
 
-    def transcribe(self, audio: AudioContent) -> ProviderTranscription:
+    def transcribe(
+        self,
+        audio: AudioContent,
+        pronunciation_context: list[PronunciationContextTerm] | None = None,
+    ) -> ProviderTranscription:
         raise RuntimeError(f"failed for {audio.file_name}")
 
 
@@ -255,6 +264,47 @@ def test_gpt4o_transcribe_uses_json_response_format(
 
     assert result.transcript == "테스트 전사"
     assert calls[0]["response_format"] == "json"
+
+
+def test_openai_stt_uses_bounded_pronunciation_context_as_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeTranscriptions:
+        def create(self, **kwargs: object) -> dict[str, str]:
+            calls.append(kwargs)
+            return {"text": "오픈에이아이 에이피아이"}
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key: str) -> None:
+            self.audio = SimpleNamespace(transcriptions=FakeTranscriptions())
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    provider = OpenAISpeechToTextProvider(
+        api_key="test-key",
+        model="whisper-1",
+        language="ko-KR",
+    )
+
+    provider.transcribe(
+        AudioContent(
+            data=b"fake webm bytes",
+            file_name="rehearsal.webm",
+            mime_type="audio/webm",
+        ),
+        [
+            PronunciationContextTerm(
+                source="OpenAI",
+                aliases=["오픈에이아이", "오픈 AI"],
+            ),
+            PronunciationContextTerm(source="API", aliases=["에이피아이"]),
+        ],
+    )
+
+    assert calls[0]["prompt"] == (
+        "발표 용어 표기와 발음: OpenAI(오픈에이아이, 오픈 AI), API(에이피아이)."
+    )
 
 
 def test_whisper1_uses_verbose_json_and_parses_segments(

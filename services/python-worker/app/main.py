@@ -107,6 +107,7 @@ from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
     AudioTranscriptionError,
+    PronunciationContextTerm,
     ReportSttProviderDependency,
     TranscriptSegment,
     to_http_exception,
@@ -225,10 +226,7 @@ def _planning_failure_detail(error: DeckContentGenerationError) -> dict[str, obj
         if isinstance(provider_status, int) and 100 <= provider_status <= 599:
             detail["providerHttpStatus"] = provider_status
         provider_request_id = getattr(provider_error, "request_id", None)
-        if (
-            isinstance(provider_request_id, str)
-            and 0 < len(provider_request_id) <= 256
-        ):
+        if isinstance(provider_request_id, str) and 0 < len(provider_request_id) <= 256:
             detail["providerRequestId"] = provider_request_id
         if "providerHttpStatus" in detail and "providerRequestId" in detail:
             break
@@ -341,6 +339,11 @@ class RehearsalAnalyzeRequest(BaseModel):
         ),
         alias="silenceAnalysis",
     )
+    pronunciation_context: list[PronunciationContextTerm] = Field(
+        default_factory=list,
+        alias="pronunciationContext",
+        max_length=32,
+    )
 
 
 class RehearsalCoachingResponse(BaseModel):
@@ -380,13 +383,16 @@ class RehearsalSlideSpeakingRateResponse(BaseModel):
     measurement_state: Literal["measured", "unmeasured"] = Field(
         alias="measurementState"
     )
-    reason_code: Literal[
-        "UNSUPPORTED_LANGUAGE",
-        "SEGMENT_TIMESTAMPS_UNAVAILABLE",
-        "INSUFFICIENT_SLIDE_SPEECH",
-        "BASELINE_UNAVAILABLE",
-        "LEGACY_REPORT",
-    ] | None = Field(alias="reasonCode")
+    reason_code: (
+        Literal[
+            "UNSUPPORTED_LANGUAGE",
+            "SEGMENT_TIMESTAMPS_UNAVAILABLE",
+            "INSUFFICIENT_SLIDE_SPEECH",
+            "BASELINE_UNAVAILABLE",
+            "LEGACY_REPORT",
+        ]
+        | None
+    ) = Field(alias="reasonCode")
     characters_per_second: float | None = Field(
         alias="charactersPerSecond",
         gt=0,
@@ -1115,6 +1121,7 @@ def analyze_rehearsal(
             for entry in payload.slide_timeline
         ],
         silence_analysis=payload.silence_analysis,
+        pronunciation_context=payload.pronunciation_context,
     )
     coaching = generate_rehearsal_coaching(
         transcript=payload.transcript,
