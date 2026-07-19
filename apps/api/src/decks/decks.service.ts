@@ -937,6 +937,25 @@ export class DecksService {
     });
   }
 
+  async getOrCreateSnapshot(deck: Deck): Promise<DeckSnapshot> {
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `SELECT deck_id FROM decks WHERE project_id = $1 AND deck_id = $2 FOR UPDATE`,
+        [deck.projectId, deck.deckId],
+      );
+      const rows = await manager.query<DeckSnapshotRow[]>(
+        `SELECT snapshot_id, project_id, deck_id, deck_json, version, reason, created_at
+         FROM deck_snapshots
+         WHERE project_id = $1 AND deck_id = $2 AND version = $3
+         ORDER BY created_at DESC, snapshot_id DESC LIMIT 1`,
+        [deck.projectId, deck.deckId, deck.version],
+      );
+      return rows[0]
+        ? parseSnapshotRow(rows[0])
+        : this.createSnapshot(manager, deck, "auto-save", nowIso());
+    });
+  }
+
   async restoreSnapshot(
     projectId: string,
     snapshotId: string,

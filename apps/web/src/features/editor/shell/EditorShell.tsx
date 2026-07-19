@@ -180,6 +180,7 @@ import { useEditorSlideCommands } from "./hooks/useEditorSlideCommands";
 import { useEditorPresentationActions } from "./hooks/useEditorPresentationActions";
 import { useEditorSlideRehearsal } from "./hooks/useEditorSlideRehearsal";
 import { useSlidePracticeSession } from "../practice/useSlidePracticeSession";
+import { useAutoSlideQuestionGuides } from "../practice/useAutoSlideQuestionGuides";
 import { useShapeMenuPlacement } from "./hooks/useShapeMenuPlacement";
 import { createSelectionNudgePatch } from "./utils/selectionNudge";
 import {
@@ -420,6 +421,11 @@ export function EditorShell(props: { projectId?: string }) {
     queryKey: ["deck", projectId],
     queryFn: () => fetchDeck(projectId),
     retry: false
+  });
+  const autoSlideQuestionGuides = useAutoSlideQuestionGuides({
+    canGenerate: canMutateDeck,
+    persistedDeck: deckQuery.data,
+    projectId,
   });
   const pptxImportQualityQuery = useQuery({
     queryKey: ["deck-import-quality", projectId],
@@ -2229,6 +2235,7 @@ export function EditorShell(props: { projectId?: string }) {
               />
             ) : (
               <SpeakerNotesPanel
+                canGenerateQuestionGuides={canMutateDeck}
                 contentRef={speakerNotesContentRef}
                 currentSlide={currentSlide}
                 deck={deck}
@@ -2285,6 +2292,12 @@ export function EditorShell(props: { projectId?: string }) {
                 selectedKeywordRequiredActive={selectedKeywordRequiredActive}
                 selectedKeywordUsage={selectedKeywordUsage}
                 projectId={projectId}
+                questionGuideAutoStatus={
+                  currentSlide
+                    ? autoSlideQuestionGuides.statusBySlideId[currentSlide.slideId] ?? "idle"
+                    : "idle"
+                }
+                questionGuideRefreshToken={autoSlideQuestionGuides.refreshToken}
                 reportRefreshToken={practiceReportRefreshToken}
                 requestedTab={requestedSpeakerNotesTab}
                 showIds={showIds}

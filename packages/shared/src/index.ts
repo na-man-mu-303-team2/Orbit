@@ -1,4 +1,5 @@
 export * from "./common/demo-ids";
+export * from "./common/canonical-json";
 export * from "./common/time.schema";
 export * from "./activity/activity-api.schema";
 export * from "./activity/activity-aggregate";

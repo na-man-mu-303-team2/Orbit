@@ -11,6 +11,7 @@ import type {
   RefObject
 } from "react";
 import { useEffect, useState } from "react";
+import type { AutoSlideQuestionGuideStatus } from "../../practice/useAutoSlideQuestionGuides";
 
 import { SpeakerNotesQnaTab } from "./SpeakerNotesQnaTab";
 import { SpeakerNotesReportTab } from "./SpeakerNotesReportTab";
@@ -28,6 +29,7 @@ const speakerNotesTabs: Array<{ id: SpeakerNotesTab; label: string }> = [
 ];
 
 export function SpeakerNotesPanel(props: SpeakerNotesScriptTabProps & {
+  canGenerateQuestionGuides: boolean;
   contentRef: RefObject<HTMLDivElement | null>;
   deck: Deck;
   flushPendingSaves: () => Promise<void>;
@@ -41,6 +43,8 @@ export function SpeakerNotesPanel(props: SpeakerNotesScriptTabProps & {
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onTogglePanel: () => void;
   projectId: string;
+  questionGuideAutoStatus: AutoSlideQuestionGuideStatus;
+  questionGuideRefreshToken: number;
   reportRefreshToken: number;
   requestedTab: SpeakerNotesTab | null;
 }) {
@@ -149,9 +153,12 @@ export function SpeakerNotesPanel(props: SpeakerNotesScriptTabProps & {
         ) : null}
         {activeTab === "qna" ? (
           <SpeakerNotesQnaTab
+            canGenerate={props.canGenerateQuestionGuides}
             deck={props.deck}
             flushPendingSaves={props.flushPendingSaves}
             projectId={props.projectId}
+            questionGuideAutoStatus={props.questionGuideAutoStatus}
+            questionGuideRefreshToken={props.questionGuideRefreshToken}
             slide={props.currentSlide}
           />
         ) : null}
