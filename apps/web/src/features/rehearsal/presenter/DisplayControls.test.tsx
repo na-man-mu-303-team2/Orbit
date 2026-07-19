@@ -99,7 +99,7 @@ describe("DisplayControls", () => {
     ).toBeLessThan(openSlideWindowBody.indexOf('setDisplayState("opening")'));
   });
 
-  it("starts the display permission request before updating request state", () => {
+  it("starts the display permission request before showing request progress", () => {
     const source = fs.readFileSync(displayControlsSourcePath, "utf8");
     const start = source.indexOf("async function requestDisplayScreens(");
     const end = source.indexOf("function setPresenterView(", start);
@@ -108,7 +108,9 @@ describe("DisplayControls", () => {
     expect(
       requestDisplayScreensBody.indexOf("onRequestDisplayScreens()"),
     ).toBeLessThan(
-      requestDisplayScreensBody.indexOf('setScreenRequestState("loading")'),
+      requestDisplayScreensBody.indexOf(
+        'setScreenMessage("브라우저 권한을 요청하는 중입니다.")',
+      ),
     );
   });
 

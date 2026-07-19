@@ -1,3 +1,30 @@
+# Rehearsal display options design QA
+
+- Source visual truth: `C:/Users/Runner/Desktop/Frame 7.png`, `C:/Users/Runner/Desktop/Frame 8.png`.
+- Implementation evidence: current in-app browser capture of `/rehearsal/project_6c000fc2-a814-4c85-a5ad-bc5931ec94a6` with the display options popover open.
+- State: presenter mode enabled, automatic placement disabled, fullscreen enabled, new-window display selected.
+
+## Comparison evidence
+
+- The source references and implementation capture were compared together at desktop scale.
+- The panel measures 360px wide with 32px top/side padding and 25px bottom padding, matching the annotated reference.
+- Header hierarchy, presenter-mode helper copy, switch treatment, slideshow grouping, conditional display-position surface, and bottom-anchored primary action match the reference structure.
+- Turning fullscreen off removes the display-position radio group; turning presenter mode off removes the automatic-placement switch.
+- Enabling automatic placement requests display permission from the original click activation before updating local UI state.
+- Existing redesign color, radius, type, space, and shadow tokens are used; no new visual asset was introduced.
+
+## Verification
+
+- `DisplayControls.test.tsx`: 10 tests passed.
+- `node node_modules/typescript/bin/tsc -p apps/web/tsconfig.json --noEmit`: passed.
+- In-app browser console: no warnings or errors.
+- `git diff --check`: passed with the existing LF-to-CRLF warning only.
+- No P0, P1, or P2 visual mismatch remains in the requested popover states.
+
+final result: passed
+
+---
+
 # Create deck first-step design QA
 
 - Source visual truth: `/var/folders/bz/br99y0bj2395vd1507vwbqmm0000gn/T/codex-clipboard-e806a6c4-f0be-4044-8753-75c50caadb56.png` plus the current task requirements for a two-stage connected indicator and a single content flow.

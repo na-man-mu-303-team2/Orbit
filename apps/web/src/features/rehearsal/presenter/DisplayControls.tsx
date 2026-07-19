@@ -45,12 +45,10 @@ type DisplayState = "idle" | "opening" | "manual-guide" | "failed";
 
 type RemoteFullscreenState = "idle" | "available" | "requested" | "failed";
 
-type ScreenRequestState = "idle" | "loading" | "ready" | "failed";
-
 const SCREEN_REQUEST_TIMEOUT_MS = 10000;
 
 const defaultSlideDisplayOptions: SlideDisplayOptions = {
-  autoPlace: true,
+  autoPlace: false,
   displayMode: "slide-window",
   fullscreen: true,
   presenterView: true,
@@ -80,8 +78,6 @@ export function DisplayControls(props: {
   );
   const [remoteFullscreenState, setRemoteFullscreenState] =
     useState<RemoteFullscreenState>("idle");
-  const [screenRequestState, setScreenRequestState] =
-    useState<ScreenRequestState>("idle");
   const [screenMessage, setScreenMessage] = useState("");
   const [screenOptions, setScreenOptions] = useState<DisplayScreenDescriptor[]>(
     [],
@@ -198,7 +194,6 @@ export function DisplayControls(props: {
 
   async function requestDisplayScreens() {
     if (!onRequestDisplayScreens) {
-      setScreenRequestState("failed");
       setScreenMessage(
         getDisplayControlMessage("window-management-unsupported"),
       );
@@ -208,7 +203,6 @@ export function DisplayControls(props: {
     // Window Management permission must be requested inside the original click activation.
     const requestScreensResult = onRequestDisplayScreens();
 
-    setScreenRequestState("loading");
     setScreenMessage("브라우저 권한을 요청하는 중입니다.");
 
     const result = await withScreenRequestTimeout(requestScreensResult);
@@ -219,7 +213,6 @@ export function DisplayControls(props: {
     if (!result.ok) {
       setScreenOptions([]);
       setSelectedScreenIndex(null);
-      setScreenRequestState("failed");
       setScreenMessage(getDisplayControlMessage(result.code));
       return;
     }
@@ -227,7 +220,6 @@ export function DisplayControls(props: {
     setScreenOptions(result.screens);
     const defaultScreen = getDefaultAutoPlacementScreen(result.screens);
     setSelectedScreenIndex(defaultScreen?.screenIndex ?? null);
-    setScreenRequestState("ready");
     setScreenMessage(
       defaultScreen
         ? `${defaultScreen?.label ?? "추가 화면"}으로 자동 배치합니다.`
@@ -238,6 +230,7 @@ export function DisplayControls(props: {
   function setPresenterView(enabled: boolean) {
     setOptions((current) => ({
       ...current,
+      autoPlace: enabled ? current.autoPlace : false,
       displayMode: enabled ? "slide-window" : current.displayMode,
       presenterView: enabled,
     }));
@@ -296,73 +289,49 @@ export function DisplayControls(props: {
           role="dialog"
         >
           <div className="presenter-display-options-header">
-            <strong>디스플레이 설정</strong>
-            <button
-              aria-label="옵션 닫기"
-              title="옵션 닫기"
-              type="button"
-              onClick={() => setIsOptionsOpen(false)}
-            >
-              <X size={15} />
-            </button>
+            <strong>
+              <Monitor size={20} />
+              디스플레이 옵션
+            </strong>
           </div>
-          <label className="presenter-display-option-row">
-            <input
-              checked={options.startFromBeginning}
-              type="checkbox"
-              onChange={(event) => {
-                const checked = event.currentTarget.checked;
-                setOptions((current) => ({
-                  ...current,
-                  startFromBeginning: checked,
-                }));
-              }}
-            />
-            <span>
-              <strong>처음부터 시작</strong>
+          <section className="presenter-display-options-section">
+            <span className="presenter-display-options-section-title">
+              발표자 보기 모드
             </span>
-          </label>
-          <label className="presenter-display-option-row">
-            <input
-              checked={options.presenterView}
-              type="checkbox"
-              onChange={(event) =>
-                setPresenterView(event.currentTarget.checked)
-              }
-            />
-            <span>
-              <strong>발표자 보기</strong>
-            </span>
-          </label>
-          <label className="presenter-display-option-row">
-            <input
-              checked={options.autoPlace}
-              type="checkbox"
-              onChange={(event) => {
-                const checked = event.currentTarget.checked;
-                setOptions((current) => ({
-                  ...current,
-                  autoPlace: checked,
-                }));
-              }}
-            />
-            <span>
-              <strong>다른 화면에 자동 배치</strong>
-            </span>
-          </label>
-          {options.displayMode === "slide-window" && options.autoPlace ? (
+            <label className="presenter-display-option-row presenter-display-option-row-description">
+              <input
+                checked={options.presenterView}
+                type="checkbox"
+                onChange={(event) =>
+                  setPresenterView(event.currentTarget.checked)
+                }
+              />
+              <span>
+                <strong>발표자 보기 모드 사용</strong>
+                <small>발표자 노트 및 핵심 키워드로 슬라이드쇼 시작</small>
+              </span>
+            </label>
+            {options.presenterView ? (
+              <label className="presenter-display-switch-row">
+                <span>추가 디스플레이에 슬라이드쇼 표시 권한 허용</span>
+                <input
+                  checked={options.autoPlace}
+                  className="presenter-display-switch"
+                  type="checkbox"
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+                    if (checked) void requestDisplayScreens();
+                    setOptions((current) => ({
+                      ...current,
+                      autoPlace: checked,
+                    }));
+                  }}
+                />
+              </label>
+            ) : null}
+          </section>
+          {options.presenterView && options.autoPlace ? (
             <div className="presenter-display-screen-picker">
-              <div className="presenter-display-screen-picker-header">
-                <span>대상 디스플레이</span>
-                <button
-                  type="button"
-                  onClick={() => void requestDisplayScreens()}
-                >
-                  {screenRequestState === "loading"
-                    ? "다시 요청"
-                    : "화면 선택"}
-                </button>
-              </div>
               {screenOptions.length > 0 ? (
                 <div
                   className="presenter-display-screen-options"
@@ -378,7 +347,7 @@ export function DisplayControls(props: {
                         onChange={() => {
                           setSelectedScreenIndex(screen.screenIndex);
                           setScreenMessage(
-                            `${screen.label}으로 자동 배치합니다.`,
+                            `${screen.label}으로 자동 표시합니다.`,
                           );
                         }}
                       />
@@ -395,47 +364,70 @@ export function DisplayControls(props: {
               {screenMessage ? <p>{screenMessage}</p> : null}
             </div>
           ) : null}
-          <label className="presenter-display-option-row">
-            <input
-              checked={options.fullscreen}
-              type="checkbox"
-              onChange={(event) => {
-                const checked = event.currentTarget.checked;
-                setOptions((current) => ({
-                  ...current,
-                  fullscreen: checked,
-                }));
-              }}
-            />
-            <span>
-              <strong>전체화면</strong>
+          <section className="presenter-display-options-section">
+            <span className="presenter-display-options-section-title">
+              슬라이드 쇼
             </span>
-          </label>
-          <div
-            className="presenter-display-option-group"
-            role="radiogroup"
-            aria-label="슬라이드쇼 표시 방식"
-          >
-            <span>표시 위치</span>
-            <label>
+            <label className="presenter-display-option-row">
               <input
-                checked={options.displayMode === "slide-window"}
-                name="slide-display-mode"
-                type="radio"
-                onChange={() => setDisplayMode("slide-window")}
+                checked={options.startFromBeginning}
+                type="checkbox"
+                onChange={(event) => {
+                  const checked = event.currentTarget.checked;
+                  setOptions((current) => ({
+                    ...current,
+                    startFromBeginning: checked,
+                  }));
+                }}
               />
-              <span>새 창</span>
+              <span>
+                <strong>처음부터 시작</strong>
+              </span>
             </label>
-            <label>
+            <label className="presenter-display-option-row">
               <input
-                checked={options.displayMode === "current-window"}
-                name="slide-display-mode"
-                type="radio"
-                onChange={() => setDisplayMode("current-window")}
+                checked={options.fullscreen}
+                type="checkbox"
+                onChange={(event) => {
+                  const checked = event.currentTarget.checked;
+                  setOptions((current) => ({
+                    ...current,
+                    fullscreen: checked,
+                  }));
+                }}
               />
-              <span>현재 창</span>
+              <span>
+                <strong>전체화면으로 띄우기</strong>
+              </span>
             </label>
-          </div>
+            {options.fullscreen ? (
+              <div
+                className="presenter-display-option-group"
+                role="radiogroup"
+                aria-label="슬라이드쇼 표시 방식"
+              >
+                <span>표시 위치</span>
+                <label>
+                  <input
+                    checked={options.displayMode === "slide-window"}
+                    name="slide-display-mode"
+                    type="radio"
+                    onChange={() => setDisplayMode("slide-window")}
+                  />
+                  <span>새 창</span>
+                </label>
+                <label>
+                  <input
+                    checked={options.displayMode === "current-window"}
+                    name="slide-display-mode"
+                    type="radio"
+                    onChange={() => setDisplayMode("current-window")}
+                  />
+                  <span>현재 창</span>
+                </label>
+              </div>
+            ) : null}
+          </section>
           <div className="presenter-display-options-actions">
             <button type="button" onClick={() => void openSlideWindow(options)}>
               슬라이드쇼 시작
