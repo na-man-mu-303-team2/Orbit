@@ -2,7 +2,7 @@
   direction: ltr;
   display: inline-block;
   font-family: "Material Symbols Outlined";
-  font-size: 24px;
+  font-size: var(--redesign-size-icon-lg);
   font-style: normal;
   font-weight: normal;
   letter-spacing: normal;
@@ -4180,7 +4180,7 @@
   min-width: min(360px, 92vw);
   min-height: min(580px, calc(100vh - 72px));
   overflow-y: auto;
-  padding: var(--redesign-space-8) var(--redesign-space-8) 25px;
+  padding: var(--redesign-space-8) var(--redesign-space-8) var(--redesign-space-6);
   position: absolute;
   top: calc(100% + 8px);
   transform: translateX(-50%);
@@ -4209,7 +4209,7 @@
 
 .presenter-display-options-section + .presenter-display-options-section,
 .presenter-display-screen-picker + .presenter-display-options-section {
-  margin-top: 26px;
+  margin-top: var(--redesign-space-6);
 }
 
 .presenter-display-options-section-title {
@@ -4297,7 +4297,7 @@
   left: 2px;
   position: absolute;
   top: 2px;
-  transition: transform 120ms ease;
+  transition: transform var(--redesign-duration-fast) var(--redesign-ease-standard);
   width: 16px;
 }
 
@@ -4355,7 +4355,7 @@
   display: flex;
   gap: var(--redesign-space-3);
   min-height: 42px;
-  padding: 7px var(--redesign-space-3);
+  padding: var(--redesign-space-2) var(--redesign-space-3);
 }
 
 .presenter-display-screen-options label:hover {

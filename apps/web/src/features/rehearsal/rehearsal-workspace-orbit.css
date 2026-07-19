@@ -249,7 +249,7 @@ main.rehearsal-presenter-shell {
   box-shadow: var(--redesign-shadow-none);
   grid-template-rows: minmax(0, 1fr) 40px;
   padding: var(--redesign-space-5);
-  padding-bottom: 10px;
+  padding-bottom: var(--redesign-space-2);
 }
 
 .rehearsal-presenter-shell .rehearsal-stage-surface {
@@ -478,7 +478,7 @@ main.rehearsal-presenter-shell {
 }
 
 .rehearsal-presenter-shell .rehearsal-side-timing-progress-warning .rehearsal-side-timing-progress-track > span {
-  background: #f0be36;
+  background: var(--redesign-color-warning-progress);
 }
 
 .rehearsal-presenter-shell .rehearsal-side-timing-progress-danger .rehearsal-side-timing-progress-track > span {
