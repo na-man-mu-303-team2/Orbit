@@ -202,6 +202,37 @@ export class DecksService {
     });
   }
 
+  async getDeckForUpdate(
+    manager: EntityManager,
+    projectId: string,
+    deckId: string,
+  ): Promise<Deck> {
+    const deckRow = await this.findDeckRowForUpdate(
+      manager,
+      projectId,
+      deckId,
+    );
+
+    if (!deckRow) {
+      throwDeckApiException(
+        "DECK_NOT_FOUND",
+        HttpStatus.NOT_FOUND,
+        `Deck not found for project: ${projectId}`,
+      );
+    }
+
+    return (
+      await this.readCurrentDeckState(
+        manager,
+        parseDeckRow(deckRow),
+        projectId,
+        deckId,
+        toIso(deckRow.updated_at),
+        true,
+      )
+    ).deck;
+  }
+
   async getPptxImportQuality(
     projectId: string,
   ): Promise<GetPptxImportQualityResponse> {
