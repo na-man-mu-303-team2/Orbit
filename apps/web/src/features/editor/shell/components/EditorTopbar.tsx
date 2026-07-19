@@ -46,7 +46,6 @@ type EditorTopbarProps = {
   onOpenExport: (format: DeckExportFormat) => void;
   onImportPptx: () => void;
   onOpenAudienceLink: () => void;
-  onOpenPresenceDebug: () => void;
   onOpenShare: () => void;
   onRefresh: () => void;
   onRenameDeckTitle: (title: string) => void;
@@ -92,7 +91,6 @@ export function EditorTopbar(props: EditorTopbarProps) {
     onOpenExport,
     onImportPptx,
     onOpenAudienceLink,
-    onOpenPresenceDebug,
     onOpenShare,
     onRefresh,
     onRenameDeckTitle,
@@ -279,11 +277,9 @@ export function EditorTopbar(props: EditorTopbarProps) {
 
       <div className="top-actions">
         {projectPresenceUsers.length > 0 ? (
-          <button
+          <div
             aria-label="소켓 접속 상태 보기"
             className="presence-avatar-trigger"
-            type="button"
-            onClick={onOpenPresenceDebug}
           >
             {projectPresenceUsers.slice(0, 4).map((user) => (
               <span
@@ -299,7 +295,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
                 +{projectPresenceUsers.length - 4}
               </span>
             ) : null}
-          </button>
+          </div>
         ) : null}
         {canMutateDeck ? (
           <EditorSaveControl

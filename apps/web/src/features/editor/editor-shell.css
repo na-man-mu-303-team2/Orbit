@@ -510,7 +510,7 @@
   align-items: center;
   background: transparent;
   border: 0;
-  cursor: pointer;
+  cursor: default;
   display: inline-flex;
   padding: 0;
 }

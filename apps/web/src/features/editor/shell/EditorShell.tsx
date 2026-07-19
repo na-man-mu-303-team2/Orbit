@@ -1973,7 +1973,6 @@ export function EditorShell(props: { projectId?: string }) {
             setIsAudienceLinkModalOpen(true);
             setActiveTopMenu(null);
           }}
-          onOpenPresenceDebug={() => setIsPresenceDebugOpen(true)}
           onOpenShare={openSharePanel}
           onRefresh={() => {
             void health.refetch();
