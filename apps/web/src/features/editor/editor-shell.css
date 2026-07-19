@@ -13393,6 +13393,7 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional
   .editor-ai-assistant-panel
   .ai-chat-suggestions {
+  gap: var(--redesign-space-2);
   padding: 0 var(--redesign-space-4) var(--redesign-space-3);
   background: var(--redesign-color-surface-container-high);
 }
@@ -13402,10 +13403,14 @@ body.is-resizing-speaker-notes {
   .ai-chat-suggestions
   button {
   min-height: var(--redesign-size-control-md);
+  padding: 0 var(--redesign-space-3);
   border: var(--redesign-border-subtle);
-  border-radius: var(--redesign-radius-full);
+  border-radius: var(--redesign-radius-lg);
   background: var(--redesign-color-surface-container-lowest);
   color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 700;
+  line-height: var(--redesign-type-label-sm-line-height);
   box-shadow: var(--redesign-shadow-none);
 }
 
@@ -13443,12 +13448,15 @@ body.is-resizing-speaker-notes {
   .editor-ai-assistant-panel
   .ai-chat-mode-switch
   button {
-  min-height: var(--redesign-size-control-sm);
+  min-height: var(--redesign-size-control-md);
   padding: 0 var(--redesign-space-3);
   border: var(--redesign-border-subtle);
-  border-radius: var(--redesign-radius-full);
+  border-radius: var(--redesign-radius-lg);
   background: var(--redesign-color-surface-container-lowest);
   color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 700;
+  line-height: var(--redesign-type-label-sm-line-height);
 }
 
 .orbit-shell.editor-professional
@@ -13467,7 +13475,7 @@ body.is-resizing-speaker-notes {
   padding: var(--redesign-space-1) var(--redesign-space-1) var(--redesign-space-1)
     var(--redesign-space-3);
   border: var(--redesign-border-subtle);
-  border-radius: var(--redesign-radius-full);
+  border-radius: var(--redesign-radius-lg);
   background: var(--redesign-color-surface-container-lowest);
 }
 
@@ -13485,6 +13493,7 @@ body.is-resizing-speaker-notes {
   padding: 0;
   border: 0;
   background: transparent;
+  font-size: var(--redesign-type-body-sm-size);
   line-height: var(--redesign-type-body-sm-line-height);
 }
 
@@ -13494,7 +13503,7 @@ body.is-resizing-speaker-notes {
   > button {
   width: var(--redesign-size-control-sm);
   height: var(--redesign-size-control-sm);
-  border-radius: var(--redesign-radius-full);
+  border-radius: var(--redesign-radius-md);
 }
 
 /* Structured element inspector ------------------------------------------------
