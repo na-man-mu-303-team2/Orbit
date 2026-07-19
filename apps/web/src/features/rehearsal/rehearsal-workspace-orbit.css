@@ -10,12 +10,25 @@ main.rehearsal-presenter-shell {
   background: color-mix(in srgb, var(--redesign-color-surface-container-lowest) 96%, transparent);
   border-bottom: 1px solid var(--redesign-color-outline-variant);
   box-shadow: var(--redesign-shadow-none);
+  display: flex;
   height: auto;
+  justify-content: flex-end;
   min-height: 68px;
   overflow: visible;
   padding: var(--redesign-space-2) var(--redesign-space-6);
   position: relative;
   z-index: 30;
+}
+
+.rehearsal-presenter-shell .rehearsal-display-toolbar {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  margin-left: auto;
+  order: 1;
+}
+
+.rehearsal-presenter-shell .rehearsal-exit-button {
+  order: 2;
 }
 
 .rehearsal-presenter-shell .rehearsal-exit-button,
@@ -26,6 +39,10 @@ main.rehearsal-presenter-shell {
   box-shadow: var(--redesign-shadow-none);
   color: var(--redesign-color-on-surface);
   min-height: 44px;
+}
+
+.rehearsal-presenter-shell .rehearsal-exit-button {
+  border-radius: var(--redesign-radius-xl);
 }
 
 .rehearsal-presenter-shell .rehearsal-exit-button:hover,
