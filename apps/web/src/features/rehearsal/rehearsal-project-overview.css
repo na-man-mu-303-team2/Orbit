@@ -63,6 +63,15 @@
   margin: 0;
 }
 
+.report-overview-hero-detail-button {
+  font-size: var(--redesign-type-body-md-size);
+  font-weight: 850;
+  justify-self: start;
+  min-height: 44px;
+  margin-top: var(--redesign-space-1);
+  padding-inline: var(--redesign-space-5);
+}
+
 .report-overview-hero-actions {
   align-items: center;
   display: flex;
