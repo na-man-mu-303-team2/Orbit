@@ -10,6 +10,7 @@ import type {
   Deck,
   DeckPatch,
   DeckElement,
+  Job,
   SemanticCue
 } from "@orbit/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -36,6 +37,7 @@ import {
 } from "./api/deckPersistenceApi";
 import {
   createSemanticCueExtractionJob,
+  createDeckExportJob,
   exportDeck,
   exportDeckToPptx,
   importPptxIntoEditor,
@@ -912,6 +914,36 @@ describe("editor shell", () => {
       format: "pptx"
     });
     expect(jobPollCount).toBe(2);
+  });
+
+  it("shows the structured export enqueue failure without serializing the response body", async () => {
+    const failedJob = jobPayload("failed", null, "deck-export");
+    failedJob.error = {
+      code: "DECK_EXPORT_ENQUEUE_FAILED",
+      message: "Deck export queue is unavailable.",
+      retryable: true
+    };
+    failedJob.message = "Deck export queue is unavailable.";
+
+    await expect(
+      createDeckExportJob(
+        "project-a",
+        { format: "png" },
+        vi.fn(async () =>
+          new Response(
+            JSON.stringify({
+              code: "DECK_EXPORT_ENQUEUE_FAILED",
+              message: "Deck export queue is unavailable.",
+              job: failedJob
+            }),
+            {
+              status: 503,
+              headers: { "content-type": "application/json" }
+            }
+          )
+        )
+      )
+    ).rejects.toThrow("Deck export queue is unavailable.");
   });
 
   it("retries a stale OOXML package and waits before PPTX export", async () => {
@@ -2530,14 +2562,14 @@ function editorTextElement(
 }
 
 function jobPayload(
-  status: "queued" | "running" | "succeeded",
+  status: Job["status"],
   result: Record<string, unknown> | null = null,
   type:
     | "pptx-import"
     | "pptx-ooxml-generation"
     | "pptx-ooxml-sync"
     | "deck-export" = "pptx-import"
-) {
+): Job {
   return {
     jobId: "job-pptx",
     projectId: "project-a",

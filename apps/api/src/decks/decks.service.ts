@@ -21,6 +21,7 @@ import {
   appendDeckPatchRequestSchema,
   appendDeckPatchResponseSchema,
   deckApiErrorSchema,
+  deckExportEnqueueErrorSchema,
   deckExportRequestSchema,
   deckSchema,
   deckSnapshotIdSchema,
@@ -258,24 +259,51 @@ export class DecksService {
           event: "deck_export.enqueued",
           jobId: queuedJob.jobId,
           projectId,
+          deckId: deck.deckId,
+          format: request.format,
           presentationSessionId: request.presentationSessionId,
         },
         "Deck export job enqueued.",
       );
     } catch (error) {
-      await this.jobsService.update(queuedJob.jobId, {
+      const publicMessage = "Deck export queue is unavailable.";
+      const failedJobPatch = {
         status: "failed",
         progress: 0,
-        message: "Deck export enqueue failed.",
+        message: publicMessage,
         error: {
           code: "DECK_EXPORT_ENQUEUE_FAILED",
-          message:
-            error instanceof Error
-              ? error.message
-              : "Deck export enqueue failed.",
+          message: publicMessage,
+          retryable: true,
         },
-      });
-      throw error;
+      } as const;
+      const updatedJob = await this.jobsService.update(
+        queuedJob.jobId,
+        failedJobPatch,
+      );
+      const failedJob = jobSchema.parse(
+        updatedJob ?? { ...queuedJob, ...failedJobPatch },
+      );
+      this.logger?.error(
+        {
+          event: "deck_export.enqueue_failed",
+          jobId: queuedJob.jobId,
+          projectId,
+          deckId: deck.deckId,
+          format: request.format,
+          presentationSessionId: request.presentationSessionId,
+          error: serializeLogError(error),
+        },
+        "Deck export job enqueue failed.",
+      );
+      throw new HttpException(
+        deckExportEnqueueErrorSchema.parse({
+          code: "DECK_EXPORT_ENQUEUE_FAILED",
+          message: publicMessage,
+          job: failedJob,
+        }),
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
     }
 
     return { job: jobSchema.parse(queuedJob) };

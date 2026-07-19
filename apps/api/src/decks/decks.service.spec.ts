@@ -1315,6 +1315,75 @@ describe("DecksService", () => {
     );
   });
 
+  it("marks the export Job failed and returns a structured 503 when enqueue is unavailable", async () => {
+    stubOrbitEnv();
+    const dataSource = new InMemoryDeckDataSource();
+    const deck = createDeck();
+    const exportJob = createJob("job_export_failed", "deck-export");
+    const failedJob = jobSchema.parse({
+      ...exportJob,
+      status: "failed",
+      progress: 0,
+      message: "Deck export queue is unavailable.",
+      error: {
+        code: "DECK_EXPORT_ENQUEUE_FAILED",
+        message: "Deck export queue is unavailable.",
+        retryable: true,
+      },
+    });
+    const jobsService = {
+      create: vi.fn(async () => exportJob),
+      update: vi.fn(async () => failedJob),
+    };
+    const enqueueError = new Error("connect ECONNREFUSED 127.0.0.1:6379");
+    const enqueueExportJob = vi.fn(async () => {
+      throw enqueueError;
+    });
+    const logger = createLogger();
+    const service = new DecksService(
+      dataSource as unknown as DataSource,
+      jobsService as never,
+      vi.fn(async () => undefined),
+      enqueueExportJob,
+      undefined,
+      logger,
+    );
+    await service.putDeck(deck.projectId, { deck });
+
+    await expect(
+      service.createExportJob(deck.projectId, { format: "png" }),
+    ).rejects.toMatchObject({
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+      response: {
+        code: "DECK_EXPORT_ENQUEUE_FAILED",
+        message: "Deck export queue is unavailable.",
+        job: failedJob,
+      },
+    });
+    expect(jobsService.update).toHaveBeenCalledWith(
+      exportJob.jobId,
+      expect.objectContaining({
+        status: "failed",
+        error: {
+          code: "DECK_EXPORT_ENQUEUE_FAILED",
+          message: "Deck export queue is unavailable.",
+          retryable: true,
+        },
+      }),
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "deck_export.enqueue_failed",
+        jobId: exportJob.jobId,
+        projectId: deck.projectId,
+        deckId: deck.deckId,
+        format: "png",
+        error: expect.objectContaining({ message: enqueueError.message }),
+      }),
+      "Deck export job enqueue failed.",
+    );
+  });
+
   it("blocks imported PPTX export while its package is stale", async () => {
     stubOrbitEnv();
     const dataSource = new InMemoryDeckDataSource();
