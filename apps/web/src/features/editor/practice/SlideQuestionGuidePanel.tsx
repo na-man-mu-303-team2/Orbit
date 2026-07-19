@@ -7,13 +7,18 @@ import {
   createSlideQuestionGuide,
   getSlideQuestionGuide,
   listSlideQuestionGuides,
+  sha256Canonical,
   waitForSlideQuestionGuideJob,
 } from "./slideQuestionGuideApi";
+import type { AutoSlideQuestionGuideStatus } from "./useAutoSlideQuestionGuides";
 
 export function SlideQuestionGuidePanel(props: {
+  autoStatus: AutoSlideQuestionGuideStatus;
+  canGenerate: boolean;
   projectId: string;
   deck: Deck;
   slide: Slide | null;
+  refreshToken: number;
   flushPendingSaves: () => Promise<void>;
 }) {
   const [guide, setGuide] = useState<SlideQuestionGuide | null>(null);
@@ -47,13 +52,17 @@ export function SlideQuestionGuidePanel(props: {
       return;
     }
     setStatus("loading");
-    void listSlideQuestionGuides({
-      projectId: props.projectId,
-      deckId: props.deck.deckId,
-      slideId: props.slide.slideId,
-    }).then((guides) => {
+    const slide = props.slide;
+    void Promise.all([
+      listSlideQuestionGuides({
+        projectId: props.projectId,
+        deckId: props.deck.deckId,
+        slideId: slide.slideId,
+      }),
+      sha256Canonical(slide),
+    ]).then(([guides, slideContentHash]) => {
       if (!active) return;
-      const current = guides.find((candidate) => candidate.deckVersion === props.deck.version) ?? null;
+      const current = findCurrentSlideQuestionGuide(guides, slideContentHash);
       setGuide(current);
       setHasStaleGuide(!current && guides.length > 0);
       setSelectedQuestionId(getInitialQuestionId(current));
@@ -62,10 +71,10 @@ export function SlideQuestionGuidePanel(props: {
       if (active) setStatus("error");
     });
     return () => { active = false; };
-  }, [props.deck.deckId, props.deck.version, props.projectId, props.slide, slideQuestionGuidesEnabled]);
+  }, [props.deck.deckId, props.projectId, props.refreshToken, props.slide, slideQuestionGuidesEnabled]);
 
   async function generate() {
-    if (!props.slide || slideQuestionGuidesEnabled !== true) return;
+    if (!props.canGenerate || !props.slide || slideQuestionGuidesEnabled !== true) return;
     setStatus("generating");
     setMessage("");
     try {
@@ -95,13 +104,14 @@ export function SlideQuestionGuidePanel(props: {
   return (
     <div className="editor-question-guide-panel">
       <div className="editor-question-guide-actions">
-        <button disabled={!props.slide || status === "generating" || slideQuestionGuidesEnabled !== true} type="button" onClick={() => void generate()}>
-          {slideQuestionGuidesEnabled === null ? "질문 생성 준비 중…" : status === "generating" ? "공식 자료 검색 중…" : guide ? "다시 생성" : "질문 생성"}
+        <button disabled={!props.canGenerate || !props.slide || status === "generating" || props.autoStatus === "generating" || slideQuestionGuidesEnabled !== true} type="button" onClick={() => void generate()}>
+          {props.autoStatus === "generating" ? "질문 생성 중…" : slideQuestionGuidesEnabled === null ? "질문 생성 준비 중…" : status === "generating" ? "공식 자료 검색 중…" : guide ? "다시 생성" : "질문 생성"}
         </button>
       </div>
       {slideQuestionGuidesEnabled === false ? <p className="editor-practice-message">이 환경에서는 슬라이드별 예상 질문 기능을 사용할 수 없습니다.</p> : null}
       {message ? <p className="editor-practice-message">{message}</p> : null}
-      {hasStaleGuide ? <p className="editor-question-stale">덱이 바뀌어 이전 질문은 숨겼습니다. 현재 버전으로 다시 생성해 주세요.</p> : null}
+      {props.autoStatus === "failed" && !guide ? <p className="editor-practice-message">자동 질문 생성에 실패했습니다. 질문 생성 버튼으로 다시 시도해 주세요.</p> : null}
+      {hasStaleGuide ? <p className="editor-question-stale">현재 슬라이드가 바뀌어 이전 질문은 숨겼습니다. 다시 생성해 주세요.</p> : null}
       {guide && guide.items.length > 0 ? (
         <SlideQuestionGuideCarousel
           guide={guide}
@@ -119,6 +129,13 @@ export function SlideQuestionGuidePanel(props: {
 
 export function getInitialQuestionId(guide: SlideQuestionGuide | null) {
   return guide?.items[0]?.questionId ?? null;
+}
+
+export function findCurrentSlideQuestionGuide(
+  guides: SlideQuestionGuide[],
+  slideContentHash: string,
+) {
+  return guides.find((candidate) => candidate.slideContentHash === slideContentHash) ?? null;
 }
 
 export function SlideQuestionGuideCarousel(props: {

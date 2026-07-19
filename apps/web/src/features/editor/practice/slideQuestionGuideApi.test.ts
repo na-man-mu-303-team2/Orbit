@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { waitForSlideQuestionGuideJob } from "./slideQuestionGuideApi";
+import {
+  createAutoSlideQuestionGuidesClientRequestId,
+  sha256Canonical,
+  waitForSlideQuestionGuideJob,
+} from "./slideQuestionGuideApi";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -22,6 +26,19 @@ describe("waitForSlideQuestionGuideJob", () => {
     await vi.advanceTimersByTimeAsync(1);
     await expect(resultPromise).resolves.toMatchObject({ status: "succeeded" });
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("slide question guide canonical hash", () => {
+  it("creates a stable auto request ID from project, deck, and version", async () => {
+    const input = { projectId: "project-1", deckId: "deck-1", deckVersion: 3 };
+
+    await expect(createAutoSlideQuestionGuidesClientRequestId(input)).resolves.toMatch(
+      /^slide-guide-auto-batch_[a-f0-9]{64}$/,
+    );
+    await expect(sha256Canonical({ beta: 2, alpha: 1 })).resolves.toBe(
+      await sha256Canonical({ alpha: 1, beta: 2 }),
+    );
   });
 });
 
