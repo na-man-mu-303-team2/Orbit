@@ -14004,7 +14004,33 @@ body.is-resizing-speaker-notes {
 
 /* Editor action menus and activity rail ------------------------------------ */
 .orbit-shell.editor-professional .editor-presentation-menu {
-  min-width: 210px;
+  min-width: 196px;
+  gap: 1px;
+  padding: var(--redesign-space-1);
+  border-color: var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius);
+  background: var(--redesign-color-surface-container);
+  color: var(--redesign-color-on-surface);
+  box-shadow: var(--redesign-shadow-raised);
+}
+
+.orbit-shell.editor-professional .editor-presentation-menu .redesign-dropdown-menu-item {
+  min-height: 34px;
+  padding: 0 var(--redesign-space-2);
+  border-radius: var(--redesign-radius-sm);
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-md-size);
+  font-weight: 650;
+}
+
+.orbit-shell.editor-professional .editor-presentation-menu .redesign-dropdown-menu-item:hover:not(:disabled) {
+  background: var(--redesign-color-surface-container-high);
+}
+
+.orbit-shell.editor-professional
+  .editor-presentation-menu
+  .redesign-dropdown-menu-item-icon {
+  color: var(--redesign-color-on-surface-variant);
 }
 
 .orbit-shell.editor-professional .editor-presentation-menu-label {
@@ -14016,7 +14042,7 @@ body.is-resizing-speaker-notes {
 }
 
 .orbit-shell.editor-professional .editor-presentation-menu-label small {
-  color: var(--redesign-dropdown-icon);
+  color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-label-sm-size);
   font-weight: 500;
 }
