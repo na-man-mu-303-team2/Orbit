@@ -294,6 +294,7 @@ export function RehearsalReportDocument({
         hidden={activeTab !== "test"}
       >
         <RehearsalReportTestView
+          audioPlaybackAvailable={audioPlaybackAvailable}
           deck={reportDeck}
           formatDuration={fmt}
           report={report}

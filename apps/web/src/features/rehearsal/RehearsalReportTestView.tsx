@@ -9,7 +9,10 @@ import {
   Target,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { RehearsalReportTestNavigator } from "./RehearsalReportTestNavigator";
+import { RehearsalReportTestOverview } from "./RehearsalReportTestOverview";
 import { RehearsalSlideCanvasPreview } from "./RehearsalSlideCanvasPreview";
+import { buildRehearsalTimingAssessment } from "./rehearsalReportTimingAssessment";
 import {
   buildRehearsalReportTestSlideMetrics,
   type TestMetricTone,
@@ -18,30 +21,38 @@ import { navigateTo } from "./rehearsalUtils";
 import "./rehearsal-report-test-view.css";
 
 type Props = {
+  audioPlaybackAvailable?: boolean;
   deck: Deck | null;
   formatDuration: (seconds: number) => string;
   report: RehearsalReport;
 };
 
-export function RehearsalReportTestView({ deck, formatDuration, report }: Props) {
-  const fallbackSlideId =
-    deck?.slides[0]?.slideId ?? null;
-  const [selectedSlideId, setSelectedSlideId] = useState<string | null>(
-    fallbackSlideId,
-  );
+export function RehearsalReportTestView({
+  audioPlaybackAvailable = true,
+  deck,
+  formatDuration,
+  report,
+}: Props) {
+  const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
+  const effectiveSelectedSlideId = selectedSlideId;
 
   useEffect(() => {
-    if (!deck?.slides.some((slide) => slide.slideId === selectedSlideId)) {
-      setSelectedSlideId(
-        deck?.slides[0]?.slideId ?? null,
-      );
+    if (
+      typeof selectedSlideId === "string" &&
+      !deck?.slides.some((slide) => slide.slideId === selectedSlideId)
+    ) {
+      setSelectedSlideId(null);
     }
   }, [deck, selectedSlideId]);
 
   const foundIndex =
-    deck?.slides.findIndex((slide) => slide.slideId === selectedSlideId) ?? -1;
-  const selectedIndex = foundIndex >= 0 ? foundIndex : 0;
-  const selectedSlide = deck?.slides[selectedIndex] ?? null;
+    deck?.slides.findIndex(
+      (slide) => slide.slideId === effectiveSelectedSlideId,
+    ) ?? -1;
+  const selectedIndex = foundIndex;
+  const selectedSlide =
+    selectedIndex >= 0 ? (deck?.slides[selectedIndex] ?? null) : null;
+  const isOverall = effectiveSelectedSlideId === null;
   const timing = useMemo(
     () =>
       report.slideTimings.find(
@@ -52,7 +63,6 @@ export function RehearsalReportTestView({ deck, formatDuration, report }: Props)
   const actualSeconds = timing?.actualSeconds ?? 0;
   const targetSeconds =
     timing?.targetSeconds ?? selectedSlide?.estimatedSeconds ?? 0;
-  const timeDelta = timing ? actualSeconds - targetSeconds : null;
   const actualRatio =
     timing && targetSeconds > 0
       ? Math.min(100, Math.max(4, (actualSeconds / targetSeconds) * 100))
@@ -62,27 +72,30 @@ export function RehearsalReportTestView({ deck, formatDuration, report }: Props)
     : "측정 불가";
   const targetDurationLabel =
     targetSeconds > 0 ? formatDuration(targetSeconds) : "권장 시간 없음";
-  const timeDeltaLabel =
-    timeDelta == null
-      ? "시간 정보 없음"
-      : `${Math.abs(timeDelta)}초 ${timeDelta < 0 ? "부족" : "여유"}`;
-  const timeTone: TestMetricTone =
-    timeDelta == null ? "muted" : timeDelta < 0 ? "danger" : "success";
+  const timeAssessment = buildRehearsalTimingAssessment(
+    timing ? actualSeconds : null,
+    targetSeconds > 0 ? targetSeconds : null,
+    formatDuration,
+  );
+  const timeDeltaLabel = timeAssessment.label;
+  const timeTone = timeAssessment.tone;
   const slideTitle =
-    selectedSlide?.title?.trim() || `슬라이드 ${selectedIndex + 1}`;
+    selectedSlide?.title?.trim() ||
+    (selectedIndex >= 0 ? `슬라이드 ${selectedIndex + 1}` : "전체 발표");
   const slideMetrics = useMemo(
     () =>
       buildRehearsalReportTestSlideMetrics(
         report,
         selectedSlide?.slideId ?? null,
+        selectedSlide?.keywords ?? [],
       ),
-    [report, selectedSlide?.slideId],
+    [report, selectedSlide?.keywords, selectedSlide?.slideId],
   );
   const findingRows = [
     { icon: Gauge, label: "말하기 속도", ...slideMetrics.speakingRate },
     { icon: MessageCircleMore, label: "습관어", ...slideMetrics.filler },
     { icon: CirclePause, label: "긴 침묵", ...slideMetrics.longSilence },
-    { icon: Target, label: "핵심 메시지 전달", ...slideMetrics.keyMessage },
+    { icon: Target, label: "발표 체크포인트", ...slideMetrics.keyMessage },
   ];
 
   return (
@@ -97,44 +110,32 @@ export function RehearsalReportTestView({ deck, formatDuration, report }: Props)
           <p>슬라이드를 선택해 실제 발표 흐름과 코칭 지표를 함께 확인하세요.</p>
         </div>
         <strong>
-          {selectedIndex + 1} / {deck?.slides.length ?? 0}
+          {isOverall
+            ? `전체 · ${deck?.slides.length ?? 0}장`
+            : `${selectedIndex + 1} / ${deck?.slides.length ?? 0}`}
         </strong>
       </header>
 
       {deck && deck.slides.length > 0 ? (
-        <nav className="rrd-test-filmstrip" aria-label="분석할 슬라이드 선택">
-          {deck.slides.map((slide, index) => (
-            <button
-              type="button"
-              className={
-                slide.slideId === selectedSlideId ? "is-selected" : undefined
-              }
-              aria-current={
-                slide.slideId === selectedSlideId ? "true" : undefined
-              }
-              aria-label={`${index + 1}번 슬라이드 ${slide.title || "제목 없음"}`}
-              key={slide.slideId}
-              onClick={() => setSelectedSlideId(slide.slideId)}
-            >
-              <span className="rrd-test-filmstrip-canvas">
-                <RehearsalSlideCanvasPreview
-                  ariaHidden
-                  deck={deck}
-                  slide={slide}
-                />
-              </span>
-              <span className="rrd-test-filmstrip-meta">
-                <b>{index + 1}</b>
-                <span>{slide.title || "제목 없음"}</span>
-              </span>
-            </button>
-          ))}
-        </nav>
+        <RehearsalReportTestNavigator
+          deck={deck}
+          onSelect={setSelectedSlideId}
+          selectedSlideId={effectiveSelectedSlideId}
+        />
       ) : (
         <div className="rrd-test-empty">렌더링할 슬라이드가 없습니다.</div>
       )}
 
-      <div className="rrd-test-primary-grid">
+      {isOverall && deck && deck.slides.length > 0 ? (
+        <RehearsalReportTestOverview
+          audioPlaybackAvailable={audioPlaybackAvailable}
+          deck={deck}
+          formatDuration={formatDuration}
+          report={report}
+        />
+      ) : null}
+
+      <div className={`rrd-test-primary-grid${isOverall ? " is-hidden" : ""}`}>
         <article className="rrd-test-card rrd-test-slide-detail">
           <header>
             <span>SELECTED SLIDE</span>
@@ -233,7 +234,7 @@ export function RehearsalReportTestView({ deck, formatDuration, report }: Props)
         </aside>
       </div>
 
-      <section className="rrd-test-findings">
+      <section className={`rrd-test-findings${isOverall ? " is-hidden" : ""}`}>
         <header>
           <span>COACHING CHECK</span>
           <h3>이 슬라이드에서 확인한 점</h3>
@@ -255,7 +256,9 @@ export function RehearsalReportTestView({ deck, formatDuration, report }: Props)
         </div>
       </section>
 
-      <section className="rrd-test-next-practice">
+      <section
+        className={`rrd-test-next-practice${isOverall ? " is-hidden" : ""}`}
+      >
         <span className="rrd-test-next-icon">
           <Target aria-hidden="true" size={24} />
         </span>
@@ -284,13 +287,7 @@ type SummaryRowProps = {
   value: string;
 };
 
-function SummaryRow({
-  icon: Icon,
-  label,
-  meta,
-  tone,
-  value,
-}: SummaryRowProps) {
+function SummaryRow({ icon: Icon, label, meta, tone, value }: SummaryRowProps) {
   return (
     <div className="rrd-test-summary-row">
       <span className="rrd-test-summary-icon">

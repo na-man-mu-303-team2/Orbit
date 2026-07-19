@@ -7,19 +7,47 @@ import { describe, expect, it } from "vitest";
 import { buildRehearsalReportTestSlideMetrics } from "./rehearsalReportTestViewModel";
 
 describe("buildRehearsalReportTestSlideMetrics", () => {
-  it("uses measured slide insight, five-second silence, and semantic outcomes", () => {
-    const metrics = buildRehearsalReportTestSlideMetrics(measuredReport(), "slide_2");
+  it("uses measured slide insight, five-second silence, and required keywords", () => {
+    const metrics = buildRehearsalReportTestSlideMetrics(
+      measuredReport({
+        missedKeywords: [
+          {
+            slideId: "slide_2",
+            keywordId: "kw_performance",
+            text: "성능",
+          },
+        ],
+      }),
+      "slide_2",
+      [
+        {
+          keywordId: "kw_unity",
+          text: "Unity",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+        },
+        {
+          keywordId: "kw_performance",
+          text: "성능",
+          synonyms: [],
+          abbreviations: [],
+          required: true,
+        },
+      ],
+    );
 
     expect(metrics.speakingRate).toMatchObject({
-      value: "평소보다 빠름",
-      meta: "개인 기준 대비 +25%",
+      value: "분당 300자",
+      meta: "이번 발표 기준 대비 +25%",
       status: "빠름",
     });
     expect(metrics.filler).toMatchObject({ value: "3회", status: "많음" });
     expect(metrics.longSilence).toMatchObject({ value: "1회", status: "발생" });
     expect(metrics.keyMessage).toMatchObject({
       value: "1 / 2개",
-      status: "미흡",
+      status: "일부 전달",
+      meta: "미전달: 성능",
     });
     expect(metrics.nextPractice).toBe("발표 속도를 안정적으로 유지하세요.");
   });
@@ -57,6 +85,36 @@ describe("buildRehearsalReportTestSlideMetrics", () => {
     expect(metrics.nextPractice).toBe("발표 속도를 안정적으로 유지하세요.");
   });
 
+  it("shows CPM while withholding comparison when fewer than three slides qualify", () => {
+    const report = measuredReport({
+      slideInsights: [
+        {
+          slideId: "slide_2",
+          fillerWordCount: 0,
+          longSilenceCount: 0,
+          speakingRate: {
+            metricDefinitionVersion: 1,
+            measurementState: "unmeasured",
+            reasonCode: "BASELINE_UNAVAILABLE",
+            charactersPerSecond: null,
+            baselineCharactersPerSecond: null,
+            relativeRateRatio: null,
+            paceCategory: null,
+            activeSpeechSeconds: 5,
+            characterCount: 20,
+          },
+        },
+      ],
+    });
+
+    const metrics = buildRehearsalReportTestSlideMetrics(report, "slide_2");
+
+    expect(metrics.speakingRate).toMatchObject({
+      value: "분당 240자",
+      meta: "유효한 슬라이드 발화 3개 이상 필요",
+      status: "비교 불가",
+    });
+  });
   it("prefers slide semantic feedback for the next practice", () => {
     const report = measuredReport({
       semanticCueOutcomes: [
@@ -69,13 +127,13 @@ describe("buildRehearsalReportTestSlideMetrics", () => {
 
     const metrics = buildRehearsalReportTestSlideMetrics(report, "slide_2");
 
-    expect(metrics.nextPractice).toBe("문제의 영향을 수치로 한 번 더 설명하세요.");
+    expect(metrics.nextPractice).toBe(
+      "문제의 영향을 수치로 한 번 더 설명하세요.",
+    );
   });
 });
 
-function measuredReport(
-  patch: Partial<RehearsalReport> = {},
-): RehearsalReport {
+function measuredReport(patch: Partial<RehearsalReport> = {}): RehearsalReport {
   return {
     reportId: "report_1",
     runId: "run_1",

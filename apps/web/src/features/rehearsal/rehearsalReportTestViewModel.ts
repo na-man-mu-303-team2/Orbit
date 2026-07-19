@@ -1,4 +1,4 @@
-import type { RehearsalReport } from "@orbit/shared";
+import type { Deck, RehearsalReport } from "@orbit/shared";
 import { buildFiveSecondLongSilenceCountBySlide } from "./rehearsalSlideAnalysisModel";
 
 export type TestMetricTone = "danger" | "muted" | "success" | "warning";
@@ -20,19 +20,21 @@ export type RehearsalReportTestSlideMetrics = {
 };
 
 const SPEAKING_RATE_REASON: Record<
-  RehearsalReport["slideInsights"][number]["speakingRate"]["reasonCode"] & string,
+  RehearsalReport["slideInsights"][number]["speakingRate"]["reasonCode"] &
+    string,
   string
 > = {
   UNSUPPORTED_LANGUAGE: "발화 언어를 확인할 수 없음",
   SEGMENT_TIMESTAMPS_UNAVAILABLE: "발화 구간 시간 정보 없음",
   INSUFFICIENT_SLIDE_SPEECH: "분석할 발화가 부족함",
-  BASELINE_UNAVAILABLE: "비교할 기준 속도 없음",
+  BASELINE_UNAVAILABLE: "비교할 슬라이드 발화가 부족함",
   LEGACY_REPORT: "이전 형식의 리포트",
 };
 
 export function buildRehearsalReportTestSlideMetrics(
   report: RehearsalReport,
   slideId: string | null,
+  keywords: Deck["slides"][number]["keywords"] = [],
 ): RehearsalReportTestSlideMetrics {
   if (!slideId) {
     const unavailable = unavailableMetric("선택된 슬라이드가 없습니다.");
@@ -50,8 +52,10 @@ export function buildRehearsalReportTestSlideMetrics(
 
   return {
     filler: buildFillerMetric(insight?.fillerWordCount),
-    keyMessage: buildKeyMessageMetric(report, slideId),
-    longSilence: buildLongSilenceMetric(longSilenceCounts?.get(slideId) ?? null),
+    keyMessage: buildRequiredKeywordMetric(report, slideId, keywords),
+    longSilence: buildLongSilenceMetric(
+      longSilenceCounts?.get(slideId) ?? null,
+    ),
     nextPractice: buildNextPractice(report, slideId),
     speakingRate: buildSpeakingRateMetric(insight?.speakingRate),
   };
@@ -60,49 +64,71 @@ export function buildRehearsalReportTestSlideMetrics(
 function buildSpeakingRateMetric(
   rate: RehearsalReport["slideInsights"][number]["speakingRate"] | undefined,
 ): TestViewMetric {
-  if (!rate || rate.measurementState === "unmeasured") {
-    const reason = rate?.reasonCode
+  if (!rate) {
+    return unavailableMetric("슬라이드별 속도 분석 결과 없음");
+  }
+
+  const charactersPerMinute =
+    rate.activeSpeechSeconds > 0 && rate.characterCount > 0
+      ? Math.round((rate.characterCount / rate.activeSpeechSeconds) * 60)
+      : null;
+
+  if (rate.measurementState === "unmeasured") {
+    if (
+      rate.reasonCode === "BASELINE_UNAVAILABLE" &&
+      charactersPerMinute !== null
+    ) {
+      return {
+        description: `분당 ${charactersPerMinute}자로 측정됐지만 비교할 슬라이드 발화가 부족합니다.`,
+        meta: "유효한 슬라이드 발화 3개 이상 필요",
+        status: "비교 불가",
+        tone: "muted",
+        value: `분당 ${charactersPerMinute}자`,
+      };
+    }
+    const reason = rate.reasonCode
       ? SPEAKING_RATE_REASON[rate.reasonCode]
       : "슬라이드별 속도 분석 결과 없음";
     return unavailableMetric(reason);
   }
 
+  const measuredCharactersPerMinute = Math.round(rate.charactersPerSecond * 60);
   const deltaPercent = Math.round((rate.relativeRateRatio - 1) * 100);
   const absoluteDelta = Math.abs(deltaPercent);
   const meta =
     deltaPercent === 0
-      ? "개인 기준 속도와 동일"
-      : `개인 기준 대비 ${deltaPercent > 0 ? "+" : "-"}${absoluteDelta}%`;
+      ? "이번 발표 기준과 동일"
+      : `이번 발표 기준 대비 ${deltaPercent > 0 ? "+" : "-"}${absoluteDelta}%`;
 
   if (rate.paceCategory === "faster") {
     return {
-      description: `개인 기준보다 약 ${absoluteDelta}% 빠르게 말했습니다.`,
+      description: `이번 발표 기준보다 약 ${absoluteDelta}% 빠르게 말했습니다.`,
       meta,
       status: "빠름",
       tone: "danger",
-      value: "평소보다 빠름",
+      value: `분당 ${measuredCharactersPerMinute}자`,
     };
   }
   if (rate.paceCategory === "slower") {
     return {
-      description: `개인 기준보다 약 ${absoluteDelta}% 느리게 말했습니다.`,
+      description: `이번 발표 기준보다 약 ${absoluteDelta}% 느리게 말했습니다.`,
       meta,
       status: "느림",
       tone: "warning",
-      value: "평소보다 느림",
+      value: `분당 ${measuredCharactersPerMinute}자`,
     };
   }
   return {
-    description: "개인 기준과 비슷한 속도로 안정적으로 말했습니다.",
+    description: "이번 발표의 다른 슬라이드와 비슷한 속도로 말했습니다.",
     meta,
-    status: "적정",
+    status: "비슷",
     tone: "success",
-    value: "평소와 비슷함",
+    value: `분당 ${measuredCharactersPerMinute}자`,
   };
 }
-
 function buildFillerMetric(count: number | null | undefined): TestViewMetric {
-  if (count == null) return unavailableMetric("슬라이드별 습관어 분석 결과 없음");
+  if (count == null)
+    return unavailableMetric("슬라이드별 습관어 분석 결과 없음");
   const isHigh = count >= 2;
   return {
     description:
@@ -131,39 +157,45 @@ function buildLongSilenceMetric(count: number | null): TestViewMetric {
   };
 }
 
-function buildKeyMessageMetric(
+function buildRequiredKeywordMetric(
   report: RehearsalReport,
   slideId: string,
+  keywords: Deck["slides"][number]["keywords"],
 ): TestViewMetric {
-  const outcomes = report.semanticCueOutcomes.filter(
-    (outcome) =>
-      outcome.slideId === slideId &&
-      outcome.importance === "core" &&
-      outcome.status !== "excluded" &&
-      outcome.status !== "unmeasured",
-  );
-  if (outcomes.length === 0) {
-    return unavailableMetric("측정된 핵심 메시지 Cue 없음");
+  const requiredKeywords = keywords.filter((keyword) => keyword.required);
+  if (requiredKeywords.length === 0) {
+    return unavailableMetric("이 슬라이드에 등록된 필수 키워드가 없습니다.");
   }
 
-  const coveredCount = outcomes.filter((outcome) => outcome.status === "covered").length;
-  const partialCount = outcomes.filter((outcome) => outcome.status === "partial").length;
-  const missedCount = outcomes.filter((outcome) => outcome.status === "missed").length;
+  if (report.metrics.keywordCoverageMeasurement.state !== "measured") {
+    return unavailableMetric(
+      "슬라이드별 발화 기록이 부족해 필수 키워드를 확인할 수 없습니다.",
+    );
+  }
+
+  const requiredKeywordIds = new Set(
+    requiredKeywords.map((keyword) => keyword.keywordId),
+  );
+  const missed = report.missedKeywords.filter(
+    (keyword) =>
+      keyword.slideId === slideId && requiredKeywordIds.has(keyword.keywordId),
+  );
+  const matchedCount = requiredKeywords.length - missed.length;
   const tone: TestMetricTone =
-    missedCount > 0 ? "danger" : partialCount > 0 ? "warning" : "success";
+    missed.length === 0 ? "success" : matchedCount === 0 ? "danger" : "warning";
 
   return {
-    description: `핵심 메시지 ${outcomes.length}개 중 ${coveredCount}개를 명확히 전달했습니다.`,
+    description: `필수 키워드 ${requiredKeywords.length}개 중 ${matchedCount}개가 발화 기록에서 확인됐습니다.`,
     meta:
-      partialCount > 0 || missedCount > 0
-        ? `일부 전달 ${partialCount}개 · 미전달 ${missedCount}개`
-        : "모든 핵심 메시지 전달",
-    status: tone === "success" ? "충족" : tone === "warning" ? "일부 전달" : "미흡",
+      missed.length > 0
+        ? `미전달: ${missed.map((keyword) => keyword.text).join(", ")}`
+        : "모든 필수 키워드 전달",
+    status:
+      tone === "success" ? "전달" : tone === "warning" ? "일부 전달" : "미전달",
     tone,
-    value: `${coveredCount} / ${outcomes.length}개`,
+    value: `${matchedCount} / ${requiredKeywords.length}개`,
   };
 }
-
 function buildNextPractice(report: RehearsalReport, slideId: string) {
   const slideFeedback = report.semanticCueOutcomes.find(
     (outcome) =>
