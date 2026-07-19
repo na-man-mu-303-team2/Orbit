@@ -1,24 +1,51 @@
 import type { ActivitySlide, Deck } from "@orbit/shared";
+import { IconQrcode } from "@tabler/icons-react";
 
 import { OrbitBrand } from "../../../components/ui";
 import { createActivityThemeStyle } from "../rendering/activityThemeStyle";
 import "./activity-slide-editor.css";
 
 export type ActivityPreviewRole = "audience" | "presenter";
+export type ActivityAudiencePreviewMode = "editor" | "actual";
 
 export function ActivitySlidePreview(props: {
   role: ActivityPreviewRole;
   slide: ActivitySlide;
   theme?: Deck["theme"];
+  audiencePreviewMode?: ActivityAudiencePreviewMode;
 }) {
   const activity = props.slide.activity;
+  const audienceMode = props.audiencePreviewMode ?? "editor";
   const questionDensity = activity.questions.length >= 5
     ? "dense"
     : activity.questions.length >= 3
       ? "compact"
       : "comfortable";
 
-  return (
+  return props.role === "audience" && audienceMode === "actual" ? (
+    <section
+      aria-label="실제 청중 화면 미리보기"
+      className={`activity-slide-preview-actual-audience activity-slide-preview activity-slide-preview-${questionDensity}`}
+      data-activity-system-layer="locked"
+      data-activity-template={activity.template}
+      style={createActivityThemeStyle(props.theme, props.slide.style)}
+    >
+      <div className="activity-slide-preview-copy">
+        <OrbitBrand className="activity-slide-preview-brand" />
+        <h2>{activity.title}</h2>
+        {activity.description ? <p>{activity.description}</p> : null}
+      </div>
+      <div className="activity-audience-preview-session">
+        <div className="activity-audience-preview-qr">
+          <IconQrcode aria-hidden="true" size={54} stroke={1.5} />
+        </div>
+        <div>
+          <strong>발표자가 참여 화면을 준비하고 있습니다.</strong>
+          <span>참여 화면이 열리면 QR 코드가 표시됩니다.</span>
+        </div>
+      </div>
+    </section>
+  ) : (
     <section
       aria-label={`${props.role === "audience" ? "청중" : "발표자"} 참여 장표 미리보기`}
       className={`activity-slide-preview activity-slide-preview-${props.role} activity-slide-preview-${questionDensity}`}

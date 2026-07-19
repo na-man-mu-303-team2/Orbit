@@ -420,11 +420,19 @@ export function ActivitySlideInspector(props: {
             type="button"
             onClick={() => setPreviewRole(role)}
           >
-            {role === "audience" ? "청중에게 보이는 화면" : "내 화면"}
+            {role === "audience" ? "청중(에디터)" : "발표자(에디터)"}
           </button>
         ))}
       </div>
-      <ActivitySlidePreview role={previewRole} slide={props.slide} theme={props.theme} />
+      <p className="activity-audience-preview-hint">
+        청중 탭은 실제 참여 화면 미리보기가 아닌 에디터용 레이아웃입니다.
+      </p>
+      <ActivitySlidePreview
+        audiencePreviewMode={previewRole === "audience" ? "actual" : undefined}
+        role={previewRole}
+        slide={props.slide}
+        theme={props.theme}
+      />
 
       <div aria-label="자동으로 만들어지는 응답 화면" className="activity-system-layer-lock">
         <strong>응답 화면은 자동으로 만들어져요.</strong>
