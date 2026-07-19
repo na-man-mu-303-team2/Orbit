@@ -335,8 +335,8 @@
 }
 
 .activity-editor-secondary-command {
-  background: var(--redesign-color-light-surface);
-  border: 1px solid var(--redesign-color-on-surface);
+  background: var(--redesign-color-surface-container-high);
+  border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-xl);
   color: var(--redesign-color-on-surface);
   font-weight: 800;
@@ -362,14 +362,16 @@
 .activity-editor-qr-toggle,
 .activity-editor-operations > button:not(.activity-editor-primary-command) {
   align-items: center;
-  background: var(--redesign-color-light-surface);
+  background: var(--redesign-color-surface-container-high);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-xl);
+  color: var(--redesign-color-on-surface);
   display: inline-flex;
-  font-size: var(--redesign-type-label-sm-size);
+  font-size: var(--redesign-type-label-md-size);
   font-weight: 700;
   gap: var(--redesign-space-1);
   justify-content: center;
+  min-height: 40px;
   padding: var(--redesign-space-2) var(--redesign-space-2);
 }
 
@@ -425,13 +427,13 @@
 
 .activity-question-editor button,
 .activity-inspector-questions > button {
-  background: var(--redesign-color-light-surface);
+  background: var(--redesign-color-surface-container-high);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-xl);
   color: var(--redesign-color-on-surface);
-  font-size: var(--redesign-type-label-sm-size);
+  font-size: var(--redesign-type-label-md-size);
   font-weight: 700;
-  min-height: 30px;
+  min-height: 34px;
   padding: var(--redesign-space-1) var(--redesign-space-2);
 }
 
@@ -483,14 +485,16 @@
   background: transparent;
   border: 0;
   border-radius: var(--redesign-radius-xl);
-  color: var(--redesign-color-on-surface-variant);
-  font-size: var(--redesign-type-label-sm-size);
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-md-size);
   font-weight: 700;
+  min-height: 40px;
   padding: var(--redesign-space-2);
 }
 
 .activity-preview-tabs button.active {
-  background: var(--redesign-color-light-surface);
+  background: var(--redesign-color-surface-container-highest);
+  box-shadow: var(--redesign-shadow-inset-primary);
   color: var(--redesign-color-on-surface);
 }
 
@@ -528,8 +532,9 @@
   min-height: 40px;
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-xl);
-  background: var(--redesign-color-light-surface);
+  background: var(--redesign-color-surface-container-high);
   color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-md-size);
   font-weight: 700;
 }
 

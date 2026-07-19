@@ -7,7 +7,7 @@ import pytest
 import app.main as api_module
 import app.rehearsal as rehearsal_module
 from app.audio.analysis.models import RehearsalSilenceAnalysis
-from app.audio.transcribe import TranscriptSegment
+from app.audio.transcribe import PronunciationContextTerm, TranscriptSegment
 from app.config import load_config
 from app.rehearsal import (
     DeckKeyword,
@@ -137,6 +137,41 @@ def test_analyze_rehearsal_metrics_counts_silences_fillers_and_keywords() -> Non
     assert metrics.words_per_minute == 12
     assert metrics.filler_word_count == 1
     assert metrics.long_silence_count == 1
+    assert metrics.keyword_coverage == 1
+
+
+def test_analyze_rehearsal_metrics_matches_korean_pronunciation_aliases() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="오픈 에이아이 에이피아이를 활용했습니다",
+        duration_seconds=10,
+        segments=[
+            TranscriptSegment(
+                text="오픈 에이아이 에이피아이를 활용했습니다",
+                startSeconds=0,
+                endSeconds=5,
+            )
+        ],
+        deck_keywords=[
+            DeckKeyword(
+                keyword_id="kw_openai",
+                slide_id="slide_1",
+                text="OpenAI",
+                required=True,
+            ),
+            DeckKeyword(
+                keyword_id="kw_api",
+                slide_id="slide_1",
+                text="API",
+                required=True,
+            ),
+        ],
+        slide_timeline=[SlideTimelineEntry(slide_id="slide_1", entered_second=0)],
+        pronunciation_context=[
+            PronunciationContextTerm(source="OpenAI", aliases=["오픈에이아이"]),
+            PronunciationContextTerm(source="API", aliases=["에이피아이"]),
+        ],
+    )
+
     assert metrics.keyword_coverage == 1
 
 

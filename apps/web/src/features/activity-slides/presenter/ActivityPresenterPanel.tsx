@@ -15,7 +15,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { activityApi } from "../api/activityApi";
+import { activityApi, ActivityApiError } from "../api/activityApi";
 import { canonicalActivityUrl } from "../rendering/ActivityAudienceSlideRenderer";
 import "./activity-presenter-panel.css";
 
@@ -27,7 +27,9 @@ type ActivityPresenterRuntime = {
 };
 
 export function ActivityPresenterPanel(props: {
+  autoStart?: boolean;
   deckId: string;
+  deckVersion: number;
   projectId: string;
   slide: ActivitySlide;
 }) {
@@ -42,31 +44,22 @@ export function ActivityPresenterPanel(props: {
 
     const setup = async () => {
       try {
-        const current = await activityApi.getCurrentSession(props.projectId, props.deckId);
-        if (!current.session || !current.audienceUrl) {
+        const nextRuntime = await loadActivityPresenterRuntime({
+          activityId,
+          autoStart: props.autoStart ?? false,
+          deckId: props.deckId,
+          deckVersion: props.deckVersion,
+          projectId: props.projectId
+        });
+        if (!nextRuntime) {
           if (!cancelled) {
             setRuntime(null);
             setError("청중 링크에서 발표 세션을 먼저 시작해주세요.");
           }
           return;
         }
-        const { run } = await activityApi.ensureRun(
-          props.projectId,
-          current.session.sessionId,
-          activityId
-        );
-        const { result } = await activityApi.getPresenterResult(
-          props.projectId,
-          current.session.sessionId,
-          run.activityRunId
-        );
         if (!cancelled) {
-          setRuntime({
-            audienceUrl: canonicalActivityUrl(current.audienceUrl, activityId),
-            result,
-            run,
-            sessionId: current.session.sessionId
-          });
+          setRuntime(nextRuntime);
           setError("");
         }
       } catch (cause) {
@@ -80,7 +73,7 @@ export function ActivityPresenterPanel(props: {
       cancelled = true;
       window.clearInterval(timerId);
     };
-  }, [activityId, props.deckId, props.projectId]);
+  }, [activityId, props.autoStart, props.deckId, props.deckVersion, props.projectId]);
 
   const primary = useMemo(
     () => getActivityPrimaryCommand(runtime?.run.status ?? "draft"),
@@ -219,6 +212,75 @@ export function ActivityPresenterPanel(props: {
       )}
     </section>
   );
+}
+
+export async function loadActivityPresenterRuntime(input: {
+  activityId: string;
+  autoStart: boolean;
+  deckId: string;
+  deckVersion: number;
+  projectId: string;
+}): Promise<ActivityPresenterRuntime | null> {
+  const current = await activityApi.getCurrentSession(input.projectId, input.deckId);
+  let session = current.session;
+  let audienceUrl = current.audienceUrl;
+  if (!session || !audienceUrl) {
+    if (!input.autoStart) return null;
+    const created = await activityApi.createSession(input.projectId, {
+      accessMode: "public",
+      deckId: input.deckId
+    });
+    session = created.session;
+    audienceUrl = created.audienceUrl;
+  }
+
+  let run: ActivityRun;
+  try {
+    ({ run } = await activityApi.ensureRun(
+      input.projectId,
+      session.sessionId,
+      input.activityId
+    ));
+  } catch (cause) {
+    const canReplaceStaleSession =
+      input.autoStart &&
+      session.deckVersion !== input.deckVersion &&
+      cause instanceof ActivityApiError &&
+      cause.status === 404 &&
+      cause.message === "Activity definition not found in stored Deck";
+    if (!canReplaceStaleSession) throw cause;
+
+    const created = await activityApi.createSession(input.projectId, {
+      accessMode: "public",
+      deckId: input.deckId
+    });
+    session = created.session;
+    audienceUrl = created.audienceUrl;
+    ({ run } = await activityApi.ensureRun(
+      input.projectId,
+      session.sessionId,
+      input.activityId
+    ));
+  }
+  if (input.autoStart && run.status === "draft") {
+    ({ run } = await activityApi.updateRunStatus(
+      input.projectId,
+      session.sessionId,
+      run.activityRunId,
+      { status: "open", expectedRevision: run.revision }
+    ));
+  }
+  const { result } = await activityApi.getPresenterResult(
+    input.projectId,
+    session.sessionId,
+    run.activityRunId
+  );
+  return {
+    audienceUrl: canonicalActivityUrl(audienceUrl, input.activityId),
+    result,
+    run,
+    sessionId: session.sessionId
+  };
 }
 
 export function ActivityPresenterMetrics(props: {

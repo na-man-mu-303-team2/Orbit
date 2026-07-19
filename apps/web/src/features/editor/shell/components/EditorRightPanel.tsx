@@ -26,11 +26,11 @@ import type {
 } from "react";
 
 import { SourceLedgerPanel } from "../../ai/quality/SourceLedgerPanel";
-import {
-  ValidationPanel,
-  type ValidationTextOverflowAction,
-} from "../../ai/quality/ValidationPanel";
-import type { EditorValidationItem } from "../../ai/quality/editorValidation";
+import { ValidationPanel } from "../../ai/quality/ValidationPanel";
+import type {
+  EditorValidationPresentationItem,
+  EditorValidationTargetView
+} from "../../ai/quality/validationPresentation";
 import {
   SemanticCueReviewPanel,
   type SemanticCueExtractionUiState,
@@ -54,10 +54,11 @@ type EditorRightPanelProps = {
   animationCount: number;
   animationProperties: ReactNode;
   canPlayAnimations: boolean;
+  canRepairValidation: boolean;
   currentSlide: Slide | null;
   deck: Deck;
   designProperties: ReactNode;
-  editorValidationItems: EditorValidationItem[];
+  editorValidationItems: readonly EditorValidationPresentationItem[];
   iconLibrary: ReactNode;
   isIconPanelOpen: boolean;
   isOpen: boolean;
@@ -65,7 +66,7 @@ type EditorRightPanelProps = {
   isPlayingAnimations: boolean;
   onAiChatStateChange: Dispatch<SetStateAction<AiChatState>>;
   onActivePanelModeChange: (mode: EditorRightPanelMode) => void;
-  onApplyAllValidationTextOverflow: () => void;
+  onFocusValidationTarget: (target: EditorValidationTargetView) => void;
   onHighlightElementIds: (elementIds: string[]) => void;
   onExitRehearsal?: () => void;
   onProposalApplied: (response: ApplyDesignAgentProposalResponse) => void;
@@ -78,10 +79,7 @@ type EditorRightPanelProps = {
   onResizeStart: (event: PointerEvent<HTMLButtonElement>) => void;
   onSemanticCueChange: (semanticCues: SemanticCue[]) => void;
   onSemanticCueExtract: (force: boolean) => void;
-  onTextOverflowAction: (
-    item: EditorValidationItem,
-    action: ValidationTextOverflowAction,
-  ) => void;
+  onRepairValidationTextOverflow?: (elementIds?: string[]) => void;
   projectId: string;
   propertiesOpenRequestId: number;
   pptxImportState: PptxImportState;
@@ -89,6 +87,8 @@ type EditorRightPanelProps = {
   rehearsalTitle?: string;
   selectedElementIds: string[];
   semanticCueExtractionState: SemanticCueExtractionUiState;
+  validationRepairableElementIds: readonly string[];
+  validationRepairStatus?: string | null;
   setAiPanelView: Dispatch<SetStateAction<AiPanelView>>;
   setIsIconPanelOpen: (open: boolean) => void;
   setIsAnimationPropertiesOpen: (open: boolean) => void;
@@ -413,12 +413,17 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                     >
                       <PptxImportQualityPanel state={props.pptxImportState} />
                       <ValidationPanel
+                        canRepair={props.canRepairValidation}
                         items={props.editorValidationItems}
-                        onApplyAllTextOverflow={
-                          props.onApplyAllValidationTextOverflow
-                        }
+                        onFocusTarget={props.onFocusValidationTarget}
                         onHighlightElementIds={props.onHighlightElementIds}
-                        onTextOverflowAction={props.onTextOverflowAction}
+                        onRepairTextOverflow={
+                          props.onRepairValidationTextOverflow
+                        }
+                        repairableElementIds={
+                          props.validationRepairableElementIds
+                        }
+                        repairStatus={props.validationRepairStatus}
                       />
                       <SourceLedgerPanel slide={props.currentSlide} />
                       <SemanticCueReviewPanel

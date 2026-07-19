@@ -1,16 +1,141 @@
 import { createActivitySlide, createDemoDeck } from "@orbit/editor-core";
 import type { ActivityPresenterResult } from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ActivityPresenterMetrics,
   ActivityPresenterResults,
   getActivityPrimaryCommand,
-  getActivityReopenCommand
+  getActivityReopenCommand,
+  loadActivityPresenterRuntime
 } from "./ActivityPresenterPanel";
+import { activityApi, ActivityApiError } from "../api/activityApi";
 
 describe("ActivityPresenterPanel", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("creates a public session and opens the current Activity when presentation starts", async () => {
+    const slide = createActivitySlide(createDemoDeck(), "pre-question");
+    const draftRun = activityRun(slide, "draft", 0);
+    const openRun = activityRun(slide, "open", 1);
+    vi.spyOn(activityApi, "getCurrentSession").mockResolvedValue({
+      audienceUrl: null,
+      session: null
+    });
+    vi.spyOn(activityApi, "createSession").mockResolvedValue({
+      audienceUrl: "/audience/session_1",
+      session: presentationSession()
+    });
+    vi.spyOn(activityApi, "ensureRun").mockResolvedValue({ run: draftRun });
+    vi.spyOn(activityApi, "updateRunStatus").mockResolvedValue({ run: openRun });
+    vi.spyOn(activityApi, "getPresenterResult").mockResolvedValue({
+      result: presenterResult(slide, "open")
+    });
+
+    await expect(loadActivityPresenterRuntime({
+      activityId: slide.activity.activityId,
+      autoStart: true,
+      deckId: "deck_demo",
+      deckVersion: 1,
+      projectId: "project_demo"
+    })).resolves.toMatchObject({
+      audienceUrl: "/audience/session_1/a/" + slide.activity.activityId,
+      run: { status: "open" },
+      sessionId: "session_1"
+    });
+    expect(activityApi.createSession).toHaveBeenCalledWith("project_demo", {
+      accessMode: "public",
+      deckId: "deck_demo"
+    });
+    expect(activityApi.updateRunStatus).toHaveBeenCalledWith(
+      "project_demo",
+      "session_1",
+      draftRun.activityRunId,
+      { expectedRevision: 0, status: "open" }
+    );
+  });
+
+  it("keeps an already open Activity open while refreshing presenter aggregates", async () => {
+    const slide = createActivitySlide(createDemoDeck(), "poll");
+    const openRun = activityRun(slide, "open", 3);
+    vi.spyOn(activityApi, "getCurrentSession").mockResolvedValue({
+      audienceUrl: "/audience/session_1",
+      session: presentationSession()
+    });
+    const createSession = vi.spyOn(activityApi, "createSession");
+    vi.spyOn(activityApi, "ensureRun").mockResolvedValue({ run: openRun });
+    const updateStatus = vi.spyOn(activityApi, "updateRunStatus");
+    vi.spyOn(activityApi, "getPresenterResult").mockResolvedValue({
+      result: presenterResult(slide, "open")
+    });
+
+    await loadActivityPresenterRuntime({
+      activityId: slide.activity.activityId,
+      autoStart: true,
+      deckId: "deck_demo",
+      deckVersion: 1,
+      projectId: "project_demo"
+    });
+
+    expect(createSession).not.toHaveBeenCalled();
+    expect(updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("replaces a stale session when the current Deck adds the requested Activity", async () => {
+    const slide = createActivitySlide(createDemoDeck(), "pre-question");
+    const draftRun = activityRun(slide, "draft", 0);
+    const openRun = activityRun(slide, "open", 1);
+    vi.spyOn(activityApi, "getCurrentSession").mockResolvedValue({
+      audienceUrl: "/audience/session_stale",
+      session: { ...presentationSession(), sessionId: "session_stale", deckVersion: 1 }
+    });
+    vi.spyOn(activityApi, "createSession").mockResolvedValue({
+      audienceUrl: "/audience/session_current",
+      session: { ...presentationSession(), sessionId: "session_current", deckVersion: 4 }
+    });
+    const ensureRun = vi.spyOn(activityApi, "ensureRun")
+      .mockRejectedValueOnce(new ActivityApiError(
+        "Activity definition not found in stored Deck",
+        404,
+        null
+      ))
+      .mockResolvedValueOnce({
+        run: { ...draftRun, presentationSessionId: "session_current" }
+      });
+    vi.spyOn(activityApi, "updateRunStatus").mockResolvedValue({
+      run: { ...openRun, presentationSessionId: "session_current" }
+    });
+    vi.spyOn(activityApi, "getPresenterResult").mockResolvedValue({
+      result: presenterResult(slide, "open")
+    });
+
+    await expect(loadActivityPresenterRuntime({
+      activityId: slide.activity.activityId,
+      autoStart: true,
+      deckId: "deck_demo",
+      deckVersion: 4,
+      projectId: "project_demo"
+    })).resolves.toMatchObject({
+      audienceUrl: "/audience/session_current/a/" + slide.activity.activityId,
+      sessionId: "session_current"
+    });
+    expect(ensureRun).toHaveBeenNthCalledWith(
+      1,
+      "project_demo",
+      "session_stale",
+      slide.activity.activityId
+    );
+    expect(ensureRun).toHaveBeenNthCalledWith(
+      2,
+      "project_demo",
+      "session_current",
+      slide.activity.activityId
+    );
+  });
+
   it("maps every runtime state to one primary presenter command", () => {
     expect(getActivityPrimaryCommand("draft")).toEqual({
       label: "응답 열기",
@@ -104,3 +229,70 @@ describe("ActivityPresenterPanel", () => {
     expect(html).toContain("질문 50");
   });
 });
+
+function presentationSession() {
+  return {
+    sessionId: "session_1",
+    projectId: "project_demo",
+    deckId: "deck_demo",
+    deckVersion: 1,
+    presenterUserId: "user_1",
+    createdBy: "user_1",
+    status: "live" as const,
+    accessMode: "public" as const,
+    startsAt: "2026-07-18T00:00:00.000Z",
+    expiresAt: "2026-07-19T00:00:00.000Z",
+    activeActivityRunId: null,
+    startedAt: "2026-07-18T00:00:00.000Z",
+    endedAt: null,
+    closedAt: null,
+    rawResponsesDeleteAfter: null,
+    rawResponsesDeletedAt: null,
+    resultsDeletedAt: null,
+    createdAt: "2026-07-18T00:00:00.000Z",
+    updatedAt: "2026-07-18T00:00:00.000Z"
+  };
+}
+
+function activityRun(
+  slide: ReturnType<typeof createActivitySlide>,
+  status: "draft" | "open",
+  revision: number
+) {
+  return {
+    activityRunId: "activity_run_1",
+    presentationSessionId: "session_1",
+    activityId: slide.activity.activityId,
+    sourceSlideId: slide.slideId,
+    version: 1,
+    supersedesActivityRunId: null,
+    definitionSnapshot: slide.activity,
+    definitionFingerprint: "activity-definition-fingerprint",
+    status,
+    revision,
+    isCurrent: true,
+    responseCount: 0,
+    openedAt: status === "open" ? "2026-07-18T00:00:00.000Z" : null,
+    closedAt: null,
+    revealedAt: null,
+    createdAt: "2026-07-18T00:00:00.000Z",
+    updatedAt: "2026-07-18T00:00:00.000Z"
+  };
+}
+
+function presenterResult(
+  slide: ReturnType<typeof createActivitySlide>,
+  status: "open"
+): ActivityPresenterResult {
+  return {
+    activityRunId: "activity_run_1",
+    activityId: slide.activity.activityId,
+    status,
+    revision: 1,
+    responseCount: 0,
+    participantCount: 0,
+    responseRate: 0,
+    aggregates: [],
+    textEntries: []
+  };
+}

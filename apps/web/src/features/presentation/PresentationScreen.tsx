@@ -1,5 +1,6 @@
 import type { Deck, DeckElement, Slide } from "@orbit/shared";
 import { Presentation } from "lucide-react";
+import { ActivityPresenterPanel } from "../activity-slides";
 import { RehearsalPanel } from "../rehearsal/panel/RehearsalPanel";
 import type { RehearsalTimingSnapshot, TimingAdviceState } from "../rehearsal/panel/rehearsalTiming";
 import { SlideshowRenderer } from "../rehearsal/presenter/SlideshowRenderer";
@@ -148,18 +149,28 @@ export function PresentationScreen(props: {
             title="발표 시간"
           />
 
-          <RehearsalPanel
-            adviceState={props.adviceState}
-            highlightedKeywordOccurrences={props.highlightedKeywordOccurrences}
-            keywords={props.keywords ?? []}
-            mode="rehearsal"
-            sentences={props.sentences}
-            showAdvicePanel={false}
-            snapshot={props.panelSnapshot}
-            speakerNotes={props.currentSlide?.speakerNotes ?? ""}
-            timing={props.timing}
-            wordsPerMinute={0}
-          />
+          {props.currentSlide?.kind === "activity" && props.deck ? (
+            <ActivityPresenterPanel
+              autoStart
+              deckId={props.deck.deckId}
+              deckVersion={props.deck.version}
+              projectId={props.deck.projectId}
+              slide={props.currentSlide}
+            />
+          ) : (
+            <RehearsalPanel
+              adviceState={props.adviceState}
+              highlightedKeywordOccurrences={props.highlightedKeywordOccurrences}
+              keywords={props.keywords ?? []}
+              mode="rehearsal"
+              sentences={props.sentences}
+              showAdvicePanel={false}
+              snapshot={props.panelSnapshot}
+              speakerNotes={props.currentSlide?.speakerNotes ?? ""}
+              timing={props.timing}
+              wordsPerMinute={0}
+            />
+          )}
         </aside>
       </section>
     </main>

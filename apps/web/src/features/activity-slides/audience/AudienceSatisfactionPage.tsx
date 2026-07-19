@@ -1,5 +1,6 @@
 import type {
   ActivityDefinition,
+  ActivityRuntimeStatus,
   GetAudienceActivityResponse,
   UpsertActivityResponseRequest
 } from "@orbit/shared";
@@ -332,7 +333,11 @@ export function AudienceSatisfactionPage(props: {
             onSubmit={(next) => void submit(next)}
           />
         ) : (
-          <AudienceStatus icon={<IconClock />} title="응답이 마감되었습니다" />
+          <AudienceStatus
+            description={getAudienceActivityStatusCopy(current.run.status).description}
+            icon={<IconClock />}
+            title={getAudienceActivityStatusCopy(current.run.status).title}
+          />
         )
       ) : null}
       {mode === "receipt" && current?.ownResponse && current.run.status !== "results" ? (
@@ -364,6 +369,22 @@ export async function loadAudienceActivityRefresh(
   const active = (await activityApi.getAudienceActiveActivity(sessionId)).activity;
   if (active || !currentActivityId) return active;
   return activityApi.getAudienceActivity(sessionId, currentActivityId);
+}
+
+export function getAudienceActivityStatusCopy(
+  status: Exclude<ActivityRuntimeStatus, "open" | "results">
+) {
+  if (status === "draft") {
+    return {
+      title: "발표자가 응답을 준비하고 있습니다",
+      description: "응답이 열리면 이 화면에 자동으로 표시됩니다."
+    };
+  }
+
+  return {
+    title: "응답이 마감되었습니다",
+    description: undefined
+  };
 }
 
 export function AudiencePublicResultCard(props: {

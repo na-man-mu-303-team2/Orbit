@@ -6,9 +6,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   App,
   deckRenderPayloadStorageKey,
+  fetchProjectAccess,
+  getProjectAccessFailureBehavior,
   getProjectAccessRoleLabel,
   getAppNavigationItem,
   getRoute,
+  ProjectAccessRequestError,
+  shouldRetryProjectAccess,
   shouldRenderAppFrame,
   shouldWaitForAuthResolution
 } from "./App";
@@ -218,7 +222,9 @@ describe("App shell routing", () => {
         </QueryClientProvider>
       );
 
-      expect(html).toContain("발표 내용부터 빠르게 시작하세요");
+      expect(html).not.toContain("핵심 컨텍스트");
+      expect(html).toContain("대본 톤");
+      expect(html).toContain("다음 단계");
       expect(html).toContain("Style &amp; Color");
     } finally {
       vi.unstubAllGlobals();
@@ -394,6 +400,60 @@ describe("public and authentication surfaces", () => {
 });
 
 describe("workspace project surfaces", () => {
+  it("classifies an expired authentication session from project access", async () => {
+    await expect(
+      fetchProjectAccess(
+        "project_1",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ message: "Authentication required" }), {
+            status: 401,
+          }),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      name: "ProjectAccessRequestError",
+      status: 401,
+    });
+  });
+
+  it("retries transient project access failures but not authentication or missing-project responses", () => {
+    expect(shouldRetryProjectAccess(0, new TypeError("Failed to fetch"))).toBe(true);
+    expect(shouldRetryProjectAccess(2, new TypeError("Failed to fetch"))).toBe(false);
+    expect(
+      shouldRetryProjectAccess(
+        0,
+        new ProjectAccessRequestError("Authentication required", 401),
+      ),
+    ).toBe(false);
+    expect(
+      shouldRetryProjectAccess(
+        0,
+        new ProjectAccessRequestError("Project not found", 404),
+      ),
+    ).toBe(false);
+    expect(
+      shouldRetryProjectAccess(
+        0,
+        new ProjectAccessRequestError("Server error", 503),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps an already-authorized editor open for a transient access failure", () => {
+    expect(
+      getProjectAccessFailureBehavior(new TypeError("Failed to fetch"), true),
+    ).toBe("preserve");
+    expect(
+      getProjectAccessFailureBehavior(
+        new ProjectAccessRequestError("Authentication required", 401),
+        true,
+      ),
+    ).toBe("login");
+    expect(
+      getProjectAccessFailureBehavior(new TypeError("Failed to fetch"), false),
+    ).toBe("blocking");
+  });
+
   it("uses localized project access roles", () => {
     expect(getProjectAccessRoleLabel("owner")).toBe("소유자");
     expect(getProjectAccessRoleLabel("editor")).toBe("편집 가능");
@@ -471,14 +531,28 @@ describe("workspace project surfaces", () => {
   });
 
   it("renders a dedicated rehearsal project picker without creation or delete actions", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["projects"], [
+      {
+        createdAt: "2026-07-18T00:00:00.000Z",
+        createdBy: "user_1",
+        isPinned: false,
+        projectId: "project_private_identifier",
+        title: "리허설 발표자료",
+        workspaceId: "workspace_1",
+      },
+    ]);
     const html = renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={queryClient}>
         <RehearsalProjectPickerPage onNavigate={() => undefined} />
       </QueryClientProvider>
     );
 
-    expect(html).toContain(">리허설<");
-    expect(html).toContain("연습할 발표자료를 선택하세요.");
+    expect(html).toContain('aria-label="리허설 프로젝트 목록"');
+    expect(html).toContain("리허설 발표자료");
+    expect(html).toContain("연습하러 가기");
+    expect(html).toContain("redesign-button-primary");
+    expect(html).not.toContain("project_private_identifier");
     expect(html).toContain('aria-label="프로젝트 새로고침"');
     expect(html).not.toContain("빈 프로젝트");
   });

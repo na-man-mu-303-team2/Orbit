@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AudiencePublicResultCard,
   AudienceSatisfactionForm,
+  getAudienceActivityStatusCopy,
   loadAudienceActivityRefresh
 } from "./AudienceSatisfactionPage";
 import { createSatisfactionDraft } from "./activityFormModel";
@@ -47,6 +48,16 @@ describe("AudienceSatisfactionForm", () => {
     expect(activityApi.getAudienceActivity).toHaveBeenCalledWith(
       "session_1",
       definition.activityId
+    );
+  });
+
+  it("distinguishes a draft Activity from a closed response window", () => {
+    expect(getAudienceActivityStatusCopy("draft")).toEqual({
+      title: "발표자가 응답을 준비하고 있습니다",
+      description: "응답이 열리면 이 화면에 자동으로 표시됩니다."
+    });
+    expect(getAudienceActivityStatusCopy("closed").title).toBe(
+      "응답이 마감되었습니다"
     );
   });
 

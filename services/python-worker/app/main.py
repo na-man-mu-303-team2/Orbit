@@ -68,6 +68,7 @@ from app.ai.pptx_ooxml_generation import (
 from app.ai.pptx_ooxml_sync_transport import (
     DECK_CANVAS_MAX_BYTES,
     OPERATIONS_MAX_BYTES,
+    SLIDE_MOTION_MAX_BYTES,
     TEMPLATE_BLUEPRINT_MAX_BYTES,
     PptxOoxmlSyncTransportError,
     parse_json_part,
@@ -109,6 +110,7 @@ from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
     AudioTranscriptionError,
+    PronunciationContextTerm,
     ReportSttProviderDependency,
     TranscriptSegment,
     to_http_exception,
@@ -340,6 +342,11 @@ class RehearsalAnalyzeRequest(BaseModel):
         ),
         alias="silenceAnalysis",
     )
+    pronunciation_context: list[PronunciationContextTerm] = Field(
+        default_factory=list,
+        alias="pronunciationContext",
+        max_length=32,
+    )
 
 
 class RehearsalCoachingResponse(BaseModel):
@@ -381,11 +388,11 @@ class RehearsalSlideSpeakingRateResponse(BaseModel):
     )
     reason_code: (
         Literal[
-        "UNSUPPORTED_LANGUAGE",
-        "SEGMENT_TIMESTAMPS_UNAVAILABLE",
-        "INSUFFICIENT_SLIDE_SPEECH",
-        "BASELINE_UNAVAILABLE",
-        "LEGACY_REPORT",
+            "UNSUPPORTED_LANGUAGE",
+            "SEGMENT_TIMESTAMPS_UNAVAILABLE",
+            "INSUFFICIENT_SLIDE_SPEECH",
+            "BASELINE_UNAVAILABLE",
+            "LEGACY_REPORT",
         ]
         | None
     ) = Field(alias="reasonCode")
@@ -683,9 +690,11 @@ async def sync_pptx_ooxml_endpoint(
     file: UploadFile = File(...),
     template_blueprint_file: UploadFile | None = File(None),
     operations_file: UploadFile | None = File(None),
+    slide_motion_file: UploadFile | None = File(None),
     deck_canvas_file: UploadFile | None = File(None),
     template_blueprint: str | None = Form(None),
     operations: str | None = Form(None),
+    slide_motion: str | None = Form(None),
     deck_canvas: str | None = Form(None),
     synced_deck_version: int = Form(...),
     render: bool = Form(True),
@@ -715,6 +724,18 @@ async def sync_pptx_ooxml_endpoint(
                 expected="operations",
             ),
         )
+        parsed_slide_motion = cast(
+            list[dict[str, Any]],
+            await parse_json_part(
+                field="slide_motion",
+                upload=slide_motion_file,
+                legacy_text=slide_motion,
+                max_bytes=SLIDE_MOTION_MAX_BYTES,
+                expected="operations",
+            )
+            if slide_motion_file is not None or slide_motion is not None
+            else [],
+        )
         parsed_deck_canvas = cast(
             dict[str, Any],
             await parse_json_part(
@@ -740,6 +761,7 @@ async def sync_pptx_ooxml_endpoint(
                 source_path,
                 template_blueprint=parsed_template_blueprint,
                 operations=parsed_operations,
+                slide_motion=parsed_slide_motion,
                 deck_canvas=parsed_deck_canvas,
                 synced_deck_version=synced_deck_version,
                 render=render,
@@ -1139,6 +1161,7 @@ def analyze_rehearsal(
             for entry in payload.slide_timeline
         ],
         silence_analysis=payload.silence_analysis,
+        pronunciation_context=payload.pronunciation_context,
     )
     coaching = generate_rehearsal_coaching(
         transcript=payload.transcript,

@@ -169,6 +169,10 @@
   --redesign-type-label-sm-line-height: 16px;
   --redesign-type-label-sm-tracking: 0.05em;
 
+  /* Micro copy is reserved for scaled slide previews and dense metadata. */
+  --redesign-type-micro-md-size: 8px;
+  --redesign-type-micro-sm-size: 7px;
+
   /* Shape — controls 4px, containers 8px, large panels 12px */
   --redesign-radius-sm: 0.125rem;
   --redesign-radius: 0.25rem;

@@ -365,6 +365,11 @@ export async function processRehearsalSttJob(
         body: JSON.stringify({
           runId: payload.runId,
           projectId: payload.projectId,
+          pronunciationContext: deckContext.evaluationSnapshot
+            ? buildTranscriptionPronunciationContext(
+                deckContext.evaluationSnapshot,
+              )
+            : [],
           audio: {
             fileId: payload.audioFileId,
             storageUrl,
@@ -586,6 +591,33 @@ export async function processRehearsalSttJob(
   return completedJob;
 }
 
+export function buildTranscriptionPronunciationContext(
+  snapshot: Pick<RehearsalEvaluationSnapshot, "pronunciationLexicon">,
+  limit: number = 32,
+) {
+  const context: Array<{ source: string; aliases: string[] }> = [];
+  const boundedLimit = Math.max(0, Math.min(limit, 32));
+
+  for (const entry of snapshot.pronunciationLexicon?.entries ?? []) {
+    if (context.length >= boundedLimit) {
+      break;
+    }
+    if (entry.status !== "active") {
+      continue;
+    }
+    const aliases = entry.aliases
+      .filter((alias) => alias.enabled && alias.confidence >= 0.8)
+      .slice(0, 2)
+      .map((alias) => alias.text);
+    if (aliases.length === 0) {
+      continue;
+    }
+    context.push({ source: entry.sourceText, aliases });
+  }
+
+  return context;
+}
+
 function buildRehearsalReport(
   payload: RehearsalSttPayload,
   transcription: RehearsalAudioProcessingResponse,
@@ -709,6 +741,9 @@ async function analyzeTranscript(
           required,
         }),
       ),
+    pronunciationContext: deckContext.evaluationSnapshot
+      ? buildTranscriptionPronunciationContext(deckContext.evaluationSnapshot)
+      : [],
     slideTimeline: buildAnalyzeSlideTimeline(deckContext, runMeta),
     silenceAnalysis: transcription.silenceAnalysis,
   });

@@ -97,7 +97,7 @@ export function ActivityAudienceSlideRenderer(props: {
       setQrDataUrl("");
       return;
     }
-    void createQrDataUrl(props.audienceUrl)
+    void createQrDataUrl(props.audienceUrl, { width: 640 })
       .then((value) => {
         if (!cancelled) setQrDataUrl(value);
       })
@@ -138,7 +138,7 @@ export function ActivityAudienceSlideRenderer(props: {
               {qrDataUrl ? (
                 <img alt="참여 페이지 QR 코드" src={qrDataUrl} />
               ) : (
-                <IconQrcode aria-hidden="true" size={94} stroke={1.4} />
+                <IconQrcode aria-hidden="true" size={160} stroke={1.4} />
               )}
             </div>
             <div>

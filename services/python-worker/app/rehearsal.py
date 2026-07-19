@@ -9,7 +9,8 @@ from statistics import median
 from typing import Any, Literal
 
 from app.audio.analysis.models import RehearsalSilenceAnalysis
-from app.audio.transcribe import TranscriptSegment
+from app.audio.transcribe import PronunciationContextTerm, TranscriptSegment
+from app.pronunciation import find_canonical_term_keys, normalize_pronunciation_key
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +230,7 @@ def analyze_rehearsal_metrics(
     language: str = "und",
     slide_timeline: list[SlideTimelineEntry] | None = None,
     silence_analysis: RehearsalSilenceAnalysis | None = None,
+    pronunciation_context: list[PronunciationContextTerm] | None = None,
 ) -> RehearsalMetricsResult:
     # TODO: 현재 산식은 MVP 휴리스틱이므로, 문서화된 리허설 평가 기준에 맞춰 재검토한다.
     words = transcript_words(transcript)
@@ -241,6 +243,7 @@ def analyze_rehearsal_metrics(
         deck_keywords=deck_keywords,
         slide_timeline=slide_timeline or [],
         duration_seconds=duration_seconds,
+        pronunciation_context=pronunciation_context,
     )
     long_silence_count = (
         silence_analysis.long_silence_count
@@ -872,12 +875,17 @@ def keyword_coverage(transcript: str, deck_keywords: list[DeckKeyword]) -> float
 def analyze_keywords(
     transcript: str,
     deck_keywords: list[DeckKeyword],
+    pronunciation_context: list[PronunciationContextTerm] | None = None,
 ) -> KeywordAnalysis:
     # 현재 키워드 커버리지는 유의어/약어 후보의 단순 부분 문자열 매칭으로 계산한다.
     if not deck_keywords:
         return KeywordAnalysis(coverage=0.0)
 
     normalized_transcript = transcript.lower()
+    canonical_term_keys = find_canonical_term_keys(
+        transcript,
+        pronunciation_context or [],
+    )
     matched = 0
     missed: list[MissedKeywordDetail] = []
     for keyword in deck_keywords:
@@ -886,7 +894,12 @@ def analyze_keywords(
             for candidate in [keyword.text, *keyword.synonyms, *keyword.abbreviations]
             if candidate.strip()
         ]
-        if any(candidate in normalized_transcript for candidate in candidates):
+        candidate_canonical_keys = {
+            normalize_pronunciation_key(candidate) for candidate in candidates
+        }
+        if any(candidate in normalized_transcript for candidate in candidates) or (
+            canonical_term_keys & candidate_canonical_keys
+        ):
             matched += 1
         elif keyword.slide_id and keyword.keyword_id and keyword.text.strip():
             missed.append(
@@ -908,6 +921,7 @@ def analyze_required_keywords_by_slide(
     deck_keywords: list[DeckKeyword],
     slide_timeline: list[SlideTimelineEntry],
     duration_seconds: float,
+    pronunciation_context: list[PronunciationContextTerm] | None = None,
 ) -> KeywordAnalysis:
     required_keywords = [keyword for keyword in deck_keywords if keyword.required]
     if not required_keywords:
@@ -941,15 +955,23 @@ def analyze_required_keywords_by_slide(
     matched = 0
     missed: list[MissedKeywordDetail] = []
     for keyword in required_keywords:
-        normalized_transcript = unicodedata.normalize(
-            "NFKC", " ".join(slide_transcripts.get(keyword.slide_id, []))
-        ).casefold()
+        slide_transcript = " ".join(slide_transcripts.get(keyword.slide_id, []))
+        normalized_transcript = unicodedata.normalize("NFKC", slide_transcript).casefold()
+        canonical_term_keys = find_canonical_term_keys(
+            slide_transcript,
+            pronunciation_context or [],
+        )
         candidates = [
             unicodedata.normalize("NFKC", candidate.strip()).casefold()
             for candidate in [keyword.text, *keyword.synonyms, *keyword.abbreviations]
             if candidate.strip()
         ]
-        if any(candidate in normalized_transcript for candidate in candidates):
+        candidate_canonical_keys = {
+            normalize_pronunciation_key(candidate) for candidate in candidates
+        }
+        if any(candidate in normalized_transcript for candidate in candidates) or (
+            canonical_term_keys & candidate_canonical_keys
+        ):
             matched += 1
         elif keyword.slide_id and keyword.keyword_id and keyword.text.strip():
             missed.append(

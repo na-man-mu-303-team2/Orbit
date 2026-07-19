@@ -13,6 +13,7 @@ import { getRenderableSlideElements } from "../canvas/EditorCanvas";
 import { getImageCropActionState } from "../canvas/image/imageCropSession";
 import {
   AnimationInspectorPanel,
+  AnimationSlideTransitionEditor,
   buildAnimationKeywordTriggerPolicy,
   toAnimationKeywordTriggerOptions,
   useEditorAnimationPreview
@@ -32,6 +33,10 @@ import { useEditorShellUiStore } from "./editorShellUiStore";
 import { beginHorizontalPaneResize } from "./utils/beginHorizontalPaneResize";
 import { canEditSlideCanvas } from "./utils/slideEditingPolicy";
 import {
+  getAnimationMutationDisabledReason,
+  getTransitionMutationDisabledReason
+} from "./utils/motionEditingPolicy";
+import {
   createSelectionInspectorModel,
   resolveSelectionInspectorCompactMode
 } from "./selectionInspectorModel";
@@ -39,6 +44,10 @@ import {
   createDistributeSelectionPatch,
   type DistributeAxis
 } from "./utils/selectionDistribution";
+import {
+  createAlignSelectionPatch,
+  type SelectionAlignment
+} from "./utils/selectionAlignment";
 import {
   canMutateProjectDeck,
   useProjectAccessMembership
@@ -104,6 +113,11 @@ import type {
 } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
+import { createSafeTextOverflowRepair } from "../ai/quality/safeTextOverflowRepair";
+import {
+  presentEditorValidationItems,
+  type EditorValidationTargetView
+} from "../ai/quality/validationPresentation";
 import {
   ActivityResultSlideInspector,
   ActivitySlideInspector
@@ -137,6 +151,7 @@ import {
 import type { EditorRightPanelMode } from "./utils/rightPanelMode";
 import {
   fetchDeck,
+  fetchPptxImportQuality,
   flushEditorPersistenceBeforeManualAction
 } from "./api/deckPersistenceApi";
 import {
@@ -165,6 +180,7 @@ import { useEditorSlideCommands } from "./hooks/useEditorSlideCommands";
 import { useEditorPresentationActions } from "./hooks/useEditorPresentationActions";
 import { useEditorSlideRehearsal } from "./hooks/useEditorSlideRehearsal";
 import { useSlidePracticeSession } from "../practice/useSlidePracticeSession";
+import { useAutoSlideQuestionGuides } from "../practice/useAutoSlideQuestionGuides";
 import { useShapeMenuPlacement } from "./hooks/useShapeMenuPlacement";
 import { createSelectionNudgePatch } from "./utils/selectionNudge";
 import {
@@ -334,6 +350,7 @@ export function EditorShell(props: { projectId?: string }) {
   );
   const [validationHighlightElementIds, setValidationHighlightElementIds] =
     useState<string[]>([]);
+  const [validationRepairStatus, setValidationRepairStatus] = useState("");
   const activeTopMenu = useEditorShellUiStore((state) => state.activeTopMenu);
   const setActiveTopMenu = useEditorShellUiStore((state) => state.setActiveTopMenu);
   const insertTool = useEditorShellUiStore((state) => state.insertTool);
@@ -405,6 +422,19 @@ export function EditorShell(props: { projectId?: string }) {
     queryFn: () => fetchDeck(projectId),
     retry: false
   });
+  const autoSlideQuestionGuides = useAutoSlideQuestionGuides({
+    canGenerate: canMutateDeck,
+    persistedDeck: deckQuery.data,
+    projectId,
+  });
+  const pptxImportQualityQuery = useQuery({
+    queryKey: ["deck-import-quality", projectId],
+    queryFn: () => fetchPptxImportQuality(projectId),
+    enabled:
+      Boolean(deckQuery.data?.projectId) &&
+      deckQuery.data?.metadata.sourceType === "import",
+    retry: false
+  });
   const {
     refreshChangedSlideThumbnails,
     renderingDeck,
@@ -431,6 +461,7 @@ export function EditorShell(props: { projectId?: string }) {
     resetProjectUiState();
     setAiPanelView("chat");
     setAiChatState(createInitialAiChatState(projectId));
+    setValidationRepairStatus("");
     setSemanticCueExtractionState({ status: "idle", message: "" });
   }, [projectId, resetProjectUiState]);
 
@@ -724,6 +755,7 @@ export function EditorShell(props: { projectId?: string }) {
     },
     onSetSelectTool: () => setInsertTool("select"),
     persistedProjectId: deckQuery.data?.projectId,
+    rehydratedPptxImportQuality: pptxImportQualityQuery.data,
     prepareForImport: async () => {
       pendingPatchInputsRef.current = [];
       await saveQueueRef.current.catch(() => undefined);
@@ -793,8 +825,16 @@ export function EditorShell(props: { projectId?: string }) {
     ? getRenderableSlideElements(currentSlide, deck.canvas)
     : [];
   const editorValidationItems = useMemo(
-    () => getEditorValidationItems(deck, currentSlide ?? undefined),
-    [deck, currentSlide]
+    () => getEditorValidationItems(deck),
+    [deck]
+  );
+  const presentedEditorValidationItems = useMemo(
+    () => presentEditorValidationItems(deck, editorValidationItems),
+    [deck, editorValidationItems]
+  );
+  const safeTextOverflowRepair = useMemo(
+    () => createSafeTextOverflowRepair({ deck, items: editorValidationItems }),
+    [deck, editorValidationItems]
   );
   const {
     canvasViewportRef: editorCanvasViewportRef,
@@ -821,6 +861,12 @@ export function EditorShell(props: { projectId?: string }) {
         : [],
     [currentSlide]
   );
+  const animationMutationDisabledReason = currentSlide
+    ? getAnimationMutationDisabledReason(deck, currentSlide)
+    : null;
+  const transitionMutationDisabledReason = currentSlide
+    ? getTransitionMutationDisabledReason(deck, currentSlide)
+    : null;
   const currentSlideKeywordActionUsage = useMemo(
     () =>
       currentSlide
@@ -934,20 +980,15 @@ export function EditorShell(props: { projectId?: string }) {
     currentSlide,
     currentSlideKeywordUsage,
     deck,
-    editorValidationItems,
-    onChangeElementFrame: handleElementFrameChange,
     selectedKeywordId,
     selectedKeywordOccurrenceKey,
     setAnimationPanelFocusedAnimationId,
     setLastPatchLabel,
-    setSelectedElementIds,
     setSelectedKeywordId,
     setSelectedKeywordOccurrenceKey,
     workingDeckRef
   });
   const handleAddAnimation = editorSlideActions.addAnimation;
-  const handleApplyAllValidationTextOverflow =
-    editorSlideActions.applyAllValidationTextOverflow;
   const handleElementPropsChange = editorSlideActions.changeElementProps;
   const handleSlideStyleChange = editorSlideActions.changeSlideStyle;
   const handleThemeChange = editorSlideActions.changeTheme;
@@ -960,11 +1001,76 @@ export function EditorShell(props: { projectId?: string }) {
     editorSlideActions.toggleAdvanceSlideKeyword;
   const handleToggleKeywordRequired = editorSlideActions.toggleKeywordRequired;
   const handleUpdateAnimation = editorSlideActions.updateAnimation;
-  const handleValidationTextOverflowAction =
-    editorSlideActions.handleValidationTextOverflowAction;
+  const handleUpdateSlideTransition = editorSlideActions.updateSlideTransition;
   function clearSelectedKeyword() {
     editorSlideActions.clearSelectedKeyword();
   }
+
+  function handleValidationTargetFocus(target: EditorValidationTargetView) {
+    if (target.status !== "resolved" || !target.slideId) return;
+
+    const activeDeck = workingDeckRef.current;
+    const nextSlide = activeDeck.slides.find(
+      (candidate) => candidate.slideId === target.slideId
+    );
+    if (!nextSlide) return;
+
+    if (target.slideId !== resolvedCurrentSlideId) {
+      if (!confirmDiscardSpeakerNotesDraft()) {
+        setValidationHighlightElementIds([]);
+        return;
+      }
+      resetSpeakerNotesEditState(nextSlide.speakerNotes);
+      speakerNotesEditorActions.closeAssistant();
+      setCurrentSlideId(target.slideId);
+    }
+
+    setSelectedElementIds(target.elementIds);
+    setValidationHighlightElementIds(target.elementIds);
+    clearSelectedKeyword();
+    setEditingElementId(null);
+    setCustomShapeEditElementId(null);
+    setElementContextMenu(null);
+    setAiPanelView("tools");
+    setIsRightPanelOpen(true);
+  }
+
+  function handleSafeTextOverflowRepair(onlyElementIds?: readonly string[]) {
+    if (!canMutateDeck) return;
+
+    const activeDeck = workingDeckRef.current;
+    const result = createSafeTextOverflowRepair({
+      deck: activeDeck,
+      items: getEditorValidationItems(activeDeck),
+      onlyElementIds
+    });
+    if (!result.patch || result.repairedElementIds.length === 0) {
+      setValidationRepairStatus("안전 수정 가능한 텍스트 넘침이 없습니다.");
+      return;
+    }
+
+    const committed = commitPatch(result.patch, activeDeck);
+    if (!committed) {
+      setValidationRepairStatus(
+        "텍스트 넘침 안전 수정을 적용하지 못했습니다. 다시 시도해 주세요."
+      );
+      return;
+    }
+
+    const repairedElementIdSet = new Set(result.repairedElementIds);
+    const repairedOnCurrentSlide = activeDeck.slides
+      .find((slide) => slide.slideId === resolvedCurrentSlideId)
+      ?.elements.filter((element) =>
+        repairedElementIdSet.has(element.elementId)
+      )
+      .map((element) => element.elementId) ?? [];
+    setSelectedElementIds(repairedOnCurrentSlide);
+    setValidationHighlightElementIds(repairedOnCurrentSlide);
+    setValidationRepairStatus(
+      `텍스트 넘침 ${result.repairedElementIds.length}개를 안전 수정했습니다. 실행 취소로 되돌릴 수 있습니다.`
+    );
+  }
+
   const selectedAnimationPanelElement =
     selectedElement ??
     (selectedElementIds.length === 1
@@ -1590,6 +1696,17 @@ export function EditorShell(props: { projectId?: string }) {
     if (patch) commitPatch(patch);
   }
 
+  function handleAlignSelection(alignment: SelectionAlignment) {
+    if (!currentSlide || !canMutateDeck) return;
+    const patch = createAlignSelectionPatch(
+      workingDeckRef.current,
+      currentSlide,
+      selectedElements,
+      alignment
+    );
+    if (patch) commitPatch(patch);
+  }
+
   function handleOpenCompactSelectionInspector() {
     requestPropertiesPanel();
     requestAnimationFrame(() => selectionInspectorRef.current?.focus());
@@ -1613,6 +1730,7 @@ export function EditorShell(props: { projectId?: string }) {
       animationDiagnostics: currentSlideAnimationDiagnostics,
       canvas: deck.canvas,
       customShapeEditActive: isCustomShapeEditingSelection,
+      deckSourceType: deck.metadata.sourceType,
       imageCropActionState,
       onChangeElementFrame: handleElementFrameChange,
       onChangeElementLayerOrder: handleElementLayerOrderChange,
@@ -1657,8 +1775,21 @@ export function EditorShell(props: { projectId?: string }) {
         model={selectionInspectorModel}
         multiControls={
           <MultiSelectionQuickBar
-            canDistribute={selectionInspectorModel.selectedCount >= 3}
+            canAlign={
+              selectionInspectorModel.selectedCount >= 2 &&
+              selectedElements.every((element) => !element.locked)
+            }
+            canDistribute={
+              selectionInspectorModel.selectedCount >= 3 &&
+              selectedElements.every((element) => !element.locked)
+            }
             selectedCount={selectionInspectorModel.selectedCount}
+            onAlignBottom={() => handleAlignSelection("bottom")}
+            onAlignCenterX={() => handleAlignSelection("centerX")}
+            onAlignCenterY={() => handleAlignSelection("centerY")}
+            onAlignLeft={() => handleAlignSelection("left")}
+            onAlignRight={() => handleAlignSelection("right")}
+            onAlignTop={() => handleAlignSelection("top")}
             onDistributeX={() => handleDistributeSelection("x")}
             onDistributeY={() => handleDistributeSelection("y")}
           />
@@ -1789,6 +1920,7 @@ export function EditorShell(props: { projectId?: string }) {
           pptxExportMessage={pptxExportError || pptxExportStatus}
           pptxImportMeta={pptxImportMenuMeta(pptxImportState)}
           recoveryHint={saveErrorMessage ? getSaveRecoveryHint(saveErrorCode) : null}
+          saveFailed={saveState === "error"}
           saveMenuMeta={
             saveErrorMessage
               ? getSaveErrorStatusLabel(saveErrorCode)
@@ -2103,6 +2235,7 @@ export function EditorShell(props: { projectId?: string }) {
               />
             ) : (
               <SpeakerNotesPanel
+                canGenerateQuestionGuides={canMutateDeck}
                 contentRef={speakerNotesContentRef}
                 currentSlide={currentSlide}
                 deck={deck}
@@ -2159,6 +2292,12 @@ export function EditorShell(props: { projectId?: string }) {
                 selectedKeywordRequiredActive={selectedKeywordRequiredActive}
                 selectedKeywordUsage={selectedKeywordUsage}
                 projectId={projectId}
+                questionGuideAutoStatus={
+                  currentSlide
+                    ? autoSlideQuestionGuides.statusBySlideId[currentSlide.slideId] ?? "idle"
+                    : "idle"
+                }
+                questionGuideRefreshToken={autoSlideQuestionGuides.refreshToken}
                 reportRefreshToken={practiceReportRefreshToken}
                 requestedTab={requestedSpeakerNotesTab}
                 showIds={showIds}
@@ -2172,9 +2311,30 @@ export function EditorShell(props: { projectId?: string }) {
           aiPanelView={aiPanelView}
           animationCount={selectedElementAnimations.length}
           animationProperties={
+            <>
+            <AnimationSlideTransitionEditor
+              mutationDisabledReason={transitionMutationDisabledReason}
+              transition={currentSlide?.transition}
+              onUpdateTransition={(transition) => {
+                if (currentSlide) {
+                  handleUpdateSlideTransition(currentSlide.slideId, transition);
+                }
+              }}
+            />
             <AnimationInspectorPanel
+              actionAnimationIds={
+                currentSlide?.actions.flatMap((action) =>
+                  action.effect.kind === "play-animation"
+                    ? [action.effect.animationId]
+                    : []
+                ) ?? []
+              }
               animations={selectedElementAnimations}
-              canCreateAnimation={Boolean(currentSlide && selectedAnimationPanelElement)}
+              canCreateAnimation={Boolean(
+                currentSlide &&
+                selectedAnimationPanelElement &&
+                !animationMutationDisabledReason
+              )}
               element={selectedAnimationPanelElement}
               keywordOptions={animationPanelKeywordOptions}
               keywordTriggerRestrictionMessage={
@@ -2183,6 +2343,7 @@ export function EditorShell(props: { projectId?: string }) {
               keywordTriggerWarningMessage={
                 animationKeywordTriggerPolicy.warningMessage
               }
+              mutationDisabledReason={animationMutationDisabledReason}
               preferredAnimationId={animationPanelFocusedAnimationId}
               selectedKeywordId={selectedKeywordId}
               selectedKeywordLabel={selectedKeyword?.text ?? null}
@@ -2216,6 +2377,7 @@ export function EditorShell(props: { projectId?: string }) {
               }}
               showIds={showIds}
             />
+            </>
           }
           canPlayAnimations={canPlayCurrentSlideAnimations}
           currentSlide={currentSlide}
@@ -2257,7 +2419,8 @@ export function EditorShell(props: { projectId?: string }) {
               />
             ) : renderSelectionInspector()
           }
-          editorValidationItems={editorValidationItems}
+          canRepairValidation={canMutateDeck}
+          editorValidationItems={presentedEditorValidationItems}
           iconLibrary={
             <IconLibrarySidePanel
               accentColor={
@@ -2272,7 +2435,7 @@ export function EditorShell(props: { projectId?: string }) {
           isPlayingAnimations={isPlayingCurrentSlideAnimations}
           onActivePanelModeChange={setRightPanelMode}
           onAiChatStateChange={setAiChatState}
-          onApplyAllValidationTextOverflow={handleApplyAllValidationTextOverflow}
+          onFocusValidationTarget={handleValidationTargetFocus}
           onHighlightElementIds={setValidationHighlightElementIds}
           onProposalApplied={handleDesignAgentProposalApplied}
           onGeneratedImageInsert={editorFileTransferActions.insertGeneratedImage}
@@ -2283,7 +2446,7 @@ export function EditorShell(props: { projectId?: string }) {
           onResizeStart={handleRightPaneResizeStart}
           onSemanticCueChange={handleSemanticCueReviewChange}
           onSemanticCueExtract={(force) => void handleSemanticCueExtraction(force)}
-          onTextOverflowAction={handleValidationTextOverflowAction}
+          onRepairValidationTextOverflow={handleSafeTextOverflowRepair}
           projectId={projectId}
           propertiesOpenRequestId={propertiesOpenRequestId}
           pptxImportState={pptxImportState}
@@ -2293,12 +2456,15 @@ export function EditorShell(props: { projectId?: string }) {
           setIsIconPanelOpen={setIsIconPanelOpen}
           setIsAnimationPropertiesOpen={setIsAnimationPanelOpen}
           setIsOpen={setIsRightPanelOpen}
+          validationRepairableElementIds={safeTextOverflowRepair.repairedElementIds}
+          validationRepairStatus={validationRepairStatus}
         />
       </section>
 
       <EditorDebugPanels
         currentSlide={currentSlide}
         currentSlideAnimations={currentSlideAnimations}
+        currentSlideId={resolvedCurrentSlideId}
         deck={deck}
         isDataViewOpen={isDataViewOpen}
         isDev={isDev}
@@ -2306,7 +2472,9 @@ export function EditorShell(props: { projectId?: string }) {
         onCloseDataView={() => setIsDataViewOpen(false)}
         redoCount={redoStack.length}
         saveStatusLabel={saveStatusLabel}
+        selectedElementIds={selectedElementIds}
         undoCount={undoStack.length}
+        validationHighlightElementIds={validationHighlightElementIds}
         visibleElements={visibleElements}
       />
         <input
@@ -2356,7 +2524,7 @@ export function EditorShell(props: { projectId?: string }) {
   );
 }
 
-function getEditorStatusLabel(props: {
+export function getEditorStatusLabel(props: {
   isDeckError: boolean;
   isDeckLoading: boolean;
   isUsingFallbackDeck: boolean;
@@ -2366,16 +2534,16 @@ function getEditorStatusLabel(props: {
     return "불러오는 중";
   }
 
+  if (props.saveState === "error") {
+    return "저장 실패";
+  }
+
   if (props.isDeckError) {
     return "오프라인 데모";
   }
 
   if (props.isUsingFallbackDeck) {
     return "로컬 데모";
-  }
-
-  if (props.saveState === "error") {
-    return "저장 실패";
   }
 
   if (props.saveState === "manual-saving") {
@@ -2498,7 +2666,7 @@ function getSaveRecoveryHint(saveErrorCode: SaveErrorCode | null) {
     case "missing-persisted-base":
       return "새로고침 후 재시도";
     case "auto-save-failed":
-      return "다시 저장 필요";
+      return "저장 버튼으로 재시도";
     default:
       return null;
   }
