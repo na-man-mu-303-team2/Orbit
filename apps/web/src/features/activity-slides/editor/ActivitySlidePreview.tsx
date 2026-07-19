@@ -38,8 +38,14 @@ export function ActivitySlidePreview(props: {
             <div>
               <strong>{question.prompt}</strong>
               {question.type === "rating" ? (
-                <div aria-hidden="true" className="activity-rating-preview">
-                  {[1, 2, 3, 4, 5].map((value) => <i key={value}>{value}</i>)}
+                <div aria-hidden="true" className="activity-rating-preview-shell">
+                  <div className="activity-rating-preview">
+                    {[1, 2, 3, 4, 5].map((value) => <i key={value}>{value}</i>)}
+                  </div>
+                  <div className="activity-rating-preview-labels">
+                    <span>{question.leftLabel}</span>
+                    <span>{question.rightLabel}</span>
+                  </div>
                 </div>
               ) : question.type === "free-text" ? (
                 <div aria-hidden="true" className="activity-text-preview">

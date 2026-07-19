@@ -171,22 +171,41 @@
   width: clamp(14px, 2.3cqw, 34px);
 }
 
+.activity-rating-preview-shell {
+  display: grid;
+  gap: clamp(2px, 0.45cqw, var(--redesign-space-1));
+  margin-top: clamp(var(--redesign-space-1), 0.9cqw, var(--redesign-space-3));
+}
+
 .activity-rating-preview {
   display: grid;
   gap: clamp(2px, 0.55cqw, var(--redesign-space-2));
-  grid-template-columns: repeat(5, 1fr);
-  margin-top: clamp(var(--redesign-space-1), 0.9cqw, var(--redesign-space-3));
+  grid-template-columns: repeat(5, clamp(20px, 5.5cqw, 64px));
+  justify-content: space-between;
 }
 
 .activity-rating-preview i {
   align-items: center;
-  aspect-ratio: 1;
-  background: var(--activity-color-muted);
-  border-radius: 50%;
+  background: color-mix(in srgb, var(--activity-color-muted) 72%, var(--activity-color-surface));
+  border: 1px solid var(--activity-color-border);
+  border-radius: clamp(var(--redesign-radius-sm), 0.7cqw, var(--redesign-radius-lg));
   display: flex;
   font-size: clamp(6px, 1cqw, 16px);
   font-style: normal;
+  height: clamp(20px, 5.5cqw, 64px);
   justify-content: center;
+}
+
+.activity-rating-preview-labels {
+  color: color-mix(in srgb, var(--activity-color-on-surface) 58%, transparent);
+  display: flex;
+  justify-content: space-between;
+}
+
+.activity-rating-preview-labels span {
+  color: inherit;
+  font-size: clamp(5px, 0.72cqw, 12px);
+  line-height: 1.2;
 }
 
 .activity-text-preview {
@@ -235,7 +254,7 @@
   padding: clamp(3px, 0.8cqw, var(--redesign-space-3));
 }
 
-.activity-slide-preview-dense .activity-rating-preview,
+.activity-slide-preview-dense .activity-rating-preview-shell,
 .activity-slide-preview-dense .activity-text-preview,
 .activity-slide-preview-dense .activity-choice-preview {
   margin-top: clamp(2px, 0.4cqw, var(--redesign-space-1));

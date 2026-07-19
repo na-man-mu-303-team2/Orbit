@@ -243,3 +243,37 @@ final result: passed
 - 비로그인 QA 상태는 아바타 대신 기존 `로그인` 버튼을 사용하며 다음 행동 카드는 실제 상세 리포트 이동 CTA를 유지한다.
 
 final result: passed
+
+---
+
+# 만족도 장표 5점 척도 밀도 design QA
+
+- Source visual truth: `/var/folders/bz/br99y0bj2395vd1507vwbqmm0000gn/T/codex-clipboard-f1f9dfc7-77e3-4ee1-9ca3-7e20094960c8.png`.
+- Implementation screenshot: `/private/tmp/orbit-satisfaction-rating-after.png`.
+- Focused implementation screenshot: `/private/tmp/orbit-satisfaction-rating-after-crop.png`.
+- Combined comparison: `/private/tmp/orbit-satisfaction-rating-comparison.png`.
+- Viewport: 1264 × 720 editor viewport, satisfaction slide selected.
+- State: 만족도 조사 장표의 두 번째 문항, 응답 전 5점 척도 미리보기.
+
+## Findings and comparison history
+
+1. P1 — `repeat(5, 1fr)`와 `aspect-ratio: 1`이 결합되어 점수 선택지가 카드의 가용 폭만큼 커지는 문제가 있었다.
+2. 각 선택지 크기에 반응형 상한을 두고 원형을 라운드 스퀘어로 바꿔 질문보다 선택지가 더 강하게 보이지 않도록 수정했다.
+3. `전혀 아니요`와 `매우 그래요`를 양 끝에 표시해 1과 5의 의미를 장표만 보고도 이해할 수 있게 했다.
+4. 수정 전·후를 한 화면에서 비교한 결과, 카드 여백과 질문 계층이 복원되고 점수 선택지가 잘리거나 겹치지 않았다.
+
+## Required fidelity surfaces
+
+- Typography: 질문을 최상위로 유지하고 점수와 양 끝 라벨은 보조 크기로 낮췄다.
+- Spacing: 점수 사이 간격을 균등하게 유지하되 버튼 폭은 카드 폭을 강제로 채우지 않는다.
+- Colors: 덱 테마에서 계산한 surface, muted, border 토큰을 그대로 사용한다.
+- Image quality: 별도 이미지 자산이 없는 네이티브 폼 컨트롤이므로 래스터 교체 대상이 없다.
+- Copy: 사용자 정의 질문은 유지하고, 기존 rating schema의 좌우 라벨만 추가했다.
+
+## Verification
+
+- `pnpm --filter @orbit/web exec vitest run src/features/activity-slides/editor/activityEditor.test.tsx` passed: 18 tests.
+- `pnpm --filter @orbit/web typecheck` passed.
+- Docker web rebuild and in-app browser visual comparison passed.
+
+final result: passed
