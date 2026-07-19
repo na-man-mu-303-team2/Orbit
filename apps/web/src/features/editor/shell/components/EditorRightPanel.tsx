@@ -158,6 +158,16 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
     }
   }
 
+  function activatePanelMode(mode: EditorRightPanelMode) {
+    setActivePanelMode(mode);
+    props.setIsOpen(true);
+    props.setIsAnimationPropertiesOpen(mode === "animation");
+    props.setIsIconPanelOpen(mode === "icons");
+    if (mode === "assistant") {
+      props.setAiPanelView("chat");
+    }
+  }
+
   const activePanelLabel =
     activePanelMode === "properties"
       ? "속성"
@@ -236,6 +246,67 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                 </strong>
               </div>
               <div className="inspector-actions">
+                <div
+                  aria-label="오른쪽 패널 탭"
+                  className="inspector-mode-switch right-panel-mode-switch"
+                  role="tablist"
+                >
+                  <button
+                    aria-label="속성 탭"
+                    aria-selected={activePanelMode === "properties"}
+                    className={
+                      activePanelMode === "properties" ? "active" : undefined
+                    }
+                    role="tab"
+                    title="속성"
+                    type="button"
+                    onClick={() => activatePanelMode("properties")}
+                  >
+                    <Properties aria-hidden="true" size={15} />
+                  </button>
+                  <button
+                    aria-label="애니메이션 탭"
+                    aria-selected={activePanelMode === "animation"}
+                    className={
+                      activePanelMode === "animation" ? "active" : undefined
+                    }
+                    role="tab"
+                    title="애니메이션"
+                    type="button"
+                    onClick={() => activatePanelMode("animation")}
+                  >
+                    <Animation aria-hidden="true" size={15} />
+                    {props.animationCount > 0 ? (
+                      <span className="inspector-mode-count">
+                        {props.animationCount}
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    aria-label="아이콘 탭"
+                    aria-selected={activePanelMode === "icons"}
+                    className={activePanelMode === "icons" ? "active" : undefined}
+                    role="tab"
+                    title="아이콘"
+                    type="button"
+                    onClick={() => activatePanelMode("icons")}
+                  >
+                    <IconIcons aria-hidden="true" size={15} />
+                  </button>
+                  <button
+                    aria-label="AI 어시스턴트 탭"
+                    aria-selected={activePanelMode === "assistant"}
+                    className={
+                      activePanelMode === "assistant" ? "active" : undefined
+                    }
+                    role="tab"
+                    title="AI 어시스턴트"
+                    type="button"
+                    onClick={() => activatePanelMode("assistant")}
+                  >
+                    <Sparkles aria-hidden="true" size={15} />
+                  </button>
+                </div>
                 <button
                   aria-label={`${activePanelLabel} 패널 닫기`}
                   className="collapse-right-pane-button"

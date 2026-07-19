@@ -555,6 +555,11 @@ describe("editor shell", () => {
     expect(html).toContain('aria-label="다시 실행"');
     expect(html).toContain('aria-label="선택 도구"');
     expect(html).toContain('aria-label="AI 어시스턴트 패널 닫기"');
+    expect(html).toContain('aria-label="오른쪽 패널 탭"');
+    expect(html).toContain('aria-label="속성 탭"');
+    expect(html).toContain('aria-label="애니메이션 탭"');
+    expect(html).toContain('aria-label="아이콘 탭"');
+    expect(html).toContain('aria-label="AI 어시스턴트 탭"');
     expect(html).not.toContain('aria-label="AI 어시스턴트 접기"');
     expect(html).not.toContain('aria-label="AI 어시스턴트 사용 가능"');
     expect(html).toContain('id="editor-ai-panel"');
@@ -613,6 +618,7 @@ describe("editor shell", () => {
     expect(html).not.toContain('id="editor-design-panel"');
     expect(html).toContain('id="editor-selection-inspector-pane"');
     expect(html).toContain('id="editor-ai-panel"');
+    expect(html).toContain('aria-label="오른쪽 패널 탭"');
     expect(html).toContain('id="editor-ai-tools-panel"');
   });
 
