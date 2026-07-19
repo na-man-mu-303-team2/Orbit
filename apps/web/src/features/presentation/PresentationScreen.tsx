@@ -39,6 +39,10 @@ export function PresentationScreen(props: {
   onReset: () => void;
   onTimeModeChange: (value: PresenterTimeMode) => void;
   panelSnapshot: SpeechTrackerSnapshot;
+  presentationSession?: {
+    audienceUrl: string;
+    sessionId: string;
+  };
   presenterScale: number;
   presenterStageRef: (node: HTMLDivElement | null) => void;
   presenterStepIndex: number;
@@ -55,6 +59,7 @@ export function PresentationScreen(props: {
   timerDurationInput: string;
   totalSlides: number;
   triggerAnimationIds: string[];
+  wordsPerMinute: number;
 }) {
   const nextSlideTitle = props.nextSlide
     ? getSlideTitle(props.nextSlide)
@@ -154,6 +159,7 @@ export function PresentationScreen(props: {
               autoStart
               deckId={props.deck.deckId}
               deckVersion={props.deck.version}
+              presentationSession={props.presentationSession}
               projectId={props.deck.projectId}
               slide={props.currentSlide}
             />
@@ -162,13 +168,13 @@ export function PresentationScreen(props: {
               adviceState={props.adviceState}
               highlightedKeywordOccurrences={props.highlightedKeywordOccurrences}
               keywords={props.keywords ?? []}
-              mode="rehearsal"
+              mode="live"
               sentences={props.sentences}
               showAdvicePanel={false}
               snapshot={props.panelSnapshot}
               speakerNotes={props.currentSlide?.speakerNotes ?? ""}
               timing={props.timing}
-              wordsPerMinute={0}
+              wordsPerMinute={props.wordsPerMinute}
             />
           )}
         </aside>

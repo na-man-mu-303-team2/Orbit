@@ -60,6 +60,17 @@ describe("PresentationWorkspace", () => {
     expect(source).not.toContain('<section className="rehearsal-presenter-layout">');
   });
 
+  it("keeps the live presentation lifecycle separate from rehearsal persistence", () => {
+    const source = fs.readFileSync(presentationWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("createPresentationRuntime");
+    expect(source).toContain("uploadPresentationRecording");
+    expect(source).toContain('startPresentation("none")');
+    expect(source).not.toContain("/rehearsals/runs");
+    expect(source).not.toContain("createRehearsalRun");
+    expect(source).not.toContain("completeRehearsalAudioUpload");
+  });
+
   it("renders the auto-start presenter controls for an Activity slide", () => {
     const deck = createDemoDeck();
     const activitySlide = createActivitySlide(deck, "pre-question");
