@@ -3396,6 +3396,7 @@
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-xl);
   background: var(--redesign-color-surface-container-low);
+  overflow: visible;
 }
 
 .script-copy {
@@ -3403,6 +3404,7 @@
   color: var(--redesign-color-on-surface);
   font-size: var(--redesign-type-body-sm-size);
   line-height: 1.6;
+  overflow: visible;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   word-break: keep-all;
@@ -3725,14 +3727,15 @@
 
 .keyword-token-menu-anchor {
   position: relative;
-  display: inline;
+  display: inline-block;
+  vertical-align: baseline;
 }
 
 .keyword-token-menu {
   position: absolute;
   z-index: 30;
   left: 0;
-  bottom: calc(100% + var(--redesign-space-2));
+  top: calc(100% + var(--redesign-space-1));
   display: inline-flex;
   min-width: 156px;
   padding: var(--redesign-space-1);
