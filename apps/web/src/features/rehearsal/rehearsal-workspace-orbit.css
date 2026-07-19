@@ -309,6 +309,11 @@ main.rehearsal-presenter-shell {
   overflow: hidden;
 }
 
+.rehearsal-presenter-shell .rehearsal-side-timer-card:not(:has(.rehearsal-side-detail-grid)) {
+  gap: 0;
+  grid-template-rows: auto;
+}
+
 .rehearsal-presenter-shell .rehearsal-side-audio-gauge,
 .rehearsal-presenter-shell .rehearsal-panel-script {
   display: none;
