@@ -166,10 +166,10 @@ describe("RehearsalWorkspace", () => {
     const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
 
     expect(css).toMatch(
-      /\.rehearsal-presenter-layout \{[^}]*--rehearsal-stage-block-size:[^;]+;[^}]*width: 100%;/s,
+      /\.rehearsal-presenter-shell \.rehearsal-presenter-layout \{[^}]*--rehearsal-stage-block-size:[^;]+;[^}]*width: min\(100%, var\(--redesign-layout-content-max-width\)\);/s,
     );
     expect(css).toMatch(
-      /@media \(max-width:1120px\)[\s\S]*?\.rehearsal-presenter-main \{[^}]*grid-template-rows: var\(--rehearsal-stage-block-size\) 44px;/,
+      /@media \(max-width:1120px\)[\s\S]*?\.rehearsal-presenter-shell \.rehearsal-presenter-main \{[^}]*grid-template-rows: var\(--rehearsal-stage-block-size\);/,
     );
   });
 
