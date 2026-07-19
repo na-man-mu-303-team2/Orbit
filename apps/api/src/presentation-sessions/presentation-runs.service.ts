@@ -348,6 +348,19 @@ export class PresentationRunsService {
     });
   }
 
+  async getSessionRun(projectId: string, sessionId: string) {
+    await this.sessions.getSessionForPresenter(projectId, sessionId);
+    const run = await this.runs.findOne({ where: { projectId, sessionId } });
+    if (!run) {
+      throw new NotFoundException(
+        `Presentation run not found for session: ${sessionId}`,
+      );
+    }
+    return getPresentationRunResponseSchema.parse({
+      run: toPresentationRun(run),
+    });
+  }
+
   async retryAnalysis(projectId: string, sessionId: string, runId: string) {
     const run = await this.getRunEntity(projectId, sessionId, runId);
     if (

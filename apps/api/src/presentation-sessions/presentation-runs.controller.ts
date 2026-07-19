@@ -79,6 +79,16 @@ export class PresentationRunsController {
     return this.runs.retryAnalysis(projectId, sessionId, runId);
   }
 
+  @Get()
+  async getSessionRun(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    await this.assertCanRead(projectId, request);
+    return this.runs.getSessionRun(projectId, sessionId);
+  }
+
   @Get(":runId")
   async getRun(
     @Param("projectId") projectId: string,

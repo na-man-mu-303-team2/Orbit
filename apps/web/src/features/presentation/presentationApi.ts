@@ -88,6 +88,14 @@ export async function getPresentationRun(input: {
   return getPresentationRunResponseSchema.parse(response);
 }
 
+export async function getPresentationSessionRun(input: {
+  projectId: string;
+  sessionId: string;
+}) {
+  const response = await requestJson(runsUrl(input.projectId, input.sessionId));
+  return getPresentationRunResponseSchema.parse(response);
+}
+
 export async function getPresentationReport(input: {
   projectId: string;
   runId: string;

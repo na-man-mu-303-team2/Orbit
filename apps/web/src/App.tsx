@@ -60,6 +60,7 @@ import { RehearsalProjectPickerPage } from "./features/rehearsal/RehearsalProjec
 import { RehearsalProjectOverviewPage } from "./features/rehearsal/RehearsalProjectOverviewPage";
 import { RehearsalMicCheckModal } from "./features/rehearsal/preflight/RehearsalMicCheckModal";
 import { PresentationWorkspace } from "./features/presentation/PresentationWorkspace";
+import { PresentationReportPage } from "./features/presentation/PresentationReportPage";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
@@ -88,6 +89,12 @@ export type Route =
   | { name: "audience-session"; sessionId: string }
   | { name: "audience-activity"; sessionId: string; activityId: string }
   | { name: "presentation"; projectId: string }
+  | {
+      name: "presentation-report";
+      projectId: string;
+      sessionId: string;
+      runId?: string;
+    }
   | { name: "present"; deckId: string; sessionId?: string }
   | {
       name: "rehearsal";
@@ -407,6 +414,18 @@ export function getRoute(pathname?: string, search?: string): Route {
       return {
         name: "audience-session",
         sessionId: decodeURIComponent(audienceSessionMatch[1]),
+      };
+    }
+
+    const presentationReportMatch = normalized.match(
+      /^\/presentation\/([^/]+)\/report\/([^/]+)$/,
+    );
+    if (presentationReportMatch) {
+      return {
+        name: "presentation-report",
+        projectId: decodeURIComponent(presentationReportMatch[1]),
+        sessionId: decodeURIComponent(presentationReportMatch[2]),
+        runId: new URLSearchParams(currentSearch).get("runId") ?? undefined,
       };
     }
 
@@ -838,6 +857,17 @@ function renderRoute(route: Route, user?: AuthUser) {
       />
     );
   }
+  if (route.name === "presentation-report") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <PresentationReportPage
+          projectId={route.projectId}
+          runId={route.runId}
+          sessionId={route.sessionId}
+        />
+      </ProjectAccessGate>
+    );
+  }
   if (route.name === "present") {
     return <PresentWindow deckId={route.deckId} sessionId={route.sessionId} />;
   }
@@ -1084,7 +1114,8 @@ export function getAppNavigationItem(route: Route): OrbitAppNavigationItem {
   if (
     route.name === "report-list" ||
     route.name === "report-project-overview" ||
-    route.name === "rehearsal-report"
+    route.name === "rehearsal-report" ||
+    route.name === "presentation-report"
   ) {
     return "reports";
   }

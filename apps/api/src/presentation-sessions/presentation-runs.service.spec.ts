@@ -142,6 +142,24 @@ describe("PresentationRunsService", () => {
     expect(fixture.decks.getDeck).toHaveBeenCalledTimes(1);
   });
 
+  it("finds the single presentation run by session for report routing", async () => {
+    const fixture = createService(makeRun({ status: "succeeded" }));
+
+    const result = await fixture.service.getSessionRun(
+      "project_1",
+      "session_1",
+    );
+
+    expect(result.run).toMatchObject({
+      runId: "presentation_run_1",
+      sessionId: "session_1",
+      status: "succeeded",
+    });
+    expect(fixture.repository.findOne).toHaveBeenCalledWith({
+      where: { projectId: "project_1", sessionId: "session_1" },
+    });
+  });
+
   it("finishes a no-microphone run without creating an analysis job", async () => {
     const fixture = createService(
       makeRun({ recordingMode: "none", status: "created" }),
