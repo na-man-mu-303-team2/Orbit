@@ -381,14 +381,6 @@ export function AiChatPanel(props: AiChatPanelProps) {
         </p>
       ) : null}
       <div className="ai-chat-history" aria-live="polite">
-        <div className="ai-chat-welcome" aria-label="AI 챗봇 안내">
-          <span className="ai-chat-welcome-avatar" aria-hidden="true">AI</span>
-          <div className="ai-chat-welcome-copy">
-            <span>ORBIT AI 챗봇</span>
-            <h3>무엇을 도와드릴까요?</h3>
-            <p>현재 슬라이드의 디자인 정리와 이미지 생성을 빠르게 도와드려요.</p>
-          </div>
-        </div>
         {props.chatState.messages.map((message) => (
           <div className={`ai-chat-message ${message.role}`} key={message.id}>
             {message.role === "assistant" ? (
