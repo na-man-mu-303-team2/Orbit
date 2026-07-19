@@ -215,15 +215,38 @@ export class ProjectsService {
           `
             INSERT INTO decks (project_id, deck_id, deck_json, version, updated_at)
             VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (project_id) DO NOTHING
+            ON CONFLICT (project_id) DO UPDATE SET
+              deck_json = jsonb_set(
+                jsonb_set(
+                  decks.deck_json,
+                  '{slides,0,style,backgroundImage}',
+                  EXCLUDED.deck_json #> '{slides,0,style,backgroundImage}',
+                  true
+                ),
+                '{version}',
+                to_jsonb(decks.version + 1),
+                true
+              ),
+              version = decks.version + 1,
+              updated_at = EXCLUDED.updated_at
+            WHERE decks.deck_id = EXCLUDED.deck_id
+              AND decks.deck_json #>> '{slides,0,style,backgroundImage,src}' = $6
           `,
-          [seed.projectId, seed.deckId, deck, deck.version, createdAt],
+          [
+            seed.projectId,
+            seed.deckId,
+            deck,
+            deck.version,
+            createdAt,
+            seed.legacyImageUrl,
+          ],
         );
       }
     });
     this.logger?.info(
       {
         event: "projects.kdh_home_seed_ensured",
+        coverRevision: 1,
         projectCount: getKdhHomeProjectSeeds().length,
       },
       "Kdh home project seed ensured.",
