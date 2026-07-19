@@ -11,6 +11,7 @@ import type {
   DeckPatch,
   DeckElement,
   Job,
+  OoxmlSyncState,
   SemanticCue
 } from "@orbit/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -20,8 +21,10 @@ import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
-  getEditorStatusLabel
+  getEditorStatusLabel,
+  getOoxmlSyncStatus
 } from "./EditorShell";
+import { useEditorShellUiStore } from "./editorShellUiStore";
 import { EditorStateNotice } from "./components/EditorStateNotice";
 import {
   appendAppliedDesignProposalHistory,
@@ -40,6 +43,7 @@ import {
 import {
   createSemanticCueExtractionJob,
   createDeckExportJob,
+  ensureOoxmlReadyForExport,
   exportDeck,
   exportDeckToPptx,
   importPptxIntoEditor,
@@ -166,8 +170,90 @@ describe("editor shell", () => {
     ).toBe("저장 실패");
   });
 
+  it("disables OOXML retry when the API marks the failed state non-retryable", () => {
+    const job = jobPayload("failed", null, "pptx-ooxml-sync");
+    job.error = {
+      code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+      message: "unsupported authored element",
+      retryable: false,
+      syncCapabilityVersion: 2
+    };
+    const state: OoxmlSyncState = {
+      status: "failed",
+      deckId: "deck_ai_1",
+      deckVersion: 53,
+      syncedDeckVersion: 52,
+      retryable: false,
+      job
+    };
+
+    expect(getOoxmlSyncStatus(job, state)).toMatchObject({
+      label: "OOXML 동기화 실패",
+      retryable: false
+    });
+  });
+
+  it("shows retry only when the OOXML state API allows it", () => {
+    const job = jobPayload("failed", null, "pptx-ooxml-sync");
+    job.error = {
+      code: "PPTX_OOXML_SYNC_FAILED",
+      message: "worker unavailable",
+      retryable: true,
+      syncCapabilityVersion: 2
+    };
+    const state: OoxmlSyncState = {
+      status: "failed",
+      deckId: "deck_ai_1",
+      deckVersion: 53,
+      syncedDeckVersion: 52,
+      retryable: true,
+      job
+    };
+
+    expect(getOoxmlSyncStatus(job, state)).toMatchObject({
+      label: "동기화 재시도",
+      retryable: true
+    });
+  });
+
+  it("does not call retry for a non-retryable OOXML failure", async () => {
+    const requestedUrls: string[] = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      return new Response(
+        JSON.stringify({
+          ooxmlSyncState: {
+            status: "failed",
+            deckId: "deck_ai_1",
+            deckVersion: 53,
+            syncedDeckVersion: 52,
+            retryable: false,
+            job: {
+              ...jobPayload("failed", null, "pptx-ooxml-sync"),
+              error: {
+                code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+                message: "unsupported authored element",
+                retryable: false,
+                syncCapabilityVersion: 2
+              }
+            }
+          }
+        })
+      );
+    });
+
+    await expect(
+      ensureOoxmlReadyForExport("project-a", fetcher)
+    ).rejects.toThrow("PPTX 원본 동기화에 실패했습니다.");
+    expect(
+      requestedUrls.some((url) => url.endsWith("/deck/ooxml-sync/retry"))
+    ).toBe(false);
+  });
+
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
+    useEditorShellUiStore.setState({ isRightPanelOpen: false });
   });
 
   it("fits the editor canvas inside compact viewports", () => {
@@ -568,19 +654,13 @@ describe("editor shell", () => {
     expect(html).not.toContain("줄바꿈은 발표자 화면에도 반영됩니다.");
     expect(html).toContain("발표 체크포인트");
     expect(html).not.toContain("필수 발화와 화면 전환에 연결된 키워드입니다.");
-    expect(html.indexOf("speaker-notes-length-meter")).toBeLessThan(
-      html.indexOf("script-keyword-section"),
-    );
+    expect(html).not.toContain("speaker-notes-length-meter");
     expect(html).toContain('aria-labelledby="speaker-notes-title"');
     expect(html).toContain("저장됨");
-    expect(html).toContain('aria-label="AI 어시스턴트 보기"');
     expect(html).not.toContain('aria-label="AI 어시스턴트 사용 가능"');
-    expect(html).toContain('aria-label="오른쪽 패널 보기"');
     expect(html).toContain('class="editor-right-panel-content"');
-    expect(html).toContain('class="editor-right-panel-rail"');
+    expect(html).not.toContain('class="editor-right-panel-rail"');
     expect(html).not.toContain('class="collapsed-right-rail"');
-    expect(html).toContain('aria-label="속성"');
-    expect(html).toContain('aria-label="애니메이션"');
     expect(html).not.toContain('aria-label="애니메이션 속성"');
     expect(html).not.toContain('aria-label="애니메이션 패널"');
     expect(html).not.toContain('id="editor-notes-tab"');
@@ -611,10 +691,17 @@ describe("editor shell", () => {
     expect(html).toContain('aria-label="다시 실행"');
     expect(html).toContain('aria-label="선택 도구"');
     expect(html).toContain('aria-label="AI 어시스턴트 패널 닫기"');
+    expect(html).toContain('aria-label="오른쪽 패널 탭"');
+    expect(html).toContain('aria-label="속성 탭"');
+    expect(html).toContain('aria-label="애니메이션 탭"');
+    expect(html).not.toContain('aria-label="아이콘 탭"');
+    expect(html).toContain('aria-label="AI 어시스턴트 탭"');
     expect(html).not.toContain('aria-label="AI 어시스턴트 접기"');
     expect(html).not.toContain('aria-label="AI 어시스턴트 사용 가능"');
     expect(html).toContain('id="editor-ai-panel"');
-    expect(html).toContain('hidden="" id="editor-ai-tools-panel"');
+    expect(html).not.toContain('id="editor-ai-chat-tab"');
+    expect(html).not.toContain('id="editor-ai-tools-tab"');
+    expect(html).toContain('id="editor-ai-tools-panel"');
     expect(html).not.toContain('id="editor-design-panel"');
     expect(html).not.toContain('id="editor-notes-panel"');
     expect(html).toContain("stage-speaker-notes-panel");
@@ -625,7 +712,7 @@ describe("editor shell", () => {
     expect(html).not.toContain("speaker-notes-restore-handle");
   });
 
-  it("keeps imported Semantic Cue review in the persistent AI coach panel", () => {
+  it("opens the AI inspection panel by default", () => {
     const queryClient = createTestQueryClient();
     const deck = createDemoDeck();
     deck.metadata.sourceType = "import";
@@ -662,14 +749,13 @@ describe("editor shell", () => {
       }
     ];
     setDeckData(queryClient, deck);
-
     const html = renderApp(queryClient);
 
-    expect(html).toContain('aria-label="AI 어시스턴트 보기"');
     expect(html).not.toContain('id="editor-design-panel"');
-    expect(html).toContain('aria-label="오른쪽 패널 보기"');
-    expect(html).toContain('hidden="" id="editor-ai-tools-panel"');
-    expect(html).toContain("도입 효과");
+    expect(html).toContain('id="editor-selection-inspector-pane"');
+    expect(html).toContain('id="editor-ai-panel"');
+    expect(html).toContain('aria-label="오른쪽 패널 탭"');
+    expect(html).toContain('id="editor-ai-tools-panel"');
   });
 
   it("returns a warning for unreadable text overlap", () => {

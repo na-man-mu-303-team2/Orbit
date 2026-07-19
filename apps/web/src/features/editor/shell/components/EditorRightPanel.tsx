@@ -10,16 +10,15 @@ import {
   IconAdjustmentsHorizontal as Properties,
   IconChevronRight as ChevronRight,
   IconIcons,
+  IconMessageCircle as MessageCircle,
   IconMicrophone,
   IconMovie as Animation,
   IconPlayerPlay as Play,
-  IconSparkles as Sparkles,
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import type {
   Dispatch,
-  KeyboardEvent,
   PointerEvent,
   ReactNode,
   SetStateAction,
@@ -49,6 +48,7 @@ import {
 export type AiPanelView = "chat" | "tools" | "semantic-cues";
 
 type EditorRightPanelProps = {
+  assistantOpenRequestId: number;
   aiChatState: AiChatState;
   aiPanelView: AiPanelView;
   animationCount: number;
@@ -120,6 +120,15 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
   }, [props.propertiesOpenRequestId]);
 
   useEffect(() => {
+    if (props.assistantOpenRequestId <= 0) return;
+    setActivePanelMode("assistant");
+    props.setIsAnimationPropertiesOpen(false);
+    props.setIsIconPanelOpen(false);
+    props.setAiPanelView("chat");
+    props.setIsOpen(true);
+  }, [props.assistantOpenRequestId]);
+
+  useEffect(() => {
     if (props.isAnimationPropertiesOpen) {
       setActivePanelMode("animation");
     }
@@ -149,16 +158,14 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
     }
   }
 
-  function selectPanelMode(mode: EditorRightPanelMode) {
-    if (props.isOpen && activePanelMode === mode) {
-      closePanel();
-      return;
-    }
-
+  function activatePanelMode(mode: EditorRightPanelMode) {
     setActivePanelMode(mode);
     props.setIsOpen(true);
     props.setIsAnimationPropertiesOpen(mode === "animation");
     props.setIsIconPanelOpen(mode === "icons");
+    if (mode === "assistant") {
+      props.setAiPanelView("chat");
+    }
   }
 
   const activePanelLabel =
@@ -169,20 +176,6 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
         : activePanelMode === "icons"
           ? "아이콘"
         : "AI 어시스턴트";
-
-  function handleAiPanelTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const views = ["chat", "tools"] as const;
-    const currentIndex = props.aiPanelView === "tools" ? 1 : 0;
-    const direction = event.key === "ArrowRight" ? 1 : -1;
-    const nextView =
-      views[(currentIndex + direction + views.length) % views.length];
-    props.setAiPanelView(nextView);
-    requestAnimationFrame(() =>
-      document.getElementById(`editor-ai-${nextView}-tab`)?.focus(),
-    );
-  }
 
   return (
     <aside
@@ -240,7 +233,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                   <Animation aria-hidden="true" size={15} />
                 ) : null}
                 {activePanelMode === "assistant" ? (
-                  <Sparkles aria-hidden="true" size={15} />
+                  <MessageCircle aria-hidden="true" size={15} />
                 ) : null}
                 {activePanelMode === "icons" ? (
                   <IconIcons aria-hidden="true" size={15} />
@@ -253,6 +246,56 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                 </strong>
               </div>
               <div className="inspector-actions">
+                <div
+                  aria-label="오른쪽 패널 탭"
+                  className="inspector-mode-switch right-panel-mode-switch"
+                  role="tablist"
+                >
+                  <button
+                    aria-label="속성 탭"
+                    aria-selected={activePanelMode === "properties"}
+                    className={
+                      activePanelMode === "properties" ? "active" : undefined
+                    }
+                    role="tab"
+                    title="속성"
+                    type="button"
+                    onClick={() => activatePanelMode("properties")}
+                  >
+                    <Properties aria-hidden="true" size={15} />
+                  </button>
+                  <button
+                    aria-label="애니메이션 탭"
+                    aria-selected={activePanelMode === "animation"}
+                    className={
+                      activePanelMode === "animation" ? "active" : undefined
+                    }
+                    role="tab"
+                    title="애니메이션"
+                    type="button"
+                    onClick={() => activatePanelMode("animation")}
+                  >
+                    <Animation aria-hidden="true" size={15} />
+                    {props.animationCount > 0 ? (
+                      <span className="inspector-mode-count">
+                        {props.animationCount}
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    aria-label="AI 어시스턴트 탭"
+                    aria-selected={activePanelMode === "assistant"}
+                    className={
+                      activePanelMode === "assistant" ? "active" : undefined
+                    }
+                    role="tab"
+                    title="AI 어시스턴트"
+                    type="button"
+                    onClick={() => activatePanelMode("assistant")}
+                  >
+                    <MessageCircle aria-hidden="true" size={15} />
+                  </button>
+                </div>
                 <button
                   aria-label={`${activePanelLabel} 패널 닫기`}
                   className="collapse-right-pane-button"
@@ -349,41 +392,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                 >
                   <div className="editor-ai-coach-panel">
                     <div
-                      aria-label="AI 어시스턴트 보기"
-                      className="assistant-subtabs"
-                      role="tablist"
-                    >
-                      <button
-                        aria-controls="editor-ai-chat-panel"
-                        aria-selected={props.aiPanelView === "chat"}
-                        className={props.aiPanelView === "chat" ? "active" : ""}
-                        id="editor-ai-chat-tab"
-                        role="tab"
-                        tabIndex={props.aiPanelView === "chat" ? 0 : -1}
-                        type="button"
-                        onClick={() => props.setAiPanelView("chat")}
-                        onKeyDown={handleAiPanelTabKeyDown}
-                      >
-                        채팅
-                      </button>
-                      <button
-                        aria-controls="editor-ai-tools-panel"
-                        aria-selected={props.aiPanelView === "tools"}
-                        className={
-                          props.aiPanelView === "tools" ? "active" : ""
-                        }
-                        id="editor-ai-tools-tab"
-                        role="tab"
-                        tabIndex={props.aiPanelView === "tools" ? 0 : -1}
-                        type="button"
-                        onClick={() => props.setAiPanelView("tools")}
-                        onKeyDown={handleAiPanelTabKeyDown}
-                      >
-                        검사
-                      </button>
-                    </div>
-                    <div
-                      aria-labelledby="editor-ai-chat-tab"
+                      aria-label="AI 채팅"
                       className="assistant-panel-subview"
                       hidden={props.aiPanelView !== "chat"}
                       id="editor-ai-chat-panel"
@@ -405,7 +414,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                       />
                     </div>
                     <div
-                      aria-labelledby="editor-ai-tools-tab"
+                      aria-label="검사"
                       className="assistant-panel-subview editor-ai-tools-subview"
                       hidden={props.aiPanelView !== "tools"}
                       id="editor-ai-tools-panel"
@@ -437,60 +446,6 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                 </section>
               ) : null}
             </div>
-          </div>
-          <div
-            aria-label="오른쪽 패널 보기"
-            className="editor-right-panel-rail"
-            role="tablist"
-          >
-            <button
-              aria-label="속성"
-              aria-controls="editor-right-panel-content"
-              aria-expanded={props.isOpen && activePanelMode === "properties"}
-              aria-selected={props.isOpen && activePanelMode === "properties"}
-              className={activePanelMode === "properties" ? "active" : ""}
-              id="editor-properties-panel-tab"
-              role="tab"
-              title="속성 패널 열기"
-              type="button"
-              onClick={() => selectPanelMode("properties")}
-            >
-              <Properties aria-hidden="true" size={16} />
-            </button>
-            <button
-              aria-label="애니메이션"
-              aria-controls="editor-right-panel-content"
-              aria-expanded={props.isOpen && activePanelMode === "animation"}
-              aria-selected={props.isOpen && activePanelMode === "animation"}
-              className={activePanelMode === "animation" ? "active" : ""}
-              role="tab"
-              title="애니메이션 패널 열기"
-              type="button"
-              onClick={() => selectPanelMode("animation")}
-            >
-              <Animation aria-hidden="true" size={16} />
-              {props.animationCount > 0 ? (
-                <span
-                  aria-label={`애니메이션 ${props.animationCount}개`}
-                  className="inspector-mode-count"
-                >
-                  {props.animationCount}
-                </span>
-              ) : null}
-            </button>
-            <button
-              aria-label="AI 어시스턴트"
-              aria-controls="editor-right-panel-content"
-              aria-expanded={props.isOpen && activePanelMode === "assistant"}
-              aria-selected={props.isOpen && activePanelMode === "assistant"}
-              className={activePanelMode === "assistant" ? "active" : ""}
-              role="tab"
-              title="AI 어시스턴트 패널 열기"
-              type="button"
-              onClick={() => selectPanelMode("assistant")}
-            >
-              <Sparkles aria-hidden="true" size={16} />
-            </button>
           </div>
         </>
       ) : null}

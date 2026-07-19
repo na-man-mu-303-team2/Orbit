@@ -516,6 +516,8 @@ describe("workspace project surfaces", () => {
     expect(html).not.toContain('aria-label="프로젝트 새로고침"');
     expect(html).toContain("빈 프로젝트");
     expect(html).toContain("PPTX 업로드");
+    expect(html).toContain("orbit-project-commandbar-action orbit-project-commandbar-blank");
+    expect(html).toContain("orbit-project-commandbar-action orbit-project-commandbar-upload");
     expect(html).toContain('class="orbit-project-gallery"');
     expect(html).toContain('aria-label="프로젝트 1 고정"');
     expect(html).toContain('aria-label="프로젝트 1 리허설 시작"');
@@ -550,7 +552,9 @@ describe("workspace project surfaces", () => {
 
     expect(html).toContain('aria-label="리허설 프로젝트 목록"');
     expect(html).toContain("리허설 발표자료");
-    expect(html).toContain("연습하러 가기");
+    expect(html).toContain("연습하기");
+    expect(html).not.toContain("연습하러 가기");
+    expect(html).not.toContain(">작업</span>");
     expect(html).toContain("redesign-button-primary");
     expect(html).not.toContain("project_private_identifier");
     expect(html).toContain('aria-label="프로젝트 새로고침"');

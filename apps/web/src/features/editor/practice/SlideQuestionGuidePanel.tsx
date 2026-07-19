@@ -6,6 +6,7 @@ import {
 } from "@orbit/shared";
 import { useEffect, useState } from "react";
 
+import { OrbitButton } from "../../../components/ui";
 import { fetchLiveSttRuntimeConfig } from "../../rehearsal/stt/liveSttRuntimeConfig";
 import { fetchDeck } from "../shell/api/deckPersistenceApi";
 import {
@@ -27,7 +28,6 @@ export function SlideQuestionGuidePanel(props: {
   flushPendingSaves: () => Promise<void>;
 }) {
   const [guide, setGuide] = useState<SlideQuestionGuide | null>(null);
-  const [hasStaleGuide, setHasStaleGuide] = useState(false);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "generating" | "error">("idle");
   const [message, setMessage] = useState("");
@@ -47,13 +47,11 @@ export function SlideQuestionGuidePanel(props: {
     let active = true;
     if (slideQuestionGuidesEnabled !== true) {
       setGuide(null);
-      setHasStaleGuide(false);
       setStatus("idle");
       return () => { active = false; };
     }
     if (!props.slide) {
       setGuide(null);
-      setHasStaleGuide(false);
       return;
     }
     setStatus("loading");
@@ -69,7 +67,6 @@ export function SlideQuestionGuidePanel(props: {
       if (!active) return;
       const current = findCurrentSlideQuestionGuide(guides, slideContentHash);
       setGuide(current);
-      setHasStaleGuide(!current && guides.length > 0);
       setSelectedQuestionId(getInitialQuestionId(current));
       setStatus("idle");
     }).catch(() => {
@@ -97,7 +94,6 @@ export function SlideQuestionGuidePanel(props: {
       await waitForSlideQuestionGuideJob(created.job.jobId);
       const next = await getSlideQuestionGuide(props.projectId, created.guideId);
       setGuide(next);
-      setHasStaleGuide(false);
       setSelectedQuestionId(getInitialQuestionId(next));
       setStatus("idle");
     } catch (error) {
@@ -109,20 +105,33 @@ export function SlideQuestionGuidePanel(props: {
   return (
     <div className="editor-question-guide-panel">
       <div className="editor-question-guide-actions">
-        <button disabled={isSlideQuestionGuideGenerationDisabled({
-          autoStatus: props.autoStatus,
-          canGenerate: props.canGenerate,
-          hasSlide: Boolean(props.slide),
-          slideQuestionGuidesEnabled,
-          status,
-        })} type="button" onClick={() => void generate()}>
-          {props.autoStatus === "generating" ? "질문 생성 중…" : slideQuestionGuidesEnabled === null ? "질문 생성 준비 중…" : status === "generating" ? "공식 자료 검색 중…" : guide ? "다시 생성" : "질문 생성"}
-        </button>
+        <OrbitButton
+          className="editor-question-guide-generate-button"
+          disabled={isSlideQuestionGuideGenerationDisabled({
+            autoStatus: props.autoStatus,
+            canGenerate: props.canGenerate,
+            hasSlide: Boolean(props.slide),
+            slideQuestionGuidesEnabled,
+            status,
+          })}
+          onClick={() => void generate()}
+          size="compact"
+          variant="primary"
+        >
+          {props.autoStatus === "generating"
+            ? "질문 생성 중…"
+            : slideQuestionGuidesEnabled === null
+              ? "질문 생성 준비 중…"
+              : status === "generating"
+                ? "공식 자료 검색 중…"
+                : guide
+                  ? "다시 생성"
+                  : "질문 생성"}
+        </OrbitButton>
       </div>
       {slideQuestionGuidesEnabled === false ? <p className="editor-practice-message">이 환경에서는 슬라이드별 예상 질문 기능을 사용할 수 없습니다.</p> : null}
       {message ? <p className="editor-practice-message">{message}</p> : null}
       {props.autoStatus === "failed" && !guide ? <p className="editor-practice-message">자동 질문 생성에 실패했습니다. 질문 생성 버튼으로 다시 시도해 주세요.</p> : null}
-      {hasStaleGuide ? <p className="editor-question-stale">현재 슬라이드가 바뀌어 이전 질문은 숨겼습니다. 다시 생성해 주세요.</p> : null}
       {guide && guide.items.length > 0 ? (
         <SlideQuestionGuideCarousel
           guide={guide}

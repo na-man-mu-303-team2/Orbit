@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ActivityPresenterMetrics,
   ActivityPresenterResults,
+  createActivitySessionRecoveryTracker,
   getActivityPrimaryCommand,
   getActivityReopenCommand,
   loadActivityPresenterRuntime
@@ -134,6 +135,102 @@ describe("ActivityPresenterPanel", () => {
       "session_current",
       slide.activity.activityId
     );
+  });
+
+  it("attempts stale-session recovery only once until the Activity identity changes", async () => {
+    const slide = createActivitySlide(createDemoDeck(), "pre-question");
+    const tracker = createActivitySessionRecoveryTracker();
+    const staleSession = { ...presentationSession(), deckVersion: 1 };
+    vi.spyOn(activityApi, "getCurrentSession").mockResolvedValue({
+      audienceUrl: "/audience/session_stale",
+      session: staleSession
+    });
+    const createSession = vi.spyOn(activityApi, "createSession").mockResolvedValue({
+      audienceUrl: "/audience/session_stale",
+      session: staleSession
+    });
+    vi.spyOn(activityApi, "ensureRun").mockRejectedValue(new ActivityApiError(
+      "Activity definition not found in stored Deck",
+      404,
+      null
+    ));
+    const identity = JSON.stringify([
+      "project_demo",
+      "deck_demo",
+      4,
+      slide.activity.activityId
+    ]);
+    const load = (recoveryIdentity: string, deckVersion: number) =>
+      loadActivityPresenterRuntime({
+        activityId: slide.activity.activityId,
+        autoStart: true,
+        deckId: "deck_demo",
+        deckVersion,
+        projectId: "project_demo",
+        tryStaleSessionReplacement: () =>
+          tracker.tryStaleReplacement(recoveryIdentity)
+      });
+
+    await expect(load(identity, 4)).rejects.toThrow(
+      "Activity definition not found in stored Deck"
+    );
+    await expect(load(identity, 4)).rejects.toThrow(
+      "Activity definition not found in stored Deck"
+    );
+    expect(createSession).toHaveBeenCalledTimes(1);
+
+    const nextVersionIdentity = JSON.stringify([
+      "project_demo",
+      "deck_demo",
+      5,
+      slide.activity.activityId
+    ]);
+    await expect(load(nextVersionIdentity, 5)).rejects.toThrow(
+      "Activity definition not found in stored Deck"
+    );
+    expect(createSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries initial autoStart session creation after a transient failure", async () => {
+    const slide = createActivitySlide(createDemoDeck(), "pre-question");
+    const draftRun = activityRun(slide, "draft", 0);
+    const openRun = activityRun(slide, "open", 1);
+    const tracker = createActivitySessionRecoveryTracker();
+    const identity = JSON.stringify([
+      "project_demo",
+      "deck_demo",
+      1,
+      slide.activity.activityId
+    ]);
+    vi.spyOn(activityApi, "getCurrentSession").mockResolvedValue({
+      audienceUrl: null,
+      session: null
+    });
+    const createSession = vi.spyOn(activityApi, "createSession")
+      .mockRejectedValueOnce(new Error("temporary network failure"))
+      .mockResolvedValueOnce({
+        audienceUrl: "/audience/session_1",
+        session: presentationSession()
+      });
+    vi.spyOn(activityApi, "ensureRun").mockResolvedValue({ run: draftRun });
+    vi.spyOn(activityApi, "updateRunStatus").mockResolvedValue({ run: openRun });
+    vi.spyOn(activityApi, "getPresenterResult").mockResolvedValue({
+      result: presenterResult(slide, "open")
+    });
+    const load = () => loadActivityPresenterRuntime({
+      activityId: slide.activity.activityId,
+      autoStart: true,
+      deckId: "deck_demo",
+      deckVersion: 1,
+      finishInitialSessionCreation: () =>
+        tracker.finishInitialCreation(identity),
+      projectId: "project_demo",
+      tryInitialSessionCreation: () => tracker.tryInitialCreation(identity)
+    });
+
+    await expect(load()).rejects.toThrow("temporary network failure");
+    await expect(load()).resolves.toMatchObject({ sessionId: "session_1" });
+    expect(createSession).toHaveBeenCalledTimes(2);
   });
 
   it("maps every runtime state to one primary presenter command", () => {

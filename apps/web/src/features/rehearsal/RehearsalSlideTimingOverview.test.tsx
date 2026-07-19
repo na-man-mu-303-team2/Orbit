@@ -57,7 +57,7 @@ describe("RehearsalSlideTimingOverview", () => {
         activeSpeechSeconds: 10,
         characterCount: 50,
       }),
-    ).toBe("전체 평균보다 빠른 편");
+    ).toBe("이번 발표 기준보다 빠른 편");
   });
 
   it("keeps speaking-rate failure copy scoped to the selected slide summary", () => {

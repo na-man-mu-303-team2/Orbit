@@ -102,25 +102,41 @@ export function useEditorSlideCommands(args: {
   }
 
   function selectSpeakerNotesKeyword(rawValue: string, start: number) {
-    if (!args.currentSlide) return;
+    if (!args.currentSlide) return null;
     const matchedKeyword = findKeywordByTerm(args.currentSlide, rawValue);
     if (matchedKeyword) {
+      const occurrenceKey = createKeywordOccurrenceId(
+        args.currentSlide.slideId,
+        matchedKeyword.keywordId,
+        start,
+        start + rawValue.length
+      );
       selectKeyword(
         matchedKeyword.keywordId,
-        createKeywordOccurrenceId(args.currentSlide.slideId, matchedKeyword.keywordId, start, start + rawValue.length)
+        occurrenceKey
       );
-      return;
+      return {
+        keywordId: matchedKeyword.keywordId,
+        occurrenceKey
+      };
     }
     const nextKeyword = createKeyword(args.workingDeckRef.current, rawValue, { required: false });
+    const occurrenceKey = createKeywordOccurrenceId(args.currentSlide.slideId, nextKeyword.keywordId, start, start + rawValue.length);
     args.setSelectedKeywordId(nextKeyword.keywordId);
-    args.setSelectedKeywordOccurrenceKey(
-      createKeywordOccurrenceId(args.currentSlide.slideId, nextKeyword.keywordId, start, start + rawValue.length)
-    );
+    args.setSelectedKeywordOccurrenceKey(occurrenceKey);
     replaceKeywords(args.currentSlide.slideId, (keywords) => [...keywords, nextKeyword]);
+    return {
+      keywordId: nextKeyword.keywordId,
+      occurrenceKey
+    };
   }
 
   function toggleKeywordRequired(slideId: string, keywordId: string, occurrenceKey: string | null = null) {
-    const keyword = args.currentSlide?.keywords.find((candidate) => candidate.keywordId === keywordId);
+    const keyword =
+      args.workingDeckRef.current.slides
+        .find((candidate) => candidate.slideId === slideId)
+        ?.keywords.find((candidate) => candidate.keywordId === keywordId) ??
+      args.currentSlide?.keywords.find((candidate) => candidate.keywordId === keywordId);
     if (!occurrenceKey && !keyword?.required) {
       if (typeof window !== "undefined") window.alert(
         "반복되는 단어일 수 있습니다. 발표 메모에서 필수 발화로 표시할 단어 위치를 선택하세요."
@@ -138,8 +154,13 @@ export function useEditorSlideCommands(args: {
     }));
   }
 
-  function toggleAdvanceSlideKeyword(slideId: string, keywordId: string, enabled: boolean) {
-    if (enabled && !args.selectedKeywordOccurrenceKey) {
+  function toggleAdvanceSlideKeyword(
+    slideId: string,
+    keywordId: string,
+    enabled: boolean,
+    occurrenceKey: string | null = args.selectedKeywordOccurrenceKey
+  ) {
+    if (enabled && !occurrenceKey) {
       if (typeof window !== "undefined") window.alert(
         "반복되는 단어일 수 있습니다. 발표 메모에서 실제로 트리거할 단어 위치를 선택하세요."
       );
@@ -150,7 +171,7 @@ export function useEditorSlideCommands(args: {
       slideId,
       keywordId,
       enabled,
-      args.selectedKeywordOccurrenceKey
+      occurrenceKey
     );
     if (patch) args.commitPatch(patch);
   }
