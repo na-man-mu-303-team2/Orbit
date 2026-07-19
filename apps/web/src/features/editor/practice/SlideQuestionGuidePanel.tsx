@@ -247,7 +247,10 @@ export function SlideQuestionGuideCarousel(props: {
   };
   const suggestedAnswer = selected.suggestedAnswer;
   const answerSummary = suggestedAnswer?.summary ?? "";
-  const answerPreview = getSuggestedAnswerPreview(answerSummary);
+  const hasSuggestedAnswer = answerSummary.trim().length > 0;
+  const answerPreview = hasSuggestedAnswer
+    ? getSuggestedAnswerPreview(answerSummary, 96)
+    : "추천 답변을 불러오지 못했습니다. 다시 생성해 주세요.";
   const keyPoints = suggestedAnswer?.structure.slice(0, 3) ?? [];
   return (
     <div
@@ -314,21 +317,25 @@ export function SlideQuestionGuideCarousel(props: {
                   <strong>추천 답변 요약</strong>
                   <span>AI 추천</span>
                 </div>
-                <button
-                  aria-controls={`question-answer-${selected.questionId}`}
-                  aria-expanded={answerExpanded}
-                  className="editor-question-answer-toggle"
-                  type="button"
-                  onClick={() => setAnswerExpanded((current) => !current)}
-                >
-                  {answerExpanded ? "답변 접기" : "전체 답변 보기"}
-                  {answerExpanded
-                    ? <IconChevronUp aria-hidden="true" size={16} stroke={2} />
-                    : <IconChevronDown aria-hidden="true" size={16} stroke={2} />}
-                </button>
+                {hasSuggestedAnswer ? (
+                  <button
+                    aria-controls={`question-answer-${selected.questionId}`}
+                    aria-expanded={answerExpanded}
+                    className="editor-question-answer-toggle"
+                    type="button"
+                    onClick={() => setAnswerExpanded((current) => !current)}
+                  >
+                    {answerExpanded ? "답변 접기" : "전체 답변 보기"}
+                    {answerExpanded
+                      ? <IconChevronUp aria-hidden="true" size={16} stroke={2} />
+                      : <IconChevronDown aria-hidden="true" size={16} stroke={2} />}
+                  </button>
+                ) : null}
               </header>
               <div id={`question-answer-${selected.questionId}`}>
-                <p>{answerExpanded ? answerSummary : answerPreview}</p>
+                <p className={hasSuggestedAnswer ? undefined : "editor-question-answer-empty"}>
+                  {answerExpanded ? answerSummary : answerPreview}
+                </p>
                 {answerExpanded ? suggestedAnswer?.caveats.map((caveat) => <p className="editor-question-caveat" key={caveat}>{caveat}</p>) : null}
                 {answerExpanded ? <OfficialSourceLinks sources={officialSources} /> : null}
               </div>

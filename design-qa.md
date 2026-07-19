@@ -25,6 +25,33 @@ final result: passed
 
 ---
 
+# QnA 답변 가시성 및 하단 탭 밀도 design QA
+
+- Source visual truth: `/var/folders/bz/br99y0bj2395vd1507vwbqmm0000gn/T/codex-clipboard-38909dcc-4b0f-4b87-a400-37743dc0abe5.png`.
+- Implementation screenshot: `/private/tmp/qna-latest.png`.
+- Combined comparison: `/private/tmp/qna-tabs-unified-comparison.png`.
+- Route: `http://localhost:4174/project/project_972d5901-d92c-4dfb-9e3d-547a3079f940`.
+- Viewport: 1280 × 720, 발표 메모 확장 후 QnA 탭 선택 상태.
+
+## Findings and fixes
+
+1. P1 — 추천 답변 데이터는 DOM에 존재했지만 QnA 외부 패널과 내부 패널의 이중 여백, 18~22px 질문 글자 크기 때문에 답변이 첫 화면 아래로 밀려 보이지 않았다.
+2. QnA 내부 중복 여백을 제거하고 외부 패널 여백을 대본·리포트와 같은 `8px 12px 12px`로 통일했다.
+3. 질문은 16px, 답변과 핵심 포인트는 14px 기준으로 낮추고 카드·도구막대·구분선 간격을 축소했다.
+4. 1280 × 720에서 추천 답변 요약 전체가 스크롤 전 화면 안에 표시되며, 핵심 포인트부터 패널 내부 스크롤로 이어진다.
+5. 실제로 추천 답변 데이터가 없는 경우에는 빈 영역 대신 `추천 답변을 불러오지 못했습니다. 다시 생성해 주세요.`를 표시하고 전체 답변 토글을 숨긴다.
+
+## Interaction and regression checks
+
+- 대본, QnA, 리포트 탭을 순서대로 전환하고 세 패널의 외부 여백과 스크롤 영역을 비교했다.
+- 대본 본문과 QnA 답변은 14px 보조 본문 기준을 공유하고, 리포트/QnA 제목은 16px 계층을 유지한다.
+- QnA 이전·다음·다시 생성과 전체 답변 토글 구조를 유지했다.
+- `SlideQuestionGuidePanel.test.tsx` 11개 테스트와 Web production build가 통과했다.
+
+final result: passed
+
+---
+
 # 에디터 QnA 패널 정보 구조 개선 design QA
 
 - Source visual truth: `/var/folders/bz/br99y0bj2395vd1507vwbqmm0000gn/T/codex-clipboard-38909dcc-4b0f-4b87-a400-37743dc0abe5.png`.
