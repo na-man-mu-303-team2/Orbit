@@ -465,6 +465,8 @@ Resources:
           S3_SECRET_ACCESS_KEY=
           S3_FORCE_PATH_STYLE=false
           JOB_QUEUE_DRIVER=bullmq
+          SLIDE_PRACTICE_ENABLED=true
+          SLIDE_QUESTION_GUIDES_ENABLED=true
           LIVE_STT_PROVIDER=sherpa
           REPORT_STT_PROVIDER=openai
           REHEARSAL_AUDIO_MAX_BYTES=25000000

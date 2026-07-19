@@ -4,7 +4,13 @@ import fs from "node:fs";
 const composeFile = "docker-compose.aws.yml";
 const envFile = "infra/aws/ec2-production.env.example";
 const bootstrapFile = "infra/aws/main-production-bootstrap.yaml";
+const productionEnvFile = ".env.production.example";
+const deployScriptFile = "infra/scripts/deploy-aws-ec2.sh";
 const privateRedisUrl = "redis://private-evidence-redis:6379";
+const editorPracticeFlags = [
+  "SLIDE_PRACTICE_ENABLED",
+  "SLIDE_QUESTION_GUIDES_ENABLED"
+];
 const failures = [];
 
 function assertContract(condition, message) {
@@ -58,19 +64,31 @@ function hasCommandPair(command, option, value) {
   return optionIndex >= 0 && command[optionIndex + 1] === value;
 }
 
-function assertTemplateValue(file, allowLeadingWhitespace) {
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function assertTemplateValue(file, key, expectedValue, allowLeadingWhitespace) {
   const content = fs.readFileSync(file, "utf8");
   const prefix = allowLeadingWhitespace ? "\\s*" : "";
-  const keyPattern = new RegExp(`^${prefix}PRIVATE_EVIDENCE_REDIS_URL=`, "gm");
+  const keyPattern = new RegExp(`^${prefix}${key}=`, "gm");
   const valuePattern = new RegExp(
-    `^${prefix}PRIVATE_EVIDENCE_REDIS_URL=${privateRedisUrl.replaceAll("/", "\\/")}\\s*$`,
+    `^${prefix}${key}=${escapeRegex(expectedValue)}\\s*$`,
     "gm"
   );
   const keyCount = content.match(keyPattern)?.length ?? 0;
   const valueCount = content.match(valuePattern)?.length ?? 0;
 
-  assertContract(keyCount === 1, `${file} must declare PRIVATE_EVIDENCE_REDIS_URL exactly once`);
-  assertContract(valueCount === 1, `${file} must use the AWS private evidence Redis URL`);
+  assertContract(keyCount === 1, `${file} must declare ${key} exactly once`);
+  assertContract(valueCount === 1, `${file} must set ${key}=${expectedValue}`);
+}
+
+function assertRequiredKey(file, key) {
+  const content = fs.readFileSync(file, "utf8");
+  const requiredKeysBlock = content.match(/required_keys=\(\s*([\s\S]*?)\n\)/)?.[1] ?? "";
+  const keyCount = requiredKeysBlock.match(new RegExp(`^\\s*${key}\\s*$`, "gm"))?.length ?? 0;
+
+  assertContract(keyCount === 1, `${file} must require ${key} exactly once`);
 }
 
 const config = renderComposeConfig();
@@ -128,8 +146,15 @@ if (config) {
   }
 }
 
-assertTemplateValue(envFile, false);
-assertTemplateValue(bootstrapFile, true);
+assertTemplateValue(envFile, "PRIVATE_EVIDENCE_REDIS_URL", privateRedisUrl, false);
+assertTemplateValue(bootstrapFile, "PRIVATE_EVIDENCE_REDIS_URL", privateRedisUrl, true);
+
+for (const flag of editorPracticeFlags) {
+  assertTemplateValue(productionEnvFile, flag, "true", false);
+  assertTemplateValue(envFile, flag, "true", false);
+  assertTemplateValue(bootstrapFile, flag, "true", true);
+  assertRequiredKey(deployScriptFile, flag);
+}
 
 if (failures.length > 0) {
   console.error("AWS production Compose contract validation failed:");

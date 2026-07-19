@@ -2304,10 +2304,11 @@ export function EditorShell(props: { projectId?: string }) {
                 message={slidePracticeSession.message}
                 onNextSentence={moveSlideRehearsalToNextSentence}
                 onPreviousSentence={moveSlideRehearsalToPreviousSentence}
+                onRetryRuntimeConfig={slidePracticeSession.retryRuntimeConfig}
                 onSkipSentence={skipCurrentSlideRehearsalSentence}
                 onStart={() => void handleStartSlidePractice()}
                 onStop={() => void handleStopSlidePractice()}
-                slidePracticeEnabled={slidePracticeSession.slidePracticeEnabled}
+                runtimeState={slidePracticeSession.runtimeState}
                 practiceState={slidePracticeSession.state}
                 slide={rehearsalSlide}
                 state={slideRehearsalState}

@@ -115,6 +115,8 @@ S3_BUCKET
 S3_REGION
 S3_FORCE_PATH_STYLE
 JOB_QUEUE_DRIVER
+SLIDE_PRACTICE_ENABLED
+SLIDE_QUESTION_GUIDES_ENABLED
 LIVE_STT_PROVIDER
 REPORT_STT_PROVIDER
 REHEARSAL_AUDIO_MAX_BYTES
@@ -150,6 +152,8 @@ S3_BUCKET=<AssetsBucketName>
 S3_REGION=ap-northeast-2
 S3_FORCE_PATH_STYLE=false
 JOB_QUEUE_DRIVER=bullmq
+SLIDE_PRACTICE_ENABLED=true
+SLIDE_QUESTION_GUIDES_ENABLED=true
 REPORT_STT_PROVIDER=openai
 OPENAI_TRANSCRIPTION_MODEL=whisper-1
 OCR_PROVIDER=python
@@ -159,6 +163,30 @@ LOG_LEVEL=info
 LOG_PRETTY=false
 CLOUDWATCH_LOG_GROUP=/orbit/production
 ```
+
+### Editor QnA와 부분 슬라이드 연습 rollout
+
+`main` production은 `SLIDE_PRACTICE_ENABLED=true`와
+`SLIDE_QUESTION_GUIDES_ENABLED=true`를 전역으로 사용한다. 두 flag에는
+project allowlist가 없으며, deploy wrapper는 둘 중 하나가 누락되면 배포를
+중단한다. 저장소 template 변경은 기존 `/etc/orbit/production.env`를 자동으로
+갱신하지 않으므로 최초 rollout 전에 SSM Run Command로 두 flag만 `true`로
+추가하거나 교체한다. 명령 출력에는 flag 이름과 성공 여부만 남기고 env 파일의
+다른 key나 값은 출력하지 않는다.
+
+배포 후 다음 순서로 확인한다.
+
+1. 공개 `/api/v1/runtime-config` 응답에서 `slidePracticeEnabled`와
+   `slideQuestionGuidesEnabled`가 모두 `true`인지 확인한다.
+2. 실제 editor QnA에서 질문 생성 Job이 완료되는지 확인한다.
+3. 실제 editor에서 10초 이상 부분 슬라이드 연습을 녹음하고 report가 생성되는지
+   확인한다.
+4. CloudWatch에서 질문 Job, 연습 분석 Job, raw audio 삭제 완료 event를
+   확인한다. 음성, transcript, script, secret 값은 출력하지 않는다.
+
+문제가 생기면 `/etc/orbit/production.env`의 두 flag를 `false`로 되돌리고
+재배포한다. rollback 후 runtime config가 둘 다 `false`인지, editor가 마이크나
+생성 요청 전에 기능을 차단하며 raw 403을 노출하지 않는지 확인한다.
 
 실제 파일 권한:
 
