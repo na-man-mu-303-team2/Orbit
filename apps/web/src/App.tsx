@@ -10,7 +10,6 @@ import {
   type Project,
   type ProjectAccessResponse,
   type ProjectMemberRole,
-  type ProjectMemberStatus,
   type RehearsalReport,
   type RehearsalRun,
 } from "@orbit/shared";
@@ -117,14 +116,6 @@ const fixedAccountPresentation = {
   initial: "K",
   label: "kdh@orbit.com",
 } as const;
-
-type ProjectAccessResponse = {
-  project: Project;
-  membership: {
-    role: ProjectMemberRole;
-    status: ProjectMemberStatus;
-  } | null;
-};
 
 const EditorShell = lazy(() =>
   import("./features/editor/shell/EditorShell").then((module) => ({
