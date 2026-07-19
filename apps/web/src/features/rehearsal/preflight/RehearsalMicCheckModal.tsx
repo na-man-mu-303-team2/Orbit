@@ -1,4 +1,4 @@
-import { IconCheck, IconMicrophone, IconX } from "@tabler/icons-react";
+import { IconCheck, IconMicrophone, IconMicrophoneOff, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import {
   getRehearsalMicrophoneAudioConstraints,
@@ -8,6 +8,7 @@ import {
 import "./rehearsal-mic-check-modal.css";
 
 type MicrophonePermission = "checking" | "granted" | "prompt" | "denied" | "unsupported";
+const microphoneVoiceTimeoutMs = 8000;
 
 export function RehearsalMicCheckModal(props: {
   onClose: () => void;
@@ -19,10 +20,18 @@ export function RehearsalMicCheckModal(props: {
   const [selectedDeviceId, setSelectedDeviceId] = useState(readRehearsalMicrophoneDeviceId);
   const [error, setError] = useState("");
   const [heardVoice, setHeardVoice] = useState(false);
+  const [voiceTimedOut, setVoiceTimedOut] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const voiceTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +79,7 @@ export function RehearsalMicCheckModal(props: {
     stopMicrophone();
     setError("");
     setHeardVoice(false);
+    setVoiceTimedOut(false);
     if (!navigator.mediaDevices?.getUserMedia) {
       setPermission("unsupported");
       return;
@@ -114,6 +124,12 @@ export function RehearsalMicCheckModal(props: {
     audioContext.createMediaStreamSource(stream).connect(analyser);
     audioContextRef.current = audioContext;
     const samples = new Uint8Array(analyser.fftSize);
+    let detectedVoice = false;
+
+    voiceTimeoutRef.current = window.setTimeout(() => {
+      voiceTimeoutRef.current = null;
+      if (!detectedVoice) setVoiceTimedOut(true);
+    }, microphoneVoiceTimeoutMs);
 
     const draw = () => {
       const bounds = canvas.getBoundingClientRect();
@@ -141,7 +157,13 @@ export function RehearsalMicCheckModal(props: {
         else context.lineTo(x, y);
       });
       context.stroke();
-      if (Math.sqrt(energy / samples.length) > 0.025) setHeardVoice(true);
+      if (!detectedVoice && Math.sqrt(energy / samples.length) > 0.025) {
+        detectedVoice = true;
+        if (voiceTimeoutRef.current !== null) window.clearTimeout(voiceTimeoutRef.current);
+        voiceTimeoutRef.current = null;
+        setVoiceTimedOut(false);
+        setHeardVoice(true);
+      }
       animationFrameRef.current = window.requestAnimationFrame(draw);
     };
     draw();
@@ -150,6 +172,8 @@ export function RehearsalMicCheckModal(props: {
   function stopMicrophone() {
     if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
     animationFrameRef.current = null;
+    if (voiceTimeoutRef.current !== null) window.clearTimeout(voiceTimeoutRef.current);
+    voiceTimeoutRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     void audioContextRef.current?.close().catch(() => undefined);
@@ -157,13 +181,14 @@ export function RehearsalMicCheckModal(props: {
   }
 
   const permissionGranted = permission === "granted";
-  const hasMicrophoneError = permission === "denied" || Boolean(error);
+  const hasMicrophoneError = permission === "denied" || Boolean(error) || voiceTimedOut;
 
   return (
     <div className="rehearsal-mic-modal-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget) props.onClose();
     }}>
       <section aria-labelledby="rehearsal-mic-modal-title" aria-modal="true" className="rehearsal-mic-modal" role="dialog">
+        <div className="rehearsal-mic-modal-scroll">
         <header>
           <div>
             <h2 id="rehearsal-mic-modal-title">리허설 전 마이크를 확인해 주세요</h2>
@@ -205,6 +230,7 @@ export function RehearsalMicCheckModal(props: {
             <div className="rehearsal-mic-step-heading">
               <strong>인식 확인</strong>
               <span className={hasMicrophoneError ? "rehearsal-mic-error-status" : heardVoice ? "rehearsal-mic-success" : undefined}>
+                {hasMicrophoneError ? <IconMicrophoneOff size={14} /> : null}
                 {heardVoice ? <IconCheck size={14} /> : null}
                 {hasMicrophoneError ? "음성 감지에 실패했어요" : heardVoice ? "목소리가 잘 들려요" : permissionGranted ? "목소리를 들려주세요" : "권한 허용 후 확인"}
               </span>
@@ -223,6 +249,7 @@ export function RehearsalMicCheckModal(props: {
           <button disabled={!permissionGranted} onClick={() => { stopMicrophone(); props.onStart(); }} type="button">리허설 시작</button>
           <button className="rehearsal-mic-skip" onClick={() => { stopMicrophone(); props.onStartWithoutMicrophone(); }} type="button">마이크 없이 시작</button>
         </footer>
+        </div>
       </section>
     </div>
   );

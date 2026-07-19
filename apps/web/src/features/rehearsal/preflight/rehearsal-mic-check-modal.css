@@ -17,12 +17,17 @@
   color: var(--redesign-color-on-surface);
   font-family: var(--redesign-font-family);
   max-height: calc(100vh - 40px);
-  overflow: auto;
-  padding: var(--redesign-space-8);
+  overflow: hidden;
   width: min(500px, 100%);
 }
 
-.rehearsal-mic-modal > header {
+.rehearsal-mic-modal-scroll {
+  max-height: inherit;
+  overflow-y: auto;
+  padding: var(--redesign-space-8);
+}
+
+.rehearsal-mic-modal-scroll > header {
   align-items: flex-start;
   display: flex;
   gap: var(--redesign-space-4);
@@ -122,7 +127,16 @@
 }
 
 .rehearsal-mic-step-heading .rehearsal-mic-error-status {
+  align-items: center;
   color: var(--redesign-color-error);
+  display: inline-flex;
+  gap: 3px;
+  line-height: 14px;
+}
+
+.rehearsal-mic-error-status svg {
+  display: block;
+  flex-shrink: 0;
 }
 
 .rehearsal-mic-device {
@@ -189,11 +203,11 @@
   color: var(--redesign-color-error);
 }
 
-.rehearsal-mic-modal > footer {
+.rehearsal-mic-modal-scroll > footer {
   padding-top: var(--redesign-space-5);
 }
 
-.rehearsal-mic-modal > footer button {
+.rehearsal-mic-modal-scroll > footer button {
   background: var(--redesign-color-primary);
   border: 0;
   border-radius: var(--redesign-radius-lg);
@@ -205,13 +219,13 @@
   width: 100%;
 }
 
-.rehearsal-mic-modal > footer button:disabled {
+.rehearsal-mic-modal-scroll > footer button:disabled {
   background: var(--redesign-color-surface-container-high);
   color: var(--redesign-color-on-surface-variant);
   cursor: not-allowed;
 }
 
-.rehearsal-mic-modal > footer .rehearsal-mic-skip {
+.rehearsal-mic-modal-scroll > footer .rehearsal-mic-skip {
   background: transparent;
   color: var(--redesign-color-on-surface-variant);
   font-weight: 600;
@@ -228,5 +242,5 @@
 }
 
 @media (max-width: 560px) {
-  .rehearsal-mic-modal { padding: var(--redesign-space-5); }
+  .rehearsal-mic-modal-scroll { padding: var(--redesign-space-5); }
 }
