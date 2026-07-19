@@ -8289,6 +8289,18 @@ body.is-resizing-speaker-notes {
   justify-content: flex-end;
 }
 
+.orbit-shell .editor-question-guide-runtime-error {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--redesign-space-3);
+  justify-content: space-between;
+}
+
+.orbit-shell .editor-question-guide-runtime-error .editor-practice-message {
+  margin: 0;
+}
+
 .orbit-shell .editor-practice-controls > div:first-child {
   flex: 1 1 auto;
   min-width: 0;
