@@ -52,6 +52,7 @@ describe("AudienceSatisfactionForm", () => {
     expect(html).toContain("발표가 전반적으로 유익했나요?");
     expect(html).toContain("추가 의견이 있다면 알려주세요.");
     expect(html).toContain("의견 제출");
+    expect(html).toContain('data-activity-template="satisfaction"');
     expect(html).not.toContain("speakerNotes");
   });
 

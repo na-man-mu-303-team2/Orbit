@@ -60,6 +60,43 @@ final result: passed
 
 ---
 
+# 청중 참여 화면 공통 카드 design QA
+
+- Source visual truth: `/var/folders/bz/br99y0bj2395vd1507vwbqmm0000gn/T/codex-clipboard-f48ba377-0e42-4353-80e1-49c102e892b4.png`.
+- Implementation route: `/project/project_972d5901-d92c-4dfb-9e3d-547a3079f940/activity-preview/activity_1`.
+- Implementation screenshot: `/private/tmp/orbit-audience-wide.png`.
+- Combined comparison: `/private/tmp/orbit-audience-comparison.png`.
+- Viewports: desktop 1456 × 1086, mobile 390 × 844.
+- State: 사전 질문 입력 화면과 제출 완료 화면. 사전 질문·실시간 투표·만족도 조사가 같은 청중 폼 레이아웃을 공유한다.
+
+## Findings and comparison history
+
+1. P1 — 기존 폼은 최대 폭 560px의 작은 카드와 조밀한 컨트롤 때문에 청중이 멀리서 보거나 터치하기 어려웠다.
+2. 참조 시안의 중앙 흰색 카드, 번호 원형, 필수 표시, 큰 선택지, 전체 폭 제출 버튼 구조를 공통 청중 폼에 적용했다.
+3. 템플릿별 제목과 안내 문구는 유지하면서 사전 질문·실시간 투표·만족도 조사에 동일한 시각 계층이 적용되도록 `data-activity-template` 계약을 추가했다.
+4. 데스크톱에서 카드 폭 1048px, 모바일에서 본문 폭 375px 내 가로 오버플로 없음, 제출 완료 상태 전환을 확인했다.
+
+## Required fidelity surfaces
+
+- Typography: 영문 유형 라벨, 큰 한국어 제목, 설명, 질문 순서로 계층을 맞췄다.
+- Spacing: 질문마다 독립 카드와 넉넉한 내부 여백을 사용하고 터치 컨트롤 높이를 확대했다.
+- Colors: redesign의 `primary-subtle`, `surface`, `outline-variant`, `secondary-container` 토큰만 사용했다.
+- Interaction: 선택 상태, 텍스트 입력, 필수 검증, 제출 완료 흐름을 기존 기능과 동일하게 유지했다.
+- Responsive: 390px에서 질문 카드, 선택지, 제출 버튼이 화면 폭 안에서 재배치된다.
+
+## Verification
+
+- `pnpm --filter @orbit/web exec vitest run src/features/activity-slides/audience/AudienceSatisfactionPage.test.tsx` passed: 7 tests.
+- `pnpm --filter @orbit/web typecheck` passed.
+- Docker web rebuild passed.
+- 실제 브라우저에서 사전 질문 입력 → 제출 완료 흐름 통과.
+- 실제 브라우저의 console warning/error 없음.
+- 인앱 브라우저의 캡처 배율 오차가 있어 시각 검증은 DOM geometry와 실제 상호작용 결과를 함께 사용했다.
+
+final result: passed
+
+---
+
 # 실시간 응답 결과 장표 design QA
 
 - Source visual truth: `/var/folders/bz/br99y0bj2395vd1507vwbqmm0000gn/T/codex-clipboard-a077d3c3-85a3-4179-988c-7b1cf6fd6c8e.png`.

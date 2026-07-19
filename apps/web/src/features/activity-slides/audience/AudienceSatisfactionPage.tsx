@@ -497,7 +497,11 @@ export function AudienceSatisfactionForm(props: {
   const templateCopy = getAudienceTemplateCopy(props.definition);
 
   return (
-    <section className="activity-audience-card activity-response-card" aria-labelledby="activity-response-title">
+    <section
+      aria-labelledby="activity-response-title"
+      className="activity-audience-card activity-response-card"
+      data-activity-template={props.definition.template}
+    >
       <span className="activity-audience-eyebrow">{templateCopy.formEyebrow}</span>
       <h1 id="activity-response-title">{props.definition.title}</h1>
       {props.definition.description ? <p className="activity-response-description">{props.definition.description}</p> : null}
