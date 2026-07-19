@@ -29,6 +29,8 @@ import {
   type SemanticCueExtractionJobPayload,
   type SpeakerNotesSuggestionJobPayload,
   type RehearsalSemanticEvaluationJobPayload,
+  presentationAnalysisJobPayloadSchema,
+  type PresentationAnalysisJobPayload,
   type DesignImageGenerationJobPayload,
   type ActivityResponseRetentionJobPayload,
 } from "@orbit/shared";
@@ -54,6 +56,8 @@ export const referenceExtractQueueName = "reference-extract";
 export const referenceExtractJobName = "reference-extract";
 export const rehearsalSttQueueName = "rehearsal-stt";
 export const rehearsalSttJobName = "rehearsal-stt";
+export const presentationAnalysisQueueName = "presentation-analysis";
+export const presentationAnalysisJobName = "presentation-analysis";
 export const rehearsalSemanticEvaluationQueueName =
   "rehearsal-semantic-evaluation";
 export const rehearsalSemanticEvaluationJobName =
@@ -130,6 +134,14 @@ export interface EnqueueRehearsalSttJobInput extends RehearsalSttBullMqPayload {
   driver: "bullmq" | "sqs";
   redisUrl: string;
 }
+
+export type PresentationAnalysisBullMqPayload = PresentationAnalysisJobPayload;
+
+export type EnqueuePresentationAnalysisJobInput =
+  PresentationAnalysisBullMqPayload & {
+    driver: "bullmq" | "sqs";
+    redisUrl: string;
+  };
 
 export type RehearsalSemanticEvaluationBullMqPayload =
   RehearsalSemanticEvaluationJobPayload;
@@ -333,6 +345,35 @@ export async function enqueueRehearsalSttJob(
       deckId: input.deckId,
       audioFileId: input.audioFileId,
     } satisfies RehearsalSttBullMqPayload, canonicalJobOptions(input.jobId));
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueuePresentationAnalysisJob(
+  input: EnqueuePresentationAnalysisJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(presentationAnalysisQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    await queue.add(
+      presentationAnalysisJobName,
+      presentationAnalysisJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        runId: input.runId,
+        deckId: input.deckId,
+        audioFileId: input.audioFileId,
+      }),
+      canonicalJobOptions(input.jobId),
+    );
   } finally {
     await queue.close();
   }

@@ -3,6 +3,8 @@ import { z } from "zod";
 import { isoDateTimeSchema } from "../common/time.schema";
 import { deckIdSchema } from "../deck/id.schema";
 import { activityRunIdSchema } from "../activity/activity-id.schema";
+import { assetUploadUrlResponseSchema } from "../files/file.schema";
+import { jobSchema } from "../jobs/job.schema";
 
 export const presentationAccessModeSchema = z.enum(["passcode", "public"]);
 
@@ -116,6 +118,123 @@ export const presentationSessionWithAudienceUrlResponseSchema = z
   .object({
     session: presentationSessionSchema,
     audienceUrl: z.string().min(1)
+  })
+  .strict();
+
+export const presentationRunStatusSchema = z.enum([
+  "created",
+  "uploading",
+  "processing",
+  "succeeded",
+  "failed",
+  "cancelled"
+]);
+
+export const presentationRecordingModeSchema = z.enum(["microphone", "none"]);
+
+export const presentationRunErrorSchema = z
+  .object({
+    code: z.string().min(1),
+    message: z.string().min(1)
+  })
+  .strict();
+
+export const presentationVoiceReportSchema = z
+  .object({
+    durationSeconds: z.number().nonnegative(),
+    wordsPerMinute: z.number().nonnegative(),
+    averageVolumeDbfs: z.number().finite().nullable(),
+    fillerWordCount: z.number().int().nonnegative(),
+    longSilenceCount: z.number().int().nonnegative(),
+    averagePitchHz: z.number().nonnegative().nullable(),
+    scriptFeedback: z.string().default("")
+  })
+  .strict();
+
+export const presentationRunSchema = z
+  .object({
+    runId: z.string().min(1),
+    projectId: z.string().min(1),
+    sessionId: z.string().min(1),
+    deckId: deckIdSchema,
+    deckVersion: z.number().int().positive(),
+    recordingMode: presentationRecordingModeSchema,
+    audioFileId: z.string().min(1).nullable(),
+    jobId: z.string().min(1).nullable(),
+    status: presentationRunStatusSchema,
+    error: presentationRunErrorSchema.nullable(),
+    voiceReport: presentationVoiceReportSchema.nullable(),
+    startedAt: isoDateTimeSchema,
+    endedAt: isoDateTimeSchema.nullable(),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema
+  })
+  .strict();
+
+export const createPresentationRunRequestSchema = z
+  .object({
+    expectedDeckVersion: z.number().int().positive(),
+    recordingMode: presentationRecordingModeSchema.default("microphone")
+  })
+  .strict();
+
+export const createPresentationRunResponseSchema = z
+  .object({ run: presentationRunSchema })
+  .strict();
+
+export const getPresentationRunResponseSchema = createPresentationRunResponseSchema;
+
+export const createPresentationAudioUploadRequestSchema = z
+  .object({
+    originalName: z.string().trim().min(1).max(255),
+    mimeType: z.string().trim().min(1),
+    size: z.number().int().positive()
+  })
+  .strict();
+
+export const createPresentationAudioUploadResponseSchema = z
+  .object({
+    run: presentationRunSchema,
+    upload: assetUploadUrlResponseSchema
+  })
+  .strict();
+
+export const completePresentationAudioRequestSchema = z.union([
+  z.object({ fileId: z.string().min(1) }).strict(),
+  z.object({ withoutAudio: z.literal(true) }).strict()
+]);
+
+export const completePresentationAudioResponseSchema = z
+  .object({
+    run: presentationRunSchema,
+    job: jobSchema.nullable()
+  })
+  .strict();
+
+export const presentationRunReportSchema = z
+  .object({
+    runId: z.string().min(1),
+    projectId: z.string().min(1),
+    sessionId: z.string().min(1),
+    analysisStatus: presentationRunStatusSchema,
+    recordingMode: presentationRecordingModeSchema,
+    voiceReport: presentationVoiceReportSchema.nullable(),
+    audienceSummary: z.record(z.unknown()).nullable()
+  })
+  .strict();
+
+export const getPresentationRunReportResponseSchema = z
+  .object({ report: presentationRunReportSchema })
+  .strict();
+
+export const presentationAnalysisJobPayloadSchema = z
+  .object({
+    jobId: z.string().min(1),
+    projectId: z.string().min(1),
+    sessionId: z.string().min(1),
+    runId: z.string().min(1),
+    deckId: deckIdSchema,
+    audioFileId: z.string().min(1)
   })
   .strict();
 
@@ -244,6 +363,26 @@ export const audiencePresentationAccessResponseSchema = z
   .strict();
 
 export type PresentationSession = z.infer<typeof presentationSessionSchema>;
+export type PresentationRun = z.infer<typeof presentationRunSchema>;
+export type PresentationRunStatus = z.infer<typeof presentationRunStatusSchema>;
+export type PresentationRecordingMode = z.infer<
+  typeof presentationRecordingModeSchema
+>;
+export type PresentationVoiceReport = z.infer<
+  typeof presentationVoiceReportSchema
+>;
+export type CreatePresentationRunRequest = z.infer<
+  typeof createPresentationRunRequestSchema
+>;
+export type CreatePresentationAudioUploadRequest = z.infer<
+  typeof createPresentationAudioUploadRequestSchema
+>;
+export type CompletePresentationAudioRequest = z.infer<
+  typeof completePresentationAudioRequestSchema
+>;
+export type PresentationAnalysisJobPayload = z.infer<
+  typeof presentationAnalysisJobPayloadSchema
+>;
 export type PresentationAccessMode = z.infer<
   typeof presentationAccessModeSchema
 >;
