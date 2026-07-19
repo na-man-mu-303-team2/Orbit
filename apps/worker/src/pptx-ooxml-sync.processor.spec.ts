@@ -9,6 +9,12 @@ import {
 
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const pngSignature = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+const pngSignatureDataUrl = `data:image/png;base64,${Buffer.from(
+  pngSignature,
+).toString("base64")}`;
 
 const payload = {
   jobId: "job-sync",
@@ -69,7 +75,7 @@ describe("processPptxOoxmlSyncJob", () => {
       const url = String(input);
       if (url.endsWith("current.pptx")) return new Response("pptx-bytes");
       if (url.endsWith("image.png")) {
-        return new Response(new Uint8Array([1, 2, 3]));
+        return new Response(pngSignature);
       }
       if (url.endsWith("/ai/pptx-ooxml-sync")) {
         const form = init?.body as FormData;
@@ -87,7 +93,7 @@ describe("processPptxOoxmlSyncJob", () => {
           }),
           expect.objectContaining({
             type: "update_element_props",
-            props: { src: "data:image/png;base64,AQID" },
+            props: { src: pngSignatureDataUrl },
           }),
         ]);
         return new Response(
@@ -139,6 +145,67 @@ describe("processPptxOoxmlSyncJob", () => {
       expect.stringContaining("DELETE FROM deck_patches"),
       ["project-a", "deck_a", 3],
     );
+  });
+
+  it("uses the detected image MIME when legacy asset metadata is wrong", async () => {
+    const { dataSource } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_image",
+          props: {
+            src: "/api/v1/projects/project-a/assets/file_image/content",
+          },
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("current.pptx")) return new Response("pptx-bytes");
+        if (url.endsWith("image.png")) {
+          return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]));
+        }
+        if (url.endsWith("/ai/pptx-ooxml-sync")) {
+          const operationsPart = (init?.body as FormData).get(
+            "operations_file",
+          );
+          expect(JSON.parse(await (operationsPart as Blob).text())).toEqual([
+            expect.objectContaining({
+              type: "update_element_props",
+              props: {
+                src: "data:image/jpeg;base64,/9j/4A==",
+              },
+            }),
+          ]);
+          return new Response(
+            JSON.stringify(
+              workerResponse([
+                {
+                  operationType: "update_element_props",
+                  slideId: "slide_1",
+                  elementId: "el_image",
+                },
+              ]),
+            ),
+          );
+        }
+        return new Response("unexpected", { status: 500 });
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
   });
 
   it("keeps logical group operations out of the OOXML package", async () => {
@@ -1394,7 +1461,7 @@ describe("processPptxOoxmlSyncJob", () => {
       const url = String(input);
       if (url.endsWith("current.pptx")) return new Response("pptx-bytes");
       if (url.endsWith("image.png")) {
-        return new Response(new Uint8Array([1, 2, 3]));
+        return new Response(pngSignature);
       }
       if (url.endsWith("/ai/pptx-ooxml-sync")) {
         const form = init?.body as FormData;
@@ -1412,7 +1479,7 @@ describe("processPptxOoxmlSyncJob", () => {
             sourceSlidePart: "ppt/slides/slide2.xml",
             element: expect.objectContaining({
               props: expect.objectContaining({
-                src: "data:image/png;base64,AQID",
+                src: pngSignatureDataUrl,
               }),
             }),
           }),
