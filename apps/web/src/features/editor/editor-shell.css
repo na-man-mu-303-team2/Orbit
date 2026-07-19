@@ -13411,7 +13411,7 @@ body.is-resizing-speaker-notes {
   gap: 0;
   min-width: 0;
   min-height: 0;
-  padding: var(--redesign-space-2);
+  padding: 0;
   background: var(--redesign-color-surface-container-high);
 }
 
@@ -13486,22 +13486,18 @@ body.is-resizing-speaker-notes {
   .ai-chat-panel {
   display: flex;
   flex-direction: column;
-  gap: var(--redesign-space-4);
+  gap: 0;
   padding-bottom: 0;
-  background: color-mix(
-    in srgb,
-    var(--redesign-color-surface-container-high) 76%,
-    var(--redesign-color-surface-container-low)
-  );
+  background: var(--redesign-color-surface-container-high);
 }
 
 .orbit-shell.editor-professional
   .editor-ai-assistant-panel
   .ai-chat-history {
   flex: 1 1 auto;
-  gap: var(--redesign-space-5);
+  gap: var(--redesign-space-4);
   min-height: 0;
-  padding: var(--redesign-space-5) var(--redesign-space-5) var(--redesign-space-3);
+  padding: var(--redesign-space-5) var(--redesign-space-4) var(--redesign-space-3);
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -13512,28 +13508,30 @@ body.is-resizing-speaker-notes {
   .ai-chat-message {
   align-items: flex-start;
   display: grid;
-  grid-template-columns: var(--redesign-size-control-md) minmax(0, 1fr);
+  grid-template-columns: 36px minmax(0, 1fr);
   gap: var(--redesign-space-3);
 }
 
 .orbit-shell.editor-professional
   .editor-ai-assistant-panel
   .ai-chat-message.user {
-  justify-content: initial;
+  display: flex;
+  justify-content: flex-end;
+  padding-left: 48px;
 }
 
 .orbit-shell.editor-professional
   .editor-ai-assistant-panel
   .ai-chat-message.assistant {
-  grid-template-columns: var(--redesign-size-control-md) minmax(0, 1fr);
+  grid-template-columns: 36px minmax(0, 1fr);
 }
 
 .orbit-shell.editor-professional
   .editor-ai-assistant-panel
   .ai-chat-avatar {
-  width: var(--redesign-size-control-md);
-  height: var(--redesign-size-control-md);
-  border-radius: var(--redesign-radius-full);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--redesign-radius-sm);
   background: color-mix(in srgb, var(--redesign-color-primary) 22%, transparent);
   color: var(--redesign-color-primary);
   font-size: var(--redesign-type-label-md-size);
@@ -13543,12 +13541,7 @@ body.is-resizing-speaker-notes {
   .editor-ai-assistant-panel
   .ai-chat-message.user
   .ai-chat-avatar {
-  background: color-mix(
-    in srgb,
-    var(--redesign-color-tertiary) 24%,
-    var(--redesign-color-surface-container)
-  );
-  color: var(--redesign-color-on-surface);
+  display: none;
 }
 
 .orbit-shell.editor-professional
@@ -13562,12 +13555,7 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional
   .editor-ai-assistant-panel
   .ai-chat-message-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--redesign-space-2);
-  color: var(--redesign-color-on-surface-variant);
-  font-size: var(--redesign-type-label-sm-size);
-  line-height: var(--redesign-type-label-sm-line-height);
+  display: none;
 }
 
 .orbit-shell.editor-professional
@@ -13593,13 +13581,9 @@ body.is-resizing-speaker-notes {
   .editor-ai-assistant-panel
   .ai-chat-message.assistant
   p {
-  border: 0;
-  border-radius: var(--redesign-radius-lg);
-  background: color-mix(
-    in srgb,
-    var(--redesign-color-surface-container-lowest) 78%,
-    var(--redesign-color-surface-container)
-  );
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface-container);
   color: var(--redesign-color-on-surface);
   font-size: var(--redesign-type-body-sm-size);
   line-height: 1.6;
@@ -13611,11 +13595,7 @@ body.is-resizing-speaker-notes {
   .editor-ai-assistant-panel
   .ai-chat-message.assistant
   p {
-  background: color-mix(
-    in srgb,
-    var(--redesign-color-primary-subtle) 46%,
-    var(--redesign-color-surface-container-lowest)
-  );
+  background: var(--redesign-color-surface-container);
 }
 
 .orbit-shell.editor-professional
@@ -13623,20 +13603,19 @@ body.is-resizing-speaker-notes {
   .ai-chat-message.user
   p {
   border: 0;
-  border-radius: var(--redesign-radius-lg);
-  background: color-mix(
-    in srgb,
-    var(--redesign-color-surface-container) 86%,
-    var(--redesign-color-on-surface) 8%
-  );
-  color: var(--redesign-color-on-surface);
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+  max-width: 78%;
 }
 
 .orbit-shell.editor-professional
   .editor-ai-assistant-panel
   .ai-chat-suggestions {
-  gap: var(--redesign-space-1);
-  padding: 0 var(--redesign-space-4);
+  align-items: flex-start;
+  gap: var(--redesign-space-2);
+  margin-top: auto;
+  padding: 0 var(--redesign-space-4) var(--redesign-space-3);
   background: transparent;
 }
 
@@ -13644,8 +13623,8 @@ body.is-resizing-speaker-notes {
   .editor-ai-assistant-panel
   .ai-chat-suggestions
   button {
-  min-height: var(--redesign-size-control-sm);
-  padding: 0 var(--redesign-space-2);
+  min-height: 42px;
+  padding: 0 var(--redesign-space-4);
   border: var(--redesign-border-subtle);
   border-radius: var(--redesign-radius-full);
   background: transparent;
@@ -13662,10 +13641,11 @@ body.is-resizing-speaker-notes {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--redesign-space-2);
-  padding: 0 var(--redesign-space-4) var(--redesign-space-4);
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  margin: 0 var(--redesign-space-4) var(--redesign-space-3);
+  padding: var(--redesign-space-2);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-surface-container);
   box-shadow: var(--redesign-shadow-none);
 }
 
@@ -13689,10 +13669,10 @@ body.is-resizing-speaker-notes {
   .ai-chat-mode-switch
   button {
   min-height: 34px;
-  padding: 0 var(--redesign-space-2);
+  padding: 0 var(--redesign-space-3);
   border: var(--redesign-border-subtle);
   border-radius: var(--redesign-radius-lg);
-  background: var(--redesign-color-surface-container-lowest);
+  background: transparent;
   color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-label-sm-size);
   font-weight: 700;
@@ -13711,16 +13691,12 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional
   .editor-ai-assistant-panel
   .ai-chat-input-shell {
-  min-height: var(--redesign-size-control-lg);
+  min-height: 42px;
   padding: var(--redesign-space-1) var(--redesign-space-1) var(--redesign-space-1)
     var(--redesign-space-3);
-  border: var(--redesign-border-subtle);
-  border-radius: var(--redesign-radius-md);
-  background: color-mix(
-    in srgb,
-    var(--redesign-color-surface-container) 88%,
-    var(--redesign-color-on-surface) 4%
-  );
+  border: 0;
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface-container-lowest);
 }
 
 .orbit-shell.editor-professional

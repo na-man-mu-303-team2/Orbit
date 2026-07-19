@@ -88,13 +88,13 @@ describe("AiChatPanel", () => {
     const css = fs.readFileSync(editorShellCssPath, "utf8");
 
     expect(css).toMatch(
-      /\.editor-ai-assistant-panel\s*\.ai-chat-suggestions\s*\{[^}]*gap:\s*var\(--redesign-space-1\);[^}]*padding:\s*0 var\(--redesign-space-4\);/s
+      /\.editor-ai-assistant-panel\s*\.ai-chat-suggestions\s*\{[^}]*gap:\s*var\(--redesign-space-2\);[^}]*padding:\s*0 var\(--redesign-space-4\) var\(--redesign-space-3\);/s
     );
     expect(css).toMatch(
-      /\.editor-ai-assistant-panel\s*\.ai-chat-suggestions\s*button\s*\{[^}]*min-height:\s*var\(--redesign-size-control-sm\);[^}]*padding:\s*0 var\(--redesign-space-2\);/s
+      /\.editor-ai-assistant-panel\s*\.ai-chat-suggestions\s*button\s*\{[^}]*min-height:\s*42px;[^}]*padding:\s*0 var\(--redesign-space-4\);/s
     );
     expect(css).toMatch(
-      /\.editor-ai-assistant-panel\s*\.ai-chat-mode-switch\s*button\s*\{[^}]*min-height:\s*34px;[^}]*padding:\s*0 var\(--redesign-space-2\);/s
+      /\.editor-ai-assistant-panel\s*\.ai-chat-mode-switch\s*button\s*\{[^}]*min-height:\s*34px;[^}]*padding:\s*0 var\(--redesign-space-3\);/s
     );
   });
 
