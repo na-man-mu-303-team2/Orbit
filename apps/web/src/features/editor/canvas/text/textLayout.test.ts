@@ -5,13 +5,14 @@ import { p0AnimationDeck } from "../../../rehearsal/presenter/__fixtures__/anima
 import { isTextElementOverflowing } from "./textLayout";
 
 const slide = p0AnimationDeck.slides[0]!;
-const textElement = slide.elements.find(
+const maybeTextElement = slide.elements.find(
   (element) => element.elementId === "el_body"
 );
 
-if (!textElement || textElement.type !== "text") {
+if (!maybeTextElement || maybeTextElement.type !== "text") {
   throw new Error("text fixture missing");
 }
+const textElement = maybeTextElement;
 
 function isOverflowing(
   props: TextElementProps,
@@ -47,9 +48,10 @@ describe("isTextElementOverflowing", () => {
         ...textElement.props,
         text: "짧은 시작 뒤에 매우 큰 글꼴의 여러 줄 텍스트",
         runs: [
-          { text: "짧은 ", fontSize: 12 },
+          { text: "짧은 ", baseline: "normal", fontSize: 12 },
           {
             text: "시작 뒤에 매우 큰 글꼴의 여러 줄 텍스트",
+            baseline: "normal",
             fontSize: 48,
             fontWeight: "bold"
           }
