@@ -323,8 +323,7 @@ export function DisplayControls(props: {
         >
           <ChevronDown size={15} />
         </button>
-      </div>
-      {isOptionsOpen ? (
+        {isOptionsOpen ? (
         <div
           aria-label="프레젠테이션 디스플레이 옵션"
           className="presenter-display-options-popover"
@@ -474,7 +473,8 @@ export function DisplayControls(props: {
             </button>
           </div>
         </div>
-      ) : null}
+        ) : null}
+      </div>
       {message && message !== dismissedMessage ? (
         <p className="presenter-display-message">
           <AlertCircle size={15} />

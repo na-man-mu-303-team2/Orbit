@@ -53,6 +53,7 @@ main.rehearsal-presenter-shell {
   font-size: var(--redesign-type-body-sm-size);
   font-weight: 700;
   min-height: var(--redesign-size-control-md);
+  position: relative;
 }
 
 .rehearsal-presenter-shell .rehearsal-exit-button:hover,
@@ -792,7 +793,7 @@ main.rehearsal-presenter-shell {
 .rehearsal-presenter-shell .presenter-display-primary:hover,
 .rehearsal-presenter-shell .presenter-display-options-toggle:hover,
 .rehearsal-presenter-shell .presenter-display-options-toggle[aria-expanded="true"] { background: var(--redesign-color-dark-surface-raised); border-color: var(--redesign-color-dark-surface-raised); }
-.presenter-display-options-popover { border: 1px solid var(--redesign-color-outline-variant); border-radius: var(--redesign-radius-xl); box-shadow: var(--redesign-shadow-overlay); left: auto; right: 0; transform: none; width: min(360px,calc(100vw - 32px)); }
+.rehearsal-presenter-shell .presenter-display-options-popover { border: 1px solid var(--redesign-color-outline-variant); border-radius: var(--redesign-radius-xl); box-shadow: var(--redesign-shadow-overlay); left: auto; right: 0; transform: none; width: min(360px,calc(100vw - 32px)); }
 .presenter-display-option-row, .presenter-display-option-group { border-color: var(--redesign-color-outline-variant); }
 .presenter-display-options-popover input[type="checkbox"], .presenter-display-options-popover input[type="radio"] { accent-color: var(--redesign-color-primary); }
 .presenter-display-options-popover .presenter-display-switch:checked { background: var(--redesign-color-primary); }
