@@ -4072,11 +4072,11 @@
 }
 
 .presenter-display-split .presenter-display-primary {
-  border-radius: var(--redesign-radius-xl) 0 0 var(--redesign-radius-xl);
+  border-radius: var(--redesign-radius-lg) 0 0 var(--redesign-radius-lg);
 }
 
 .presenter-display-split .presenter-display-options-toggle {
-  border-radius: 0 var(--redesign-radius-xl) var(--redesign-radius-xl) 0;
+  border-radius: 0 var(--redesign-radius-lg) var(--redesign-radius-lg) 0;
 }
 
 .presenter-display-primary {
@@ -4095,7 +4095,7 @@
 }
 
 .presenter-display-split .presenter-display-primary {
-  border-radius: var(--redesign-radius-xl) 0 0 var(--redesign-radius-xl);
+  border-radius: var(--redesign-radius-lg) 0 0 var(--redesign-radius-lg);
 }
 
 .presenter-display-primary:hover {
@@ -4233,6 +4233,10 @@
 .presenter-display-option-row-description span {
   display: grid;
   gap: 3px;
+}
+
+.presenter-display-option-row-description {
+  align-items: flex-start;
 }
 
 .presenter-display-option-row small {

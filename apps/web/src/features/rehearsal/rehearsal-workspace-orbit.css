@@ -42,7 +42,17 @@ main.rehearsal-presenter-shell {
 }
 
 .rehearsal-presenter-shell .rehearsal-exit-button {
-  border-radius: var(--redesign-radius-xl);
+  border-radius: var(--redesign-radius-lg);
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 700;
+  min-height: var(--redesign-size-control-md);
+}
+
+.rehearsal-presenter-shell .presenter-display-split {
+  border-radius: var(--redesign-radius-lg);
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 700;
+  min-height: var(--redesign-size-control-md);
 }
 
 .rehearsal-presenter-shell .rehearsal-exit-button:hover,
@@ -777,8 +787,8 @@ main.rehearsal-presenter-shell {
   .rehearsal-completion-card > footer { align-items: stretch; flex-direction: column-reverse; }
 }
 
-.rehearsal-presenter-shell .presenter-display-primary { background: var(--redesign-color-on-surface); border-color: var(--redesign-color-on-surface); border-radius: var(--redesign-radius-full) 0 0 var(--redesign-radius-full); color: var(--redesign-color-light-surface); min-height: 44px; }
-.rehearsal-presenter-shell .presenter-display-options-toggle { background: var(--redesign-color-on-surface); border-color: var(--redesign-color-on-surface); border-left-color: color-mix(in srgb, var(--redesign-color-light-surface) 28%, transparent); border-radius: 0 var(--redesign-radius-full) var(--redesign-radius-full) 0; color: var(--redesign-color-light-surface); min-height: 44px; }
+.rehearsal-presenter-shell .presenter-display-primary { background: var(--redesign-color-on-surface); border-color: var(--redesign-color-on-surface); border-radius: var(--redesign-radius-lg) 0 0 var(--redesign-radius-lg); color: var(--redesign-color-light-surface); font-size: var(--redesign-type-body-sm-size); font-weight: 700; min-height: var(--redesign-size-control-md); }
+.rehearsal-presenter-shell .presenter-display-options-toggle { background: var(--redesign-color-on-surface); border-color: var(--redesign-color-on-surface); border-left-color: color-mix(in srgb, var(--redesign-color-light-surface) 28%, transparent); border-radius: 0 var(--redesign-radius-lg) var(--redesign-radius-lg) 0; color: var(--redesign-color-light-surface); font-size: var(--redesign-type-body-sm-size); font-weight: 700; min-height: var(--redesign-size-control-md); }
 .rehearsal-presenter-shell .presenter-display-primary:hover,
 .rehearsal-presenter-shell .presenter-display-options-toggle:hover,
 .rehearsal-presenter-shell .presenter-display-options-toggle[aria-expanded="true"] { background: var(--redesign-color-dark-surface-raised); border-color: var(--redesign-color-dark-surface-raised); }
