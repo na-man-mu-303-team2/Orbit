@@ -58,8 +58,12 @@ export function ActivityPresenterPanel(props: {
           deckId: props.deckId,
           deckVersion: props.deckVersion,
           projectId: props.projectId,
-          trySessionRecovery: () =>
-            sessionRecovery.current.tryAttempt(recoveryIdentity)
+          finishInitialSessionCreation: () =>
+            sessionRecovery.current.finishInitialCreation(recoveryIdentity),
+          tryInitialSessionCreation: () =>
+            sessionRecovery.current.tryInitialCreation(recoveryIdentity),
+          tryStaleSessionReplacement: () =>
+            sessionRecovery.current.tryStaleReplacement(recoveryIdentity)
         });
         if (!nextRuntime) {
           if (!cancelled) {
@@ -228,20 +232,28 @@ export async function loadActivityPresenterRuntime(input: {
   autoStart: boolean;
   deckId: string;
   deckVersion: number;
+  finishInitialSessionCreation?: () => void;
   projectId: string;
-  trySessionRecovery?: () => boolean;
+  tryInitialSessionCreation?: () => boolean;
+  tryStaleSessionReplacement?: () => boolean;
 }): Promise<ActivityPresenterRuntime | null> {
   const current = await activityApi.getCurrentSession(input.projectId, input.deckId);
   let session = current.session;
   let audienceUrl = current.audienceUrl;
   if (!session || !audienceUrl) {
-    if (!input.autoStart || input.trySessionRecovery?.() === false) return null;
-    const created = await activityApi.createSession(input.projectId, {
-      accessMode: "public",
-      deckId: input.deckId
-    });
-    session = created.session;
-    audienceUrl = created.audienceUrl;
+    if (!input.autoStart || input.tryInitialSessionCreation?.() === false) {
+      return null;
+    }
+    try {
+      const created = await activityApi.createSession(input.projectId, {
+        accessMode: "public",
+        deckId: input.deckId
+      });
+      session = created.session;
+      audienceUrl = created.audienceUrl;
+    } finally {
+      input.finishInitialSessionCreation?.();
+    }
   }
 
   let run: ActivityRun;
@@ -259,7 +271,7 @@ export async function loadActivityPresenterRuntime(input: {
       cause.status === 404 &&
       cause.message === "Activity definition not found in stored Deck";
     if (!canReplaceStaleSession) throw cause;
-    if (input.trySessionRecovery?.() === false) throw cause;
+    if (input.tryStaleSessionReplacement?.() === false) throw cause;
 
     const created = await activityApi.createSession(input.projectId, {
       accessMode: "public",
@@ -296,19 +308,30 @@ export async function loadActivityPresenterRuntime(input: {
 
 export function createActivitySessionRecoveryTracker() {
   let currentIdentity: string | null = null;
-  let attempted = false;
+  let initialCreationInFlight = false;
+  let staleReplacementAttempted = false;
 
   const alignIdentity = (identity: string) => {
     if (identity === currentIdentity) return;
     currentIdentity = identity;
-    attempted = false;
+    initialCreationInFlight = false;
+    staleReplacementAttempted = false;
   };
 
   return {
-    tryAttempt(identity: string) {
+    finishInitialCreation(identity: string) {
+      if (identity === currentIdentity) initialCreationInFlight = false;
+    },
+    tryInitialCreation(identity: string) {
       alignIdentity(identity);
-      if (attempted) return false;
-      attempted = true;
+      if (initialCreationInFlight) return false;
+      initialCreationInFlight = true;
+      return true;
+    },
+    tryStaleReplacement(identity: string) {
+      alignIdentity(identity);
+      if (staleReplacementAttempted) return false;
+      staleReplacementAttempted = true;
       return true;
     }
   };

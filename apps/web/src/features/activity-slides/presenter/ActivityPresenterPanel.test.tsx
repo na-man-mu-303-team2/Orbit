@@ -167,7 +167,8 @@ describe("ActivityPresenterPanel", () => {
         deckId: "deck_demo",
         deckVersion,
         projectId: "project_demo",
-        trySessionRecovery: () => tracker.tryAttempt(recoveryIdentity)
+        tryStaleSessionReplacement: () =>
+          tracker.tryStaleReplacement(recoveryIdentity)
       });
 
     await expect(load(identity, 4)).rejects.toThrow(
@@ -187,6 +188,48 @@ describe("ActivityPresenterPanel", () => {
     await expect(load(nextVersionIdentity, 5)).rejects.toThrow(
       "Activity definition not found in stored Deck"
     );
+    expect(createSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries initial autoStart session creation after a transient failure", async () => {
+    const slide = createActivitySlide(createDemoDeck(), "pre-question");
+    const draftRun = activityRun(slide, "draft", 0);
+    const openRun = activityRun(slide, "open", 1);
+    const tracker = createActivitySessionRecoveryTracker();
+    const identity = JSON.stringify([
+      "project_demo",
+      "deck_demo",
+      1,
+      slide.activity.activityId
+    ]);
+    vi.spyOn(activityApi, "getCurrentSession").mockResolvedValue({
+      audienceUrl: null,
+      session: null
+    });
+    const createSession = vi.spyOn(activityApi, "createSession")
+      .mockRejectedValueOnce(new Error("temporary network failure"))
+      .mockResolvedValueOnce({
+        audienceUrl: "/audience/session_1",
+        session: presentationSession()
+      });
+    vi.spyOn(activityApi, "ensureRun").mockResolvedValue({ run: draftRun });
+    vi.spyOn(activityApi, "updateRunStatus").mockResolvedValue({ run: openRun });
+    vi.spyOn(activityApi, "getPresenterResult").mockResolvedValue({
+      result: presenterResult(slide, "open")
+    });
+    const load = () => loadActivityPresenterRuntime({
+      activityId: slide.activity.activityId,
+      autoStart: true,
+      deckId: "deck_demo",
+      deckVersion: 1,
+      finishInitialSessionCreation: () =>
+        tracker.finishInitialCreation(identity),
+      projectId: "project_demo",
+      tryInitialSessionCreation: () => tracker.tryInitialCreation(identity)
+    });
+
+    await expect(load()).rejects.toThrow("temporary network failure");
+    await expect(load()).resolves.toMatchObject({ sessionId: "session_1" });
     expect(createSession).toHaveBeenCalledTimes(2);
   });
 
