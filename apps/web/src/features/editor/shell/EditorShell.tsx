@@ -141,6 +141,7 @@ import { SlideNavigatorPane } from "./components/SlideNavigatorPane";
 import { EditorUndoToast } from "./components/EditorUndoToast";
 import { EditorContextMenus } from "./components/EditorContextMenus";
 import { EditorModals } from "./components/EditorModals";
+import { createTargetDurationPatch } from "./targetDurationModel";
 import { EditorCanvasStage } from "./components/EditorCanvasStage";
 import { EditorToolbar } from "./components/EditorToolbar";
 import { IconLibrarySidePanel } from "./components/IconLibrarySidePanel";
@@ -405,6 +406,7 @@ export function EditorShell(props: { projectId?: string }) {
   const [exportDialogFormat, setExportDialogFormat] =
     useState<DeckExportFormat>("pptx");
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [isTargetDurationOpen, setIsTargetDurationOpen] = useState(false);
   const editorStageRef = useRef<Konva.Stage | null>(null);
   const panelStateBeforeRehearsalRef = useRef<{
     isRightPanelOpen: boolean;
@@ -794,6 +796,7 @@ export function EditorShell(props: { projectId?: string }) {
     isAudienceLinkModalOpen ||
     isExitConfirmOpen ||
     isExportDialogOpen ||
+    isTargetDurationOpen ||
     isPresenceDebugOpen ||
     isSharePanelOpen ||
     isSpeakerNotesAssistantOpen
@@ -1475,6 +1478,10 @@ export function EditorShell(props: { projectId?: string }) {
           setIsExportDialogOpen(false);
           return;
         }
+        if (isTargetDurationOpen) {
+          setIsTargetDurationOpen(false);
+          return;
+        }
         if (isSpeakerNotesAssistantOpen) {
           speakerNotesEditorActions.closeAssistant();
           return;
@@ -1974,6 +1981,10 @@ export function EditorShell(props: { projectId?: string }) {
             setActiveTopMenu(null);
           }}
           onOpenShare={openSharePanel}
+          onOpenTargetDuration={() => {
+            setIsTargetDurationOpen(true);
+            setActiveTopMenu(null);
+          }}
           onRefresh={() => {
             void health.refetch();
             void deckQuery.refetch();
@@ -2010,6 +2021,7 @@ export function EditorShell(props: { projectId?: string }) {
           saving={isSaveInFlight(saveState)}
           setActiveTopMenu={setActiveTopMenu}
           showLoadedFileLabel={Boolean(deckQuery.data)}
+          targetDurationMinutes={deck.targetDurationMinutes}
         />
       <EditorModals
         audienceLink={{
@@ -2070,6 +2082,22 @@ export function EditorShell(props: { projectId?: string }) {
             onMemberRoleChange: handleShareMemberRoleChange,
             onRequestStatusChange: handleShareRequestStatus,
             onTabChange: setShareAccessTab
+          }
+        }}
+        targetDuration={{
+          isOpen: isTargetDurationOpen,
+          modalProps: {
+            deck,
+            onClose: () => setIsTargetDurationOpen(false),
+            onSave: ({ durations, targetDurationMinutes }) => {
+              const patch = createTargetDurationPatch(
+                deck,
+                targetDurationMinutes,
+                durations
+              );
+              return patch ? commitPatch(patch, deck) : true;
+            },
+            open: isTargetDurationOpen
           }
         }}
       />
