@@ -3,6 +3,7 @@ import {
   IconArrowRight,
   IconChartBar as BarChart3,
   IconChevronDown as ChevronDown,
+  IconChevronLeft as ChevronLeft,
   IconPhotoPlus as ImagePlus,
   IconIcons,
   IconPointer as MousePointer2,
@@ -30,6 +31,7 @@ type EditorToolbarProps = {
   onAddText: () => void;
   onOpenImagePicker: () => void;
   onOpenIconLibrary: () => void;
+  onOpenRightPanel?: () => void;
   onRedo: () => void;
   onSelectTool: () => void;
   onToggleShapeMenu: () => void;
@@ -138,6 +140,17 @@ export function EditorToolbar(props: EditorToolbarProps) {
         onZoomOut={props.onZoomOut}
         scale={props.stageScale}
       />
+      {props.onOpenRightPanel ? (
+        <button
+          aria-label="오른쪽 패널 열기"
+          className="open-right-pane-floating-button"
+          title="오른쪽 패널 열기"
+          type="button"
+          onClick={props.onOpenRightPanel}
+        >
+          <ChevronLeft aria-hidden="true" size={18} />
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -89,4 +89,41 @@ describe("EditorToolbar", () => {
     expect(html).not.toContain('aria-label="AI 챗봇"');
     expect(html).not.toContain('class="editor-ai-chat-toggle-badge"');
   });
+
+  it("renders the collapsed right panel opener next to zoom controls", () => {
+    const html = renderToStaticMarkup(
+      <EditorToolbar
+        canMutate
+        canUseCurrentSlide
+        canZoomIn
+        canZoomOut
+        chartMenuButtonRef={createRef<HTMLButtonElement>()}
+        insertTool="select"
+        isChartMenuOpen={false}
+        isIconPanelOpen={false}
+        isImageUploadPending={false}
+        isShapeMenuOpen={false}
+        isStageFitToViewport
+        onAddText={vi.fn()}
+        onFitStageToViewport={vi.fn()}
+        onOpenIconLibrary={vi.fn()}
+        onOpenImagePicker={vi.fn()}
+        onOpenRightPanel={vi.fn()}
+        onRedo={vi.fn()}
+        onSelectTool={vi.fn()}
+        onToggleChartMenu={vi.fn()}
+        onToggleShapeMenu={vi.fn()}
+        onUndo={vi.fn()}
+        onZoomIn={vi.fn()}
+        onZoomOut={vi.fn()}
+        redoDisabled
+        shapeMenuButtonRef={createRef<HTMLButtonElement>()}
+        stageScale={0.8}
+        undoDisabled
+      />
+    );
+
+    expect(html).toContain('aria-label="오른쪽 패널 열기"');
+    expect(html).toContain('class="open-right-pane-floating-button"');
+  });
 });

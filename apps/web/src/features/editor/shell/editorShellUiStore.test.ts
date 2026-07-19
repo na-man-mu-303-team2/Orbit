@@ -22,7 +22,7 @@ describe("editorShellUiStore", () => {
 
     expect(state.isDataViewOpen).toBe(false);
     expect(state.isAnimationPanelOpen).toBe(false);
-    expect(state.isRightPanelOpen).toBe(false);
+    expect(state.isRightPanelOpen).toBe(true);
     expect(state.isSlidesPaneCollapsed).toBe(false);
     expect(state.slidesPaneWidth).toBe(defaultSlidesPaneWidth);
     expect(state.animationPaneWidth).toBe(defaultAnimationPaneWidth);

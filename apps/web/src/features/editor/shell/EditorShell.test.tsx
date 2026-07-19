@@ -522,8 +522,7 @@ describe("editor shell", () => {
     expect(html).toContain('aria-labelledby="speaker-notes-title"');
     expect(html).toContain("저장됨");
     expect(html).not.toContain('aria-label="AI 어시스턴트 사용 가능"');
-    expect(html).not.toContain('aria-label="에디터 패널"');
-    expect(html).not.toContain('class="editor-right-panel-content"');
+    expect(html).toContain('class="editor-right-panel-content"');
     expect(html).not.toContain('class="editor-right-panel-rail"');
     expect(html).not.toContain('class="collapsed-right-rail"');
     expect(html).not.toContain('aria-label="애니메이션 속성"');
@@ -555,13 +554,13 @@ describe("editor shell", () => {
     expect(html).toContain('aria-label="실행 취소"');
     expect(html).toContain('aria-label="다시 실행"');
     expect(html).toContain('aria-label="선택 도구"');
-    expect(html).not.toContain('aria-label="AI 어시스턴트 패널 닫기"');
+    expect(html).toContain('aria-label="AI 어시스턴트 패널 닫기"');
     expect(html).not.toContain('aria-label="AI 어시스턴트 접기"');
     expect(html).not.toContain('aria-label="AI 어시스턴트 사용 가능"');
-    expect(html).not.toContain('id="editor-ai-panel"');
+    expect(html).toContain('id="editor-ai-panel"');
     expect(html).not.toContain('id="editor-ai-chat-tab"');
     expect(html).not.toContain('id="editor-ai-tools-tab"');
-    expect(html).not.toContain('id="editor-ai-tools-panel"');
+    expect(html).toContain('id="editor-ai-tools-panel"');
     expect(html).not.toContain('id="editor-design-panel"');
     expect(html).not.toContain('id="editor-notes-panel"');
     expect(html).toContain("stage-speaker-notes-panel");
@@ -572,7 +571,7 @@ describe("editor shell", () => {
     expect(html).not.toContain("speaker-notes-restore-handle");
   });
 
-  it("keeps the AI inspection panel closed until explicitly opened", () => {
+  it("opens the AI inspection panel by default", () => {
     const queryClient = createTestQueryClient();
     const deck = createDemoDeck();
     deck.metadata.sourceType = "import";
@@ -612,9 +611,9 @@ describe("editor shell", () => {
     const html = renderApp(queryClient);
 
     expect(html).not.toContain('id="editor-design-panel"');
-    expect(html).not.toContain('aria-label="에디터 패널"');
-    expect(html).not.toContain('id="editor-selection-inspector-pane"');
-    expect(html).not.toContain('id="editor-ai-tools-panel"');
+    expect(html).toContain('id="editor-selection-inspector-pane"');
+    expect(html).toContain('id="editor-ai-panel"');
+    expect(html).toContain('id="editor-ai-tools-panel"');
   });
 
   it("returns a warning for unreadable text overlap", () => {

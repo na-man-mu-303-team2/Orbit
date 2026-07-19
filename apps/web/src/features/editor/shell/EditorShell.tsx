@@ -1976,6 +1976,9 @@ export function EditorShell(props: { projectId?: string }) {
                   });
                 }
               }}
+              onOpenRightPanel={
+                isRightPanelOpen ? undefined : () => setIsRightPanelOpen(true)
+              }
               onRedo={handleRedo}
               onSelectTool={() => setInsertTool("select")}
               onToggleChartMenu={() => {
