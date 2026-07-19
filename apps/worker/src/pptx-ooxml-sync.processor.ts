@@ -37,6 +37,7 @@ const syncAssetSchema = z.object({
 
 const ooxmlSyncOperationTypeSchema = z.enum([
   "add_slide",
+  "delete_slide",
   "add_element",
   "update_element_frame",
   "update_element_props",
@@ -50,6 +51,9 @@ const ooxmlUnsupportedReasonCodeSchema = z.enum([
   "ADD_ELEMENT_FAILED",
   "ADD_ELEMENT_TYPE_UNSUPPORTED",
   "CROP_CAPABILITY_UNSAFE",
+  "DELETE_SLIDE_FAILED",
+  "DELETE_SLIDE_LOCATOR_UNSAFE",
+  "DELETE_SLIDE_RELATIONSHIP_UNSAFE",
   "RICH_TEXT_CAPABILITY_UNSAFE",
   "ELEMENT_TYPE_MISMATCH",
   "FRAME_FIELDS_UNSUPPORTED",
@@ -64,6 +68,7 @@ const ooxmlUnsupportedReasonCodeSchema = z.enum([
   "SLIDE_REORDER_LOCATOR_UNSAFE",
   "SLIDE_REORDER_PERMUTATION_INVALID",
   "SLIDE_REORDER_RELATIONSHIP_UNSAFE",
+  "LAST_SLIDE_DELETE_FORBIDDEN",
   "SOURCE_MISSING",
   "SOURCE_NOT_WRITABLE",
   "SOURCE_PROVENANCE_UNSAFE",
@@ -161,6 +166,7 @@ type OoxmlSyncOperation = Extract<
     type:
       | "add_element"
       | "add_slide"
+      | "delete_slide"
       | "update_element_frame"
       | "update_element_props"
       | "delete_element"
@@ -416,7 +422,7 @@ export async function processPptxOoxmlSyncJob(
             : [],
         ),
       ]);
-      const packageOperations = operations.filter(
+      const rawPackageOperations = operations.filter(
         (operation) =>
           !isLogicalGroupOperation(operation, knownLogicalGroupElementIds),
       );
@@ -424,17 +430,11 @@ export async function processPptxOoxmlSyncJob(
         ...templateBlueprint,
         logicalGroupElementIds: currentLogicalGroupElementIds,
       });
-      const invalidReorder = packageOperations.find(
-        (operation) =>
-          operation.type === "reorder_slides" &&
-          !isExactSlidePermutation(operation, storedDeck),
+      const packageOperations = replayAndCompactSlideOperations(
+        rawPackageOperations,
+        blueprintWithLogicalGroups,
+        storedDeck,
       );
-      if (invalidReorder) {
-        throw new UnsupportedOoxmlOperationsError({
-          ...operationIdentity(invalidReorder),
-          reasonCode: "SLIDE_REORDER_PERMUTATION_INVALID",
-        });
-      }
       const unsupportedPendingOperation = packageOperations.find(
         (operation) =>
           !isOoxmlSyncOperation(operation) &&
@@ -477,6 +477,7 @@ export async function processPptxOoxmlSyncJob(
         savedAssets,
         latestDeckVersion,
         synced,
+        storedDeck,
       );
       const updated = await updateTemplateBlueprintConditionally(
         manager,
@@ -1153,6 +1154,7 @@ function isOoxmlSyncOperation(
 ): operation is OoxmlSyncOperation {
   return [
     "add_slide",
+    "delete_slide",
     "update_element_frame",
     "update_element_props",
     "add_element",
@@ -1279,12 +1281,11 @@ function elementOperationKey(slideId: string, elementId: string): string {
 
 function isExactSlidePermutation(
   operation: Extract<DeckPatchOperation, { type: "reorder_slides" }>,
-  deck: Deck,
+  currentSlideIds: string[],
 ): boolean {
-  const currentSlideIds = deck.slides.map((slide) => slide.slideId);
   const requestedSlideIds = operation.slideOrders.map((item) => item.slideId);
   const requestedOrders = operation.slideOrders.map((item) => item.order);
-  const expectedOrders = new Set(deck.slides.map((_, index) => index + 1));
+  const expectedOrders = new Set(currentSlideIds.map((_, index) => index + 1));
   return (
     currentSlideIds.length === requestedSlideIds.length &&
     new Set(currentSlideIds).size === currentSlideIds.length &&
@@ -1293,6 +1294,132 @@ function isExactSlidePermutation(
     new Set(requestedOrders).size === requestedOrders.length &&
     requestedOrders.every((order) => expectedOrders.has(order))
   );
+}
+
+function replayAndCompactSlideOperations(
+  operations: DeckPatchOperation[],
+  templateBlueprint: TemplateBlueprint,
+  storedDeck: Deck,
+): DeckPatchOperation[] {
+  const initialSlides = [...templateBlueprint.slides]
+    .sort((left, right) => left.slideIndex - right.slideIndex)
+    .map((slide) => ({ slideId: slide.slideId ?? "", order: slide.slideIndex }));
+  const initialSlideIds = initialSlides.map((slide) => slide.slideId);
+  if (
+    initialSlideIds.some((slideId) => !slideId) ||
+    new Set(initialSlideIds).size !== initialSlideIds.length
+  ) {
+    throw new UnsupportedOoxmlOperationsError({
+      operationType: "reorder_slides",
+      reasonCode: "SLIDE_REORDER_LOCATOR_UNSAFE",
+    });
+  }
+
+  let currentSlides = initialSlides;
+  let lastStructuralOperation: DeckPatchOperation | undefined;
+  for (const operation of operations) {
+    if (operation.type === "add_slide") {
+      lastStructuralOperation = operation;
+      if (
+        currentSlides.some(
+          (candidate) => candidate.slideId === operation.slide.slideId,
+        )
+      ) {
+        throwInvalidSlideSequence(operation);
+      }
+      currentSlides = [...currentSlides, {
+        slideId: operation.slide.slideId,
+        order: operation.slide.order,
+      }].sort((left, right) => left.order - right.order);
+      continue;
+    }
+    if (operation.type === "delete_slide") {
+      lastStructuralOperation = operation;
+      const remaining = currentSlides.filter(
+        (candidate) => candidate.slideId !== operation.slideId,
+      );
+      if (
+        remaining.length === currentSlides.length ||
+        currentSlides.length === 1
+      ) {
+        throwInvalidSlideSequence(operation);
+      }
+      currentSlides = remaining.map((slide, index) => ({
+        ...slide,
+        order: index + 1,
+      }));
+      continue;
+    }
+    if (operation.type !== "reorder_slides") continue;
+    lastStructuralOperation = operation;
+    const currentSlideIds = currentSlides.map((slide) => slide.slideId);
+    if (!isExactSlidePermutation(operation, currentSlideIds)) {
+      throwInvalidSlideSequence(operation);
+    }
+    const ordersBySlideId = new Map(
+      operation.slideOrders.map((slideOrder) => [
+        slideOrder.slideId,
+        slideOrder.order,
+      ]),
+    );
+    currentSlides = currentSlides
+      .map((slide) => ({
+        ...slide,
+        order: ordersBySlideId.get(slide.slideId)!,
+      }))
+      .sort((left, right) => left.order - right.order);
+  }
+
+  const finalSlideIds = [...storedDeck.slides]
+    .sort((left, right) => left.order - right.order)
+    .map((slide) => slide.slideId);
+  if (
+    currentSlides.length !== finalSlideIds.length ||
+    currentSlides.some(
+      (slide, index) => slide.slideId !== finalSlideIds[index],
+    )
+  ) {
+    throwInvalidSlideSequence(
+      lastStructuralOperation ?? {
+        type: "reorder_slides",
+        slideOrders: finalSlideIds.map((slideId, index) => ({
+          slideId,
+          order: index + 1,
+        })),
+      },
+    );
+  }
+
+  if (!lastStructuralOperation) return operations;
+  const initialSet = new Set(initialSlideIds);
+  const finalSet = new Set(finalSlideIds);
+  const compacted = operations.filter((operation) => {
+    if (operation.type === "reorder_slides") return false;
+    if (operation.type === "add_slide") {
+      return !initialSet.has(operation.slide.slideId) &&
+        finalSet.has(operation.slide.slideId);
+    }
+    if (operation.type === "delete_slide") {
+      return initialSet.has(operation.slideId) && !finalSet.has(operation.slideId);
+    }
+    const slideId = "slideId" in operation ? operation.slideId : undefined;
+    return !slideId || initialSet.has(slideId) || finalSet.has(slideId);
+  });
+  compacted.push({
+    type: "reorder_slides",
+    slideOrders: finalSlideIds.map((slideId, index) => ({
+      slideId,
+      order: index + 1,
+    })),
+  });
+  return compacted;
+}
+
+function throwInvalidSlideSequence(operation: DeckPatchOperation): never {
+  throw new UnsupportedOoxmlOperationsError({
+    ...operationIdentity(operation),
+    reasonCode: "SLIDE_REORDER_PERMUTATION_INVALID",
+  });
 }
 
 function operationIdentity(operation: DeckPatchOperation) {
@@ -1379,13 +1506,27 @@ function withSyncResult(
   assets: SavedSyncAssets,
   syncedDeckVersion: number,
   synced: PptxOoxmlSyncWorkerResponse,
+  deck: Deck,
 ): TemplateBlueprint {
+  const deckOrderBySlideId = new Map(
+    deck.slides.map((slide) => [slide.slideId, slide.order]),
+  );
+  const currentSlides = templateBlueprint.slides
+    .filter(
+      (slide) => slide.slideId && deckOrderBySlideId.has(slide.slideId),
+    )
+    .sort(
+      (left, right) =>
+        deckOrderBySlideId.get(left.slideId!)! -
+        deckOrderBySlideId.get(right.slideId!)!,
+    );
   return templateBlueprintSchema.parse({
     ...templateBlueprint,
     currentPackageFileId: assets.currentPackageFileId,
     ooxmlSyncedDeckVersion: syncedDeckVersion,
-    slides: templateBlueprint.slides.map((slide, index) => ({
+    slides: currentSlides.map((slide, index) => ({
       ...slide,
+      slideIndex: index + 1,
       renderAssetFileId:
         assets.renderAssetFileIdsByAssetId.get(
           `slide_render_${slide.sourceSlideIndex}`,
@@ -1462,14 +1603,12 @@ function recoverTemplateBlueprintForPendingSlides(
   blueprint: TemplateBlueprint,
   deck: Deck,
 ): { blueprint: TemplateBlueprint; recovered: boolean } | null {
-  const deckSlideIds = new Set(deck.slides.map((slide) => slide.slideId));
   const mappedSlideIds = blueprint.slides.flatMap((slide) =>
     slide.slideId ? [slide.slideId] : [],
   );
   if (
     mappedSlideIds.length === blueprint.slides.length &&
-    new Set(mappedSlideIds).size === mappedSlideIds.length &&
-    mappedSlideIds.every((slideId) => deckSlideIds.has(slideId))
+    new Set(mappedSlideIds).size === mappedSlideIds.length
   ) {
     return { blueprint, recovered: false };
   }
