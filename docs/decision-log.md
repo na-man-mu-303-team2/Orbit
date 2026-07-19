@@ -788,3 +788,15 @@
 - Rationale: DB migration, transcript 복원, STT 재분석 없이 당시 Deck 기준의 저장 증거로 과거 회차를 즉시 계산할 수 있다. Keyword 언급과 Semantic Cue 의미 평가의 계약을 분리해 소비자가 두 지표를 혼동하지 않으며 API와 Web을 단계적으로 배포할 수 있다.
 - Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `apps/api/src/rehearsals/rehearsal-project-summary.ts`, `apps/web/src/features/rehearsal/rehearsalProjectSummaryModel.ts`, `apps/web/src/features/rehearsal/RehearsalProjectSummaryDashboard.tsx`, 관련 테스트, `docs/contracts.md`, `docs/decision-log.md`.
 - Follow-up review notes: 실제 프로젝트의 1·2·3회차가 각각 `0/39`, `1/42`, `3/42`로 집계되는지 확인한다. STT 품질 gate 실패와 keyword 없는 Deck에서 `N/A`가 유지되는지, 사용자 데이터가 쌓인 뒤 70%·90% 상태 임계값을 재검토한다.
+
+## ORBIT production editor QnA and slide practice rollout
+
+- Context: `main` production의 실제 env와 저장소 template에서 `SLIDE_PRACTICE_ENABLED`, `SLIDE_QUESTION_GUIDES_ENABLED`가 누락되거나 `false`여서 QnA가 정상적으로 사전 차단됐고, 부분 슬라이드 연습은 녹음 종료 뒤 API 403을 사용자에게 노출했다. 두 flag의 코드 기본값은 `false`이며 현재 project allowlist 계약은 없다.
+- Options considered:
+  - API의 feature flag 검사를 제거하고 production에서 항상 두 기능을 실행한다.
+  - 실제 EC2 env만 수동 수정하고 저장소 template와 deploy 검증은 그대로 둔다.
+  - 코드 기본값과 API 방어선을 유지하면서 production template와 실제 env에 두 flag를 명시하고, Web이 runtime config를 녹음 전에 확인하도록 한다.
+- Final decision: AWS `main` production의 모든 project에서 두 flag를 `true`로 명시한다. `.env.production.example`, EC2 env example, CloudFormation bootstrap example을 동기화하고 deploy wrapper에서 두 key를 필수로 검사한다. 부분 슬라이드 연습 Web은 `checking`, `enabled`, `disabled`, `unavailable`을 구분하며 `enabled` 전에는 저장 준비, device ID 확인, microphone 시작을 모두 막고 조회 실패에 `설정 다시 확인`을 제공한다. API 403 검사는 최종 방어선으로 유지한다.
+- Rationale: 기능 공개 정책과 실제 배포 계약을 일치시키고, 누락된 env가 조용히 기능을 끄는 상태를 방지한다. runtime config 조회 실패와 명시적 비활성을 분리하면 사용자가 연결 문제를 기능 종료로 오해하지 않으며, rollback 후에도 헛녹음과 raw 403 노출을 막을 수 있다.
+- Affected files: `.env.production.example`, `.env.staging.example`, `infra/aws/ec2-production.env.example`, `infra/aws/main-production-bootstrap.yaml`, `infra/scripts/deploy-aws-ec2.sh`, `infra/scripts/check-aws-production-compose.mjs`, `apps/web/src/features/editor/practice/**`, `apps/web/src/features/editor/shell/**`, `docs/conventions/environment.md`, `docs/runbooks/aws-main-auto-deployment.md`, `docs/decision-log.md`.
+- Follow-up review notes: PR CI 이후 SSM으로 실제 `/etc/orbit/production.env`의 두 flag만 안전하게 갱신하고, `main` 자동 배포 뒤 runtime config, QnA Job, 10초 이상 연습 report, raw audio 삭제 event를 확인한다. 장애 시 두 flag를 `false`로 되돌리고 재배포한다.
