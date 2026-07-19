@@ -254,6 +254,7 @@ describe("activity slide editor", () => {
     const previewHtml = renderToStaticMarkup(<ActivitySlidePreview role="audience" slide={preQuestionSlide} />);
     const inspectorHtml = renderToStaticMarkup(
       <ActivitySlideInspector
+        deckId="deck_demo_1"
         onChange={vi.fn()}
         projectId="project_demo_1"
         slide={preQuestionSlide}
@@ -272,10 +273,30 @@ describe("activity slide editor", () => {
     expect(inspectorHtml).toContain("청중 화면 새 창에서 보기");
     expect(inspectorHtml).toContain('title="실제 청중 화면 미리보기"');
     expect(inspectorHtml).toContain("실제 청중 입력 화면을 그대로 표시합니다.");
+    expect(inspectorHtml).toContain("받은 사전 질문");
+    expect(inspectorHtml).toContain("질문 확인");
+    expect(inspectorHtml).not.toContain("들어온 주관식 답변 확인");
     expect(inspectorHtml).toContain(
       `/project/project_demo_1/activity-preview/${preQuestionSlide.activity.activityId}`
     );
     expect(inspectorHtml).not.toContain("문항 설정");
+  });
+
+  it("does not show response review controls for poll and satisfaction slides", () => {
+    for (const template of ["poll", "satisfaction"] as const) {
+      const templateSlide = createActivitySlide(createDemoDeck(), template);
+      const html = renderToStaticMarkup(
+        <ActivitySlideInspector
+          deckId="deck_demo_1"
+          onChange={vi.fn()}
+          projectId="project_demo_1"
+          slide={templateSlide}
+        />
+      );
+
+      expect(html).not.toContain("받은 사전 질문");
+      expect(html).not.toContain("들어온 주관식 답변 확인");
+    }
   });
 
   it("renders result source recovery without persisting a session or response", () => {

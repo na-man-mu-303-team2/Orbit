@@ -13,8 +13,8 @@ import {
   OrbitTextarea
 } from "../../../components/ui";
 import { ActivitySlidePreview, type ActivityPreviewRole } from "./ActivitySlidePreview";
-import { ActivityEditorModerationPanel } from "./ActivityEditorModerationPanel";
 import { ActivityEditorOperationsPanel } from "./ActivityEditorOperationsPanel";
+import { ActivityPreQuestionInbox } from "./ActivityPreQuestionInbox";
 import { useActivityEditorRuntime } from "./useActivityEditorRuntime";
 
 const templateLabels = {
@@ -450,8 +450,13 @@ export function ActivitySlideInspector(props: {
         <strong>응답 화면은 자동으로 만들어져요.</strong>
         <span>질문/선택지/필수항목 설정은 왼쪽 미리보기와 연결 화면에 자동 반영됩니다.</span>
       </div>
-      {props.deckId && props.projectId ? (
-        <ActivityEditorModerationPanel deckId={props.deckId} projectId={props.projectId} slide={props.slide} />
+      {activity.template === "pre-question" && props.deckId && props.projectId ? (
+        <ActivityPreQuestionInbox
+          deckId={props.deckId}
+          projectId={props.projectId}
+          responseCount={editorRuntime.runtime?.run.responseCount ?? 0}
+          slide={props.slide}
+        />
       ) : null}
       <OrbitDialog
         closeDisabled={editorRuntime.pending}
