@@ -12017,7 +12017,7 @@ body.is-resizing-speaker-notes {
 
 .orbit-shell.editor-professional .script-keyword-section {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--redesign-space-2);
   min-width: 0;
   margin-top: 0;
@@ -12039,18 +12039,17 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional .script-keyword-section .keyword-strip {
   display: flex;
   flex: 1 1 auto;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: var(--redesign-space-1);
   min-width: 0;
   margin: 0;
-  padding-bottom: 2px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: visible;
 }
 
 .orbit-shell.editor-professional .script-keyword-section .keyword-chip {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   gap: var(--redesign-space-1);
+  max-width: 100%;
   min-height: 28px;
   padding: 0 var(--redesign-space-2);
   border-color: color-mix(
@@ -12063,6 +12062,13 @@ body.is-resizing-speaker-notes {
   color: var(--redesign-color-on-surface);
   font-size: var(--redesign-type-label-sm-size);
   font-weight: 650;
+}
+
+.orbit-shell.editor-professional .script-keyword-section .keyword-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .orbit-shell.editor-professional .script-keyword-section .keyword-chip:hover,

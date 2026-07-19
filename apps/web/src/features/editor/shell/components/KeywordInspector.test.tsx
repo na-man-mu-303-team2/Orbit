@@ -147,6 +147,12 @@ describe("KeywordHighlightedNotes", () => {
       /\.keyword-token-dropdown\.redesign-dropdown-menu\s*\{[^}]*left:\s*calc\(100% \+ var\(--redesign-space-2\)\);[^}]*z-index:\s*var\(--redesign-z-dropdown\);/s
     );
     expect(css).toMatch(
+      /\.orbit-shell\.editor-professional \.script-keyword-section \.keyword-strip\s*\{[^}]*flex-wrap:\s*wrap;[^}]*overflow:\s*visible;/s
+    );
+    expect(css).toMatch(
+      /\.orbit-shell\.editor-professional \.script-keyword-section \.keyword-chip\s*\{[^}]*flex:\s*0 1 auto;[^}]*max-width:\s*100%;/s
+    );
+    expect(css).toMatch(
       /\.orbit-shell \.script-notes-editor\s*\{[^}]*font-size:\s*var\(--redesign-type-body-sm-size\);[^}]*line-height:\s*1\.6;/s
     );
     expect(css).toMatch(
