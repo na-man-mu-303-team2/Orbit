@@ -283,6 +283,10 @@ main.rehearsal-presenter-shell {
   width: 36px;
 }
 
+.rehearsal-presenter-shell .rehearsal-stage-wrap > .rehearsal-slide-controls button:not(:disabled) {
+  border-color: var(--redesign-color-outline-variant);
+}
+
 .rehearsal-presenter-shell .rehearsal-stage-wrap > .rehearsal-slide-controls button svg {
   height: 18px;
   width: 18px;
