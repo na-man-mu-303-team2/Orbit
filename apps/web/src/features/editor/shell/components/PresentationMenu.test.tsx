@@ -15,6 +15,7 @@ describe("PresentationMenu", () => {
         canStartPresentation={false}
         isOpen
         onOpenAudienceLink={vi.fn()}
+        onStartFullRehearsal={vi.fn()}
         onStartPresentation={vi.fn()}
         onStartRehearsal={vi.fn()}
         onToggle={vi.fn()}
@@ -34,6 +35,7 @@ describe("PresentationMenu", () => {
     expect(html).toContain("redesign-dropdown-menu-black");
     expect(html).toContain("editor-presentation-menu");
     expect(html).toContain("발표 시작");
+    expect(html).toContain("전체 리허설");
     expect(html).toContain("청중 링크·QR");
   });
 
@@ -44,6 +46,7 @@ describe("PresentationMenu", () => {
         canStartPresentation={false}
         isOpen={false}
         onOpenAudienceLink={vi.fn()}
+        onStartFullRehearsal={vi.fn()}
         onStartPresentation={vi.fn()}
         onStartRehearsal={vi.fn()}
         onToggle={vi.fn()}
@@ -63,6 +66,7 @@ describe("PresentationMenu", () => {
         isOpen={false}
         isSlideRehearsalActive
         onOpenAudienceLink={vi.fn()}
+        onStartFullRehearsal={vi.fn()}
         onStartPresentation={vi.fn()}
         onStartRehearsal={vi.fn()}
         onToggle={vi.fn()}

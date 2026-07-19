@@ -16,6 +16,7 @@ type PresentationMenuProps = {
   isSlideRehearsalActive?: boolean;
   isOpen: boolean;
   onOpenAudienceLink: () => void;
+  onStartFullRehearsal: () => void;
   onStartPresentation: () => void;
   onStartRehearsal: () => void;
   onToggle: () => void;
@@ -29,6 +30,7 @@ export function PresentationMenu(props: PresentationMenuProps) {
     isSlideRehearsalActive = false,
     isOpen,
     onOpenAudienceLink,
+    onStartFullRehearsal,
     onStartPresentation,
     onStartRehearsal,
     onToggle,
@@ -102,6 +104,14 @@ export function PresentationMenu(props: PresentationMenuProps) {
               onClick={onStartPresentation}
             >
               발표 시작
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              aria-label="전체 리허설"
+              disabled={!canStartPresentation}
+              icon={<IconMicrophone size={16} />}
+              onClick={onStartFullRehearsal}
+            >
+              전체 리허설
             </DropdownMenuItem>
             <DropdownMenuItem
               icon={<IconLink size={16} />}

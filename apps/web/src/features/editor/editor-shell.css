@@ -11445,8 +11445,8 @@ body.is-resizing-speaker-notes {
   line-height: 0;
 }
 
-/* File menu variants share the application dropdown markup. The editor uses
- * the light variant to match the account menu on the home surface. */
+/* File menu variants share the application dropdown markup. The editor can
+ * switch between app-surface and dark editor-surface menu tones. */
 .orbit-shell .editor-file-menu {
   --editor-file-menu-background: var(--redesign-color-surface-container-low);
   --editor-file-menu-border: var(--redesign-color-outline-variant);
@@ -13335,15 +13335,35 @@ body.is-resizing-speaker-notes {
   box-shadow: var(--redesign-shadow-raised);
 }
 
+.orbit-shell.editor-professional
+  .editor-file-menu-anchor
+  > .editor-file-menu--soft-gray.redesign-dropdown-menu {
+  border-color: var(--redesign-color-outline-variant);
+  background: var(--redesign-color-surface-container);
+  color: var(--redesign-color-on-surface);
+}
+
 .orbit-shell.editor-professional .editor-file-menu-context {
   padding: var(--redesign-space-2);
   border-bottom-color: var(--redesign-dropdown-border);
+}
+
+.orbit-shell.editor-professional
+  .editor-file-menu--soft-gray
+  .editor-file-menu-context {
+  border-bottom-color: var(--redesign-color-outline-variant);
 }
 
 .orbit-shell.editor-professional .editor-file-menu-context span,
 .orbit-shell.editor-professional .editor-file-menu-item small,
 .orbit-shell.editor-professional .editor-file-menu-group-label {
   color: var(--redesign-dropdown-icon);
+}
+
+.orbit-shell.editor-professional .editor-file-menu--soft-gray .editor-file-menu-context span,
+.orbit-shell.editor-professional .editor-file-menu--soft-gray .editor-file-menu-item small,
+.orbit-shell.editor-professional .editor-file-menu--soft-gray .editor-file-menu-group-label {
+  color: var(--redesign-color-on-surface-variant);
 }
 
 .orbit-shell.editor-professional .editor-file-menu-group {
@@ -13354,11 +13374,33 @@ body.is-resizing-speaker-notes {
   border-top-color: var(--redesign-dropdown-border);
 }
 
+.orbit-shell.editor-professional
+  .editor-file-menu--soft-gray
+  .editor-file-menu-group
+  + .editor-file-menu-group {
+  border-top-color: var(--redesign-color-outline-variant);
+}
+
 .orbit-shell.editor-professional .editor-file-menu-item.redesign-dropdown-menu-item {
   display: block;
   min-height: 38px;
   padding: 0 var(--redesign-space-2);
   color: var(--redesign-dropdown-text);
+}
+
+.orbit-shell.editor-professional
+  .editor-file-menu--soft-gray
+  .editor-file-menu-item.redesign-dropdown-menu-item {
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional
+  .editor-file-menu--soft-gray
+  .editor-file-menu-item.redesign-dropdown-menu-item:not(:disabled):hover,
+.orbit-shell.editor-professional
+  .editor-file-menu--soft-gray
+  .editor-file-menu-item.redesign-dropdown-menu-item:not(:disabled):focus-visible {
+  background: var(--redesign-color-surface-container-high);
 }
 
 .orbit-shell.editor-professional

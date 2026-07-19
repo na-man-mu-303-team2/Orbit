@@ -768,7 +768,8 @@ export function EditorShell(props: { projectId?: string }) {
   );
   const {
     activeStartAction: activePresentationAction,
-    startPresentation: handleStartPresentation
+    startPresentation: handleStartPresentation,
+    startRehearsal: handleStartFullRehearsal
   } = useEditorPresentationActions({
     applyPersistedDeck,
     commitSpeakerNotesDraftIfDirty,
@@ -1860,6 +1861,7 @@ export function EditorShell(props: { projectId?: string }) {
             void retryOoxmlSync().catch(() => undefined);
           }}
           onSave={() => void handleSaveDeck()}
+          onStartFullRehearsal={() => void handleStartFullRehearsal()}
           onStartPresentation={() => void handleStartPresentation()}
           onStartRehearsal={handleToggleSlideRehearsal}
           projectId={projectId}
