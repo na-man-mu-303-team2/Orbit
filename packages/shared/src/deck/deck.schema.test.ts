@@ -313,6 +313,24 @@ describe("deckSchema validation", () => {
     expectValidDeck(createValidDeck());
   });
 
+  it("accepts finite element coordinates outside the canvas", () => {
+    const deck = createValidDeck();
+    deck.slides[0].elements[0].x = -240;
+    deck.slides[0].elements[0].y = -80;
+
+    expectValidDeck(deck);
+  });
+
+  it("rejects element coordinates outside the supported absolute range", () => {
+    const positiveDeck = createValidDeck();
+    positiveDeck.slides[0].elements[0].x = 1_000_001;
+    const negativeDeck = createValidDeck();
+    negativeDeck.slides[0].elements[0].y = -1_000_001;
+
+    expectInvalidDeck(positiveDeck);
+    expectInvalidDeck(negativeDeck);
+  });
+
   it("projects a deck shell without slide validation state", () => {
     const shell = deckShellSchema.parse(createValidDeck());
 
@@ -1271,8 +1289,8 @@ describe("deckSchema validation", () => {
   });
 
   it.each([
-    ["x", -1],
-    ["y", -1],
+    ["x", Number.NaN],
+    ["y", Number.POSITIVE_INFINITY],
     ["width", 0],
     ["height", 0]
   ])("rejects invalid element %s", (field, value) => {
@@ -1876,6 +1894,44 @@ describe("deckSchema validation", () => {
 describe("deckPatchSchema validation", () => {
   it("accepts a valid deck patch", () => {
     expect(deckPatchSchema.safeParse(createValidPatch()).success).toBe(true);
+  });
+
+  it("accepts an element frame patch with off-canvas coordinates", () => {
+    const patch: unknown = {
+      ...createValidPatch(),
+      operations: [
+        {
+          type: "update_element_frame",
+          slideId: "slide_1",
+          elementId: "el_1",
+          frame: {
+            x: -240,
+            y: -80
+          }
+        }
+      ]
+    };
+
+    expect(deckPatchSchema.safeParse(patch).success).toBe(true);
+  });
+
+  it("rejects an element frame patch outside the supported coordinate range", () => {
+    const patch: unknown = {
+      ...createValidPatch(),
+      operations: [
+        {
+          type: "update_element_frame",
+          slideId: "slide_1",
+          elementId: "el_1",
+          frame: {
+            x: 1_000_001,
+            y: -1_000_001
+          }
+        }
+      ]
+    };
+
+    expect(deckPatchSchema.safeParse(patch).success).toBe(false);
   });
 
   it("accepts deck metadata update patches", () => {

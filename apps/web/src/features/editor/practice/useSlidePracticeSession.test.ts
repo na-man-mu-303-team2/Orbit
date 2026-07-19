@@ -68,7 +68,6 @@ describe("slide practice feature gate guidance", () => {
       ),
     ).toBe(slidePracticeDisabledMessage);
   });
-
   it("활성, 비활성, 조회 실패 runtime config를 서로 다른 상태로 구분한다", async () => {
     await expect(resolveSlidePracticeRuntimeState(async () => ({
       slidePracticeEnabled: true,

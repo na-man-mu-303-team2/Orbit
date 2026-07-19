@@ -1,3 +1,30 @@
+# Rehearsal display options design QA
+
+- Source visual truth: `C:/Users/Runner/Desktop/Frame 7.png`, `C:/Users/Runner/Desktop/Frame 8.png`.
+- Implementation evidence: current in-app browser capture of `/rehearsal/project_6c000fc2-a814-4c85-a5ad-bc5931ec94a6` with the display options popover open.
+- State: presenter mode enabled, automatic placement disabled, fullscreen enabled, new-window display selected.
+
+## Comparison evidence
+
+- The source references and implementation capture were compared together at desktop scale.
+- The panel measures 360px wide with 32px top/side padding and 25px bottom padding, matching the annotated reference.
+- Header hierarchy, presenter-mode helper copy, switch treatment, slideshow grouping, conditional display-position surface, and bottom-anchored primary action match the reference structure.
+- Turning fullscreen off removes the display-position radio group; turning presenter mode off removes the automatic-placement switch.
+- Enabling automatic placement requests display permission from the original click activation before updating local UI state.
+- Existing redesign color, radius, type, space, and shadow tokens are used; no new visual asset was introduced.
+
+## Verification
+
+- `DisplayControls.test.tsx`: 10 tests passed.
+- `node node_modules/typescript/bin/tsc -p apps/web/tsconfig.json --noEmit`: passed.
+- In-app browser console: no warnings or errors.
+- `git diff --check`: passed with the existing LF-to-CRLF warning only.
+- No P0, P1, or P2 visual mismatch remains in the requested popover states.
+
+final result: passed
+
+---
+
 # Create deck first-step design QA
 
 - Source visual truth: `/var/folders/bz/br99y0bj2395vd1507vwbqmm0000gn/T/codex-clipboard-e806a6c4-f0be-4044-8753-75c50caadb56.png` plus the current task requirements for a two-stage connected indicator and a single content flow.
@@ -55,6 +82,50 @@ No remaining P0, P1, or P2 visual issue in the requested regions.
 ## Follow-up polish
 
 - P3: validate helper-copy length against translated or server-provided policy descriptions before localization ships.
+
+final result: passed
+
+---
+
+# Rehearsal timer split-surface design QA
+
+- Source visual truth: `C:/Users/Runner/Desktop/Frame 6.png` (lower warning-state reference).
+- Implementation screenshot: `D:/Projects/Orbit/.tmp/design-qa/rehearsal-timer-split.png`.
+- Combined full-view comparison: `D:/Projects/Orbit/.tmp/design-qa/rehearsal-timer-split-comparison.png`.
+- Focused timer comparison: `D:/Projects/Orbit/.tmp/design-qa/rehearsal-timer-split-focused-comparison.png`.
+- Route: `/rehearsal/project_6c000fc2-a814-4c85-a5ad-bc5931ec94a6`.
+- Viewport: 1212 x 874 CSS px.
+- State: running rehearsal, default timing state. The reference shows the warning timing state.
+
+## Full-view comparison evidence
+
+The existing rehearsal layout, slide area, side panel, and teleprompter remain unchanged. The timer card now matches the reference hierarchy: a blue stopwatch header is directly joined to a bright timing-threshold panel inside one clipped card.
+
+## Focused region comparison evidence
+
+The source and implementation timer cards were placed in one focused comparison. Both use a full-width blue header, a full-width bright timing panel, two compact timing rows, and the existing rounded outer card. The implementation uses the existing 16px horizontal spacing token and 12px vertical spacing token. A separate asset comparison was unnecessary because this scoped change contains no new imagery or icons.
+
+## Required fidelity surfaces
+
+- Fonts and typography: existing rehearsal type tokens and hierarchy are unchanged; small timing labels remain readable on the bright surface.
+- Spacing and layout rhythm: header padding is 16px; timing-panel padding is 12px 16px with a 12px row gap, matching the surrounding rehearsal spacing system.
+- Colors and visual tokens: header uses `--redesign-color-primary`, the lower panel uses `--redesign-color-surface-container-lowest`, default progress uses `--redesign-color-on-surface`, warning uses the requested `#f0be36`, and danger uses `--redesign-color-error`.
+- Image quality and asset fidelity: no new raster or vector asset is required; the existing Lucide controls are preserved.
+- Copy and content: stopwatch and timing labels are unchanged.
+
+## Comparison history
+
+1. P2 - The previous state treatment placed warning/error container fills behind each row, making the compact timer visually heavy. Removed per-row containers.
+2. P2 - The stopwatch and timing thresholds previously shared one blue surface, reducing hierarchy and forcing all copy to white. Split the card into blue and bright surfaces while preserving one outer card.
+3. Post-fix evidence - The focused comparison shows matching surface proportions, padding, row rhythm, and outer radius. No actionable P0/P1/P2 issue remains in the requested timer region.
+
+## Findings
+
+No remaining P0, P1, or P2 visual issue in the requested region. The live capture is in the default state; the warning and danger selectors were verified in the loaded stylesheet, while the existing timing-state logic remains unchanged.
+
+## Follow-up polish
+
+- P3: capture a natural warning transition during a timed rehearsal if a final state-by-state visual archive is needed.
 
 final result: passed
 

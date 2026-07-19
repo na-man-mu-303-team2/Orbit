@@ -267,10 +267,11 @@ API:
 - group은 child element를 직접 중첩하지 않는다. 실제 child element는 `slide.elements` flat list에 그대로 두고, group은 `childElementIds`로 묶음 관계만 표현한다.
 - group의 `childElementIds`는 `el_` prefix를 따르는 `elementId` 목록이다.
 - group의 child element 좌표는 group-local 좌표가 아니라 slide canvas 기준 절대 좌표로 유지한다.
-- 객체 좌표 `x`, `y`는 `0` 이상이어야 하고, `width`, `height`는 `0`보다 커야 한다.
-- 1차 스프린트 MVP에서는 객체 기준점이 음수 좌표가 되는 것까지만 금지한다.
-- `x + width > canvas.width`, `y + height > canvas.height`처럼 객체가 오른쪽/아래쪽으로 캔버스 밖에 일부 노출되는 경우는 현재 schema에서 막지 않는다.
-- 캔버스 밖 일부 노출을 완전히 금지할지는 PPTX import/export 구현 중 실제 잘림, 누락, 위치 보정 필요성을 확인한 뒤 다시 결정한다.
+- 객체 좌표 `x`, `y`는 finite number여야 하고, `width`, `height`는 `0`보다 커야 한다.
+- `x`, `y`의 허용 범위는 `-1,000,000` 이상 `1,000,000` 이하이며, 범위를 벗어난 Deck과 frame patch는 거부한다.
+- 사용자가 객체를 캔버스 밖에 일부 또는 전체 배치할 수 있도록 음수 좌표와 canvas 크기를 넘는 좌표를 허용하며, 저장 시 해당 좌표를 보존한다.
+- renderer와 exporter는 canvas 경계 밖의 객체 영역을 표시 영역에서 clip한다.
+- 캔버스 밖 좌표는 편집과 저장에서 보존하며, PPTX import/export에서도 임의로 안쪽 좌표로 보정하지 않는다.
 - 객체 공통 상태 필드는 `rotation`, `opacity`, `zIndex`, `locked`(하위 호환용), `visible`을 사용한다.
 - `opacity`는 `0`부터 `1`까지만 허용하고, `zIndex`는 `0` 이상의 정수만 허용한다.
 - `chart` 객체의 `props`는 `chart.schema.ts`로 검증하며, 지원하지 않는 chart type은 거부한다.

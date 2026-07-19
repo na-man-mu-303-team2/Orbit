@@ -166,10 +166,10 @@ describe("RehearsalWorkspace", () => {
     const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
 
     expect(css).toMatch(
-      /\.rehearsal-presenter-layout \{[^}]*--rehearsal-stage-block-size:[^;]+;[^}]*width: 100%;/s,
+      /\.rehearsal-presenter-shell \.rehearsal-presenter-layout \{[^}]*--rehearsal-stage-block-size:[^;]+;[^}]*width: min\(100%, var\(--redesign-layout-content-max-width\)\);/s,
     );
     expect(css).toMatch(
-      /@media \(max-width:1120px\)[\s\S]*?\.rehearsal-presenter-main \{[^}]*grid-template-rows: var\(--rehearsal-stage-block-size\) 44px;/,
+      /@media \(max-width:1120px\)[\s\S]*?\.rehearsal-presenter-shell \.rehearsal-presenter-main \{[^}]*grid-template-rows: var\(--rehearsal-stage-block-size\);/,
     );
   });
 
@@ -843,6 +843,15 @@ describe("RehearsalWorkspace", () => {
     expect(slideReceiverRenderBody).not.toContain("DisplayControls");
     expect(slideReceiverRenderBody).not.toContain("RehearsalPanel");
     expect(slideReceiverRenderBody).not.toContain("speakerNotes");
+  });
+
+  it("keeps single-screen entry and safe Live STT recovery controls", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("onClick={() => setIsSingleScreenOpen(true)}");
+    expect(source).toContain("sanitizeLiveSttErrorMessage(liveError)");
+    expect(source).toContain("retryInitialRecordingLiveStt()");
+    expect(source).toContain("음성 인식 다시 연결");
   });
 
   it("resets presenter step when P4 auto advance command completes", () => {

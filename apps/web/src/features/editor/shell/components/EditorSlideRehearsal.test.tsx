@@ -210,7 +210,6 @@ describe("EditorSlideRehearsal", () => {
     expect(html).toContain("disabled");
     expect(html).not.toContain("연결 확인 필요");
   });
-
   it("자동 모드의 휠 아래는 skip하고 자동 모드를 유지한다", () => {
     expect(getEditorSlideRehearsalWheelAction("auto", "next")).toBe(
       "skip-next"
