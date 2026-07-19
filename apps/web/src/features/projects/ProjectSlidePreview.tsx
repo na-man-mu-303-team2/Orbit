@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { ReadOnlySlideCanvas } from "../slides/rendering";
 import { fetchProjectDeckPreview } from "./ProjectAssetWorkspace";
+import { buildWorkspaceThumbnailSlide } from "./workspaceThumbnail";
 
 /*
  * Live first-slide preview for workspace home cards. Loaded lazily so the
@@ -22,6 +23,7 @@ export default function ProjectSlidePreview(props: {
   const [scale, setScale] = useState(0);
   const deck = deckQuery.data ?? null;
   const slide = deck?.slides[0] ?? null;
+  const thumbnailSlide = slide ? buildWorkspaceThumbnailSlide(slide) : null;
 
   useEffect(() => {
     const target = shell.current;
@@ -43,7 +45,7 @@ export default function ProjectSlidePreview(props: {
     return () => observer.disconnect();
   }, [deck]);
 
-  if (!deck || !slide) return null;
+  if (!deck || !thumbnailSlide) return null;
 
   return (
     <div
@@ -51,7 +53,7 @@ export default function ProjectSlidePreview(props: {
       ref={shell}
     >
       {scale > 0 ? (
-        <ReadOnlySlideCanvas deck={deck} scale={scale} slide={slide} />
+        <ReadOnlySlideCanvas deck={deck} scale={scale} slide={thumbnailSlide} />
       ) : null}
     </div>
   );
