@@ -1,5 +1,5 @@
 main.rehearsal-presenter-shell {
-  background: var(--redesign-color-surface-container-low);
+  background: var(--redesign-color-surface-container-lowest);
   color: var(--redesign-color-on-surface);
   font-family: var(--redesign-font-family);
   grid-template-rows: auto minmax(0, 1fr);
@@ -215,7 +215,7 @@ main.rehearsal-presenter-shell {
 }
 
 .rehearsal-presenter-shell .rehearsal-stage-wrap {
-  background: var(--redesign-color-surface-container-lowest);
+  background: var(--redesign-color-surface-container-low);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-lg);
   box-shadow: var(--redesign-shadow-none);
@@ -225,7 +225,7 @@ main.rehearsal-presenter-shell {
 }
 
 .rehearsal-presenter-shell .rehearsal-stage-surface {
-  background: var(--redesign-color-surface-container-low);
+  background: var(--redesign-color-surface-container-lowest);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-lg);
   box-shadow: var(--redesign-shadow-overlay);
@@ -320,6 +320,10 @@ main.rehearsal-presenter-shell {
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-lg);
   box-shadow: var(--redesign-shadow-none);
+}
+
+.rehearsal-presenter-shell .rehearsal-presenter-side > .rehearsal-panel {
+  background: var(--redesign-color-surface-container-low);
 }
 
 .rehearsal-presenter-shell .rehearsal-side-timer-card {
