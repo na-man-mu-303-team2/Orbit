@@ -1151,7 +1151,8 @@ def design_agent_system_prompt(
         "Preserve text meaning. Avoid overlap, keep newly added elements inside the canvas, "
         "and maintain visual hierarchy. Existing elements remain valid update targets even "
         "when their current frame is partially or fully outside the canvas. Validate the final "
-        "frame after applying the update and emit the smallest necessary set of operations. "
+        "frame after applying all updates. Every element added or repositioned by the proposal "
+        "must finish fully inside the canvas. Emit the smallest necessary set of operations. "
         "Broad requests such as '꾸며줘', '보기 좋게', '디자인해줘', beautify, or redesign "
         "mean a substantial composition redesign, not a minor frame or color adjustment. "
         "Prefer smartArtRequest and a server-side preset for those broad requests whenever "
@@ -1276,6 +1277,7 @@ def validate_design_proposal(
     }
     known_element_ids = set(elements)
     valid_affected_element_ids = set(elements)
+    frame_updated_element_ids: set[str] = set()
     allowed_operations = set(request.capabilities.operations)
     addable_types = set(request.capabilities.addable_element_types)
     warnings = list(response.warnings)
@@ -1331,6 +1333,7 @@ def validate_design_proposal(
             if element_id in known_element_ids:
                 raise DesignAgentGenerationError("Added elementId already exists.")
             _validate_element_frame(element)
+            _validate_element_inside_canvas(request.context.canvas, element)
             elements[element_id] = element
             known_element_ids.add(element_id)
             valid_affected_element_ids.add(element_id)
@@ -1344,6 +1347,7 @@ def validate_design_proposal(
 
         if isinstance(operation, DeleteElementOperation):
             del elements[operation.element_id]
+            frame_updated_element_ids.discard(operation.element_id)
             continue
 
         if isinstance(operation, UpdateElementFrameOperation):
@@ -1354,6 +1358,12 @@ def validate_design_proposal(
                 if warning and warning not in warnings:
                     warnings.append(warning)
             elements[operation.element_id] = updated_element
+            frame_updated_element_ids.add(operation.element_id)
+
+    for element_id in frame_updated_element_ids:
+        final_element = elements.get(element_id)
+        if final_element is not None:
+            _validate_element_inside_canvas(request.context.canvas, final_element)
 
     canonical_affected_element_ids = [
         element_id
@@ -1509,6 +1519,18 @@ def _validate_element_frame(element: dict[str, Any]) -> None:
         raise DesignAgentGenerationError(
             "Operation produced an out-of-range element coordinate."
         )
+
+
+def _validate_element_inside_canvas(
+    canvas: DesignAgentCanvas,
+    element: dict[str, Any],
+) -> None:
+    x = float(element.get("x", 0))
+    y = float(element.get("y", 0))
+    width = float(element.get("width", 0))
+    height = float(element.get("height", 0))
+    if x < 0 or y < 0 or x + width > canvas.width or y + height > canvas.height:
+        raise DesignAgentGenerationError("Operation places an element outside the canvas.")
 
 
 def _fit_added_element_to_canvas(
