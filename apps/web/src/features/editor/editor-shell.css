@@ -11174,33 +11174,19 @@ body.is-resizing-speaker-notes {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--redesign-size-control-sm);
-  height: var(--redesign-size-control-sm);
+  width: 28px;
+  height: 28px;
   padding: 0;
-  border: 1px solid color-mix(
-    in srgb,
-    var(--redesign-color-outline-variant) 58%,
-    transparent
-  );
+  border: 0;
   border-radius: var(--redesign-radius-sm);
-  background: color-mix(
-    in srgb,
-    var(--redesign-color-surface-container-lowest) 72%,
-    transparent
-  );
+  background: transparent;
   color: var(--redesign-color-on-surface);
-  box-shadow: var(--redesign-shadow-card);
-  backdrop-filter: blur(10px);
+  box-shadow: var(--redesign-shadow-none);
   cursor: pointer;
 }
 
 .orbit-shell.editor-professional .open-right-pane-floating-button:hover {
-  border-color: var(--redesign-color-primary-outline);
-  background: color-mix(
-    in srgb,
-    var(--redesign-color-surface-container-high) 82%,
-    transparent
-  );
+  background: var(--redesign-color-surface-container-high);
   color: var(--redesign-color-primary);
 }
 
@@ -11215,7 +11201,7 @@ body.is-resizing-speaker-notes {
     display: grid;
     grid-column: 2;
     grid-row: 1;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto minmax(96px, 1fr) auto;
     min-width: 0;
     width: 100%;
     border: 0;
@@ -11225,7 +11211,7 @@ body.is-resizing-speaker-notes {
   }
 
   .orbit-shell.editor-professional .stage-top-controls > .editor-toolbar {
-    grid-column: 1 / 4;
+    grid-column: 2;
     grid-row: 1;
     height: var(--editor-chrome-height);
     min-height: var(--editor-chrome-height);
@@ -11246,27 +11232,27 @@ body.is-resizing-speaker-notes {
   }
 
   .orbit-shell.editor-professional .stage-top-controls > .selection-quickbar {
-    grid-column: 1 / 4;
+    grid-column: 1 / 5;
   }
 
   .orbit-shell.editor-professional .stage-top-controls > .canvas-zoom-controls {
     align-self: start;
-    grid-column: 2;
+    grid-column: 3;
     grid-row: 1;
     justify-self: end;
     z-index: 18;
-    margin: var(--redesign-space-3) var(--redesign-space-6) 0 0;
+    margin: var(--redesign-space-3) var(--redesign-space-2) 0 0;
   }
 
   .orbit-shell.editor-professional
     .stage-top-controls
     > .open-right-pane-floating-button {
     align-self: start;
-    grid-column: 3;
+    grid-column: 4;
     grid-row: 1;
     justify-self: end;
     z-index: 19;
-    margin: var(--redesign-space-3) var(--redesign-space-3) 0 var(--redesign-space-1);
+    margin: var(--redesign-space-3) var(--redesign-space-3) 0 0;
   }
 
   .orbit-shell.editor-professional .stage-pane > .canvas-scroll,
