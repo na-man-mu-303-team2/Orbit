@@ -13548,8 +13548,8 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional
   .editor-ai-assistant-panel
   .ai-chat-suggestions {
-  gap: var(--redesign-space-2);
-  padding: 0 var(--redesign-space-5);
+  gap: var(--redesign-space-1);
+  padding: 0 var(--redesign-space-4);
   background: transparent;
 }
 
@@ -13557,8 +13557,8 @@ body.is-resizing-speaker-notes {
   .editor-ai-assistant-panel
   .ai-chat-suggestions
   button {
-  min-height: var(--redesign-size-control-md);
-  padding: 0 var(--redesign-space-3);
+  min-height: var(--redesign-size-control-sm);
+  padding: 0 var(--redesign-space-2);
   border: var(--redesign-border-subtle);
   border-radius: var(--redesign-radius-full);
   background: transparent;
@@ -13574,8 +13574,8 @@ body.is-resizing-speaker-notes {
   .ai-chat-composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--redesign-space-3);
-  padding: 0 var(--redesign-space-5) var(--redesign-space-5);
+  gap: var(--redesign-space-2);
+  padding: 0 var(--redesign-space-4) var(--redesign-space-4);
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -13593,7 +13593,7 @@ body.is-resizing-speaker-notes {
   .ai-chat-mode-switch {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--redesign-space-2);
+  gap: var(--redesign-space-1);
   padding-bottom: 0;
 }
 
@@ -13601,8 +13601,8 @@ body.is-resizing-speaker-notes {
   .editor-ai-assistant-panel
   .ai-chat-mode-switch
   button {
-  min-height: var(--redesign-size-control-md);
-  padding: 0 var(--redesign-space-3);
+  min-height: 34px;
+  padding: 0 var(--redesign-space-2);
   border: var(--redesign-border-subtle);
   border-radius: var(--redesign-radius-lg);
   background: var(--redesign-color-surface-container-lowest);
