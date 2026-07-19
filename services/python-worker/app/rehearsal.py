@@ -5,6 +5,7 @@ import logging
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from statistics import median
 from typing import Any, Literal
 
 from app.audio.analysis.models import RehearsalSilenceAnalysis
@@ -44,8 +45,8 @@ FILLER_PHRASES = {
     ("sort", "of"): "sort of",
 }
 
-SLIDE_SPEAKING_RATE_MINIMUM_SECONDS = 3.0
-SLIDE_SPEAKING_RATE_MINIMUM_CHARACTERS = 10
+SLIDE_SPEAKING_RATE_MINIMUM_SECONDS = 5.0
+SLIDE_SPEAKING_RATE_MINIMUM_CHARACTERS = 20
 SLIDE_SPEAKING_RATE_SLOWER_RATIO = 0.85
 SLIDE_SPEAKING_RATE_FASTER_RATIO = 1.15
 
@@ -237,9 +238,11 @@ def analyze_rehearsal_metrics(
         duration_seconds,
         segments,
     )
-    keyword_result = analyze_keywords(
-        transcript,
-        deck_keywords,
+    keyword_result = analyze_required_keywords_by_slide(
+        segments=segments,
+        deck_keywords=deck_keywords,
+        slide_timeline=slide_timeline or [],
+        duration_seconds=duration_seconds,
         pronunciation_context=pronunciation_context,
     )
     long_silence_count = (
@@ -617,7 +620,7 @@ def build_slide_speaking_rates(
     slide_timeline: list[SlideTimelineEntry],
     duration_seconds: float,
 ) -> dict[str, SlideSpeakingRate]:
-    """STT segment timestamp를 이용해 장표별 상대 발화 속도를 계산한다."""
+    """STT segment timestamp를 이용해 슬라이드별 상대 발화 속도를 계산한다."""
     timeline = normalize_slide_timeline(slide_timeline)
     slide_ids = list(dict.fromkeys(entry.slide_id for entry in timeline))
     if not slide_ids:
@@ -642,17 +645,6 @@ def build_slide_speaking_rates(
             reason_code="BASELINE_UNAVAILABLE",
         )
 
-    baseline_character_count = sum(item[3] for item in timed_segments)
-    baseline_seconds = merged_interval_duration(
-        [(item[1], item[2]) for item in timed_segments]
-    )
-    if baseline_character_count <= 0 or baseline_seconds <= 0:
-        return build_unmeasured_slide_speaking_rates(
-            slide_ids,
-            reason_code="BASELINE_UNAVAILABLE",
-        )
-
-    baseline_characters_per_second = baseline_character_count / baseline_seconds
     evidence_by_slide = {
         slide_id: _SlideSpeakingRateEvidence() for slide_id in slide_ids
     }
@@ -660,9 +652,7 @@ def build_slide_speaking_rates(
     for index, entry in enumerate(timeline):
         next_entry = timeline[index + 1] if index + 1 < len(timeline) else None
         window_end = (
-            next_entry.entered_second
-            if next_entry is not None
-            else analysis_end_second
+            next_entry.entered_second if next_entry is not None else analysis_end_second
         )
         if window_end <= entry.entered_second:
             continue
@@ -678,6 +668,32 @@ def build_slide_speaking_rates(
                 evidence.character_count += character_count
                 evidence.intervals.append((start_second, end_second))
 
+    evidence_rates: dict[str, float] = {}
+    evidence_durations: dict[str, float] = {}
+    for slide_id, evidence in evidence_by_slide.items():
+        active_speech_seconds = merged_interval_duration(evidence.intervals)
+        evidence_durations[slide_id] = active_speech_seconds
+        if (
+            active_speech_seconds >= SLIDE_SPEAKING_RATE_MINIMUM_SECONDS
+            and evidence.character_count >= SLIDE_SPEAKING_RATE_MINIMUM_CHARACTERS
+        ):
+            evidence_rates[slide_id] = evidence.character_count / active_speech_seconds
+
+    if len(evidence_rates) < 3:
+        return {
+            slide_id: unmeasured_slide_speaking_rate(
+                reason_code=(
+                    "BASELINE_UNAVAILABLE"
+                    if slide_id in evidence_rates
+                    else "INSUFFICIENT_SLIDE_SPEECH"
+                ),
+                active_speech_seconds=evidence_durations[slide_id],
+                character_count=evidence_by_slide[slide_id].character_count,
+            )
+            for slide_id in slide_ids
+        }
+
+    baseline_characters_per_second = median(evidence_rates.values())
     return {
         slide_id: build_slide_speaking_rate(
             evidence=evidence_by_slide[slide_id],
@@ -896,6 +912,79 @@ def analyze_keywords(
 
     return KeywordAnalysis(
         coverage=round(matched / len(deck_keywords), 4), missed=missed
+    )
+
+
+def analyze_required_keywords_by_slide(
+    *,
+    segments: list[TranscriptSegment],
+    deck_keywords: list[DeckKeyword],
+    slide_timeline: list[SlideTimelineEntry],
+    duration_seconds: float,
+    pronunciation_context: list[PronunciationContextTerm] | None = None,
+) -> KeywordAnalysis:
+    required_keywords = [keyword for keyword in deck_keywords if keyword.required]
+    if not required_keywords:
+        return KeywordAnalysis(coverage=0.0)
+
+    timeline = normalize_slide_timeline(slide_timeline)
+    analysis_end_second = resolve_analysis_end_second(duration_seconds, segments)
+    if not timeline or analysis_end_second <= 0:
+        return KeywordAnalysis(coverage=0.0)
+
+    slide_transcripts: dict[str, list[str]] = {}
+    for index, entry in enumerate(timeline):
+        next_entry = timeline[index + 1] if index + 1 < len(timeline) else None
+        window_end = (
+            next_entry.entered_second if next_entry is not None else analysis_end_second
+        )
+        if window_end <= entry.entered_second:
+            continue
+
+        slide_transcripts.setdefault(entry.slide_id, [])
+        slide_transcripts[entry.slide_id].extend(
+            segment.text
+            for segment in segments
+            if segment_belongs_to_window(
+                segment,
+                entry.entered_second,
+                window_end,
+            )
+        )
+
+    matched = 0
+    missed: list[MissedKeywordDetail] = []
+    for keyword in required_keywords:
+        slide_transcript = " ".join(slide_transcripts.get(keyword.slide_id, []))
+        normalized_transcript = unicodedata.normalize("NFKC", slide_transcript).casefold()
+        canonical_term_keys = find_canonical_term_keys(
+            slide_transcript,
+            pronunciation_context or [],
+        )
+        candidates = [
+            unicodedata.normalize("NFKC", candidate.strip()).casefold()
+            for candidate in [keyword.text, *keyword.synonyms, *keyword.abbreviations]
+            if candidate.strip()
+        ]
+        candidate_canonical_keys = {
+            normalize_pronunciation_key(candidate) for candidate in candidates
+        }
+        if any(candidate in normalized_transcript for candidate in candidates) or (
+            canonical_term_keys & candidate_canonical_keys
+        ):
+            matched += 1
+        elif keyword.slide_id and keyword.keyword_id and keyword.text.strip():
+            missed.append(
+                MissedKeywordDetail(
+                    slide_id=keyword.slide_id,
+                    keyword_id=keyword.keyword_id,
+                    text=keyword.text.strip(),
+                )
+            )
+
+    return KeywordAnalysis(
+        coverage=round(matched / len(required_keywords), 4),
+        missed=missed,
     )
 
 

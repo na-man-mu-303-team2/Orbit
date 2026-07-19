@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 
 describe("RehearsalReportDocument", () => {
-  it("separates the overview, slide coaching, and test view into analysis tabs", () => {
+  it("opens the test report directly without analysis tab controls", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
         deck={deck}
@@ -31,28 +31,16 @@ describe("RehearsalReportDocument", () => {
       />,
     );
 
-    expect(html).toContain("전체 분석");
-    expect(html).toContain("슬라이드 분석");
-    expect(html).toContain("테스트");
-    expect(html).toContain(
-      'aria-controls="rrd-panel-overview" aria-selected="true"',
-    );
+    expect(html).not.toContain("rrd-analysis-tabs");
+    expect(html).not.toContain('role="tablist"');
+    expect(html).toMatch(/id="rrd-panel-overview"[^>]*hidden=""/);
     expect(html).toMatch(/id="rrd-panel-slides"[^>]*hidden=""/);
-    expect(html).toMatch(/id="rrd-panel-test"[^>]*hidden=""/);
+    expect(html).toMatch(/id="rrd-panel-test"[^>]*class="rrd-report-panel"/);
+    expect(html).not.toMatch(/id="rrd-panel-test"[^>]*hidden=""/);
     expect(html).toContain("슬라이드 상세 리포트 테스트");
-    expect(html).toContain("practice-report-summary");
-    expect(html.indexOf("rrd-analysis-tabs")).toBeLessThan(
-      html.indexOf("rrd-top-overview"),
-    );
-    expect(html.indexOf("rrd-top-overview")).toBeLessThan(
-      html.indexOf("rrd-habit-panel"),
-    );
-    expect(html).toContain("rrd-slide-coaching");
-    expect(html.indexOf("rrd-habit-panel")).toBeLessThan(
-      html.indexOf("rrd-slide-coaching"),
-    );
+    expect(html).toContain('aria-current="true"');
+    expect(html).toContain("전체 발표 핵심 요약");
   });
-
   it("groups utterance outcomes and renders presenter-facing semantic outcomes", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
@@ -220,7 +208,7 @@ describe("RehearsalReportDocument", () => {
     expect(html).not.toContain("키워드 커버리지");
   });
 
-  it("renders the selected slide speaking pace without rate units", () => {
+  it("summarizes measured slide speaking pace on the initial overall view", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
         deck={deck}
@@ -272,12 +260,14 @@ describe("RehearsalReportDocument", () => {
       />,
     );
 
-    expect(html).toContain("전체 평균보다 느린 편");
+    expect(html).toContain(
+      "분석된 1개 슬라이드 중 빠른 구간 0개, 느린 구간 1개가 확인됐습니다.",
+    );
     expect(html).not.toContain("분석할 발화가 부족해요");
     expect(html).not.toMatch(/WPM|CPM|CPS/);
   });
 
-  it("renders only the initially selected slide pace category", () => {
+  it("includes every measured slide in the initial overall pace summary", () => {
     const measuredRate = {
       metricDefinitionVersion: 1 as const,
       measurementState: "measured" as const,
@@ -327,8 +317,9 @@ describe("RehearsalReportDocument", () => {
       />,
     );
 
-    expect(html).toContain("전체 평균과 비슷");
-    expect(html).not.toContain("전체 평균보다 빠른 편");
+    expect(html).toContain(
+      "분석된 2개 슬라이드 중 빠른 구간 1개, 느린 구간 0개가 확인됐습니다.",
+    );
   });
 
   it("does not render removed semantic retry content in the report", () => {

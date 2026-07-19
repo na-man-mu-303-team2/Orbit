@@ -48,14 +48,14 @@ export function speakingRateLabel(speakingRate: SlideSpeakingRate | undefined) {
     switch (speakingRate.reasonCode) {
       case "UNSUPPORTED_LANGUAGE": return "발화 언어를 확인할 수 없어요";
       case "SEGMENT_TIMESTAMPS_UNAVAILABLE": return "발화 구간 시간 정보가 없어요";
-      case "BASELINE_UNAVAILABLE": return "발화 속도 기준을 만들 수 없어요";
+      case "BASELINE_UNAVAILABLE": return "비교할 슬라이드 발화가 부족해요";
       case "LEGACY_REPORT": return "이전 분석에는 발화 속도 정보가 없어요";
       case "INSUFFICIENT_SLIDE_SPEECH": return "분석할 발화가 부족해요";
     }
   }
-  if (speakingRate.paceCategory === "slower") return "전체 평균보다 느린 편";
-  if (speakingRate.paceCategory === "faster") return "전체 평균보다 빠른 편";
-  return "전체 평균과 비슷";
+  if (speakingRate.paceCategory === "slower") return "이번 발표 기준보다 느린 편";
+  if (speakingRate.paceCategory === "faster") return "이번 발표 기준보다 빠른 편";
+  return "이번 발표 기준과 비슷";
 }
 
 function timingDeltaLabel(actualSeconds: number, targetSeconds: number, formatDuration: (totalSeconds: number) => string) {
