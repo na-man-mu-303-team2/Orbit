@@ -385,6 +385,7 @@ export const rehearsalRawMicrophoneAudioConstraints: MediaTrackConstraints = {
 };
 const liveSttBiasModeStorageKey = "orbit.liveStt.biasMode";
 const liveSttRawMicDebugStorageKey = "orbit.liveStt.debugRawMic";
+const rehearsalMicrophoneDeviceStorageKey = "orbit.rehearsal.microphoneDeviceId";
 const liveSttDebugDecodingMethodStorageKey =
   "orbit.liveStt.debugDecodingMethod";
 const rehearsalPracticeSummaryStoragePrefix = "orbit.rehearsal.lastSummary";
@@ -1602,9 +1603,34 @@ export function getLiveAudioLevelPercent(level: LiveSttAudioLevelEvent | null) {
 export function requestRehearsalMicrophoneStream(
   mediaDevices: Pick<MediaDevices, "getUserMedia"> = navigator.mediaDevices,
 ) {
+  const deviceId = readRehearsalMicrophoneDeviceId();
   return mediaDevices.getUserMedia({
-    audio: getRehearsalMicrophoneAudioConstraints(),
+    audio: {
+      ...getRehearsalMicrophoneAudioConstraints(),
+      ...(deviceId ? { deviceId: { ideal: deviceId } } : {}),
+    },
   });
+}
+
+export function readRehearsalMicrophoneDeviceId(
+  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage(),
+) {
+  try {
+    return storage?.getItem(rehearsalMicrophoneDeviceStorageKey) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function writeRehearsalMicrophoneDeviceId(
+  deviceId: string,
+  storage: Pick<Storage, "setItem"> | null = readBrowserLocalStorage(),
+) {
+  try {
+    if (deviceId) storage?.setItem(rehearsalMicrophoneDeviceStorageKey, deviceId);
+  } catch {
+    // Browsers can block storage while still allowing microphone access.
+  }
 }
 
 export function getRehearsalMicrophoneAudioConstraints(
@@ -1944,6 +1970,7 @@ export function RehearsalWorkspace(props: {
   projectId?: string;
   sourceFullRunId?: string;
   sourceGoalSetId?: string;
+  preflightMode?: "microphone" | "without-voice";
 }) {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(
@@ -1986,6 +2013,9 @@ export function RehearsalWorkspace(props: {
   const [practiceWithoutVoiceAt, setPracticeWithoutVoiceAt] = useState<
     number | null
   >(null);
+  const shouldAutoStartRef = useRef<
+    "microphone" | "without-voice" | "starting" | null
+  >(props.preflightMode ?? null);
   const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
   const [previousPracticeSummary, setPreviousPracticeSummary] =
     useState<RehearsalPracticeSummary | null>(() =>
@@ -2811,6 +2841,23 @@ export function RehearsalWorkspace(props: {
       setPhase("failed");
     }
   }
+
+  useEffect(() => {
+    const mode = shouldAutoStartRef.current;
+    if (!mode || mode === "starting" || !deck || phase !== "idle") {
+      return;
+    }
+    if (mode === "microphone" && !canRecord) return;
+    shouldAutoStartRef.current = "starting";
+    if (mode === "without-voice") {
+      startPracticeWithoutVoice();
+      shouldAutoStartRef.current = null;
+    } else {
+      void startRecording().finally(() => {
+        shouldAutoStartRef.current = null;
+      });
+    }
+  }, [canRecord, deck, phase]);
 
   async function startLiveDemo() {
     if (!deck || !canStartLiveDemo) return;
@@ -4387,6 +4434,7 @@ export function RehearsalWorkspace(props: {
     : "마지막 문장을 정리하고 마무리하세요";
   const shouldShowRehearsalPreflight =
     Boolean(deck) &&
+    !shouldAutoStartRef.current &&
     phase === "idle" &&
     liveStatus === "idle" &&
     !isLiveDemoActive &&
