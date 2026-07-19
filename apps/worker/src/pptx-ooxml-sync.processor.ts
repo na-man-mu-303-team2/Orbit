@@ -31,6 +31,7 @@ const pptxOoxmlSyncPayloadSchema = z.object({
   deckId: z.string().min(1),
   changeId: z.string().min(1),
   targetDeckVersion: z.number().int().positive(),
+  syncCapabilityVersion: z.number().int().positive().default(1),
 });
 
 const syncAssetSchema = z.object({
@@ -199,7 +200,12 @@ type JobRow = {
   progress: number;
   message: string;
   result: Record<string, unknown> | null;
-  error: { code: string; message: string; retryable?: boolean } | null;
+  error: {
+    code: string;
+    message: string;
+    retryable?: boolean;
+    syncCapabilityVersion?: number;
+  } | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -316,6 +322,13 @@ export class OoxmlSyncTransportError extends Error {
   ) {
     super(`${code}:${field}${maxBytes === undefined ? "" : `:${maxBytes}`}`);
     this.name = "OoxmlSyncTransportError";
+  }
+}
+
+class RetryableOoxmlSyncError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RetryableOoxmlSyncError";
   }
 }
 
@@ -566,6 +579,7 @@ export async function processPptxOoxmlSyncJob(
       50,
       "PPTX_OOXML_SYNC_FAILED",
       error instanceof Error ? error.message : "PPTX OOXML sync failed.",
+      isRetryableOoxmlSyncError(error),
     );
   }
 }
@@ -772,7 +786,10 @@ async function embedProjectImageAssets(
       await storage.getSignedReadUrl(asset.storage_key),
     );
     if (!response.ok) {
-      throw new Error(`OOXML image asset content unavailable: ${fileId}`);
+      throw ooxmlHttpError(
+        `OOXML image asset content unavailable: ${fileId}`,
+        response.status,
+      );
     }
     const content = Buffer.from(await response.arrayBuffer()).toString(
       "base64",
@@ -961,8 +978,9 @@ async function embedAuthoredFallbackAssets(
       await storage.getSignedReadUrl(asset.storage_key),
     );
     if (!response.ok) {
-      throw new Error(
+      throw ooxmlHttpError(
         `OOXML authored fallback asset content unavailable: ${fileId}`,
+        response.status,
       );
     }
     const content = Buffer.from(await response.arrayBuffer()).toString(
@@ -1084,7 +1102,10 @@ async function syncPptxOoxmlWithPython(
   const readUrl = await storage.getSignedReadUrl(asset.storage_key);
   const sourceResponse = await fetch(readUrl);
   if (!sourceResponse.ok) {
-    throw new Error(`PPTX package content unavailable: ${asset.file_id}`);
+    throw ooxmlHttpError(
+      `PPTX package content unavailable: ${asset.file_id}`,
+      sourceResponse.status,
+    );
   }
 
   form.append(
@@ -1172,8 +1193,9 @@ async function parseOoxmlSyncFailure(response: Response): Promise<Error> {
   } catch {
     // The bounded generic error below deliberately excludes provider response text.
   }
-  return new Error(
+  return ooxmlHttpError(
     `Python worker PPTX sync failed with HTTP ${response.status}.`,
+    response.status,
   );
 }
 
@@ -1994,6 +2016,7 @@ async function failJob(
     error: {
       code,
       message,
+      syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
       ...(retryable === undefined ? {} : { retryable }),
     },
   });
@@ -2007,7 +2030,12 @@ async function updateJob(
     progress: number;
     message: string;
     result: Record<string, unknown> | null;
-    error: { code: string; message: string; retryable?: boolean } | null;
+    error: {
+      code: string;
+      message: string;
+      retryable?: boolean;
+      syncCapabilityVersion?: number;
+    } | null;
   },
 ): Promise<Job> {
   const rows = await dataSource.query(
@@ -2038,6 +2066,21 @@ async function updateJob(
   }
 
   return rowToJob(row);
+}
+
+function isRetryableOoxmlSyncError(error: unknown): boolean {
+  return (
+    error instanceof RetryableOoxmlSyncError ||
+    error instanceof TypeError ||
+    (error instanceof DOMException &&
+      ["AbortError", "TimeoutError"].includes(error.name))
+  );
+}
+
+function ooxmlHttpError(message: string, status: number): Error {
+  return status === 429 || status >= 500
+    ? new RetryableOoxmlSyncError(message)
+    : new Error(message);
 }
 
 function readRawJobId(rawPayload: unknown): string {

@@ -1070,6 +1070,7 @@ describe("processPptxOoxmlSyncJob", () => {
       code: "PPTX_OOXML_SYNC_JSON_INVALID",
       message: "PPTX_OOXML_SYNC_JSON_INVALID:operations",
       retryable: false,
+      syncCapabilityVersion: 2,
     });
     expect(JSON.stringify(job.error)).not.toContain("private deck text");
     expect(storage.putObject).not.toHaveBeenCalled();
@@ -1088,6 +1089,43 @@ describe("processPptxOoxmlSyncJob", () => {
         String(sql).includes("DELETE FROM deck_patches"),
       ),
     ).toBe(false);
+  });
+
+  it("marks a transient transport failure retryable at the current capability", async () => {
+    const { dataSource } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_element_props",
+          slideId: "slide_1",
+          elementId: "el_title",
+          props: { text: "Retry later" },
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+        return new Response("temporarily unavailable", { status: 503 });
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.error).toMatchObject({
+      code: "PPTX_OOXML_SYNC_FAILED",
+      retryable: true,
+      syncCapabilityVersion: 2,
+    });
   });
 
   it.each([
@@ -1142,6 +1180,7 @@ describe("processPptxOoxmlSyncJob", () => {
         code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
         message: `update_element_props:${reasonCode}:slide_1:el_table`,
         retryable: false,
+        syncCapabilityVersion: 2,
       });
       expect(JSON.stringify(job.error)).not.toContain(privateCellText);
       expect(storage.putObject).not.toHaveBeenCalled();
@@ -1294,6 +1333,7 @@ describe("processPptxOoxmlSyncJob", () => {
       code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
       message: "reorder_slides:SLIDE_REORDER_PERMUTATION_INVALID",
       retryable: false,
+      syncCapabilityVersion: 2,
     });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(storage.putObject).not.toHaveBeenCalled();
