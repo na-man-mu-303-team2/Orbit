@@ -153,19 +153,31 @@
   z-index: -1;
   width: 62px;
   height: 38px;
-  border: 1px solid color-mix(in srgb, var(--redesign-color-primary) 24%, white);
+  border: 1px solid color-mix(
+    in srgb,
+    var(--redesign-color-primary) 24%,
+    var(--redesign-color-light-surface)
+  );
   border-radius: var(--redesign-radius-md);
   box-shadow: var(--redesign-shadow-card);
   content: "";
 }
 
 .workspace-home-create-icon::before {
-  background: linear-gradient(135deg, #f4edff 0 48%, #7c3aed 49% 100%);
+  background: linear-gradient(
+    135deg,
+    var(--redesign-color-secondary-container) 0 48%,
+    var(--redesign-color-secondary) 49% 100%
+  );
   transform: translate(-26px, -8px) rotate(-8deg);
 }
 
 .workspace-home-create-icon::after {
-  background: linear-gradient(135deg, #ffe8df 0 48%, #ff6b4a 49% 100%);
+  background: linear-gradient(
+    135deg,
+    var(--redesign-color-warning-container) 0 48%,
+    var(--redesign-color-tertiary) 49% 100%
+  );
   transform: translate(26px, -8px) rotate(8deg);
 }
 
