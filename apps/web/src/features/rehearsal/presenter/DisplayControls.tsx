@@ -45,6 +45,10 @@ type DisplayState = "idle" | "opening" | "manual-guide" | "failed";
 
 type RemoteFullscreenState = "idle" | "available" | "requested" | "failed";
 
+type PermissionQuery = (
+  descriptor: PermissionDescriptor,
+) => Promise<Pick<PermissionStatus, "state">>;
+
 const SCREEN_REQUEST_TIMEOUT_MS = 10000;
 
 const defaultSlideDisplayOptions: SlideDisplayOptions = {
@@ -193,6 +197,7 @@ export function DisplayControls(props: {
 
   async function requestDisplayScreens() {
     if (!onRequestDisplayScreens) {
+      setOptions((current) => ({ ...current, autoPlace: false }));
       setScreenMessage(
         getDisplayControlMessage("window-management-unsupported"),
       );
@@ -210,12 +215,14 @@ export function DisplayControls(props: {
     }
 
     if (!result.ok) {
+      setOptions((current) => ({ ...current, autoPlace: false }));
       setScreenOptions([]);
       setSelectedScreenIndex(null);
       setScreenMessage(getDisplayControlMessage(result.code));
       return;
     }
 
+    setOptions((current) => ({ ...current, autoPlace: true }));
     setScreenOptions(result.screens);
     const defaultScreen = getDefaultAutoPlacementScreen(result.screens);
     setSelectedScreenIndex(defaultScreen?.screenIndex ?? null);
@@ -226,6 +233,21 @@ export function DisplayControls(props: {
     );
   }
 
+  async function syncWindowManagementPermission() {
+    const permissionState = await queryWindowManagementPermissionState();
+    if (!mountedRef.current) return;
+
+    const granted = permissionState === "granted";
+    setOptions((current) => ({ ...current, autoPlace: granted }));
+    if (granted) void requestDisplayScreens();
+  }
+
+  function toggleDisplayOptions() {
+    const nextOpen = !isOptionsOpen;
+    setIsOptionsOpen(nextOpen);
+    if (nextOpen) void syncWindowManagementPermission();
+  }
+
   function setPresenterView(enabled: boolean) {
     setOptions((current) => ({
       ...current,
@@ -233,6 +255,7 @@ export function DisplayControls(props: {
       displayMode: enabled ? "slide-window" : current.displayMode,
       presenterView: enabled,
     }));
+    if (enabled) void syncWindowManagementPermission();
   }
 
   function setDisplayMode(displayMode: SlideDisplayMode) {
@@ -274,7 +297,7 @@ export function DisplayControls(props: {
           className="presenter-display-options-toggle"
           title="프레젠테이션 옵션"
           type="button"
-          onClick={() => setIsOptionsOpen((current) => !current)}
+          onClick={toggleDisplayOptions}
         >
           <ChevronDown size={15} />
         </button>
@@ -316,12 +339,9 @@ export function DisplayControls(props: {
                   className="presenter-display-switch"
                   type="checkbox"
                   onChange={(event) => {
-                    const checked = event.currentTarget.checked;
-                    if (checked) void requestDisplayScreens();
-                    setOptions((current) => ({
-                      ...current,
-                      autoPlace: checked,
-                    }));
+                    if (event.currentTarget.checked) {
+                      void requestDisplayScreens();
+                    }
                   }}
                 />
               </label>
@@ -475,6 +495,22 @@ export function canDelegateSlideWindowFullscreen(userAgent = readUserAgent()) {
   );
 }
 
+export async function queryWindowManagementPermissionState(
+  query: PermissionQuery | undefined = getBrowserPermissionQuery(),
+): Promise<PermissionState> {
+  if (!query) return "prompt";
+
+  for (const name of ["window-management", "window-placement"]) {
+    try {
+      return (await query({ name: name as PermissionName })).state;
+    } catch {
+      // Chrome used window-placement before window-management.
+    }
+  }
+
+  return "prompt";
+}
+
 export function getDisplayControlMessage(code: DisplayManagerErrorCode) {
   const messages: Record<DisplayManagerErrorCode, string> = {
     "fullscreen-blocked":
@@ -549,4 +585,12 @@ function readBrowserMajor(userAgent: string, pattern: RegExp) {
 
 function readUserAgent() {
   return typeof navigator === "undefined" ? "" : navigator.userAgent;
+}
+
+function getBrowserPermissionQuery(): PermissionQuery | undefined {
+  if (typeof navigator === "undefined" || !navigator.permissions?.query) {
+    return undefined;
+  }
+
+  return navigator.permissions.query.bind(navigator.permissions);
 }

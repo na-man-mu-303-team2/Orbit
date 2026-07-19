@@ -7,6 +7,7 @@ import {
   DisplayControls,
   getDisplayControlMessage,
   getDefaultAutoPlacementScreen,
+  queryWindowManagementPermissionState,
   shouldShowRecoverAction,
 } from "./DisplayControls";
 
@@ -88,6 +89,20 @@ describe("DisplayControls", () => {
     ).toMatchObject({ label: "발표 화면", screenIndex: 1 });
   });
 
+  it("reads granted Window Management permission and supports its legacy name", async () => {
+    const queriedNames: string[] = [];
+    const state = await queryWindowManagementPermissionState(async (descriptor) => {
+      queriedNames.push(descriptor.name);
+      if (descriptor.name === ("window-management" as PermissionName)) {
+        throw new TypeError("unsupported permission name");
+      }
+      return { state: "granted" };
+    });
+
+    expect(state).toBe("granted");
+    expect(queriedNames).toEqual(["window-management", "window-placement"]);
+  });
+
   it("starts the slide display request before updating control state", () => {
     const source = fs.readFileSync(displayControlsSourcePath, "utf8");
     const start = source.indexOf("async function openSlideWindow(");
@@ -148,6 +163,7 @@ describe("DisplayControls", () => {
       "startFromBeginning: event.currentTarget.checked",
     );
     expect(source).not.toContain("autoPlace: event.currentTarget.checked");
+    expect(source).not.toContain("autoPlace: checked");
     expect(source).not.toContain("fullscreen: event.currentTarget.checked");
   });
 });
