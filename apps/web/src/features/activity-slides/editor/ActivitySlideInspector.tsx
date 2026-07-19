@@ -1,11 +1,5 @@
-import type {
-  ActivityDefinition,
-  ActivityQuestion,
-  ActivityQuestionType,
-  ActivitySlide,
-  Deck
-} from "@orbit/shared";
-import { IconArrowDown, IconArrowUp } from "@tabler/icons-react";
+import type { ActivityDefinition, ActivityQuestion, ActivityQuestionType, ActivitySlide, Deck } from "@orbit/shared";
+import { IconArrowDown, IconArrowUp, IconMessageQuestion, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 
 import {
@@ -29,11 +23,17 @@ const templateLabels = {
 } as const;
 
 const questionTypeLabels: Record<ActivityQuestionType, string> = {
-  rating: "5점 척도",
-  "single-choice": "단일 선택",
-  "multiple-choice": "복수 선택",
-  "free-text": "주관식"
+  rating: "1~5점",
+  "single-choice": "하나 선택",
+  "multiple-choice": "여러 개 선택",
+  "free-text": "직접 입력"
 };
+
+const templateDescriptions = {
+  "pre-question": "발표 전에 청중에게 받을 질문을 준비하세요.",
+  poll: "청중이 하나를 고를 수 있도록 질문과 답변을 준비하세요.",
+  satisfaction: "발표가 끝난 뒤 청중에게 물어볼 내용을 준비하세요."
+} as const;
 
 export function ActivitySlideInspector(props: {
   deckId?: string;
@@ -58,19 +58,17 @@ export function ActivitySlideInspector(props: {
 
   function updateQuestion(questionId: string, next: ActivityQuestion) {
     updateActivity({
-      questions: activity.questions.map((question) =>
-        question.questionId === questionId ? next : question
-      )
+      questions: activity.questions.map((question) => (question.questionId === questionId ? next : question))
     });
   }
 
   return (
     <div className="activity-slide-inspector">
       <div className="activity-inspector-heading">
+        <IconMessageQuestion aria-hidden="true" size={24} />
         <div>
-          <span className="redesign-eyebrow">참여 장표</span>
           <h3>{templateLabels[activity.template]}</h3>
-          <p>청중에게 보일 문항을 설정하고 슬라이드에서 바로 확인합니다.</p>
+          <p>{templateDescriptions[activity.template]}</p>
         </div>
       </div>
 
@@ -79,227 +77,300 @@ export function ActivitySlideInspector(props: {
         data-semantic-locked={editorRuntime.locked ? "true" : "false"}
         disabled={editorRuntime.locked}
       >
-      <section className="activity-inspector-section">
-        <div className="activity-inspector-section-heading">
-          <strong>장표 내용</strong>
-          <span>제목과 안내 문구는 슬라이드 왼쪽 영역에 표시됩니다.</span>
-        </div>
-        <OrbitField id="activity-slide-title" label="제목">
-          <OrbitInput
-            maxLength={120}
-            value={activity.title}
-            onChange={(event) => updateActivity({ title: event.currentTarget.value })}
-          />
-        </OrbitField>
-        <OrbitField id="activity-slide-description" label="설명">
-          <OrbitTextarea
-            maxLength={500}
-            rows={3}
-            value={activity.description}
-            onChange={(event) => updateActivity({ description: event.currentTarget.value })}
-          />
-        </OrbitField>
-      </section>
+        <section className="activity-inspector-section">
+          <div className="activity-inspector-section-heading">
+            <strong>슬라이드에 보이는 내용</strong>
+            <span>청중이 화면에서 먼저 보는 제목과 안내입니다.</span>
+          </div>
+          <OrbitField id="activity-slide-title" label="큰 제목">
+            <OrbitInput
+              maxLength={120}
+              placeholder="예: 발표 전에 궁금한 점을 알려주세요"
+              value={activity.title}
+              onChange={(event) => updateActivity({ title: event.currentTarget.value })}
+            />
+          </OrbitField>
+          <OrbitField id="activity-slide-description" label="짧은 안내">
+            <OrbitTextarea
+              maxLength={500}
+              placeholder="청중이 무엇을 하면 되는지 짧게 알려주세요."
+              rows={3}
+              value={activity.description}
+              onChange={(event) => updateActivity({ description: event.currentTarget.value })}
+            />
+          </OrbitField>
+        </section>
 
-      <section className="activity-inspector-section">
-        <div className="activity-inspector-section-heading">
-          <strong>문항 설정</strong>
-          <span>입력한 질문은 슬라이드의 응답 카드에 바로 표시됩니다.</span>
-        </div>
-        <div className="activity-inspector-questions">
-        {activity.questions.map((question, index) => (
-          <section className="activity-question-editor" key={question.questionId}>
-            <div className="activity-question-editor-heading">
-              <div className="activity-question-editor-title">
-                <strong>문항 {index + 1}</strong>
-                <OrbitStatus>{questionTypeLabels[question.type]}</OrbitStatus>
-              </div>
-              <div>
-                <button
-                  aria-label={`문항 ${index + 1} 위로 이동`}
-                  disabled={index === 0}
-                  type="button"
-                  onClick={() => updateActivity({ questions: moveQuestion(activity.questions, index, -1) })}
-                >↑</button>
-                <button
-                  aria-label={`문항 ${index + 1} 아래로 이동`}
-                  disabled={index === activity.questions.length - 1}
-                  type="button"
-                  onClick={() => updateActivity({ questions: moveQuestion(activity.questions, index, 1) })}
-                >↓</button>
-                {activity.template !== "poll" ? (
-                  <button
-                    aria-label={`문항 ${index + 1} 삭제`}
-                    disabled={activity.questions.length === 1}
-                    type="button"
-                    onClick={() => updateActivity({
-                      questions: activity.questions.filter((candidate) => candidate.questionId !== question.questionId)
-                    })}
-                  >삭제</button>
-                ) : null}
-              </div>
-            </div>
-            {activity.template === "satisfaction" ? (
-              <OrbitField id={`activity-question-${question.questionId}-type`} label="문항 유형">
-                <OrbitSelect
-                  value={question.type}
-                  onChange={(event) => updateQuestion(
-                    question.questionId,
-                    convertQuestionType(activity, question, event.currentTarget.value as ActivityQuestionType)
-                  )}
-                >
-                  {Object.entries(questionTypeLabels).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </OrbitSelect>
-              </OrbitField>
-            ) : null}
-            <OrbitField
-              hint="입력 내용은 왼쪽 슬라이드의 질문 카드에 즉시 반영됩니다."
-              id={`activity-question-${question.questionId}-prompt`}
-              label="질문"
-            >
-              <OrbitTextarea
-                maxLength={500}
-                rows={2}
-                value={question.prompt}
-                onChange={(event) => updateQuestion(question.questionId, {
-                  ...question,
-                  prompt: event.currentTarget.value
-                })}
-              />
-            </OrbitField>
-            <div className="activity-question-toggles">
-              <label className="activity-inspector-check">
-                <input
-                  checked={question.required}
-                  type="checkbox"
-                  onChange={(event) => updateQuestion(question.questionId, {
-                    ...question,
-                    required: event.currentTarget.checked
-                  })}
-                />
-                필수 문항
-              </label>
-            </div>
-            {question.type === "rating" ? (
-              <div className="activity-rating-label-editor">
-                <OrbitField id={`activity-question-${question.questionId}-left-label`} label="왼쪽 label">
-                  <OrbitInput maxLength={40} value={question.leftLabel} onChange={(event) => updateQuestion(question.questionId, { ...question, leftLabel: event.currentTarget.value })} />
-                </OrbitField>
-                <OrbitField id={`activity-question-${question.questionId}-right-label`} label="오른쪽 label">
-                  <OrbitInput maxLength={40} value={question.rightLabel} onChange={(event) => updateQuestion(question.questionId, { ...question, rightLabel: event.currentTarget.value })} />
-                </OrbitField>
-              </div>
-            ) : null}
-            {question.type === "single-choice" || question.type === "multiple-choice" ? (
-              <div className="activity-option-editor">
-                {question.options.map((option, optionIndex) => (
-                  <label key={option.optionId}>
-                    선택지 {optionIndex + 1}
-                    <span>
-                      <OrbitInput
-                        id={`activity-option-${option.optionId}`}
-                        maxLength={100}
-                        value={option.label}
-                        onChange={(event) => updateQuestion(question.questionId, {
-                          ...question,
-                          options: question.options.map((candidate) => candidate.optionId === option.optionId
-                            ? { ...candidate, label: event.currentTarget.value }
-                            : candidate)
-                        })}
-                      />
-                      <button
-                        aria-label={`선택지 ${optionIndex + 1} 위로 이동`}
-                        disabled={optionIndex === 0}
-                        type="button"
-                        onClick={() => updateQuestion(
-                          question.questionId,
-                          moveQuestionOption(question, optionIndex, -1)
-                        )}
-                      ><IconArrowUp aria-hidden="true" size={16} /></button>
-                      <button
-                        aria-label={`선택지 ${optionIndex + 1} 아래로 이동`}
-                        disabled={optionIndex === question.options.length - 1}
-                        type="button"
-                        onClick={() => updateQuestion(
-                          question.questionId,
-                          moveQuestionOption(question, optionIndex, 1)
-                        )}
-                      ><IconArrowDown aria-hidden="true" size={16} /></button>
-                      <button
-                        aria-label={`선택지 ${optionIndex + 1} 삭제`}
-                        disabled={question.options.length <= 2}
-                        type="button"
-                        onClick={() => updateQuestion(
-                          question.questionId,
-                          removeQuestionOption(question, option.optionId)
-                        )}
-                      >삭제</button>
-                    </span>
-                  </label>
-                ))}
-                {question.type === "multiple-choice" ? (
-                  <OrbitField
-                    hint={`청중은 전체 ${question.options.length}개 중 설정한 개수까지만 선택할 수 있습니다.`}
-                    id={`activity-question-${question.questionId}-max-selections`}
-                    label="최대 선택 수"
-                  >
-                    <OrbitSelect
-                      value={String(question.maxSelections ?? question.options.length)}
-                      onChange={(event) => updateQuestion(question.questionId, {
-                        ...question,
-                        maxSelections: Number(event.currentTarget.value)
-                      })}
+        <section className="activity-inspector-section">
+          <div className="activity-inspector-section-heading">
+            <strong>질문과 답변 만들기</strong>
+            <span>입력한 내용은 왼쪽 슬라이드에도 바로 나타납니다.</span>
+          </div>
+          <div className="activity-inspector-questions">
+            {activity.questions.map((question, index) => (
+              <section className="activity-question-editor" key={question.questionId}>
+                <div className="activity-question-editor-heading">
+                  <div className="activity-question-editor-title">
+                    <strong>질문 {index + 1}</strong>
+                    <OrbitStatus>{questionTypeLabels[question.type]}</OrbitStatus>
+                  </div>
+                  <div>
+                    <button
+                      aria-label={`질문 ${index + 1} 위로 이동`}
+                      title="위로 옮기기"
+                      disabled={index === 0}
+                      type="button"
+                      onClick={() =>
+                        updateActivity({
+                          questions: moveQuestion(activity.questions, index, -1)
+                        })
+                      }
                     >
-                      {question.options.map((_, selectionIndex) => (
-                        <option key={selectionIndex + 1} value={selectionIndex + 1}>
-                          최대 {selectionIndex + 1}개
+                      <IconArrowUp aria-hidden="true" size={16} />
+                    </button>
+                    <button
+                      aria-label={`질문 ${index + 1} 아래로 이동`}
+                      title="아래로 옮기기"
+                      disabled={index === activity.questions.length - 1}
+                      type="button"
+                      onClick={() =>
+                        updateActivity({
+                          questions: moveQuestion(activity.questions, index, 1)
+                        })
+                      }
+                    >
+                      <IconArrowDown aria-hidden="true" size={16} />
+                    </button>
+                    {activity.template !== "poll" ? (
+                      <button
+                        aria-label={`질문 ${index + 1} 삭제`}
+                        disabled={activity.questions.length === 1}
+                        title="질문 삭제"
+                        type="button"
+                        onClick={() =>
+                          updateActivity({
+                            questions: activity.questions.filter(
+                              (candidate) => candidate.questionId !== question.questionId
+                            )
+                          })
+                        }
+                      >
+                        <IconTrash aria-hidden="true" size={16} />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                {activity.template === "satisfaction" ? (
+                  <OrbitField id={`activity-question-${question.questionId}-type`} label="답하는 방법">
+                    <OrbitSelect
+                      value={question.type}
+                      onChange={(event) =>
+                        updateQuestion(
+                          question.questionId,
+                          convertQuestionType(activity, question, event.currentTarget.value as ActivityQuestionType)
+                        )
+                      }
+                    >
+                      {Object.entries(questionTypeLabels).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
                         </option>
                       ))}
                     </OrbitSelect>
                   </OrbitField>
                 ) : null}
-                <button
-                  disabled={question.options.length >= 8}
-                  type="button"
-                  onClick={() => updateQuestion(question.questionId, {
-                    ...question,
-                    options: [...question.options, createOption(activity, question)]
-                  })}
-                >선택지 추가</button>
-              </div>
+                <OrbitField
+                  hint="입력하면 왼쪽 슬라이드에도 바로 나타납니다."
+                  id={`activity-question-${question.questionId}-prompt`}
+                  label="질문 내용"
+                >
+                  <OrbitTextarea
+                    maxLength={500}
+                    rows={2}
+                    value={question.prompt}
+                    onChange={(event) =>
+                      updateQuestion(question.questionId, {
+                        ...question,
+                        prompt: event.currentTarget.value
+                      })
+                    }
+                  />
+                </OrbitField>
+                <div className="activity-question-toggles">
+                  <label className="activity-inspector-check">
+                    <input
+                      checked={question.required}
+                      type="checkbox"
+                      onChange={(event) =>
+                        updateQuestion(question.questionId, {
+                          ...question,
+                          required: event.currentTarget.checked
+                        })
+                      }
+                    />
+                    꼭 답하게 하기
+                  </label>
+                </div>
+                {question.type === "rating" ? (
+                  <div className="activity-rating-label-editor">
+                    <OrbitField id={`activity-question-${question.questionId}-left-label`} label="1점 옆 문구">
+                      <OrbitInput
+                        maxLength={40}
+                        value={question.leftLabel}
+                        onChange={(event) =>
+                          updateQuestion(question.questionId, {
+                            ...question,
+                            leftLabel: event.currentTarget.value
+                          })
+                        }
+                      />
+                    </OrbitField>
+                    <OrbitField id={`activity-question-${question.questionId}-right-label`} label="5점 옆 문구">
+                      <OrbitInput
+                        maxLength={40}
+                        value={question.rightLabel}
+                        onChange={(event) =>
+                          updateQuestion(question.questionId, {
+                            ...question,
+                            rightLabel: event.currentTarget.value
+                          })
+                        }
+                      />
+                    </OrbitField>
+                  </div>
+                ) : null}
+                {question.type === "single-choice" || question.type === "multiple-choice" ? (
+                  <div className="activity-option-editor">
+                    {question.options.map((option, optionIndex) => (
+                      <label key={option.optionId}>
+                        답변 {optionIndex + 1}
+                        <span>
+                          <OrbitInput
+                            id={`activity-option-${option.optionId}`}
+                            maxLength={100}
+                            value={option.label}
+                            onChange={(event) =>
+                              updateQuestion(question.questionId, {
+                                ...question,
+                                options: question.options.map((candidate) =>
+                                  candidate.optionId === option.optionId
+                                    ? {
+                                        ...candidate,
+                                        label: event.currentTarget.value
+                                      }
+                                    : candidate
+                                )
+                              })
+                            }
+                          />
+                          <button
+                            aria-label={`선택지 ${optionIndex + 1} 위로 이동`}
+                            disabled={optionIndex === 0}
+                            type="button"
+                            onClick={() =>
+                              updateQuestion(question.questionId, moveQuestionOption(question, optionIndex, -1))
+                            }
+                          >
+                            <IconArrowUp aria-hidden="true" size={16} />
+                          </button>
+                          <button
+                            aria-label={`선택지 ${optionIndex + 1} 아래로 이동`}
+                            disabled={optionIndex === question.options.length - 1}
+                            type="button"
+                            onClick={() =>
+                              updateQuestion(question.questionId, moveQuestionOption(question, optionIndex, 1))
+                            }
+                          >
+                            <IconArrowDown aria-hidden="true" size={16} />
+                          </button>
+                          <button
+                            aria-label={`선택지 ${optionIndex + 1} 삭제`}
+                            disabled={question.options.length <= 2}
+                            type="button"
+                            onClick={() =>
+                              updateQuestion(question.questionId, removeQuestionOption(question, option.optionId))
+                            }
+                          >
+                            삭제
+                          </button>
+                        </span>
+                      </label>
+                    ))}
+                    {question.type === "multiple-choice" ? (
+                      <OrbitField
+                        hint={`청중은 전체 ${question.options.length}개 중 설정한 개수까지만 선택할 수 있습니다.`}
+                        id={`activity-question-${question.questionId}-max-selections`}
+                        label="고를 수 있는 답변 수"
+                      >
+                        <OrbitSelect
+                          value={String(question.maxSelections ?? question.options.length)}
+                          onChange={(event) =>
+                            updateQuestion(question.questionId, {
+                              ...question,
+                              maxSelections: Number(event.currentTarget.value)
+                            })
+                          }
+                        >
+                          {question.options.map((_, selectionIndex) => (
+                            <option key={selectionIndex + 1} value={selectionIndex + 1}>
+                              최대 {selectionIndex + 1}개
+                            </option>
+                          ))}
+                        </OrbitSelect>
+                      </OrbitField>
+                    ) : null}
+                    <button
+                      disabled={question.options.length >= 8}
+                      type="button"
+                      onClick={() =>
+                        updateQuestion(question.questionId, {
+                          ...question,
+                          options: [...question.options, createOption(activity, question)]
+                        })
+                      }
+                    >
+                      답변 추가
+                    </button>
+                  </div>
+                ) : null}
+              </section>
+            ))}
+            {activity.template !== "poll" ? (
+              <button
+                disabled={activity.questions.length >= 5}
+                type="button"
+                onClick={() =>
+                  updateActivity({
+                    questions: [...activity.questions, createQuestion(activity, "free-text")]
+                  })
+                }
+              >
+                질문 추가 <span>{activity.questions.length}/5</span>
+              </button>
             ) : null}
-          </section>
-        ))}
-        {activity.template !== "poll" ? (
-          <button
-            disabled={activity.questions.length >= 5}
-            type="button"
-            onClick={() => updateActivity({
-              questions: [...activity.questions, createQuestion(activity, "free-text")]
-            })}
-          >문항 추가 ({activity.questions.length}/5)</button>
-        ) : null}
-        </div>
+          </div>
 
-        <label className="activity-inspector-check activity-display-name-check">
-          <input
-            checked={activity.allowDisplayName}
-            type="checkbox"
-            onChange={(event) => updateActivity({ allowDisplayName: event.currentTarget.checked })}
-          />
-          응답자 이름 입력 허용
-        </label>
-      </section>
+          <label className="activity-inspector-check activity-display-name-check">
+            <input
+              checked={activity.allowDisplayName}
+              type="checkbox"
+              onChange={(event) =>
+                updateActivity({
+                  allowDisplayName: event.currentTarget.checked
+                })
+              }
+            />
+            이름도 함께 받기
+          </label>
+        </section>
       </fieldset>
 
       {editorRuntime.locked && editorRuntime.runtime ? (
         <section className="activity-definition-lock" role="status">
-          <strong>첫 응답 이후 문항 설정이 잠겼습니다.</strong>
+          <strong>응답을 받은 뒤에는 질문을 바꿀 수 없어요.</strong>
           <p>
-            실행 v{editorRuntime.runtime.run.version}의 응답 {editorRuntime.runtime.run.responseCount}개를
-            보존합니다. 문항 의미를 바꾸려면 새 실행 버전을 만드세요.
+            지금까지 받은 응답 {editorRuntime.runtime.run.responseCount}개를 안전하게 보관하고 있습니다. 질문을 바꾸려면
+            새 질문으로 다시 시작해 주세요.
           </p>
           <OrbitButton
             disabled={editorRuntime.pending}
@@ -307,7 +378,7 @@ export function ActivitySlideInspector(props: {
             type="button"
             variant="secondary"
           >
-            새 실행 버전 만들기
+            새 질문으로 다시 시작
           </OrbitButton>
         </section>
       ) : null}
@@ -335,31 +406,23 @@ export function ActivitySlideInspector(props: {
             type="button"
             onClick={() => setPreviewRole(role)}
           >
-            {role === "audience" ? "청중 화면" : "발표자 화면"}
+            {role === "audience" ? "청중에게 보이는 화면" : "내 화면"}
           </button>
         ))}
       </div>
-      <ActivitySlidePreview
-        role={previewRole}
-        slide={props.slide}
-        theme={props.theme}
-      />
+      <ActivitySlidePreview role={previewRole} slide={props.slide} theme={props.theme} />
 
-      <div aria-label="잠긴 시스템 레이어" className="activity-system-layer-lock">
-        <strong>시스템 레이어 · 잠김</strong>
-        <span>응답 UI는 문항 설정에서 자동 생성되며 개별 요소로 편집할 수 없습니다.</span>
+      <div aria-label="자동으로 만들어지는 응답 화면" className="activity-system-layer-lock">
+        <strong>응답 화면은 자동으로 만들어져요.</strong>
+        <span>질문을 바꾸면 입력칸과 선택지도 함께 바뀝니다.</span>
       </div>
       {props.deckId && props.projectId ? (
-        <ActivityEditorModerationPanel
-          deckId={props.deckId}
-          projectId={props.projectId}
-          slide={props.slide}
-        />
+        <ActivityEditorModerationPanel deckId={props.deckId} projectId={props.projectId} slide={props.slide} />
       ) : null}
       <OrbitDialog
         closeDisabled={editorRuntime.pending}
-        description="기존 응답은 이전 버전에 그대로 보존되고 새 버전은 준비 상태로 시작합니다."
-        footer={(
+        description="지금까지 받은 응답은 그대로 보관됩니다. 바꾼 질문에는 새 응답이 따로 쌓입니다."
+        footer={
           <>
             <OrbitButton
               disabled={editorRuntime.pending}
@@ -378,25 +441,21 @@ export function ActivitySlideInspector(props: {
               }}
               type="button"
             >
-              {editorRuntime.pending ? "만드는 중" : "새 버전 만들기"}
+              {editorRuntime.pending ? "준비하는 중" : "새 질문으로 다시 받기"}
             </OrbitButton>
           </>
-        )}
+        }
         onClose={() => setSupersedeDialogOpen(false)}
         open={supersedeDialogOpen}
-        title="새 실행 버전을 만들까요?"
+        title="질문을 바꾸고 새로 받을까요?"
       >
-        <p>현재 문항 설정을 복사한 새 run을 만들고 편집 잠금을 해제합니다.</p>
+        <p>현재 질문을 복사한 뒤 다시 편집할 수 있게 합니다.</p>
       </OrbitDialog>
     </div>
   );
 }
 
-export function moveQuestion(
-  questions: ActivityQuestion[],
-  index: number,
-  direction: -1 | 1
-): ActivityQuestion[] {
+export function moveQuestion(questions: ActivityQuestion[], index: number, direction: -1 | 1): ActivityQuestion[] {
   const target = index + direction;
   if (target < 0 || target >= questions.length) return questions;
   const next = [...questions];
@@ -404,11 +463,7 @@ export function moveQuestion(
   return next;
 }
 
-export function moveQuestionOption(
-  question: ActivityQuestion,
-  index: number,
-  direction: -1 | 1
-): ActivityQuestion {
+export function moveQuestionOption(question: ActivityQuestion, index: number, direction: -1 | 1): ActivityQuestion {
   if (question.type !== "single-choice" && question.type !== "multiple-choice") {
     return question;
   }
@@ -424,20 +479,28 @@ export function convertQuestionType(
   question: ActivityQuestion,
   type: ActivityQuestionType
 ): ActivityQuestion {
-  const base = { questionId: question.questionId, prompt: question.prompt, required: question.required };
-  if (type === "rating") return { ...base, type, leftLabel: "전혀 아니요", rightLabel: "매우 그래요" };
+  const base = {
+    questionId: question.questionId,
+    prompt: question.prompt,
+    required: question.required
+  };
+  if (type === "rating")
+    return {
+      ...base,
+      type,
+      leftLabel: "전혀 아니요",
+      rightLabel: "매우 그래요"
+    };
   if (type === "free-text") return { ...base, type };
-  const options = question.type === "single-choice" || question.type === "multiple-choice"
-    ? question.options
-    : [createOption(activity, question), createOption(activity, question, 1)];
+  const options =
+    question.type === "single-choice" || question.type === "multiple-choice"
+      ? question.options
+      : [createOption(activity, question), createOption(activity, question, 1)];
   if (type === "multiple-choice") return { ...base, type, options, maxSelections: options.length };
   return { ...base, type, options };
 }
 
-export function removeQuestionOption(
-  question: ActivityQuestion,
-  optionId: string
-): ActivityQuestion {
+export function removeQuestionOption(question: ActivityQuestion, optionId: string): ActivityQuestion {
   if (question.type !== "single-choice" && question.type !== "multiple-choice") {
     return question;
   }
@@ -455,25 +518,23 @@ export function removeQuestionOption(
 function createQuestion(activity: ActivityDefinition, type: ActivityQuestionType): ActivityQuestion {
   const used = new Set(activity.questions.map((question) => question.questionId));
   const questionId = nextLocalId("question_", activity.activityId, used);
-  return convertQuestionType(activity, { questionId, type: "free-text", prompt: "새 문항", required: false }, type);
+  return convertQuestionType(activity, { questionId, type: "free-text", prompt: "새 질문", required: false }, type);
 }
 
-function createOption(
-  activity: ActivityDefinition,
-  question: Pick<ActivityQuestion, "questionId">,
-  offset = 0
-) {
-  const used = new Set(activity.questions.flatMap((candidate) =>
-    candidate.type === "single-choice" || candidate.type === "multiple-choice"
-      ? candidate.options.map((option) => option.optionId)
-      : []
-  ));
+function createOption(activity: ActivityDefinition, question: Pick<ActivityQuestion, "questionId">, offset = 0) {
+  const used = new Set(
+    activity.questions.flatMap((candidate) =>
+      candidate.type === "single-choice" || candidate.type === "multiple-choice"
+        ? candidate.options.map((option) => option.optionId)
+        : []
+    )
+  );
   for (let index = 0; index < offset; index += 1) {
     used.add(nextLocalId("option_", question.questionId, used));
   }
   return {
     optionId: nextLocalId("option_", question.questionId, used),
-    label: `선택 ${used.size + 1}`
+    label: `답변 ${used.size + 1}`
   };
 }
 

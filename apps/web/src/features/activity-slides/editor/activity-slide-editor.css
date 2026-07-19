@@ -279,7 +279,8 @@
   bottom: clamp(8px, 2cqw, 30px);
   grid-column: 2;
   justify-self: end;
-  padding: clamp(var(--redesign-space-1), 0.9cqw, var(--redesign-space-3)) clamp(var(--redesign-space-2), 1.8cqw, var(--redesign-space-7));
+  padding: clamp(var(--redesign-space-1), 0.9cqw, var(--redesign-space-3))
+    clamp(var(--redesign-space-2), 1.8cqw, var(--redesign-space-7));
   position: absolute;
   right: clamp(10px, 4.5cqw, 72px);
 }
@@ -301,16 +302,47 @@
 }
 
 .activity-slide-inspector {
+  --redesign-color-surface: var(--redesign-color-light-surface);
+  --redesign-color-surface-container-lowest: var(--redesign-color-light-surface);
+  --redesign-color-surface-container-low: var(--redesign-color-light-container-low);
+  --redesign-color-surface-container: var(--redesign-color-light-container);
+  --redesign-color-surface-container-high: var(--redesign-color-light-container-high);
+  --redesign-color-surface-container-highest: var(--redesign-color-light-container-high);
+  --redesign-color-on-surface: var(--redesign-color-on-light);
+  --redesign-color-on-surface-variant: var(--redesign-color-on-light-variant);
+  --redesign-color-outline: color-mix(in srgb, var(--redesign-color-on-light) 45%, transparent);
+  --redesign-color-outline-variant: var(--redesign-color-light-outline);
+  --redesign-color-primary: var(--redesign-color-light-primary);
+  --redesign-color-primary-emphasis: var(--redesign-color-light-primary-emphasis);
+  --redesign-color-primary-subtle: var(--redesign-color-light-primary-subtle);
+  --redesign-color-warning: var(--redesign-color-light-warning);
+  --redesign-color-warning-subtle: var(--redesign-color-light-warning-subtle);
+  --redesign-color-error: var(--redesign-color-light-error);
+  --redesign-color-error-subtle: var(--redesign-color-light-error-subtle);
+  background: var(--redesign-color-light-surface);
+  box-sizing: border-box;
+  color: var(--redesign-color-on-light);
   display: grid;
-  gap: var(--redesign-space-3);
+  gap: var(--redesign-space-6);
+  min-height: 100%;
   min-width: 0;
+  padding: var(--redesign-space-8);
+}
+
+.editor-design-panel:has(> .activity-slide-inspector) {
+  background: var(--redesign-color-light-surface) !important;
+  padding: 0 !important;
 }
 
 .activity-inspector-heading {
-  align-items: flex-start;
-  display: flex;
+  align-items: center;
+  display: grid;
   gap: var(--redesign-space-3);
-  justify-content: space-between;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.activity-inspector-heading > svg {
+  color: var(--redesign-color-on-light);
 }
 
 .activity-inspector-heading > div {
@@ -320,7 +352,7 @@
 .activity-semantic-fields {
   border: 0;
   display: grid;
-  gap: var(--redesign-space-3);
+  gap: var(--redesign-space-6);
   margin: 0;
   min-width: 0;
   padding: 0;
@@ -328,23 +360,33 @@
 
 .activity-inspector-heading h3,
 .activity-inspector-heading p {
-  margin: var(--redesign-space-1) 0 0;
+  margin: 0;
+}
+
+.activity-inspector-heading h3 {
+  color: var(--redesign-color-on-light);
+  font-size: var(--redesign-type-title-lg-size);
+  line-height: var(--redesign-type-title-lg-line-height);
 }
 
 .activity-inspector-heading p,
 .activity-inspector-section-heading span {
-  color: var(--redesign-color-on-surface-variant);
+  color: var(--redesign-color-on-light-variant);
   font-size: var(--redesign-type-label-sm-size);
   line-height: 1.45;
 }
 
+.activity-inspector-heading p {
+  margin-top: var(--redesign-space-1);
+}
+
 .activity-inspector-section {
-  background: var(--redesign-color-surface-container-low);
-  border: 1px solid var(--redesign-color-outline-variant);
+  background: var(--redesign-color-light-container-low);
+  border: 1px solid var(--redesign-color-light-outline);
   border-radius: var(--redesign-radius-xl);
   display: grid;
-  gap: var(--redesign-space-3);
-  padding: var(--redesign-space-3);
+  gap: var(--redesign-space-4);
+  padding: var(--redesign-space-4);
 }
 
 .activity-inspector-section-heading {
@@ -353,8 +395,9 @@
 }
 
 .activity-inspector-section-heading strong {
-  color: var(--redesign-color-on-surface);
-  font-size: var(--redesign-type-title-md-size);
+  color: var(--redesign-color-on-light);
+  font-size: var(--redesign-type-body-md-size);
+  line-height: var(--redesign-type-body-md-line-height);
 }
 
 .activity-slide-inspector > label,
@@ -373,8 +416,8 @@
 }
 
 .activity-definition-lock {
-  background: var(--redesign-color-warning-subtle);
-  border: 1px solid var(--redesign-color-warning);
+  background: var(--redesign-color-light-warning-subtle);
+  border: 1px solid color-mix(in srgb, var(--redesign-color-light-warning) 30%, transparent);
   border-radius: var(--redesign-radius-xl);
   display: grid;
   gap: var(--redesign-space-2);
@@ -389,7 +432,7 @@
 }
 
 .activity-definition-lock p {
-  color: var(--redesign-color-on-success-container);
+  color: var(--redesign-color-on-light-variant);
 }
 
 .activity-editor-runtime-error {
@@ -397,11 +440,12 @@
 }
 
 .activity-editor-operations {
-  border: 1px solid var(--redesign-color-outline-variant);
+  background: var(--redesign-color-light-surface);
+  border: 1px solid var(--redesign-color-light-outline);
   border-radius: var(--redesign-radius-xl);
   display: grid;
-  gap: var(--redesign-space-2);
-  padding: var(--redesign-space-3);
+  gap: var(--redesign-space-3);
+  padding: var(--redesign-space-4);
 }
 
 .activity-editor-operations p {
@@ -422,7 +466,7 @@
 }
 
 .activity-editor-operation-heading > div {
-  background: var(--redesign-color-surface-container-low);
+  background: var(--redesign-color-light-container-low);
   border-radius: var(--redesign-radius-xl);
   display: grid;
   gap: 3px;
@@ -459,8 +503,8 @@
 }
 
 .activity-editor-secondary-command {
-  background: var(--redesign-color-surface-container-high);
-  border: 1px solid var(--redesign-color-outline-variant);
+  background: var(--redesign-color-light-surface);
+  border: 1px solid var(--redesign-color-light-outline);
   border-radius: var(--redesign-radius-xl);
   color: var(--redesign-color-on-surface);
   font-weight: 800;
@@ -491,8 +535,8 @@
 .activity-editor-qr-toggle,
 .activity-editor-operations > button:not(.activity-editor-primary-command) {
   align-items: center;
-  background: var(--redesign-color-surface-container-high);
-  border: 1px solid var(--redesign-color-outline-variant);
+  background: var(--redesign-color-light-surface);
+  border: 1px solid var(--redesign-color-light-outline);
   border-radius: var(--redesign-radius-xl);
   color: var(--redesign-color-on-surface);
   display: inline-flex;
@@ -505,7 +549,7 @@
 }
 
 .activity-editor-qr-preview {
-  background: var(--redesign-color-surface-container-low);
+  background: var(--redesign-color-light-container-low);
   border-radius: var(--redesign-radius-xl);
   display: grid;
   min-height: 160px;
@@ -519,12 +563,12 @@
 }
 
 .activity-question-editor {
-  background: var(--redesign-color-surface);
-  border: 1px solid var(--redesign-color-outline-variant);
+  background: var(--redesign-color-light-surface);
+  border: 1px solid var(--redesign-color-light-outline);
   border-radius: var(--redesign-radius-xl);
   display: grid;
-  gap: var(--redesign-space-2);
-  padding: var(--redesign-space-2);
+  gap: var(--redesign-space-3);
+  padding: var(--redesign-space-3);
 }
 
 .activity-question-editor-heading,
@@ -536,23 +580,39 @@
 }
 
 .activity-question-editor-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   justify-content: space-between;
+}
+
+.activity-question-editor-heading > div:last-child {
+  justify-content: flex-end;
 }
 
 .activity-question-editor-title {
   align-items: center;
   display: flex;
   gap: var(--redesign-space-2);
+  min-width: 0;
+}
+
+.activity-question-editor-title > strong,
+.activity-question-editor-title .redesign-status {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .activity-question-editor button,
 .activity-inspector-questions > button {
-  background: var(--redesign-color-surface-container-high);
-  border: 1px solid var(--redesign-color-outline-variant);
+  align-items: center;
+  background: var(--redesign-color-light-surface);
+  border: 1px solid var(--redesign-color-light-outline);
   border-radius: var(--redesign-radius-xl);
   color: var(--redesign-color-on-surface);
   font-size: var(--redesign-type-label-md-size);
   font-weight: 700;
+  display: inline-flex;
+  justify-content: center;
   min-height: 34px;
   padding: var(--redesign-space-1) var(--redesign-space-2);
 }
@@ -560,6 +620,19 @@
 .activity-question-editor button:disabled,
 .activity-inspector-questions > button:disabled {
   opacity: 0.45;
+}
+
+.activity-inspector-questions > button {
+  background: var(--redesign-color-dark-surface);
+  border-color: var(--redesign-color-dark-surface);
+  color: var(--redesign-color-on-dark);
+  gap: var(--redesign-space-2);
+  min-height: 40px;
+}
+
+.activity-inspector-questions > button span {
+  color: color-mix(in srgb, var(--redesign-color-on-dark) 68%, transparent);
+  font-size: var(--redesign-type-label-sm-size);
 }
 
 .activity-rating-label-editor,
@@ -593,19 +666,19 @@
 }
 
 .activity-question-toggles {
-  background: var(--redesign-color-surface-container-low);
+  background: var(--redesign-color-light-container-low);
   border-radius: var(--redesign-radius);
   display: flex;
   padding: var(--redesign-space-2);
 }
 
 .activity-display-name-check {
-  border-top: 1px solid var(--redesign-color-outline-variant);
+  border-top: 1px solid var(--redesign-color-light-outline);
   padding-top: var(--redesign-space-3);
 }
 
 .activity-preview-tabs {
-  background: var(--redesign-color-surface-container);
+  background: var(--redesign-color-light-container);
   border-radius: var(--redesign-radius-xl);
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -624,14 +697,14 @@
 }
 
 .activity-preview-tabs button.active {
-  background: var(--redesign-color-surface-container-highest);
+  background: var(--redesign-color-light-surface);
   box-shadow: var(--redesign-shadow-inset-primary);
   color: var(--redesign-color-on-surface);
 }
 
 .activity-system-layer-lock {
-  background: var(--redesign-color-surface-container-low);
-  border: 1px solid var(--redesign-color-outline-variant);
+  background: var(--redesign-color-light-primary-subtle);
+  border: 1px solid color-mix(in srgb, var(--redesign-color-light-primary) 22%, transparent);
   border-radius: var(--redesign-radius-xl);
   display: grid;
   gap: 3px;
@@ -639,7 +712,7 @@
 }
 
 .activity-result-inspector {
-  gap: var(--redesign-space-4);
+  gap: var(--redesign-space-6);
 }
 
 .activity-result-inspector > label {
@@ -652,7 +725,7 @@
 
 .activity-result-inspector select {
   min-height: 40px;
-  border: 1px solid var(--redesign-color-outline-variant);
+  border: 1px solid var(--redesign-color-light-outline);
   border-radius: var(--redesign-radius-xl);
   background: var(--redesign-color-light-surface);
   color: var(--redesign-color-on-surface);
@@ -661,9 +734,9 @@
 
 .activity-inspector-secondary-button {
   min-height: 40px;
-  border: 1px solid var(--redesign-color-outline-variant);
+  border: 1px solid var(--redesign-color-light-outline);
   border-radius: var(--redesign-radius-xl);
-  background: var(--redesign-color-surface-container-high);
+  background: var(--redesign-color-light-surface);
   color: var(--redesign-color-on-surface);
   font-size: var(--redesign-type-label-md-size);
   font-weight: 700;
@@ -673,9 +746,9 @@
   display: grid;
   min-height: 148px;
   place-items: center;
-  border: 1px dashed var(--redesign-color-outline-variant);
+  border: 1px dashed var(--redesign-color-light-outline);
   border-radius: var(--redesign-radius-xl);
-  background: var(--redesign-color-surface-container-low);
+  background: var(--redesign-color-light-surface);
   overflow: hidden;
   padding: 0;
   text-align: center;
@@ -703,7 +776,7 @@
 }
 
 .activity-editor-moderation {
-  border-top: 1px solid var(--redesign-color-outline-variant);
+  border-top: 1px solid var(--redesign-color-light-outline);
   display: grid;
   gap: var(--redesign-space-2);
   padding-top: var(--redesign-space-3);
@@ -797,6 +870,11 @@
 }
 
 @media (max-width: 1100px) {
+  .activity-slide-inspector {
+    gap: var(--redesign-space-4);
+    padding: var(--redesign-space-5);
+  }
+
   .activity-slide-inspector .activity-slide-preview {
     gap: var(--redesign-space-1);
     padding: var(--redesign-space-2);

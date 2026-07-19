@@ -95,8 +95,8 @@ export function ActivityEditorModerationPanel(props: {
 
   if (!result && !error) return null;
   return (
-    <section className="activity-editor-moderation" aria-label="에디터 참여 응답 관리">
-      <strong>현재 세션 응답 관리</strong>
+    <section className="activity-editor-moderation" aria-label="들어온 주관식 답변 확인">
+      <strong>들어온 주관식 답변 확인</strong>
       {error ? <p role="status">{error}</p> : null}
       {result ? (
         <ActivityPresenterResults
