@@ -279,6 +279,19 @@ class InMemoryDeckDataSource {
 
     if (
       query.startsWith("SELECT snapshot_id, project_id, deck_id") &&
+      query.includes("WHERE project_id = $1 AND snapshot_id = $2")
+    ) {
+      const [projectId, snapshotId] = params as [string, string];
+      const row = this.snapshotRows.find(
+        (snapshot) =>
+          snapshot.project_id === projectId &&
+          snapshot.snapshot_id === snapshotId,
+      );
+      return (row ? [cloneSnapshotRow(row)] : []) as T;
+    }
+
+    if (
+      query.startsWith("SELECT snapshot_id, project_id, deck_id") &&
       query.includes("WHERE project_id = $1")
     ) {
       const [projectId] = params as [string];
@@ -703,6 +716,38 @@ describe("DecksService", () => {
     expect(snapshotResponse.snapshots).toHaveLength(1);
     expect(snapshotResponse.snapshots[0]?.snapshotId).toBe(
       putResponse.snapshot.snapshotId,
+    );
+  });
+
+  it("reads a snapshot detail with its stored Deck", async () => {
+    const { service } = createService();
+    const deck = createDeck();
+    const putResponse = await service.putDeck(deck.projectId, { deck });
+
+    const detail = await service.getSnapshot(
+      deck.projectId,
+      putResponse.snapshot.snapshotId,
+    );
+
+    expect(detail).toEqual({
+      ...putResponse.snapshot,
+      deck: putResponse.deck,
+    });
+  });
+
+  it("does not expose a snapshot through another project boundary", async () => {
+    const { service } = createService();
+    const deck = createDeck();
+    const putResponse = await service.putDeck(deck.projectId, { deck });
+
+    await expectDeckApiError(
+      () =>
+        service.getSnapshot(
+          "project_other_1",
+          putResponse.snapshot.snapshotId,
+        ),
+      HttpStatus.NOT_FOUND,
+      "SNAPSHOT_NOT_FOUND",
     );
   });
 

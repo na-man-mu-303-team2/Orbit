@@ -569,6 +569,7 @@ MVP API:
 - `PUT /api/v1/projects/:projectId/deck`
 - `POST /api/v1/projects/:projectId/deck/patches`
 - `GET /api/v1/projects/:projectId/snapshots`
+- `GET /api/v1/projects/:projectId/snapshots/:snapshotId`
 - `POST /api/v1/projects/:projectId/snapshots/:snapshotId/restore`
 
 결정 사항:

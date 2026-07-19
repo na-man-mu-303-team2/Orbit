@@ -24,6 +24,7 @@ import {
   deckExportEnqueueErrorSchema,
   deckExportRequestSchema,
   deckSchema,
+  deckSnapshotDetailSchema,
   deckSnapshotIdSchema,
   deckSnapshotReasonSchema,
   deckSnapshotSchema,
@@ -59,6 +60,7 @@ import type {
   DeckElement,
   DeckPatchOperation,
   DeckSnapshot,
+  DeckSnapshotDetail,
   DeckSnapshotReason,
   GetDeckResponse,
   GetPptxImportQualityResponse,
@@ -965,6 +967,35 @@ export class DecksService {
     return listDeckSnapshotsResponseSchema.parse({
       projectId,
       snapshots: rows.map(parseSnapshotRow),
+    });
+  }
+
+  async getSnapshot(
+    projectId: string,
+    snapshotId: string,
+  ): Promise<DeckSnapshotDetail> {
+    const rows = await this.dataSource.query<DeckSnapshotRow[]>(
+      `
+        SELECT snapshot_id, project_id, deck_id, deck_json, version, reason, created_at
+        FROM deck_snapshots
+        WHERE project_id = $1 AND snapshot_id = $2
+        LIMIT 1
+      `,
+      [projectId, snapshotId],
+    );
+    const row = rows[0];
+
+    if (!row) {
+      throwDeckApiException(
+        "SNAPSHOT_NOT_FOUND",
+        HttpStatus.NOT_FOUND,
+        `Snapshot not found: ${snapshotId}`,
+      );
+    }
+
+    return deckSnapshotDetailSchema.parse({
+      ...parseSnapshotRow(row),
+      deck: removeLegacyAiGeneratedTitleAnimations(parseDeckJson(row.deck_json)),
     });
   }
 
