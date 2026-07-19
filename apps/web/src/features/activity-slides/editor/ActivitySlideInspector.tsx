@@ -47,6 +47,9 @@ export function ActivitySlideInspector(props: {
   const [previewRole, setPreviewRole] = useState<ActivityPreviewRole>("audience");
   const [supersedeDialogOpen, setSupersedeDialogOpen] = useState(false);
   const activity = props.slide.activity;
+  const audiencePreviewHref = props.projectId
+    ? `/project/${encodeURIComponent(props.projectId)}/activity-preview/${encodeURIComponent(activity.activityId)}`
+    : null;
   const editorRuntime = useActivityEditorRuntime({
     activityId: activity.activityId,
     deckId: props.deckId,
@@ -397,10 +400,10 @@ export function ActivitySlideInspector(props: {
         slide={props.slide}
       />
 
-      {props.projectId ? (
+      {audiencePreviewHref ? (
         <OrbitButtonLink
           className="activity-audience-preview-link"
-          href={`/project/${encodeURIComponent(props.projectId)}/activity-preview/${encodeURIComponent(activity.activityId)}`}
+          href={audiencePreviewHref}
           icon={<IconExternalLink aria-hidden="true" size={18} />}
           rel="noreferrer"
           target="_blank"
@@ -420,19 +423,28 @@ export function ActivitySlideInspector(props: {
             type="button"
             onClick={() => setPreviewRole(role)}
           >
-            {role === "audience" ? "청중(에디터)" : "발표자(에디터)"}
+            {role === "audience" ? "실제 청중 화면" : "발표자 화면"}
           </button>
         ))}
       </div>
       <p className="activity-audience-preview-hint">
-        청중 탭은 실제 참여 화면 미리보기가 아닌 에디터용 레이아웃입니다.
+        {previewRole === "audience"
+          ? audiencePreviewHref
+            ? "실제 청중 입력 화면을 그대로 표시합니다. 여기서 제출한 응답은 저장되지 않습니다."
+            : "프로젝트를 저장하면 실제 청중 입력 화면을 확인할 수 있습니다."
+          : "발표 중 확인하게 될 응답 상태를 미리 보여줍니다."}
       </p>
-      <ActivitySlidePreview
-        audiencePreviewMode={previewRole === "audience" ? "actual" : undefined}
-        role={previewRole}
-        slide={props.slide}
-        theme={props.theme}
-      />
+      {previewRole === "audience" && audiencePreviewHref ? (
+        <div className="activity-audience-live-preview">
+          <iframe
+            loading="lazy"
+            src={audiencePreviewHref}
+            title="실제 청중 화면 미리보기"
+          />
+        </div>
+      ) : (
+        <ActivitySlidePreview role={previewRole} slide={props.slide} theme={props.theme} />
+      )}
 
       <div aria-label="자동으로 만들어지는 응답 화면" className="activity-system-layer-lock">
         <strong>응답 화면은 자동으로 만들어져요.</strong>

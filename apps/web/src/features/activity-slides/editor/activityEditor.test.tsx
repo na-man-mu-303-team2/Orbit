@@ -44,8 +44,8 @@ describe("activity slide editor", () => {
   it("keeps generated response controls in a locked system layer", () => {
     const html = renderToStaticMarkup(<ActivitySlideInspector onChange={vi.fn()} slide={slide} />);
 
-    expect(html).toContain("청중(에디터)");
-    expect(html).toContain("발표자(에디터)");
+    expect(html).toContain("실제 청중 화면");
+    expect(html).toContain("발표자 화면");
     expect(html).toContain("응답 화면은 자동으로 만들어져요.");
     expect(html).not.toContain("시스템 레이어");
     expect(html).toContain('data-activity-system-layer="locked"');
@@ -270,6 +270,8 @@ describe("activity slide editor", () => {
     expect(inspectorHtml).toContain("설명 문구");
     expect(inspectorHtml).toContain("꼭 답하게 하기");
     expect(inspectorHtml).toContain("청중 화면 새 창에서 보기");
+    expect(inspectorHtml).toContain('title="실제 청중 화면 미리보기"');
+    expect(inspectorHtml).toContain("실제 청중 입력 화면을 그대로 표시합니다.");
     expect(inspectorHtml).toContain(
       `/project/project_demo_1/activity-preview/${preQuestionSlide.activity.activityId}`
     );
