@@ -969,12 +969,12 @@ export function EditorShell(props: { projectId?: string }) {
     editorSlideActions.clearSelectedKeyword();
   }
   function handleSelectKeywordActionMode(mode: KeywordActionMode) {
-    if (!currentSlide || !selectedKeyword) {
+    if (mode === "animation-trigger") {
+      openAnimationInspector();
       return;
     }
 
-    if (mode === "animation-trigger") {
-      openAnimationInspector();
+    if (!currentSlide || !selectedKeyword) {
       return;
     }
 

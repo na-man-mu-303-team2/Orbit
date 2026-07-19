@@ -1,4 +1,5 @@
 import { createKeywordOccurrenceId, type Keyword } from "@orbit/shared";
+import { useState } from "react";
 
 import { IdBadge } from "./EditorIdBadge";
 
@@ -39,6 +40,7 @@ export function KeywordHighlightedNotes(props: {
   showIds: boolean;
   slideId: string;
   onSelectKeyword: (keywordId: string, occurrenceKey?: string | null) => void;
+  onSelectKeywordActionMode?: (mode: KeywordActionMode) => void;
   onSelectKeywordText: (value: string, start: number) => void;
 }) {
   const {
@@ -48,8 +50,10 @@ export function KeywordHighlightedNotes(props: {
     showIds,
     slideId,
     onSelectKeyword,
+    onSelectKeywordActionMode,
     onSelectKeywordText
   } = props;
+  const [openTokenKey, setOpenTokenKey] = useState<string | null>(null);
 
   if (!notes) {
     return <p className="script-copy">발표 메모가 아직 없습니다.</p>;
@@ -76,28 +80,71 @@ export function KeywordHighlightedNotes(props: {
         const isSelected = Boolean(
           occurrenceKey && occurrenceKey === selectedKeywordOccurrenceKey
         );
+        const tokenKey = `${part.start}-${part.value}-${index}`;
         const shouldShowKeywordMark = Boolean(
           keyword && (!selectedKeywordOccurrenceKey || isSelected)
         );
 
         return (
-          <button
-            className={`${shouldShowKeywordMark ? "keyword-mark" : "keyword-note-token"} ${
-              isSelected ? "selected" : ""
-            }`}
-            data-keyword-id={keyword?.keywordId}
-            data-occurrence-id={occurrenceKey ?? undefined}
-            key={`${part.value}-${index}`}
-            type="button"
-            onClick={() =>
-              keyword
-                ? onSelectKeyword(keyword.keywordId, occurrenceKey)
-                : onSelectKeywordText(part.value, part.start)
-            }
+          <span
+            className="keyword-token-menu-anchor"
+            key={tokenKey}
+            onBlur={(event) => {
+              if (
+                event.relatedTarget &&
+                event.currentTarget.contains(event.relatedTarget as Node)
+              ) {
+                return;
+              }
+              setOpenTokenKey(null);
+            }}
           >
-            <strong>{part.value}</strong>
-            {showIds && keyword ? <IdBadge id={keyword.keywordId} /> : null}
-          </button>
+            <button
+              aria-expanded={openTokenKey === tokenKey}
+              aria-haspopup="menu"
+              className={`${shouldShowKeywordMark ? "keyword-mark" : "keyword-note-token"} ${
+                isSelected ? "selected" : ""
+              }`}
+              data-keyword-id={keyword?.keywordId}
+              data-occurrence-id={occurrenceKey ?? undefined}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setOpenTokenKey((current) =>
+                  current === tokenKey ? null : tokenKey
+                );
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setOpenTokenKey(null);
+                }
+              }}
+            >
+              <strong>{part.value}</strong>
+              {showIds && keyword ? <IdBadge id={keyword.keywordId} /> : null}
+            </button>
+            {openTokenKey === tokenKey ? (
+              <span className="keyword-token-menu" role="menu">
+                <button
+                  className="keyword-token-menu-item"
+                  role="menuitem"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (keyword) {
+                      onSelectKeyword(keyword.keywordId, occurrenceKey);
+                    } else {
+                      onSelectKeywordText(part.value, part.start);
+                    }
+                    onSelectKeywordActionMode?.("animation-trigger");
+                    setOpenTokenKey(null);
+                  }}
+                >
+                  애니메이션 트리거
+                </button>
+              </span>
+            ) : null}
+          </span>
         );
       })}
     </p>

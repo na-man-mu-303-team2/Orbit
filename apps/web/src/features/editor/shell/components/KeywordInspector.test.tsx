@@ -127,7 +127,7 @@ describe("KeywordHighlightedNotes", () => {
     );
 
     expect(html).toContain(
-      "<strong>문장입니다</strong></button>.\n<button"
+      "<strong>문장입니다</strong></button></span>.\n<span"
     );
   });
 
@@ -142,6 +142,9 @@ describe("KeywordHighlightedNotes", () => {
     );
     expect(css).toMatch(
       /\.keyword-note-token strong\s*\{[^}]*font-weight:\s*inherit;/s
+    );
+    expect(css).toMatch(
+      /\.keyword-token-menu\s*\{[^}]*position:\s*absolute;[^}]*background:\s*var\(--redesign-dropdown-background\);/s
     );
     expect(css).toMatch(
       /\.orbit-shell \.script-notes-editor\s*\{[^}]*font-size:\s*var\(--redesign-type-body-sm-size\);[^}]*line-height:\s*1\.6;/s

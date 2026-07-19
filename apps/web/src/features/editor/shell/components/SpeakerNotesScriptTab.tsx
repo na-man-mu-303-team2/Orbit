@@ -8,7 +8,6 @@ import {
 import type { getSpeakerNotesLengthGuidance } from "../speakerNotesAssistant";
 import type { KeywordActionMode, KeywordUsageSummary } from "./KeywordInspector";
 import {
-  KeywordDetail,
   KeywordHighlightedNotes,
   KeywordList,
 } from "./KeywordInspector";
@@ -113,6 +112,7 @@ export function SpeakerNotesScriptTab(props: SpeakerNotesScriptTabProps) {
               showIds={props.showIds}
               slideId={props.currentSlide?.slideId ?? ""}
               onSelectKeyword={props.onSelectKeyword}
+              onSelectKeywordActionMode={props.onSelectKeywordActionMode}
               onSelectKeywordText={props.onSelectKeywordText}
             />
             <SpeakerNotesLengthMeter guidance={props.guidance} />
@@ -127,17 +127,6 @@ export function SpeakerNotesScriptTab(props: SpeakerNotesScriptTabProps) {
               onSelectKeyword={props.onSelectKeyword}
             />
           </section>
-          {props.selectedKeyword ? (
-            <KeywordDetail
-              keyword={props.selectedKeyword}
-              requiredActive={props.selectedKeywordRequiredActive}
-              showIds={props.showIds}
-              usage={props.selectedKeywordUsage}
-              onClearSelection={props.onClearKeyword}
-              onDeleteKeyword={props.onDeleteKeyword}
-              onSelectActionMode={props.onSelectKeywordActionMode}
-            />
-          ) : null}
         </div>
       )}
     </div>
