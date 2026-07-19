@@ -7,9 +7,15 @@ import type { SupportedAnimationType } from "../types";
 export function AnimationCreatePicker(props: {
   creationType: SupportedAnimationType | null;
   linkedTypes: SupportedAnimationType[];
+  mutationDisabledReason?: string | null;
   onStartCreating: (type: SupportedAnimationType) => void;
 }) {
-  const { creationType, linkedTypes, onStartCreating } = props;
+  const {
+    creationType,
+    linkedTypes,
+    mutationDisabledReason = null,
+    onStartCreating
+  } = props;
 
   return (
     <AnimationPanelSection title="새 효과 추가">
@@ -17,9 +23,11 @@ export function AnimationCreatePicker(props: {
         {supportedAnimationCards.map((card) => {
           const isLinked = linkedTypes.includes(card.value);
           const isSelected = creationType === card.value;
-          const disabledReason = !card.authoringSupported
-            ? "PPTX 저장 지원 전까지 추가할 수 없습니다."
-            : null;
+          const disabledReason =
+            mutationDisabledReason ??
+            (!card.authoringSupported
+              ? "PPTX 저장 지원 전까지 추가할 수 없습니다."
+              : null);
 
           return (
             <button
@@ -40,7 +48,8 @@ export function AnimationCreatePicker(props: {
               </span>
               <strong>{card.label}</strong>
               <small>
-                {isLinked ? "이미 연결됨" : disabledReason ?? card.description}
+                {mutationDisabledReason ??
+                  (isLinked ? "이미 연결됨" : disabledReason ?? card.description)}
               </small>
             </button>
           );

@@ -5,12 +5,14 @@ import {
   appendDeckPatchResponseSchema,
   deckApiErrorSchema,
   getDeckResponseSchema,
+  getPptxImportQualityResponseSchema,
   putDeckResponseSchema,
   type AppendDeckPatchAckResponse,
   type Deck,
   type DeckApiErrorCode,
   type DeckPatch,
-  type Job
+  type Job,
+  type PptxImportQuality
 } from "@orbit/shared";
 
 import type {
@@ -118,6 +120,16 @@ export async function fetchProjectDeck(projectId: string): Promise<Deck | null> 
   if (response.status === 404) return null;
   if (!response.ok) throw await readResponseError(response, "Deck fetch failed");
   return getDeckResponseSchema.parse(await response.json()).deck;
+}
+
+export async function fetchPptxImportQuality(
+  projectId: string
+): Promise<PptxImportQuality | null> {
+  const response = await fetch(`/api/v1/projects/${projectId}/deck/import-quality`);
+  if (!response.ok) {
+    throw await readResponseError(response, "PPTX import quality fetch failed");
+  }
+  return getPptxImportQualityResponseSchema.parse(await response.json()).importQuality;
 }
 
 export function hasPendingEditorChanges(args: {

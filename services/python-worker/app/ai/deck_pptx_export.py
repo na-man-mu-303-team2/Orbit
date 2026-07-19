@@ -281,6 +281,10 @@ def add_text(
     text_frame = shape.text_frame
     text_frame.clear()
     text_frame.word_wrap = True
+    body_pr = text_frame._txBody.bodyPr
+    body_pr.set("horzOverflow", "clip")
+    body_pr.set("vertOverflow", "clip")
+    body_pr.set("wrap", "square")
     inset = props.get("bodyInset") or {}
     text_frame.margin_left = Inches(float(inset.get("left", 0)) / 144)
     text_frame.margin_right = Inches(float(inset.get("right", 0)) / 144)

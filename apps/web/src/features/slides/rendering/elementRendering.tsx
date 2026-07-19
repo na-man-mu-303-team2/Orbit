@@ -99,8 +99,10 @@ export function ElementNodeContent(props: {
     });
     const textProps = element.props as TextElementProps;
 
+    let content;
+
     if (textProps.writingMode === "vertical-270") {
-      return (
+      content = (
         <Text
           align={textProps.align}
           fill={textLayout.color}
@@ -119,10 +121,8 @@ export function ElementNodeContent(props: {
           y={frame.height}
         />
       );
-    }
-
-    if (textLayout.richText) {
-      return (
+    } else if (textLayout.richText) {
+      content = (
         <Group listening={false}>
           {textLayout.richText.fragments.map((fragment, index) => (
             <Text
@@ -142,25 +142,37 @@ export function ElementNodeContent(props: {
           ))}
         </Group>
       );
+    } else {
+      content = (
+        <Text
+          align={textProps.align}
+          fill={textLayout.color}
+          fontFamily={textLayout.fontFamily}
+          fontSize={textLayout.fontSize}
+          fontStyle={textLayout.fontStyle}
+          lineHeight={textProps.lineHeight}
+          listening={false}
+          padding={0}
+          text={textLayout.text}
+          textDecoration={textLayout.textDecoration}
+          width={textLayout.width}
+          wrap="word"
+          x={textLayout.x}
+          y={textLayout.y}
+        />
+      );
     }
 
     return (
-      <Text
-        align={textProps.align}
-        fill={textLayout.color}
-        fontFamily={textLayout.fontFamily}
-        fontSize={textLayout.fontSize}
-        fontStyle={textLayout.fontStyle}
-        lineHeight={textProps.lineHeight}
+      <Group
+        clipHeight={frame.height}
+        clipWidth={frame.width}
+        clipX={0}
+        clipY={0}
         listening={false}
-        padding={0}
-        text={textLayout.text}
-        textDecoration={textLayout.textDecoration}
-        width={textLayout.width}
-        wrap="word"
-        x={textLayout.x}
-        y={textLayout.y}
-      />
+      >
+        {content}
+      </Group>
     );
   }
 
