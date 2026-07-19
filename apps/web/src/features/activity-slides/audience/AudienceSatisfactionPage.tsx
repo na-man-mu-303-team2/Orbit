@@ -343,8 +343,8 @@ export function AudienceSatisfactionPage(props: {
       {mode === "receipt" && current?.ownResponse && current.run.status !== "results" ? (
         <section className="activity-audience-card activity-receipt" aria-labelledby="activity-receipt-title">
           <span className="activity-receipt-icon"><IconCheck aria-hidden="true" /></span>
-          <span className="activity-audience-eyebrow">RESPONSE SAVED</span>
-          <h1 id="activity-receipt-title">응답이 저장되었습니다</h1>
+          <span className="activity-audience-eyebrow">{getAudienceTemplateCopy(current.run.definitionSnapshot).receiptEyebrow}</span>
+          <h1 id="activity-receipt-title">{getAudienceTemplateCopy(current.run.definitionSnapshot).receiptTitle}</h1>
           <p>발표자가 응답을 마감하기 전까지 내용을 수정할 수 있습니다.</p>
           <dl>
             <div><dt>참여 장표</dt><dd>{current.run.definitionSnapshot.title}</dd></div>
@@ -424,9 +424,11 @@ export function AudienceSatisfactionForm(props: {
     if (Object.keys(nextErrors).length === 0) props.onSubmit(props.draft);
   }
 
+  const templateCopy = getAudienceTemplateCopy(props.definition);
+
   return (
     <section className="activity-audience-card activity-response-card" aria-labelledby="activity-response-title">
-      <span className="activity-audience-eyebrow">AUDIENCE ACTIVITY</span>
+      <span className="activity-audience-eyebrow">{templateCopy.formEyebrow}</span>
       <h1 id="activity-response-title">{props.definition.title}</h1>
       {props.definition.description ? <p className="activity-response-description">{props.definition.description}</p> : null}
 
@@ -526,6 +528,8 @@ export function AudienceSatisfactionForm(props: {
           }
           if (question.type === "multiple-choice") {
             const selected = props.draft.multipleChoice[question.questionId] ?? [];
+            const maxSelections = question.maxSelections ?? question.options.length;
+            const selectionLimitReached = selected.length >= maxSelections;
             return (
               <fieldset
                 aria-describedby={errors[question.questionId] ? errorId : undefined}
@@ -533,12 +537,13 @@ export function AudienceSatisfactionForm(props: {
                 key={question.questionId}
               >
                 <legend><span>{index + 1}</span>{question.prompt}{question.required ? <em>필수</em> : null}</legend>
-                {question.maxSelections ? <p>최대 {question.maxSelections}개 선택</p> : null}
+                <p>{selected.length}/{maxSelections}개 선택 · 최대 {maxSelections}개</p>
                 <div className="activity-choice-options">
                   {question.options.map((option) => (
                     <label key={option.optionId}>
                       <input
                         checked={selected.includes(option.optionId)}
+                        disabled={selectionLimitReached && !selected.includes(option.optionId)}
                         type="checkbox"
                         onChange={(event) => props.onChange({
                           ...props.draft,
@@ -578,10 +583,35 @@ export function AudienceSatisfactionForm(props: {
       ) : null}
 
       <OrbitButton icon={<IconArrowRight aria-hidden="true" />} disabled={props.isSubmitting} onClick={submit}>
-        {props.isSubmitting ? "저장 중" : "응답 제출"}
+        {props.isSubmitting ? "저장 중" : templateCopy.submitLabel}
       </OrbitButton>
     </section>
   );
+}
+
+export function getAudienceTemplateCopy(definition: ActivityDefinition) {
+  if (definition.template === "pre-question") {
+    return {
+      formEyebrow: "PRE-QUESTION",
+      receiptEyebrow: "QUESTION SENT",
+      receiptTitle: "질문을 보냈습니다",
+      submitLabel: "질문 보내기"
+    };
+  }
+  if (definition.template === "poll") {
+    return {
+      formEyebrow: "LIVE POLL",
+      receiptEyebrow: "VOTE SAVED",
+      receiptTitle: "투표가 제출되었습니다",
+      submitLabel: "투표 제출"
+    };
+  }
+  return {
+    formEyebrow: "SATISFACTION SURVEY",
+    receiptEyebrow: "RESPONSE SAVED",
+    receiptTitle: "의견이 저장되었습니다",
+    submitLabel: "의견 제출"
+  };
 }
 
 function AudienceStatus(props: { description?: string; icon: React.ReactNode; title: string }) {

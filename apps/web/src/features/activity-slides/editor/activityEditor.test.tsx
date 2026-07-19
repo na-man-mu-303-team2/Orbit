@@ -13,6 +13,7 @@ import {
   ActivitySlideInspector,
   convertQuestionType,
   moveQuestion,
+  moveQuestionOption,
   removeQuestionOption
 } from "./ActivitySlideInspector";
 import { ActivityEditorOperationsPanel } from "./ActivityEditorOperationsPanel";
@@ -207,6 +208,48 @@ describe("activity slide editor", () => {
         activity: { ...slide.activity, questions: [next] }
       }]
     }).success).toBe(true);
+  });
+
+  it("reorders choice options without changing their IDs", () => {
+    const source = convertQuestionType(
+      slide.activity,
+      slide.activity.questions[0]!,
+      "single-choice"
+    );
+    if (source.type !== "single-choice") throw new Error("choice fixture");
+
+    const moved = moveQuestionOption(source, 1, -1);
+
+    if (moved.type !== "single-choice") throw new Error("choice result");
+    expect(moved.options.map((option) => option.optionId)).toEqual([
+      source.options[1]!.optionId,
+      source.options[0]!.optionId
+    ]);
+  });
+
+  it("renders every poll option in the slide preview", () => {
+    const pollSlide = createActivitySlide(createDemoDeck(), "poll");
+    const question = pollSlide.activity.questions[0]!;
+    if (question.type !== "single-choice") throw new Error("poll fixture");
+    const options = Array.from({ length: 8 }, (_, index) => ({
+      optionId: `option_${index + 1}`,
+      label: `선택지 ${index + 1}`
+    }));
+    const html = renderToStaticMarkup(
+      <ActivitySlidePreview
+        role="audience"
+        slide={{
+          ...pollSlide,
+          activity: {
+            ...pollSlide.activity,
+            questions: [{ ...question, options }]
+          }
+        }}
+      />
+    );
+
+    expect(html).toContain("선택지 8");
+    expect(html).toContain('data-activity-template="poll"');
   });
 
   it.each(["pre-question", "poll", "satisfaction"] as const)(

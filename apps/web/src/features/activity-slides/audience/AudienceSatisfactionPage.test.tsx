@@ -7,6 +7,7 @@ import {
   AudiencePublicResultCard,
   AudienceSatisfactionForm,
   getAudienceActivityStatusCopy,
+  getAudienceTemplateCopy,
   loadAudienceActivityRefresh
 } from "./AudienceSatisfactionPage";
 import { createSatisfactionDraft } from "./activityFormModel";
@@ -33,7 +34,7 @@ describe("AudienceSatisfactionForm", () => {
     expect(html.match(/type="radio"/g)).toHaveLength(5);
     expect(html).toContain("발표가 전반적으로 유익했나요?");
     expect(html).toContain("추가 의견이 있다면 알려주세요.");
-    expect(html).toContain("응답 제출");
+    expect(html).toContain("의견 제출");
     expect(html).not.toContain("speakerNotes");
   });
 
@@ -59,6 +60,12 @@ describe("AudienceSatisfactionForm", () => {
     expect(getAudienceActivityStatusCopy("closed").title).toBe(
       "응답이 마감되었습니다"
     );
+  });
+
+  it("uses action copy that matches each activity template", () => {
+    expect(getAudienceTemplateCopy({ ...definition, template: "poll" }).submitLabel).toBe("투표 제출");
+    expect(getAudienceTemplateCopy({ ...definition, template: "pre-question" }).receiptTitle).toBe("질문을 보냈습니다");
+    expect(getAudienceTemplateCopy(definition).formEyebrow).toBe("SATISFACTION SURVEY");
   });
 
   it("renders public aggregates after the current run reveals results", () => {

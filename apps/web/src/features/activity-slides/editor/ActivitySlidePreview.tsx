@@ -9,12 +9,18 @@ export function ActivitySlidePreview(props: {
   slide: ActivitySlide;
 }) {
   const activity = props.slide.activity;
+  const questionDensity = activity.questions.length >= 5
+    ? "dense"
+    : activity.questions.length >= 3
+      ? "compact"
+      : "comfortable";
 
   return (
     <section
       aria-label={`${props.role === "audience" ? "청중" : "발표자"} 참여 장표 미리보기`}
-      className={`activity-slide-preview activity-slide-preview-${props.role}`}
+      className={`activity-slide-preview activity-slide-preview-${props.role} activity-slide-preview-${questionDensity}`}
       data-activity-system-layer="locked"
+      data-activity-template={activity.template}
     >
       <div className="activity-slide-preview-copy">
         <span className="activity-slide-preview-kicker">
@@ -39,7 +45,7 @@ export function ActivitySlidePreview(props: {
                 </div>
               ) : (
                 <div aria-hidden="true" className="activity-choice-preview">
-                  {question.options.slice(0, 4).map((option) => (
+                  {question.options.map((option) => (
                     <i key={option.optionId}>{option.label}</i>
                   ))}
                 </div>

@@ -4,6 +4,9 @@ import type {
   ActivityQuestionType,
   ActivitySlide
 } from "@orbit/shared";
+import { IconArrowDown, IconArrowUp } from "@tabler/icons-react";
+import { useState } from "react";
+
 import {
   OrbitButton,
   OrbitDialog,
@@ -13,8 +16,6 @@ import {
   OrbitStatus,
   OrbitTextarea
 } from "../../../components/ui";
-import { useState } from "react";
-
 import { ActivitySlidePreview, type ActivityPreviewRole } from "./ActivitySlidePreview";
 import { ActivityEditorModerationPanel } from "./ActivityEditorModerationPanel";
 import { ActivityEditorOperationsPanel } from "./ActivityEditorOperationsPanel";
@@ -207,6 +208,24 @@ export function ActivitySlideInspector(props: {
                         })}
                       />
                       <button
+                        aria-label={`선택지 ${optionIndex + 1} 위로 이동`}
+                        disabled={optionIndex === 0}
+                        type="button"
+                        onClick={() => updateQuestion(
+                          question.questionId,
+                          moveQuestionOption(question, optionIndex, -1)
+                        )}
+                      ><IconArrowUp aria-hidden="true" size={16} /></button>
+                      <button
+                        aria-label={`선택지 ${optionIndex + 1} 아래로 이동`}
+                        disabled={optionIndex === question.options.length - 1}
+                        type="button"
+                        onClick={() => updateQuestion(
+                          question.questionId,
+                          moveQuestionOption(question, optionIndex, 1)
+                        )}
+                      ><IconArrowDown aria-hidden="true" size={16} /></button>
+                      <button
                         aria-label={`선택지 ${optionIndex + 1} 삭제`}
                         disabled={question.options.length <= 2}
                         type="button"
@@ -218,6 +237,27 @@ export function ActivitySlideInspector(props: {
                     </span>
                   </label>
                 ))}
+                {question.type === "multiple-choice" ? (
+                  <OrbitField
+                    hint={`청중은 전체 ${question.options.length}개 중 설정한 개수까지만 선택할 수 있습니다.`}
+                    id={`activity-question-${question.questionId}-max-selections`}
+                    label="최대 선택 수"
+                  >
+                    <OrbitSelect
+                      value={String(question.maxSelections ?? question.options.length)}
+                      onChange={(event) => updateQuestion(question.questionId, {
+                        ...question,
+                        maxSelections: Number(event.currentTarget.value)
+                      })}
+                    >
+                      {question.options.map((_, selectionIndex) => (
+                        <option key={selectionIndex + 1} value={selectionIndex + 1}>
+                          최대 {selectionIndex + 1}개
+                        </option>
+                      ))}
+                    </OrbitSelect>
+                  </OrbitField>
+                ) : null}
                 <button
                   disabled={question.options.length >= 8}
                   type="button"
@@ -356,6 +396,21 @@ export function moveQuestion(
   const next = [...questions];
   [next[index], next[target]] = [next[target]!, next[index]!];
   return next;
+}
+
+export function moveQuestionOption(
+  question: ActivityQuestion,
+  index: number,
+  direction: -1 | 1
+): ActivityQuestion {
+  if (question.type !== "single-choice" && question.type !== "multiple-choice") {
+    return question;
+  }
+  const target = index + direction;
+  if (target < 0 || target >= question.options.length) return question;
+  const options = [...question.options];
+  [options[index], options[target]] = [options[target]!, options[index]!];
+  return { ...question, options };
 }
 
 export function convertQuestionType(

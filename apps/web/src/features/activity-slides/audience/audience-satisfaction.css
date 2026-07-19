@@ -224,6 +224,11 @@
   color: var(--redesign-color-secondary);
 }
 
+.activity-choice-options input:disabled + span {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .activity-rating-field > small,
 .activity-choice-field > small,
 .activity-form-error {
