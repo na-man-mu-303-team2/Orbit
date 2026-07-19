@@ -1,7 +1,6 @@
 import type { ActivitySlide, Deck } from "@orbit/shared";
 import { IconQrcode } from "@tabler/icons-react";
 
-import { OrbitBrand } from "../../../components/ui";
 import { createActivityThemeStyle } from "../rendering/activityThemeStyle";
 import "./activity-slide-editor.css";
 
@@ -31,7 +30,6 @@ export function ActivitySlidePreview(props: {
       style={createActivityThemeStyle(props.theme, props.slide.style)}
     >
       <div className="activity-slide-preview-copy">
-        <OrbitBrand className="activity-slide-preview-brand" />
         <h2>{activity.title}</h2>
         {activity.description ? <p>{activity.description}</p> : null}
       </div>
@@ -54,7 +52,6 @@ export function ActivitySlidePreview(props: {
       style={createActivityThemeStyle(props.theme, props.slide.style)}
     >
       <div className="activity-slide-preview-copy">
-        <OrbitBrand className="activity-slide-preview-brand" />
         <h2>{activity.title}</h2>
         {activity.description ? <p>{activity.description}</p> : null}
       </div>

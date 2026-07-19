@@ -34,7 +34,7 @@ describe("activity slide editor", () => {
     expect(audience).toContain("답변을 입력해 주세요");
     expect(audience).toContain("전혀 아니요");
     expect(audience).toContain("매우 그래요");
-    expect(audience).toContain("ORBIT");
+    expect(audience).not.toContain("redesign-orbit-brand");
     expect(audience).not.toContain("AUDIENCE");
     expect(presenter).toContain("발표자 참여 장표 미리보기");
     expect(presenter).toContain("응답 0");

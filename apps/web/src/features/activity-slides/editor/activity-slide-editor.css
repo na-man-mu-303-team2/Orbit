@@ -134,25 +134,6 @@
   word-break: keep-all;
 }
 
-.activity-slide-preview-brand {
-  background: color-mix(in srgb, var(--activity-color-surface) 92%, transparent);
-  border: 1px solid color-mix(in srgb, var(--activity-color-border) 82%, transparent);
-  border-radius: var(--redesign-radius-full);
-  color: var(--activity-color-on-surface);
-  gap: clamp(2px, 0.45cqw, var(--redesign-space-2));
-  padding: clamp(2px, 0.35cqw, var(--redesign-space-1)) clamp(var(--redesign-space-1), 0.75cqw, var(--redesign-space-3));
-  width: max-content;
-}
-
-.activity-slide-preview-brand img {
-  height: clamp(9px, 1.35cqw, 22px);
-  width: clamp(9px, 1.35cqw, 22px);
-}
-
-.activity-slide-preview-brand .redesign-orbit-brand-wordmark {
-  font-size: clamp(5px, 0.8cqw, 13px);
-}
-
 .activity-slide-preview h2 {
   font-size: clamp(14px, 3.8cqw, 58px);
   letter-spacing: -0.04em;
