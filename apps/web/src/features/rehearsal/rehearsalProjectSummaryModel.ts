@@ -7,6 +7,11 @@ import type {
 } from "@orbit/shared";
 import type { RehearsalRunComparisonViewModel } from "./rehearsalRunComparisonModel";
 
+const SLIDE_TIMING_NEEDS_IMPROVEMENT_RATE = 0.4;
+const SLIDE_TIMING_NEEDS_ATTENTION_RATE = 0.2;
+const SLIDE_KEYWORD_NEEDS_IMPROVEMENT_RATE = 0.7;
+const SLIDE_KEYWORD_GOOD_RATE = 0.9;
+
 export type ProjectSummaryKpi = {
   comparisonLabel: "권장" | "직전" | null;
   comparisonValue: string | null;
@@ -364,15 +369,15 @@ function buildSlideRows(
     const needsImprovement =
       slide.repeatedMissedKeywordCount > 0 ||
       (slide.timingOverrun.measurementState === "measured" &&
-        slide.timingOverrun.rate >= 0.4) ||
+        slide.timingOverrun.rate >= SLIDE_TIMING_NEEDS_IMPROVEMENT_RATE) ||
       (slide.keywordCoverage.measurementState === "measured" &&
-        slide.keywordCoverage.rate < 0.7);
+        slide.keywordCoverage.rate < SLIDE_KEYWORD_NEEDS_IMPROVEMENT_RATE);
     const needsAttention =
       !needsImprovement &&
       ((slide.timingOverrun.measurementState === "measured" &&
-        slide.timingOverrun.rate >= 0.2) ||
+        slide.timingOverrun.rate >= SLIDE_TIMING_NEEDS_ATTENTION_RATE) ||
         (slide.keywordCoverage.measurementState === "measured" &&
-          slide.keywordCoverage.rate < 0.9));
+          slide.keywordCoverage.rate < SLIDE_KEYWORD_GOOD_RATE));
     return {
       ...slide,
       href: null,
