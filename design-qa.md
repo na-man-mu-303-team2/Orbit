@@ -1,3 +1,41 @@
+# Rehearsal waiting screen design QA
+
+- Source visual truth: `C:\Users\Runner\Desktop\Frame 12.png`
+- Implementation screenshot: `C:\Users\Runner\.codex\visualizations\2026\07\19\019f7960-a82c-7e11-b04e-91cc188840ca\rehearsal-waiting-implementation.png`
+- Combined comparison: `C:\Users\Runner\.codex\visualizations\2026\07\19\019f7960-a82c-7e11-b04e-91cc188840ca\rehearsal-waiting-comparison.png`
+- Viewport: 1280 × 720 implementation; source content region normalized to the same comparison width
+- State: presentation window waiting for its first presenter snapshot
+
+## Full-view comparison evidence
+
+The implementation matches the reference hierarchy and composition: a flat near-black surface, the existing white ORBIT logo centered in the viewport, and one concise waiting message directly below it. The responsive logo width preserves the reference proportion at desktop sizes.
+
+## Focused region comparison evidence
+
+A separate focused crop was not needed because the only visible content is the centered logo and one text line; both remain clearly readable in the normalized full-view comparison.
+
+## Findings
+
+- No actionable P0, P1, or P2 differences.
+- Fonts and typography: existing Pretendard token roles preserve the reference weight and single-line hierarchy.
+- Spacing and layout rhythm: centered grouping and logo-to-copy gap match the reference intent.
+- Colors and visual tokens: background and foreground use `inverse-surface` and `inverse-on-surface` tokens without a custom palette.
+- Image quality and asset fidelity: the existing white ORBIT logo asset is reused without recreation or distortion.
+- Copy and content: secondary label and explanatory paragraph were removed; the waiting message now matches the reference wording.
+
+## Comparison history
+
+- Pass 1: no P0/P1/P2 findings; no post-comparison fixes required.
+
+## Validation
+
+- Browser-rendered waiting state inspected at the local `/present/...?...sessionId=style-preview` route.
+- `PresentWindow.test.tsx`: 21 tests passed.
+
+final result: passed
+
+---
+
 # Rehearsal display options design QA
 
 - Source visual truth: `C:/Users/Runner/Desktop/Frame 7.png`, `C:/Users/Runner/Desktop/Frame 8.png`.
