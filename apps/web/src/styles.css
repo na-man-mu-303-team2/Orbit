@@ -4296,8 +4296,8 @@
 
 .presenter-display-option-group {
   background: var(--redesign-color-surface-container-low);
-  border: 0;
-  border-radius: var(--redesign-radius-md);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
   display: grid;
   gap: var(--redesign-space-3);
   grid-template-columns: 1fr 1fr;
