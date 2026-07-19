@@ -16,24 +16,32 @@ describe("buildRehearsalProjectSummaryDashboardModel", () => {
       expect.objectContaining({
         key: "duration",
         value: "8:42",
+        comparisonLabel: "권장",
+        comparisonValue: "8:00",
         deltaLabel: "+0:42 초과",
         state: "negative",
       }),
       expect.objectContaining({
         key: "silence",
         value: "2회",
+        comparisonLabel: "직전",
+        comparisonValue: "3회",
         deltaLabel: "1회 감소",
         state: "positive",
       }),
       expect.objectContaining({
         key: "core-message",
         value: "7/8 전달",
+        comparisonLabel: "직전",
+        comparisonValue: "6/8 전달",
         deltaLabel: "1개 개선",
         state: "positive",
       }),
       expect.objectContaining({
         key: "timing-overrun",
         value: "2/8장",
+        comparisonLabel: "직전",
+        comparisonValue: "3/8장",
         deltaLabel: "1장 감소",
         state: "positive",
       }),
@@ -61,7 +69,11 @@ describe("buildRehearsalProjectSummaryDashboardModel", () => {
     const model = buildRehearsalProjectSummaryDashboardModel(summary, null);
 
     expect(model?.kpis[0]).toEqual(
-      expect.objectContaining({ value: "N/A", detail: "발표 시간 미측정" }),
+      expect.objectContaining({
+        value: "N/A",
+        comparisonValue: null,
+        detail: "발표 시간 미측정",
+      }),
     );
     expect(model?.kpis[1]).toEqual(
       expect.objectContaining({ value: "N/A", detail: "침묵 구간 미측정" }),
@@ -77,6 +89,35 @@ describe("buildRehearsalProjectSummaryDashboardModel", () => {
 
     expect(model?.slideRows[0]).toEqual(
       expect.objectContaining({ status: "개선 필요", statusTone: "danger" }),
+    );
+  });
+
+  it("두 누적 지표가 모두 미측정이고 비교 이슈가 없으면 측정 불가로 표시한다", () => {
+    const summary = summaryFixture();
+    summary.slidePerformanceSummaries[0] = {
+      ...summary.slidePerformanceSummaries[0],
+      timingOverrun: {
+        measurementState: "unmeasured",
+        reasonCode: "SLIDE_TIMINGS_UNAVAILABLE",
+        overrunCount: 0,
+        measurableCount: 0,
+        rate: null,
+      },
+      coreMessageCoverage: {
+        measurementState: "unmeasured",
+        reasonCode: "NO_MEASURABLE_CORE_CUES",
+        coveredCount: 0,
+        partialCount: 0,
+        missedCount: 0,
+        measurableCount: 0,
+        rate: null,
+      },
+    };
+
+    const model = buildRehearsalProjectSummaryDashboardModel(summary, null);
+
+    expect(model?.slideRows[0]).toEqual(
+      expect.objectContaining({ status: "측정 불가", statusTone: "neutral" }),
     );
   });
 

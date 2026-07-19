@@ -8,6 +8,8 @@ import type {
 import type { RehearsalRunComparisonViewModel } from "./rehearsalRunComparisonModel";
 
 export type ProjectSummaryKpi = {
+  comparisonLabel: "권장" | "직전" | null;
+  comparisonValue: string | null;
   deltaLabel: string | null;
   detail: string;
   key: "duration" | "silence" | "core-message" | "timing-overrun";
@@ -19,7 +21,13 @@ export type ProjectSummaryKpi = {
 export type ProjectSummarySlideRow =
   RehearsalProjectSummary["slidePerformanceSummaries"][number] & {
     href: string | null;
-    status: "개선 필요" | "보통" | "개선됨" | "비교 제외" | "좋음";
+    status:
+      | "개선 필요"
+      | "보통"
+      | "개선됨"
+      | "비교 제외"
+      | "측정 불가"
+      | "좋음";
     statusTone: "danger" | "warning" | "success" | "neutral";
   };
 
@@ -125,6 +133,8 @@ function buildDurationKpi(
     key: "duration",
     label: "총 발표 시간",
     value: formatDuration(latest.duration.actualSeconds),
+    comparisonLabel: target === null ? null : "권장",
+    comparisonValue: target === null ? null : formatDuration(target),
     detail: target === null ? "권장 시간 없음" : `/ 권장 ${formatDuration(target)}`,
     deltaLabel:
       delta === null
@@ -166,6 +176,10 @@ function buildSilenceKpi(
     key: "silence",
     label: "긴 침묵",
     value: `${latest.longSilence.count}회`,
+    comparisonLabel: comparablePrevious ? "직전" : null,
+    comparisonValue: comparablePrevious
+      ? `${comparablePrevious.count}회`
+      : null,
     detail: comparablePrevious
       ? `/ 직전 ${comparablePrevious.count}회`
       : `측정 기준 v${latest.longSilence.metricDefinitionVersion}`,
@@ -200,6 +214,12 @@ function buildCoreMessageKpi(
     key: "core-message",
     label: "핵심 메시지 전달",
     value: `${latest.coveredCount}/${latest.measurableCount} 전달`,
+    comparisonLabel:
+      previous?.measurementState === "measured" ? "직전" : null,
+    comparisonValue:
+      previous?.measurementState === "measured"
+        ? `${previous.coveredCount}/${previous.measurableCount} 전달`
+        : null,
     detail: formatPercent(latest.rate * 100),
     deltaLabel:
       delta === null
@@ -236,6 +256,12 @@ function buildTimingOverrunKpi(
     key: "timing-overrun",
     label: "시간 초과 슬라이드",
     value: `${latest.overrunCount}/${latest.measurableCount}장`,
+    comparisonLabel:
+      previous?.measurementState === "measured" ? "직전" : null,
+    comparisonValue:
+      previous?.measurementState === "measured"
+        ? `${previous.overrunCount}/${previous.measurableCount}장`
+        : null,
     detail: formatPercent(latest.rate * 100),
     deltaLabel:
       delta === null
@@ -261,6 +287,8 @@ function unavailableKpi(
     key,
     label,
     value: "N/A",
+    comparisonLabel: null,
+    comparisonValue: null,
     detail: reasonLabel(reasonCode),
     deltaLabel: null,
     state: "unavailable",
@@ -308,6 +336,18 @@ function buildSlideRows(
         ...slide,
         href: issue.href,
         status: "비교 제외",
+        statusTone: "neutral",
+      };
+    }
+
+    const hasNoMeasuredCumulativeMetrics =
+      slide.timingOverrun.measurementState === "unmeasured" &&
+      slide.coreMessageCoverage.measurementState === "unmeasured";
+    if (hasNoMeasuredCumulativeMetrics) {
+      return {
+        ...slide,
+        href: null,
+        status: "측정 불가",
         statusTone: "neutral",
       };
     }
