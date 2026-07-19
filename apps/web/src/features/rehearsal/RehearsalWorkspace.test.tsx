@@ -761,12 +761,20 @@ describe("RehearsalWorkspace", () => {
       source.indexOf("});", publisherStart),
     );
     const surfaceBody = source.slice(surfaceStart, openStart);
-
-    expect(surfaceBody).toContain("displayManager.requestFullscreenOnScreen");
-    expect(surfaceBody).toContain("displayManager.openPresenterRemoteWindow");
-    expect(surfaceBody.indexOf("requestFullscreenOnScreen")).toBeLessThan(
-      surfaceBody.indexOf("openPresenterRemoteWindow"),
+    const presenterScreenCapture = surfaceBody.indexOf(
+      "const presenterScreen = displayManager.getCurrentScreen()",
     );
+    const fullscreenRequest = surfaceBody.indexOf(
+      "requestFullscreenOnScreen",
+    );
+    const presenterWindowOpen = surfaceBody.indexOf(
+      "openPresenterRemoteWindow",
+    );
+
+    expect(presenterScreenCapture).toBeGreaterThanOrEqual(0);
+    expect(presenterScreenCapture).toBeLessThan(fullscreenRequest);
+    expect(fullscreenRequest).toBeLessThan(presenterWindowOpen);
+    expect(surfaceBody).toContain("screen: presenterScreen");
     expect(surfaceBody).toContain('setDisplayRole("slide-surface")');
     expect(publisherBody).toContain('displayRole === "slide-surface"');
     expect(publisherBody).toContain("onCommand: handlePresenterRemoteCommand");
