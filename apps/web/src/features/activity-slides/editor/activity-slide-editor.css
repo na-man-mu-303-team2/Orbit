@@ -346,6 +346,11 @@
   margin-top: calc(var(--redesign-space-1) * -1) !important;
 }
 
+.activity-editor-results-link {
+  text-decoration: none;
+  width: 100%;
+}
+
 .activity-editor-direct-link {
   display: grid;
   font-weight: 700;

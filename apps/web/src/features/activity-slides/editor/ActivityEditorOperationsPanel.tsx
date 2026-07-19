@@ -1,7 +1,8 @@
 import type { ActivityRuntimeStatus, ActivitySlide } from "@orbit/shared";
-import { IconCopy, IconQrcode } from "@tabler/icons-react";
+import { IconChartBar, IconCopy, IconQrcode } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { OrbitButtonLink } from "../../../components/ui";
 import { createQrDataUrl } from "../../editor/audience-link/audienceLinkUtils";
 import {
   getActivityPrimaryCommand,
@@ -14,6 +15,7 @@ export function ActivityEditorOperationsPanel(props: {
   onOpenAudienceLink?: () => void;
   onUpdateStatus: (status?: ActivityRuntimeStatus) => void;
   pending: boolean;
+  projectId?: string;
   runtime: ActivityEditorRuntime | null;
   slide: ActivitySlide;
 }) {
@@ -117,6 +119,16 @@ export function ActivityEditorOperationsPanel(props: {
           {props.pending ? "상태 변경 중" : command.label}
         </button>
       )}
+      {props.projectId ? (
+        <OrbitButtonLink
+          className="activity-editor-results-link"
+          href={activitySessionResultsPath(props.projectId, props.runtime.sessionId)}
+          icon={<IconChartBar aria-hidden="true" size={17} />}
+          variant="secondary"
+        >
+          발표 세션 결과 보기
+        </OrbitButtonLink>
+      ) : null}
       <label className="activity-editor-direct-link">
         장표별 직접 링크
         <span>
@@ -156,6 +168,10 @@ export function ActivityEditorOperationsPanel(props: {
       ) : null}
     </section>
   );
+}
+
+export function activitySessionResultsPath(projectId: string, sessionId: string) {
+  return `/project/${encodeURIComponent(projectId)}/presentation-sessions/${encodeURIComponent(sessionId)}/results`;
 }
 
 function statusLabel(status: ActivityRuntimeStatus) {

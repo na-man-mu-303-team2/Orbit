@@ -78,6 +78,7 @@ describe("activity slide editor", () => {
       <ActivityEditorOperationsPanel
         onUpdateStatus={vi.fn()}
         pending={false}
+        projectId="project_1"
         runtime={{
           audienceUrl: "/audience/session_1",
           sessionId: "session_1",
@@ -110,6 +111,10 @@ describe("activity slide editor", () => {
     expect(html).toContain("/audience/session_1/a/");
     expect(html).toContain("장표별 직접 링크 복사");
     expect(html).toContain("QR 코드 확인");
+    expect(html).toContain("발표 세션 결과 보기");
+    expect(html).toContain(
+      'href="/project/project_1/presentation-sessions/session_1/results"'
+    );
   });
 
   it("offers reopening and result reveal together after responses close", () => {

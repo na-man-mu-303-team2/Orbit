@@ -246,6 +246,7 @@ export function ActivitySlideInspector(props: {
         onOpenAudienceLink={props.onOpenAudienceLink}
         onUpdateStatus={(status) => void editorRuntime.updateStatus(status)}
         pending={editorRuntime.pending}
+        projectId={props.projectId}
         runtime={editorRuntime.runtime}
         slide={props.slide}
       />
