@@ -14350,13 +14350,13 @@ body.is-resizing-speaker-notes {
     .editor-panel:has(.stage-speaker-notes-panel.expanded):not(.animation-panel-open)
     .stage-pane
     > .stage-speaker-notes-panel.expanded {
-    grid-column: 2 / -1;
+    grid-column: 2;
   }
 
   .orbit-shell.editor-professional
     .editor-panel.animation-panel-open:has(.stage-speaker-notes-panel.expanded)
     .stage-pane
     > .stage-speaker-notes-panel.expanded {
-    grid-column: 3 / -1;
+    grid-column: 3;
   }
 }
