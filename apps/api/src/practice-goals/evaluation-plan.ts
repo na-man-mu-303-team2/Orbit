@@ -62,7 +62,7 @@ export function buildRehearsalEvaluationPlan(input: {
       (input.brief?.targetDurationMinutes ?? input.deck.targetDurationMinutes) *
       60,
     criteria,
-    metricDefinitionVersions: { timing: 1, filler: 1, silence: 1, semantic: 1 },
+    metricDefinitionVersions: { timing: 1, filler: 1, silence: 2, semantic: 1 },
     approvedReferences: input.brief?.approvedReferences ?? [],
     practiceGoalSetRef: input.sourceGoalSetRef,
   });
@@ -215,8 +215,8 @@ function deliveryCriteria(): EvaluationCriterion[] {
       },
     },
     {
-      criterionId: "criterion_system_long_silence_v1",
-      revision: 1,
+      criterionId: "criterion_system_long_silence_v2",
+      revision: 2,
       category: "delivery",
       source: "system",
       scope: { type: "run" },

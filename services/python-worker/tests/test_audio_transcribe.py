@@ -317,6 +317,7 @@ def test_whisper1_uses_verbose_json_and_parses_segments(
             calls.append(kwargs)
             return {
                 "text": "첫 문장 다음 문장",
+                "language": "korean",
                 "duration": 12.5,
                 "segments": [
                     {"text": "첫 문장", "start": 0.0, "end": 2.0},
@@ -347,6 +348,7 @@ def test_whisper1_uses_verbose_json_and_parses_segments(
     # whisper-1은 verbose_json 응답을 써야 세그먼트/duration이 채워진다.
     assert calls[0]["response_format"] == "verbose_json"
     assert result.transcript == "첫 문장 다음 문장"
+    assert result.language == "ko"
     assert result.duration_seconds == 12.5
     assert len(result.segments) == 2
     assert result.segments[0].start_seconds == 0.0
@@ -692,7 +694,7 @@ def test_audio_transcribe_endpoint_uses_injected_provider(
     assert response.status_code == 200
     assert response.json()["transcript"] == "발표 키워드를 확인했습니다"
     assert response.json()["volumeAnalysis"] == {
-        "metricDefinitionVersion": 1,
+        "metricDefinitionVersion": 2,
         "measurementState": "unmeasured",
         "reasonCode": "AUDIO_DECODE_FAILED",
         "averageDbfs": None,
@@ -703,14 +705,14 @@ def test_audio_transcribe_endpoint_uses_injected_provider(
     }
     silence_analysis = response.json()["silenceAnalysis"]
     assert silence_analysis == {
-        "metricDefinitionVersion": 1,
+        "metricDefinitionVersion": 2,
         "measurementState": "unmeasured",
         "reasonCode": "AUDIO_DECODE_FAILED",
         "detector": "silero-vad",
         "detectorVersion": silence_analysis["detectorVersion"],
         "speechThreshold": 0.5,
         "minimumSilenceMs": 250,
-        "longSilenceMs": 1000,
+        "longSilenceMs": 5000,
         "analysisWindowStartSeconds": None,
         "analysisWindowEndSeconds": None,
         "totalSilenceSeconds": None,

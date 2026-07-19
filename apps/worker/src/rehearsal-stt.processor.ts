@@ -781,10 +781,15 @@ function buildReportMeasurements(
     wordsPerMinute: measured,
     fillerWordCount: measured,
     longSilenceCount: silenceMeasured
-      ? measured
+      ? {
+          ...measured,
+          metricDefinitionVersion:
+            transcription.silenceAnalysis.metricDefinitionVersion,
+        }
       : {
           measurementState: "unmeasured" as const,
-          metricDefinitionVersion: 1,
+          metricDefinitionVersion:
+            transcription.silenceAnalysis.metricDefinitionVersion,
           reasonCode: "AUDIO_ANALYSIS_UNAVAILABLE" as const,
         },
     keywordCoverage: hasKeywords

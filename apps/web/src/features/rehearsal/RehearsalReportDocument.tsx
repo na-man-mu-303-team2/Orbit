@@ -16,6 +16,7 @@ import { RehearsalSilenceOverview } from "./RehearsalSilenceOverview";
 import { RehearsalVolumeOverview } from "./RehearsalVolumeOverview";
 import { RehearsalSlideCoachingViewer } from "./RehearsalSlideCoachingViewer";
 import { RehearsalSlideTimingOverview } from "./RehearsalSlideTimingOverview";
+import { RehearsalReportTestView } from "./RehearsalReportTestView";
 import { downloadTranscriptDocx } from "./rehearsalTranscriptExport";
 import type { SemanticRetryState } from "./RehearsalSemanticCoverage";
 import "./rehearsal-report-components.css";
@@ -42,6 +43,7 @@ function formatDate(iso: string) {
 }
 
 type Props = {
+  audioPlaybackAvailable?: boolean;
   deck: Deck | null;
   onSemanticRetry?: () => void;
   practiceGoalSummary?: ReactNode;
@@ -53,10 +55,11 @@ type Props = {
   semanticRetryState?: SemanticRetryState;
   totalRunCount: number;
 };
-type ReportTab = "overview" | "slides";
+type ReportTab = "overview" | "slides" | "test";
 
 
 export function RehearsalReportDocument({
+  audioPlaybackAvailable = true,
   deck,
   practiceGoalSummary,
   prevReports,
@@ -157,6 +160,17 @@ export function RehearsalReportDocument({
         >
           슬라이드 분석
         </button>
+        <button
+          type="button"
+          id="rrd-tab-test"
+          className={activeTab === "test" ? "is-active" : undefined}
+          role="tab"
+          aria-controls="rrd-panel-test"
+          aria-selected={activeTab === "test"}
+          onClick={() => setActiveTab("test")}
+        >
+          테스트
+        </button>
       </div>
 
       <div
@@ -174,11 +188,16 @@ export function RehearsalReportDocument({
       <div className="rrd-top-overview rrd-speech-overview">
         {/* ── 3. 음성 타임라인 / 긴 침묵 ── */}
         <RehearsalSilenceOverview
+          audioPlaybackAvailable={audioPlaybackAvailable}
           deck={deck}
           formatDuration={fmt}
           report={report}
         />
-        <RehearsalVolumeOverview formatDuration={fmt} report={report} />
+        <RehearsalVolumeOverview
+          audioPlaybackAvailable={audioPlaybackAvailable}
+          formatDuration={fmt}
+          report={report}
+        />
       </div>
 
 
@@ -265,6 +284,20 @@ export function RehearsalReportDocument({
             />
           </div>
         </section>
+      </div>
+
+      <div
+        id="rrd-panel-test"
+        className="rrd-report-panel"
+        role="tabpanel"
+        aria-labelledby="rrd-tab-test"
+        hidden={activeTab !== "test"}
+      >
+        <RehearsalReportTestView
+          deck={reportDeck}
+          formatDuration={fmt}
+          report={report}
+        />
       </div>
 
     </div>

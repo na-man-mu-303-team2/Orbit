@@ -698,3 +698,15 @@
 - Rationale: 시연자가 STT 누락을 즉시 복구하면서도 읽지 않은 문장을 완료했다고 기록하지 않고, 화면 포커스와 다음 음성 판정을 같은 문장에 맞춘다.
 - Affected files: `apps/web/src/features/rehearsal/speech/prompterProgressTracker.ts`, `apps/web/src/features/rehearsal/speech/speechTracker.ts`, `apps/web/src/features/editor/shell/hooks/useEditorSlideRehearsal.ts`, `apps/web/src/features/editor/shell/components/EditorSlideRehearsal.tsx`, `apps/web/src/features/editor/shell/EditorShell.tsx`, 관련 테스트와 `docs/decision-log.md`.
 - Follow-up review notes: 자동 모드에서 첫 문장을 skip한 뒤 진행률이 오르지 않는지, 다음 문장 final STT만 commit되는지, 마지막 문장 skip이 거부되는지, 수동 모드의 화살표 동작과 전체 리허설 wheel 동작이 유지되는지 확인한다.
+
+## ORBIT editor slide question guide runtime flag guard
+
+- Context: `SLIDE_QUESTION_GUIDES_ENABLED=false`인 배포 환경에서도 Editor QnA 탭은 `질문 생성` 버튼을 노출했다. 사용자가 버튼을 누르면 API가 의도대로 403 `Slide question guides are not enabled.`를 반환하지만, UI는 사용할 수 없는 기능을 실행 가능한 것처럼 보이게 했다.
+- Options considered:
+  - API의 feature flag 검사를 제거하고 항상 Job을 생성한다.
+  - UI는 그대로 두고 API 오류 문구만 바꾼다.
+  - UI가 공개 runtime config의 `slideQuestionGuidesEnabled`를 먼저 확인하고 비활성 상태에서는 조회·생성 요청을 보내지 않는다.
+- Final decision: `SlideQuestionGuidePanel`은 mount 시 `/api/v1/runtime-config`를 확인한다. 확인 전과 비활성 상태에서는 생성 버튼을 disabled로 유지하고, 비활성 상태에서는 guide 목록 조회와 생성 API 호출도 하지 않는다. API의 feature flag 검사는 계속 최종 권한 경계로 유지한다.
+- Rationale: 배포별 기능 활성화 결정은 API runtime config가 소유하고, Web은 이를 따라 사용 불가능한 작업을 시작하지 않는다. 네트워크 지연이나 설정 조회 실패 중에도 생성 요청을 낙관적으로 보내지 않아 사용자에게 403을 노출하지 않는다.
+- Affected files: `apps/web/src/features/editor/practice/SlideQuestionGuidePanel.tsx`, `apps/web/src/features/editor/practice/SlideQuestionGuidePanel.test.tsx`, `docs/decision-log.md`.
+- Follow-up review notes: enabled 환경에서는 runtime config 확인 뒤 버튼이 활성화되고 기존 guide 목록·생성 polling이 동작하는지, disabled 환경에서는 QnA 탭을 열어도 slide question guide API 요청이 발생하지 않는지 확인한다.

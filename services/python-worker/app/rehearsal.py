@@ -753,7 +753,10 @@ def unmeasured_slide_speaking_rate(
 
 def is_supported_speaking_rate_language(language: str) -> bool:
     normalized_language = language.strip().lower().replace("_", "-")
-    return normalized_language.split("-", maxsplit=1)[0] == "ko"
+    return (
+        normalized_language == "korean"
+        or normalized_language.split("-", maxsplit=1)[0] == "ko"
+    )
 
 
 def timed_segments_with_character_counts(

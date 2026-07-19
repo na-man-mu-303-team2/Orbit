@@ -139,12 +139,15 @@ class OpenAISpeechToTextProvider:
 
         provider_language = _read_field(result, "language", None)
         duration = _read_optional_float(result, "duration")
+        resolved_language = (
+            provider_language
+            if isinstance(provider_language, str) and provider_language
+            else self._language
+        )
 
         return ProviderTranscription(
             transcript=transcript,
-            language=provider_language
-            if isinstance(provider_language, str) and provider_language
-            else self._language,
+            language=_normalize_transcription_language(resolved_language),
             provider=self.name,
             model=self.model,
             duration_seconds=duration,
@@ -365,6 +368,13 @@ def _openai_language(language_code: str) -> str:
     return language_code.split("-", maxsplit=1)[0]
 
 
+def _normalize_transcription_language(language: str) -> str:
+    normalized = language.strip().lower().replace("_", "-")
+    if normalized == "korean" or normalized.split("-", maxsplit=1)[0] == "ko":
+        return "ko"
+    return language.strip()
+
+
 def _openai_response_format(model: str) -> str:
     if model.strip().lower() in {"gpt-4o-transcribe", "gpt-4o-mini-transcribe"}:
         return "json"
@@ -434,7 +444,7 @@ def _parse_whisperx_response(
 
     return ProviderTranscription(
         transcript=transcript,
-        language=language,
+        language=_normalize_transcription_language(language),
         provider=provider,
         model=model,
         duration_seconds=duration,
