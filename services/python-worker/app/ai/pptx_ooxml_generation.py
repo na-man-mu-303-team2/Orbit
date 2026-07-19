@@ -141,6 +141,7 @@ class PptxOoxmlGenerationResult(BaseModel):
 
 PptxOoxmlSyncOperationType = Literal[
     "add_slide",
+    "delete_slide",
     "add_element",
     "update_element_frame",
     "update_element_props",
@@ -154,6 +155,9 @@ PptxOoxmlUnsupportedReasonCode = Literal[
     "ADD_ELEMENT_FAILED",
     "ADD_ELEMENT_TYPE_UNSUPPORTED",
     "CROP_CAPABILITY_UNSAFE",
+    "DELETE_SLIDE_FAILED",
+    "DELETE_SLIDE_LOCATOR_UNSAFE",
+    "DELETE_SLIDE_RELATIONSHIP_UNSAFE",
     "RICH_TEXT_CAPABILITY_UNSAFE",
     "ELEMENT_TYPE_MISMATCH",
     "FRAME_FIELDS_UNSUPPORTED",
@@ -168,6 +172,7 @@ PptxOoxmlUnsupportedReasonCode = Literal[
     "SLIDE_REORDER_LOCATOR_UNSAFE",
     "SLIDE_REORDER_PERMUTATION_INVALID",
     "SLIDE_REORDER_RELATIONSHIP_UNSAFE",
+    "LAST_SLIDE_DELETE_FORBIDDEN",
     "SOURCE_MISSING",
     "SOURCE_NOT_WRITABLE",
     "SOURCE_PROVENANCE_UNSAFE",
@@ -1527,6 +1532,15 @@ def apply_sync_operation(
             source_package,
             template_blueprint,
         )
+    if operation_type == "delete_slide":
+        return delete_presentation_slide(
+            operation,
+            sources,
+            updated_sources,
+            package_entries,
+            source_package,
+            template_blueprint,
+        )
     element_id = operation_element_id(operation)
     operation_slide_part = slide_part_for_operation(
         operation,
@@ -1793,11 +1807,9 @@ def reorder_presentation_slides(
     requested_orders = [item[0] for item in requested]
     requested_ids = [item[1] for item in requested]
     expected_orders = set(range(1, len(requested) + 1))
-    if (
-        len(blueprint_locators) != len(requested)
-        or len(set(requested_ids)) != len(requested_ids)
-        or set(requested_orders) != expected_orders
-    ):
+    if len(set(requested_ids)) != len(requested_ids) or set(
+        requested_orders
+    ) != expected_orders:
         return "SLIDE_REORDER_PERMUTATION_INVALID"
     if any(blueprint_locators.get(item[1]) != item[2] for item in requested):
         return "SLIDE_REORDER_LOCATOR_UNSAFE"
@@ -1852,15 +1864,100 @@ def reorder_presentation_slides(
         slide_nodes_by_part[slide_part] = slide_id_node
 
     requested_parts = [item[2] for item in sorted(requested)]
-    if (
-        len(requested_parts) != len(slide_id_nodes)
-        or len(set(requested_parts)) != len(requested_parts)
-        or set(requested_parts) != set(slide_nodes_by_part)
-    ):
+    if len(requested_parts) != len(slide_id_nodes):
+        return "SLIDE_REORDER_PERMUTATION_INVALID"
+    if len(set(requested_parts)) != len(requested_parts) or set(
+        requested_parts
+    ) != set(slide_nodes_by_part):
         return "SLIDE_REORDER_LOCATOR_UNSAFE"
 
     slide_id_list[:] = [slide_nodes_by_part[part] for part in requested_parts]
     package_entries["ppt/presentation.xml"] = xml_bytes(presentation_root)
+    return None
+
+
+def delete_presentation_slide(
+    operation: dict[str, Any],
+    sources: dict[tuple[str, str], dict[str, Any]],
+    updated_sources: dict[tuple[str, str], dict[str, Any]],
+    package_entries: dict[str, bytes],
+    source_package: zipfile.ZipFile,
+    template_blueprint: dict[str, Any],
+) -> PptxOoxmlUnsupportedReasonCode | None:
+    slide_id = operation_slide_id(operation)
+    slide_part = slide_part_for_operation(operation, template_blueprint)
+    if not slide_id or not is_safe_slide_part(slide_part):
+        return "DELETE_SLIDE_LOCATOR_UNSAFE"
+    matching_blueprint_parts = [
+        str(slide.get("sourceSlidePart", ""))
+        for slide in template_blueprint.get("slides", [])
+        if isinstance(slide, dict) and slide.get("slideId") == slide_id
+    ]
+    if matching_blueprint_parts != [slide_part]:
+        return "DELETE_SLIDE_LOCATOR_UNSAFE"
+
+    presentation_xml = package_entries.get("ppt/presentation.xml")
+    presentation_rels_xml = package_entries.get(
+        "ppt/_rels/presentation.xml.rels"
+    )
+    content_types_xml = package_entries.get("[Content_Types].xml")
+    if presentation_xml is None or presentation_rels_xml is None:
+        return "DELETE_SLIDE_RELATIONSHIP_UNSAFE"
+    try:
+        presentation_root = ET.fromstring(presentation_xml)
+        relationships_root = ET.fromstring(presentation_rels_xml)
+        content_types_root = (
+            ET.fromstring(content_types_xml) if content_types_xml is not None else None
+        )
+    except ET.ParseError:
+        return "DELETE_SLIDE_RELATIONSHIP_UNSAFE"
+
+    slide_id_list = presentation_root.find(f"{{{PML_NS}}}sldIdLst")
+    if slide_id_list is None:
+        return "DELETE_SLIDE_RELATIONSHIP_UNSAFE"
+    slide_id_nodes = list(slide_id_list)
+    if len(slide_id_nodes) <= 1:
+        return "LAST_SLIDE_DELETE_FORBIDDEN"
+    relationships_by_id = {
+        str(relationship.get("Id", "")): relationship
+        for relationship in relationships_root
+        if relationship.get("Id")
+    }
+    matching_nodes: list[tuple[ET.Element[Any], ET.Element[Any]]] = []
+    for slide_id_node in slide_id_nodes:
+        relationship_id = str(slide_id_node.get(f"{{{REL_NS}}}id", ""))
+        relationship = relationships_by_id.get(relationship_id)
+        if relationship is None:
+            return "DELETE_SLIDE_RELATIONSHIP_UNSAFE"
+        target = str(relationship.get("Target", ""))
+        if resolve_relationship_part("ppt/presentation.xml", target) == slide_part:
+            matching_nodes.append((slide_id_node, relationship))
+    if len(matching_nodes) != 1 or slide_part not in source_package.namelist():
+        return "DELETE_SLIDE_RELATIONSHIP_UNSAFE"
+
+    slide_id_node, relationship = matching_nodes[0]
+    slide_id_list.remove(slide_id_node)
+    relationships_root.remove(relationship)
+    if content_types_root is not None:
+        part_name = f"/{slide_part}"
+        for child in list(content_types_root):
+            if child.tag.endswith("Override") and child.get("PartName") == part_name:
+                content_types_root.remove(child)
+
+    removed_source_keys = [
+        key
+        for key, source in sources.items()
+        if str(source.get("slidePart", "")) == slide_part
+    ]
+    for key in removed_source_keys:
+        sources.pop(key, None)
+        updated_sources.pop(key, None)
+    package_entries["ppt/presentation.xml"] = xml_bytes(presentation_root)
+    package_entries["ppt/_rels/presentation.xml.rels"] = xml_bytes(
+        relationships_root
+    )
+    if content_types_root is not None:
+        package_entries["[Content_Types].xml"] = xml_bytes(content_types_root)
     return None
 
 
