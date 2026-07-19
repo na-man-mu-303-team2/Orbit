@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from "react";
 import { createRef } from "react";
 import { renderToString } from "react-dom/server";
@@ -48,6 +50,21 @@ function renderInspector(
 }
 
 describe("SelectionInspector", () => {
+  it("uses redesign spacing for the structured element inspector header", () => {
+    const editorCss = fs.readFileSync(
+      path.join(process.cwd(), "src/features/editor/editor-shell.css"),
+      "utf8",
+    );
+    expect(editorCss).toContain(
+      `.orbit-shell.editor-professional.redesign-dark
+  .inspector-panel-slot
+  .editor-design-panel:has(.element-property-inspector)
+  .selection-inspector-header {
+  padding: var(--redesign-space-3) var(--redesign-space-3) 0;
+}`,
+    );
+  });
+
   it("renders only the control node matching the current mode", () => {
     const slideHtml = renderInspector(slideModel);
     const elementHtml = renderInspector(elementModel);

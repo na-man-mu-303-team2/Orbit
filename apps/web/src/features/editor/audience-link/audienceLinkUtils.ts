@@ -8,11 +8,11 @@ export function resolveAbsoluteAudienceUrl(audienceUrl: string) {
   return new URL(audienceUrl, window.location.origin).toString();
 }
 
-export async function createQrDataUrl(value: string) {
+export async function createQrDataUrl(value: string, options?: { width?: number }) {
   return QRCode.toDataURL(value, {
     errorCorrectionLevel: "M",
     margin: 1,
-    width: 220
+    width: options?.width ?? 220
   });
 }
 

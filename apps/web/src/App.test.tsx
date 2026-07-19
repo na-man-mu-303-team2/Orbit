@@ -6,9 +6,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   App,
   deckRenderPayloadStorageKey,
+  fetchProjectAccess,
+  getProjectAccessFailureBehavior,
   getProjectAccessRoleLabel,
   getAppNavigationItem,
   getRoute,
+  ProjectAccessRequestError,
+  shouldRetryProjectAccess,
   shouldRenderAppFrame,
   shouldWaitForAuthResolution
 } from "./App";
@@ -70,6 +74,13 @@ describe("App shell routing", () => {
     expect(getAppNavigationItem({ name: "project-list" })).toBe("project");
     expect(getAppNavigationItem({ name: "rehearsal-project-list" })).toBe("rehearsal");
     expect(getAppNavigationItem({ name: "report-list" })).toBe("reports");
+    expect(
+      getAppNavigationItem({
+        name: "rehearsal-report",
+        projectId: "project_bcaee91d-3878-4bec-a9b1-9f41fad8bff5",
+        runId: "run_cdfd5478-97dc-4598-b556-3a2e1737e338"
+      })
+    ).toBe("reports");
     expect(getAppNavigationItem({ name: "create-deck" })).toBe("project");
   });
 
@@ -389,6 +400,60 @@ describe("public and authentication surfaces", () => {
 });
 
 describe("workspace project surfaces", () => {
+  it("classifies an expired authentication session from project access", async () => {
+    await expect(
+      fetchProjectAccess(
+        "project_1",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ message: "Authentication required" }), {
+            status: 401,
+          }),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      name: "ProjectAccessRequestError",
+      status: 401,
+    });
+  });
+
+  it("retries transient project access failures but not authentication or missing-project responses", () => {
+    expect(shouldRetryProjectAccess(0, new TypeError("Failed to fetch"))).toBe(true);
+    expect(shouldRetryProjectAccess(2, new TypeError("Failed to fetch"))).toBe(false);
+    expect(
+      shouldRetryProjectAccess(
+        0,
+        new ProjectAccessRequestError("Authentication required", 401),
+      ),
+    ).toBe(false);
+    expect(
+      shouldRetryProjectAccess(
+        0,
+        new ProjectAccessRequestError("Project not found", 404),
+      ),
+    ).toBe(false);
+    expect(
+      shouldRetryProjectAccess(
+        0,
+        new ProjectAccessRequestError("Server error", 503),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps an already-authorized editor open for a transient access failure", () => {
+    expect(
+      getProjectAccessFailureBehavior(new TypeError("Failed to fetch"), true),
+    ).toBe("preserve");
+    expect(
+      getProjectAccessFailureBehavior(
+        new ProjectAccessRequestError("Authentication required", 401),
+        true,
+      ),
+    ).toBe("login");
+    expect(
+      getProjectAccessFailureBehavior(new TypeError("Failed to fetch"), false),
+    ).toBe("blocking");
+  });
+
   it("uses localized project access roles", () => {
     expect(getProjectAccessRoleLabel("owner")).toBe("소유자");
     expect(getProjectAccessRoleLabel("editor")).toBe("편집 가능");

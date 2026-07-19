@@ -60,6 +60,7 @@ type EditorTopbarProps = {
   pptxExportMessage: string;
   pptxImportMeta: string;
   recoveryHint: string | null;
+  saveFailed: boolean;
   saveMenuMeta: string;
   saveStatusLabel: string;
   setActiveTopMenu: (updater: EditorShellUiUpdater<TopMenu | null>) => void;
@@ -105,6 +106,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
     pptxExportMessage,
     pptxImportMeta,
     recoveryHint,
+    saveFailed,
     saveMenuMeta,
     saveStatusLabel,
     setActiveTopMenu,
@@ -309,6 +311,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
             lastSavedAtLabel={lastSavedAtLabel}
             onSave={onSave}
             recoveryHint={recoveryHint}
+            retrying={saveFailed}
             statusLabel={saveStatusLabel}
           />
         ) : null}

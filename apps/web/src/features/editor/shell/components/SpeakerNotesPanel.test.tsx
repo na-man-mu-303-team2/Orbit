@@ -14,6 +14,7 @@ function renderPanel(isExpanded: boolean, isEditing = false) {
 
   return renderToStaticMarkup(
     <SpeakerNotesPanel
+      canGenerateQuestionGuides
       contentRef={createRef<HTMLDivElement>()}
       currentSlide={currentSlide}
       deck={deck}
@@ -43,6 +44,8 @@ function renderPanel(isExpanded: boolean, isEditing = false) {
       onToggleMaximized={vi.fn()}
       onTogglePanel={vi.fn()}
       projectId={deck.projectId}
+      questionGuideAutoStatus="idle"
+      questionGuideRefreshToken={0}
       reportRefreshToken={0}
       requestedTab={null}
       selectedKeyword={null}
@@ -103,9 +106,12 @@ describe("SpeakerNotesPanel", () => {
     const slide = deck.slides[0] ?? null;
     const qnaHtml = renderToStaticMarkup(
       <SpeakerNotesQnaTab
+        canGenerate
         deck={deck}
         flushPendingSaves={vi.fn()}
         projectId={deck.projectId}
+        questionGuideAutoStatus="idle"
+        questionGuideRefreshToken={0}
         slide={slide}
       />,
     );

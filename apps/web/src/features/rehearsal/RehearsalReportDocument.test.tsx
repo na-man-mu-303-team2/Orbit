@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 
 describe("RehearsalReportDocument", () => {
-  it("separates the overview and slide coaching into analysis tabs", () => {
+  it("separates the overview, slide coaching, and test view into analysis tabs", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
         deck={deck}
@@ -33,13 +33,14 @@ describe("RehearsalReportDocument", () => {
 
     expect(html).toContain("전체 분석");
     expect(html).toContain("슬라이드 분석");
+    expect(html).toContain("테스트");
     expect(html).toContain(
       'aria-controls="rrd-panel-overview" aria-selected="true"',
     );
     expect(html).toMatch(/id="rrd-panel-slides"[^>]*hidden=""/);
-    expect(html).toMatch(
-      /rrd-top-overview[\s\S]*rrd-ai-card[\s\S]*practice-report-summary/,
-    );
+    expect(html).toMatch(/id="rrd-panel-test"[^>]*hidden=""/);
+    expect(html).toContain("슬라이드 상세 리포트 테스트");
+    expect(html).toContain("practice-report-summary");
     expect(html.indexOf("rrd-analysis-tabs")).toBeLessThan(
       html.indexOf("rrd-top-overview"),
     );
@@ -163,7 +164,7 @@ describe("RehearsalReportDocument", () => {
       />,
     );
 
-    expect(html).toContain("AI 총평");
+    expect(html).not.toContain("AI 총평");
     expect(html).toContain("말버릇");
     expect(html).toContain("긴 침묵 구간 분석");
     expect(html).toContain("소요 시간 분석");
@@ -219,7 +220,7 @@ describe("RehearsalReportDocument", () => {
     expect(html).not.toContain("키워드 커버리지");
   });
 
-  it("renders slide speaking pace as relative copy without rate units", () => {
+  it("renders the selected slide speaking pace without rate units", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
         deck={deck}
@@ -272,11 +273,11 @@ describe("RehearsalReportDocument", () => {
     );
 
     expect(html).toContain("전체 평균보다 느린 편");
-    expect(html).toContain("분석할 발화가 부족해요");
+    expect(html).not.toContain("분석할 발화가 부족해요");
     expect(html).not.toMatch(/WPM|CPM|CPS/);
   });
 
-  it("maps similar and faster pace categories to presenter-facing copy", () => {
+  it("renders only the initially selected slide pace category", () => {
     const measuredRate = {
       metricDefinitionVersion: 1 as const,
       measurementState: "measured" as const,
@@ -327,7 +328,7 @@ describe("RehearsalReportDocument", () => {
     );
 
     expect(html).toContain("전체 평균과 비슷");
-    expect(html).toContain("전체 평균보다 빠른 편");
+    expect(html).not.toContain("전체 평균보다 빠른 편");
   });
 
   it("does not render removed semantic retry content in the report", () => {
@@ -371,7 +372,7 @@ describe("RehearsalReportDocument", () => {
     expect(html).not.toContain("server_evaluation_failed");
   });
 
-  it("uses the run snapshot thumbnail instead of the current Deck thumbnail", () => {
+  it("renders report slides with Konva instead of thumbnail assets", () => {
     const currentDeck = structuredClone(deck);
     currentDeck.slides[0]!.thumbnailUrl = "/current-deck-thumbnail.png";
     const evaluationSnapshot = createRehearsalEvaluationSnapshot(
@@ -418,11 +419,12 @@ describe("RehearsalReportDocument", () => {
       />,
     );
 
-    expect(html).toContain("file_run_slide/content");
+    expect(html).toContain('data-renderer="konva"');
+    expect(html).not.toContain("file_run_slide/content");
     expect(html).not.toContain("current-deck-thumbnail");
   });
 
-  it("does not fall back to a stale Deck thumbnail when the run snapshot is missing", () => {
+  it("renders Konva when the run snapshot has no thumbnail", () => {
     const currentDeck = structuredClone(deck);
     currentDeck.slides[0]!.thumbnailUrl = "/stale-deck-thumbnail.png";
     const evaluationSnapshot = createRehearsalEvaluationSnapshot(
@@ -461,10 +463,11 @@ describe("RehearsalReportDocument", () => {
       />,
     );
 
+    expect(html).toContain('data-renderer="konva"');
     expect(html).not.toContain("stale-deck-thumbnail");
   });
 
-  it("does not show a Deck thumbnail when the run has no evaluation snapshot", () => {
+  it("renders the current Deck with Konva when there is no evaluation snapshot", () => {
     const currentDeck = structuredClone(deck);
     currentDeck.slides[0]!.thumbnailUrl = "/stale-deck-thumbnail.png";
     const html = renderToStaticMarkup(
@@ -499,6 +502,7 @@ describe("RehearsalReportDocument", () => {
       />,
     );
 
+    expect(html).toContain('data-renderer="konva"');
     expect(html).not.toContain("stale-deck-thumbnail");
   });
 });

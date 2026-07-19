@@ -5,10 +5,11 @@ import {
   legacyRehearsalSlideSpeakingRate,
   legacyRehearsalSilenceAnalysis,
   legacyRehearsalVolumeAnalysis,
+  projectAccessResponseSchema,
   type Deck,
   type Project,
+  type ProjectAccessResponse,
   type ProjectMemberRole,
-  type ProjectMemberStatus,
   type RehearsalReport,
   type RehearsalRun,
 } from "@orbit/shared";
@@ -110,14 +111,6 @@ export type Route =
   | { name: "deck-render" };
 
 export const deckRenderPayloadStorageKey = "orbit.deckRenderPayload.v1";
-
-type ProjectAccessResponse = {
-  project: Project;
-  membership: {
-    role: ProjectMemberRole;
-    status: ProjectMemberStatus;
-  } | null;
-};
 
 const EditorShell = lazy(() =>
   import("./features/editor/shell/EditorShell").then((module) => ({
@@ -242,21 +235,60 @@ const reportMockupReport: RehearsalReport = {
   },
   generatedAt: reportMockupGeneratedAt,
 };
-async function fetchProjectAccess(
+type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+export class ProjectAccessRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ProjectAccessRequestError";
+  }
+}
+
+export async function fetchProjectAccess(
   projectId: string,
+  fetcher: Fetcher = fetch,
 ): Promise<ProjectAccessResponse> {
-  const response = await fetch(
+  const response = await fetcher(
     `/api/v1/projects/${encodeURIComponent(projectId)}/access`,
     {
       credentials: "include",
     },
   );
   if (!response.ok) {
-    throw new Error(
+    throw new ProjectAccessRequestError(
       await readApiError(response, "프로젝트 권한을 확인하지 못했습니다."),
+      response.status,
     );
   }
-  return response.json() as Promise<ProjectAccessResponse>;
+  return projectAccessResponseSchema.parse(await response.json());
+}
+
+export function shouldRetryProjectAccess(
+  failureCount: number,
+  error: unknown,
+) {
+  if (error instanceof ProjectAccessRequestError) {
+    return error.status >= 500 && failureCount < 2;
+  }
+
+  return failureCount < 2;
+}
+
+export function getProjectAccessFailureBehavior(
+  error: unknown,
+  hasAcceptedMembership: boolean,
+) {
+  if (
+    error instanceof ProjectAccessRequestError &&
+    error.status === 401
+  ) {
+    return "login";
+  }
+
+  return hasAcceptedMembership ? "preserve" : "blocking";
 }
 async function requestProjectAccess(
   projectId: string,
@@ -276,7 +308,7 @@ async function requestProjectAccess(
       await readApiError(response, "프로젝트 권한 요청에 실패했습니다."),
     );
   }
-  return response.json() as Promise<ProjectAccessResponse>;
+  return projectAccessResponseSchema.parse(await response.json());
 }
 
 export function getRoute(pathname?: string, search?: string): Route {
@@ -957,7 +989,8 @@ export function getAppNavigationItem(route: Route): OrbitAppNavigationItem {
   if (route.name === "home") return "home";
   if (
     route.name === "report-list" ||
-    route.name === "report-project-overview"
+    route.name === "report-project-overview" ||
+    route.name === "rehearsal-report"
   ) {
     return "reports";
   }
@@ -996,11 +1029,23 @@ async function readApiError(response: Response, fallback: string) {
 }
 
 function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
+  const queryClient = useQueryClient();
   const access = useQuery({
     queryKey: ["project-access", props.projectId],
     queryFn: () => fetchProjectAccess(props.projectId),
-    retry: false,
+    retry: shouldRetryProjectAccess,
   });
+  const isUnauthorized =
+    access.error instanceof ProjectAccessRequestError &&
+    access.error.status === 401;
+  const membership = access.data?.membership ?? null;
+  const acceptedMembership =
+    membership?.status === "accepted" ? membership : null;
+  const hasAcceptedMembership = acceptedMembership !== null;
+  const failureBehavior = getProjectAccessFailureBehavior(
+    access.error,
+    hasAcceptedMembership,
+  );
 
   useEffect(() => {
     const membership = access.data?.membership;
@@ -1009,8 +1054,16 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
     }
   }, [access.data?.membership, access.isSuccess, props.projectId]);
 
+  useEffect(() => {
+    if (!isUnauthorized) return;
+
+    markAuthLoggedOut(queryClient);
+    navigateTo("/login");
+  }, [isUnauthorized, queryClient]);
+
   if (access.isLoading) return <EditorLoadingFallback />;
-  if (access.isError) {
+  if (failureBehavior === "login") return <AuthLoadingFallback />;
+  if (access.isError && failureBehavior === "blocking") {
     return (
       <ProjectAccessError
         onRetry={() => void access.refetch()}
@@ -1018,13 +1071,27 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
       />
     );
   }
-  if (access.data?.membership?.status !== "accepted")
+  if (!hasAcceptedMembership)
     return <EditorLoadingFallback />;
 
   return (
-    <ProjectAccessProvider membership={access.data.membership}>
+    <ProjectAccessProvider membership={acceptedMembership}>
+      {access.isError && failureBehavior === "preserve" ? (
+        <ProjectAccessRecoveryNotice onRetry={() => void access.refetch()} />
+      ) : null}
       {props.children}
     </ProjectAccessProvider>
+  );
+}
+
+function ProjectAccessRecoveryNotice(props: { onRetry: () => void }) {
+  return (
+    <aside className="orbit-project-access-recovery" role="status">
+      <span>권한 정보를 다시 확인하지 못했지만 작업 화면은 유지하고 있습니다.</span>
+      <OrbitButton onClick={props.onRetry} size="compact" variant="secondary">
+        다시 확인
+      </OrbitButton>
+    </aside>
   );
 }
 
