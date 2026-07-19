@@ -1081,11 +1081,11 @@ Python serializer는 transition 변경 시 기존 timing subtree bytes를 유지
 
 ORBIT editor의 `group` element는 PPTX shape group이 아니라 interaction 전용 논리 그룹이다. `TemplateBlueprint.logicalGroupElementIds`는 이전 sync에서 존재했던 논리 group ID를 보존하며, Worker는 현재 Deck의 group ID와 합쳐 group 자체의 `add_element`, `update_element_frame`, `update_element_props`, `delete_element`를 package-neutral operation으로 제외한다. group 이동으로 함께 생성된 실제 자식 element frame operation은 기존 OOXML source에 정상 반영한다. sync 성공 후 sidecar는 현재 Deck의 논리 group ID로 갱신한다.
 
-`reorder_slides`는 기존 DeckPatch의 `slideOrders` 계약을 재사용하며 현재 Deck slide ID 전체와 `1..N` order를 각각 정확히 한 번씩 포함해야 한다. imported PPTX sync에서 Worker는 `TemplateBlueprint.slides[].slideId`로 각 opaque Deck slide ID를 유일한 `sourceSlidePart`에 대응시킨다. Python serializer는 전달된 `slideId ↔ sourceSlidePart`를 다시 검증하고 `ppt/presentation.xml`의 `p:sldIdLst` 자식 순서만 바꾸며 각 `p:sldId@id`, `r:id`, `ppt/_rels/presentation.xml.rels`, slide part 이름과 slide별 package entry를 유지한다. slide ID의 숫자 suffix 또는 `slideIndex`로 package part를 추론하지 않는다.
+`reorder_slides`는 기존 DeckPatch의 `slideOrders` 계약을 재사용하며 operation이 실행되는 시점의 Deck slide ID 전체와 `1..N` order를 각각 정확히 한 번씩 포함해야 한다. Worker는 `ooxmlSyncedDeckVersion`의 `TemplateBlueprint.slides`를 시작 상태로 삼아 pending `add_slide`, `delete_slide`, `reorder_slides`를 저장 순서대로 replay하고 각 시점의 permutation을 검증한다. replay 결과가 stored Deck의 최종 순서와 정확히 일치해야 하며, 검증 후 transient add/delete와 과거 reorder는 최종 package mutation으로 compact한다. imported PPTX sync에서 Worker는 `TemplateBlueprint.slides[].slideId`로 각 opaque Deck slide ID를 유일한 `sourceSlidePart`에 대응시킨다. Python serializer는 전달된 `slideId ↔ sourceSlidePart`를 다시 검증하고 `ppt/presentation.xml`의 `p:sldIdLst` 자식 순서만 바꾸며 각 `p:sldId@id`, `r:id`, slide part 이름과 slide별 package entry를 유지한다. slide ID의 숫자 suffix 또는 `slideIndex`로 package part를 추론하지 않는다.
 
 `add_slide`는 imported Deck에서 생성된 `ooxmlOrigin: authored` 슬라이드에 새 `ppt/slides/slideN.xml`, presentation relationship, content type override, 기존 slide layout relationship을 원자적으로 연결한다. 같은 sync batch의 `text`, `rect`, `image`, `table` authored element를 새 slide part에 추가하고 `elementSources`를 반환한다. Worker는 생성한 opaque `slideId ↔ sourceSlidePart`를 TemplateBlueprint에 저장하므로 이후 이미지 추가와 재정렬도 동일한 locator를 사용한다.
 
-locator 누락, 두 Deck slide가 같은 source part를 가리키는 경우, 끊어진 presentation relationship, 중복·누락·unknown slide 또는 불완전 permutation은 bounded slide reorder reason으로 package 원본 bytes를 반환하고 freshness를 올리지 않는다. `delete_slide`의 OOXML part 제거는 아직 미지원이며 Worker preflight에서 fail-closed한다.
+`delete_slide`는 안정적인 `slideId ↔ sourceSlidePart` locator를 요구하고 `ppt/presentation.xml`의 slide ID 및 presentation relationship과 해당 content type override를 함께 제거한다. 마지막 슬라이드는 삭제하지 않는다. sync 성공 후 TemplateBlueprint는 최종 Deck에 남은 slide만 현재 order로 재구성한다. locator 누락, 두 Deck slide가 같은 source part를 가리키는 경우, 끊어진 presentation relationship, 중복·누락·unknown slide 또는 불완전 permutation은 bounded slide lifecycle reason으로 package 원본 bytes를 반환하고 freshness를 올리지 않는다.
 
 `update_element_props`의 text serializer는 `text`, `runs`, `paragraphs`, `bodyInset`, `fontFamily`, `fontSize`, `fontWeight`, `italic`, `underline`, `color`, `align`, `verticalAlign`, `writingMode`, `lineHeight`, `bullet`만 지원한다. targeted sync의 `fontWeight`는 lossless round-trip이 가능한 `normal | bold`만 허용하며, 미지원 field나 canonical projection 불일치는 fail-closed 대상이다.
 
@@ -1097,6 +1097,7 @@ Python Worker의 sync 응답은 bounded array인 `appliedOperations`와 `unsuppo
 
 - `ADD_ELEMENT_FAILED`, `ADD_ELEMENT_TYPE_UNSUPPORTED`
 - `CROP_CAPABILITY_UNSAFE`
+- `DELETE_SLIDE_FAILED`, `DELETE_SLIDE_LOCATOR_UNSAFE`, `DELETE_SLIDE_RELATIONSHIP_UNSAFE`, `LAST_SLIDE_DELETE_FORBIDDEN`
 - `RICH_TEXT_CAPABILITY_UNSAFE`
 - `ELEMENT_TYPE_MISMATCH`, `FRAME_FIELDS_UNSUPPORTED`, `GROUPED_FRAME_UNSUPPORTED`
 - `OPERATION_TYPE_UNSUPPORTED`, `PROPS_FIELDS_UNSUPPORTED`, `PROPS_UPDATE_FAILED`
@@ -1131,6 +1132,7 @@ Imported Deck export 규칙:
 - export에 사용하는 `currentPackageFileId`는 같은 project의 uploaded PPTX `design-asset`이어야 하며, package 복사 transaction 동안 asset row를 shared lock으로 보호한다.
 - 사용자에게 제공하는 결과는 current package 원본 asset을 직접 노출하지 않고 별도 `export-result` asset으로 복사한다.
 - TemplateBlueprint가 없는 일반 Deck은 기존 `/ai/export-deck-pptx` 경로를 유지한다.
+- `POST /api/v1/projects/:projectId/deck/exports` enqueue가 실패하면 생성한 Job을 `failed`, `error.code=DECK_EXPORT_ENQUEUE_FAILED`, `retryable=true`로 먼저 저장하고 HTTP 503 `{ code, message, job }`을 반환한다. 응답과 Job의 code/message는 같으며 provider/Redis 원문 오류는 안전한 업무 로그에만 남긴다.
 
 Implementation locations:
 
