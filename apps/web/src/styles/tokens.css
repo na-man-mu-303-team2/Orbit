@@ -75,6 +75,7 @@
   --redesign-color-on-success-container: #084c2d;
   --redesign-color-success-subtle: #eef9f2;
   --redesign-color-warning: #865500;
+  --redesign-color-warning-progress: #f0be36;
   --redesign-color-on-warning: var(--redesign-color-light-surface);
   --redesign-color-warning-container: #fff1cf;
   --redesign-color-on-warning-container: #5d3a00;
@@ -366,6 +367,7 @@
   --redesign-color-on-success-container: #b6f1cf;
   --redesign-color-success-subtle: #172a21;
   --redesign-color-warning: #ffcc70;
+  --redesign-color-warning-progress: #f0be36;
   --redesign-color-on-warning: #4a2d00;
   --redesign-color-warning-container: #5c3b08;
   --redesign-color-on-warning-container: #ffe3ad;
