@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 
 describe("RehearsalReportDocument", () => {
-  it("separates the overview, slide coaching, and test view into analysis tabs", () => {
+  it("opens the test report directly without analysis tab controls", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
         deck={deck}
@@ -31,30 +31,16 @@ describe("RehearsalReportDocument", () => {
       />,
     );
 
-    expect(html).toContain("전체 분석");
-    expect(html).toContain("슬라이드 분석");
-    expect(html).toContain("테스트");
-    expect(html).toContain(
-      'aria-controls="rrd-panel-overview" aria-selected="true"',
-    );
+    expect(html).not.toContain("rrd-analysis-tabs");
+    expect(html).not.toContain('role="tablist"');
+    expect(html).toMatch(/id="rrd-panel-overview"[^>]*hidden=""/);
     expect(html).toMatch(/id="rrd-panel-slides"[^>]*hidden=""/);
-    expect(html).toMatch(/id="rrd-panel-test"[^>]*hidden=""/);
+    expect(html).toMatch(/id="rrd-panel-test"[^>]*class="rrd-report-panel"/);
+    expect(html).not.toMatch(/id="rrd-panel-test"[^>]*hidden=""/);
     expect(html).toContain("슬라이드 상세 리포트 테스트");
-    expect(html).toContain('aria-label="소요 시간 그래프 범례"');
-    expect(html).toMatch(/aria-current="true" aria-label="1번 슬라이드/);
-    expect(html).toContain("practice-report-summary");
-    expect(html.indexOf("rrd-analysis-tabs")).toBeLessThan(
-      html.indexOf("rrd-top-overview"),
-    );
-    expect(html.indexOf("rrd-top-overview")).toBeLessThan(
-      html.indexOf("rrd-habit-panel"),
-    );
-    expect(html).toContain("rrd-slide-coaching");
-    expect(html.indexOf("rrd-habit-panel")).toBeLessThan(
-      html.indexOf("rrd-slide-coaching"),
-    );
+    expect(html).toContain('aria-current="true"');
+    expect(html).toContain("전체 발표 핵심 요약");
   });
-
   it("groups utterance outcomes and renders presenter-facing semantic outcomes", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument

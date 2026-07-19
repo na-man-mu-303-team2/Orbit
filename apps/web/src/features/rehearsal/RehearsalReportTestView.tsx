@@ -103,19 +103,6 @@ export function RehearsalReportTestView({
       className="rrd-test-view"
       aria-label="슬라이드 상세 리포트 테스트 화면"
     >
-      <header className="rrd-test-heading">
-        <div>
-          <span>NEW REPORT PREVIEW</span>
-          <h2>슬라이드 상세 리포트</h2>
-          <p>슬라이드를 선택해 실제 발표 흐름과 코칭 지표를 함께 확인하세요.</p>
-        </div>
-        <strong>
-          {isOverall
-            ? `전체 · ${deck?.slides.length ?? 0}장`
-            : `${selectedIndex + 1} / ${deck?.slides.length ?? 0}`}
-        </strong>
-      </header>
-
       {deck && deck.slides.length > 0 ? (
         <RehearsalReportTestNavigator
           deck={deck}
