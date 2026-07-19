@@ -48,6 +48,10 @@ describe("SlideQuestionGuidesService auto batch", () => {
     expect(harness.clientRequestIds).toEqual(clientRequestIds);
     expect(clientRequestIds).toHaveLength(3);
     expect(clientRequestIds.every((value) => /^slide-guide-auto_[a-f0-9]{64}$/.test(value))).toBe(true);
+    expect(harness.sourceSnapshots).toHaveLength(3);
+    expect(harness.sourceSnapshots.every(
+      (snapshot) => snapshot.contentHashVersion === "slide-text-v1",
+    )).toBe(true);
   });
 
   it("reuses active and successful guides with the current slide hash", async () => {
@@ -113,6 +117,7 @@ function createHarness(
   const guidesByClientRequest = new Map<string, { guideId: string; jobId: string | null }>();
   const jobs = new Map<string, Job>();
   const clientRequestIds: string[] = [];
+  const sourceSnapshots: Array<Record<string, unknown>> = [];
   let jobSequence = 0;
   const query = vi.fn(async (sql: string, parameters: unknown[] = []) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -130,6 +135,7 @@ function createHarness(
     if (normalized.startsWith("INSERT INTO slide_question_guides")) {
       const clientRequestId = String(parameters[7]);
       clientRequestIds.push(clientRequestId);
+      sourceSnapshots.push(parameters[6] as Record<string, unknown>);
       guidesByClientRequest.set(clientRequestId, {
         guideId: String(parameters[0]),
         jobId: null,
@@ -180,7 +186,7 @@ function createHarness(
     jobsService as never,
     logger as never,
   );
-  return { service, deck, decksService, jobsService, clientRequestIds };
+  return { service, deck, decksService, jobsService, clientRequestIds, sourceSnapshots };
 }
 
 function jobFixture(jobId: string, status: Job["status"], projectId = "project-1"): Job {

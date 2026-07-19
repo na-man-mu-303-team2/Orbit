@@ -1,4 +1,9 @@
-import type { Deck, Slide, SlideQuestionGuide } from "@orbit/shared";
+import {
+  slideQuestionGuideTextHashInput,
+  type Deck,
+  type Slide,
+  type SlideQuestionGuide,
+} from "@orbit/shared";
 import { useEffect, useState } from "react";
 
 import { fetchLiveSttRuntimeConfig } from "../../rehearsal/stt/liveSttRuntimeConfig";
@@ -59,7 +64,7 @@ export function SlideQuestionGuidePanel(props: {
         deckId: props.deck.deckId,
         slideId: slide.slideId,
       }),
-      sha256Canonical(slide),
+      sha256Canonical(slideQuestionGuideTextHashInput(slide)),
     ]).then(([guides, slideContentHash]) => {
       if (!active) return;
       const current = findCurrentSlideQuestionGuide(guides, slideContentHash);

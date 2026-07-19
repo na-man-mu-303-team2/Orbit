@@ -1,6 +1,10 @@
 import type { DataSource } from "typeorm";
 import { createHash } from "node:crypto";
-import { canonicalJson, deckSchema } from "@orbit/shared";
+import {
+  canonicalJson,
+  deckSchema,
+  slideQuestionGuideTextHashInput,
+} from "@orbit/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { processSlideQuestionGuideGenerationJob } from "./slide-question-guide-generation.processor";
@@ -13,6 +17,7 @@ const payload = {
 const canonicalDeck = deckSchema.parse(deckFixture());
 const slideHash = sha256Canonical(canonicalDeck.slides[0]);
 const supportingSlideHash = sha256Canonical(canonicalDeck.slides[1]);
+const slideTextHash = sha256Canonical(slideQuestionGuideTextHashInput(canonicalDeck.slides[0]));
 const referenceHash = "b".repeat(64);
 
 describe("processSlideQuestionGuideGenerationJob", () => {
@@ -158,6 +163,47 @@ describe("processSlideQuestionGuideGenerationJob", () => {
       ]),
     );
     expect(harness.queriedLiveDeck).toBe(false);
+  });
+
+  it("keeps a text-hash guide fresh after a visual-only edit", async () => {
+    const frozenDeck = deckFixture();
+    frozenDeck.slides[0]!.style = { backgroundColor: "#000000" };
+    const harness = createHarness({
+      contentHashVersion: "slide-text-v1",
+      frozenSnapshotDeck: frozenDeck,
+      sourceSnapshotId: "snapshot_1",
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(providerResponse(
+      [0, 1, 2].map((index) => generatedItem(index, slideTextHash)),
+    ))));
+
+    const job = await processSlideQuestionGuideGenerationJob(
+      harness.dataSource,
+      "http://python-worker:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("succeeded");
+  });
+
+  it("fails a text-hash guide after a text edit", async () => {
+    const frozenDeck = deckFixture();
+    frozenDeck.slides[0]!.title = "수정된 핵심 슬라이드";
+    const harness = createHarness({
+      contentHashVersion: "slide-text-v1",
+      frozenSnapshotDeck: frozenDeck,
+      sourceSnapshotId: "snapshot_1",
+    });
+    vi.stubGlobal("fetch", vi.fn());
+
+    const job = await processSlideQuestionGuideGenerationJob(
+      harness.dataSource,
+      "http://python-worker:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("failed");
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -365,6 +411,7 @@ describe("processSlideQuestionGuideGenerationJob", () => {
 });
 
 function createHarness(options: {
+  contentHashVersion?: "slide-text-v1";
   checkpointDeck?: ReturnType<typeof deckFixture>;
   frozenSnapshotDeck?: ReturnType<typeof deckFixture>;
   sourceSnapshotId?: string;
@@ -387,7 +434,7 @@ function createHarness(options: {
   const query = vi.fn(async (sql: string, parameters: unknown[] = []) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
     if (normalized.startsWith("SELECT * FROM slide_question_guides")) {
-      return [guideRow(options.sourceSnapshotId)];
+      return [guideRow(options.sourceSnapshotId, options.contentHashVersion)];
     }
     if (normalized.startsWith("SELECT snapshot_id, project_id")) {
       const frozenSnapshotDeck = options.frozenSnapshotDeck ?? deckFixture();
@@ -430,7 +477,11 @@ function createHarness(options: {
   const managerQuery = vi.fn(async (sql: string, parameters: unknown[] = []) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
     if (normalized.includes("FOR UPDATE")) {
-      return [{ status: "running", deck_version: 3, slide_content_hash: slideHash }];
+      return [{
+        status: "running",
+        deck_version: 3,
+        slide_content_hash: options.contentHashVersion ? slideTextHash : slideHash,
+      }];
     }
     if (normalized.startsWith("INSERT INTO slide_question_guide_items")) {
       insertedItems.push(parameters[4]);
@@ -465,19 +516,24 @@ function createHarness(options: {
   };
 }
 
-function guideRow(sourceSnapshotId?: string) {
+function guideRow(
+  sourceSnapshotId?: string,
+  contentHashVersion?: "slide-text-v1",
+) {
+  const contentHash = contentHashVersion ? slideTextHash : slideHash;
   return {
     guide_id: "guide-1",
     project_id: "project-1",
     deck_id: "deck_1",
     deck_version: 3,
     slide_id: "slide_1",
-    slide_content_hash: slideHash,
+    slide_content_hash: contentHash,
     source_snapshot_json: {
       ...(sourceSnapshotId ? { deckSnapshotId: sourceSnapshotId } : {}),
+      ...(contentHashVersion ? { contentHashVersion } : {}),
       slideId: "slide_1",
       deckVersion: 3,
-      contentHash: slideHash,
+      contentHash,
       title: "핵심 슬라이드",
       content: "슬라이드 근거",
     },
@@ -485,29 +541,29 @@ function guideRow(sourceSnapshotId?: string) {
   };
 }
 
-function generatedItem(index: number) {
+function generatedItem(index: number, contentHash = slideHash) {
   return {
     questionType: ["evidence", "objection", "decision"][index],
     questionText: `질문 ${index + 1}`,
     supportState: "grounded",
-    keyConcepts: [{ label: "핵심", sourceRefs: [slideRef()] }],
+    keyConcepts: [{ label: "핵심", sourceRefs: [slideRef(contentHash)] }],
     suggestedAnswer: {
       summary: "근거에 기반한 답변",
       structure: ["결론", "근거"],
       caveats: [],
     },
     remediation: null,
-    sourceRefs: index === 2 ? [referenceRef()] : [slideRef()],
+    sourceRefs: index === 2 ? [referenceRef()] : [slideRef(contentHash)],
   };
 }
 
-function slideRef() {
+function slideRef(contentHash = slideHash) {
   return {
     kind: "slide" as const,
     slideId: "slide_1",
     objectId: null,
     deckVersion: 3,
-    contentHash: slideHash,
+    contentHash,
   };
 }
 

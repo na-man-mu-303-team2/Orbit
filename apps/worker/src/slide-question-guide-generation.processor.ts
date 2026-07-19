@@ -10,6 +10,7 @@ import {
   slideQuestionGuideJobResultSchema,
   slideQuestionGuideResearchSchema,
   slideQuestionGuideSourceSnapshotSchema,
+  slideQuestionGuideTextHashInput,
   slideQuestionGuideWebSourceRefSchema,
   type Job,
 } from "@orbit/shared";
@@ -183,13 +184,16 @@ export async function processSlideQuestionGuideGenerationJob(
     }
     const slides = deck.slides.map((slide) => {
       const isTarget = slide.slideId === guide.slide_id;
+      const textHashInput = slideQuestionGuideTextHashInput(slide);
       return slideQuestionGuideDeckContextSlideSchema.parse({
         slideId: slide.slideId,
         order: slide.order,
         deckVersion: deck.version,
-        contentHash: sha256Canonical(slide),
+        contentHash: sha256Canonical(
+          sourceSnapshot.contentHashVersion === "slide-text-v1" ? textHashInput : slide,
+        ),
         title: slide.title.slice(0, 500),
-        content: collectSlideContent(slide).slice(0, isTarget ? 4_000 : 600),
+        content: textHashInput.textSegments.join("\n").slice(0, isTarget ? 4_000 : 600),
         speakerNotes: slide.speakerNotes.slice(0, isTarget ? 6_000 : 600),
       });
     });
@@ -540,25 +544,6 @@ function readFrozenDeckSnapshot(
     throw new Error("SLIDE_QUESTION_GUIDE_SOURCE_STALE");
   }
   return deck;
-}
-
-function collectSlideContent(value: unknown): string {
-  const collected: string[] = [];
-  const visit = (candidate: unknown, key = "") => {
-    if (typeof candidate === "string" && ["title", "text", "alt"].includes(key)) {
-      if (candidate.trim()) collected.push(candidate.trim());
-      return;
-    }
-    if (Array.isArray(candidate)) {
-      candidate.forEach((item) => visit(item, key));
-      return;
-    }
-    if (candidate && typeof candidate === "object") {
-      Object.entries(candidate).forEach(([childKey, child]) => visit(child, childKey));
-    }
-  };
-  visit(value);
-  return Array.from(new Set(collected)).join("\n");
 }
 
 function sha256Canonical(value: unknown): string {

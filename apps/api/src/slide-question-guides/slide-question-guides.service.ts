@@ -8,6 +8,7 @@ import {
   slideQuestionGuideJobResponseSchema,
   slideQuestionGuideListResponseSchema,
   slideQuestionGuideSchema,
+  slideQuestionGuideTextHashInput,
   type Deck,
   type Slide,
 } from "@orbit/shared";
@@ -84,7 +85,7 @@ export class SlideQuestionGuidesService {
     const slides: Array<Record<string, unknown>> = [];
     for (const slide of deck.slides) {
       try {
-        const slideContentHash = sha256Canonical(slide);
+        const slideContentHash = sha256Canonical(slideQuestionGuideTextHashInput(slide));
         const reusable = await this.findReusableGuide(
           projectId,
           deck.deckId,
@@ -146,7 +147,8 @@ export class SlideQuestionGuidesService {
 
     const guideId = `slide_guide_${randomUUID()}`;
     const now = new Date().toISOString();
-    const slideContentHash = sha256Canonical(input.slide);
+    const textHashInput = slideQuestionGuideTextHashInput(input.slide);
+    const slideContentHash = sha256Canonical(textHashInput);
     try {
       await this.dataSource.query(
         `INSERT INTO slide_question_guides (
@@ -163,11 +165,15 @@ export class SlideQuestionGuidesService {
           slideContentHash,
           {
             deckSnapshotId: input.deckSnapshotId,
+            contentHashVersion: "slide-text-v1",
             slideId: input.slide.slideId,
             deckVersion: input.deck.version,
             contentHash: slideContentHash,
             title: input.slide.title,
-            content: collectSlideText(input.slide).slice(0, 8_000),
+            content: [...textHashInput.textSegments, textHashInput.speakerNotes]
+              .filter(Boolean)
+              .join("\n")
+              .slice(0, 8_000),
           },
           input.clientRequestId,
           input.actorUserId,
@@ -377,23 +383,4 @@ function autoErrorCode(error: unknown): string {
     return error.message;
   }
   return "SLIDE_QUESTION_GUIDE_AUTO_FAILED";
-}
-
-function collectSlideText(value: unknown): string {
-  const collected: string[] = [];
-  const visit = (candidate: unknown, key = "") => {
-    if (typeof candidate === "string" && ["title", "text", "alt", "speakerNotes"].includes(key)) {
-      if (candidate.trim()) collected.push(candidate.trim());
-      return;
-    }
-    if (Array.isArray(candidate)) {
-      candidate.forEach((item) => visit(item, key));
-      return;
-    }
-    if (candidate && typeof candidate === "object") {
-      Object.entries(candidate).forEach(([childKey, child]) => visit(child, childKey));
-    }
-  };
-  visit(value);
-  return Array.from(new Set(collected)).join("\n");
 }

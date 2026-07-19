@@ -1,3 +1,5 @@
+import { createDemoDeck } from "@orbit/editor-core";
+import { slideQuestionGuideTextHashInput } from "@orbit/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -39,6 +41,25 @@ describe("slide question guide canonical hash", () => {
     await expect(sha256Canonical({ beta: 2, alpha: 1 })).resolves.toBe(
       await sha256Canonical({ alpha: 1, beta: 2 }),
     );
+  });
+
+  it("keeps the guide current for visual edits and invalidates text edits", async () => {
+    const slide = createDemoDeck().slides[0]!;
+    const visualEdit = structuredClone(slide);
+    visualEdit.style = { ...visualEdit.style, backgroundColor: "#000000" };
+    const textElement = visualEdit.elements.find((element) => element.type === "text");
+    if (textElement?.type === "text") {
+      textElement.props.color = "#ffffff";
+    }
+    const textEdit = { ...slide, title: `${slide.title} 수정` };
+    const hash = await sha256Canonical(slideQuestionGuideTextHashInput(slide));
+
+    await expect(
+      sha256Canonical(slideQuestionGuideTextHashInput(visualEdit)),
+    ).resolves.toBe(hash);
+    await expect(
+      sha256Canonical(slideQuestionGuideTextHashInput(textEdit)),
+    ).resolves.not.toBe(hash);
   });
 });
 

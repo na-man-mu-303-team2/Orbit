@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
 import { deckSnapshotIdSchema } from "../deck/deck-api.schema";
+import type { Slide } from "../deck/deck.schema";
 import { jobSchema } from "../jobs/job.schema";
 
 const identifierSchema = z.string().trim().min(1).max(128);
@@ -44,12 +45,37 @@ export const slideQuestionSourceRefSchema = z.discriminatedUnion("kind", [
 
 export const slideQuestionGuideSourceSnapshotSchema = z.object({
   deckSnapshotId: deckSnapshotIdSchema.optional(),
+  contentHashVersion: z.literal("slide-text-v1").optional(),
   slideId: identifierSchema,
   deckVersion: z.number().int().positive(),
   contentHash: z.string().regex(/^[a-f0-9]{64}$/),
   title: z.string().trim().max(500),
   content: z.string().trim().max(8_000),
 }).strict();
+
+export function slideQuestionGuideTextHashInput(slide: Slide) {
+  const textSegments: string[] = [];
+  const visit = (value: unknown, key = "") => {
+    if (typeof value === "string" && ["alt", "text", "title"].includes(key)) {
+      if (value.trim()) textSegments.push(value.trim());
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, key));
+      return;
+    }
+    if (value && typeof value === "object") {
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .forEach(([childKey, child]) => visit(child, childKey));
+    }
+  };
+  visit(slide);
+  return {
+    speakerNotes: slide.speakerNotes.trim(),
+    textSegments: Array.from(new Set(textSegments)),
+  };
+}
 
 export const slideQuestionGuideDeckContextSlideSchema = z.object({
   slideId: identifierSchema,

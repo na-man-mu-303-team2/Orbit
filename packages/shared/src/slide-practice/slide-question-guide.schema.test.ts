@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Slide } from "../deck/deck.schema";
 
 import {
   autoCreateSlideQuestionGuidesRequestSchema,
@@ -8,6 +9,7 @@ import {
   slideQuestionGuideJobResultSchema,
   slideQuestionGuideSchema,
   slideQuestionGuideSourceSnapshotSchema,
+  slideQuestionGuideTextHashInput,
 } from "./slide-question-guide.schema";
 
 describe("slide question guide privacy contract", () => {
@@ -56,7 +58,30 @@ describe("slide question guide privacy contract", () => {
     expect(slideQuestionGuideSourceSnapshotSchema.safeParse({
       ...legacy,
       deckSnapshotId: "snapshot_1",
+      contentHashVersion: "slide-text-v1",
     }).success).toBe(true);
+  });
+
+  it("keeps visual-only edits fresh and invalidates text edits", () => {
+    const slide = {
+      title: "시장 진입 전략",
+      speakerNotes: "교육 시장을 우선 검증합니다.",
+      style: { backgroundColor: "#ffffff" },
+      elements: [{ props: { text: "첫 고객군", color: "#111111" } }],
+    } as Slide;
+    const visualEdit = {
+      ...slide,
+      style: { backgroundColor: "#000000" },
+      elements: [{ props: { text: "첫 고객군", color: "#ffffff" } }],
+    } as Slide;
+    const textEdit = { ...slide, title: "수정된 시장 진입 전략" } as Slide;
+
+    expect(slideQuestionGuideTextHashInput(visualEdit)).toEqual(
+      slideQuestionGuideTextHashInput(slide),
+    );
+    expect(slideQuestionGuideTextHashInput(textEdit)).not.toEqual(
+      slideQuestionGuideTextHashInput(slide),
+    );
   });
 
   it("keeps job payload and result identifier-only", () => {
