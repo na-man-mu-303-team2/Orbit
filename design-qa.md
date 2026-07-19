@@ -25,6 +25,39 @@ final result: passed
 
 ---
 
+# 에디터 QnA 패널 정보 구조 개선 design QA
+
+- Source visual truth: `/var/folders/bz/br99y0bj2395vd1507vwbqmm0000gn/T/codex-clipboard-38909dcc-4b0f-4b87-a400-37743dc0abe5.png`.
+- Implementation route: `http://127.0.0.1:4174/project/project_972d5901-d92c-4dfb-9e3d-547a3079f940`.
+- Implementation screenshot: `/private/tmp/qna-editor-full.png`.
+- Focused implementation screenshot: `/private/tmp/qna-panel-focused.png`.
+- Combined comparison: `/private/tmp/qna-design-comparison.png`.
+- Viewport/state: 1116 × 794 CSS px, QnA 탭, Q1 / 3, 추천 답변 접힘 상태.
+
+## Comparison evidence
+
+- 참조의 개선안과 구현 화면을 한 비교 이미지에 배치해 질문 탐색, 질문·핵심 개념, 답변 요약, 상세 답변 disclosure의 정보 계층을 확인했다.
+- 기존의 가운데 정렬된 큰 질문 카드와 전체 답변 즉시 노출 구조를 제거하고, 왼쪽 정렬 질문과 요약 우선 구조로 바꿨다.
+- 진행 상태는 `Q1 / 3`, 현재 문항 점, 이전·다음 버튼으로 압축했고 재생성은 같은 toolbar의 보조 동작으로 유지했다.
+- 보라색 강조 대신 redesign primary blue 계열 토큰만 진행 상태, 핵심 개념, AI 추천, 체크 아이콘에 사용했다.
+
+## Interaction and responsive verification
+
+- `전체 답변 보기`를 누르면 `aria-expanded`가 `false`에서 `true`로 바뀌고, `답변 접기`로 다시 축소된다.
+- `다음 질문`과 `이전 질문`을 눌러 `Q1 / 3 → Q2 / 3 → Q1 / 3` 전환을 확인했다.
+- 583px 폭의 실제 하단 패널에서 toolbar가 겹치지 않고 질문·답변 영역이 패널 내부에서 스크롤된다.
+- 인앱 브라우저 console warning/error 없음.
+
+## Verification
+
+- `SlideQuestionGuidePanel.test.tsx`: 10 tests passed.
+- `pnpm --filter @orbit/web build`: passed with the existing bundle-size and dynamic-import warnings only.
+- `git diff --check`: passed.
+
+final result: passed
+
+---
+
 # Create deck first-step design QA
 
 - Source visual truth: `/var/folders/bz/br99y0bj2395vd1507vwbqmm0000gn/T/codex-clipboard-e806a6c4-f0be-4044-8753-75c50caadb56.png` plus the current task requirements for a two-stage connected indicator and a single content flow.
