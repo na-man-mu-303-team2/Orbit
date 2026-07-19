@@ -1,5 +1,8 @@
 import {
+  PPTX_OOXML_SYNC_CAPABILITY_VERSION,
   animationSchema,
+  authoredElementFallbacksSchema,
+  authoredOoxmlRasterElementTypeSchema,
   deckCanvasSchema,
   deckPatchOperationSchema,
   deckPatchOperationTypeSchema,
@@ -11,8 +14,10 @@ import {
   templateElementSourceSchema,
   templateBlueprintSchema,
   type Deck,
+  type AuthoredElementFallbacks,
   type DeckPatchOperation,
   type Job,
+  type RasterizedElement,
   type TemplateBlueprint,
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
@@ -50,6 +55,7 @@ const ooxmlUnsupportedReasonCodeSchema = z.enum([
   "ADD_SLIDE_LAYOUT_UNSAFE",
   "ADD_ELEMENT_FAILED",
   "ADD_ELEMENT_TYPE_UNSUPPORTED",
+  "AUTHORED_RASTER_FALLBACK_FAILED",
   "CROP_CAPABILITY_UNSAFE",
   "DELETE_SLIDE_FAILED",
   "DELETE_SLIDE_LOCATOR_UNSAFE",
@@ -248,6 +254,7 @@ export const ooxmlSyncJsonPartLimits = {
   operations: 72 * 1024 * 1024,
   deck_canvas: 4 * 1024,
   slide_motion: 16 * 1024 * 1024,
+  authored_element_fallbacks: 72 * 1024 * 1024,
 } as const;
 
 const ooxmlSyncTransportErrorDetailSchema = z.object({
@@ -268,6 +275,7 @@ const ooxmlSyncTransportErrorDetailSchema = z.object({
       "operations",
       "deck_canvas",
       "slide_motion",
+      "authored_element_fallbacks",
     ]),
     maxBytes: z.number().int().positive().optional(),
   }),
@@ -381,6 +389,7 @@ export async function processPptxOoxmlSyncJob(
           payload.deckId,
           latestDeckVersion,
         );
+        const rasterizedElements = activeRasterizedElements(templateBlueprint);
         return completeSyncJob(manager, payload, {
           templateId: templateBlueprint.templateId,
           currentPackageFileId: currentPackageFileId(templateBlueprint),
@@ -388,7 +397,8 @@ export async function processPptxOoxmlSyncJob(
             slide.renderAssetFileId ? [slide.renderAssetFileId] : [],
           ),
           syncedDeckVersion,
-          warnings: [],
+          rasterizedElements,
+          warnings: rasterFallbackWarnings(rasterizedElements),
         });
       }
 
@@ -457,6 +467,16 @@ export async function processPptxOoxmlSyncJob(
         blueprintWithLogicalGroups,
         embeddedOperations,
       );
+      const authoredElementFallbacks = await embedAuthoredFallbackAssets(
+        manager,
+        storage,
+        payload.projectId,
+        buildAuthoredElementFallbacks(
+          storedDeck,
+          syncPlan.templateBlueprint,
+          syncPlan.operations,
+        ),
+      );
       const synced = await syncPptxOoxmlWithPython(
         storage,
         pythonWorkerUrl,
@@ -465,6 +485,7 @@ export async function processPptxOoxmlSyncJob(
         syncPlan.templateBlueprint,
         storedDeck,
         syncPlan.operations,
+        authoredElementFallbacks,
       );
       const savedAssets = await saveSyncAssets(
         manager,
@@ -498,12 +519,21 @@ export async function processPptxOoxmlSyncJob(
         latestDeckVersion,
       );
 
+      const rasterizedElements = activeRasterizedElements(
+        nextTemplateBlueprint,
+      );
       return completeSyncJob(manager, payload, {
         templateId: nextTemplateBlueprint.templateId,
         currentPackageFileId: savedAssets.currentPackageFileId,
         renderAssetFileIds: savedAssets.renderAssetFileIds,
         syncedDeckVersion: latestDeckVersion,
-        warnings: synced.warnings,
+        rasterizedElements,
+        warnings: [
+          ...new Set([
+            ...synced.warnings,
+            ...rasterFallbackWarnings(rasterizedElements),
+          ]),
+        ],
       });
     });
   } catch (error) {
@@ -675,11 +705,13 @@ async function completeSyncJob(
     currentPackageFileId: string;
     renderAssetFileIds: string[];
     syncedDeckVersion: number;
+    rasterizedElements: ReturnType<typeof activeRasterizedElements>;
     warnings: string[];
   },
 ): Promise<Job> {
   const result = pptxOoxmlSyncJobResultSchema.parse({
     deckId: payload.deckId,
+    syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
     ...resultInput,
   });
   return updateJob(dataSource, payload.jobId, {
@@ -793,6 +825,172 @@ async function embedProjectImageAssets(
   });
 }
 
+function buildAuthoredElementFallbacks(
+  deck: Deck,
+  templateBlueprint: TemplateBlueprint,
+  operations: DeckPatchOperation[],
+): AuthoredElementFallbacks {
+  const candidateKeys: string[] = [];
+  const seenKeys = new Set<string>();
+  const addCandidate = (slideId: string, elementId: string) => {
+    const key = elementOperationKey(slideId, elementId);
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    candidateKeys.push(key);
+  };
+
+  for (const operation of operations) {
+    if (operation.type === "add_slide") {
+      for (const element of operation.slide.elements) {
+        if (isAuthoredRasterElementType(element.type)) {
+          addCandidate(operation.slide.slideId, element.elementId);
+        }
+      }
+      continue;
+    }
+    if (
+      operation.type === "add_element" &&
+      isAuthoredRasterElementType(operation.element.type)
+    ) {
+      addCandidate(operation.slideId, operation.element.elementId);
+      continue;
+    }
+    if (
+      (operation.type === "update_element_frame" ||
+        operation.type === "update_element_props") &&
+      hasRasterizedElementSource(
+        templateBlueprint,
+        operation.slideId,
+        operation.elementId,
+      )
+    ) {
+      addCandidate(operation.slideId, operation.elementId);
+    }
+  }
+
+  const elements = candidateKeys.map((key) => {
+    const [slideId, elementId] = JSON.parse(key) as [string, string];
+    const slide = deck.slides.find(
+      (candidate) => candidate.slideId === slideId,
+    );
+    const element = slide?.elements.find(
+      (candidate) => candidate.elementId === elementId,
+    );
+    if (!element || !isAuthoredRasterElementType(element.type)) {
+      throw new UnsupportedOoxmlOperationsError({
+        operationType: "update_element_props",
+        slideId,
+        elementId,
+        reasonCode: "AUTHORED_RASTER_FALLBACK_FAILED",
+      });
+    }
+    return { slideId, element };
+  });
+
+  return authoredElementFallbacksSchema.parse({ theme: deck.theme, elements });
+}
+
+function hasRasterizedElementSource(
+  templateBlueprint: TemplateBlueprint,
+  slideId: string,
+  elementId: string,
+): boolean {
+  return templateBlueprint.slides.some(
+    (slide) =>
+      slide.slideId === slideId &&
+      slide.elementSources.some(
+        (source) =>
+          source.elementId === elementId &&
+          source.fallbackMode === "rasterized",
+      ),
+  );
+}
+
+function isAuthoredRasterElementType(elementType: string): boolean {
+  return authoredOoxmlRasterElementTypeSchema.safeParse(elementType).success;
+}
+
+async function embedAuthoredFallbackAssets(
+  dataSource: QueryExecutor,
+  storage: Pick<StoragePort, "getSignedReadUrl">,
+  projectId: string,
+  fallbacks: AuthoredElementFallbacks,
+): Promise<AuthoredElementFallbacks> {
+  const references = fallbacks.elements.flatMap(({ element }) => {
+    if (element.type !== "svg") return [];
+    const reference = parseInternalAssetReference(element.props.src);
+    if (reference && reference.projectId !== projectId) {
+      throw new Error(
+        `OOXML authored fallback asset project mismatch: ${reference.fileId}`,
+      );
+    }
+    return reference ? [reference] : [];
+  });
+  const fileIds = [...new Set(references.map((reference) => reference.fileId))];
+  if (fileIds.length === 0) return fallbacks;
+
+  const rows = readQueryRows<ImageAssetRow>(
+    await dataSource.query(
+      `
+        SELECT file_id, project_id, storage_key, mime_type, status
+        FROM project_assets
+        WHERE file_id = ANY($1)
+      `,
+      [fileIds],
+    ),
+  );
+  const assets = new Map(rows.map((row) => [row.file_id, row]));
+  const dataUrls = new Map<string, string>();
+
+  for (const fileId of fileIds) {
+    const asset = assets.get(fileId);
+    if (!asset) {
+      throw new Error(`OOXML authored fallback asset not found: ${fileId}`);
+    }
+    if (asset.project_id !== projectId) {
+      throw new Error(
+        `OOXML authored fallback asset project mismatch: ${fileId}`,
+      );
+    }
+    if (asset.status !== "uploaded" || asset.mime_type !== "image/svg+xml") {
+      throw new Error(
+        `OOXML authored fallback asset must be an uploaded SVG: ${fileId}`,
+      );
+    }
+    const response = await fetch(
+      await storage.getSignedReadUrl(asset.storage_key),
+    );
+    if (!response.ok) {
+      throw new Error(
+        `OOXML authored fallback asset content unavailable: ${fileId}`,
+      );
+    }
+    const content = Buffer.from(await response.arrayBuffer()).toString(
+      "base64",
+    );
+    dataUrls.set(fileId, `data:${asset.mime_type};base64,${content}`);
+  }
+
+  return authoredElementFallbacksSchema.parse({
+    ...fallbacks,
+    elements: fallbacks.elements.map((candidate) => {
+      if (candidate.element.type !== "svg") return candidate;
+      const reference = parseInternalAssetReference(
+        candidate.element.props.src,
+      );
+      const dataUrl = reference ? dataUrls.get(reference.fileId) : undefined;
+      if (!dataUrl) return candidate;
+      return {
+        ...candidate,
+        element: {
+          ...candidate.element,
+          props: { ...candidate.element.props, src: dataUrl },
+        },
+      };
+    }),
+  });
+}
+
 function operationImageSources(operation: DeckPatchOperation): string[] {
   if (
     operation.type === "update_element_props" &&
@@ -834,6 +1032,7 @@ async function syncPptxOoxmlWithPython(
   templateBlueprint: TemplateBlueprint,
   deck: Deck,
   operations: DeckPatchOperation[],
+  authoredElementFallbacks: AuthoredElementFallbacks,
 ): Promise<PptxOoxmlSyncWorkerResponse> {
   const slideMotion = buildSlideMotionSyncInput(
     deck,
@@ -871,6 +1070,13 @@ async function syncPptxOoxmlWithPython(
     "deck-canvas.json",
     "deck_canvas",
     deck.canvas,
+  );
+  appendJsonFilePart(
+    form,
+    "authored_element_fallbacks_file",
+    "authored-element-fallbacks.json",
+    "authored_element_fallbacks",
+    authoredElementFallbacks,
   );
   form.append("synced_deck_version", String(targetDeckVersion));
   form.append("render", "true");
@@ -1303,7 +1509,10 @@ function replayAndCompactSlideOperations(
 ): DeckPatchOperation[] {
   const initialSlides = [...templateBlueprint.slides]
     .sort((left, right) => left.slideIndex - right.slideIndex)
-    .map((slide) => ({ slideId: slide.slideId ?? "", order: slide.slideIndex }));
+    .map((slide) => ({
+      slideId: slide.slideId ?? "",
+      order: slide.slideIndex,
+    }));
   const initialSlideIds = initialSlides.map((slide) => slide.slideId);
   if (
     initialSlideIds.some((slideId) => !slideId) ||
@@ -1327,10 +1536,13 @@ function replayAndCompactSlideOperations(
       ) {
         throwInvalidSlideSequence(operation);
       }
-      currentSlides = [...currentSlides, {
-        slideId: operation.slide.slideId,
-        order: operation.slide.order,
-      }].sort((left, right) => left.order - right.order);
+      currentSlides = [
+        ...currentSlides,
+        {
+          slideId: operation.slide.slideId,
+          order: operation.slide.order,
+        },
+      ].sort((left, right) => left.order - right.order);
       continue;
     }
     if (operation.type === "delete_slide") {
@@ -1375,9 +1587,7 @@ function replayAndCompactSlideOperations(
     .map((slide) => slide.slideId);
   if (
     currentSlides.length !== finalSlideIds.length ||
-    currentSlides.some(
-      (slide, index) => slide.slideId !== finalSlideIds[index],
-    )
+    currentSlides.some((slide, index) => slide.slideId !== finalSlideIds[index])
   ) {
     throwInvalidSlideSequence(
       lastStructuralOperation ?? {
@@ -1396,11 +1606,15 @@ function replayAndCompactSlideOperations(
   const compacted = operations.filter((operation) => {
     if (operation.type === "reorder_slides") return false;
     if (operation.type === "add_slide") {
-      return !initialSet.has(operation.slide.slideId) &&
-        finalSet.has(operation.slide.slideId);
+      return (
+        !initialSet.has(operation.slide.slideId) &&
+        finalSet.has(operation.slide.slideId)
+      );
     }
     if (operation.type === "delete_slide") {
-      return initialSet.has(operation.slideId) && !finalSet.has(operation.slideId);
+      return (
+        initialSet.has(operation.slideId) && !finalSet.has(operation.slideId)
+      );
     }
     const slideId = "slideId" in operation ? operation.slideId : undefined;
     return !slideId || initialSet.has(slideId) || finalSet.has(slideId);
@@ -1511,10 +1725,14 @@ function withSyncResult(
   const deckOrderBySlideId = new Map(
     deck.slides.map((slide) => [slide.slideId, slide.order]),
   );
+  const deckElementIdsBySlideId = new Map(
+    deck.slides.map((slide) => [
+      slide.slideId,
+      new Set(slide.elements.map((element) => element.elementId)),
+    ]),
+  );
   const currentSlides = templateBlueprint.slides
-    .filter(
-      (slide) => slide.slideId && deckOrderBySlideId.has(slide.slideId),
-    )
+    .filter((slide) => slide.slideId && deckOrderBySlideId.has(slide.slideId))
     .sort(
       (left, right) =>
         deckOrderBySlideId.get(left.slideId!)! -
@@ -1538,9 +1756,50 @@ function withSyncResult(
         synced.elementSources.filter(
           (source) => source.slidePart === slide.sourceSlidePart,
         ),
+      ).filter((source) =>
+        deckElementIdsBySlideId.get(slide.slideId!)?.has(source.elementId),
       ),
     })),
   });
+}
+
+function activeRasterizedElements(
+  templateBlueprint: TemplateBlueprint,
+): RasterizedElement[] {
+  return [...templateBlueprint.slides]
+    .sort((left, right) => left.slideIndex - right.slideIndex)
+    .flatMap((slide) => {
+      if (!slide.slideId) return [];
+      return slide.elementSources.flatMap((source) =>
+        source.fallbackMode === "rasterized" && source.elementType
+          ? [
+              {
+                slideId: slide.slideId as string,
+                elementId: source.elementId,
+                elementType: source.elementType,
+                reasonCode: "AUTHORED_ELEMENT_TYPE_RASTERIZED" as const,
+              },
+            ]
+          : [],
+      );
+    });
+}
+
+function rasterFallbackWarnings(
+  rasterizedElements: RasterizedElement[],
+): string[] {
+  if (rasterizedElements.length === 0) return [];
+  const counts = new Map<string, number>();
+  for (const element of rasterizedElements) {
+    counts.set(element.elementType, (counts.get(element.elementType) ?? 0) + 1);
+  }
+  const summary = [...counts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([elementType, count]) => `${elementType} ${count}`)
+    .join(", ");
+  return [
+    `PPTX 호환을 위해 authored 요소 ${rasterizedElements.length}개를 투명 PNG로 동기화했습니다 (${summary}).`,
+  ];
 }
 
 function withSourceSlideLocator(
@@ -1623,12 +1882,14 @@ function prepareAuthoredSlideSync(
   operations: DeckPatchOperation[];
 } {
   const slides = [...templateBlueprint.slides];
-  const mappedSlideIds = new Set(slides.flatMap((slide) =>
-    slide.slideId ? [slide.slideId] : [],
-  ));
+  const mappedSlideIds = new Set(
+    slides.flatMap((slide) => (slide.slideId ? [slide.slideId] : [])),
+  );
   const usedPartNumbers = new Set(
     slides.flatMap((slide) => {
-      const match = slide.sourceSlidePart?.match(/^ppt\/slides\/slide(\d+)\.xml$/);
+      const match = slide.sourceSlidePart?.match(
+        /^ppt\/slides\/slide(\d+)\.xml$/,
+      );
       return match ? [Number(match[1])] : [];
     }),
   );
