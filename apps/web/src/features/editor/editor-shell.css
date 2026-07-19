@@ -1539,9 +1539,9 @@
 
 .add-slide-split {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
+  grid-template-columns: 34px;
   position: relative;
-  width: 100%;
+  width: auto;
 }
 
 .side-footer .add-slide-split > .add-slide-button {
@@ -1551,8 +1551,8 @@
 
 .side-footer .add-slide-menu-button {
   align-items: center;
-  border-left: var(--redesign-border-subtle);
-  border-radius: 0 var(--redesign-radius-lg) var(--redesign-radius-lg) 0;
+  border-left: 0;
+  border-radius: var(--redesign-radius-lg);
   display: flex;
   justify-content: center;
 }
@@ -9460,7 +9460,21 @@ body.is-resizing-speaker-notes {
   height: 32px;
   min-height: 32px;
   padding: 0;
+  border: 0;
   border-radius: var(--redesign-radius);
+  background: transparent;
+  box-shadow: var(--redesign-shadow-none);
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.orbit-shell.editor-professional .side-footer > button:hover,
+.orbit-shell.editor-professional .side-footer > .slide-view-switch > button:hover,
+.orbit-shell.editor-professional .side-footer > .add-slide-split > button:hover,
+.orbit-shell.editor-professional .side-footer > .slide-view-switch > button.active {
+  border: 0;
+  background: color-mix(in srgb, var(--redesign-color-on-surface) 8%, transparent);
+  box-shadow: var(--redesign-shadow-none);
+  color: var(--redesign-color-primary);
 }
 
 .orbit-shell.editor-professional .stage-speaker-notes-panel {

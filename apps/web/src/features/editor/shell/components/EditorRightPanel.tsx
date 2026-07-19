@@ -10,10 +10,10 @@ import {
   IconAdjustmentsHorizontal as Properties,
   IconChevronRight as ChevronRight,
   IconIcons,
+  IconMessageCircle as MessageCircle,
   IconMicrophone,
   IconMovie as Animation,
   IconPlayerPlay as Play,
-  IconSparkles as Sparkles,
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
@@ -233,7 +233,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                   <Animation aria-hidden="true" size={15} />
                 ) : null}
                 {activePanelMode === "assistant" ? (
-                  <Sparkles aria-hidden="true" size={15} />
+                  <MessageCircle aria-hidden="true" size={15} />
                 ) : null}
                 {activePanelMode === "icons" ? (
                   <IconIcons aria-hidden="true" size={15} />
@@ -293,7 +293,7 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                     type="button"
                     onClick={() => activatePanelMode("assistant")}
                   >
-                    <Sparkles aria-hidden="true" size={15} />
+                    <MessageCircle aria-hidden="true" size={15} />
                   </button>
                 </div>
                 <button

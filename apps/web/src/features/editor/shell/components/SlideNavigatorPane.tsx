@@ -1,6 +1,5 @@
 import type { ActivityTemplate, Deck } from "@orbit/shared";
 import {
-  IconChevronDown as ChevronDown,
   IconLayoutGrid as Grid,
   IconLayoutSidebarLeftCollapse as PanelLeftClose,
   IconLayoutSidebarLeftExpand as PanelLeftOpen,
@@ -167,27 +166,31 @@ export function SlideNavigatorPane(props: {
           </div>
           {props.canMutate ? <div className="add-slide-split" ref={addMenuRef}>
             <button
-              aria-label="슬라이드 추가"
-              className="add-slide-button"
-              title="슬라이드 추가"
-              type="button"
-              onClick={props.onAddSlide}
-            >
-              <Plus aria-hidden="true" size={17} />
-            </button>
-            <button
               aria-expanded={isAddMenuOpen}
               aria-controls="editor-add-slide-menu"
               aria-haspopup="menu"
               aria-label="추가할 슬라이드 유형 선택"
               className="add-slide-menu-button"
+              title="슬라이드 추가"
               type="button"
               onClick={() => setIsAddMenuOpen((current) => !current)}
             >
-              <ChevronDown aria-hidden="true" size={16} />
+              <Plus aria-hidden="true" size={17} />
             </button>
             {isAddMenuOpen ? (
               <div className="add-slide-menu" id="editor-add-slide-menu" role="menu">
+                <button
+                  role="menuitem"
+                  title="빈 슬라이드 추가"
+                  type="button"
+                  onClick={() => {
+                    props.onAddSlide();
+                    setIsAddMenuOpen(false);
+                  }}
+                >
+                  <strong>빈 슬라이드</strong>
+                  <span>기본 빈 장표 추가</span>
+                </button>
                 {([
                   ["pre-question", "사전 질문", "발표 전 질문 받기"],
                   ["poll", "실시간 투표", "단일 선택 투표"],
