@@ -13,9 +13,10 @@ import {
   IconPresentationAnalytics,
   IconUsers
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { activityApi, ActivityApiError } from "../api/activityApi";
+import { startSequentialPolling } from "../model/sequentialPolling";
 import { canonicalActivityUrl } from "../rendering/ActivityAudienceSlideRenderer";
 import "./activity-presenter-panel.css";
 
@@ -38,9 +39,16 @@ export function ActivityPresenterPanel(props: {
   const [pending, setPending] = useState(false);
   const [moderatingEntryId, setModeratingEntryId] = useState<string | null>(null);
   const activityId = props.slide.activity.activityId;
+  const sessionRecovery = useRef(createActivitySessionRecoveryTracker());
 
   useEffect(() => {
     let cancelled = false;
+    const recoveryIdentity = JSON.stringify([
+      props.projectId,
+      props.deckId,
+      props.deckVersion,
+      activityId
+    ]);
 
     const setup = async () => {
       try {
@@ -49,7 +57,9 @@ export function ActivityPresenterPanel(props: {
           autoStart: props.autoStart ?? false,
           deckId: props.deckId,
           deckVersion: props.deckVersion,
-          projectId: props.projectId
+          projectId: props.projectId,
+          trySessionRecovery: () =>
+            sessionRecovery.current.tryAttempt(recoveryIdentity)
         });
         if (!nextRuntime) {
           if (!cancelled) {
@@ -67,11 +77,10 @@ export function ActivityPresenterPanel(props: {
       }
     };
 
-    void setup();
-    const timerId = window.setInterval(() => void setup(), 1000);
+    const stopPolling = startSequentialPolling(setup, 1000);
     return () => {
       cancelled = true;
-      window.clearInterval(timerId);
+      stopPolling();
     };
   }, [activityId, props.autoStart, props.deckId, props.deckVersion, props.projectId]);
 
@@ -220,12 +229,13 @@ export async function loadActivityPresenterRuntime(input: {
   deckId: string;
   deckVersion: number;
   projectId: string;
+  trySessionRecovery?: () => boolean;
 }): Promise<ActivityPresenterRuntime | null> {
   const current = await activityApi.getCurrentSession(input.projectId, input.deckId);
   let session = current.session;
   let audienceUrl = current.audienceUrl;
   if (!session || !audienceUrl) {
-    if (!input.autoStart) return null;
+    if (!input.autoStart || input.trySessionRecovery?.() === false) return null;
     const created = await activityApi.createSession(input.projectId, {
       accessMode: "public",
       deckId: input.deckId
@@ -249,6 +259,7 @@ export async function loadActivityPresenterRuntime(input: {
       cause.status === 404 &&
       cause.message === "Activity definition not found in stored Deck";
     if (!canReplaceStaleSession) throw cause;
+    if (input.trySessionRecovery?.() === false) throw cause;
 
     const created = await activityApi.createSession(input.projectId, {
       accessMode: "public",
@@ -280,6 +291,26 @@ export async function loadActivityPresenterRuntime(input: {
     result,
     run,
     sessionId: session.sessionId
+  };
+}
+
+export function createActivitySessionRecoveryTracker() {
+  let currentIdentity: string | null = null;
+  let attempted = false;
+
+  const alignIdentity = (identity: string) => {
+    if (identity === currentIdentity) return;
+    currentIdentity = identity;
+    attempted = false;
+  };
+
+  return {
+    tryAttempt(identity: string) {
+      alignIdentity(identity);
+      if (attempted) return false;
+      attempted = true;
+      return true;
+    }
   };
 }
 
