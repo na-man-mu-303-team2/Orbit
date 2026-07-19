@@ -17,8 +17,8 @@ import {
 import { createDefaultPhraseExtractor } from "../../../rehearsal/speech/phraseExtractor";
 import type { SpeechTrackerSnapshot } from "../../../rehearsal/speech/speechTrackingEvents";
 import {
-  slidePracticeDisabledMessage,
-  type PracticeSessionState
+  type PracticeSessionState,
+  type SlidePracticeRuntimeState
 } from "../../practice/useSlidePracticeSession";
 import type { EditorSlideRehearsalState } from "../hooks/useEditorSlideRehearsal";
 
@@ -33,17 +33,18 @@ export function EditorSlideRehearsalBottomPanel(
     message: string;
     onNextSentence: () => SpeechTrackerSnapshot | null;
     onPreviousSentence: () => SpeechTrackerSnapshot | null;
+    onRetryRuntimeConfig: () => void;
     onSkipSentence: () => SpeechTrackerSnapshot | null;
     onStart: () => void;
     onStop: () => void;
     practiceState: PracticeSessionState;
-    slidePracticeEnabled: boolean | null;
+    runtimeState: SlidePracticeRuntimeState;
   }
 ) {
   const isRecording = props.practiceState === "recording";
   const isBusy =
     props.practiceState === "starting" || props.practiceState === "stopping";
-  const isDisabled = props.slidePracticeEnabled === false;
+  const isDisabled = props.runtimeState !== "enabled";
   const scriptProgress = useMemo(
     () =>
       createEditorSlideRehearsalScriptProgress({
@@ -121,7 +122,13 @@ export function EditorSlideRehearsalBottomPanel(
             className={`editor-slide-rehearsal-live-dot ${isRecording ? "active" : ""}`}
           />
           <strong>음성 인식</strong>
-          <span>{getRehearsalStatusLabel(props.practiceState, props.message)}</span>
+          <span>
+            {getRehearsalStatusLabel(
+              props.practiceState,
+              props.message,
+              props.runtimeState
+            )}
+          </span>
           <span className="editor-slide-rehearsal-script-progress">
             대본 {visibleProgress.progressPercent}%
           </span>
@@ -139,6 +146,16 @@ export function EditorSlideRehearsalBottomPanel(
           <span className="editor-slide-rehearsal-time">
             {formatRehearsalTime(Math.floor(props.elapsedMs / 1_000))}
           </span>
+          {props.runtimeState === "unavailable" ? (
+            <button
+              aria-label="슬라이드 연습 설정 다시 확인"
+              className="editor-slide-rehearsal-restart"
+              type="button"
+              onClick={props.onRetryRuntimeConfig}
+            >
+              설정 다시 확인
+            </button>
+          ) : null}
           {isRecording ? (
             <button
               aria-label="슬라이드 연습 종료"
@@ -158,13 +175,17 @@ export function EditorSlideRehearsalBottomPanel(
               onClick={props.onStart}
             >
               <IconPlayerPlay aria-hidden="true" size={15} />
-              {isDisabled
-                ? "기능이 꺼져 있습니다"
+              {props.runtimeState === "checking"
+                ? "연습 기능 확인 중"
+                : props.runtimeState === "disabled"
+                  ? "사용할 수 없음"
+                  : props.runtimeState === "unavailable"
+                    ? "설정 확인 필요"
                 : props.practiceState === "starting"
-                ? "준비 중"
-                : props.practiceState === "stopping"
-                  ? "분석 중"
-                  : "연습 시작"}
+                  ? "준비 중"
+                  : props.practiceState === "stopping"
+                    ? "분석 중"
+                    : "연습 시작"}
             </button>
           )}
         </div>
@@ -417,10 +438,14 @@ export function formatRehearsalTime(elapsedSeconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function getRehearsalStatusLabel(state: PracticeSessionState, message: string) {
-  if (message === slidePracticeDisabledMessage) {
-    return "연습 기능 꺼짐";
-  }
+function getRehearsalStatusLabel(
+  state: PracticeSessionState,
+  message: string,
+  runtimeState: SlidePracticeRuntimeState
+) {
+  if (runtimeState === "checking") return "연습 기능 확인 중";
+  if (runtimeState === "disabled") return "연습 기능 꺼짐";
+  if (runtimeState === "unavailable") return "설정 확인 필요";
   switch (state) {
     case "starting":
       return "준비 중";

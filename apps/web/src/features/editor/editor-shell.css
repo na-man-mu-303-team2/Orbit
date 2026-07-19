@@ -8289,7 +8289,8 @@ body.is-resizing-speaker-notes {
   justify-content: flex-end;
 }
 
-.orbit-shell .editor-question-guide-runtime-error {
+.orbit-shell .editor-question-guide-runtime-error,
+.orbit-shell .editor-practice-runtime-error {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
@@ -8297,7 +8298,8 @@ body.is-resizing-speaker-notes {
   justify-content: space-between;
 }
 
-.orbit-shell .editor-question-guide-runtime-error .editor-practice-message {
+.orbit-shell .editor-question-guide-runtime-error .editor-practice-message,
+.orbit-shell .editor-practice-runtime-error .editor-practice-message {
   margin: 0;
 }
 
@@ -12740,7 +12742,7 @@ body.is-resizing-speaker-notes {
 
 .orbit-shell.editor-professional .editor-slide-rehearsal-restart:disabled {
   opacity: 0.55;
-  cursor: wait;
+  cursor: not-allowed;
 }
 
 .orbit-shell.editor-professional

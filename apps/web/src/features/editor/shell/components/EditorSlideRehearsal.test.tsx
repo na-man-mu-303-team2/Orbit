@@ -36,11 +36,12 @@ describe("EditorSlideRehearsal", () => {
         message=""
         onNextSentence={vi.fn(() => null)}
         onPreviousSentence={vi.fn(() => null)}
+        onRetryRuntimeConfig={vi.fn()}
         onSkipSentence={vi.fn(() => null)}
         onStart={vi.fn()}
         onStop={vi.fn()}
         practiceState="recording"
-        slidePracticeEnabled={true}
+        runtimeState="enabled"
         slide={slide}
         state={{ ...listeningState, activeSlideId: slide.slideId }}
       />
@@ -68,11 +69,12 @@ describe("EditorSlideRehearsal", () => {
         message="서버 분석을 완료했습니다."
         onNextSentence={vi.fn(() => null)}
         onPreviousSentence={vi.fn(() => null)}
+        onRetryRuntimeConfig={vi.fn()}
         onSkipSentence={vi.fn(() => null)}
         onStart={vi.fn()}
         onStop={vi.fn()}
         practiceState="completed"
-        slidePracticeEnabled={true}
+        runtimeState="enabled"
         slide={slide}
         state={{
           ...listeningState,
@@ -94,11 +96,12 @@ describe("EditorSlideRehearsal", () => {
         message="녹음을 업로드하고 서버에서 분석하고 있습니다."
         onNextSentence={vi.fn(() => null)}
         onPreviousSentence={vi.fn(() => null)}
+        onRetryRuntimeConfig={vi.fn()}
         onSkipSentence={vi.fn(() => null)}
         onStart={vi.fn()}
         onStop={vi.fn()}
         practiceState="stopping"
-        slidePracticeEnabled={true}
+        runtimeState="enabled"
         slide={slide}
         state={{ ...listeningState, activeSlideId: slide.slideId }}
       />
@@ -118,11 +121,12 @@ describe("EditorSlideRehearsal", () => {
         message="연습 녹음 업로드 서버에 연결하지 못했습니다."
         onNextSentence={vi.fn(() => null)}
         onPreviousSentence={vi.fn(() => null)}
+        onRetryRuntimeConfig={vi.fn()}
         onSkipSentence={vi.fn(() => null)}
         onStart={vi.fn()}
         onStop={vi.fn()}
         practiceState="error"
-        slidePracticeEnabled={true}
+        runtimeState="enabled"
         slide={slide}
         state={{ ...listeningState, activeSlideId: slide.slideId }}
       />
@@ -138,23 +142,73 @@ describe("EditorSlideRehearsal", () => {
     const html = renderToStaticMarkup(
       <EditorSlideRehearsalBottomPanel
         elapsedMs={0}
-        message="부분 슬라이드 연습 기능이 현재 환경에서 꺼져 있습니다."
+        message="이 환경에서는 슬라이드 연습 기능을 사용할 수 없습니다."
         onNextSentence={vi.fn(() => null)}
         onPreviousSentence={vi.fn(() => null)}
+        onRetryRuntimeConfig={vi.fn()}
         onSkipSentence={vi.fn(() => null)}
         onStart={vi.fn()}
         onStop={vi.fn()}
         practiceState="idle"
-        slidePracticeEnabled={false}
+        runtimeState="disabled"
         slide={slide}
         state={{ ...listeningState, activeSlideId: slide.slideId }}
       />
     );
 
     expect(html).toContain("연습 기능 꺼짐");
-    expect(html).toContain("기능이 꺼져 있습니다");
+    expect(html).toContain("사용할 수 없음");
     expect(html).toContain('aria-label="슬라이드 연습 시작"');
     expect(html).toContain("disabled");
+  });
+
+  it("runtime config 확인 중에는 시작 버튼을 잠근다", () => {
+    const slide = createDemoDeck().slides[0]!;
+    const html = renderToStaticMarkup(
+      <EditorSlideRehearsalBottomPanel
+        elapsedMs={0}
+        message=""
+        onNextSentence={vi.fn(() => null)}
+        onPreviousSentence={vi.fn(() => null)}
+        onRetryRuntimeConfig={vi.fn()}
+        onSkipSentence={vi.fn(() => null)}
+        onStart={vi.fn()}
+        onStop={vi.fn()}
+        practiceState="idle"
+        runtimeState="checking"
+        slide={slide}
+        state={{ ...listeningState, activeSlideId: slide.slideId }}
+      />
+    );
+
+    expect(html).toContain("연습 기능 확인 중");
+    expect(html).toContain("disabled");
+  });
+
+  it("runtime config 조회 실패는 연결 안내와 재시도를 표시한다", () => {
+    const slide = createDemoDeck().slides[0]!;
+    const html = renderToStaticMarkup(
+      <EditorSlideRehearsalBottomPanel
+        elapsedMs={0}
+        message="슬라이드 연습 설정을 확인하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요."
+        onNextSentence={vi.fn(() => null)}
+        onPreviousSentence={vi.fn(() => null)}
+        onRetryRuntimeConfig={vi.fn()}
+        onSkipSentence={vi.fn(() => null)}
+        onStart={vi.fn()}
+        onStop={vi.fn()}
+        practiceState="idle"
+        runtimeState="unavailable"
+        slide={slide}
+        state={{ ...listeningState, activeSlideId: slide.slideId }}
+      />
+    );
+
+    expect(html).toContain("설정 확인 필요");
+    expect(html).toContain("설정 다시 확인");
+    expect(html).toContain('aria-label="슬라이드 연습 설정 다시 확인"');
+    expect(html).toContain("disabled");
+    expect(html).not.toContain("연결 확인 필요");
   });
 
   it("자동 모드의 휠 아래는 skip하고 자동 모드를 유지한다", () => {
