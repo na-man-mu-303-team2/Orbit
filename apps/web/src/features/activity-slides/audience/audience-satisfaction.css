@@ -93,7 +93,7 @@
 }
 
 .activity-audience-eyebrow {
-  color: var(--redesign-color-secondary);
+  color: var(--redesign-color-primary-emphasis);
   font-family: var(--redesign-font-family);
   font-size: var(--redesign-type-label-md-size);
   font-weight: 800;
@@ -145,19 +145,20 @@
 .activity-choice-field legend > span,
 .activity-text-question > span > span {
   align-items: center;
-  background: var(--redesign-color-success-container);
+  background: var(--redesign-color-primary-container);
   border-radius: var(--redesign-radius-full);
   display: inline-flex;
   flex: 0 0 40px;
   font-size: var(--redesign-type-body-lg-size);
   height: 40px;
   justify-content: center;
+  color: var(--redesign-color-on-primary-container);
 }
 
 .activity-rating-field em,
 .activity-choice-field em,
 .activity-text-question em {
-  color: var(--redesign-color-error);
+  color: var(--redesign-color-primary-emphasis);
   font-size: var(--redesign-type-label-sm-size);
   font-style: normal;
   margin-left: auto;
@@ -199,9 +200,9 @@
 }
 
 .activity-rating-options input:checked + span {
-  background: var(--redesign-color-secondary-container);
-  border-color: var(--redesign-color-secondary);
-  color: var(--redesign-color-on-secondary-container);
+  background: var(--redesign-color-primary-container);
+  border-color: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary-container);
   transform: translateY(-1px);
 }
 
@@ -253,9 +254,9 @@
 }
 
 .activity-choice-options input:checked + span {
-  background: var(--redesign-color-secondary-container);
-  border-color: var(--redesign-color-secondary);
-  color: var(--redesign-color-secondary);
+  background: var(--redesign-color-primary-container);
+  border-color: var(--redesign-color-primary);
+  color: var(--redesign-color-primary-emphasis);
 }
 
 .activity-choice-options input:disabled + span {

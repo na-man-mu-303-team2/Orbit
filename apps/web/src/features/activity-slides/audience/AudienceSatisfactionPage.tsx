@@ -502,7 +502,6 @@ export function AudienceSatisfactionForm(props: {
       className="activity-audience-card activity-response-card"
       data-activity-template={props.definition.template}
     >
-      <span className="activity-audience-eyebrow">{templateCopy.formEyebrow}</span>
       <h1 id="activity-response-title">{props.definition.title}</h1>
       {props.definition.description ? <p className="activity-response-description">{props.definition.description}</p> : null}
 
@@ -666,7 +665,6 @@ export function AudienceSatisfactionForm(props: {
 export function getAudienceTemplateCopy(definition: ActivityDefinition) {
   if (definition.template === "pre-question") {
     return {
-      formEyebrow: "PRE-QUESTION",
       receiptEyebrow: "QUESTION SENT",
       receiptTitle: "질문을 보냈습니다",
       submitLabel: "질문 보내기"
@@ -674,14 +672,12 @@ export function getAudienceTemplateCopy(definition: ActivityDefinition) {
   }
   if (definition.template === "poll") {
     return {
-      formEyebrow: "LIVE POLL",
       receiptEyebrow: "VOTE SAVED",
       receiptTitle: "투표가 제출되었습니다",
       submitLabel: "투표 제출"
     };
   }
   return {
-    formEyebrow: "SATISFACTION SURVEY",
     receiptEyebrow: "RESPONSE SAVED",
     receiptTitle: "의견이 저장되었습니다",
     submitLabel: "의견 제출"

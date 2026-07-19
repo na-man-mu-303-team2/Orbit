@@ -23,6 +23,10 @@ const definition = createActivitySlide(
   createDemoDeck(),
   "satisfaction"
 ).activity;
+const pollDefinition = createActivitySlide(
+  createDemoDeck(),
+  "poll"
+).activity;
 
 describe("AudienceSatisfactionForm", () => {
   it("uses the shared ORBIT brand and workspace shell on the public page", () => {
@@ -53,7 +57,24 @@ describe("AudienceSatisfactionForm", () => {
     expect(html).toContain("추가 의견이 있다면 알려주세요.");
     expect(html).toContain("의견 제출");
     expect(html).toContain('data-activity-template="satisfaction"');
+    expect(html).not.toContain("SATISFACTION SURVEY");
     expect(html).not.toContain("speakerNotes");
+  });
+
+  it("does not render an English eyebrow on the live poll form", () => {
+    const html = renderToStaticMarkup(
+      <AudienceSatisfactionForm
+        definition={pollDefinition}
+        draft={createSatisfactionDraft(null)}
+        isSubmitting={false}
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    expect(html).toContain("실시간 투표");
+    expect(html).toContain("투표 제출");
+    expect(html).not.toContain("LIVE POLL");
   });
 
   it("reloads the current Activity when the active pointer disappears", async () => {
@@ -83,7 +104,7 @@ describe("AudienceSatisfactionForm", () => {
   it("uses action copy that matches each activity template", () => {
     expect(getAudienceTemplateCopy({ ...definition, template: "poll" }).submitLabel).toBe("투표 제출");
     expect(getAudienceTemplateCopy({ ...definition, template: "pre-question" }).receiptTitle).toBe("질문을 보냈습니다");
-    expect(getAudienceTemplateCopy(definition).formEyebrow).toBe("SATISFACTION SURVEY");
+    expect(getAudienceTemplateCopy(definition).submitLabel).toBe("의견 제출");
   });
 
   it("renders public aggregates after the current run reveals results", () => {
