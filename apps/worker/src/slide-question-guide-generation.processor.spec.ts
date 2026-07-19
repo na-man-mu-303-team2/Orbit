@@ -1,6 +1,6 @@
 import type { DataSource } from "typeorm";
 import { createHash } from "node:crypto";
-import { deckSchema } from "@orbit/shared";
+import { canonicalJson, deckSchema } from "@orbit/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { processSlideQuestionGuideGenerationJob } from "./slide-question-guide-generation.processor";
@@ -128,6 +128,64 @@ describe("processSlideQuestionGuideGenerationJob", () => {
         }),
       ]),
     );
+  });
+
+  it("uses the frozen deck snapshot after the live deck changes", async () => {
+    const liveDeck = deckFixture();
+    liveDeck.slides[0]!.title = "편집된 제목";
+    const harness = createHarness({
+      sourceSnapshotId: "snapshot_1",
+      checkpointDeck: liveDeck,
+    });
+    let providerRequest: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
+      providerRequest = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return Response.json(providerResponse(
+        [0, 1, 2].map((index) => generatedItem(index)),
+      ));
+    }));
+
+    const job = await processSlideQuestionGuideGenerationJob(
+      harness.dataSource,
+      "http://python-worker:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("succeeded");
+    expect((providerRequest as { slides: unknown[] } | null)?.slides).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "핵심 슬라이드" }),
+      ]),
+    );
+    expect(harness.queriedLiveDeck).toBe(false);
+  });
+
+  it.each([
+    ["snapshot ID", { snapshot_id: "snapshot_other" }, deckFixture()],
+    ["project", { project_id: "project-other" }, deckFixture()],
+    ["deck", { deck_id: "deck_other" }, deckFixture()],
+    ["version", { version: 2 }, deckFixture()],
+    ["target hash", {}, (() => {
+      const deck = deckFixture();
+      deck.slides[0]!.title = "다른 제목";
+      return deck;
+    })()],
+  ])("fails safely when the frozen snapshot %s mismatches", async (_label, snapshotOverrides, snapshotDeck) => {
+    const harness = createHarness({
+      sourceSnapshotId: "snapshot_1",
+      frozenSnapshotDeck: snapshotDeck,
+      snapshotOverrides,
+    });
+    vi.stubGlobal("fetch", vi.fn());
+
+    const job = await processSlideQuestionGuideGenerationJob(
+      harness.dataSource,
+      "http://python-worker:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("failed");
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("accepts another slide in the same frozen deck as answer evidence", async () => {
@@ -308,6 +366,9 @@ describe("processSlideQuestionGuideGenerationJob", () => {
 
 function createHarness(options: {
   checkpointDeck?: ReturnType<typeof deckFixture>;
+  frozenSnapshotDeck?: ReturnType<typeof deckFixture>;
+  sourceSnapshotId?: string;
+  snapshotOverrides?: Record<string, unknown>;
   patchRows?: Array<Record<string, unknown>>;
   persistenceError?: Error;
   jobPersistenceError?: Error;
@@ -322,10 +383,25 @@ function createHarness(options: {
     issueCodes: string[];
     researchedAt: string | null;
   } | null = null;
+  let queriedLiveDeck = false;
   const query = vi.fn(async (sql: string, parameters: unknown[] = []) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
-    if (normalized.startsWith("SELECT * FROM slide_question_guides")) return [guideRow()];
+    if (normalized.startsWith("SELECT * FROM slide_question_guides")) {
+      return [guideRow(options.sourceSnapshotId)];
+    }
+    if (normalized.startsWith("SELECT snapshot_id, project_id")) {
+      const frozenSnapshotDeck = options.frozenSnapshotDeck ?? deckFixture();
+      return [{
+        snapshot_id: options.sourceSnapshotId,
+        project_id: "project-1",
+        deck_id: "deck_1",
+        deck_json: frozenSnapshotDeck,
+        version: 3,
+        ...options.snapshotOverrides,
+      }];
+    }
     if (normalized.startsWith("SELECT d.deck_json")) {
+      queriedLiveDeck = true;
       const checkpointDeck = options.checkpointDeck ?? deckFixture();
       return [{
         deck_json: checkpointDeck,
@@ -385,10 +461,11 @@ function createHarness(options: {
     get storedResearch() { return storedResearch; },
     get storedResearchSql() { return storedResearchSql; },
     get storedResearchParameter() { return storedResearchParameter; },
+    get queriedLiveDeck() { return queriedLiveDeck; },
   };
 }
 
-function guideRow() {
+function guideRow(sourceSnapshotId?: string) {
   return {
     guide_id: "guide-1",
     project_id: "project-1",
@@ -397,6 +474,7 @@ function guideRow() {
     slide_id: "slide_1",
     slide_content_hash: slideHash,
     source_snapshot_json: {
+      ...(sourceSnapshotId ? { deckSnapshotId: sourceSnapshotId } : {}),
       slideId: "slide_1",
       deckVersion: 3,
       contentHash: slideHash,
@@ -526,17 +604,6 @@ function slideFixture(slideId: string, order: number, title: string, speakerNote
     animations: [],
     actions: [],
   };
-}
-
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function sha256Canonical(value: unknown): string {
