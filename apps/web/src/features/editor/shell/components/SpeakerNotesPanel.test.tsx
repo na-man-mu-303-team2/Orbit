@@ -82,9 +82,7 @@ describe("SpeakerNotesPanel", () => {
     expect(html).toContain("tabler-icon-wand");
     expect(html).not.toContain('aria-label="메모 편집"');
     expect(html).toContain("더블클릭하거나 Enter 키를 눌러 편집");
-    expect(html.indexOf("speaker-notes-length-meter")).toBeLessThan(
-      html.indexOf("script-keyword-section"),
-    );
+    expect(html).not.toContain("speaker-notes-length-meter");
   });
 
   it("편집 상태에서는 대본 안에 취소와 저장 액션을 표시한다", () => {

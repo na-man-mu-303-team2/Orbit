@@ -15,7 +15,7 @@ import {
   KeywordHighlightedNotes,
   KeywordList,
 } from "./KeywordInspector";
-import { SpeakerNotesLengthMeter } from "./SpeakerNotesAssistantDialog";
+// import { SpeakerNotesLengthMeter } from "./SpeakerNotesAssistantDialog";
 
 export type SpeakerNotesScriptTabProps = {
   currentSlide: Slide | null;
@@ -86,7 +86,7 @@ export function SpeakerNotesScriptTab(props: SpeakerNotesScriptTabProps) {
               value={props.draft}
               onChange={(event) => props.onDraftChange(event.target.value)}
             />
-            <SpeakerNotesLengthMeter guidance={props.guidance} />
+            {/* <SpeakerNotesLengthMeter guidance={props.guidance} /> */}
           </div>
         </div>
       ) : (
@@ -126,7 +126,7 @@ export function SpeakerNotesScriptTab(props: SpeakerNotesScriptTabProps) {
               onSelectKeywordActionMode={props.onSelectKeywordActionMode}
               onSelectKeywordText={props.onSelectKeywordText}
             />
-            <SpeakerNotesLengthMeter guidance={props.guidance} />
+            {/* <SpeakerNotesLengthMeter guidance={props.guidance} /> */}
           </div>
           <section aria-labelledby="speaker-notes-keywords-title" className="script-keyword-section">
             <div className="script-keyword-heading"><strong id="speaker-notes-keywords-title">발표 체크포인트</strong></div>
