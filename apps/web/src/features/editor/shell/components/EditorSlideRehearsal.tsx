@@ -2,16 +2,12 @@ import type { Slide } from "@orbit/shared";
 import {
   IconCircle,
   IconCircleCheck,
-  IconGripHorizontal,
   IconMicrophone,
   IconPlayerPlay,
   IconPlayerStop,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import type {
-  KeyboardEvent as ReactKeyboardEvent,
-  PointerEvent as ReactPointerEvent
-} from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 
 import { createRehearsalScriptPrompterRows } from "../../../rehearsal/panel/rehearsalScriptPrompter";
 import {
@@ -37,12 +33,6 @@ export function EditorSlideRehearsalBottomPanel(
     onSkipSentence: () => SpeechTrackerSnapshot | null;
     onStart: () => void;
     onStop: () => void;
-    height?: number;
-    isResizing?: boolean;
-    maxHeight?: number;
-    minHeight?: number;
-    onResizeKeyDown?: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
-    onResizeStart?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
     practiceState: PracticeSessionState;
   }
 ) {
@@ -117,24 +107,8 @@ export function EditorSlideRehearsalBottomPanel(
   return (
     <section
       aria-label="현재 슬라이드 음성 인식"
-      className={`editor-slide-rehearsal-bottom ${props.isResizing ? "is-resizing" : ""}`}
+      className="editor-slide-rehearsal-bottom"
     >
-      {props.onResizeStart && props.onResizeKeyDown ? (
-        <button
-          aria-label="슬라이드 리허설 하단 패널 높이 조절"
-          aria-orientation="horizontal"
-          aria-valuemax={props.maxHeight}
-          aria-valuemin={props.minHeight}
-          aria-valuenow={props.height}
-          className="speaker-notes-resize-handle"
-          role="separator"
-          type="button"
-          onKeyDown={props.onResizeKeyDown}
-          onPointerDown={props.onResizeStart}
-        >
-          <IconGripHorizontal aria-hidden="true" size={18} stroke={1.7} />
-        </button>
-      ) : null}
       <header className="editor-slide-rehearsal-bottom-header">
         <div className="editor-slide-rehearsal-heading">
           <span

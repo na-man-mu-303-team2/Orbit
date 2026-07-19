@@ -677,13 +677,6 @@ export function EditorShell(props: { projectId?: string }) {
   const handleSaveSpeakerNotesEdit = speakerNotesEditorActions.saveEdit;
   const handleStartSpeakerNotesEdit = speakerNotesEditorActions.startEdit;
   const getSpeakerNotesPanelMaxHeight = speakerNotesPanelActions.getMaxHeight;
-  const getSlideRehearsalBottomPanelMaxHeight = () =>
-    Math.max(
-      minSpeakerNotesPanelHeight,
-      Math.floor(
-        (typeof window === "undefined" ? 960 : window.innerHeight) * 0.5
-      )
-    );
   const handleToggleSpeakerNotesPanel = speakerNotesPanelActions.toggle;
   const handleSpeakerNotesResizeStart = (
     event: ReactPointerEvent<HTMLButtonElement>
@@ -2177,15 +2170,9 @@ export function EditorShell(props: { projectId?: string }) {
             {isSlideRehearsalActive && rehearsalSlide ? (
               <EditorSlideRehearsalBottomPanel
                 elapsedMs={slidePracticeSession.elapsedMs}
-                height={speakerNotesPanelHeight}
-                isResizing={isSpeakerNotesPanelResizing}
-                maxHeight={getSlideRehearsalBottomPanelMaxHeight()}
                 message={slidePracticeSession.message}
-                minHeight={minSpeakerNotesPanelHeight}
                 onNextSentence={moveSlideRehearsalToNextSentence}
                 onPreviousSentence={moveSlideRehearsalToPreviousSentence}
-                onResizeKeyDown={handleSpeakerNotesResizeKeyDown}
-                onResizeStart={handleSpeakerNotesResizeStart}
                 onSkipSentence={skipCurrentSlideRehearsalSentence}
                 onStart={() => void handleStartSlidePractice()}
                 onStop={() => void handleStopSlidePractice()}
