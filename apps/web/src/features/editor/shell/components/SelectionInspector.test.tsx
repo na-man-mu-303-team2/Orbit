@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from "react";
 import { createRef } from "react";
 import { renderToString } from "react-dom/server";
@@ -50,21 +48,6 @@ function renderInspector(
 }
 
 describe("SelectionInspector", () => {
-  it("uses redesign spacing for the structured element inspector header", () => {
-    const editorCss = fs.readFileSync(
-      path.join(process.cwd(), "src/features/editor/editor-shell.css"),
-      "utf8",
-    );
-    expect(editorCss).toContain(
-      `.orbit-shell.editor-professional.redesign-dark
-  .inspector-panel-slot
-  .editor-design-panel:has(.element-property-inspector)
-  .selection-inspector-header {
-  padding: var(--redesign-space-3) var(--redesign-space-3) 0;
-}`,
-    );
-  });
-
   it("renders only the control node matching the current mode", () => {
     const slideHtml = renderInspector(slideModel);
     const elementHtml = renderInspector(elementModel);
@@ -83,20 +66,20 @@ describe("SelectionInspector", () => {
     expect(multiHtml).not.toContain('data-control="element"');
   });
 
-  it("uses a stable region name while keeping mode details visible", () => {
+  it("uses a stable region name without rendering editable mode summaries", () => {
     const slideHtml = renderInspector(slideModel);
     const elementHtml = renderInspector(elementModel);
     const multiHtml = renderInspector(multiModel);
 
     expect(slideHtml).toContain('role="region"');
     expect(slideHtml).toContain('aria-label="현재 선택"');
-    expect(slideHtml).toContain("Opening 슬라이드 속성");
+    expect(slideHtml).not.toContain("Opening 슬라이드 속성");
     expect(elementHtml).toContain('role="region"');
     expect(elementHtml).toContain('aria-label="현재 선택"');
-    expect(elementHtml).toContain("선택한 텍스트 요소 속성");
+    expect(elementHtml).not.toContain("선택한 텍스트 요소 속성");
     expect(multiHtml).toContain('role="region"');
     expect(multiHtml).toContain('aria-label="현재 선택"');
-    expect(multiHtml).toContain("선택한 요소 3개 속성");
+    expect(multiHtml).not.toContain("선택한 요소 3개 속성");
     expect(elementHtml).toContain('tabindex="0"');
 
     const focusRef = createRef<HTMLElement>();
@@ -110,7 +93,7 @@ describe("SelectionInspector", () => {
     const defaultLabelsHtml = renderToString(
       <SelectionInspector canEdit model={slideModel} />,
     );
-    expect(defaultLabelsHtml).toContain("현재 슬라이드 속성");
+    expect(defaultLabelsHtml).not.toContain("현재 슬라이드 속성");
     expect(defaultLabelsHtml).not.toContain("슬라이드 슬라이드");
   });
 

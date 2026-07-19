@@ -23,7 +23,7 @@ import { fetchProjectDeck } from "./keywords/keywordEditorApi";
 import { RehearsalRunNav } from "./RehearsalRunNav";
 import { RehearsalProjectSummaryDashboard } from "./RehearsalProjectSummaryDashboard";
 import { buildRehearsalRunComparisonViewModel } from "./rehearsalRunComparisonModel";
-import { OrbitButton, OrbitEmptyState } from "../../components/ui";
+import { OrbitButton, OrbitEmptyState, OrbitFailureState } from "../../components/ui";
 import { getRehearsalReportPath } from "./RehearsalWorkspace";
 import orbitReportMascot from "../../assets/orbit-report-mascot-transparent.png";
 import {
@@ -142,9 +142,9 @@ export function RehearsalProjectOverviewPage({
               <span>불러오는 중</span>
             </div>
           ) : state === "error" ? (
-            <OrbitEmptyState
-              action={<OrbitButton onClick={() => setReloadKey((value) => value + 1)} variant="secondary">다시 시도</OrbitButton>}
+            <OrbitFailureState
               description="연결을 확인한 뒤 프로젝트 리포트를 다시 불러오세요."
+              onRetry={() => setReloadKey((value) => value + 1)}
               title="프로젝트 리포트를 불러오지 못했습니다."
             />
           ) : runs.length === 0 ? (
