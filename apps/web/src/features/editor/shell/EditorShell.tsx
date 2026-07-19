@@ -429,6 +429,7 @@ export function EditorShell(props: { projectId?: string }) {
   const {
     height: speakerNotesPanelHeight,
     isExpanded: isSpeakerNotesPanelExpanded,
+    isMaximized: isSpeakerNotesPanelMaximized,
     isResizing: isSpeakerNotesPanelResizing
   } = speakerNotesPanelState;
 
@@ -2188,6 +2189,7 @@ export function EditorShell(props: { projectId?: string }) {
                 height={speakerNotesPanelHeight}
                 isEditing={isSpeakerNotesEditing}
                 isExpanded={isSpeakerNotesPanelExpanded}
+                isMaximized={isSpeakerNotesPanelMaximized}
                 isResizing={isSpeakerNotesPanelResizing}
                 maxHeight={getSpeakerNotesPanelMaxHeight()}
                 minHeight={minSpeakerNotesPanelHeight}
@@ -2211,6 +2213,7 @@ export function EditorShell(props: { projectId?: string }) {
                 onSelectKeywordText={handleSpeakerNotesKeywordSelection}
                 onStartEdit={handleStartSpeakerNotesEdit}
                 onTabSelected={() => setRequestedSpeakerNotesTab(null)}
+                onToggleMaximized={speakerNotesPanelActions.toggleMaximized}
                 onTogglePanel={handleToggleSpeakerNotesPanel}
                 selectedKeyword={selectedKeyword}
                 selectedKeywordId={selectedKeywordId}

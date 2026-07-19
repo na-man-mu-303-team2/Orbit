@@ -23,6 +23,7 @@ function renderPanel(isExpanded: boolean, isEditing = false) {
       height={240}
       isEditing={isEditing}
       isExpanded={isExpanded}
+      isMaximized={false}
       isResizing={false}
       maxHeight={480}
       minHeight={120}
@@ -39,6 +40,7 @@ function renderPanel(isExpanded: boolean, isEditing = false) {
       onSelectKeywordText={vi.fn()}
       onStartEdit={vi.fn()}
       onTabSelected={vi.fn()}
+      onToggleMaximized={vi.fn()}
       onTogglePanel={vi.fn()}
       projectId={deck.projectId}
       reportRefreshToken={0}
@@ -77,6 +79,8 @@ describe("SpeakerNotesPanel", () => {
     expect(html).toContain('id="speaker-notes-script-tab"');
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain("script-notes-surface-actions");
+    expect(html).toContain('aria-label="발표 메모를 슬라이드 편집 영역까지 확대"');
+    expect(html).toContain("tabler-icon-maximize");
     expect(html).not.toContain("speaker-notes-action-row");
     expect(html).toContain('aria-label="AI로 메모 다듬기"');
     expect(html).toContain("tabler-icon-wand");
