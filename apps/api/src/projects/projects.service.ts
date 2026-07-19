@@ -2,6 +2,8 @@ import {
   demoIds,
   deleteProjectResponseSchema,
   projectMembersResponseSchema,
+  projectAccessResponseSchema,
+  projectApiErrorSchema,
   projectListResponseSchema,
   projectSchema,
   updateProjectPinResponseSchema,
@@ -12,21 +14,25 @@ import type {
   Project,
   ProjectListItem,
   ProjectMemberRole,
-  ProjectMemberStatus,
   ProjectMembersResponse,
+  ProjectAccessResponse,
+  ProjectApiErrorCode,
   UpdateProjectPinResponse,
 } from "@orbit/shared";
 import { randomUUID } from "crypto";
 import {
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
   Optional,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { InjectRepository } from "@nestjs/typeorm";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { DataSource, In, Repository } from "typeorm";
+import { serializeLogError } from "../logging";
 import {
   createKdhHomeProjectDeck,
   getKdhHomeProjectSeeds,
@@ -49,14 +55,6 @@ type MemberRow = {
 type UserLookupRow = {
   user_id: string;
   email: string;
-};
-
-export type ProjectAccessResponse = {
-  project: Project;
-  membership: {
-    role: ProjectMemberRole;
-    status: ProjectMemberStatus;
-  } | null;
 };
 
 @Injectable()
@@ -302,21 +300,30 @@ export class ProjectsService {
     projectId: string,
     userId: string,
   ): Promise<ProjectAccessResponse> {
-    const project = await this.findProjectOrDemo(projectId);
-    const member = await this.findProjectMember(project.projectId, userId);
-    if (isKdhHomeProjectId(project.projectId) && !member) {
-      throw new NotFoundException(`Project not found: ${projectId}`);
-    }
+    try {
+      const project = await this.findProjectOrDemo(projectId);
+      const member = await this.findProjectMember(project.projectId, userId);
+      if (isKdhHomeProjectId(project.projectId) && !member) {
+        throw new NotFoundException(`Project not found: ${projectId}`);
+      }
 
-    return {
-      project: this.toProjectDto(project),
-      membership: member
-        ? {
-            role: member.role,
-            status: member.status,
-          }
-        : null,
-    };
+      return projectAccessResponseSchema.parse({
+        project: this.toProjectDto(project),
+        membership: member
+          ? {
+              role: member.role,
+              status: member.status,
+            }
+          : null,
+      });
+    } catch (error) {
+      return this.throwProjectReadFailure(error, {
+        code: "PROJECT_ACCESS_UNAVAILABLE",
+        event: "project_access.read_failed",
+        message: "프로젝트 권한 정보를 불러오지 못했습니다.",
+        projectId,
+      });
+    }
   }
 
   async requestAccess(
@@ -385,8 +392,17 @@ export class ProjectsService {
     projectId: string,
     requesterUserId: string,
   ): Promise<ProjectMembersResponse> {
-    await this.assertProjectOwner(workspaceId, projectId, requesterUserId);
-    return this.getProjectMembers(projectId);
+    try {
+      await this.assertProjectOwner(workspaceId, projectId, requesterUserId);
+      return await this.getProjectMembers(projectId);
+    } catch (error) {
+      return this.throwProjectReadFailure(error, {
+        code: "PROJECT_MEMBERS_UNAVAILABLE",
+        event: "project_members.read_failed",
+        message: "프로젝트 구성원 정보를 불러오지 못했습니다.",
+        projectId,
+      });
+    }
   }
 
   async inviteMember(
@@ -557,6 +573,34 @@ export class ProjectsService {
 
   private async findProjectMember(projectId: string, userId: string) {
     return this.projectMembersRepository.findOne({ where: { projectId, userId } });
+  }
+
+  private throwProjectReadFailure(
+    error: unknown,
+    context: {
+      code: ProjectApiErrorCode;
+      event: string;
+      message: string;
+      projectId: string;
+    },
+  ): never {
+    if (error instanceof HttpException) throw error;
+
+    this.logger?.error(
+      {
+        event: context.event,
+        projectId: context.projectId,
+        error: serializeLogError(error),
+      },
+      context.message,
+    );
+    throw new ServiceUnavailableException(
+      projectApiErrorSchema.parse({
+        code: context.code,
+        message: context.message,
+        details: [],
+      }),
+    );
   }
 
   private async findUserByEmail(email: string): Promise<UserLookupRow | undefined> {
