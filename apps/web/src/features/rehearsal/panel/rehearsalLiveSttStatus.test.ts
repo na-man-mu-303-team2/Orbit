@@ -92,6 +92,27 @@ describe("rehearsalLiveSttStatus", () => {
     expect(start).toHaveBeenCalledTimes(2);
   });
 
+  it("재연결 대기 중 취소하면 늦게 완료된 성공 결과를 버린다", async () => {
+    const coordinator = createInitialLiveSttRetryCoordinator();
+    let resolveStart: () => void = () => undefined;
+    const retryState: { isCurrent?: () => boolean } = {};
+    const pending = coordinator.retry(
+      (isCurrent) =>
+        new Promise<boolean>((resolve) => {
+          retryState.isCurrent = isCurrent;
+          resolveStart = () => resolve(true);
+        }),
+    );
+
+    expect(retryState.isCurrent?.()).toBe(true);
+    coordinator.cancel();
+    expect(retryState.isCurrent?.()).toBe(false);
+    resolveStart();
+
+    await expect(pending).resolves.toBe(false);
+    expect(coordinator.isRetrying()).toBe(false);
+  });
+
   it("오류 문구에서 credential을 가리고 길이를 제한한다", () => {
     const sanitized = sanitizeLiveSttErrorMessage(
       `Authorization: Bearer-private token=private-token ${"x".repeat(300)}`,

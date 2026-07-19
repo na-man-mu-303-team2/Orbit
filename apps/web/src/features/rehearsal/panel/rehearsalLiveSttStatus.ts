@@ -110,19 +110,27 @@ export function canRetryInitialRecordingLiveStt(options: {
 
 export function createInitialLiveSttRetryCoordinator() {
   let pending: Promise<boolean> | null = null;
+  let generation = 0;
 
   return {
     isRetrying() {
       return pending !== null;
     },
-    retry(start: () => Promise<boolean>) {
+    cancel() {
+      generation += 1;
+    },
+    retry(start: (isCurrent: () => boolean) => Promise<boolean>) {
       if (pending) {
         return pending;
       }
 
-      pending = start().finally(() => {
-        pending = null;
-      });
+      const retryGeneration = ++generation;
+      const isCurrent = () => generation === retryGeneration;
+      pending = start(isCurrent)
+        .then((started) => isCurrent() && started)
+        .finally(() => {
+          pending = null;
+        });
       return pending;
     },
   };

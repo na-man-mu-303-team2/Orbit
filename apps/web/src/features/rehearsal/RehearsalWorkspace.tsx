@@ -2896,10 +2896,14 @@ export function RehearsalWorkspace(props: {
     setIsLiveSttRetrying(true);
     setLiveError("");
     try {
-      return await coordinator.retry(() =>
+      return await coordinator.retry((isCurrent) =>
         startP3Tracking(
           stream,
           activeRunRef.current?.evaluationSnapshot ?? undefined,
+          () =>
+            isCurrent() &&
+            streamRef.current === stream &&
+            isReusableRehearsalMediaStream(stream),
         ),
       );
     } finally {
@@ -2949,6 +2953,7 @@ export function RehearsalWorkspace(props: {
   function stopRecording() {
     if (phase !== "recording") return;
 
+    liveSttRetryCoordinatorRef.current.cancel();
     setRehearsalRuntimeStatus("stopping");
     setPhase("uploading");
     setIsTimerRunning(false);
@@ -3371,6 +3376,7 @@ export function RehearsalWorkspace(props: {
   async function startP3Tracking(
     stream: MediaStream,
     evaluationSnapshot?: RehearsalEvaluationSnapshot,
+    shouldContinue: () => boolean = () => true,
   ) {
     const deckSnapshot = deckRef.current ?? deck;
     const startSlideIndex = currentSlideIndexRef.current;
@@ -3381,8 +3387,14 @@ export function RehearsalWorkspace(props: {
     let port: LiveSttPort;
     try {
       const effectiveEngineId = await resolveEffectiveLiveSttEngine();
+      if (!shouldContinue()) {
+        return false;
+      }
       port = getOrCreateLiveSttPort(effectiveEngineId);
     } catch (cause) {
+      if (!shouldContinue()) {
+        return false;
+      }
       const error = toLiveSttError(cause);
       setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
       setLiveError(error.message);
@@ -3457,7 +3469,16 @@ export function RehearsalWorkspace(props: {
         audioSource: stream,
         slideIndex: startSlideIndex,
       });
-      if (p3SessionRef.current !== session) {
+      const isStaleRetry = !shouldContinue();
+      if (p3SessionRef.current !== session || isStaleRetry) {
+        if (isStaleRetry) {
+          await session.stop().catch(() => null);
+        }
+        if (p3SessionRef.current === session) {
+          cleanupLiveSttSubscriptions();
+          p3SessionRef.current = null;
+          pendingP3SlideIndexRef.current = null;
+        }
         return false;
       }
       const latestSlideIndex =
@@ -3477,7 +3498,11 @@ export function RehearsalWorkspace(props: {
       setLiveStatus("listening");
       return true;
     } catch (cause) {
-      if (p3SessionRef.current !== session) {
+      const isStaleRetry = !shouldContinue();
+      if (p3SessionRef.current !== session || isStaleRetry) {
+        if (isStaleRetry) {
+          await session.stop().catch(() => null);
+        }
         return false;
       }
       cleanupLiveSttSubscriptions();
