@@ -178,12 +178,6 @@ import {
   type AdvanceControllerState,
 } from "./advance/advanceController";
 import { RehearsalPanel } from "./panel/RehearsalPanel";
-import { RehearsalLiveSttStatusNotice } from "./panel/RehearsalLiveSttStatusNotice";
-import {
-  buildRehearsalLiveSttStatusModel,
-  canRetryInitialRecordingLiveStt,
-  createInitialLiveSttRetryCoordinator,
-} from "./panel/rehearsalLiveSttStatus";
 import {
   createSemanticCapabilityStatusItems,
   getNextSemanticCapabilityRecoveryDelay,
@@ -2022,7 +2016,6 @@ export function RehearsalWorkspace(props: {
   const [pauseDetectorSnapshot, setPauseDetectorSnapshot] =
     useState<PauseDetectorSnapshot | null>(null);
   const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
-  const [isLiveSttRetrying, setIsLiveSttRetrying] = useState(false);
   const [isLiveStopModalOpen, setIsLiveStopModalOpen] = useState(false);
   const [displayRole, setDisplayRole] = useState<
     "presenter" | "slide-receiver" | "slide-surface"
@@ -2057,9 +2050,6 @@ export function RehearsalWorkspace(props: {
   const liveDemoStreamRef = useRef<MediaStream | null>(null);
   const liveSttPortRef = useRef<LiveSttPort | null>(props.liveSttPort ?? null);
   const liveSttSubscriptionCleanupRef = useRef<(() => void) | null>(null);
-  const liveSttRetryCoordinatorRef = useRef(
-    createInitialLiveSttRetryCoordinator(),
-  );
   const p3SessionRef = useRef<P3RehearsalSession | null>(null);
   const semanticEmbeddingServicePromiseRef =
     useRef<Promise<E5EmbeddingService> | null>(null);
@@ -2874,40 +2864,6 @@ export function RehearsalWorkspace(props: {
     }
   }
 
-  async function retryInitialRecordingLiveStt() {
-    const stream = streamRef.current;
-    const coordinator = liveSttRetryCoordinatorRef.current;
-    if (
-      !canRetryInitialRecordingLiveStt({
-        hasActiveSession: p3SessionRef.current !== null,
-        hasReusableStream: isReusableRehearsalMediaStream(stream),
-        isRecording: phase === "recording",
-        isRetrying: isLiveSttRetrying || coordinator.isRetrying(),
-        liveStatus,
-      }) ||
-      !stream
-    ) {
-      return false;
-    }
-
-    setIsLiveSttRetrying(true);
-    setLiveError("");
-    try {
-      return await coordinator.retry((isCurrent) =>
-        startP3Tracking(
-          stream,
-          activeRunRef.current?.evaluationSnapshot ?? undefined,
-          () =>
-            isCurrent() &&
-            streamRef.current === stream &&
-            isReusableRehearsalMediaStream(stream),
-        ),
-      );
-    } finally {
-      setIsLiveSttRetrying(false);
-    }
-  }
-
   function stopLiveDemo(options: { showCompletionModal?: boolean } = {}) {
     const wasLiveDemoActive = isLiveDemoActive || isLiveSttActive;
     setRehearsalRuntimeStatus("stopping");
@@ -2950,7 +2906,6 @@ export function RehearsalWorkspace(props: {
   function stopRecording() {
     if (phase !== "recording") return;
 
-    liveSttRetryCoordinatorRef.current.cancel();
     setRehearsalRuntimeStatus("stopping");
     setPhase("uploading");
     setIsTimerRunning(false);
@@ -4427,19 +4382,6 @@ export function RehearsalWorkspace(props: {
         deck?.projectId ?? props.projectId ?? demoIds.projectId,
       )
     : null;
-  const liveSttStatusModel = buildRehearsalLiveSttStatusModel({
-    isRecording: phase === "recording",
-    liveError,
-    liveStatus,
-  });
-  const canRetryRecordingLiveStt = canRetryInitialRecordingLiveStt({
-    hasActiveSession: p3SessionRef.current !== null,
-    hasReusableStream: isReusableRehearsalMediaStream(streamRef.current),
-    isRecording: phase === "recording",
-    isRetrying:
-      isLiveSttRetrying || liveSttRetryCoordinatorRef.current.isRetrying(),
-    liveStatus,
-  });
   const nextSlideHint = nextSlide?.keywords?.[0]
     ? `"${nextSlide.keywords[0].text}"를 말하면 바로 이어집니다`
     : "마지막 문장을 정리하고 마무리하세요";
@@ -5056,15 +4998,6 @@ export function RehearsalWorkspace(props: {
             timeReadOnly
             title="발표 스톱워치"
           />
-
-          {currentSlide?.kind !== "activity" ? (
-            <RehearsalLiveSttStatusNotice
-              canRetry={canRetryRecordingLiveStt}
-              isRetrying={isLiveSttRetrying}
-              model={liveSttStatusModel}
-              onRetry={() => void retryInitialRecordingLiveStt()}
-            />
-          ) : null}
 
           {currentSlide?.kind === "activity" && deck ? (
             <ActivityPresenterPanel
