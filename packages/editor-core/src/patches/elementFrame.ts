@@ -78,7 +78,8 @@ export function createElementFramePatch(
 }
 
 function normalizeCoordinate(value: number, fallback: number) {
-  const coordinate = Number.isFinite(value) ? value : fallback;
+  const safeFallback = Number.isFinite(fallback) ? fallback : 0;
+  const coordinate = Number.isFinite(value) ? value : safeFallback;
   return Math.max(
     -deckElementCoordinateLimit,
     Math.min(deckElementCoordinateLimit, coordinate)

@@ -46,6 +46,21 @@ describe("elementFrame helpers", () => {
     });
   });
 
+  it("falls back to zero when the current position is also non-finite", () => {
+    const deck = createDemoDeck();
+    const element = {
+      ...deck.slides[0].elements[0],
+      x: Number.NaN,
+      y: Number.NEGATIVE_INFINITY
+    };
+    const frame = normalizeElementFrameDraft(deck.canvas, element, {});
+
+    expect(frame).toMatchObject({
+      x: 0,
+      y: 0
+    });
+  });
+
   it("clamps finite coordinates to the supported absolute range", () => {
     const deck = createDemoDeck();
     const element = deck.slides[0].elements[0];
