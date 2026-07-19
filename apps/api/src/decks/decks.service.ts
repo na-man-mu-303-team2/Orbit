@@ -28,11 +28,13 @@ import {
   deckSnapshotReasonSchema,
   deckSnapshotSchema,
   getDeckResponseSchema,
+  getPptxImportQualityResponseSchema,
   getOoxmlSyncStateResponseSchema,
   jobSchema,
   listDeckSnapshotsResponseSchema,
   putDeckRequestSchema,
   putDeckResponseSchema,
+  qualityReportSchema,
   retryOoxmlSyncResponseSchema,
   restoreDeckSnapshotResponseSchema,
   recoverTemplateBlueprintSlideIds,
@@ -59,6 +61,7 @@ import type {
   DeckSnapshot,
   DeckSnapshotReason,
   GetDeckResponse,
+  GetPptxImportQualityResponse,
   Job,
   OoxmlSyncState,
   ListDeckSnapshotsResponse,
@@ -116,6 +119,10 @@ type DeckPatchRow = {
 type TemplateBlueprintRow = {
   template_id: string;
   blueprint_json: unknown;
+};
+
+type PptxImportQualityRow = {
+  quality_report_json: unknown;
 };
 
 type OoxmlTemplateBlueprint = TemplateBlueprintRow & {
@@ -192,6 +199,31 @@ export class DecksService {
       projectId,
       deck: deck.deck,
       updatedAt: deck.updatedAt,
+    });
+  }
+
+  async getPptxImportQuality(
+    projectId: string,
+  ): Promise<GetPptxImportQualityResponse> {
+    const { deck } = await this.getDeck(projectId);
+    const rows = await this.dataSource.query<PptxImportQualityRow[]>(
+      `
+        SELECT quality_report_json
+        FROM template_blueprints
+        WHERE project_id = $1 AND deck_id = $2
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1
+      `,
+      [projectId, deck.deckId],
+    );
+    const qualityReport = qualityReportSchema.safeParse(
+      rows[0]?.quality_report_json,
+    );
+
+    return getPptxImportQualityResponseSchema.parse({
+      importQuality: qualityReport.success
+        ? { qualityReport: qualityReport.data }
+        : null,
     });
   }
 

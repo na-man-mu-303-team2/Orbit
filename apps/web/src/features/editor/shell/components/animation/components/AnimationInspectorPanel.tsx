@@ -114,13 +114,14 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
       />
 
       <AnimationCreateFlow
-        canCreateAnimation={canCreateAnimation}
+        canCreateAnimation={canCreateAnimation && !mutationDisabledReason}
         creationType={creationType}
         draft={creationType ? draftByType[creationType] : null}
         keywordOptions={keywordOptions}
         keywordTriggerRestrictionMessage={keywordTriggerRestrictionMessage}
         keywordTriggerWarningMessage={keywordTriggerWarningMessage}
         linkedTypes={linkedTypes}
+        mutationDisabledReason={mutationDisabledReason}
         selectedKeywordId={selectedKeywordId}
         selectedKeywordLabel={selectedKeywordLabel}
         selectedKeywordOccurrenceId={selectedKeywordOccurrenceId}

@@ -151,6 +151,7 @@ import {
 import type { EditorRightPanelMode } from "./utils/rightPanelMode";
 import {
   fetchDeck,
+  fetchPptxImportQuality,
   flushEditorPersistenceBeforeManualAction
 } from "./api/deckPersistenceApi";
 import {
@@ -418,6 +419,14 @@ export function EditorShell(props: { projectId?: string }) {
   const deckQuery = useQuery({
     queryKey: ["deck", projectId],
     queryFn: () => fetchDeck(projectId),
+    retry: false
+  });
+  const pptxImportQualityQuery = useQuery({
+    queryKey: ["deck-import-quality", projectId],
+    queryFn: () => fetchPptxImportQuality(projectId),
+    enabled:
+      Boolean(deckQuery.data?.projectId) &&
+      deckQuery.data?.metadata.sourceType === "import",
     retry: false
   });
   const {
@@ -740,6 +749,7 @@ export function EditorShell(props: { projectId?: string }) {
     },
     onSetSelectTool: () => setInsertTool("select"),
     persistedProjectId: deckQuery.data?.projectId,
+    rehydratedPptxImportQuality: pptxImportQualityQuery.data,
     prepareForImport: async () => {
       pendingPatchInputsRef.current = [];
       await saveQueueRef.current.catch(() => undefined);

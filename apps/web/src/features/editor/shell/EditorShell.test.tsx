@@ -2542,6 +2542,22 @@ describe("editor shell", () => {
     expect(html).not.toContain("덱을 불러오는 중");
   });
 
+  it("shows persisted PPTX import quality after an editor reload", () => {
+    const queryClient = createTestQueryClient();
+    const deck = createDemoDeck();
+    deck.metadata.sourceType = "import";
+    setDeckData(queryClient, deck);
+    queryClient.setQueryData(["deck-import-quality", demoIds.projectId], {
+      qualityReport: qualityReport()
+    });
+
+    const html = renderApp(queryClient);
+
+    expect(html).toContain("PPTX 가져오기");
+    expect(html).toContain("저장된 PPTX 가져오기 품질");
+    expect(html).toContain("82<!-- -->/100");
+  });
+
   it("renders an empty deck state without a selected slide", () => {
     const queryClient = createTestQueryClient();
     const emptyDeck = {
