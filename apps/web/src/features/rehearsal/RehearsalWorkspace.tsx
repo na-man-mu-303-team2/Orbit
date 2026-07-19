@@ -143,7 +143,6 @@ import {
   type RequestSlideWindowFullscreenResult,
   type SlideDisplayOptions,
 } from "./presenter/DisplayControls";
-import { AudienceOutputControls } from "./presenter/AudienceOutputControls";
 import {
   PresentWindowReceiver,
   requestPresentWindowFullscreen,
@@ -4881,20 +4880,6 @@ export function RehearsalWorkspace(props: {
                 onOpenSlideDisplay={openSlideDisplay}
                 onRequestDisplayScreens={requestDisplayScreens}
                 onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}
-              />
-              <AudienceOutputControls
-                connected={
-                  displayRole === "presenter" &&
-                  presentationChannel.status === "connected" &&
-                  Boolean(slideWindowRef.current && !slideWindowRef.current.closed)
-                }
-                error={audienceScreenShare.error}
-                onReturnToSlide={audienceScreenShare.returnToSlide}
-                onShowBlack={audienceScreenShare.showBlack}
-                onStartMonitor={audienceScreenShare.startMonitor}
-                onStartTabOrWindow={audienceScreenShare.startTabOrWindow}
-                outputMode={audienceOutputMode}
-                status={audienceScreenShare.status}
               />
             </div>
           ) : null
