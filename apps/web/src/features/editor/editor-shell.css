@@ -11289,7 +11289,7 @@ body.is-resizing-speaker-notes {
     grid-row: 1;
     justify-self: end;
     z-index: 19;
-    margin: var(--redesign-space-3) var(--redesign-space-3) 0 0;
+    margin: calc(var(--redesign-space-3) + 10px) var(--redesign-space-3) 0 0;
   }
 
   .orbit-shell.editor-professional .stage-pane > .canvas-scroll,
