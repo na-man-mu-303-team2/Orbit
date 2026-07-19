@@ -4573,7 +4573,7 @@
 
 .rehearsal-presenter-main {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 48px 150px;
+  grid-template-rows: minmax(0, 1fr) 150px;
   min-width: 0;
   overflow: hidden;
   padding: var(--redesign-space-3) var(--redesign-space-4) var(--redesign-space-4);
@@ -4582,6 +4582,7 @@
 .rehearsal-stage-wrap {
   align-items: center;
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   justify-items: center;
   min-height: 0;
   overflow: hidden;
@@ -4692,7 +4693,7 @@
   align-items: center;
   display: grid;
   gap: var(--redesign-space-3);
-  grid-template-columns: 42px auto minmax(96px, max-content) 42px;
+  grid-template-columns: 44px minmax(96px, max-content) 44px;
   justify-content: center;
   padding-top: var(--redesign-space-2);
 }
@@ -9318,7 +9319,7 @@
 .rehearsal-presenter-main {
   display: grid;
   gap: var(--redesign-space-3);
-  grid-template-rows: minmax(0, 1fr) 42px 96px;
+  grid-template-rows: minmax(0, 1fr) 96px;
   min-height: 0;
   padding: 0;
 }
@@ -9979,7 +9980,7 @@
 
 .rehearsal-presenter-main {
   gap: var(--redesign-space-3);
-  grid-template-rows: minmax(0, 1fr) 42px 112px;
+  grid-template-rows: minmax(0, 1fr) 112px;
 }
 
 .rehearsal-stage-wrap {

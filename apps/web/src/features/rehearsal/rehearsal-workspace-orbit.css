@@ -211,7 +211,7 @@ main.rehearsal-presenter-shell {
   background: transparent;
   border: 0;
   box-shadow: var(--redesign-shadow-none);
-  grid-template-rows: minmax(0, 1fr) 42px;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .rehearsal-presenter-shell .rehearsal-stage-wrap {
@@ -219,13 +219,15 @@ main.rehearsal-presenter-shell {
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-lg);
   box-shadow: var(--redesign-shadow-none);
+  grid-template-rows: minmax(0, 1fr) 40px;
   padding: var(--redesign-space-5);
+  padding-bottom: 10px;
 }
 
 .rehearsal-presenter-shell .rehearsal-stage-surface {
   background: var(--redesign-color-surface-container-low);
   border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-xl);
+  border-radius: var(--redesign-radius-lg);
   box-shadow: var(--redesign-shadow-overlay);
   overflow: hidden;
 }
@@ -250,12 +252,27 @@ main.rehearsal-presenter-shell {
   text-transform: none;
 }
 
-.rehearsal-presenter-shell .rehearsal-slide-controls button {
+.rehearsal-presenter-shell .rehearsal-stage-wrap > .rehearsal-slide-controls {
+  gap: var(--redesign-space-2);
+  grid-template-columns: 36px minmax(72px, max-content) 36px;
+  padding-top: var(--redesign-space-1);
+}
+
+.rehearsal-presenter-shell .rehearsal-stage-wrap > .rehearsal-slide-controls button {
   background: var(--redesign-color-surface-container-lowest);
   border-color: var(--redesign-color-outline);
   color: var(--redesign-color-on-surface);
-  height: 44px;
-  width: 44px;
+  height: 36px;
+  width: 36px;
+}
+
+.rehearsal-presenter-shell .rehearsal-stage-wrap > .rehearsal-slide-controls button svg {
+  height: 18px;
+  width: 18px;
+}
+
+.rehearsal-presenter-shell .rehearsal-stage-wrap > .rehearsal-slide-controls span {
+  min-width: 72px;
 }
 
 .rehearsal-presenter-shell .rehearsal-slide-controls button:hover:not(:disabled) {
@@ -565,7 +582,8 @@ main.rehearsal-presenter-shell {
 .rehearsal-presenter-shell
   .rehearsal-panel-top-grid:has(.rehearsal-panel-live-slot)
   > .rehearsal-panel-section {
-  padding-right: 0;
+  border-radius: var(--redesign-radius-lg);
+  padding-inline: var(--redesign-space-4);
 }
 
 .rehearsal-presenter-shell .rehearsal-panel-section-heading span,
@@ -673,7 +691,7 @@ main.rehearsal-presenter-shell {
   }
 
   .rehearsal-presenter-shell .rehearsal-presenter-main {
-    grid-template-rows: var(--rehearsal-stage-block-size) 44px;
+    grid-template-rows: var(--rehearsal-stage-block-size);
   }
 
   .rehearsal-presenter-shell .rehearsal-teleprompter-band {
@@ -693,7 +711,7 @@ main.rehearsal-presenter-shell {
 }
 @media (max-width:760px) {
   .rehearsal-presenter-shell .rehearsal-presenter-main {
-    grid-template-rows: var(--rehearsal-stage-block-size) 44px;
+    grid-template-rows: var(--rehearsal-stage-block-size);
   }
 
   .rehearsal-presenter-shell

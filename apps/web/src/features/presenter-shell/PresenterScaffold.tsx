@@ -162,30 +162,29 @@ export function PresenterStageSection(props: {
         ) : (
           <div className="rehearsal-empty-stage">{props.emptyStageLabel}</div>
         )}
-      </div>
-
-      <div className="rehearsal-slide-controls">
-        <button
-          type="button"
-          onClick={props.onPrevious}
-          disabled={props.previousDisabled}
-          aria-label="이전 슬라이드"
-          title="이전 슬라이드"
-        >
-          <ChevronLeft size={24} />
-        </button>
-        <span>
-          {props.currentIndex + 1} / {props.totalSlides}
-        </span>
-        <button
-          type="button"
-          onClick={props.onNext}
-          disabled={props.currentIndex >= props.totalSlides - 1}
-          aria-label="다음 슬라이드"
-          title="다음 슬라이드"
-        >
-          <ChevronRight size={24} />
-        </button>
+        <div className="rehearsal-slide-controls">
+          <button
+            type="button"
+            onClick={props.onPrevious}
+            disabled={props.previousDisabled}
+            aria-label="이전 슬라이드"
+            title="이전 슬라이드"
+          >
+            <ChevronLeft size={24} />
+          </button>
+          <span>
+            {props.currentIndex + 1} / {props.totalSlides}
+          </span>
+          <button
+            type="button"
+            onClick={props.onNext}
+            disabled={props.currentIndex >= props.totalSlides - 1}
+            aria-label="다음 슬라이드"
+            title="다음 슬라이드"
+          >
+            <ChevronRight size={24} />
+          </button>
+        </div>
       </div>
 
       <section className="rehearsal-next-slide-preview" aria-label="다음 슬라이드">
