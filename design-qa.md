@@ -60,6 +60,50 @@ final result: passed
 
 ---
 
+# Rehearsal timer split-surface design QA
+
+- Source visual truth: `C:/Users/Runner/Desktop/Frame 6.png` (lower warning-state reference).
+- Implementation screenshot: `D:/Projects/Orbit/.tmp/design-qa/rehearsal-timer-split.png`.
+- Combined full-view comparison: `D:/Projects/Orbit/.tmp/design-qa/rehearsal-timer-split-comparison.png`.
+- Focused timer comparison: `D:/Projects/Orbit/.tmp/design-qa/rehearsal-timer-split-focused-comparison.png`.
+- Route: `/rehearsal/project_6c000fc2-a814-4c85-a5ad-bc5931ec94a6`.
+- Viewport: 1212 x 874 CSS px.
+- State: running rehearsal, default timing state. The reference shows the warning timing state.
+
+## Full-view comparison evidence
+
+The existing rehearsal layout, slide area, side panel, and teleprompter remain unchanged. The timer card now matches the reference hierarchy: a blue stopwatch header is directly joined to a bright timing-threshold panel inside one clipped card.
+
+## Focused region comparison evidence
+
+The source and implementation timer cards were placed in one focused comparison. Both use a full-width blue header, a full-width bright timing panel, two compact timing rows, and the existing rounded outer card. The implementation uses the existing 16px horizontal spacing token and 12px vertical spacing token. A separate asset comparison was unnecessary because this scoped change contains no new imagery or icons.
+
+## Required fidelity surfaces
+
+- Fonts and typography: existing rehearsal type tokens and hierarchy are unchanged; small timing labels remain readable on the bright surface.
+- Spacing and layout rhythm: header padding is 16px; timing-panel padding is 12px 16px with a 12px row gap, matching the surrounding rehearsal spacing system.
+- Colors and visual tokens: header uses `--redesign-color-primary`, the lower panel uses `--redesign-color-surface-container-lowest`, default progress uses `--redesign-color-on-surface`, warning uses the requested `#f0be36`, and danger uses `--redesign-color-error`.
+- Image quality and asset fidelity: no new raster or vector asset is required; the existing Lucide controls are preserved.
+- Copy and content: stopwatch and timing labels are unchanged.
+
+## Comparison history
+
+1. P2 - The previous state treatment placed warning/error container fills behind each row, making the compact timer visually heavy. Removed per-row containers.
+2. P2 - The stopwatch and timing thresholds previously shared one blue surface, reducing hierarchy and forcing all copy to white. Split the card into blue and bright surfaces while preserving one outer card.
+3. Post-fix evidence - The focused comparison shows matching surface proportions, padding, row rhythm, and outer radius. No actionable P0/P1/P2 issue remains in the requested timer region.
+
+## Findings
+
+No remaining P0, P1, or P2 visual issue in the requested region. The live capture is in the default state; the warning and danger selectors were verified in the loaded stylesheet, while the existing timing-state logic remains unchanged.
+
+## Follow-up polish
+
+- P3: capture a natural warning transition during a timed rehearsal if a final state-by-state visual archive is needed.
+
+final result: passed
+
+---
+
 # Style loading spinner design QA
 
 - Source visual truth: `.tmp/design-qa/style-loading-final.png`의 기존 로딩 화면 레이아웃과 사용자 지정 스피너 요구.
