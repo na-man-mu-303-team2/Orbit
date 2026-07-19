@@ -4,7 +4,15 @@ import type {
   ActivityQuestionType,
   ActivitySlide
 } from "@orbit/shared";
-import { OrbitButton, OrbitDialog } from "../../../components/ui";
+import {
+  OrbitButton,
+  OrbitDialog,
+  OrbitField,
+  OrbitInput,
+  OrbitSelect,
+  OrbitStatus,
+  OrbitTextarea
+} from "../../../components/ui";
 import { useState } from "react";
 
 import { ActivitySlidePreview, type ActivityPreviewRole } from "./ActivitySlidePreview";
@@ -56,9 +64,12 @@ export function ActivitySlideInspector(props: {
   return (
     <div className="activity-slide-inspector">
       <div className="activity-inspector-heading">
-        <span className="redesign-eyebrow">ACTIVITY</span>
-        <h3>{templateLabels[activity.template]}</h3>
-        <p>청중에게 보일 문항과 발표자 화면을 함께 확인합니다.</p>
+        <div>
+          <span className="redesign-eyebrow">ACTIVITY</span>
+          <h3>{templateLabels[activity.template]}</h3>
+          <p>청중에게 보일 문항을 설정하고 슬라이드에서 바로 확인합니다.</p>
+        </div>
+        <OrbitStatus tone="info">캔버스 자동 반영</OrbitStatus>
       </div>
 
       <fieldset
@@ -66,29 +77,41 @@ export function ActivitySlideInspector(props: {
         data-semantic-locked={editorRuntime.locked ? "true" : "false"}
         disabled={editorRuntime.locked}
       >
-      <label>
-        제목
-        <input
-          maxLength={120}
-          value={activity.title}
-          onChange={(event) => updateActivity({ title: event.currentTarget.value })}
-        />
-      </label>
-      <label>
-        설명
-        <textarea
-          maxLength={500}
-          rows={3}
-          value={activity.description}
-          onChange={(event) => updateActivity({ description: event.currentTarget.value })}
-        />
-      </label>
+      <section className="activity-inspector-section">
+        <div className="activity-inspector-section-heading">
+          <strong>장표 내용</strong>
+          <span>제목과 안내 문구는 슬라이드 왼쪽 영역에 표시됩니다.</span>
+        </div>
+        <OrbitField id="activity-slide-title" label="제목">
+          <OrbitInput
+            maxLength={120}
+            value={activity.title}
+            onChange={(event) => updateActivity({ title: event.currentTarget.value })}
+          />
+        </OrbitField>
+        <OrbitField id="activity-slide-description" label="설명">
+          <OrbitTextarea
+            maxLength={500}
+            rows={3}
+            value={activity.description}
+            onChange={(event) => updateActivity({ description: event.currentTarget.value })}
+          />
+        </OrbitField>
+      </section>
 
-      <div className="activity-inspector-questions">
+      <section className="activity-inspector-section">
+        <div className="activity-inspector-section-heading">
+          <strong>문항 설정</strong>
+          <span>입력한 질문은 슬라이드의 응답 카드에 바로 표시됩니다.</span>
+        </div>
+        <div className="activity-inspector-questions">
         {activity.questions.map((question, index) => (
           <section className="activity-question-editor" key={question.questionId}>
             <div className="activity-question-editor-heading">
-              <strong>문항 {index + 1}</strong>
+              <div className="activity-question-editor-title">
+                <strong>문항 {index + 1}</strong>
+                <OrbitStatus>{questionTypeLabels[question.type]}</OrbitStatus>
+              </div>
               <div>
                 <button
                   aria-label={`문항 ${index + 1} 위로 이동`}
@@ -115,9 +138,8 @@ export function ActivitySlideInspector(props: {
               </div>
             </div>
             {activity.template === "satisfaction" ? (
-              <label>
-                문항 유형
-                <select
+              <OrbitField id={`activity-question-${question.questionId}-type`} label="문항 유형">
+                <OrbitSelect
                   value={question.type}
                   onChange={(event) => updateQuestion(
                     question.questionId,
@@ -127,12 +149,15 @@ export function ActivitySlideInspector(props: {
                   {Object.entries(questionTypeLabels).map(([value, label]) => (
                     <option key={value} value={value}>{label}</option>
                   ))}
-                </select>
-              </label>
-            ) : <span className="activity-question-type-label">{questionTypeLabels[question.type]}</span>}
-            <label>
-              질문
-              <textarea
+                </OrbitSelect>
+              </OrbitField>
+            ) : null}
+            <OrbitField
+              hint="입력 내용은 왼쪽 슬라이드의 질문 카드에 즉시 반영됩니다."
+              id={`activity-question-${question.questionId}-prompt`}
+              label="질문"
+            >
+              <OrbitTextarea
                 maxLength={500}
                 rows={2}
                 value={question.prompt}
@@ -141,22 +166,28 @@ export function ActivitySlideInspector(props: {
                   prompt: event.currentTarget.value
                 })}
               />
-            </label>
-            <label className="activity-inspector-check">
-              <input
-                checked={question.required}
-                type="checkbox"
-                onChange={(event) => updateQuestion(question.questionId, {
-                  ...question,
-                  required: event.currentTarget.checked
-                })}
-              />
-              필수 문항
-            </label>
+            </OrbitField>
+            <div className="activity-question-toggles">
+              <label className="activity-inspector-check">
+                <input
+                  checked={question.required}
+                  type="checkbox"
+                  onChange={(event) => updateQuestion(question.questionId, {
+                    ...question,
+                    required: event.currentTarget.checked
+                  })}
+                />
+                필수 문항
+              </label>
+            </div>
             {question.type === "rating" ? (
               <div className="activity-rating-label-editor">
-                <label>왼쪽 label<input maxLength={40} value={question.leftLabel} onChange={(event) => updateQuestion(question.questionId, { ...question, leftLabel: event.currentTarget.value })} /></label>
-                <label>오른쪽 label<input maxLength={40} value={question.rightLabel} onChange={(event) => updateQuestion(question.questionId, { ...question, rightLabel: event.currentTarget.value })} /></label>
+                <OrbitField id={`activity-question-${question.questionId}-left-label`} label="왼쪽 label">
+                  <OrbitInput maxLength={40} value={question.leftLabel} onChange={(event) => updateQuestion(question.questionId, { ...question, leftLabel: event.currentTarget.value })} />
+                </OrbitField>
+                <OrbitField id={`activity-question-${question.questionId}-right-label`} label="오른쪽 label">
+                  <OrbitInput maxLength={40} value={question.rightLabel} onChange={(event) => updateQuestion(question.questionId, { ...question, rightLabel: event.currentTarget.value })} />
+                </OrbitField>
               </div>
             ) : null}
             {question.type === "single-choice" || question.type === "multiple-choice" ? (
@@ -165,7 +196,8 @@ export function ActivitySlideInspector(props: {
                   <label key={option.optionId}>
                     선택지 {optionIndex + 1}
                     <span>
-                      <input
+                      <OrbitInput
+                        id={`activity-option-${option.optionId}`}
                         maxLength={100}
                         value={option.label}
                         onChange={(event) => updateQuestion(question.questionId, {
@@ -208,16 +240,17 @@ export function ActivitySlideInspector(props: {
             })}
           >문항 추가 ({activity.questions.length}/5)</button>
         ) : null}
-      </div>
+        </div>
 
-      <label className="activity-inspector-check">
-        <input
-          checked={activity.allowDisplayName}
-          type="checkbox"
-          onChange={(event) => updateActivity({ allowDisplayName: event.currentTarget.checked })}
-        />
-        선택 이름 허용
-      </label>
+        <label className="activity-inspector-check activity-display-name-check">
+          <input
+            checked={activity.allowDisplayName}
+            type="checkbox"
+            onChange={(event) => updateActivity({ allowDisplayName: event.currentTarget.checked })}
+          />
+          응답자 이름 입력 허용
+        </label>
+      </section>
       </fieldset>
 
       {editorRuntime.locked && editorRuntime.runtime ? (

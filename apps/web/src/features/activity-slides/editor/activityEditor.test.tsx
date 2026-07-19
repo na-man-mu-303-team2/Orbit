@@ -34,6 +34,7 @@ describe("activity slide editor", () => {
 
     expect(audience).toContain("청중 참여 장표 미리보기");
     expect(audience).toContain("응답 제출");
+    expect(audience).toContain("답변을 입력해 주세요");
     expect(presenter).toContain("발표자 참여 장표 미리보기");
     expect(presenter).toContain("응답 0");
   });
@@ -218,6 +219,22 @@ describe("activity slide editor", () => {
       expect(html).toContain(templateSlide.activity.title);
     }
   );
+
+  it("shows that pre-question edits are reflected on the slide canvas", () => {
+    const preQuestionSlide = createActivitySlide(createDemoDeck(), "pre-question");
+    const questionPrompt = preQuestionSlide.activity.questions[0]!.prompt;
+    const previewHtml = renderToStaticMarkup(
+      <ActivitySlidePreview role="audience" slide={preQuestionSlide} />
+    );
+    const inspectorHtml = renderToStaticMarkup(
+      <ActivitySlideInspector onChange={vi.fn()} slide={preQuestionSlide} />
+    );
+
+    expect(previewHtml).toContain(questionPrompt);
+    expect(previewHtml).toContain("답변을 입력해 주세요");
+    expect(inspectorHtml).toContain("캔버스 자동 반영");
+    expect(inspectorHtml).toContain("입력한 질문은 슬라이드의 응답 카드에 바로 표시됩니다.");
+  });
 
   it("renders result source recovery without persisting a session or response", () => {
     const deck = deckSchema.parse({

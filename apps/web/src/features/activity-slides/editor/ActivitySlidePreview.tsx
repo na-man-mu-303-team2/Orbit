@@ -34,7 +34,9 @@ export function ActivitySlidePreview(props: {
                   {[1, 2, 3, 4, 5].map((value) => <i key={value}>{value}</i>)}
                 </div>
               ) : question.type === "free-text" ? (
-                <div aria-hidden="true" className="activity-text-preview" />
+                <div aria-hidden="true" className="activity-text-preview">
+                  <span>답변을 입력해 주세요</span>
+                </div>
               ) : (
                 <div aria-hidden="true" className="activity-choice-preview">
                   {question.options.slice(0, 4).map((option) => (
