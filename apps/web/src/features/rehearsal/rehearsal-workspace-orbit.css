@@ -219,9 +219,9 @@ main.rehearsal-presenter-shell {
   gap: var(--redesign-space-5) var(--redesign-space-6);
   grid-template-columns: minmax(0, 1fr) 360px;
   margin: 0 auto;
-  max-width: 1500px;
-  padding: var(--redesign-space-6);
-  width: 100%;
+  padding-block: var(--redesign-space-6);
+  padding-inline: var(--redesign-layout-workspace-margin);
+  width: min(100%, var(--redesign-layout-content-max-width));
 }
 
 .rehearsal-presenter-shell .rehearsal-presenter-main {
@@ -739,8 +739,11 @@ main.rehearsal-presenter-shell {
 }
 
 @media (max-width:900px) {
-  .rehearsal-presenter-shell .rehearsal-presenter-layout { padding: var(--redesign-space-3); }
+  .rehearsal-presenter-shell .rehearsal-presenter-layout { padding-block: var(--redesign-space-3); }
   .rehearsal-display-toolbar { order: 5; width: 100%; }
+}
+@media (max-width:767px) {
+  .rehearsal-presenter-shell .rehearsal-presenter-layout { padding-inline: var(--redesign-space-4); }
 }
 @media (max-width:760px) {
   .rehearsal-presenter-shell .rehearsal-presenter-main {
