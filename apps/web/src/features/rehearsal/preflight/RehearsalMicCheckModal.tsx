@@ -157,6 +157,7 @@ export function RehearsalMicCheckModal(props: {
   }
 
   const permissionGranted = permission === "granted";
+  const hasMicrophoneError = permission === "denied" || Boolean(error);
 
   return (
     <div className="rehearsal-mic-modal-backdrop" onMouseDown={(event) => {
@@ -165,15 +166,15 @@ export function RehearsalMicCheckModal(props: {
       <section aria-labelledby="rehearsal-mic-modal-title" aria-modal="true" className="rehearsal-mic-modal" role="dialog">
         <header>
           <div>
-            <h2 id="rehearsal-mic-modal-title">마이크를 확인해 주세요</h2>
-            <p>발표 음성이 잘 전달되는지 간단히 확인합니다.</p>
+            <h2 id="rehearsal-mic-modal-title">리허설 전 마이크를 확인해 주세요</h2>
+            <p>음성이 잘 전달되는지 간단히 확인합니다.</p>
           </div>
           <button aria-label="닫기" className="rehearsal-mic-modal-close" onClick={props.onClose} type="button">
             <IconX size={20} />
           </button>
         </header>
 
-        <div className="rehearsal-mic-step">
+        <div className={`rehearsal-mic-step${permissionGranted ? " rehearsal-mic-step-active" : ""}`}>
           <span className="rehearsal-mic-step-number">1</span>
           <div>
             <div className="rehearsal-mic-step-heading">
@@ -198,24 +199,25 @@ export function RehearsalMicCheckModal(props: {
           </div>
         </div>
 
-        <div className={`rehearsal-mic-step${permissionGranted ? " rehearsal-mic-step-active" : ""}`}>
+        <div className={`rehearsal-mic-step${heardVoice ? " rehearsal-mic-step-active" : ""}`}>
           <span className="rehearsal-mic-step-number">2</span>
           <div>
             <div className="rehearsal-mic-step-heading">
-              <strong>음량 확인</strong>
-              <span>{permissionGranted ? "말해 보세요" : "권한 허용 후 확인"}</span>
+              <strong>인식 확인</strong>
+              <span className={hasMicrophoneError ? "rehearsal-mic-error-status" : heardVoice ? "rehearsal-mic-success" : undefined}>
+                {heardVoice ? <IconCheck size={14} /> : null}
+                {hasMicrophoneError ? "음성 감지에 실패했어요" : heardVoice ? "목소리가 잘 들려요" : permissionGranted ? "목소리를 들려주세요" : "권한 허용 후 확인"}
+              </span>
             </div>
             <canvas aria-label="실시간 마이크 입력 파형" className="rehearsal-mic-waveform" ref={canvasRef} role="img" />
           </div>
         </div>
 
-        <div className="rehearsal-mic-step rehearsal-mic-step-final">
-          <span className="rehearsal-mic-step-number">3</span>
-          <div className="rehearsal-mic-step-heading">
-            <strong>{heardVoice ? "목소리가 선명하게 들려요" : "목소리를 확인하는 중이에요"}</strong>
-            {heardVoice ? <IconCheck className="rehearsal-mic-success-icon" size={20} /> : null}
-          </div>
-        </div>
+        {hasMicrophoneError || heardVoice ? (
+          <p className={`rehearsal-mic-result${hasMicrophoneError ? " rehearsal-mic-result-error" : ""}`} role="status">
+            {hasMicrophoneError ? "마이크 연결을 확인해 주세요!" : "리허설 준비 완료!"}
+          </p>
+        ) : null}
 
         <footer>
           <button disabled={!permissionGranted} onClick={() => { stopMicrophone(); props.onStart(); }} type="button">리허설 시작</button>

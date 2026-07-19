@@ -36,6 +36,19 @@ final result: passed
 
 ---
 
+# Rehearsal microphone modal — Frame 13 refinement
+
+- Source visual truth: `C:/Users/Runner/Desktop/Frame 13.png`.
+- Implementation evidence: `C:/Users/Runner/.codex/visualizations/2026/07/19/019f7960-a82c-7e11-b04e-91cc188840ca/rehearsal-mic-modal-frame13.png`.
+- The source and browser-rendered modal were compared together at desktop scale.
+- The title and supporting copy now match the reference hierarchy, with the existing redesign title/body tokens and 32px modal padding.
+- Permission and recognition steps use the existing primary, outline, success, and error tokens; the live waveform and microphone selection behavior remain intact.
+- Browser verification confirmed the permission-granted state, device selector, recognition prompt, and CTA layout. `RehearsalWorkspace.test.tsx`: 113 tests passed.
+
+final result: passed
+
+---
+
 # 리허설 마이크 확인 모달 design QA
 
 ## Visual truth

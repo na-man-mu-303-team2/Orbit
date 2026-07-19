@@ -18,7 +18,7 @@
   font-family: var(--redesign-font-family);
   max-height: calc(100vh - 40px);
   overflow: auto;
-  padding: var(--redesign-space-7);
+  padding: var(--redesign-space-8);
   width: min(500px, 100%);
 }
 
@@ -31,8 +31,8 @@
 }
 
 .rehearsal-mic-modal h2 {
-  font-size: var(--redesign-type-headline-lg-size);
-  letter-spacing: -.035em;
+  font-size: var(--redesign-type-title-lg-size);
+  letter-spacing: -.025em;
   margin: 0 0 var(--redesign-space-1);
 }
 
@@ -62,10 +62,21 @@
   gap: var(--redesign-space-3);
   grid-template-columns: 34px minmax(0, 1fr);
   padding: var(--redesign-space-4) 0;
+  position: relative;
 }
 
-.rehearsal-mic-step + .rehearsal-mic-step {
-  border-top: 1px solid var(--redesign-color-outline-variant);
+.rehearsal-mic-step::before {
+  background: var(--redesign-color-outline-variant);
+  content: "";
+  left: 15px;
+  position: absolute;
+  top: 52px;
+  bottom: -12px;
+  width: 2px;
+}
+
+.rehearsal-mic-step-active::before {
+  background: var(--redesign-color-primary);
 }
 
 .rehearsal-mic-step-number {
@@ -78,7 +89,9 @@
   font-weight: 700;
   height: 32px;
   justify-content: center;
+  position: relative;
   width: 32px;
+  z-index: 1;
 }
 
 .rehearsal-mic-step-active .rehearsal-mic-step-number {
@@ -106,6 +119,10 @@
   color: var(--redesign-color-success);
   display: inline-flex;
   gap: 3px;
+}
+
+.rehearsal-mic-step-heading .rehearsal-mic-error-status {
+  color: var(--redesign-color-error);
 }
 
 .rehearsal-mic-device {
@@ -160,16 +177,19 @@
   width: 100%;
 }
 
-.rehearsal-mic-step-final {
-  padding-bottom: var(--redesign-space-5);
+.rehearsal-mic-result {
+  color: var(--redesign-color-primary);
+  font-size: var(--redesign-type-title-lg-size);
+  font-weight: 700;
+  margin: var(--redesign-space-5) 0;
+  text-align: center;
 }
 
-.rehearsal-mic-success-icon {
-  color: var(--redesign-color-success);
+.rehearsal-mic-result-error {
+  color: var(--redesign-color-error);
 }
 
 .rehearsal-mic-modal > footer {
-  border-top: 1px solid var(--redesign-color-outline-variant);
   padding-top: var(--redesign-space-5);
 }
 
