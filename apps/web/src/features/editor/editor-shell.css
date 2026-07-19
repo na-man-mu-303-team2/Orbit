@@ -3846,20 +3846,32 @@
   font-weight: 800;
 }
 
-.keyword-control-button {
-  min-height: 30px;
-  padding: 0 var(--redesign-space-2);
-  border: 1px solid var(--redesign-color-primary-outline);
-  border-radius: var(--redesign-radius-full);
-  background: var(--redesign-color-surface-container-low);
-  color: var(--redesign-color-primary-emphasis);
+.keyword-mode-select-label {
+  display: inline-grid;
+  gap: var(--redesign-space-1);
+  min-width: min(240px, 100%);
+  color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-label-sm-size);
   font-weight: 800;
 }
 
-.keyword-control-button.active {
+.keyword-mode-select {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 var(--redesign-space-8) 0 var(--redesign-space-3);
+  border: 1px solid var(--redesign-color-primary-outline);
+  border-radius: var(--redesign-radius);
+  background: var(--redesign-color-surface-container-low);
+  color: var(--redesign-color-primary-emphasis);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.keyword-mode-select:focus-visible {
   border-color: var(--redesign-color-primary);
-  background: var(--redesign-color-primary-subtle);
+  outline: 1px solid var(--redesign-color-primary);
+  outline-offset: 2px;
 }
 
 .keyword-detail-action {

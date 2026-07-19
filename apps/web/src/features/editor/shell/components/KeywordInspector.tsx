@@ -7,6 +7,11 @@ export interface KeywordUsageSummary {
   animationIds: string[];
 }
 
+export type KeywordActionMode =
+  | "advance-slide"
+  | "animation-trigger"
+  | "required-keyword";
+
 interface SpeakerNotesWordPart {
   keyword: Keyword | null;
   kind: "word";
@@ -149,19 +154,25 @@ export function KeywordDetail(props: {
   usage?: KeywordUsageSummary | null;
   onClearSelection?: () => void;
   onDeleteKeyword?: () => void;
-  onToggleAdvanceSlide?: () => void;
-  onToggleRequired?: () => void;
+  onSelectActionMode?: (mode: KeywordActionMode) => void;
 }) {
   const {
     keyword,
     onClearSelection,
     onDeleteKeyword,
-    onToggleAdvanceSlide,
-    onToggleRequired,
+    onSelectActionMode,
     requiredActive = keyword.required,
     showIds,
     usage
   } = props;
+  const selectedActionMode: KeywordActionMode | "" =
+    (usage?.animationIds.length ?? 0) > 0
+      ? "animation-trigger"
+      : usage?.advancesSlide
+        ? "advance-slide"
+        : requiredActive
+          ? "required-keyword"
+          : "";
 
   return (
     <section className="keyword-detail-card">
@@ -199,20 +210,25 @@ export function KeywordDetail(props: {
         ) : null}
       </div>
       <div className="keyword-control-row">
-        <button
-          className={`keyword-control-button ${requiredActive ? "active" : ""}`}
-          type="button"
-          onClick={onToggleRequired}
-        >
-          필수 발화
-        </button>
-        <button
-          className={`keyword-control-button ${usage?.advancesSlide ? "active" : ""}`}
-          type="button"
-          onClick={onToggleAdvanceSlide}
-        >
-          다음 슬라이드
-        </button>
+        <label className="keyword-mode-select-label">
+          <span>키워드 동작</span>
+          <select
+            className="keyword-mode-select"
+            value={selectedActionMode}
+            onChange={(event) => {
+              const mode = event.target.value as KeywordActionMode | "";
+              if (!mode) return;
+              onSelectActionMode?.(mode);
+            }}
+          >
+            <option value="" disabled>
+              유형 선택
+            </option>
+            <option value="required-keyword">필수 키워드</option>
+            <option value="advance-slide">다음 슬라이드 넘김</option>
+            <option value="animation-trigger">애니메이션 트리거</option>
+          </select>
+        </label>
       </div>
       <KeywordAliases label="유의어" values={keyword.synonyms} />
       <KeywordAliases label="약어" values={keyword.abbreviations} />

@@ -35,15 +35,16 @@ describe("KeywordDetail", () => {
         }}
         onClearSelection={vi.fn()}
         onDeleteKeyword={vi.fn()}
-        onToggleAdvanceSlide={vi.fn()}
-        onToggleRequired={vi.fn()}
+        onSelectActionMode={vi.fn()}
       />
     );
 
     expect(html).toContain("선택 해제");
     expect(html).toContain("키워드 삭제");
-    expect(html).toContain("필수 발화");
-    expect(html).toContain("다음 슬라이드");
+    expect(html).toContain("키워드 동작");
+    expect(html).toContain("필수 키워드");
+    expect(html).toContain("다음 슬라이드 넘김");
+    expect(html).toContain("애니메이션 트리거");
   });
 
   it("keeps aggregate keyword badges separate from selected occurrence usage", () => {
@@ -78,16 +79,15 @@ describe("KeywordDetail", () => {
           }}
           onClearSelection={vi.fn()}
           onDeleteKeyword={vi.fn()}
-          onToggleAdvanceSlide={vi.fn()}
-          onToggleRequired={vi.fn()}
+          onSelectActionMode={vi.fn()}
         />
       </>
     );
 
     expect(html).toMatch(/애니메이션.*1/);
     expect(html.match(/다음 슬라이드/g)).toHaveLength(2);
-    expect(html).toContain('keyword-control-button "');
-    expect(html).not.toContain("keyword-control-button active");
+    expect(html).toContain('class="keyword-mode-select"');
+    expect(html).not.toContain('value="advance-slide" selected');
   });
 
   it("marks required checkpoint badges for emphasized editor styling", () => {

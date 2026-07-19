@@ -134,6 +134,7 @@ import {
   EditorRightPanel,
   type AiPanelView
 } from "./components/EditorRightPanel";
+import type { KeywordActionMode } from "./components/KeywordInspector";
 import type { EditorRightPanelMode } from "./utils/rightPanelMode";
 import {
   fetchDeck,
@@ -966,6 +967,51 @@ export function EditorShell(props: { projectId?: string }) {
     editorSlideActions.handleValidationTextOverflowAction;
   function clearSelectedKeyword() {
     editorSlideActions.clearSelectedKeyword();
+  }
+  function handleSelectKeywordActionMode(mode: KeywordActionMode) {
+    if (!currentSlide || !selectedKeyword) {
+      return;
+    }
+
+    if (mode === "animation-trigger") {
+      openAnimationInspector();
+      return;
+    }
+
+    if (mode === "required-keyword") {
+      if (!selectedKeywordRequiredActive) {
+        handleToggleKeywordRequired(
+          currentSlide.slideId,
+          selectedKeyword.keywordId,
+          selectedKeywordOccurrenceKey
+        );
+      }
+      if (selectedKeywordUsage?.advancesSlide) {
+        handleToggleAdvanceSlideKeyword(
+          currentSlide.slideId,
+          selectedKeyword.keywordId,
+          false
+        );
+      }
+      return;
+    }
+
+    if (mode === "advance-slide") {
+      if (selectedKeywordRequiredActive) {
+        handleToggleKeywordRequired(
+          currentSlide.slideId,
+          selectedKeyword.keywordId,
+          selectedKeywordOccurrenceKey
+        );
+      }
+      if (!(selectedKeywordUsage?.advancesSlide ?? false)) {
+        handleToggleAdvanceSlideKeyword(
+          currentSlide.slideId,
+          selectedKeyword.keywordId,
+          true
+        );
+      }
+    }
   }
   const selectedAnimationPanelElement =
     selectedElement ??
@@ -2132,28 +2178,11 @@ export function EditorShell(props: { projectId?: string }) {
                 onResizeStart={handleSpeakerNotesResizeStart}
                 onSaveEdit={handleSaveSpeakerNotesEdit}
                 onSelectKeyword={handleSelectKeyword}
+                onSelectKeywordActionMode={handleSelectKeywordActionMode}
                 onSelectKeywordText={handleSpeakerNotesKeywordSelection}
                 onStartEdit={handleStartSpeakerNotesEdit}
                 onTabSelected={() => setRequestedSpeakerNotesTab(null)}
-                onToggleAdvanceSlide={() => {
-                  if (currentSlide && selectedKeyword) {
-                    handleToggleAdvanceSlideKeyword(
-                      currentSlide.slideId,
-                      selectedKeyword.keywordId,
-                      !(selectedKeywordUsage?.advancesSlide ?? false)
-                    );
-                  }
-                }}
                 onTogglePanel={handleToggleSpeakerNotesPanel}
-                onToggleRequired={() => {
-                  if (currentSlide && selectedKeyword) {
-                    handleToggleKeywordRequired(
-                      currentSlide.slideId,
-                      selectedKeyword.keywordId,
-                      selectedKeywordOccurrenceKey
-                    );
-                  }
-                }}
                 selectedKeyword={selectedKeyword}
                 selectedKeywordId={selectedKeywordId}
                 selectedKeywordOccurrenceKey={selectedKeywordOccurrenceKey}

@@ -6,7 +6,7 @@ import {
 } from "@tabler/icons-react";
 
 import type { getSpeakerNotesLengthGuidance } from "../speakerNotesAssistant";
-import type { KeywordUsageSummary } from "./KeywordInspector";
+import type { KeywordActionMode, KeywordUsageSummary } from "./KeywordInspector";
 import {
   KeywordDetail,
   KeywordHighlightedNotes,
@@ -27,9 +27,8 @@ export type SpeakerNotesScriptTabProps = {
   onSaveEdit: () => void;
   onSelectKeyword: (keywordId: string, occurrenceKey?: string | null) => void;
   onSelectKeywordText: (value: string, start: number) => void;
+  onSelectKeywordActionMode: (mode: KeywordActionMode) => void;
   onStartEdit: () => void;
-  onToggleAdvanceSlide: () => void;
-  onToggleRequired: () => void;
   selectedKeyword: Keyword | null;
   selectedKeywordId: string | null;
   selectedKeywordOccurrenceKey: string | null;
@@ -136,8 +135,7 @@ export function SpeakerNotesScriptTab(props: SpeakerNotesScriptTabProps) {
               usage={props.selectedKeywordUsage}
               onClearSelection={props.onClearKeyword}
               onDeleteKeyword={props.onDeleteKeyword}
-              onToggleAdvanceSlide={props.onToggleAdvanceSlide}
-              onToggleRequired={props.onToggleRequired}
+              onSelectActionMode={props.onSelectKeywordActionMode}
             />
           ) : null}
         </div>
