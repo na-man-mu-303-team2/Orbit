@@ -29,6 +29,12 @@ describe("table editor UI state", () => {
       elementId: "el_table",
       left: 20,
       rowIndex: 2,
+      selection: {
+        endColumnIndex: 3,
+        endRowIndex: 2,
+        startColumnIndex: 3,
+        startRowIndex: 2,
+      },
       slideId: "slide_1",
       top: 30,
       type: "table-cell"

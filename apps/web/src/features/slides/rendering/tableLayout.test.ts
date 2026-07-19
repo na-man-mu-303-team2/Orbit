@@ -30,7 +30,24 @@ describe("shared table layout", () => {
       { columnIndex: 0, height: 80, rowIndex: 0, width: 200, x: 0, y: 0 },
       { columnIndex: 1, height: 80, rowIndex: 0, width: 600, x: 200, y: 0 },
       { columnIndex: 0, height: 120, rowIndex: 1, width: 800, x: 0, y: 80 },
-      { columnIndex: 1, height: 120, rowIndex: 1, width: 600, x: 200, y: 80 }
+    ]);
+  });
+
+  it("renders only merge anchors for imported row and column spans", () =>
+      {
+    const layout = getTableLayout(
+      {
+        ...table,
+        rows: [
+          [createCell("A1", { colSpan: 2, rowSpan: 2 }), createCell("A2")],
+          [createCell("B1"), createCell("B2")],
+        ],
+      },
+      { height: 200, width: 800 },
+    );
+
+    expect(layout.cells).toMatchObject([
+      { columnIndex: 0, height: 200, rowIndex: 0, width: 800, x: 0, y: 0 }
     ]);
   });
 

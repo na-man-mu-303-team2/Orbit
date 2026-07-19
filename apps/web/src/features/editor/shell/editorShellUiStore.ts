@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import type { TableCellRange } from "../../../../../../packages/editor-core/src/index";
+
 import { defaultAnimationPaneWidth } from "./components/animation/utils/layout";
 
 export const defaultSlidesPaneWidth = 184;
@@ -24,8 +26,12 @@ export type TableContextAction =
   | "insertColumnLeft"
   | "insertColumnRight"
   | "deleteRow"
-  | "deleteColumn";
+  | "deleteColumn"
+  | "mergeCells"
+  | "unmergeCell";
 export type TableCellTarget = {
+  anchorColumnIndex?: number;
+  anchorRowIndex?: number;
   cellEditDisabledReason: string | null;
   columnIndex: number;
   elementId: string;
@@ -36,6 +42,7 @@ export type TableOperationRequest = {
   columnIndex: number;
   elementId: string;
   rowIndex: number;
+  selection?: TableCellRange;
   slideId: string;
 } & (
   | { action: TableContextAction }
@@ -69,6 +76,7 @@ export type ElementContextMenuState =
       elementId: string;
       left: number;
       rowIndex: number;
+      selection: TableCellRange;
       slideId: string;
       top: number;
       type: "table-cell";
@@ -104,6 +112,19 @@ type EditorShellUiStateValues = {
   slidesPaneWidth: number;
   tableOperationRequest: TableOperationRequest | null;
 };
+
+export function getTableCellTargetRange(
+  target: TableCellTarget,
+): TableCellRange {
+  const anchorRowIndex = target.anchorRowIndex ?? target.rowIndex;
+  const anchorColumnIndex = target.anchorColumnIndex ?? target.columnIndex;
+  return {
+    startRowIndex: Math.min(anchorRowIndex, target.rowIndex),
+    endRowIndex: Math.max(anchorRowIndex, target.rowIndex),
+    startColumnIndex: Math.min(anchorColumnIndex, target.columnIndex),
+    endColumnIndex: Math.max(anchorColumnIndex, target.columnIndex),
+  };
+}
 
 type EditorShellUiStateActions = {
   resetProjectUiState: () => void;

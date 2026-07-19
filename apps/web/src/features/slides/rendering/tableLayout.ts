@@ -36,22 +36,41 @@ export function getTableLayout(
   const rowOffsets = cumulativeOffsets(rowHeights);
   const columnOffsets = cumulativeOffsets(columnWidths);
 
-  return {
-    cells: rows.flatMap((row, rowIndex) =>
-      row.map((cell, columnIndex) => ({
-        cell,
-        columnIndex,
-        height: sumRange(rowHeights, rowIndex, Math.max(1, cell.rowSpan ?? 1)),
-        rowIndex,
-        width: sumRange(
-          columnWidths,
+  const occupied = Array.from( { length: rowCount }, () =>
+    Array<boolean>(columnCount).fill(false),
+  );
+  const
+    cells: TableCellLayout[] = []; rows.forEach((row, rowIndex) => {
+      row.forEach((cell, columnIndex) => {
+      if (occupied[rowIndex]?.[
+        columnIndex]) return;
+      const rowSpan = Math.min(
+        rowCount - rowIndex, Math.max(1, cell.rowSpan ?? 1),);
+      const colSpan = Math.min(
+        columnCount -
           columnIndex,
           Math.max(1, cell.colSpan ?? 1)
-        ),
+        );
+      for (let rowOffset = 0; rowOffset < rowSpan; rowOffset += 1) {
+        for (let columnOffset = 0; columnOffset < colSpan; columnOffset += 1) {
+          occupied[rowIndex + rowOffset]![columnIndex + columnOffset] = true;
+        }
+      }
+      cells.push({
+        cell,
+        columnIndex,
+        height: sumRange(rowHeights, rowIndex, rowSpan),
+        rowIndex,
+        width: sumRange(columnWidths, columnIndex, colSpan),
         x: columnOffsets[columnIndex] ?? 0,
         y: rowOffsets[rowIndex] ?? 0
-      }))
-    ),
+      });
+    });
+  }
+    );
+
+  return {
+    cells,
     columnWidths,
     rowHeights
   };

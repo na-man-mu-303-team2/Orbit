@@ -6,7 +6,8 @@ import { useEffect } from "react";
 
 import { getTableLayout } from "../../../slides/rendering/tableLayout";
 import type { TableCellTarget } from "../../shell/editorShellUiStore";
-import { useEditorShellUiStore } from "../../shell/editorShellUiStore";
+import {
+  getTableCellTargetRange, useEditorShellUiStore, } from "../../shell/editorShellUiStore";
 import { getTableContextActionStates } from "../../shell/hooks/useEditorCanvasCommands";
 import { TableCellEditorOverlay } from "./TableCellEditorOverlay";
 
@@ -77,10 +78,26 @@ export function TableCellHitTargets(props: {
             cell.columnIndex === activeTableCell.columnIndex
         ) ?? null)
       : null;
+  const activeCellRange =
+    activeTableCell?.elementId === props.element.elementId &&
+    activeTableCell.slideId === props.slide.slideId
+      ? getTableCellTargetRange(activeTableCell)
+      : null;
 
   function selectCell(rowIndex: number, columnIndex: number, append = false) {
     if (props.disabled) return;
+    const current = useEditorShellUiStore.getState().activeTableCell;
+    const extendCurrentRange =
+      append &&
+      current?.elementId === props.element.elementId &&
+      current.slideId === props.slide.slideId;
     setActiveTableCell({
+      anchorColumnIndex: extendCurrentRange
+        ? (current.anchorColumnIndex ?? current.columnIndex)
+        : columnIndex,
+      anchorRowIndex: extendCurrentRange
+        ? (current.anchorRowIndex ?? current.rowIndex)
+        : rowIndex,
       cellEditDisabledReason: capability.cellText.enabled
         ? null
         : capability.cellText.reason,
@@ -89,7 +106,7 @@ export function TableCellHitTargets(props: {
       rowIndex,
       slideId: props.slide.slideId
     });
-    props.onSelect(append);
+    props.onSelect(false);
   }
 
   function startEditing(rowIndex: number, columnIndex: number) {
@@ -161,8 +178,11 @@ export function TableCellHitTargets(props: {
       {layout.cells.map((cellLayout) => {
         const selected =
           props.isSelected &&
-          activeCellLayout?.rowIndex === cellLayout.rowIndex &&
-          activeCellLayout.columnIndex === cellLayout.columnIndex;
+          activeCellRange !== null &&
+          cellLayout.rowIndex <= activeCellRange.endRowIndex && cellLayout.rowIndex + Math.max(1, cellLayout.cell.rowSpan) - 1 >=
+            activeCellRange.startRowIndex &&
+          cellLayout.columnIndex <= activeCellRange.endColumnIndex && cellLayout.columnIndex + Math.max(1, cellLayout.cell.colSpan) - 1 >=
+            activeCellRange.startColumnIndex;
 
         return (
           <Rect
@@ -188,7 +208,21 @@ export function TableCellHitTargets(props: {
             onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
               event.cancelBubble = true;
               event.evt.preventDefault();
+              const current = useEditorShellUiStore.getState().activeTableCell;
+              const currentRange =
+                current?.elementId === props.element.elementId &&
+                current.slideId === props.slide.slideId
+                  ? getTableCellTargetRange(current)
+                  : null;
+              if (
+                !currentRange ||
+                cellLayout.rowIndex < currentRange.startRowIndex ||
+                cellLayout.rowIndex > currentRange.endRowIndex ||
+                cellLayout.columnIndex < currentRange.startColumnIndex ||
+                cellLayout.columnIndex > currentRange.endColumnIndex
+              ) {
               selectCell(cellLayout.rowIndex, cellLayout.columnIndex);
+              }
               props.onOpenContextMenu(event.evt.clientX, event.evt.clientY);
             }}
             onDblClick={(event: Konva.KonvaEventObject<MouseEvent>) => {

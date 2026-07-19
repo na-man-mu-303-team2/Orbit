@@ -260,7 +260,7 @@ API:
 - `text.props.fontFamily`, `text.props.color`가 생략되면 renderer/export/AI normalize 단계에서 각각 `slide.style.fontFamily` > `deck.theme.fontFamily`, `slide.style.textColor` > `deck.theme.textColor` 순서로 기본값을 사용한다.
 - `image.props`는 `src`, `alt`, `fit`, `focusX`, `focusY`, `crop`을 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다. `focusX`, `focusY`는 `cover` crop 기준점이며 0부터 1 사이 값이다. `crop`은 OOXML `srcRect`를 left/top/right/bottom 0..1 비율로 보존한다.
 - `chart.props`는 `chart.schema.ts`의 chart schema를 그대로 사용한다.
-- `table.props`는 `rows`, `columnWidths`, `rowHeights`, `borderColor`, `borderWidth`를 사용한다. 각 cell은 `text`, `fill`, `textColor`, `fontFamily`, `fontSize`, `fontWeight`, `align`, `verticalAlign`, `borderColor`, `borderWidth`, `colSpan`, `rowSpan`을 보존한다.
+- `table.props`는 `rows`, `columnWidths`, `rowHeights`, `borderColor`, `borderWidth`를 사용한다. 각 cell은 `text`, `fill`, `textColor`, `fontFamily`, `fontSize`, `fontWeight`, `align`, `verticalAlign`, `borderColor`, `borderWidth`, `colSpan`, `rowSpan`을 보존한다. 병합은 직사각형 범위의 좌상단 cell에 실제 `colSpan`·`rowSpan`을 기록하고 범위 안의 나머지 raw cell은 `colSpan=1`, `rowSpan=1` 상태로 보존한다. renderer와 exporter는 좌상단 anchor만 표시하며 병합 해제 시 보존된 raw cell의 내용과 style을 복원한다. 범위를 벗어나거나 서로 겹치는 span은 편집·내보내기에서 fail-closed한다.
 - `rect`, `ellipse`, `line`, `arrow`, `polygon`, `star`, `ring`은 공통 shape props인 `fill`, `stroke`, `strokeWidth`, `borderRadius`, `dash`, `lineCap`, `lineJoin`, `shadow`를 사용한다. `fill`/`stroke`는 `#RRGGBB`, `transparent`, linear gradient paint를 허용한다.
 - `customShape.props`만 MVP 확장 지점으로 `record unknown`을 허용한다.
 - `group.props`는 `childElementIds`만 가진다.
@@ -1091,7 +1091,7 @@ ORBIT editor의 `group` element는 PPTX shape group이 아니라 interaction 전
 
 table의 imported targeted sync는 authoritative source mapping의 `tableCellText=true`, complete row-major `tableCellLocators`, live fingerprint, direct unmerged rectangular `p:graphicFrame/a:tbl`을 모두 다시 검증한다. 정확히 한 cell의 `text`만 달라지고 기존 paragraph 수를 유지하는 `{ rows }` patch만 허용한다. Python은 target text node와 필요한 `xml:space`만 바꿔 기존 `a:tcPr`, paragraph/run property, 다른 cell, `a:tblPr`, `a:tblGrid`, frame transform을 보존한다. 빈 paragraph에 처음 문구를 넣을 때는 existing `a:endParaRPr`를 `a:rPr` template으로 복제한다. 두 cell 이상 변경, newline에 의한 paragraph 수 변경, style/span/track/row/column 변경, locator·fingerprint drift는 `TABLE_CELL_CAPABILITY_UNSAFE` 또는 `TABLE_STRUCTURE_UNSUPPORTED`로 package 전체를 fail-closed한다.
 
-imported Deck에서 ORBIT가 새로 만든 `ooxmlOrigin=authored` table은 rectangular unmerged modeled table만 지원한다. add 시 `p:graphicFrame/a:tbl`과 authored source mapping을 만들고, 후속 cell 또는 row/column 변경은 owned `a:tbl` subtree만 재생성한 뒤 모든 `tableCellLocators`를 갱신한다. imported table의 row/column 구조 변경은 비활성화한다.
+imported Deck에서 ORBIT가 새로 만든 `ooxmlOrigin=authored` table은 rectangular unmerged modeled table만 지원한다. add 시 `p:graphicFrame/a:tbl`과 authored source mapping을 만들고, 후속 cell 또는 row/column 변경은 owned `a:tbl` subtree만 재생성한 뒤 모든 `tableCellLocators`를 갱신한다. imported Deck의 table 병합·병합 해제와 imported table의 row/column 구조 변경은 원본 OOXML 보존을 위해 비활성화한다. native Deck의 generic PPTX export는 유효한 직사각형 `colSpan`·`rowSpan`을 DrawingML 병합 셀로 직렬화한다.
 
 Python Worker의 sync 응답은 bounded array인 `appliedOperations`와 `unsupportedOperations`를 함께 반환한다. 각 항목은 `operationType`, optional `slideId`/`elementId`를 사용하고 unsupported 항목은 다음 bounded `reasonCode` 중 하나를 포함한다.
 

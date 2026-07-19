@@ -71,6 +71,42 @@ describe("table UI commands", () => {
     });
   });
 
+  it("enables merge for a rectangular authored selection and unmerge for its anchor", () => {
+    const deck = createDemoDeck();
+    const element = tableElement();
+    deck.slides[0]!.elements = [element];
+
+    const selected = getTableContextActionStates({
+      deck,
+      element,
+      selection: {
+        startRowIndex: 0,
+        endRowIndex: 1,
+        startColumnIndex: 0,
+        endColumnIndex: 1,
+      },
+    });
+    expect(selected.mergeCells).toEqual({ enabled: true, reason: null });
+    expect(selected.unmergeCell).toMatchObject({ enabled: false });
+
+    element.props.rows[0]![0] = {
+      ...element.props.rows[0]![0]!,
+      colSpan: 2,
+      rowSpan: 2,
+    };
+    const merged = getTableContextActionStates({
+      deck,
+      element,
+      selection: {
+        startRowIndex: 0,
+        endRowIndex: 0,
+        startColumnIndex: 0,
+        endColumnIndex: 0,
+      },
+    });
+    expect(merged.unmergeCell).toEqual({ enabled: true, reason: null });
+  });
+
   it("disables last-row and last-column deletion with a visible Korean reason", () => {
     const deck = createDemoDeck();
     const element = tableElement(1, 1);
@@ -113,6 +149,9 @@ describe("table UI commands", () => {
       reason: expect.stringContaining("가져온 표")
     });
     expect(states.insertColumnLeft).toMatchObject({ enabled: false });
+    expect(states.mergeCells).toMatchObject({ enabled: false
+  });
+    expect(states.unmergeCell).toMatchObject({ enabled: false });
   });
 
   it("fails closed when imported table provenance is missing", () => {
@@ -137,5 +176,9 @@ describe("table UI commands", () => {
 
     expect(states.cellText).toEqual({ enabled: true, reason: null });
     expect(states.insertRowBelow).toEqual({ enabled: true, reason: null });
+    expect(states.mergeCells).toMatchObject({
+      enabled: false,
+      reason: expect.stringContaining("OOXML"),
   });
+});
 });
