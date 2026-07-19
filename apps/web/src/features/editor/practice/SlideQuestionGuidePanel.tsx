@@ -104,7 +104,13 @@ export function SlideQuestionGuidePanel(props: {
   return (
     <div className="editor-question-guide-panel">
       <div className="editor-question-guide-actions">
-        <button disabled={!props.canGenerate || !props.slide || status === "generating" || props.autoStatus === "generating" || slideQuestionGuidesEnabled !== true} type="button" onClick={() => void generate()}>
+        <button disabled={isSlideQuestionGuideGenerationDisabled({
+          autoStatus: props.autoStatus,
+          canGenerate: props.canGenerate,
+          hasSlide: Boolean(props.slide),
+          slideQuestionGuidesEnabled,
+          status,
+        })} type="button" onClick={() => void generate()}>
           {props.autoStatus === "generating" ? "질문 생성 중…" : slideQuestionGuidesEnabled === null ? "질문 생성 준비 중…" : status === "generating" ? "공식 자료 검색 중…" : guide ? "다시 생성" : "질문 생성"}
         </button>
       </div>
@@ -125,6 +131,20 @@ export function SlideQuestionGuidePanel(props: {
       )}
     </div>
   );
+}
+
+export function isSlideQuestionGuideGenerationDisabled(input: {
+  autoStatus: AutoSlideQuestionGuideStatus;
+  canGenerate: boolean;
+  hasSlide: boolean;
+  slideQuestionGuidesEnabled: boolean | null;
+  status: "idle" | "loading" | "generating" | "error";
+}) {
+  return !input.canGenerate ||
+    !input.hasSlide ||
+    input.status === "generating" ||
+    input.autoStatus === "generating" ||
+    input.slideQuestionGuidesEnabled !== true;
 }
 
 export function getInitialQuestionId(guide: SlideQuestionGuide | null) {

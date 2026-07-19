@@ -7,6 +7,7 @@ import {
   findCurrentSlideQuestionGuide,
   getAdjacentQuestionId,
   getInitialQuestionId,
+  isSlideQuestionGuideGenerationDisabled,
   OfficialSourceLinks,
   SlideQuestionGuidePanel,
   SlideQuestionGuideCarousel,
@@ -60,6 +61,16 @@ describe("SlideQuestionGuidePanel official sources", () => {
 
     expect(html).toContain("질문 생성 중…");
     expect(html).toContain("disabled");
+  });
+
+  it("자동 생성 실패 뒤에는 기존 버튼으로 수동 재시도할 수 있다", () => {
+    expect(isSlideQuestionGuideGenerationDisabled({
+      autoStatus: "failed",
+      canGenerate: true,
+      hasSlide: true,
+      slideQuestionGuidesEnabled: true,
+      status: "idle",
+    })).toBe(false);
   });
 
   it("전체 덱 버전이 달라도 대상 슬라이드 hash가 같으면 현재 guide로 선택한다", () => {

@@ -40,11 +40,11 @@ export function useAutoSlideQuestionGuides(input: {
   }, [input.canGenerate])
 
   useEffect(() => {
-    if (
-      !input.canGenerate ||
-      !input.persistedDeck ||
-      startedProjectIdRef.current === input.projectId
-    ) {
+    if (!input.persistedDeck || !shouldStartAutoSlideQuestionGuides({
+      canGenerate: input.canGenerate,
+      projectId: input.projectId,
+      startedProjectId: startedProjectIdRef.current
+    })) {
       return
     }
     startedProjectIdRef.current = input.projectId
@@ -62,6 +62,14 @@ export function useAutoSlideQuestionGuides(input: {
   }, [input.canGenerate, input.persistedDeck, input.projectId])
 
   return { refreshToken, statusBySlideId }
+}
+
+export function shouldStartAutoSlideQuestionGuides(input: {
+  canGenerate: boolean
+  projectId: string
+  startedProjectId: string | null
+}) {
+  return input.canGenerate && input.startedProjectId !== input.projectId
 }
 
 export async function runAutoSlideQuestionGuideGeneration(input: {

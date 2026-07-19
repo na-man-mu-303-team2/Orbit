@@ -17,7 +17,10 @@ vi.mock("./slideQuestionGuideApi", () => ({
   waitForSlideQuestionGuideJob: mocks.waitForJob
 }))
 
-import { runAutoSlideQuestionGuideGeneration } from "./useAutoSlideQuestionGuides"
+import {
+  runAutoSlideQuestionGuideGeneration,
+  shouldStartAutoSlideQuestionGuides
+} from "./useAutoSlideQuestionGuides"
 
 describe("runAutoSlideQuestionGuideGeneration", () => {
   beforeEach(() => {
@@ -31,6 +34,20 @@ describe("runAutoSlideQuestionGuideGeneration", () => {
     mocks.runtimeConfig.mockResolvedValue({
       slideQuestionGuidesEnabled: false
     })
+
+    await runAutoSlideQuestionGuideGeneration({
+      deck: createDemoDeck(),
+      isActive: () => true,
+      onRefresh: vi.fn(),
+      onStatus: vi.fn(),
+      projectId: "project-1"
+    })
+
+    expect(mocks.autoCreate).not.toHaveBeenCalled()
+  })
+
+  it("does not call the auto API when the runtime flag check fails", async () => {
+    mocks.runtimeConfig.mockRejectedValue(new Error("runtime config unavailable"))
 
     await runAutoSlideQuestionGuideGeneration({
       deck: createDemoDeck(),
@@ -115,6 +132,31 @@ describe("runAutoSlideQuestionGuideGeneration", () => {
 
     expect(mocks.autoCreate).not.toHaveBeenCalled()
     expect(onStatus).not.toHaveBeenCalled()
+  })
+})
+
+describe("shouldStartAutoSlideQuestionGuides", () => {
+  it("starts once per project mount and skips read-only access", () => {
+    const persistedDeck = createDemoDeck()
+    const base = {
+      projectId: persistedDeck.projectId
+    }
+
+    expect(shouldStartAutoSlideQuestionGuides({
+      ...base,
+      canGenerate: false,
+      startedProjectId: null
+    })).toBe(false)
+    expect(shouldStartAutoSlideQuestionGuides({
+      ...base,
+      canGenerate: true,
+      startedProjectId: null
+    })).toBe(true)
+    expect(shouldStartAutoSlideQuestionGuides({
+      ...base,
+      canGenerate: true,
+      startedProjectId: persistedDeck.projectId
+    })).toBe(false)
   })
 })
 
