@@ -208,7 +208,7 @@ describe("RehearsalReportDocument", () => {
     expect(html).not.toContain("키워드 커버리지");
   });
 
-  it("renders the selected slide speaking pace without rate units", () => {
+  it("summarizes measured slide speaking pace on the initial overall view", () => {
     const html = renderToStaticMarkup(
       <RehearsalReportDocument
         deck={deck}
@@ -260,12 +260,14 @@ describe("RehearsalReportDocument", () => {
       />,
     );
 
-    expect(html).toContain("전체 평균보다 느린 편");
+    expect(html).toContain(
+      "분석된 1개 슬라이드 중 빠른 구간 0개, 느린 구간 1개가 확인됐습니다.",
+    );
     expect(html).not.toContain("분석할 발화가 부족해요");
     expect(html).not.toMatch(/WPM|CPM|CPS/);
   });
 
-  it("renders only the initially selected slide pace category", () => {
+  it("includes every measured slide in the initial overall pace summary", () => {
     const measuredRate = {
       metricDefinitionVersion: 1 as const,
       measurementState: "measured" as const,
@@ -315,8 +317,9 @@ describe("RehearsalReportDocument", () => {
       />,
     );
 
-    expect(html).toContain("전체 평균과 비슷");
-    expect(html).not.toContain("전체 평균보다 빠른 편");
+    expect(html).toContain(
+      "분석된 2개 슬라이드 중 빠른 구간 1개, 느린 구간 0개가 확인됐습니다.",
+    );
   });
 
   it("does not render removed semantic retry content in the report", () => {

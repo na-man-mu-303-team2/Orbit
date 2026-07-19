@@ -547,7 +547,7 @@
   border-radius: var(--redesign-radius-full);
   flex: 0 0 auto;
   font-weight: 750;
-  padding: 4px 9px;
+  padding: var(--redesign-space-1) var(--redesign-space-2);
 }
 
 .rrd-test-navigator-controls {
@@ -892,7 +892,7 @@
   background: var(--redesign-color-light-surface);
   border: var(--redesign-border-subtle);
   border-radius: var(--redesign-radius-xl);
-  box-shadow: var(--redesign-shadow-elevated);
+  box-shadow: var(--redesign-shadow-overlay);
   display: grid;
   gap: var(--redesign-space-4);
   max-height: 430px;
@@ -908,9 +908,9 @@
   top: 0;
   transform: translateX(4px);
   transition:
-    opacity 140ms ease,
-    transform 140ms ease,
-    visibility 140ms ease;
+    opacity var(--redesign-duration-fast) var(--redesign-ease-standard),
+    transform var(--redesign-duration-fast) var(--redesign-ease-standard),
+    visibility var(--redesign-duration-fast) var(--redesign-ease-standard);
   visibility: hidden;
   width: min(760px, calc(100vw - 48px));
   z-index: 30;
