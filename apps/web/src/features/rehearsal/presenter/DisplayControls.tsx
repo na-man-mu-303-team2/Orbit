@@ -239,7 +239,29 @@ export function DisplayControls(props: {
 
     const granted = permissionState === "granted";
     setOptions((current) => ({ ...current, autoPlace: granted }));
-    if (granted) void requestDisplayScreens();
+    if (granted) {
+      void requestDisplayScreens();
+      return;
+    }
+
+    setScreenOptions([]);
+    setSelectedScreenIndex(null);
+    setScreenMessage(
+      permissionState === "denied"
+        ? "Chrome 사이트 설정에서 창 관리 권한을 허용한 뒤 다시 시도해주세요."
+        : "",
+    );
+  }
+
+  function handleWindowManagementToggle(checked: boolean) {
+    if (checked) {
+      void requestDisplayScreens();
+      return;
+    }
+
+    setScreenMessage(
+      "권한 해제는 Chrome 주소창의 사이트 정보에서 창 관리 권한을 변경해주세요.",
+    );
   }
 
   function toggleDisplayOptions() {
@@ -338,16 +360,14 @@ export function DisplayControls(props: {
                   checked={options.autoPlace}
                   className="presenter-display-switch"
                   type="checkbox"
-                  onChange={(event) => {
-                    if (event.currentTarget.checked) {
-                      void requestDisplayScreens();
-                    }
-                  }}
+                  onChange={(event) =>
+                    handleWindowManagementToggle(event.currentTarget.checked)
+                  }
                 />
               </label>
             ) : null}
           </section>
-          {options.presenterView && options.autoPlace ? (
+          {options.presenterView && (options.autoPlace || screenMessage) ? (
             <div className="presenter-display-screen-picker">
               {screenOptions.length > 0 ? (
                 <div
@@ -516,7 +536,7 @@ export function getDisplayControlMessage(code: DisplayManagerErrorCode) {
     "fullscreen-blocked":
       "슬라이드 창을 열었습니다. 열린 슬라이드 창의 전체화면 버튼을 눌러주세요.",
     "permission-denied":
-      "화면 배치 권한이 거부되었습니다. 열린 창을 발표 모니터로 옮긴 뒤 전체화면으로 전환해주세요.",
+      "Chrome에서 창 관리 권한이 차단되었습니다. 주소창 왼쪽의 사이트 정보 → 사이트 설정 → 창 관리를 허용한 뒤 다시 시도해주세요.",
     "placement-failed":
       "자동 배치에 실패했습니다. 열린 창을 발표 모니터로 직접 옮긴 뒤 전체화면으로 전환해주세요.",
     "popup-blocked":
