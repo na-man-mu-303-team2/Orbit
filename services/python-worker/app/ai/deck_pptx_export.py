@@ -609,6 +609,12 @@ def add_table(
         return
     row_count = len(rows)
     col_count = len(rows[0])
+    merge_anchors, covered_cells, merge_issue = table_merge_layout(
+        rows, element_id
+    )
+    if merge_issue is not None:
+        warnings.append(merge_issue)
+        return
     table_shape = slide.shapes.add_table(
         row_count,
         col_count,
@@ -646,7 +652,11 @@ def add_table(
                 str(cell_payload.get("align", "left"))
             )
             run = paragraph.add_run()
-            run.text = str(cell_payload.get("text", ""))
+            run.text = (
+                ""
+                if (row_index, col_index) in covered_cells
+                else str(cell_payload.get("text", ""))
+            )
             apply_font(
                 run.font,
                 {
@@ -671,6 +681,81 @@ def add_table(
                 cell_payload.get("borderWidth", props.get("borderWidth", 1)),
             )
 
+    for row_index, col_index, row_span, col_span in merge_anchors:
+        if row_span == 1 and col_span == 1:
+            continue
+        table.cell(row_index, col_index).merge(
+            table.cell(row_index + row_span - 1, col_index + col_span - 1)
+        )
+
+
+def table_merge_layout(
+    rows: list[list[dict[str, Any]]],
+    element_id: str,
+) -> tuple[
+    list[tuple[int, int, int, int]],
+    set[tuple[int, int]],
+    str | None,
+]:
+    row_count = len(rows)
+    column_count = len(rows[0])
+    occupied: set[tuple[int, int]] = set()
+    covered: set[tuple[int, int]] = set()
+    anchors: list[tuple[int, int, int, int]] = []
+
+    for row_index, row in enumerate(rows):
+        for column_index, cell in enumerate(row):
+            row_span = cell.get("rowSpan", 1)
+            col_span = cell.get("colSpan", 1)
+            if (
+                isinstance(row_span, bool)
+                or not isinstance(row_span, int)
+                or isinstance(col_span, bool)
+                or not isinstance(col_span, int)
+                or row_span < 1
+                or col_span < 1
+                or row_index + row_span > row_count
+                or column_index + col_span > column_count
+            ):
+                return (
+                    [],
+                    set(),
+                    f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; "
+                    "reason=invalid-cell-span",
+                )
+
+            origin = (row_index, column_index)
+            if origin in occupied:
+                if row_span != 1 or col_span != 1:
+                    return (
+                        [],
+                        set(),
+                        f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; "
+                        "reason=overlapping-cell-span",
+                    )
+                covered.add(origin)
+                continue
+
+            cells = {
+                (candidate_row, candidate_column)
+                for candidate_row in range(row_index, row_index + row_span)
+                for candidate_column in range(
+                    column_index, column_index + col_span
+                )
+            }
+            if occupied.intersection(cells):
+                return (
+                    [],
+                    set(),
+                    f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; "
+                    "reason=overlapping-cell-span",
+                )
+            occupied.update(cells)
+            covered.update(cells - {origin})
+            anchors.append((row_index, column_index, row_span, col_span))
+
+    return anchors, covered, None
+
 
 def table_export_issue(props: Any, element_id: str) -> str | None:
     rows = props.get("rows") if isinstance(props, dict) else None
@@ -689,12 +774,9 @@ def table_export_issue(props: Any, element_id: str) -> str | None:
             f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; "
             "reason=invalid-cell"
         )
-    if any(
-        int(cell.get("colSpan", 1)) != 1 or int(cell.get("rowSpan", 1)) != 1
-        for row in rows
-        for cell in row
-    ):
-        return f"{TABLE_STRUCTURE_UNSUPPORTED}: element={element_id}; reason=merged-cell"
+    _, _, merge_issue = table_merge_layout(rows, element_id)
+    if merge_issue is not None:
+        return merge_issue
 
     for row_index, row in enumerate(rows):
         for column_index, cell in enumerate(row):

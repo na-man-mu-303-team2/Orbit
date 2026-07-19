@@ -582,18 +582,17 @@ export function EditableCanvas(props: {
       setSelectionDraft((current) =>
         current ? { ...current, end: point } : current,
       ),
-    onSelectionDragEnd: () =>
-      setSelectionDraft((current) => {
-        const rect = current
-          ? normalizeDraftRect(current.start, current.end)
+    onSelectionDragEnd: () => {
+        const rect = selectionDraft
+          ? normalizeDraftRect(selectionDraft.start, selectionDraft.end)
           : null;
+      setSelectionDraft(null);
         if (rect) {
           onSelectElements(
             getElementsIntersectingSelectionRect(visibleElements, rect),
           );
         }
-        return null;
-      }),
+      },
     onMarkTextBlurForClear: () => {
       pendingTextBlurActionRef.current = "clear-selection";
     },

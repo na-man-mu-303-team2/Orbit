@@ -95,6 +95,7 @@ export function EditorContextMenus(props: {
       columnIndex: elementContextMenu.columnIndex,
       elementId: elementContextMenu.elementId,
       rowIndex: elementContextMenu.rowIndex,
+      selection: elementContextMenu.selection,
       slideId: elementContextMenu.slideId
     });
     props.onCloseElementContextMenu();
@@ -221,6 +222,20 @@ function TableContextMenuItems(props: {
 }) {
   return (
     <>
+      <TableContextMenuItem
+        action="mergeCells"
+        disabledReason={props.disabledReasons.mergeCells}
+        icon={<Table size={16} />}
+        label="셀 병합"
+        onAction={props.onAction}
+      />
+      <TableContextMenuItem
+        action="unmergeCell"
+        disabledReason={props.disabledReasons.unmergeCell}
+        icon={<Table size={16} />}
+        label="셀 병합 해제"
+        onAction={props.onAction}
+      />
       <TableContextMenuItem
         action="insertRowAbove"
         disabledReason={props.disabledReasons.insertRowAbove}

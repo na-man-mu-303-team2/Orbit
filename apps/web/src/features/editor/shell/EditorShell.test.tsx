@@ -20,7 +20,7 @@ import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
-  getEditorStatusLabel,
+  getEditorStatusLabel
 } from "./EditorShell";
 import { EditorStateNotice } from "./components/EditorStateNotice";
 import {
@@ -31,9 +31,11 @@ import {
   applyDeckPatchAcknowledgement,
   buildPatchBatch,
   consumeScheduledUndoRedoPersistLabel,
+  DeckRequestError,
   flushEditorPersistenceBeforeManualAction,
   parseDeckPatchPersistenceResponse,
-  putProjectDeck
+  putProjectDeck,
+  putProjectDeckWithConflictRecovery
 } from "./api/deckPersistenceApi";
 import {
   createSemanticCueExtractionJob,
@@ -257,6 +259,48 @@ describe("editor shell", () => {
     ).toBe("redo");
     expect(clearTimer).not.toHaveBeenCalled();
     expect(labelRef.current).toBeNull();
+  });
+
+  it("retries an undo redo snapshot against the latest server version", async () => {
+    const snapshotDeck = { ...createDemoDeck(), version: 2 } as Deck;
+    const latestDeck = { ...snapshotDeck, version: 1 } as Deck;
+    const put = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new DeckRequestError(
+          "Deck baseVersion does not match current deck version",
+          409,
+          "STALE_BASE_VERSION"
+        )
+      )
+      .mockResolvedValueOnce(snapshotDeck);
+    const fetchLatest = vi.fn().mockResolvedValue(latestDeck);
+
+    await expect(
+      putProjectDeckWithConflictRecovery({
+        baseVersion: 2,
+        deck: snapshotDeck,
+        fetchLatest,
+        projectId: snapshotDeck.projectId,
+        put
+      })
+    ).resolves.toEqual({ deck: snapshotDeck, recoveredConflict: true });
+    expect(put).toHaveBeenNthCalledWith(
+      1,
+      snapshotDeck.projectId,
+      snapshotDeck,
+      {
+        baseVersion: 2
+      }
+    );
+    expect(put).toHaveBeenNthCalledWith(
+      2,
+      snapshotDeck.projectId,
+      snapshotDeck,
+      {
+        baseVersion: 1
+      }
+    );
   });
 
   it("resolves undo redo history navigation without state updater side effects", () => {

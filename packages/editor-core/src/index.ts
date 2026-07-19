@@ -86,9 +86,11 @@ export type {
 export {
   createTableOperationPatch,
   getTableOperationCapability,
-  getTableStructureCapability
+  getTableStructureCapability,
+  normalizeTableCellRange
 } from "./table/tableOperations";
 export type {
+  TableCellRange,
   TableOperation,
   TableOperationCapability,
   TableOperationDisabledReason,

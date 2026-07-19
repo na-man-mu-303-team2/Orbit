@@ -45,6 +45,10 @@ import {
   type DistributeAxis
 } from "./utils/selectionDistribution";
 import {
+  createAlignSelectionPatch,
+  type SelectionAlignment
+} from "./utils/selectionAlignment";
+import {
   canMutateProjectDeck,
   useProjectAccessMembership
 } from "../../projects/ProjectAccessContext";
@@ -1676,6 +1680,17 @@ export function EditorShell(props: { projectId?: string }) {
     if (patch) commitPatch(patch);
   }
 
+  function handleAlignSelection(alignment: SelectionAlignment) {
+    if (!currentSlide || !canMutateDeck) return;
+    const patch = createAlignSelectionPatch(
+      workingDeckRef.current,
+      currentSlide,
+      selectedElements,
+      alignment
+    );
+    if (patch) commitPatch(patch);
+  }
+
   function handleOpenCompactSelectionInspector() {
     requestPropertiesPanel();
     requestAnimationFrame(() => selectionInspectorRef.current?.focus());
@@ -1699,6 +1714,7 @@ export function EditorShell(props: { projectId?: string }) {
       animationDiagnostics: currentSlideAnimationDiagnostics,
       canvas: deck.canvas,
       customShapeEditActive: isCustomShapeEditingSelection,
+      deckSourceType: deck.metadata.sourceType,
       imageCropActionState,
       onChangeElementFrame: handleElementFrameChange,
       onChangeElementLayerOrder: handleElementLayerOrderChange,
@@ -1743,8 +1759,21 @@ export function EditorShell(props: { projectId?: string }) {
         model={selectionInspectorModel}
         multiControls={
           <MultiSelectionQuickBar
-            canDistribute={selectionInspectorModel.selectedCount >= 3}
+            canAlign={
+              selectionInspectorModel.selectedCount >= 2 &&
+              selectedElements.every((element) => !element.locked)
+            }
+            canDistribute={
+              selectionInspectorModel.selectedCount >= 3 &&
+              selectedElements.every((element) => !element.locked)
+            }
             selectedCount={selectionInspectorModel.selectedCount}
+            onAlignBottom={() => handleAlignSelection("bottom")}
+            onAlignCenterX={() => handleAlignSelection("centerX")}
+            onAlignCenterY={() => handleAlignSelection("centerY")}
+            onAlignLeft={() => handleAlignSelection("left")}
+            onAlignRight={() => handleAlignSelection("right")}
+            onAlignTop={() => handleAlignSelection("top")}
             onDistributeX={() => handleDistributeSelection("x")}
             onDistributeY={() => handleDistributeSelection("y")}
           />

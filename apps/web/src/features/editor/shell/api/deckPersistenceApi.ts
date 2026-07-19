@@ -188,6 +188,42 @@ export async function putProjectDeck(
   return payload.deck;
 }
 
+export async function putProjectDeckWithConflictRecovery(args: {
+  baseVersion: number;
+  deck: Deck;
+  projectId: string;
+  fetchLatest?: (projectId: string) => Promise<Deck | null>;
+  put?: (
+    projectId: string,
+    deck: Deck,
+    options: { baseVersion?: number },
+  ) => Promise<Deck>;
+}): Promise<{ deck: Deck; recoveredConflict: boolean }> {
+  const put = args.put ?? putProjectDeck;
+  try {
+    return {
+      deck: await put(args.projectId, args.deck, {
+        baseVersion: args.baseVersion,
+      }),
+      recoveredConflict: false,
+    };
+  } catch (error) {
+    if (!isDeckRequestErrorWithCode(error, "STALE_BASE_VERSION")) throw error;
+    const latestDeck = await (args.fetchLatest ?? fetchProjectDeck)(
+      args.projectId,
+    );
+    if (!latestDeck) {
+      throw new Error("최신 저장 상태를 다시 불러오지 못했습니다.");
+    }
+    return {
+      deck: await put(args.projectId, args.deck, {
+        baseVersion: latestDeck.version,
+      }),
+      recoveredConflict: true,
+    };
+  }
+}
+
 export function applyDeckPatchAcknowledgement(
   baseDeck: Deck,
   patch: DeckPatch,

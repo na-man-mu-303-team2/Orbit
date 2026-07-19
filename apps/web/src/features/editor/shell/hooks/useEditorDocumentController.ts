@@ -12,7 +12,7 @@ import {
   flushEditorPersistenceBeforeManualAction,
   hasPendingEditorChanges,
   isDeckRequestErrorWithCode,
-  putProjectDeck,
+  putProjectDeckWithConflictRecovery,
   resolvePatchInput,
   withSaveErrorCode
 } from "../api/deckPersistenceApi";
@@ -264,9 +264,12 @@ export function useEditorDocumentController(args: {
     }
     setSaveState("auto-saving");
     const snapshotDeck = structuredClone(normalizeDeckAssetUrls(workingDeckRef.current));
-    const persistedDeck = await putProjectDeck(activeProjectId, snapshotDeck, {
-      baseVersion: persistedBaseDeckRef.current?.version ?? snapshotDeck.version
+    const persistResult = await putProjectDeckWithConflictRecovery( {
+      baseVersion: persistedBaseDeckRef.current?.version ?? snapshotDeck.version,
+      deck: snapshotDeck,
+      projectId: activeProjectId,
     });
+    const persistedDeck = persistResult.deck;
     syncProjectTitleQueryCache(queryClient, persistedDeck);
     if (
       pendingPatchInputsRef.current.length > 0 ||
@@ -285,7 +288,8 @@ export function useEditorDocumentController(args: {
     }
     applyPersistedDeck(persistedDeck);
     setLastSavedAt(new Date().toISOString());
-    setSaveState("auto-saved");
+    setSaveState(
+      persistResult.recoveredConflict ? "conflict-recovered" :"auto-saved",);
     setSaveError(null, null);
     setLastPatchLabel(`${label} · v${persistedDeck.version}`);
   }

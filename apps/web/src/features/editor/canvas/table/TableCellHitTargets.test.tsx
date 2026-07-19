@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   editorShellUiInitialState,
+  getTableCellTargetRange,
   useEditorShellUiStore
 } from "../../shell/editorShellUiStore";
 import {
@@ -144,6 +145,60 @@ describe("TableCellHitTargets", () => {
       element.elementId
     );
     expect(element.props).toEqual(before);
+  });
+
+  it("extends a rectangular cell selection with Shift-click", () => {
+    const deck = createDemoDeck();
+    const element = tableElement();
+    element.props.rowHeights = [50, 50];
+    element.props.rows = [
+      element.props.rows[0]!,
+      structuredClone(element.props.rows[0]!),
+    ];
+    const slide = { ...deck.slides[0]!, elements: [element] };
+
+    renderToStaticMarkup(
+      <TableCellHitTargets
+        deck={deck}
+        disabled={false}
+        element={element}
+        frame={element}
+        isSelected
+        selectionColor="#0068b7"
+        slide={slide}
+        stageScale={1}
+        onOpenContextMenu={vi.fn()}
+        onSelect={vi.fn()}
+      />,
+    );
+    rectProps
+      .find(
+        (props) =>
+          props["data-table-row-index"] === 0 &&
+          props["data-table-column-index"] === 0,
+      )
+      ?.onClick({ cancelBubble: false, evt: { shiftKey: false } });
+    rectProps
+      .find(
+        (props) =>
+          props["data-table-row-index"] === 1 &&
+          props["data-table-column-index"] === 1,
+      )
+      ?.onClick({ cancelBubble: false, evt: { shiftKey: true } });
+
+    const target = useEditorShellUiStore.getState().activeTableCell;
+    expect(target).toMatchObject({
+      anchorColumnIndex: 0,
+      anchorRowIndex: 0,
+      columnIndex: 1,
+      rowIndex: 1,
+    });
+    expect(getTableCellTargetRange(target!)).toEqual({
+      startRowIndex: 0,
+      endRowIndex: 1,
+      startColumnIndex: 0,
+      endColumnIndex: 1,
+    });
   });
 
   it("clears active cell and editor state when interaction becomes disabled", () => {
