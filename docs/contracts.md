@@ -382,6 +382,7 @@ PresentationSession은 `deckId`, server가 읽은 `deckVersion`, `passcode | pub
 POST /api/v1/projects/:projectId/presentation-sessions/:sessionId/runs
 POST /api/v1/projects/:projectId/presentation-sessions/:sessionId/runs/:runId/audio-upload
 POST /api/v1/projects/:projectId/presentation-sessions/:sessionId/runs/:runId/audio-complete
+POST /api/v1/projects/:projectId/presentation-sessions/:sessionId/runs/:runId/retry-analysis
 GET  /api/v1/projects/:projectId/presentation-sessions/:sessionId/runs/:runId
 GET  /api/v1/projects/:projectId/presentation-sessions/:sessionId/runs/:runId/report
 ```

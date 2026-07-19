@@ -68,6 +68,17 @@ export class PresentationRunsController {
     return this.runs.completeAudio(projectId, sessionId, runId, body ?? {});
   }
 
+  @Post(":runId/retry-analysis")
+  async retryAnalysis(
+    @Param("projectId") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Param("runId") runId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    await this.assertCanWrite(projectId, request);
+    return this.runs.retryAnalysis(projectId, sessionId, runId);
+  }
+
   @Get(":runId")
   async getRun(
     @Param("projectId") projectId: string,

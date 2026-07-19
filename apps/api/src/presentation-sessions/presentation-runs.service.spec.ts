@@ -57,7 +57,10 @@ function createService(existingRun: PresentationRunEntity | null = null) {
       storedRun = value;
       return value;
     }),
-    update: vi.fn().mockResolvedValue({ affected: 1 }),
+    update: vi.fn(async (_criteria, patch) => {
+      if (storedRun) Object.assign(storedRun, patch);
+      return { affected: storedRun ? 1 : 0 };
+    }),
   } as unknown as Repository<PresentationRunEntity>;
   const sessions = {
     getSessionForPresenter: vi.fn().mockResolvedValue({
@@ -186,5 +189,32 @@ describe("PresentationRunsService", () => {
         audioFileId: "file_1",
       }),
     );
+  });
+
+  it("retries a failed analysis without touching rehearsal data", async () => {
+    const fixture = createService(
+      makeRun({
+        status: "failed",
+        audioFileId: "file_1",
+        error: { code: "PRESENTATION_AUDIO_ANALYSIS_FAILED", message: "fail" },
+      }),
+    );
+
+    const result = await fixture.service.retryAnalysis(
+      "project_1",
+      "session_1",
+      "presentation_run_1",
+    );
+
+    expect(result).toMatchObject({
+      run: { status: "processing", jobId: "job_1" },
+      job: { type: "presentation-analysis" },
+    });
+    expect(fixture.files.getUploadedAsset).toHaveBeenCalledWith(
+      "project_1",
+      "file_1",
+      "presentation-audio",
+    );
+    expect(fixture.enqueue).toHaveBeenCalledTimes(1);
   });
 });

@@ -348,6 +348,111 @@ export class PresentationRunsService {
     });
   }
 
+  async retryAnalysis(projectId: string, sessionId: string, runId: string) {
+    const run = await this.getRunEntity(projectId, sessionId, runId);
+    if (
+      run.status !== "failed" ||
+      run.recordingMode !== "microphone" ||
+      !run.audioFileId ||
+      run.rawAudioDeletedAt
+    ) {
+      throw new BadRequestException(
+        "Presentation analysis cannot be retried for this run.",
+      );
+    }
+
+    await this.files.getUploadedAsset(
+      projectId,
+      run.audioFileId,
+      "presentation-audio",
+    );
+    const claimed = await this.runs.update(
+      { runId, projectId, sessionId, status: "failed" },
+      { status: "processing", error: null, updatedAt: new Date() },
+    );
+    if (!claimed.affected) {
+      throw new ConflictException(
+        "Presentation analysis retry was already requested.",
+      );
+    }
+
+    const processingRun = await this.getRunEntity(projectId, sessionId, runId);
+    const job = await this.jobs.create({
+      projectId,
+      type: "presentation-analysis",
+      payload: {
+        sessionId,
+        runId,
+        deckId: run.deckId,
+        audioFileId: run.audioFileId,
+      },
+    });
+    processingRun.jobId = job.jobId;
+    processingRun.updatedAt = new Date();
+    await this.runs.save(processingRun);
+
+    try {
+      await this.enqueueAnalysis({
+        driver: this.config.JOB_QUEUE_DRIVER,
+        redisUrl: this.config.REDIS_URL,
+        jobId: job.jobId,
+        projectId,
+        sessionId,
+        runId,
+        deckId: run.deckId,
+        audioFileId: run.audioFileId,
+      });
+      this.logger.info(
+        {
+          event: "job.enqueued",
+          jobId: job.jobId,
+          jobType: job.type,
+          projectId,
+          presentationSessionId: sessionId,
+          presentationRunId: runId,
+          retry: true,
+        },
+        "Presentation analysis retry job enqueued.",
+      );
+      return completePresentationAudioResponseSchema.parse({
+        run: toPresentationRun(processingRun),
+        job,
+      });
+    } catch (error) {
+      const failure = {
+        code: "PRESENTATION_ANALYSIS_ENQUEUE_FAILED",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Presentation analysis enqueue failed.",
+      };
+      processingRun.status = "failed";
+      processingRun.error = failure;
+      processingRun.updatedAt = new Date();
+      await this.runs.save(processingRun);
+      await this.jobs.update(job.jobId, {
+        status: "failed",
+        progress: 0,
+        message: "Presentation analysis enqueue failed.",
+        error: failure,
+      });
+      this.logger.error(
+        {
+          event: "job.enqueue_failed",
+          jobId: job.jobId,
+          jobType: job.type,
+          projectId,
+          presentationSessionId: sessionId,
+          presentationRunId: runId,
+          retry: true,
+          error: serializeLogError(error),
+        },
+        "Presentation analysis retry enqueue failed.",
+      );
+      throw error;
+    }
+  }
+
   async getReport(projectId: string, sessionId: string, runId: string) {
     const run = await this.getRunEntity(projectId, sessionId, runId);
     return getPresentationRunReportResponseSchema.parse({
