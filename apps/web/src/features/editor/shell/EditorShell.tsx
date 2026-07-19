@@ -2307,6 +2307,7 @@ export function EditorShell(props: { projectId?: string }) {
                 onSkipSentence={skipCurrentSlideRehearsalSentence}
                 onStart={() => void handleStartSlidePractice()}
                 onStop={() => void handleStopSlidePractice()}
+                slidePracticeEnabled={slidePracticeSession.slidePracticeEnabled}
                 practiceState={slidePracticeSession.state}
                 slide={rehearsalSlide}
                 state={slideRehearsalState}
