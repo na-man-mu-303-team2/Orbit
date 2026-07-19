@@ -191,6 +191,42 @@
   color: var(--redesign-color-primary);
 }
 
+.rrd-test-duration-legend {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--redesign-space-4);
+}
+
+.rrd-test-duration-legend > span {
+  align-items: center;
+  color: var(--redesign-color-on-surface-variant);
+  display: inline-flex;
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 650;
+  gap: var(--redesign-space-2);
+}
+
+.rrd-test-duration-legend i {
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.rrd-test-duration-legend .is-actual {
+  background: var(--redesign-color-primary);
+  border-radius: var(--redesign-radius-full);
+  height: 5px;
+  width: 18px;
+}
+
+.rrd-test-duration-legend .is-target {
+  background: var(--redesign-color-light-surface);
+  border: 2px solid var(--redesign-color-secondary);
+  border-radius: var(--redesign-radius-full);
+  height: 12px;
+  width: 12px;
+}
+
 .rrd-test-duration-row {
   display: grid;
   gap: var(--redesign-space-2);
@@ -263,8 +299,21 @@
   color: var(--redesign-color-error);
 }
 
-.rrd-test-duration-delta strong.is-success {
+.rrd-test-duration-delta strong.is-success,
+.rrd-test-summary-row .is-success,
+.rrd-test-finding .is-success {
   color: var(--redesign-color-success);
+}
+
+.rrd-test-summary-row .is-warning,
+.rrd-test-finding .is-warning {
+  color: var(--redesign-color-warning);
+}
+
+.rrd-test-duration-delta .is-muted,
+.rrd-test-summary-row .is-muted,
+.rrd-test-finding .is-muted {
+  color: var(--redesign-color-on-disabled);
 }
 
 .rrd-test-summary {
@@ -342,7 +391,11 @@
   align-items: center;
   display: grid;
   gap: var(--redesign-space-4);
-  grid-template-columns: 36px minmax(130px, 0.45fr) minmax(0, 1fr) max-content;
+  grid-template-columns:
+    36px
+    minmax(calc(var(--redesign-space-20) * 2), 0.4fr)
+    minmax(0, 1fr)
+    var(--redesign-space-20);
   padding: var(--redesign-space-3) var(--redesign-space-5);
 }
 
@@ -364,6 +417,8 @@
   font-size: var(--redesign-type-label-md-size);
   font-style: normal;
   font-weight: 800;
+  justify-self: end;
+  text-align: right;
 }
 
 .rrd-test-finding .is-warning {

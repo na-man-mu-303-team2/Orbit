@@ -40,6 +40,8 @@ describe("RehearsalReportDocument", () => {
     expect(html).toMatch(/id="rrd-panel-slides"[^>]*hidden=""/);
     expect(html).toMatch(/id="rrd-panel-test"[^>]*hidden=""/);
     expect(html).toContain("슬라이드 상세 리포트 테스트");
+    expect(html).toContain('aria-label="소요 시간 그래프 범례"');
+    expect(html).toMatch(/aria-current="true" aria-label="1번 슬라이드/);
     expect(html).toContain("practice-report-summary");
     expect(html.indexOf("rrd-analysis-tabs")).toBeLessThan(
       html.indexOf("rrd-top-overview"),
