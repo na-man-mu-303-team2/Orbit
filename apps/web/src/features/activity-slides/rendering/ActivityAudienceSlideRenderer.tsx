@@ -1,6 +1,7 @@
 import type {
   ActivityDefinition,
   ActivityPublicResult,
+  ActivityRatingAggregateItem,
   ActivityRuntimeStatus
 } from "@orbit/shared";
 import { IconChartBar, IconQrcode } from "@tabler/icons-react";
@@ -176,10 +177,13 @@ export function ActivityPublicResults(props: {
             <article key={question.questionId}>
               <span>{question.prompt}</span>
               {question.type === "rating" ? (
-                <strong>
-                  {aggregate.average === null ? "–" : aggregate.average.toFixed(1)}
-                  <small>/ 5</small>
-                </strong>
+                <div className="activity-public-rating-result">
+                  <strong>
+                    {aggregate.average === null ? "–" : aggregate.average.toFixed(1)}
+                    <small>/ 5</small>
+                  </strong>
+                  <ActivityRatingDistribution items={aggregate.ratingDistribution} />
+                </div>
               ) : question.type === "single-choice" || question.type === "multiple-choice" ? (
                 <ul className="activity-public-choice-chart">
                   {question.options.map((option) => {
@@ -208,6 +212,22 @@ export function ActivityPublicResults(props: {
         </ul>
       ) : null}
     </section>
+  );
+}
+
+export function ActivityRatingDistribution(props: {
+  items: ActivityRatingAggregateItem[];
+}) {
+  return (
+    <ul className="activity-rating-distribution" aria-label="평점 분포">
+      {props.items.map((item) => (
+        <li key={item.value}>
+          <span>{item.value}점</span>
+          <i><span style={{ width: `${item.ratio * 100}%` }} /></i>
+          <b>{item.count}</b>
+        </li>
+      ))}
+    </ul>
   );
 }
 

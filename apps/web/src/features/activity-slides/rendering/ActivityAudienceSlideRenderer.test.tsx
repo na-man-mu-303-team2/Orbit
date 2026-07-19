@@ -30,6 +30,15 @@ const publicResult: ActivityPublicResult = {
     type: question.type,
     responseCount: 7,
     average: question.type === "rating" ? 4.2 : null,
+    ratingDistribution: question.type === "rating"
+      ? [
+          { value: 1, count: 0, ratio: 0 },
+          { value: 2, count: 0, ratio: 0 },
+          { value: 3, count: 1, ratio: 1 / 7 },
+          { value: 4, count: 3, ratio: 3 / 7 },
+          { value: 5, count: 3, ratio: 3 / 7 }
+        ]
+      : [],
     choices: []
   })),
   approvedTextEntries: []
@@ -100,6 +109,7 @@ describe("ActivityAudienceSlideRenderer", () => {
         type: question.type,
         responseCount: 2,
         average: null,
+        ratingDistribution: [],
         choices: question.options.map((option, index) => ({
           optionId: option.optionId,
           count: index === 0 ? 2 : 0,

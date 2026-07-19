@@ -1,5 +1,6 @@
 import type {
   ActivityDefinition,
+  ActivityResponse,
   ActivityRuntimeStatus,
   GetAudienceActivityResponse,
   UpsertActivityResponseRequest
@@ -350,6 +351,10 @@ export function AudienceSatisfactionPage(props: {
             <div><dt>참여 장표</dt><dd>{current.run.definitionSnapshot.title}</dd></div>
             <div><dt>저장 상태</dt><dd>수정본 {current.ownResponse.revision}</dd></div>
           </dl>
+          <AudienceResponseSummary
+            definition={current.run.definitionSnapshot}
+            response={current.ownResponse}
+          />
           {current.run.status === "open" ? (
             <OrbitButton variant="secondary" icon={<IconRefresh aria-hidden="true" />} onClick={() => setMode("form")}>
               응답 수정
@@ -360,6 +365,60 @@ export function AudienceSatisfactionPage(props: {
       ) : null}
     </main>
   );
+}
+
+export function AudienceResponseSummary(props: {
+  definition: ActivityDefinition;
+  response: ActivityResponse;
+}) {
+  const rows = props.definition.questions.flatMap((question) => {
+    const answer = props.response.answers.find(
+      (candidate) => candidate.questionId === question.questionId
+    );
+    if (!answer) return [];
+    return [{
+      id: question.questionId,
+      label: question.prompt,
+      value: formatAudienceAnswer(question, answer)
+    }];
+  });
+
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="activity-receipt-answer-summary" aria-labelledby="activity-receipt-answer-title">
+      <strong id="activity-receipt-answer-title">내가 제출한 답변</strong>
+      <dl>
+        {rows.map((row) => (
+          <div key={row.id}>
+            <dt>{row.label}</dt>
+            <dd>{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function formatAudienceAnswer(
+  question: ActivityDefinition["questions"][number],
+  answer: ActivityResponse["answers"][number]
+) {
+  if (answer.type === "rating") return `${answer.value} / 5`;
+  if (answer.type === "free-text") return answer.text;
+  if (question.type !== "single-choice" && question.type !== "multiple-choice") {
+    return "저장됨";
+  }
+  if (answer.type === "single-choice") {
+    return question.options.find((option) => option.optionId === answer.optionId)?.label ?? "선택 항목";
+  }
+  if (answer.type === "multiple-choice") {
+    return answer.optionIds
+      .map((optionId) => question.options.find((option) => option.optionId === optionId)?.label)
+      .filter((label): label is string => Boolean(label))
+      .join(", ");
+  }
+  return "저장됨";
 }
 
 export async function loadAudienceActivityRefresh(

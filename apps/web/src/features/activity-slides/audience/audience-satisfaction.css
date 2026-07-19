@@ -413,6 +413,42 @@
   text-align: right;
 }
 
+.activity-receipt-answer-summary {
+  background: var(--redesign-color-surface-container-low);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  display: grid;
+  gap: var(--redesign-space-2);
+  padding: var(--redesign-space-4);
+  width: 100%;
+}
+
+.activity-receipt-answer-summary > strong {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-md-size);
+}
+
+.activity-receipt-answer-summary dl {
+  border: 0;
+}
+
+.activity-receipt-answer-summary dl div {
+  align-items: start;
+  display: grid;
+  gap: var(--redesign-space-1);
+  padding: var(--redesign-space-2) 0;
+}
+
+.activity-receipt-answer-summary dt {
+  font-size: var(--redesign-type-label-sm-size);
+  line-height: 1.4;
+}
+
+.activity-receipt-answer-summary dd {
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
 .activity-receipt-wait {
   color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-label-sm-size);

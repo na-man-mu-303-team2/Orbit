@@ -54,6 +54,15 @@ const presenterResult = activityPresenterResultSchema.parse({
     type: question.type,
     responseCount: 1,
     average: question.type === "rating" ? 4 : null,
+    ratingDistribution: question.type === "rating"
+      ? [
+          { value: 1, count: 0, ratio: 0 },
+          { value: 2, count: 0, ratio: 0 },
+          { value: 3, count: 0, ratio: 0 },
+          { value: 4, count: 1, ratio: 1 },
+          { value: 5, count: 0, ratio: 0 }
+        ]
+      : [],
     choices: []
   })),
   textEntries: [{

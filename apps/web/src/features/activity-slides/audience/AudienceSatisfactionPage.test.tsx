@@ -1,10 +1,15 @@
 import { createActivitySlide, createDemoDeck } from "@orbit/editor-core";
-import { activityPublicResultSchema, activityRunSchema } from "@orbit/shared";
+import {
+  activityPublicResultSchema,
+  activityResponseSchema,
+  activityRunSchema
+} from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   AudiencePublicResultCard,
+  AudienceResponseSummary,
   AudienceSatisfactionForm,
   getAudienceActivityStatusCopy,
   getAudienceTemplateCopy,
@@ -76,6 +81,32 @@ describe("AudienceSatisfactionForm", () => {
     expect(html).toContain(`${definition.title} 결과`);
     expect(html).toContain("공개 결과");
     expect(html).toContain("4.5");
+    expect(html).toContain("평점 분포");
+    expect(html).toContain("5점");
+  });
+
+  it("shows the submitted answers on the receipt", () => {
+    const rating = definition.questions[0]!;
+    const text = definition.questions[1]!;
+    const response = activityResponseSchema.parse({
+      responseId: "activity_response_1",
+      activityRunId: "activity_run_1",
+      answers: [
+        { questionId: rating.questionId, type: "rating", value: 4 },
+        { questionId: text.questionId, type: "free-text", text: "리허설 예시가 유익했어요." }
+      ],
+      displayName: null,
+      revision: 1,
+      submittedAt: "2026-07-17T00:00:00.000Z",
+      updatedAt: "2026-07-17T00:00:00.000Z"
+    });
+    const html = renderToStaticMarkup(
+      <AudienceResponseSummary definition={definition} response={response} />
+    );
+
+    expect(html).toContain("내가 제출한 답변");
+    expect(html).toContain("4 / 5");
+    expect(html).toContain("리허설 예시가 유익했어요.");
   });
 });
 
@@ -116,6 +147,13 @@ function audienceActivity(status: "closed" | "results") {
               type: "rating",
               responseCount: 2,
               average: 4.5,
+              ratingDistribution: [
+                { value: 1, count: 0, ratio: 0 },
+                { value: 2, count: 0, ratio: 0 },
+                { value: 3, count: 0, ratio: 0 },
+                { value: 4, count: 1, ratio: 0.5 },
+                { value: 5, count: 1, ratio: 0.5 }
+              ],
               choices: []
             }],
             approvedTextEntries: []
