@@ -63,10 +63,17 @@ describe("SlideNavigatorPane", () => {
     const html = renderNavigator("thumbnail", true);
 
     expect(html).toContain('aria-label="슬라이드 목록 열기"');
-    expect(html).toContain("tabler-icon-layout-sidebar-left-expand");
+    expect(html).toContain("tabler-icon-list");
     expect(html).not.toContain("tabler-icon-list-details");
     expect(html).not.toContain("collapsed-slide-rail");
     expect(html).not.toContain("slides-list");
+  });
+
+  it("펼친 상태에서는 패널을 접는 왼쪽 화살표 버튼을 제공한다", () => {
+    const html = renderNavigator("thumbnail");
+
+    expect(html).toContain('aria-label="슬라이드 패널 접기"');
+    expect(html).toContain("tabler-icon-chevron-left");
   });
 
   it("슬라이드 추가는 메뉴 버튼 하나로 제공한다", () => {
