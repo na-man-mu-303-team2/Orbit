@@ -1661,6 +1661,12 @@ describe("processPptxOoxmlSyncJob", () => {
       syncedVersion: 1,
       operations: [
         {
+          type: "update_element_frame",
+          slideId: "slide_1",
+          elementId: "el_authored_line",
+          frame: { x: 180 },
+        },
+        {
           type: "delete_element",
           slideId: "slide_1",
           elementId: "el_authored_line",
@@ -1679,6 +1685,11 @@ describe("processPptxOoxmlSyncJob", () => {
           : new Response(
               JSON.stringify(
                 workerResponse([
+                  {
+                    operationType: "update_element_frame",
+                    slideId: "slide_1",
+                    elementId: "el_authored_line",
+                  },
                   {
                     operationType: "delete_element",
                     slideId: "slide_1",
