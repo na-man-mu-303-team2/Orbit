@@ -12,7 +12,7 @@ import {
   OrbitStatus,
   OrbitTextarea
 } from "../../../components/ui";
-import { ActivitySlidePreview, type ActivityPreviewRole } from "./ActivitySlidePreview";
+import { ActivitySlidePreview } from "./ActivitySlidePreview";
 import { ActivityEditorOperationsPanel } from "./ActivityEditorOperationsPanel";
 import { ActivityPreQuestionInbox } from "./ActivityPreQuestionInbox";
 import { useActivityEditorRuntime } from "./useActivityEditorRuntime";
@@ -44,7 +44,6 @@ export function ActivitySlideInspector(props: {
   slide: ActivitySlide;
   theme?: Deck["theme"];
 }) {
-  const [previewRole, setPreviewRole] = useState<ActivityPreviewRole>("audience");
   const [supersedeDialogOpen, setSupersedeDialogOpen] = useState(false);
   const activity = props.slide.activity;
   const audiencePreviewHref = props.projectId
@@ -413,38 +412,11 @@ export function ActivitySlideInspector(props: {
         </OrbitButtonLink>
       ) : null}
 
-      <div aria-label="참여 장표 미리보기 역할" className="activity-preview-tabs" role="tablist">
-        {(["audience", "presenter"] as const).map((role) => (
-          <button
-            aria-selected={previewRole === role}
-            className={previewRole === role ? "active" : ""}
-            key={role}
-            role="tab"
-            type="button"
-            onClick={() => setPreviewRole(role)}
-          >
-            {role === "audience" ? "실제 청중 화면" : "발표자 화면"}
-          </button>
-        ))}
+      <div className="activity-inspector-section-heading">
+        <strong>발표자 화면 미리보기</strong>
+        <span>발표 중 확인하게 될 응답 상태를 미리 보여줍니다.</span>
       </div>
-      <p className="activity-audience-preview-hint">
-        {previewRole === "audience"
-          ? audiencePreviewHref
-            ? "실제 청중 입력 화면을 그대로 표시합니다. 여기서 제출한 응답은 저장되지 않습니다."
-            : "프로젝트를 저장하면 실제 청중 입력 화면을 확인할 수 있습니다."
-          : "발표 중 확인하게 될 응답 상태를 미리 보여줍니다."}
-      </p>
-      {previewRole === "audience" && audiencePreviewHref ? (
-        <div className="activity-audience-live-preview">
-          <iframe
-            loading="lazy"
-            src={audiencePreviewHref}
-            title="실제 청중 화면 미리보기"
-          />
-        </div>
-      ) : (
-        <ActivitySlidePreview role={previewRole} slide={props.slide} theme={props.theme} />
-      )}
+      <ActivitySlidePreview role="presenter" slide={props.slide} theme={props.theme} />
 
       <div aria-label="자동으로 만들어지는 응답 화면" className="activity-system-layer-lock">
         <strong>응답 화면은 자동으로 만들어져요.</strong>

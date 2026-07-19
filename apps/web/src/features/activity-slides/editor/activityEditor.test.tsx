@@ -44,8 +44,9 @@ describe("activity slide editor", () => {
   it("keeps generated response controls in a locked system layer", () => {
     const html = renderToStaticMarkup(<ActivitySlideInspector onChange={vi.fn()} slide={slide} />);
 
-    expect(html).toContain("실제 청중 화면");
-    expect(html).toContain("발표자 화면");
+    expect(html).not.toContain('aria-label="참여 장표 미리보기 역할"');
+    expect(html).toContain("발표자 화면 미리보기");
+    expect(html).toContain("발표자 참여 장표 미리보기");
     expect(html).toContain("응답 화면은 자동으로 만들어져요.");
     expect(html).not.toContain("시스템 레이어");
     expect(html).toContain('data-activity-system-layer="locked"');
@@ -271,8 +272,10 @@ describe("activity slide editor", () => {
     expect(inspectorHtml).toContain("설명 문구");
     expect(inspectorHtml).toContain("꼭 답하게 하기");
     expect(inspectorHtml).toContain("청중 화면 새 창에서 보기");
-    expect(inspectorHtml).toContain('title="실제 청중 화면 미리보기"');
-    expect(inspectorHtml).toContain("실제 청중 입력 화면을 그대로 표시합니다.");
+    expect(inspectorHtml).not.toContain('title="실제 청중 화면 미리보기"');
+    expect(inspectorHtml).not.toContain("실제 청중 입력 화면을 그대로 표시합니다.");
+    expect(inspectorHtml).toContain("발표자 화면 미리보기");
+    expect(inspectorHtml).toContain("발표 중 확인하게 될 응답 상태를 미리 보여줍니다.");
     expect(inspectorHtml).toContain("받은 사전 질문");
     expect(inspectorHtml).toContain("질문 확인");
     expect(inspectorHtml).not.toContain("들어온 주관식 답변 확인");
