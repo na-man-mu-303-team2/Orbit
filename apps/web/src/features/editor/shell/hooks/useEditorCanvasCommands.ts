@@ -12,6 +12,7 @@ import {
   getTableOperationCapability,
   getTableStructureCapability,
   type TableOperation,
+  type TableCellRange,
 } from "../../../../../../../packages/editor-core/src/index";
 import {
   createElementFramePatch,
@@ -48,7 +49,8 @@ import type {
   TableCellTarget,
   TableContextAction,
 } from "../editorShellUiStore";
-import { useEditorShellUiStore } from "../editorShellUiStore";
+import {
+  getTableCellTargetRange, useEditorShellUiStore, } from "../editorShellUiStore";
 import {
   getContextMenuPosition,
   getNextElementZIndex,
@@ -94,15 +96,22 @@ export type TableContextActionStates = Record<
 
 const tableDisabledReasonLabels = {
   "cell-out-of-bounds": "선택한 셀을 찾을 수 없습니다.",
+  "cell-covered-by-merge": "병합된 셀의 대표 셀을 선택해 주세요.",
+  "cell-not-merged": "선택한 셀은 병합되어 있지 않습니다.",
   "column-index-out-of-bounds": "선택한 열을 찾을 수 없습니다.",
   "column-track-mismatch": "열 너비 정보가 표 구조와 일치하지 않습니다.",
   "empty-grid": "비어 있는 표는 셀을 편집할 수 없습니다.",
   "jagged-grid": "행마다 셀 수가 다른 표는 안전하게 편집할 수 없습니다.",
   "last-column": "마지막 열은 삭제할 수 없습니다.",
   "last-row": "마지막 행은 삭제할 수 없습니다.",
-  "merged-cells": "병합된 셀이 있는 표는 구조를 안전하게 편집할 수 없습니다.",
+  "invalid-cell-span": "셀 병합 범위가 표 경계를 벗어났습니다.",
+  "merge-selection-too-small": "두 개 이상의 인접 셀을 선택해 주세요.",
+  "overlapping-cell-span":
+    "서로 겹치는 병합 범위가 있어 표를 편집할 수 없습니다.",
   "row-index-out-of-bounds": "선택한 행을 찾을 수 없습니다.",
   "row-track-mismatch": "행 높이 정보가 표 구조와 일치하지 않습니다.",
+  "selection-partially-overlaps-merged-cell":
+    "기존 병합 셀 전체를 포함하도록 선택해 주세요.",
   "table-element-not-found": "편집할 표를 찾지 못했습니다.",
   "table-element-type-mismatch": "선택한 요소가 표가 아닙니다."
 } as const;
@@ -110,6 +119,7 @@ const tableDisabledReasonLabels = {
 export function getTableContextActionStates(args: {
   deck: Deck;
   element: TableElement;
+  selection?: TableCellRange;
 }): TableContextActionStates {
   const structure = getTableStructureCapability(args.element.props);
   const structureReason = structure.enabled
@@ -174,6 +184,36 @@ export function getTableContextActionStates(args: {
         })
       )
     : structuralState;
+  const selection = args.selection ?? {
+    startRowIndex: 0,
+    endRowIndex: 0,
+    startColumnIndex: 0,
+    endColumnIndex: 0,
+  };
+  const mergeStructuralState = importedDeck
+    ? {
+        enabled: false as const,
+        reason:
+          "가져온 Deck에서는 병합된 authored 표를 원본 OOXML에 안전하게 저장할 수 없습니다.",
+      }
+    : structuralState;
+  const mergeCells = mergeStructuralState.enabled
+    ? tableOperationState(
+        getTableOperationCapability(args.element.props, {
+          ...selection,
+          type: "merge_cells",
+        }),
+      )
+    : mergeStructuralState;
+  const unmergeCell = mergeStructuralState.enabled
+    ? tableOperationState(
+        getTableOperationCapability(args.element.props, {
+          rowIndex: selection.startRowIndex,
+          columnIndex: selection.startColumnIndex,
+          type: "unmerge_cell",
+        }),
+      )
+    : mergeStructuralState;
 
   return {
     cellText,
@@ -182,7 +222,9 @@ export function getTableContextActionStates(args: {
     insertColumnLeft: structuralState,
     insertColumnRight: structuralState,
     insertRowAbove: structuralState,
-    insertRowBelow: structuralState
+    insertRowBelow: structuralState,
+    mergeCells,
+    unmergeCell,
   };
 }
 
@@ -216,7 +258,8 @@ function tableOperationState(
 function tableOperationForContextAction(
   action: TableContextAction,
   rowIndex: number,
-  columnIndex: number
+  columnIndex: number,
+  selection?: TableCellRange,
 ): TableOperation {
   switch (action) {
     case "insertRowAbove":
@@ -231,24 +274,52 @@ function tableOperationForContextAction(
       return { index: rowIndex, type: "delete_row" };
     case "deleteColumn":
       return { index: columnIndex, type: "delete_column" };
+    case "mergeCells":
+      return {
+        ...(selection ?? {
+          startRowIndex: rowIndex,
+          endRowIndex: rowIndex,
+          startColumnIndex: columnIndex,
+          endColumnIndex: columnIndex,
+  }),
+        type: "merge_cells",
+};
+    case "unmergeCell":
+      return { rowIndex, columnIndex, type: "unmerge_cell" };
   }
 }
 
 function nextTableCellTarget(
   target: TableCellTarget,
-  action: TableContextAction
+  action: TableContextAction,
+  selection?: TableCellRange,
 ): TableCellTarget {
+  if (action === "mergeCells" && selection) {
+    return {
+      ...target,
+      anchorColumnIndex: selection.startColumnIndex,
+      anchorRowIndex: selection.startRowIndex,
+      columnIndex: selection.startColumnIndex,
+      rowIndex: selection.startRowIndex,
+    };
+  }
   if (action === "insertRowAbove") {
-    return { ...target, rowIndex: target.rowIndex + 1 };
+    return { ...target,
+      anchorRowIndex: target. rowIndex + 1,
+      rowIndex: target.rowIndex + 1, };
   }
   if (action === "insertColumnLeft") {
-    return { ...target, columnIndex: target.columnIndex + 1 };
+    return { ...target,
+      anchorColumnIndex: target. columnIndex + 1,
+      columnIndex: target.columnIndex + 1, };
   }
   if (action === "deleteRow") {
-    return { ...target, rowIndex: Math.max(0, target.rowIndex - 1) };
+    const rowIndex = Math.max(0, target.rowIndex - 1);
+    return { ...target, anchorRowIndex: rowIndex, rowIndex };
   }
   if (action === "deleteColumn") {
-    return { ...target, columnIndex: Math.max(0, target.columnIndex - 1) };
+    const columnIndex = Math.max(0, target.columnIndex - 1);
+    return { ...target, anchorColumnIndex: columnIndex, columnIndex };
   }
   return target;
 }
@@ -299,7 +370,8 @@ export function useEditorCanvasCommands(args: {
 
     const actionStates = getTableContextActionStates({
       deck: activeDeck,
-      element
+      element,
+      selection: tableOperationRequest.selection,
     });
     const actionState =
       tableOperationRequest.action === "updateCellText"
@@ -321,7 +393,8 @@ export function useEditorCanvasCommands(args: {
         : tableOperationForContextAction(
             tableOperationRequest.action,
             tableOperationRequest.rowIndex,
-            tableOperationRequest.columnIndex
+            tableOperationRequest.columnIndex,
+            tableOperationRequest.selection,
           );
     const result = createTableUiOperationPatch({
       deck: activeDeck,
@@ -347,7 +420,8 @@ export function useEditorCanvasCommands(args: {
       useEditorShellUiStore
         .getState()
         .setActiveTableCell(
-          nextTableCellTarget(currentTarget, tableOperationRequest.action)
+          nextTableCellTarget(currentTarget, tableOperationRequest.action,
+            tableOperationRequest.selection,)
         );
     }
     args.setElementContextMenu(null);
@@ -1250,7 +1324,7 @@ export function useEditorCanvasCommands(args: {
     const { left, top } = getContextMenuPosition({
       clientX: input.clientX,
       clientY: input.clientY,
-      height: isTableCellTarget ? 304 : 60,
+      height: isTableCellTarget ? 384 : 60,
       width: 196,
     });
     args.setEditingElementId(null);
@@ -1275,7 +1349,8 @@ export function useEditorCanvasCommands(args: {
       }
       const actionStates = getTableContextActionStates({
         deck: args.workingDeckRef.current,
-        element: input.element
+        element: input.element,
+        selection: getTableCellTargetRange(activeTableCell),
       });
       const actionDisabledReasons = Object.fromEntries(
         (
@@ -1285,7 +1360,9 @@ export function useEditorCanvasCommands(args: {
             "insertColumnLeft",
             "insertColumnRight",
             "deleteRow",
-            "deleteColumn"
+            "deleteColumn",
+            "mergeCells",
+            "unmergeCell",
           ] as const
         ).flatMap((action) =>
           actionStates[action].enabled
@@ -1300,6 +1377,7 @@ export function useEditorCanvasCommands(args: {
         elementId: input.element.elementId,
         left,
         rowIndex: activeTableCell.rowIndex,
+        selection: getTableCellTargetRange(activeTableCell),
         slideId: input.slideId,
         top,
         type: "table-cell"

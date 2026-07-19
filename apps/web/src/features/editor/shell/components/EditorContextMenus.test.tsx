@@ -29,6 +29,12 @@ describe("EditorContextMenus table actions", () => {
           elementId: "el_table",
           left: 10,
           rowIndex: 1,
+          selection: {
+            endColumnIndex: 0,
+            endRowIndex: 1,
+            startColumnIndex: 0,
+            startRowIndex: 1,
+          },
           slideId: "slide_1",
           top: 20,
           type: "table-cell"
@@ -54,6 +60,8 @@ describe("EditorContextMenus table actions", () => {
     expect(html).toContain("오른쪽에 열 추가");
     expect(html).toContain("현재 행 삭제");
     expect(html).toContain("현재 열 삭제");
+    expect(html).toContain("셀 병합");
+    expect(html).toContain("셀 병합 해제");
     expect(html).toContain("마지막 열은 삭제할 수 없습니다.");
   });
 });

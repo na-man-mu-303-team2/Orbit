@@ -597,7 +597,7 @@ describe("processPptxOoxmlSyncJob", () => {
     );
     const { dataSource } = createDataSource({
       blueprint,
-      deckSlideIds: slideIds,
+      deckSlideIds: ["slide_close", "slide_cover", "slide_metrics"],
       deckVersion: 2,
       syncedVersion: 1,
       operations: [
@@ -658,6 +658,123 @@ describe("processPptxOoxmlSyncJob", () => {
 
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
     expect(job.result).toMatchObject({ syncedDeckVersion: 2 });
+  });
+
+  it("replays mixed slide lifecycle operations before compacting to the final reorder", async () => {
+    const finalSlideIds = [
+      "slide_ooxml_file_3",
+      "slide_ooxml_file_1",
+      "slide_ooxml_file_2",
+    ];
+    const restoredSlide = {
+      slideId: "slide_ooxml_file_2",
+      order: 2,
+      title: "Restored slide",
+      speakerNotes: "",
+      elements: [],
+      animations: [],
+      actions: [],
+      keywords: [],
+      semanticCues: [],
+    };
+    const duplicateSlide = {
+      ...restoredSlide,
+      slideId: "slide_duplicate",
+      order: 3,
+      title: "Duplicate slide",
+      ooxmlOrigin: "authored" as const,
+    };
+    const { dataSource } = createDataSource({
+      blueprint: reorderTemplateBlueprint(1),
+      deckSlideIds: finalSlideIds,
+      deckVersion: 9,
+      syncedVersion: 1,
+      operations: [
+        { type: "add_slide", slide: duplicateSlide },
+        {
+          type: "reorder_slides",
+          slideOrders: [
+            "slide_ooxml_file_1",
+            "slide_ooxml_file_2",
+            "slide_duplicate",
+            "slide_ooxml_file_3",
+          ].map((slideId, index) => ({ slideId, order: index + 1 })),
+        },
+        { type: "delete_slide", slideId: "slide_ooxml_file_2" },
+        {
+          type: "reorder_slides",
+          slideOrders: [
+            "slide_ooxml_file_1",
+            "slide_duplicate",
+            "slide_ooxml_file_3",
+          ].map((slideId, index) => ({ slideId, order: index + 1 })),
+        },
+        { type: "add_slide", slide: restoredSlide },
+        {
+          type: "reorder_slides",
+          slideOrders: [
+            "slide_ooxml_file_3",
+            "slide_ooxml_file_1",
+            "slide_ooxml_file_2",
+            "slide_duplicate",
+          ].map((slideId, index) => ({ slideId, order: index + 1 })),
+        },
+        { type: "delete_slide", slideId: "slide_duplicate" },
+        {
+          type: "reorder_slides",
+          slideOrders: finalSlideIds.map((slideId, index) => ({
+            slideId,
+            order: index + 1,
+          })),
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+        const operationsPart = (init?.body as FormData).get(
+          "operations_file",
+        ) as Blob;
+        expect(JSON.parse(await operationsPart.text())).toEqual([
+          {
+            type: "reorder_slides",
+            slideOrders: [
+              {
+                slideId: "slide_ooxml_file_3",
+                order: 1,
+                sourceSlidePart: "ppt/slides/slide3.xml",
+              },
+              {
+                slideId: "slide_ooxml_file_1",
+                order: 2,
+                sourceSlidePart: "ppt/slides/slide1.xml",
+              },
+              {
+                slideId: "slide_ooxml_file_2",
+                order: 3,
+                sourceSlidePart: "ppt/slides/slide2.xml",
+              },
+            ],
+          },
+        ]);
+        return new Response(
+          JSON.stringify(workerResponse([{ operationType: "reorder_slides" }])),
+        );
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      { ...payload, targetDeckVersion: 9 },
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(job.result).toMatchObject({ syncedDeckVersion: 9 });
   });
 
   it("rejects a JSON part over its explicit limit before adding it to multipart", () => {
@@ -1246,6 +1363,13 @@ describe("processPptxOoxmlSyncJob", () => {
               }),
             }),
           }),
+          {
+            type: "reorder_slides",
+            slideOrders: [
+              expect.objectContaining({ slideId: "slide_1", order: 1 }),
+              expect.objectContaining({ slideId: "slide_authored", order: 2 }),
+            ],
+          },
         ]);
         return new Response(
           JSON.stringify({
@@ -1256,6 +1380,7 @@ describe("processPptxOoxmlSyncJob", () => {
                 slideId: "slide_authored",
                 elementId: "el_authored_image",
               },
+              { operationType: "reorder_slides" },
             ]),
             elementSources: [
               {

@@ -42,11 +42,13 @@ import {
   getTextElementText,
   measureTextContentBounds,
 } from "../../canvas/text/textLayout";
-import type { SlideAnimationDiagnostics } from "../../../../../../../packages/editor-core/src/index";
+import {
+  getTableOperationCapability, type SlideAnimationDiagnostics, } from "../../../../../../../packages/editor-core/src/index";
 import { resolveRedesignPalette } from "../../../../styles/redesignPalette";
 import { IdBadge } from "./EditorIdBadge";
 import type { ElementLayerOrderAction } from "../utils/elementLayerOrder";
-import { useEditorShellUiStore } from "../editorShellUiStore";
+import {
+  getTableCellTargetRange, useEditorShellUiStore, } from "../editorShellUiStore";
 
 type TextFitContext = {
   fontFamily?: string;
@@ -76,6 +78,7 @@ export function SelectionQuickBar(props: {
   canCreateAnimation: boolean;
   canvas: Deck["canvas"] | null;
   customShapeEditActive: boolean;
+  deckSourceType?: Deck["metadata"]["sourceType"];
   element: DeckElement | null;
   imageCropActionState?: ImageCropActionState;
   selectedKeywordLabel: string | null;
@@ -505,6 +508,7 @@ export function SelectionQuickBar(props: {
             ) : null}
             {element.type === "table" ? (
               <TableQuickBarFields
+                deckSourceType={props.deckSourceType}
                 element={element}
                 onChangeProps={onChangeProps}
               />
@@ -848,6 +852,7 @@ function ElementQuickBarFields(props: {
 }
 
 function TableQuickBarFields(props: {
+  deckSourceType?: Deck["metadata"]["sourceType"];
   element: Extract<DeckElement, { type: "table" }>;
   onChangeProps: (props: Record<string, unknown>) => void;
 }) {
@@ -855,16 +860,62 @@ function TableQuickBarFields(props: {
   const setEditingElementId = useEditorShellUiStore(
     (state) => state.setEditingElementId
   );
+  const setTableOperationRequest = useEditorShellUiStore(
+    (state) => state.setTableOperationRequest,
+  );
   const tableProps = props.element.props as TableElementProps;
   const selectedCell =
     activeTableCell?.elementId === props.element.elementId
       ? activeTableCell
       : null;
-  const disabledReason = selectedCell?.cellEditDisabledReason ?? null;
+  const selectedRange = selectedCell
+    ? getTableCellTargetRange(selectedCell)
+    : null;
+  const selectedCellCount = selectedRange
+    ? (selectedRange.endRowIndex - selectedRange.startRowIndex + 1) *
+      (selectedRange.endColumnIndex - selectedRange.startColumnIndex + 1)
+    : 0;
+  const disabledReason =
+    selectedCellCount > 1
+      ? "셀 편집은 한 셀만 선택했을 때 사용할 수 있습니다."
+      : ( selectedCell?.cellEditDisabledReason ?? null);
   const styleDisabledReason =
     props.element.ooxmlOrigin === "imported"
       ? "가져온 표의 셀 스타일과 테두리는 원본 OOXML 보존을 위해 편집할 수 없습니다."
       : null;
+  const structureDisabledReason =
+    props.deckSourceType === "import"
+      ? "가져온 Deck에서는 셀 병합을 원본 OOXML에 안전하게 저장할 수 없습니다."
+      : props.element.ooxmlOrigin === "imported"
+        ? "가져온 표의 셀 구조는 원본 OOXML 보존을 위해 편집할 수 없습니다."
+        : null;
+  const mergeCapability = selectedRange
+    ? getTableOperationCapability(tableProps, {
+        ...selectedRange,
+        type: "merge_cells",
+      })
+    : null;
+  const unmergeCapability = selectedRange
+    ? getTableOperationCapability(tableProps, {
+        columnIndex: selectedRange.startColumnIndex,
+        rowIndex: selectedRange.startRowIndex,
+        type: "unmerge_cell",
+      })
+    : null;
+
+  const requestTableOperation = (action: "mergeCells" | "unmergeCell") => {
+    if (!selectedCell || !selectedRange)
+
+  return;
+    setTableOperationRequest ({
+      action,
+      columnIndex: selectedRange.startColumnIndex,
+      elementId: props.element.elementId,
+      rowIndex: selectedRange.startRowIndex,
+      selection: selectedRange,
+      slideId: selectedCell.slideId,
+    });
+  };
 
   return (
     <>
@@ -877,6 +928,32 @@ function TableQuickBarFields(props: {
         onClick={() => setEditingElementId(props.element.elementId)}
       >
         셀 편집
+      </button>
+      <button
+        className="quickbar-action-chip"
+        disabled={
+          !selectedRange ||
+          Boolean(structureDisabledReason) ||
+          mergeCapability?.enabled !== true
+        }
+        title={structureDisabledReason ?? "선택한 셀 병합"}
+        type="button"
+        onClick={() => requestTableOperation("mergeCells")}
+      >
+        셀 병합
+      </button>
+      <button
+        className="quickbar-action-chip"
+        disabled={
+          !selectedRange ||
+          Boolean(structureDisabledReason) ||
+          unmergeCapability?.enabled !== true
+        }
+        title={structureDisabledReason ?? "선택한 셀 병합 해제"}
+        type="button"
+        onClick={() => requestTableOperation("unmergeCell")}
+      >
+        병합 해제
       </button>
       <PropertyColorField
         className="compact-property-field compact-property-field-color"
@@ -895,15 +972,26 @@ function TableQuickBarFields(props: {
         value={tableProps.borderWidth ?? 1}
       />
       <span
-        className={`quickbar-inline-hint${disabledReason ? " quickbar-inline-hint-warning" : ""}`}
-        id={disabledReason ? "table-cell-edit-disabled-reason" : undefined}
-        role={disabledReason ? "status" : undefined}
+        className={`quickbar-inline-hint${disabledReason && selectedCellCount <= 1 ? " quickbar-inline-hint-warning" : ""}`}
+        id={disabledReason && selectedCellCount <= 1 ? "table-cell-edit-disabled-reason" : undefined}
+        role={disabledReason && selectedCellCount <= 1 ? "status" : undefined}
       >
-        {disabledReason ??
+        {selectedCellCount > 1
+          ? `${selectedCellCount}개 셀 선택됨`
+          : (disabledReason ??
           (selectedCell
             ? `${selectedCell.rowIndex + 1}행 ${selectedCell.columnIndex + 1}열 선택됨`
-            : "캔버스에서 편집할 셀을 선택하세요.")}
+            : "캔버스에서 편집할 셀을 선택하세요."))}
       </span>
+      {disabledReason && selectedCellCount > 1 ? (
+        <span
+          className="quickbar-inline-hint quickbar-inline-hint-warning"
+          id="table-cell-edit-disabled-reason"
+          role="status"
+        >
+          {disabledReason}
+        </span>
+      ) : null}
       {styleDisabledReason ? (
         <span className="quickbar-inline-hint quickbar-inline-hint-warning">
           {styleDisabledReason}
