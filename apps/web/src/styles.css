@@ -4159,7 +4159,7 @@
   box-shadow: var(--redesign-glow-primary);
   color: var(--redesign-color-on-surface);
   display: grid;
-  gap: var(--redesign-space-2);
+  gap: var(--redesign-space-1);
   left: 50%;
   min-width: min(360px, 92vw);
   padding: var(--redesign-space-3);
@@ -4194,12 +4194,13 @@
 }
 
 .presenter-display-option-row {
-  align-items: flex-start;
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-xl);
+  align-items: center;
+  border: 0;
+  border-radius: var(--redesign-radius-md);
   cursor: pointer;
   display: flex;
   gap: var(--redesign-space-2);
+  min-height: 36px;
   padding: var(--redesign-space-2);
 }
 
@@ -4211,12 +4212,10 @@
 .presenter-display-option-group input {
   accent-color: var(--redesign-color-on-surface);
   flex: 0 0 auto;
-  margin-top: 2px;
+  margin: 0;
 }
 
 .presenter-display-option-row span {
-  display: grid;
-  gap: 3px;
   min-width: 0;
 }
 
@@ -4227,19 +4226,18 @@
   font-weight: 900;
 }
 
-.presenter-display-option-row small {
-  color: var(--redesign-color-on-surface-variant);
-  font-size: var(--redesign-type-label-sm-size);
-  font-weight: 700;
-  line-height: 1.35;
+.presenter-display-option-group {
+  background: var(--redesign-color-surface-container-low);
+  border: 0;
+  border-radius: var(--redesign-radius-md);
+  display: grid;
+  gap: var(--redesign-space-1);
+  grid-template-columns: 1fr 1fr;
+  padding: var(--redesign-space-2);
 }
 
-.presenter-display-option-group {
-  border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-xl);
-  display: grid;
-  gap: var(--redesign-space-2);
-  padding: var(--redesign-space-2);
+.presenter-display-option-group > span {
+  grid-column: 1 / -1;
 }
 
 .presenter-display-option-group label {
@@ -4250,6 +4248,7 @@
   font-size: var(--redesign-type-label-sm-size);
   font-weight: 850;
   gap: var(--redesign-space-2);
+  min-height: 28px;
 }
 
 .presenter-display-screen-picker {
@@ -4344,16 +4343,12 @@
   padding: 0 var(--redesign-space-2);
 }
 
-.presenter-display-options-actions button:first-child {
-  background: var(--redesign-color-surface-container-lowest);
-  border: 1px solid var(--redesign-color-outline);
-  color: var(--redesign-color-on-surface);
-}
-
 .presenter-display-options-actions button:last-child {
   background: var(--redesign-color-dark-surface);
   border: 1px solid var(--redesign-color-on-surface);
   color: var(--redesign-color-on-dark);
+  flex: 1;
+  min-height: 40px;
 }
 
 .presenter-display-message {

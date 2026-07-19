@@ -296,7 +296,7 @@ export function DisplayControls(props: {
           role="dialog"
         >
           <div className="presenter-display-options-header">
-            <strong>프레젠테이션 디스플레이 옵션</strong>
+            <strong>디스플레이 설정</strong>
             <button
               aria-label="옵션 닫기"
               title="옵션 닫기"
@@ -306,21 +306,6 @@ export function DisplayControls(props: {
               <X size={15} />
             </button>
           </div>
-          <label className="presenter-display-option-row">
-            <input
-              checked={options.presenterView}
-              type="checkbox"
-              onChange={(event) =>
-                setPresenterView(event.currentTarget.checked)
-              }
-            />
-            <span>
-              <strong>발표자 보기</strong>
-              <small>
-                현재 창에 발표자 도구를 유지하고 슬라이드 창을 별도로 엽니다.
-              </small>
-            </span>
-          </label>
           <label className="presenter-display-option-row">
             <input
               checked={options.startFromBeginning}
@@ -334,10 +319,19 @@ export function DisplayControls(props: {
               }}
             />
             <span>
-              <strong>첫 슬라이드부터 표시</strong>
-              <small>
-                실행 전에 슬라이드와 애니메이션 단계를 처음으로 되돌립니다.
-              </small>
+              <strong>처음부터 시작</strong>
+            </span>
+          </label>
+          <label className="presenter-display-option-row">
+            <input
+              checked={options.presenterView}
+              type="checkbox"
+              onChange={(event) =>
+                setPresenterView(event.currentTarget.checked)
+              }
+            />
+            <span>
+              <strong>발표자 보기</strong>
             </span>
           </label>
           <label className="presenter-display-option-row">
@@ -353,23 +347,20 @@ export function DisplayControls(props: {
               }}
             />
             <span>
-              <strong>발표 모니터 자동 배치</strong>
-              <small>
-                권한을 허용하면 추가 디스플레이로 슬라이드 창을 자동 이동합니다.
-              </small>
+              <strong>다른 화면에 자동 배치</strong>
             </span>
           </label>
           {options.displayMode === "slide-window" && options.autoPlace ? (
             <div className="presenter-display-screen-picker">
               <div className="presenter-display-screen-picker-header">
-                <span>슬라이드쇼 표시</span>
+                <span>대상 디스플레이</span>
                 <button
                   type="button"
                   onClick={() => void requestDisplayScreens()}
                 >
                   {screenRequestState === "loading"
                     ? "다시 요청"
-                    : "화면 권한 요청"}
+                    : "화면 선택"}
                 </button>
               </div>
               {screenOptions.length > 0 ? (
@@ -418,7 +409,6 @@ export function DisplayControls(props: {
             />
             <span>
               <strong>전체화면</strong>
-              <small>현재 창 모드에서는 즉시 fullscreen을 요청합니다.</small>
             </span>
           </label>
           <div
@@ -426,7 +416,7 @@ export function DisplayControls(props: {
             role="radiogroup"
             aria-label="슬라이드쇼 표시 방식"
           >
-            <span>슬라이드쇼 표시</span>
+            <span>표시 위치</span>
             <label>
               <input
                 checked={options.displayMode === "slide-window"}
@@ -434,7 +424,7 @@ export function DisplayControls(props: {
                 type="radio"
                 onChange={() => setDisplayMode("slide-window")}
               />
-              <span>별도 슬라이드 창</span>
+              <span>새 창</span>
             </label>
             <label>
               <input
@@ -447,9 +437,6 @@ export function DisplayControls(props: {
             </label>
           </div>
           <div className="presenter-display-options-actions">
-            <button type="button" onClick={() => setIsOptionsOpen(false)}>
-              취소
-            </button>
             <button type="button" onClick={() => void openSlideWindow(options)}>
               슬라이드쇼 시작
             </button>
