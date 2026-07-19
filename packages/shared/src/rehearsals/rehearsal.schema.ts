@@ -46,6 +46,7 @@ import {
   rehearsalSilenceAnalysisSchema,
   rehearsalVolumeAnalysisSchema,
 } from "./rehearsal-audio-analysis.schema";
+import { pronunciationLexiconSnapshotSchema } from "../pronunciation/pronunciation.schema";
 
 export const rehearsalRunStatusSchema = z.enum([
   "created",
@@ -115,6 +116,7 @@ export const rehearsalEvaluationSnapshotSchema = z
     focusProfileSnapshot: rehearsalFocusProfileSnapshotSchema
       .nullable()
       .default(null),
+    pronunciationLexicon: pronunciationLexiconSnapshotSchema.optional(),
     capturedAt: isoDateTimeSchema,
     slides: z.array(rehearsalEvaluationSnapshotSlideSchema),
   })
