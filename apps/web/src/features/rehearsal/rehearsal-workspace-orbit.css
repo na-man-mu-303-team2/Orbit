@@ -288,7 +288,7 @@ main.rehearsal-presenter-shell {
 }
 
 .rehearsal-presenter-shell .rehearsal-stage-wrap > .rehearsal-slide-controls button:not(:disabled):hover {
-  background: color-mix(in srgb, var(--redesign-color-primary) 18%, transparent);
+  background: color-mix(in srgb, var(--redesign-color-primary) 70%, transparent);
 }
 
 .rehearsal-presenter-shell .rehearsal-stage-wrap > .rehearsal-slide-controls button:not(:disabled):hover svg {
