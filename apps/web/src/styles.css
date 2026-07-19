@@ -3157,6 +3157,7 @@
 
 .present-window-stage {
   align-items: center;
+  background: var(--redesign-color-on-background);
   display: grid;
   height: 100vh;
   justify-items: center;
@@ -10391,6 +10392,10 @@
   font-weight: 700;
 }
 
+.present-window-fullscreen {
+  background: var(--redesign-color-on-background);
+}
+
 .single-screen-actions button:hover,
 .present-window-fullscreen:hover,
 .present-window-previous:hover,
@@ -10398,6 +10403,10 @@
 .present-window-reconnect:hover,
 .present-window-exit:hover {
   background: color-mix(in srgb, var(--redesign-color-secondary) 92%, var(--redesign-color-light-surface));
+}
+
+.present-window-fullscreen:hover {
+  background: var(--redesign-color-primary);
 }
 
 @media (max-width: 1120px) {
