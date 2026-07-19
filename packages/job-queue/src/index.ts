@@ -265,6 +265,7 @@ export interface PptxOoxmlSyncBullMqPayload {
   deckId: string;
   changeId: string;
   targetDeckVersion: number;
+  syncCapabilityVersion: number;
 }
 
 export interface EnqueuePptxOoxmlSyncJobInput extends PptxOoxmlSyncBullMqPayload {
@@ -690,6 +691,7 @@ export async function enqueuePptxOoxmlSyncJob(
       deckId: input.deckId,
       changeId: input.changeId,
       targetDeckVersion: input.targetDeckVersion,
+      syncCapabilityVersion: input.syncCapabilityVersion,
     } satisfies PptxOoxmlSyncBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
