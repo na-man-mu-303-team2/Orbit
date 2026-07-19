@@ -110,6 +110,7 @@ from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
     AudioTranscriptionError,
+    PronunciationContextTerm,
     ReportSttProviderDependency,
     TranscriptSegment,
     to_http_exception,
@@ -341,6 +342,11 @@ class RehearsalAnalyzeRequest(BaseModel):
         ),
         alias="silenceAnalysis",
     )
+    pronunciation_context: list[PronunciationContextTerm] = Field(
+        default_factory=list,
+        alias="pronunciationContext",
+        max_length=32,
+    )
 
 
 class RehearsalCoachingResponse(BaseModel):
@@ -382,11 +388,11 @@ class RehearsalSlideSpeakingRateResponse(BaseModel):
     )
     reason_code: (
         Literal[
-        "UNSUPPORTED_LANGUAGE",
-        "SEGMENT_TIMESTAMPS_UNAVAILABLE",
-        "INSUFFICIENT_SLIDE_SPEECH",
-        "BASELINE_UNAVAILABLE",
-        "LEGACY_REPORT",
+            "UNSUPPORTED_LANGUAGE",
+            "SEGMENT_TIMESTAMPS_UNAVAILABLE",
+            "INSUFFICIENT_SLIDE_SPEECH",
+            "BASELINE_UNAVAILABLE",
+            "LEGACY_REPORT",
         ]
         | None
     ) = Field(alias="reasonCode")
@@ -1155,6 +1161,7 @@ def analyze_rehearsal(
             for entry in payload.slide_timeline
         ],
         silence_analysis=payload.silence_analysis,
+        pronunciation_context=payload.pronunciation_context,
     )
     coaching = generate_rehearsal_coaching(
         transcript=payload.transcript,

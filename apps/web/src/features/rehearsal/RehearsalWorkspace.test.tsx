@@ -1869,6 +1869,59 @@ describe("RehearsalWorkspace", () => {
     expect(analysis.missingKeywordIds).toEqual([]);
   });
 
+  it("matches generated Korean pronunciations and exposes them to live STT bias", () => {
+    const deck = createDemoDeck();
+    deck.slides[0]!.speakerNotes = "OpenAI API를 활용했습니다.";
+    deck.slides[0]!.keywords = [
+      {
+        keywordId: "kw_openai",
+        text: "OpenAI",
+        synonyms: [],
+        abbreviations: [],
+        required: true,
+      },
+      {
+        keywordId: "kw_api",
+        text: "API",
+        synonyms: [],
+        abbreviations: [],
+        required: true,
+      },
+    ];
+    const snapshot = createRehearsalEvaluationSnapshot(deck);
+    const lexicon = snapshot.pronunciationLexicon;
+
+    const analysis = evaluateLiveTranscript(
+      deck.slides[0]!,
+      "오픈 에이아이 에이피아이를 활용했습니다.",
+      lexicon,
+    );
+    const biasContext = buildLiveSttBiasContext(deck.slides[0]!, {
+      pronunciationLexicon: lexicon,
+    });
+    const sessionSlide = buildP3SessionSlides(deck, snapshot)[0];
+
+    expect(analysis.coverage).toBe(1);
+    expect(
+      analysis.detectedKeywords.map((keyword) => keyword.matchedText),
+    ).toEqual(["오픈 에이아이", "에이피아이"]);
+    expect(biasContext.terms).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          text: "오픈에이아이",
+          source: "pronunciation-alias",
+        }),
+        expect.objectContaining({
+          text: "에이피아이",
+          source: "pronunciation-alias",
+        }),
+      ]),
+    );
+    expect(
+      sessionSlide?.pronunciationEntries?.map((entry) => entry.canonicalKey),
+    ).toEqual(["openai", "api"]);
+  });
+
   it("builds current-slide live STT bias terms from keywords and slide context", () => {
     const deck = createDemoDeck();
     const slide = {

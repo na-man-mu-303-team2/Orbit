@@ -7,7 +7,7 @@ import pytest
 import app.main as api_module
 import app.rehearsal as rehearsal_module
 from app.audio.analysis.models import RehearsalSilenceAnalysis
-from app.audio.transcribe import TranscriptSegment
+from app.audio.transcribe import PronunciationContextTerm, TranscriptSegment
 from app.config import load_config
 from app.rehearsal import (
     DeckKeyword,
@@ -128,6 +128,24 @@ def test_analyze_rehearsal_metrics_counts_silences_fillers_and_keywords() -> Non
     assert metrics.keyword_coverage == 1
 
 
+def test_analyze_rehearsal_metrics_matches_korean_pronunciation_aliases() -> None:
+    metrics = analyze_rehearsal_metrics(
+        transcript="오픈 에이아이 에이피아이를 활용했습니다",
+        duration_seconds=10,
+        segments=[],
+        deck_keywords=[
+            DeckKeyword(text="OpenAI"),
+            DeckKeyword(text="API"),
+        ],
+        pronunciation_context=[
+            PronunciationContextTerm(source="OpenAI", aliases=["오픈에이아이"]),
+            PronunciationContextTerm(source="API", aliases=["에이피아이"]),
+        ],
+    )
+
+    assert metrics.keyword_coverage == 1
+
+
 def test_analyze_rehearsal_metrics_builds_safe_report_details() -> None:
     metrics = analyze_rehearsal_metrics(
         transcript="음 오늘은 ORBIT 발표입니다",
@@ -212,8 +230,12 @@ def test_build_slide_speaking_rates_merges_overlapping_segment_intervals() -> No
         language="ko",
         duration_seconds=5,
         segments=[
-            TranscriptSegment(text="가나다라마바사아자차", startSeconds=0, endSeconds=3),
-            TranscriptSegment(text="카타파하가나다라마바", startSeconds=2, endSeconds=5),
+            TranscriptSegment(
+                text="가나다라마바사아자차", startSeconds=0, endSeconds=3
+            ),
+            TranscriptSegment(
+                text="카타파하가나다라마바", startSeconds=2, endSeconds=5
+            ),
         ],
         slide_timeline=[SlideTimelineEntry(slide_id="slide_1", entered_second=0)],
     )
@@ -245,7 +267,9 @@ def test_build_slide_speaking_rates_applies_minimum_evidence_boundaries() -> Non
         language="ko-KR",
         duration_seconds=9,
         segments=[
-            TranscriptSegment(text="가나다라마바사아자차", startSeconds=0, endSeconds=3),
+            TranscriptSegment(
+                text="가나다라마바사아자차", startSeconds=0, endSeconds=3
+            ),
             TranscriptSegment(
                 text="가나다라마바사아자차",
                 startSeconds=3,
