@@ -71,6 +71,12 @@ class InMemoryDeckDataSource {
     const query = normalizeSql(sql);
     this.executedQueries.push(query);
 
+    if (query.startsWith("SELECT deck_id FROM decks")) {
+      const [projectId, deckId] = params as [string, string];
+      const row = this.decks.get(projectId);
+      return (row?.deck_id === deckId ? [{ deck_id: deckId }] : []) as T;
+    }
+
     if (query.includes("FROM presentation_sessions")) {
       const [projectId, deckId, sessionId] = params as [string, string, string];
       return (
@@ -252,6 +258,21 @@ class InMemoryDeckDataSource {
         }
       }
       return [] as T;
+    }
+
+    if (
+      query.startsWith("SELECT snapshot_id, project_id, deck_id") &&
+      query.includes("WHERE project_id = $1 AND deck_id = $2 AND version = $3")
+    ) {
+      const [projectId, deckId, version] = params as [string, string, number];
+      const row = this.snapshotRows
+        .filter((snapshot) => (
+          snapshot.project_id === projectId &&
+          snapshot.deck_id === deckId &&
+          snapshot.version === version
+        ))
+        .sort(compareSnapshotRows)[0];
+      return (row ? [cloneSnapshotRow(row)] : []) as T;
     }
 
     if (
@@ -666,6 +687,19 @@ describe("DecksService", () => {
     expect(snapshotResponse.snapshots[0]?.snapshotId).toBe(
       putResponse.snapshot.snapshotId,
     );
+  });
+
+  it("creates at most one reusable snapshot for the same current deck version", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    seedStoredDeck(dataSource, deck, deck);
+
+    const first = await service.getOrCreateSnapshot(deck);
+    const second = await service.getOrCreateSnapshot(deck);
+
+    expect(first).toMatchObject({ reason: "auto-save", version: deck.version });
+    expect(second.snapshotId).toBe(first.snapshotId);
+    expect(dataSource.snapshotRows).toHaveLength(1);
   });
 
   it("normalizes legacy keyword terms when reading stored deck JSON", async () => {
