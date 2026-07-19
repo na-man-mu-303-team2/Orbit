@@ -7,6 +7,7 @@ import {
   findCurrentSlideQuestionGuide,
   getAdjacentQuestionId,
   getInitialQuestionId,
+  getSuggestedAnswerPreview,
   isSlideQuestionGuideGenerationDisabled,
   OfficialSourceLinks,
   resolveSlideQuestionGuideRuntimeState,
@@ -107,7 +108,7 @@ describe("SlideQuestionGuidePanel official sources", () => {
     expect(html).toContain('target="_blank"');
   });
 
-  it("shows one question and answer with previous and next arrows", () => {
+  it("shows one compact question card with progress, answer summary, and key points", () => {
     const guide = {
       items: [
         question("question-1", "첫 번째 예상 질문", "첫 번째 추천 답변"),
@@ -131,7 +132,40 @@ describe("SlideQuestionGuidePanel official sources", () => {
     expect(html).toContain('aria-label="이전 질문"');
     expect(html).toContain('aria-label="다음 질문"');
     expect(html).toContain("1 / 3");
+    expect(html).toContain("추천 답변 요약");
+    expect(html).toContain("AI 추천");
+    expect(html).toContain("전체 답변 보기");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("핵심 포인트");
     expect(html).toContain("disabled");
+  });
+
+  it("creates a short preview without losing the full answer source", () => {
+    const longAnswer = "첫 번째 문장은 핵심 요약입니다. 두 번째 문장은 자세한 설명을 이어갑니다. ".repeat(4);
+
+    expect(getSuggestedAnswerPreview(longAnswer, 50)).toBe("첫 번째 문장은 핵심 요약입니다.");
+    expect(getSuggestedAnswerPreview("짧은 답변입니다.", 50)).toBe("짧은 답변입니다.");
+  });
+
+  it("추천 답변 데이터가 없으면 재생성 안내를 표시한다", () => {
+    const guide = {
+      items: [{
+        ...question("question-1", "답변이 없는 예상 질문", ""),
+        suggestedAnswer: undefined,
+      }],
+    } as unknown as SlideQuestionGuide;
+
+    const html = renderToStaticMarkup(
+      <SlideQuestionGuideCarousel
+        guide={guide}
+        selectedQuestionId="question-1"
+        onSelect={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("추천 답변을 불러오지 못했습니다. 다시 생성해 주세요.");
+    expect(html).toContain("editor-question-answer-empty");
+    expect(html).not.toContain("전체 답변 보기");
   });
 
   it("새로 생성한 질문은 첫 번째 질문부터 선택한다", () => {
