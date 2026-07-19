@@ -6,7 +6,9 @@
 }
 
 .activity-special-thumbnail {
+  background: var(--activity-color-background);
   box-sizing: border-box;
+  color: var(--activity-color-on-background);
   display: grid;
   height: 100%;
   min-width: 0;
@@ -17,25 +19,31 @@
 
 .activity-special-thumbnail--activity {
   align-content: center;
-  background: linear-gradient(145deg, var(--redesign-color-surface-container-low) 0%, var(--redesign-color-success-container) 100%);
   grid-template-rows: max-content max-content minmax(0, max-content);
 }
 
 .activity-special-thumbnail--results {
   align-content: end;
-  background: var(--redesign-color-surface-container-low);
-  border-left: 8px solid var(--redesign-color-success);
+  border-left: 8px solid var(--activity-color-accent);
 }
 
-.activity-special-thumbnail > span {
-  color: var(--redesign-color-on-success-container);
-  font-size: var(--redesign-type-label-sm-size);
-  font-weight: 900;
-  letter-spacing: 0.12em;
+.activity-special-thumbnail-brand {
+  color: var(--activity-color-on-background);
+  gap: 3px;
+  opacity: 0.72;
+}
+
+.activity-special-thumbnail-brand img {
+  height: 12px;
+  width: 12px;
+}
+
+.activity-special-thumbnail-brand .redesign-orbit-brand-wordmark {
+  font-size: 0.55cqw;
 }
 
 .activity-special-thumbnail > strong {
-  color: var(--redesign-color-on-surface);
+  color: var(--activity-color-on-background);
   display: -webkit-box;
   font-size: var(--redesign-type-label-sm-size);
   line-height: 1.2;
@@ -46,7 +54,7 @@
 }
 
 .activity-special-thumbnail > small {
-  color: var(--redesign-color-on-surface-variant);
+  color: color-mix(in srgb, var(--activity-color-on-background) 68%, transparent);
   display: block;
   font-size: var(--redesign-type-label-sm-size);
   line-height: 1.25;
@@ -58,9 +66,9 @@
 
 .activity-slide-preview {
   aspect-ratio: 16 / 9;
-  background: linear-gradient(145deg, var(--redesign-color-surface-container-low) 0%, var(--redesign-color-success-container) 100%);
+  background: var(--activity-color-background);
   box-sizing: border-box;
-  color: var(--redesign-color-on-surface);
+  color: var(--activity-color-on-background);
   container-type: inline-size;
   display: grid;
   gap: clamp(var(--redesign-space-2), 2.5%, var(--redesign-space-9));
@@ -88,11 +96,23 @@
   word-break: keep-all;
 }
 
-.activity-slide-preview-kicker {
-  color: var(--redesign-color-on-success-container);
-  font-size: clamp(7px, 1.2cqw, 20px);
-  font-weight: 800;
-  letter-spacing: 0.12em;
+.activity-slide-preview-brand {
+  background: color-mix(in srgb, var(--activity-color-surface) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--activity-color-border) 82%, transparent);
+  border-radius: var(--redesign-radius-full);
+  color: var(--activity-color-on-surface);
+  gap: clamp(2px, 0.45cqw, var(--redesign-space-2));
+  padding: clamp(2px, 0.35cqw, var(--redesign-space-1)) clamp(var(--redesign-space-1), 0.75cqw, var(--redesign-space-3));
+  width: max-content;
+}
+
+.activity-slide-preview-brand img {
+  height: clamp(9px, 1.35cqw, 22px);
+  width: clamp(9px, 1.35cqw, 22px);
+}
+
+.activity-slide-preview-brand .redesign-orbit-brand-wordmark {
+  font-size: clamp(5px, 0.8cqw, 13px);
 }
 
 .activity-slide-preview h2 {
@@ -111,7 +131,7 @@
 }
 
 .activity-slide-preview p {
-  color: var(--redesign-color-on-surface);
+  color: color-mix(in srgb, var(--activity-color-on-background) 74%, transparent);
   margin: 0;
 }
 
@@ -123,8 +143,8 @@
 
 .activity-slide-preview-questions article {
   align-items: flex-start;
-  background: var(--redesign-color-light-surface);
-  border: 1px solid color-mix(in srgb, var(--redesign-color-on-light) 12%, transparent);
+  background: var(--activity-color-surface);
+  border: 1px solid var(--activity-color-border);
   border-radius: clamp(var(--redesign-radius-md), 1cqw, var(--redesign-radius-xl));
   display: grid;
   gap: clamp(var(--redesign-space-1), 1cqw, var(--redesign-space-3));
@@ -136,17 +156,18 @@
 .activity-slide-preview-questions article,
 .activity-slide-preview-questions article strong,
 .activity-slide-preview-questions article i {
-  color: var(--redesign-color-on-light);
+  color: var(--activity-color-on-surface);
 }
 
 .activity-slide-preview-questions article > span {
   align-items: center;
-  background: var(--redesign-color-success);
+  background: var(--activity-color-accent);
   border-radius: var(--redesign-radius-full);
   display: inline-flex;
   font-weight: 800;
   height: clamp(14px, 2.3cqw, 34px);
   justify-content: center;
+  color: var(--activity-color-on-accent);
   width: clamp(14px, 2.3cqw, 34px);
 }
 
@@ -160,7 +181,7 @@
 .activity-rating-preview i {
   align-items: center;
   aspect-ratio: 1;
-  background: color-mix(in srgb, var(--redesign-color-on-light) 7%, var(--redesign-color-light-surface));
+  background: var(--activity-color-muted);
   border-radius: 50%;
   display: flex;
   font-size: clamp(6px, 1cqw, 16px);
@@ -170,10 +191,10 @@
 
 .activity-text-preview {
   align-items: center;
-  background: color-mix(in srgb, var(--redesign-color-on-light) 4%, var(--redesign-color-light-surface));
-  border: 1px solid color-mix(in srgb, var(--redesign-color-on-light) 14%, transparent);
+  background: var(--activity-color-muted);
+  border: 1px solid var(--activity-color-border);
   border-radius: clamp(var(--redesign-radius), 0.55cqw, var(--redesign-radius-xl));
-  color: color-mix(in srgb, var(--redesign-color-on-light) 52%, transparent);
+  color: color-mix(in srgb, var(--activity-color-on-surface) 52%, transparent);
   display: flex;
   height: clamp(14px, 3.2cqw, 48px);
   margin-top: clamp(var(--redesign-space-1), 0.9cqw, var(--redesign-space-3));
@@ -221,7 +242,7 @@
 }
 
 .activity-choice-preview i {
-  background: color-mix(in srgb, var(--redesign-color-on-light) 7%, var(--redesign-color-light-surface));
+  background: var(--activity-color-muted);
   border-radius: clamp(var(--redesign-radius), 0.55cqw, var(--redesign-radius-xl));
   font-size: clamp(6px, 0.9cqw, 14px);
   font-style: normal;
@@ -245,8 +266,8 @@
 }
 
 .activity-slide-preview > button {
-  background: var(--redesign-color-dark-surface);
-  color: var(--redesign-color-light-surface);
+  background: var(--activity-color-accent);
+  color: var(--activity-color-on-accent);
   opacity: 1;
 }
 
@@ -257,7 +278,7 @@
 }
 
 .activity-presenter-preview-status span {
-  color: var(--redesign-color-on-surface-variant);
+  color: color-mix(in srgb, var(--activity-color-on-background) 64%, transparent);
 }
 
 .activity-slide-inspector {

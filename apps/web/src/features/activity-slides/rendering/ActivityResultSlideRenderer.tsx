@@ -10,6 +10,8 @@ import { IconChartBar, IconEyeOff, IconLinkOff } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 import { activityApi } from "../api/activityApi";
+import { OrbitBrand } from "../../../components/ui";
+import { createActivityThemeStyle } from "./activityThemeStyle";
 import "./activity-result-slide.css";
 
 export type ActivityResultRenderState =
@@ -121,6 +123,7 @@ export function ActivityResultRuntime(props: {
       scale={props.scale}
       slide={props.slide}
       source={source}
+      theme={props.deck.theme}
       waiting={projection.waiting}
     />
   );
@@ -134,6 +137,7 @@ export function ActivityResultSlideRenderer(props: {
   scale?: number;
   slide: ActivityResultsSlide;
   source: ActivitySlide | null;
+  theme?: Deck["theme"];
   waiting?: boolean;
 }) {
   const state = getActivityResultRenderState(props);
@@ -150,12 +154,17 @@ export function ActivityResultSlideRenderer(props: {
         aria-label={props.role === "presenter" ? "발표자 결과 장표" : "공개 결과 장표"}
         className="activity-result-slide"
         data-result-state={state}
-        style={{ transform: `scale(${scale})` }}
+        style={{
+          ...createActivityThemeStyle(props.theme, props.slide.style),
+          transform: `scale(${scale})`
+        }}
       >
         <header>
-          <span>ACTIVITY RESULTS</span>
-          <h1>{props.source ? `${props.source.activity.title} 결과` : "연결 결과"}</h1>
-          <p>{props.slide.title}</p>
+          <OrbitBrand className="activity-slide-brand" />
+          <h1>{props.source?.activity.title ?? "연결 결과"}</h1>
+          {props.source?.activity.description ? (
+            <p>{props.source.activity.description}</p>
+          ) : null}
         </header>
         {visibleResult && props.source ? (
           <ResultContent

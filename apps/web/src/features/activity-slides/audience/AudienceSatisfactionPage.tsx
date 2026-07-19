@@ -309,7 +309,7 @@ export function AudienceSatisfactionPage(props: {
         ) : null}
         {mode === "join" ? (
           <section className="activity-audience-card activity-join-card" aria-labelledby="audience-join-title">
-            <span className="activity-audience-eyebrow">LIVE AUDIENCE</span>
+            <span className="activity-audience-eyebrow">ORBIT</span>
             <h1 id="audience-join-title">발표에 참여하기</h1>
             <p>{sessionTitle}</p>
             {accessMode === "passcode" ? (
@@ -466,7 +466,7 @@ export function AudiencePublicResultCard(props: {
       className="activity-audience-card activity-participant-results"
       aria-labelledby="activity-public-results-title"
     >
-      <span className="activity-audience-eyebrow">RESULTS</span>
+      <span className="activity-audience-eyebrow">응답 결과</span>
       <h1 id="activity-public-results-title">
         {props.current.run.definitionSnapshot.title} 결과
       </h1>

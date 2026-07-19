@@ -182,6 +182,7 @@ export function ActivityResultSlideInspector(props: {
             scale={0.135}
             slide={props.slide}
             source={source}
+            theme={props.deck.theme}
           />
         ) : (
           <p>선택한 세션에서 이 참여 장표의 현재 실행 결과를 찾지 못했습니다.</p>

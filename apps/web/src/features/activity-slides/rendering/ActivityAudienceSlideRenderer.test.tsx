@@ -45,6 +45,28 @@ const publicResult: ActivityPublicResult = {
 };
 
 describe("ActivityAudienceSlideRenderer", () => {
+  it("uses the deck palette and ORBIT identity without decorative English copy", () => {
+    const html = renderToStaticMarkup(
+      <ActivityAudienceSlideRenderer
+        activity={slide.activity}
+        audienceUrl={null}
+        publicResult={null}
+        status="preparing"
+        theme={{
+          ...createDemoDeck().theme,
+          backgroundColor: "#090909",
+          textColor: "#ffffff",
+          accentColor: "#c5b0f4"
+        }}
+      />
+    );
+
+    expect(html).toContain("ORBIT");
+    expect(html).toContain("--activity-color-background:#090909");
+    expect(html).toContain("--activity-color-accent:#c5b0f4");
+    expect(html).not.toContain("LIVE ACTIVITY");
+  });
+
   it("renders only the public result projection after reveal", () => {
     const html = renderToStaticMarkup(
       <ActivityAudienceSlideRenderer

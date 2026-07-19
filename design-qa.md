@@ -60,6 +60,34 @@ final result: passed
 
 ---
 
+# 덱 테마 기반 특수 장표 design QA
+
+- Reference: 사용자가 제공한 사전 질문, 실시간 투표, 만족도 조사 HTML 3종의 분할 레이아웃과 응답 카드 구조를 참고했다.
+- Editor route: `http://localhost:5173/project/project_972d5901-d92c-4dfb-9e3d-547a3079f940`.
+- Presenter route: `http://localhost:5173/rehearsal/project_972d5901-d92c-4dfb-9e3d-547a3079f940?presenterSessionId=design-qa&presenterWindow=1&slideIndex=8&stepIndex=0`.
+- States: 사전 질문, 실시간 투표, 만족도 조사, 결과 장표 빈 상태, 발표자 현재/다음 장표 미리보기.
+
+## Visual checks
+
+- AI PPT 생성에서 선택한 덱 `theme`과 개별 장표 `style`을 특수 장표 CSS 변수로 변환해 배경, 강조색, 표면색, 글자색에 일관되게 반영했다.
+- 에디터 캔버스, 썸네일, 발표자 화면, 슬라이드 쇼, 청중 화면, 결과 화면이 같은 색과 레이아웃 계층을 사용한다.
+- 장식용 영문 문구인 `LIVE ACTIVITY`, `ACTIVITY RESULTS`, `AUDIENCE`, `PRESENTER`를 제거하고 ORBIT 브랜드와 실제 장표 제목·질문·응답 상태만 표시했다.
+- 사전 질문, 투표, 만족도 조사 모두 왼쪽에 장표 목적을, 오른쪽에 실제 질문·응답 카드를 배치해 발표자 화면의 축소 미리보기에서도 구분된다.
+- 결과 장표는 원본 참여 장표의 제목과 설명을 재사용하며, 응답이 없을 때는 데이터 없는 상태만 간결하게 표시한다.
+- 에디터 장표 9~12와 실제 발표자 런타임의 현재/다음 장표에서 잘림, 겹침, 가로 오버플로가 없음을 확인했다.
+
+## Verification
+
+- `pnpm --filter @orbit/web typecheck` passed.
+- `pnpm --filter @orbit/web build` passed with the existing chunk-size warning only.
+- `pnpm --filter @orbit/web exec vitest run` targeted activity suites passed: 56 tests.
+- `src/styles/design-system-boundary.test.ts` passed: 8 tests.
+- In-app browser visual verification passed for editor and presenter runtime.
+
+final result: passed
+
+---
+
 # 청중 참여 화면 홈 디자인 통일 QA
 
 - Source visual truth: 현재 서비스 홈 화면 캡처 `/Users/choeyeongbin/.codex/visualizations/2026/07/18/019f748d-91ea-7c52-a134-3d278a1af020/audience-waiting-home-redesign/source-home.png`와 사용자 제공 대기 화면 `/Users/choeyeongbin/.codex/visualizations/2026/07/18/019f748d-91ea-7c52-a134-3d278a1af020/audience-waiting-home-redesign/before-audience-waiting.png`.

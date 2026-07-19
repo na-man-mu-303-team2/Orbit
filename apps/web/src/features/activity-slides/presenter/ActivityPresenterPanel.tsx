@@ -162,7 +162,7 @@ export function ActivityPresenterPanel(props: {
     <section className="activity-presenter-panel" aria-label="참여 장표 운영">
       <div className="activity-presenter-panel-heading">
         <div>
-          <span>ACTIVITY CONTROL</span>
+          <span>참여 장표 운영</span>
           <strong>{props.slide.activity.title}</strong>
         </div>
         <ActivityStatusBadge status={runtime?.run.status ?? "draft"} />

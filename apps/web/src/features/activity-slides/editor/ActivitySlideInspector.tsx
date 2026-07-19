@@ -2,7 +2,8 @@ import type {
   ActivityDefinition,
   ActivityQuestion,
   ActivityQuestionType,
-  ActivitySlide
+  ActivitySlide,
+  Deck
 } from "@orbit/shared";
 import { IconArrowDown, IconArrowUp } from "@tabler/icons-react";
 import { useState } from "react";
@@ -40,6 +41,7 @@ export function ActivitySlideInspector(props: {
   onChange: (activity: ActivityDefinition) => void;
   projectId?: string;
   slide: ActivitySlide;
+  theme?: Deck["theme"];
 }) {
   const [previewRole, setPreviewRole] = useState<ActivityPreviewRole>("audience");
   const [supersedeDialogOpen, setSupersedeDialogOpen] = useState(false);
@@ -66,7 +68,7 @@ export function ActivitySlideInspector(props: {
     <div className="activity-slide-inspector">
       <div className="activity-inspector-heading">
         <div>
-          <span className="redesign-eyebrow">ACTIVITY</span>
+          <span className="redesign-eyebrow">참여 장표</span>
           <h3>{templateLabels[activity.template]}</h3>
           <p>청중에게 보일 문항을 설정하고 슬라이드에서 바로 확인합니다.</p>
         </div>
@@ -337,7 +339,11 @@ export function ActivitySlideInspector(props: {
           </button>
         ))}
       </div>
-      <ActivitySlidePreview role={previewRole} slide={props.slide} />
+      <ActivitySlidePreview
+        role={previewRole}
+        slide={props.slide}
+        theme={props.theme}
+      />
 
       <div aria-label="잠긴 시스템 레이어" className="activity-system-layer-lock">
         <strong>시스템 레이어 · 잠김</strong>

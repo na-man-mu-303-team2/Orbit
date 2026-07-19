@@ -1,5 +1,7 @@
-import type { ActivitySlide } from "@orbit/shared";
+import type { ActivitySlide, Deck } from "@orbit/shared";
 
+import { OrbitBrand } from "../../../components/ui";
+import { createActivityThemeStyle } from "../rendering/activityThemeStyle";
 import "./activity-slide-editor.css";
 
 export type ActivityPreviewRole = "audience" | "presenter";
@@ -7,6 +9,7 @@ export type ActivityPreviewRole = "audience" | "presenter";
 export function ActivitySlidePreview(props: {
   role: ActivityPreviewRole;
   slide: ActivitySlide;
+  theme?: Deck["theme"];
 }) {
   const activity = props.slide.activity;
   const questionDensity = activity.questions.length >= 5
@@ -21,11 +24,10 @@ export function ActivitySlidePreview(props: {
       className={`activity-slide-preview activity-slide-preview-${props.role} activity-slide-preview-${questionDensity}`}
       data-activity-system-layer="locked"
       data-activity-template={activity.template}
+      style={createActivityThemeStyle(props.theme, props.slide.style)}
     >
       <div className="activity-slide-preview-copy">
-        <span className="activity-slide-preview-kicker">
-          {props.role === "audience" ? "AUDIENCE" : "PRESENTER"}
-        </span>
+        <OrbitBrand className="activity-slide-preview-brand" />
         <h2>{activity.title}</h2>
         {activity.description ? <p>{activity.description}</p> : null}
       </div>
@@ -57,7 +59,7 @@ export function ActivitySlidePreview(props: {
       {props.role === "presenter" ? (
         <div className="activity-presenter-preview-status">
           <strong>응답 0</strong>
-          <span>세션을 시작하면 실시간 집계가 표시됩니다.</span>
+          <span>대기 중</span>
         </div>
       ) : (
         <button disabled type="button">응답 제출</button>

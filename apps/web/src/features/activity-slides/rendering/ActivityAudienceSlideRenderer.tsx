@@ -2,13 +2,17 @@ import type {
   ActivityDefinition,
   ActivityPublicResult,
   ActivityRatingAggregateItem,
-  ActivityRuntimeStatus
+  ActivityRuntimeStatus,
+  ActivitySlide,
+  Deck
 } from "@orbit/shared";
 import { IconChartBar, IconQrcode } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 import { createQrDataUrl } from "../../editor/audience-link/audienceLinkUtils";
+import { OrbitBrand } from "../../../components/ui";
 import { activityApi } from "../api/activityApi";
+import { createActivityThemeStyle } from "./activityThemeStyle";
 import "./activity-audience-slide.css";
 
 type AudienceProjection = {
@@ -28,6 +32,8 @@ export function ActivityAudienceRuntime(props: {
   deckId: string;
   projectId: string;
   scale: number;
+  slideStyle?: ActivitySlide["style"];
+  theme?: Deck["theme"];
 }) {
   const [projection, setProjection] = useState<AudienceProjection>(emptyProjection);
 
@@ -77,7 +83,9 @@ export function ActivityAudienceRuntime(props: {
       audienceUrl={projection.audienceUrl}
       publicResult={projection.publicResult}
       scale={props.scale}
+      slideStyle={props.slideStyle}
       status={projection.status}
+      theme={props.theme}
     />
   );
 }
@@ -87,7 +95,9 @@ export function ActivityAudienceSlideRenderer(props: {
   audienceUrl: string | null;
   publicResult: ActivityPublicResult | null;
   scale?: number;
+  slideStyle?: ActivitySlide["style"];
   status: ActivityRuntimeStatus | "preparing";
+  theme?: Deck["theme"];
 }) {
   const { activity } = props;
   const [qrDataUrl, setQrDataUrl] = useState("");
@@ -123,10 +133,13 @@ export function ActivityAudienceSlideRenderer(props: {
         aria-label="청중 참여 장표"
         className="activity-audience-slide"
         data-activity-status={props.status}
-        style={{ transform: `scale(${scale})` }}
+        style={{
+          ...createActivityThemeStyle(props.theme, props.slideStyle),
+          transform: `scale(${scale})`
+        }}
       >
         <header>
-          <span className="activity-audience-slide-kicker">LIVE ACTIVITY</span>
+          <OrbitBrand className="activity-slide-brand" />
           <h1>{activity.title}</h1>
           {activity.description ? <p>{activity.description}</p> : null}
         </header>

@@ -77,6 +77,25 @@ const presenterResult = activityPresenterResultSchema.parse({
 });
 
 describe("ActivityResultSlideRenderer", () => {
+  it("uses the linked activity copy and removes decorative result labels", () => {
+    const html = renderToStaticMarkup(
+      <ActivityResultSlideRenderer
+        presenterResult={null}
+        publicResult={null}
+        role="presenter"
+        run={null}
+        slide={resultSlide}
+        source={source}
+        theme={deck.theme}
+      />
+    );
+
+    expect(html).toContain("ORBIT");
+    expect(html).toContain(source.activity.title);
+    expect(html).not.toContain("ACTIVITY RESULTS");
+    expect(html).not.toContain(resultSlide.title);
+  });
+
   it.each([
     [null, false, "audience", null, null, "source-missing"],
     [source, true, "audience", null, null, "waiting"],
@@ -193,7 +212,7 @@ describe("ActivityResultSlideRenderer", () => {
     );
 
     expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
-    expect(html).not.toContain("<img");
+    expect(html).not.toContain("<img src=x");
     expect(html).not.toContain('onerror="alert(1)"');
   });
 });
