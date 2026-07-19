@@ -8015,12 +8015,13 @@
 .rehearsal-panel-empty {
   background: var(--redesign-color-surface-container-low);
   border: 1px dashed var(--redesign-color-outline);
-  border-radius: var(--redesign-radius-xl);
+  border-radius: var(--redesign-radius-lg);
   color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-body-sm-size);
   font-weight: 800;
   margin: 0;
   padding: var(--redesign-space-2);
+  padding-inline: var(--redesign-space-4);
 }
 
 .script-card {
