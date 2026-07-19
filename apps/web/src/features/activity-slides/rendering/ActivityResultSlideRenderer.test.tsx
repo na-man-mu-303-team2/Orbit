@@ -90,7 +90,7 @@ describe("ActivityResultSlideRenderer", () => {
       />
     );
 
-    expect(html).toContain("ORBIT");
+    expect(html).not.toContain("redesign-orbit-brand");
     expect(html).toContain("실시간 참여 결과");
     expect(html).toContain("시작 전");
     expect(html).toContain(source.activity.title);

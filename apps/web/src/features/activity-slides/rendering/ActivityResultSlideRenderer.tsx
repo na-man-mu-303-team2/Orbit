@@ -19,7 +19,6 @@ import {
 import { useEffect, useState } from "react";
 
 import { activityApi } from "../api/activityApi";
-import { OrbitBrand } from "../../../components/ui";
 import { createActivityThemeStyle } from "./activityThemeStyle";
 import "./activity-result-slide.css";
 
@@ -169,7 +168,6 @@ export function ActivityResultSlideRenderer(props: {
         }}
       >
         <header className="activity-result-intro">
-          <OrbitBrand className="activity-slide-brand" />
           <div className="activity-result-eyebrow">
             <IconBroadcast aria-hidden="true" size={24} stroke={1.8} />
             <span>실시간 참여 결과</span>

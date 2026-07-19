@@ -28,10 +28,6 @@
   min-width: 0;
 }
 
-.activity-result-intro .activity-slide-brand {
-  margin-bottom: 56px;
-}
-
 .activity-result-eyebrow {
   align-items: center;
   color: var(--activity-color-accent);
