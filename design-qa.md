@@ -36,6 +36,41 @@ final result: passed
 
 ---
 
+# 리허설 마이크 확인 모달 design QA
+
+## Visual truth
+
+- 선택 시안(3번): `C:\Users\Runner\.codex\generated_images\019f7960-a82c-7e11-b04e-91cc188840ca\exec-47a9ca5d-ce47-469d-98be-944966d23a39.png`
+- 파형 참고 이미지: `codex-clipboard-51d5907a-51f6-4e00-9959-b17caa28248e.png`, `codex-clipboard-c3a78fb4-4308-4b98-aab9-9c560b5b8a66.png`, `codex-clipboard-8de8efa4-31c8-46fc-bf1a-8a035288f88d.png`
+
+## Implementation evidence
+
+- 전체 화면: `C:\Users\Runner\.codex\visualizations\2026\07\19\019f7960-a82c-7e11-b04e-91cc188840ca\rehearsal-mic-modal.png`
+- 모달 집중 화면: `C:\Users\Runner\.codex\visualizations\2026\07\19\019f7960-a82c-7e11-b04e-91cc188840ca\rehearsal-mic-modal-focused.png`
+- viewport: 1440 × 1024
+- 상태: 마이크 권한 허용, fake audio input 선택, 실시간 파형 활성, 음성 감지 성공, `마이크 없이 시작` 표시
+
+## Comparison and findings
+
+- 전체 화면과 집중 화면을 선택 시안과 나란히 비교했다.
+- 제목, 설명, 3단계 계층, 중앙 모달 비율, CTA와 보조 동작의 시각적 우선순위가 시안과 일치한다.
+- 사용자 요청에 따라 1단계에 실제 마이크 선택 UI를 추가했고, 2단계는 `AudioContext`/`AnalyserNode` 기반 실제 입력 파형으로 대체했다.
+- 배경 페이지는 진입 위치를 유지하는 page-agnostic modal 요구 때문에 시안과 달라도 의도된 차이다.
+- 별도의 P0/P1/P2 시각 결함은 확인되지 않았다. 초기 비교에서 빠졌던 `마이크 없이 시작` 보조 동작은 수정 후 재검증했다.
+
+## Interaction verification
+
+- 마이크 권한 허용 후 장치 목록 3개 노출 확인
+- 선택한 마이크 장치 ID 저장 및 리허설 스트림 재사용 확인
+- 실시간 canvas 파형 크기 396 × 82 및 입력 분석 루프 활성 확인
+- `리허설 시작`의 `preflight=complete` 경로와 `마이크 없이 시작`의 `preflight=without-voice` 경로 확인
+- 브라우저 `pageerror`는 없었다. 로컬 인증/API가 준비되지 않은 상태에서 기존 401/404 및 네트워크 차단 콘솔 메시지는 관찰됐으며 이번 UI 코드와 직접 관련된 오류는 아니다.
+- TypeScript 검사와 `RehearsalWorkspace.test.tsx` 113개 테스트를 통과했다.
+
+final result: passed
+
+---
+
 # Rehearsal display options design QA
 
 - Source visual truth: `C:/Users/Runner/Desktop/Frame 7.png`, `C:/Users/Runner/Desktop/Frame 8.png`.

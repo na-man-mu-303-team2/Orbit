@@ -60,6 +60,7 @@ import {
   prepareRehearsalEvaluationRun,
   rehearsalMicrophoneAudioConstraints,
   rehearsalRawMicrophoneAudioConstraints,
+  readRehearsalMicrophoneDeviceId,
   renderLiveTranscriptBuffer,
   requestRehearsalMicrophoneStream,
   resetRehearsalTimerState,
@@ -72,6 +73,7 @@ import {
   shouldLoadPracticeGoalSummary,
   shouldRenderRehearsalThumbnailImage,
   shouldShowLiveSttDebugPcmDownload,
+  writeRehearsalMicrophoneDeviceId,
 } from "./RehearsalWorkspace";
 import {
   defaultAutoAdvanceConfig,
@@ -1161,6 +1163,16 @@ describe("RehearsalWorkspace", () => {
     expect(getUserMedia).toHaveBeenCalledWith({
       audio: rehearsalMicrophoneAudioConstraints,
     });
+  });
+
+  it("reuses the microphone selected during preflight", async () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    };
+    writeRehearsalMicrophoneDeviceId("mic-external", storage);
+    expect(readRehearsalMicrophoneDeviceId(storage)).toBe("mic-external");
   });
 
   it("requests raw microphone audio constraints when Live STT raw mic debug is enabled", async () => {

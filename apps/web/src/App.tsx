@@ -58,6 +58,7 @@ import {
 import { RehearsalReportListPage } from "./features/rehearsal/RehearsalReportListPage";
 import { RehearsalProjectPickerPage } from "./features/rehearsal/RehearsalProjectPickerPage";
 import { RehearsalProjectOverviewPage } from "./features/rehearsal/RehearsalProjectOverviewPage";
+import { RehearsalMicCheckModal } from "./features/rehearsal/preflight/RehearsalMicCheckModal";
 import { PresentationWorkspace } from "./features/presentation/PresentationWorkspace";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
@@ -93,6 +94,7 @@ export type Route =
       snapshotPreparationId?: string;
       sourceFullRunId?: string;
       sourceGoalSetId?: string;
+      preflightMode?: "microphone" | "without-voice";
       projectId: string;
     }
   | { name: "rehearsal-report"; projectId: string; runId: string }
@@ -544,6 +546,12 @@ export function getRoute(pathname?: string, search?: string): Route {
           searchParams.get("snapshotPreparationId") ?? undefined,
         sourceFullRunId: searchParams.get("sourceFullRunId") ?? undefined,
         sourceGoalSetId: searchParams.get("sourceGoalSetId") ?? undefined,
+        preflightMode:
+          searchParams.get("preflight") === "complete"
+            ? "microphone"
+            : searchParams.get("preflight") === "without-voice"
+              ? "without-voice"
+              : undefined,
         projectId: decodeURIComponent(rehearsalMatch[1]),
       };
     }
@@ -568,19 +576,78 @@ export function getRoute(pathname?: string, search?: string): Route {
   }
 }
 
-function navigateTo(path: string) {
+const rehearsalNavigationRequestEvent = "orbit:rehearsal-navigation-request";
+
+function isRehearsalEntryPath(path: string) {
+  const url = new URL(path, window.location.origin);
+  return url.origin === window.location.origin && /^\/rehearsal\/[^/]+\/?$/.test(url.pathname);
+}
+
+function navigateImmediately(path: string) {
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function navigateTo(path: string) {
+  if (isRehearsalEntryPath(path) && !new URL(path, window.location.origin).searchParams.has("preflight")) {
+    window.dispatchEvent(new CustomEvent(rehearsalNavigationRequestEvent, { detail: path }));
+    return;
+  }
+  navigateImmediately(path);
+}
+
 export function App() {
   const [route, setRoute] = useState(() => getRoute());
+  const [pendingRehearsalPath, setPendingRehearsalPath] = useState<string | null>(null);
 
   useEffect(() => {
     const handleRouteChange = () => setRoute(getRoute());
     window.addEventListener("popstate", handleRouteChange);
     return () => window.removeEventListener("popstate", handleRouteChange);
   }, []);
+
+  useEffect(() => {
+    const requestRehearsal = (event: Event) => {
+      setPendingRehearsalPath((event as CustomEvent<string>).detail);
+    };
+    const interceptRehearsalLink = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>("a[href]");
+      if (!anchor || !isRehearsalEntryPath(anchor.href)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingRehearsalPath(anchor.href);
+    };
+    window.addEventListener(rehearsalNavigationRequestEvent, requestRehearsal);
+    document.addEventListener("click", interceptRehearsalLink, true);
+    return () => {
+      window.removeEventListener(rehearsalNavigationRequestEvent, requestRehearsal);
+      document.removeEventListener("click", interceptRehearsalLink, true);
+    };
+  }, []);
+
+  const withRehearsalModal = (content: ReactNode) => (
+    <>
+      {content}
+      {pendingRehearsalPath ? (
+        <RehearsalMicCheckModal
+          onClose={() => setPendingRehearsalPath(null)}
+          onStart={() => {
+            const target = new URL(pendingRehearsalPath, window.location.origin);
+            target.searchParams.set("preflight", "complete");
+            setPendingRehearsalPath(null);
+            navigateImmediately(`${target.pathname}${target.search}${target.hash}`);
+          }}
+          onStartWithoutMicrophone={() => {
+            const target = new URL(pendingRehearsalPath, window.location.origin);
+            target.searchParams.set("preflight", "without-voice");
+            setPendingRehearsalPath(null);
+            navigateImmediately(`${target.pathname}${target.search}${target.hash}`);
+          }}
+        />
+      ) : null}
+    </>
+  );
 
   const auth = useQuery({
     queryKey: authMeQueryKey,
@@ -589,18 +656,18 @@ export function App() {
   });
 
   if (auth.isPending && shouldWaitForAuthResolution(route)) {
-    return <AuthLoadingFallback />;
+    return withRehearsalModal(<AuthLoadingFallback />);
   }
 
   if (route.name === "home" && !auth.data) {
-    return <LandingPage onNavigate={navigateTo} />;
+    return withRehearsalModal(<LandingPage onNavigate={navigateTo} />);
   }
 
   if (!shouldRenderAppFrame(route)) {
-    return renderRoute(route, auth.data ?? undefined);
+    return withRehearsalModal(renderRoute(route, auth.data ?? undefined));
   }
 
-  return (
+  return withRehearsalModal(
     <AppFrame
       isAuthenticated={Boolean(auth.data)}
       route={route}
@@ -759,6 +826,7 @@ function renderRoute(route: Route, user?: AuthUser) {
         snapshotPreparationId={route.snapshotPreparationId}
         sourceFullRunId={route.sourceFullRunId}
         sourceGoalSetId={route.sourceGoalSetId}
+        preflightMode={route.preflightMode}
         fallbackDeck={
           route.projectId === demoIds.projectId ? demoDeck : undefined
         }
