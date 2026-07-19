@@ -3250,16 +3250,13 @@ def apply_text_body_properties(
     props: dict[str, Any],
     scale: PackageFrameScale,
 ) -> None:
-    if (
-        "verticalAlign" not in props
-        and "writingMode" not in props
-        and "bodyInset" not in props
-    ):
-        return
     body_pr = first_local_child(body, "bodyPr")
     if body_pr is None:
         body_pr = ET.Element(f"{{{DML_NS}}}bodyPr")
         body.insert(0, body_pr)
+    body_pr.set("horzOverflow", "clip")
+    body_pr.set("vertOverflow", "clip")
+    body_pr.set("wrap", "square")
     if "verticalAlign" in props:
         body_pr.set(
             "anchor",

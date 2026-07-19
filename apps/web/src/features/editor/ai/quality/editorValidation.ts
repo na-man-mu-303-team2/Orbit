@@ -4,6 +4,7 @@ import {
   getKonvaFontStyle,
   getPrimaryTextRun,
   getTextElementText,
+  isTextElementOverflowing,
   measureTextContentBounds
 } from "../../canvas/text/textLayout";
 
@@ -882,9 +883,18 @@ function isEditorTextOverflowing(
   const text = getTextElementText(element.props as TextElementProps);
   if (!text) return false;
 
-  const metrics = getEditorTextContentMetrics(deck, slide, element, text);
-
-  return metrics.height > Math.max(1, element.height - 8);
+  return isTextElementOverflowing({
+    frame: {
+      x: element.x,
+      y: element.y,
+      width: element.width,
+      height: element.height,
+      rotation: element.rotation
+    },
+    props: element.props as TextElementProps,
+    slide,
+    theme: deck.theme
+  });
 }
 
 function isEditorTitleTextWrapped(
