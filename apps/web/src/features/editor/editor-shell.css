@@ -3810,15 +3810,28 @@
   top: calc(100% + var(--redesign-space-1));
   transform: none;
   z-index: var(--redesign-z-dropdown);
-  min-width: 172px;
+  min-width: 148px;
+  gap: 1px;
+  padding: var(--redesign-space-1);
+  border-color: var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius);
+  background: var(--redesign-color-surface-container);
+  color: var(--redesign-color-on-surface);
+  box-shadow: var(--redesign-shadow-raised);
   transform-origin: top left;
 }
 
 .keyword-token-dropdown .redesign-dropdown-menu-item {
-  min-height: 34px;
-  padding: 0 var(--redesign-space-3);
-  font-size: var(--redesign-type-body-sm-size);
-  font-weight: 750;
+  min-height: 30px;
+  padding: 0 var(--redesign-space-2);
+  border-radius: var(--redesign-radius-sm);
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 650;
+}
+
+.keyword-token-dropdown .redesign-dropdown-menu-item:hover {
+  background: var(--redesign-color-surface-container-high);
 }
 
 .keyword-note-token {

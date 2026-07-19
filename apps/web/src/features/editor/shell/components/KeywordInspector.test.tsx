@@ -14,6 +14,10 @@ const editorShellCssPath = path.join(
   process.cwd(),
   "src/features/editor/editor-shell.css"
 );
+const keywordInspectorPath = path.join(
+  process.cwd(),
+  "src/features/editor/shell/components/KeywordInspector.tsx"
+);
 
 describe("KeywordDetail", () => {
   it("renders selection clearing and deletion controls for a selected keyword", () => {
@@ -147,6 +151,9 @@ describe("KeywordHighlightedNotes", () => {
       /\.keyword-token-dropdown\.redesign-dropdown-menu\s*\{[^}]*left:\s*0;[^}]*top:\s*calc\(100% \+ var\(--redesign-space-1\)\);[^}]*z-index:\s*var\(--redesign-z-dropdown\);/s
     );
     expect(css).toMatch(
+      /\.keyword-token-dropdown\.redesign-dropdown-menu\s*\{[^}]*background:\s*var\(--redesign-color-surface-container\);[^}]*color:\s*var\(--redesign-color-on-surface\);/s
+    );
+    expect(css).toMatch(
       /\.orbit-shell\.editor-professional \.script-keyword-section \.keyword-strip\s*\{[^}]*flex-wrap:\s*wrap;[^}]*overflow:\s*visible;/s
     );
     expect(css).toMatch(
@@ -200,6 +207,14 @@ describe("KeywordHighlightedNotes", () => {
     expect(html).toContain(
       'data-occurrence-id="kwo_slide_1_kw_ai_6_8"'
     );
+  });
+
+  it("uses the dark dropdown variant for script token actions", () => {
+    const source = fs.readFileSync(keywordInspectorPath, "utf8");
+
+    expect(source).toContain('className="keyword-token-dropdown"');
+    expect(source).toContain('variant="black"');
+    expect(source).not.toContain('className="keyword-token-dropdown"\n                variant="white"');
   });
 
   it("applies distinct script token tones for required and next slide keywords", () => {

@@ -167,7 +167,7 @@ export function KeywordHighlightedNotes(props: {
                 align="start"
                 aria-label={`${part.value} 키워드 동작`}
                 className="keyword-token-dropdown"
-                variant="white"
+                variant="black"
                 onClick={(event) => event.stopPropagation()}
               >
                 <DropdownMenuItem
