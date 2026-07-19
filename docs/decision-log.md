@@ -728,3 +728,15 @@
 - Final decision: API·Worker·Web은 shared `slideQuestionGuideTextHashInput`으로 title·text·alt·speaker notes만 canonical hash 입력에 포함한다. 신규 source snapshot은 `contentHashVersion: slide-text-v1`을 기록하고, version이 없는 기존 guide는 Worker에서 전체 slide hash 검증을 유지한다. 기존 `slide-question-guide-generation` Queue의 BullMQ Worker에만 `concurrency: 2`를 적용한다.
 - Rationale: 실제 질문 생성 입력이 달라질 때만 stale 처리하면서 새 Queue·dependency·전역 설정 없이 전체 준비 시간을 줄인다. 동시성 2는 provider 부하를 제한하면서 뒤쪽 Job의 120초 Web polling 초과 가능성도 낮춘다.
 - Affected files: `packages/shared/src/slide-practice/slide-question-guide.schema.ts`, `apps/api/src/slide-question-guides/**`, `apps/worker/src/slide-question-guide-generation.processor.ts`, `apps/worker/src/worker.service.ts`, `apps/web/src/features/editor/practice/**`, `docs/contracts.md`.
+
+## ORBIT project rehearsal keyword coverage summary
+
+- Context: 프로젝트 리허설 요약은 Semantic Cue의 `coreMessageCoverage`를 “핵심 메시지 전달률”로 표시했지만, 실제 프로젝트의 Deck과 과거 성공 회차에는 Semantic Cue가 없고 keyword snapshot과 `missedKeywords`만 있어 3회차 이후에도 지표가 `N/A`였다. Keyword 언급 여부와 의미 설명 정확성은 서로 다른 측정이다.
+- Options considered:
+  - 기존 `coreMessageCoverage`에 keyword 결과를 넣어 필드 의미를 바꾼다.
+  - Semantic Cue 생성과 과거 STT 재분석을 선행한다.
+  - 새 `keywordCoverage` 계약을 추가하고 저장된 snapshot·report에서 파생 집계하며 기존 Semantic Cue 필드는 호환용으로 유지한다.
+- Final decision: `keywordCoverage`는 각 성공 회차의 immutable `evaluationSnapshot.slides[].keywords`에서 `(slideId, keywordId)` 분모를 만들고 `report.missedKeywords`에 없는 항목을 전달로 계산한다. STT 또는 keyword 측정이 불가능하거나 키워드가 없으면 `0%` 대신 `unmeasured`를 반환한다. 회차 비교는 분모 변화에 안전하도록 전달률의 percentage point 차이를 사용하고, 슬라이드 상태는 누적 전달률과 직전 두 측정 가능 회차의 동일 keyword 반복 누락을 함께 사용한다. 기존 `coreMessageCoverage`는 deprecated 호환 필드로 유지한다.
+- Rationale: DB migration, transcript 복원, STT 재분석 없이 당시 Deck 기준의 저장 증거로 과거 회차를 즉시 계산할 수 있다. Keyword 언급과 Semantic Cue 의미 평가의 계약을 분리해 소비자가 두 지표를 혼동하지 않으며 API와 Web을 단계적으로 배포할 수 있다.
+- Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `apps/api/src/rehearsals/rehearsal-project-summary.ts`, `apps/web/src/features/rehearsal/rehearsalProjectSummaryModel.ts`, `apps/web/src/features/rehearsal/RehearsalProjectSummaryDashboard.tsx`, 관련 테스트, `docs/contracts.md`, `docs/decision-log.md`.
+- Follow-up review notes: 실제 프로젝트의 1·2·3회차가 각각 `0/39`, `1/42`, `3/42`로 집계되는지 확인한다. STT 품질 gate 실패와 keyword 없는 Deck에서 `N/A`가 유지되는지, 사용자 데이터가 쌓인 뒤 70%·90% 상태 임계값을 재검토한다.

@@ -46,7 +46,6 @@ import {
   Gauge,
   Home,
   Mic,
-  Monitor,
   MoreHorizontal,
   PlayCircle,
   Presentation,
@@ -144,7 +143,6 @@ import {
   type RequestSlideWindowFullscreenResult,
   type SlideDisplayOptions,
 } from "./presenter/DisplayControls";
-import { AudienceOutputControls } from "./presenter/AudienceOutputControls";
 import {
   PresentWindowReceiver,
   requestPresentWindowFullscreen,
@@ -180,12 +178,6 @@ import {
   type AdvanceControllerState,
 } from "./advance/advanceController";
 import { RehearsalPanel } from "./panel/RehearsalPanel";
-import { RehearsalLiveSttStatusNotice } from "./panel/RehearsalLiveSttStatusNotice";
-import {
-  buildRehearsalLiveSttStatusModel,
-  canRetryInitialRecordingLiveStt,
-  createInitialLiveSttRetryCoordinator,
-} from "./panel/rehearsalLiveSttStatus";
 import {
   createSemanticCapabilityStatusItems,
   getNextSemanticCapabilityRecoveryDelay,
@@ -260,7 +252,6 @@ import {
   PresenterStageSection,
   PresenterTimerCard,
   PresenterTopbar,
-  type PresenterInfoCardItem,
   type PresenterTimingProgressItem,
 } from "../presenter-shell/PresenterScaffold";
 import type {
@@ -2025,7 +2016,6 @@ export function RehearsalWorkspace(props: {
   const [pauseDetectorSnapshot, setPauseDetectorSnapshot] =
     useState<PauseDetectorSnapshot | null>(null);
   const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
-  const [isLiveSttRetrying, setIsLiveSttRetrying] = useState(false);
   const [isLiveStopModalOpen, setIsLiveStopModalOpen] = useState(false);
   const [displayRole, setDisplayRole] = useState<
     "presenter" | "slide-receiver" | "slide-surface"
@@ -2060,9 +2050,6 @@ export function RehearsalWorkspace(props: {
   const liveDemoStreamRef = useRef<MediaStream | null>(null);
   const liveSttPortRef = useRef<LiveSttPort | null>(props.liveSttPort ?? null);
   const liveSttSubscriptionCleanupRef = useRef<(() => void) | null>(null);
-  const liveSttRetryCoordinatorRef = useRef(
-    createInitialLiveSttRetryCoordinator(),
-  );
   const p3SessionRef = useRef<P3RehearsalSession | null>(null);
   const semanticEmbeddingServicePromiseRef =
     useRef<Promise<E5EmbeddingService> | null>(null);
@@ -2877,40 +2864,6 @@ export function RehearsalWorkspace(props: {
     }
   }
 
-  async function retryInitialRecordingLiveStt() {
-    const stream = streamRef.current;
-    const coordinator = liveSttRetryCoordinatorRef.current;
-    if (
-      !canRetryInitialRecordingLiveStt({
-        hasActiveSession: p3SessionRef.current !== null,
-        hasReusableStream: isReusableRehearsalMediaStream(stream),
-        isRecording: phase === "recording",
-        isRetrying: isLiveSttRetrying || coordinator.isRetrying(),
-        liveStatus,
-      }) ||
-      !stream
-    ) {
-      return false;
-    }
-
-    setIsLiveSttRetrying(true);
-    setLiveError("");
-    try {
-      return await coordinator.retry((isCurrent) =>
-        startP3Tracking(
-          stream,
-          activeRunRef.current?.evaluationSnapshot ?? undefined,
-          () =>
-            isCurrent() &&
-            streamRef.current === stream &&
-            isReusableRehearsalMediaStream(stream),
-        ),
-      );
-    } finally {
-      setIsLiveSttRetrying(false);
-    }
-  }
-
   function stopLiveDemo(options: { showCompletionModal?: boolean } = {}) {
     const wasLiveDemoActive = isLiveDemoActive || isLiveSttActive;
     setRehearsalRuntimeStatus("stopping");
@@ -2953,7 +2906,6 @@ export function RehearsalWorkspace(props: {
   function stopRecording() {
     if (phase !== "recording") return;
 
-    liveSttRetryCoordinatorRef.current.cancel();
     setRehearsalRuntimeStatus("stopping");
     setPhase("uploading");
     setIsTimerRunning(false);
@@ -4224,6 +4176,7 @@ export function RehearsalWorkspace(props: {
       resetSlideDisplayToBeginning();
     }
 
+    const presenterScreen = displayManager.getCurrentScreen();
     const fullscreenResult = await displayManager.requestFullscreenOnScreen(
       typeof document === "undefined" ? null : document.documentElement,
       targetScreen.screenIndex,
@@ -4245,7 +4198,7 @@ export function RehearsalWorkspace(props: {
         stepIndex: presenterStepIndexRef.current,
       }),
       {
-        screen: displayManager.getCurrentScreen(),
+        screen: presenterScreen,
         target: `orbit-presenter-${presentationChannel.sessionId}-${Date.now()}`,
       },
     );
@@ -4429,45 +4382,6 @@ export function RehearsalWorkspace(props: {
         deck?.projectId ?? props.projectId ?? demoIds.projectId,
       )
     : null;
-  const liveSttStatusModel = buildRehearsalLiveSttStatusModel({
-    isRecording: phase === "recording",
-    liveError,
-    liveStatus,
-  });
-  const canRetryRecordingLiveStt = canRetryInitialRecordingLiveStt({
-    hasActiveSession: p3SessionRef.current !== null,
-    hasReusableStream: isReusableRehearsalMediaStream(streamRef.current),
-    isRecording: phase === "recording",
-    isRetrying:
-      isLiveSttRetrying || liveSttRetryCoordinatorRef.current.isRetrying(),
-    liveStatus,
-  });
-  const rehearsalRuntimeStatusLabel =
-    rehearsalRuntimeStatus === "paused"
-      ? "일시정지됨"
-      : phase === "recording" ||
-          isLiveSttActive ||
-          liveStatus === "failed" ||
-          liveStatus === "unavailable"
-        ? liveSttStatusModel.topbarLabel
-        : isTimerRunning
-          ? "리허설 진행 중"
-          : "준비됨";
-  const rehearsalInfoCards: PresenterInfoCardItem[] = [
-    {
-      detail: currentSlide ? getSlideTitle(currentSlide) : "-",
-      label: "현재 슬라이드",
-      value: `슬라이드 ${currentSlideIndex + 1} / ${deck?.slides.length ?? 0}`,
-    },
-    {
-      detail: `${getRehearsalPaceSummaryLabel(p3AdviceState.pace)} / ${
-        p3AdviceState.slideOvertime ? "슬라이드 시간 초과" : "슬라이드 정상"
-      }`,
-      label: "조언",
-      value: `${p3WordsPerMinute} WPM`,
-      variantClassName: "rehearsal-side-advice-card",
-    },
-  ];
   const nextSlideHint = nextSlide?.keywords?.[0]
     ? `"${nextSlide.keywords[0].text}"를 말하면 바로 이어집니다`
     : "마지막 문장을 정리하고 마무리하세요";
@@ -4947,9 +4861,6 @@ export function RehearsalWorkspace(props: {
         primaryActionRunning={
           rehearsalRuntimeStatus !== "paused" && isTimerRunning
         }
-        statusActive={isRehearsalRuntimeActive}
-        statusLabel={rehearsalRuntimeStatusLabel}
-        subtitle="리허설 · 자동 따라가기"
         timeMode={timeMode}
         timerDurationInput={timerDurationInput}
         title="리허설"
@@ -4962,28 +4873,6 @@ export function RehearsalWorkspace(props: {
                 onRequestDisplayScreens={requestDisplayScreens}
                 onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}
               />
-              <AudienceOutputControls
-                connected={
-                  displayRole === "presenter" &&
-                  presentationChannel.status === "connected" &&
-                  Boolean(slideWindowRef.current && !slideWindowRef.current.closed)
-                }
-                error={audienceScreenShare.error}
-                onReturnToSlide={audienceScreenShare.returnToSlide}
-                onShowBlack={audienceScreenShare.showBlack}
-                onStartMonitor={audienceScreenShare.startMonitor}
-                onStartTabOrWindow={audienceScreenShare.startTabOrWindow}
-                outputMode={audienceOutputMode}
-                status={audienceScreenShare.status}
-              />
-              <button
-                className="presenter-single-screen-button"
-                type="button"
-                onClick={() => setIsSingleScreenOpen(true)}
-              >
-                <Monitor size={16} />
-                단일 화면
-              </button>
             </div>
           ) : null
         }
@@ -5063,7 +4952,6 @@ export function RehearsalWorkspace(props: {
           <PresenterTimerCard
             ariaLabel="리허설 타이머"
             currentTimeLabel="경과 발표 시간"
-            infoCards={rehearsalInfoCards}
             meterPercent={liveAudioLevelPercent}
             onPrimaryAction={handleSideTimerPrimaryAction}
             onReset={() => {
@@ -5110,15 +4998,6 @@ export function RehearsalWorkspace(props: {
             timeReadOnly
             title="발표 스톱워치"
           />
-
-          {currentSlide?.kind !== "activity" ? (
-            <RehearsalLiveSttStatusNotice
-              canRetry={canRetryRecordingLiveStt}
-              isRetrying={isLiveSttRetrying}
-              model={liveSttStatusModel}
-              onRetry={() => void retryInitialRecordingLiveStt()}
-            />
-          ) : null}
 
           {currentSlide?.kind === "activity" && deck ? (
             <ActivityPresenterPanel
@@ -7077,19 +6956,6 @@ function usePresenterStageScale(deck: Deck | null) {
   }, [deck, presenterStageElement]);
 
   return { presenterScale, presenterStageRef };
-}
-
-function getRehearsalPaceSummaryLabel(
-  pace: "too-fast" | "too-slow" | "normal",
-) {
-  switch (pace) {
-    case "too-fast":
-      return "말 속도 빠름";
-    case "too-slow":
-      return "말 속도 느림";
-    case "normal":
-      return "말 속도 정상";
-  }
 }
 
 function parseClockInput(value: string): number | null {

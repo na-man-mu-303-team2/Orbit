@@ -1,3 +1,30 @@
+# Rehearsal display options design QA
+
+- Source visual truth: `C:/Users/Runner/Desktop/Frame 7.png`, `C:/Users/Runner/Desktop/Frame 8.png`.
+- Implementation evidence: current in-app browser capture of `/rehearsal/project_6c000fc2-a814-4c85-a5ad-bc5931ec94a6` with the display options popover open.
+- State: presenter mode enabled, automatic placement disabled, fullscreen enabled, new-window display selected.
+
+## Comparison evidence
+
+- The source references and implementation capture were compared together at desktop scale.
+- The panel measures 360px wide with 32px top/side padding and 25px bottom padding, matching the annotated reference.
+- Header hierarchy, presenter-mode helper copy, switch treatment, slideshow grouping, conditional display-position surface, and bottom-anchored primary action match the reference structure.
+- Turning fullscreen off removes the display-position radio group; turning presenter mode off removes the automatic-placement switch.
+- Enabling automatic placement requests display permission from the original click activation before updating local UI state.
+- Existing redesign color, radius, type, space, and shadow tokens are used; no new visual asset was introduced.
+
+## Verification
+
+- `DisplayControls.test.tsx`: 10 tests passed.
+- `node node_modules/typescript/bin/tsc -p apps/web/tsconfig.json --noEmit`: passed.
+- In-app browser console: no warnings or errors.
+- `git diff --check`: passed with the existing LF-to-CRLF warning only.
+- No P0, P1, or P2 visual mismatch remains in the requested popover states.
+
+final result: passed
+
+---
+
 # Create deck first-step design QA
 
 - Source visual truth: `/var/folders/bz/br99y0bj2395vd1507vwbqmm0000gn/T/codex-clipboard-e806a6c4-f0be-4044-8753-75c50caadb56.png` plus the current task requirements for a two-stage connected indicator and a single content flow.
@@ -184,6 +211,49 @@ final result: passed
 
 ---
 
+# Rehearsal timer split-surface design QA
+
+- Source visual truth: `C:/Users/Runner/Desktop/Frame 6.png` (lower warning-state reference).
+- Implementation screenshot: `D:/Projects/Orbit/.tmp/design-qa/rehearsal-timer-split.png`.
+- Combined full-view comparison: `D:/Projects/Orbit/.tmp/design-qa/rehearsal-timer-split-comparison.png`.
+- Focused timer comparison: `D:/Projects/Orbit/.tmp/design-qa/rehearsal-timer-split-focused-comparison.png`.
+- Route: `/rehearsal/project_6c000fc2-a814-4c85-a5ad-bc5931ec94a6`.
+- Viewport: 1212 x 874 CSS px.
+- State: running rehearsal, default timing state. The reference shows the warning timing state.
+
+## Full-view comparison evidence
+
+The existing rehearsal layout, slide area, side panel, and teleprompter remain unchanged. The timer card now matches the reference hierarchy: a blue stopwatch header is directly joined to a bright timing-threshold panel inside one clipped card.
+
+## Focused region comparison evidence
+
+The source and implementation timer cards were placed in one focused comparison. Both use a full-width blue header, a full-width bright timing panel, two compact timing rows, and the existing rounded outer card. The implementation uses the existing 16px horizontal spacing token and 12px vertical spacing token. A separate asset comparison was unnecessary because this scoped change contains no new imagery or icons.
+
+## Required fidelity surfaces
+
+- Fonts and typography: existing rehearsal type tokens and hierarchy are unchanged; small timing labels remain readable on the bright surface.
+- Spacing and layout rhythm: header padding is 16px; timing-panel padding is 12px 16px with a 12px row gap, matching the surrounding rehearsal spacing system.
+- Colors and visual tokens: header uses `--redesign-color-primary`, the lower panel uses `--redesign-color-surface-container-lowest`, default progress uses `--redesign-color-on-surface`, warning uses the requested `#f0be36`, and danger uses `--redesign-color-error`.
+- Image quality and asset fidelity: no new raster or vector asset is required; the existing Lucide controls are preserved.
+- Copy and content: stopwatch and timing labels are unchanged.
+
+## Comparison history
+
+1. P2 - The previous state treatment placed warning/error container fills behind each row, making the compact timer visually heavy. Removed per-row containers.
+2. P2 - The stopwatch and timing thresholds previously shared one blue surface, reducing hierarchy and forcing all copy to white. Split the card into blue and bright surfaces while preserving one outer card.
+3. Post-fix evidence - The focused comparison shows matching surface proportions, padding, row rhythm, and outer radius. No actionable P0/P1/P2 issue remains in the requested timer region.
+
+## Findings
+
+No remaining P0, P1, or P2 visual issue in the requested region. The live capture is in the default state; the warning and danger selectors were verified in the loaded stylesheet, while the existing timing-state logic remains unchanged.
+
+## Follow-up polish
+
+- P3: capture a natural warning transition during a timed rehearsal if a final state-by-state visual archive is needed.
+final result: passed
+
+---
+
 # Style loading spinner design QA
 
 - Source visual truth: `.tmp/design-qa/style-loading-final.png`의 기존 로딩 화면 레이아웃과 사용자 지정 스피너 요구.
@@ -343,4 +413,45 @@ final result: passed
 - `pnpm --filter @orbit/web typecheck` passed.
 - Docker web rebuild and in-app browser visual comparison passed.
 
+final result: passed
+
+---
+
+# 발표 개선 요약 시각화 design QA
+
+- Source visual truth: `codex-clipboard-2efec99c-2335-49a9-93ab-31cbeb1173dd.png`와 생성된 `발표 변화` 지표 시안.
+- Implementation surface: `RehearsalProjectOverviewPage`, `RehearsalProjectSummaryDashboard`.
+- QA state: 실제 컴포넌트와 6회차 고정 fixture를 사용한 임시 Vite 진입점이며 캡처 후 제거했다.
+
+## Comparison history
+
+1. 데스크톱 1440×900에서 시안과 구현 KPI를 같은 입력으로 비교했다. 4개 지표의 이전→현재 아이콘 흐름, 큰 수치, 개선 문구 계층이 일치했다.
+2. 우선 행동 배너 참조 이미지와 구현을 같은 입력으로 비교했다. 배너가 개선 요약 바로 위에 배치되고 상세 리포트 CTA를 유지했다.
+3. 태블릿 820×1000에서 KPI가 2열로, 모바일 390×844에서 1열로 전환됨을 확인했다.
+4. 태블릿과 모바일 모두 document `scrollWidth`와 `clientWidth`가 같아 가로 오버플로가 없었다.
+
+## Accessibility and behavior
+
+- 각 KPI는 단위, 비교 기준, 개선량을 포함한 전체 `aria-label`을 유지한다.
+- 우선 행동 배너는 `다음 연습 우선 행동` 레이블을 제공한다.
+- 렌더링 테스트로 우선 행동 배너가 KPI 요약보다 DOM에서 먼저 오는지 검증한다.
+- 누적 지표가 모두 미측정이고 비교 이슈가 없는 슬라이드는 `측정 불가`로 표시한다.
+
+final result: passed
+
+---
+
+# 리허설 회차별 총 소요시간 차트 design QA
+
+- Route: `http://localhost:5174/reports/project_66b1fbe6-5543-441a-9b39-cecd9ef51e41`.
+- Source visual truth: 사용자가 제공한 기존 차트 화면.
+- QA state: 로그인된 로컬 5174 화면의 실제 렌더링.
+
+## Findings
+
+- 주요 회차 라벨을 14px 굵은 글씨로 표시해 가독성을 높였다.
+- 마지막 회차와 가까운 중간 눈금을 생략해 `21회차`와 `23회차`가 붙지 않는다.
+- 목표 라벨을 차트 왼쪽으로 옮겨 최신 값 `8:42`와 분리했다.
+- 총 리허설 리포트의 8개 슬라이드가 실제 Deck 화면으로 렌더링된다.
+- 관련 Vitest 10개와 Web TypeScript 검사를 통과했다.
 final result: passed
