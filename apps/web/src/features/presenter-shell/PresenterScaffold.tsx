@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, PauseCircle, PlayCircle, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pause, Play, RotateCcw } from "lucide-react";
 import type { ReactNode } from "react";
 
 export type PresenterTimeMode = "stopwatch" | "timer";
@@ -120,13 +120,13 @@ export function PresenterTopbar(props: {
           disabled={props.primaryActionDisabled}
         >
           {props.primaryActionRunning ? (
-            <PauseCircle size={16} />
+            <Pause fill="currentColor" size={22} strokeWidth={0} />
           ) : (
-            <PlayCircle size={16} />
+            <Play fill="currentColor" size={22} strokeWidth={2.5} />
           )}
         </button>
         <button type="button" aria-label="Reset timer" onClick={props.onReset}>
-          <RotateCcw size={15} />
+          <RotateCcw size={22} />
         </button>
       </div>
     </header>
@@ -271,9 +271,9 @@ export function PresenterTimerCard(props: {
               disabled={props.primaryActionDisabled}
             >
               {props.primaryActionRunning ? (
-                <PauseCircle size={15} />
+                <Pause fill="currentColor" size={22} strokeWidth={0} />
               ) : (
-                <PlayCircle size={15} />
+                <Play fill="currentColor" size={22} strokeWidth={2.5} />
               )}
             </button>
             <button
@@ -281,7 +281,7 @@ export function PresenterTimerCard(props: {
               aria-label={props.resetAriaLabel ?? "타이머 초기화"}
               onClick={props.onReset}
             >
-              <RotateCcw size={15} />
+              <RotateCcw size={22} />
             </button>
           </div>
         </div>
