@@ -18,6 +18,12 @@ import {
 } from "./slideQuestionGuideApi";
 import type { AutoSlideQuestionGuideStatus } from "./useAutoSlideQuestionGuides";
 
+export type SlideQuestionGuideRuntimeState =
+  | "checking"
+  | "enabled"
+  | "disabled"
+  | "unavailable";
+
 export function SlideQuestionGuidePanel(props: {
   autoStatus: AutoSlideQuestionGuideStatus;
   canGenerate: boolean;
@@ -31,17 +37,22 @@ export function SlideQuestionGuidePanel(props: {
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "generating" | "error">("idle");
   const [message, setMessage] = useState("");
-  const [slideQuestionGuidesEnabled, setSlideQuestionGuidesEnabled] = useState<boolean | null>(null);
+  const [runtimeState, setRuntimeState] = useState<SlideQuestionGuideRuntimeState>("checking");
+  const [runtimeConfigRequest, setRuntimeConfigRequest] = useState(0);
+  const slideQuestionGuidesEnabled = runtimeState === "enabled"
+    ? true
+    : runtimeState === "checking"
+      ? null
+      : false;
 
   useEffect(() => {
     let active = true;
-    void fetchLiveSttRuntimeConfig().then((runtimeConfig) => {
-      if (active) setSlideQuestionGuidesEnabled(runtimeConfig.slideQuestionGuidesEnabled);
-    }).catch(() => {
-      if (active) setSlideQuestionGuidesEnabled(false);
+    setRuntimeState("checking");
+    void resolveSlideQuestionGuideRuntimeState().then((nextState) => {
+      if (active) setRuntimeState(nextState);
     });
     return () => { active = false; };
-  }, []);
+  }, [runtimeConfigRequest]);
 
   useEffect(() => {
     let active = true;
@@ -120,8 +131,10 @@ export function SlideQuestionGuidePanel(props: {
         >
           {props.autoStatus === "generating"
             ? "질문 생성 중…"
-            : slideQuestionGuidesEnabled === null
+            : runtimeState === "checking"
               ? "질문 생성 준비 중…"
+              : runtimeState === "unavailable"
+                ? "설정 확인 필요"
               : status === "generating"
                 ? "공식 자료 검색 중…"
                 : guide
@@ -129,7 +142,19 @@ export function SlideQuestionGuidePanel(props: {
                   : "질문 생성"}
         </OrbitButton>
       </div>
-      {slideQuestionGuidesEnabled === false ? <p className="editor-practice-message">이 환경에서는 슬라이드별 예상 질문 기능을 사용할 수 없습니다.</p> : null}
+      {runtimeState === "disabled" ? <p className="editor-practice-message">이 환경에서는 슬라이드별 예상 질문 기능을 사용할 수 없습니다.</p> : null}
+      {runtimeState === "unavailable" ? (
+        <div aria-live="polite" className="editor-question-guide-runtime-error">
+          <p className="editor-practice-message">예상 질문 설정을 확인하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.</p>
+          <OrbitButton
+            onClick={() => setRuntimeConfigRequest((current) => current + 1)}
+            size="compact"
+            variant="secondary"
+          >
+            설정 다시 확인
+          </OrbitButton>
+        </div>
+      ) : null}
       {message ? <p className="editor-practice-message">{message}</p> : null}
       {props.autoStatus === "failed" && !guide ? <p className="editor-practice-message">자동 질문 생성에 실패했습니다. 질문 생성 버튼으로 다시 시도해 주세요.</p> : null}
       {guide && guide.items.length > 0 ? (
@@ -145,6 +170,17 @@ export function SlideQuestionGuidePanel(props: {
       )}
     </div>
   );
+}
+
+export async function resolveSlideQuestionGuideRuntimeState(
+  fetchRuntimeConfig: () => Promise<{ slideQuestionGuidesEnabled: boolean }> = fetchLiveSttRuntimeConfig,
+): Promise<Exclude<SlideQuestionGuideRuntimeState, "checking">> {
+  try {
+    const runtimeConfig = await fetchRuntimeConfig();
+    return runtimeConfig.slideQuestionGuidesEnabled ? "enabled" : "disabled";
+  } catch {
+    return "unavailable";
+  }
 }
 
 export function isSlideQuestionGuideGenerationDisabled(input: {

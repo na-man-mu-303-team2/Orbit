@@ -9,6 +9,7 @@ import {
   getInitialQuestionId,
   isSlideQuestionGuideGenerationDisabled,
   OfficialSourceLinks,
+  resolveSlideQuestionGuideRuntimeState,
   SlideQuestionGuidePanel,
   SlideQuestionGuideCarousel,
 } from "./SlideQuestionGuidePanel";
@@ -72,6 +73,15 @@ describe("SlideQuestionGuidePanel official sources", () => {
       slideQuestionGuidesEnabled: true,
       status: "idle",
     })).toBe(false);
+  });
+
+  it("기능 비활성화와 runtime config 조회 실패를 구분한다", async () => {
+    await expect(resolveSlideQuestionGuideRuntimeState(async () => ({
+      slideQuestionGuidesEnabled: false,
+    }))).resolves.toBe("disabled");
+    await expect(resolveSlideQuestionGuideRuntimeState(async () => {
+      throw new Error("runtime config unavailable");
+    })).resolves.toBe("unavailable");
   });
 
   it("전체 덱 버전이 달라도 대상 슬라이드 hash가 같으면 현재 guide로 선택한다", () => {
