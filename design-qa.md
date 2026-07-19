@@ -60,6 +60,35 @@ final result: passed
 
 ---
 
+# 청중 참여 화면 홈 디자인 통일 QA
+
+- Source visual truth: 현재 서비스 홈 화면 캡처 `/Users/choeyeongbin/.codex/visualizations/2026/07/18/019f748d-91ea-7c52-a134-3d278a1af020/audience-waiting-home-redesign/source-home.png`와 사용자 제공 대기 화면 `/Users/choeyeongbin/.codex/visualizations/2026/07/18/019f748d-91ea-7c52-a134-3d278a1af020/audience-waiting-home-redesign/before-audience-waiting.png`.
+- Implementation captures: `/Users/choeyeongbin/.codex/visualizations/2026/07/18/019f748d-91ea-7c52-a134-3d278a1af020/audience-waiting-home-redesign/implementation-audience.png`, `/Users/choeyeongbin/.codex/visualizations/2026/07/18/019f748d-91ea-7c52-a134-3d278a1af020/audience-waiting-home-redesign/implementation-audience-chrome.png`.
+- Combined comparison: `/Users/choeyeongbin/.codex/visualizations/2026/07/18/019f748d-91ea-7c52-a134-3d278a1af020/audience-waiting-home-redesign/comparison-audience-home.png`.
+- Route: `/audience/:sessionId` 및 `/audience/:sessionId/a/:activityId`.
+- State: 참여 코드 입력 전 상태와 실제 Chrome 세션의 사전 질문 제출 완료 상태. 대기 상태는 동일한 공통 status-card 컴포넌트 경로와 렌더링 테스트로 검증했다.
+
+## Fidelity checks
+
+- 홈과 동일한 `OrbitBrand`, `WorkspaceContainer`, 흰색 배경, 얇은 `outline-variant` 헤더 구분선, Pretendard 및 redesign 타이포그래피 토큰을 사용한다.
+- 기존 보라색 배경 그라데이션과 과도하게 큰 중앙 카드를 제거하고 홈 화면과 같은 밀도의 흰색 surface, card shadow, primary blue 상태 아이콘으로 통일했다.
+- 공개 참여 화면 특성상 인증 전용 상단 내비게이션과 사용자 아바타는 노출하지 않고 브랜드와 세션 제목만 유지했다.
+- 데스크톱에서는 상태 카드를 560px 이내로 제한하고, 모바일 breakpoint에서는 헤더·본문 패딩과 제목 크기를 토큰 기준으로 축소한다.
+- 질문 제출 완료 상태에서 참여 장표, 저장 상태, 제출 답변, 수정 CTA가 잘리지 않고 홈 화면과 동일한 색·테두리 계층으로 표시된다.
+
+## Verification
+
+- `AudienceSatisfactionPage` 렌더링 테스트에 공통 ORBIT 브랜드와 workspace shell 검증을 추가했다.
+- Web Vitest 전체 249 files, 1,592 tests 통과.
+- `pnpm --filter @orbit/web typecheck` 통과.
+- `pnpm --filter @orbit/web build` 통과(기존 chunk-size warning만 존재).
+- Docker web 이미지를 재빌드한 뒤 실제 Chrome 참여 세션을 새로고침하여 제출 완료 상태의 레이아웃과 콘텐츠 유지 확인.
+- 홈 참조와 실제 참여 화면을 동일 비교 이미지에서 확인했으며 요청 영역에 남은 P0/P1/P2 시각 문제 없음.
+
+final result: passed
+
+---
+
 # Style loading spinner design QA
 
 - Source visual truth: `.tmp/design-qa/style-loading-final.png`의 기존 로딩 화면 레이아웃과 사용자 지정 스피너 요구.

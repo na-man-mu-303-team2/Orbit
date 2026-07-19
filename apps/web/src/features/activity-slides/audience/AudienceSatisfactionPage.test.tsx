@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  AudienceSatisfactionPage,
   AudiencePublicResultCard,
   AudienceResponseSummary,
   AudienceSatisfactionForm,
@@ -24,6 +25,17 @@ const definition = createActivitySlide(
 ).activity;
 
 describe("AudienceSatisfactionForm", () => {
+  it("uses the shared ORBIT brand and workspace shell on the public page", () => {
+    const html = renderToStaticMarkup(
+      <AudienceSatisfactionPage sessionId="session_1" />
+    );
+
+    expect(html).toContain("redesign-orbit-brand");
+    expect(html).toContain("activity-audience-header-inner");
+    expect(html).toContain("activity-audience-main");
+    expect(html).toContain("참여 화면을 준비하고 있습니다");
+  });
+
   it("renders accessible rating targets and the optional free-text field", () => {
     const html = renderToStaticMarkup(
       <AudienceSatisfactionForm
