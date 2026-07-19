@@ -50,6 +50,7 @@ type StoredTemplateBlueprintRow = {
   project_id: string;
   deck_id: string;
   blueprint_json: unknown;
+  quality_report_json?: unknown;
 };
 
 class InMemoryDeckDataSource {
@@ -264,6 +265,21 @@ class InMemoryDeckDataSource {
         .sort(compareSnapshotRows)
         .map(cloneSnapshotRow);
       return rows as T;
+    }
+
+    if (
+      query.startsWith("SELECT quality_report_json") &&
+      query.includes("FROM template_blueprints")
+    ) {
+      const [projectId, deckId] = params as [string, string];
+      return this.templateBlueprintRows
+        .filter((row) => row.project_id === projectId && row.deck_id === deckId)
+        .map((row) => ({
+          quality_report_json:
+            row.quality_report_json === undefined
+              ? undefined
+              : cloneJson(row.quality_report_json),
+        })) as T;
     }
 
     if (
@@ -666,6 +682,69 @@ describe("DecksService", () => {
     expect(snapshotResponse.snapshots[0]?.snapshotId).toBe(
       putResponse.snapshot.snapshotId,
     );
+  });
+
+  it("reads persisted PPTX import quality without changing the Deck", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    seedStoredDeck(dataSource, deck, deck);
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {},
+      quality_report_json: {
+        compositeScore: 82,
+        metrics: {
+          geometry: 90,
+          text: 80,
+          color: 80,
+          layer: 90,
+          editability: 60,
+          pixelSimilarity: null,
+        },
+        weights: {
+          geometry: 25,
+          text: 15,
+          color: 10,
+          layer: 10,
+          editability: 10,
+          pixelSimilarity: 30,
+        },
+        editabilityCoverage: 0.6,
+        appliedCap: null,
+        slideReports: [],
+        notes: ["pixel renderer unavailable"],
+      },
+    });
+
+    await expect(service.getPptxImportQuality(deck.projectId)).resolves.toEqual({
+      importQuality: {
+        qualityReport: expect.objectContaining({ compositeScore: 82 }),
+      },
+    });
+    expect(dataSource.decks.get(deck.projectId)?.version).toBe(deck.version);
+  });
+
+  it("returns null when an import quality sidecar is absent or invalid", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+    seedStoredDeck(dataSource, deck, deck);
+
+    await expect(service.getPptxImportQuality(deck.projectId)).resolves.toEqual({
+      importQuality: null,
+    });
+
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_invalid_quality",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {},
+      quality_report_json: { compositeScore: "invalid" },
+    });
+    await expect(service.getPptxImportQuality(deck.projectId)).resolves.toEqual({
+      importQuality: null,
+    });
   });
 
   it("normalizes legacy keyword terms when reading stored deck JSON", async () => {
