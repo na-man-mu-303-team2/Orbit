@@ -186,3 +186,45 @@ final result: passed
 - 비로그인 QA 상태는 아바타 대신 기존 `로그인` 버튼을 사용하며 다음 행동 카드는 실제 상세 리포트 이동 CTA를 유지한다.
 
 final result: passed
+
+---
+
+# 발표 개선 요약 시각화 design QA
+
+- Source visual truth: `codex-clipboard-2efec99c-2335-49a9-93ab-31cbeb1173dd.png`와 생성된 `발표 변화` 지표 시안.
+- Implementation surface: `RehearsalProjectOverviewPage`, `RehearsalProjectSummaryDashboard`.
+- QA state: 실제 컴포넌트와 6회차 고정 fixture를 사용한 임시 Vite 진입점이며 캡처 후 제거했다.
+
+## Comparison history
+
+1. 데스크톱 1440×900에서 시안과 구현 KPI를 같은 입력으로 비교했다. 4개 지표의 이전→현재 아이콘 흐름, 큰 수치, 개선 문구 계층이 일치했다.
+2. 우선 행동 배너 참조 이미지와 구현을 같은 입력으로 비교했다. 배너가 개선 요약 바로 위에 배치되고 상세 리포트 CTA를 유지했다.
+3. 태블릿 820×1000에서 KPI가 2열로, 모바일 390×844에서 1열로 전환됨을 확인했다.
+4. 태블릿과 모바일 모두 document `scrollWidth`와 `clientWidth`가 같아 가로 오버플로가 없었다.
+
+## Accessibility and behavior
+
+- 각 KPI는 단위, 비교 기준, 개선량을 포함한 전체 `aria-label`을 유지한다.
+- 우선 행동 배너는 `다음 연습 우선 행동` 레이블을 제공한다.
+- 렌더링 테스트로 우선 행동 배너가 KPI 요약보다 DOM에서 먼저 오는지 검증한다.
+- 누적 지표가 모두 미측정이고 비교 이슈가 없는 슬라이드는 `측정 불가`로 표시한다.
+
+final result: passed
+
+---
+
+# 리허설 회차별 총 소요시간 차트 design QA
+
+- Route: `http://localhost:5174/reports/project_66b1fbe6-5543-441a-9b39-cecd9ef51e41`.
+- Source visual truth: 사용자가 제공한 기존 차트 화면.
+- QA state: 로그인된 로컬 5174 화면의 실제 렌더링.
+
+## Findings
+
+- 주요 회차 라벨을 14px 굵은 글씨로 표시해 가독성을 높였다.
+- 마지막 회차와 가까운 중간 눈금을 생략해 `21회차`와 `23회차`가 붙지 않는다.
+- 목표 라벨을 차트 왼쪽으로 옮겨 최신 값 `8:42`와 분리했다.
+- 총 리허설 리포트의 8개 슬라이드가 실제 Deck 화면으로 렌더링된다.
+- 관련 Vitest 10개와 Web TypeScript 검사를 통과했다.
+
+final result: passed
