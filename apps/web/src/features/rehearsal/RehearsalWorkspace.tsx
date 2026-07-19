@@ -2013,7 +2013,9 @@ export function RehearsalWorkspace(props: {
   const [practiceWithoutVoiceAt, setPracticeWithoutVoiceAt] = useState<
     number | null
   >(null);
-  const shouldAutoStartRef = useRef(props.preflightMode ?? null);
+  const shouldAutoStartRef = useRef<
+    "microphone" | "without-voice" | "starting" | null
+  >(props.preflightMode ?? null);
   const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
   const [previousPracticeSummary, setPreviousPracticeSummary] =
     useState<RehearsalPracticeSummary | null>(() =>
@@ -2842,13 +2844,19 @@ export function RehearsalWorkspace(props: {
 
   useEffect(() => {
     const mode = shouldAutoStartRef.current;
-    if (!mode || !deck || phase !== "idle") {
+    if (!mode || mode === "starting" || !deck || phase !== "idle") {
       return;
     }
     if (mode === "microphone" && !canRecord) return;
-    shouldAutoStartRef.current = null;
-    if (mode === "without-voice") startPracticeWithoutVoice();
-    else void startRecording();
+    shouldAutoStartRef.current = "starting";
+    if (mode === "without-voice") {
+      startPracticeWithoutVoice();
+      shouldAutoStartRef.current = null;
+    } else {
+      void startRecording().finally(() => {
+        shouldAutoStartRef.current = null;
+      });
+    }
   }, [canRecord, deck, phase]);
 
   async function startLiveDemo() {
