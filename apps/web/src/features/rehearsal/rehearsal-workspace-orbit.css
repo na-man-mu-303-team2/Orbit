@@ -500,7 +500,7 @@ main.rehearsal-presenter-shell {
   color: var(--redesign-color-info);
   display: grid;
   gap: var(--redesign-space-2);
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   padding: var(--redesign-space-2);
 }
 
