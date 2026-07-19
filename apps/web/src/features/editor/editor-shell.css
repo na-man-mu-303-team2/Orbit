@@ -12123,14 +12123,36 @@ body.is-resizing-speaker-notes {
 
 .orbit-shell.editor-professional .script-notes-surface .keyword-mark {
   padding: 0 2px;
-  background: color-mix(in srgb, var(--redesign-color-primary) 12%, transparent);
-  color: var(--redesign-color-primary);
+  background: color-mix(in srgb, var(--redesign-color-outline-variant) 72%, transparent);
+  color: var(--redesign-color-on-surface);
 }
 
 .orbit-shell.editor-professional .script-notes-surface .keyword-mark:hover,
 .orbit-shell.editor-professional .script-notes-surface .keyword-mark.selected {
+  background: color-mix(in srgb, var(--redesign-color-outline) 28%, transparent);
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional .script-notes-surface .keyword-mark.keyword-tone-required {
+  background: color-mix(in srgb, var(--redesign-color-primary) 12%, transparent);
+  color: var(--redesign-color-primary);
+}
+
+.orbit-shell.editor-professional .script-notes-surface .keyword-mark.keyword-tone-required:hover,
+.orbit-shell.editor-professional .script-notes-surface .keyword-mark.keyword-tone-required.selected {
   background: color-mix(in srgb, var(--redesign-color-primary) 22%, transparent);
   color: var(--redesign-color-primary);
+}
+
+.orbit-shell.editor-professional .script-notes-surface .keyword-mark.keyword-tone-next-slide {
+  background: color-mix(in srgb, #8f5cff 16%, transparent);
+  color: #c9b8ff;
+}
+
+.orbit-shell.editor-professional .script-notes-surface .keyword-mark.keyword-tone-next-slide:hover,
+.orbit-shell.editor-professional .script-notes-surface .keyword-mark.keyword-tone-next-slide.selected {
+  background: color-mix(in srgb, #8f5cff 28%, transparent);
+  color: #d6c9ff;
 }
 
 /* Slide navigator header follows the same flat chrome hierarchy as the

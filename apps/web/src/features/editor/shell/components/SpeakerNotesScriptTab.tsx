@@ -121,6 +121,7 @@ export function SpeakerNotesScriptTab(props: SpeakerNotesScriptTabProps) {
               selectedKeywordOccurrenceKey={props.selectedKeywordOccurrenceKey}
               showIds={props.showIds}
               slideId={props.currentSlide?.slideId ?? ""}
+              usageByKeywordId={props.usageByKeywordId}
               onSelectKeyword={props.onSelectKeyword}
               onSelectKeywordActionMode={props.onSelectKeywordActionMode}
               onSelectKeywordText={props.onSelectKeywordText}

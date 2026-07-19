@@ -190,10 +190,9 @@ describe("KeywordHighlightedNotes", () => {
       />
     );
 
-    expect(html.match(/class="keyword-mark selected"/g)).toHaveLength(1);
-    expect(html.match(/class="keyword-mark "/g)).toBeNull();
+    expect(html.match(/class="keyword-mark keyword-tone-default selected"/g)).toHaveLength(1);
     expect(html).toContain(
-      'class="keyword-note-token " data-keyword-id="kw_ai" data-occurrence-id="kwo_slide_1_kw_ai_6_8"'
+      'class="keyword-note-token keyword-tone-default" data-keyword-id="kw_ai" data-occurrence-id="kwo_slide_1_kw_ai_6_8"'
     );
     expect(html).toContain(
       'data-occurrence-id="kwo_slide_1_kw_ai_0_2"'
@@ -201,5 +200,43 @@ describe("KeywordHighlightedNotes", () => {
     expect(html).toContain(
       'data-occurrence-id="kwo_slide_1_kw_ai_6_8"'
     );
+  });
+
+  it("applies distinct script token tones for required and next slide keywords", () => {
+    const requiredKeyword: Keyword = {
+      keywordId: "kw_required",
+      text: "리허설",
+      synonyms: [],
+      abbreviations: [],
+      required: true
+    };
+    const nextSlideKeyword: Keyword = {
+      keywordId: "kw_next",
+      text: "플랫폼",
+      synonyms: [],
+      abbreviations: [],
+      required: false
+    };
+
+    const html = renderToString(
+      <KeywordHighlightedNotes
+        keywords={[requiredKeyword, nextSlideKeyword]}
+        notes="리허설 이후 플랫폼 설명으로 넘어갑니다."
+        selectedKeywordId={null}
+        showIds={false}
+        slideId="slide_1"
+        usageByKeywordId={{
+          kw_next: {
+            advancesSlide: true,
+            animationIds: []
+          }
+        }}
+        onSelectKeyword={vi.fn()}
+        onSelectKeywordText={vi.fn()}
+      />
+    );
+
+    expect(html).toContain('class="keyword-mark keyword-tone-required"');
+    expect(html).toContain('class="keyword-mark keyword-tone-next-slide"');
   });
 });

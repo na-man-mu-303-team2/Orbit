@@ -45,6 +45,7 @@ export function KeywordHighlightedNotes(props: {
   selectedKeywordId: string | null;
   showIds: boolean;
   slideId: string;
+  usageByKeywordId?: Record<string, KeywordUsageSummary>;
   onSelectKeyword: (keywordId: string, occurrenceKey?: string | null) => void;
   onSelectKeywordActionMode?: (
     mode: KeywordActionMode,
@@ -61,6 +62,7 @@ export function KeywordHighlightedNotes(props: {
     selectedKeywordOccurrenceKey = null,
     showIds,
     slideId,
+    usageByKeywordId,
     onSelectKeyword,
     onSelectKeywordActionMode,
     onSelectKeywordText
@@ -113,10 +115,16 @@ export function KeywordHighlightedNotes(props: {
         const isSelected = Boolean(
           occurrenceKey && occurrenceKey === selectedKeywordOccurrenceKey
         );
+        const tokenTone = getKeywordTokenTone(keyword, occurrenceKey, usageByKeywordId);
         const tokenKey = `${part.start}-${part.value}-${index}`;
         const shouldShowKeywordMark = Boolean(
           keyword && (!selectedKeywordOccurrenceKey || isSelected)
         );
+        const tokenClassName = [
+          shouldShowKeywordMark ? "keyword-mark" : "keyword-note-token",
+          `keyword-tone-${tokenTone}`,
+          isSelected ? "selected" : ""
+        ].filter(Boolean).join(" ");
 
         return (
           <span
@@ -135,9 +143,7 @@ export function KeywordHighlightedNotes(props: {
             <button
               aria-expanded={openTokenKey === tokenKey}
               aria-haspopup="menu"
-              className={`${shouldShowKeywordMark ? "keyword-mark" : "keyword-note-token"} ${
-                isSelected ? "selected" : ""
-              }`}
+              className={tokenClassName}
               data-keyword-id={keyword?.keywordId}
               data-occurrence-id={occurrenceKey ?? undefined}
               type="button"
@@ -373,6 +379,27 @@ function KeywordAliases(props: { label: string; values: string[] }) {
       </div>
     </div>
   );
+}
+
+function getKeywordTokenTone(
+  keyword: Keyword | null,
+  occurrenceKey: string | null,
+  usageByKeywordId?: Record<string, KeywordUsageSummary>
+): "default" | "next-slide" | "required" {
+  if (!keyword) {
+    return "default";
+  }
+
+  const usage = usageByKeywordId?.[keyword.keywordId];
+  if (usage?.advancesSlide) {
+    return "next-slide";
+  }
+
+  const isRequiredOccurrence = occurrenceKey
+    ? (keyword.requiredOccurrenceIds ?? []).includes(occurrenceKey)
+    : false;
+
+  return keyword.required || isRequiredOccurrence ? "required" : "default";
 }
 
 function tokenizeSpeakerNotes(notes: string, keywords: Keyword[]): SpeakerNotesPart[] {
