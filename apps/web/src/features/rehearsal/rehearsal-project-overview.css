@@ -378,7 +378,7 @@ a.project-summary-slide-row:hover {
 
 .project-summary-slide-thumbnail {
   align-items: center;
-  background: var(--redesign-color-surface-container-low);
+  background: var(--redesign-color-surface-container-lowest);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-lg);
   color: var(--redesign-color-outline);
@@ -387,12 +387,65 @@ a.project-summary-slide-row:hover {
   height: 54px;
   justify-content: center;
   overflow: hidden;
+  position: relative;
 }
 
-.project-summary-slide-thumbnail img {
+.project-summary-slide-thumbnail-canvas {
+  align-items: center;
+  background: var(--redesign-color-surface);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+}
+
+.project-summary-slide-thumbnail-fallback {
+  align-items: flex-start;
+  background:
+    radial-gradient(circle at 88% 18%, rgb(255 255 255 / 72%) 0 7px, transparent 8px),
+    linear-gradient(145deg, var(--redesign-color-primary-subtle), var(--redesign-color-surface-container-lowest));
+  color: var(--redesign-color-inverse-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   height: 100%;
-  object-fit: cover;
+  justify-content: center;
+  overflow: hidden;
+  padding: 7px 9px;
+  position: relative;
   width: 100%;
+}
+
+.project-summary-slide-thumbnail-fallback::after {
+  background: var(--redesign-color-primary-emphasis);
+  bottom: 0;
+  content: "";
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 3px;
+}
+
+.project-summary-slide-thumbnail-fallback i {
+  color: var(--redesign-color-primary-emphasis);
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.project-summary-slide-thumbnail-fallback strong {
+  display: -webkit-box;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+  overflow: hidden;
+  text-align: left;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .project-summary-slide-identity > span:last-child {
@@ -603,6 +656,12 @@ a.project-summary-slide-row:hover {
 .report-project-chart-axis-label {
   fill: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-label-sm-size);
+}
+
+.report-project-chart-svg.is-duration .report-project-chart-axis-label {
+  fill: var(--redesign-color-on-surface);
+  font-size: 14px;
+  font-weight: 750;
 }
 
 .project-summary-mini-chart-grid {
@@ -1010,8 +1069,8 @@ a.project-summary-slide-row:hover {
 
 .project-summary-slide-thumbnail {
   border-radius: var(--redesign-radius-sm);
-  flex-basis: 54px;
-  height: 34px;
+  flex-basis: 88px;
+  height: 50px;
 }
 
 .project-summary-slide-identity {

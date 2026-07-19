@@ -3,7 +3,6 @@ import {
   ArrowUpRight,
   CheckCircle2,
   Clock3,
-  ImageOff,
   MessageCircle,
   MessageCircleMore,
   Pause,
@@ -11,7 +10,7 @@ import {
   Target,
   type LucideIcon,
 } from "lucide-react";
-import type { CSSProperties } from "react";
+import { lazy, Suspense, type CSSProperties } from "react";
 import type { RehearsalProjectSummary } from "@orbit/shared";
 import { DurationLineChart, MetricTrendChart } from "./ReportProgressCharts";
 import {
@@ -22,6 +21,10 @@ import {
   type ProjectSummarySlideRow,
 } from "./rehearsalProjectSummaryModel";
 import type { RehearsalRunComparisonViewModel } from "./rehearsalRunComparisonModel";
+
+const ProjectSlidePreview = lazy(
+  () => import("../projects/ProjectSlidePreview"),
+);
 
 export function RehearsalProjectSummaryDashboard({
   comparison,
@@ -98,7 +101,11 @@ export function RehearsalProjectSummaryDashboard({
                 <span role="columnheader">상태</span>
               </div>
               {model.slideRows.map((slide) => (
-                <SlidePerformanceRow key={slide.slideId} slide={slide} />
+                <SlidePerformanceRow
+                  key={slide.slideId}
+                  projectId={summary.projectId}
+                  slide={slide}
+                />
               ))}
             </div>
           </div>
@@ -284,7 +291,13 @@ function SectionHeading({
   );
 }
 
-function SlidePerformanceRow({ slide }: { slide: ProjectSummarySlideRow }) {
+function SlidePerformanceRow({
+  projectId,
+  slide,
+}: {
+  projectId: string;
+  slide: ProjectSummarySlideRow;
+}) {
   const average = slide.avgActualSeconds;
   const target = slide.targetSeconds;
   const chartMax = Math.max(average ?? 0, target ?? 0, 1);
@@ -308,13 +321,12 @@ function SlidePerformanceRow({ slide }: { slide: ProjectSummarySlideRow }) {
         {slide.order}
       </span>
       <span className="project-summary-slide-identity" role="cell">
-        <span className="project-summary-slide-thumbnail">
-          {slide.thumbnailUrl ? (
-            <img src={slide.thumbnailUrl} alt="" loading="lazy" />
-          ) : (
-            <ImageOff size={18} aria-label="썸네일 없음" />
-          )}
-        </span>
+        <SlideThumbnail
+          order={slide.order}
+          projectId={projectId}
+          slideId={slide.slideId}
+          title={slide.title}
+        />
         <span>
           <strong>{slide.title}</strong>
         </span>
@@ -380,6 +392,39 @@ function SlidePerformanceRow({ slide }: { slide: ProjectSummarySlideRow }) {
     <div className={rowClass} role="row">
       {content}
     </div>
+  );
+}
+
+function SlideThumbnail({
+  order,
+  projectId,
+  slideId,
+  title,
+}: {
+  order: number;
+  projectId: string;
+  slideId: string;
+  title: string;
+}) {
+  return (
+    <span
+      className="project-summary-slide-thumbnail"
+      role="img"
+      aria-label={`${order}번 슬라이드 미리보기`}
+    >
+      <span className="project-summary-slide-thumbnail-fallback" aria-hidden="true">
+        <i>{order}</i>
+        <strong>{title}</strong>
+      </span>
+      <Suspense fallback={null}>
+        <ProjectSlidePreview
+          className="project-summary-slide-thumbnail-canvas"
+          projectId={projectId}
+          slideId={slideId}
+          slideOrder={order}
+        />
+      </Suspense>
+    </span>
   );
 }
 

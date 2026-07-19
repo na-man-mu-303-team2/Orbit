@@ -33,6 +33,25 @@ describe("RehearsalProjectSummaryDashboard", () => {
     expect(html.indexOf("project-summary-next-action")).toBeLessThan(
       html.indexOf("project-summary-kpi-section"),
     );
+    expect(html).toContain('aria-label="1번 슬라이드 미리보기"');
+    expect(html).toContain("project-summary-slide-thumbnail-fallback");
+  });
+
+  it("저장된 썸네일 URL 대신 실제 Deck 슬라이드 미리보기 영역을 표시한다", () => {
+    const summary = summaryFixture();
+    summary.slidePerformanceSummaries[0]!.thumbnailUrl =
+      "asset:generated_slide_render_slide_1";
+
+    const html = renderToStaticMarkup(
+      <RehearsalProjectSummaryDashboard
+        comparison={null}
+        summary={summary}
+      />,
+    );
+
+    expect(html).toContain('aria-label="1번 슬라이드 미리보기"');
+    expect(html).toContain("문제 정의");
+    expect(html).not.toContain('src="asset:generated_slide_render_slide_1"');
   });
 });
 
@@ -109,6 +128,33 @@ function summaryFixture(): RehearsalProjectSummary {
         },
       },
     ],
-    slidePerformanceSummaries: [],
+    slidePerformanceSummaries: [
+      {
+        slideId: "slide_1",
+        order: 1,
+        title: "문제 정의",
+        thumbnailUrl:
+          "http://minio:9000/orbit-local/projects/project_1/assets/file_slide_1/thumbnail.png",
+        avgActualSeconds: 61,
+        targetSeconds: 60,
+        sampleCount: 2,
+        timingOverrun: {
+          measurementState: "measured",
+          reasonCode: null,
+          overrunCount: 0,
+          measurableCount: 2,
+          rate: 0,
+        },
+        coreMessageCoverage: {
+          measurementState: "measured",
+          reasonCode: null,
+          coveredCount: 2,
+          partialCount: 0,
+          missedCount: 0,
+          measurableCount: 2,
+          rate: 1,
+        },
+      },
+    ],
   };
 }

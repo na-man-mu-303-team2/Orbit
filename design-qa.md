@@ -210,3 +210,21 @@ final result: passed
 - 누적 지표가 모두 미측정이고 비교 이슈가 없는 슬라이드는 `측정 불가`로 표시한다.
 
 final result: passed
+
+---
+
+# 리허설 회차별 총 소요시간 차트 design QA
+
+- Route: `http://localhost:5174/reports/project_66b1fbe6-5543-441a-9b39-cecd9ef51e41`.
+- Source visual truth: 사용자가 제공한 기존 차트 화면.
+- QA state: 로그인된 로컬 5174 화면의 실제 렌더링.
+
+## Findings
+
+- 주요 회차 라벨을 14px 굵은 글씨로 표시해 가독성을 높였다.
+- 마지막 회차와 가까운 중간 눈금을 생략해 `21회차`와 `23회차`가 붙지 않는다.
+- 목표 라벨을 차트 왼쪽으로 옮겨 최신 값 `8:42`와 분리했다.
+- 총 리허설 리포트의 8개 슬라이드가 실제 Deck 화면으로 렌더링된다.
+- 관련 Vitest 10개와 Web TypeScript 검사를 통과했다.
+
+final result: passed
