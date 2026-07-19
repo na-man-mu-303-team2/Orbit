@@ -12169,22 +12169,13 @@ body.is-resizing-speaker-notes {
 .orbit-shell.editor-professional .slides-pane.collapsed .slides-pane-header {
   top: var(--collapsed-panel-control-block-offset);
   left: var(--collapsed-panel-control-inline-offset);
-  width: auto;
-  height: auto;
-  min-height: 0;
-  padding: var(--redesign-space-1);
-  border: var(--redesign-border-subtle);
-  border-radius: var(--redesign-radius-lg);
-  background: var(--redesign-color-surface-container-low);
-  box-shadow: var(--redesign-shadow-raised);
-}
-
-.orbit-shell.editor-professional .slides-pane.collapsed .collapse-slides-button {
-  width: var(--redesign-size-control-sm);
-  min-width: var(--redesign-size-control-sm);
-  height: var(--redesign-size-control-sm);
+  width: var(--collapsed-panel-control-size);
+  height: var(--collapsed-panel-control-size);
+  min-height: var(--collapsed-panel-control-size);
+  padding: 0;
+  border: 0;
   background: transparent;
-  color: var(--redesign-color-on-surface);
+  box-shadow: var(--redesign-shadow-none);
 }
 
 .orbit-shell.editor-professional .ai-pane:not(.collapsed) {
