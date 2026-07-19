@@ -37,7 +37,7 @@ export function PresenterTopbar(props: {
   onTimeModeChange: (value: PresenterTimeMode) => void;
   statusActive?: boolean;
   statusLabel: string;
-  subtitle: string;
+  subtitle?: string;
   timeMode: PresenterTimeMode;
   timerDurationInput: string;
   title: string;
@@ -54,10 +54,12 @@ export function PresenterTopbar(props: {
         {props.exitButtonContent}
       </button>
       <h1 className="rehearsal-smoke-heading">{props.title}</h1>
-      <span className="rehearsal-session-status">
-        <span aria-hidden="true" />
-        {props.subtitle}
-      </span>
+      {props.subtitle ? (
+        <span className="rehearsal-session-status">
+          <span aria-hidden="true" />
+          {props.subtitle}
+        </span>
+      ) : null}
 
       {props.toolbar}
 
@@ -216,7 +218,7 @@ export type PresenterTimingProgressItem = {
 export function PresenterTimerCard(props: {
   ariaLabel: string;
   currentTimeLabel: string;
-  infoCards: readonly PresenterInfoCardItem[];
+  infoCards?: readonly PresenterInfoCardItem[];
   meterPercent: number;
   onPrimaryAction: () => void;
   onReset: () => void;
@@ -329,18 +331,20 @@ export function PresenterTimerCard(props: {
         )}
       </div>
 
-      <div className="rehearsal-side-detail-grid">
-        {props.infoCards.map((card, index) => (
-          <article
-            className={`rehearsal-side-detail-card ${card.variantClassName ?? ""}`.trim()}
-            key={index}
-          >
-            <span>{card.label}</span>
-            <strong>{card.value}</strong>
-            <small>{card.detail}</small>
-          </article>
-        ))}
-      </div>
+      {props.infoCards?.length ? (
+        <div className="rehearsal-side-detail-grid">
+          {props.infoCards.map((card, index) => (
+            <article
+              className={`rehearsal-side-detail-card ${card.variantClassName ?? ""}`.trim()}
+              key={index}
+            >
+              <span>{card.label}</span>
+              <strong>{card.value}</strong>
+              <small>{card.detail}</small>
+            </article>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -252,7 +252,6 @@ import {
   PresenterStageSection,
   PresenterTimerCard,
   PresenterTopbar,
-  type PresenterInfoCardItem,
   type PresenterTimingProgressItem,
 } from "../presenter-shell/PresenterScaffold";
 import type {
@@ -4372,21 +4371,6 @@ export function RehearsalWorkspace(props: {
         : isTimerRunning
           ? "리허설 진행 중"
           : "준비됨";
-  const rehearsalInfoCards: PresenterInfoCardItem[] = [
-    {
-      detail: currentSlide ? getSlideTitle(currentSlide) : "-",
-      label: "현재 슬라이드",
-      value: `슬라이드 ${currentSlideIndex + 1} / ${deck?.slides.length ?? 0}`,
-    },
-    {
-      detail: `${getRehearsalPaceSummaryLabel(p3AdviceState.pace)} / ${
-        p3AdviceState.slideOvertime ? "슬라이드 시간 초과" : "슬라이드 정상"
-      }`,
-      label: "조언",
-      value: `${p3WordsPerMinute} WPM`,
-      variantClassName: "rehearsal-side-advice-card",
-    },
-  ];
   const nextSlideHint = nextSlide?.keywords?.[0]
     ? `"${nextSlide.keywords[0].text}"를 말하면 바로 이어집니다`
     : "마지막 문장을 정리하고 마무리하세요";
@@ -4868,7 +4852,6 @@ export function RehearsalWorkspace(props: {
         }
         statusActive={isRehearsalRuntimeActive}
         statusLabel={rehearsalRuntimeStatusLabel}
-        subtitle="리허설 · 자동 따라가기"
         timeMode={timeMode}
         timerDurationInput={timerDurationInput}
         title="리허설"
@@ -4960,7 +4943,6 @@ export function RehearsalWorkspace(props: {
           <PresenterTimerCard
             ariaLabel="리허설 타이머"
             currentTimeLabel="경과 발표 시간"
-            infoCards={rehearsalInfoCards}
             meterPercent={liveAudioLevelPercent}
             onPrimaryAction={handleSideTimerPrimaryAction}
             onReset={() => {
@@ -6965,19 +6947,6 @@ function usePresenterStageScale(deck: Deck | null) {
   }, [deck, presenterStageElement]);
 
   return { presenterScale, presenterStageRef };
-}
-
-function getRehearsalPaceSummaryLabel(
-  pace: "too-fast" | "too-slow" | "normal",
-) {
-  switch (pace) {
-    case "too-fast":
-      return "말 속도 빠름";
-    case "too-slow":
-      return "말 속도 느림";
-    case "normal":
-      return "말 속도 정상";
-  }
 }
 
 function parseClockInput(value: string): number | null {
