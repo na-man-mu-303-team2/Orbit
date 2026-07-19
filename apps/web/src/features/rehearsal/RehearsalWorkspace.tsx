@@ -4224,6 +4224,7 @@ export function RehearsalWorkspace(props: {
       resetSlideDisplayToBeginning();
     }
 
+    const presenterScreen = displayManager.getCurrentScreen();
     const fullscreenResult = await displayManager.requestFullscreenOnScreen(
       typeof document === "undefined" ? null : document.documentElement,
       targetScreen.screenIndex,
@@ -4245,7 +4246,7 @@ export function RehearsalWorkspace(props: {
         stepIndex: presenterStepIndexRef.current,
       }),
       {
-        screen: displayManager.getCurrentScreen(),
+        screen: presenterScreen,
         target: `orbit-presenter-${presentationChannel.sessionId}-${Date.now()}`,
       },
     );
