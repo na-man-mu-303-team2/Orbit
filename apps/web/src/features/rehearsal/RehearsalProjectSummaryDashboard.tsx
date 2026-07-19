@@ -80,6 +80,10 @@ export function RehearsalProjectSummaryDashboard({
             <KpiCard key={kpi.key} kpi={kpi} />
           ))}
         </div>
+        <p className="project-summary-keyword-help">
+          핵심 키워드 전달률은 발표자료에 등록된 키워드를 유의어와 약어를 포함해
+          한 번 이상 언급했는지 확인합니다. 설명의 정확성은 평가하지 않습니다.
+        </p>
       </section>
 
       <section className="project-summary-card project-summary-slide-section">
@@ -97,7 +101,7 @@ export function RehearsalProjectSummaryDashboard({
                 <span role="columnheader">평균 소요시간</span>
                 <span role="columnheader">권장 시간</span>
                 <span role="columnheader">시간 초과<br />회차 비율</span>
-                <span role="columnheader">핵심 메시지<br />전달률</span>
+                <span role="columnheader">핵심 키워드<br />전달률</span>
                 <span role="columnheader">상태</span>
               </div>
               {model.slideRows.map((slide) => (
@@ -154,10 +158,10 @@ export function RehearsalProjectSummaryDashboard({
           />
           <TrendPanel
             tone="secondary"
-            title="핵심 메시지 전달률"
-            description="완전히 전달된 핵심 Cue 비율"
-            series={model.metricSeries.coreMessage}
-            ariaLabel="회차별 핵심 메시지 전달률 추이"
+            title="핵심 키워드 전달률"
+            description="등록 키워드를 한 번 이상 언급한 비율"
+            series={model.metricSeries.keywordCoverage}
+            ariaLabel="회차별 핵심 키워드 전달률 추이"
             valueFormatter={formatPercent}
           />
           <TrendPanel
@@ -243,7 +247,7 @@ const KPI_VISUALS: Record<
 > = {
   duration: { current: Target, previous: Clock3 },
   silence: { current: Pause, previous: Pause },
-  "core-message": {
+  "keyword-coverage": {
     current: MessageCircle,
     previous: MessageCircleMore,
   },
@@ -266,7 +270,7 @@ function KpiVisualState({
 
 function toKpiDisplayValue(key: ProjectSummaryKpi["key"], value: string) {
   if (key === "silence") return value.replace(/회$/, "");
-  if (key === "core-message") return value.replace(/ 전달$/, "");
+  if (key === "keyword-coverage") return value.replace(/ 전달$/, "");
   if (key === "timing-overrun") return value.split("/")[0];
   return value;
 }
@@ -309,8 +313,8 @@ function SlidePerformanceRow({
       ? slide.timingOverrun.rate
       : null;
   const coverageRate =
-    slide.coreMessageCoverage.measurementState === "measured"
-      ? slide.coreMessageCoverage.rate
+    slide.keywordCoverage.measurementState === "measured"
+      ? slide.keywordCoverage.rate
       : null;
   const metricStyle = (rate: number | null) =>
     ({ "--metric-width": `${(rate ?? 0) * 100}%` }) as CSSProperties;

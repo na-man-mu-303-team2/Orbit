@@ -1,5 +1,5 @@
 import type {
-  RehearsalProjectCoreMessageCoverage,
+  RehearsalProjectKeywordCoverage,
   RehearsalProjectMetricReasonCode,
   RehearsalProjectRunMetricPoint,
   RehearsalProjectSummary,
@@ -12,7 +12,7 @@ export type ProjectSummaryKpi = {
   comparisonValue: string | null;
   deltaLabel: string | null;
   detail: string;
-  key: "duration" | "silence" | "core-message" | "timing-overrun";
+  key: "duration" | "silence" | "keyword-coverage" | "timing-overrun";
   label: string;
   state: "positive" | "negative" | "neutral" | "unavailable";
   value: string;
@@ -38,7 +38,7 @@ export type ProjectSummaryDashboardModel = {
   latestDurationTarget: number | null;
   latestMeasuredRunLabel: string | null;
   metricSeries: {
-    coreMessage: Array<{ label: string; value: number }>;
+    keywordCoverage: Array<{ label: string; value: number }>;
     longSilence: Array<{ label: string; value: number }>;
     timingOverrun: Array<{ label: string; value: number }>;
   };
@@ -94,9 +94,9 @@ export function buildRehearsalProjectSummaryDashboardModel(
           ? [{ label, value: run.longSilence.count }]
           : [],
       ).slice(-5),
-      coreMessage: labeledRuns.flatMap(({ label, run }) =>
-        run.coreMessageCoverage.measurementState === "measured"
-          ? [{ label, value: run.coreMessageCoverage.rate * 100 }]
+      keywordCoverage: labeledRuns.flatMap(({ label, run }) =>
+        run.keywordCoverage.measurementState === "measured"
+          ? [{ label, value: run.keywordCoverage.rate * 100 }]
           : [],
       ).slice(-5),
       timingOverrun: labeledRuns.flatMap(({ label, run }) =>
@@ -108,7 +108,10 @@ export function buildRehearsalProjectSummaryDashboardModel(
     kpis: [
       buildDurationKpi(latest),
       buildSilenceKpi(latest, previous),
-      buildCoreMessageKpi(latest.coreMessageCoverage, previous?.coreMessageCoverage),
+      buildKeywordCoverageKpi(
+        latest.keywordCoverage,
+        findPreviousMeasuredKeywordCoverage(summary.runMetricSeries),
+      ),
       buildTimingOverrunKpi(latest.timingOverrun, previous?.timingOverrun),
     ],
     primaryAction: buildPrimaryAction(comparison, summary.progressComment),
@@ -198,27 +201,31 @@ function buildSilenceKpi(
   };
 }
 
-function buildCoreMessageKpi(
-  latest: RehearsalProjectCoreMessageCoverage,
-  previous: RehearsalProjectCoreMessageCoverage | undefined,
+function buildKeywordCoverageKpi(
+  latest: RehearsalProjectKeywordCoverage,
+  previous: RehearsalProjectKeywordCoverage | null,
 ): ProjectSummaryKpi {
   if (latest.measurementState === "unmeasured") {
-    return unavailableKpi("core-message", "핵심 메시지 전달", latest.reasonCode);
+    return unavailableKpi(
+      "keyword-coverage",
+      "핵심 키워드 전달",
+      latest.reasonCode,
+    );
   }
 
   const delta =
     previous?.measurementState === "measured"
-      ? latest.coveredCount - previous.coveredCount
+      ? latest.rate - previous.rate
       : null;
   return {
-    key: "core-message",
-    label: "핵심 메시지 전달",
-    value: `${latest.coveredCount}/${latest.measurableCount} 전달`,
+    key: "keyword-coverage",
+    label: "핵심 키워드 전달",
+    value: `${latest.matchedCount}/${latest.measurableCount} 전달`,
     comparisonLabel:
       previous?.measurementState === "measured" ? "직전" : null,
     comparisonValue:
       previous?.measurementState === "measured"
-        ? `${previous.coveredCount}/${previous.measurableCount} 전달`
+        ? `${previous.matchedCount}/${previous.measurableCount} 전달`
         : null,
     detail: formatPercent(latest.rate * 100),
     deltaLabel:
@@ -226,7 +233,9 @@ function buildCoreMessageKpi(
         ? "직전 회차 비교 불가"
         : delta === 0
           ? "직전과 동일"
-          : `${Math.abs(delta)}개 ${delta > 0 ? "개선" : "감소"}`,
+          : `${delta > 0 ? "+" : "-"}${formatPercentagePoints(
+              Math.abs(delta),
+            )}%p ${delta > 0 ? "개선" : "감소"}`,
     state:
       delta === null || delta === 0
         ? "neutral"
@@ -342,7 +351,7 @@ function buildSlideRows(
 
     const hasNoMeasuredCumulativeMetrics =
       slide.timingOverrun.measurementState === "unmeasured" &&
-      slide.coreMessageCoverage.measurementState === "unmeasured";
+      slide.keywordCoverage.measurementState === "unmeasured";
     if (hasNoMeasuredCumulativeMetrics) {
       return {
         ...slide,
@@ -353,16 +362,17 @@ function buildSlideRows(
     }
 
     const needsImprovement =
+      slide.repeatedMissedKeywordCount > 0 ||
       (slide.timingOverrun.measurementState === "measured" &&
         slide.timingOverrun.rate >= 0.4) ||
-      (slide.coreMessageCoverage.measurementState === "measured" &&
-        slide.coreMessageCoverage.rate < 0.7);
+      (slide.keywordCoverage.measurementState === "measured" &&
+        slide.keywordCoverage.rate < 0.7);
     const needsAttention =
       !needsImprovement &&
       ((slide.timingOverrun.measurementState === "measured" &&
         slide.timingOverrun.rate >= 0.2) ||
-        (slide.coreMessageCoverage.measurementState === "measured" &&
-          slide.coreMessageCoverage.rate < 0.9));
+        (slide.keywordCoverage.measurementState === "measured" &&
+          slide.keywordCoverage.rate < 0.9));
     return {
       ...slide,
       href: null,
@@ -414,6 +424,16 @@ function findLatestSilenceMetricVersion(
   return null;
 }
 
+function findPreviousMeasuredKeywordCoverage(
+  series: RehearsalProjectRunMetricPoint[],
+): RehearsalProjectKeywordCoverage | null {
+  for (let index = series.length - 2; index >= 0; index -= 1) {
+    const coverage = series[index].keywordCoverage;
+    if (coverage.measurementState === "measured") return coverage;
+  }
+  return null;
+}
+
 function reasonLabel(reasonCode: RehearsalProjectMetricReasonCode) {
   const labels: Record<RehearsalProjectMetricReasonCode, string> = {
     REPORT_UNAVAILABLE: "리포트 데이터 없음",
@@ -421,6 +441,8 @@ function reasonLabel(reasonCode: RehearsalProjectMetricReasonCode) {
     SILENCE_UNMEASURED: "침묵 구간 미측정",
     SEMANTIC_EVALUATION_UNAVAILABLE: "의미 전달 분석 미완료",
     NO_MEASURABLE_CORE_CUES: "측정 가능한 핵심 메시지 없음",
+    KEYWORD_COVERAGE_UNMEASURED: "키워드 전달 미측정",
+    NO_MEASURABLE_KEYWORDS: "측정 가능한 키워드 없음",
     SLIDE_TIMINGS_UNAVAILABLE: "슬라이드 시간 미측정",
   };
   return labels[reasonCode];
@@ -437,6 +459,10 @@ export function formatDuration(totalSeconds: number) {
 
 export function formatPercent(value: number) {
   return `${Math.round(value)}%`;
+}
+
+function formatPercentagePoints(rateDelta: number) {
+  return String(Math.round(rateDelta * 100));
 }
 
 function formatClockDelta(totalSeconds: number) {

@@ -1328,7 +1328,7 @@ API:
 - `GET /api/v1/projects/:projectId/rehearsal-summary`
   - response: `{ "summary": RehearsalProjectSummary | null }`
   - 성공한 리허설이 없으면 `summary=null`을 반환한다.
-  - `runMetricSeries`는 성공 회차별 총 소요시간, 긴 침묵, 핵심 메시지 전달률, 시간 초과 슬라이드 비율과 각 항목의 `measurementState`를 제공한다.
+  - `runMetricSeries`는 성공 회차별 총 소요시간, 긴 침묵, 핵심 키워드 전달률, 시간 초과 슬라이드 비율과 각 항목의 `measurementState`를 제공한다.
   - `slidePerformanceSummaries`는 최신 성공 회차의 immutable `evaluationSnapshot`을 기준으로 슬라이드 순서·제목·썸네일·권장 시간을 제공하고, 같은 slide ID의 측정 가능한 과거 결과만 평균·비율에 집계한다.
 - `POST /api/v1/rehearsals/:runId/audio/clip`
   - request: `{ "startSeconds": 10, "endSeconds": 12.5 }`; 0초보다 길고 최대 60초인 구간만 허용한다.
@@ -1606,7 +1606,10 @@ Report 응답 구조:
 
 - 총 소요시간은 `metrics.measurements.duration.measurementState=measured`인 회차의 `metrics.durationSeconds`만 사용한다. 미측정·유효하지 않은 report는 `0`으로 대체하지 않고 `unmeasured`로 반환한다.
 - 긴 침묵은 `silenceAnalysis.measurementState=measured`인 회차의 `longSilenceCount`와 `metricDefinitionVersion`을 사용한다. UI는 서로 다른 버전을 같은 추세로 직접 비교하지 않는다.
-- 핵심 메시지 전달률은 `semanticEvaluation.state=succeeded`, `measurementMode=full`인 report에서 `importance=core`이고 상태가 `covered | partial | missed`인 outcome만 대상으로 `covered / (covered + partial + missed)`로 계산한다. `partial`은 측정 분모에는 포함하지만 완전 전달로 계산하지 않으며 `excluded | unmeasured`는 분모에서 제외한다.
+- 핵심 키워드 전달률은 각 run의 immutable `evaluationSnapshot.slides[].keywords`를 분모로 사용하고, 같은 `(slideId, keywordId)`가 `report.missedKeywords`에 없으면 전달된 것으로 계산한다. 원문·유의어·약어·발음 보정 별칭의 일치 여부는 report 생성 단계에서 판정하며, 이 지표는 키워드 언급 여부만 나타내고 설명의 의미 정확성은 평가하지 않는다.
+- `metrics.measurements.keywordCoverage` 또는 `metrics.keywordCoverageMeasurement`가 미측정이거나 snapshot에 키워드가 없으면 `0%`가 아니라 `unmeasured`와 `KEYWORD_COVERAGE_UNMEASURED | NO_MEASURABLE_KEYWORDS` reason code를 반환한다. 최신 회차는 직전 측정 가능 회차와 개수가 아니라 전달률의 percentage point 차이로 비교한다.
+- 슬라이드별 `keywordCoverage`는 같은 slide ID의 측정 가능 성공 회차에서 당시 snapshot 키워드를 누적한다. 직전 두 측정 가능 회차에 같은 `(slideId, keywordId)` 누락이 반복되면 `repeatedMissedKeywordCount`에 기록한다. 최신 snapshot에서 삭제된 슬라이드는 현재 요약에서 제외한다.
+- 기존 `coreMessageCoverage`는 호환성을 위해 유지하는 deprecated 필드다. 이는 Semantic Cue의 의미 전달 평가 결과이며 핵심 키워드 전달률로 재해석하거나 UI 지표에 사용하지 않는다.
 - 시간 초과 슬라이드는 `targetSeconds > 0`인 `slideTimings` 중 `actualSeconds > targetSeconds * 1.2`인 항목이다. 실제 시간이 없는 마지막 슬라이드와 측정 불가 항목은 분모에서 제외한다.
 - 슬라이드별 평균 소요시간은 같은 slide ID의 측정 가능한 `actualSeconds` 산술평균이며 `sampleCount`를 함께 반환한다. 최신 snapshot에 없는 과거 슬라이드는 현재 표에서 제외한다.
 - 최신 snapshot이 없는 legacy/delivery-only 회차는 슬라이드 메타데이터의 기준으로 사용하지 않는다. 측정 가능한 report가 없으면 해당 수치는 `N/A`로 표시한다.

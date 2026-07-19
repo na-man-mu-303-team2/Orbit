@@ -901,6 +901,15 @@ a.project-summary-slide-row:hover {
   margin-top: var(--redesign-space-3);
 }
 
+.project-summary-keyword-help {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: 1.55;
+  margin: var(--redesign-space-2) auto 0;
+  max-width: 1040px;
+  text-align: center;
+}
+
 .project-summary-kpi-section .project-summary-kpi {
   align-content: center;
   border: 0;
@@ -1279,6 +1288,10 @@ a.project-summary-slide-row:hover {
     min-height: 190px;
     padding-left: var(--redesign-space-3);
     padding-right: var(--redesign-space-3);
+  }
+
+  .project-summary-keyword-help {
+    text-align: left;
   }
 
   .project-summary-kpi-readout {

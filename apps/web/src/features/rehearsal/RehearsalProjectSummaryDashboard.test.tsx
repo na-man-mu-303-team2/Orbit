@@ -21,8 +21,9 @@ describe("RehearsalProjectSummaryDashboard", () => {
       'aria-label="긴 침묵. 직전 2회에서 현재 1회. 1회 감소"',
     );
     expect(html).toContain(
-      'aria-label="핵심 메시지 전달. 직전 7/8 전달에서 현재 8/8 전달. 1개 개선"',
+      'aria-label="핵심 키워드 전달. 직전 7/8 전달에서 현재 8/8 전달. +13%p 개선"',
     );
+    expect(html).toContain("설명의 정확성은 평가하지 않습니다.");
     expect(html).toContain(
       'aria-label="시간 초과 슬라이드. 직전 1/8장에서 현재 0/8장. 1장 감소"',
     );
@@ -87,6 +88,14 @@ function summaryFixture(): RehearsalProjectSummary {
           measurableCount: 8,
           rate: 0.875,
         },
+        keywordCoverage: {
+          measurementState: "measured",
+          reasonCode: null,
+          matchedCount: 7,
+          missedCount: 1,
+          measurableCount: 8,
+          rate: 0.875,
+        },
         timingOverrun: {
           measurementState: "measured",
           reasonCode: null,
@@ -115,6 +124,14 @@ function summaryFixture(): RehearsalProjectSummary {
           reasonCode: null,
           coveredCount: 8,
           partialCount: 0,
+          missedCount: 0,
+          measurableCount: 8,
+          rate: 1,
+        },
+        keywordCoverage: {
+          measurementState: "measured",
+          reasonCode: null,
+          matchedCount: 8,
           missedCount: 0,
           measurableCount: 8,
           rate: 1,
@@ -154,6 +171,15 @@ function summaryFixture(): RehearsalProjectSummary {
           measurableCount: 2,
           rate: 1,
         },
+        keywordCoverage: {
+          measurementState: "measured",
+          reasonCode: null,
+          matchedCount: 2,
+          missedCount: 0,
+          measurableCount: 2,
+          rate: 1,
+        },
+        repeatedMissedKeywordCount: 0,
       },
     ],
   };
