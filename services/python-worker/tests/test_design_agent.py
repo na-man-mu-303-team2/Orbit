@@ -169,6 +169,22 @@ def test_allows_off_canvas_element_as_frame_update_target() -> None:
     assert result.operations[0].frame.x == 80
 
 
+def test_allows_non_geometry_update_for_off_canvas_element() -> None:
+    request = request_payload()
+    request.context.slide["elements"][0]["x"] = -240
+    payload = proposal_payload()
+    payload["operations"][0]["frame"] = {"opacity": 0.5}
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=FakeClient(payload),
+    )
+
+    assert result.operations[0].frame.opacity == 0.5
+
+
 def test_validates_off_canvas_target_after_all_frame_updates() -> None:
     request = request_payload()
     request.context.slide["elements"][0]["x"] = -240

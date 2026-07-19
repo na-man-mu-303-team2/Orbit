@@ -90,10 +90,12 @@ export function DisplayControls(props: {
     null,
   );
   const mountedRef = useRef(true);
+  const autoPlaceDisabledByUserRef = useRef(false);
   const isRecoverable =
     shouldShowRecoverAction(channelStatus) || displayState === "failed";
   const canUseFullscreenDelegation = canDelegateSlideWindowFullscreen();
   const canStartRemoteFullscreen =
+    channelStatus === "connected" &&
     remoteFullscreenState !== "idle" &&
     canUseFullscreenDelegation &&
     Boolean(onRequestSlideWindowFullscreen);
@@ -237,7 +239,8 @@ export function DisplayControls(props: {
     const permissionState = await queryWindowManagementPermissionState();
     if (!mountedRef.current) return;
 
-    const granted = permissionState === "granted";
+    const granted =
+      permissionState === "granted" && !autoPlaceDisabledByUserRef.current;
     setOptions((current) => ({ ...current, autoPlace: granted }));
     if (granted) {
       void requestDisplayScreens();
@@ -255,10 +258,15 @@ export function DisplayControls(props: {
 
   function handleWindowManagementToggle(checked: boolean) {
     if (checked) {
+      autoPlaceDisabledByUserRef.current = false;
       void requestDisplayScreens();
       return;
     }
 
+    autoPlaceDisabledByUserRef.current = true;
+    setOptions((current) => ({ ...current, autoPlace: false }));
+    setScreenOptions([]);
+    setSelectedScreenIndex(null);
     setScreenMessage(
       "권한 해제는 Chrome 주소창의 사이트 정보에서 창 관리 권한을 변경해주세요.",
     );

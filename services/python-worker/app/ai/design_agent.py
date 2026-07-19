@@ -1277,7 +1277,7 @@ def validate_design_proposal(
     }
     known_element_ids = set(elements)
     valid_affected_element_ids = set(elements)
-    frame_updated_element_ids: set[str] = set()
+    geometry_updated_element_ids: set[str] = set()
     allowed_operations = set(request.capabilities.operations)
     addable_types = set(request.capabilities.addable_element_types)
     warnings = list(response.warnings)
@@ -1347,7 +1347,7 @@ def validate_design_proposal(
 
         if isinstance(operation, DeleteElementOperation):
             del elements[operation.element_id]
-            frame_updated_element_ids.discard(operation.element_id)
+            geometry_updated_element_ids.discard(operation.element_id)
             continue
 
         if isinstance(operation, UpdateElementFrameOperation):
@@ -1358,9 +1358,14 @@ def validate_design_proposal(
                 if warning and warning not in warnings:
                     warnings.append(warning)
             elements[operation.element_id] = updated_element
-            frame_updated_element_ids.add(operation.element_id)
+            if any(
+                float(updated_element.get(field, 0))
+                != float(target_element.get(field, 0))
+                for field in ("x", "y", "width", "height")
+            ):
+                geometry_updated_element_ids.add(operation.element_id)
 
-    for element_id in frame_updated_element_ids:
+    for element_id in geometry_updated_element_ids:
         final_element = elements.get(element_id)
         if final_element is not None:
             _validate_element_inside_canvas(request.context.canvas, final_element)

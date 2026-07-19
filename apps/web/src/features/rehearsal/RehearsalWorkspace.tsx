@@ -46,6 +46,7 @@ import {
   Gauge,
   Home,
   Mic,
+  Monitor,
   MoreHorizontal,
   PlayCircle,
   Presentation,
@@ -178,6 +179,11 @@ import {
   type AdvanceControllerState,
 } from "./advance/advanceController";
 import { RehearsalPanel } from "./panel/RehearsalPanel";
+import {
+  canRetryInitialRecordingLiveStt,
+  createInitialLiveSttRetryCoordinator,
+  sanitizeLiveSttErrorMessage,
+} from "./panel/rehearsalLiveSttRecovery";
 import {
   createSemanticCapabilityStatusItems,
   getNextSemanticCapabilityRecoveryDelay,
@@ -2016,6 +2022,7 @@ export function RehearsalWorkspace(props: {
   const [pauseDetectorSnapshot, setPauseDetectorSnapshot] =
     useState<PauseDetectorSnapshot | null>(null);
   const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
+  const [isLiveSttRetrying, setIsLiveSttRetrying] = useState(false);
   const [isLiveStopModalOpen, setIsLiveStopModalOpen] = useState(false);
   const [displayRole, setDisplayRole] = useState<
     "presenter" | "slide-receiver" | "slide-surface"
@@ -2050,6 +2057,9 @@ export function RehearsalWorkspace(props: {
   const liveDemoStreamRef = useRef<MediaStream | null>(null);
   const liveSttPortRef = useRef<LiveSttPort | null>(props.liveSttPort ?? null);
   const liveSttSubscriptionCleanupRef = useRef<(() => void) | null>(null);
+  const liveSttRetryCoordinatorRef = useRef(
+    createInitialLiveSttRetryCoordinator(),
+  );
   const p3SessionRef = useRef<P3RehearsalSession | null>(null);
   const semanticEmbeddingServicePromiseRef =
     useRef<Promise<E5EmbeddingService> | null>(null);
@@ -2864,6 +2874,40 @@ export function RehearsalWorkspace(props: {
     }
   }
 
+  async function retryInitialRecordingLiveStt() {
+    const stream = streamRef.current;
+    const coordinator = liveSttRetryCoordinatorRef.current;
+    if (
+      !canRetryInitialRecordingLiveStt({
+        hasActiveSession: p3SessionRef.current !== null,
+        hasReusableStream: isReusableRehearsalMediaStream(stream),
+        isRecording: phase === "recording",
+        isRetrying: isLiveSttRetrying || coordinator.isRetrying(),
+        liveStatus,
+      }) ||
+      !stream
+    ) {
+      return false;
+    }
+
+    setIsLiveSttRetrying(true);
+    setLiveError("");
+    try {
+      return await coordinator.retry((isCurrent) =>
+        startP3Tracking(
+          stream,
+          activeRunRef.current?.evaluationSnapshot ?? undefined,
+          () =>
+            isCurrent() &&
+            streamRef.current === stream &&
+            isReusableRehearsalMediaStream(stream),
+        ),
+      );
+    } finally {
+      setIsLiveSttRetrying(false);
+    }
+  }
+
   function stopLiveDemo(options: { showCompletionModal?: boolean } = {}) {
     const wasLiveDemoActive = isLiveDemoActive || isLiveSttActive;
     setRehearsalRuntimeStatus("stopping");
@@ -2906,6 +2950,7 @@ export function RehearsalWorkspace(props: {
   function stopRecording() {
     if (phase !== "recording") return;
 
+    liveSttRetryCoordinatorRef.current.cancel();
     setRehearsalRuntimeStatus("stopping");
     setPhase("uploading");
     setIsTimerRunning(false);
@@ -4375,6 +4420,15 @@ export function RehearsalWorkspace(props: {
     isLiveSttActive ||
     isTimerRunning ||
     rehearsalRuntimeStatus === "paused";
+  const sanitizedLiveError = sanitizeLiveSttErrorMessage(liveError);
+  const canRetryRecordingLiveStt = canRetryInitialRecordingLiveStt({
+    hasActiveSession: p3SessionRef.current !== null,
+    hasReusableStream: isReusableRehearsalMediaStream(streamRef.current),
+    isRecording: phase === "recording",
+    isRetrying:
+      isLiveSttRetrying || liveSttRetryCoordinatorRef.current.isRetrying(),
+    liveStatus,
+  });
   const comparisonModel = runComparison
     ? buildRehearsalRunComparisonViewModel(
         runComparison,
@@ -4873,6 +4927,14 @@ export function RehearsalWorkspace(props: {
                 onRequestDisplayScreens={requestDisplayScreens}
                 onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}
               />
+              <button
+                className="presenter-single-screen-button"
+                type="button"
+                onClick={() => setIsSingleScreenOpen(true)}
+              >
+                <Monitor size={16} />
+                단일 화면
+              </button>
             </div>
           ) : null
         }
@@ -5154,13 +5216,25 @@ export function RehearsalWorkspace(props: {
                     </div>
                   )}
 
-                  {liveError && (
+                  {sanitizedLiveError && (
                     <div
                       className="project-status-message project-status-danger"
                       role="status"
                     >
                       <AlertCircle size={18} />
-                      <span>{liveError}</span>
+                      <span>{sanitizedLiveError}</span>
+                      {canRetryRecordingLiveStt ? (
+                        <button
+                          className="secondary-action"
+                          disabled={isLiveSttRetrying}
+                          type="button"
+                          onClick={() => void retryInitialRecordingLiveStt()}
+                        >
+                          {isLiveSttRetrying
+                            ? "다시 연결 중"
+                            : "음성 인식 다시 연결"}
+                        </button>
+                      ) : null}
                     </div>
                   )}
                 </section>
