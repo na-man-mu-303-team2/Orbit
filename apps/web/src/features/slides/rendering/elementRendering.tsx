@@ -177,7 +177,13 @@ export function ElementNodeContent(props: {
   }
 
   if (element.type === "image") {
-    return <ImageElementContent frame={frame} imageProps={element.props} />;
+    return (
+      <ImageElementContent
+        frame={frame}
+        imageProps={element.props}
+        projectId={deck.projectId}
+      />
+    );
   }
 
   if (element.type === "svg") {
@@ -185,6 +191,7 @@ export function ElementNodeContent(props: {
       <ImageElementContent
         frame={frame}
         imageProps={{ ...element.props, fit: "stretch" }}
+        projectId={deck.projectId}
       />
     );
   }

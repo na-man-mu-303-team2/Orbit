@@ -137,6 +137,7 @@ export function PresenterStageSection(props: {
   currentIndex: number;
   currentSlideTitle?: string;
   emptyStageLabel: string;
+  navigationPending?: boolean;
   nextHint: string;
   nextSlideContent?: ReactNode;
   nextSlideTitle: string;
@@ -150,7 +151,11 @@ export function PresenterStageSection(props: {
 }) {
   return (
     <section className="rehearsal-presenter-main">
-      <div className="rehearsal-stage-wrap" ref={props.stageRef}>
+      <div
+        aria-busy={props.navigationPending || undefined}
+        className="rehearsal-stage-wrap"
+        ref={props.stageRef}
+      >
         {props.renderStage ? (
           <>
             <span className="rehearsal-stage-label">현재</span>
@@ -162,11 +167,16 @@ export function PresenterStageSection(props: {
         ) : (
           <div className="rehearsal-empty-stage">{props.emptyStageLabel}</div>
         )}
+        {props.navigationPending ? (
+          <span className="rehearsal-slide-loading" role="status">
+            슬라이드 준비 중…
+          </span>
+        ) : null}
         <div className="rehearsal-slide-controls">
           <button
             type="button"
             onClick={props.onPrevious}
-            disabled={props.previousDisabled}
+            disabled={props.previousDisabled || props.navigationPending}
             aria-label="이전 슬라이드"
             title="이전 슬라이드"
           >
@@ -178,7 +188,10 @@ export function PresenterStageSection(props: {
           <button
             type="button"
             onClick={props.onNext}
-            disabled={props.currentIndex >= props.totalSlides - 1}
+            disabled={
+              props.navigationPending ||
+              props.currentIndex >= props.totalSlides - 1
+            }
             aria-label="다음 슬라이드"
             title="다음 슬라이드"
           >
