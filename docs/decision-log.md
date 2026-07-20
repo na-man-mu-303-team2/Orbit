@@ -13,6 +13,13 @@
 - Rationale: `decks`는 `projects`를 FK로 참조하지 않아 project 삭제만으로는 orphan이 남고, deck을 참조하는 4개 테이블이 `ON DELETE RESTRICT`라 삭제 순서가 동작에 영향을 준다. 따라서 순서를 명시한 script가 필요하다. `project_id` 컬럼을 가진 모든 테이블을 `pg_attribute`로 훑는 잔여 스캔을 commit 직전에 두어, 이 script 작성 이후 추가된 테이블이 있으면 반쪽 삭제를 commit하지 않고 rollback한다. `activity_runs`는 자기 참조 RESTRICT가 있어 bulk delete 전에 `supersedes_activity_run_id`를 NULL로 푼다.
 - Affected files: `apps/api/src/projects/projects.service.ts`, `apps/api/src/scripts/cleanup-kdh-home-projects.ts`, `apps/api/package.json`, `package.json`, 삭제된 `apps/api/src/projects/kdh-home-project-seed.ts`·`apps/web/public/assets/home-project-covers/**`, 관련 테스트.
 - Follow-up review notes: script는 코드 제거가 배포된 **뒤에** 실행해야 한다. 구버전 seeder가 살아 있으면 row가 다시 생긴다. dry-run에서 연습·리허설 테이블 건수가 0이 아니면 누군가 fixture deck으로 실제 작업을 한 것이므로 실행을 중단하고 확인받는다. `isKdhHomeProjectId` 가드 제거로 해당 10개 ID는 일반 project와 동일하게 동작하지만, row 삭제 후에는 `NotFound`로 수렴한다.
+- Runbook: personal staging의 `DATABASE_URL` host는 compose 내부 service 이름 `postgres`라 외부에서 접속할 수 없다. 따라서 script는 staging host의 api container 안에서 실행한다. dry-run은 아래에서 `-e KDH_HOME_CLEANUP_APPLY=true`를 뺀 형태다.
+  ```bash
+  doppler run -- docker compose -f docker-compose.yml -f docker-compose.staging.yml exec -T \
+    -e KDH_HOME_CLEANUP_CONFIRM=delete-kdh-home-projects \
+    -e KDH_HOME_CLEANUP_APPLY=true \
+    api pnpm --filter @orbit/api cleanup:kdh-home-projects
+  ```
 
 ## kdh home project fixture access policy
 
