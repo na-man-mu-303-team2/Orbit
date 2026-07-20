@@ -154,18 +154,21 @@ export function PresenterStageSection(props: {
       <div
         aria-busy={props.navigationPending || undefined}
         className="rehearsal-stage-wrap"
-        ref={props.stageRef}
       >
         {props.renderStage ? (
           <>
             <span className="rehearsal-stage-label">현재</span>
-            <div className="rehearsal-stage-surface">{props.renderStage}</div>
+            <div className="rehearsal-stage-viewport" ref={props.stageRef}>
+              <div className="rehearsal-stage-surface">{props.renderStage}</div>
+            </div>
             {props.stageIndexLabel ? (
               <span className="rehearsal-stage-index">{props.stageIndexLabel}</span>
             ) : null}
           </>
         ) : (
-          <div className="rehearsal-empty-stage">{props.emptyStageLabel}</div>
+          <div className="rehearsal-stage-viewport" ref={props.stageRef}>
+            <div className="rehearsal-empty-stage">{props.emptyStageLabel}</div>
+          </div>
         )}
         {props.navigationPending ? (
           <span className="rehearsal-slide-loading" role="status">

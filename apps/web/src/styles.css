@@ -4638,6 +4638,16 @@
   overflow: hidden;
 }
 
+.rehearsal-stage-viewport {
+  align-self: stretch;
+  display: grid;
+  justify-self: stretch;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  place-items: center;
+}
+
 .rehearsal-presenter-shell .rehearsal-slide-preview {
   aspect-ratio: 16 / 9;
   background: linear-gradient(120deg, var(--redesign-color-light-surface) 0%, var(--redesign-color-light-surface) 70%, var(--redesign-color-primary-subtle) 100%);
