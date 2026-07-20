@@ -52,17 +52,30 @@ export function SpeakingRateMetricDetails({ deck, report }: CommonProps) {
   );
 }
 
-export function FillerMetricDetails({ report }: Pick<CommonProps, "report">) {
+type FillerMetricDetailsProps = Pick<CommonProps, "report"> & {
+  fillerWordCount?: number;
+  fillerWordDetails?: RehearsalReport["fillerWordDetails"];
+};
+
+export function FillerMetricDetails({
+  fillerWordCount: fillerWordCountOverride,
+  fillerWordDetails: fillerWordDetailsOverride,
+  report,
+}: FillerMetricDetailsProps) {
+  const fillerWordCount =
+    fillerWordCountOverride ?? report.metrics.fillerWordCount;
+  const fillerWordDetails =
+    fillerWordDetailsOverride ?? report.fillerWordDetails;
   const distribution = buildFillerDistribution(
-    report.fillerWordDetails,
-    report.metrics.fillerWordCount,
+    fillerWordDetails,
+    fillerWordCount,
   );
   const segments = buildFillerDonutSegments(distribution);
 
   if (segments.length === 0) {
     return (
       <p className="rrd-test-metric-empty">
-        {report.metrics.fillerWordCount > 0
+        {fillerWordCount > 0
           ? "습관어 횟수는 기록됐지만 단어별 상세 기록이 없습니다."
           : "감지된 습관어가 없습니다."}
       </p>
@@ -141,7 +154,7 @@ export function FillerMetricDetails({ report }: Pick<CommonProps, "report">) {
         y={FILLER_DONUT_CENTER_Y - 5}
       >
         <tspan className="rrd-filler-donut-center-value">
-          {report.metrics.fillerWordCount}회
+          {fillerWordCount}회
         </tspan>
         <tspan
           className="rrd-filler-donut-center-label"

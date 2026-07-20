@@ -93,6 +93,13 @@ export function RehearsalReportTestView({
       ),
     [report, selectedSlide?.keywords, selectedSlide?.slideId],
   );
+  const selectedSlideInsight = useMemo(
+    () =>
+      report.slideInsights.find(
+        (insight) => insight.slideId === selectedSlide?.slideId,
+      ) ?? null,
+    [report.slideInsights, selectedSlide?.slideId],
+  );
   const findingRows = [
     { icon: Gauge, label: "말하기 속도", ...slideMetrics.speakingRate },
     { icon: MessageCircleMore, label: "습관어", ...slideMetrics.filler },
@@ -203,7 +210,17 @@ export function RehearsalReportTestView({
               tone={slideMetrics.speakingRate.tone}
             />
             <SummaryRow
-              details={<FillerMetricDetails report={report} />}
+              details={
+                <FillerMetricDetails
+                  fillerWordCount={
+                    selectedSlideInsight?.fillerWordCount ?? undefined
+                  }
+                  fillerWordDetails={
+                    selectedSlideInsight?.fillerWordDetails ?? []
+                  }
+                  report={report}
+                />
+              }
               detailsHint="단어별 사용 횟수와 비중"
               detailsLabel="사용한 습관어"
               icon={MessageCircleMore}

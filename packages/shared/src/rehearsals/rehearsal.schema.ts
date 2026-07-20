@@ -305,6 +305,9 @@ export const rehearsalReportSlideInsightSchema = z
   .object({
     slideId: deckSlideIdSchema,
     fillerWordCount: z.number().int().nonnegative().nullable(),
+    fillerWordDetails: z
+      .array(rehearsalReportFillerWordDetailSchema)
+      .optional(),
     longSilenceCount: z.number().int().nonnegative().nullable(),
     speakingRate: rehearsalSlideSpeakingRateSchema.default(
       legacyRehearsalSlideSpeakingRate,
