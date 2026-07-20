@@ -2872,6 +2872,7 @@ export function RehearsalWorkspace(props: {
     captureSlideTranscriptSnapshot("slide-change");
     beginSlideTranscriptVisit(currentSlide, currentSlideIndex);
   }, [currentSlide?.slideId, currentSlideIndex]);
+
   const isRehearsalCompletionVisible =
     Boolean(deck) &&
     (hasLocalCompletion ||
