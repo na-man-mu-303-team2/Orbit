@@ -16,10 +16,9 @@ import type {
 } from "@orbit/shared";
 import {
   fetchReportProjects,
-  fetchProjectPresentationReportRuns,
-  fetchProjectRehearsalReportRuns,
   fetchProjectRehearsalSummary,
   fetchRehearsalRunComparison,
+  loadProjectReportRunSources,
 } from "./reportApi";
 import { fetchProjectDeck } from "./keywords/keywordEditorApi";
 import { RehearsalRunNav } from "./RehearsalRunNav";
@@ -55,6 +54,9 @@ export function RehearsalProjectOverviewPage({
   const [comparison, setComparison] =
     useState<RehearsalRunComparison | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [unavailableReportSources, setUnavailableReportSources] = useState<
+    Array<"rehearsal" | "presentation">
+  >([]);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -65,25 +67,24 @@ export function RehearsalProjectOverviewPage({
     setSummary(null);
     setDeck(null);
     setComparison(null);
+    setUnavailableReportSources([]);
     setState("loading");
 
     void (async () => {
       try {
-        const [
-          projects,
-          { runs: succeededRuns },
-          { runs: completedPresentationRuns },
-          projectSummary,
-          deckPayload,
-        ] =
+        const [projects, reportSources, projectSummary, deckPayload] =
           await Promise.all([
-            fetchReportProjects(),
-            fetchProjectRehearsalReportRuns(projectId),
-            fetchProjectPresentationReportRuns(projectId),
-            fetchProjectRehearsalSummary(projectId),
+            fetchReportProjects().catch(() => []),
+            loadProjectReportRunSources(projectId),
+            fetchProjectRehearsalSummary(projectId).catch(() => null),
             fetchProjectDeck(projectId).catch(() => null),
           ]);
+        if (reportSources.succeededSourceCount === 0) {
+          throw new Error("모든 리포트 기록 요청이 실패했습니다.");
+        }
         if (!isMounted) return;
+        const { runs: succeededRuns } = reportSources.rehearsal;
+        const { runs: completedPresentationRuns } = reportSources.presentation;
         const sortedRuns = sortRehearsalRunsByCreatedAt(succeededRuns);
         const latestSucceededRun = sortedRuns[sortedRuns.length - 1] ?? null;
         const latestComparison = latestSucceededRun
@@ -104,6 +105,7 @@ export function RehearsalProjectOverviewPage({
         setSummary(projectSummary);
         setDeck(deckPayload?.deck ?? null);
         setComparison(latestComparison);
+        setUnavailableReportSources(reportSources.failedSources);
         setState("ready");
       } catch {
         if (!isMounted) return;
@@ -113,6 +115,7 @@ export function RehearsalProjectOverviewPage({
         setSummary(null);
         setDeck(null);
         setComparison(null);
+        setUnavailableReportSources([]);
         setState("error");
       }
     })();
@@ -173,6 +176,21 @@ export function RehearsalProjectOverviewPage({
         />
 
         <section className="report-overview-panel">
+          {state === "ready" && unavailableReportSources.length > 0 ? (
+            <div className="report-overview-partial-notice" role="status">
+              {unavailableReportSources.includes("presentation")
+                ? "실전 발표 기록"
+                : "리허설 기록"}
+              을 불러오지 못했습니다. 확인 가능한 리포트는 계속 이용할 수
+              있습니다.
+              <button
+                onClick={() => setReloadKey((value) => value + 1)}
+                type="button"
+              >
+                다시 불러오기
+              </button>
+            </div>
+          ) : null}
           {state === "loading" ? (
             <div className="report-overview-loading">
               <Loader2 size={22} />

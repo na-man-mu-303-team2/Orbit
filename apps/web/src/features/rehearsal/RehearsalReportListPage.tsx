@@ -14,8 +14,7 @@ import {
 } from "../../components/ui";
 import { fetchProjects } from "../projects/ProjectAssetWorkspace";
 import {
-  fetchProjectPresentationReportRuns,
-  fetchProjectRehearsalReportRuns,
+  loadProjectReportRunSources,
 } from "./reportApi";
 import { formatRunDate, navigateTo } from "./rehearsalUtils";
 import "../projects/orbit-project-hub.css";
@@ -85,6 +84,7 @@ export function RehearsalReportListPage({ projectId }: { projectId?: string }) {
     "loading",
   );
   const [reloadKey, setReloadKey] = useState(0);
+  const [hasPartialFailure, setHasPartialFailure] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 8;
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
@@ -103,33 +103,38 @@ export function RehearsalReportListPage({ projectId }: { projectId?: string }) {
     let isMounted = true;
     setState("loading");
     setItems([]);
+    setHasPartialFailure(false);
     void fetchProjects()
       .then(async (projects) => {
-        const [rehearsalRunLists, presentationRunLists] = await Promise.all([
-          Promise.all(
-            projects.map((project) =>
-              fetchProjectRehearsalReportRuns(project.projectId),
-            ),
+        const reportSources = await Promise.all(
+          projects.map((project) =>
+            loadProjectReportRunSources(project.projectId),
           ),
-          Promise.all(
-            projects.map((project) =>
-              fetchProjectPresentationReportRuns(project.projectId),
-            ),
-          ),
-        ]);
+        );
+        const succeededSourceCount = reportSources.reduce(
+          (total, sources) => total + sources.succeededSourceCount,
+          0,
+        );
+        if (projects.length > 0 && succeededSourceCount === 0) {
+          throw new Error("모든 리포트 기록 요청이 실패했습니다.");
+        }
         if (!isMounted) return;
         setItems(
           buildProjectReportItems(
             projects,
-            rehearsalRunLists,
-            presentationRunLists,
+            reportSources.map((sources) => sources.rehearsal),
+            reportSources.map((sources) => sources.presentation),
           ),
+        );
+        setHasPartialFailure(
+          reportSources.some((sources) => sources.failedSources.length > 0),
         );
         setState("ready");
       })
       .catch(() => {
         if (!isMounted) return;
         setItems([]);
+        setHasPartialFailure(false);
         setState("error");
       });
     return () => {
@@ -158,6 +163,18 @@ export function RehearsalReportListPage({ projectId }: { projectId?: string }) {
         {state === "loading" ? (
           <div className="orbit-report-list-status" role="status">
             리포트를 불러오는 중입니다.
+          </div>
+        ) : null}
+        {state === "ready" && hasPartialFailure ? (
+          <div className="orbit-report-partial-notice" role="status">
+            일부 발표 기록을 불러오지 못했습니다. 확인 가능한 기록을 먼저
+            표시합니다.
+            <button
+              onClick={() => setReloadKey((current) => current + 1)}
+              type="button"
+            >
+              다시 불러오기
+            </button>
           </div>
         ) : null}
         {state === "ready" && items.length === 0 ? (
