@@ -24,7 +24,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
     const sorted = sortProjects(projects.data ?? []);
     const pinned = sorted.filter((project) => project.isPinned);
     const rest = sorted.filter((project) => !project.isPinned);
-    return [...pinned, ...rest].slice(0, 7);
+    return [...pinned, ...rest].slice(0, 10);
   }, [projects.data]);
 
   async function togglePinnedProject(projectId: string, isPinned: boolean) {
