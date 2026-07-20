@@ -194,6 +194,10 @@ function PracticeMetricCards(props: {
   });
   const fillerRate = fillerSeries.points.at(-1)?.value ?? null;
   const voice = props.latest.voice;
+  const isMeasured = props.latest.quality.state === "measured";
+  const pace = isMeasured ? voice.syllablesPerSecond : null;
+  const loudness = isMeasured ? voice.loudnessDb : null;
+  const loudnessMad = isMeasured ? voice.loudnessMadDb : null;
   return (
     <section aria-label="이번 회차 핵심 지표" className="editor-practice-key-metrics">
       <MetricCard
@@ -202,19 +206,19 @@ function PracticeMetricCards(props: {
         value={fillerRate === null ? "측정 불가" : `${fillerRate.toFixed(1)}회/분`}
       />
       <MetricCard
-        accessibleValue={formatAccessibleMetric(voice.syllablesPerSecond, "음절/초", 1)}
+        accessibleValue={formatAccessibleMetric(pace, "음절/초", 1)}
         label="말 속도"
-        value={formatRangeMetric(voice.syllablesPerSecond, "음절/초", slidePracticeMetricTargets.syllablesPerSecond)}
+        value={formatRangeMetric(pace, "음절/초", slidePracticeMetricTargets.syllablesPerSecond)}
       />
       <MetricCard
-        accessibleValue={formatAccessibleMetric(voice.loudnessDb, "dBFS", 0)}
+        accessibleValue={formatAccessibleMetric(loudness, "dBFS", 0)}
         label="평균 음량"
-        value={formatRangeMetric(voice.loudnessDb, "dBFS", slidePracticeMetricTargets.loudnessDb, 0)}
+        value={formatRangeMetric(loudness, "dBFS", slidePracticeMetricTargets.loudnessDb, 0)}
       />
       <MetricCard
-        accessibleValue={formatAccessibleMetric(voice.loudnessMadDb, "dB", 1)}
+        accessibleValue={formatAccessibleMetric(loudnessMad, "dB", 1)}
         label="음량 변화폭"
-        value={formatLoudnessStability(voice.loudnessMadDb)}
+        value={formatLoudnessStability(loudnessMad)}
       />
     </section>
   );

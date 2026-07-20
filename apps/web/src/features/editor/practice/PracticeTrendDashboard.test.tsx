@@ -48,6 +48,21 @@ describe("PracticeTrendDashboard", () => {
     expect((html.match(/editor-practice-trend-line/g) ?? [])).toHaveLength(0);
   });
 
+  it("최신 회차가 unmeasured이면 원시 지표 값도 성공 값으로 표시하지 않는다", () => {
+    const html = renderToStaticMarkup(
+      <PracticeTrendDashboard
+        reports={[report(1, { qualityState: "unmeasured" })]}
+        slideContentHash={currentHash}
+      />,
+    );
+
+    expect(html).not.toContain("4.2음절/초");
+    expect(html).not.toContain("-36dBFS");
+    expect(html).not.toContain("2.4dB");
+    expect((html.match(/>측정 불가</g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect(html).not.toContain("습관어 사용 없음");
+  });
+
   it("방향키와 Home/End 키로 지표 탭을 순환한다", () => {
     expect(nextPracticeTrendMetric("fillerRate", "ArrowLeft")).toBe("pauseRatio");
     expect(nextPracticeTrendMetric("fillerRate", "ArrowRight")).toBe("pace");
