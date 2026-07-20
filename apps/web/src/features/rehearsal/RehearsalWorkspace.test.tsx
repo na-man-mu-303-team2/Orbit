@@ -103,6 +103,12 @@ const rehearsalWorkspaceSourcePath = fileURLToPath(
 const rehearsalWorkspaceCssPath = fileURLToPath(
   new URL("./rehearsal-workspace-orbit.css", import.meta.url),
 );
+const editorTopbarSourcePath = fileURLToPath(
+  new URL("../editor/shell/components/EditorTopbar.tsx", import.meta.url),
+);
+const editorShellSourcePath = fileURLToPath(
+  new URL("../editor/shell/EditorShell.tsx", import.meta.url),
+);
 const rehearsalPanelSourcePath = fileURLToPath(
   new URL("./panel/RehearsalPanel.tsx", import.meta.url),
 );
@@ -292,30 +298,48 @@ describe("RehearsalWorkspace", () => {
       <RehearsalCompletionScreen
         hasReportTarget={false}
         isReportPending={false}
+        onClose={() => undefined}
         onGoHome={() => undefined}
         onOpenProject={() => undefined}
         onPracticeAgain={() => undefined}
         onPrimaryAction={() => undefined}
-        summary={{
-          comparisonLabel: "",
-          coverageLabel: "측정 안 됨",
-          coveragePercent: 0,
-          durationLabel: "01:00",
-          durationSeconds: 60,
-          hasSpeechTrackingData: false,
-          missedKeywordRows: [],
-          missedKeywordCount: 0,
-          missedKeywordCountLabel: "-",
-          missedKeywordEmptyLabel: "음성 추적 데이터가 없습니다.",
-          targetDeltaLabel: "목표와 같음",
-          targetLabel: "01:00",
-          targetSeconds: 60,
-        }}
       />,
     );
 
     expect(html).toContain("프로젝트 편집기로");
     expect(html).toContain("홈으로");
+    expect(html).toContain("다시 연습하기");
+    expect(html).not.toContain("발표 시간");
+    expect(html).not.toContain("대본 커버리지");
+  });
+
+  it("reflects report preparation and ready states on the completion screen", () => {
+    const sharedProps = {
+      onClose: () => undefined,
+      onGoHome: () => undefined,
+      onOpenProject: () => undefined,
+      onPracticeAgain: () => undefined,
+      onPrimaryAction: () => undefined,
+    };
+    const pendingHtml = renderToStaticMarkup(
+      <RehearsalCompletionScreen
+        {...sharedProps}
+        hasReportTarget
+        isReportPending
+      />,
+    );
+    const readyHtml = renderToStaticMarkup(
+      <RehearsalCompletionScreen
+        {...sharedProps}
+        hasReportTarget
+        isReportPending={false}
+      />,
+    );
+
+    expect(pendingHtml).toContain("리포트를 준비하고 있어요");
+    expect(pendingHtml).toContain("disabled");
+    expect(readyHtml).toContain("리포트가 준비됐어요");
+    expect(readyHtml).not.toContain("disabled");
   });
 
   it("uses the stored previous rehearsal summary on the preflight screen", () => {
@@ -797,6 +821,37 @@ describe("RehearsalWorkspace", () => {
     expect(receiverBody).toContain('"always" : "fallback"');
     expect(receiverBody).toContain("onNextStep={handleNextPresenterStep}");
     expect(receiverBody).toContain("onPreviousSlide={goPrevious}");
+  });
+
+  it("disables presenter keyboard shortcuts while the rehearsal completion dialog is visible", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const keyboardStart = source.indexOf("usePresenterKeyboard({");
+    const keyboardEnd = source.indexOf("});", keyboardStart);
+    const keyboardBody = source.slice(keyboardStart, keyboardEnd);
+
+    expect(source).toContain("const isRehearsalCompletionVisible =");
+    expect(keyboardBody).toContain("!isRehearsalCompletionVisible");
+  });
+
+  it("returns to the rehearsal preflight instead of forcing microphone recording", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const start = source.indexOf("const handleCompletionPracticeAgain =");
+    const end = source.indexOf("const handleCompletionPrimaryAction =", start);
+    const practiceAgainBody = source.slice(start, end);
+
+    expect(practiceAgainBody).toContain("returnToPreflight()");
+    expect(practiceAgainBody).not.toContain("startRecording()");
+  });
+
+  it("keeps the presence avatar as the socket status dialog trigger", () => {
+    const topbarSource = fs.readFileSync(editorTopbarSourcePath, "utf8");
+    const shellSource = fs.readFileSync(editorShellSourcePath, "utf8");
+
+    expect(topbarSource).toContain("onOpenPresenceDebug: () => void;");
+    expect(topbarSource).toContain("onClick={onOpenPresenceDebug}");
+    expect(topbarSource).toContain("type=\"button\"");
+    expect(shellSource).toContain("onOpenPresenceDebug={() => {");
+    expect(shellSource).toContain("setIsPresenceDebugOpen(true);");
   });
 
   it("supports Google Slides style fullscreen in the current document", () => {

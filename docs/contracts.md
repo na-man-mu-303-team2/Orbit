@@ -423,9 +423,9 @@ DeckPatch 결정 사항:
 
 지원하는 patch operation:
 
-- `update_deck`: deck 제목 수정
+- `update_deck`: deck 제목, 전체 발표 목표 시간(`targetDurationMinutes`) 또는 metadata 수정
 - `add_slide`: slide 전체 추가
-- `update_slide`: slide 제목 또는 thumbnail URL 수정
+- `update_slide`: slide 제목, thumbnail URL 또는 목표 발표 시간(`estimatedSeconds`) 수정. `estimatedSeconds=null`이면 개별 목표 시간을 제거한다.
 - `update_slide_transition`: destination slide의 fade transition 전체 설정 또는 `null`로 제거
 - `delete_slide`: slide 삭제
 - `reorder_slides`: slide order 재정렬
