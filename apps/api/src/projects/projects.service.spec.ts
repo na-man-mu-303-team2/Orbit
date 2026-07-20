@@ -8,7 +8,7 @@ import { DataSource, QueryFailedError, Repository } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 import { ProjectEntity } from "./project.entity";
 import { ProjectMemberEntity } from "./project-member.entity";
-import { getKdhHomeProjectSeeds } from "./kdh-home-project-seed";
+import { kdhHomeProjectIds } from "./kdh-home-project-ids";
 import { ProjectsService } from "./projects.service";
 
 type ProjectFindOptions = {
@@ -158,8 +158,6 @@ function createService(args?: {
   projects?: ProjectEntity[];
   members?: ProjectMemberEntity[];
   users?: Array<{ user_id: string; email: string }>;
-  transactionParameters?: unknown[][];
-  transactionQueries?: string[];
 }) {
   const projects = args?.projects ?? [];
   const members = args?.members ?? [];
@@ -191,9 +189,7 @@ function createService(args?: {
       update: (entity: unknown, where: Partial<ProjectMemberEntity>, input: Partial<ProjectMemberEntity>) => Promise<void>;
     }) => Promise<T>) {
       return callback({
-        async query(query, params = []) {
-          args?.transactionQueries?.push(query);
-          args?.transactionParameters?.push(params);
+        async query(query) {
           if (query.includes("to_regclass")) return [];
           return [];
         },
@@ -421,67 +417,13 @@ describe("ProjectsService", () => {
     ]);
   });
 
-  it("seeds ten idempotent home projects only for the kdh owner", async () => {
-    const transactionParameters: unknown[][] = [];
-    const transactionQueries: string[] = [];
-    const service = createService({
-      transactionParameters,
-      transactionQueries,
-      users: [{ user_id: "user_kdh", email: "kdh@orbit.com" }],
-    });
-
-    await service.list(demoIds.workspaceId, "user_kdh");
-
-    expect(
-      transactionQueries.filter((query) => query.includes("INSERT INTO projects")),
-    ).toHaveLength(10);
-    expect(
-      transactionQueries.filter((query) => query.includes("INSERT INTO project_members")),
-    ).toHaveLength(10);
-    expect(
-      transactionQueries.filter((query) => query.includes("INSERT INTO decks")),
-    ).toHaveLength(10);
-    expect(transactionQueries.every((query) => query.includes("ON CONFLICT"))).toBe(true);
-
-    const deckQueries = transactionQueries.filter((query) =>
-      query.includes("INSERT INTO decks"),
-    );
-    expect(deckQueries.every((query) => query.includes("DO UPDATE SET"))).toBe(true);
-    expect(
-      deckQueries.every((query) =>
-        query.includes(
-          "decks.deck_json #>> '{slides,0,style,backgroundImage,src}' = $6",
-        ),
-      ),
-    ).toBe(true);
-
-    const deckParameters = transactionParameters.filter(
-      (params) => params.length === 6,
-    );
-    expect(deckParameters).toHaveLength(10);
-    expect(deckParameters.map((params) => params[5])).toEqual(
-      getKdhHomeProjectSeeds().map((seed) => seed.legacyImageUrl),
-    );
-  });
-
-  it("does not seed kdh home projects for a different account", async () => {
-    const transactionQueries: string[] = [];
-    const service = createService({
-      transactionQueries,
-      users: [{ user_id: "user_kdh", email: "kdh@orbit.com" }],
-    });
-
-    await service.list(demoIds.workspaceId, "user_other");
-
-    expect(transactionQueries).toEqual([]);
-  });
-
-  it("hides seeded kdh projects from non-members, even with a known project ID", async () => {
-    const seed = getKdhHomeProjectSeeds()[0];
+  it("hides leftover kdh fixture projects from non-members, even with a known project ID", async () => {
+    // The fixture rows outlive the seeder until the cleanup script is run by
+    // hand, and their IDs are guessable.
     const project = new ProjectEntity();
-    project.projectId = seed.projectId;
+    project.projectId = kdhHomeProjectIds[0];
     project.workspaceId = demoIds.workspaceId;
-    project.title = seed.title;
+    project.title = "브랜드 리뉴얼 제안";
     project.createdBy = "user_kdh";
     project.createdAt = new Date("2026-07-18T00:00:00.000Z");
     const owner = new ProjectMemberEntity();
