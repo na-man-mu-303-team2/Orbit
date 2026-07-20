@@ -19,8 +19,10 @@ export function getCommunityTemplateCategoryLabel(
 }
 
 export function CommunityTemplateCard(props: {
+  applying?: boolean;
   card: CommunityTemplateCardValue;
   disabled?: boolean;
+  instanceKey?: string;
   onSelect: () => void;
   purpose: "open-gallery" | "use";
   shelf?: boolean;
@@ -32,17 +34,33 @@ export function CommunityTemplateCard(props: {
 
   return (
     <article
-      className={`community-template-card${props.shelf ? " is-shelf" : ""}`}
+      className={`community-template-card${props.shelf ? " is-shelf" : ""}${props.applying ? " is-applying" : ""}`}
+      data-template-instance-key={props.instanceKey}
+      data-applying={
+        props.instanceKey ? String(Boolean(props.applying)) : undefined
+      }
       data-template-shelf-card={props.shelf ? props.card.templateId : undefined}
     >
       <button
         aria-label={accessibleName}
         className="community-template-card-action"
-        disabled={props.disabled}
+        disabled={props.disabled || props.applying}
         onClick={props.onSelect}
         type="button"
       >
-        <CommunityTemplatePreview card={props.card} />
+        <span className="community-template-preview-frame">
+          <CommunityTemplatePreview card={props.card} />
+          {props.applying ? (
+            <span
+              aria-live="polite"
+              className="community-template-applying"
+              role="status"
+            >
+              <span aria-hidden="true" className="community-template-spinner" />
+              템플릿 적용 중
+            </span>
+          ) : null}
+        </span>
         <span className="community-template-card-copy">
           <strong>{props.card.title}</strong>
           <small>

@@ -1,4 +1,8 @@
-import type { Project } from "@orbit/shared";
+import {
+  demoIds,
+  type CommunityTemplateCard,
+  type Project,
+} from "@orbit/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconChevronRight,
@@ -11,8 +15,15 @@ import "../../styles/tokens.css";
 import { CommunityTemplateGalleryDialog } from "../community-templates/CommunityTemplateGalleryDialog";
 import { CommunityTemplateShelf } from "../community-templates/CommunityTemplateShelf";
 import {
+  createCommunityTemplateApplyAttempt,
+  executeCommunityTemplateApply,
+  type FailedCommunityTemplateApply,
+} from "../community-templates/communityTemplateApplication";
+import {
+  CommunityTemplateWebError,
   communityTemplateKeys,
   fetchCommunityTemplateShelf,
+  useCommunityTemplate,
 } from "../community-templates/communityTemplateApi";
 import {
   createProject,
@@ -31,6 +42,11 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
   const projects = useProjectList();
   const templates = useCommunityTemplateShelf();
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [applyingInstanceKey, setApplyingInstanceKey] = useState<string | null>(
+    null,
+  );
+  const [applyFailure, setApplyFailure] =
+    useState<FailedCommunityTemplateApply | null>(null);
   const [pinningId, setPinningId] = useState<string | null>(null);
   const [pinError, setPinError] = useState("");
   const recentProjects = useMemo(() => {
@@ -46,6 +62,46 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
       props.onNavigate(projectPath(project));
     },
   });
+
+  async function applyTemplate(
+    instanceKey: string,
+    card: CommunityTemplateCard,
+  ) {
+    if (applyingInstanceKey) return;
+    const attempt = createCommunityTemplateApplyAttempt(
+      instanceKey,
+      card,
+      applyFailure,
+    );
+    setApplyingInstanceKey(instanceKey);
+    setApplyFailure(null);
+    try {
+      await executeCommunityTemplateApply(
+        { attempt, workspaceId: demoIds.workspaceId },
+        {
+          closeGallery: () => setGalleryOpen(false),
+          invalidateProjects: () =>
+            queryClient.invalidateQueries({ queryKey: ["projects"] }),
+          invalidateRecent: () =>
+            queryClient.invalidateQueries({
+              queryKey: communityTemplateKeys.recent,
+            }),
+          navigate: props.onNavigate,
+          useTemplate: useCommunityTemplate,
+        },
+      );
+    } catch (cause) {
+      setApplyFailure({
+        ...attempt,
+        message:
+          cause instanceof CommunityTemplateWebError
+            ? cause.message
+            : "템플릿을 적용하지 못했습니다. 다시 시도해 주세요.",
+      });
+    } finally {
+      setApplyingInstanceKey(null);
+    }
+  }
 
   async function togglePinnedProject(projectId: string, isPinned: boolean) {
     if (pinningId) return;
@@ -85,7 +141,10 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
           isCreatingBlank={blankProject.isPending}
           loading={templates.isLoading}
           onCreateBlank={() => blankProject.mutate()}
-          onOpenGallery={() => setGalleryOpen(true)}
+          onOpenGallery={() => {
+            setApplyFailure(null);
+            setGalleryOpen(true);
+          }}
           onRetry={() => void templates.refetch()}
         />
 
@@ -157,7 +216,18 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
         </div>
       </WorkspaceContainer>
       <CommunityTemplateGalleryDialog
-        onClose={() => setGalleryOpen(false)}
+        applyingInstanceKey={applyingInstanceKey}
+        applyError={applyFailure?.message ?? null}
+        onApply={(instanceKey, card) => void applyTemplate(instanceKey, card)}
+        onClose={() => {
+          if (applyingInstanceKey) return;
+          setApplyFailure(null);
+          setGalleryOpen(false);
+        }}
+        onRetryApply={() => {
+          if (!applyFailure) return;
+          void applyTemplate(applyFailure.instanceKey, applyFailure.card);
+        }}
         open={galleryOpen}
       />
     </div>
