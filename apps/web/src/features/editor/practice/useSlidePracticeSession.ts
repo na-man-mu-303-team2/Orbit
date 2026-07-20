@@ -14,6 +14,7 @@ import {
   submitSlidePracticeAudio,
   upsertVoiceBaseline,
 } from "./slidePracticeApi";
+import { sha256Canonical } from "./slideQuestionGuideApi";
 
 export type PracticeSessionState =
   | "idle"
@@ -74,6 +75,7 @@ export function useSlidePracticeSession(input: {
   deckVersion: number;
   slideId: string | null;
   slideOrder: number;
+  slideContentHashInput: unknown | null;
 }) {
   const audio = useFocusedPracticeAudio(300_000, slidePracticeAudioConstraints);
   const [state, setState] = useState<PracticeSessionState>("idle");
@@ -94,10 +96,16 @@ export function useSlidePracticeSession(input: {
     deckId: string;
     deckVersion: number;
     startedAt: string;
+    slideContentHash: string;
   } | null>(null);
 
   async function start(): Promise<MediaStream | null> {
-    if (!input.slideId || state === "starting" || state === "recording") return null;
+    if (
+      !input.slideId
+      || input.slideContentHashInput === null
+      || state === "starting"
+      || state === "recording"
+    ) return null;
     setState("starting");
     setMessage("");
     setReport(null);
@@ -110,6 +118,7 @@ export function useSlidePracticeSession(input: {
         throw new Error(slidePracticeDisabledMessage);
       }
       await input.beforeStart?.();
+      const slideContentHash = await sha256Canonical(input.slideContentHashInput);
       deviceIdHashRef.current = await getStableDeviceIdHash().catch(() => null);
       const stream = await audio.start();
       const startedAt = Date.now();
@@ -121,6 +130,7 @@ export function useSlidePracticeSession(input: {
         deckId: input.deckId,
         deckVersion: input.deckVersion,
         startedAt: new Date(startedAt).toISOString(),
+        slideContentHash,
       };
       timerRef.current = setInterval(() => setElapsedMs(Date.now() - startedAt), 200);
       setElapsedMs(0);
@@ -177,6 +187,7 @@ export function useSlidePracticeSession(input: {
         deckVersion: snapshot.deckVersion,
         slideId: snapshot.slideId,
         slideOrder: snapshot.slideOrder,
+        slideContentHash: snapshot.slideContentHash,
         startedAt: snapshot.startedAt,
         deviceIdHash: deviceIdHashRef.current,
         blob: capture.blob,

@@ -149,7 +149,9 @@ describe("FillerWordPieChart", () => {
   });
 });
 
-function practiceReport(): SlidePracticeReport {
+type LegacySlidePracticeReport = Exclude<SlidePracticeReport, { reportVersion: 3 }>;
+
+function practiceReport(): LegacySlidePracticeReport {
   return {
     reportVersion: 2,
     metricDefinitionVersion: 1,
