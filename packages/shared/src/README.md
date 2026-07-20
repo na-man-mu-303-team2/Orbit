@@ -52,7 +52,7 @@ canonical coaching result나 Job payload/result에 포함하지 않는다.
 | `projects/project.schema.ts` | 프로젝트 생성/삭제 요청과 프로젝트 응답 schema. |
 | `rehearsals/live-stt.schema.ts` | 발표/리허설 중 온디바이스 Live STT가 내보내는 local transcript, keyword, cue, slide advance event 계약. |
 | `rehearsals/realtime-transcription.schema.ts` | 브라우저 Live STT가 OpenAI Realtime transcription에 연결할 때 API에서 받는 project-scoped client secret 응답 계약. |
-| `rehearsals/rehearsal.schema.ts` | 리허설 run, legacy upload-url/complete 요청, 후속 audio chunk begin/upload/complete, run meta, run 조회 API 계약. `completeRehearsalAudioUploadRequestSchema`는 `{ fileId }` legacy complete 요청이며 chunk manifest는 `completeRehearsalAudioChunkUploadRequestSchema`를 사용한다. |
+| `rehearsals/rehearsal.schema.ts` | 리허설 run, upload-url/complete 요청, 후속 audio chunk begin/upload/complete, run meta, run 조회 API 계약. `completeRehearsalAudioUploadRequestSchema`는 `fileId`와 선택적인 `liveTranscript`를 받으며 chunk manifest는 `completeRehearsalAudioChunkUploadRequestSchema`를 사용한다. |
 | `realtime/websocket.schema.ts` | WebSocket event envelope과 주요 payload schema. |
 | `presentation/presentation.schema.ts` | Deck version과 access 기간을 고정한 발표 세션, 리허설 지표, 최종 보고서 schema. |
 

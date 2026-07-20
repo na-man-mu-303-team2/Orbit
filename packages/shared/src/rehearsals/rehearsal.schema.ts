@@ -911,6 +911,7 @@ export const rehearsalRecordingDurationSecondsSchema = z
 export const completeRehearsalAudioUploadUrlRequestSchema = z.object({
   fileId: z.string().min(1),
   recordingDurationSeconds: rehearsalRecordingDurationSecondsSchema,
+  liveTranscript: z.string().max(200_000).nullable().default(null),
 });
 
 export const rehearsalAudioSha256Schema = z

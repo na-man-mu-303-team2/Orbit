@@ -895,6 +895,16 @@ describe("completeRehearsalAudioUploadRequestSchema", () => {
 
     expect(request.fileId).toBe("file_audio_1");
     expect(request.recordingDurationSeconds).toBeNull();
+    expect(request.liveTranscript).toBeNull();
+  });
+
+  it("accepts the accumulated browser live transcript", () => {
+    const request = completeRehearsalAudioUploadRequestSchema.parse({
+      fileId: "file_audio_1",
+      liveTranscript: "첫 문장 두 번째 문장",
+    });
+
+    expect(request.liveTranscript).toBe("첫 문장 두 번째 문장");
   });
 });
 

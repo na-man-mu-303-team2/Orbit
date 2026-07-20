@@ -196,6 +196,7 @@ import {
 } from "./panel/SemanticCueDebugPanel";
 import {
   SemanticSpeechDebugPanel,
+  semanticSpeechDebugPanelStorageKey,
   shouldShowSemanticSpeechDebugPanel,
 } from "./panel/SemanticSpeechDebugPanel";
 import {
@@ -711,12 +712,21 @@ export async function uploadRehearsalAudio(
 export async function completeRehearsalAudioUpload(
   runId: string,
   fileId: string,
+  liveTranscriptOrFetcher: string | null | Fetcher = null,
   fetcher: Fetcher = fetch,
 ) {
-  const response = await fetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}/audio/complete`, {
+  const liveTranscript =
+    typeof liveTranscriptOrFetcher === "function"
+      ? null
+      : liveTranscriptOrFetcher;
+  const requestFetcher =
+    typeof liveTranscriptOrFetcher === "function"
+      ? liveTranscriptOrFetcher
+      : fetcher;
+  const response = await requestFetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}/audio/complete`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ fileId }),
+    body: JSON.stringify({ fileId, liveTranscript }),
   });
 
   if (!response.ok) {
@@ -968,6 +978,7 @@ export async function runRehearsalUploadFlow(options: {
   pollDelayMs?: number;
   pollTimeoutMs?: number;
   runMeta?: RehearsalRunMeta | null;
+  liveTranscript?: string | null;
   slideTimeline?: UpdateRehearsalRunMetaRequest["slideTimeline"];
 }) {
   const fetcher = options.fetcher ?? fetch;
@@ -1012,6 +1023,7 @@ export async function runRehearsalUploadFlow(options: {
   const completed = await completeRehearsalAudioUpload(
     options.runId,
     uploadResponse.upload.fileId,
+    options.liveTranscript ?? null,
     fetcher,
   );
   const job = await pollRehearsalJob(completed.job.jobId, {
@@ -2003,6 +2015,13 @@ export function RehearsalWorkspace(props: {
   const [semanticDebugState, setSemanticDebugState] = useState(
     createIdleSemanticDebugState,
   );
+  const [liveSessionTranscript, setLiveSessionTranscript] = useState("");
+  const [showSemanticDebugPanel, setShowSemanticDebugPanel] = useState(() =>
+    shouldShowSemanticSpeechDebugPanel({
+      isDevelopment: import.meta.env.DEV,
+      storage: getSemanticDebugPanelStorage(),
+    }),
+  );
   const [semanticCueDebugEvents, setSemanticCueDebugEvents] = useState<
     SemanticCueDebugEvent[]
   >([]);
@@ -2108,6 +2127,9 @@ export function RehearsalWorkspace(props: {
   const liveTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
     createLiveTranscriptBuffer(),
   );
+  const liveSessionTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
+    createLiveTranscriptBuffer(),
+  );
   const liveKeywordStateRef = useRef<LiveTranscriptAnalysis | null>(null);
   const liveKeywordOccurrenceStateRef =
     useRef<LiveKeywordOccurrenceState | null>(null);
@@ -2127,6 +2149,31 @@ export function RehearsalWorkspace(props: {
   const pauseDetectorRef = useRef<PauseDetector | null>(null);
   const { settings: presenterSettings, save: savePresenterSettings } =
     usePresenterSettings();
+
+  useEffect(() => {
+    function handleDeveloperModeShortcut(event: KeyboardEvent) {
+      if (
+        event.repeat ||
+        !event.ctrlKey ||
+        !event.shiftKey ||
+        event.altKey ||
+        event.key.toLocaleLowerCase() !== "q"
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      setShowSemanticDebugPanel((current) => {
+        const next = !current;
+        writeSemanticDebugPanelPreference(next);
+        return next;
+      });
+    }
+
+    window.addEventListener("keydown", handleDeveloperModeShortcut);
+    return () =>
+      window.removeEventListener("keydown", handleDeveloperModeShortcut);
+  }, []);
 
   useEffect(() => {
     if (import.meta.env.MODE === "test" || !ENABLE_REHEARSAL_NLI) {
@@ -2783,6 +2830,7 @@ export function RehearsalWorkspace(props: {
     setLiveError("");
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
+    resetLiveSessionTranscript();
     resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
@@ -2872,6 +2920,7 @@ export function RehearsalWorkspace(props: {
     setIsTimerRunning(true);
     setRehearsalRuntimeStatus("running");
     rehearsalRuntimeStatusRef.current = "running";
+    resetLiveSessionTranscript();
     resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
@@ -3750,6 +3799,13 @@ export function RehearsalWorkspace(props: {
     );
     liveTranscriptBufferRef.current = nextBuffer;
 
+    const nextSessionBuffer = applyLiveTranscriptEvent(
+      liveSessionTranscriptBufferRef.current,
+      event,
+    );
+    liveSessionTranscriptBufferRef.current = nextSessionBuffer;
+    setLiveSessionTranscript(renderLiveTranscriptBuffer(nextSessionBuffer));
+
     const transcript = renderLiveTranscriptBuffer(nextBuffer);
     const biasMode = getLiveSttBiasMode();
     const biasContext = getCurrentLiveBiasContext(deckSnapshot, slideIndex);
@@ -3915,6 +3971,11 @@ export function RehearsalWorkspace(props: {
     setLiveCue(null);
   }
 
+  function resetLiveSessionTranscript() {
+    liveSessionTranscriptBufferRef.current = createLiveTranscriptBuffer();
+    setLiveSessionTranscript("");
+  }
+
   function resetLivePlaybackForSlide(slide: Slide | null) {
     resetLiveTranscriptForSlide(slide);
     const nextSlidePlaybackState = createSlidePlaybackState();
@@ -3981,6 +4042,9 @@ export function RehearsalWorkspace(props: {
         runId: uploadRun.runId,
         audioFile,
         runMeta,
+        liveTranscript: renderLiveTranscriptBuffer(
+          liveSessionTranscriptBufferRef.current,
+        ),
         onJobUpdate: (nextJob) => {
           setJob(nextJob);
           setPhase("processing");
@@ -4756,10 +4820,6 @@ export function RehearsalWorkspace(props: {
     );
   }
 
-  const showSemanticDebugPanel = shouldShowSemanticSpeechDebugPanel({
-    isDevelopment: import.meta.env.DEV,
-    storage: getSemanticDebugPanelStorage(),
-  });
   const showSemanticCueDebugPanel = shouldShowSemanticCueDebugPanel({
     flagEnabled: getSemanticCueRuntimeFlags(import.meta.env).debugPanelEnabled,
     locationSearch:
@@ -5245,6 +5305,7 @@ export function RehearsalWorkspace(props: {
       </section>
       {showSemanticDebugPanel ? (
         <SemanticSpeechDebugPanel
+          liveTranscript={liveSessionTranscript}
           semanticMatchingEnabled={
             presenterSettings.advancePolicy.semanticMatching
           }
@@ -5850,7 +5911,10 @@ function getPreflightTriggerStatus(
   };
 }
 
-function getSemanticDebugPanelStorage(): Pick<Storage, "getItem"> | null {
+function getSemanticDebugPanelStorage(): Pick<
+  Storage,
+  "getItem" | "setItem"
+> | null {
   if (typeof window === "undefined") {
     return null;
   }
@@ -5859,6 +5923,17 @@ function getSemanticDebugPanelStorage(): Pick<Storage, "getItem"> | null {
     return window.localStorage;
   } catch {
     return null;
+  }
+}
+
+function writeSemanticDebugPanelPreference(enabled: boolean) {
+  try {
+    getSemanticDebugPanelStorage()?.setItem(
+      semanticSpeechDebugPanelStorageKey,
+      enabled ? "1" : "0",
+    );
+  } catch {
+    // The shortcut still works for the current page when storage is blocked.
   }
 }
 

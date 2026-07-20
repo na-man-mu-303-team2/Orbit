@@ -3131,6 +3131,7 @@ describe("runRehearsalUploadFlow", () => {
     const result = await runRehearsalUploadFlow({
       runId: "run-1",
       audioFile,
+      liveTranscript: "브라우저에서 인식한 전체 문장",
       slideTimeline: [
         { slideId: "slide_1", enteredAt: "2026-06-29T00:00:00.000Z" },
       ],
@@ -3157,6 +3158,10 @@ describe("runRehearsalUploadFlow", () => {
     expect(calls[2]?.init).toMatchObject({
       method: "PATCH",
       headers: { "content-type": "application/json" },
+    });
+    expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({
+      fileId: "file-audio",
+      liveTranscript: "브라우저에서 인식한 전체 문장",
     });
   });
 
