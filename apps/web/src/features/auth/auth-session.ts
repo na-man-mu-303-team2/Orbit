@@ -10,8 +10,8 @@ const maxProfileAvatarBytes = 3 * 1024 * 1024;
 
 export type AuthUser = {
   userId: string;
-  email?: string;
-  displayName?: string;
+  email: string;
+  displayName: string;
   avatar?: AuthAvatar | null;
 };
 
@@ -111,7 +111,23 @@ export async function uploadProfileAvatar(file: File): Promise<AuthUser> {
   return readUpdatedUser(response);
 }
 
-async function readUpdatedUser(response: Response): Promise<AuthUser> {
+export async function updateProfileDisplayName(
+  displayName: string,
+  fetcher: Fetcher = fetch,
+): Promise<AuthUser> {
+  const response = await fetcher("/api/v1/auth/profile", {
+    body: JSON.stringify({ displayName }),
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    method: "PATCH",
+  });
+  return readUpdatedUser(response, "닉네임을 저장하지 못했습니다.");
+}
+
+async function readUpdatedUser(
+  response: Response,
+  fallback = "프로필 이미지를 저장하지 못했습니다.",
+): Promise<AuthUser> {
   const text = await response.text();
   let payload: { message?: string | string[]; user?: AuthUser } = {};
   if (text) {
@@ -125,9 +141,12 @@ async function readUpdatedUser(response: Response): Promise<AuthUser> {
     const message = Array.isArray(payload.message)
       ? payload.message.join(", ")
       : payload.message;
-    throw new Error(message || `프로필 이미지를 저장하지 못했습니다. (${response.status})`);
+    if (message === "Nickname already in use") {
+      throw new Error("이미 사용 중인 닉네임입니다.");
+    }
+    throw new Error(message || `${fallback} (${response.status})`);
   }
-  if (!payload.user) throw new Error("프로필 이미지 응답이 올바르지 않습니다.");
+  if (!payload.user) throw new Error("프로필 응답이 올바르지 않습니다.");
   return payload.user;
 }
 

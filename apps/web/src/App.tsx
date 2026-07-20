@@ -25,6 +25,7 @@ import {
 import { RedesignSystemPage } from "./features/design-system/RedesignSystemPage";
 import { OrbitButton, OrbitEmptyState, OrbitFailureState } from "./components/ui";
 import { OrbitAuthPage } from "./features/auth/AuthPage";
+import { ProfilePage } from "./features/auth/ProfilePage";
 import {
   authMeQueryKey,
   fetchCurrentUser,
@@ -78,6 +79,7 @@ export type Route =
   | { name: "mockup"; screen: OrbitMockupScreen }
   | { name: "login" }
   | { name: "signup" }
+  | { name: "profile" }
   | { name: "home" }
   | { name: "create-deck" }
   | { name: "project-list" }
@@ -339,6 +341,7 @@ export function getRoute(pathname?: string, search?: string): Route {
   try {
     if (normalized === "/login") return { name: "login" };
     if (normalized === "/signup") return { name: "signup" };
+    if (normalized === "/profile") return { name: "profile" };
     if (normalized === "/design-system") return { name: "design-system" };
     if (normalized === "/mockup") return { name: "mockup", screen: "public" };
     if (normalized === "/mockup/home")
@@ -686,6 +689,12 @@ export function App() {
     retry: false,
   });
 
+  useEffect(() => {
+    if (!auth.isPending && route.name === "profile" && !auth.data) {
+      navigateTo("/login");
+    }
+  }, [auth.data, auth.isPending, route.name]);
+
   if (auth.isPending && shouldWaitForAuthResolution(route)) {
     return withRehearsalModal(<AuthLoadingFallback />);
   }
@@ -763,6 +772,13 @@ function renderRoute(route: Route, user?: AuthUser) {
         mode="register"
         onNavigate={navigateTo}
       />
+    );
+  }
+  if (route.name === "profile") {
+    return user ? (
+      <ProfilePage onNavigate={navigateTo} user={user} />
+    ) : (
+      <AuthLoadingFallback />
     );
   }
   if (route.name === "create-deck") return <AiPptWizardPage />;
@@ -1135,7 +1151,7 @@ function getUserInitial(user: AuthUser) {
 }
 
 function getUserLabel(user: AuthUser) {
-  return user.email?.trim() || user.userId;
+  return user.displayName?.trim() || user.email?.trim() || user.userId;
 }
 
 async function readApiError(response: Response, fallback: string) {

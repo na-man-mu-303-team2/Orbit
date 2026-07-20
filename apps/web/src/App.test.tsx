@@ -201,6 +201,7 @@ describe("App shell routing", () => {
   it("exposes separate production login and signup routes", () => {
     expect(getRoute("/login")).toEqual({ name: "login" });
     expect(getRoute("/signup")).toEqual({ name: "signup" });
+    expect(getRoute("/profile")).toEqual({ name: "profile" });
   });
 
   it("parses the canonical direct audience activity route", () => {
@@ -389,7 +390,7 @@ describe("public and authentication surfaces", () => {
     expect(html).not.toContain("비밀번호를 잊으셨나요");
   });
 
-  it("renders email/password-only login and signup forms", () => {
+  it("renders nickname only on the signup form", () => {
     const queryClient = new QueryClient();
     const loginHtml = renderToStaticMarkup(
       <QueryClientProvider client={queryClient}>
@@ -409,7 +410,9 @@ describe("public and authentication surfaces", () => {
     expect(loginHtml).toContain("redesign-gradient-button");
     expect(signupHtml).toContain("redesign-gradient-button");
     expect(signupHtml).not.toContain("Google");
-    expect(signupHtml).not.toContain('autocomplete="name"');
+    expect(loginHtml).not.toContain('autoComplete="name"');
+    expect(signupHtml).toContain('autoComplete="name"');
+    expect(signupHtml).toContain("닉네임");
   });
 
   it("submits the existing auth contract and surfaces API errors", async () => {
