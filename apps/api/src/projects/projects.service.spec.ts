@@ -8,6 +8,7 @@ import { DataSource, QueryFailedError, Repository } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 import { ProjectEntity } from "./project.entity";
 import { ProjectMemberEntity } from "./project-member.entity";
+import { getKdhHomeProjectSeeds } from "./kdh-home-project-seed";
 import { ProjectsService } from "./projects.service";
 
 type ProjectFindOptions = {
@@ -157,6 +158,8 @@ function createService(args?: {
   projects?: ProjectEntity[];
   members?: ProjectMemberEntity[];
   users?: Array<{ user_id: string; email: string }>;
+  transactionParameters?: unknown[][];
+  transactionQueries?: string[];
 }) {
   const projects = args?.projects ?? [];
   const members = args?.members ?? [];
@@ -188,7 +191,9 @@ function createService(args?: {
       update: (entity: unknown, where: Partial<ProjectMemberEntity>, input: Partial<ProjectMemberEntity>) => Promise<void>;
     }) => Promise<T>) {
       return callback({
-        async query(query) {
+        async query(query, params = []) {
+          args?.transactionQueries?.push(query);
+          args?.transactionParameters?.push(params);
           if (query.includes("to_regclass")) return [];
           return [];
         },
@@ -414,6 +419,85 @@ describe("ProjectsService", () => {
     await expect(service.list(demoIds.workspaceId, "user_1")).resolves.toEqual([
       expect.objectContaining({ projectId: "project_accepted" }),
     ]);
+  });
+
+  it("seeds ten idempotent home projects only for the kdh owner", async () => {
+    const transactionParameters: unknown[][] = [];
+    const transactionQueries: string[] = [];
+    const service = createService({
+      transactionParameters,
+      transactionQueries,
+      users: [{ user_id: "user_kdh", email: "kdh@orbit.com" }],
+    });
+
+    await service.list(demoIds.workspaceId, "user_kdh");
+
+    expect(
+      transactionQueries.filter((query) => query.includes("INSERT INTO projects")),
+    ).toHaveLength(10);
+    expect(
+      transactionQueries.filter((query) => query.includes("INSERT INTO project_members")),
+    ).toHaveLength(10);
+    expect(
+      transactionQueries.filter((query) => query.includes("INSERT INTO decks")),
+    ).toHaveLength(10);
+    expect(transactionQueries.every((query) => query.includes("ON CONFLICT"))).toBe(true);
+
+    const deckQueries = transactionQueries.filter((query) =>
+      query.includes("INSERT INTO decks"),
+    );
+    expect(deckQueries.every((query) => query.includes("DO UPDATE SET"))).toBe(true);
+    expect(
+      deckQueries.every((query) =>
+        query.includes(
+          "decks.deck_json #>> '{slides,0,style,backgroundImage,src}' = $6",
+        ),
+      ),
+    ).toBe(true);
+
+    const deckParameters = transactionParameters.filter(
+      (params) => params.length === 6,
+    );
+    expect(deckParameters).toHaveLength(10);
+    expect(deckParameters.map((params) => params[5])).toEqual(
+      getKdhHomeProjectSeeds().map((seed) => seed.legacyImageUrl),
+    );
+  });
+
+  it("does not seed kdh home projects for a different account", async () => {
+    const transactionQueries: string[] = [];
+    const service = createService({
+      transactionQueries,
+      users: [{ user_id: "user_kdh", email: "kdh@orbit.com" }],
+    });
+
+    await service.list(demoIds.workspaceId, "user_other");
+
+    expect(transactionQueries).toEqual([]);
+  });
+
+  it("hides seeded kdh projects from non-members, even with a known project ID", async () => {
+    const seed = getKdhHomeProjectSeeds()[0];
+    const project = new ProjectEntity();
+    project.projectId = seed.projectId;
+    project.workspaceId = demoIds.workspaceId;
+    project.title = seed.title;
+    project.createdBy = "user_kdh";
+    project.createdAt = new Date("2026-07-18T00:00:00.000Z");
+    const owner = new ProjectMemberEntity();
+    owner.projectId = project.projectId;
+    owner.userId = "user_kdh";
+    owner.role = "owner";
+    owner.status = "accepted";
+    owner.createdAt = project.createdAt;
+    const service = createService({ projects: [project], members: [owner] });
+
+    await expect(
+      service.getProjectAccess(project.projectId, "user_other"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.requestAccess(project.projectId, "user_other", "viewer"),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it("stores project pins independently for each accepted member", async () => {

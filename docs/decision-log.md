@@ -2,6 +2,30 @@
 
 이 문서는 자동 구현 세션에서 생긴 비자명한 정책, 아키텍처, 데이터 보관, 접근제어, 저장 결정의 기록이다.
 
+## kdh home project fixture access policy
+
+- Context: 운영 홈 화면에서 `kdh@orbit.com` 계정에만 이미지 표지의 실제 프로젝트 카드 10개가 필요하며, 다른 계정의 프로젝트 목록이나 덱 접근에는 노출되면 안 된다.
+- Options considered:
+  - Web 클라이언트에만 카드 mock을 표시한다.
+  - 모든 계정이 공유하는 demo 프로젝트를 만든다.
+  - `kdh@orbit.com`이 프로젝트 목록을 조회할 때만 실제 프로젝트, accepted owner membership, 한 장 덱을 멱등 생성한다.
+- Final decision: 고정 project/deck ID 10개를 사용해 `projects`, `project_members`, `decks`를 같은 transaction에서 `ON CONFLICT DO NOTHING`으로 생성한다. 각 membership은 `kdh`의 accepted `owner`만 생성하며, 덱의 첫 슬라이드는 공개 HTTPS 이미지 URL을 배경으로 사용한다. 이 고정 ID는 비멤버의 access 조회·접근 요청에서도 `NotFound`로 처리한다.
+- Rationale: 기존 membership 기반 목록·덱 권한 경계를 유지하고, 새 schema나 전역 demo fixture 없이 실제 홈 카드와 편집 경로를 제공한다. 홈은 생성 카드와 함께 최대 10개의 최근 프로젝트를 표시해 fixture 전체가 보이며, 실패 후 재시도해도 중복 프로젝트가 생기지 않는다.
+- Affected files: `apps/api/src/projects/kdh-home-project-seed.ts`, `apps/api/src/projects/projects.service.ts`, 관련 테스트.
+- Follow-up review notes: 실제 운영 배포 후 `kdh@orbit.com`과 다른 테스트 계정에서 각각 목록과 덱 API 권한을 확인하고, 외부 이미지 제공자의 가용성·사용 정책이 바뀌면 관리형 asset 저장으로 전환한다.
+
+## kdh home project presentation cover assets
+
+- Context: 기존 KDH 전용 프로젝트는 외부 Unsplash 사진을 첫 슬라이드 배경으로 사용해 홈이 일반 비즈니스 자료 목록처럼 보였고, 외부 제공자의 가용성과 정책에도 의존했다. 사용자는 PPT 제작 서비스임이 바로 드러나는 크리에이티브 표지 10종을 `develop`에 먼저 적용하도록 승인했다.
+- Options considered:
+  - 홈 카드에서만 별도 mock 이미지를 표시하고 실제 Deck은 유지한다.
+  - 새 외부 이미지 URL로 교체한다.
+  - 텍스트 없는 16:9 표지 자산을 Web 정적 자산으로 관리하고 실제 Deck 배경에서 사용한다.
+- Final decision: 10개의 1600x900 WebP 표지를 `apps/web/public/assets/home-project-covers`에 저장하고, KDH 고정 Deck의 `backgroundImage.src`가 same-origin 경로를 사용하게 한다. 실제 제목과 부제는 Deck text element로 유지한다. 기존 행은 알려진 legacy Unsplash URL을 계속 사용하는 경우에만 첫 슬라이드의 `backgroundImage`와 Deck version을 한 번 갱신하며, 사용자가 배경을 바꾼 Deck은 덮어쓰지 않는다. `kdh@orbit.com`의 accepted owner membership과 비멤버 `NotFound` 경계는 유지한다.
+- Rationale: 홈 카드와 편집 화면이 같은 실제 Deck을 렌더링하고, 외부 이미지 장애 없이 선명한 표지를 제공한다. legacy URL 조건은 기존 운영 fixture를 갱신하면서 사용자 변경을 보존한다.
+- Affected files: `apps/web/public/assets/home-project-covers/**`, `apps/web/src/features/projects/workspace-home.css`, `apps/api/src/projects/kdh-home-project-seed.ts`, `apps/api/src/projects/projects.service.ts`, 관련 테스트.
+- Follow-up review notes: `develop` 반영 후 `kdh@orbit.com`에서 10개 표지와 편집 화면을 확인하고, 다른 계정에서 목록·직접 project ID·access request가 계속 차단되는지 검증한다. `main` 반영과 운영 배포는 별도 승인 범위로 둔다.
+
 ## ORBIT-8 self-managed auth policy
 
 - Context: ORBIT-8은 회원가입, 로그인, 로그아웃, 현재 사용자 조회를 self-managed email/password auth로 구현한다. 기존 문서는 1차 스프린트에서 ORBIT-8을 제외하고 Demo ID를 사용한다고 정의했으나, 이번 구현 승인으로 인증 계약을 추가해야 한다.

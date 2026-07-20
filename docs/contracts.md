@@ -444,9 +444,9 @@ DeckPatch 결정 사항:
 
 지원하는 patch operation:
 
-- `update_deck`: deck 제목 수정
+- `update_deck`: deck 제목, 전체 발표 목표 시간(`targetDurationMinutes`) 또는 metadata 수정
 - `add_slide`: slide 전체 추가
-- `update_slide`: slide 제목 또는 thumbnail URL 수정
+- `update_slide`: slide 제목, thumbnail URL 또는 목표 발표 시간(`estimatedSeconds`) 수정. `estimatedSeconds=null`이면 개별 목표 시간을 제거한다.
 - `update_slide_transition`: destination slide의 fade transition 전체 설정 또는 `null`로 제거
 - `delete_slide`: slide 삭제
 - `reorder_slides`: slide order 재정렬
@@ -1213,10 +1213,18 @@ API에서는 노출하지 않는다. `rehearsal_runs.transcript_json_file_id`와
 
 리허설 STT 성공 시 Worker는 run의 `created_at`을 Asia/Seoul 날짜로 변환하고
 `rehearsals/{date}/{projectId}/{runId}/transcript.json`과 `transcript.txt`를 저장한다.
-JSON은 `text`, `language`, `duration`, `provider`, `segments[{ text, start, end }]`
-구조이며 speaker와 word-level segment는 보관하지 않는다. 두 `project_assets` row와
+JSON은 `text`, `liveTranscript`, `language`, `duration`, `provider`,
+`segments[{ text, start, end }]` 구조다. `text`는 서버의 리포트 STT 결과이며
+`liveTranscript`는 브라우저가 리허설 중 누적한 실시간 인식 문장이다. 실시간 인식을
+사용하지 않았거나 전달되지 않은 경우 `liveTranscript`는 `null`이다. speaker와
+word-level segment는 보관하지 않는다. 두 `project_assets` row와
 `rehearsal_runs` 참조 갱신은 하나의 DB transaction으로 처리하고, DB 반영 실패 시
 이번 시도에서 새로 생성한 storage object만 보상 삭제한다.
+
+리포트 지표 중 `liveTranscript`를 데이터 원본으로 사용하는 항목은 전체 `습관어`
+횟수와 단어별 횟수뿐이다. 말하기 속도, 키워드 포함률, 침묵, 의미 평가 등 나머지
+지표는 서버 STT와 오디오 분석 결과를 유지한다. `liveTranscript`가 비어 있으면
+습관어도 기존 서버 분석 결과를 사용한다.
 
 결정 사항:
 

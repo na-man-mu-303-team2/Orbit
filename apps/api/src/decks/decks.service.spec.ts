@@ -976,6 +976,34 @@ describe("DecksService", () => {
     ).toEqual([1]);
   });
 
+  it("persists deck and slide target duration patches", async () => {
+    const { service } = createService();
+    const deck = createDeck();
+    await service.putDeck(deck.projectId, { deck });
+
+    const response = await service.appendPatch(deck.projectId, {
+      patch: {
+        baseVersion: deck.version,
+        deckId: deck.deckId,
+        operations: [
+          { type: "update_deck", targetDurationMinutes: 12 },
+          {
+            type: "update_slide",
+            slideId: deck.slides[0]!.slideId,
+            estimatedSeconds: 90,
+          },
+        ],
+        source: "user",
+      },
+    });
+    const persisted = await service.getDeck(deck.projectId);
+
+    expect(response.deck.targetDurationMinutes).toBe(12);
+    expect(response.deck.slides[0]!.estimatedSeconds).toBe(90);
+    expect(persisted.deck.targetDurationMinutes).toBe(12);
+    expect(persisted.deck.slides[0]!.estimatedSeconds).toBe(90);
+  });
+
   it("returns a lightweight acknowledgement when requested", async () => {
     const { service } = createService();
     const deck = createDeck();

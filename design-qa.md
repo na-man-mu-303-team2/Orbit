@@ -601,3 +601,35 @@ final result: passed
 - 총 리허설 리포트의 8개 슬라이드가 실제 Deck 화면으로 렌더링된다.
 - 관련 Vitest 10개와 Web TypeScript 검사를 통과했다.
 final result: passed
+
+## 리허설 완료 모달 (2026-07-20)
+
+### 검증 대상
+
+- 참조 시안: `C:\Users\Runner\.codex\generated_images\019f7960-a82c-7e11-b04e-91cc188840ca\exec-a8b3ec39-125e-4ed9-93ed-5055fd34e777.png`
+- 구현 화면: `C:\Users\Runner\.codex\visualizations\2026\07\19\019f7960-a82c-7e11-b04e-91cc188840ca\rehearsal-completion-implemented.png`
+- 비교 화면: `C:\Users\Runner\.codex\visualizations\2026\07\19\019f7960-a82c-7e11-b04e-91cc188840ca\rehearsal-completion-comparison.png`
+- 검증 URL: `http://localhost:5173/rehearsal/project_6c000fc2-a814-4c85-a5ad-bc5931ec94a6?snapshotPreparationId=ac5f3857-a3f1-4a02-b115-08f1c497da5f&preflight=complete`
+- 검증 뷰포트: 1144 × 873
+
+### 시각 검증
+
+- [x] 리허설 화면 위에 scrim과 중앙 모달이 표시된다.
+- [x] 완료 체크, 제목, 보조 문구의 위계와 중앙 정렬이 시안과 일치한다.
+- [x] 발표 시간, 대본 커버리지, 놓친 키워드 요약은 노출하지 않는다.
+- [x] 리포트 준비 중 상태와 준비 완료 상태의 문구 및 아이콘을 구분한다.
+- [x] 준비 전에는 `리포트 보기`가 비활성화되고 준비 완료 후 활성화된다.
+- [x] `리포트 보기`와 `다시 연습하기` 버튼은 동일한 너비와 높이를 사용한다.
+- [x] `프로젝트 편집기로 | 홈으로` 이동 링크가 버튼 아래에 유지된다.
+- [x] 모달 닫기 버튼과 작은 화면용 내부 스크롤을 제공한다.
+- [x] 색상, 간격, radius, 그림자는 `--redesign-*` 토큰을 사용한다.
+
+### 조정 내역
+
+- 실제 브라우저 비교 후 완료 아이콘의 이중 테두리를 제거해 시안과 같은 단일 체크 원으로 정리했다.
+- 리포트 상태 영역의 과한 카드 배경을 제거하고 구분선 기반의 평평한 구조로 조정했다.
+- 배경 scrim을 디자인 토큰 원색으로 적용해 기존 리허설 화면과 모달의 깊이 차이를 명확히 했다.
+
+### 결과
+
+`passed`
