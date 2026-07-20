@@ -148,6 +148,41 @@ describe("PresentationRunsService", () => {
     expect(fixture.decks.getDeck).toHaveBeenCalledTimes(1);
   });
 
+  it("allows a not-yet-started run to fall back to no-microphone mode", async () => {
+    const fixture = createService(makeRun({ recordingMode: "microphone" }));
+
+    const result = await fixture.service.createRun("project_1", "session_1", {
+      expectedDeckVersion: 4,
+      recordingMode: "none",
+    });
+
+    expect(result.run).toMatchObject({
+      runId: "presentation_run_1",
+      recordingMode: "none",
+      status: "created",
+    });
+    expect(fixture.repository.save).toHaveBeenCalledOnce();
+    expect(fixture.decks.getDeck).not.toHaveBeenCalled();
+  });
+
+  it("does not change recording mode after audio upload has started", async () => {
+    const fixture = createService(
+      makeRun({
+        recordingMode: "microphone",
+        status: "uploading",
+        audioFileId: "file_1",
+      }),
+    );
+
+    const result = await fixture.service.createRun("project_1", "session_1", {
+      expectedDeckVersion: 4,
+      recordingMode: "none",
+    });
+
+    expect(result.run.recordingMode).toBe("microphone");
+    expect(fixture.repository.save).not.toHaveBeenCalled();
+  });
+
   it("finds the single presentation run by session for report routing", async () => {
     const fixture = createService(makeRun({ status: "succeeded" }));
 
@@ -213,6 +248,31 @@ describe("PresentationRunsService", () => {
         audioFileId: "file_1",
       }),
     );
+  });
+
+  it("returns the existing analysis job for a duplicate audio completion", async () => {
+    const fixture = createService(
+      makeRun({
+        status: "processing",
+        audioFileId: "file_1",
+        jobId: "job_1",
+      }),
+    );
+
+    const result = await fixture.service.completeAudio(
+      "project_1",
+      "session_1",
+      "presentation_run_1",
+      { fileId: "file_1" },
+    );
+
+    expect(result).toMatchObject({
+      run: { status: "processing", audioFileId: "file_1" },
+      job: { jobId: "job_1" },
+    });
+    expect(fixture.files.completeUpload).not.toHaveBeenCalled();
+    expect(fixture.jobs.create).not.toHaveBeenCalled();
+    expect(fixture.enqueue).not.toHaveBeenCalled();
   });
 
   it("retries a failed analysis without touching rehearsal data", async () => {

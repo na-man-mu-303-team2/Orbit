@@ -90,6 +90,16 @@ export class PresentationRunsService {
 
     const existing = await this.runs.findOne({ where: { sessionId } });
     if (existing) {
+      if (
+        existing.status === "created" &&
+        !existing.audioFileId &&
+        !existing.jobId &&
+        existing.recordingMode !== request.recordingMode
+      ) {
+        existing.recordingMode = request.recordingMode;
+        existing.updatedAt = new Date();
+        await this.runs.save(existing);
+      }
       return createPresentationRunResponseSchema.parse({
         run: toPresentationRun(existing),
       });

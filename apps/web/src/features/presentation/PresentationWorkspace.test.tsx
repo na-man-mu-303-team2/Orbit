@@ -66,6 +66,8 @@ describe("PresentationWorkspace", () => {
     expect(source).toContain("createPresentationRuntime");
     expect(source).toContain("uploadPresentationRecording");
     expect(source).toContain('startPresentation("none")');
+    expect(source).toContain("runtimeRef.current = null");
+    expect(source).toContain("마이크 없이 시작");
     expect(source).not.toContain("/rehearsals/runs");
     expect(source).not.toContain("createRehearsalRun");
     expect(source).not.toContain("completeRehearsalAudioUpload");

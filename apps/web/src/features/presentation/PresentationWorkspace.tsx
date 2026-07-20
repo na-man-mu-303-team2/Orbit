@@ -583,10 +583,15 @@ export function PresentationWorkspace(props: {
       setIsTimerRunning(true);
       setRuntimePhase("active");
     })()
-      .catch((cause) => {
+      .catch(async (cause) => {
+        await speech.stop().catch(() => undefined);
+        if (recordingRef.current) {
+          await recordingRef.current.stop().catch(() => undefined);
+        }
         streamRef.current?.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
         recordingRef.current = null;
+        runtimeRef.current = null;
         setRuntimeError(
           cause instanceof Error ? cause.message : "실전 발표를 시작하지 못했습니다.",
         );
@@ -776,6 +781,16 @@ export function PresentationWorkspace(props: {
             >
               다시 시도
             </button>
+            {runtimeFailureOperation === "start" &&
+            requestedRecordingMode === "microphone" ? (
+              <button
+                className="rehearsal-exit-button"
+                type="button"
+                onClick={() => void startPresentation("none")}
+              >
+                마이크 없이 시작
+              </button>
+            ) : null}
             <button
               className="rehearsal-exit-button"
               type="button"

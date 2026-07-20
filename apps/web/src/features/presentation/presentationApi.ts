@@ -56,6 +56,21 @@ export async function uploadPresentationRecording(input: {
   runId: string;
   sessionId: string;
 }) {
+  const current = await getPresentationRun(input);
+  if (hasCompletedAudioStep(current.run.status)) {
+    return;
+  }
+
+  if (current.run.status === "uploading" && current.run.audioFileId) {
+    const completed = await completePendingPresentationRecording({
+      ...input,
+      fileId: current.run.audioFileId,
+    });
+    if (completed) {
+      return;
+    }
+  }
+
   const uploadResponse = await requestJson(
     `${runsUrl(input.projectId, input.sessionId)}/${segment(input.runId)}/audio-upload`,
     {
@@ -70,20 +85,36 @@ export async function uploadPresentationRecording(input: {
   );
   const { upload } = createPresentationAudioUploadResponseSchema.parse(uploadResponse);
   await putPresentationRecording(upload, input.file);
-  return completePresentationRecording({
-    body: { fileId: upload.fileId },
-    projectId: input.projectId,
-    runId: input.runId,
-    sessionId: input.sessionId,
+  const completed = await completePendingPresentationRecording({
+    ...input,
+    fileId: upload.fileId,
   });
+  if (!completed) {
+    throw new Error("발표 녹음 완료 상태를 확인하지 못했습니다.");
+  }
 }
 
-export function completePresentationWithoutAudio(input: {
+export async function completePresentationWithoutAudio(input: {
   projectId: string;
   runId: string;
   sessionId: string;
 }) {
-  return completePresentationRecording({ ...input, body: { withoutAudio: true } });
+  const current = await getPresentationRun(input);
+  if (hasCompletedAudioStep(current.run.status)) {
+    return;
+  }
+  if (current.run.status !== "created") {
+    throw new Error("마이크 없이 종료할 수 없는 발표 상태입니다.");
+  }
+
+  try {
+    await completePresentationRecording({ ...input, body: { withoutAudio: true } });
+  } catch (cause) {
+    const reconciled = await getPresentationRun(input);
+    if (!hasCompletedAudioStep(reconciled.run.status)) {
+      throw cause;
+    }
+  }
 }
 
 export async function getPresentationRun(input: {
@@ -143,6 +174,36 @@ async function completePresentationRecording(input: {
     },
   );
   return completePresentationAudioResponseSchema.parse(response);
+}
+
+async function completePendingPresentationRecording(input: {
+  fileId: string;
+  projectId: string;
+  runId: string;
+  sessionId: string;
+}) {
+  try {
+    await completePresentationRecording({
+      body: { fileId: input.fileId },
+      projectId: input.projectId,
+      runId: input.runId,
+      sessionId: input.sessionId,
+    });
+    return true;
+  } catch (cause) {
+    const reconciled = await getPresentationRun(input);
+    if (hasCompletedAudioStep(reconciled.run.status)) {
+      return true;
+    }
+    if (reconciled.run.status === "uploading") {
+      return false;
+    }
+    throw cause;
+  }
+}
+
+function hasCompletedAudioStep(status: PresentationRuntimeIdentity["status"]) {
+  return status === "processing" || status === "succeeded" || status === "failed";
 }
 
 async function putPresentationRecording(upload: AssetUploadUrlResponse, file: File) {

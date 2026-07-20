@@ -63,6 +63,9 @@ describe("presentationApi", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
+        jsonResponse({ run: presentationRun("created", "microphone") }),
+      )
+      .mockResolvedValueOnce(
         jsonResponse({
           run: presentationRun("uploading", "microphone", "file_audio_1"),
           upload: {
@@ -95,25 +98,93 @@ describe("presentationApi", () => {
       sessionId: "session_live",
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1",
       "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1/audio-upload",
       "https://upload.orbit.test/presentation-audio",
       "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1/audio-complete",
     ]);
-    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({
       body: file,
       headers: { "x-orbit-upload": "signed" },
       method: "PUT",
     });
-    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+    expect(JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))).toEqual({
       fileId: "file_audio_1",
     });
+  });
+
+  it("skips duplicate upload after the server already accepted audio completion", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        run: presentationRun("processing", "microphone", "file_audio_1"),
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadPresentationRecording({
+      file: new File(["audio"], "live-presentation.webm", {
+        type: "audio/webm",
+      }),
+      projectId: "project_1",
+      runId: "presentation_run_1",
+      sessionId: "session_live",
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toMatch(/presentation_run_1$/);
+  });
+
+  it("reconciles a lost completion response before retrying the upload", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ run: presentationRun("created", "microphone") }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          run: presentationRun("uploading", "microphone", "file_audio_1"),
+          upload: {
+            fileId: "file_audio_1",
+            projectId: "project_1",
+            uploadUrl: "https://upload.orbit.test/presentation-audio",
+            method: "PUT",
+            headers: {},
+            expiresAt: "2026-07-20T00:10:00.000Z",
+            purpose: "presentation-audio",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockRejectedValueOnce(new TypeError("response lost"))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          run: presentationRun("processing", "microphone", "file_audio_1"),
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      uploadPresentationRecording({
+        file: new File(["audio"], "live-presentation.webm", {
+          type: "audio/webm",
+        }),
+        projectId: "project_1",
+        runId: "presentation_run_1",
+        sessionId: "session_live",
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("completes without audio and reads the combined report from the same session", async () => {
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ run: presentationRun("created", "none") }),
+      )
       .mockResolvedValueOnce(
         jsonResponse({
           run: presentationRun("succeeded", "none"),
@@ -153,10 +224,11 @@ describe("presentationApi", () => {
       sessionId: "session_live",
     });
 
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
       withoutAudio: true,
     });
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1",
       "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1/audio-complete",
       "/api/v1/projects/project_1/presentation-sessions/session_live/runs",
       "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1/report",
