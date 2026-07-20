@@ -281,6 +281,18 @@ export function EditorTopbar(props: EditorTopbarProps) {
       </div>
 
       <div className="top-actions">
+        {canMutateDeck ? (
+          <button
+            aria-label={`목표 시간 ${targetDurationMinutes}분 설정`}
+            className="editor-target-duration-button"
+            onClick={onOpenTargetDuration}
+            title="목표 시간 설정"
+            type="button"
+          >
+            <Clock aria-hidden="true" size={17} />
+            <span>목표 {targetDurationMinutes}분</span>
+          </button>
+        ) : null}
         {projectPresenceUsers.length > 0 ? (
           <div
             aria-label="소켓 접속 상태 보기"
@@ -341,18 +353,6 @@ export function EditorTopbar(props: EditorTopbarProps) {
         >
           <History size={17} />
         </button>
-        {canMutateDeck ? (
-          <button
-            aria-label={`목표 시간 ${targetDurationMinutes}분 설정`}
-            className="editor-target-duration-button"
-            onClick={onOpenTargetDuration}
-            title="목표 시간 설정"
-            type="button"
-          >
-            <Clock aria-hidden="true" size={17} />
-            <span>목표 {targetDurationMinutes}분</span>
-          </button>
-        ) : null}
         <PresentationMenu
           activeStartAction={activePresentationAction}
           canOpenAudienceLink={canOpenAudienceLink}
