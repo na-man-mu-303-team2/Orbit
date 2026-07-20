@@ -1,6 +1,12 @@
 import { z } from "zod";
 
 export const deckCompositionIdSchema = z.enum([
+  "cover-classic-corporate",
+  "cover-visual-impact",
+  "cover-immersive-background",
+  "cover-research-author",
+  "cover-structured-report",
+  "cover-modern-high-tech",
   "hero-split",
   "hero-full-bleed",
   "minimal-cover",

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.ai.composition_library import COMPOSITION_SPECS
 from app.ai.deck_generation.content_planning import (
+    compose_cover_detail,
     compose_slide_detail_with_llm,
     plan_story_content,
 )
@@ -279,14 +280,18 @@ def run_slide_compose_stage(
     )
     direction = stage_input.design_plan.design_program.slides[target.order - 1]
     composition = COMPOSITION_SPECS[direction.composition_id]
-    detailed = compose_slide_detail_with_llm(
-        scoped_raw_input,
-        target,
-        resolve_style_prompt_context(scoped_raw_input),
-        client=client,
-        model=model,
-        api_key=api_key,
-        content_item_range=(composition.min_items, composition.max_items),
+    detailed = (
+        compose_cover_detail(scoped_raw_input, target)
+        if target.order == 1
+        else compose_slide_detail_with_llm(
+            scoped_raw_input,
+            target,
+            resolve_style_prompt_context(scoped_raw_input),
+            client=client,
+            model=model,
+            api_key=api_key,
+            content_item_range=(composition.min_items, composition.max_items),
+        )
     )
     fact_issues, validation_duration_ms = validate_slide_detail(
         scoped_raw_input,
@@ -295,6 +300,7 @@ def run_slide_compose_stage(
     )
     repair_attempted = bool(
         fact_issues
+        and target.order != 1
         and target.order in scoped_raw_input.fact_repair_eligible_slide_orders
     )
     repair_succeeded = False

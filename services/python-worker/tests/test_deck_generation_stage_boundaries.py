@@ -7,17 +7,24 @@ import pytest
 
 import app.ai.deck_generation.design_planning as design_planning_module
 from app.ai.design_program import DeckDesignProgram
-from app.ai.deck_generation.content_planning import plan_content, plan_story_content
+from app.ai.deck_generation.content_planning import (
+    compose_cover_detail,
+    normalize_cover_content,
+    plan_content,
+    plan_story_content,
+)
 from app.ai.deck_generation.design_planning import resolve_style_prompt_context
 from app.ai.deck_generation.diagnostics import assemble_generation_diagnostics
 from app.ai.deck_generation.models import (
     ContentPlan,
+    CoverContent,
     GenerationDiagnosticsInput,
     GenerationDiagnosticsResult,
     GenerateDeckRequest,
     PythonQualityInput,
     PythonQualityResult,
     SourceGroundingResult,
+    SlidePlan,
     ValidationResult,
 )
 from app.ai.deck_generation.pipeline import analyze_input
@@ -121,8 +128,62 @@ def test_staged_story_plan_uses_one_llm_call_without_slide_details() -> None:
     )
 
     assert responses.calls == 1
+    assert content.slide_plans[0].cover_content is not None
+    assert content.slide_plans[0].slide_type == "cover"
     assert all(not slide.speaker_notes for slide in content.slide_plans)
     assert all(not slide.content_items for slide in content.slide_plans)
+
+
+def test_cover_content_keeps_only_grounded_facts_and_verified_profile_asset() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT 연구 결과",
+            prompt=(
+                "발표자는 김민지이고 ORBIT 연구소 소속이다. "
+                "asset-profile은 발표자 프로필 사진이다."
+            ),
+            officialAssetFileIds=["asset-profile", "asset-other"],
+        )
+    )
+    first_slide = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="ORBIT 연구 결과",
+        message="팀 생산성을 높이는 발표 설계",
+        speaker_notes="",
+        keywords=[],
+        evidence=[],
+    )
+
+    cover = normalize_cover_content(
+        raw_input,
+        CoverContent(
+            title="ignored",
+            subtitle="ignored",
+            presenterName="김민지",
+            organization="ORBIT 연구소",
+            dateText="2026년 12월 31일",
+            venue="서울 컨벤션 센터",
+            profileImageAssetId="asset-profile",
+            speakerNotes="표지를 소개합니다.",
+        ),
+        first_slide,
+    )
+    detailed = compose_cover_detail(
+        raw_input,
+        first_slide.model_copy(update={"cover_content": cover}),
+    )
+
+    assert cover.title == first_slide.title
+    assert cover.subtitle == first_slide.message
+    assert cover.presenter_name == "김민지"
+    assert cover.organization == "ORBIT 연구소"
+    assert cover.date_text is None
+    assert cover.venue is None
+    assert cover.profile_image_asset_id == "asset-profile"
+    assert detailed.content_items == []
+    assert detailed.media_intent.kind == "provided"
 
 
 def test_quality_and_diagnostics_stage_entrypoints_use_pydantic_boundaries() -> None:
