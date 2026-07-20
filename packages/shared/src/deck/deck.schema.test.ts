@@ -1950,6 +1950,30 @@ describe("deckPatchSchema validation", () => {
     expect(deckPatchSchema.safeParse(patch).success).toBe(true);
   });
 
+  it("accepts deck and slide target duration update patches", () => {
+    const patch: unknown = {
+      ...createValidPatch(),
+      operations: [
+        { type: "update_deck", targetDurationMinutes: 12 },
+        { type: "update_slide", slideId: "slide_1", estimatedSeconds: 90 }
+      ]
+    };
+
+    expect(deckPatchSchema.safeParse(patch).success).toBe(true);
+  });
+
+  it.each([0, 121, 1.5])(
+    "rejects invalid deck target duration %s",
+    (targetDurationMinutes) => {
+      const patch: unknown = {
+        ...createValidPatch(),
+        operations: [{ type: "update_deck", targetDurationMinutes }]
+      };
+
+      expect(deckPatchSchema.safeParse(patch).success).toBe(false);
+    }
+  );
+
   it("accepts setting and clearing a transition and updating startMode", () => {
     const setPatch: unknown = {
       ...createValidPatch(),
