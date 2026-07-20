@@ -4,13 +4,13 @@ import {
   communityTemplateIdSchema,
   communityTemplateSnapshotSchema,
   communityTemplateTitleSchema,
-  maxCommunityTemplateSlides
+  maxCommunityTemplateSlides,
 } from "./community-template.schema";
 import {
   communityTemplateCardSchema,
   communityTemplateListQuerySchema,
   publishCommunityTemplateRequestSchema,
-  useCommunityTemplateRequestSchema
+  useCommunityTemplateRequestSchema,
 } from "./community-template-api.schema";
 
 const safeElement = {
@@ -33,8 +33,8 @@ const safeElement = {
     fontWeight: "bold" as const,
     align: "left" as const,
     verticalAlign: "top" as const,
-    lineHeight: 1.2
-  }
+    lineHeight: 1.2,
+  },
 };
 
 const snapshot = {
@@ -43,7 +43,7 @@ const snapshot = {
     preset: "wide-16-9" as const,
     width: 1920 as const,
     height: 1080 as const,
-    aspectRatio: "16:9" as const
+    aspectRatio: "16:9" as const,
   },
   theme: {
     name: "Community Template" as const,
@@ -56,7 +56,7 @@ const snapshot = {
       secondary: "#7c3aed",
       surface: "#ffffff",
       muted: "#f3f4f6",
-      border: "#e5e7eb"
+      border: "#e5e7eb",
     },
     typography: {
       headingFontFamily: "Pretendard",
@@ -64,9 +64,9 @@ const snapshot = {
       titleSize: 56,
       headingSize: 40,
       bodySize: 24,
-      captionSize: 16
+      captionSize: 16,
     },
-    effects: { borderRadius: 8 }
+    effects: { borderRadius: 8 },
   },
   targetDurationMinutes: 5,
   slides: [
@@ -76,9 +76,9 @@ const snapshot = {
       order: 1,
       title: "슬라이드 제목" as const,
       style: { fontFamily: "Pretendard", backgroundColor: "#ffffff" },
-      elements: [safeElement]
-    }
-  ]
+      elements: [safeElement],
+    },
+  ],
 };
 
 describe("community template snapshot contract", () => {
@@ -91,7 +91,7 @@ describe("community template snapshot contract", () => {
     ["semanticCues", []],
     ["aiNotes", {}],
     ["backgroundImage", { src: "https://private.example/internal" }],
-    ["activity", { prompt: "PRIVATE_TEMPLATE_MARKER_9f31" }]
+    ["activity", { prompt: "PRIVATE_TEMPLATE_MARKER_9f31" }],
   ])("rejects private slide field %s", (field, value) => {
     const unsafe = structuredClone(snapshot);
     Object.assign(unsafe.slides[0], { [field]: value });
@@ -100,10 +100,18 @@ describe("community template snapshot contract", () => {
   });
 
   it.each([
-    { ...safeElement, type: "image", props: { src: "https://private.example/internal" } },
-    { ...safeElement, type: "svg", props: { src: "data:image/svg+xml;base64,private" } },
+    {
+      ...safeElement,
+      type: "image",
+      props: { src: "https://private.example/internal" },
+    },
+    {
+      ...safeElement,
+      type: "svg",
+      props: { src: "data:image/svg+xml;base64,private" },
+    },
     { ...safeElement, fileId: "file_private_123" },
-    { ...safeElement, ooxmlOrigin: "imported" }
+    { ...safeElement, ooxmlOrigin: "imported" },
   ])("rejects asset and source element fields", (element) => {
     const unsafe = structuredClone(snapshot);
     unsafe.slides[0].elements = [element as typeof safeElement];
@@ -122,8 +130,8 @@ describe("community template snapshot contract", () => {
       (_, index) => ({
         ...snapshot.slides[0],
         slideId: `slide_${index}`,
-        order: index + 1
-      })
+        order: index + 1,
+      }),
     );
     expect(() => communityTemplateSnapshotSchema.parse(tooMany)).toThrow();
   });
@@ -132,11 +140,11 @@ describe("community template snapshot contract", () => {
 describe("community template API contract", () => {
   it("validates prefixed template IDs and trimmed titles", () => {
     expect(communityTemplateIdSchema.parse("community_template_abc-123")).toBe(
-      "community_template_abc-123"
+      "community_template_abc-123",
     );
     expect(() => communityTemplateIdSchema.parse("template_abc")).toThrow();
     expect(communityTemplateTitleSchema.parse("  교육 템플릿  ")).toBe(
-      "교육 템플릿"
+      "교육 템플릿",
     );
     expect(() => communityTemplateTitleSchema.parse("x".repeat(61))).toThrow();
   });
@@ -144,19 +152,19 @@ describe("community template API contract", () => {
   it("coerces bounded pagination and rejects unknown query keys", () => {
     expect(communityTemplateListQuerySchema.parse({})).toEqual({
       page: 1,
-      limit: 24
+      limit: 24,
     });
     expect(
-      communityTemplateListQuerySchema.parse({ page: "2", limit: "48" })
+      communityTemplateListQuerySchema.parse({ page: "2", limit: "48" }),
     ).toMatchObject({ page: 2, limit: 48 });
     expect(() =>
-      communityTemplateListQuerySchema.parse({ limit: "49" })
+      communityTemplateListQuerySchema.parse({ limit: "49" }),
     ).toThrow();
     expect(() =>
-      communityTemplateListQuerySchema.parse({ query: "x".repeat(61) })
+      communityTemplateListQuerySchema.parse({ query: "x".repeat(61) }),
     ).toThrow();
     expect(() =>
-      communityTemplateListQuerySchema.parse({ ownerUserId: "user_private" })
+      communityTemplateListQuerySchema.parse({ ownerUserId: "user_private" }),
     ).toThrow();
   });
 
@@ -165,37 +173,39 @@ describe("community template API contract", () => {
       sourceProjectId: "project_source",
       title: "교육 템플릿",
       category: "education",
-      rightsConfirmed: true
+      rightsConfirmed: true,
     };
-    expect(publishCommunityTemplateRequestSchema.parse(request)).toEqual(request);
+    expect(publishCommunityTemplateRequestSchema.parse(request)).toEqual(
+      request,
+    );
     expect(() =>
       publishCommunityTemplateRequestSchema.parse({
         ...request,
-        rightsConfirmed: false
-      })
+        rightsConfirmed: false,
+      }),
     ).toThrow();
     expect(() =>
       publishCommunityTemplateRequestSchema.parse({
         ...request,
-        snapshot
-      })
+        snapshot,
+      }),
     ).toThrow();
   });
 
   it("uses a UUID idempotency key and rejects extra use input", () => {
     expect(
       useCommunityTemplateRequestSchema.parse({
-        clientRequestId: "6d620d1a-4d0d-4b40-b430-68875d5942b1"
-      })
+        clientRequestId: "6d620d1a-4d0d-4b40-b430-68875d5942b1",
+      }),
     ).toBeDefined();
     expect(() =>
-      useCommunityTemplateRequestSchema.parse({ clientRequestId: "retry-1" })
+      useCommunityTemplateRequestSchema.parse({ clientRequestId: "retry-1" }),
     ).toThrow();
     expect(() =>
       useCommunityTemplateRequestSchema.parse({
         clientRequestId: "6d620d1a-4d0d-4b40-b430-68875d5942b1",
-        deck: { projectId: "project_private" }
-      })
+        deck: { projectId: "project_private" },
+      }),
     ).toThrow();
   });
 
@@ -207,9 +217,9 @@ describe("community template API contract", () => {
       preview: {
         canvas: snapshot.canvas,
         theme: snapshot.theme,
-        slide: snapshot.slides[0]
+        slide: snapshot.slides[0],
       },
-      createdAt: "2026-07-21T00:00:00.000Z"
+      createdAt: "2026-07-21T00:00:00.000Z",
     };
     expect(communityTemplateCardSchema.parse(card)).toEqual(card);
     expect(() =>
@@ -217,8 +227,8 @@ describe("community template API contract", () => {
         ...card,
         ownerUserId: "user_private",
         sourceProjectId: "project_private",
-        snapshot
-      })
+        snapshot,
+      }),
     ).toThrow();
   });
 });
