@@ -129,4 +129,18 @@ describe("databaseOptions", () => {
       names.indexOf("CreateProjectMembers2026063001000"),
     );
   });
+
+  it("registers community template storage after project membership", () => {
+    const migrations = Array.isArray(databaseOptions.migrations)
+      ? databaseOptions.migrations
+      : [];
+    const names = migrations.map((migration) =>
+      typeof migration === "function" ? migration.name : "",
+    );
+
+    expect(names).toContain("CreateCommunityTemplates2026072101000");
+    expect(
+      names.indexOf("CreateCommunityTemplates2026072101000"),
+    ).toBeGreaterThan(names.indexOf("AddProjectMemberPins2026071801000"));
+  });
 });
