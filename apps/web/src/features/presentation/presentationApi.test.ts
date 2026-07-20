@@ -134,6 +134,51 @@ describe("presentationApi", () => {
     });
   });
 
+  it("normalizes Chrome recorder MIME types before requesting an upload", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ run: presentationRun("created", "microphone") }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          run: presentationRun("uploading", "microphone", "file_audio_1"),
+          upload: {
+            fileId: "file_audio_1",
+            projectId: "project_1",
+            uploadUrl: "https://upload.orbit.test/presentation-audio",
+            method: "PUT",
+            headers: {},
+            expiresAt: "2026-07-20T00:10:00.000Z",
+            purpose: "presentation-audio",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          run: presentationRun("processing", "microphone", "file_audio_1"),
+          job: null,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadPresentationRecording({
+      file: new File(["audio"], "live-presentation.webm", {
+        type: "audio/webm;codecs=opus",
+      }),
+      projectId: "project_1",
+      runId: "presentation_run_1",
+      sessionId: "session_live",
+    });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
+      mimeType: "audio/webm",
+    });
+    expect(fetchMock.mock.calls[2]?.[1]?.body).toBeInstanceOf(File);
+    expect((fetchMock.mock.calls[2]?.[1]?.body as File).type).toBe("audio/webm");
+  });
+
   it("skips duplicate upload after the server already accepted audio completion", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

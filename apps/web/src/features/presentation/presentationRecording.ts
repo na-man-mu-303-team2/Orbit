@@ -24,9 +24,11 @@ export function createPresentationRecordingSession(
         const finish = () => {
           const type = recorder.mimeType || mimeType || "audio/webm";
           resolve(
-            new File(chunks, `presentation-${Date.now()}.${fileExtension(type)}`, {
-              type,
-            }),
+            normalizePresentationRecordingFile(
+              new File(chunks, `presentation-${Date.now()}.${fileExtension(type)}`, {
+                type,
+              }),
+            ),
           );
         };
         if (recorder.state === "inactive") {
@@ -47,6 +49,21 @@ export function selectPresentationRecordingMimeType(recorderCtor: typeof MediaRe
   return ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((type) =>
     recorderCtor.isTypeSupported(type),
   ) ?? "";
+}
+
+export function normalizePresentationRecordingMimeType(mimeType: string) {
+  return mimeType.split(";")[0]?.trim().toLowerCase() || "audio/webm";
+}
+
+export function normalizePresentationRecordingFile(file: File) {
+  const mimeType = normalizePresentationRecordingMimeType(file.type);
+  if (file.type === mimeType) {
+    return file;
+  }
+  return new File([file], file.name, {
+    lastModified: file.lastModified,
+    type: mimeType,
+  });
 }
 
 function fileExtension(mimeType: string) {

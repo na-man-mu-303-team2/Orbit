@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createPresentationRecordingSession,
+  normalizePresentationRecordingMimeType,
   selectPresentationRecordingMimeType,
 } from "./presentationRecording";
 
@@ -15,7 +16,7 @@ describe("presentationRecording", () => {
     const file = await session.stop();
 
     expect(file.name).toMatch(/^presentation-\d+\.webm$/);
-    expect(file.type).toBe("audio/webm;codecs=opus");
+    expect(file.type).toBe("audio/webm");
     await expect(file.text()).resolves.toBe("presentation audio");
   });
 
@@ -34,6 +35,12 @@ describe("presentationRecording", () => {
         isTypeSupported: (type: string) => type === "audio/mp4",
       } as unknown as typeof MediaRecorder),
     ).toBe("audio/mp4");
+  });
+
+  it("normalizes recorder codec MIME types for the upload contract", () => {
+    expect(
+      normalizePresentationRecordingMimeType("audio/webm;codecs=opus"),
+    ).toBe("audio/webm");
   });
 });
 

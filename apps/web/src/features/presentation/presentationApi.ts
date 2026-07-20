@@ -12,6 +12,7 @@ import {
 } from "@orbit/shared";
 
 import { activityApi } from "../activity-slides/api/activityApi";
+import { normalizePresentationRecordingFile } from "./presentationRecording";
 
 export type PresentationRuntimeIdentity = {
   audienceUrl: string;
@@ -105,6 +106,7 @@ export async function uploadPresentationRecording(input: {
   runId: string;
   sessionId: string;
 }) {
+  const file = normalizePresentationRecordingFile(input.file);
   const current = await getPresentationRun(input);
   if (hasCompletedAudioStep(current.run.status)) {
     return;
@@ -124,16 +126,16 @@ export async function uploadPresentationRecording(input: {
     `${runsUrl(input.projectId, input.sessionId)}/${segment(input.runId)}/audio-upload`,
     {
       body: JSON.stringify({
-        mimeType: input.file.type || "audio/webm",
-        originalName: input.file.name,
-        size: input.file.size,
+        mimeType: file.type,
+        originalName: file.name,
+        size: file.size,
       }),
       headers: { "content-type": "application/json" },
       method: "POST",
     },
   );
   const { upload } = createPresentationAudioUploadResponseSchema.parse(uploadResponse);
-  await putPresentationRecording(upload, input.file);
+  await putPresentationRecording(upload, file);
   const completed = await completePendingPresentationRecording({
     ...input,
     fileId: upload.fileId,
