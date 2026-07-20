@@ -1,6 +1,7 @@
 import type { Deck, DeckExportFormat } from "@orbit/shared";
 import {
   IconChevronDown as ChevronDown,
+  IconClock as Clock,
   IconHistory as History,
   IconHome as Home,
   IconPencil as PenLine,
@@ -47,6 +48,7 @@ type EditorTopbarProps = {
   onImportPptx: () => void;
   onOpenAudienceLink: () => void;
   onOpenShare: () => void;
+  onOpenTargetDuration: () => void;
   onRefresh: () => void;
   onRenameDeckTitle: (title: string) => void;
   onRetryOoxmlSync: () => void;
@@ -92,6 +94,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
     onImportPptx,
     onOpenAudienceLink,
     onOpenShare,
+    onOpenTargetDuration,
     onRefresh,
     onRenameDeckTitle,
     onRetryOoxmlSync,
@@ -296,6 +299,14 @@ export function EditorTopbar(props: EditorTopbarProps) {
               </span>
             ) : null}
           </div>
+        ) : null}
+        {canMutateDeck ? (
+          <EditorIconButton
+            icon={<Clock aria-hidden="true" size={17} />}
+            label="발표 시간 배분"
+            onClick={onOpenTargetDuration}
+            title="발표 시간 배분"
+          />
         ) : null}
         {canMutateDeck ? (
           <EditorSaveControl
