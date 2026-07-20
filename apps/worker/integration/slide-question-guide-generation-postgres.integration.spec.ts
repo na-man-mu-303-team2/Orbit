@@ -115,9 +115,13 @@ function createFixtureIds(): FixtureIds {
 
 async function seedFixture(dataSource: DataSource, fixture: FixtureIds) {
   await dataSource.query(
-    `INSERT INTO users (user_id, email, password_hash)
-     VALUES ($1, $2, 'integration-only')`,
-    [fixture.userId, `${fixture.userId}@example.invalid`],
+    `INSERT INTO users (user_id, email, password_hash, display_name)
+     VALUES ($1, $2, 'integration-only', $3)`,
+    [
+      fixture.userId,
+      `${fixture.userId}@example.invalid`,
+      `it-${fixture.userId.slice(-12)}`,
+    ],
   );
   await dataSource.query(
     `INSERT INTO projects (project_id, workspace_id, title, created_by)
