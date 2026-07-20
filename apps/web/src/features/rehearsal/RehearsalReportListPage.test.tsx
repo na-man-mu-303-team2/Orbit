@@ -4,6 +4,7 @@ import {
   buildProjectReportItems,
   getProjectReportHref,
 } from "./RehearsalReportListPage";
+import { getPresentationReportPath } from "./rehearsalUtils";
 
 const project = (projectId: string): Project => ({ createdAt: "2026-07-01T00:00:00.000Z", createdBy: "user_1", projectId, title: projectId, workspaceId: "workspace_1" });
 const run = (runId: string, createdAt: string): RehearsalRun => ({
@@ -47,26 +48,37 @@ const presentationRun = (
 });
 
 describe("buildProjectReportItems", () => {
-  it("keeps only projects with reports and orders by the latest run", () => {
-    const items = buildProjectReportItems([project("old"), project("empty"), project("new")], [
-      { runs: [run("old-1", "2026-07-01T00:00:00.000Z")], total: 1 },
-      { runs: [], total: 0 },
-      { runs: [run("new-1", "2026-07-03T00:00:00.000Z"), run("new-0", "2026-07-02T00:00:00.000Z")], total: 2 }
-    ]);
+  it("combines rehearsal and live presentation reports by project", () => {
+    const items = buildProjectReportItems(
+      [project("old"), project("empty"), project("new")],
+      [
+        { runs: [run("old-1", "2026-07-01T00:00:00.000Z")], total: 1 },
+        { runs: [], total: 0 },
+        { runs: [run("new-0", "2026-07-02T00:00:00.000Z")], total: 1 },
+      ],
+      [
+        { runs: [], total: 0 },
+        { runs: [], total: 0 },
+        { runs: [presentationRun("live-1", "session-1")], total: 1 },
+      ],
+    );
     expect(items.map((item) => item.project.projectId)).toEqual(["new", "old"]);
-    expect(items[0].latestRun.runId).toBe("new-1");
+    expect(items[0].latestRun.runId).toBe("live-1");
     expect(items[0].totalCount).toBe(2);
+    expect(items[0].rehearsalCount).toBe(1);
+    expect(items[0].presentationCount).toBe(1);
   });
 
-  it("routes a live presentation row to its integrated report", () => {
+  it("routes every project row to the integrated project report", () => {
+    expect(getProjectReportHref("project 1")).toBe("/reports/project%201");
+  });
+
+  it("routes a live presentation run from the project report navigation", () => {
     expect(
-      getProjectReportHref(
-        "presentation",
+      getPresentationReportPath(
         "project 1",
         presentationRun("run 1", "session 1"),
       ),
-    ).toBe(
-      "/presentation/project%201/report/session%201?runId=run%201",
-    );
+    ).toBe("/presentation/project%201/report/session%201?runId=run%201");
   });
 });

@@ -129,11 +129,11 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
           {reportStatusLabel(run.status, run.recordingMode)}
         </OrbitStatus>
         <OrbitButtonLink
-          href="/reports?mode=presentation"
+          href={`/reports/${encodeURIComponent(props.projectId)}`}
           icon={<IconArrowLeft aria-hidden="true" size={18} />}
           variant="secondary"
         >
-          실전 발표 리포트 목록
+          프로젝트 리포트
         </OrbitButtonLink>
       </header>
 

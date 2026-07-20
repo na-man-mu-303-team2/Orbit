@@ -1,7 +1,4 @@
 .orbit-report-hub { padding-block: var(--redesign-workspace-page-padding-start) var(--redesign-workspace-page-padding-end); }
-.orbit-report-hub > .redesign-tabs { width: 100%; }
-.orbit-report-hub .redesign-tab-list { margin-bottom: var(--redesign-space-5); }
-.orbit-report-hub .redesign-tab-panel { min-width: 0; }
 
 .orbit-report-list-shell { border: 1px solid var(--redesign-color-outline-variant); border-radius: var(--redesign-radius-xl); overflow: hidden; }
 .orbit-report-list-refresh { display: flex; justify-content: flex-end; padding: var(--redesign-space-3) var(--redesign-space-5); }

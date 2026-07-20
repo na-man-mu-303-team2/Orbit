@@ -1,14 +1,16 @@
 import { CalendarDays, Loader2 } from "lucide-react";
-import type { RehearsalRun } from "@orbit/shared";
+import type { PresentationRun, RehearsalRun } from "@orbit/shared";
 import { getRehearsalReportPath } from "./RehearsalWorkspace";
 import {
   navigateTo,
   formatRunDate,
+  getPresentationReportPath,
   sortRehearsalRunsByCreatedAt,
 } from "./rehearsalUtils";
 
 type RehearsalRunNavProps = {
   runs: RehearsalRun[];
+  presentationRuns?: PresentationRun[];
   activeRunId?: string;
   projectId: string;
   loading?: boolean;
@@ -16,11 +18,17 @@ type RehearsalRunNavProps = {
 
 export function RehearsalRunNav({
   runs,
+  presentationRuns,
   activeRunId,
   projectId,
   loading,
 }: RehearsalRunNavProps) {
   const orderedRuns = sortRehearsalRunsByCreatedAt(runs);
+  const orderedPresentationRuns = [...(presentationRuns ?? [])].sort(
+    (left, right) =>
+      Date.parse(left.createdAt) - Date.parse(right.createdAt),
+  );
+  const totalRunCount = runs.length + orderedPresentationRuns.length;
   const activeRunIndex = orderedRuns.findIndex(
     (run) => run.runId === activeRunId,
   );
@@ -36,7 +44,7 @@ export function RehearsalRunNav({
         <>
           <header className="rehearsal-report-nav-head">
             <h2>전체 리포트 기록</h2>
-            <span>{runs.length}회</span>
+            <span>{totalRunCount}회</span>
           </header>
           {activeRun ? (
             <div className="rehearsal-report-nav-current">
@@ -46,39 +54,90 @@ export function RehearsalRunNav({
             </div>
           ) : null}
 
-          <details className="rehearsal-report-nav-history">
-            <summary>다른 회차 보기</summary>
-            <ul className="rehearsal-report-nav-list">
-              {orderedRuns.map((run, i) => (
-                <li key={run.runId}>
-                  <button
-                    type="button"
-                    className={`rehearsal-report-nav-item${run.runId === activeRunId ? " active" : ""}`}
-                    onClick={() =>
-                      navigateTo(getRehearsalReportPath(projectId, run.runId))
-                    }
-                  >
-                    <strong>
-                      <CalendarDays size={15} />
-                      리허설 {i + 1}회차
-                    </strong>
-                    <span>{formatRunDate(run.createdAt)}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </details>
-
-          <header className="rehearsal-report-nav-head rehearsal-report-nav-head-disabled">
-            <h2>실전</h2>
+          <header className="rehearsal-report-nav-head rehearsal-report-nav-section-head">
+            <h2>리허설</h2>
+            <span>{runs.length}회</span>
           </header>
-          <ul className="rehearsal-report-nav-list rehearsal-report-nav-list-disabled">
-            <li>
-              <div className="rehearsal-report-nav-empty">
-                아직 실전 리포트가 없습니다
-              </div>
-            </li>
-          </ul>
+          {orderedRuns.length > 0 ? (
+            <details
+              className="rehearsal-report-nav-history"
+              open={!presentationRuns}
+            >
+              <summary>리허설 회차 보기</summary>
+              <ul className="rehearsal-report-nav-list">
+                {orderedRuns.map((run, i) => (
+                  <li key={run.runId}>
+                    <button
+                      type="button"
+                      className={`rehearsal-report-nav-item${run.runId === activeRunId ? " active" : ""}`}
+                      onClick={() =>
+                        navigateTo(getRehearsalReportPath(projectId, run.runId))
+                      }
+                    >
+                      <strong>
+                        <CalendarDays size={15} />
+                        리허설 {i + 1}회차
+                      </strong>
+                      <span>{formatRunDate(run.createdAt)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : (
+            <ul className="rehearsal-report-nav-list rehearsal-report-nav-list-disabled">
+              <li>
+                <div className="rehearsal-report-nav-empty">
+                  아직 리허설 리포트가 없습니다
+                </div>
+              </li>
+            </ul>
+          )}
+
+          {presentationRuns ? (
+            <>
+              <header
+                className={`rehearsal-report-nav-head rehearsal-report-nav-section-head${orderedPresentationRuns.length === 0 ? " rehearsal-report-nav-head-disabled" : ""}`}
+              >
+                <h2>실전 발표</h2>
+                <span>{orderedPresentationRuns.length}회</span>
+              </header>
+              {orderedPresentationRuns.length > 0 ? (
+                <details className="rehearsal-report-nav-history" open>
+                  <summary>실전 발표 회차 보기</summary>
+                  <ul className="rehearsal-report-nav-list">
+                    {orderedPresentationRuns.map((run, index) => (
+                      <li key={run.runId}>
+                        <button
+                          type="button"
+                          className="rehearsal-report-nav-item"
+                          onClick={() =>
+                            navigateTo(
+                              getPresentationReportPath(projectId, run),
+                            )
+                          }
+                        >
+                          <strong>
+                            <CalendarDays size={15} />
+                            실전 발표 {index + 1}회차
+                          </strong>
+                          <span>{formatRunDate(run.createdAt)}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : (
+                <ul className="rehearsal-report-nav-list rehearsal-report-nav-list-disabled">
+                  <li>
+                    <div className="rehearsal-report-nav-empty">
+                      아직 실전 발표 리포트가 없습니다
+                    </div>
+                  </li>
+                </ul>
+              )}
+            </>
+          ) : null}
         </>
       )}
     </aside>
