@@ -1,6 +1,5 @@
 import type { Deck, DeckExportFormat } from "@orbit/shared";
 import {
-  IconClock as Clock,
   IconChevronDown as ChevronDown,
   IconHistory as History,
   IconHome as Home,
@@ -48,7 +47,6 @@ type EditorTopbarProps = {
   onImportPptx: () => void;
   onOpenAudienceLink: () => void;
   onOpenShare: () => void;
-  onOpenTargetDuration: () => void;
   onRefresh: () => void;
   onRenameDeckTitle: (title: string) => void;
   onRetryOoxmlSync: () => void;
@@ -67,7 +65,6 @@ type EditorTopbarProps = {
   setActiveTopMenu: (updater: EditorShellUiUpdater<TopMenu | null>) => void;
   showLoadedFileLabel: boolean;
   saving: boolean;
-  targetDurationMinutes: number;
 };
 
 export function EditorTopbar(props: EditorTopbarProps) {
@@ -95,7 +92,6 @@ export function EditorTopbar(props: EditorTopbarProps) {
     onImportPptx,
     onOpenAudienceLink,
     onOpenShare,
-    onOpenTargetDuration,
     onRefresh,
     onRenameDeckTitle,
     onRetryOoxmlSync,
@@ -114,7 +110,6 @@ export function EditorTopbar(props: EditorTopbarProps) {
     setActiveTopMenu,
     showLoadedFileLabel,
     saving,
-    targetDurationMinutes,
   } = props;
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(deckTitle);
@@ -281,18 +276,6 @@ export function EditorTopbar(props: EditorTopbarProps) {
       </div>
 
       <div className="top-actions">
-        {canMutateDeck ? (
-          <button
-            aria-label={`발표 시간 ${targetDurationMinutes}분 설정`}
-            className="editor-target-duration-button"
-            onClick={onOpenTargetDuration}
-            title="발표 시간 배분"
-            type="button"
-          >
-            <Clock aria-hidden="true" size={17} />
-            <span>발표 {targetDurationMinutes}분</span>
-          </button>
-        ) : null}
         {projectPresenceUsers.length > 0 ? (
           <div
             aria-label="소켓 접속 상태 보기"

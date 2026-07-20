@@ -1981,10 +1981,6 @@ export function EditorShell(props: { projectId?: string }) {
             setActiveTopMenu(null);
           }}
           onOpenShare={openSharePanel}
-          onOpenTargetDuration={() => {
-            setIsTargetDurationOpen(true);
-            setActiveTopMenu(null);
-          }}
           onRefresh={() => {
             void health.refetch();
             void deckQuery.refetch();
@@ -2021,7 +2017,6 @@ export function EditorShell(props: { projectId?: string }) {
           saving={isSaveInFlight(saveState)}
           setActiveTopMenu={setActiveTopMenu}
           showLoadedFileLabel={Boolean(deckQuery.data)}
-          targetDurationMinutes={deck.targetDurationMinutes}
         />
       <EditorModals
         audienceLink={{
@@ -2211,6 +2206,10 @@ export function EditorShell(props: { projectId?: string }) {
                     type: "insert",
                   });
                 }
+              }}
+              onOpenTargetDuration={() => {
+                setIsTargetDurationOpen(true);
+                setActiveTopMenu(null);
               }}
               onOpenRightPanel={
                 isRightPanelOpen ? undefined : () => setIsRightPanelOpen(true)

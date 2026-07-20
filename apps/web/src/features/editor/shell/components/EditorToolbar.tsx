@@ -4,6 +4,7 @@ import {
   IconChartBar as BarChart3,
   IconChevronDown as ChevronDown,
   IconChevronLeft as ChevronLeft,
+  IconClock as Clock,
   IconPhotoPlus as ImagePlus,
   IconIcons,
   IconPointer as MousePointer2,
@@ -31,6 +32,7 @@ type EditorToolbarProps = {
   onAddText: () => void;
   onOpenImagePicker: () => void;
   onOpenIconLibrary: () => void;
+  onOpenTargetDuration: () => void;
   onOpenRightPanel?: () => void;
   onRedo: () => void;
   onSelectTool: () => void;
@@ -60,6 +62,9 @@ export function EditorToolbar(props: EditorToolbarProps) {
         <div className="tool-group">
           <button aria-label="실행 취소" className="icon-button history-nav-button" disabled={props.undoDisabled} title="Undo" type="button" onClick={props.onUndo}>
             <IconArrowLeft className="history-nav-icon" size={20} stroke={2} />
+          </button>
+          <button aria-label="발표 시간 배분" className="icon-button history-nav-button" title="발표 시간 배분" type="button" onClick={props.onOpenTargetDuration}>
+            <Clock aria-hidden="true" size={18} stroke={2} />
           </button>
           <button aria-label="다시 실행" className="icon-button history-nav-button" disabled={props.redoDisabled} title="Redo" type="button" onClick={props.onRedo}>
             <IconArrowRight className="history-nav-icon" size={20} stroke={2} />
