@@ -59,7 +59,7 @@
 .orbit-shell .selection-quickbar[data-testid="editor-element-quickbar"] .quickbar-status-pill { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 @media (max-width: 900px) {
-  .orbit-shell .editor-document-title small, .orbit-shell .top-actions .refresh-top-button, .orbit-shell .ooxml-sync-pill { display: none; }
+  .orbit-shell .editor-document-title small, .orbit-shell .top-actions .refresh-top-button { display: none; }
   .orbit-shell .editor-document-title strong { max-width: 180px; }
   .orbit-shell .top-actions { margin-left: auto; }
 }
@@ -223,38 +223,6 @@
 
 .editor-save-time {
   color: var(--redesign-color-on-surface-variant);
-}
-
-.ooxml-sync-pill {
-  max-width: 170px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: var(--redesign-space-2) var(--redesign-space-2);
-  border: 1px solid var(--redesign-color-primary-outline);
-  border-radius: var(--redesign-radius-full);
-  background: var(--redesign-color-primary-subtle);
-  color: var(--redesign-color-primary-emphasis);
-  font-size: var(--redesign-type-label-sm-size);
-  font-weight: 800;
-}
-
-.ooxml-sync-pill.failed {
-  border-color: var(--redesign-color-error-subtle);
-  background: var(--redesign-color-error-subtle);
-  color: var(--redesign-color-error);
-}
-
-.ooxml-sync-pill.warning {
-  border-color: var(--redesign-color-warning-subtle);
-  background: var(--redesign-color-warning-subtle);
-  color: var(--redesign-color-warning);
-}
-
-.ooxml-sync-pill.succeeded {
-  border-color: var(--redesign-color-success-subtle);
-  background: var(--redesign-color-success-subtle);
-  color: var(--redesign-color-success);
 }
 
 .topbar-divider {
