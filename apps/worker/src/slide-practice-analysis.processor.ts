@@ -12,6 +12,8 @@ import {
   slidePracticeAnalysisJobPayloadSchema,
   slidePracticeAnalysisJobResultSchema,
   slidePracticeCoachingSelectionContentSchema,
+  slidePracticeContentHashVersion,
+  slidePracticeContentHashSchema,
   slidePracticeReportSchema,
   slidePracticeServerAudioResponseSchema,
   voiceBaselineMetricsSchema,
@@ -38,6 +40,8 @@ const inputRowSchema = z.object({
   deck_version: z.number().int().positive(),
   slide_id: z.string(),
   slide_order: z.number().int().nonnegative(),
+  content_hash_version: z.literal("slide-text-v1").nullable(),
+  slide_content_hash: slidePracticeContentHashSchema.nullable(),
   started_at: z.union([z.date(), z.string()]),
   duration_ms: z.number().int().positive(),
   device_id_hash: z.string().nullable(),
@@ -153,9 +157,19 @@ export async function processSlidePracticeAnalysisJob(
     const qualityState = qualityReasons.includes("insufficient-speech")
       ? "unmeasured"
       : qualityReasons.length > 0 ? "partial" : "measured";
+    const reportVersionFields = row.content_hash_version && row.slide_content_hash
+      ? {
+          reportVersion: 3 as const,
+          metricDefinitionVersion: 3 as const,
+          contentHashVersion: row.content_hash_version,
+          slideContentHash: row.slide_content_hash,
+        }
+      : {
+          reportVersion: 2 as const,
+          metricDefinitionVersion: 2 as const,
+        };
     const reportWithoutCoaching = slidePracticeReportSchema.parse({
-      reportVersion: 2,
-      metricDefinitionVersion: 2,
+      ...reportVersionFields,
       classifierVersion: 4,
       practiceSessionId: row.practice_session_id,
       projectId: row.project_id,
@@ -392,6 +406,7 @@ function coachingCategory(issueCode: SlidePracticeCoachingIssueCode) {
       return "pitch";
     case "loudness-low":
     case "loudness-high":
+    case "loudness-unstable":
       return "loudness";
   }
 }
@@ -494,9 +509,10 @@ async function persistDerivedReport(
   const rows = await dataSource.query(
     `INSERT INTO slide_practice_reports (
       report_id, project_id, created_by, client_request_id, deck_id, deck_version,
-      slide_id, slide_order, metric_definition_version, classifier_version,
+      slide_id, slide_order, content_hash_version, slide_content_hash,
+      metric_definition_version, classifier_version,
       report_json, created_at, expires_at
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
     ON CONFLICT (project_id, created_by, client_request_id) DO NOTHING
     RETURNING report_id`,
     [
@@ -508,6 +524,8 @@ async function persistDerivedReport(
       row.deck_version,
       row.slide_id,
       row.slide_order,
+      report.reportVersion === 3 ? slidePracticeContentHashVersion : null,
+      report.reportVersion === 3 ? report.slideContentHash : null,
       report.metricDefinitionVersion,
       report.classifierVersion,
       report,

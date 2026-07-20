@@ -279,6 +279,17 @@ describe("slidePracticeReportSchema", () => {
       },
     }).success).toBe(false);
   });
+
+  it("adds loudness instability coaching only for metric v3 reports", () => {
+    expect(findSlidePracticeCoachingIssues(slidePracticeReportSchema.parse({
+      ...reportV3,
+      voice: { ...reportV3.voice, loudnessMadDb: 3.01 },
+    }))).toContain("loudness-unstable");
+    expect(findSlidePracticeCoachingIssues(slidePracticeReportSchema.parse({
+      ...report,
+      voice: { ...report.voice, loudnessMadDb: 3.01 },
+    }))).not.toContain("loudness-unstable");
+  });
 });
 
 describe("slide practice server analysis contract", () => {
@@ -375,6 +386,7 @@ describe("slide practice report list query", () => {
 describe("findSlidePracticeCoachingIssues", () => {
   it("finds the five coaching dimensions using versioned thresholds", () => {
     expect(findSlidePracticeCoachingIssues({
+      reportVersion: 2,
       fillers: {
         ...report.fillers,
         details: [...report.fillers.details],
