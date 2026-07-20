@@ -2,7 +2,7 @@ import type {
   CommunityTemplateCard,
   CommunityTemplateCategory,
 } from "@orbit/shared";
-import { IconSearch } from "@tabler/icons-react";
+import { IconSearch, IconUpload } from "@tabler/icons-react";
 
 import { OrbitButton, OrbitDialog, OrbitInput } from "../../components/ui";
 import {
@@ -33,6 +33,7 @@ export type CommunityTemplateGalleryViewProps = {
   onApply: (instanceKey: string, card: CommunityTemplateCard) => void;
   onCategoryChange: (category: CommunityTemplateCategory | undefined) => void;
   onClose: () => void;
+  onOpenPublish: () => void;
   onPageChange: (page: number) => void;
   onResetFilters: () => void;
   onRetryApply: () => void;
@@ -41,6 +42,7 @@ export type CommunityTemplateGalleryViewProps = {
   onSearchInputChange: (value: string) => void;
   open: boolean;
   page: number;
+  publishReturnFocus: boolean;
   recent: GallerySectionState;
   searchInput: string;
 };
@@ -65,7 +67,9 @@ export function CommunityTemplateGalleryView(
           </span>
           <IconSearch aria-hidden="true" size={18} />
           <OrbitInput
-            data-orbit-dialog-initial
+            data-orbit-dialog-initial={
+              props.publishReturnFocus ? undefined : true
+            }
             disabled={applying}
             onChange={(event) => props.onSearchInputChange(event.target.value)}
             placeholder="템플릿 검색"
@@ -89,6 +93,25 @@ export function CommunityTemplateGalleryView(
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="community-template-publisher-strip">
+        <span aria-hidden="true" className="community-template-publisher-icon">
+          <IconUpload size={20} stroke={1.8} />
+        </span>
+        <div>
+          <strong>내 슬라이드 올리기</strong>
+          <p>내 프로젝트의 디자인을 커뮤니티와 공유해 보세요.</p>
+        </div>
+        <OrbitButton
+          className="community-template-publisher-action"
+          data-orbit-dialog-initial={props.publishReturnFocus || undefined}
+          disabled={applying}
+          onClick={props.onOpenPublish}
+          variant="secondary"
+        >
+          내 슬라이드 올리기
+        </OrbitButton>
       </div>
 
       {props.applyError ? (

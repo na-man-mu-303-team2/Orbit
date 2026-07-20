@@ -8,12 +8,14 @@ import {
   IconChevronRight,
   IconPlus
 } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { WorkspaceContainer } from "../../components/patterns";
 import { OrbitFailureState } from "../../components/ui";
 import "../../styles/tokens.css";
 import { CommunityTemplateGalleryDialog } from "../community-templates/CommunityTemplateGalleryDialog";
 import { CommunityTemplateShelf } from "../community-templates/CommunityTemplateShelf";
+import { CommunityTemplatePublishToast } from "../community-templates/CommunityTemplatePublishToast";
+import { PublishCommunityTemplateDialog } from "../community-templates/PublishCommunityTemplateDialog";
 import {
   createCommunityTemplateApplyAttempt,
   executeCommunityTemplateApply,
@@ -42,6 +44,9 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
   const projects = useProjectList();
   const templates = useCommunityTemplateShelf();
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishReturnFocus, setPublishReturnFocus] = useState(false);
+  const [publishToast, setPublishToast] = useState<string | null>(null);
   const [applyingInstanceKey, setApplyingInstanceKey] = useState<string | null>(
     null,
   );
@@ -62,6 +67,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
       props.onNavigate(projectPath(project));
     },
   });
+  const dismissPublishToast = useCallback(() => setPublishToast(null), []);
 
   async function applyTemplate(
     instanceKey: string,
@@ -143,6 +149,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
           onCreateBlank={() => blankProject.mutate()}
           onOpenGallery={() => {
             setApplyFailure(null);
+            setPublishReturnFocus(false);
             setGalleryOpen(true);
           }}
           onRetry={() => void templates.refetch()}
@@ -222,14 +229,38 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
         onClose={() => {
           if (applyingInstanceKey) return;
           setApplyFailure(null);
+          setPublishReturnFocus(false);
           setGalleryOpen(false);
+        }}
+        onOpenPublish={() => {
+          setPublishReturnFocus(false);
+          setPublishOpen(true);
         }}
         onRetryApply={() => {
           if (!applyFailure) return;
           void applyTemplate(applyFailure.instanceKey, applyFailure.card);
         }}
-        open={galleryOpen}
+        open={galleryOpen && !publishOpen}
+        publishReturnFocus={publishReturnFocus}
       />
+      <PublishCommunityTemplateDialog
+        onClose={() => {
+          setPublishOpen(false);
+          setPublishReturnFocus(true);
+        }}
+        onPublished={(title) => {
+          setPublishOpen(false);
+          setPublishReturnFocus(true);
+          setPublishToast(title);
+        }}
+        open={publishOpen}
+      />
+      {publishToast ? (
+        <CommunityTemplatePublishToast
+          onDismiss={dismissPublishToast}
+          title={publishToast}
+        />
+      ) : null}
     </div>
   );
 }

@@ -36,6 +36,7 @@ function renderGallery(
       onCategoryChange={vi.fn()}
       onClose={vi.fn()}
       onPageChange={vi.fn()}
+      onOpenPublish={vi.fn()}
       onResetFilters={vi.fn()}
       onRetryApply={vi.fn()}
       onRetryList={vi.fn()}
@@ -43,6 +44,7 @@ function renderGallery(
       onSearchInputChange={vi.fn()}
       open
       page={1}
+      publishReturnFocus={false}
       recent={{ items: [sharedCard], loading: false, error: null }}
       searchInput=""
       {...overrides}
@@ -71,7 +73,8 @@ describe("CommunityTemplateGalleryDialog", () => {
     ).toHaveLength(2);
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('data-orbit-dialog-initial="true"');
-    expect(html).not.toContain("내 슬라이드 올리기");
+    expect(html).toContain("내 슬라이드 올리기");
+    expect(html).toContain("내 프로젝트의 디자인을 커뮤니티와 공유해 보세요.");
   });
 
   it("marks only the selected instance as applying and locks dismiss/actions", () => {
@@ -89,6 +92,18 @@ describe("CommunityTemplateGalleryDialog", () => {
       'data-template-instance-key="recent:community_template_shared" data-applying="false"',
     );
     expect(html.match(/disabled=""/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(html).toMatch(/community-template-publisher-action[^>]*disabled/);
+  });
+
+  it("returns initial focus to the publish CTA after the child dialog closes", () => {
+    const html = renderGallery({ publishReturnFocus: true });
+    const searchMarkup = html.match(/<input[^>]+type="search"[^>]*>/)?.[0];
+    const publishMarkup = html.match(
+      /<button[^>]+community-template-publisher-action[^>]*>/,
+    )?.[0];
+
+    expect(searchMarkup).not.toContain("data-orbit-dialog-initial");
+    expect(publishMarkup).toContain("data-orbit-dialog-initial");
   });
 
   it("keeps recent templates visible when the all-template query fails", () => {

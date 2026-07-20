@@ -59,6 +59,15 @@ export function PublishCommunityTemplateDialog(props: {
     setSubmitting(false);
   }, [props.open]);
 
+  useEffect(() => {
+    if (!props.open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [props.open]);
+
   async function submit(request: PublishCommunityTemplateRequest) {
     if (submitting) return;
     setSubmitting(true);

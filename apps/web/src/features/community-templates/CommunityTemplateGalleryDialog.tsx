@@ -68,8 +68,10 @@ export function CommunityTemplateGalleryDialog(props: {
   applyError: string | null;
   onApply: (instanceKey: string, card: CommunityTemplateCard) => void;
   onClose: () => void;
+  onOpenPublish: () => void;
   onRetryApply: () => void;
   open: boolean;
+  publishReturnFocus?: boolean;
 }) {
   const [filters, dispatch] = useReducer(
     reduceCommunityTemplateGalleryFilters,
@@ -130,6 +132,7 @@ export function CommunityTemplateGalleryDialog(props: {
     onCategoryChange: (category) =>
       dispatch({ type: "select-category", category }),
     onClose: props.onClose,
+    onOpenPublish: props.onOpenPublish,
     onPageChange: (page) => dispatch({ type: "change-page", page }),
     onResetFilters: () => dispatch({ type: "reset" }),
     onRetryApply: props.onRetryApply,
@@ -139,6 +142,7 @@ export function CommunityTemplateGalleryDialog(props: {
       dispatch({ type: "change-search-input", searchInput }),
     open: props.open,
     page: filters.page,
+    publishReturnFocus: props.publishReturnFocus ?? false,
     recent: {
       items: recentQuery.data?.items ?? [],
       loading: recentQuery.isLoading,
