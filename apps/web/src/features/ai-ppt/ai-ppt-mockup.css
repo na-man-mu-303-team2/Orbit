@@ -537,7 +537,7 @@
 
 .ai-ppt-ai-palette-flow {
   display: grid;
-  gap: var(--redesign-space-4);
+  gap: var(--redesign-space-6);
   grid-auto-rows: 304px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: var(--redesign-space-4);
@@ -2282,14 +2282,14 @@
 }
 
 .ai-ppt-font-grid {
-  gap: var(--redesign-space-3);
+  gap: var(--redesign-space-6);
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .ai-ppt-font-grid button {
   align-content: start;
   gap: var(--redesign-space-2);
-  min-height: 184px;
+  min-height: 144px;
   overflow: hidden;
   padding: var(--redesign-space-4);
   position: relative;
@@ -2368,7 +2368,7 @@
 }
 
 .ai-ppt-palette-grid {
-  gap: var(--redesign-space-4);
+  gap: var(--redesign-space-6);
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -2798,7 +2798,7 @@
   }
 
   .ai-ppt-font-grid button {
-    min-height: 184px;
+    min-height: 144px;
   }
 
   .ai-ppt-live-preview-card {
