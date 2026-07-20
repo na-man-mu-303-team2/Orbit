@@ -29,5 +29,8 @@ describe("buildLongSilenceDetails", () => {
       slideIndex: 1,
       startSeconds: 12,
     });
+
+    expect(buildLongSilenceDetails(deck, report, "slide_1")).toEqual([]);
+    expect(buildLongSilenceDetails(deck, report, "slide_2")).toHaveLength(1);
   });
 });

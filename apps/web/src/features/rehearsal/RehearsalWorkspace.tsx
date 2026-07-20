@@ -32,6 +32,7 @@ import {
   type RetryRehearsalSemanticEvaluationResponse,
   type SemanticCapabilityEvent,
   type Slide,
+  type SlideTranscriptSnapshot,
   type UpdateRehearsalRunMetaRequest,
   type BriefRef,
   type EvaluatorLensRef,
@@ -725,6 +726,7 @@ export async function completeRehearsalAudioUpload(
   fileId: string,
   liveTranscriptOrFetcher: string | null | Fetcher = null,
   fetcher: Fetcher = fetch,
+  slideTranscriptSnapshots: SlideTranscriptSnapshot[] = [],
 ) {
   const liveTranscript =
     typeof liveTranscriptOrFetcher === "function"
@@ -737,7 +739,11 @@ export async function completeRehearsalAudioUpload(
   const response = await requestFetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}/audio/complete`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ fileId, liveTranscript }),
+    body: JSON.stringify({
+      fileId,
+      liveTranscript,
+      slideTranscriptSnapshots,
+    }),
   });
 
   if (!response.ok) {
@@ -990,6 +996,7 @@ export async function runRehearsalUploadFlow(options: {
   pollTimeoutMs?: number;
   runMeta?: RehearsalRunMeta | null;
   liveTranscript?: string | null;
+  slideTranscriptSnapshots?: SlideTranscriptSnapshot[];
   slideTimeline?: UpdateRehearsalRunMetaRequest["slideTimeline"];
 }) {
   const fetcher = options.fetcher ?? fetch;
@@ -1036,6 +1043,7 @@ export async function runRehearsalUploadFlow(options: {
     uploadResponse.upload.fileId,
     options.liveTranscript ?? null,
     fetcher,
+    options.slideTranscriptSnapshots ?? [],
   );
   const job = await pollRehearsalJob(completed.job.jobId, {
     fetcher,
@@ -2143,6 +2151,14 @@ export function RehearsalWorkspace(props: {
   const liveSessionTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
     createLiveTranscriptBuffer(),
   );
+  const slideTranscriptSnapshotsRef = useRef<SlideTranscriptSnapshot[]>([]);
+  const slideTranscriptVisitVersionsRef = useRef(new Map<string, number>());
+  const activeSlideTranscriptVisitRef = useRef<{
+    slideId: string;
+    slideNum: number;
+    visitedAt: string;
+    visitedVer: number;
+  } | null>(null);
   const liveKeywordStateRef = useRef<LiveTranscriptAnalysis | null>(null);
   const liveKeywordOccurrenceStateRef =
     useRef<LiveKeywordOccurrenceState | null>(null);
@@ -2833,6 +2849,20 @@ export function RehearsalWorkspace(props: {
     setSlideElapsedSeconds(0);
   }, [currentSlide?.slideId]);
 
+  useEffect(() => {
+    const activeVisit = activeSlideTranscriptVisitRef.current;
+    if (
+      !activeVisit ||
+      !currentSlide ||
+      activeVisit.slideId === currentSlide.slideId
+    ) {
+      return;
+    }
+
+    captureSlideTranscriptSnapshot("slide-change");
+    beginSlideTranscriptVisit(currentSlide, currentSlideIndex);
+  }, [currentSlide?.slideId, currentSlideIndex]);
+
   usePresenterKeyboard({
     enabled:
       Boolean(deck) &&
@@ -2957,6 +2987,7 @@ export function RehearsalWorkspace(props: {
       streamRef.current = stream;
       sessionRef.current = session;
       session.start();
+      resetSlideTranscriptSnapshots(activeDeck, currentSlideIndexRef.current);
       setPhase("recording");
       setIsTimerRunning(true);
       setRehearsalRuntimeStatus("running");
@@ -3094,6 +3125,7 @@ export function RehearsalWorkspace(props: {
   function stopRecording() {
     if (phase !== "recording") return;
 
+    captureSlideTranscriptSnapshot("rehearsal-end");
     setRehearsalRuntimeStatus("stopping");
     setPhase("uploading");
     setIsTimerRunning(false);
@@ -4076,6 +4108,55 @@ export function RehearsalWorkspace(props: {
     setLiveSessionTranscript("");
   }
 
+  function beginSlideTranscriptVisit(
+    slide: Slide,
+    slideIndex: number,
+    visitedAt = new Date().toISOString(),
+  ) {
+    const visitedVer =
+      (slideTranscriptVisitVersionsRef.current.get(slide.slideId) ?? 0) + 1;
+    slideTranscriptVisitVersionsRef.current.set(slide.slideId, visitedVer);
+    activeSlideTranscriptVisitRef.current = {
+      slideId: slide.slideId,
+      slideNum: slideIndex + 1,
+      visitedAt,
+      visitedVer,
+    };
+  }
+
+  function captureSlideTranscriptSnapshot(
+    reason: SlideTranscriptSnapshot["reason"],
+    capturedAt = new Date().toISOString(),
+  ) {
+    const activeVisit = activeSlideTranscriptVisitRef.current;
+    if (!activeVisit) {
+      return;
+    }
+
+    slideTranscriptSnapshotsRef.current.push({
+      ...activeVisit,
+      transcript: renderLiveTranscriptBuffer(
+        liveSessionTranscriptBufferRef.current,
+      ),
+      capturedAt,
+      reason,
+    });
+    activeSlideTranscriptVisitRef.current = null;
+  }
+
+  function resetSlideTranscriptSnapshots(
+    activeDeck: Deck,
+    slideIndex: number,
+  ) {
+    slideTranscriptSnapshotsRef.current = [];
+    slideTranscriptVisitVersionsRef.current = new Map();
+    activeSlideTranscriptVisitRef.current = null;
+    const slide = activeDeck.slides[slideIndex];
+    if (slide) {
+      beginSlideTranscriptVisit(slide, slideIndex);
+    }
+  }
+
   function resetLivePlaybackForSlide(slide: Slide | null) {
     resetLiveTranscriptForSlide(slide);
     const nextSlidePlaybackState = createSlidePlaybackState();
@@ -4145,6 +4226,7 @@ export function RehearsalWorkspace(props: {
         liveTranscript: renderLiveTranscriptBuffer(
           liveSessionTranscriptBufferRef.current,
         ),
+        slideTranscriptSnapshots: slideTranscriptSnapshotsRef.current,
         onJobUpdate: (nextJob) => {
           setJob(nextJob);
           setPhase("processing");
@@ -6208,6 +6290,8 @@ export function RehearsalReportPage(props: {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
   const [run, setRun] = useState<RehearsalRun | null>(props.initialRun ?? null);
   const [audioPlaybackAvailable, setAudioPlaybackAvailable] = useState(true);
+  const [transcriptDownloadAvailable, setTranscriptDownloadAvailable] =
+    useState(false);
   const [report, setReport] = useState<RehearsalReport | null>(
     props.initialReport ?? null,
   );
@@ -6277,6 +6361,9 @@ export function RehearsalReportPage(props: {
         setAudioPlaybackAvailable(
           response.audioPlaybackAvailable ?? Boolean(response.run.audioFileId),
         );
+        setTranscriptDownloadAvailable(
+          response.transcriptDownloadAvailable ?? false,
+        );
         setReport(nextState.status === "ready" ? response.report : null);
         setStatus(nextState.status);
         setError(nextState.error);
@@ -6294,6 +6381,9 @@ export function RehearsalReportPage(props: {
                   setRun(r.run);
                   setAudioPlaybackAvailable(
                     r.audioPlaybackAvailable ?? Boolean(r.run.audioFileId),
+                  );
+                  setTranscriptDownloadAvailable(
+                    r.transcriptDownloadAvailable ?? false,
                   );
                   setReport(r.report);
                   setStatus(r.report ? "ready" : "failed");
@@ -6454,6 +6544,7 @@ export function RehearsalReportPage(props: {
           ) : report ? (
             <RehearsalReportDocument
               audioPlaybackAvailable={audioPlaybackAvailable}
+              transcriptDownloadAvailable={transcriptDownloadAvailable}
               report={report}
               deck={deck}
               onSemanticRetry={handleSemanticRetry}

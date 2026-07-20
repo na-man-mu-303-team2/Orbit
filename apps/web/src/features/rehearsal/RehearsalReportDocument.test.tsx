@@ -8,9 +8,12 @@ import {
   type RehearsalReport,
 } from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { RehearsalReportDocument } from "./RehearsalReportDocument";
+import {
+  fetchRehearsalDownload,
+  RehearsalReportDocument,
+} from "./RehearsalReportDocument";
 
 describe("RehearsalReportDocument", () => {
   it("opens the test report directly without analysis tab controls", () => {
@@ -40,6 +43,33 @@ describe("RehearsalReportDocument", () => {
     expect(html).toContain("슬라이드 상세 리포트 테스트");
     expect(html).toContain('aria-current="true"');
     expect(html).toContain("전체 발표 핵심 요약");
+    expect(html).toContain("자료 내려받기");
+    expect(html.indexOf("전체 리허설 리포트")).toBeLessThan(
+      html.indexOf("자료 내려받기"),
+    );
+    expect(html.indexOf("자료 내려받기")).toBeLessThan(
+      html.indexOf("다시 리허설"),
+    );
+  });
+
+  it("requests a private rehearsal artifact download", async () => {
+    const fetcher = vi.fn(async () =>
+      new Response("전체 transcript", {
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      }),
+    );
+
+    const result = await fetchRehearsalDownload(
+      "run/1",
+      "transcript",
+      fetcher,
+    );
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/rehearsals/run%2F1/downloads/transcript",
+    );
+    expect(result.fileName).toBe("transcript.txt");
+    expect(await result.blob.text()).toBe("전체 transcript");
   });
   it("groups utterance outcomes and renders presenter-facing semantic outcomes", () => {
     const html = renderToStaticMarkup(

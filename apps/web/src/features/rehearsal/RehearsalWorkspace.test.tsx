@@ -3131,6 +3131,17 @@ describe("runRehearsalUploadFlow", () => {
       runId: "run-1",
       audioFile,
       liveTranscript: "브라우저에서 인식한 전체 문장",
+      slideTranscriptSnapshots: [
+        {
+          slideId: "slide_1",
+          slideNum: 1,
+          visitedVer: 1,
+          transcript: "첫 문장",
+          visitedAt: "2026-07-20T04:00:00.000Z",
+          capturedAt: "2026-07-20T04:01:00.000Z",
+          reason: "rehearsal-end",
+        },
+      ],
       slideTimeline: [
         { slideId: "slide_1", enteredAt: "2026-06-29T00:00:00.000Z" },
       ],
@@ -3161,6 +3172,17 @@ describe("runRehearsalUploadFlow", () => {
     expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({
       fileId: "file-audio",
       liveTranscript: "브라우저에서 인식한 전체 문장",
+      slideTranscriptSnapshots: [
+        {
+          slideId: "slide_1",
+          slideNum: 1,
+          visitedVer: 1,
+          transcript: "첫 문장",
+          visitedAt: "2026-07-20T04:00:00.000Z",
+          capturedAt: "2026-07-20T04:01:00.000Z",
+          reason: "rehearsal-end",
+        },
+      ],
     });
   });
 

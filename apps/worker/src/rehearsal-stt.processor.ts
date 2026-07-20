@@ -13,6 +13,7 @@ import {
   rehearsalRunMetaSchema,
   rehearsalSemanticCueOutcomeSchema,
   rehearsalSemanticEvaluationSchema,
+  slideTranscriptSnapshotsSchema,
   type Job,
   type RehearsalAudioProcessingResponse,
   type RehearsalEvaluationSnapshot,
@@ -41,6 +42,7 @@ const rehearsalSttPayloadSchema = z.object({
   deckId: z.string().min(1),
   audioFileId: z.string().min(1),
   liveTranscript: z.string().max(200_000).nullable().default(null),
+  slideTranscriptSnapshots: slideTranscriptSnapshotsSchema.default([]),
 });
 
 const audioAssetRowSchema = z.object({
@@ -107,6 +109,7 @@ const analyzeSlideInsightSchema = z
   .object({
     slideId: z.string().min(1),
     fillerWordCount: z.number().int().nonnegative(),
+    fillerWordDetails: z.array(analyzeFillerWordDetailSchema).default([]),
     longSilenceCount: z.number().int().nonnegative().nullable(),
     speakingRate: rehearsalSlideSpeakingRateSchema.default(
       legacyRehearsalSlideSpeakingRate,
@@ -442,6 +445,7 @@ export async function processRehearsalSttJob(
       transcriptJsonStatus: runInput.transcript_json_status,
       transcriptTextStatus: runInput.transcript_text_status,
       liveTranscript: payload.liveTranscript,
+      slideTranscriptSnapshots: payload.slideTranscriptSnapshots,
       transcription: audioProcessingResponse,
     });
   } catch {
@@ -481,6 +485,7 @@ export async function processRehearsalSttJob(
     analysis = applyLiveTranscriptFillerAnalysis(
       analysis,
       payload.liveTranscript,
+      payload.slideTranscriptSnapshots,
     );
     onSlideSpeakingRateEvent?.(
       buildSlideSpeakingRateBusinessEvent(payload, analysis.slideInsights),
@@ -628,17 +633,77 @@ export function buildTranscriptionPronunciationContext(
 export function applyLiveTranscriptFillerAnalysis(
   analysis: z.infer<typeof analyzeResponseSchema>,
   liveTranscript: string | null,
+  slideTranscriptSnapshots: RehearsalSttPayload["slideTranscriptSnapshots"] = [],
 ): z.infer<typeof analyzeResponseSchema> {
-  if (!liveTranscript?.trim()) {
+  if (!liveTranscript?.trim() && slideTranscriptSnapshots.length === 0) {
     return analysis;
   }
 
-  const fillers = analyzeKoreanFillers(liveTranscript);
+  const fillers = liveTranscript?.trim()
+    ? analyzeKoreanFillers(liveTranscript)
+    : {
+        totalCount: analysis.fillerWordCount,
+        details: analysis.fillerWordDetails,
+      };
+  const slideInsights = applySlideTranscriptFillerAnalysis(
+    analysis.slideInsights,
+    slideTranscriptSnapshots,
+  );
   return {
     ...analysis,
     fillerWordCount: fillers.totalCount,
     fillerWordDetails: fillers.details,
+    slideInsights,
   };
+}
+
+function applySlideTranscriptFillerAnalysis(
+  slideInsights: z.infer<typeof analyzeResponseSchema>["slideInsights"],
+  snapshots: RehearsalSttPayload["slideTranscriptSnapshots"],
+) {
+  if (snapshots.length === 0) {
+    return slideInsights;
+  }
+
+  const wordsBySlide = new Map<string, Map<string, number>>();
+  let previousTranscript = "";
+  for (const snapshot of snapshots) {
+    const segmentTranscript = snapshot.transcript.startsWith(previousTranscript)
+      ? snapshot.transcript.slice(previousTranscript.length)
+      : snapshot.transcript;
+    previousTranscript = snapshot.transcript;
+
+    const wordCounts = wordsBySlide.get(snapshot.slideId) ?? new Map();
+    const fillers = analyzeKoreanFillers(segmentTranscript);
+    for (const detail of fillers.details) {
+      wordCounts.set(detail.word, (wordCounts.get(detail.word) ?? 0) + detail.count);
+    }
+    wordsBySlide.set(snapshot.slideId, wordCounts);
+  }
+
+  const existingBySlide = new Map(
+    slideInsights.map((insight) => [insight.slideId, insight]),
+  );
+  for (const [slideId, wordCounts] of wordsBySlide) {
+    const fillerWordDetails = [...wordCounts].map(([word, count]) => ({
+      word,
+      count,
+    }));
+    const fillerWordCount = fillerWordDetails.reduce(
+      (total, detail) => total + detail.count,
+      0,
+    );
+    const existing = existingBySlide.get(slideId);
+    existingBySlide.set(slideId, {
+      slideId,
+      fillerWordCount,
+      fillerWordDetails,
+      longSilenceCount: existing?.longSilenceCount ?? null,
+      speakingRate: existing?.speakingRate ?? legacyRehearsalSlideSpeakingRate,
+    });
+  }
+
+  return [...existingBySlide.values()];
 }
 
 function buildRehearsalReport(

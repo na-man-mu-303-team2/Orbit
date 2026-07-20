@@ -59,6 +59,10 @@ import { RehearsalReportListPage } from "./features/rehearsal/RehearsalReportLis
 import { RehearsalProjectPickerPage } from "./features/rehearsal/RehearsalProjectPickerPage";
 import { RehearsalProjectOverviewPage } from "./features/rehearsal/RehearsalProjectOverviewPage";
 import { RehearsalMicCheckModal } from "./features/rehearsal/preflight/RehearsalMicCheckModal";
+import {
+  isRehearsalEntryPath,
+  rehearsalNavigationRequestEvent,
+} from "./features/rehearsal/rehearsalUtils";
 import { PresentationWorkspace } from "./features/presentation/PresentationWorkspace";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
@@ -589,13 +593,6 @@ export function getRoute(pathname?: string, search?: string): Route {
   } catch {
     return { name: "not-found" };
   }
-}
-
-const rehearsalNavigationRequestEvent = "orbit:rehearsal-navigation-request";
-
-function isRehearsalEntryPath(path: string) {
-  const url = new URL(path, window.location.origin);
-  return url.origin === window.location.origin && /^\/rehearsal\/[^/]+\/?$/.test(url.pathname);
 }
 
 function navigateImmediately(path: string) {
