@@ -17,8 +17,11 @@ import {
   type PracticeTrendMetric,
   type PracticeTrendSeries,
 } from "./practiceTrend";
+import { PracticeCelebrationFeedback } from "./PracticeCelebrationFeedback";
+import { practiceCelebrationOutcome } from "./practiceCelebration";
 
 export function PracticeTrendDashboard(props: {
+  animationSessionId?: string | null;
   reports: readonly SlidePracticeReportRecord[];
   slideContentHash: string;
 }) {
@@ -31,6 +34,7 @@ export function PracticeTrendDashboard(props: {
     metric,
   });
   const latest = comparable.at(-1) ?? null;
+  const celebration = latest ? practiceCelebrationOutcome(latest) : null;
   const selectedMetric = practiceTrendMetricOptions.find((option) => option.id === metric)!;
 
   function handleTabKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
@@ -90,10 +94,17 @@ export function PracticeTrendDashboard(props: {
             </div>
           </section>
           <PracticeMetricCards latest={latest!} reports={comparable} />
-          <aside className="editor-practice-growth-context" aria-label="비교 기준 안내">
-            <strong>{series.mode === "current" ? "이번 회차" : series.mode === "comparison" ? "이전 대비" : "최근 추세"}</strong>
-            <p>다른 슬라이드 내용이나 측정 기준의 기록은 선으로 연결하지 않습니다.</p>
-          </aside>
+          {latest && celebration?.noFiller ? (
+            <PracticeCelebrationFeedback
+              animate={props.animationSessionId === latest.practiceSessionId}
+              report={latest}
+            />
+          ) : (
+            <aside className="editor-practice-growth-context" aria-label="비교 기준 안내">
+              <strong>{series.mode === "current" ? "이번 회차" : series.mode === "comparison" ? "이전 대비" : "최근 추세"}</strong>
+              <p>다른 슬라이드 내용이나 측정 기준의 기록은 선으로 연결하지 않습니다.</p>
+            </aside>
+          )}
         </div>
       )}
     </section>

@@ -3,7 +3,9 @@ import type { Deck, Slide } from "@orbit/shared";
 import { SlidePracticeHistoryPanel } from "../../practice/SlidePracticeHistoryPanel";
 
 export function SpeakerNotesReportTab(props: {
+  celebrationSessionId: string | null;
   deck: Deck;
+  onCelebrationConsumed: (sessionId: string) => void;
   projectId: string;
   refreshToken: number;
   slide: Slide | null;
@@ -16,7 +18,9 @@ export function SpeakerNotesReportTab(props: {
       role="tabpanel"
     >
       <SlidePracticeHistoryPanel
+        celebrationSessionId={props.celebrationSessionId}
         deck={props.deck}
+        onCelebrationConsumed={props.onCelebrationConsumed}
         projectId={props.projectId}
         refreshToken={props.refreshToken}
         slide={props.slide}

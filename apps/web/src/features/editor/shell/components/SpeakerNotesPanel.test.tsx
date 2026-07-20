@@ -15,6 +15,7 @@ function renderPanel(isExpanded: boolean, isEditing = false) {
   return renderToStaticMarkup(
     <SpeakerNotesPanel
       canGenerateQuestionGuides
+      celebrationSessionId={null}
       contentRef={createRef<HTMLDivElement>()}
       currentSlide={currentSlide}
       deck={deck}
@@ -29,6 +30,7 @@ function renderPanel(isExpanded: boolean, isEditing = false) {
       maxHeight={480}
       minHeight={120}
       onCancelEdit={vi.fn()}
+      onCelebrationConsumed={vi.fn()}
       onClearKeyword={vi.fn()}
       onDeleteKeyword={vi.fn()}
       onDraftChange={vi.fn()}
@@ -117,7 +119,9 @@ describe("SpeakerNotesPanel", () => {
     );
     const reportHtml = renderToStaticMarkup(
       <SpeakerNotesReportTab
+        celebrationSessionId={null}
         deck={deck}
+        onCelebrationConsumed={vi.fn()}
         projectId={deck.projectId}
         refreshToken={0}
         slide={slide}

@@ -808,6 +808,35 @@
   padding: var(--redesign-space-4);
 }
 
+.orbit-shell .editor-practice-celebration {
+  align-content: center;
+  background: var(--redesign-color-primary-subtle);
+  border: 1px solid var(--redesign-color-primary-outline);
+  border-radius: var(--redesign-radius-lg);
+  display: grid;
+  gap: var(--redesign-space-2);
+  grid-area: context;
+  min-width: 0;
+  padding: var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-celebration-kicker {
+  color: var(--redesign-color-primary-emphasis);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 700;
+}
+
+.orbit-shell .editor-practice-celebration strong {
+  font-size: var(--redesign-type-body-md-size);
+  overflow-wrap: anywhere;
+}
+
+.orbit-shell .editor-practice-great-copy {
+  color: var(--redesign-color-primary-emphasis);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 700;
+}
+
 .orbit-shell .editor-practice-current-detail {
   overflow: clip;
 }

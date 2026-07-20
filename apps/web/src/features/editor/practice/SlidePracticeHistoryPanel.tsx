@@ -4,24 +4,29 @@ import {
   type Slide,
   type SlidePracticeReportRecord,
 } from "@orbit/shared";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { PracticeResult } from "./SlidePracticePanel";
 import { PracticeTrendDashboard } from "./PracticeTrendDashboard";
+import { practiceCelebrationAnimationSession } from "./practiceCelebration";
 import { listSlidePracticeReports } from "./slidePracticeApi";
 import { sha256Canonical } from "./slideQuestionGuideApi";
 
 export function SlidePracticeHistoryPanel(props: {
+  celebrationSessionId: string | null;
   projectId: string;
   deck: Deck;
   slide: Slide | null;
   refreshToken: number;
+  onCelebrationConsumed: (sessionId: string) => void;
 }) {
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [retryToken, setRetryToken] = useState(0);
   const [slideContentHash, setSlideContentHash] = useState<string | null>(null);
   const [comparableReports, setComparableReports] = useState<SlidePracticeReportRecord[]>([]);
   const [latestReport, setLatestReport] = useState<SlidePracticeReportRecord | null>(null);
+  const [animationSessionId, setAnimationSessionId] = useState<string | null>(null);
+  const consumedCelebrationRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -30,6 +35,7 @@ export function SlidePracticeHistoryPanel(props: {
       setSlideContentHash(null);
       setComparableReports([]);
       setLatestReport(null);
+      setAnimationSessionId(null);
       setState("ready");
       return () => { active = false; };
     }
@@ -52,13 +58,30 @@ export function SlidePracticeHistoryPanel(props: {
       if (!active) return;
       setSlideContentHash(hash);
       setComparableReports(comparable.reports);
-      setLatestReport(latest.reports[0] ?? null);
+      const latestReport = latest.reports[0] ?? null;
+      setLatestReport(latestReport);
+      const nextAnimationSessionId = practiceCelebrationAnimationSession({
+        consumedSessionId: consumedCelebrationRef.current,
+        latestSessionId: latestReport?.practiceSessionId ?? null,
+        triggerSessionId: props.celebrationSessionId,
+      });
+      setAnimationSessionId(nextAnimationSessionId);
+      if (nextAnimationSessionId) {
+        consumedCelebrationRef.current = nextAnimationSessionId;
+        props.onCelebrationConsumed(nextAnimationSessionId);
+      }
       setState("ready");
     }).catch(() => {
       if (active) setState("error");
     });
     return () => { active = false; };
-  }, [props.deck.deckId, props.projectId, props.refreshToken, props.slide, retryToken]);
+  }, [
+    props.deck.deckId,
+    props.projectId,
+    props.refreshToken,
+    props.slide,
+    retryToken,
+  ]);
 
   if (state === "loading") return <p className="editor-dock-empty">연습 기록을 불러오는 중…</p>;
   if (state === "error") return (
@@ -71,6 +94,7 @@ export function SlidePracticeHistoryPanel(props: {
   if (!slideContentHash) return <p className="editor-dock-empty">슬라이드 비교 기준을 만들지 못했습니다.</p>;
   return (
     <PracticeHistoryContent
+      animationSessionId={animationSessionId}
       comparableReports={comparableReports}
       latestReport={latestReport}
       slideContentHash={slideContentHash}
@@ -79,6 +103,7 @@ export function SlidePracticeHistoryPanel(props: {
 }
 
 export function PracticeHistoryContent(props: {
+  animationSessionId?: string | null;
   comparableReports: readonly SlidePracticeReportRecord[];
   latestReport: SlidePracticeReportRecord | null;
   slideContentHash: string;
@@ -90,7 +115,11 @@ export function PracticeHistoryContent(props: {
 
   return (
     <div className="editor-practice-history">
-      <PracticeTrendDashboard reports={props.comparableReports} slideContentHash={props.slideContentHash} />
+      <PracticeTrendDashboard
+        animationSessionId={props.animationSessionId}
+        reports={props.comparableReports}
+        slideContentHash={props.slideContentHash}
+      />
       {latestReport ? (
         <details className="editor-practice-current-detail">
           <summary>
