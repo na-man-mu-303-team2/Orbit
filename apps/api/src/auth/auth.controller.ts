@@ -4,7 +4,8 @@ import {
   createProjectTagDefinitionRequestSchema,
   loginRequestSchema,
   logoutResponseSchema,
-  registerRequestSchema
+  registerRequestSchema,
+  updateProfileRequestSchema
 } from "@orbit/shared";
 import type { AuthResponse } from "@orbit/shared";
 import {
@@ -14,6 +15,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Req,
   Res,
@@ -93,6 +95,23 @@ export class AuthController {
     }
 
     return this.authService.me(sessionId);
+  }
+
+  /** 현재 사용자의 닉네임을 DB와 현재 세션에 함께 반영한다. */
+  @Patch("profile")
+  async updateProfile(
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest
+  ) {
+    const input = parseAuthRequest(updateProfileRequestSchema, body);
+    const sessionId = requireSignedSessionId(request);
+    const session = await this.authService.me(sessionId);
+    const user = await this.authService.updateProfile(
+      sessionId,
+      session.user.userId,
+      input
+    );
+    return authResponseSchema.parse({ user });
   }
 
   @Get("project-tags")

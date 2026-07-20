@@ -7,7 +7,8 @@ import {
   loginRequestSchema,
   meResponseSchema,
   projectTagDefinitionsResponseSchema,
-  registerRequestSchema
+  registerRequestSchema,
+  updateProfileRequestSchema
 } from "@orbit/shared";
 import type {
   AuthResponse,
@@ -19,7 +20,8 @@ import type {
   MeResponse,
   OfficialAvatarId,
   ProjectTagDefinitionsResponse,
-  RegisterRequest
+  RegisterRequest,
+  UpdateProfileRequest
 } from "@orbit/shared";
 import {
   BadRequestException,
@@ -39,6 +41,7 @@ import { AUTH_SESSION_STORE, AuthSessionStore } from "./auth-session.store";
 type UserRow = {
   user_id: string;
   email: string;
+  display_name: string;
   password_hash: string;
   avatar_type: "official" | "uploaded" | null;
   avatar_id: string | null;
@@ -129,16 +132,26 @@ export class AuthService {
     try {
       const rows = await this.dataSource.query<UserRow[]>(
         `
-          INSERT INTO users (user_id, email, password_hash, created_at, updated_at)
-          VALUES ($1, $2, $3, $4, $4)
-          RETURNING user_id, email, password_hash, avatar_type, avatar_id, created_at, updated_at
+          INSERT INTO users (user_id, email, display_name, password_hash, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $5)
+          RETURNING user_id, email, display_name, password_hash, avatar_type, avatar_id, created_at, updated_at
         `,
-        [`user_${randomUUID()}`, credentials.email, passwordHash, now]
+        [
+          `user_${randomUUID()}`,
+          credentials.email,
+          credentials.displayName,
+          passwordHash,
+          now
+        ]
       );
 
       return this.createSession(this.toAuthUser(rows[0]));
     } catch (error: unknown) {
-      if (isPostgresUniqueViolation(error)) {
+      const constraint = getPostgresUniqueConstraint(error);
+      if (constraint === "uq_users_display_name_normalized") {
+        throw new ConflictException("Nickname already in use");
+      }
+      if (constraint || isPostgresUniqueViolation(error)) {
         throw new ConflictException("Email already registered");
       }
 
@@ -207,15 +220,41 @@ export class AuthService {
       throw new UnauthorizedException("Authentication required");
     }
     const user = this.toAuthUser(userRow);
-    const session = await this.sessions.get(sessionId);
-    if (session?.user.userId === userId) {
-      const remainingTtlSeconds = Math.ceil(
-        (new Date(session.expiresAt).getTime() - Date.now()) / 1000
+    await this.refreshCurrentSession(sessionId, userId, user);
+    return user;
+  }
+
+  /** 닉네임 변경을 영속화하고 현재 브라우저의 세션 사용자 정보도 갱신한다. */
+  async updateProfile(
+    sessionId: string,
+    userId: string,
+    input: UpdateProfileRequest
+  ): Promise<AuthUser> {
+    const profile = updateProfileRequestSchema.parse(input);
+    try {
+      await this.dataSource.query(
+        `UPDATE users
+         SET display_name = $2, updated_at = now()
+         WHERE user_id = $1`,
+        [userId, profile.displayName]
       );
-      if (remainingTtlSeconds > 0) {
-        await this.sessions.set(sessionId, { ...session, user }, remainingTtlSeconds);
+    } catch (error: unknown) {
+      if (getPostgresUniqueConstraint(error) === "uq_users_display_name_normalized") {
+        throw new ConflictException("Nickname already in use");
       }
+      throw error;
     }
+
+    const userRow = await this.findUserById(userId);
+    if (!userRow) {
+      throw new UnauthorizedException("Authentication required");
+    }
+    const user = this.toAuthUser(userRow);
+    await this.refreshCurrentSession(sessionId, userId, user);
+    this.logger?.info(
+      { event: "user.profile_updated", userId },
+      "User profile updated."
+    );
     return user;
   }
 
@@ -245,7 +284,7 @@ export class AuthService {
   private async findUserByEmail(email: string): Promise<UserRow | undefined> {
     const rows = await this.dataSource.query<UserRow[]>(
       `
-        SELECT user_id, email, password_hash, avatar_type, avatar_id, created_at, updated_at
+        SELECT user_id, email, display_name, password_hash, avatar_type, avatar_id, created_at, updated_at
         FROM users
         WHERE lower(email) = lower($1)
       `,
@@ -258,7 +297,7 @@ export class AuthService {
   private async findUserById(userId: string): Promise<UserRow | undefined> {
     const rows = await this.dataSource.query<UserRow[]>(
       `
-        SELECT user_id, email, password_hash, avatar_type, avatar_id, created_at, updated_at
+        SELECT user_id, email, display_name, password_hash, avatar_type, avatar_id, created_at, updated_at
         FROM users
         WHERE user_id = $1
         LIMIT 1
@@ -274,9 +313,26 @@ export class AuthService {
     return authUserSchema.parse({
       userId: row.user_id,
       email: row.email,
+      displayName: row.display_name,
       createdAt: toIso(row.created_at),
       avatar: toAuthAvatar(row),
     });
+  }
+
+  private async refreshCurrentSession(
+    sessionId: string,
+    userId: string,
+    user: AuthUser
+  ): Promise<void> {
+    const session = await this.sessions.get(sessionId);
+    if (session?.user.userId !== userId) return;
+
+    const remainingTtlSeconds = Math.ceil(
+      (new Date(session.expiresAt).getTime() - Date.now()) / 1000
+    );
+    if (remainingTtlSeconds > 0) {
+      await this.sessions.set(sessionId, { ...session, user }, remainingTtlSeconds);
+    }
   }
 }
 
@@ -303,6 +359,19 @@ function isPostgresUniqueViolation(error: unknown): boolean {
     "code" in error &&
     error.code === "23505"
   );
+}
+
+function getPostgresUniqueConstraint(error: unknown): string | null {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("code" in error) ||
+    error.code !== "23505" ||
+    !("constraint" in error)
+  ) {
+    return null;
+  }
+  return typeof error.constraint === "string" ? error.constraint : null;
 }
 
 /** TypeORM query 결과의 날짜 타입 차이를 ISO 문자열로 통일한다. */
