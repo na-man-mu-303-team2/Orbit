@@ -4,6 +4,14 @@ import { p0AnimationDeck } from "../../rehearsal/presenter/__fixtures__/animatio
 import { resolveGroupedElementPresentationStates } from "./groupPresentationState";
 
 const slide = p0AnimationDeck.slides[0]!;
+const sourceGroup = slide.elements.find(
+  (element): element is Extract<DeckElement, { type: "group" }> =>
+    element.elementId === "el_group" && element.type === "group",
+);
+
+if (!sourceGroup) {
+  throw new Error("group fixture is invalid");
+}
 
 describe("resolveGroupedElementPresentationStates", () => {
   it("composes a group's opacity and visibility into each direct child", () => {
@@ -46,9 +54,7 @@ describe("resolveGroupedElementPresentationStates", () => {
       elements: [
         ...slide.elements.filter((element) => element.elementId !== "el_group"),
         {
-          ...slide.elements.find(
-            (element) => element.elementId === "el_group",
-          )!,
+          ...sourceGroup,
           props: { childElementIds: [nestedGroup.elementId] },
         },
         nestedGroup,
