@@ -68,6 +68,24 @@ describe("target duration model", () => {
     );
   });
 
+  it("includes a changed slide title in the slide timing patch", () => {
+    const deck = createDemoDeck();
+    const durations = createTargetDurationDraft(deck);
+    durations[0]!.title = "새 슬라이드 제목";
+
+    const patch = createTargetDurationPatch(
+      deck,
+      deck.targetDurationMinutes,
+      durations,
+    );
+
+    expect(patch?.operations[0]).toMatchObject({
+      type: "update_slide",
+      slideId: deck.slides[0]!.slideId,
+      title: "새 슬라이드 제목",
+    });
+  });
+
   it("formats minute and second labels", () => {
     expect(formatTargetDuration(125)).toBe("2:05");
   });

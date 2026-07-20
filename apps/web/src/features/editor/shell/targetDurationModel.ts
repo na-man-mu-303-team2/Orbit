@@ -51,10 +51,10 @@ export function createTargetDurationPatch(
   }
 
   const durationBySlideId = new Map(
-    durations.map((duration) => [duration.slideId, duration.estimatedSeconds]),
+    durations.map((duration) => [duration.slideId, duration]),
   );
   const estimatedSeconds = deck.slides.map((slide) => {
-    const seconds = durationBySlideId.get(slide.slideId);
+    const seconds = durationBySlideId.get(slide.slideId)?.estimatedSeconds;
     if (!Number.isInteger(seconds) || (seconds ?? 0) < 1) {
       throw new Error(`Invalid target duration for slide ${slide.slideId}.`);
     }
@@ -75,12 +75,16 @@ export function createTargetDurationPatch(
     operations.push({ type: "update_deck", targetDurationMinutes });
   }
   deck.slides.forEach((slide, index) => {
+    const duration = durationBySlideId.get(slide.slideId)!;
     const seconds = estimatedSeconds[index]!;
-    if (slide.estimatedSeconds !== seconds) {
+    const titleChanged = slide.title !== duration.title;
+    const durationChanged = slide.estimatedSeconds !== seconds;
+    if (titleChanged || durationChanged) {
       operations.push({
         type: "update_slide",
         slideId: slide.slideId,
-        estimatedSeconds: seconds,
+        ...(titleChanged ? { title: duration.title } : {}),
+        ...(durationChanged ? { estimatedSeconds: seconds } : {}),
       });
     }
   });

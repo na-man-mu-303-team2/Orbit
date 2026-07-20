@@ -71,6 +71,14 @@ export function TargetDurationDialog(props: {
     );
   }
 
+  function updateSlideTitle(slideId: string, title: string) {
+    setDurations((current) =>
+      current.map((duration) =>
+        duration.slideId === slideId ? { ...duration, title } : duration,
+      ),
+    );
+  }
+
   function handleSave() {
     if (!canSave) return;
     if (props.onSave({ durations, targetDurationMinutes })) props.onClose();
@@ -79,7 +87,7 @@ export function TargetDurationDialog(props: {
   return (
     <OrbitDialog
       className="target-duration-dialog"
-      description="전체 발표 시간을 슬라이드별 목표 시간으로 나눠 설정합니다."
+      description="전체 발표 시간을 정하고 슬라이드별 시간과 제목을 함께 조정합니다."
       footer={
         <>
           <OrbitButton onClick={props.onClose} variant="secondary">
@@ -92,16 +100,16 @@ export function TargetDurationDialog(props: {
       }
       onClose={props.onClose}
       open={props.open}
-      title="목표 시간 설정"
+      title="발표 시간 배분"
     >
       <section className="target-duration-total">
         <div>
-          <strong>전체 발표 목표</strong>
+          <strong>전체 발표 시간</strong>
           <span>1분에서 120분까지 설정할 수 있습니다.</span>
         </div>
         <label>
           <input
-            aria-label="전체 발표 목표 시간"
+            aria-label="전체 발표 시간"
             max={120}
             min={1}
             onChange={(event) =>
@@ -116,7 +124,7 @@ export function TargetDurationDialog(props: {
 
       <div className="target-duration-allocation-heading">
         <div>
-          <strong>슬라이드별 배분</strong>
+          <strong>슬라이드별 시간</strong>
           <span>{durations.length}개 슬라이드</span>
         </div>
         <OrbitButton
@@ -125,7 +133,7 @@ export function TargetDurationDialog(props: {
             setDurations(
               distributeTargetDuration(
                 targetDurationMinutes,
-                props.deck.slides,
+                durations,
               ),
             )
           }
@@ -141,14 +149,21 @@ export function TargetDurationDialog(props: {
           <div className="target-duration-slide-row" key={duration.slideId}>
             <span className="target-duration-slide-index">{index + 1}</span>
             <div className="target-duration-slide-title">
-              <strong>
-                {duration.title.trim() || `슬라이드 ${index + 1}`}
-              </strong>
+              <input
+                aria-label={`${index + 1}번 슬라이드 제목`}
+                className="target-duration-slide-name-input"
+                onChange={(event) =>
+                  updateSlideTitle(duration.slideId, event.currentTarget.value)
+                }
+                placeholder={`슬라이드 ${index + 1}`}
+                type="text"
+                value={duration.title}
+              />
               <span>{formatTargetDuration(duration.estimatedSeconds)}</span>
             </div>
             <label>
               <input
-                aria-label={`${index + 1}번 슬라이드 목표 시간 분`}
+                aria-label={`${index + 1}번 슬라이드 발표 시간 분`}
                 min={0}
                 onChange={(event) =>
                   updateSlideDuration(
@@ -164,7 +179,7 @@ export function TargetDurationDialog(props: {
             </label>
             <label>
               <input
-                aria-label={`${index + 1}번 슬라이드 목표 시간 초`}
+                aria-label={`${index + 1}번 슬라이드 발표 시간 초`}
                 max={59}
                 min={0}
                 onChange={(event) =>
@@ -190,7 +205,7 @@ export function TargetDurationDialog(props: {
           배분 합계 <strong>{formatTargetDuration(allocatedSeconds)}</strong>
         </span>
         <span>
-          전체 목표 <strong>{formatTargetDuration(targetSeconds)}</strong>
+          전체 시간 <strong>{formatTargetDuration(targetSeconds)}</strong>
         </span>
         <b>
           {differenceSeconds === 0

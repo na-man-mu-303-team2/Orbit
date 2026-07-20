@@ -283,14 +283,14 @@ export function EditorTopbar(props: EditorTopbarProps) {
       <div className="top-actions">
         {canMutateDeck ? (
           <button
-            aria-label={`목표 시간 ${targetDurationMinutes}분 설정`}
+            aria-label={`발표 시간 ${targetDurationMinutes}분 설정`}
             className="editor-target-duration-button"
             onClick={onOpenTargetDuration}
-            title="목표 시간 설정"
+            title="발표 시간 배분"
             type="button"
           >
             <Clock aria-hidden="true" size={17} />
-            <span>목표 {targetDurationMinutes}분</span>
+            <span>발표 {targetDurationMinutes}분</span>
           </button>
         ) : null}
         {projectPresenceUsers.length > 0 ? (
