@@ -16,8 +16,8 @@ const form = {
   content: "고객 문제와 핵심 로드맵을 설명한다.",
   audience: "제품·개발 리드",
   tone: "professional" as const,
-  referencePolicy: "user-input-only" as const,
-  mediaPolicy: "minimal" as const,
+  allowWebResearch: false,
+  allowAiImages: false,
 };
 
 describe("AI PPT simplified input", () => {
@@ -36,18 +36,6 @@ describe("AI PPT simplified input", () => {
       "청중을 입력하세요.",
     );
     expect(getAiPptWizardValidationMessage(form)).toBe("");
-    expect(
-      getAiPptWizardValidationMessage({
-        ...form,
-        referencePolicy: "references-first",
-      }),
-    ).toBe("참고자료 우선 구성에는 파일을 1개 이상 첨부하세요.");
-    expect(
-      getAiPptWizardValidationMessage(
-        { ...form, referencePolicy: "references-only" },
-        [new File(["source"], "source.pdf")],
-      ),
-    ).toBe("");
   });
 
   it("restores the three content fields from form data", () => {
@@ -101,15 +89,78 @@ describe("AI PPT simplified input", () => {
     expect(payload.slideCountRange).toEqual({ min: 9, max: 11 });
   });
 
-  it("forwards the selected content and image policies to the staged job", () => {
+  it.each([
+    [false, false, "user-input-only"],
+    [false, true, "references-only"],
+    [true, false, "research-first"],
+    [true, true, "references-first"],
+  ] as const)(
+    "maps web research %s and attachments %s to %s",
+    (allowWebResearch, hasAttachments, expectedPolicy) => {
+      const payload = buildAiPptGenerateDeckPayload(
+        { ...form, allowWebResearch },
+        defaultPaletteOptions[0],
+        hasAttachments
+          ? [{ fileId: "file_document", mimeType: "application/pdf" }]
+          : [],
+      );
+
+      expect(payload.referencePolicy).toBe(expectedPolicy);
+      expect(payload.brief.referencePolicy).toBe(expectedPolicy);
+      expect(payload.design.referencePolicy).toBe(expectedPolicy);
+    },
+  );
+
+  it.each([
+    [false, [], "minimal"],
+    [
+      true,
+      [{ fileId: "file_document", mimeType: "application/pdf" }],
+      "ai-generated",
+    ],
+    [
+      true,
+      [
+        { fileId: "file_document", mimeType: "application/pdf" },
+        { fileId: "file_jpeg", mimeType: "image/jpeg" },
+        { fileId: "file_png", mimeType: "image/png" },
+        { fileId: "file_webp", mimeType: "image/webp" },
+        { fileId: "file_gif", mimeType: "image/gif" },
+      ],
+      "hybrid",
+    ],
+  ] as const)(
+    "maps AI image use %s and uploaded files to %s",
+    (allowAiImages, uploadedFiles, expectedPolicy) => {
+      const payload = buildAiPptGenerateDeckPayload(
+        { ...form, allowAiImages },
+        defaultPaletteOptions[0],
+        [...uploadedFiles],
+      );
+
+      expect(payload.design.mediaPolicy).toBe(expectedPolicy);
+      expect(payload.visualPlanPolicy?.mediaPolicy).toBe(expectedPolicy);
+      expect(payload.designPrompt).toContain(`mediaPolicy=${expectedPolicy}`);
+      expect(payload.officialAssetFileIds).toEqual(
+        expectedPolicy === "hybrid"
+          ? ["file_jpeg", "file_png", "file_webp"]
+          : undefined,
+      );
+    },
+  );
+
+  it("keeps every uploaded file as a reference for a hybrid request", () => {
     const payload = buildAiPptGenerateDeckPayload(
       {
         ...form,
-        referencePolicy: "references-first",
-        mediaPolicy: "hybrid",
+        allowWebResearch: true,
+        allowAiImages: true,
       },
       defaultPaletteOptions[0],
-      ["file_1", "file_2"],
+      [
+        { fileId: "file_document", mimeType: "application/pdf" },
+        { fileId: "file_image", mimeType: "image/png" },
+      ],
     );
 
     expect(payload.referencePolicy).toBe("references-first");
@@ -118,10 +169,11 @@ describe("AI PPT simplified input", () => {
     expect(payload.design.mediaPolicy).toBe("hybrid");
     expect(payload.visualPlanPolicy?.mediaPolicy).toBe("hybrid");
     expect(payload.designPrompt).toContain("mediaPolicy=hybrid");
-    expect(payload.referenceFileIds).toEqual(["file_1", "file_2"]);
+    expect(payload.officialAssetFileIds).toEqual(["file_image"]);
+    expect(payload.referenceFileIds).toEqual(["file_document", "file_image"]);
     expect(payload.references).toEqual([
-      { fileId: "file_1" },
-      { fileId: "file_2" },
+      { fileId: "file_document" },
+      { fileId: "file_image" },
     ]);
     expect(payload.referenceContext).toEqual([]);
   });
@@ -232,8 +284,9 @@ describe("AI PPT simplified input", () => {
     expect(source).not.toContain("/references/extractions");
     expect(source).not.toContain("putPresentationBrief");
     expect(source).not.toContain("Saved Design Pack");
-    expect(source).toContain("referencePolicyOptions");
-    expect(source).toContain("mediaPolicyOptions");
+    expect(source).not.toContain("referencePolicyOptions");
+    expect(source).not.toContain("mediaPolicyOptions");
+    expect(source).not.toContain("function PolicySelect");
     expect(source).not.toContain("/generation/${encodeURIComponent(jobId)}/story");
     expect(source).toContain("styleColorPath(project.projectId, data.job.jobId)");
   });
