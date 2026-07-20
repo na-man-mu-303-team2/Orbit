@@ -502,6 +502,19 @@ describe("FilesService", () => {
         "rehearsal-transcript-json",
       ),
     ).resolves.toMatchObject({ fileId: "file_transcript_json" });
+    await expect(
+      service.readOwnerOnlyAssetContent(
+        demoProject.projectId,
+        "file_transcript_json",
+        "rehearsal-transcript-json",
+      ),
+    ).resolves.toMatchObject({
+      body: Buffer.from([1, 2, 3]),
+      originalName: "transcript.json",
+    });
+    expect(storage.getObject).toHaveBeenCalledWith(
+      "rehearsals/2026-07-16/project_demo_created/run_123/transcript.json",
+    );
     expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
   });
 

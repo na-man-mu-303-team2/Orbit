@@ -896,6 +896,7 @@ describe("completeRehearsalAudioUploadRequestSchema", () => {
     expect(request.fileId).toBe("file_audio_1");
     expect(request.recordingDurationSeconds).toBeNull();
     expect(request.liveTranscript).toBeNull();
+    expect(request.slideTranscriptSnapshots).toEqual([]);
   });
 
   it("accepts the accumulated browser live transcript", () => {

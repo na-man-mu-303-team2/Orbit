@@ -52,17 +52,30 @@ export function SpeakingRateMetricDetails({ deck, report }: CommonProps) {
   );
 }
 
-export function FillerMetricDetails({ report }: Pick<CommonProps, "report">) {
+type FillerMetricDetailsProps = Pick<CommonProps, "report"> & {
+  fillerWordCount?: number;
+  fillerWordDetails?: RehearsalReport["fillerWordDetails"];
+};
+
+export function FillerMetricDetails({
+  fillerWordCount: fillerWordCountOverride,
+  fillerWordDetails: fillerWordDetailsOverride,
+  report,
+}: FillerMetricDetailsProps) {
+  const fillerWordCount =
+    fillerWordCountOverride ?? report.metrics.fillerWordCount;
+  const fillerWordDetails =
+    fillerWordDetailsOverride ?? report.fillerWordDetails;
   const distribution = buildFillerDistribution(
-    report.fillerWordDetails,
-    report.metrics.fillerWordCount,
+    fillerWordDetails,
+    fillerWordCount,
   );
   const segments = buildFillerDonutSegments(distribution);
 
   if (segments.length === 0) {
     return (
       <p className="rrd-test-metric-empty">
-        {report.metrics.fillerWordCount > 0
+        {fillerWordCount > 0
           ? "습관어 횟수는 기록됐지만 단어별 상세 기록이 없습니다."
           : "감지된 습관어가 없습니다."}
       </p>
@@ -141,7 +154,7 @@ export function FillerMetricDetails({ report }: Pick<CommonProps, "report">) {
         y={FILLER_DONUT_CENTER_Y - 5}
       >
         <tspan className="rrd-filler-donut-center-value">
-          {report.metrics.fillerWordCount}회
+          {fillerWordCount}회
         </tspan>
         <tspan
           className="rrd-filler-donut-center-label"
@@ -157,6 +170,7 @@ export function FillerMetricDetails({ report }: Pick<CommonProps, "report">) {
 type SilenceProps = CommonProps & {
   audioPlaybackAvailable: boolean;
   formatDuration: (seconds: number) => string;
+  slideId?: string;
 };
 
 export function LongSilenceMetricDetails({
@@ -164,14 +178,17 @@ export function LongSilenceMetricDetails({
   deck,
   formatDuration,
   report,
+  slideId,
 }: SilenceProps) {
   const playback = useRehearsalAudioSegmentPlayback(report.runId);
-  const silences = buildLongSilenceDetails(deck, report);
+  const silences = buildLongSilenceDetails(deck, report, slideId);
 
   if (silences.length === 0) {
     return (
       <p className="rrd-test-metric-empty">
-        5초 이상 발화가 없었던 구간이 없습니다.
+        {slideId
+          ? "이 슬라이드에서 5초 이상 긴 침묵이 감지되지 않았습니다."
+          : "5초 이상 발화가 없었던 구간이 없습니다."}
       </p>
     );
   }
@@ -253,7 +270,11 @@ export function LongSilenceMetricDetails({
   );
 }
 
-export function buildLongSilenceDetails(deck: Deck, report: RehearsalReport) {
+export function buildLongSilenceDetails(
+  deck: Deck,
+  report: RehearsalReport,
+  slideId?: string,
+) {
   const longSilences = report.silenceAnalysis.segments.filter(
     (segment) => segment.durationSeconds >= 5,
   );
@@ -284,7 +305,7 @@ export function buildLongSilenceDetails(deck: Deck, report: RehearsalReport) {
     const slide = window
       ? deck.slides.find((candidate) => candidate.slideId === window.slideId)
       : undefined;
-    if (!slide) return [];
+    if (!slide || (slideId && slide.slideId !== slideId)) return [];
 
     return [
       {

@@ -52,6 +52,57 @@ describe("applyLiveTranscriptFillerAnalysis", () => {
       serverAnalysis,
     );
   });
+
+  it("limits filler details to each slide snapshot interval", () => {
+    const result = applyLiveTranscriptFillerAnalysis(
+      serverAnalysis,
+      "음 첫 번째 어 두 번째 음 다시",
+      [
+        {
+          slideId: "slide-1",
+          slideNum: 1,
+          visitedVer: 1,
+          transcript: "음 첫 번째",
+          visitedAt: "2026-07-20T04:00:00.000Z",
+          capturedAt: "2026-07-20T04:00:10.000Z",
+          reason: "slide-change",
+        },
+        {
+          slideId: "slide-2",
+          slideNum: 2,
+          visitedVer: 1,
+          transcript: "음 첫 번째 어 두 번째",
+          visitedAt: "2026-07-20T04:00:10.000Z",
+          capturedAt: "2026-07-20T04:00:20.000Z",
+          reason: "slide-change",
+        },
+        {
+          slideId: "slide-1",
+          slideNum: 1,
+          visitedVer: 2,
+          transcript: "음 첫 번째 어 두 번째 음 다시",
+          visitedAt: "2026-07-20T04:00:20.000Z",
+          capturedAt: "2026-07-20T04:00:30.000Z",
+          reason: "rehearsal-end",
+        },
+      ],
+    );
+
+    expect(result.slideInsights).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          slideId: "slide-1",
+          fillerWordCount: 2,
+          fillerWordDetails: [{ word: "음", count: 2 }],
+        }),
+        expect.objectContaining({
+          slideId: "slide-2",
+          fillerWordCount: 1,
+          fillerWordDetails: [{ word: "어", count: 1 }],
+        }),
+      ]),
+    );
+  });
 });
 
 const assetRow = {

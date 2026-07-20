@@ -1,9 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RehearsalRun } from "@orbit/shared";
 import {
   getRehearsalRunNumber,
+  navigateTo,
+  rehearsalNavigationRequestEvent,
   sortRehearsalRunsByCreatedAt,
 } from "./rehearsalUtils";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function runFixture(
   runId: string,
@@ -55,5 +61,42 @@ describe("rehearsalUtils", () => {
     expect(getRehearsalRunNumber(runs, "run-2")).toBe(2);
     expect(getRehearsalRunNumber(runs, "run-3")).toBe(3);
     expect(getRehearsalRunNumber(runs, "run-unknown")).toBeNull();
+  });
+
+  it("requests the shared preflight modal for a rehearsal entry", () => {
+    const eventTarget = new EventTarget();
+    const pushState = vi.fn();
+    let requestedPath = "";
+    eventTarget.addEventListener(rehearsalNavigationRequestEvent, (event) => {
+      requestedPath = (event as CustomEvent<string>).detail;
+    });
+    vi.stubGlobal("window", {
+      dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget),
+      history: { pushState },
+      location: { origin: "http://localhost:5173" },
+    });
+
+    navigateTo("/rehearsal/project-a");
+
+    expect(requestedPath).toBe("/rehearsal/project-a");
+    expect(pushState).not.toHaveBeenCalled();
+  });
+
+  it("navigates directly after preflight is complete", () => {
+    const pushState = vi.fn();
+    vi.stubGlobal("PopStateEvent", class extends Event {});
+    vi.stubGlobal("window", {
+      dispatchEvent: vi.fn(),
+      history: { pushState },
+      location: { origin: "http://localhost:5173" },
+    });
+
+    navigateTo("/rehearsal/project-a?preflight=complete");
+
+    expect(pushState).toHaveBeenCalledWith(
+      {},
+      "",
+      "/rehearsal/project-a?preflight=complete",
+    );
   });
 });

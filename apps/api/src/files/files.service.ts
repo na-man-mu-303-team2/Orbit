@@ -337,6 +337,24 @@ export class FilesService {
     }
   }
 
+  async isOwnerOnlyAssetAvailable(
+    projectId: string,
+    fileId: string,
+    purpose: FilePurpose,
+  ): Promise<boolean> {
+    if (!ownerOnlyFilePurposes.has(purpose)) {
+      throw new BadRequestException("Owner-only file purpose is required.");
+    }
+
+    try {
+      const asset = await this.getUploadedAsset(projectId, fileId, purpose);
+      return (await this.storage.headObject(asset.storageKey)) !== null;
+    } catch (error) {
+      if (error instanceof NotFoundException) return false;
+      throw error;
+    }
+  }
+
   private async verifyUploadedObject(asset: ProjectAssetEntity): Promise<void> {
     const head = await this.storage.headObject(asset.storageKey);
 
@@ -440,6 +458,24 @@ export class FilesService {
     return {
       body: Buffer.from(await response.arrayBuffer()),
       contentType: asset.mimeType,
+    };
+  }
+
+  async readOwnerOnlyAssetContent(
+    projectId: string,
+    fileId: string,
+    purpose: FilePurpose,
+  ): Promise<{ body: Buffer; contentType: string; originalName: string }> {
+    if (!ownerOnlyFilePurposes.has(purpose)) {
+      throw new BadRequestException("Owner-only asset purpose is required.");
+    }
+
+    const asset = await this.getUploadedAsset(projectId, fileId, purpose);
+    const stored = await this.storage.getObject(asset.storageKey);
+    return {
+      body: Buffer.from(stored.body),
+      contentType: asset.mimeType || stored.contentType,
+      originalName: asset.originalName,
     };
   }
 

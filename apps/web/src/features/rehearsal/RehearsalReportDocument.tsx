@@ -24,6 +24,29 @@ import "./rehearsal-report-components.css";
 
 const TRANSCRIPT_WINDOW_MS = 30 * 60 * 1000;
 
+type RehearsalDownloadArtifact = "audio" | "transcript";
+
+export async function fetchRehearsalDownload(
+  runId: string,
+  artifact: RehearsalDownloadArtifact,
+  fetcher: typeof fetch = fetch,
+) {
+  const response = await fetcher(
+    `/api/v1/rehearsals/${encodeURIComponent(runId)}/downloads/${artifact}`,
+  );
+  if (!response.ok) {
+    throw new Error(
+      artifact === "audio"
+        ? "리허설 음성 파일을 내려받을 수 없습니다."
+        : "리허설 transcript를 내려받을 수 없습니다.",
+    );
+  }
+  return {
+    blob: await response.blob(),
+    fileName: artifact === "audio" ? "rehearsal.webm" : "transcript.txt",
+  };
+}
+
 function fmt(totalSeconds: number) {
   const s = Math.max(0, Math.floor(totalSeconds));
   const m = Math.floor(s / 60);
@@ -56,6 +79,7 @@ type Props = {
   run: RehearsalRun | null;
   runNumber: number | null;
   semanticRetryState?: SemanticRetryState;
+  transcriptDownloadAvailable?: boolean;
   totalRunCount: number;
 };
 
@@ -68,9 +92,36 @@ export function RehearsalReportDocument({
   report,
   run,
   runNumber,
+  transcriptDownloadAvailable = false,
   totalRunCount: _totalRunCount,
 }: Props) {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const [downloadingArtifact, setDownloadingArtifact] =
+    useState<RehearsalDownloadArtifact | null>(null);
+  const [downloadError, setDownloadError] = useState("");
+
+  async function downloadArtifact(artifact: RehearsalDownloadArtifact) {
+    if (!run || downloadingArtifact) return;
+    setDownloadingArtifact(artifact);
+    setDownloadError("");
+    try {
+      const download = await fetchRehearsalDownload(run.runId, artifact);
+      const url = URL.createObjectURL(download.blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = download.fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setDownloadMenuOpen(false);
+    } catch (error) {
+      setDownloadError(
+        error instanceof Error ? error.message : "자료를 내려받지 못했습니다.",
+      );
+    } finally {
+      setDownloadingArtifact(null);
+    }
+  }
 
   const metrics = report.metrics;
   const slideTimings = report.slideTimings;
@@ -137,6 +188,44 @@ export function RehearsalReportDocument({
           >
             전체 리허설 리포트
           </OrbitButton>
+          <div className="rrd-download-menu">
+            <OrbitButton
+              aria-expanded={downloadMenuOpen}
+              aria-haspopup="menu"
+              icon={<Download aria-hidden="true" size={17} />}
+              onClick={() => {
+                setDownloadError("");
+                setDownloadMenuOpen((open) => !open);
+              }}
+              size="prominent"
+              variant="secondary"
+            >
+              자료 내려받기
+            </OrbitButton>
+            {downloadMenuOpen ? (
+              <div className="rrd-download-menu-popover" role="menu">
+                <button
+                  disabled={!transcriptDownloadAvailable || !run || Boolean(downloadingArtifact)}
+                  onClick={() => void downloadArtifact("transcript")}
+                  role="menuitem"
+                  type="button"
+                >
+                  대본 파일
+                </button>
+                <button
+                  disabled={!audioPlaybackAvailable || !run || Boolean(downloadingArtifact)}
+                  onClick={() => void downloadArtifact("audio")}
+                  role="menuitem"
+                  type="button"
+                >
+                  음성 파일
+                </button>
+                {downloadError ? (
+                  <p className="rrd-download-error" role="alert">{downloadError}</p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
           <OrbitButton
             className="rrd-hero-action"
             icon={<Mic aria-hidden="true" size={17} />}

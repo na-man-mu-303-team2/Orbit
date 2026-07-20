@@ -15,6 +15,7 @@
     "dev:local": "bash infra/scripts/dev-up.sh",
     "db:migration:revert": "pnpm --filter @orbit/api migration:revert",
     "db:migration:run": "pnpm --filter @orbit/api migration:run",
+    "cleanup:kdh-home-projects": "pnpm --filter @orbit/api cleanup:kdh-home-projects",
     "demo:coaching:reset": "pnpm --filter @orbit/api demo:coaching:reset",
     "env:sync:stg": "node infra/scripts/sync-personal-staging-doppler.mjs",
     "env:sync:stg:apply": "node infra/scripts/sync-personal-staging-doppler.mjs --apply",

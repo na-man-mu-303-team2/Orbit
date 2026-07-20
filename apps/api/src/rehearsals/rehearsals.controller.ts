@@ -2,13 +2,16 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Patch,
   Post,
   Query,
   Req,
+  Res,
   StreamableFile,
 } from "@nestjs/common";
+import type { Response } from "express";
 import { AuthService } from "../auth/auth.service";
 import { getCurrentUser, type SignedCookieRequest } from "../auth/current-user";
 import { ProjectsService } from "../projects/projects.service";
@@ -151,6 +154,28 @@ export class RehearsalsController {
     const user = await getCurrentUser(this.authService, request);
     await this.assertCanReadRun(runId, user.userId);
     return this.rehearsalsService.getAudioPlaybackUrl(runId);
+  }
+
+  @Get("api/v1/rehearsals/:runId/downloads/:artifact")
+  async downloadArtifact(
+    @Param("runId") runId: string,
+    @Param("artifact") artifact: string,
+    @Req() request: SignedCookieRequest,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.assertCanReadRun(runId, user.userId);
+    if (artifact !== "audio" && artifact !== "transcript") {
+      throw new NotFoundException("Rehearsal download not found.");
+    }
+    const download = await this.rehearsalsService.getDownload(runId, artifact);
+    response.setHeader("content-type", download.contentType);
+    response.setHeader(
+      "content-disposition",
+      `attachment; filename="${download.fileName}"`,
+    );
+    response.setHeader("content-length", download.body.byteLength);
+    return new StreamableFile(download.body);
   }
 
   @Get("api/v1/projects/:projectId/rehearsal-summary")
