@@ -1,6 +1,7 @@
 import { loadOrbitConfig, type OrbitConfig } from "@orbit/config";
 import type { EntityManager } from "typeorm";
 import AppDataSource from "../database/data-source";
+import { kdhHomeProjectIds } from "../projects/kdh-home-project-ids";
 
 /**
  * One-shot cleanup for the retired `kdh@orbit.com` home fixture.
@@ -15,10 +16,7 @@ export const kdhHomeProjectOwnerEmail = "kdh@orbit.com";
 
 export const kdhHomeCleanupConfirmToken = "delete-kdh-home-projects";
 
-export const kdhHomeProjectIds = Array.from(
-  { length: 10 },
-  (_, index) => `project_kdh_home_${String(index + 1).padStart(2, "0")}`,
-);
+export { kdhHomeProjectIds };
 
 /**
  * Every table carrying a `project_id`, ordered so that a child is always
@@ -163,6 +161,60 @@ export async function assertProjectsAreOwnedByFixtureAccount(
   }
 }
 
+export type StorageObjectCounts = {
+  liveAssets: number;
+  pendingDeletions: number;
+};
+
+/**
+ * Counts rows that are the only remaining record of an object in S3/MinIO.
+ *
+ * `project_assets` rows hold the `storage_key`, and `storage_deletion_outbox`
+ * rows are what drives the worker's `reconcileStorageDeletionOutbox` to call
+ * `removeObject`. Deleting either without removing the object first strands
+ * the object in the bucket with nothing left pointing at it.
+ */
+export async function countStorageObjects(
+  manager: Manager,
+  projectIds: string[],
+): Promise<StorageObjectCounts> {
+  const liveAssets = (await tableExists(manager, "project_assets"))
+    ? (
+        await manager.query<Array<{ total: number }>>(
+          `SELECT count(*)::int AS total FROM project_assets
+           WHERE project_id = ANY($1) AND status IS DISTINCT FROM 'deleted'`,
+          [projectIds],
+        )
+      )[0]?.total ?? 0
+    : 0;
+  const pendingDeletions = (await tableExists(manager, "storage_deletion_outbox"))
+    ? (
+        await manager.query<Array<{ total: number }>>(
+          `SELECT count(*)::int AS total FROM storage_deletion_outbox
+           WHERE project_id = ANY($1) AND status IS DISTINCT FROM 'deleted'`,
+          [projectIds],
+        )
+      )[0]?.total ?? 0
+    : 0;
+  return { liveAssets, pendingDeletions };
+}
+
+/**
+ * Refuses to delete rows that still stand between an object and its removal.
+ * There is deliberately no override flag: the fix is to delete the assets
+ * through the normal file-deletion path, which removes the object too.
+ */
+export function assertNoStorageObjectsAtRisk(counts: StorageObjectCounts): void {
+  if (counts.liveAssets === 0 && counts.pendingDeletions === 0) return;
+  throw new Error(
+    `Refusing to delete: ${counts.liveAssets} live project_assets row(s) and ` +
+      `${counts.pendingDeletions} unfinished storage_deletion_outbox row(s) reference ` +
+      "objects in storage. Deleting them here would strand those objects. " +
+      "Remove the assets through the normal file-deletion path (which calls " +
+      "removeObject) and let the outbox drain, then re-run this script.",
+  );
+}
+
 /**
  * Fails the transaction if any table with a `project_id` column still holds a
  * target row. This catches project-scoped tables added after this script was
@@ -198,6 +250,12 @@ export async function assertNoResidualRows(
 
 export type CleanupCounts = Record<string, number>;
 
+export type CleanupResult = {
+  apply: boolean;
+  counts: CleanupCounts;
+  storage: StorageObjectCounts;
+};
+
 async function runDryRun(projectIds: string[]): Promise<CleanupCounts> {
   const counts: CleanupCounts = {};
   for (const table of kdhHomeCleanupTableOrder) {
@@ -211,6 +269,7 @@ async function runDryRun(projectIds: string[]): Promise<CleanupCounts> {
 async function runApply(projectIds: string[]): Promise<CleanupCounts> {
   return AppDataSource.transaction(async (manager) => {
     await assertProjectsAreOwnedByFixtureAccount(manager, projectIds);
+    assertNoStorageObjectsAtRisk(await countStorageObjects(manager, projectIds));
 
     // `activity_runs.supersedes_activity_run_id` is a self-referential
     // RESTRICT, which a bulk delete would trip on. Unlink first.
@@ -243,17 +302,21 @@ async function runApply(projectIds: string[]): Promise<CleanupCounts> {
 export async function cleanupKdhHomeProjects(
   argv: string[] = process.argv.slice(2),
   env: NodeJS.ProcessEnv = process.env,
-): Promise<{ apply: boolean; counts: CleanupCounts }> {
+): Promise<CleanupResult> {
   const config = loadOrbitConfig(env, { service: "api" });
   const apply = argv.includes("--apply") || env.KDH_HOME_CLEANUP_APPLY === "true";
   if (apply) assertKdhHomeCleanupAllowed(config, env);
 
   await AppDataSource.initialize();
   try {
+    const storage = await countStorageObjects(
+      AppDataSource.manager,
+      kdhHomeProjectIds,
+    );
     const counts = apply
       ? await runApply(kdhHomeProjectIds)
       : await runDryRun(kdhHomeProjectIds);
-    return { apply, counts };
+    return { apply, counts, storage };
   } finally {
     await AppDataSource.destroy();
   }
@@ -261,15 +324,21 @@ export async function cleanupKdhHomeProjects(
 
 if (require.main === module) {
   void cleanupKdhHomeProjects()
-    .then(({ apply, counts }) => {
+    .then(({ apply, counts, storage }) => {
       const entries = Object.entries(counts);
       const breakdown = entries.length
         ? entries.map(([table, total]) => `  ${table}: ${total}`).join("\n")
         : "  (none)";
+      const storageNote =
+        storage.liveAssets > 0 || storage.pendingDeletions > 0
+          ? `\nWARNING: ${storage.liveAssets} live asset(s) and ${storage.pendingDeletions} ` +
+            "unfinished storage deletion(s) reference objects in storage. --apply will refuse " +
+            "until those objects are removed through the normal file-deletion path."
+          : "";
       console.log(
         apply
           ? `Kdh home project cleanup applied. Deleted rows:\n${breakdown}`
-          : `Kdh home project cleanup dry run. Rows that would be deleted:\n${breakdown}\n` +
+          : `Kdh home project cleanup dry run. Rows that would be deleted:\n${breakdown}${storageNote}\n` +
               `Re-run with --apply and KDH_HOME_CLEANUP_CONFIRM=${kdhHomeCleanupConfirmToken} to delete them.`,
       );
     })
