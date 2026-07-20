@@ -17,8 +17,9 @@ describe("PracticeCelebrationFeedback", () => {
     expect(html).toContain("참 잘했어요 · GREAT");
     expect(html).toContain("is-new");
     expect(html).toContain("orbit-mascot-thumbs-up.webp");
+    expect(html).toContain("orbit-mascot-thumbs-up-blink.webp");
     expect(html).toContain("orbit-great-stamp.webp");
-    expect((html.match(/alt=""/g) ?? [])).toHaveLength(2);
+    expect((html.match(/alt=""/g) ?? [])).toHaveLength(3);
   });
 
   it("측정 불가 기록은 성공 문구를 렌더링하지 않는다", () => {
@@ -42,9 +43,10 @@ describe("PracticeCelebrationFeedback", () => {
     );
     expect(html).toContain("오늘은 ‘음…’ 같은 습관어가 없었어요");
     expect(html).toContain("orbit-mascot-thumbs-up.webp");
+    expect(html).toContain("orbit-mascot-thumbs-up-blink.webp");
     expect(html).not.toContain("orbit-great-stamp.webp");
     expect(html).not.toContain("참 잘했어요 · GREAT");
-    expect((html.match(/alt=""/g) ?? [])).toHaveLength(1);
+    expect((html.match(/alt=""/g) ?? [])).toHaveLength(2);
   });
 
   it("reduced motion에서는 transform animation을 제거한다", () => {
@@ -53,9 +55,24 @@ describe("PracticeCelebrationFeedback", () => {
       "utf8",
     );
     const reducedMotion = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
-    expect(reducedMotion).toContain(".editor-practice-celebration-mascot");
+    expect(reducedMotion).toContain(".editor-practice-celebration-mascot-flight");
+    expect(reducedMotion).toContain(".editor-practice-celebration-mascot-stage");
+    expect(reducedMotion).toContain(".editor-practice-celebration-mascot.is-blinking");
     expect(reducedMotion).toContain(".editor-practice-celebration-stamp");
     expect(reducedMotion).toContain("animation: none");
     expect(reducedMotion).toContain("transform: none");
+  });
+
+  it("새 회차 진입과 상시 부유·눈 깜빡임 모션을 분리한다", () => {
+    const css = fs.readFileSync(
+      path.join(process.cwd(), "src/features/editor/practice/slide-practice.css"),
+      "utf8",
+    );
+    expect(css).toContain(".is-new .editor-practice-celebration-mascot-flight");
+    expect(css).toContain("editor-practice-mascot-fly-in");
+    expect(css).toContain("editor-practice-mascot-float");
+    expect(css).toContain("editor-practice-mascot-open-eyes");
+    expect(css).toContain("editor-practice-mascot-blink-eyes");
+    expect(css).toContain("infinite");
   });
 });

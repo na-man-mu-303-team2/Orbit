@@ -16,6 +16,7 @@ const productionFiles = [
 describe("practice growth report integration boundary", () => {
   it.each([
     "orbit-mascot-thumbs-up.webp",
+    "orbit-mascot-thumbs-up-blink.webp",
     "orbit-great-stamp.webp",
   ])("ships %s as a repository WebP asset rather than a symlink", (file) => {
     const assetPath = path.join(sourceRoot, "assets", file);

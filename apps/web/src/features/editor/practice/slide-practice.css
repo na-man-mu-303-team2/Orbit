@@ -817,6 +817,7 @@
   gap: var(--redesign-space-2);
   grid-area: context;
   min-width: 0;
+  overflow: hidden;
   padding: var(--redesign-space-4);
 }
 
@@ -845,11 +846,37 @@
   position: relative;
 }
 
-.orbit-shell .editor-practice-celebration-mascot {
-  height: auto;
+.orbit-shell .editor-practice-celebration-mascot-flight {
   max-width: 168px;
-  object-fit: contain;
   width: min(76%, 168px);
+}
+
+.orbit-shell .editor-practice-celebration-mascot-stage {
+  animation: editor-practice-mascot-float
+    calc(var(--redesign-duration-loop) * 4.8)
+    ease-in-out infinite;
+  display: grid;
+  transform-origin: 52% 58%;
+}
+
+.orbit-shell .editor-practice-celebration-mascot {
+  grid-area: 1 / 1;
+  height: auto;
+  object-fit: contain;
+  width: 100%;
+}
+
+.orbit-shell .editor-practice-celebration-mascot.is-open {
+  animation: editor-practice-mascot-open-eyes
+    calc(var(--redesign-duration-loop) * 4.6)
+    steps(1, end) infinite;
+}
+
+.orbit-shell .editor-practice-celebration-mascot.is-blinking {
+  animation: editor-practice-mascot-blink-eyes
+    calc(var(--redesign-duration-loop) * 4.6)
+    steps(1, end) infinite;
+  opacity: 0;
 }
 
 .orbit-shell .editor-practice-celebration-stamp {
@@ -863,9 +890,9 @@
   z-index: 1;
 }
 
-.orbit-shell .editor-practice-celebration.is-new .editor-practice-celebration-mascot {
-  animation: editor-practice-mascot-celebrate
-    calc(var(--redesign-duration-slow) + var(--redesign-duration-fast))
+.orbit-shell .editor-practice-celebration.is-new .editor-practice-celebration-mascot-flight {
+  animation: editor-practice-mascot-fly-in
+    calc(var(--redesign-duration-slow) * 2)
     var(--redesign-ease-emphasized) both;
 }
 
@@ -875,10 +902,26 @@
     var(--redesign-ease-emphasized) both;
 }
 
-@keyframes editor-practice-mascot-celebrate {
-  0% { opacity: 0; transform: translateY(12px) scale(0.96); }
-  72% { opacity: 1; transform: translateY(-3px) scale(1.02); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
+@keyframes editor-practice-mascot-fly-in {
+  0% { opacity: 0; transform: translate3d(72%, 12px, 0) rotate(14deg) scale(0.84); }
+  62% { opacity: 1; transform: translate3d(-6%, -3px, 0) rotate(-3deg) scale(1.04); }
+  82% { opacity: 1; transform: translate3d(2%, 1px, 0) rotate(1deg) scale(0.99); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+}
+
+@keyframes editor-practice-mascot-float {
+  0%, 100% { transform: translate3d(0, 1px, 0) rotate(-1deg); }
+  50% { transform: translate3d(0, -5px, 0) rotate(1deg); }
+}
+
+@keyframes editor-practice-mascot-open-eyes {
+  0%, 44%, 47%, 76%, 79%, 100% { opacity: 1; }
+  45%, 46%, 77%, 78% { opacity: 0; }
+}
+
+@keyframes editor-practice-mascot-blink-eyes {
+  0%, 44%, 47%, 76%, 79%, 100% { opacity: 0; }
+  45%, 46%, 77%, 78% { opacity: 1; }
 }
 
 @keyframes editor-practice-stamp-celebrate {
@@ -888,10 +931,17 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbit-shell .editor-practice-celebration.is-new .editor-practice-celebration-mascot,
+  .orbit-shell .editor-practice-celebration.is-new .editor-practice-celebration-mascot-flight,
+  .orbit-shell .editor-practice-celebration-mascot-stage,
+  .orbit-shell .editor-practice-celebration-mascot.is-open,
+  .orbit-shell .editor-practice-celebration-mascot.is-blinking,
   .orbit-shell .editor-practice-celebration.is-new .editor-practice-celebration-stamp {
     animation: none;
     transform: none;
+  }
+
+  .orbit-shell .editor-practice-celebration-mascot.is-blinking {
+    opacity: 0;
   }
 }
 

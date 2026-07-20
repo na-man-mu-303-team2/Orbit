@@ -36,6 +36,60 @@ final result: passed
 
 ---
 
+# 리허설 성장 추세 회차 표기와 축하 마스코트 motion design QA
+
+- Source visual truth: 사용자 브라우저 주석 화면과 `/private/tmp/orbit-product-design-source.png`.
+- Implementation screenshot: `/private/tmp/orbit-product-design-implementation-final.png`.
+- Expanded implementation evidence: `/private/tmp/orbit-product-design-maximized.png`.
+- Full-view comparison: `/private/tmp/orbit-product-design-comparison.png`.
+- Focused report comparison: `/private/tmp/orbit-product-design-focused-comparison.png`.
+- Viewport: 2207 × 1324 요청 화면 기준. 브라우저 screenshot은 browser chrome을 제외한 2109 × 1324 content capture.
+- State: slide 3, 하단 발표 메모 펼침, `리포트` tab, 동일 내용 report 5회, 습관어 없음과 GREAT 조건 충족.
+
+## Full-view comparison evidence
+
+- 원본과 구현을 같은 viewport와 editor 상태로 나란히 비교했다.
+- 캔버스, slide rail, property panel, report dock의 크기와 시각 계층은 유지됐다.
+- 변경 범위는 chart의 x-axis label과 축하 카드 mascot motion layer에 한정됐다.
+- source가 실제 API의 4회 기록, implementation이 QA fixture의 5회 기록이라 `4회 비교`/`5회 비교` 차이는 의도된 데이터 차이다.
+
+## Focused region comparison evidence
+
+- 확대된 implementation에서 `1회차 (7/13)`부터 `5회차 (7/21)`까지 point와 일대일로 정렬되고 서로 겹치지 않음을 확인했다.
+- 정상 눈과 감은 눈 asset은 모두 1254 × 1254, 동일한 subject placement와 transparent edge를 사용한다.
+- mascot은 stable state에서 card 안에 유지되며 horizontal overflow가 없다.
+
+## Required fidelity surfaces
+
+- Fonts and typography: 기존 Pretendard와 `--redesign-type-*` 역할을 유지했다. 새 회차/날짜 label은 기존 chart label 크기와 weight를 그대로 사용한다.
+- Spacing and layout rhythm: 기존 3-column dashboard와 celebration card padding, radius, asset slot 크기를 변경하지 않았다. 긴 label도 5개 point 간격 안에 정렬된다.
+- Colors and visual tokens: 기존 primary subtle/outline surface와 motion duration/easing token만 사용하고 새 색상값을 추가하지 않았다.
+- Image quality and asset fidelity: 기존 ORBIT thumbs-up mascot을 edit target으로 사용해 눈만 감긴 raster frame을 생성했다. chroma-key 제거 후 RGBA WebP의 네 모서리 alpha가 0이고 subject edge에 green background가 남지 않았다.
+- Copy and content: x-axis의 모호한 `오늘` 반복을 `N회차 (M/D)`로 교체했다. 축하 카드 copy와 접근 가능한 이름은 유지했다.
+
+## Interaction and accessibility verification
+
+- 상시 animation: `editor-practice-mascot-float`, `editor-practice-mascot-open-eyes`, `editor-practice-mascot-blink-eyes`가 적용됨을 확인했다.
+- 새 rehearsal에만 `.is-new`가 붙고 `editor-practice-mascot-fly-in`이 실행되도록 one-shot 경계를 유지했다.
+- `aria-live="polite"`, decorative image의 빈 `alt`, celebration card overflow 없음 확인.
+- `prefers-reduced-motion: reduce`에서 stage/open/blink animation이 모두 `none`, blink frame opacity가 `0`임을 브라우저에서 확인했다.
+- 브라우저 console warning/error 없음.
+
+## Comparison history
+
+1. P2 — 첫 브라우저 pass에서 reduced-motion이 부유 transform은 멈췄지만 더 구체적인 eye-frame selector 때문에 blink opacity animation이 남았다.
+2. Fix — reduced-motion selector를 `.is-open`과 `.is-blinking`에 직접 적용해 우선순위를 바로잡았다.
+3. Post-fix evidence — 브라우저 computed style에서 stage/open/blink animation이 모두 `none`이고 blink image가 숨겨짐을 확인했다.
+4. Final pass — 요청 영역에 남은 actionable P0/P1/P2 차이가 없다.
+
+## Follow-up polish
+
+- P3: one-shot fly-in의 중간 frame 자동 캡처는 인앱 브라우저 연결 중단으로 남겼다. keyframe 존재, 640ms token duration, component `.is-new` gating, unit test는 통과했다.
+
+final result: passed
+
+---
+
 # Rehearsal microphone modal — Frame 13 refinement
 
 - Source visual truth: `C:/Users/Runner/Desktop/Frame 13.png`.

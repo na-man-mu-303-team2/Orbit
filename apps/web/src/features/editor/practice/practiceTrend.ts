@@ -55,15 +55,13 @@ export function buildPracticeTrendSeries(input: {
   reports: readonly SlidePracticeReportRecord[];
   slideContentHash: string;
   metric: PracticeTrendMetric;
-  now?: Date;
 }): PracticeTrendSeries {
   const reports = comparablePracticeReports(input.reports, input.slideContentHash);
-  const now = input.now ?? new Date();
-  const points = reports.map((report) => ({
+  const points = reports.map((report, index) => ({
     reportId: report.reportId,
     practiceSessionId: report.practiceSessionId,
     createdAt: report.createdAt,
-    dateLabel: practiceTrendDateLabel(report.createdAt, now),
+    dateLabel: practiceTrendDateLabel(report.createdAt, index + 1),
     value: metricValue(report, input.metric),
   }));
   const segments: Array<[number, number]> = [];
@@ -81,10 +79,9 @@ export function buildPracticeTrendSeries(input: {
   };
 }
 
-export function practiceTrendDateLabel(createdAt: string, now: Date) {
+export function practiceTrendDateLabel(createdAt: string, round: number) {
   const date = new Date(createdAt);
-  if (sameLocalDate(date, now)) return "오늘";
-  return `${date.getMonth() + 1}/${date.getDate()}`;
+  return `${round}회차 (${date.getMonth() + 1}/${date.getDate()})`;
 }
 
 function metricValue(
@@ -133,10 +130,4 @@ function metricDistance(metric: PracticeTrendMetric, value: number) {
     min: slidePracticeMetricTargets.pauseRatio.min * 100,
     max: slidePracticeMetricTargets.pauseRatio.max * 100,
   });
-}
-
-function sameLocalDate(left: Date, right: Date) {
-  return left.getFullYear() === right.getFullYear()
-    && left.getMonth() === right.getMonth()
-    && left.getDate() === right.getDate();
 }

@@ -25,14 +25,13 @@ describe("practice trend model", () => {
       reports: fixture,
       slideContentHash: currentHash,
       metric: "fillerRate",
-      now: new Date("2026-07-21T12:00:00.000Z"),
     });
 
     expect(series.points.map((point) => point.value?.toFixed(1))).toEqual([
       "3.1", "2.7", "1.9", "0.9", "0.0",
     ]);
     expect(series.points.map((point) => point.dateLabel)).toEqual([
-      "7/13", "7/15", "7/17", "7/19", "오늘",
+      "1회차 (7/13)", "2회차 (7/15)", "3회차 (7/17)", "4회차 (7/19)", "5회차 (7/21)",
     ]);
     expect(series.mode).toBe("trend");
     expect(series.direction).toBe("improved");
