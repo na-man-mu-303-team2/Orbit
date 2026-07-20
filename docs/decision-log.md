@@ -2,6 +2,18 @@
 
 이 문서는 자동 구현 세션에서 생긴 비자명한 정책, 아키텍처, 데이터 보관, 접근제어, 저장 결정의 기록이다.
 
+## kdh home project fixture removal
+
+- Context: 사용자가 `kdh@orbit.com` 홈에 고정으로 떠 있는 10개 발표자료 카드를 `develop`과 `main` 모두에서 제거하도록 요청했다. 두 브랜치의 관련 코드는 동일하다. `ensureKdhHomeProjects()`가 `list()` 호출마다 실행되므로 DB row만 지우면 다음 목록 조회에서 즉시 재생성된다.
+- Options considered:
+  - DB row만 삭제한다.
+  - seed 코드만 제거하고 기존 row는 방치한다.
+  - seed 코드·자산·테스트를 제거하고, 남은 row를 지우는 일회성 script를 함께 추가한다.
+- Final decision: `kdh-home-project-seed.ts`와 spec, `home-project-covers` WebP 10개, `projects.service.ts`의 `ensureKdhHomeProjects()` 호출·정의와 `isKdhHomeProjectId()` 접근 가드를 모두 제거한다. 남은 row는 신규 `apps/api/src/scripts/cleanup-kdh-home-projects.ts`로 정리하며, script는 production에서 거부하고 `KDH_HOME_CLEANUP_CONFIRM` 토큰을 요구하며 dry-run이 기본값이다. 삭제 대상은 고정 10개 project ID 리터럴로 한정하고, 실행 전 각 project의 소유자 email이 `kdh@orbit.com`인지 검증한다.
+- Rationale: `decks`는 `projects`를 FK로 참조하지 않아 project 삭제만으로는 orphan이 남고, deck을 참조하는 4개 테이블이 `ON DELETE RESTRICT`라 삭제 순서가 동작에 영향을 준다. 따라서 순서를 명시한 script가 필요하다. `project_id` 컬럼을 가진 모든 테이블을 `pg_attribute`로 훑는 잔여 스캔을 commit 직전에 두어, 이 script 작성 이후 추가된 테이블이 있으면 반쪽 삭제를 commit하지 않고 rollback한다. `activity_runs`는 자기 참조 RESTRICT가 있어 bulk delete 전에 `supersedes_activity_run_id`를 NULL로 푼다.
+- Affected files: `apps/api/src/projects/projects.service.ts`, `apps/api/src/scripts/cleanup-kdh-home-projects.ts`, `apps/api/package.json`, `package.json`, 삭제된 `apps/api/src/projects/kdh-home-project-seed.ts`·`apps/web/public/assets/home-project-covers/**`, 관련 테스트.
+- Follow-up review notes: script는 코드 제거가 배포된 **뒤에** 실행해야 한다. 구버전 seeder가 살아 있으면 row가 다시 생긴다. dry-run에서 연습·리허설 테이블 건수가 0이 아니면 누군가 fixture deck으로 실제 작업을 한 것이므로 실행을 중단하고 확인받는다. `isKdhHomeProjectId` 가드 제거로 해당 10개 ID는 일반 project와 동일하게 동작하지만, row 삭제 후에는 `NotFound`로 수렴한다.
+
 ## kdh home project fixture access policy
 
 - Context: 운영 홈 화면에서 `kdh@orbit.com` 계정에만 이미지 표지의 실제 프로젝트 카드 10개가 필요하며, 다른 계정의 프로젝트 목록이나 덱 접근에는 노출되면 안 된다.

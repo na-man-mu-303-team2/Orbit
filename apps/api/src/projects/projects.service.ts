@@ -33,12 +33,6 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { DataSource, In, Repository } from "typeorm";
 import { serializeLogError } from "../logging";
-import {
-  createKdhHomeProjectDeck,
-  getKdhHomeProjectSeeds,
-  isKdhHomeProjectId,
-  kdhHomeProjectEmail,
-} from "./kdh-home-project-seed";
 import { ProjectEntity } from "./project.entity";
 import { ProjectMemberEntity } from "./project-member.entity";
 
@@ -154,7 +148,6 @@ export class ProjectsService {
 
   async list(workspaceId: string, userId: string): Promise<ProjectListItem[]> {
     this.assertWorkspaceAccess(workspaceId);
-    await this.ensureKdhHomeProjects(userId);
 
     const acceptedMemberships = await this.projectMembersRepository.find({
       where: {
@@ -182,74 +175,6 @@ export class ProjectsService {
         ...this.toProjectDto(project),
         isPinned: Boolean(membershipsByProjectId.get(project.projectId)?.isPinned),
       })),
-    );
-  }
-
-  private async ensureKdhHomeProjects(userId: string): Promise<void> {
-    const user = await this.findUserByEmail(kdhHomeProjectEmail);
-    if (user?.user_id !== userId) return;
-
-    const now = new Date();
-    await this.dataSource.transaction(async (manager) => {
-      for (const [index, seed] of getKdhHomeProjectSeeds().entries()) {
-        const createdAt = new Date(now.getTime() - index * 60_000);
-        const deck = createKdhHomeProjectDeck(seed);
-
-        await manager.query(
-          `
-            INSERT INTO projects (project_id, workspace_id, title, created_by, created_at)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (project_id) DO NOTHING
-          `,
-          [seed.projectId, demoIds.workspaceId, seed.title, userId, createdAt],
-        );
-        await manager.query(
-          `
-            INSERT INTO project_members (project_id, user_id, role, status, created_at)
-            VALUES ($1, $2, 'owner', 'accepted', $3)
-            ON CONFLICT (project_id, user_id) DO NOTHING
-          `,
-          [seed.projectId, userId, createdAt],
-        );
-        await manager.query(
-          `
-            INSERT INTO decks (project_id, deck_id, deck_json, version, updated_at)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (project_id) DO UPDATE SET
-              deck_json = jsonb_set(
-                jsonb_set(
-                  decks.deck_json,
-                  '{slides,0,style,backgroundImage}',
-                  EXCLUDED.deck_json #> '{slides,0,style,backgroundImage}',
-                  true
-                ),
-                '{version}',
-                to_jsonb(decks.version + 1),
-                true
-              ),
-              version = decks.version + 1,
-              updated_at = EXCLUDED.updated_at
-            WHERE decks.deck_id = EXCLUDED.deck_id
-              AND decks.deck_json #>> '{slides,0,style,backgroundImage,src}' = $6
-          `,
-          [
-            seed.projectId,
-            seed.deckId,
-            deck,
-            deck.version,
-            createdAt,
-            seed.legacyImageUrl,
-          ],
-        );
-      }
-    });
-    this.logger?.info(
-      {
-        event: "projects.kdh_home_seed_ensured",
-        coverRevision: 1,
-        projectCount: getKdhHomeProjectSeeds().length,
-      },
-      "Kdh home project seed ensured.",
     );
   }
 
@@ -326,9 +251,6 @@ export class ProjectsService {
     try {
       const project = await this.findProjectOrDemo(projectId);
       const member = await this.findProjectMember(project.projectId, userId);
-      if (isKdhHomeProjectId(project.projectId) && !member) {
-        throw new NotFoundException(`Project not found: ${projectId}`);
-      }
 
       return projectAccessResponseSchema.parse({
         project: this.toProjectDto(project),
@@ -356,10 +278,6 @@ export class ProjectsService {
   ): Promise<ProjectAccessResponse> {
     const project = await this.findProjectOrDemo(projectId);
     const existing = await this.findProjectMember(project.projectId, userId);
-
-    if (isKdhHomeProjectId(project.projectId) && !existing) {
-      throw new NotFoundException(`Project not found: ${projectId}`);
-    }
 
     if (existing?.status === "accepted") {
       return {
