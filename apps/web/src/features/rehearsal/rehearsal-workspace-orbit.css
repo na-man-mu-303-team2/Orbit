@@ -713,16 +713,180 @@ main.rehearsal-presenter-shell {
   box-shadow: var(--redesign-focus-ring);
   outline: none;
 }
-.rehearsal-completion-screen { background: var(--redesign-color-surface-container-lowest); color: var(--redesign-color-on-surface); min-height: 100vh; padding: var(--redesign-space-13) var(--redesign-space-6) var(--redesign-space-18); }
-.rehearsal-completion-card { background: var(--redesign-color-light-surface); border: 1px solid var(--redesign-color-outline-variant); border-radius: var(--redesign-radius-xl); box-shadow: var(--redesign-shadow-overlay); max-width: 920px; }
-.rehearsal-completion-card > header { background: var(--redesign-color-secondary-fixed-dim); border-radius: var(--redesign-radius-xl) var(--redesign-radius-xl) 0 0; }
-.rehearsal-completion-card > header h1 { font-size: var(--redesign-type-display-sm-size); letter-spacing: -.05em; }
-.rehearsal-completion-time { background: var(--redesign-color-success-container); border-radius: var(--redesign-radius-xl); }
-.rehearsal-completion-coverage, .rehearsal-completion-missed { border-color: var(--redesign-color-outline-variant); border-radius: var(--redesign-radius-xl); }
-.rehearsal-completion-coverage > span i { background: var(--redesign-color-secondary); }
-.rehearsal-completion-report-state { background: var(--redesign-color-warning-container); border: 0; border-radius: var(--redesign-radius-xl); }
-.rehearsal-completion-card > footer button { border-radius: var(--redesign-radius-full); min-height: 44px; }
-.rehearsal-completion-card > footer button:last-child { background: var(--redesign-color-on-surface); color: var(--redesign-color-light-surface); }
+.rehearsal-completion-backdrop {
+  align-items: center;
+  background: var(--redesign-color-scrim);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: var(--redesign-space-6);
+  position: fixed;
+  z-index: 1200;
+}
+
+.rehearsal-completion-dialog {
+  align-items: center;
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  box-shadow: var(--redesign-shadow-overlay);
+  color: var(--redesign-color-on-surface);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - (var(--redesign-space-6) * 2));
+  max-width: 500px;
+  overflow-y: auto;
+  padding: var(--redesign-space-8);
+  position: relative;
+  scrollbar-gutter: stable;
+  width: 100%;
+}
+
+.rehearsal-completion-close {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--redesign-color-on-surface-variant);
+  cursor: pointer;
+  display: inline-flex;
+  height: var(--redesign-size-control-md);
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  right: var(--redesign-space-5);
+  top: var(--redesign-space-5);
+  width: var(--redesign-size-control-md);
+}
+
+.rehearsal-completion-check {
+  align-items: center;
+  color: var(--redesign-color-success);
+  display: inline-flex;
+  height: 48px;
+  justify-content: center;
+  margin-top: var(--redesign-space-2);
+  width: 48px;
+}
+
+.rehearsal-completion-dialog h1 {
+  font-size: var(--redesign-type-headline-lg-size);
+  letter-spacing: -.03em;
+  line-height: 1.25;
+  margin: var(--redesign-space-5) 0 var(--redesign-space-2);
+  text-align: center;
+}
+
+.rehearsal-completion-description {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-md-size);
+  line-height: 1.5;
+  margin: 0;
+  text-align: center;
+}
+
+.rehearsal-completion-report {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--redesign-color-outline-variant);
+  color: var(--redesign-color-on-surface-variant);
+  display: flex;
+  gap: var(--redesign-space-4);
+  margin-top: var(--redesign-space-7);
+  min-height: 96px;
+  padding: var(--redesign-space-5) var(--redesign-space-6) 0;
+  width: 100%;
+}
+
+.rehearsal-completion-report-ready {
+  color: var(--redesign-color-success);
+}
+
+.rehearsal-completion-report > div {
+  display: grid;
+  gap: var(--redesign-space-1);
+}
+
+.rehearsal-completion-report strong {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-md-size);
+}
+
+.rehearsal-completion-report span {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+}
+
+.rehearsal-completion-loader {
+  animation: rehearsal-completion-spin .8s linear infinite;
+  color: var(--redesign-color-primary);
+  flex: 0 0 auto;
+}
+
+.rehearsal-completion-actions {
+  display: grid;
+  gap: var(--redesign-space-3);
+  margin-top: var(--redesign-space-5);
+  width: 100%;
+}
+
+.rehearsal-completion-actions button {
+  border-radius: var(--redesign-radius-lg);
+  cursor: pointer;
+  font-size: var(--redesign-type-body-md-size);
+  font-weight: 700;
+  min-height: 52px;
+  padding: 0 var(--redesign-space-5);
+  width: 100%;
+}
+
+.rehearsal-completion-report-button {
+  background: var(--redesign-color-primary);
+  border: 1px solid var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+}
+
+.rehearsal-completion-report-button:disabled {
+  background: var(--redesign-color-surface-container-high);
+  border-color: var(--redesign-color-surface-container-high);
+  color: color-mix(in srgb, var(--redesign-color-on-surface) 38%, transparent);
+  cursor: not-allowed;
+}
+
+.rehearsal-completion-practice-button {
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  color: var(--redesign-color-on-surface);
+}
+
+.rehearsal-completion-links {
+  align-items: center;
+  display: flex;
+  gap: var(--redesign-space-4);
+  justify-content: center;
+  margin-top: var(--redesign-space-5);
+}
+
+.rehearsal-completion-links button {
+  background: transparent;
+  border: 0;
+  color: var(--redesign-color-on-surface-variant);
+  cursor: pointer;
+  font-size: var(--redesign-type-body-sm-size);
+  padding: var(--redesign-space-1) 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.rehearsal-completion-links > span {
+  background: var(--redesign-color-outline-variant);
+  height: 16px;
+  width: 1px;
+}
+
+@keyframes rehearsal-completion-spin {
+  to { transform: rotate(360deg); }
+}
 
 @media (max-width:1120px) {
   .rehearsal-presenter-shell.rehearsal-presenter-shell,
