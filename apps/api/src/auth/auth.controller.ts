@@ -1,11 +1,12 @@
 import { loadOrbitConfig } from "@orbit/config";
 import {
   authResponseSchema,
+  createProjectTagDefinitionRequestSchema,
   loginRequestSchema,
   logoutResponseSchema,
   registerRequestSchema
 } from "@orbit/shared";
-import type { AuthResponse, LoginRequest, RegisterRequest } from "@orbit/shared";
+import type { AuthResponse } from "@orbit/shared";
 import {
   BadRequestException,
   Body,
@@ -94,6 +95,24 @@ export class AuthController {
     return this.authService.me(sessionId);
   }
 
+  @Get("project-tags")
+  async getProjectTags(@Req() request: SignedCookieRequest) {
+    const sessionId = requireSignedSessionId(request);
+    const session = await this.authService.me(sessionId);
+    return this.authService.getProjectTags(session.user.userId);
+  }
+
+  @Post("project-tags")
+  async createProjectTag(
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest
+  ) {
+    const input = parseAuthRequest(createProjectTagDefinitionRequestSchema, body);
+    const sessionId = requireSignedSessionId(request);
+    const session = await this.authService.me(sessionId);
+    return this.authService.createProjectTag(session.user.userId, input);
+  }
+
   /** Redis 세션 id를 브라우저에 직접 노출하지 않고 signed HttpOnly cookie로 설정한다. */
   private setSessionCookie(
     response: Response,
@@ -118,7 +137,7 @@ export class AuthController {
 }
 
 /** 외부 입력 body를 shared 인증 schema로 검증하고 실패 시 400 응답으로 바꾼다. */
-function parseAuthRequest<T extends RegisterRequest | LoginRequest>(
+function parseAuthRequest<T>(
   schema: z.ZodType<T>,
   body: unknown
 ): T {
@@ -134,6 +153,12 @@ function parseAuthRequest<T extends RegisterRequest | LoginRequest>(
   }
 
   return result.data;
+}
+
+function requireSignedSessionId(request: SignedCookieRequest): string {
+  const sessionId = getSignedSessionId(request);
+  if (!sessionId) throw new UnauthorizedException("Authentication required");
+  return sessionId;
 }
 
 /** cookie-parser가 검증한 signed cookie에서 세션 id만 안전하게 꺼낸다. */

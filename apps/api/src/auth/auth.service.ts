@@ -3,8 +3,10 @@ import {
   authResponseSchema,
   authSessionSchema,
   authUserSchema,
+  createProjectTagDefinitionRequestSchema,
   loginRequestSchema,
   meResponseSchema,
+  projectTagDefinitionsResponseSchema,
   registerRequestSchema
 } from "@orbit/shared";
 import type {
@@ -12,19 +14,24 @@ import type {
   AuthAvatar,
   AuthSession,
   AuthUser,
+  CreateProjectTagDefinitionRequest,
   LoginRequest,
   MeResponse,
   OfficialAvatarId,
+  ProjectTagDefinitionsResponse,
   RegisterRequest
 } from "@orbit/shared";
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
+  Optional,
   UnauthorizedException
 } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import * as argon2 from "argon2";
+import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { DataSource } from "typeorm";
 import { authSessionTtlSeconds } from "./auth.constants";
 import { AUTH_SESSION_STORE, AuthSessionStore } from "./auth-session.store";
@@ -39,6 +46,10 @@ type UserRow = {
   updated_at: Date | string;
 };
 
+type UserProjectTagsRow = {
+  project_tags: unknown;
+};
+
 export interface AuthResult extends AuthResponse {
   session: AuthSession;
   sessionId: string;
@@ -50,8 +61,57 @@ export class AuthService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     @Inject(AUTH_SESSION_STORE)
-    private readonly sessions: AuthSessionStore
+    private readonly sessions: AuthSessionStore,
+    @Optional()
+    @InjectPinoLogger(AuthService.name)
+    private readonly logger?: PinoLogger
   ) {}
+
+  async getProjectTags(userId: string): Promise<ProjectTagDefinitionsResponse> {
+    const rows = await this.dataSource.query<UserProjectTagsRow[]>(
+      `SELECT project_tags FROM users WHERE user_id = $1 LIMIT 1`,
+      [userId]
+    );
+    if (!rows[0]) {
+      throw new UnauthorizedException("Authentication required");
+    }
+    return projectTagDefinitionsResponseSchema.parse({ tags: rows[0].project_tags });
+  }
+
+  async createProjectTag(
+    userId: string,
+    input: CreateProjectTagDefinitionRequest
+  ): Promise<ProjectTagDefinitionsResponse> {
+    const tag = createProjectTagDefinitionRequestSchema.parse(input);
+    return this.dataSource.transaction(async (manager) => {
+      const rows = await manager.query<UserProjectTagsRow[]>(
+        `SELECT project_tags FROM users WHERE user_id = $1 FOR UPDATE`,
+        [userId]
+      );
+      if (!rows[0]) {
+        throw new UnauthorizedException("Authentication required");
+      }
+      const current = projectTagDefinitionsResponseSchema.parse({
+        tags: rows[0].project_tags,
+      }).tags;
+      if (current.some((item) => item.name.toLocaleLowerCase() === tag.name.toLocaleLowerCase())) {
+        throw new ConflictException("Project tag name already exists");
+      }
+      if (current.length >= 12) {
+        throw new BadRequestException("Project tags cannot exceed 12");
+      }
+      const tags = [...current, tag];
+      await manager.query(
+        `UPDATE users SET project_tags = $2::jsonb, updated_at = now() WHERE user_id = $1`,
+        [userId, JSON.stringify(tags)]
+      );
+      this.logger?.info(
+        { event: "user.project_tag_created", userId, tagName: tag.name, tagColor: tag.color },
+        "User project tag created."
+      );
+      return projectTagDefinitionsResponseSchema.parse({ tags });
+    });
+  }
 
   /** 이메일/비밀번호를 정규화하고 Argon2id hash만 저장한 뒤 새 세션을 만든다. */
   async register(input: RegisterRequest): Promise<AuthResult> {

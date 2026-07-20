@@ -3,7 +3,12 @@ import { Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { DataSource } from "typeorm";
 
-const requiredColumns = [{ table: "project_members", column: "is_pinned" }] as const;
+const requiredColumns = [
+  { table: "project_members", column: "is_pinned" },
+  { table: "project_members", column: "pinned_at" },
+  { table: "projects", column: "tags" },
+  { table: "users", column: "project_tags" },
+] as const;
 
 export type DatabaseReadiness = {
   ready: boolean;
@@ -26,8 +31,10 @@ export class DatabaseReadinessService {
       `SELECT table_name, column_name
        FROM information_schema.columns
        WHERE table_schema = 'public'
-         AND (table_name, column_name) IN (($1, $2))`,
-      [requiredColumns[0].table, requiredColumns[0].column]
+         AND (table_name, column_name) IN (
+           ($1, $2), ($3, $4), ($5, $6), ($7, $8)
+         )`,
+      requiredColumns.flatMap(({ table, column }) => [table, column])
     );
     const present = new Set(rows.map((row) => `${row.table_name}.${row.column_name}`));
     const missingColumns = requiredColumns

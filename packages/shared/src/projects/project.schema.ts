@@ -22,7 +22,33 @@ export const deleteProjectResponseSchema = z.object({
   projectId: z.string().min(1),
 });
 
-export const defaultProjectTags = ["중요", "완료"] as const;
+export const projectTagColorSchema = z.enum([
+  "yellow",
+  "blue",
+  "green",
+  "orange",
+  "purple",
+  "red",
+]);
+export const projectTagDefinitionSchema = z.object({
+  name: z.lazy(() => projectTagSchema),
+  color: projectTagColorSchema,
+});
+export const defaultProjectTagDefinition = {
+  name: "중요",
+  color: "yellow",
+} as const;
+export const userProjectTagsSchema = z
+  .array(projectTagDefinitionSchema)
+  .max(12)
+  .refine(
+    (tags) => new Set(tags.map((tag) => tag.name.toLocaleLowerCase())).size === tags.length,
+    "Project tag names must be unique",
+  );
+export const projectTagDefinitionsResponseSchema = z.object({
+  tags: userProjectTagsSchema,
+});
+export const createProjectTagDefinitionRequestSchema = projectTagDefinitionSchema.strict();
 export const projectTagSchema = z.string().trim().min(1).max(20);
 export const projectTagsSchema = z
   .array(projectTagSchema)
@@ -40,8 +66,40 @@ export const projectGenerationSummarySchema = z.object({
 
 export const projectListItemSchema = projectSchema.extend({
   isPinned: z.boolean(),
+  pinnedAt: isoDateTimeSchema.nullable(),
   tags: projectTagsSchema,
   generation: projectGenerationSummarySchema.nullable(),
+});
+
+export const projectListSortSchema = z.enum(["latest", "oldest", "name"]);
+export const projectListFilterSchema = z.enum([
+  "all",
+  "presentation",
+  "draft",
+  "shared",
+  "pinned",
+]);
+export const projectPageRequestSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(6),
+  query: z.string().trim().max(100).default(""),
+  sort: projectListSortSchema.default("latest"),
+  filter: projectListFilterSchema.default("all"),
+  tags: z.preprocess(
+    (value) => {
+      if (Array.isArray(value)) return value;
+      if (typeof value === "string" && value.length > 0) return value.split(",");
+      return [];
+    },
+    projectTagsSchema,
+  ),
+});
+export const projectPageResponseSchema = z.object({
+  items: z.array(projectListItemSchema),
+  total: z.number().int().min(0),
+  page: z.number().int().min(1),
+  limit: z.number().int().min(1),
+  hasMore: z.boolean(),
 });
 
 export const updateProjectPinRequestSchema = z
@@ -51,6 +109,7 @@ export const updateProjectPinRequestSchema = z
 export const updateProjectPinResponseSchema = z.object({
   projectId: z.string().min(1),
   isPinned: z.boolean(),
+  pinnedAt: isoDateTimeSchema.nullable(),
 });
 
 export const updateProjectTagsRequestSchema = z
@@ -118,6 +177,14 @@ export type Project = z.infer<typeof projectSchema>;
 export type ProjectListItem = z.infer<typeof projectListItemSchema>;
 export type ProjectGenerationSummary = z.infer<typeof projectGenerationSummarySchema>;
 export type ProjectTag = z.infer<typeof projectTagSchema>;
+export type ProjectTagColor = z.infer<typeof projectTagColorSchema>;
+export type ProjectTagDefinition = z.infer<typeof projectTagDefinitionSchema>;
+export type ProjectTagDefinitionsResponse = z.infer<typeof projectTagDefinitionsResponseSchema>;
+export type CreateProjectTagDefinitionRequest = z.infer<typeof createProjectTagDefinitionRequestSchema>;
+export type ProjectListSort = z.infer<typeof projectListSortSchema>;
+export type ProjectListFilter = z.infer<typeof projectListFilterSchema>;
+export type ProjectPageRequest = z.infer<typeof projectPageRequestSchema>;
+export type ProjectPageResponse = z.infer<typeof projectPageResponseSchema>;
 export type CreateProjectRequest = z.infer<typeof createProjectRequestSchema>;
 export type UpdateProjectRequest = z.infer<typeof updateProjectRequestSchema>;
 export type DeleteProjectResponse = z.infer<typeof deleteProjectResponseSchema>;

@@ -65,6 +65,7 @@ import { AddProjectMemberPins2026071801000 } from "./migrations/2026071801000-Ad
 import { CreatePresentationRuns2026072001000 } from "./migrations/2026072001000-CreatePresentationRuns";
 import { AddProfileAvatars2026072101000 } from "./migrations/2026072101000-AddProfileAvatars";
 import { AddProjectTags2026072102000 } from "./migrations/2026072102000-AddProjectTags";
+import { AddUserProjectTagsAndPinnedAt2026072103000 } from "./migrations/2026072103000-AddUserProjectTagsAndPinnedAt";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -142,6 +143,7 @@ export const databaseOptions: DataSourceOptions = {
     AddPresentationDetailedReport2026072002000,
     AddProfileAvatars2026072101000,
     AddProjectTags2026072102000,
+    AddUserProjectTagsAndPinnedAt2026072103000,
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
