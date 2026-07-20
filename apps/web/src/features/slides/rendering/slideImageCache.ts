@@ -174,11 +174,12 @@ export function loadSlideImage(
 export async function preloadSlideAssets(
   deck: Deck,
   slide: Slide,
-  priority: SlideImagePriority
+  priority: SlideImagePriority,
+  cache = sharedSlideImageCache
 ): Promise<SlideAssetPreparationResult> {
   const urls = collectSlideAssetUrls(deck, slide);
   const settled = await Promise.allSettled(
-    urls.map((url) => loadSlideImage(deck.projectId, url, priority))
+    urls.map((url) => cache.load(deck.projectId, url, priority))
   );
   const loadedUrls: string[] = [];
   const failedUrls: string[] = [];
@@ -196,7 +197,8 @@ export async function preloadSlideAssets(
 export async function prepareSlideAssets(
   deck: Deck,
   slide: Slide,
-  timeoutMs = slideAssetPreparationTimeoutMs
+  timeoutMs = slideAssetPreparationTimeoutMs,
+  cache = sharedSlideImageCache
 ): Promise<SlideAssetPreparationResult> {
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   const timeout = new Promise<SlideAssetPreparationResult>((resolve) => {
@@ -207,7 +209,7 @@ export async function prepareSlideAssets(
   });
 
   const result = await Promise.race([
-    preloadSlideAssets(deck, slide, "high"),
+    preloadSlideAssets(deck, slide, "high", cache),
     timeout
   ]);
   if (timeoutHandle !== null) clearTimeout(timeoutHandle);

@@ -2429,11 +2429,6 @@ export function RehearsalWorkspace(props: {
 
   useEffect(() => {
     return () => {
-      slideNavigationGateRef.current?.cancel();
-      const projectId = deckRef.current?.projectId;
-      if (projectId) {
-        clearProjectSlideImageCache(projectId);
-      }
       resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
       cleanupLiveSttSubscriptions();
       const p3Session = p3SessionRef.current;
@@ -2462,6 +2457,16 @@ export function RehearsalWorkspace(props: {
   ]);
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
+
+  useEffect(() => {
+    const projectId = deck?.projectId;
+    if (!projectId) return;
+
+    return () => {
+      slideNavigationGateRef.current?.cancel();
+      clearProjectSlideImageCache(projectId);
+    };
+  }, [deck?.projectId]);
 
   useEffect(() => {
     if (!deck || !currentSlide) return;

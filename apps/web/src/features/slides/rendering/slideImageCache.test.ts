@@ -2,7 +2,9 @@ import { createDemoDeck } from "@orbit/editor-core";
 import { describe, expect, it, vi } from "vitest";
 import {
   collectSlideAssetUrls,
-  createSlideImageCache
+  createSlideImageCache,
+  preloadSlideAssets,
+  prepareSlideAssets
 } from "./slideImageCache";
 
 class FakeImage {
@@ -98,6 +100,43 @@ describe("slideImageCache", () => {
     cache.clearProject("project-1");
     expect(cache.has("project-1", "/current.png")).toBe(false);
     expect(cache.has("project-1", "/next.png")).toBe(false);
+  });
+
+  it("reports failed assets so navigation can continue with a placeholder", async () => {
+    const { cache, images } = createHarness();
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      elements: [],
+      thumbnailUrl: "/failed-thumbnail.png"
+    };
+
+    const preparation = preloadSlideAssets(deck, slide, "high", cache);
+    images[0]?.reject();
+
+    await expect(preparation).resolves.toEqual({
+      failedUrls: ["/failed-thumbnail.png"],
+      loadedUrls: [],
+      timedOut: false
+    });
+  });
+
+  it("stops waiting after the preparation timeout", async () => {
+    const { cache } = createHarness();
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      elements: [],
+      thumbnailUrl: "/slow-thumbnail.png"
+    };
+
+    await expect(
+      prepareSlideAssets(deck, slide, 10, cache)
+    ).resolves.toEqual({
+      failedUrls: [],
+      loadedUrls: [],
+      timedOut: true
+    });
   });
 });
 
