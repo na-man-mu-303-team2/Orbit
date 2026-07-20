@@ -25,7 +25,6 @@ import {
   DropdownMenuItem,
   OrbitBrand,
   OrbitButton,
-  OrbitIconButton
 } from "./ui";
 import { OrbitDialog } from "./ui/Dialog";
 import "./orbit-app-header.css";
