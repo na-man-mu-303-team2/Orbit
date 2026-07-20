@@ -1,9 +1,6 @@
-import {
-  demoIds,
-  type PublishCommunityTemplateRequest,
-} from "@orbit/shared";
+import { demoIds, type PublishCommunityTemplateRequest } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   PublishCommunityTemplateView,
@@ -43,6 +40,7 @@ export function PublishCommunityTemplateDialog(props: {
   const [errors, setErrors] = useState<CommunityTemplatePublishErrors>({});
   const [publishError, setPublishError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const submitLockRef = useRef(false);
   const sourcesQuery = useQuery({
     enabled: props.open,
     queryKey: communityTemplateKeys.sources(workspaceId),
@@ -57,6 +55,7 @@ export function PublishCommunityTemplateDialog(props: {
     setErrors({});
     setPublishError(null);
     setSubmitting(false);
+    submitLockRef.current = false;
   }, [props.open]);
 
   useEffect(() => {
@@ -69,7 +68,8 @@ export function PublishCommunityTemplateDialog(props: {
   }, [props.open]);
 
   async function submit(request: PublishCommunityTemplateRequest) {
-    if (submitting) return;
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setSubmitting(true);
     setPublishError(null);
     try {
@@ -96,6 +96,7 @@ export function PublishCommunityTemplateDialog(props: {
           : "커뮤니티 템플릿을 등록하지 못했습니다. 다시 시도해 주세요.",
       );
     } finally {
+      submitLockRef.current = false;
       setSubmitting(false);
     }
   }
