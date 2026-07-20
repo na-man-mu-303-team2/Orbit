@@ -1,4 +1,5 @@
 import { koreanFillerPolicyV1 } from "./filler-policy";
+import { classifyLoudnessStability } from "./slide-practice-policy";
 import type {
   SlidePracticeCoachingIssueCode,
   SlidePracticeFillerDetail,
@@ -149,7 +150,7 @@ export function countSpokenSyllables(transcript: string) {
 }
 
 export function findSlidePracticeCoachingIssues(
-  report: Pick<SlidePracticeReport, "fillers" | "voice">,
+  report: Pick<SlidePracticeReport, "fillers" | "reportVersion" | "voice">,
 ): SlidePracticeCoachingIssueCode[] {
   const issues: SlidePracticeCoachingIssueCode[] = [];
   if (report.fillers.totalCount > 0) issues.push("filler-use");
@@ -168,6 +169,12 @@ export function findSlidePracticeCoachingIssues(
   const loudness = report.voice.loudnessDb;
   if (loudness !== null && loudness < -45) issues.push("loudness-low");
   if (loudness !== null && loudness > -30) issues.push("loudness-high");
+  if (
+    report.reportVersion === 3
+    && classifyLoudnessStability(report.voice.loudnessMadDb) === "unstable"
+  ) {
+    issues.push("loudness-unstable");
+  }
   return issues;
 }
 

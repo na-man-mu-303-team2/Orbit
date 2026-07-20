@@ -11,6 +11,7 @@ import { ProjectMemberEntity } from "../projects/project-member.entity";
 import { RehearsalRunEntity } from "../rehearsals/rehearsal-run.entity";
 import { PresentationRunEntity } from "../presentation-sessions/presentation-run.entity";
 import { AddPresentationDetailedReport2026072002000 } from "./migrations/2026072002000-AddPresentationDetailedReport";
+import { AddSlidePracticeContentHash2026072101000 } from "./migrations/2026072101000-AddSlidePracticeContentHash";
 import { CreateDeckPersistenceTables2026062701000 } from "./migrations/2026062701000-CreateDeckPersistenceTables";
 import { CreateAuthUsers2026062702000 } from "./migrations/2026062702000-CreateAuthUsers";
 import { CreateMigrationCommandCheck2026062700000 } from "./migrations/2026062700000-CreateMigrationCommandCheck";
@@ -143,6 +144,7 @@ export const databaseOptions: DataSourceOptions = {
     CreatePresentationRuns2026072001000,
     AddPresentationDetailedReport2026072002000,
     AddProfileAvatars2026072101000,
+    AddSlidePracticeContentHash2026072101000,
     AddProjectTags2026072102000,
     AddUserProjectTagsAndPinnedAt2026072103000,
     AddUserDisplayNames2026072104000,

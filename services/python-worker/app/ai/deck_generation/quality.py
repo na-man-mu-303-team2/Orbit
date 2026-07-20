@@ -1610,7 +1610,7 @@ def validate_slide_visual_hierarchy(
     slide_index: int,
     visual_type: str,
 ) -> list[ValidationIssue]:
-    if visual_type in {"cover", "quote"}:
+    if visual_type in {"cover", "quote"} or is_cover_composition_slide(slide):
         return []
     visible_elements = [
         element for element in slide.get("elements", []) if element.get("visible", True)
@@ -1648,6 +1648,8 @@ def validate_slide_visual_occupancy(
     slide_index: int,
     visual_type: str,
 ) -> list[ValidationIssue]:
+    if is_cover_composition_slide(slide):
+        return []
     visible = [
         element
         for element in slide.get("elements", [])
@@ -1870,6 +1872,8 @@ def validate_slide_grid_alignment(
     slide: dict[str, Any],
     slide_index: int,
 ) -> list[ValidationIssue]:
+    if is_cover_composition_slide(slide):
+        return []
     elements = slide.get("elements", [])
     for element_index, element in enumerate(elements):
         if not is_design_pack_grid_element(element, elements):
@@ -1885,6 +1889,13 @@ def validate_slide_grid_alignment(
             )
         ]
     return []
+
+
+def is_cover_composition_slide(slide: dict[str, Any]) -> bool:
+    composition_id = str(
+        slide.get("aiNotes", {}).get("compositionPlan", {}).get("compositionId", "")
+    )
+    return composition_id.startswith("cover-")
 
 
 def is_grid_aligned(element: dict[str, Any]) -> bool:

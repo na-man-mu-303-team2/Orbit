@@ -69,5 +69,6 @@ export * from "./rehearsals/rehearsal.schema";
 export * from "./realtime/websocket.schema";
 export * from "./slide-practice/filler-policy";
 export * from "./slide-practice/slide-practice-analysis";
+export * from "./slide-practice/slide-practice-policy";
 export * from "./slide-practice/slide-practice.schema";
 export * from "./slide-practice/slide-question-guide.schema";

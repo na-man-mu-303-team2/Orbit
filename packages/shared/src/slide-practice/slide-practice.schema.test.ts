@@ -7,6 +7,7 @@ import {
 import {
   createSlidePracticeAnalysisRequestSchema,
   createSlidePracticeReportRequestSchema,
+  listSlidePracticeReportsQuerySchema,
   slidePracticeAnalysisResultResponseSchema,
   slidePracticeReportListResponseSchema,
   slidePracticeReportRecordSchema,
@@ -63,9 +64,37 @@ const report = {
   },
 } as const;
 
+const reportV3 = {
+  ...report,
+  reportVersion: 3,
+  metricDefinitionVersion: 3,
+  contentHashVersion: "slide-text-v1",
+  slideContentHash: "a".repeat(64),
+} as const;
+
 describe("slidePracticeReportSchema", () => {
   it("accepts derived metrics without transcript or audio", () => {
     expect(slidePracticeReportSchema.parse(report)).toEqual(report);
+  });
+
+  it("keeps v1/v2 compatibility and requires the complete v3 hash contract", () => {
+    expect(slidePracticeReportSchema.safeParse(report).success).toBe(true);
+    expect(slidePracticeReportSchema.safeParse({
+      ...report,
+      reportVersion: 2,
+      metricDefinitionVersion: 2,
+    }).success).toBe(true);
+    expect(slidePracticeReportSchema.safeParse(reportV3).success).toBe(true);
+    expect(slidePracticeReportSchema.safeParse({
+      ...reportV3,
+      slideContentHash: "A".repeat(64),
+    }).success).toBe(false);
+    expect(slidePracticeReportSchema.safeParse({
+      ...reportV3,
+      metricDefinitionVersion: 2,
+    }).success).toBe(false);
+    const { slideContentHash: _slideContentHash, ...missingHash } = reportV3;
+    expect(slidePracticeReportSchema.safeParse(missingHash).success).toBe(false);
   });
 
   it("reads legacy classifier reports and accepts classifier v4 reports", () => {
@@ -250,6 +279,17 @@ describe("slidePracticeReportSchema", () => {
       },
     }).success).toBe(false);
   });
+
+  it("adds loudness instability coaching only for metric v3 reports", () => {
+    expect(findSlidePracticeCoachingIssues(slidePracticeReportSchema.parse({
+      ...reportV3,
+      voice: { ...reportV3.voice, loudnessMadDb: 3.01 },
+    }))).toContain("loudness-unstable");
+    expect(findSlidePracticeCoachingIssues(slidePracticeReportSchema.parse({
+      ...report,
+      voice: { ...report.voice, loudnessMadDb: 3.01 },
+    }))).not.toContain("loudness-unstable");
+  });
 });
 
 describe("slide practice server analysis contract", () => {
@@ -270,6 +310,15 @@ describe("slide practice server analysis contract", () => {
     expect(createSlidePracticeAnalysisRequestSchema.safeParse({
       ...request,
       transcript: "저장하면 안 되는 원문",
+    }).success).toBe(false);
+    expect(createSlidePracticeAnalysisRequestSchema.safeParse({
+      ...request,
+      contentHashVersion: "slide-text-v1",
+      slideContentHash: "b".repeat(64),
+    }).success).toBe(true);
+    expect(createSlidePracticeAnalysisRequestSchema.safeParse({
+      ...request,
+      slideContentHash: "b".repeat(64),
     }).success).toBe(false);
   });
 
@@ -319,9 +368,25 @@ describe("slide practice server analysis contract", () => {
   });
 });
 
+describe("slide practice report list query", () => {
+  it("validates comparable history hashes and bounded limits", () => {
+    expect(listSlidePracticeReportsQuerySchema.parse({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      slideContentHash: "e".repeat(64),
+      limit: "5",
+    }).limit).toBe(5);
+    expect(listSlidePracticeReportsQuerySchema.safeParse({
+      slideContentHash: "E".repeat(64),
+    }).success).toBe(false);
+    expect(listSlidePracticeReportsQuerySchema.safeParse({ limit: "101" }).success).toBe(false);
+  });
+});
+
 describe("findSlidePracticeCoachingIssues", () => {
   it("finds the five coaching dimensions using versioned thresholds", () => {
     expect(findSlidePracticeCoachingIssues({
+      reportVersion: 2,
       fillers: {
         ...report.fillers,
         details: [...report.fillers.details],
