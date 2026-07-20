@@ -252,6 +252,12 @@ main.rehearsal-presenter-shell {
   padding-bottom: var(--redesign-space-2);
 }
 
+.rehearsal-presenter-shell .rehearsal-stage-viewport {
+  overflow: visible;
+  position: relative;
+  z-index: 1;
+}
+
 .rehearsal-presenter-shell .rehearsal-stage-surface {
   background: var(--redesign-color-surface-container-lowest);
   border: 1px solid var(--redesign-color-outline-variant);
@@ -284,6 +290,8 @@ main.rehearsal-presenter-shell {
   gap: var(--redesign-space-2);
   grid-template-columns: 36px minmax(72px, max-content) 36px;
   padding-top: var(--redesign-space-1);
+  position: relative;
+  z-index: 2;
 }
 
 .rehearsal-presenter-shell .rehearsal-slide-loading {

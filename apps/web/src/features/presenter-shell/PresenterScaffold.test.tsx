@@ -1,6 +1,18 @@
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PresenterStageSection, PresenterTimerCard } from "./PresenterScaffold";
+
+const presenterScaffoldSourcePath = fileURLToPath(
+  new URL("./PresenterScaffold.tsx", import.meta.url),
+);
+const presenterStylesPath = fileURLToPath(
+  new URL("../../styles.css", import.meta.url),
+);
+const rehearsalWorkspaceStylesPath = fileURLToPath(
+  new URL("../rehearsal/rehearsal-workspace-orbit.css", import.meta.url),
+);
 
 describe("PresenterStageSection", () => {
   it("keeps the stage background sized to the rendered slide", () => {
@@ -20,7 +32,41 @@ describe("PresenterStageSection", () => {
     );
 
     expect(html).toContain(
-      '<div class="rehearsal-stage-surface"><div data-testid="rendered-slide">'
+      '<div class="rehearsal-stage-viewport"><div class="rehearsal-stage-surface"><div data-testid="rendered-slide">'
+    );
+  });
+
+  it("measures the slide viewport without including the navigation controls", () => {
+    const source = fs.readFileSync(presenterScaffoldSourcePath, "utf8");
+    const styles = fs.readFileSync(presenterStylesPath, "utf8");
+    const stageWrapStart = source.indexOf('className="rehearsal-stage-wrap"');
+    const controlsStart = source.indexOf(
+      'className="rehearsal-slide-controls"',
+      stageWrapStart,
+    );
+    const stageBody = source.slice(stageWrapStart, controlsStart);
+
+    expect(stageBody).not.toMatch(/rehearsal-stage-wrap"\s+ref=/);
+    expect(stageBody).toMatch(
+      /className="rehearsal-stage-viewport" ref=\{props\.stageRef\}/,
+    );
+    expect(stageBody.match(/ref=\{props\.stageRef\}/g)).toHaveLength(2);
+    expect(styles).toMatch(
+      /\.rehearsal-stage-viewport \{[^}]*align-self: stretch;[^}]*justify-self: stretch;[^}]*min-height: 0;/s,
+    );
+    expect(styles).not.toMatch(
+      /\.rehearsal-stage-viewport \{[^}]*height: 100%;/s,
+    );
+  });
+
+  it("keeps rehearsal navigation above the visible slide shadow", () => {
+    const styles = fs.readFileSync(rehearsalWorkspaceStylesPath, "utf8");
+
+    expect(styles).toMatch(
+      /\.rehearsal-presenter-shell \.rehearsal-stage-viewport \{[^}]*overflow: visible;[^}]*position: relative;[^}]*z-index: 1;/s,
+    );
+    expect(styles).toMatch(
+      /\.rehearsal-presenter-shell \.rehearsal-stage-wrap > \.rehearsal-slide-controls \{[^}]*position: relative;[^}]*z-index: 2;/s,
     );
   });
 
