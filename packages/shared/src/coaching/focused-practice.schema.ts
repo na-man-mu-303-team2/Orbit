@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
-import { allowedRehearsalAudioMimeTypes } from "../files/file.schema";
+import {
+  allowedRehearsalAudioMimeTypes,
+  maxRehearsalAudioUploadSizeBytes,
+} from "../files/file.schema";
 import {
   boundedObservationSchema,
   boundedThresholdSchema,
@@ -390,7 +393,7 @@ export const createFocusedPracticeAttemptRequestSchema = z
   .object({
     clientRequestId: clientRequestIdSchema,
     mimeType: z.enum(allowedRehearsalAudioMimeTypes),
-    size: z.number().int().positive(),
+    size: z.number().int().positive().max(maxRehearsalAudioUploadSizeBytes),
   })
   .strict();
 

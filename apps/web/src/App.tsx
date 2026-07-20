@@ -122,6 +122,11 @@ export type Route =
 
 export const deckRenderPayloadStorageKey = "orbit.deckRenderPayload.v1";
 
+const fixedAccountPresentation = {
+  initial: "K",
+  label: "kdh@orbit.com",
+} as const;
+
 const EditorShell = lazy(() =>
   import("./features/editor/shell/EditorShell").then((module) => ({
     default: module.EditorShell,
@@ -1034,8 +1039,8 @@ function AppFrame(props: {
   const queryClient = useQueryClient();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const isHomeDashboard = route.name === "home";
-  const userLabel = user ? getUserLabel(user) : "로그인";
-  const userInitial = user ? getUserInitial(user) : "U";
+  const userLabel = user ? fixedAccountPresentation.label : "로그인";
+  const userInitial = user ? fixedAccountPresentation.initial : "U";
 
   async function handleLogout() {
     if (isLoggingOut) return;
@@ -1092,15 +1097,6 @@ export function getAppNavigationItem(route: Route): OrbitAppNavigationItem {
     return "rehearsal";
   }
   return "project";
-}
-
-function getUserInitial(user: AuthUser) {
-  const source = user.displayName?.trim() || getUserLabel(user) || "U";
-  return source.slice(0, 1).toUpperCase();
-}
-
-function getUserLabel(user: AuthUser) {
-  return user.email?.trim() || user.userId;
 }
 
 async function readApiError(response: Response, fallback: string) {

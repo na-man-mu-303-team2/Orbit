@@ -48,6 +48,7 @@ import {
   Gauge,
   LoaderCircle,
   Mic,
+  Monitor,
   MoreHorizontal,
   PlayCircle,
   Presentation,
@@ -192,6 +193,11 @@ import {
   prepareSlideAssets,
   retainSlideAssetWindow,
 } from "../slides/rendering";
+import {
+  canRetryInitialRecordingLiveStt,
+  createInitialLiveSttRetryCoordinator,
+  sanitizeLiveSttErrorMessage,
+} from "./panel/rehearsalLiveSttRecovery";
 import {
   createSemanticCapabilityStatusItems,
   getNextSemanticCapabilityRecoveryDelay,
@@ -2086,6 +2092,7 @@ export function RehearsalWorkspace(props: {
   const [pauseDetectorSnapshot, setPauseDetectorSnapshot] =
     useState<PauseDetectorSnapshot | null>(null);
   const [isLiveDemoActive, setIsLiveDemoActive] = useState(false);
+  const [isLiveSttRetrying, setIsLiveSttRetrying] = useState(false);
   const [isLiveStopModalOpen, setIsLiveStopModalOpen] = useState(false);
   const [displayRole, setDisplayRole] = useState<
     "presenter" | "slide-receiver" | "slide-surface"
@@ -2122,6 +2129,9 @@ export function RehearsalWorkspace(props: {
   const liveDemoStreamRef = useRef<MediaStream | null>(null);
   const liveSttPortRef = useRef<LiveSttPort | null>(props.liveSttPort ?? null);
   const liveSttSubscriptionCleanupRef = useRef<(() => void) | null>(null);
+  const liveSttRetryCoordinatorRef = useRef(
+    createInitialLiveSttRetryCoordinator(),
+  );
   const p3SessionRef = useRef<P3RehearsalSession | null>(null);
   const semanticEmbeddingServicePromiseRef =
     useRef<Promise<E5EmbeddingService> | null>(null);
@@ -2862,11 +2872,22 @@ export function RehearsalWorkspace(props: {
     captureSlideTranscriptSnapshot("slide-change");
     beginSlideTranscriptVisit(currentSlide, currentSlideIndex);
   }, [currentSlide?.slideId, currentSlideIndex]);
+  const isRehearsalCompletionVisible =
+    Boolean(deck) &&
+    (hasLocalCompletion ||
+      isLiveStopModalOpen ||
+      phase === "succeeded" ||
+      (Boolean(p3RunMeta) &&
+        !isLiveDemoActive &&
+        !isLiveSttActive &&
+        !isTimerRunning &&
+        phase !== "recording"));
 
   usePresenterKeyboard({
     enabled:
       Boolean(deck) &&
       !props.presenterWindow &&
+      !isRehearsalCompletionVisible &&
       (displayRole === "presenter" ||
         displayRole === "slide-receiver" ||
         displayRole === "slide-surface"),
@@ -3083,6 +3104,40 @@ export function RehearsalWorkspace(props: {
     }
   }
 
+  async function retryInitialRecordingLiveStt() {
+    const stream = streamRef.current;
+    const coordinator = liveSttRetryCoordinatorRef.current;
+    if (
+      !canRetryInitialRecordingLiveStt({
+        hasActiveSession: p3SessionRef.current !== null,
+        hasReusableStream: isReusableRehearsalMediaStream(stream),
+        isRecording: phase === "recording",
+        isRetrying: isLiveSttRetrying || coordinator.isRetrying(),
+        liveStatus,
+      }) ||
+      !stream
+    ) {
+      return false;
+    }
+
+    setIsLiveSttRetrying(true);
+    setLiveError("");
+    try {
+      return await coordinator.retry((isCurrent) =>
+        startP3Tracking(
+          stream,
+          activeRunRef.current?.evaluationSnapshot ?? undefined,
+          () =>
+            isCurrent() &&
+            streamRef.current === stream &&
+            isReusableRehearsalMediaStream(stream),
+        ),
+      );
+    } finally {
+      setIsLiveSttRetrying(false);
+    }
+  }
+
   function stopLiveDemo(options: { showCompletionModal?: boolean } = {}) {
     const wasLiveDemoActive = isLiveDemoActive || isLiveSttActive;
     setRehearsalRuntimeStatus("stopping");
@@ -3126,6 +3181,7 @@ export function RehearsalWorkspace(props: {
     if (phase !== "recording") return;
 
     captureSlideTranscriptSnapshot("rehearsal-end");
+    liveSttRetryCoordinatorRef.current.cancel();
     setRehearsalRuntimeStatus("stopping");
     setPhase("uploading");
     setIsTimerRunning(false);
@@ -4676,6 +4732,15 @@ export function RehearsalWorkspace(props: {
     isLiveSttActive ||
     isTimerRunning ||
     rehearsalRuntimeStatus === "paused";
+  const sanitizedLiveError = sanitizeLiveSttErrorMessage(liveError);
+  const canRetryRecordingLiveStt = canRetryInitialRecordingLiveStt({
+    hasActiveSession: p3SessionRef.current !== null,
+    hasReusableStream: isReusableRehearsalMediaStream(streamRef.current),
+    isRecording: phase === "recording",
+    isRetrying:
+      isLiveSttRetrying || liveSttRetryCoordinatorRef.current.isRetrying(),
+    liveStatus,
+  });
   const comparisonModel = runComparison
     ? buildRehearsalRunComparisonViewModel(
         runComparison,
@@ -4696,25 +4761,15 @@ export function RehearsalWorkspace(props: {
     rehearsalRuntimeStatus !== "paused" &&
     !p3RunMeta &&
     !hasLocalCompletion;
-  const shouldShowRehearsalCompletion =
-    Boolean(deck) &&
-    (hasLocalCompletion ||
-      isLiveStopModalOpen ||
-      phase === "succeeded" ||
-      (Boolean(p3RunMeta) &&
-        !isLiveDemoActive &&
-        !isLiveSttActive &&
-        !isTimerRunning &&
-        phase !== "recording"));
   useEffect(() => {
-    if (!shouldShowRehearsalCompletion) return;
+    if (!isRehearsalCompletionVisible) return;
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [shouldShowRehearsalCompletion]);
+  }, [isRehearsalCompletionVisible]);
   useEffect(() => {
     if (!isRehearsalRuntimeActive || !currentSlide) {
       setComparisonReminderState((state) =>
@@ -4777,11 +4832,7 @@ export function RehearsalWorkspace(props: {
   };
   const handleCompletionPracticeAgain = () => {
     persistCurrentPracticeSummary();
-    shouldAutoStartRef.current = "starting";
     returnToPreflight();
-    void startRecording().finally(() => {
-      shouldAutoStartRef.current = null;
-    });
   };
   const handleCompletionPrimaryAction = () => {
     persistCurrentPracticeSummary();
@@ -5030,7 +5081,7 @@ export function RehearsalWorkspace(props: {
 
   return (
     <main className="rehearsal-presenter-shell">
-      {shouldShowRehearsalCompletion && deck ? (
+      {isRehearsalCompletionVisible && deck ? (
         <RehearsalCompletionScreen
           hasReportTarget={Boolean(run?.runId)}
           isReportPending={phase === "uploading" || phase === "processing"}
@@ -5043,7 +5094,7 @@ export function RehearsalWorkspace(props: {
           onPracticeAgain={handleCompletionPracticeAgain}
         />
       ) : null}
-      {isLiveStopModalOpen && !shouldShowRehearsalCompletion ? (
+      {isLiveStopModalOpen && !isRehearsalCompletionVisible ? (
         <div className="rehearsal-live-stop-modal-backdrop" role="presentation">
           <section
             aria-labelledby="rehearsal-live-stop-modal-title"
@@ -5072,7 +5123,7 @@ export function RehearsalWorkspace(props: {
           </section>
         </div>
       ) : null}
-      {shouldShowCompletionModal && !shouldShowRehearsalCompletion ? (
+      {shouldShowCompletionModal && !isRehearsalCompletionVisible ? (
         <div className="rehearsal-completion-modal-backdrop" role="presentation">
           <section
             aria-labelledby="rehearsal-completion-modal-title"
@@ -5183,6 +5234,14 @@ export function RehearsalWorkspace(props: {
                 onRequestDisplayScreens={requestDisplayScreens}
                 onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}
               />
+              <button
+                className="presenter-single-screen-button"
+                type="button"
+                onClick={() => setIsSingleScreenOpen(true)}
+              >
+                <Monitor size={16} />
+                단일 화면
+              </button>
             </div>
           ) : null
         }
@@ -5453,13 +5512,25 @@ export function RehearsalWorkspace(props: {
                     </div>
                   )}
 
-                  {liveError && (
+                  {sanitizedLiveError && (
                     <div
                       className="project-status-message project-status-danger"
                       role="status"
                     >
                       <AlertCircle size={18} />
-                      <span>{liveError}</span>
+                      <span>{sanitizedLiveError}</span>
+                      {canRetryRecordingLiveStt ? (
+                        <button
+                          className="secondary-action"
+                          disabled={isLiveSttRetrying}
+                          type="button"
+                          onClick={() => void retryInitialRecordingLiveStt()}
+                        >
+                          {isLiveSttRetrying
+                            ? "다시 연결 중"
+                            : "음성 인식 다시 연결"}
+                        </button>
+                      ) : null}
                     </div>
                   )}
                 </section>

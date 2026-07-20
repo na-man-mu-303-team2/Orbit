@@ -12,10 +12,17 @@ import {
 } from "./focused-practice.service";
 import { focusedPracticeSentenceSnapshotHash } from "./focused-practice-target";
 
+const jobQueueMocks = vi.hoisted(() => ({
+  enqueueFocusedPracticeAnalysisJob: vi.fn(async () => undefined),
+}));
+
+vi.mock("@orbit/job-queue", () => jobQueueMocks);
+
 vi.mock("@orbit/config", () => ({
   loadOrbitConfig: () => ({
     JOB_QUEUE_DRIVER: "bullmq",
     REDIS_URL: "redis://localhost:6379",
+    REHEARSAL_AUDIO_MAX_BYTES: 50_000_000,
     ADAPTIVE_REHEARSAL_COACH_ENABLED: true,
     FOCUSED_PRACTICE_ENABLED: true,
     ADAPTIVE_COACHING_PROJECT_ALLOWLIST: ["*"],
@@ -359,6 +366,40 @@ describe("FocusedPracticeService", () => {
     expect(files.completeUpload).not.toHaveBeenCalled();
     expect(jobs.create).not.toHaveBeenCalled();
     expect(query.mock.calls[3]?.[0]).toContain("compatibility_state = 'stale'");
+  });
+
+  it("marks the attempt and job failed when analysis enqueue fails", async () => {
+    jobQueueMocks.enqueueFocusedPracticeAnalysisJob.mockRejectedValueOnce(new Error("redis down"));
+    const query = vi.fn(async (sql: string): Promise<unknown[]> => {
+      if (sql.includes("SELECT * FROM focused_practice_attempts")) return [{
+        attempt_id: "attempt-a", project_id: "project-a", practice_session_id: "practice-existing",
+        status: "uploading", audio_file_id: "file-a",
+      }];
+      if (sql.includes("SELECT * FROM focused_practice_sessions")) return [focusedSessionRow()];
+      if (sql.includes("SELECT runs.evaluation_snapshot_json")) return [{
+        evaluation_snapshot_json: evaluationSnapshot(), deck_json: currentDeck(),
+      }];
+      return [];
+    });
+    const deleteUploadedAsset = vi.fn(async () => "2026-07-12T00:01:00.000Z");
+    const files = {
+      completeUpload: vi.fn(async () => ({})),
+      deleteUploadedAsset,
+    } as unknown as FilesService;
+    const job = { jobId: "job-focused", projectId: "project-a", type: "focused-practice-analysis", status: "queued", progress: 0, message: "Queued", result: null, error: null, createdAt: "2026-07-12T00:00:00.000Z", updatedAt: "2026-07-12T00:00:00.000Z" } as const;
+    const jobs = { create: vi.fn(async () => job), update: vi.fn(async () => ({ ...job, status: "failed" })) };
+
+    await expect(createService({ query } as unknown as DataSource, files, jobs as unknown as JobsService).completeAttempt(
+      "attempt-a",
+      "user-a",
+      { fileId: "file-a", durationMs: 1000, slideTimeline: [{ slideId: "slide_a", enteredAtMs: 0, exitedAtMs: 1000 }] },
+    )).rejects.toThrow("redis down");
+
+    expect(deleteUploadedAsset).toHaveBeenCalledWith("project-a", "file-a", "focused-practice-audio");
+    expect(jobs.update).toHaveBeenCalledWith("job-focused", expect.objectContaining({
+      status: "failed", error: expect.objectContaining({ code: "FOCUSED_PRACTICE_ANALYSIS_ENQUEUE_FAILED" }),
+    }));
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("status='failed',error_code='PROVIDER_UNAVAILABLE'"))).toBe(true);
   });
 
   it("requires adjacent measured passes for stabilization and does not complete the session", () => {
