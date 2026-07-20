@@ -292,30 +292,48 @@ describe("RehearsalWorkspace", () => {
       <RehearsalCompletionScreen
         hasReportTarget={false}
         isReportPending={false}
+        onClose={() => undefined}
         onGoHome={() => undefined}
         onOpenProject={() => undefined}
         onPracticeAgain={() => undefined}
         onPrimaryAction={() => undefined}
-        summary={{
-          comparisonLabel: "",
-          coverageLabel: "측정 안 됨",
-          coveragePercent: 0,
-          durationLabel: "01:00",
-          durationSeconds: 60,
-          hasSpeechTrackingData: false,
-          missedKeywordRows: [],
-          missedKeywordCount: 0,
-          missedKeywordCountLabel: "-",
-          missedKeywordEmptyLabel: "음성 추적 데이터가 없습니다.",
-          targetDeltaLabel: "목표와 같음",
-          targetLabel: "01:00",
-          targetSeconds: 60,
-        }}
       />,
     );
 
     expect(html).toContain("프로젝트 편집기로");
     expect(html).toContain("홈으로");
+    expect(html).toContain("다시 연습하기");
+    expect(html).not.toContain("발표 시간");
+    expect(html).not.toContain("대본 커버리지");
+  });
+
+  it("reflects report preparation and ready states on the completion screen", () => {
+    const sharedProps = {
+      onClose: () => undefined,
+      onGoHome: () => undefined,
+      onOpenProject: () => undefined,
+      onPracticeAgain: () => undefined,
+      onPrimaryAction: () => undefined,
+    };
+    const pendingHtml = renderToStaticMarkup(
+      <RehearsalCompletionScreen
+        {...sharedProps}
+        hasReportTarget
+        isReportPending
+      />,
+    );
+    const readyHtml = renderToStaticMarkup(
+      <RehearsalCompletionScreen
+        {...sharedProps}
+        hasReportTarget
+        isReportPending={false}
+      />,
+    );
+
+    expect(pendingHtml).toContain("리포트를 준비하고 있어요");
+    expect(pendingHtml).toContain("disabled");
+    expect(readyHtml).toContain("리포트가 준비됐어요");
+    expect(readyHtml).not.toContain("disabled");
   });
 
   it("uses the stored previous rehearsal summary on the preflight screen", () => {

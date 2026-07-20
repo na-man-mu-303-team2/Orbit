@@ -1,6 +1,6 @@
 import type { ActivityDefinition, ActivityQuestion, ActivityQuestionType, ActivitySlide, Deck } from "@orbit/shared";
 import { IconArrowDown, IconArrowUp, IconExternalLink, IconMessageQuestion, IconTrash } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   OrbitButton,
@@ -248,18 +248,18 @@ export function ActivitySlideInspector(props: {
                       <label key={option.optionId}>
                         답변 {optionIndex + 1}
                         <span>
-                          <OrbitInput
+                          <ActivityOptionInput
                             id={`activity-option-${option.optionId}`}
                             maxLength={100}
                             value={option.label}
-                            onChange={(event) =>
+                            onValueChange={(label) =>
                               updateQuestion(question.questionId, {
                                 ...question,
                                 options: question.options.map((candidate) =>
                                   candidate.optionId === option.optionId
                                     ? {
                                         ...candidate,
-                                        label: event.currentTarget.value
+                                        label
                                       }
                                     : candidate
                                 )
@@ -466,6 +466,50 @@ export function ActivitySlideInspector(props: {
   );
 }
 
+function ActivityOptionInput(props: {
+  id: string;
+  maxLength: number;
+  onValueChange: (value: string) => void;
+  value: string;
+}) {
+  const [draftValue, setDraftValue] = useState(props.value);
+  const [isFocused, setIsFocused] = useState(false);
+  const isComposingRef = useRef(false);
+
+  useEffect(() => {
+    if (!isFocused) setDraftValue(props.value);
+  }, [isFocused, props.value]);
+
+  function updateDraftValue(nextValue: string, isComposing: boolean) {
+    setDraftValue(nextValue);
+    if (isComposing || nextValue.trim().length === 0) return;
+    props.onValueChange(nextValue);
+  }
+
+  return (
+    <OrbitInput
+      id={props.id}
+      maxLength={props.maxLength}
+      value={draftValue}
+      onBlur={() => {
+        setIsFocused(false);
+        if (draftValue.trim().length > 0) props.onValueChange(draftValue);
+      }}
+      onChange={(event) => {
+        updateDraftValue(event.currentTarget.value, isComposingRef.current);
+      }}
+      onCompositionStart={() => {
+        isComposingRef.current = true;
+      }}
+      onCompositionEnd={(event) => {
+        isComposingRef.current = false;
+        updateDraftValue(event.currentTarget.value, false);
+      }}
+      onFocus={() => setIsFocused(true)}
+    />
+  );
+}
+
 export function moveQuestion(questions: ActivityQuestion[], index: number, direction: -1 | 1): ActivityQuestion[] {
   const target = index + direction;
   if (target < 0 || target >= questions.length) return questions;
@@ -545,7 +589,7 @@ function createOption(activity: ActivityDefinition, question: Pick<ActivityQuest
   }
   return {
     optionId: nextLocalId("option_", question.questionId, used),
-    label: `답변 ${used.size + 1}`
+    label: `선택 ${used.size + 1}`
   };
 }
 

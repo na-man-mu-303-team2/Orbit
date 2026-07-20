@@ -41,16 +41,18 @@ import {
   BarChart3,
   AlertCircle,
   AlertTriangle,
+  Check,
   CheckCircle2,
   Download,
   Gauge,
-  Home,
+  LoaderCircle,
   Mic,
   Monitor,
   MoreHorizontal,
   PlayCircle,
   Presentation,
   Square,
+  X,
   Zap,
 } from "lucide-react";
 import {
@@ -4507,6 +4509,15 @@ export function RehearsalWorkspace(props: {
         !isTimerRunning &&
         phase !== "recording"));
   useEffect(() => {
+    if (!shouldShowRehearsalCompletion) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [shouldShowRehearsalCompletion]);
+  useEffect(() => {
     if (!isRehearsalRuntimeActive || !currentSlide) {
       setComparisonReminderState((state) =>
         state.active ? { ...state, active: null } : state,
@@ -4568,7 +4579,11 @@ export function RehearsalWorkspace(props: {
   };
   const handleCompletionPracticeAgain = () => {
     persistCurrentPracticeSummary();
+    shouldAutoStartRef.current = "starting";
     returnToPreflight();
+    void startRecording().finally(() => {
+      shouldAutoStartRef.current = null;
+    });
   };
   const handleCompletionPrimaryAction = () => {
     persistCurrentPracticeSummary();
@@ -4774,20 +4789,6 @@ export function RehearsalWorkspace(props: {
     );
   }
 
-  if (shouldShowRehearsalCompletion && deck) {
-    return (
-      <RehearsalCompletionScreen
-        hasReportTarget={Boolean(run?.runId)}
-        isReportPending={phase === "uploading" || phase === "processing"}
-        onGoHome={() => navigateToPath("/")}
-        onOpenProject={() => navigateToPath(`/project/${encodeURIComponent(deck.projectId)}`)}
-        onPrimaryAction={handleCompletionPrimaryAction}
-        onPracticeAgain={handleCompletionPracticeAgain}
-        summary={rehearsalSummary}
-      />
-    );
-  }
-
   if (shouldShowRehearsalPreflight && deck) {
     return (
       <RehearsalPreflightScreen
@@ -4835,7 +4836,20 @@ export function RehearsalWorkspace(props: {
 
   return (
     <main className="rehearsal-presenter-shell">
-      {isLiveStopModalOpen ? (
+      {shouldShowRehearsalCompletion && deck ? (
+        <RehearsalCompletionScreen
+          hasReportTarget={Boolean(run?.runId)}
+          isReportPending={phase === "uploading" || phase === "processing"}
+          onClose={() => navigateToPath("/")}
+          onGoHome={() => navigateToPath("/")}
+          onOpenProject={() =>
+            navigateToPath(`/project/${encodeURIComponent(deck.projectId)}`)
+          }
+          onPrimaryAction={handleCompletionPrimaryAction}
+          onPracticeAgain={handleCompletionPracticeAgain}
+        />
+      ) : null}
+      {isLiveStopModalOpen && !shouldShowRehearsalCompletion ? (
         <div className="rehearsal-live-stop-modal-backdrop" role="presentation">
           <section
             aria-labelledby="rehearsal-live-stop-modal-title"
@@ -4864,7 +4878,7 @@ export function RehearsalWorkspace(props: {
           </section>
         </div>
       ) : null}
-      {shouldShowCompletionModal ? (
+      {shouldShowCompletionModal && !shouldShowRehearsalCompletion ? (
         <div className="rehearsal-completion-modal-backdrop" role="presentation">
           <section
             aria-labelledby="rehearsal-completion-modal-title"
@@ -5945,103 +5959,97 @@ type RehearsalCompletionSummary = {
 export function RehearsalCompletionScreen(props: {
   hasReportTarget: boolean;
   isReportPending: boolean;
+  onClose: () => void;
   onGoHome: () => void;
   onOpenProject: () => void;
   onPracticeAgain: () => void;
   onPrimaryAction: () => void;
-  summary: RehearsalCompletionSummary;
 }) {
+  const isReportReady = props.hasReportTarget && !props.isReportPending;
+
   return (
-    <main className="rehearsal-completion-screen" aria-label="리허설 종료 후 요약">
-      <section className="rehearsal-completion-card">
-        <header>
+    <div className="rehearsal-completion-backdrop" role="presentation">
+      <section
+        aria-labelledby="rehearsal-completion-title"
+        aria-modal="true"
+        className="rehearsal-completion-dialog"
+        role="dialog"
+      >
+        <button
+          aria-label="완료 창 닫기"
+          className="rehearsal-completion-close"
+          onClick={props.onClose}
+          type="button"
+        >
+          <X aria-hidden="true" size={22} />
+        </button>
+
+        <span className="rehearsal-completion-check" aria-hidden="true">
+          <Check size={46} strokeWidth={2.5} />
+        </span>
+        <h1 id="rehearsal-completion-title">리허설을 마쳤어요</h1>
+        <p className="rehearsal-completion-description">
+          수고했어요! 결과를 확인하고 더 멋진 발표를 만들어 보세요.
+        </p>
+
+        <div
+          className={`rehearsal-completion-report ${
+            isReportReady ? "rehearsal-completion-report-ready" : ""
+          }`}
+          role="status"
+        >
+          {props.isReportPending ? (
+            <LoaderCircle aria-hidden="true" className="rehearsal-completion-loader" size={24} />
+          ) : (
+            <CheckCircle2 aria-hidden="true" size={24} />
+          )}
           <div>
-            <span>리허설 완료</span>
-            <h1>수고했어요, 잘 마쳤어요</h1>
-          </div>
-          {props.summary.comparisonLabel ? (
             <strong>
-              <Zap size={15} />
-              {props.summary.comparisonLabel}
+              {props.isReportPending
+                ? "리포트를 준비하고 있어요"
+                : isReportReady
+                  ? "리포트가 준비됐어요"
+                  : "리포트 없이 리허설을 마쳤어요"}
             </strong>
-          ) : null}
-        </header>
-
-        <div className="rehearsal-completion-body">
-          <section className="rehearsal-completion-time">
-            <span>발표 시간</span>
-            <strong>{props.summary.durationLabel}</strong>
-            <small>
-              목표 {props.summary.targetLabel} · {props.summary.targetDeltaLabel}
-            </small>
-          </section>
-
-          <section className="rehearsal-completion-details">
-            <div className="rehearsal-completion-coverage">
-              <div>
-                <span>대본 커버리지</span>
-                <strong>{props.summary.coverageLabel}</strong>
-              </div>
-              <span aria-hidden="true">
-                <i style={{ width: `${props.summary.coveragePercent}%` }} />
-              </span>
-            </div>
-
-            <div className="rehearsal-completion-missed">
-              <h2>
-                놓친 항목 <strong>{props.summary.missedKeywordCountLabel}</strong>
-              </h2>
-              {props.summary.missedKeywordRows.length > 0 ? (
-                props.summary.missedKeywordRows.map((row) => (
-                  <div key={row.key}>
-                    <span aria-hidden="true" />
-                    <strong>{row.label}</strong>
-                    <small>{row.slideLabel}</small>
-                  </div>
-                ))
-              ) : (
-                <p>{props.summary.missedKeywordEmptyLabel}</p>
-              )}
-            </div>
-          </section>
+            <span>
+              {props.isReportPending
+                ? "잠시만 기다려 주세요."
+                : isReportReady
+                  ? "자세한 분석을 확인할 수 있어요."
+                  : "바로 다시 연습하거나 다른 화면으로 이동할 수 있어요."}
+            </span>
+          </div>
         </div>
 
-        <div className="rehearsal-completion-report-state" role="status">
-          {props.isReportPending ? <span aria-hidden="true" /> : <CheckCircle2 size={16} />}
-          <p>
-            {props.isReportPending
-              ? "자세한 리포트 준비 중 — 잠시 후 청중 반응·페이스 분석이 도착해요"
-              : props.hasReportTarget
-                ? "자세한 리포트를 열어 더 깊은 분석을 확인할 수 있어요"
-                : "로컬 요약이 준비됐어요. 서버 리포트 없이 바로 다시 연습할 수 있어요"}
-          </p>
-        </div>
-
-        <nav className="rehearsal-completion-exits" aria-label="리허설 종료 후 이동">
-          <button type="button" onClick={props.onGoHome}>
-            <Home aria-hidden="true" size={16} />
-            홈으로
+        <div className="rehearsal-completion-actions">
+          <button
+            className="rehearsal-completion-report-button"
+            disabled={!isReportReady}
+            onClick={props.onPrimaryAction}
+            type="button"
+          >
+            리포트 보기
           </button>
+          <button
+            className="rehearsal-completion-practice-button"
+            onClick={props.onPracticeAgain}
+            type="button"
+          >
+            다시 연습하기
+          </button>
+        </div>
+
+        <nav className="rehearsal-completion-links" aria-label="리허설 종료 후 이동">
           <button type="button" onClick={props.onOpenProject}>
-            <Presentation aria-hidden="true" size={16} />
             프로젝트 편집기로
           </button>
+          <span aria-hidden="true" />
+          <button type="button" onClick={props.onGoHome}>
+            홈으로
+          </button>
         </nav>
-
-        <footer>
-          <button type="button" onClick={props.onPracticeAgain}>
-            다시 연습
-          </button>
-          <button type="button" onClick={props.onPrimaryAction}>
-            {props.isReportPending
-              ? "리포트 기다리기"
-              : props.hasReportTarget
-                ? "리포트 보기"
-                : "확인"}
-          </button>
-        </footer>
       </section>
-    </main>
+    </div>
   );
 }
 
