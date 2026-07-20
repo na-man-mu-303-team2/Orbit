@@ -24,6 +24,11 @@ import { ProjectExplorerPage } from "./features/projects/ProjectExplorerPage";
 import { OrbitWorkspaceHome } from "./features/projects/ProjectHub";
 import { RehearsalProjectPickerPage } from "./features/rehearsal/RehearsalProjectPickerPage";
 
+vi.mock("@huggingface/transformers", () => ({
+  env: {},
+  pipeline: vi.fn(),
+}));
+
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
     ({ children }, ref) => <div ref={ref}>{children}</div>
