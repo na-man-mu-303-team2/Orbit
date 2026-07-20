@@ -124,6 +124,7 @@ export interface RehearsalSttBullMqPayload {
   runId: string;
   deckId: string;
   audioFileId: string;
+  liveTranscript?: string | null;
 }
 
 export interface EnqueueRehearsalSttJobInput extends RehearsalSttBullMqPayload {
@@ -332,6 +333,7 @@ export async function enqueueRehearsalSttJob(
       runId: input.runId,
       deckId: input.deckId,
       audioFileId: input.audioFileId,
+      liveTranscript: input.liveTranscript ?? null,
     } satisfies RehearsalSttBullMqPayload, canonicalJobOptions(input.jobId));
   } finally {
     await queue.close();
