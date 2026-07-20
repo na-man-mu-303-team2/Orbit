@@ -1,6 +1,6 @@
 import type { ActivityDefinition, ActivityQuestion, ActivityQuestionType, ActivitySlide, Deck } from "@orbit/shared";
 import { IconArrowDown, IconArrowUp, IconExternalLink, IconMessageQuestion, IconTrash } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   OrbitButton,
@@ -248,18 +248,18 @@ export function ActivitySlideInspector(props: {
                       <label key={option.optionId}>
                         답변 {optionIndex + 1}
                         <span>
-                          <OrbitInput
+                          <ActivityOptionInput
                             id={`activity-option-${option.optionId}`}
                             maxLength={100}
                             value={option.label}
-                            onChange={(event) =>
+                            onValueChange={(label) =>
                               updateQuestion(question.questionId, {
                                 ...question,
                                 options: question.options.map((candidate) =>
                                   candidate.optionId === option.optionId
                                     ? {
                                         ...candidate,
-                                        label: event.currentTarget.value
+                                        label
                                       }
                                     : candidate
                                 )
@@ -463,6 +463,46 @@ export function ActivitySlideInspector(props: {
         <p>현재 질문을 복사한 뒤 다시 편집할 수 있게 합니다.</p>
       </OrbitDialog>
     </div>
+  );
+}
+
+function ActivityOptionInput(props: {
+  id: string;
+  maxLength: number;
+  onValueChange: (value: string) => void;
+  value: string;
+}) {
+  const [isComposing, setIsComposing] = useState(false);
+  const [compositionValue, setCompositionValue] = useState(props.value);
+
+  useEffect(() => {
+    if (!isComposing) setCompositionValue(props.value);
+  }, [isComposing, props.value]);
+
+  return (
+    <OrbitInput
+      id={props.id}
+      maxLength={props.maxLength}
+      value={isComposing ? compositionValue : props.value}
+      onChange={(event) => {
+        const nextValue = event.currentTarget.value;
+        if (isComposing || event.nativeEvent.isComposing) {
+          setCompositionValue(nextValue);
+          return;
+        }
+        props.onValueChange(nextValue);
+      }}
+      onCompositionStart={() => {
+        setCompositionValue(props.value);
+        setIsComposing(true);
+      }}
+      onCompositionEnd={(event) => {
+        const nextValue = event.currentTarget.value;
+        setCompositionValue(nextValue);
+        setIsComposing(false);
+        props.onValueChange(nextValue);
+      }}
+    />
   );
 }
 
