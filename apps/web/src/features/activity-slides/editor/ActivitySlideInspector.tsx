@@ -1,6 +1,6 @@
 import type { ActivityDefinition, ActivityQuestion, ActivityQuestionType, ActivitySlide, Deck } from "@orbit/shared";
 import { IconArrowDown, IconArrowUp, IconExternalLink, IconMessageQuestion, IconTrash } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   OrbitButton,
@@ -474,6 +474,7 @@ function ActivityOptionInput(props: {
 }) {
   const [draftValue, setDraftValue] = useState(props.value);
   const [isFocused, setIsFocused] = useState(false);
+  const isComposingRef = useRef(false);
 
   useEffect(() => {
     if (!isFocused) setDraftValue(props.value);
@@ -495,9 +496,13 @@ function ActivityOptionInput(props: {
         if (draftValue.trim().length > 0) props.onValueChange(draftValue);
       }}
       onChange={(event) => {
-        updateDraftValue(event.currentTarget.value, event.nativeEvent.isComposing);
+        updateDraftValue(event.currentTarget.value, isComposingRef.current);
+      }}
+      onCompositionStart={() => {
+        isComposingRef.current = true;
       }}
       onCompositionEnd={(event) => {
+        isComposingRef.current = false;
         updateDraftValue(event.currentTarget.value, false);
       }}
       onFocus={() => setIsFocused(true)}
