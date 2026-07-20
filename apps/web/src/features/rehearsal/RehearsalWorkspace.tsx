@@ -6269,6 +6269,16 @@ export function RehearsalReportPage(props: {
             </span>
           )}
         </div>
+        <div className="rehearsal-report-topbar-actions">
+          <button
+            className="report-rehearsal-button"
+            onClick={() => navigateToPath(`/reports/${encodeURIComponent(props.projectId)}`)}
+            type="button"
+          >
+            <BarChart3 aria-hidden="true" size={16} />
+            전체 리허설 리포트
+          </button>
+        </div>
       </header>
 
       <div className="rehearsal-report-body">
