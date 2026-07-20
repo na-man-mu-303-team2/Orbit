@@ -6,6 +6,7 @@ import {
   maxAssetUploadSizeBytes,
   projectListResponseSchema,
   updateProjectPinResponseSchema,
+  updateProjectTagsResponseSchema,
   type AssetUploadUrlRequest,
   type AssetUploadUrlResponse,
   type Deck,
@@ -154,6 +155,30 @@ export async function updateProjectPin(
   }
 
   return updateProjectPinResponseSchema.parse(await response.json());
+}
+
+export async function updateProjectTags(
+  projectId: string,
+  tags: string[],
+  fetcher: Fetcher = fetch,
+) {
+  const response = await fetcher(
+    `/api/v1/workspaces/${demoIds.workspaceId}/projects/${encodeURIComponent(projectId)}/tags`,
+    {
+      body: JSON.stringify({ tags }),
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
+
+  if (!response.ok) {
+    throw new ProjectAssetError(
+      await readErrorMessage(response, "프로젝트 태그를 저장하지 못했습니다."),
+    );
+  }
+
+  return updateProjectTagsResponseSchema.parse(await response.json());
 }
 
 export async function createProject(title: string, fetcher: Fetcher = fetch) {

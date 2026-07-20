@@ -19,4 +19,11 @@ export class ProjectEntity {
 
   @Column({ name: "progress_comment", type: "text", nullable: true })
   progressComment!: string | null;
+
+  @Column({
+    type: "text",
+    array: true,
+    default: () => "'{}'::text[]",
+  })
+  tags!: string[];
 }

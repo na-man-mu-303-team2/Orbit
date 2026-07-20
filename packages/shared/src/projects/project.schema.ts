@@ -22,8 +22,26 @@ export const deleteProjectResponseSchema = z.object({
   projectId: z.string().min(1),
 });
 
+export const defaultProjectTags = ["중요", "완료"] as const;
+export const projectTagSchema = z.string().trim().min(1).max(20);
+export const projectTagsSchema = z
+  .array(projectTagSchema)
+  .max(12)
+  .refine((tags) => new Set(tags).size === tags.length, {
+    message: "Project tags must be unique",
+  });
+
+export const projectGenerationSummarySchema = z.object({
+  jobId: z.string().min(1),
+  status: z.enum(["queued", "running"]),
+  progress: z.number().int().min(0).max(100),
+  message: z.string(),
+});
+
 export const projectListItemSchema = projectSchema.extend({
   isPinned: z.boolean(),
+  tags: projectTagsSchema,
+  generation: projectGenerationSummarySchema.nullable(),
 });
 
 export const updateProjectPinRequestSchema = z
@@ -33,6 +51,15 @@ export const updateProjectPinRequestSchema = z
 export const updateProjectPinResponseSchema = z.object({
   projectId: z.string().min(1),
   isPinned: z.boolean(),
+});
+
+export const updateProjectTagsRequestSchema = z
+  .object({ tags: projectTagsSchema })
+  .strict();
+
+export const updateProjectTagsResponseSchema = z.object({
+  projectId: z.string().min(1),
+  tags: projectTagsSchema,
 });
 
 export const projectMemberRoleSchema = z.enum(["owner", "editor", "viewer"]);
@@ -89,11 +116,15 @@ export const projectListResponseSchema = z.array(projectListItemSchema);
 
 export type Project = z.infer<typeof projectSchema>;
 export type ProjectListItem = z.infer<typeof projectListItemSchema>;
+export type ProjectGenerationSummary = z.infer<typeof projectGenerationSummarySchema>;
+export type ProjectTag = z.infer<typeof projectTagSchema>;
 export type CreateProjectRequest = z.infer<typeof createProjectRequestSchema>;
 export type UpdateProjectRequest = z.infer<typeof updateProjectRequestSchema>;
 export type DeleteProjectResponse = z.infer<typeof deleteProjectResponseSchema>;
 export type UpdateProjectPinRequest = z.infer<typeof updateProjectPinRequestSchema>;
 export type UpdateProjectPinResponse = z.infer<typeof updateProjectPinResponseSchema>;
+export type UpdateProjectTagsRequest = z.infer<typeof updateProjectTagsRequestSchema>;
+export type UpdateProjectTagsResponse = z.infer<typeof updateProjectTagsResponseSchema>;
 export type ProjectMemberRole = z.infer<typeof projectMemberRoleSchema>;
 export type ProjectMemberStatus = z.infer<typeof projectMemberStatusSchema>;
 export type ProjectMember = z.infer<typeof projectMemberSchema>;

@@ -14,35 +14,12 @@
 }
 
 .orbit-app-header-redesign .orbit-app-header-inner {
-  height: var(--redesign-size-header);
+  height: 74px;
+  justify-content: space-between;
 }
 
 .orbit-app-header-redesign .orbit-app-header-brand {
   color: var(--redesign-color-on-surface);
-}
-
-.orbit-app-header-redesign .orbit-app-header-nav button {
-  min-height: 34px;
-  padding: var(--redesign-space-2) var(--redesign-space-4);
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--redesign-color-on-surface-variant);
-  font-family: inherit;
-  font-size: var(--redesign-type-body-sm-size);
-  font-weight: 600;
-  transition: color var(--redesign-duration-fast) var(--redesign-ease-standard);
-}
-
-.orbit-app-header-redesign .orbit-app-header-nav button:hover {
-  background: transparent;
-  color: var(--redesign-color-primary-emphasis);
-}
-
-.orbit-app-header-redesign .orbit-app-header-nav button.active {
-  background: transparent;
-  border-bottom: 2px solid var(--redesign-color-primary);
-  color: var(--redesign-color-primary-emphasis);
 }
 
 .orbit-app-header-redesign .orbit-app-header-login {
@@ -61,6 +38,32 @@
 }
 
 /* Account trigger — initial-only avatar circle */
+
+.orbit-app-header-redesign .orbit-app-header-account {
+  display: flex;
+  align-items: center;
+  gap: var(--redesign-space-3);
+}
+
+.orbit-app-header-redesign .orbit-app-header-notification {
+  position: relative;
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.orbit-app-header-redesign .orbit-app-header-notification:hover {
+  color: var(--redesign-color-primary-emphasis);
+}
+
+.orbit-app-header-notification-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  border: 2px solid var(--redesign-color-surface);
+  border-radius: var(--redesign-radius-full);
+  background: var(--redesign-color-primary);
+}
 
 .orbit-app-header-redesign .orbit-app-header-user {
   max-width: none;

@@ -7,17 +7,20 @@ import {
   projectListResponseSchema,
   projectSchema,
   updateProjectPinResponseSchema,
+  updateProjectTagsResponseSchema,
 } from "@orbit/shared";
 import type {
   CreateProjectRequest,
   DeleteProjectResponse,
   Project,
   ProjectListItem,
+  ProjectGenerationSummary,
   ProjectMemberRole,
   ProjectMembersResponse,
   ProjectAccessResponse,
   ProjectApiErrorCode,
   UpdateProjectPinResponse,
+  UpdateProjectTagsResponse,
 } from "@orbit/shared";
 import { randomUUID } from "crypto";
 import {
@@ -50,6 +53,14 @@ type MemberRow = {
 type UserLookupRow = {
   user_id: string;
   email: string;
+};
+
+type ActiveGenerationRow = {
+  job_id: string;
+  project_id: string;
+  status: "queued" | "running";
+  progress: number;
+  message: string;
 };
 
 @Injectable()
@@ -167,6 +178,7 @@ export class ProjectsService {
       where: { workspaceId, projectId: In(projectIds) },
       order: { createdAt: "DESC" },
     });
+    const activeGenerations = await this.findActiveGenerationJobs(projectIds);
     const membershipsByProjectId = new Map(
       acceptedMemberships.map((membership) => [membership.projectId, membership]),
     );
@@ -175,7 +187,38 @@ export class ProjectsService {
       projects.map((project) => ({
         ...this.toProjectDto(project),
         isPinned: Boolean(membershipsByProjectId.get(project.projectId)?.isPinned),
+        tags: project.tags ?? [],
+        generation: activeGenerations.get(project.projectId) ?? null,
       })),
+    );
+  }
+
+  private async findActiveGenerationJobs(
+    projectIds: string[],
+  ): Promise<Map<string, ProjectGenerationSummary>> {
+    const rows = await this.dataSource.query<ActiveGenerationRow[]>(
+      `
+        SELECT DISTINCT ON (project_id)
+          job_id, project_id, status, progress, message
+        FROM jobs
+        WHERE project_id = ANY($1::text[])
+          AND type = 'ai-deck-generation'
+          AND status IN ('queued', 'running')
+        ORDER BY project_id, created_at DESC
+      `,
+      [projectIds],
+    );
+
+    return new Map(
+      rows.map((row) => [
+        row.project_id,
+        {
+          jobId: row.job_id,
+          status: row.status,
+          progress: row.progress,
+          message: row.message,
+        },
+      ]),
     );
   }
 
@@ -218,6 +261,30 @@ export class ProjectsService {
     await this.projectMembersRepository.save(member);
 
     return updateProjectPinResponseSchema.parse({ projectId, isPinned });
+  }
+
+  async updateTags(
+    workspaceId: string,
+    projectId: string,
+    requesterUserId: string,
+    tags: string[],
+  ): Promise<UpdateProjectTagsResponse> {
+    const project = await this.assertCanWriteProject(projectId, requesterUserId);
+    if (project.workspaceId !== workspaceId) {
+      throw new NotFoundException(`Project not found: ${projectId}`);
+    }
+
+    await this.projectsRepository.update({ projectId, workspaceId }, { tags });
+    this.logger?.info(
+      {
+        event: "project.tags_updated",
+        projectId,
+        userId: requesterUserId,
+        tagCount: tags.length,
+      },
+      "Project tags updated.",
+    );
+    return updateProjectTagsResponseSchema.parse({ projectId, tags });
   }
 
   async getAccessibleProject(projectId: string): Promise<Project> {

@@ -1,4 +1,5 @@
 import {
+  IconBell,
   IconChevronDown,
   IconLogin,
   IconLogout
@@ -24,7 +25,8 @@ import {
   DropdownMenuAccount,
   DropdownMenuItem,
   OrbitBrand,
-  OrbitButton
+  OrbitButton,
+  OrbitIconButton
 } from "./ui";
 import { OrbitDialog } from "./ui/Dialog";
 import "./orbit-app-header.css";
@@ -153,23 +155,18 @@ export function OrbitAppHeader(props: OrbitAppHeaderProps) {
           <OrbitBrand />
         </button>
 
-        <nav aria-label="주요 메뉴" className="orbit-app-header-nav">
-          {navigationItems.map((item) => (
-            <button
-              aria-current={props.activeItem === item.id ? "page" : undefined}
-              className={props.activeItem === item.id ? "active" : ""}
-              key={item.id}
-              onClick={() => props.onNavigate(item.path)}
-              type="button"
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
-
         <div className="orbit-app-header-account" ref={accountRef}>
           {props.isAuthenticated ? (
             <>
+              <OrbitIconButton
+                aria-label="알림"
+                className="orbit-app-header-notification"
+                onClick={() => setIsMenuOpen(false)}
+                variant="plain"
+              >
+                <IconBell aria-hidden="true" size={20} stroke={1.8} />
+                <span aria-hidden="true" className="orbit-app-header-notification-dot" />
+              </OrbitIconButton>
               <button
                 aria-label={`계정 메뉴: ${props.userLabel || "사용자"}`}
                 aria-controls={isMenuOpen ? "orbit-app-account-menu" : undefined}
@@ -294,14 +291,3 @@ export function OrbitAppHeader(props: OrbitAppHeaderProps) {
     </header>
   );
 }
-
-const navigationItems: ReadonlyArray<{
-  id: OrbitAppNavigationItem;
-  label: string;
-  path: string;
-}> = [
-  { id: "home", label: "홈", path: "/" },
-  { id: "project", label: "프로젝트", path: "/project" },
-  { id: "rehearsal", label: "리허설", path: "/project?intent=rehearsal" },
-  { id: "reports", label: "리포트", path: "/reports" }
-];

@@ -15,6 +15,7 @@ import {
   updateProjectMemberRoleRequestSchema,
   updateProjectMemberStatusRequestSchema,
   updateProjectPinRequestSchema,
+  updateProjectTagsRequestSchema,
   updateProjectRequestSchema,
   upsertProjectMemberRequestSchema,
 } from "@orbit/shared";
@@ -100,6 +101,23 @@ export class ProjectsController {
       projectId,
       user.userId,
       input.isPinned,
+    );
+  }
+
+  @Patch(":projectId/tags")
+  async updateProjectTags(
+    @Param("workspaceId") workspaceId: string,
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const input = parseRequest(updateProjectTagsRequestSchema, body ?? {});
+    const user = await this.getCurrentUser(request);
+    return this.projectsService.updateTags(
+      workspaceId,
+      projectId,
+      user.userId,
+      input.tags,
     );
   }
 
