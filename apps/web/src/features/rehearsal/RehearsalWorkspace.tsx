@@ -2706,10 +2706,22 @@ export function RehearsalWorkspace(props: {
     setSlideElapsedSeconds(0);
   }, [currentSlide?.slideId]);
 
+  const isRehearsalCompletionVisible =
+    Boolean(deck) &&
+    (hasLocalCompletion ||
+      isLiveStopModalOpen ||
+      phase === "succeeded" ||
+      (Boolean(p3RunMeta) &&
+        !isLiveDemoActive &&
+        !isLiveSttActive &&
+        !isTimerRunning &&
+        phase !== "recording"));
+
   usePresenterKeyboard({
     enabled:
       Boolean(deck) &&
       !props.presenterWindow &&
+      !isRehearsalCompletionVisible &&
       (displayRole === "presenter" ||
         displayRole === "slide-receiver" ||
         displayRole === "slide-surface"),
@@ -4498,25 +4510,15 @@ export function RehearsalWorkspace(props: {
     rehearsalRuntimeStatus !== "paused" &&
     !p3RunMeta &&
     !hasLocalCompletion;
-  const shouldShowRehearsalCompletion =
-    Boolean(deck) &&
-    (hasLocalCompletion ||
-      isLiveStopModalOpen ||
-      phase === "succeeded" ||
-      (Boolean(p3RunMeta) &&
-        !isLiveDemoActive &&
-        !isLiveSttActive &&
-        !isTimerRunning &&
-        phase !== "recording"));
   useEffect(() => {
-    if (!shouldShowRehearsalCompletion) return;
+    if (!isRehearsalCompletionVisible) return;
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [shouldShowRehearsalCompletion]);
+  }, [isRehearsalCompletionVisible]);
   useEffect(() => {
     if (!isRehearsalRuntimeActive || !currentSlide) {
       setComparisonReminderState((state) =>
@@ -4579,11 +4581,7 @@ export function RehearsalWorkspace(props: {
   };
   const handleCompletionPracticeAgain = () => {
     persistCurrentPracticeSummary();
-    shouldAutoStartRef.current = "starting";
     returnToPreflight();
-    void startRecording().finally(() => {
-      shouldAutoStartRef.current = null;
-    });
   };
   const handleCompletionPrimaryAction = () => {
     persistCurrentPracticeSummary();
@@ -4836,7 +4834,7 @@ export function RehearsalWorkspace(props: {
 
   return (
     <main className="rehearsal-presenter-shell">
-      {shouldShowRehearsalCompletion && deck ? (
+      {isRehearsalCompletionVisible && deck ? (
         <RehearsalCompletionScreen
           hasReportTarget={Boolean(run?.runId)}
           isReportPending={phase === "uploading" || phase === "processing"}
@@ -4849,7 +4847,7 @@ export function RehearsalWorkspace(props: {
           onPracticeAgain={handleCompletionPracticeAgain}
         />
       ) : null}
-      {isLiveStopModalOpen && !shouldShowRehearsalCompletion ? (
+      {isLiveStopModalOpen && !isRehearsalCompletionVisible ? (
         <div className="rehearsal-live-stop-modal-backdrop" role="presentation">
           <section
             aria-labelledby="rehearsal-live-stop-modal-title"
@@ -4878,7 +4876,7 @@ export function RehearsalWorkspace(props: {
           </section>
         </div>
       ) : null}
-      {shouldShowCompletionModal && !shouldShowRehearsalCompletion ? (
+      {shouldShowCompletionModal && !isRehearsalCompletionVisible ? (
         <div className="rehearsal-completion-modal-backdrop" role="presentation">
           <section
             aria-labelledby="rehearsal-completion-modal-title"

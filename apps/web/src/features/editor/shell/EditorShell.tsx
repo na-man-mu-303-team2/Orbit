@@ -1980,6 +1980,10 @@ export function EditorShell(props: { projectId?: string }) {
             setIsAudienceLinkModalOpen(true);
             setActiveTopMenu(null);
           }}
+          onOpenPresenceDebug={() => {
+            setIsPresenceDebugOpen(true);
+            setActiveTopMenu(null);
+          }}
           onOpenShare={openSharePanel}
           onOpenTargetDuration={() => {
             setIsTargetDurationOpen(true);
