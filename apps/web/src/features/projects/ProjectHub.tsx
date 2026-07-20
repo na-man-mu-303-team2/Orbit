@@ -508,8 +508,10 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
               onClick={() => setIsTagFilterOpen((current) => !current)}
               variant="secondary"
             >
-              태그 편집
-              <IconChevronDown aria-hidden="true" size={14} />
+              <span className="workspace-tag-filter-button-label">
+                <span>태그 편집</span>
+                <IconChevronDown aria-hidden="true" size={14} />
+              </span>
             </OrbitButton>
             {isTagFilterOpen ? (
               <div className="workspace-tag-filter-popover" role="dialog" aria-label="태그 편집">

@@ -2116,3 +2116,57 @@
 .workspace-home-card-tag-dropdown .is-red,
 .workspace-tag-filter-option .is-red,
 .workspace-tag-filter-chips .is-red { background: #ffe8e8; color: #a43333; }
+
+.workspace-community-band {
+  background:
+    radial-gradient(
+      72% 120% at 4% 6%,
+      color-mix(in srgb, var(--redesign-color-light-surface) 92%, var(--redesign-color-primary-subtle)) 0%,
+      transparent 64%
+    ),
+    radial-gradient(
+      68% 100% at 92% 74%,
+      color-mix(in srgb, var(--redesign-color-primary-container) 52%, var(--redesign-color-light-surface)) 0%,
+      transparent 66%
+    ),
+    linear-gradient(
+      128deg,
+      var(--redesign-color-primary-subtle) 0%,
+      color-mix(in srgb, var(--redesign-color-primary-subtle) 72%, var(--redesign-color-light-surface)) 48%,
+      color-mix(in srgb, var(--redesign-color-primary-container) 42%, var(--redesign-color-light-surface)) 100%
+    );
+  isolation: isolate;
+  overflow: hidden;
+  position: relative;
+}
+
+.workspace-community-band::before {
+  background:
+    radial-gradient(
+      42% 56% at 48% 44%,
+      color-mix(in srgb, var(--redesign-color-light-surface) 76%, transparent) 0%,
+      transparent 100%
+    ),
+    radial-gradient(
+      32% 50% at 74% 42%,
+      color-mix(in srgb, var(--redesign-color-primary-fixed-dim) 20%, transparent) 0%,
+      transparent 100%
+    );
+  content: "";
+  filter: blur(26px);
+  inset: -12%;
+  pointer-events: none;
+  position: absolute;
+  z-index: -1;
+}
+.workspace-tag-filter-button-label {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+  line-height: 1;
+}
+
+.workspace-tag-filter-button-label svg {
+  display: block;
+  flex: 0 0 auto;
+}
