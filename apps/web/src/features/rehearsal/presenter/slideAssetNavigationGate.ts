@@ -40,7 +40,11 @@ export function createSlideAssetNavigationGate(options: {
         options.onPendingChange(true);
       }
 
-      await options.prepare(request);
+      try {
+        await options.prepare(request);
+      } catch {
+        // Asset preparation failures use the renderer's existing placeholder.
+      }
       if (currentRequestId !== requestId) {
         return "superseded";
       }

@@ -97,4 +97,28 @@ describe("slideAssetNavigationGate", () => {
       targetSlideIndex: 4
     });
   });
+
+  it("continues with the placeholder and clears pending when preparation rejects", async () => {
+    const commit = vi.fn();
+    const pending = vi.fn();
+    const gate = createSlideAssetNavigationGate({
+      commit,
+      onPendingChange: pending,
+      prepare: vi.fn(async () => {
+        throw new Error("image preparation failed");
+      })
+    });
+    const request = {
+      source: "manual" as const,
+      stepIndex: 0,
+      targetSlideIndex: 1
+    };
+
+    await expect(gate.request(request)).resolves.toBe("committed");
+
+    expect(commit).toHaveBeenCalledWith(request);
+    expect(gate.isPending()).toBe(false);
+    expect(pending).toHaveBeenNthCalledWith(1, true);
+    expect(pending).toHaveBeenLastCalledWith(false);
+  });
 });
