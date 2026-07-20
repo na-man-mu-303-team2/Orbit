@@ -1,4 +1,9 @@
-import type { Deck, Slide, SlidePracticeReport } from "@orbit/shared";
+import {
+  slideQuestionGuideTextHashInput,
+  type Deck,
+  type Slide,
+  type SlidePracticeReport,
+} from "@orbit/shared";
 import { useEffect, useRef } from "react";
 
 import { PracticeReportContent } from "./PracticeReportContent";
@@ -20,6 +25,9 @@ export function SlidePracticePanel(props: {
     deckVersion: props.deck.version,
     slideId: props.slide?.slideId ?? null,
     slideOrder: props.slide?.order ?? 0,
+    slideContentHashInput: props.slide
+      ? slideQuestionGuideTextHashInput(props.slide)
+      : null,
   });
 
   useEffect(() => {

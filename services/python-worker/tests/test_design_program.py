@@ -21,12 +21,14 @@ from app.ai.design_program import (
 )
 from app.ai.deck_generation.design_planning import (
     apply_program_v2_design_tokens,
+    eligible_cover_compositions,
     plan_design,
     program_v2_slide_summary,
 )
 from app.ai.deck_generation.layout_compiler import compile_layout
 from app.ai.deck_generation.models import (
     GenerateDeckRequest,
+    CoverContent,
     GeneratedContentItem,
     MediaIntent,
     SlidePlan,
@@ -204,7 +206,7 @@ def test_program_v2_compiles_empty_cover_and_closing_content_items() -> None:
     ]
 
     assert [slide.composition_id for slide in program.slides] == [
-        "minimal-cover",
+        "cover-classic-corporate",
         "cta-closing",
     ]
     assert all(item.elements for item in compiled)
@@ -259,6 +261,90 @@ def test_response_format_requires_exact_slide_count() -> None:
     assert schema["properties"]["slides"]["minItems"] == 10
     assert schema["properties"]["slides"]["maxItems"] == 10
     assert schema["properties"]["backgroundSequence"]["minItems"] == 10
+
+
+def test_cover_eligibility_respects_media_and_verified_profile_requirements() -> None:
+    minimal_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_program_v2",
+            topic="제품 출시 이벤트",
+            design={"mediaPolicy": "minimal"},
+        )
+    )
+    cover = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="제품 출시 이벤트",
+        message="새로운 경험을 공개합니다",
+        speaker_notes="",
+        keywords=[],
+        evidence=[],
+    )
+
+    assert eligible_cover_compositions(minimal_input, cover) == [
+        "cover-classic-corporate",
+        "cover-modern-high-tech",
+    ]
+
+    provided_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_program_v2",
+            topic="연구 결과",
+            design={"mediaPolicy": "provided-only"},
+            officialAssetFileIds=["asset-profile"],
+        )
+    )
+    research_cover = cover.model_copy(
+        update={
+            "cover_content": CoverContent(
+                title="연구 결과",
+                presenterName="김민지",
+                profileImageAssetId="asset-profile",
+            )
+        }
+    )
+
+    assert "cover-research-author" in eligible_cover_compositions(
+        provided_input,
+        research_cover,
+    )
+    assert "cover-research-author" not in eligible_cover_compositions(
+        provided_input,
+        cover,
+    )
+
+    hybrid_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_program_v2",
+            topic="연구 결과",
+            design={"mediaPolicy": "hybrid"},
+            officialAssetFileIds=["asset-profile"],
+        )
+    )
+    summary = program_v2_slide_summary(research_cover, hybrid_input)
+    program_payload = valid_program()
+    program_payload["backgroundSequence"] = ["light"]
+    program_payload["slides"] = [
+        {
+            "order": 1,
+            "compositionId": "cover-research-author",
+            "variant": "light",
+            "backgroundMode": "light",
+            "focalType": "cover-image",
+            "assetRole": "none",
+            "requiredAsset": True,
+        }
+    ]
+    normalized = normalize_design_program(
+        DeckDesignProgram.model_validate(program_payload),
+        [summary],
+        media_policy="hybrid",
+        preserve_slide_types=True,
+    )
+
+    assert summary["officialSourceAvailable"] is True
+    assert normalized.slides[0].composition_id == "cover-research-author"
+    assert normalized.slides[0].asset_role == "evidence"
 
 
 def test_hybrid_official_asset_placeholder_is_expected_before_resolution() -> None:
@@ -319,6 +405,34 @@ def test_program_v2_visual_plan_replaces_generic_media_prompt_with_slide_subject
     assert "official product evidence" in plan["imagePrompt"]
     assert "none" not in plan["imagePrompt"]
     assert "avoid gradient and pastel" in plan["imagePrompt"]
+
+
+def test_provided_only_visual_plan_uses_worker_supported_official_asset_policy() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_program_v2",
+            topic="연구 발표",
+            design={"mediaPolicy": "provided-only"},
+            officialAssetFileIds=["asset-profile"],
+        )
+    )
+    slide = SlidePlan(
+        order=1,
+        slide_type="cover",
+        title="연구 발표",
+        message="검증된 프로필과 함께 소개합니다",
+        speaker_notes="",
+        keywords=[],
+        evidence=[],
+    )
+    design_program = DeckDesignProgram.model_validate(valid_program())
+    direction = design_program.slides[0].model_copy(
+        update={"asset_role": "evidence", "required_asset": True}
+    )
+
+    plan = program_v2_visual_plan(raw_input, slide, design_program, direction)
+
+    assert plan["imageSourcePolicy"] == "official-assets"
 
 
 def test_program_v2_visual_plan_omits_icon_style_from_large_media_prompt() -> None:
@@ -725,10 +839,10 @@ def test_program_v2_design_and_layout_stages_compile_canonical_backgrounds() -> 
     ]
     assert len(responses.requests) == 1
     assert deck["slides"][0]["aiNotes"]["compositionPlan"]["compositionId"] == (
-        "hero-full-bleed"
+        "cover-classic-corporate"
     )
     assert deck["slides"][0]["aiNotes"]["visualPlan"]["imageSourcePolicy"] == (
-        "ai-generated"
+        "minimal"
     )
     assert sum(
         element.get("props", {}).get("text")
@@ -813,9 +927,9 @@ def test_program_v2_golden_pipeline_contract() -> None:
         "type": "text",
         "role": "title",
         "x": 120,
-        "y": 304,
-        "width": 1254,
-        "height": 256,
+        "y": 250,
+        "width": 720,
+        "height": 350,
     }
     assert title_element["props"]["text"] == "미지의 군도로"
     assert all(slide["animations"] == [] for slide in deck["slides"])
@@ -1063,10 +1177,10 @@ def golden_element_ids() -> list[list[str]]:
     return [
         [
             "el_1_program_v2_media_placeholder",
-            "el_1_program_v2_image_overlay",
-            "el_1_program_v2_eyebrow",
+            "el_1_program_v2_media_caption",
+            "el_1_program_v2_media_edge",
             "el_1_program_v2_title",
-            "el_1_program_v2_message",
+            "el_1_program_v2_subtitle",
         ],
         [
             "el_2_program_v2_title",

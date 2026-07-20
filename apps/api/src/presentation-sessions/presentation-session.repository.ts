@@ -77,6 +77,28 @@ export class PresentationSessionRepository {
     return rows[0] ?? null;
   }
 
+  async findCurrentForUpdate(
+    manager: EntityManager,
+    projectId: string,
+    deckId: string
+  ): Promise<PresentationSessionRow | null> {
+    const rows = await manager.query<PresentationSessionRow[]>(
+      `
+        SELECT ${sessionColumns}
+        FROM presentation_sessions
+        WHERE project_id = $1
+          AND deck_id = $2
+          AND status IN ('draft', 'live')
+          AND expires_at > now()
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [projectId, deckId]
+    );
+    return rows[0] ?? null;
+  }
+
   async list(projectId: string, deckId: string): Promise<PresentationSessionRow[]> {
     return this.dataSource.query<PresentationSessionRow[]>(
       `

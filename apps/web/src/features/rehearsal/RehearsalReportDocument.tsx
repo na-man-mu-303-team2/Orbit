@@ -26,6 +26,39 @@ const TRANSCRIPT_WINDOW_MS = 30 * 60 * 1000;
 
 type RehearsalDownloadArtifact = "audio" | "transcript";
 
+type ReportDetailFrameProps = {
+  actions?: ReactNode;
+  children: ReactNode;
+  date: string;
+  statusLabel: string;
+  title: string;
+};
+
+export function ReportDetailFrame({
+  actions,
+  children,
+  date,
+  statusLabel,
+  title,
+}: ReportDetailFrameProps) {
+  return (
+    <div className="rrd-root">
+      <section className="rrd-hero">
+        <div className="rrd-hero-text">
+          <span className="rrd-hero-eyebrow">REPORT DETAIL</span>
+          <h1 className="rrd-hero-title">{title}</h1>
+          <time className="rrd-hero-date">{date}</time>
+          <span className="rrd-hero-status">
+            <i aria-hidden="true" /> {statusLabel}
+          </span>
+        </div>
+        {actions ? <div className="rrd-hero-actions">{actions}</div> : null}
+      </section>
+      {children}
+    </div>
+  );
+}
+
 export async function fetchRehearsalDownload(
   runId: string,
   artifact: RehearsalDownloadArtifact,
@@ -168,21 +201,14 @@ export function RehearsalReportDocument({
     : 0;
 
   return (
-    <div className="rrd-root">
-      {/* ── Hero ── */}
-      <section className="rrd-hero">
-        <div className="rrd-hero-text">
-          <span className="rrd-hero-eyebrow">REPORT DETAIL</span>
-          <h1 className="rrd-hero-title">{title}</h1>
-          <time className="rrd-hero-date">{runDate}</time>
-          <span className="rrd-hero-status">
-            <i aria-hidden="true" /> AI 코칭 완료
-          </span>
-        </div>
-        <div className="rrd-hero-actions">
+    <ReportDetailFrame
+      actions={
+        <>
           <OrbitButton
             icon={<BarChart3 aria-hidden="true" size={17} />}
-            onClick={() => navigateTo(`/reports/${encodeURIComponent(projectId)}`)}
+            onClick={() =>
+              navigateTo(`/reports/${encodeURIComponent(projectId)}`)
+            }
             size="prominent"
             variant="secondary"
           >
@@ -205,7 +231,11 @@ export function RehearsalReportDocument({
             {downloadMenuOpen ? (
               <div className="rrd-download-menu-popover" role="menu">
                 <button
-                  disabled={!transcriptDownloadAvailable || !run || Boolean(downloadingArtifact)}
+                  disabled={
+                    !transcriptDownloadAvailable ||
+                    !run ||
+                    Boolean(downloadingArtifact)
+                  }
                   onClick={() => void downloadArtifact("transcript")}
                   role="menuitem"
                   type="button"
@@ -213,7 +243,11 @@ export function RehearsalReportDocument({
                   대본 파일
                 </button>
                 <button
-                  disabled={!audioPlaybackAvailable || !run || Boolean(downloadingArtifact)}
+                  disabled={
+                    !audioPlaybackAvailable ||
+                    !run ||
+                    Boolean(downloadingArtifact)
+                  }
                   onClick={() => void downloadArtifact("audio")}
                   role="menuitem"
                   type="button"
@@ -221,7 +255,9 @@ export function RehearsalReportDocument({
                   음성 파일
                 </button>
                 {downloadError ? (
-                  <p className="rrd-download-error" role="alert">{downloadError}</p>
+                  <p className="rrd-download-error" role="alert">
+                    {downloadError}
+                  </p>
                 ) : null}
               </div>
             ) : null}
@@ -236,9 +272,12 @@ export function RehearsalReportDocument({
           >
             다시 리허설
           </OrbitButton>
-        </div>
-      </section>
-
+        </>
+      }
+      date={runDate}
+      statusLabel="AI 코칭 완료"
+      title={title}
+    >
       <div id="rrd-panel-overview" className="rrd-report-panel" hidden>
         <div className="rrd-top-overview">
           {practiceGoalSummary}
@@ -353,6 +392,6 @@ export function RehearsalReportDocument({
           report={report}
         />
       </div>
-    </div>
+    </ReportDetailFrame>
   );
 }

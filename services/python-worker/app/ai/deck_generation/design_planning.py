@@ -579,7 +579,7 @@ def program_v2_slide_summary(
     content_items = [
         item.model_dump(by_alias=True) for item in slide_plan.content_items
     ]
-    if not content_items:
+    if not content_items and slide_plan.order != 1 and slide_plan.slide_type != "cover":
         estimated_count = {
             "cover": 1,
             "title": 1,
@@ -613,6 +613,18 @@ def program_v2_slide_summary(
         "visualIntent": slide_plan.visual_intent.model_dump(by_alias=True),
         "mediaIntent": slide_plan.media_intent.model_dump(),
     }
+    if slide_plan.order == 1 or slide_plan.slide_type == "cover":
+        cover = slide_plan.cover_content
+        summary["coverContent"] = (
+            cover.model_dump(by_alias=True) if cover is not None else None
+        )
+        summary["eligibleCompositionIds"] = eligible_cover_compositions(
+            raw_input,
+            slide_plan,
+        )
+        summary["presentationProfile"] = (
+            raw_input.presentation_profile if raw_input is not None else "general-inform"
+        )
     if raw_input is not None:
         records = {
             source.source_id: source
@@ -637,12 +649,97 @@ def program_v2_slide_summary(
             and bool(source.url)
             for source in records.values()
         )
-        summary["officialSourceAvailable"] = referenced_official_source or (
-            raw_input.design.media_policy == "hybrid"
-            and slide_plan.order == 1
-            and deck_official_source
+        verified_profile_asset = bool(
+            slide_plan.order == 1
+            and slide_plan.cover_content
+            and slide_plan.cover_content.profile_image_asset_id
+            in raw_input.official_asset_file_ids
+        )
+        summary["officialSourceAvailable"] = (
+            referenced_official_source
+            or verified_profile_asset
+            or (
+                raw_input.design.media_policy == "hybrid"
+                and slide_plan.order == 1
+                and deck_official_source
+            )
         )
     return summary
+
+
+def eligible_cover_compositions(
+    raw_input: RawInput | None,
+    slide_plan: SlidePlan,
+) -> list[str]:
+    cover = slide_plan.cover_content
+    if raw_input is None:
+        return ["cover-classic-corporate", "cover-modern-high-tech"]
+    profile = raw_input.presentation_profile
+    text = " ".join(
+        [
+            raw_input.topic,
+            raw_input.prompt,
+            raw_input.brief.presentation_context,
+            raw_input.brief.presentation_type,
+            cover.document_label if cover and cover.document_label else "",
+        ]
+    ).casefold()
+    report_context = profile == "executive-report" or any(
+        marker in text
+        for marker in (
+            "report",
+            "quarter",
+            "earnings",
+            "research result",
+            "보고서",
+            "분기",
+            "실적",
+            "조사 결과",
+            "분석 결과",
+        )
+    )
+    media_available = raw_input.design.media_policy in {
+        "ai-generated",
+        "public-assets",
+        "hybrid",
+    } or (
+        raw_input.design.media_policy == "provided-only"
+        and bool(raw_input.official_asset_file_ids)
+    )
+    research_author_available = (
+        cover is not None
+        and cover.presenter_name
+        and cover.profile_image_asset_id
+        and raw_input.design.media_policy in {"provided-only", "hybrid"}
+    )
+    requested_cover_media = (
+        media_available and slide_plan.media_intent.kind != "none"
+    )
+    product_context = profile == "product-launch" or any(
+        marker in text
+        for marker in ("product launch", "event", "campaign", "제품 출시", "이벤트", "캠페인")
+    )
+    keynote_context = any(
+        marker in text
+        for marker in ("keynote", "vision", "brand message", "키노트", "비전", "브랜드 메시지")
+    )
+    eligible: list[str] = []
+    if research_author_available:
+        eligible.append("cover-research-author")
+    if requested_cover_media:
+        eligible.extend(["cover-visual-impact", "cover-immersive-background"])
+    if report_context:
+        eligible.append("cover-structured-report")
+    if profile == "technical":
+        eligible.append("cover-modern-high-tech")
+    if product_context and media_available:
+        eligible.append("cover-visual-impact")
+    if keynote_context and media_available:
+        eligible.append("cover-immersive-background")
+    eligible.extend(["cover-classic-corporate", "cover-modern-high-tech"])
+    if media_available:
+        eligible.extend(["cover-visual-impact", "cover-immersive-background"])
+    return list(dict.fromkeys(eligible))
 
 
 def apply_program_v2_design_tokens(
