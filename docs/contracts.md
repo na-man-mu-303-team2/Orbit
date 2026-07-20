@@ -1829,18 +1829,25 @@ historical `type` 값:
 - Story Review UI/API/shared schema와 `ai_deck_story_reviews` 테이블은 제거한다. `POST /api/v1/projects/:projectId/jobs/generate-deck` 응답은 strict `{ job }`이며 content planning은 입력 화면의 **다음 단계** 클릭 직후 백그라운드에서 시작한다.
 - 첨부파일을 선택하면 임시 project를 한 번만 만들고 파일을 병렬 업로드한다. Web은 파일 순서를 유지하며 `uploading | uploaded | failed`를 표시한다. 업로드 중이거나 실패 파일이 남아 있으면 다음 단계 진행을 막고, 실패 파일은 재시도 또는 제거할 수 있다.
 - Style 상태는 `GET /api/v1/projects/:projectId/jobs/:jobId/design-selection`, 확정은 같은 경로의 strict `PUT`을 사용한다. selection은 `paletteOptionId`, 전체 `paletteOverride`, strict `fontOverride`, 선택 `designPrompt`만 받는다.
-- `content-planning` 완료와 Style 확정은 순서와 관계없이 같은 Job row lock과 checkpoint UNIQUE 계약으로 합류한다. cover가 성공 또는 최종 실패로 확정된 뒤 `design-planning`을 정확히 한 번 enqueue해 cover와 일반 1번 slide의 중복 생성을 막는다.
-- Style 확정 transaction은 deterministic topic/message/audience의 `coverPlan`을 저장하고 singleton `cover-slide`를 enqueue한다. PostgreSQL claim과 BullMQ priority 모두 cover를 일반 stage보다 우선하지만 사용자별 concurrency 제한은 유지한다. cover 실패는 부모 Job을 실패시키지 않고 일반 1번 `image-slide` 생성으로 fallback한다.
-- 성공한 cover는 `layout-compile` manifest의 1번 descriptor와 identity를 맞춰 completed `image-slide` artifact로 승격한다. 1번 slide compose, asset resolution, per-slide QA를 다시 실행하지 않으며 이후 semantic/rendered Vision QA와 publication에는 다른 slide와 동일하게 포함한다.
+- `content-planning` 완료와 Style 확정은 순서와 관계없이 같은 Job row lock과 checkpoint UNIQUE 계약으로 합류하고 `design-planning`을 정확히 한 번 enqueue한다. 신규 Job은 `coverPlan`을 만들거나 `cover-slide` checkpoint를 enqueue하지 않는다.
+- 신규 v2 `layout-compile` manifest는 1번을 포함한 모든 descriptor를 `image-slide`로 fan-out한다. 표지도 다른 slide와 같은 compose, asset resolution, Content/Fact/Semantic/Vision QA 경로를 통과한다.
+- shared enum의 `cover-slide`, stored payload의 optional `coverPlan`, cover artifact/processor와 preview fallback은 이미 시작했거나 저장된 과거 Job의 재개를 위해 유지한다. 신규 생성 경로에서는 사용하지 않으며 이를 위한 DB migration이나 대규모 정리는 하지 않는다.
+
+### AI Deck 시연 캐시
+
+- 공개 `GenerateDeckRequest`, 응답, Job type/status에는 시연 전용 필드를 추가하지 않는다. 내부 설정 `DEMO_AI_DECK_CACHE_ENABLED`, `DEMO_AI_DECK_SOURCE_PROJECT_ID`, `DEMO_AI_DECK_TRIGGER_TOPIC`을 사용하고 기존 `ai-deck-generation` queued Job을 만든다.
+- cache hit은 기능 활성화, production이 아닌 allowlisted `APP_ENV`, `DEMO_USER_ID` 요청자, 공백 정규화 후 정확히 일치하는 topic, 읽기 가능한 source project, `deckSchema`를 통과한 source Deck을 모두 요구한다. source가 없거나 유효하지 않으면 `DEMO_DECK_CACHE_UNAVAILABLE`로 실패하고 일반 AI 생성으로 fallback하지 않는다.
+- hit Job은 Worker에 enqueue하지 않는다. Style 확정 transaction에서 source Deck을 다시 읽고 검증한 다음 target `projectId`, `deckId=deck_${jobId}`, `version=1`만 바꾸어 upsert한다. slide ID, elements, notes, design, animations와 asset URL은 보존하고 selection payload, 유효한 generation result, Job `succeeded/progress=100/error=null`을 같은 transaction에서 저장한다.
+- cache 사용 로그 `ai_ppt.demo_cache.used`에는 `jobId`, target/source project ID, `deckId`, slide count만 남긴다. prompt, notes, transcript, asset 내용과 secret은 기록하지 않는다.
 
 ### AI Deck Progressive Preview
 
-- Style 확정 후 `cover-slide` artifact가 먼저 준비되면 `layout-compile` 전에도 선택 palette/font가 적용된 1번 slide Deck을 반환한다. 화면은 항상 “검증 중 변경될 수 있음”을 안내하고, 최종 rendered Vision QA와 publication 완료 뒤에만 editor로 전환한다.
+- 신규 Job은 `layout-compile` 이후 1번부터 연속으로 완료된 slide만 반환한다. 과거 Job에 `cover-slide` artifact가 있으면 기존 `layout-compile` 전 1번 slide fallback을 유지한다. 화면은 항상 “검증 중 변경될 수 있음”을 안내하고, 최종 rendered Vision QA와 publication 완료 뒤에만 editor로 전환한다.
 - `GET /api/v1/projects/:projectId/jobs/:jobId/deck-preview`는 project read 권한과 `type='ai-deck-generation'` Job identity를 확인하고 strict `AiDeckPreviewResponse`를 반환한다. 응답은 `{ jobId, projectId, status, progress, expectedSlideCountRange, editable:false, outline, deck, completedSlideIds, pendingSlideIds, updatedAt, error }`만 포함하며 raw source, OCR, prompt, provider response, 내부 layout/visual requirement는 노출하지 않는다. status는 checkpoint를 기준으로 `planning`, `grounding`, `composing`, `rendering`, `quality-check`, `ready`, `failed`, `cancelled` 중 하나를 반환한다.
-- content plan 전에는 `expectedSlideCountRange`로 5~8장 예정 skeleton을 표시하고 성공한 cover가 있으면 1번 슬롯에 즉시 표시한다. 실제 outline이 준비되면 임시 슬롯을 제목·핵심 메시지가 있는 실제 목차로 교체한다. `references-first` 웹 보강은 alias 계획, 검색, 출처 검증을 합쳐 최대 20초만 사용하고 SDK 재시도 없이 시간 초과 시 검증되지 않은 웹 citation을 버린 뒤 업로드 자료만으로 계속한다.
+- content plan 전에는 `expectedSlideCountRange`로 5~8장 예정 skeleton을 표시한다. 과거 Job에 성공한 cover가 있으면 1번 슬롯에 표시하고, 실제 outline이 준비되면 임시 슬롯을 제목·핵심 메시지가 있는 실제 목차로 교체한다. `references-first` 웹 보강은 alias 계획, 검색, 출처 검증을 합쳐 최대 20초만 사용하고 SDK 재시도 없이 시간 초과 시 검증되지 않은 웹 citation을 버린 뒤 업로드 자료만으로 계속한다.
 - `layout-compile` 전에는 승인된 `content-planning` artifact에서 `order`, `title`, `message`만 projection해 `outline`과 `deck=null`을 반환한다. legacy layout 이후에는 기존 full Deck과 image artifact 병합 규칙을 유지한다. v2에서는 성공한 completed slide artifact를 manifest `sourceOrder`로 검사해 1번부터 끊김 없는 prefix만 partial Deck으로 반환한다. out-of-order 완료 slide는 내부에는 보존하지만 앞 slide가 준비되기 전에는 `completedSlideIds`나 `deck`에 노출하지 않으며 나머지는 모두 `pendingSlideIds`다. 성공한 `semantic-quality` 또는 `rendered-visual-quality` artifact가 있으면 가장 최근 검증 Deck을 우선한다.
 - 부모 Job이 `succeeded`이면 `decks.deck_json`의 canonical Deck을 `ready`로 반환한다. failed/cancelled는 마지막으로 검증 가능한 preview를 유지하되 일반화한 오류 문구와 retryable 여부만 제공한다. preview 조회는 canonical Deck이나 artifact를 수정하지 않는다.
-- Web은 약 1.2초 polling을 사용하고 backend 완료 순서와 무관하게 `completedSlideIds`의 1번부터 연속된 prefix만 공개한다. 새 slide는 약 500ms 간격으로 fade-in하며 `prefers-reduced-motion`에서는 즉시 공개한다. 사용자가 이전 slide를 선택하기 전까지만 최신 공개 slide를 자동 선택한다. `ready`와 마지막 slide 공개가 모두 충족되면 `["deck", projectId]` query를 invalidate하고 일반 editor route로 replace 이동한다.
+- Web은 약 1.2초 polling을 사용하고 backend 완료 순서와 무관하게 `completedSlideIds`의 1번부터 연속된 prefix만 공개한다. 새 slide는 750ms 간격으로 fade-in하며 `prefers-reduced-motion`에서는 즉시 공개한다. backend가 먼저 `ready`여도 공개가 끝날 때까지 화면 status는 `rendering`, progress는 공개 비율 기준 12~96으로 표시한다. 사용자가 이전 slide를 선택하기 전까지만 최신 공개 slide를 자동 선택하고, 마지막 slide를 600ms 유지한 뒤 `["deck", projectId]` query를 invalidate하고 일반 editor route로 replace 이동한다.
 
 구현 위치:
 

@@ -280,6 +280,91 @@ describe("processAiDeckPlanningStage", () => {
     );
   });
 
+  it.each([
+    ["new jobs", undefined, ["design-planning"]],
+    [
+      "historical cover jobs",
+      { title: "Safe topic", message: "Cover", audience: "Audience" },
+      [],
+    ],
+  ])("converges content and style selection for %s", async (_case, coverPlan, expectedStages) => {
+    const message = { ...sourceMessage, stage: "content-planning" as const };
+    const contentPayload = {
+      rawInput: { topic: "Safe topic" },
+      contentPlan: { outline: { title: "Safe topic" }, slidePlans: [] },
+    };
+    const selectedPayload = {
+      request: { topic: "Safe topic" },
+      ...(coverPlan ? { coverPlan } : {}),
+      designSelection: {
+        paletteOptionId: "selected",
+        paletteOverride: {
+          primary: "#2563EB",
+          secondary: "#0F172A",
+          background: "#FFFFFF",
+          surface: "#F8FAFC",
+          muted: "#64748B",
+          border: "#CBD5E1",
+          text: "#0F172A",
+          accentColor: "#F97316",
+        },
+        fontOverride: {
+          fontId: "pretendard",
+          name: "Pretendard",
+          headingFontFamily: "Pretendard",
+          bodyFontFamily: "Pretendard",
+        },
+      },
+    };
+    const queuedStages: string[] = [];
+    const query = vi.fn(async (sql: string, parameters?: unknown[]) => {
+      const compact = compactSql(sql);
+      if (compact.includes("SET status = 'running', attempt = stages.attempt + 1")) {
+        return [checkpointRow(message.stage, "running", 1, { planningArtifactId })];
+      }
+      if (compact.includes("FROM ai_deck_planning_artifacts artifacts")) {
+        return [artifactRow("source-grounding", sourcePayload)];
+      }
+      if (compact.includes("SELECT payload FROM jobs")) {
+        return [{ payload: selectedPayload }];
+      }
+      if (compact.includes("SELECT status FROM ai_deck_generation_stages")) {
+        return [{ status: "running" }];
+      }
+      if (compact.includes("FROM ai_deck_reference_extraction_artifacts")) return [];
+      if (compact.includes("INSERT INTO ai_deck_planning_artifacts")) {
+        return [artifactRow(message.stage, contentPayload)];
+      }
+      if (compact.includes("SET status = 'succeeded'")) {
+        return [checkpointRow(message.stage, "succeeded", 1, { planningArtifactId }, { planningArtifactId })];
+      }
+      if (compact.includes("INSERT INTO ai_deck_generation_stages")) {
+        queuedStages.push(String(parameters?.[2]));
+        return [checkpointRow("design-planning", "queued", 0, { planningArtifactId })];
+      }
+      if (compact.includes("UPDATE jobs SET status = 'running'")) {
+        return [parentRow("running", 40)];
+      }
+      throw new Error(`Unexpected SQL: ${compact}`);
+    });
+
+    await expect(
+      processAiDeckPlanningStage(
+        fakeDataSource(query),
+        "http://python-worker:8000",
+        "worker-a",
+        message,
+        { fetchImpl: async () => jsonResponse(contentPayload) },
+      ),
+    ).resolves.toMatchObject({ status: "running", progress: 40 });
+    expect(queuedStages).toEqual(expectedStages);
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("stage = 'cover-slide'"),
+      ),
+    ).toBe(Boolean(coverPlan));
+  });
+
   it("fans out one image checkpoint per visual requirement after layout", async () => {
     const message = { ...sourceMessage, stage: "layout-compile" as const };
     const deck = createTestDeck(sourceMessage.projectId);
@@ -518,6 +603,81 @@ describe("processAiDeckPlanningStage", () => {
         ],
       },
     });
+  });
+
+  it("queues every v2 slide descriptor when no historical cover exists", async () => {
+    const message = { ...sourceMessage, stage: "layout-compile" as const };
+    const deck = createTestDeck(sourceMessage.projectId);
+    const slideOrders = [1, 2, 3];
+    const { slides: ignoredSlides, ...deckShell } = deck;
+    void ignoredSlides;
+    const contentPayload = {
+      artifactVersion: 2,
+      rawInput: { topic: "Safe topic" },
+      contentPlan: {
+        outline: { title: "Safe topic" },
+        slidePlans: slideOrders.map((order) => ({
+          order,
+          title: `Slide ${order}`,
+          message: `Message ${order}`,
+        })),
+      },
+    };
+    const designPayload = { designPlan: { slidePlans: [] } };
+    const layoutPayload = {
+      artifactVersion: 2,
+      deckShell,
+      slides: slideOrders.map((order) => ({
+        sourceOrder: order,
+        order,
+        slideId: `slide_${order}`,
+        shardKey: `${String(order).padStart(3, "0")}-slide_${order}`,
+      })),
+      warnings: [],
+    };
+    const queuedShards: string[] = [];
+    const query = vi.fn(async (sql: string, parameters?: unknown[]) => {
+      const compact = compactSql(sql);
+      if (compact.includes("SET status = 'running', attempt = stages.attempt + 1")) {
+        return [checkpointRow(message.stage, "running", 1, { planningArtifactId })];
+      }
+      if (compact.includes("FROM ai_deck_planning_artifacts artifacts")) {
+        const expectedStage = String(parameters?.[3] ?? parameters?.[2]);
+        if (expectedStage === "design-planning") return [artifactRow("design-planning", designPayload)];
+        if (expectedStage === "content-planning") return [artifactRow("content-planning", contentPayload)];
+        if (expectedStage === "source-grounding") return [artifactRow("source-grounding", sourcePayload)];
+      }
+      if (compact.includes("INSERT INTO ai_deck_planning_artifacts")) {
+        return [artifactRow("layout-compile", layoutPayload)];
+      }
+      if (compact.includes("SET status = 'succeeded'")) {
+        return [checkpointRow(message.stage, "succeeded", 1, { planningArtifactId }, { planningArtifactId })];
+      }
+      if (compact.includes("artifacts.stage = 'cover-slide'")) return [];
+      if (compact.includes("INSERT INTO ai_deck_generation_stages")) {
+        expect(parameters?.[2]).toBe("image-slide");
+        queuedShards.push(String(parameters?.[3]));
+        return [{
+          ...checkpointRow("image-slide", "queued", 0, { planningArtifactId }),
+          shard_key: parameters?.[3],
+        }];
+      }
+      if (compact.includes("UPDATE jobs SET status = 'running'")) {
+        return [parentRow("running", 60)];
+      }
+      throw new Error(`Unexpected SQL: ${compact}`);
+    });
+
+    await expect(
+      processAiDeckPlanningStage(
+        fakeDataSource(query),
+        "http://python-worker:8000",
+        "worker-a",
+        message,
+        { fetchImpl: async () => jsonResponse(layoutPayload) },
+      ),
+    ).resolves.toMatchObject({ status: "running", progress: 60 });
+    expect(queuedShards).toEqual(layoutPayload.slides.map((slide) => slide.shardKey));
   });
 });
 

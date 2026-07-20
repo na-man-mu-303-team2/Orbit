@@ -1,10 +1,11 @@
 import type { EnqueueGenerateDeckJobInput } from "@orbit/job-queue";
+import { createDemoDeck } from "@orbit/editor-core";
 import {
   generateDeckRequestSchema,
   type Job,
   type SavedDesignPackSnapshot
 } from "@orbit/shared";
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ServiceUnavailableException } from "@nestjs/common";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
@@ -57,7 +58,11 @@ const validEnv = {
   DEMO_WORKSPACE_ID: "workspace_demo_1",
   DEMO_PROJECT_ID: "project_demo_1",
   DEMO_DECK_ID: "deck_demo_1",
-  DEMO_SESSION_ID: "session_demo_1"
+  DEMO_SESSION_ID: "session_demo_1",
+  DEMO_AI_DECK_CACHE_ENABLED: "false",
+  DEMO_AI_DECK_SOURCE_PROJECT_ID: "",
+  DEMO_AI_DECK_TRIGGER_TOPIC: "",
+  DEMO_FIXTURE_ENV_ALLOWLIST: ""
 };
 
 describe("GenerateDeckService", () => {
@@ -245,6 +250,107 @@ describe("GenerateDeckService", () => {
         })
       })
     });
+  });
+
+  it("keeps a matching demo cache job queued and skips worker enqueue", async () => {
+    Object.assign(process.env, {
+      DEMO_AI_DECK_CACHE_ENABLED: "true",
+      DEMO_AI_DECK_SOURCE_PROJECT_ID: "project-source",
+      DEMO_AI_DECK_TRIGGER_TOPIC: "Orbit demo",
+      DEMO_FIXTURE_ENV_ALLOWLIST: "local,staging",
+    });
+    const job = queuedJob("job-demo-cache");
+    const jobsService = {
+      create: vi.fn(async () => job),
+      update: vi.fn(),
+    } as unknown as JobsService;
+    const projectsService = {
+      getAccessibleProject: vi.fn(async () => ({ projectId: job.projectId })),
+      assertCanReadProject: vi.fn(async () => ({ projectId: "project-source" })),
+    } as unknown as ProjectsService;
+    const enqueueJob = vi.fn(async () => undefined);
+    const dataSource = {
+      query: vi.fn(async () => [{ deck_json: createDemoDeck() }]),
+    };
+
+    const result = await new GenerateDeckService(
+      jobsService,
+      projectsService,
+      enqueueJob,
+      undefined,
+      undefined,
+      undefined,
+      dataSource as never,
+    ).createJob(job.projectId, { topic: "  Orbit   demo  " }, "user_demo_1");
+
+    expect(result).toEqual({ job });
+    expect(projectsService.assertCanReadProject).toHaveBeenCalledWith(
+      "project-source",
+      "user_demo_1",
+    );
+    expect(enqueueJob).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["disabled", { DEMO_AI_DECK_CACHE_ENABLED: "false" }, "Orbit demo", "user_demo_1"],
+    ["topic mismatch", {}, "Another topic", "user_demo_1"],
+    ["user mismatch", {}, "Orbit demo", "user_other"],
+    ["environment mismatch", { DEMO_FIXTURE_ENV_ALLOWLIST: "staging" }, "Orbit demo", "user_demo_1"],
+  ])("enqueues normally when the demo cache misses by %s", async (_case, override, topic, userId) => {
+    Object.assign(process.env, {
+      DEMO_AI_DECK_CACHE_ENABLED: "true",
+      DEMO_AI_DECK_SOURCE_PROJECT_ID: "project-source",
+      DEMO_AI_DECK_TRIGGER_TOPIC: "Orbit demo",
+      DEMO_FIXTURE_ENV_ALLOWLIST: "local",
+      ...override,
+    });
+    const job = queuedJob(`job-cache-miss-${_case}`);
+    const enqueueJob = vi.fn(async () => undefined);
+    const projectsService = {
+      getAccessibleProject: vi.fn(async () => ({ projectId: job.projectId })),
+      assertCanReadProject: vi.fn(),
+    } as unknown as ProjectsService;
+    await new GenerateDeckService(
+      { create: vi.fn(async () => job), update: vi.fn() } as unknown as JobsService,
+      projectsService,
+      enqueueJob,
+    ).createJob(job.projectId, { topic }, userId);
+
+    expect(enqueueJob).toHaveBeenCalledOnce();
+    expect(projectsService.assertCanReadProject).not.toHaveBeenCalled();
+  });
+
+  it("returns DEMO_DECK_CACHE_UNAVAILABLE without falling back to AI", async () => {
+    Object.assign(process.env, {
+      DEMO_AI_DECK_CACHE_ENABLED: "true",
+      DEMO_AI_DECK_SOURCE_PROJECT_ID: "project-source",
+      DEMO_AI_DECK_TRIGGER_TOPIC: "Orbit demo",
+      DEMO_FIXTURE_ENV_ALLOWLIST: "local",
+    });
+    const create = vi.fn();
+    const enqueueJob = vi.fn();
+    const service = new GenerateDeckService(
+      { create, update: vi.fn() } as unknown as JobsService,
+      {
+        getAccessibleProject: vi.fn(async () => ({})),
+        assertCanReadProject: vi.fn(async () => ({})),
+      } as unknown as ProjectsService,
+      enqueueJob,
+      undefined,
+      undefined,
+      undefined,
+      { query: vi.fn(async () => []) } as never,
+    );
+
+    const error = await service
+      .createJob("project-target", { topic: "Orbit demo" }, "user_demo_1")
+      .catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(ServiceUnavailableException);
+    expect((error as ServiceUnavailableException).getResponse()).toMatchObject({
+      code: "DEMO_DECK_CACHE_UNAVAILABLE",
+    });
+    expect(create).not.toHaveBeenCalled();
+    expect(enqueueJob).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -723,3 +829,18 @@ describe("GenerateDeckService", () => {
     expect(basePalette.accentColor).toBe("#C5B0F4");
   });
 });
+
+function queuedJob(jobId: string): Job {
+  return {
+    jobId,
+    projectId: "project-target",
+    type: "ai-deck-generation",
+    status: "queued",
+    progress: 0,
+    message: "Job queued",
+    result: null,
+    error: null,
+    createdAt: "2026-07-20T00:00:00.000Z",
+    updatedAt: "2026-07-20T00:00:00.000Z",
+  };
+}
