@@ -159,6 +159,11 @@ import {
 } from "./presenter/displayManager";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
 import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
+import {
+  createSlideAssetNavigationGate,
+  type SlideNavigationRequest,
+  type SlideNavigationResult,
+} from "./presenter/slideAssetNavigationGate";
 import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
 import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
 import {
@@ -181,6 +186,12 @@ import {
   type AdvanceControllerState,
 } from "./advance/advanceController";
 import { RehearsalPanel } from "./panel/RehearsalPanel";
+import {
+  clearProjectSlideImageCache,
+  preloadSlideAssets,
+  prepareSlideAssets,
+  retainSlideAssetWindow,
+} from "../slides/rendering";
 import {
   createSemanticCapabilityStatusItems,
   getNextSemanticCapabilityRecoveryDelay,
@@ -2090,6 +2101,8 @@ export function RehearsalWorkspace(props: {
     useState<RehearsalRuntimeStatus>("idle");
   const [scriptAutoFollowKey, setScriptAutoFollowKey] = useState(0);
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
+  const [isSlidePreparationPending, setIsSlidePreparationPending] =
+    useState(false);
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(() =>
@@ -2163,6 +2176,31 @@ export function RehearsalWorkspace(props: {
   const lastSentenceSpokenAtMsRef = useRef<number | null>(null);
   const finalSentenceCommittedAtMsRef = useRef<number | null>(null);
   const pauseDetectorRef = useRef<PauseDetector | null>(null);
+  const slideNavigationGateRef = useRef<ReturnType<
+    typeof createSlideAssetNavigationGate
+  > | null>(null);
+
+  if (slideNavigationGateRef.current === null) {
+    slideNavigationGateRef.current = createSlideAssetNavigationGate({
+      commit: (request) => {
+        const deckSnapshot = deckRef.current;
+        presenterStepIndexRef.current = request.stepIndex;
+        currentSlideIndexRef.current = request.targetSlideIndex;
+        setPresenterStepIndex(request.stepIndex);
+        setCurrentSlideIndex(request.targetSlideIndex);
+        if (deckSnapshot) {
+          retainSlideAssetWindow(deckSnapshot, request.targetSlideIndex);
+        }
+      },
+      onPendingChange: setIsSlidePreparationPending,
+      prepare: async (request) => {
+        const deckSnapshot = deckRef.current;
+        const slide = deckSnapshot?.slides[request.targetSlideIndex];
+        if (!deckSnapshot || !slide) return;
+        await prepareSlideAssets(deckSnapshot, slide);
+      },
+    });
+  }
   const { settings: presenterSettings, save: savePresenterSettings } =
     usePresenterSettings();
 
@@ -2351,6 +2389,34 @@ export function RehearsalWorkspace(props: {
       ? Math.max(timerDurationSeconds - elapsedSeconds, 0)
       : elapsedSeconds;
 
+  function requestPreparedSlideChange(
+    request: SlideNavigationRequest,
+  ): Promise<SlideNavigationResult> {
+    const deckSnapshot = deckRef.current;
+    if (!deckSnapshot || deckSnapshot.slides.length === 0) {
+      return Promise.resolve("ignored");
+    }
+
+    const targetSlideIndex = Math.min(
+      deckSnapshot.slides.length - 1,
+      Math.max(0, request.targetSlideIndex),
+    );
+    const normalizedRequest = { ...request, targetSlideIndex };
+    const gate = slideNavigationGateRef.current;
+
+    if (
+      targetSlideIndex === currentSlideIndexRef.current &&
+      gate &&
+      !gate.isPending()
+    ) {
+      presenterStepIndexRef.current = request.stepIndex;
+      setPresenterStepIndex(request.stepIndex);
+      return Promise.resolve("committed");
+    }
+
+    return gate?.request(normalizedRequest) ?? Promise.resolve("ignored");
+  }
+
   function handlePresenterRemoteCommand(command: PresenterRemoteCommand) {
     const deckSnapshot = deckRef.current;
     if (!deckSnapshot) {
@@ -2401,9 +2467,11 @@ export function RehearsalWorkspace(props: {
     }
 
     if (command.action === "prev") {
-      presenterStepIndexRef.current = 0;
-      setPresenterStepIndex(0);
-      setCurrentSlideIndex((current) => Math.max(0, current - 1));
+      void requestPreparedSlideChange({
+        source: "manual",
+        stepIndex: 0,
+        targetSlideIndex: currentSlideIndexRef.current - 1,
+      });
       return;
     }
 
@@ -2412,12 +2480,11 @@ export function RehearsalWorkspace(props: {
         deckSnapshot.slides.length - 1,
         Math.max(0, Math.trunc(command.slideIndex)),
       );
-      presenterStepIndexRef.current = Math.max(
-        0,
-        Math.trunc(command.stepIndex ?? 0),
-      );
-      setPresenterStepIndex(presenterStepIndexRef.current);
-      setCurrentSlideIndex(nextSlideIndex);
+      void requestPreparedSlideChange({
+        source: "remote-goto",
+        stepIndex: Math.max(0, Math.trunc(command.stepIndex ?? 0)),
+        targetSlideIndex: nextSlideIndex,
+      });
       return;
     }
 
@@ -2436,9 +2503,11 @@ export function RehearsalWorkspace(props: {
       maxStepIndex: plan.maxStepIndex,
       slideCount: deckSnapshot.slides.length,
     });
-    presenterStepIndexRef.current = nextState.stepIndex;
-    setPresenterStepIndex(nextState.stepIndex);
-    setCurrentSlideIndex(nextState.slideIndex);
+    void requestPreparedSlideChange({
+      source: "manual",
+      stepIndex: nextState.stepIndex,
+      targetSlideIndex: nextState.slideIndex,
+    });
   }
 
   useEffect(() => {
@@ -2483,6 +2552,27 @@ export function RehearsalWorkspace(props: {
   ]);
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
+
+  useEffect(() => {
+    const projectId = deck?.projectId;
+    if (!projectId) return;
+
+    return () => {
+      slideNavigationGateRef.current?.cancel();
+      clearProjectSlideImageCache(projectId);
+    };
+  }, [deck?.projectId]);
+
+  useEffect(() => {
+    if (!deck || !currentSlide) return;
+
+    retainSlideAssetWindow(deck, currentSlideIndex);
+    void preloadSlideAssets(deck, currentSlide, "high");
+    const nextSlide = deck.slides[currentSlideIndex + 1];
+    if (nextSlide) {
+      void preloadSlideAssets(deck, nextSlide, "low");
+    }
+  }, [currentSlide?.slideId, currentSlideIndex, deck]);
   const visibleSemanticCapabilityEvents = useMemo(() => {
     if (practiceWithoutVoiceAt === null) {
       return semanticCapabilityEvents;
@@ -3761,14 +3851,19 @@ export function RehearsalWorkspace(props: {
         continue;
       }
 
-      setPresenterStepIndex(0);
-      setCurrentSlideIndex(currentSlideIndex + 1);
-      setLiveSlideAdvance({
-        type: "slide-advance",
-        fromSlideId: currentSlide.slideId,
-        toSlideId: nextSlide.slideId,
-        reason: "keyword-coverage",
-        coverage: input.effectiveCoverage,
+      void requestPreparedSlideChange({
+        source: "auto",
+        stepIndex: 0,
+        targetSlideIndex: currentSlideIndex + 1,
+      }).then((result) => {
+        if (result !== "committed") return;
+        setLiveSlideAdvance({
+          type: "slide-advance",
+          fromSlideId: currentSlide.slideId,
+          toSlideId: nextSlide.slideId,
+          reason: "keyword-coverage",
+          coverage: input.effectiveCoverage,
+        });
       });
     }
   }
@@ -3976,9 +4071,14 @@ export function RehearsalWorkspace(props: {
 
     if (playbackUpdate.shouldAdvanceSlide) {
       cancelAutoAdvanceForManualCommand();
-      presenterStepIndexRef.current = 0;
-      setPresenterStepIndex(0);
-      setCurrentSlideIndex((current) => Math.min(slideCount - 1, current + 1));
+      void requestPreparedSlideChange({
+        source: "auto",
+        stepIndex: 0,
+        targetSlideIndex: Math.min(
+          slideCount - 1,
+          currentSlideIndexRef.current + 1,
+        ),
+      });
       return;
     }
 
@@ -4214,16 +4314,20 @@ export function RehearsalWorkspace(props: {
 
   const goPrevious = () => {
     cancelAutoAdvanceForManualCommand();
-    setPresenterStepIndex(0);
-    setCurrentSlideIndex((current) => Math.max(0, current - 1));
+    void requestPreparedSlideChange({
+      source: "manual",
+      stepIndex: 0,
+      targetSlideIndex: currentSlideIndexRef.current - 1,
+    });
   };
   const goNext = () => {
     if (!deck) return;
     cancelAutoAdvanceForManualCommand();
-    setPresenterStepIndex(0);
-    setCurrentSlideIndex((current) =>
-      Math.min(deck.slides.length - 1, current + 1),
-    );
+    void requestPreparedSlideChange({
+      source: "manual",
+      stepIndex: 0,
+      targetSlideIndex: currentSlideIndexRef.current + 1,
+    });
   };
   const handleNextPresenterStep = () => {
     if (!deck || !slideshowAnimationPlan) return;
@@ -4235,8 +4339,11 @@ export function RehearsalWorkspace(props: {
       maxStepIndex: slideshowAnimationPlan.maxStepIndex,
       slideCount: deck.slides.length,
     });
-    setPresenterStepIndex(nextState.stepIndex);
-    setCurrentSlideIndex(nextState.slideIndex);
+    void requestPreparedSlideChange({
+      source: "manual",
+      stepIndex: nextState.stepIndex,
+      targetSlideIndex: nextState.slideIndex,
+    });
   };
   const finishRehearsal = () => {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
@@ -4534,7 +4641,6 @@ export function RehearsalWorkspace(props: {
   }, [currentSlide]);
   const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
   const nextSlide = deck?.slides[currentSlideIndex + 1] ?? null;
-  const miniSlideScale = deck ? getMiniSlideScale(deck) : 0.14;
   const prompterRows = getRehearsalPrompterRows(
     p3Sentences,
     p3PanelSnapshot.coveredSentenceIds,
@@ -5113,19 +5219,8 @@ export function RehearsalWorkspace(props: {
         <PresenterStageSection
           currentIndex={currentSlideIndex}
           emptyStageLabel={"\ubc1c\ud45c\uc790\ub8cc \ub85c\ub529 \uc911"}
+          navigationPending={isSlidePreparationPending}
           nextHint={nextSlideHint}
-          nextSlideContent={
-            deck && nextSlide ? (
-              <SlideshowRenderer
-                deck={deck}
-                playInitialEntryAnimations={false}
-                renderMode="presenter"
-                scale={miniSlideScale}
-                slideId={nextSlide.slideId}
-                stepIndex={0}
-              />
-            ) : undefined
-          }
           nextSlideTitle={nextSlide ? getSlideTitle(nextSlide) : "다음 슬라이드 없음"}
           onNext={goNext}
           onPrevious={goPrevious}
@@ -6812,10 +6907,6 @@ function getAutoAdvanceCountdownSeconds(
     0,
   );
   return Math.max(1, Math.ceil(remainingMs / 1000));
-}
-
-function getMiniSlideScale(deck: Deck) {
-  return Math.min(0.16, 154 / deck.canvas.width, 87 / deck.canvas.height);
 }
 
 function RehearsalReportLoadingShell() {

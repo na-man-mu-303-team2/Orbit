@@ -8,6 +8,7 @@ import {
 import type { ComponentType } from "react";
 import { ElementNodeContent } from "./elementRendering";
 import { getRenderableSlideElements } from "./elementNormalization";
+import { resolveGroupedElementPresentationStates } from "./groupPresentationState";
 import { getHighlightOverlayElements } from "./highlightOverlayElements";
 import { SlideBackground } from "./SlideBackground";
 import { getActiveHighlightElementIds, HighlightOverlay } from "./highlightOverlay";
@@ -46,11 +47,15 @@ export function ReadOnlySlideCanvas(props: {
 }) {
   const { deck, elementStates = {}, highlights = [], scale = 1, slide, stageRef } = props;
   const elements = getRenderableSlideElements(slide, deck.canvas);
+  const resolvedElementStates = resolveGroupedElementPresentationStates({
+    elementStates,
+    slide
+  });
   const activeHighlightElementIds = getActiveHighlightElementIds(highlights);
   const highlightElements = getHighlightOverlayElements({
     activeHighlightElementIds,
     deck,
-    elementStates,
+    elementStates: resolvedElementStates,
     slide
   });
 
@@ -85,9 +90,9 @@ export function ReadOnlySlideCanvas(props: {
                 accentColor={slide.style.accentColor ?? deck.theme.accentColor}
                 deck={deck}
                 element={element}
-                elementStates={elementStates}
+                elementStates={resolvedElementStates}
                 activeHighlightElementIds={activeHighlightElementIds}
-                presentationState={elementStates[element.elementId]}
+                presentationState={resolvedElementStates[element.elementId]}
                 slide={slide}
               />
             ))}
@@ -95,7 +100,7 @@ export function ReadOnlySlideCanvas(props: {
               <HighlightOverlay
                 element={element}
                 key={`highlight-${element.elementId}`}
-                state={elementStates[element.elementId]}
+                state={resolvedElementStates[element.elementId]}
               />
             ))}
           </Layer>

@@ -20,3 +20,14 @@ export {
   getRenderableSlideElements,
   normalizeRenderableElement
 } from "./elementNormalization";
+export {
+  clearProjectSlideImageCache,
+  collectSlideAssetUrls,
+  getReadySlideImage,
+  loadSlideImage,
+  preloadSlideAssets,
+  prepareSlideAssets,
+  retainSlideAssetWindow,
+  type SlideAssetPreparationResult,
+  type SlideImagePriority
+} from "./slideImageCache";
