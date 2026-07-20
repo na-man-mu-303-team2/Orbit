@@ -15,15 +15,28 @@ describe("DatabaseReadinessService", () => {
     await expect(service.assertReady()).rejects.toMatchObject({
       response: {
         code: "PROJECT_SCHEMA_NOT_READY",
-        details: ["pending migrations", "missing column: project_members.is_pinned"]
+        details: [
+          "pending migrations",
+          "missing column: project_members.is_pinned",
+          "missing column: project_members.pinned_at",
+          "missing column: projects.tags",
+          "missing column: users.project_tags",
+          "missing column: users.display_name"
+        ]
       },
       status: 503
     });
   });
 
-  it("reports ready only after migrations and the member pin column are present", async () => {
+  it("reports ready only after migrations and every required column are present", async () => {
     const dataSource = {
-      query: vi.fn().mockResolvedValue([{ table_name: "project_members", column_name: "is_pinned" }]),
+      query: vi.fn().mockResolvedValue([
+        { table_name: "project_members", column_name: "is_pinned" },
+        { table_name: "project_members", column_name: "pinned_at" },
+        { table_name: "projects", column_name: "tags" },
+        { table_name: "users", column_name: "project_tags" },
+        { table_name: "users", column_name: "display_name" }
+      ]),
       showMigrations: vi.fn().mockResolvedValue(false)
     } as unknown as DataSource;
     const service = new DatabaseReadinessService(dataSource);

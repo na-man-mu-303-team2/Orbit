@@ -8,6 +8,7 @@ const requiredColumns = [
   { table: "project_members", column: "pinned_at" },
   { table: "projects", column: "tags" },
   { table: "users", column: "project_tags" },
+  { table: "users", column: "display_name" },
 ] as const;
 
 export type DatabaseReadiness = {
@@ -32,7 +33,9 @@ export class DatabaseReadinessService {
        FROM information_schema.columns
        WHERE table_schema = 'public'
          AND (table_name, column_name) IN (
-           ($1, $2), ($3, $4), ($5, $6), ($7, $8)
+           ${requiredColumns
+             .map((_, index) => `($${index * 2 + 1}, $${index * 2 + 2})`)
+             .join(", ")}
          )`,
       requiredColumns.flatMap(({ table, column }) => [table, column])
     );

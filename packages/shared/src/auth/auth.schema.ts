@@ -13,6 +13,16 @@ export const authEmailSchema = z
 /** MVP 비밀번호 정책은 길이만 제한하고 복잡도 정책은 후속 보안 정책으로 남긴다. */
 export const authPasswordSchema = z.string().min(8).max(128);
 
+/** 닉네임은 표시 문자열을 보존하되 바깥 공백과 제어 문자를 허용하지 않는다. */
+export const authDisplayNameSchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(20)
+  .refine((value) => !/[\u0000-\u001f\u007f-\u009f]/u.test(value), {
+    message: "Display name must not contain control characters"
+  });
+
 /** ORBIT가 제공하는 공식 프로필 아바타의 고정 식별자다. */
 export const officialAvatarIdSchema = z.enum([
   "orbit-01",
@@ -44,6 +54,7 @@ export const authAvatarSchema = z.discriminatedUnion("kind", [
 export const authUserSchema = z.object({
   userId: z.string().min(1),
   email: authEmailSchema,
+  displayName: authDisplayNameSchema,
   createdAt: isoDateTimeSchema,
   avatar: authAvatarSchema.nullable().optional(),
 });
@@ -54,8 +65,13 @@ export const authCredentialsSchema = z.object({
   password: authPasswordSchema
 });
 
-export const registerRequestSchema = authCredentialsSchema;
+export const registerRequestSchema = authCredentialsSchema.extend({
+  displayName: authDisplayNameSchema
+});
 export const loginRequestSchema = authCredentialsSchema;
+export const updateProfileRequestSchema = z.object({
+  displayName: authDisplayNameSchema
+});
 export const updateOfficialAvatarRequestSchema = z.object({
   avatarId: officialAvatarIdSchema,
 });
@@ -80,12 +96,14 @@ export const logoutResponseSchema = z.object({
 });
 
 export type AuthEmail = z.infer<typeof authEmailSchema>;
+export type AuthDisplayName = z.infer<typeof authDisplayNameSchema>;
 export type OfficialAvatarId = z.infer<typeof officialAvatarIdSchema>;
 export type AuthAvatar = z.infer<typeof authAvatarSchema>;
 export type AuthUser = z.infer<typeof authUserSchema>;
 export type AuthCredentials = z.infer<typeof authCredentialsSchema>;
 export type RegisterRequest = z.infer<typeof registerRequestSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
+export type UpdateProfileRequest = z.infer<typeof updateProfileRequestSchema>;
 export type UpdateOfficialAvatarRequest = z.infer<
   typeof updateOfficialAvatarRequestSchema
 >;
