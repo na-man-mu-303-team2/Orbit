@@ -175,6 +175,18 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("keeps remote presenter script rows readable on the light script surface", () => {
+    const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
+
+    expect(css).toMatch(
+      /\.presenter-remote-script \.presenter-script-row \{[^}]*color: var\(--redesign-color-on-light-variant\);/s,
+    );
+    expect(css).toMatch(
+      /\.presenter-remote-script \.presenter-script-row--current \{[^}]*color: var\(--redesign-color-on-light\);/s,
+    );
+    expect(css).not.toContain(".presenter-script-row.current");
+  });
+
   it("keeps the audience controls inside the presenter topbar", () => {
     const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
 
