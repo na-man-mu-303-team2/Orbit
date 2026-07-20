@@ -1371,6 +1371,9 @@ function applyReportDeckPatch(
         nextDeck = {
           ...nextDeck,
           ...(operation.title !== undefined ? { title: operation.title } : {}),
+          ...(operation.targetDurationMinutes !== undefined
+            ? { targetDurationMinutes: operation.targetDurationMinutes }
+            : {}),
           ...(operation.metadata
             ? {
                 metadata: applyReportDeckMetadataPatch(
@@ -1382,6 +1385,27 @@ function applyReportDeckPatch(
         };
         break;
       }
+      case "update_slide":
+        nextDeck = {
+          ...nextDeck,
+          slides: nextDeck.slides.map((slide) => {
+            if (slide.slideId !== operation.slideId) return slide;
+            const nextSlide = {
+              ...slide,
+              ...(operation.title !== undefined ? { title: operation.title } : {}),
+              ...(operation.thumbnailUrl !== undefined
+                ? { thumbnailUrl: operation.thumbnailUrl }
+                : {}),
+            };
+            if (operation.estimatedSeconds === null) {
+              delete nextSlide.estimatedSeconds;
+            } else if (operation.estimatedSeconds !== undefined) {
+              nextSlide.estimatedSeconds = operation.estimatedSeconds;
+            }
+            return nextSlide;
+          }),
+        };
+        break;
       case "add_slide":
         nextDeck = {
           ...nextDeck,
