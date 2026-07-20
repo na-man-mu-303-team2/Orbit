@@ -818,7 +818,7 @@ main.rehearsal-presenter-shell {
 }
 
 .rehearsal-completion-loader {
-  animation: rehearsal-completion-spin .8s linear infinite;
+  animation: rehearsal-completion-spin var(--redesign-duration-loop) linear infinite;
   color: var(--redesign-color-primary);
   flex: 0 0 auto;
 }
