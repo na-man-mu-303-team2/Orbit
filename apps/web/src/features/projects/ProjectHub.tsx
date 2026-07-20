@@ -1,14 +1,26 @@
-import type { Project, ProjectListItem } from "@orbit/shared";
-import { useQuery } from "@tanstack/react-query";
+import type {
+  Project,
+  ProjectListFilter,
+  ProjectListItem,
+  ProjectListSort,
+  ProjectPageRequest,
+  ProjectTagColor,
+  ProjectTagDefinition,
+} from "@orbit/shared";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
   IconAdjustmentsHorizontal,
   IconArrowRight,
   IconCheck,
+  IconChevronLeft,
   IconChevronDown,
   IconEye,
   IconFileUpload,
   IconHeartFilled,
+  IconLayoutGrid,
+  IconList,
   IconPlus,
+  IconRefresh,
   IconSearch,
   IconSparkles,
   IconTag,
@@ -22,18 +34,24 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type KeyboardEvent,
 } from "react";
 import { WorkspaceContainer } from "../../components/patterns";
 import {
+  DropdownMenu,
+  DropdownMenuItem,
+  GradientButton,
   OrbitButton,
-  OrbitFailureState,
   OrbitIconButton,
   OrbitInput,
-  OrbitSelect,
 } from "../../components/ui";
 import "../../styles/tokens.css";
 import { uploadAndImportPptxTemplate } from "../editor/shell/api/editorJobApi";
+import {
+  createProjectTagDefinition,
+  fetchProjectTagDefinitions,
+  officialAvatarIds,
+  projectTagDefinitionsQueryKey,
+} from "../auth/auth-session";
 import {
   getPptxImportValidationMessage,
   pptxImportAccept,
@@ -42,12 +60,14 @@ import {
   createProject,
   createProjectWithoutDeck,
   deleteProject,
-  fetchProjects,
+  fetchProjectPage,
   updateProjectPin,
   updateProjectTags,
 } from "./ProjectAssetWorkspace";
 import { WorkspaceProjectCard } from "./WorkspaceProjectCard";
 import "./workspace-home.css";
+import "./figma-home.css";
+import { CreateProjectCard } from "./CreateProjectCard";
 
 const ProjectSlidePreview = lazy(() => import("./ProjectSlidePreview"));
 
@@ -55,75 +75,127 @@ type ProjectHubProps = {
   onNavigate: (path: string) => void;
 };
 
-type ProjectFilter = "all" | "presentation" | "draft" | "pinned";
-type ProjectSort = "newest" | "oldest" | "title";
-const defaultProjectTags = ["중요", "완료"] as const;
+type ProjectFilter = ProjectListFilter;
+type ProjectSort = ProjectListSort;
+type ProjectViewMode = "grid" | "list";
 const maxProjectTags = 12;
 const maxTagLength = 20;
 const projectFilters: ReadonlyArray<{ id: ProjectFilter; label: string }> = [
   { id: "all", label: "전체" },
   { id: "presentation", label: "발표자료" },
   { id: "draft", label: "초안" },
+  { id: "shared", label: "공유됨" },
   { id: "pinned", label: "즐겨찾기" },
 ];
-const communityAuthors = ["이지윤", "스투키 스튜디오", "김하늘", "패키지랩", "브랜드인사이트"];
+const communityTitles = [
+  "AI와 미래",
+  "지속가능한 브랜드 전략",
+  "MZ세대의 소비 트렌드",
+  "우주 탐사의 현재와 미래",
+  "효과적인 프레젠테이션",
+];
+const communityAuthors = ["김지훈", "이서연", "박소담", "최민우", "정하늘"];
+const communityDescriptions = [
+  "변화하는 기술, 우리의 삶",
+  "지속 가능한 성장을 위한 접근",
+  "2026 인사이트 리포트",
+  "인류의 새로운 도전",
+  "설득력을 높이는 디자인과 스토리",
+];
 const communityStats = [
-  { likes: "196", views: "13.5k" },
-  { likes: "195", views: "8.6k" },
-  { likes: "340", views: "16.9k" },
-  { likes: "525", views: "36.0k" },
-  { likes: "271", views: "11.4k" },
+  { likes: "256", views: "18.2k" },
+  { likes: "198", views: "12.7k" },
+  { likes: "142", views: "9.4k" },
+  { likes: "131", views: "7.8k" },
+  { likes: "97", views: "6.1k" },
+];
+const projectTagColorOptions: Array<{ label: string; value: ProjectTagColor }> = [
+  { label: "노랑", value: "yellow" },
+  { label: "파랑", value: "blue" },
+  { label: "초록", value: "green" },
+  { label: "주황", value: "orange" },
+  { label: "보라", value: "purple" },
+  { label: "빨강", value: "red" },
 ];
 
 export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string }) {
-  const projects = useProjectList();
   const communityTrackRef = useRef<HTMLDivElement>(null);
   const pptxInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ProjectFilter>("all");
-  const [sort, setSort] = useState<ProjectSort>("newest");
+  const [sort, setSort] = useState<ProjectSort>("latest");
+  const [viewMode, setViewMode] = useState<ProjectViewMode>("grid");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [isTagFilterOpen, setIsTagFilterOpen] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(8);
   const [pinningId, setPinningId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [tagEditorProject, setTagEditorProject] = useState<ProjectListItem | null>(null);
-  const [tagDraft, setTagDraft] = useState<string[]>([]);
+  const [isTagEditorOpen, setIsTagEditorOpen] = useState(false);
   const [newTag, setNewTag] = useState("");
+  const [newTagColor, setNewTagColor] = useState<ProjectTagColor>("yellow");
   const [tagError, setTagError] = useState("");
   const [tagSaving, setTagSaving] = useState(false);
   const [pptxImportPhase, setPptxImportPhase] = useState<"idle" | "uploading" | "importing">("idle");
   const [actionError, setActionError] = useState("");
   const isImportingPptx = pptxImportPhase !== "idle";
+  const projects = useProjectList({ filter, query, sort, tags: selectedTags });
+  const projectTags = useQuery({
+    queryKey: projectTagDefinitionsQueryKey,
+    queryFn: () => fetchProjectTagDefinitions(),
+    retry: false,
+  });
 
-  const sortedProjects = useMemo(
-    () => sortProjects(projects.data ?? [], sort),
-    [projects.data, sort],
-  );
-  const communityProjects = useMemo(
-    () => sortProjects(projects.data ?? [], "newest").slice(0, 5),
+  const loadedProjects = useMemo(
+    () => projects.data?.pages.flatMap((page) => page.items) ?? [],
     [projects.data],
   );
-  const availableTags = useMemo(() => {
-    const tags = new Set<string>(defaultProjectTags);
-    projects.data?.forEach((project) => project.tags.forEach((tag) => tags.add(tag)));
-    return [...tags];
-  }, [projects.data]);
-  const filteredProjects = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase("ko-KR");
-    return sortedProjects.filter((project) => {
-      if (!project.title.toLocaleLowerCase("ko-KR").includes(normalizedQuery)) return false;
-      if (!selectedTags.every((tag) => project.tags.includes(tag))) return false;
-      if (filter === "pinned") return project.isPinned;
-      if (filter === "draft") return isDraftProject(project);
-      if (filter === "presentation") return !isDraftProject(project);
-      return true;
-    });
-  }, [filter, query, selectedTags, sortedProjects]);
-  const visibleProjects = filteredProjects.slice(0, visibleCount);
+  const communityProjects = useMemo(
+    () => loadedProjects.slice(0, 5),
+    [loadedProjects],
+  );
+  const communityItems = useMemo(
+    () => communityTitles.map((_, index) => ({
+      authorIndex: index,
+      project: communityProjects.length > 0
+        ? communityProjects[index % communityProjects.length]
+        : null,
+    })),
+    [communityProjects],
+  );
+  useEffect(() => {
+    const track = communityTrackRef.current;
+    if (!track) return undefined;
 
-  useEffect(() => setVisibleCount(8), [filter, query, selectedTags, sort]);
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let animationFrame = 0;
+    let previousTime = window.performance.now();
+
+    const moveTrack = (currentTime: number) => {
+      const elapsed = Math.min(currentTime - previousTime, 50);
+      previousTime = currentTime;
+
+      if (!reducedMotion.matches && !track.matches(":hover") && !track.contains(document.activeElement)) {
+        track.scrollLeft += elapsed * 0.025;
+
+        const firstCard = track.children.item(0) as HTMLElement | null;
+        const firstDuplicate = track.children.item(communityItems.length) as HTMLElement | null;
+        const cycleWidth = firstCard && firstDuplicate
+          ? firstDuplicate.offsetLeft - firstCard.offsetLeft
+          : 0;
+        if (cycleWidth > 0 && track.scrollLeft >= cycleWidth) {
+          track.scrollLeft -= cycleWidth;
+        }
+      }
+
+      animationFrame = window.requestAnimationFrame(moveTrack);
+    };
+
+    animationFrame = window.requestAnimationFrame(moveTrack);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [communityItems.length]);
+  const availableTags = useMemo(() => projectTags.data?.tags ?? [], [projectTags.data]);
+  const cardTagOptions = availableTags;
+  const visibleProjects = loadedProjects;
 
   async function createBlankProject() {
     if (isCreating || isImportingPptx) return;
@@ -198,54 +270,54 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
     }
   }
 
-  function openTagEditor(project: ProjectListItem) {
-    setTagEditorProject(project);
-    setTagDraft(project.tags);
+  function openTagEditor() {
+    setIsTagEditorOpen(true);
     setNewTag("");
+    setNewTagColor("yellow");
     setTagError("");
   }
 
-  function toggleTagDraft(tag: string) {
-    setTagError("");
-    setTagDraft((current) =>
-      current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag].slice(0, maxProjectTags),
-    );
+  async function toggleProjectTag(project: ProjectListItem, tag: string) {
+    const nextTags = project.tags.includes(tag)
+      ? project.tags.filter((item) => item !== tag)
+      : [...project.tags, tag].slice(0, maxProjectTags);
+    setActionError("");
+    try {
+      await updateProjectTags(project.projectId, nextTags);
+      await projects.refetch();
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : "태그를 변경하지 못했습니다.");
+    }
   }
 
-  function addCustomTag() {
-    const tag = newTag.trim();
-    if (!tag) return;
+  async function saveProjectTags() {
+    if (tagSaving) return;
+    const tag = newTag.trim().replace(/\s+/g, " ");
+    if (!tag) {
+      setTagError("태그 이름을 입력해 주세요.");
+      return;
+    }
     if (tag.length > maxTagLength) {
       setTagError(`태그는 ${maxTagLength}자 이하로 입력해 주세요.`);
       return;
     }
-    if (tagDraft.includes(tag)) {
-      setNewTag("");
+    const isDuplicate = availableTags.some(
+      (current) => current.name.localeCompare(tag, "ko-KR", { sensitivity: "base" }) === 0,
+    );
+    if (isDuplicate) {
+      setTagError("이미 사용 중인 태그 이름입니다.");
       return;
     }
-    if (tagDraft.length >= maxProjectTags) {
+    if (availableTags.length >= maxProjectTags) {
       setTagError(`태그는 최대 ${maxProjectTags}개까지 추가할 수 있습니다.`);
       return;
     }
-    setTagDraft((current) => [...current, tag]);
-    setNewTag("");
-    setTagError("");
-  }
-
-  function handleTagInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    addCustomTag();
-  }
-
-  async function saveProjectTags() {
-    if (!tagEditorProject || tagSaving) return;
     setTagSaving(true);
     setTagError("");
     try {
-      await updateProjectTags(tagEditorProject.projectId, tagDraft);
-      await projects.refetch();
-      setTagEditorProject(null);
+      await createProjectTagDefinition({ name: tag, color: newTagColor });
+      await projectTags.refetch();
+      setIsTagEditorOpen(false);
     } catch (cause) {
       setTagError(cause instanceof Error ? cause.message : "프로젝트 태그를 저장하지 못했습니다.");
     } finally {
@@ -260,9 +332,16 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
   }
 
   function scrollCommunity(direction: -1 | 1) {
-    communityTrackRef.current?.scrollBy({
+    const track = communityTrackRef.current;
+    if (!track) return;
+
+    const firstCard = track.querySelector<HTMLElement>(".workspace-community-card");
+    const gap = Number.parseFloat(window.getComputedStyle(track).columnGap) || 0;
+    const step = (firstCard?.getBoundingClientRect().width ?? track.clientWidth * 0.8) + gap;
+
+    track.scrollBy({
       behavior: "smooth",
-      left: direction * Math.max(320, communityTrackRef.current.clientWidth * 0.7),
+      left: direction * step,
     });
   }
 
@@ -272,38 +351,51 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
         <WorkspaceContainer as="div" className="workspace-community" width="content">
           <div className="workspace-community-layout">
             <header className="workspace-community-intro">
-              <div>
+              <div className="workspace-community-intro-heading">
                 <p className="workspace-section-kicker">COMMUNITY</p>
                 <h1>커뮤니티</h1>
-                <p>새로운 발표를 발견하세요</p>
               </div>
-              <OrbitIconButton aria-label="다음 커뮤니티 프로젝트" className="workspace-community-intro-arrow" onClick={() => scrollCommunity(1)}>
-                <IconArrowRight aria-hidden="true" size={19} />
-              </OrbitIconButton>
+              <OrbitButton className="workspace-community-intro-arrow" onClick={() => scrollCommunity(1)} variant="secondary">
+                더보기
+              </OrbitButton>
             </header>
 
             <div className="workspace-community-carousel">
+              <OrbitIconButton aria-label="이전 커뮤니티 프로젝트" className="workspace-community-arrow is-previous" onClick={() => scrollCommunity(-1)}>
+                <IconChevronLeft aria-hidden="true" size={18} />
+              </OrbitIconButton>
               <div className="workspace-community-track" ref={communityTrackRef}>
-                {communityProjects.map((project, index) => {
-                  const authorIndex = index % communityAuthors.length;
+                {[...communityItems, ...communityItems].map(({ authorIndex, project }, index) => {
                   const stat = communityStats[authorIndex];
+                  const isDuplicate = index >= communityItems.length;
                   return (
                     <button
-                      className={`workspace-community-card${index === 0 ? " is-featured" : ""}`}
-                      key={project.projectId}
-                      onClick={() => props.onNavigate(projectPath(project))}
+                      aria-hidden={isDuplicate || undefined}
+                      aria-label={`${communityTitles[authorIndex]} 커뮤니티 발표자료`}
+                      className={`workspace-community-card${index % communityItems.length === 0 ? " is-featured" : ""}`}
+                      key={`${isDuplicate ? "duplicate" : "original"}-${authorIndex}-${project?.projectId ?? "sample"}`}
+                      onClick={project ? () => props.onNavigate(projectPath(project)) : undefined}
+                      tabIndex={isDuplicate ? -1 : 0}
                       type="button"
                     >
-                      <span className="workspace-community-index">{String(index + 1).padStart(2, "0")}</span>
+                      <span className="workspace-community-index">{String(authorIndex + 1).padStart(2, "0")}</span>
                       <span className="workspace-community-preview">
                         <span className="workspace-community-preview-fallback"><IconSparkles aria-hidden="true" size={28} stroke={1.5} /></span>
-                        <Suspense fallback={null}>
-                          <ProjectSlidePreview className="workspace-community-preview-canvas" projectId={project.projectId} />
-                        </Suspense>
+                        {project ? (
+                          <Suspense fallback={null}>
+                            <ProjectSlidePreview className="workspace-community-preview-canvas" projectId={project.projectId} />
+                          </Suspense>
+                        ) : null}
+                        <span className="workspace-community-preview-copy">
+                          <strong>{communityTitles[authorIndex]}</strong>
+                          <small>{communityDescriptions[authorIndex]}</small>
+                        </span>
                       </span>
                       <span className="workspace-community-meta">
-                        <strong>{project.title}</strong>
-                        <small>{communityAuthors[authorIndex]}</small>
+                        <small>
+                          <img alt="" src={`/avatars/${officialAvatarIds[authorIndex]}.png`} />
+                          <span>{communityAuthors[authorIndex]}</span>
+                        </small>
                         <span className="workspace-community-stats">
                           <span><IconEye aria-hidden="true" size={13} />{stat.views}</span>
                           <span><IconHeartFilled aria-hidden="true" size={12} />{stat.likes}</span>
@@ -313,7 +405,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
                   );
                 })}
               </div>
-              <OrbitIconButton aria-label="다음 커뮤니티 프로젝트" className="workspace-community-arrow" onClick={() => scrollCommunity(1)}>
+              <OrbitIconButton aria-label="다음 커뮤니티 프로젝트" className="workspace-community-arrow is-next" onClick={() => scrollCommunity(1)}>
                 <IconArrowRight aria-hidden="true" size={18} />
               </OrbitIconButton>
             </div>
@@ -328,7 +420,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
             <h2>내 프로젝트</h2>
           </div>
           <div className="workspace-project-actions">
-            <OrbitButton icon={<IconSparkles aria-hidden="true" size={17} />} onClick={() => props.onNavigate("/createdeck")}>AI 발표자료 만들기</OrbitButton>
+            <GradientButton className="workspace-primary-gradient" onClick={() => props.onNavigate("/createdeck")}><IconSparkles aria-hidden="true" size={17} />AI 발표자료 만들기</GradientButton>
             <OrbitButton icon={<IconPlus aria-hidden="true" size={17} />} loading={isCreating} onClick={() => void createBlankProject()} variant="secondary">빈 프로젝트</OrbitButton>
             <OrbitButton icon={<IconFileUpload aria-hidden="true" size={17} />} loading={isImportingPptx} onClick={() => pptxInputRef.current?.click()} variant="secondary">PPTX 업로드</OrbitButton>
             <input accept={pptxImportAccept} className="workspace-home-file-input" disabled={isImportingPptx} onChange={handlePptxChange} ref={pptxInputRef} type="file" />
@@ -336,39 +428,62 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
           <label className="workspace-project-search">
             <IconSearch aria-hidden="true" size={18} />
             <OrbitInput aria-label="내 프로젝트 검색" onChange={(event) => setQuery(event.currentTarget.value)} placeholder="내 프로젝트 검색" type="search" value={query} />
-            <kbd>⌘K</kbd>
-          </label>
-          <OrbitSelect aria-label="프로젝트 정렬" onChange={(event) => setSort(event.currentTarget.value as ProjectSort)} value={sort}>
-            <option value="newest">최신순</option>
-            <option value="oldest">오래된 순</option>
-            <option value="title">이름순</option>
-          </OrbitSelect>
-          <div className="workspace-tag-filter-wrap">
-            <OrbitButton
-              aria-expanded={isTagFilterOpen}
-              icon={<IconAdjustmentsHorizontal aria-hidden="true" size={17} />}
-              onClick={() => setIsTagFilterOpen((current) => !current)}
-              variant={selectedTags.length ? "primary" : "secondary"}
-            >
-              태그 {selectedTags.length ? selectedTags.length : "필터"}
-              <IconChevronDown aria-hidden="true" size={15} />
-            </OrbitButton>
-            {isTagFilterOpen ? (
-              <div className="workspace-tag-filter-popover" role="dialog" aria-label="태그 필터">
-                <div className="workspace-tag-filter-title"><strong>태그 필터</strong><button onClick={() => setSelectedTags([])} type="button">초기화</button></div>
-                <div className="workspace-tag-filter-group">
-                  <span>기본 태그</span>
-                  {defaultProjectTags.map((tag) => <TagFilterOption key={tag} selected={selectedTags.includes(tag)} tag={tag} onToggle={() => setSelectedTags((current) => current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag])} />)}
-                </div>
-                {availableTags.some((tag) => !defaultProjectTags.includes(tag as (typeof defaultProjectTags)[number])) ? (
-                  <div className="workspace-tag-filter-group">
-                    <span>커스텀 태그</span>
-                    {availableTags.filter((tag) => !defaultProjectTags.includes(tag as (typeof defaultProjectTags)[number])).map((tag) => <TagFilterOption key={tag} selected={selectedTags.includes(tag)} tag={tag} onToggle={() => setSelectedTags((current) => current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag])} />)}
-                  </div>
-                ) : null}
-                <button className="workspace-tag-filter-add" disabled={!sortedProjects.length} onClick={() => { const firstProject = sortedProjects[0]; if (firstProject) { setIsTagFilterOpen(false); openTagEditor(firstProject); } }} type="button"><IconPlus aria-hidden="true" size={16} />새 태그</button>
-              </div>
+            {query ? (
+              <button
+                aria-label="프로젝트 검색어 지우기"
+                className="workspace-project-search-clear"
+                onClick={() => setQuery("")}
+                type="button"
+              >
+                <IconX aria-hidden="true" size={15} />
+              </button>
             ) : null}
+          </label>
+          <details className="workspace-project-sort">
+            <summary aria-label="프로젝트 정렬" className="workspace-project-sort-trigger">
+              <span>{sort === "latest" ? "최신순" : sort === "oldest" ? "오래된 순" : "이름순"}</span>
+              <IconChevronDown aria-hidden="true" size={16} />
+            </summary>
+            <DropdownMenu align="start" className="workspace-project-sort-menu">
+              <DropdownMenuItem
+                className={sort === "latest" ? "is-selected" : ""}
+                icon={<IconCheck aria-hidden="true" className={sort === "latest" ? "" : "workspace-project-sort-check"} size={16} />}
+                onClick={(event) => {
+                  setSort("latest");
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                }}
+              >
+                최신순
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className={sort === "oldest" ? "is-selected" : ""}
+                icon={<IconCheck aria-hidden="true" className={sort === "oldest" ? "" : "workspace-project-sort-check"} size={16} />}
+                onClick={(event) => {
+                  setSort("oldest");
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                }}
+              >
+                오래된 순
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className={sort === "name" ? "is-selected" : ""}
+                icon={<IconCheck aria-hidden="true" className={sort === "name" ? "" : "workspace-project-sort-check"} size={16} />}
+                onClick={(event) => {
+                  setSort("name");
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                }}
+              >
+                이름순
+              </DropdownMenuItem>
+            </DropdownMenu>
+          </details>
+          <div aria-label="프로젝트 보기 방식" className="workspace-view-toggle" role="group">
+            <OrbitIconButton aria-label="그리드 보기" aria-pressed={viewMode === "grid"} onClick={() => setViewMode("grid")} variant={viewMode === "grid" ? "primary" : "plain"}>
+              <IconLayoutGrid aria-hidden="true" size={18} />
+            </OrbitIconButton>
+            <OrbitIconButton aria-label="리스트 보기" aria-pressed={viewMode === "list"} onClick={() => setViewMode("list")} variant={viewMode === "list" ? "primary" : "plain"}>
+              <IconList aria-hidden="true" size={19} />
+            </OrbitIconButton>
           </div>
         </header>
 
@@ -378,11 +493,37 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
               <button aria-selected={filter === item.id} className={filter === item.id ? "is-active" : ""} key={item.id} onClick={() => setFilter(item.id)} role="tab" type="button">{item.label}</button>
             ))}
           </div>
-          {selectedTags.length ? (
-            <div className="workspace-active-tags" aria-label="적용된 태그 필터">
-              {selectedTags.map((tag) => <button key={tag} onClick={() => setSelectedTags((current) => current.filter((item) => item !== tag))} type="button">#{tag}<IconX aria-hidden="true" size={12} /></button>)}
+          {availableTags.length ? (
+            <div aria-label="태그 필터" className="workspace-tag-filter-chips">
+              <span className="workspace-tag-filter-label"><IconTag aria-hidden="true" size={14} />태그</span>
+              {availableTags.map((tag) => (
+                <button aria-pressed={selectedTags.includes(tag.name)} className={`is-${tag.color}`} key={tag.name} onClick={() => setSelectedTags((current) => current.includes(tag.name) ? current.filter((item) => item !== tag.name) : [...current, tag.name])} type="button">{tag.name}</button>
+              ))}
             </div>
           ) : null}
+          <div className="workspace-tag-filter-wrap">
+            <OrbitButton
+              aria-expanded={isTagFilterOpen}
+              icon={<IconAdjustmentsHorizontal aria-hidden="true" size={15} />}
+              onClick={() => setIsTagFilterOpen((current) => !current)}
+              variant="secondary"
+            >
+              태그 편집
+              <IconChevronDown aria-hidden="true" size={14} />
+            </OrbitButton>
+            {isTagFilterOpen ? (
+              <div className="workspace-tag-filter-popover" role="dialog" aria-label="태그 편집">
+                <div className="workspace-tag-filter-title"><strong>태그 편집</strong><button onClick={() => setSelectedTags([])} type="button">선택 해제</button></div>
+                {availableTags.length ? (
+                  <div className="workspace-tag-filter-group">
+                    <span>등록된 태그</span>
+                    {availableTags.map((tag) => <TagFilterOption key={tag.name} selected={selectedTags.includes(tag.name)} tag={tag} onToggle={() => setSelectedTags((current) => current.includes(tag.name) ? current.filter((item) => item !== tag.name) : [...current, tag.name])} />)}
+                  </div>
+                ) : null}
+                <button className="workspace-tag-filter-add" disabled={availableTags.length >= maxProjectTags} onClick={() => { setIsTagFilterOpen(false); openTagEditor(); }} type="button"><IconPlus aria-hidden="true" size={16} />새 태그 만들기</button>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         {actionError ? <p className="workspace-home-action-error" role="alert">{actionError}</p> : null}
@@ -390,10 +531,15 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
         {projects.isLoading ? (
           <p className="workspace-home-state" role="status">프로젝트를 불러오는 중입니다.</p>
         ) : projects.isError ? (
-          <OrbitFailureState className="workspace-home-state" description="프로젝트 목록을 가져오는 중 연결 문제가 발생했습니다." onRetry={() => void projects.refetch()} recommendedAction="인터넷 연결을 확인한 뒤 목록을 다시 불러오세요." retryLabel="목록 다시 불러오기" title="프로젝트를 불러오지 못했습니다." />
+          <div className="workspace-home-state workspace-home-inline-error" role="alert">
+            <span aria-hidden="true" className="workspace-home-inline-error-icon"><IconRefresh size={20} stroke={1.8} /></span>
+            <strong>프로젝트를 불러오지 못했어요</strong>
+            <OrbitButton icon={<IconRefresh aria-hidden="true" size={16} />} onClick={() => void projects.refetch()} variant="secondary">다시 시도</OrbitButton>
+          </div>
         ) : (
           <>
-            <div className="workspace-home-grid">
+            <div className={`workspace-home-grid is-${viewMode}`}>
+              <CreateProjectCard onClick={() => props.onNavigate("/createdeck")} />
               {visibleProjects.map((project) => (
                 <WorkspaceProjectCard
                   createdAtLabel={formatProjectDate(project)}
@@ -401,64 +547,66 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
                   isPinned={project.isPinned}
                   key={project.projectId}
                   onDelete={() => void removeProject(project)}
-                  onManageTags={() => openTagEditor(project)}
                   onOpen={() => props.onNavigate(projectPath(project))}
                   onRehearse={() => props.onNavigate(`/rehearsal/${encodeURIComponent(project.projectId)}`)}
-                  onReport={() => props.onNavigate(`/reports/${encodeURIComponent(project.projectId)}`)}
+                  onReport={() =>
+                    props.onNavigate(
+                      `/reports/${encodeURIComponent(project.projectId)}?from=home`,
+                    )
+                  }
                   onTogglePinned={() => void togglePinnedProject(project)}
+                  onToggleTag={(tag) => void toggleProjectTag(project, tag)}
+                  tagOptions={cardTagOptions}
                   pinning={pinningId === project.projectId}
                   project={project}
                 />
               ))}
             </div>
-            {filteredProjects.length === 0 ? (
+            {visibleProjects.length === 0 ? (
               <div className="workspace-home-empty">
                 <IconSearch aria-hidden="true" size={26} stroke={1.5} />
                 <strong>조건에 맞는 프로젝트가 없습니다.</strong>
                 <button onClick={() => { setQuery(""); setFilter("all"); setSelectedTags([]); }} type="button">필터 초기화</button>
               </div>
             ) : null}
-            {visibleCount < filteredProjects.length ? (
-              <button className="workspace-home-load-more" onClick={() => setVisibleCount((current) => current + 8)} type="button">더 많은 프로젝트 불러오기<IconArrowRight aria-hidden="true" size={15} /></button>
+            {projects.hasNextPage ? (
+              <button className="workspace-home-load-more" disabled={projects.isFetchingNextPage} onClick={() => void projects.fetchNextPage()} type="button">{projects.isFetchingNextPage ? "불러오는 중" : "더 많은 프로젝트 불러오기"}<IconArrowRight aria-hidden="true" size={15} /></button>
             ) : null}
           </>
         )}
       </WorkspaceContainer>
 
-      {tagEditorProject ? (
-        <div className="workspace-tag-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !tagSaving) setTagEditorProject(null); }}>
+      {isTagEditorOpen ? (
+        <div className="workspace-tag-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !tagSaving) setIsTagEditorOpen(false); }}>
           <section aria-labelledby="workspace-tag-modal-title" aria-modal="true" className="workspace-tag-modal" role="dialog">
             <header>
               <span className="workspace-tag-modal-icon"><IconTag aria-hidden="true" size={19} /></span>
-              <div><p>PROJECT TAGS</p><h3 id="workspace-tag-modal-title">태그 편집</h3></div>
-              <OrbitIconButton aria-label="태그 편집 닫기" disabled={tagSaving} onClick={() => setTagEditorProject(null)}><IconX aria-hidden="true" size={18} /></OrbitIconButton>
+              <div><h3 id="workspace-tag-modal-title">새 태그 만들기</h3></div>
+              <OrbitIconButton aria-label="태그 편집 닫기" disabled={tagSaving} onClick={() => setIsTagEditorOpen(false)}><IconX aria-hidden="true" size={18} /></OrbitIconButton>
             </header>
-            <p className="workspace-tag-modal-description">“{tagEditorProject.title}”를 찾기 쉽게 분류해 보세요.</p>
-            <div className="workspace-tag-preset-group">
-              <span>기본 태그</span>
-              <div className="workspace-tag-chip-list">
-                {defaultProjectTags.map((tag) => <button className={tagDraft.includes(tag) ? "workspace-tag-chip is-selected" : "workspace-tag-chip"} key={tag} onClick={() => toggleTagDraft(tag)} type="button">{tagDraft.includes(tag) ? <IconCheck aria-hidden="true" size={13} /> : null}{tag}</button>)}
-              </div>
-            </div>
-            {availableTags.some((tag) => !defaultProjectTags.includes(tag as (typeof defaultProjectTags)[number])) ? (
-              <div className="workspace-tag-preset-group">
-                <span>내 태그</span>
-                <div className="workspace-tag-chip-list">
-                  {availableTags.filter((tag) => !defaultProjectTags.includes(tag as (typeof defaultProjectTags)[number])).map((tag) => <button className={tagDraft.includes(tag) ? "workspace-tag-chip is-selected" : "workspace-tag-chip"} key={tag} onClick={() => toggleTagDraft(tag)} type="button">{tagDraft.includes(tag) ? <IconCheck aria-hidden="true" size={13} /> : null}{tag}</button>)}
-                </div>
-              </div>
-            ) : null}
             <label className="workspace-tag-input-label">
-              <span>새 태그 추가</span>
-              <span className="workspace-tag-input-row">
-                <OrbitInput maxLength={maxTagLength} onChange={(event) => setNewTag(event.currentTarget.value)} onKeyDown={handleTagInputKeyDown} placeholder="예: 포트폴리오" value={newTag} />
-                <OrbitButton disabled={!newTag.trim() || tagDraft.length >= maxProjectTags} icon={<IconPlus aria-hidden="true" size={16} />} onClick={addCustomTag} variant="secondary">추가</OrbitButton>
-              </span>
+              <span>태그 이름</span>
+              <OrbitInput aria-invalid={Boolean(tagError)} maxLength={maxTagLength} onChange={(event) => { setNewTag(event.currentTarget.value); setTagError(""); }} placeholder="예: 포트폴리오" value={newTag} />
             </label>
             {tagError ? <p className="workspace-tag-error" role="alert">{tagError}</p> : null}
+            <fieldset className="workspace-tag-color-fieldset">
+              <legend>태그 색상</legend>
+              <div className="workspace-tag-color-options">
+                {projectTagColorOptions.map((option) => (
+                  <label className={`workspace-tag-color-option is-${option.value}`} key={option.value}>
+                    <input checked={newTagColor === option.value} name="project-tag-color" onChange={() => setNewTagColor(option.value)} type="radio" value={option.value} />
+                    <span aria-hidden="true" />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <div className={`workspace-tag-preview is-${newTagColor}`}>
+              <span>미리보기</span>
+              <strong>{newTag.trim() || "새 태그"}</strong>
+            </div>
             <footer>
-              <span>{tagDraft.length} / {maxProjectTags}</span>
-              <div><OrbitButton disabled={tagSaving} onClick={() => setTagEditorProject(null)} variant="secondary">취소</OrbitButton><OrbitButton loading={tagSaving} onClick={() => void saveProjectTags()}>저장</OrbitButton></div>
+              <div><OrbitButton disabled={tagSaving} onClick={() => setIsTagEditorOpen(false)} variant="secondary">취소</OrbitButton><OrbitButton className="workspace-tag-save-button" disabled={!newTag.trim()} loading={tagSaving} onClick={() => void saveProjectTags()}>저장</OrbitButton></div>
             </footer>
           </section>
         </div>
@@ -467,25 +615,15 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
   );
 }
 
-function useProjectList() {
-  return useQuery({
-    queryKey: ["projects"],
-    queryFn: () => fetchProjects(),
-    refetchInterval: (query) => query.state.data?.some((project) => project.generation) ? 2500 : false,
+function useProjectList(input: Omit<ProjectPageRequest, "limit" | "page">) {
+  return useInfiniteQuery({
+    queryKey: ["projects", "page", input],
+    queryFn: ({ pageParam }) => fetchProjectPage({ ...input, limit: 5, page: pageParam }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.page + 1 : undefined,
+    refetchInterval: (query) => query.state.data?.pages.some((page) => page.items.some((project) => project.generation)) ? 2500 : false,
     retry: false,
   });
-}
-
-function sortProjects<T extends Project>(projects: T[], sort: ProjectSort): T[] {
-  return [...projects].sort((left, right) => {
-    if (sort === "title") return left.title.localeCompare(right.title, "ko-KR");
-    const difference = Date.parse(right.createdAt) - Date.parse(left.createdAt);
-    return sort === "newest" ? difference : -difference;
-  });
-}
-
-function isDraftProject(project: Project) {
-  return /초안|새 프레젠테이션/i.test(project.title);
 }
 
 function formatProjectDate(project: Project) {
@@ -501,11 +639,11 @@ function projectPath(project: Project) {
   return `/project/${encodeURIComponent(project.projectId)}`;
 }
 
-function TagFilterOption(props: { onToggle: () => void; selected: boolean; tag: string }) {
+function TagFilterOption(props: { onToggle: () => void; selected: boolean; tag: ProjectTagDefinition }) {
   return (
     <button aria-pressed={props.selected} className="workspace-tag-filter-option" onClick={props.onToggle} type="button">
       <span className="workspace-tag-filter-check">{props.selected ? <IconCheck aria-hidden="true" size={12} /> : null}</span>
-      <span className={props.tag === "중요" ? "is-important" : props.tag === "완료" ? "is-complete" : ""}>{props.tag}</span>
+      <span className={`is-${props.tag.color}`}>{props.tag.name}</span>
     </button>
   );
 }

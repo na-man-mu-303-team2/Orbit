@@ -1,6 +1,8 @@
-import type { ProjectListItem } from "@orbit/shared";
+import type { ProjectListItem, ProjectTagDefinition } from "@orbit/shared";
 import {
   IconChartBar,
+  IconCheck,
+  IconChevronDown,
   IconPin,
   IconPinFilled,
   IconPresentation,
@@ -10,7 +12,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { lazy, Suspense } from "react";
-import { OrbitCard, OrbitIconButton } from "../../components/ui";
+import { OrbitCard } from "../../components/ui";
 
 const ProjectSlidePreview = lazy(() => import("./ProjectSlidePreview"));
 
@@ -19,19 +21,24 @@ type WorkspaceProjectCardProps = {
   deleting: boolean;
   isPinned: boolean;
   onDelete: () => void;
-  onManageTags: () => void;
   onOpen: () => void;
   onRehearse: () => void;
   onReport: () => void;
   onTogglePinned: () => void;
+  onToggleTag: (tag: string) => void;
   pinning: boolean;
   project: ProjectListItem;
+  tagOptions: ProjectTagDefinition[];
 };
 
 export function WorkspaceProjectCard(props: WorkspaceProjectCardProps) {
   const { project } = props;
   const isGenerating = Boolean(project.generation);
-  const visibleTags = project.tags.length ? project.tags : props.isPinned ? ["중요"] : [];
+  const tagDefinitions = new Map(props.tagOptions.map((tag) => [tag.name, tag]));
+  const visibleTags = project.tags.flatMap((name) => {
+    const definition = tagDefinitions.get(name);
+    return definition ? [definition] : [];
+  });
 
   return (
     <OrbitCard className={props.isPinned ? "workspace-home-card is-pinned" : "workspace-home-card"} data-generating={isGenerating} data-interactive="true">
@@ -44,12 +51,12 @@ export function WorkspaceProjectCard(props: WorkspaceProjectCardProps) {
         </button>
 
         <div aria-label={`${project.title} 빠른 작업`} className="workspace-home-card-actions">
-          <OrbitIconButton aria-label={props.isPinned ? `${project.title} 핀 해제` : `${project.title} 핀 고정`} aria-pressed={props.isPinned} disabled={props.pinning || isGenerating} onClick={props.onTogglePinned} title={props.isPinned ? "핀 해제" : "핀"} variant={props.isPinned ? "primary" : "surface"}>
+          <button aria-label={props.isPinned ? `${project.title} 핀 해제` : `${project.title} 핀 고정`} aria-pressed={props.isPinned} className={props.isPinned ? "workspace-home-card-action is-active" : "workspace-home-card-action"} disabled={props.pinning || isGenerating} onClick={props.onTogglePinned} type="button">
             {props.isPinned ? <IconPinFilled aria-hidden="true" size={15} /> : <IconPin aria-hidden="true" size={15} />}
-          </OrbitIconButton>
-          <OrbitIconButton aria-label={`${project.title} 리허설`} disabled={isGenerating} onClick={props.onRehearse} title="리허설"><IconPlayerPlay aria-hidden="true" size={16} stroke={1.8} /></OrbitIconButton>
-          <OrbitIconButton aria-label={`${project.title} 리포트`} disabled={isGenerating} onClick={props.onReport} title="리포트"><IconChartBar aria-hidden="true" size={16} stroke={1.8} /></OrbitIconButton>
-          <OrbitIconButton aria-label={`${project.title} 삭제`} className="workspace-home-card-delete" disabled={props.deleting || isGenerating} onClick={props.onDelete} title="삭제"><IconTrash aria-hidden="true" size={16} stroke={1.8} /></OrbitIconButton>
+          </button>
+          <button aria-label={`${project.title} 리허설`} className="workspace-home-card-action" disabled={isGenerating} onClick={props.onRehearse} title="리허설" type="button"><IconPlayerPlay aria-hidden="true" size={17} stroke={1.9} /></button>
+          <button aria-label={`${project.title} 리포트`} className="workspace-home-card-action" disabled={isGenerating} onClick={props.onReport} title="리포트" type="button"><IconChartBar aria-hidden="true" size={17} stroke={1.9} /></button>
+          <button aria-label={`${project.title} 삭제`} className="workspace-home-card-action workspace-home-card-delete" disabled={props.deleting || isGenerating} onClick={props.onDelete} title="삭제" type="button"><IconTrash aria-hidden="true" size={17} stroke={1.9} /></button>
         </div>
 
         {project.generation ? (
@@ -65,14 +72,26 @@ export function WorkspaceProjectCard(props: WorkspaceProjectCardProps) {
       <div className="workspace-home-card-caption">
         <div className="workspace-home-card-heading">
           <button className="workspace-home-card-title" disabled={isGenerating} onClick={props.onOpen} type="button">{project.title}</button>
-          {!isGenerating ? <i aria-hidden="true" className="workspace-home-card-live-dot" /> : null}
-          <button aria-label={`${project.title} 태그 편집`} className="workspace-home-card-tag-add" onClick={props.onManageTags} type="button"><IconTag aria-hidden="true" size={13} /></button>
+          {props.tagOptions.length > 0 ? (
+            <details className="workspace-home-card-tag-menu">
+              <summary aria-label={`${project.title} 태그 선택`}><IconTag aria-hidden="true" size={13} /><span>태그</span><IconChevronDown aria-hidden="true" size={12} /></summary>
+              <div className="workspace-home-card-tag-dropdown">
+                {props.tagOptions.map((tag) => (
+                  <button aria-pressed={project.tags.includes(tag.name)} key={tag.name} onClick={() => props.onToggleTag(tag.name)} type="button">
+                    <span className={`is-${tag.color}`}>{tag.name}</span>{project.tags.includes(tag.name) ? <IconCheck aria-hidden="true" size={14} /> : null}
+                  </button>
+                ))}
+              </div>
+            </details>
+          ) : (
+            <button aria-label="사용 가능한 태그 없음" className="workspace-home-card-tag-disabled" disabled type="button"><IconTag aria-hidden="true" size={13} /><span>태그</span></button>
+          )}
         </div>
         <div className="workspace-home-card-tags">
-          {visibleTags.slice(0, 3).map((tag) => <span className={tag === "중요" ? "is-important" : tag === "완료" ? "is-complete" : ""} key={tag}>{tag}</span>)}
+          {visibleTags.slice(0, 3).map((tag) => <span className={`is-${tag.color}`} key={tag.name}>{tag.name}</span>)}
           {visibleTags.length > 3 ? <span>+{visibleTags.length - 3}</span> : null}
         </div>
-        <small>{props.createdAtLabel}</small>
+        <small className="workspace-home-card-date">{props.createdAtLabel}</small>
       </div>
     </OrbitCard>
   );

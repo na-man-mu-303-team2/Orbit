@@ -1,3 +1,8 @@
+import {
+  projectTagDefinitionsResponseSchema,
+  type CreateProjectTagDefinitionRequest,
+  type ProjectTagDefinitionsResponse,
+} from "@orbit/shared";
 import type { QueryClient } from "@tanstack/react-query";
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -38,6 +43,30 @@ export const officialAvatarIds: readonly OfficialAvatarId[] = [
 ];
 
 export const authMeQueryKey = ["auth", "me"] as const;
+export const projectTagDefinitionsQueryKey = ["auth", "project-tags"] as const;
+
+export async function fetchProjectTagDefinitions(
+  fetcher: Fetcher = fetch,
+): Promise<ProjectTagDefinitionsResponse> {
+  const response = await fetcher("/api/v1/auth/project-tags", { credentials: "include" });
+  if (!response.ok) throw new Error("태그를 불러오지 못했습니다.");
+  return projectTagDefinitionsResponseSchema.parse(await response.json());
+}
+
+export async function createProjectTagDefinition(
+  input: CreateProjectTagDefinitionRequest,
+  fetcher: Fetcher = fetch,
+): Promise<ProjectTagDefinitionsResponse> {
+  const response = await fetcher("/api/v1/auth/project-tags", {
+    body: JSON.stringify(input),
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  if (response.status === 409) throw new Error("이미 사용 중인 태그 이름입니다.");
+  if (!response.ok) throw new Error("태그를 저장하지 못했습니다.");
+  return projectTagDefinitionsResponseSchema.parse(await response.json());
+}
 
 export async function fetchCurrentUser(fetcher: Fetcher = fetch): Promise<AuthUser | null> {
   const response = await fetcher("/api/v1/auth/me", {

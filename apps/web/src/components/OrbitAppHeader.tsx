@@ -1,5 +1,4 @@
 import {
-  IconBell,
   IconChevronDown,
   IconLogin,
   IconLogout
@@ -158,15 +157,6 @@ export function OrbitAppHeader(props: OrbitAppHeaderProps) {
         <div className="orbit-app-header-account" ref={accountRef}>
           {props.isAuthenticated ? (
             <>
-              <OrbitIconButton
-                aria-label="알림"
-                className="orbit-app-header-notification"
-                onClick={() => setIsMenuOpen(false)}
-                variant="plain"
-              >
-                <IconBell aria-hidden="true" size={20} stroke={1.8} />
-                <span aria-hidden="true" className="orbit-app-header-notification-dot" />
-              </OrbitIconButton>
               <button
                 aria-label={`계정 메뉴: ${props.userLabel || "사용자"}`}
                 aria-controls={isMenuOpen ? "orbit-app-account-menu" : undefined}
@@ -200,8 +190,16 @@ export function OrbitAppHeader(props: OrbitAppHeaderProps) {
                   <DropdownMenuAccount
                     avatarUrl={avatarImageUrl ?? undefined}
                     initial={props.userInitial}
-                    label="프로필"
+                    label={props.userLabel || "사용자"}
                   />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      props.onNavigate("/profile");
+                    }}
+                  >
+                    프로필
+                  </DropdownMenuItem>
                   <DropdownMenuItem disabled={isAvatarUpdating} onClick={openAvatarSettings}>
                     프로필 사진 설정
                   </DropdownMenuItem>

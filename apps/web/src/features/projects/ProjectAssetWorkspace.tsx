@@ -5,6 +5,7 @@ import {
   demoIds,
   maxAssetUploadSizeBytes,
   projectListResponseSchema,
+  projectPageResponseSchema,
   updateProjectPinResponseSchema,
   updateProjectTagsResponseSchema,
   type AssetUploadUrlRequest,
@@ -13,6 +14,8 @@ import {
   type FilePurpose,
   type Project,
   type ProjectListItem,
+  type ProjectPageRequest,
+  type ProjectPageResponse,
   type UploadedFile,
 } from "@orbit/shared";
 
@@ -131,6 +134,30 @@ export async function fetchProjects(
   }
 
   return projectListResponseSchema.parse(await response.json());
+}
+
+export async function fetchProjectPage(
+  input: ProjectPageRequest,
+  fetcher: Fetcher = fetch,
+): Promise<ProjectPageResponse> {
+  const params = new URLSearchParams({
+    filter: input.filter,
+    limit: String(input.limit),
+    page: String(input.page),
+    query: input.query,
+    sort: input.sort,
+  });
+  if (input.tags.length > 0) params.set("tags", input.tags.join(","));
+  const response = await fetcher(
+    `/api/v1/workspaces/${demoIds.workspaceId}/projects/page?${params.toString()}`,
+    { credentials: "include" },
+  );
+  if (!response.ok) {
+    throw new ProjectAssetError(
+      await readErrorMessage(response, "프로젝트 목록을 불러오지 못했습니다."),
+    );
+  }
+  return projectPageResponseSchema.parse(await response.json());
 }
 
 export async function updateProjectPin(
