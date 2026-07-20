@@ -4898,11 +4898,11 @@ def test_generate_deck_applies_simple_basic_style_pack() -> None:
         response.deck["metadata"]["designProgramSnapshot"]["version"]
         == "program-v2"
     )
-    assert slide["aiNotes"]["compositionPlan"]["compositionId"] == "minimal-cover"
-    assert any(
-        element.get("role") in {"body", "highlight"}
-        for element in slide["elements"]
+    assert slide["aiNotes"]["compositionPlan"]["compositionId"] == (
+        "cover-classic-corporate"
     )
+    assert not any(element.get("role") == "body" for element in slide["elements"])
+    assert any(element.get("role") == "subtitle" for element in slide["elements"])
     assert design_prompt not in deck_text
     assert "stylePackId" not in deck_text
     assert "visualIntent" not in deck_text
@@ -5417,10 +5417,10 @@ def test_generate_deck_design_pack_enforces_background_constraints() -> None:
     )
     assert (
         deck["slides"][0]["aiNotes"]["compositionPlan"]["compositionId"]
-        == "minimal-cover"
+        == "cover-classic-corporate"
     )
-    assert any(
-        element.get("role") in {"body", "highlight"}
+    assert not any(
+        element.get("role") == "body"
         for element in deck["slides"][0]["elements"]
     )
 
@@ -5512,7 +5512,9 @@ def test_generate_deck_applies_document_style_pack_modes(
         response.deck["metadata"]["designProgramSnapshot"]["version"]
         == "program-v2"
     )
-    assert slide["aiNotes"]["compositionPlan"]["compositionId"] == "minimal-cover"
+    assert slide["aiNotes"]["compositionPlan"]["compositionId"] == (
+        "cover-classic-corporate"
+    )
     assert "stylePackId" not in deck_text
     assert_validation_result_consistent(response.validation)
 
@@ -6213,12 +6215,12 @@ def test_generate_deck_uses_llm_content_plan_with_reference_context() -> None:
         ],
     )
 
-    body_texts = [
+    visible_message_texts = [
         element["props"]["text"]
         for slide in response.deck["slides"]
         for element in slide["elements"]
         if element["type"] == "text"
-        and element["role"] in {"body", "highlight"}
+        and element["role"] in {"subtitle", "body", "highlight"}
     ]
     slide_keywords = [
         keyword["text"]
@@ -6228,7 +6230,7 @@ def test_generate_deck_uses_llm_content_plan_with_reference_context() -> None:
     assert_validation_result_consistent(response.validation)
     assert (
         "피카츄는 볼주머니에 전기를 저장하는 전기 타입 포켓몬입니다."
-        in body_texts
+        in visible_message_texts
     )
     assert slide_keywords == ["전기 타입", "볼주머니", "피카츄"]
     assert all(
@@ -6237,8 +6239,8 @@ def test_generate_deck_uses_llm_content_plan_with_reference_context() -> None:
     )
     assert "피카츄는 볼주머니" in fake_client.requests[0]["input"]
     assert "actual Korean presenter script" in fake_client.requests[0]["instructions"]
-    assert "목적과 기대 결과" not in "\n".join(body_texts)
-    assert "결정 사항, 실행 순서" not in "\n".join(body_texts)
+    assert "목적과 기대 결과" not in "\n".join(visible_message_texts)
+    assert "결정 사항, 실행 순서" not in "\n".join(visible_message_texts)
 
 
 def test_generate_deck_uses_design_intents_without_schema_leak() -> None:
@@ -6312,8 +6314,8 @@ def test_generate_deck_uses_design_intents_without_schema_leak() -> None:
         slide["aiNotes"]["compositionPlan"]["compositionId"]
         for slide in response.deck["slides"]
     )
-    assert response.deck["slides"][0]["aiNotes"]["visualPlan"]["imageNeeded"] is True
-    assert any(
+    assert response.deck["slides"][0]["aiNotes"]["visualPlan"]["imageNeeded"] is False
+    assert not any(
         element["elementId"].endswith("_media_placeholder")
         for element in response.deck["slides"][0]["elements"]
     )

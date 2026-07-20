@@ -1273,3 +1273,34 @@ def test_required_media_cannot_use_optional_fallback() -> None:
     assert result.warnings == [
         "Optional media fallback skipped: required media cannot use optional fallback"
     ]
+
+
+def test_failed_required_cover_media_uses_no_image_cover_fallback() -> None:
+    candidate = deck()
+    candidate["metadata"]["designProgramSnapshot"]["compositionIds"] = [
+        "cover-visual-impact"
+    ]
+    plan = candidate["slides"][0]["aiNotes"]["compositionPlan"]
+    plan["compositionId"] = "cover-visual-impact"
+    plan["assetRole"] = "atmosphere"
+    plan["requiredAsset"] = True
+    candidate["slides"][0]["aiNotes"]["visualPlan"]["imageNeeded"] = True
+
+    result = repair_deck_visuals(
+        VisualRepairRequest.model_validate(
+            {
+                "deck": candidate,
+                "actions": [],
+                "dropFailedCoverMediaSlideIds": ["slide_1"],
+            }
+        )
+    )
+
+    repaired = result.deck["slides"][0]
+    assert result.warnings == []
+    assert repaired["aiNotes"]["compositionPlan"]["compositionId"] == (
+        "cover-classic-corporate"
+    )
+    assert repaired["aiNotes"]["compositionPlan"]["requiredAsset"] is False
+    assert repaired["aiNotes"]["visualPlan"]["imageNeeded"] is False
+    assert not any(element.get("role") == "media" for element in repaired["elements"])

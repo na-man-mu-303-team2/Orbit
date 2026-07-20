@@ -9,6 +9,7 @@ from typing import Any, Callable, Literal
 
 from app.ai.design_program import (
     BackgroundMode,
+    COVER_COMPOSITION_IDS,
     CompositionId,
     DeckDesignProgram,
     SlideCompositionDirection,
@@ -181,6 +182,9 @@ def _media(
     style: Style,
     caption: str,
 ) -> list[Element]:
+    caption_x = max(x + 24, SAFE_X)
+    caption_y = max(y + 24, SAFE_Y)
+    caption_right = min(x + width - 24, SAFE_X + SAFE_WIDTH)
     placeholder = _rect(
         order,
         "media_placeholder",
@@ -200,9 +204,9 @@ def _media(
         "media_caption",
         "caption",
         textwrap.shorten(caption or "Visual", width=80, placeholder="..."),
-        x + 24,
-        y + 24,
-        max(120, width - 48),
+        caption_x,
+        caption_y,
+        max(120, caption_right - caption_x),
         64,
         z_index + 1,
         style.muted_text,
@@ -616,6 +620,207 @@ def _minimal_cover(
         elements.append(
             _text(order, "support", "body", "  ·  ".join(value for _, value in items), _grid_x(0), 792, _grid_width(12), 80, 4, style.text, style.body_size, "normal", style.body_font, align="center", content_item_ids=[identifier for identifier, _ in items])
         )
+    return elements, title["elementId"]
+
+
+def _cover_content(slide: dict[str, Any]) -> dict[str, Any]:
+    value = slide.get("coverContent")
+    return value if isinstance(value, dict) else {}
+
+
+def _cover_value(slide: dict[str, Any], key: str, fallback: str = "") -> str:
+    value = _cover_content(slide).get(key)
+    return " ".join(str(value or fallback).split())
+
+
+def _cover_title_size(value: str, base: int, width: int) -> int:
+    normalized_length = len(_normalized_text(value))
+    if width <= 820 and normalized_length > 32:
+        return max(52, min(base, 60))
+    if normalized_length > 52:
+        return max(54, min(base, 64))
+    if normalized_length > 36:
+        return max(60, min(base, 72))
+    return min(base, 88)
+
+
+def _cover_classic_corporate(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    title_text = str(slide.get("title", ""))
+    subtitle = _cover_value(slide, "subtitle", str(slide.get("message", "")))
+    kicker = _cover_value(slide, "kicker")
+    presenter = _cover_value(slide, "presenterName")
+    organization = _cover_value(slide, "organization")
+    byline = " · ".join(value for value in (presenter, organization) if value)
+    title_y = 250 if kicker else 222
+    title = _text(
+        order, "title", "title", title_text, 250, title_y, 1420, 278, 5,
+        style.text, _cover_title_size(title_text, style.cover_size, 1420),
+        "bold", style.heading_font, align="center", vertical="middle", line_height=1.06,
+    )
+    elements = [_background(order, style)]
+    if kicker:
+        elements.append(_text(order, "kicker", "caption", kicker, 600, 126, 720, 48, 4, style.focal, style.caption_size, "bold", style.body_font, align="center"))
+    elements.extend([
+        title,
+        _text(order, "subtitle", "subtitle", subtitle, 435, 548, 1050, 142, 5, style.muted_text, max(style.body_size, 32), "medium", style.body_font, align="center", vertical="middle"),
+        _rect(order, "divider", "decoration", 900, 776, 120, 6, 3, style.focal, radius=3),
+    ])
+    if byline:
+        elements.append(_text(order, "byline", "footer", byline, 600, 870, 720, 70, 5, style.text, style.caption_size, "medium", style.body_font, align="center", vertical="middle"))
+    return elements, title["elementId"]
+
+
+def _cover_visual_impact(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    if direction.asset_role == "none":
+        raise CompositionCompileError("cover-visual-impact requires an asset")
+    order = direction.order
+    title_text = str(slide.get("title", ""))
+    kicker = _cover_value(slide, "kicker") or _cover_value(slide, "documentLabel")
+    subtitle = _cover_value(slide, "subtitle", str(slide.get("message", "")))
+    date_text = _cover_value(slide, "dateText")
+    venue = _cover_value(slide, "venue")
+    title = _text(order, "title", "title", title_text, 120, 250, 720, 350, 6, style.text, _cover_title_size(title_text, style.cover_size, 720), "bold", style.heading_font, vertical="middle", line_height=1.05)
+    elements = [
+        _background(order, style),
+        *_media(order, 960, 0, 960, 1080, 2, style, _media_caption(slide)),
+        _rect(order, "media_edge", "decoration", 946, 0, 14, 1080, 4, style.focal),
+        title,
+        _text(order, "subtitle", "subtitle", subtitle, 120, 648, 720, 150, 6, style.muted_text, style.body_size, "medium", style.body_font, vertical="middle"),
+    ]
+    if kicker:
+        elements.append(_text(order, "kicker", "caption", kicker, 120, 150, 600, 64, 6, style.focal, style.caption_size, "bold", style.body_font))
+    if date_text:
+        elements.append(_text(order, "date", "footer", date_text, 120, 876, 560, 42, 6, style.text, style.caption_size, "medium", style.body_font))
+    if venue:
+        elements.append(_text(order, "venue", "footer", venue, 120, 928, 660, 42, 6, style.muted_text, style.caption_size, "normal", style.body_font))
+    return elements, _id(order, "media_placeholder")
+
+
+def _cover_immersive_background(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    if direction.asset_role == "none":
+        raise CompositionCompileError("cover-immersive-background requires an asset")
+    order = direction.order
+    title_text = str(slide.get("title", ""))
+    subtitle = _cover_value(slide, "subtitle", str(slide.get("message", "")))
+    kicker = _cover_value(slide, "kicker") or _cover_value(slide, "documentLabel")
+    presenter = _cover_value(slide, "presenterName")
+    organization = _cover_value(slide, "organization")
+    byline = " · ".join(value for value in (presenter, organization) if value)
+    title = _text(order, "title", "title", title_text, 360, 400, 1200, 210, 6, "#FFFFFF", _cover_title_size(title_text, style.cover_size, 1200), "bold", style.heading_font, align="center", vertical="middle", line_height=1.05)
+    elements = [
+        _background(order, style),
+        _media(order, 0, 0, 1920, 1080, 1, style, _media_caption(slide))[0],
+        _rect(order, "image_overlay", "decoration", 0, 0, 1920, 1080, 3, "#000000", opacity=0.58),
+        title,
+        _text(order, "subtitle", "subtitle", subtitle, 460, 635, 1000, 92, 6, "#E5E7EB", style.body_size, "medium", style.body_font, align="center", vertical="middle"),
+    ]
+    if kicker:
+        elements.append(_text(order, "kicker", "caption", kicker, 650, 120, 620, 56, 6, "#FFFFFF", style.caption_size, "bold", style.body_font, align="center"))
+    if byline:
+        elements.append(_text(order, "byline", "footer", byline, 620, 918, 680, 48, 6, "#FFFFFF", style.caption_size, "medium", style.body_font, align="center"))
+    return elements, _id(order, "media_placeholder")
+
+
+def _cover_research_author(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    if direction.asset_role == "none":
+        raise CompositionCompileError("cover-research-author requires a verified profile asset")
+    order = direction.order
+    title_text = str(slide.get("title", ""))
+    kicker = _cover_value(slide, "kicker") or _cover_value(slide, "documentLabel")
+    subtitle = _cover_value(slide, "subtitle")
+    presenter = _cover_value(slide, "presenterName")
+    role = _cover_value(slide, "presenterRole")
+    organization = _cover_value(slide, "organization")
+    author_lines = [presenter, role, organization]
+    title = _text(order, "title", "title", title_text, 810, 300, 1040, 330, 6, style.text, _cover_title_size(title_text, style.cover_size, 1040), "bold", style.heading_font, vertical="middle", line_height=1.05)
+    elements = [
+        _background(order, style),
+        _rect(order, "portrait_frame", "decoration", 180, 262, 555, 555, 2, style.focal, radius=278),
+        *_media(order, 195, 277, 525, 525, 3, style, presenter or _media_caption(slide)),
+        title,
+    ]
+    if kicker:
+        elements.append(_text(order, "kicker", "caption", kicker, 810, 245, 720, 42, 6, style.focal, style.caption_size, "bold", style.body_font))
+    if subtitle:
+        elements.append(_text(order, "subtitle", "subtitle", subtitle, 810, 620, 900, 88, 6, style.muted_text, style.body_size, "medium", style.body_font))
+    if any(author_lines):
+        elements.append(_text(order, "author", "footer", "\n".join(value for value in author_lines if value), 810, 735, 720, 150, 6, style.text, style.caption_size, "medium", style.body_font, line_height=1.35))
+    return elements, _id(order, "media_placeholder")
+
+
+def _cover_structured_report(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    title_text = str(slide.get("title", ""))
+    subtitle = _cover_value(slide, "subtitle", str(slide.get("message", "")))
+    period = _cover_value(slide, "reportPeriod")
+    label = _cover_value(slide, "documentLabel")
+    rail_text = _contrasting_text_color(style.focal, "#FFFFFF")
+    title = _text(order, "title", "title", title_text, 645, 235, 1160, 250, 6, style.text, _cover_title_size(title_text, style.cover_size, 1160), "bold", style.heading_font, vertical="middle", line_height=1.05)
+    elements = [
+        _background(order, style),
+        _rect(order, "report_rail", "decoration", 0, 0, 525, 1080, 2, style.focal),
+        _rect(order, "report_rule", "decoration", 645, 530, 1160, 6, 3, style.secondary),
+        title,
+        _text(order, "subtitle", "subtitle", subtitle, 645, 585, 1100, 160, 6, style.muted_text, style.body_size, "medium", style.body_font, vertical="middle"),
+    ]
+    if period:
+        elements.append(_text(order, "period", "caption", period, 60, 90, 405, 80, 6, rail_text, max(style.caption_size, 28), "bold", style.body_font))
+    if label:
+        elements.append(_text(order, "document_label", "caption", label, 60, 184, 405, 90, 6, rail_text, style.caption_size, "medium", style.body_font))
+    classification = _cover_value(slide, "kicker")
+    if classification:
+        elements.append(_text(order, "classification", "footer", classification, 60, 935, 405, 56, 6, rail_text, style.caption_size, "bold", style.body_font))
+    return elements, title["elementId"]
+
+
+def _cover_modern_high_tech(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    background = style.background if _is_dark(style.background) else "#101828"
+    title_text = str(slide.get("title", ""))
+    subtitle = _cover_value(slide, "subtitle", str(slide.get("message", "")))
+    kicker = _cover_value(slide, "kicker")
+    label = _cover_value(slide, "documentLabel")
+    date_text = _cover_value(slide, "dateText")
+    title = _text(order, "title", "title", title_text, 150, 260, 1420, 390, 6, "#FFFFFF", _cover_title_size(title_text, style.cover_size, 1420), "bold", style.heading_font, vertical="middle", line_height=1.05)
+    elements = [
+        _rect(order, "background", "background", 0, 0, 1920, 1080, 0, background, locked=True),
+        _rect(order, "tech_mark", "decoration", 150, 120, 90, 90, 2, style.focal, radius=12),
+        _rect(order, "tech_mark_core", "decoration", 178, 148, 34, 34, 3, style.secondary, radius=17),
+        title,
+        _text(order, "subtitle", "subtitle", subtitle, 150, 690, 1120, 160, 6, "#D1D5DB", style.body_size, "medium", style.body_font, vertical="middle"),
+        _rect(order, "footer_rule", "decoration", 150, 888, 1620, 4, 3, style.focal),
+    ]
+    if kicker:
+        elements.append(_text(order, "kicker", "caption", kicker, 280, 140, 720, 48, 6, style.focal, style.caption_size, "bold", style.body_font))
+    if label:
+        elements.append(_text(order, "document_label", "footer", label, 150, 930, 720, 48, 6, "#FFFFFF", style.caption_size, "medium", style.body_font))
+    if date_text:
+        elements.append(_text(order, "date", "footer", date_text, 1250, 930, 520, 48, 6, "#D1D5DB", style.caption_size, "normal", style.body_font, align="right"))
     return elements, title["elementId"]
 
 
@@ -1943,6 +2148,12 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
 
 
 COMPOSITION_SPECS: dict[CompositionId, CompositionSpec] = {
+    "cover-classic-corporate": CompositionSpec("cover-classic-corporate", ("cover",), 0, 0, "none", ("light", "dark"), "cover-centered-corporate", "title", _cover_classic_corporate),
+    "cover-visual-impact": CompositionSpec("cover-visual-impact", ("cover",), 0, 0, "required", ("light", "dark"), "cover-image-right", "cover-image", _cover_visual_impact),
+    "cover-immersive-background": CompositionSpec("cover-immersive-background", ("cover",), 0, 0, "required", ("image",), "cover-full-bleed", "cover-image", _cover_immersive_background),
+    "cover-research-author": CompositionSpec("cover-research-author", ("cover",), 0, 0, "required", ("light", "dark"), "cover-author", "cover-image", _cover_research_author),
+    "cover-structured-report": CompositionSpec("cover-structured-report", ("cover",), 0, 0, "none", ("light", "dark"), "cover-report-split", "title", _cover_structured_report),
+    "cover-modern-high-tech": CompositionSpec("cover-modern-high-tech", ("cover",), 0, 0, "none", ("dark",), "cover-high-tech", "title", _cover_modern_high_tech),
     "hero-split": CompositionSpec("hero-split", ("cover", "title", "solution", "feature-grid"), 1, 3, "optional", ("light", "dark"), "split-hero", "hero-image-or-title", _hero_split),
     "hero-full-bleed": CompositionSpec("hero-full-bleed", ("cover", "title"), 1, 2, "required", ("image",), "full-bleed", "hero-image", _hero_full_bleed),
     "minimal-cover": CompositionSpec("minimal-cover", ("cover", "title"), 0, 3, "none", ("light", "dark"), "minimal", "title", _minimal_cover),
@@ -1960,7 +2171,7 @@ COMPOSITION_SPECS: dict[CompositionId, CompositionSpec] = {
 
 
 FALLBACK_COMPOSITIONS: dict[str, tuple[CompositionId, ...]] = {
-    "cover": ("hero-split", "hero-full-bleed", "minimal-cover"),
+    "cover": COVER_COMPOSITION_IDS,
     "title": ("hero-split", "minimal-cover"),
     "problem": ("statement-poster", "editorial-split"),
     "solution": ("editorial-split", "statement-poster", "diagram-hub"),
@@ -2002,12 +2213,29 @@ def normalize_design_program(
     ):
         selected_spec = COMPOSITION_SPECS[selected]
         direction.composition_id = selected
+        if force_light:
+            direction.variant = "light"
+            direction.background_mode = "light"
+        elif force_dark:
+            direction.variant = "dark"
+            direction.background_mode = "dark"
+        elif direction.variant not in selected_spec.variants:
+            direction.variant = (
+                "image"
+                if "image" in selected_spec.variants
+                else "dark"
+                if "dark" in selected_spec.variants
+                else selected_spec.variants[0]
+            )
+            direction.background_mode = direction.variant
         official_source_available = slides[index].get("officialSourceAvailable")
         if selected_spec.media_requirement == "none" or media_policy in {"minimal", "avoid"}:
             direction.asset_role = "none"
             direction.required_asset = False
         elif selected_spec.media_requirement == "required":
-            if direction.asset_role == "none":
+            if selected == "cover-research-author":
+                direction.asset_role = "evidence"
+            elif direction.asset_role == "none":
                 if media_policy == "hybrid":
                     direction.asset_role = (
                         "evidence"
@@ -2051,17 +2279,30 @@ def _select_composition_sequence(
                 slide_type = "cover"
             elif index == len(slides) - 1:
                 slide_type = "summary"
-        item_count = len(_items(slide))
+        item_count = 0 if index == 0 and slide_type == "cover" else len(_items(slide))
         preferred = (
             "cta-closing"
             if index == len(slides) - 1 and not preserve_slide_types
             else direction.composition_id
         )
+        fallback_candidates = FALLBACK_COMPOSITIONS.get(
+            slide_type,
+            ("statement-poster",),
+        )
+        if index == 0 and slide_type == "cover":
+            requested_eligible = slide.get("eligibleCompositionIds", [])
+            eligible = tuple(
+                candidate
+                for candidate in requested_eligible
+                if candidate in COVER_COMPOSITION_IDS
+            )
+            fallback_candidates = eligible or COVER_COMPOSITION_IDS
         candidates = tuple(
             candidate
             for candidate in dict.fromkeys(
-                (preferred, *FALLBACK_COMPOSITIONS.get(slide_type, ("statement-poster",)))
+                (preferred, *fallback_candidates)
             )
+            if candidate in fallback_candidates or index != 0 or slide_type != "cover"
             if _supports(candidate, slide_type, item_count)
             and content_supports_composition(candidate, slide)
             and not unavailable_hybrid_evidence_candidate(
@@ -2076,7 +2317,12 @@ def _select_composition_sequence(
                 and index > 0
                 and direction.asset_role == "none"
             )
-            and not ((force_light or force_dark) and candidate == "hero-full-bleed")
+            and not (
+                force_light and "light" not in COMPOSITION_SPECS[candidate].variants
+            )
+            and not (
+                force_dark and "dark" not in COMPOSITION_SPECS[candidate].variants
+            )
             and not (
                 media_policy in {"minimal", "avoid"}
                 and COMPOSITION_SPECS[candidate].media_requirement == "required"
@@ -2216,6 +2462,9 @@ def content_supports_composition(
             [str(slide.get("message", "")), *[value for _, value in items]]
         )
         return bool(re.search(r"\d", metric_text))
+    if composition_id == "cover-research-author":
+        cover = _cover_content(slide)
+        return bool(cover.get("presenterName") and cover.get("profileImageAssetId"))
     return True
 
 
@@ -2244,7 +2493,11 @@ def compile_composition(
     program: DeckDesignProgram,
 ) -> CompiledComposition:
     spec = COMPOSITION_SPECS[direction.composition_id]
-    item_count = len(_items(slide))
+    item_count = (
+        0
+        if direction.composition_id in COVER_COMPOSITION_IDS
+        else len(_items(slide))
+    )
     slide_type = str(slide.get("slideType", "summary"))
     if not spec.min_items <= item_count <= spec.max_items:
         raise CompositionCompileError(
@@ -2553,38 +2806,39 @@ def _enforce_background_rhythm(
 ) -> None:
     if force_light:
         for slide in program.slides:
-            if slide.composition_id == "hero-full-bleed":
-                slide.composition_id = "hero-split"
             slide.background_mode = "light"
             slide.variant = "light"
         program.background_sequence = ["light"] * len(program.slides)
         return
     if force_dark:
         for slide in program.slides:
-            if slide.composition_id == "hero-full-bleed":
-                slide.composition_id = "hero-split"
             slide.background_mode = "dark"
             slide.variant = "dark"
         program.background_sequence = ["dark"] * len(program.slides)
         return
     if len(program.slides) >= 6 and len({slide.background_mode for slide in program.slides}) < 2:
         for index, slide in enumerate(program.slides):
-            if slide.composition_id == "hero-full-bleed":
+            variants = COMPOSITION_SPECS[slide.composition_id].variants
+            if variants == ("image",):
                 slide.background_mode = "image"
                 slide.variant = "image"
-            elif index in {0, len(program.slides) - 1}:
+            elif index in {0, len(program.slides) - 1} and "dark" in variants:
                 slide.background_mode = "dark"
                 slide.variant = "dark"
-            else:
+            elif "light" in variants:
                 slide.background_mode = "light"
                 slide.variant = "light"
     for slide in program.slides:
-        if slide.composition_id == "hero-full-bleed":
+        variants = COMPOSITION_SPECS[slide.composition_id].variants
+        if variants == ("image",):
             slide.background_mode = "image"
             slide.variant = "image"
-        elif slide.background_mode == "image":
-            slide.background_mode = "dark"
-            slide.variant = "dark"
+        elif slide.background_mode not in variants:
+            replacement: BackgroundMode = (
+                "dark" if "dark" in variants else variants[0]
+            )
+            slide.background_mode = replacement
+            slide.variant = replacement
     _break_long_background_runs(program)
     program.background_sequence = [slide.background_mode for slide in program.slides]
 
@@ -2663,10 +2917,11 @@ def _break_long_background_runs(program: DeckDesignProgram) -> None:
         if mode in {"light", "dark"} and run_length > 4:
             pivot = index + run_length // 2
             replacement: BackgroundMode = "dark" if mode == "light" else "light"
-            program.slides[pivot].background_mode = replacement
-            program.slides[pivot].variant = replacement
-            index = pivot + 1
-            continue
+            if replacement in COMPOSITION_SPECS[program.slides[pivot].composition_id].variants:
+                program.slides[pivot].background_mode = replacement
+                program.slides[pivot].variant = replacement
+                index = pivot + 1
+                continue
         index = run_end
 
 

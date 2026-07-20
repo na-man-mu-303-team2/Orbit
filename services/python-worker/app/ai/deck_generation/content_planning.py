@@ -13,6 +13,7 @@ import unicodedata
 
 from app.ai.deck_generation.models import (
     ContentPlan,
+    CoverContent,
     DeckContentGenerationError,
     DeckOutline,
     DesignProfile,
@@ -21,6 +22,7 @@ from app.ai.deck_generation.models import (
     GeneratedDeckContentPlan,
     GeneratedStoryPlan,
     GeneratedStoryRepairPlan,
+    MediaIntent,
     PresentationProfile,
     PresentationTimingPlan,
     RawInput,
@@ -48,7 +50,7 @@ from app.ai.deck_generation.source_grounding import (
 )
 
 
-DECK_CONTENT_PLAN_CACHE_VERSION = "v2"
+DECK_CONTENT_PLAN_CACHE_VERSION = "v3"
 
 
 SPEAKER_NOTES_CHARS_PER_MINUTE = 400
@@ -73,8 +75,18 @@ Rules:
   presentationType, durationMinutes, and slideCount. Treat explicit duration and
   slide-count wording as authoritative; otherwise return the supplied operational
   values. This analysis is generation metadata and must not become slide copy.
-- Include only a deck title and, per slide, title, one core message, slideType,
-  and verified sourceRefs.
+- Include a minimal coverContent plus a deck title and, per slide, title, one core
+  message, slideType, and verified sourceRefs. coverContent.title and subtitle must
+  match the first slide title and message.
+- coverContent may create title, subtitle, kicker, documentLabel, mediaQuery, and
+  speakerNotes. presenterName, presenterRole, organization, dateText, venue, and
+  reportPeriod must be copied from the user prompt or supplied source records; return
+  null when absent. Never invent a presenter identity, affiliation, date, or venue.
+- profileImageAssetId may use only a supplied official asset ID, and only when the
+  user or a source explicitly identifies the asset as the presenter's or author's
+  profile photo. Otherwise return null. Never request or invent a headshot.
+- Keep the visible cover minimal. Do not put bullets, agenda items, statistics cards,
+  or body paragraphs in coverContent.
 - Keep title and message concrete, concise, and grounded in the supplied topic,
   prompt, and source records.
 - Use only sourceRefs listed in the supplied source records.
@@ -90,8 +102,9 @@ Rules:
 - Return one communicationContract. Explicit user placement wins over inference;
   for example, a request to put an identifier in the cover subtitle must become
   a cover/subtitle placementConstraint. Assumptions never satisfy evidence.
-- Do not create speaker notes, content items, keywords, visual intent, media
-  intent, coordinates, or final Deck JSON.
+- Do not create per-slide speaker notes, content items, keywords, visual intent,
+  media intent, coordinates, or final Deck JSON. coverContent.speakerNotes is the
+  only speaker-note field allowed in this story response.
 """.strip()
 
 
@@ -102,6 +115,8 @@ def story_plan_response_format_for(raw_input: RawInput) -> dict[str, Any]:
         source_items["enum"] = source_ids
     fact_id_items = {"type": "string"}
     obligation_id_items = {"type": "string"}
+    nullable_string = {"type": ["string", "null"]}
+    profile_asset_ids: list[str | None] = [*raw_input.official_asset_file_ids, None]
     return {
         "format": {
             "type": "json_schema",
@@ -112,6 +127,43 @@ def story_plan_response_format_for(raw_input: RawInput) -> dict[str, Any]:
                 "additionalProperties": False,
                 "properties": {
                     "title": {"type": "string"},
+                    "coverContent": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "title": {"type": "string"},
+                            "subtitle": nullable_string,
+                            "kicker": nullable_string,
+                            "presenterName": nullable_string,
+                            "presenterRole": nullable_string,
+                            "organization": nullable_string,
+                            "dateText": nullable_string,
+                            "venue": nullable_string,
+                            "reportPeriod": nullable_string,
+                            "documentLabel": nullable_string,
+                            "mediaQuery": nullable_string,
+                            "profileImageAssetId": {
+                                "type": ["string", "null"],
+                                "enum": profile_asset_ids,
+                            },
+                            "speakerNotes": {"type": "string"},
+                        },
+                        "required": [
+                            "title",
+                            "subtitle",
+                            "kicker",
+                            "presenterName",
+                            "presenterRole",
+                            "organization",
+                            "dateText",
+                            "venue",
+                            "reportPeriod",
+                            "documentLabel",
+                            "mediaQuery",
+                            "profileImageAssetId",
+                            "speakerNotes",
+                        ],
+                    },
                     "briefAnalysis": {
                         "type": "object",
                         "additionalProperties": False,
@@ -320,6 +372,7 @@ def story_plan_response_format_for(raw_input: RawInput) -> dict[str, Any]:
                 },
                 "required": [
                     "title",
+                    "coverContent",
                     "briefAnalysis",
                     "slides",
                     "criticalFacts",
@@ -2459,6 +2512,12 @@ def plan_story_content(
             planned_slide.speaker_notes = ""
             planned_slide.keywords = []
             planned_slide.content_items = []
+        if slide_plans:
+            slide_plans[0].cover_content = normalize_cover_content(
+                raw_input,
+                None,
+                slide_plans[0],
+            )
     else:
         generated = apply_explicit_user_placements(raw_input, generated)
         generated = apply_user_required_obligations(raw_input, generated)
@@ -2571,6 +2630,11 @@ def plan_story_content(
         raw_input.fact_repair_succeeded = repair_succeeded
         raw_input.fact_repair_duration_ms = repair_duration_ms
         apply_story_brief_analysis(raw_input, generated)
+        cover_content = normalize_cover_content(
+            raw_input,
+            generated.cover_content,
+            generated.slides[0],
+        )
         available_source_ids = {
             source.source_id
             for source in (
@@ -2604,7 +2668,9 @@ def plan_story_content(
             source_refs = story_source_refs or default_source_refs(raw_input, order)
             fallback_type = slide_type_for(order, raw_input.slide_count)
             slide_type = normalize_slide_type(story_slide.slide_type, fallback_type)
-            if slide_type == "cover" and order != 1:
+            if order == 1:
+                slide_type = "cover"
+            elif slide_type == "cover":
                 slide_type = fallback_type
             if slide_type == "summary" and order != raw_input.slide_count:
                 slide_type = fallback_type
@@ -2622,6 +2688,7 @@ def plan_story_content(
                     content_items=[],
                     source_refs=source_refs,
                     obligationRefs=list(story_slide.obligation_refs),
+                    coverContent=cover_content if order == 1 else None,
                 )
             )
         outline = DeckOutline(
@@ -2636,6 +2703,119 @@ def plan_story_content(
         timingPlan=raw_input.timing_plan.model_copy(deep=True),
         repairAttempted=False,
         repairReasonCodes=[],
+    )
+
+
+def normalize_cover_content(
+    raw_input: RawInput,
+    cover_content: CoverContent | None,
+    first_slide: Any,
+) -> CoverContent:
+    title = str(first_slide.title).strip() or raw_input.topic
+    subtitle = str(first_slide.message).strip() or None
+    source_texts = [
+        source.content
+        for source in story_source_records(raw_input)
+        if source.content.strip()
+    ]
+    normalized_sources = [
+        normalize_structural_content_text(value) for value in source_texts
+    ]
+
+    def grounded(value: str | None) -> str | None:
+        if not value:
+            return None
+        normalized = normalize_structural_content_text(value)
+        if len(normalized) < 2:
+            return None
+        return value if any(normalized in source for source in normalized_sources) else None
+
+    candidate = cover_content or CoverContent(
+        title=title,
+        subtitle=subtitle,
+        speakerNotes=speaker_notes_for(raw_input, title, subtitle or title, 1),
+    )
+    presenter_name = grounded(candidate.presenter_name)
+    profile_markers = (
+        "프로필사진",
+        "프로필이미지",
+        "발표자사진",
+        "저자사진",
+        "headshot",
+        "profilephoto",
+        "authorphoto",
+    )
+    profile_image_asset_id = candidate.profile_image_asset_id
+    normalized_profile_asset_id = normalize_structural_content_text(
+        profile_image_asset_id or ""
+    )
+
+    def source_labels_profile_asset(source: str) -> bool:
+        asset_index = source.find(normalized_profile_asset_id)
+        if not normalized_profile_asset_id or asset_index < 0:
+            return False
+        return any(
+            (marker_index := source.find(marker)) >= 0
+            and abs(marker_index - asset_index) <= 80
+            for marker in profile_markers
+        )
+
+    explicitly_labeled_profile_asset = any(
+        source_labels_profile_asset(source)
+        for source in normalized_sources
+    )
+    if not (
+        presenter_name
+        and profile_image_asset_id
+        and raw_input.official_asset_file_ids
+        and profile_image_asset_id == raw_input.official_asset_file_ids[0]
+        and explicitly_labeled_profile_asset
+    ):
+        profile_image_asset_id = None
+    return CoverContent(
+        title=title,
+        subtitle=subtitle,
+        kicker=candidate.kicker,
+        presenterName=presenter_name,
+        presenterRole=grounded(candidate.presenter_role),
+        organization=grounded(candidate.organization),
+        dateText=grounded(candidate.date_text),
+        venue=grounded(candidate.venue),
+        reportPeriod=grounded(candidate.report_period),
+        documentLabel=candidate.document_label,
+        mediaQuery=candidate.media_query,
+        profileImageAssetId=profile_image_asset_id,
+        speakerNotes=(
+            candidate.speaker_notes
+            or speaker_notes_for(raw_input, title, subtitle or title, 1)
+        ),
+    )
+
+
+def compose_cover_detail(raw_input: RawInput, target: SlidePlan) -> SlidePlan:
+    cover = target.cover_content or normalize_cover_content(raw_input, None, target)
+    return target.model_copy(
+        deep=True,
+        update={
+            "title": cover.title,
+            "message": cover.subtitle or cover.title,
+            "speaker_notes": cover.speaker_notes,
+            "keywords": keywords_for(raw_input.topic, raw_input.prompt)[:6],
+            "media_intent": MediaIntent(
+                kind=(
+                    "provided"
+                    if cover.profile_image_asset_id
+                    else "generate"
+                    if cover.media_query
+                    else "none"
+                ),
+                prompt=cover.media_query or "",
+                alt=cover.title,
+                required=False,
+            ),
+            "content_items": [],
+            "cover_content": cover,
+        },
     )
 
 
@@ -2770,6 +2950,15 @@ def plan_content(
         model=model,
         api_key=api_key,
     )
+    if slide_plans:
+        cover = slide_plans[0]
+        cover.slide_type = "cover"
+        cover.content_items = []
+        cover.cover_content = normalize_cover_content(
+            raw_input,
+            cover.cover_content,
+            cover,
+        )
     return ContentPlan(
         outline=outline,
         slidePlans=slide_plans,
@@ -3031,6 +3220,19 @@ def deck_content_prompt(
         f"Presentation type: {raw_input.brief.presentation_type or '(none)'}",
         f"Success criteria: {raw_input.brief.success_criteria or '(none)'}",
         f"Reference policy: {raw_input.brief.reference_policy}",
+        (
+            "Supplied official asset IDs: "
+            + (
+                ", ".join(raw_input.official_asset_file_ids)
+                if raw_input.official_asset_file_ids
+                else "(none)"
+            )
+        ),
+        (
+            "An official asset ID is not proof that an image is a headshot. Use it as "
+            "profileImageAssetId only when the user prompt or a source explicitly "
+            "identifies the attached asset as the presenter or author profile photo."
+        ),
         (
             "Allowed factual numeric values from source records: "
             + (", ".join(allowed_numeric_values) if allowed_numeric_values else "(none)")
