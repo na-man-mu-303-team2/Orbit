@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDemoDeck } from "@orbit/editor-core";
 
 import { activityApi } from "../activity-slides/api/activityApi";
 import {
   completePresentationWithoutAudio,
   createPresentationRuntime,
+  fetchOrCreatePresentationDeck,
   getPresentationReport,
   getPresentationSessionRun,
   uploadPresentationRecording,
@@ -17,6 +19,23 @@ afterEach(() => {
 });
 
 describe("presentationApi", () => {
+  it("loads the presentation deck without calling a rehearsal endpoint", async () => {
+    const deck = createDemoDeck();
+    const fetcher = vi.fn().mockResolvedValue(
+      jsonResponse({ deck, projectId: deck.projectId, updatedAt: now }),
+    );
+
+    await expect(
+      fetchOrCreatePresentationDeck({
+        fetcher,
+        projectId: deck.projectId,
+      }),
+    ).resolves.toEqual(deck);
+
+    expect(fetcher).toHaveBeenCalledWith(`/api/v1/projects/${deck.projectId}/deck`);
+    expect(String(fetcher.mock.calls[0]?.[0])).not.toContain("rehearsal");
+  });
+
   it("creates one audience session and one isolated presentation run", async () => {
     const createSession = vi.spyOn(activityApi, "createSession").mockResolvedValue({
       audienceUrl: "/audience/session_live",
@@ -179,6 +198,66 @@ describe("presentationApi", () => {
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
+  it("creates a fresh upload when an earlier upload never reached storage", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          run: presentationRun("uploading", "microphone", "file_stale"),
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ message: "업로드 파일을 찾을 수 없습니다." }, 409),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          run: presentationRun("uploading", "microphone", "file_stale"),
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          run: presentationRun("uploading", "microphone", "file_audio_2"),
+          upload: {
+            fileId: "file_audio_2",
+            projectId: "project_1",
+            uploadUrl: "https://upload.orbit.test/presentation-audio-2",
+            method: "PUT",
+            headers: {},
+            expiresAt: "2026-07-20T00:10:00.000Z",
+            purpose: "presentation-audio",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          run: presentationRun("processing", "microphone", "file_audio_2"),
+          job: null,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      uploadPresentationRecording({
+        file: new File(["audio"], "live-presentation.webm", {
+          type: "audio/webm",
+        }),
+        projectId: "project_1",
+        runId: "presentation_run_1",
+        sessionId: "session_live",
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1",
+      "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1/audio-complete",
+      "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1",
+      "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1/audio-upload",
+      "https://upload.orbit.test/presentation-audio-2",
+      "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1/audio-complete",
+    ]);
+  });
+
   it("completes without audio and reads the combined report from the same session", async () => {
     const fetchMock = vi
       .fn()
@@ -285,9 +364,9 @@ function presentationRun(
   };
 }
 
-function jsonResponse(payload: unknown) {
+function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     headers: { "content-type": "application/json" },
-    status: 200,
+    status,
   });
 }
