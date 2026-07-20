@@ -853,10 +853,10 @@ describe("RehearsalWorkspace", () => {
 
     expect(autoAdvanceBody).toContain("evaluateAdvanceController");
     expect(autoAdvanceBody).toContain('command.type !== "advance-slide"');
-    expect(autoAdvanceBody).toContain("setPresenterStepIndex(0)");
-    expect(autoAdvanceBody.indexOf("setPresenterStepIndex(0)")).toBeLessThan(
-      autoAdvanceBody.indexOf("setCurrentSlideIndex"),
-    );
+    expect(autoAdvanceBody).toContain("requestPreparedSlideChange");
+    expect(autoAdvanceBody).toContain('source: "auto"');
+    expect(autoAdvanceBody).toContain("stepIndex: 0");
+    expect(autoAdvanceBody).not.toContain("setCurrentSlideIndex");
   });
 
   it("keeps the presenter step on the last slide when no next slide exists", () => {
@@ -869,11 +869,12 @@ describe("RehearsalWorkspace", () => {
     expect(handleNextPresenterStepBody).toContain(
       "slideCount: deck.slides.length",
     );
+    expect(handleNextPresenterStepBody).toContain("requestPreparedSlideChange");
     expect(handleNextPresenterStepBody).toContain(
-      "setPresenterStepIndex(nextState.stepIndex)",
+      "stepIndex: nextState.stepIndex",
     );
     expect(handleNextPresenterStepBody).toContain(
-      "setCurrentSlideIndex(nextState.slideIndex)",
+      "targetSlideIndex: nextState.slideIndex",
     );
   });
 
@@ -886,11 +887,9 @@ describe("RehearsalWorkspace", () => {
     expect(handleNextPresenterStepBody).not.toContain(
       "setPresenterStepIndex((currentStep)",
     );
-    expect(
-      handleNextPresenterStepBody.indexOf(
-        "setPresenterStepIndex(nextState.stepIndex)",
-      ),
-    ).toBeLessThan(handleNextPresenterStepBody.indexOf("setCurrentSlideIndex"));
+    expect(handleNextPresenterStepBody).not.toContain("setPresenterStepIndex(");
+    expect(handleNextPresenterStepBody).not.toContain("setCurrentSlideIndex(");
+    expect(handleNextPresenterStepBody).toContain("requestPreparedSlideChange");
   });
 
   it("routes the top timer play button through report recording pause and resume", () => {
