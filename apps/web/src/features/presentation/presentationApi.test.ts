@@ -314,6 +314,45 @@ describe("presentationApi", () => {
     ]);
     expect(fetchMock.mock.calls.every(([url]) => !String(url).includes("rehearsal"))).toBe(true);
   });
+
+  it("falls back to no-audio completion when microphone recording is empty", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ run: presentationRun("created", "microphone") }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ run: presentationRun("created", "none") }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          run: presentationRun("succeeded", "none"),
+          job: null,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      completePresentationWithoutAudio({
+        projectId: "project_1",
+        runId: "presentation_run_1",
+        sessionId: "session_live",
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1",
+      "/api/v1/projects/project_1/presentation-sessions/session_live/runs",
+      "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1/audio-complete",
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      expectedDeckVersion: 4,
+      recordingMode: "none",
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+      withoutAudio: true,
+    });
+  });
 });
 
 function presentationSession() {

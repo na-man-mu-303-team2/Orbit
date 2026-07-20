@@ -624,7 +624,7 @@ export function PresentationWorkspace(props: {
         recordedFileRef.current = await recordingRef.current.stop();
         recordingRef.current = null;
       }
-      if (recordedFileRef.current) {
+      if (recordedFileRef.current && recordedFileRef.current.size > 0) {
         await uploadPresentationRecording({
           file: recordedFileRef.current,
           projectId: props.projectId,

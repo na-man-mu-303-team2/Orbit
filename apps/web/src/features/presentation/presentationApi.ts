@@ -156,6 +156,21 @@ export async function completePresentationWithoutAudio(input: {
     throw new Error("마이크 없이 종료할 수 없는 발표 상태입니다.");
   }
 
+  if (current.run.recordingMode === "microphone") {
+    const response = await requestJson(runsUrl(input.projectId, input.sessionId), {
+      body: JSON.stringify({
+        expectedDeckVersion: current.run.deckVersion,
+        recordingMode: "none",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const { run } = createPresentationRunResponseSchema.parse(response);
+    if (run.runId !== input.runId || run.recordingMode !== "none") {
+      throw new Error("빈 발표 녹음을 마이크 없이 완료하지 못했습니다.");
+    }
+  }
+
   try {
     await completePresentationRecording({ ...input, body: { withoutAudio: true } });
   } catch (cause) {
