@@ -1,4 +1,6 @@
 import { createDemoDeck } from "@orbit/editor-core";
+import fs from "node:fs";
+import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { DesignProposalPreviewModal } from "./DesignProposalPreviewModal";
@@ -28,6 +30,9 @@ describe("DesignProposalPreviewModal", () => {
 
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-modal="true"');
+    expect(html).toContain('tabindex="-1"');
+    expect(html).toContain("data-orbit-dialog-initial");
+    expect(html).toContain('aria-label="닫기"');
     expect(html).toContain("Before");
     expect(html).toContain("After");
     expect(html).toContain(`data-version="${beforeDeck.version}"`);
@@ -54,5 +59,22 @@ describe("DesignProposalPreviewModal", () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*><span>적용<\/span><\/button>/);
     expect(html).toContain("Before");
     expect(html).toContain("After");
+  });
+
+  it("stacks the simultaneous comparison at a narrow viewport", () => {
+    const css = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "src/features/editor/design-agent/design-assistant.css",
+      ),
+      "utf8",
+    );
+
+    expect(css).toMatch(
+      /\.design-proposal-modal-comparison\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/s,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*?\.design-proposal-modal-comparison\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/,
+    );
   });
 });

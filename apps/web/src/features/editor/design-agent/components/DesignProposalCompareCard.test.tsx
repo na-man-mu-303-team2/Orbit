@@ -55,4 +55,31 @@ describe("DesignProposalCompareCard", () => {
     expect(html).toMatch(/<button class="primary" disabled=""[^>]*>적용<\/button>/);
     expect(html).toMatch(/<button type="button"><svg[^>]*>.*미리보기<\/button>/s);
   });
+
+  it("labels applying and failed retry states without relying on color", () => {
+    const deck = createDemoDeck();
+    const renderCard = (lifecycle: "applying" | "failed") =>
+      renderToStaticMarkup(
+        <DesignProposalCompareCard
+          afterDeck={{ ...deck, version: deck.version + 1 }}
+          beforeDeck={deck}
+          lifecycle={lifecycle}
+          slideId={deck.slides[0]!.slideId}
+          summary="적용 상태"
+          warnings={[]}
+          onApply={() => undefined}
+          onClose={() => undefined}
+          onPreview={() => undefined}
+        />,
+      );
+
+    const applyingHtml = renderCard("applying");
+    const failedHtml = renderCard("failed");
+
+    expect(applyingHtml).toContain("적용 중...");
+    expect(applyingHtml).toMatch(/<button class="primary" disabled=""/);
+    expect(failedHtml).toContain('role="alert"');
+    expect(failedHtml).toContain("제안 적용 실패");
+    expect(failedHtml).toContain("다시 적용");
+  });
 });
