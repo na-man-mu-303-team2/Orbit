@@ -19,7 +19,12 @@ import {
   OrbitFailureState,
   OrbitStatus,
 } from "../../components/ui";
+import { ReportDetailFrame } from "../rehearsal/RehearsalReportDocument";
 import { RehearsalReportTestView } from "../rehearsal/RehearsalReportTestView";
+import { RehearsalRunNav } from "../rehearsal/RehearsalRunNav";
+import { loadProjectReportRunSources } from "../rehearsal/reportApi";
+import { formatRunDate, navigateTo } from "../rehearsal/rehearsalUtils";
+import "../rehearsal/rehearsal-report-detail.css";
 import {
   getPresentationReport,
   getPresentationRun,
@@ -95,6 +100,11 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
       ]);
     },
   });
+  const reportSourcesQuery = useQuery({
+    queryKey: ["project-report-run-sources", props.projectId],
+    queryFn: () => loadProjectReportRunSources(props.projectId),
+    retry: false,
+  });
 
   if (runQuery.isLoading) {
     return <ReportLoadingState />;
@@ -116,180 +126,243 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
   const report = reportQuery.data?.report;
   const voiceReport = report?.voiceReport ?? run.voiceReport;
   const audienceActivities = report?.audienceSummary?.activities ?? [];
+  const rehearsalRuns = reportSourcesQuery.data?.rehearsal.runs ?? [];
+  const presentationRuns = reportSourcesQuery.data?.presentation.runs ?? [];
+  const orderedPresentationRuns = [...presentationRuns].sort(
+    (left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt),
+  );
+  const runNumber =
+    orderedPresentationRuns.findIndex(
+      (candidate) => candidate.runId === run.runId,
+    ) + 1;
+  const reportTitle =
+    runNumber > 0 ? `${runNumber}회차 실전 발표 리포트` : "실전 발표 리포트";
 
   return (
-    <main className="presentation-report-page">
-      <header className="presentation-report-header">
-        <div>
-          <span className="redesign-eyebrow">실전 발표 결과</span>
-          <h1>발표 리포트</h1>
-          <p>음성 분석과 청중 참여 결과를 한곳에서 확인하세요.</p>
+    <main className="rehearsal-report-page presentation-report-detail-page">
+      <header className="rehearsal-report-topbar">
+        <div className="rehearsal-report-topbar-left">
+          <button
+            aria-label="프로젝트 리포트 개요로"
+            className="rehearsal-report-back-button"
+            onClick={() =>
+              navigateTo(`/reports/${encodeURIComponent(props.projectId)}`)
+            }
+            type="button"
+          >
+            <IconArrowLeft size={18} />
+          </button>
+          <span className="report-project-title">
+            {report?.deck?.title ?? "실전 발표 리포트"}
+          </span>
+          {runNumber > 0 ? (
+            <span className="report-run-label">실전 발표 {runNumber}회차</span>
+          ) : null}
         </div>
-        <OrbitStatus tone={reportStatusTone(run.status)}>
-          {reportStatusLabel(run.status, run.recordingMode)}
-        </OrbitStatus>
-        <OrbitButtonLink
-          href={`/reports/${encodeURIComponent(props.projectId)}`}
-          icon={<IconArrowLeft aria-hidden="true" size={18} />}
-          variant="secondary"
-        >
-          프로젝트 리포트
-        </OrbitButtonLink>
       </header>
 
-      <section
-        aria-labelledby="voice-report-title"
-        className="presentation-report-section"
-      >
-        <div className="presentation-report-section-heading">
-          <div>
-            <span>발표 음성</span>
-            <h2 id="voice-report-title">말하기 분석</h2>
-          </div>
-          {isPresentationAnalysisPending(run.status) ? (
-            <OrbitStatus tone="info">분석 중</OrbitStatus>
-          ) : null}
-        </div>
+      <div className="rehearsal-report-body">
+        <RehearsalRunNav
+          activePresentationRunId={run.runId}
+          loading={reportSourcesQuery.isLoading}
+          presentationRuns={presentationRuns}
+          projectId={props.projectId}
+          runs={rehearsalRuns}
+        />
 
-        {run.recordingMode === "none" ? (
-          <OrbitEmptyState
-            description="청중 참여 결과는 아래에서 계속 확인할 수 있습니다."
-            icon={<IconMicrophoneOff aria-hidden="true" size={28} />}
-            title="마이크 없이 발표했습니다."
-          />
-        ) : run.status === "failed" ? (
-          <div className="presentation-report-partial-error" role="alert">
-            <div>
-              <strong>음성 분석을 완료하지 못했습니다.</strong>
-              <p>
-                녹음 파일이 남아 있다면 다시 분석할 수 있습니다. 아래 버튼으로
-                다시 시도해 주세요.
-              </p>
-            </div>
-            <OrbitButton
-              icon={<IconRefresh aria-hidden="true" size={17} />}
-              loading={retryAnalysis.isPending}
-              onClick={() => retryAnalysis.mutate()}
+        <section className="rehearsal-report-document" aria-live="polite">
+          <ReportDetailFrame
+            actions={
+              <>
+                <OrbitButtonLink
+                  href={`/reports/${encodeURIComponent(props.projectId)}`}
+                  icon={<IconArrowLeft aria-hidden="true" size={18} />}
+                  size="prominent"
+                  variant="secondary"
+                >
+                  전체 발표 리포트
+                </OrbitButtonLink>
+                <OrbitButtonLink
+                  className="rrd-hero-action"
+                  href={`/presentation/${encodeURIComponent(props.projectId)}`}
+                  icon={<IconRefresh aria-hidden="true" size={17} />}
+                  size="prominent"
+                >
+                  다시 발표
+                </OrbitButtonLink>
+              </>
+            }
+            date={formatRunDate(run.createdAt)}
+            statusLabel={reportStatusLabel(run.status, run.recordingMode)}
+            title={reportTitle}
+          >
+            <section
+              aria-labelledby="voice-report-title"
+              className="presentation-report-section rrd-card"
             >
-              분석 다시 시도
-            </OrbitButton>
-          </div>
-        ) : isPresentationAnalysisPending(run.status) ||
-          reportQuery.isLoading ? (
-          <div className="presentation-report-processing" role="status">
-            <span aria-hidden="true" className="presentation-report-spinner" />
-            <div>
-              <strong>발표 음성을 분석하고 있습니다.</strong>
-              <p>기다리는 동안 청중 참여 결과를 먼저 확인할 수 있습니다.</p>
-            </div>
-          </div>
-        ) : reportQuery.isError || !voiceReport ? (
-          <OrbitFailureState
-            description="음성 분석 결과만 불러오지 못했습니다. 청중 참여 결과는 그대로 보존됩니다."
-            onRetry={() => void reportQuery.refetch()}
-            recommendedAction="잠시 후 음성 분석 결과를 다시 불러오세요. 반복해서 실패하면 녹음 업로드 상태를 확인하세요."
-            title="음성 분석 결과를 불러오지 못했습니다."
-          />
-        ) : report?.detailedReport ? (
-          <RehearsalReportTestView
-            audioPlaybackAvailable={false}
-            deck={report.deck}
-            formatDuration={formatDuration}
-            report={report.detailedReport}
-            reportMode="presentation"
-          />
-        ) : (
-          <>
-            <div className="presentation-voice-metrics">
-              <VoiceMetric
-                label="발표 시간"
-                value={formatDuration(voiceReport.durationSeconds)}
-              />
-              <VoiceMetric
-                label="말 속도"
-                value={`${Math.round(voiceReport.wordsPerMinute)} 어절/분`}
-              />
-              <VoiceMetric
-                label="평균 음량"
-                value={
-                  voiceReport.averageVolumeDbfs === null
-                    ? "측정 안 됨"
-                    : `${voiceReport.averageVolumeDbfs.toFixed(1)} dBFS`
-                }
-              />
-              <VoiceMetric
-                label="습관어"
-                value={`${voiceReport.fillerWordCount}회`}
-              />
-              <VoiceMetric
-                label="긴 쉼"
-                value={`${voiceReport.longSilenceCount}회`}
-              />
-              <VoiceMetric
-                label="평균 피치"
-                value={
-                  voiceReport.averagePitchHz === null
-                    ? "측정 안 됨"
-                    : `${voiceReport.averagePitchHz.toFixed(1)} Hz`
-                }
-              />
-            </div>
-            <article className="presentation-voice-feedback">
-              <IconCheck aria-hidden="true" size={20} />
-              <div>
-                <h3>대본 연결 피드백</h3>
-                <p>
-                  {voiceReport.scriptFeedback ||
-                    "대본과 발표 음성을 안정적으로 연결했습니다."}
-                </p>
+              <div className="presentation-report-section-heading">
+                <div>
+                  <span>발표 음성</span>
+                  <h2 id="voice-report-title">말하기 분석</h2>
+                </div>
+                {isPresentationAnalysisPending(run.status) ? (
+                  <OrbitStatus tone="info">분석 중</OrbitStatus>
+                ) : null}
               </div>
-            </article>
-          </>
-        )}
-      </section>
 
-      <section
-        aria-labelledby="audience-report-title"
-        className="presentation-report-section"
-      >
-        <div className="presentation-report-section-heading">
-          <div>
-            <span>청중 참여</span>
-            <h2 id="audience-report-title">응답 결과</h2>
-          </div>
-          {report?.audienceSummary ? (
-            <OrbitStatus tone="info">
-              응답 {countAudienceResponses(audienceActivities)}개
-            </OrbitStatus>
-          ) : null}
-        </div>
+              {run.recordingMode === "none" ? (
+                <OrbitEmptyState
+                  description="청중 참여 결과는 아래에서 계속 확인할 수 있습니다."
+                  icon={<IconMicrophoneOff aria-hidden="true" size={28} />}
+                  title="마이크 없이 발표했습니다."
+                />
+              ) : run.status === "failed" ? (
+                <div className="presentation-report-partial-error" role="alert">
+                  <div>
+                    <strong>음성 분석을 완료하지 못했습니다.</strong>
+                    <p>
+                      녹음 파일이 남아 있다면 다시 분석할 수 있습니다. 아래
+                      버튼으로 다시 시도해 주세요.
+                    </p>
+                  </div>
+                  <OrbitButton
+                    icon={<IconRefresh aria-hidden="true" size={17} />}
+                    loading={retryAnalysis.isPending}
+                    onClick={() => retryAnalysis.mutate()}
+                  >
+                    분석 다시 시도
+                  </OrbitButton>
+                </div>
+              ) : isPresentationAnalysisPending(run.status) ||
+                reportQuery.isLoading ? (
+                <div className="presentation-report-processing" role="status">
+                  <span
+                    aria-hidden="true"
+                    className="presentation-report-spinner"
+                  />
+                  <div>
+                    <strong>발표 음성을 분석하고 있습니다.</strong>
+                    <p>
+                      기다리는 동안 청중 참여 결과를 먼저 확인할 수 있습니다.
+                    </p>
+                  </div>
+                </div>
+              ) : reportQuery.isError || !voiceReport ? (
+                <OrbitFailureState
+                  description="음성 분석 결과만 불러오지 못했습니다. 청중 참여 결과는 그대로 보존됩니다."
+                  onRetry={() => void reportQuery.refetch()}
+                  recommendedAction="잠시 후 음성 분석 결과를 다시 불러오세요. 반복해서 실패하면 녹음 업로드 상태를 확인하세요."
+                  title="음성 분석 결과를 불러오지 못했습니다."
+                />
+              ) : report?.detailedReport ? (
+                <RehearsalReportTestView
+                  audioPlaybackAvailable={false}
+                  deck={report.deck}
+                  formatDuration={formatDuration}
+                  report={report.detailedReport}
+                  reportMode="presentation"
+                />
+              ) : (
+                <>
+                  <div className="presentation-voice-metrics">
+                    <VoiceMetric
+                      label="발표 시간"
+                      value={formatDuration(voiceReport.durationSeconds)}
+                    />
+                    <VoiceMetric
+                      label="말 속도"
+                      value={`${Math.round(voiceReport.wordsPerMinute)} 어절/분`}
+                    />
+                    <VoiceMetric
+                      label="평균 음량"
+                      value={
+                        voiceReport.averageVolumeDbfs === null
+                          ? "측정 안 됨"
+                          : `${voiceReport.averageVolumeDbfs.toFixed(1)} dBFS`
+                      }
+                    />
+                    <VoiceMetric
+                      label="습관어"
+                      value={`${voiceReport.fillerWordCount}회`}
+                    />
+                    <VoiceMetric
+                      label="긴 쉼"
+                      value={`${voiceReport.longSilenceCount}회`}
+                    />
+                    <VoiceMetric
+                      label="평균 피치"
+                      value={
+                        voiceReport.averagePitchHz === null
+                          ? "측정 안 됨"
+                          : `${voiceReport.averagePitchHz.toFixed(1)} Hz`
+                      }
+                    />
+                  </div>
+                  <article className="presentation-voice-feedback">
+                    <IconCheck aria-hidden="true" size={20} />
+                    <div>
+                      <h3>대본 연결 피드백</h3>
+                      <p>
+                        {voiceReport.scriptFeedback ||
+                          "대본과 발표 음성을 안정적으로 연결했습니다."}
+                      </p>
+                    </div>
+                  </article>
+                </>
+              )}
+            </section>
 
-        {reportQuery.isLoading ? (
-          <div className="presentation-report-processing" role="status">
-            <span aria-hidden="true" className="presentation-report-spinner" />
-            <strong>청중 응답을 불러오고 있습니다.</strong>
-          </div>
-        ) : reportQuery.isError ? (
-          <OrbitFailureState
-            description="청중 참여 결과만 불러오지 못했습니다. 음성 분석 결과는 그대로 유지됩니다."
-            onRetry={() => void reportQuery.refetch()}
-            recommendedAction="잠시 후 청중 결과를 다시 불러오세요. 발표 세션이 종료되었는지도 확인하세요."
-            title="청중 참여 결과를 불러오지 못했습니다."
-          />
-        ) : audienceActivities.length === 0 ? (
-          <OrbitEmptyState
-            description="이 발표에서 실행한 사전 질문, 실시간 투표 또는 만족도 조사가 없습니다."
-            icon={<IconUsers aria-hidden="true" size={28} />}
-            title="수집된 청중 결과가 없습니다."
-          />
-        ) : (
-          <div className="presentation-audience-results">
-            {audienceActivities.map((item) => (
-              <AudienceResultCard item={item} key={item.run.activityRunId} />
-            ))}
-          </div>
-        )}
-      </section>
+            <section
+              aria-labelledby="audience-report-title"
+              className="presentation-report-section rrd-card"
+            >
+              <div className="presentation-report-section-heading">
+                <div>
+                  <span>청중 참여</span>
+                  <h2 id="audience-report-title">응답 결과</h2>
+                </div>
+                {report?.audienceSummary ? (
+                  <OrbitStatus tone="info">
+                    응답 {countAudienceResponses(audienceActivities)}개
+                  </OrbitStatus>
+                ) : null}
+              </div>
+
+              {reportQuery.isLoading ? (
+                <div className="presentation-report-processing" role="status">
+                  <span
+                    aria-hidden="true"
+                    className="presentation-report-spinner"
+                  />
+                  <strong>청중 응답을 불러오고 있습니다.</strong>
+                </div>
+              ) : reportQuery.isError ? (
+                <OrbitFailureState
+                  description="청중 참여 결과만 불러오지 못했습니다. 음성 분석 결과는 그대로 유지됩니다."
+                  onRetry={() => void reportQuery.refetch()}
+                  recommendedAction="잠시 후 청중 결과를 다시 불러오세요. 발표 세션이 종료되었는지도 확인하세요."
+                  title="청중 참여 결과를 불러오지 못했습니다."
+                />
+              ) : audienceActivities.length === 0 ? (
+                <OrbitEmptyState
+                  description="이 발표에서 실행한 사전 질문, 실시간 투표 또는 만족도 조사가 없습니다."
+                  icon={<IconUsers aria-hidden="true" size={28} />}
+                  title="수집된 청중 결과가 없습니다."
+                />
+              ) : (
+                <div className="presentation-audience-results">
+                  {audienceActivities.map((item) => (
+                    <AudienceResultCard
+                      item={item}
+                      key={item.run.activityRunId}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          </ReportDetailFrame>
+        </section>
+      </div>
     </main>
   );
 }
@@ -416,12 +489,6 @@ function reportStatusLabel(
   if (status === "failed") return "부분 리포트";
   if (status === "cancelled") return "발표 취소";
   return "분석 중";
-}
-
-function reportStatusTone(status: PresentationRunStatus) {
-  if (status === "succeeded") return "success" as const;
-  if (status === "failed" || status === "cancelled") return "warning" as const;
-  return "info" as const;
 }
 
 function activityTemplateLabel(

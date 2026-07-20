@@ -11,6 +11,7 @@ import {
 type RehearsalRunNavProps = {
   runs: RehearsalRun[];
   presentationRuns?: PresentationRun[];
+  activePresentationRunId?: string;
   activeRunId?: string;
   projectId: string;
   loading?: boolean;
@@ -19,20 +20,27 @@ type RehearsalRunNavProps = {
 export function RehearsalRunNav({
   runs,
   presentationRuns,
+  activePresentationRunId,
   activeRunId,
   projectId,
   loading,
 }: RehearsalRunNavProps) {
   const orderedRuns = sortRehearsalRunsByCreatedAt(runs);
   const orderedPresentationRuns = [...(presentationRuns ?? [])].sort(
-    (left, right) =>
-      Date.parse(left.createdAt) - Date.parse(right.createdAt),
+    (left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt),
   );
   const totalRunCount = runs.length + orderedPresentationRuns.length;
   const activeRunIndex = orderedRuns.findIndex(
     (run) => run.runId === activeRunId,
   );
   const activeRun = activeRunIndex >= 0 ? orderedRuns[activeRunIndex] : null;
+  const activePresentationRunIndex = orderedPresentationRuns.findIndex(
+    (run) => run.runId === activePresentationRunId,
+  );
+  const activePresentationRun =
+    activePresentationRunIndex >= 0
+      ? orderedPresentationRuns[activePresentationRunIndex]
+      : null;
 
   return (
     <aside className="rehearsal-report-nav" aria-label="회차별 리포트">
@@ -51,6 +59,12 @@ export function RehearsalRunNav({
               <span>현재 보고 있는 리포트</span>
               <strong>리허설 {activeRunIndex + 1}회차</strong>
               <small>{formatRunDate(activeRun.createdAt)}</small>
+            </div>
+          ) : activePresentationRun ? (
+            <div className="rehearsal-report-nav-current">
+              <span>현재 보고 있는 리포트</span>
+              <strong>실전 발표 {activePresentationRunIndex + 1}회차</strong>
+              <small>{formatRunDate(activePresentationRun.createdAt)}</small>
             </div>
           ) : null}
 
@@ -110,7 +124,12 @@ export function RehearsalRunNav({
                       <li key={run.runId}>
                         <button
                           type="button"
-                          className="rehearsal-report-nav-item"
+                          className={`rehearsal-report-nav-item${run.runId === activePresentationRunId ? " active" : ""}`}
+                          aria-current={
+                            run.runId === activePresentationRunId
+                              ? "page"
+                              : undefined
+                          }
                           onClick={() =>
                             navigateTo(
                               getPresentationReportPath(projectId, run),
