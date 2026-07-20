@@ -44,6 +44,8 @@ export function RehearsalProjectOverviewPage({
 }: {
   projectId: string;
 }) {
+  const shouldReturnHome =
+    new URLSearchParams(window.location.search).get("from") === "home";
   const [project, setProject] = useState<Project | null>(null);
   const [runs, setRuns] = useState<RehearsalRun[]>([]);
   const [presentationRuns, setPresentationRuns] = useState<PresentationRun[]>(
@@ -147,7 +149,7 @@ export function RehearsalProjectOverviewPage({
           <button
             type="button"
             className="rehearsal-report-back-button"
-            onClick={() => navigateTo("/reports")}
+            onClick={() => navigateTo(shouldReturnHome ? "/" : "/reports")}
             aria-label="리포트 목록으로"
           >
             <ArrowLeft size={18} />

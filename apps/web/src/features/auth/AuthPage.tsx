@@ -20,6 +20,7 @@ export function OrbitAuthPage(props: {
 }) {
   const queryClient = useQueryClient();
   const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -33,7 +34,7 @@ export function OrbitAuthPage(props: {
     setError("");
     setIsSubmitting(true);
     try {
-      await submitOrbitAuth({ email, mode: props.mode, password });
+      await submitOrbitAuth({ displayName, email, mode: props.mode, password });
 
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
       props.onNavigate("/");
@@ -75,6 +76,23 @@ export function OrbitAuthPage(props: {
             </div>
           ) : (
             <form className="orbit-auth-form" onSubmit={handleSubmit}>
+              {isRegister ? (
+                <OrbitField
+                  hint="2~20자, 한글·영문·숫자·이모지를 사용할 수 있어요."
+                  id="orbit-auth-display-name"
+                  label="닉네임"
+                >
+                  <OrbitInput
+                    autoComplete="name"
+                    maxLength={20}
+                    minLength={2}
+                    onChange={(event) => setDisplayName(event.currentTarget.value)}
+                    placeholder="사용할 닉네임을 입력하세요"
+                    required
+                    value={displayName}
+                  />
+                </OrbitField>
+              ) : null}
               <OrbitField id="orbit-auth-email" label="이메일">
                 <OrbitInput autoComplete="email" onChange={(event) => setEmail(event.currentTarget.value)} placeholder="name@company.com" required type="email" value={email} />
               </OrbitField>
@@ -111,6 +129,7 @@ async function readAuthError(response: Response) {
 }
 
 export async function submitOrbitAuth(input: {
+  displayName?: string;
   email: string;
   fetcher?: typeof fetch;
   mode: "login" | "register";
@@ -118,7 +137,11 @@ export async function submitOrbitAuth(input: {
 }) {
   const fetcher = input.fetcher ?? fetch;
   const response = await fetcher(`/api/v1/auth/${input.mode}`, {
-    body: JSON.stringify({ email: input.email, password: input.password }),
+    body: JSON.stringify(
+      input.mode === "register"
+        ? { displayName: input.displayName, email: input.email, password: input.password }
+        : { email: input.email, password: input.password }
+    ),
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     method: "POST"

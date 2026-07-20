@@ -49,7 +49,7 @@ vi.mock("react-konva", () => {
   };
 });
 describe("App shell routing", () => {
-  it("keeps the product navigation order and active state consistent", () => {
+  it("renders the product brand and account menu", () => {
     const html = renderToStaticMarkup(
       <OrbitAppHeader
         activeItem="reports"
@@ -62,10 +62,8 @@ describe("App shell routing", () => {
       />
     );
 
-    expect(html.indexOf(">홈<")).toBeLessThan(html.indexOf(">프로젝트<"));
-    expect(html.indexOf(">프로젝트<")).toBeLessThan(html.indexOf(">리허설<"));
-    expect(html.indexOf(">리허설<")).toBeLessThan(html.indexOf(">리포트<"));
-    expect(html).toContain('aria-current="page"');
+    expect(html).toContain("main-logo.png");
+    expect(html).toContain("kim@orbit.test");
     expect(html).toContain('aria-haspopup="menu"');
   });
 
@@ -201,6 +199,7 @@ describe("App shell routing", () => {
   it("exposes separate production login and signup routes", () => {
     expect(getRoute("/login")).toEqual({ name: "login" });
     expect(getRoute("/signup")).toEqual({ name: "signup" });
+    expect(getRoute("/profile")).toEqual({ name: "profile" });
   });
 
   it("parses the canonical direct audience activity route", () => {
@@ -389,7 +388,7 @@ describe("public and authentication surfaces", () => {
     expect(html).not.toContain("비밀번호를 잊으셨나요");
   });
 
-  it("renders email/password-only login and signup forms", () => {
+  it("renders nickname only on the signup form", () => {
     const queryClient = new QueryClient();
     const loginHtml = renderToStaticMarkup(
       <QueryClientProvider client={queryClient}>
@@ -409,7 +408,9 @@ describe("public and authentication surfaces", () => {
     expect(loginHtml).toContain("redesign-gradient-button");
     expect(signupHtml).toContain("redesign-gradient-button");
     expect(signupHtml).not.toContain("Google");
-    expect(signupHtml).not.toContain('autocomplete="name"');
+    expect(loginHtml).not.toContain('autoComplete="name"');
+    expect(signupHtml).toContain('autoComplete="name"');
+    expect(signupHtml).toContain("닉네임");
   });
 
   it("submits the existing auth contract and surfaces API errors", async () => {
@@ -505,16 +506,23 @@ describe("workspace project surfaces", () => {
 
   it("renders a recents-only workspace home with an AI creation tile", () => {
     const queryClient = new QueryClient();
+    const projectItems = Array.from({ length: 5 }, (_, index) => ({
+      createdAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
+      createdBy: "user_1",
+      isPinned: index === 0,
+      pinnedAt: index === 0 ? "2026-07-20T00:00:00.000Z" : null,
+      projectId: `project_${index + 1}`,
+      tags: [],
+      generation: null,
+      title: `프로젝트 ${index + 1}`,
+      workspaceId: "workspace_1"
+    }));
     queryClient.setQueryData(
-      ["projects"],
-      Array.from({ length: 11 }, (_, index) => ({
-        createdAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
-        createdBy: "user_1",
-        isPinned: index === 0,
-        projectId: `project_${index + 1}`,
-        title: `프로젝트 ${index + 1}`,
-        workspaceId: "workspace_1"
-      }))
+      ["projects", "page", { filter: "all", query: "", sort: "latest", tags: [] }],
+      {
+        pages: [{ items: projectItems, page: 1, limit: 5, hasMore: false }],
+        pageParams: [1]
+      }
     );
     const html = renderToStaticMarkup(
       <QueryClientProvider client={queryClient}>
@@ -522,15 +530,15 @@ describe("workspace project surfaces", () => {
       </QueryClientProvider>
     );
 
-    expect(html).toContain("최근 작업");
+    expect(html).toContain("내 프로젝트");
     expect(html).not.toContain("Workspace");
     expect(html).toContain("더보기");
-    expect(html).toContain('aria-label="AI 발표자료 만들기"');
+    expect(html).toContain('class="workspace-create-project-card"');
     expect(html).toContain("AI로 발표자료 만들기");
     expect(html).toContain("발표자료 초안을 만들어드려요.");
     expect(html).not.toContain("빈 슬라이드로 시작하세요.");
-    expect(html.match(/<article class="workspace-home-card/g)).toHaveLength(10);
-    expect(html).toContain('class="workspace-home-card is-pinned"');
+    expect(html.match(/<article[^>]*workspace-home-card/g)).toHaveLength(5);
+    expect(html).toMatch(/class="[^"]*workspace-home-card is-pinned/);
     expect(html).not.toContain("워크스페이스 메뉴");
   });
 

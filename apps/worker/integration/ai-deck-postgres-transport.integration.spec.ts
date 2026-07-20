@@ -163,11 +163,11 @@ async function seedProjectAndJob(
 ) {
   await dataSource.query(
     `
-      INSERT INTO users (user_id, email, password_hash)
-      VALUES ($1, $2, 'integration-only')
+      INSERT INTO users (user_id, email, password_hash, display_name)
+      VALUES ($1, $2, 'integration-only', $3)
       ON CONFLICT (user_id) DO NOTHING
     `,
-    [input.userId, `${input.userId}@example.invalid`],
+    [input.userId, `${input.userId}@example.invalid`, input.userId],
   );
   await dataSource.query(
     `

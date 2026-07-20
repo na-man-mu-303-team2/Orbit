@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   authResponseSchema,
+  authDisplayNameSchema,
   loginRequestSchema,
   logoutResponseSchema,
   meResponseSchema,
@@ -10,6 +11,7 @@ import {
 const validUser = {
   userId: "user_1",
   email: "person@example.com",
+  displayName: "발표 장인",
   createdAt: "2026-06-27T00:00:00.000Z"
 };
 
@@ -18,10 +20,12 @@ describe("auth schema validation", () => {
     expect(
       registerRequestSchema.parse({
         email: " Person@Example.COM ",
+        displayName: "  발표 장인  ",
         password: "password-123"
       })
     ).toEqual({
       email: "person@example.com",
+      displayName: "발표 장인",
       password: "password-123"
     });
 
@@ -33,10 +37,18 @@ describe("auth schema validation", () => {
     ).toBe("person@example.com");
   });
 
+  it("accepts expressive display names and rejects invalid lengths or control characters", () => {
+    expect(authDisplayNameSchema.parse("  발표왕 🚀  ")).toBe("발표왕 🚀");
+    expect(() => authDisplayNameSchema.parse("A")).toThrow();
+    expect(() => authDisplayNameSchema.parse("123456789012345678901")).toThrow();
+    expect(() => authDisplayNameSchema.parse("발표\n왕")).toThrow();
+  });
+
   it("rejects malformed auth payloads", () => {
     expect(() =>
       registerRequestSchema.parse({
         email: "not-an-email",
+        displayName: "A",
         password: "short"
       })
     ).toThrow();
