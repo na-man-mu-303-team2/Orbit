@@ -66,6 +66,27 @@ export class PresentationSessionsService {
         input.deckId
       );
 
+      if (
+        input.reuseCurrent &&
+        input.accessMode === "public" &&
+        input.startsAt === undefined &&
+        input.expiresAt === undefined
+      ) {
+        const current = await this.repository.findCurrentForUpdate(
+          manager,
+          projectId,
+          input.deckId
+        );
+        if (
+          current &&
+          current.deck_version === deck.version &&
+          current.presenter_user_id === userId &&
+          current.access_mode === "public"
+        ) {
+          return { closedSessionIds: [], reused: true, row: current };
+        }
+      }
+
       const closedSessionIds = await this.repository.closeActive(manager, projectId, now);
       const row = await this.repository.insert(manager, {
         sessionId,
@@ -80,7 +101,7 @@ export class PresentationSessionsService {
         expiresAt,
         now
       });
-      return { closedSessionIds, row };
+      return { closedSessionIds, reused: false, row };
     });
 
     result.closedSessionIds.forEach((closedSessionId) => {
@@ -90,8 +111,17 @@ export class PresentationSessionsService {
       );
     });
     this.logger.info(
-      { event: "presentation_session.created", projectId, presentationSessionId: sessionId, deckId: input.deckId },
-      "presentation session created"
+      {
+        event: result.reused
+          ? "presentation_session.reused"
+          : "presentation_session.created",
+        projectId,
+        presentationSessionId: result.row.session_id,
+        deckId: input.deckId
+      },
+      result.reused
+        ? "presentation session reused"
+        : "presentation session created"
     );
     return this.toResponseWithUrl(result.row);
   }

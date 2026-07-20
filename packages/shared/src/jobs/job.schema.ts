@@ -23,6 +23,7 @@ export const historicalJobTypeSchema = z.enum([
   "pptx-ooxml-sync",
   "worker-health-check",
   "rehearsal-stt",
+  "presentation-analysis",
   "rehearsal-semantic-evaluation",
   "final-report-generation",
   "report-pdf-export",
