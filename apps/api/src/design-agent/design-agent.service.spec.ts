@@ -244,6 +244,7 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
 
     await service.createMessage(deck.projectId, "user_demo_1", {
       content: "이 목록을 스마트아트로 만들어줘: 1.기획 2.개발",
+      intentPreset: "redesign-slide",
       context: {
         deckId: deck.deckId,
         baseVersion: deck.version,
@@ -256,6 +257,12 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
 
     expect(smartArtLayoutsService.findActiveById).toHaveBeenCalledWith(
       "smart_art_list_vertical_3",
+    );
+    expect(pythonClient.propose).toHaveBeenCalledWith(
+      expect.objectContaining({
+        question: "이 목록을 스마트아트로 만들어줘: 1.기획 2.개발",
+        intentPreset: "redesign-slide",
+      }),
     );
     const deletedElementIds = (savedProposal?.operations ?? []).flatMap((operation) =>
       operation.type === "delete_element" ? [operation.elementId] : [],
