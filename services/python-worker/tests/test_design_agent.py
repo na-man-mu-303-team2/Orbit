@@ -144,6 +144,77 @@ def test_generates_and_validates_design_operations() -> None:
     assert "untrusted presentation data" in client.responses.calls[0]["instructions"]
 
 
+@pytest.mark.parametrize(
+    "intent_preset",
+    [
+        "redesign-slide",
+        "tidy-layout",
+        "emphasize-message",
+        "recommend-animation",
+    ],
+)
+def test_routes_known_intent_preset_separately_from_visible_question(
+    intent_preset: str,
+) -> None:
+    request = request_payload()
+    request.intent_preset = intent_preset
+    client = FakeClient(proposal_payload())
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=client,
+    )
+
+    prompt = json.loads(client.responses.calls[0]["input"])
+    assert result.operations
+    assert prompt["question"] == "이미지를 오른쪽으로 옮겨줘"
+    assert prompt["intentPreset"] == intent_preset
+    assert intent_preset in client.responses.calls[0]["instructions"]
+
+
+def test_unknown_intent_preset_falls_back_to_question_interpretation() -> None:
+    request = request_payload()
+    request.intent_preset = "future-layout-mode"
+    client = FakeClient(proposal_payload())
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=client,
+    )
+
+    prompt = json.loads(client.responses.calls[0]["input"])
+    assert result.operations
+    assert prompt["question"] == request.question
+    assert prompt["intentPreset"] is None
+    assert "No recognized routing hint" in client.responses.calls[0]["instructions"]
+
+
+def test_tidy_layout_rejects_text_content_mutation() -> None:
+    request = request_payload()
+    request.intent_preset = "tidy-layout"
+    payload = proposal_payload()
+    payload["operations"] = [
+        {
+            "type": "update_element_props",
+            "slideId": "slide_1",
+            "elementId": "el_image",
+            "props": {"text": "새로운 사실"},
+        }
+    ]
+
+    with pytest.raises(DesignAgentGenerationError, match="preserve existing text"):
+        generate_design_proposal(
+            request,
+            model="test-model",
+            api_key=None,
+            client=FakeClient(payload),
+        )
+
+
 @pytest.mark.parametrize("x", [-1, 1500])
 def test_rejects_frame_update_result_outside_canvas(x: float) -> None:
     with pytest.raises(DesignAgentGenerationError, match="outside the canvas"):

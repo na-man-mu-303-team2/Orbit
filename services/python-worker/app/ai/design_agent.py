@@ -3,11 +3,23 @@ from __future__ import annotations
 import json
 import math
 import re
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
 DECK_ELEMENT_COORDINATE_LIMIT = 1_000_000
+DesignAgentIntentPreset = Literal[
+    "redesign-slide",
+    "tidy-layout",
+    "emphasize-message",
+    "recommend-animation",
+]
+KNOWN_DESIGN_AGENT_INTENT_PRESETS = {
+    "redesign-slide",
+    "tidy-layout",
+    "emphasize-message",
+    "recommend-animation",
+}
 
 
 class DesignAgentHistoryItem(BaseModel):
@@ -85,6 +97,11 @@ class DesignAgentRequest(BaseModel):
     project_id: str = Field(alias="projectId", min_length=1)
     session_id: str = Field(alias="sessionId", min_length=1, max_length=200)
     question: str = Field(min_length=1, max_length=2_000)
+    intent_preset: str | None = Field(
+        default=None,
+        alias="intentPreset",
+        max_length=100,
+    )
     context: DesignAgentContext
     history: list[DesignAgentHistoryItem] = Field(default_factory=list, max_length=10)
     available_smart_art_layouts: list[AvailableSmartArtLayout] = Field(
@@ -659,6 +676,7 @@ def generate_design_proposal(
             instructions=design_agent_system_prompt(
                 request.context.canvas,
                 request.capabilities,
+                _known_intent_preset(request),
             ),
             input=design_agent_user_prompt(request),
             text=DESIGN_AGENT_RESPONSE_FORMAT,
@@ -951,6 +969,15 @@ def _is_broad_preset_request(question: str) -> bool:
     )
 
 
+def _known_intent_preset(
+    request: DesignAgentRequest,
+) -> DesignAgentIntentPreset | None:
+    preset = request.intent_preset
+    if preset in KNOWN_DESIGN_AGENT_INTENT_PRESETS:
+        return cast(DesignAgentIntentPreset, preset)
+    return None
+
+
 def _build_deterministic_animation_proposal(
     request: DesignAgentRequest,
 ) -> DesignAgentResponse | None:
@@ -1120,9 +1147,11 @@ def _next_animation_id(element_id: str, existing_ids: set[str]) -> str:
 def design_agent_system_prompt(
     canvas: DesignAgentCanvas,
     capabilities: DesignAgentCapabilities | None = None,
+    intent_preset: DesignAgentIntentPreset | None = None,
 ) -> str:
     horizontal_margin = round(canvas.width * 0.05, 2)
     vertical_margin = round(canvas.height * 0.0667, 2)
+    preset_instruction = _intent_preset_instruction(intent_preset)
     return (
         "You are ORBIT's slide design reconstruction agent. "
         "Interpret the user's Korean or English design request and return only the "
@@ -1155,6 +1184,7 @@ def design_agent_system_prompt(
         "must finish fully inside the canvas. Emit the smallest necessary set of operations. "
         "Broad requests such as '꾸며줘', '보기 좋게', '디자인해줘', beautify, or redesign "
         "mean a substantial composition redesign, not a minor frame or color adjustment. "
+        f"{preset_instruction} "
         "Prefer smartArtRequest and a server-side preset for those broad requests whenever "
         "the visible content can form two to five items. "
         f"Capabilities: {json.dumps(capabilities.model_dump(by_alias=True) if capabilities else {}, ensure_ascii=False)}. "
@@ -1180,7 +1210,7 @@ def design_agent_system_prompt(
         "array when the diagram is newly added. Never include hidden or unknown element IDs. "
         "A server-side layout preset places the shapes. "
         "When the request is not about creating such a diagram, set smartArtRequest to null. "
-        "Animation requests are supported only with add_animation, update_animation, and "
+        "Animation free-form requests are supported only with add_animation, update_animation, and "
         "delete_animation. Only use fade-in and fade-out effects. Prefer selected elements; "
         "when nothing is selected, target only visible elements clearly identified by the "
         "request. Use durationMs 100-2000, delayMs 0-2000, easing ease-out, a unique anim_ "
@@ -1199,6 +1229,7 @@ def design_agent_system_prompt(
 def design_agent_user_prompt(request: DesignAgentRequest) -> str:
     payload = {
         "question": request.question,
+        "intentPreset": _known_intent_preset(request),
         "context": request.context.model_dump(by_alias=True),
         "history": [item.model_dump() for item in request.history],
         "availableSmartArtLayouts": [
@@ -1207,6 +1238,35 @@ def design_agent_user_prompt(request: DesignAgentRequest) -> str:
         ],
     }
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _intent_preset_instruction(
+    intent_preset: DesignAgentIntentPreset | None,
+) -> str:
+    if intent_preset == "redesign-slide":
+        return (
+            "The routing hint is redesign-slide: improve the whole current slide composition "
+            "while preserving slideId, speaker notes, keywords, semantic cues, actions, factual "
+            "meaning, and editable text elements."
+        )
+    if intent_preset == "tidy-layout":
+        return (
+            "The routing hint is tidy-layout: preserve every text string and data value; only "
+            "repair alignment, spacing, overflow, collisions, canvas boundaries, and repeated "
+            "element sizing with frame or non-content property updates."
+        )
+    if intent_preset == "emphasize-message":
+        return (
+            "The routing hint is emphasize-message: infer the key message only from the title, "
+            "speaker notes, and existing text; never invent facts, numbers, or sources, and prefer "
+            "typography, contrast, whitespace, and supporting shapes."
+        )
+    if intent_preset == "recommend-animation":
+        return (
+            "The routing hint is recommend-animation: prioritize an animation proposal and keep "
+            "the visible question separate from this routing hint."
+        )
+    return "No recognized routing hint is present; interpret the user's question as before."
 
 
 def normalize_design_proposal(
@@ -1436,6 +1496,8 @@ def validate_design_proposal(
                 "SmartArt source elements are also targeted by direct operations."
             )
 
+    _validate_intent_preset_policy(request, response)
+
     payload = response.model_dump(by_alias=True, exclude_none=True)
     payload["operations"] = [
         operation.model_dump(by_alias=True, exclude_none=True)
@@ -1446,6 +1508,29 @@ def validate_design_proposal(
         payload["interpretedIntent"]["target"] = "current-slide"
     payload["warnings"] = warnings[:20]
     return DesignAgentResponse.model_validate(payload)
+
+
+def _validate_intent_preset_policy(
+    request: DesignAgentRequest,
+    response: DesignAgentResponse,
+) -> None:
+    intent_preset = _known_intent_preset(request)
+    if intent_preset == "tidy-layout":
+        for operation in response.operations:
+            if not isinstance(
+                operation,
+                (UpdateElementFrameOperation, UpdateElementPropsOperation),
+            ):
+                raise DesignAgentGenerationError(
+                    "tidy-layout may only update element layout and presentation properties."
+                )
+            if (
+                isinstance(operation, UpdateElementPropsOperation)
+                and operation.props.text is not None
+            ):
+                raise DesignAgentGenerationError(
+                    "tidy-layout must preserve existing text content."
+                )
 
 
 def _allows_unselected_slide_sources(question: str) -> bool:
