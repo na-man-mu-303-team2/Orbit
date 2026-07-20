@@ -65,6 +65,8 @@ describe("PresentationWorkspace", () => {
 
     expect(source).toContain("createPresentationRuntime");
     expect(source).toContain("uploadPresentationRecording");
+    expect(source).toContain('setRuntimePhase("completed")');
+    expect(source).toContain("<PresentationCompletionDialog");
     expect(source).toContain('startPresentation("none")');
     expect(source).toContain("runtimeRef.current = null");
     expect(source).toContain("마이크 없이 시작");

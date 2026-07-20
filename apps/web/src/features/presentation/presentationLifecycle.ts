@@ -3,6 +3,7 @@ export type PresentationRuntimePhase =
   | "starting"
   | "active"
   | "finishing"
+  | "completed"
   | "failed";
 
 export function shouldWarnBeforePresentationUnload(phase: PresentationRuntimePhase) {

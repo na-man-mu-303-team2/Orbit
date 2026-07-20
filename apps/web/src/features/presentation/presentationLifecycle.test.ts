@@ -8,6 +8,7 @@ describe("presentationLifecycle", () => {
     expect(shouldWarnBeforePresentationUnload("starting")).toBe(false);
     expect(shouldWarnBeforePresentationUnload("active")).toBe(true);
     expect(shouldWarnBeforePresentationUnload("finishing")).toBe(true);
+    expect(shouldWarnBeforePresentationUnload("completed")).toBe(false);
     expect(shouldWarnBeforePresentationUnload("failed")).toBe(false);
   });
 });

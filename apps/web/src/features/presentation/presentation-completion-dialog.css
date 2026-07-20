@@ -1,0 +1,183 @@
+.presentation-completion-backdrop {
+  align-items: center;
+  background: var(--redesign-color-scrim);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: var(--redesign-space-6);
+  position: fixed;
+  z-index: 1200;
+}
+
+.presentation-completion-dialog {
+  align-items: center;
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  box-shadow: var(--redesign-shadow-overlay);
+  color: var(--redesign-color-on-surface);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - (var(--redesign-space-6) * 2));
+  max-width: 500px;
+  overflow-y: auto;
+  padding: var(--redesign-space-8);
+  position: relative;
+  scrollbar-gutter: stable;
+  width: 100%;
+}
+
+.presentation-completion-close {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--redesign-color-on-surface-variant);
+  cursor: pointer;
+  display: inline-flex;
+  height: var(--redesign-size-control-md);
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  right: var(--redesign-space-5);
+  top: var(--redesign-space-5);
+  width: var(--redesign-size-control-md);
+}
+
+.presentation-completion-close:disabled,
+.presentation-completion-links button:disabled {
+  cursor: not-allowed;
+  opacity: .38;
+}
+
+.presentation-completion-check {
+  align-items: center;
+  color: var(--redesign-color-success);
+  display: inline-flex;
+  height: 48px;
+  justify-content: center;
+  margin-top: var(--redesign-space-2);
+  width: 48px;
+}
+
+.presentation-completion-dialog h1 {
+  font-size: var(--redesign-type-headline-lg-size);
+  letter-spacing: -.03em;
+  line-height: 1.25;
+  margin: var(--redesign-space-5) 0 var(--redesign-space-2);
+  text-align: center;
+}
+
+.presentation-completion-description {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-md-size);
+  line-height: 1.5;
+  margin: 0;
+  text-align: center;
+}
+
+.presentation-completion-report {
+  align-items: center;
+  border-top: 1px solid var(--redesign-color-outline-variant);
+  color: var(--redesign-color-on-surface-variant);
+  display: flex;
+  gap: var(--redesign-space-4);
+  margin-top: var(--redesign-space-7);
+  min-height: 96px;
+  padding: var(--redesign-space-5) var(--redesign-space-6) 0;
+  width: 100%;
+}
+
+.presentation-completion-report-ready {
+  color: var(--redesign-color-success);
+}
+
+.presentation-completion-report > div {
+  display: grid;
+  gap: var(--redesign-space-1);
+}
+
+.presentation-completion-report strong {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-md-size);
+}
+
+.presentation-completion-report span {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+}
+
+.presentation-completion-loader {
+  animation: presentation-completion-spin var(--redesign-duration-loop) linear infinite;
+  color: var(--redesign-color-primary);
+  flex: 0 0 auto;
+}
+
+.presentation-completion-actions {
+  display: grid;
+  gap: var(--redesign-space-3);
+  margin-top: var(--redesign-space-5);
+  width: 100%;
+}
+
+.presentation-completion-actions button {
+  border-radius: var(--redesign-radius-lg);
+  cursor: pointer;
+  font-size: var(--redesign-type-body-md-size);
+  font-weight: 700;
+  min-height: 52px;
+  padding: 0 var(--redesign-space-5);
+  width: 100%;
+}
+
+.presentation-completion-report-button {
+  background: var(--redesign-color-primary);
+  border: 1px solid var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+}
+
+.presentation-completion-report-button:disabled,
+.presentation-completion-project-button:disabled {
+  background: var(--redesign-color-surface-container-high);
+  border-color: var(--redesign-color-surface-container-high);
+  color: color-mix(in srgb, var(--redesign-color-on-surface) 38%, transparent);
+  cursor: not-allowed;
+}
+
+.presentation-completion-project-button {
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  color: var(--redesign-color-on-surface);
+}
+
+.presentation-completion-links {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--redesign-space-5);
+}
+
+.presentation-completion-links button {
+  background: transparent;
+  border: 0;
+  color: var(--redesign-color-on-surface-variant);
+  cursor: pointer;
+  font-size: var(--redesign-type-body-sm-size);
+  padding: var(--redesign-space-1) 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@keyframes presentation-completion-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 560px) {
+  .presentation-completion-backdrop {
+    padding: var(--redesign-space-4);
+  }
+
+  .presentation-completion-dialog {
+    padding: var(--redesign-space-7) var(--redesign-space-5);
+  }
+}

@@ -7,6 +7,7 @@ import type {
 } from "@orbit/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PresentationScreen } from "./PresentationScreen";
+import { PresentationCompletionDialog } from "./PresentationCompletionDialog";
 import { PresentationMicCheckModal } from "./PresentationMicCheckModal";
 import {
   completePresentationWithoutAudio,
@@ -640,11 +641,7 @@ export function PresentationWorkspace(props: {
       await activityApi.closeSession(props.projectId, runtime.sessionId);
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
-      navigateToPresentationReport({
-        projectId: props.projectId,
-        runId: runtime.runId,
-        sessionId: runtime.sessionId,
-      });
+      setRuntimePhase("completed");
     })()
       .catch((cause) => {
         setRuntimeError(
@@ -746,18 +743,10 @@ export function PresentationWorkspace(props: {
     );
   }
 
-  if (runtimePhase === "starting" || runtimePhase === "finishing") {
+  if (runtimePhase === "starting") {
     return (
-      <PresenterStatusShell
-        title={
-          runtimePhase === "starting"
-            ? "실전 발표를 준비하는 중입니다."
-            : "발표 기록을 저장하는 중입니다."
-        }
-      >
-        {runtimePhase === "starting"
-          ? "발표 세션과 음성 인식을 연결하고 있습니다."
-          : "녹음과 청중 응답을 안전하게 마무리하고 있습니다."}
+      <PresenterStatusShell title="실전 발표를 준비하는 중입니다.">
+        발표 세션과 음성 인식을 연결하고 있습니다.
       </PresenterStatusShell>
     );
   }
@@ -895,6 +884,25 @@ export function PresentationWorkspace(props: {
           onStartWithoutMicrophone={() => void startPresentation("none")}
         />
       ) : null}
+      {runtimePhase === "finishing" || runtimePhase === "completed" ? (
+        <PresentationCompletionDialog
+          isSaving={runtimePhase === "finishing"}
+          onClose={() => navigateToProject(deck?.projectId ?? props.projectId)}
+          onGoHome={navigateToHome}
+          onOpenProject={() => navigateToProject(deck?.projectId ?? props.projectId)}
+          onOpenReport={() => {
+            const runtime = runtimeRef.current;
+            if (!runtime || !props.projectId) {
+              return;
+            }
+            navigateToPresentationReport({
+              projectId: props.projectId,
+              runId: runtime.runId,
+              sessionId: runtime.sessionId,
+            });
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -911,6 +919,15 @@ function navigateToProject(projectId?: string) {
   }
 
   window.history.pushState({}, "", `/project/${encodeURIComponent(projectId)}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function navigateToHome() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.history.pushState({}, "", "/");
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
