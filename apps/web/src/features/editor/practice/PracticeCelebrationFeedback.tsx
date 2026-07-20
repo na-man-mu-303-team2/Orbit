@@ -22,16 +22,18 @@ export function PracticeCelebrationFeedback(props: {
       <div aria-hidden="true" className="editor-practice-celebration-assets">
         <div className="editor-practice-celebration-mascot-flight">
           <span className="editor-practice-celebration-mascot-stage">
-            <img
-              alt=""
-              className="editor-practice-celebration-mascot is-open"
-              src={thumbsUpMascotUrl}
-            />
-            <img
-              alt=""
-              className="editor-practice-celebration-mascot is-blinking"
-              src={thumbsUpMascotBlinkUrl}
-            />
+            <span className="editor-practice-celebration-mascot-character">
+              <img
+                alt=""
+                className="editor-practice-celebration-mascot is-open"
+                src={thumbsUpMascotUrl}
+              />
+              <img
+                alt=""
+                className="editor-practice-celebration-mascot is-blinking"
+                src={thumbsUpMascotBlinkUrl}
+              />
+            </span>
           </span>
         </div>
         {outcome.great ? (

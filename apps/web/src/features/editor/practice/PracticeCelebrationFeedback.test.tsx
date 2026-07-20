@@ -57,6 +57,7 @@ describe("PracticeCelebrationFeedback", () => {
     const reducedMotion = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
     expect(reducedMotion).toContain(".editor-practice-celebration-mascot-flight");
     expect(reducedMotion).toContain(".editor-practice-celebration-mascot-stage");
+    expect(reducedMotion).toContain(".editor-practice-celebration-mascot-character");
     expect(reducedMotion).toContain(".editor-practice-celebration-mascot.is-blinking");
     expect(reducedMotion).toContain(".editor-practice-celebration-stamp");
     expect(reducedMotion).toContain("animation: none");
@@ -70,7 +71,8 @@ describe("PracticeCelebrationFeedback", () => {
     );
     expect(css).toContain(".is-new .editor-practice-celebration-mascot-flight");
     expect(css).toContain("editor-practice-mascot-fly-in");
-    expect(css).toContain("editor-practice-mascot-float");
+    expect(css).toContain("editor-practice-mascot-drift");
+    expect(css).toContain("editor-practice-mascot-cheer");
     expect(css).toContain("editor-practice-mascot-open-eyes");
     expect(css).toContain("editor-practice-mascot-blink-eyes");
     expect(css).toContain("infinite");

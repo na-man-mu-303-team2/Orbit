@@ -84,7 +84,23 @@ final result: passed
 
 ## Follow-up polish
 
-- P3: one-shot fly-in의 중간 frame 자동 캡처는 인앱 브라우저 연결 중단으로 남겼다. keyframe 존재, 640ms token duration, component `.is-new` gating, unit test는 통과했다.
+- P3: one-shot fly-in의 중간 frame 자동 캡처는 이전 pass의 인앱 브라우저 연결 중단으로 남겼다. keyframe 존재, 800ms token duration, component `.is-new` gating, unit test는 통과했다.
+
+## Dynamic motion follow-up — 2026-07-21
+
+- Source visual truth: 기존 안정 상태 `/private/tmp/orbit-dynamic-before.png`와 사용자의 “조금 더 동적인 애니메이션” 피드백.
+- Implementation screenshot: 환호 점프 구간 `/private/tmp/orbit-dynamic-cheer.png`.
+- Full-view comparison: `/private/tmp/orbit-dynamic-comparison.png`.
+- Viewport: 1280 × 720, slide 3, `리포트` tab, 동일한 5회 QA fixture.
+- Focused region comparison: full-view에서도 축하 카드의 마스코트 크기와 위치가 충분히 읽혀 별도 crop은 만들지 않았다.
+- Findings: 기존 card 크기, copy, asset 선명도, GREAT stamp 위치는 유지된다. 새 drift와 cheer transform을 별도 wrapper에 분리해 자연스러운 부유 중 6.4초마다 짧은 squash-and-stretch 점프가 합성된다. fly-in은 120% x offset에서 곡선 overshoot로 강화하고 stamp는 220ms 늦게 등장한다.
+- Fonts and typography: 변경 없음.
+- Spacing and layout rhythm: card와 asset slot 크기는 변경하지 않았고 문서 가로 overflow가 없다.
+- Colors and visual tokens: 새 색상 없이 기존 motion duration/easing token만 사용했다.
+- Image quality and asset fidelity: 기존 RGBA WebP frame을 그대로 사용하며 blur는 fly-in 시작 38% 안에서만 3px에서 0으로 해소된다.
+- Copy and content: 변경 없음.
+- Browser verification: computed animation이 `editor-practice-mascot-drift` 5.4s, `editor-practice-mascot-cheer` 6.4s로 적용됐다. `aria-live="polite"`, console warning/error 없음, `prefers-reduced-motion: reduce`에서 stage/character/open/blink animation이 모두 `none`임을 확인했다.
+- Comparison history: 첫 비교에서 card layout이나 asset crop의 P0/P1/P2 회귀가 없었다. 추가 visual fix는 필요하지 않았다.
 
 final result: passed
 
