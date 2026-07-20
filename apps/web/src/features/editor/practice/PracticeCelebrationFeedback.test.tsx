@@ -32,6 +32,21 @@ describe("PracticeCelebrationFeedback", () => {
     expect(html).toBe("");
   });
 
+  it("습관어가 없으면 마스코트를 보여주고 GREAT 도장은 전체 기준 통과 때만 보여준다", () => {
+    const report = practiceCelebrationReportFixture();
+    const html = renderToStaticMarkup(
+      <PracticeCelebrationFeedback
+        animate
+        report={{ ...report, voice: { ...report.voice, loudnessMadDb: 3.01 } }}
+      />,
+    );
+    expect(html).toContain("오늘은 ‘음…’ 같은 습관어가 없었어요");
+    expect(html).toContain("orbit-mascot-thumbs-up.webp");
+    expect(html).not.toContain("orbit-great-stamp.webp");
+    expect(html).not.toContain("참 잘했어요 · GREAT");
+    expect((html.match(/alt=""/g) ?? [])).toHaveLength(1);
+  });
+
   it("reduced motion에서는 transform animation을 제거한다", () => {
     const css = fs.readFileSync(
       path.join(process.cwd(), "src/features/editor/practice/slide-practice.css"),
