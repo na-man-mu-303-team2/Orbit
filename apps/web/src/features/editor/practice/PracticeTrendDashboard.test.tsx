@@ -25,6 +25,9 @@ describe("PracticeTrendDashboard", () => {
     expect(html).toContain("4.2음절/초 · 적정");
     expect(html).toContain("-36dBFS · 적정");
     expect(html).toContain("2.4dB · 안정");
+    expect(html).toContain('aria-label="4.2 음절/초"');
+    expect(html).toContain('aria-label="-36 dBFS"');
+    expect(html).toContain('aria-label="2.4 dB"');
     expect(html).toContain('role="tablist"');
     expect(html).toContain('role="tabpanel"');
   });

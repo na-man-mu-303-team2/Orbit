@@ -196,16 +196,32 @@ function PracticeMetricCards(props: {
   const voice = props.latest.voice;
   return (
     <section aria-label="이번 회차 핵심 지표" className="editor-practice-key-metrics">
-      <MetricCard label="습관어" value={fillerRate === null ? "측정 불가" : `${fillerRate.toFixed(1)}회/분`} />
-      <MetricCard label="말 속도" value={formatRangeMetric(voice.syllablesPerSecond, "음절/초", slidePracticeMetricTargets.syllablesPerSecond)} />
-      <MetricCard label="평균 음량" value={formatRangeMetric(voice.loudnessDb, "dBFS", slidePracticeMetricTargets.loudnessDb, 0)} />
-      <MetricCard label="음량 변화폭" value={formatLoudnessStability(voice.loudnessMadDb)} />
+      <MetricCard
+        accessibleValue={fillerRate === null ? "측정 불가" : `${fillerRate.toFixed(1)} 회/분`}
+        label="습관어"
+        value={fillerRate === null ? "측정 불가" : `${fillerRate.toFixed(1)}회/분`}
+      />
+      <MetricCard
+        accessibleValue={formatAccessibleMetric(voice.syllablesPerSecond, "음절/초", 1)}
+        label="말 속도"
+        value={formatRangeMetric(voice.syllablesPerSecond, "음절/초", slidePracticeMetricTargets.syllablesPerSecond)}
+      />
+      <MetricCard
+        accessibleValue={formatAccessibleMetric(voice.loudnessDb, "dBFS", 0)}
+        label="평균 음량"
+        value={formatRangeMetric(voice.loudnessDb, "dBFS", slidePracticeMetricTargets.loudnessDb, 0)}
+      />
+      <MetricCard
+        accessibleValue={formatAccessibleMetric(voice.loudnessMadDb, "dB", 1)}
+        label="음량 변화폭"
+        value={formatLoudnessStability(voice.loudnessMadDb)}
+      />
     </section>
   );
 }
 
-function MetricCard(props: { label: string; value: string }) {
-  return <div><span>{props.label}</span><strong>{props.value}</strong></div>;
+function MetricCard(props: { accessibleValue: string; label: string; value: string }) {
+  return <div><span>{props.label}</span><strong aria-label={props.accessibleValue}>{props.value}</strong></div>;
 }
 
 function TrendDirectionLabel({ series }: { series: PracticeTrendSeries }) {
@@ -233,6 +249,10 @@ function formatLoudnessStability(value: number | null) {
   if (value === null) return "측정 불가";
   const stability = classifyLoudnessStability(value);
   return `${value.toFixed(1)}dB · ${stability === "stable" ? "안정" : "불안정"}`;
+}
+
+function formatAccessibleMetric(value: number | null, unit: string, fractionDigits: number) {
+  return value === null ? "측정 불가" : `${value.toFixed(fractionDigits)} ${unit}`;
 }
 
 function formatChartValue(value: number) {
