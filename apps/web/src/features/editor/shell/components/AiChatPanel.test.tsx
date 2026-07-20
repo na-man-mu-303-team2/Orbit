@@ -10,8 +10,11 @@ import {
   type AiChatState
 } from "./AiChatPanel";
 
-vi.mock("./DesignProposalPreviewModal", () => ({
+vi.mock("../../design-agent/components/DesignProposalPreviewModal", () => ({
   DesignProposalPreviewModal: () => null
+}));
+vi.mock("../../design-agent/components/DesignProposalCompareCard", () => ({
+  DesignProposalCompareCard: () => null
 }));
 
 const editorShellCssPath = path.join(
@@ -44,11 +47,15 @@ describe("AiChatPanel", () => {
     expect(html).toContain('placeholder="바꾸고 싶은 디자인을 말씀해 주세요"');
     expect(html).toContain('aria-label="메시지 보내기"');
     expect(html).toContain('aria-label="AI 작업 모드"');
+    expect(html).toContain("슬라이드 다시 디자인");
+    expect(html).toContain("레이아웃 정리");
+    expect(html).toContain("핵심 메시지 강조");
+    expect(html).toContain("애니메이션 추천");
     expect(html).toContain("이미지 생성");
     expect(html).toContain("<textarea");
   });
 
-  it("renders design suggestions and limits the icebreaker action to the first slide", () => {
+  it("keeps the speaker notes action limited to the first slide", () => {
     const deck = createDemoDeck();
     const firstSlideHtml = renderToString(
       <AiChatPanel
@@ -78,9 +85,8 @@ describe("AiChatPanel", () => {
     );
 
     expect(firstSlideHtml).toContain('aria-label="추천 AI 요청"');
-    expect(firstSlideHtml).toContain("가운데 내용을 SmartArt로 디자인");
     expect(firstSlideHtml).toContain("아이스브레이킹 인트로 추가");
-    expect(secondSlideHtml).toContain("가운데 내용을 SmartArt로 디자인");
+    expect(secondSlideHtml).toContain("슬라이드 다시 디자인");
     expect(secondSlideHtml).not.toContain("아이스브레이킹 인트로 추가");
   });
 

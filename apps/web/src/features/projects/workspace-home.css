@@ -540,6 +540,70 @@
   background: var(--redesign-color-surface-container-high);
 }
 
+.workspace-home-state.redesign-failure-state {
+  align-content: initial;
+  align-items: flex-start;
+  justify-content: center;
+  justify-items: stretch;
+  min-height: 272px;
+  padding: var(--redesign-space-8);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface-container-low);
+  box-shadow: var(--redesign-shadow-card);
+  color: var(--redesign-color-on-surface);
+  text-align: left;
+}
+
+.workspace-home-state.redesign-failure-state h2 {
+  font-size: var(--redesign-type-title-lg-size);
+  font-weight: var(--redesign-type-title-lg-weight);
+  letter-spacing: var(--redesign-type-title-lg-tracking);
+  line-height: var(--redesign-type-title-lg-line-height);
+}
+
+.workspace-home-state .redesign-failure-state-description {
+  margin-top: var(--redesign-space-2);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: var(--redesign-type-body-sm-line-height);
+}
+
+.workspace-home-state .redesign-failure-state-guide {
+  max-width: 520px;
+  margin-top: var(--redesign-space-5);
+  padding: var(--redesign-space-4);
+  border-color: var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-surface);
+}
+
+.workspace-home-state .redesign-failure-state-guide strong {
+  color: var(--redesign-color-primary-emphasis);
+  font-size: var(--redesign-type-label-md-size);
+  line-height: var(--redesign-type-label-md-line-height);
+}
+
+.workspace-home-state .redesign-failure-state-guide p {
+  margin-top: var(--redesign-space-1);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: var(--redesign-type-body-sm-line-height);
+}
+
+.workspace-home-state .redesign-failure-state-actions {
+  justify-content: flex-start;
+  margin-top: var(--redesign-space-5);
+}
+
+.workspace-home-state .redesign-failure-state-actions .redesign-button {
+  min-width: 0;
+  min-height: var(--redesign-size-control-md);
+  padding-inline: var(--redesign-space-4);
+  border-width: 1px;
+  font-size: var(--redesign-type-label-md-size);
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 1100px) {
@@ -557,6 +621,11 @@
 @media (max-width: 767px) {
   .workspace-home-state {
     grid-column: 1 / -1;
+  }
+
+  .workspace-home-state.redesign-failure-state {
+    min-height: 0;
+    padding: var(--redesign-space-6);
   }
 }
 

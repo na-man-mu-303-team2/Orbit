@@ -537,7 +537,7 @@
 
 .ai-ppt-ai-palette-flow {
   display: grid;
-  gap: var(--redesign-space-4);
+  gap: var(--redesign-space-6);
   grid-auto-rows: 304px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: var(--redesign-space-4);
@@ -2032,8 +2032,7 @@
 }
 
 .ai-ppt-context-panel .ai-ppt-field input,
-.ai-ppt-context-panel .ai-ppt-textarea textarea,
-.ai-ppt-policy-trigger.redesign-button {
+.ai-ppt-context-panel .ai-ppt-textarea textarea {
   background: var(--redesign-color-primary-subtle);
   border: 1px solid color-mix(
     in srgb,
@@ -2076,15 +2075,14 @@
 }
 
 .ai-ppt-context-panel .ai-ppt-field input:focus,
-.ai-ppt-context-panel .ai-ppt-textarea textarea:focus,
-.ai-ppt-policy-trigger.redesign-button:focus-visible {
+.ai-ppt-context-panel .ai-ppt-textarea textarea:focus {
   background: var(--redesign-color-surface-container-lowest);
   border-color: var(--redesign-color-primary);
   box-shadow: var(--redesign-focus-ring);
   outline: 0;
 }
 
-.ai-ppt-policy-select-grid {
+.ai-ppt-policy-grid {
   align-items: start;
   border-top: 1px solid var(--redesign-color-outline-variant);
   display: grid;
@@ -2093,41 +2091,48 @@
   padding-top: var(--redesign-space-5);
 }
 
-.ai-ppt-policy-select {
+.ai-ppt-policy-option {
   display: grid;
   gap: var(--redesign-space-2);
   min-width: 0;
-  position: relative;
 }
 
-.ai-ppt-policy-select > .redesign-icon-label {
+.ai-ppt-policy-option > .redesign-icon-label {
   font-size: var(--redesign-type-body-sm-size);
   font-weight: 600;
 }
 
-.ai-ppt-policy-trigger.redesign-button {
+.ai-ppt-policy-checkbox {
+  align-items: center;
   background: var(--redesign-color-surface-container-lowest);
   border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius);
   color: var(--redesign-color-on-surface);
   cursor: pointer;
+  display: flex;
+  gap: var(--redesign-space-3);
   font-weight: 450;
-  height: var(--redesign-size-control-lg);
-  justify-content: stretch;
+  min-height: var(--redesign-size-control-lg);
   padding-inline: var(--redesign-space-3);
+  transition: var(--redesign-transition-color);
   width: 100%;
 }
 
-.ai-ppt-policy-trigger.redesign-button:hover:not(:disabled) {
+.ai-ppt-policy-checkbox:hover {
   background: var(--redesign-color-surface-container);
   border-color: var(--redesign-color-outline);
 }
 
-.ai-ppt-policy-trigger > span {
-  align-items: center;
-  display: flex;
-  gap: var(--redesign-space-2);
-  justify-content: space-between;
-  width: 100%;
+.ai-ppt-policy-checkbox:has(input:focus-visible) {
+  border-color: var(--redesign-color-primary);
+  box-shadow: var(--redesign-focus-ring);
+}
+
+.ai-ppt-policy-checkbox input {
+  accent-color: var(--redesign-color-primary);
+  height: 18px;
+  margin: 0;
+  width: 18px;
 }
 
 .ai-ppt-policy-description {
@@ -2137,21 +2142,6 @@
   line-height: var(--redesign-type-label-sm-line-height);
   margin: 0;
   opacity: 0.78;
-}
-
-.ai-ppt-policy-dropdown.redesign-dropdown-menu {
-  min-width: 100%;
-  width: 100%;
-}
-
-.ai-ppt-policy-dropdown .redesign-dropdown-menu-item {
-  font-weight: 500;
-}
-
-.ai-ppt-policy-icon-spacer {
-  display: inline-block;
-  height: var(--redesign-size-icon-sm);
-  width: var(--redesign-size-icon-sm);
 }
 
 .ai-ppt-context-panel .ai-ppt-attachments {
@@ -2292,14 +2282,14 @@
 }
 
 .ai-ppt-font-grid {
-  gap: var(--redesign-space-3);
+  gap: var(--redesign-space-6);
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .ai-ppt-font-grid button {
   align-content: start;
   gap: var(--redesign-space-2);
-  min-height: 184px;
+  min-height: 144px;
   overflow: hidden;
   padding: var(--redesign-space-4);
   position: relative;
@@ -2378,7 +2368,7 @@
 }
 
 .ai-ppt-palette-grid {
-  gap: var(--redesign-space-4);
+  gap: var(--redesign-space-6);
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -2718,7 +2708,7 @@
 }
 
 @media (max-width: 900px) {
-  .ai-ppt-policy-select-grid {
+  .ai-ppt-policy-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -2775,7 +2765,7 @@
   }
 
   .ai-ppt-context-panel .ai-ppt-field-grid,
-  .ai-ppt-policy-select-grid,
+  .ai-ppt-policy-grid,
   .ai-ppt-tone-cards {
     grid-template-columns: 1fr;
   }
@@ -2808,7 +2798,7 @@
   }
 
   .ai-ppt-font-grid button {
-    min-height: 184px;
+    min-height: 144px;
   }
 
   .ai-ppt-live-preview-card {

@@ -64,6 +64,7 @@ import {
   rehearsalNavigationRequestEvent,
 } from "./features/rehearsal/rehearsalUtils";
 import { PresentationWorkspace } from "./features/presentation/PresentationWorkspace";
+import { PresentationReportPage } from "./features/presentation/PresentationReportPage";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
@@ -92,6 +93,12 @@ export type Route =
   | { name: "audience-session"; sessionId: string }
   | { name: "audience-activity"; sessionId: string; activityId: string }
   | { name: "presentation"; projectId: string }
+  | {
+      name: "presentation-report";
+      projectId: string;
+      sessionId: string;
+      runId?: string;
+    }
   | { name: "present"; deckId: string; sessionId?: string }
   | {
       name: "rehearsal";
@@ -411,6 +418,18 @@ export function getRoute(pathname?: string, search?: string): Route {
       return {
         name: "audience-session",
         sessionId: decodeURIComponent(audienceSessionMatch[1]),
+      };
+    }
+
+    const presentationReportMatch = normalized.match(
+      /^\/presentation\/([^/]+)\/report\/([^/]+)$/,
+    );
+    if (presentationReportMatch) {
+      return {
+        name: "presentation-report",
+        projectId: decodeURIComponent(presentationReportMatch[1]),
+        sessionId: decodeURIComponent(presentationReportMatch[2]),
+        runId: new URLSearchParams(currentSearch).get("runId") ?? undefined,
       };
     }
 
@@ -835,6 +854,17 @@ function renderRoute(route: Route, user?: AuthUser) {
       />
     );
   }
+  if (route.name === "presentation-report") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <PresentationReportPage
+          projectId={route.projectId}
+          runId={route.runId}
+          sessionId={route.sessionId}
+        />
+      </ProjectAccessGate>
+    );
+  }
   if (route.name === "present") {
     return <PresentWindow deckId={route.deckId} sessionId={route.sessionId} />;
   }
@@ -1081,7 +1111,8 @@ export function getAppNavigationItem(route: Route): OrbitAppNavigationItem {
   if (
     route.name === "report-list" ||
     route.name === "report-project-overview" ||
-    route.name === "rehearsal-report"
+    route.name === "rehearsal-report" ||
+    route.name === "presentation-report"
   ) {
     return "reports";
   }
@@ -1190,8 +1221,9 @@ function ProjectAccessError(props: { onRetry: () => void; projectId: string }) {
   return (
     <ProjectAccessLayout projectId={props.projectId}>
       <OrbitFailureState
-        description="잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요."
+        description="프로젝트 권한 정보를 서버에서 확인하지 못했습니다."
         onRetry={props.onRetry}
+        recommendedAction="인터넷 연결을 확인한 뒤 다시 확인하세요. 계속 실패하면 프로젝트 소유자에게 내 권한 상태를 문의하세요."
         retryLabel="다시 확인"
         title="프로젝트 권한을 확인하지 못했습니다."
       />
@@ -1245,8 +1277,9 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
     return (
       <ProjectAccessLayout projectId={props.projectId}>
         <OrbitFailureState
-          description="연결을 확인한 뒤 다시 시도해 주세요."
+          description="현재 프로젝트의 접근 상태를 확인하는 중 문제가 발생했습니다."
           onRetry={() => void access.refetch()}
+          recommendedAction="인터넷 연결을 확인한 뒤 다시 확인하세요. 같은 문제가 계속되면 프로젝트 목록으로 돌아가 다시 열어보세요."
           retryLabel="다시 확인"
           title="권한 상태를 확인하지 못했습니다."
         />

@@ -5,6 +5,7 @@ import {
   fetchProjectRehearsalSummary,
   fetchRehearsalRunComparison,
   fetchReportProjects,
+  loadProjectReportRunSources,
 } from "./reportApi";
 
 describe("fetchRehearsalRunComparison", () => {
@@ -90,6 +91,46 @@ describe("fetchProjectRehearsalSummary", () => {
         jsonResponse({ summary: { projectId: "project_1", runCount: -1 } }),
       ),
     ).rejects.toThrow();
+  });
+});
+
+describe("loadProjectReportRunSources", () => {
+  it("실전 발표 기록 요청이 실패해도 리허설 기록을 유지한다", async () => {
+    const rehearsal = { runs: [], total: 3 };
+
+    await expect(
+      loadProjectReportRunSources(
+        "project_1",
+        async () => rehearsal,
+        async () => {
+          throw new Error("presentation unavailable");
+        },
+      ),
+    ).resolves.toEqual({
+      failedSources: ["presentation"],
+      presentation: { runs: [], total: 0 },
+      rehearsal,
+      succeededSourceCount: 1,
+    });
+  });
+
+  it("리허설 기록 요청이 실패해도 실전 발표 기록을 유지한다", async () => {
+    const presentation = { runs: [], total: 2 };
+
+    await expect(
+      loadProjectReportRunSources(
+        "project_1",
+        async () => {
+          throw new Error("rehearsal unavailable");
+        },
+        async () => presentation,
+      ),
+    ).resolves.toEqual({
+      failedSources: ["rehearsal"],
+      presentation,
+      rehearsal: { runs: [], total: 0 },
+      succeededSourceCount: 1,
+    });
   });
 });
 

@@ -13,7 +13,6 @@ import {
   IconBolt,
   IconBriefcase2,
   IconCheck,
-  IconChevronDown,
   IconChevronLeft,
   IconFileUpload,
   IconFileText,
@@ -38,8 +37,6 @@ import strategyImage from "../../assets/ai-ppt/orbit-ai-strategy.png";
 import roadmapImage from "../../assets/ai-ppt/orbit-ai-roadmap.png";
 import { WorkspaceContainer } from "../../components/patterns";
 import {
-  DropdownMenu,
-  DropdownMenuItem,
   GradientButton,
   OrbitButton,
   OrbitField,
@@ -78,18 +75,17 @@ export type AiPptWizardState = {
   content: string;
   audience: string;
   tone: Tone;
-  referencePolicy: GenerateDeckReferencePolicy;
-  mediaPolicy: GenerateDeckMediaPolicy;
-};
-
-type PolicyChoiceOption<T extends string> = {
-  value: T;
-  label: string;
-  description: string;
+  allowWebResearch: boolean;
+  allowAiImages: boolean;
 };
 
 const stylePackId = "brandlogy-modern";
 const defaultFontMood = "professional trustworthy Korean sans font";
+const officialImageMimeTypes = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 const flowSteps = [
   { label: "내용 입력" },
   { label: "Style & Color" },
@@ -121,65 +117,6 @@ const toneOptions: Array<{
     description: "부드럽고 대화하듯 자연스러운 문장",
   },
 ];
-
-export const referencePolicyOptions = [
-  {
-    value: "user-input-only",
-    label: "사용자 입력만",
-    description:
-      "발표 주제와 Brief 입력만 사용합니다. 첨부 파일 분석과 웹 검색은 실행하지 않습니다.",
-  },
-  {
-    value: "references-first",
-    label: "참고자료 우선",
-    description:
-      "첨부 자료를 중심으로 구성하고 웹 출처로 보완합니다. 분석 가능한 첨부가 1개 이상 필요하며, 웹 검색 실패 시 첨부 자료만으로 계속합니다.",
-  },
-  {
-    value: "references-only",
-    label: "참고자료만 사용",
-    description:
-      "첨부한 모든 자료에서 분석 가능한 텍스트를 확보해야 합니다. 웹 검색 없이 첨부 자료만 근거로 생성합니다.",
-  },
-  {
-    value: "research-first",
-    label: "웹 리서치 우선",
-    description:
-      "웹 리서치를 중심으로 구성하고 첨부 자료는 방향 보정에 사용합니다. 출처가 부족해도 검증 가능한 범위에서 초안을 생성합니다.",
-  },
-] satisfies readonly PolicyChoiceOption<GenerateDeckReferencePolicy>[];
-
-export const mediaPolicyOptions = [
-  {
-    value: "minimal",
-    label: "이미지 최소화",
-    description: "이미지 슬롯을 만들지 않고 도형과 타이포 중심으로 구성합니다.",
-  },
-  {
-    value: "provided-only",
-    label: "첨부 이미지만",
-    description:
-      "첨부 이미지에 사용 가능한 source가 있을 때만 사용합니다. source가 없으면 이미지 슬롯을 만들지 않습니다.",
-  },
-  {
-    value: "public-assets",
-    label: "공개 이미지 구조",
-    description:
-      "공개 이미지 사용을 전제로 visual plan과 교체 가능한 placeholder만 만듭니다. 현재는 이미지 검색, 라이선스 확인, 다운로드를 하지 않습니다.",
-  },
-  {
-    value: "ai-generated",
-    label: "AI 이미지 구조",
-    description:
-      "AI 이미지 생성을 전제로 이미지 계획과 교체 가능한 placeholder만 만듭니다. 현재 실제 이미지 파일은 생성하지 않습니다.",
-  },
-  {
-    value: "hybrid",
-    label: "공식 + AI 이미지",
-    description:
-      "공식 이미지를 근거 자료로 우선 사용하고, 분위기 연출이 필요한 장면만 AI 이미지 구조로 보완합니다.",
-  },
-] satisfies readonly PolicyChoiceOption<GenerateDeckMediaPolicy>[];
 
 export const defaultPaletteOptions: PaletteOption[] = [
   {
@@ -433,8 +370,8 @@ export const initialAiPptWizardState: AiPptWizardState = {
   content: "",
   audience: "",
   tone: "professional",
-  referencePolicy: "user-input-only",
-  mediaPolicy: "minimal",
+  allowWebResearch: false,
+  allowAiImages: false,
 };
 
 export function mergeAiPptContentFormData(
@@ -449,29 +386,38 @@ export function mergeAiPptContentFormData(
   return nextState;
 }
 
-export function getAiPptWizardValidationMessage(
-  state: AiPptWizardState,
-  referenceFiles: File[] = [],
-) {
+export function getAiPptWizardValidationMessage(state: AiPptWizardState) {
   if (!state.topic.trim()) return "발표 주제를 입력하세요.";
   if (!state.content.trim()) return "발표 내용을 입력하세요.";
   if (!state.audience.trim()) return "청중을 입력하세요.";
-  if (state.referencePolicy === "references-only" && referenceFiles.length === 0) {
-    return "참고자료만으로 구성하려면 파일을 1개 이상 첨부하세요.";
-  }
-  if (state.referencePolicy === "references-first" && referenceFiles.length === 0) {
-    return "참고자료 우선 구성에는 파일을 1개 이상 첨부하세요.";
-  }
   return "";
 }
 
 export function buildAiPptGenerateDeckPayload(
   state: AiPptWizardState,
   paletteOption: PaletteOption,
-  referenceFileIds: string[] = [],
+  uploadedFiles: Array<{ fileId: string; mimeType: string }> = [],
   selectedFont = recommendGenerateDeckFonts(defaultFontMood)[0],
 ): GenerateDeckRequest {
   const timing = inferAiPptTimingFromContent(state.content);
+  const referenceFileIds = uploadedFiles.map(({ fileId }) => fileId);
+  const officialAssetFileIds = state.allowAiImages
+    ? uploadedFiles
+        .filter(({ mimeType }) => officialImageMimeTypes.has(mimeType))
+        .map(({ fileId }) => fileId)
+    : [];
+  const referencePolicy: GenerateDeckReferencePolicy = state.allowWebResearch
+    ? referenceFileIds.length
+      ? "references-first"
+      : "research-first"
+    : referenceFileIds.length
+      ? "references-only"
+      : "user-input-only";
+  const mediaPolicy: GenerateDeckMediaPolicy = state.allowAiImages
+    ? officialAssetFileIds.length
+      ? "hybrid"
+      : "ai-generated"
+    : "minimal";
   return {
     topic: state.topic.trim(),
     prompt: state.content.trim(),
@@ -479,13 +425,13 @@ export function buildAiPptGenerateDeckPayload(
       `tone=${state.tone}`,
       `palette=${paletteOption.optionId}`,
       `font=${selectedFont.name}`,
-      `mediaPolicy=${state.mediaPolicy}`,
+      `mediaPolicy=${mediaPolicy}`,
       `base=${stylePackId}`,
     ].join("; "),
     brief: {
       audienceText: state.audience.trim(),
       durationMinutes: timing.targetDurationMinutes,
-      referencePolicy: state.referencePolicy,
+      referencePolicy,
     },
     targetDurationMinutes: timing.targetDurationMinutes,
     slideCountRange: timing.slideCountRange,
@@ -499,15 +445,16 @@ export function buildAiPptGenerateDeckPayload(
       stylePackId,
       visualRhythm: "clean",
       densityTarget: "medium",
-      mediaPolicy: state.mediaPolicy,
+      mediaPolicy,
       layoutDiversity: "varied",
       paletteOverride: paletteOption.palette,
       fontOverride: fontOverrideFromOption(selectedFont),
-      referencePolicy: state.referencePolicy,
+      referencePolicy,
     },
-    visualPlanPolicy: { mediaPolicy: state.mediaPolicy },
-    referencePolicy: state.referencePolicy,
+    visualPlanPolicy: { mediaPolicy },
+    referencePolicy,
     referenceFileIds,
+    ...(officialAssetFileIds.length ? { officialAssetFileIds } : {}),
     references: referenceFileIds.map((fileId) => ({ fileId })),
     referenceKeywords: [],
     referenceContext: [],
@@ -691,10 +638,7 @@ export function AiPptMockupPage() {
       ? mergeAiPptContentFormData(form, new FormData(contentFormRef.current))
       : form;
     setForm(nextForm);
-    const validationMessage = getAiPptWizardValidationMessage(
-      nextForm,
-      referenceFiles,
-    );
+    const validationMessage = getAiPptWizardValidationMessage(nextForm);
     if (validationMessage) {
       setError(validationMessage);
       return;
@@ -710,10 +654,11 @@ export function AiPptMockupPage() {
       const project = await ensureProject();
       createdProjectId = project.projectId;
       await updateProjectTitle(project.projectId, getProjectTitle(nextForm.topic));
-      const referenceFileIds = referenceFiles.map(
-        (file) => uploadStates[referenceFileKey(file)]?.fileId,
-      );
-      if (referenceFileIds.some((fileId) => !fileId)) {
+      const uploadedFiles = referenceFiles.map((file) => ({
+        fileId: uploadStates[referenceFileKey(file)]?.fileId,
+        mimeType: file.type,
+      }));
+      if (uploadedFiles.some(({ fileId }) => !fileId)) {
         throw new Error("첨부파일 업로드가 완료된 후 계속할 수 있습니다.");
       }
 
@@ -728,7 +673,7 @@ export function AiPptMockupPage() {
             buildAiPptGenerateDeckPayload(
               nextForm,
               defaultPaletteOptions[0],
-              referenceFileIds as string[],
+              uploadedFiles as Array<{ fileId: string; mimeType: string }>,
             ),
           ),
         },
@@ -1078,6 +1023,11 @@ function ContentStep(props: {
   uploadStates: Record<string, UploadState>;
   nextAction: ReactNode;
 }) {
+  const hasReferences = props.files.length > 0;
+  const hasOfficialImages = props.files.some((file) =>
+    officialImageMimeTypes.has(file.type),
+  );
+
   return (
     <div className="ai-ppt-content-layout">
       <section className="ai-ppt-context-panel" aria-label="발표 자료 내용 입력">
@@ -1123,20 +1073,36 @@ function ContentStep(props: {
             onChange={(value) => props.onChange("content", value)}
           />
         </form>
-        <div className="ai-ppt-policy-select-grid">
-          <PolicySelect
+        <div className="ai-ppt-policy-grid">
+          <PolicyCheckbox
+            checked={props.form.allowWebResearch}
+            description={
+              props.form.allowWebResearch
+                ? hasReferences
+                  ? "첨부자료를 우선하고 웹 리서치로 보완합니다."
+                  : "웹 리서치를 우선해 내용을 보완합니다."
+                : hasReferences
+                  ? "첨부한 참고자료만 사용합니다."
+                  : "입력한 내용만 사용합니다."
+            }
             icon={<IconFileDescription />}
-            label="내용 구성"
-            options={referencePolicyOptions}
-            value={props.form.referencePolicy}
-            onChange={(value) => props.onChange("referencePolicy", value)}
+            heading="내용 구성"
+            label="웹 리서치 허용"
+            onChange={(checked) => props.onChange("allowWebResearch", checked)}
           />
-          <PolicySelect
+          <PolicyCheckbox
+            checked={props.form.allowAiImages}
+            description={
+              props.form.allowAiImages
+                ? hasOfficialImages
+                  ? "첨부 이미지를 우선하고 필요한 장면에 AI 이미지 생성을 시도합니다."
+                  : "필요한 슬라이드에 AI 이미지 생성을 시도합니다."
+                : "이미지 없이 도형과 타이포 중심으로 구성합니다."
+            }
             icon={<IconPhoto size={17} />}
-            label="이미지 구성"
-            options={mediaPolicyOptions}
-            value={props.form.mediaPolicy}
-            onChange={(value) => props.onChange("mediaPolicy", value)}
+            heading="이미지 구성"
+            label="AI 이미지 사용"
+            onChange={(checked) => props.onChange("allowAiImages", checked)}
           />
         </div>
         <AttachmentField
@@ -1191,92 +1157,31 @@ function ContentStep(props: {
   );
 }
 
-function PolicySelect<T extends string>(props: {
+function PolicyCheckbox(props: {
+  checked: boolean;
+  description: string;
+  heading: string;
   icon: ReactNode;
   label: string;
-  onChange: (value: T) => void;
-  options: readonly PolicyChoiceOption<T>[];
-  value: T;
+  onChange: (checked: boolean) => void;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const menuId = useId();
-  const menuRef = useRef<HTMLDivElement>(null);
-  const selectedOption = props.options.find(
-    (option) => option.value === props.value,
-  );
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function closeOnPointerDown(event: PointerEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) setIsOpen(false);
-    }
-
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setIsOpen(false);
-    }
-
-    document.addEventListener("pointerdown", closeOnPointerDown);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnPointerDown);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isOpen]);
+  const descriptionId = useId();
 
   return (
-    <div className="ai-ppt-policy-select" ref={menuRef}>
-      <OrbitIconLabel id={`${menuId}-label`} icon={props.icon}>
-        {props.label}
-      </OrbitIconLabel>
-      <OrbitButton
-        aria-describedby={`${menuId}-description`}
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
-        aria-labelledby={`${menuId}-label ${menuId}-value`}
-        className="ai-ppt-policy-trigger"
-        id={`${menuId}-value`}
-        onClick={() => setIsOpen((current) => !current)}
-        title={selectedOption?.description}
-        type="button"
-        variant="quiet"
-      >
-        <span>{selectedOption?.label}</span>
-        <IconChevronDown aria-hidden="true" size={16} />
-      </OrbitButton>
-      <small className="ai-ppt-policy-description" id={`${menuId}-description`}>
-        {selectedOption?.description}
+    <div className="ai-ppt-policy-option">
+      <OrbitIconLabel icon={props.icon}>{props.heading}</OrbitIconLabel>
+      <label className="ai-ppt-policy-checkbox">
+        <input
+          aria-describedby={descriptionId}
+          checked={props.checked}
+          onChange={(event) => props.onChange(event.currentTarget.checked)}
+          type="checkbox"
+        />
+        <span>{props.label}</span>
+      </label>
+      <small className="ai-ppt-policy-description" id={descriptionId}>
+        {props.description}
       </small>
-      {isOpen ? (
-        <DropdownMenu
-          align="start"
-          aria-label={`${props.label} 선택`}
-          className="ai-ppt-policy-dropdown"
-          variant="white"
-        >
-          {props.options.map((option) => (
-            <DropdownMenuItem
-              aria-checked={option.value === props.value}
-              icon={
-                option.value === props.value ? (
-                  <IconCheck aria-hidden="true" size={16} />
-                ) : (
-                  <span className="ai-ppt-policy-icon-spacer" />
-                )
-              }
-              key={option.value}
-              onClick={() => {
-                props.onChange(option.value);
-                setIsOpen(false);
-              }}
-              role="menuitemradio"
-              title={option.description}
-            >
-              {option.label}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenu>
-      ) : null}
     </div>
   );
 }

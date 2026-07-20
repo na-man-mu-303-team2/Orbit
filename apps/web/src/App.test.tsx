@@ -86,6 +86,13 @@ describe("App shell routing", () => {
         runId: "run_cdfd5478-97dc-4598-b556-3a2e1737e338"
       })
     ).toBe("reports");
+    expect(
+      getAppNavigationItem({
+        name: "presentation-report",
+        projectId: "project_bcaee91d-3878-4bec-a9b1-9f41fad8bff5",
+        sessionId: "session_demo_1"
+      })
+    ).toBe("reports");
     expect(getAppNavigationItem({ name: "create-deck" })).toBe("project");
   });
 
@@ -304,6 +311,25 @@ describe("App shell routing", () => {
     expect(getRoute("/presentation/project_demo_1")).toEqual({
       name: "presentation",
       projectId: "project_demo_1"
+    });
+    expect(
+      getRoute(
+        "/presentation/project_demo_1/report/session_demo_1",
+        "?runId=presentation_run_1"
+      )
+    ).toEqual({
+      name: "presentation-report",
+      projectId: "project_demo_1",
+      sessionId: "session_demo_1",
+      runId: "presentation_run_1"
+    });
+    expect(
+      getRoute("/presentation/project_demo_1/report/session_demo_1")
+    ).toEqual({
+      name: "presentation-report",
+      projectId: "project_demo_1",
+      sessionId: "session_demo_1",
+      runId: undefined
     });
   });
 

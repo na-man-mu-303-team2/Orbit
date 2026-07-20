@@ -468,6 +468,7 @@ def analyze_input(
         visual_plan_policy=request.visual_plan_policy,
         reference_policy=reference_policy,
         reference_file_ids=request.reference_file_ids,
+        official_asset_file_ids=request.official_asset_file_ids or [],
         references=references,
         reference_keywords=request.reference_keywords,
         reference_context=resolved_reference_context,

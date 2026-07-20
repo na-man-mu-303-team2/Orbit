@@ -23,6 +23,12 @@ const visualRepairResponseSchema = z.object({
 
 type VisualRepairResponse = z.infer<typeof visualRepairResponseSchema>;
 
+const IMAGE_COVER_COMPOSITION_IDS = new Set([
+  "cover-visual-impact",
+  "cover-immersive-background",
+  "cover-research-author",
+]);
+
 export class OptionalMediaFallbackUnavailableError extends Error {
   constructor(
     message: string,
@@ -89,13 +95,18 @@ export async function resolveGenerateDeckAssets(input: {
     (slideId) =>
       input.onlySlideIds === undefined || input.onlySlideIds.has(slideId),
   );
-  if (optionalSlideIds.length > 0) {
+  const failedCoverSlideIds = unresolvedFailedCoverMediaSlideIds(deck).filter(
+    (slideId) =>
+      input.onlySlideIds === undefined || input.onlySlideIds.has(slideId),
+  );
+  if (optionalSlideIds.length > 0 || failedCoverSlideIds.length > 0) {
     try {
       const fallback = await requestVisualRepair(
         input.pythonWorkerUrl,
         deck,
         [],
         optionalSlideIds,
+        failedCoverSlideIds,
       );
       deck = fallback.deck;
       validation = fallback.validation;
@@ -140,6 +151,7 @@ export async function requestVisualRepair(
   deck: Deck,
   actions: GenerateDeckVisualRepairAction[],
   dropOptionalMediaSlideIds: string[],
+  dropFailedCoverMediaSlideIds: string[] = [],
 ): Promise<VisualRepairResponse> {
   let response: Response;
   try {
@@ -148,7 +160,12 @@ export async function requestVisualRepair(
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ deck, actions, dropOptionalMediaSlideIds }),
+        body: JSON.stringify({
+          deck,
+          actions,
+          dropOptionalMediaSlideIds,
+          dropFailedCoverMediaSlideIds,
+        }),
         signal: AbortSignal.timeout(120_000),
       },
     );
@@ -185,6 +202,19 @@ export function unresolvedRequiredMediaSlideIds(deck: Deck) {
       (slide) =>
         isUnresolvedMediaSlide(slide) &&
         slide.aiNotes?.compositionPlan?.requiredAsset !== false,
+    )
+    .map((slide) => slide.slideId);
+}
+
+export function unresolvedFailedCoverMediaSlideIds(deck: Deck) {
+  return deck.slides
+    .filter(
+      (slide) =>
+        slide.order === 1 &&
+        isUnresolvedMediaSlide(slide) &&
+        IMAGE_COVER_COMPOSITION_IDS.has(
+          slide.aiNotes?.compositionPlan?.compositionId ?? "",
+        ),
     )
     .map((slide) => slide.slideId);
 }

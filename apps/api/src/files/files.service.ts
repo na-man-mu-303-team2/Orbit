@@ -122,6 +122,17 @@ export class FilesService {
     return this.createUploadUrl(projectId, input, undefined, storageKey);
   }
 
+  async createPresentationAudioUploadUrl(
+    projectId: string,
+    input: AssetUploadUrlRequest,
+    presentation: { runId: string; createdAt: Date },
+  ): Promise<AssetUploadUrlResponse> {
+    const extension = rehearsalAudioExtension(input.mimeType);
+    const date = formatAsiaSeoulDate(presentation.createdAt);
+    const storageKey = `presentations/${date}/${projectId}/${presentation.runId}/audio.${extension}`;
+    return this.createUploadUrl(projectId, input, undefined, storageKey);
+  }
+
   // local MinIO 모드에서 브라우저가 보낸 binary를 실제 storage object로 저장한다.
   async storeUploadContent(
     projectId: string,

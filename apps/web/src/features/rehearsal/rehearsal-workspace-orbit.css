@@ -993,8 +993,8 @@ main.rehearsal-presenter-shell {
 .presenter-remote-slide-list button, .presenter-remote-control-panel button { background: var(--redesign-color-dark-surface-high); border-color: color-mix(in srgb, var(--redesign-color-light-surface) 12%, transparent); color: var(--redesign-color-light-surface); }
 .presenter-remote-slide-list button[aria-current="true"] { border-color: var(--redesign-color-secondary-fixed-dim); color: var(--redesign-color-secondary-fixed-dim); }
 .presenter-remote-section-heading, .presenter-remote-connection { color: color-mix(in srgb, var(--redesign-color-light-surface) 70%, transparent); }
-.presenter-remote-script .presenter-script-row { border-color: color-mix(in srgb, var(--redesign-color-light-surface) 10%, transparent); color: color-mix(in srgb, var(--redesign-color-light-surface) 78%, transparent); }
-.presenter-remote-script .presenter-script-row.current { background: color-mix(in srgb, var(--redesign-color-secondary) 16%, transparent); color: var(--redesign-color-light-surface); }
+.presenter-remote-script .presenter-script-row { border-color: color-mix(in srgb, var(--redesign-color-light-surface) 10%, transparent); color: var(--redesign-color-on-light-variant); }
+.presenter-remote-script .presenter-script-row--current { color: var(--redesign-color-on-light); }
 .single-screen-presenter { background: var(--redesign-color-dark-surface); }
 .single-screen-actions { background: color-mix(in srgb, var(--redesign-color-on-surface) 88%, transparent); border-color: color-mix(in srgb, var(--redesign-color-light-surface) 16%, transparent); }
 

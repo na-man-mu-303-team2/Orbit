@@ -7,6 +7,7 @@ export const filePurposeSchema = z.enum([
   "pptx-import",
   "reference-material",
   "rehearsal-audio",
+  "presentation-audio",
   "rehearsal-transcript-json",
   "rehearsal-transcript-text",
   "focused-practice-audio",
@@ -21,6 +22,7 @@ export const filePurposeSchema = z.enum([
 
 export const privateAudioPurposeSchema = z.enum([
   "rehearsal-audio",
+  "presentation-audio",
   "focused-practice-audio",
   "slide-practice-audio",
   "qna-answer-audio",
@@ -153,7 +155,7 @@ export function createAssetUploadUrlRequestSchema(
     if (privateAudioPurposes.has(value.purpose) && !isAudio) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "rehearsal-audio 업로드는 지원하는 오디오 MIME type이어야 합니다.",
+        message: "비공개 오디오 업로드는 지원하는 오디오 MIME type이어야 합니다.",
         path: ["mimeType"],
       });
     }
@@ -164,7 +166,7 @@ export function createAssetUploadUrlRequestSchema(
         maximum: rehearsalAudioMaxBytes,
         inclusive: true,
         type: "number",
-        message: "rehearsal-audio 업로드는 설정된 최대 크기 이하여야 합니다.",
+        message: "비공개 오디오 업로드는 설정된 최대 크기 이하여야 합니다.",
         path: ["size"],
       });
     }

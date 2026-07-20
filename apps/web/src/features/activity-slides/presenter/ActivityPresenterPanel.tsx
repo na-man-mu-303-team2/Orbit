@@ -34,6 +34,10 @@ export function ActivityPresenterPanel(props: {
   autoStart?: boolean;
   deckId: string;
   deckVersion: number;
+  presentationSession?: {
+    audienceUrl: string;
+    sessionId: string;
+  };
   projectId: string;
   slide: ActivitySlide;
 }) {
@@ -50,7 +54,8 @@ export function ActivityPresenterPanel(props: {
       props.projectId,
       props.deckId,
       props.deckVersion,
-      activityId
+      activityId,
+      props.presentationSession?.sessionId ?? null
     ]);
 
     const setup = async () => {
@@ -61,6 +66,7 @@ export function ActivityPresenterPanel(props: {
           deckId: props.deckId,
           deckVersion: props.deckVersion,
           projectId: props.projectId,
+          presentationSession: props.presentationSession,
           finishInitialSessionCreation: () =>
             sessionRecovery.current.finishInitialCreation(recoveryIdentity),
           tryInitialSessionCreation: () =>
@@ -89,7 +95,14 @@ export function ActivityPresenterPanel(props: {
       cancelled = true;
       stopPolling();
     };
-  }, [activityId, props.autoStart, props.deckId, props.deckVersion, props.projectId]);
+  }, [
+    activityId,
+    props.autoStart,
+    props.deckId,
+    props.deckVersion,
+    props.presentationSession,
+    props.projectId
+  ]);
 
   const primary = useMemo(
     () => getActivityPrimaryCommand(runtime?.run.status ?? "draft"),
@@ -236,11 +249,23 @@ export async function loadActivityPresenterRuntime(input: {
   deckId: string;
   deckVersion: number;
   finishInitialSessionCreation?: () => void;
+  presentationSession?: {
+    audienceUrl: string;
+    sessionId: string;
+  };
   projectId: string;
   tryInitialSessionCreation?: () => boolean;
   tryStaleSessionReplacement?: () => boolean;
 }): Promise<ActivityPresenterRuntime | null> {
-  const current = await activityApi.getCurrentSession(input.projectId, input.deckId);
+  const current = input.presentationSession
+    ? {
+        session: {
+          sessionId: input.presentationSession.sessionId,
+          deckVersion: input.deckVersion
+        },
+        audienceUrl: input.presentationSession.audienceUrl
+      }
+    : await activityApi.getCurrentSession(input.projectId, input.deckId);
   let session = current.session;
   let audienceUrl = current.audienceUrl;
   if (!session || !audienceUrl) {
