@@ -472,36 +472,35 @@ function ActivityOptionInput(props: {
   onValueChange: (value: string) => void;
   value: string;
 }) {
-  const [isComposing, setIsComposing] = useState(false);
-  const [compositionValue, setCompositionValue] = useState(props.value);
+  const [draftValue, setDraftValue] = useState(props.value);
+  const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
-    if (!isComposing) setCompositionValue(props.value);
-  }, [isComposing, props.value]);
+    if (!isFocused) setDraftValue(props.value);
+  }, [isFocused, props.value]);
+
+  function updateDraftValue(nextValue: string, isComposing: boolean) {
+    setDraftValue(nextValue);
+    if (isComposing || nextValue.trim().length === 0) return;
+    props.onValueChange(nextValue);
+  }
 
   return (
     <OrbitInput
       id={props.id}
       maxLength={props.maxLength}
-      value={isComposing ? compositionValue : props.value}
-      onChange={(event) => {
-        const nextValue = event.currentTarget.value;
-        if (isComposing || event.nativeEvent.isComposing) {
-          setCompositionValue(nextValue);
-          return;
-        }
-        props.onValueChange(nextValue);
+      value={draftValue}
+      onBlur={() => {
+        setIsFocused(false);
+        if (draftValue.trim().length > 0) props.onValueChange(draftValue);
       }}
-      onCompositionStart={() => {
-        setCompositionValue(props.value);
-        setIsComposing(true);
+      onChange={(event) => {
+        updateDraftValue(event.currentTarget.value, event.nativeEvent.isComposing);
       }}
       onCompositionEnd={(event) => {
-        const nextValue = event.currentTarget.value;
-        setCompositionValue(nextValue);
-        setIsComposing(false);
-        props.onValueChange(nextValue);
+        updateDraftValue(event.currentTarget.value, false);
       }}
+      onFocus={() => setIsFocused(true)}
     />
   );
 }
