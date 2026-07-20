@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   countAudienceResponses,
   isPresentationAnalysisPending,
-} from "./PresentationReportPage";
+} from "./presentationReportUtils";
 
 describe("PresentationReportPage", () => {
   it("keeps polling only while actual-presentation analysis is unfinished", () => {

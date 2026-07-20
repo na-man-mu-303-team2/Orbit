@@ -32,6 +32,10 @@ import {
   retryPresentationAnalysis,
 } from "./presentationApi";
 import "./presentation-report.css";
+import {
+  countAudienceResponses,
+  isPresentationAnalysisPending,
+} from "./presentationReportUtils";
 
 type PresentationReportPageProps = {
   projectId: string;
@@ -463,20 +467,6 @@ function ReportLoadingState() {
         <strong>실전 발표 리포트를 불러오고 있습니다.</strong>
       </div>
     </main>
-  );
-}
-
-export function isPresentationAnalysisPending(status?: PresentationRunStatus) {
-  return (
-    status === "created" || status === "uploading" || status === "processing"
-  );
-}
-
-export function countAudienceResponses(items: ActivitySessionResultItem[]) {
-  return items.reduce(
-    (total, item) =>
-      total + (item.result?.responseCount ?? item.run.responseCount),
-    0,
   );
 }
 
