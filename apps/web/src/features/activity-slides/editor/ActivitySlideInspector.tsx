@@ -584,7 +584,7 @@ function createOption(activity: ActivityDefinition, question: Pick<ActivityQuest
   }
   return {
     optionId: nextLocalId("option_", question.questionId, used),
-    label: `답변 ${used.size + 1}`
+    label: `선택 ${used.size + 1}`
   };
 }
 
