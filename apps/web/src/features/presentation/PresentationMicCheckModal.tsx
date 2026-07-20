@@ -5,7 +5,7 @@ import {
   getRehearsalMicrophoneAudioConstraints,
   readRehearsalMicrophoneDeviceId,
   writeRehearsalMicrophoneDeviceId,
-} from "../rehearsal/RehearsalWorkspace";
+} from "../presenter-shell/microphoneSettings";
 import "../rehearsal/preflight/rehearsal-mic-check-modal.css";
 
 type PermissionState = "checking" | "granted" | "prompt" | "denied" | "unsupported";

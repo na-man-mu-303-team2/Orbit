@@ -95,6 +95,16 @@ import {
   clearPreparedRehearsalSlideSnapshots,
   readPreparedRehearsalSlideSnapshots,
 } from "./rehearsalSlideSnapshots";
+import { requestRehearsalMicrophoneStream } from "../presenter-shell/microphoneSettings";
+export {
+  getRehearsalMicrophoneAudioConstraints,
+  isLiveSttRawMicDebugEnabled,
+  readRehearsalMicrophoneDeviceId,
+  rehearsalMicrophoneAudioConstraints,
+  rehearsalRawMicrophoneAudioConstraints,
+  requestRehearsalMicrophoneStream,
+  writeRehearsalMicrophoneDeviceId,
+} from "../presenter-shell/microphoneSettings";
 import {
   LiveSttAdapterError,
   type LiveSttAdapter,
@@ -371,21 +381,7 @@ const preferredAudioMimeTypes = [
   "audio/webm",
   "audio/mp4",
 ];
-export const rehearsalMicrophoneAudioConstraints: MediaTrackConstraints = {
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true,
-  channelCount: 1,
-};
-export const rehearsalRawMicrophoneAudioConstraints: MediaTrackConstraints = {
-  echoCancellation: false,
-  noiseSuppression: false,
-  autoGainControl: false,
-  channelCount: 1,
-};
 const liveSttBiasModeStorageKey = "orbit.liveStt.biasMode";
-const liveSttRawMicDebugStorageKey = "orbit.liveStt.debugRawMic";
-const rehearsalMicrophoneDeviceStorageKey = "orbit.rehearsal.microphoneDeviceId";
 const liveSttDebugDecodingMethodStorageKey =
   "orbit.liveStt.debugDecodingMethod";
 const rehearsalPracticeSummaryStoragePrefix = "orbit.rehearsal.lastSummary";
@@ -1598,57 +1594,6 @@ export function getLiveAudioLevelPercent(level: LiveSttAudioLevelEvent | null) {
   }
 
   return clamp(((level.rmsDb + 55) / 55) * 100, 0, 100);
-}
-
-export function requestRehearsalMicrophoneStream(
-  mediaDevices: Pick<MediaDevices, "getUserMedia"> = navigator.mediaDevices,
-) {
-  const deviceId = readRehearsalMicrophoneDeviceId();
-  return mediaDevices.getUserMedia({
-    audio: {
-      ...getRehearsalMicrophoneAudioConstraints(),
-      ...(deviceId ? { deviceId: { ideal: deviceId } } : {}),
-    },
-  });
-}
-
-export function readRehearsalMicrophoneDeviceId(
-  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage(),
-) {
-  try {
-    return storage?.getItem(rehearsalMicrophoneDeviceStorageKey) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-export function writeRehearsalMicrophoneDeviceId(
-  deviceId: string,
-  storage: Pick<Storage, "setItem"> | null = readBrowserLocalStorage(),
-) {
-  try {
-    if (deviceId) storage?.setItem(rehearsalMicrophoneDeviceStorageKey, deviceId);
-  } catch {
-    // Browsers can block storage while still allowing microphone access.
-  }
-}
-
-export function getRehearsalMicrophoneAudioConstraints(
-  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage(),
-) {
-  return isLiveSttRawMicDebugEnabled(storage)
-    ? rehearsalRawMicrophoneAudioConstraints
-    : rehearsalMicrophoneAudioConstraints;
-}
-
-export function isLiveSttRawMicDebugEnabled(
-  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage(),
-) {
-  try {
-    return storage?.getItem(liveSttRawMicDebugStorageKey) === "1";
-  } catch {
-    return false;
-  }
 }
 
 export function getLiveSttDebugDecodingMethod(

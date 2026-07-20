@@ -11,6 +11,7 @@ import { PresentationMicCheckModal } from "./PresentationMicCheckModal";
 import {
   completePresentationWithoutAudio,
   createPresentationRuntime,
+  fetchOrCreatePresentationDeck,
   uploadPresentationRecording,
   type PresentationRuntimeIdentity,
 } from "./presentationApi";
@@ -19,13 +20,16 @@ import {
   type PresentationRecordingSession,
 } from "./presentationRecording";
 import { usePresentationSpeech } from "./usePresentationSpeech";
+import { getPresentationHighlightedKeywordOccurrences } from "./presentationKeywordOccurrences";
+import {
+  shouldWarnBeforePresentationUnload,
+  type PresentationRuntimePhase,
+} from "./presentationLifecycle";
 import { activityApi } from "../activity-slides/api/activityApi";
 import {
-  fetchOrCreateRehearsalDeck,
   getRehearsalMicrophoneAudioConstraints,
-  getHighlightedKeywordOccurrencesForSlide,
   readRehearsalMicrophoneDeviceId,
-} from "../rehearsal/RehearsalWorkspace";
+} from "../presenter-shell/microphoneSettings";
 import {
   getDeckTargetSeconds,
   getSlideTargetSeconds,
@@ -61,13 +65,6 @@ import {
 } from "../presenter-shell/PresenterScaffold";
 
 type PresentationPhase = "loading" | "ready" | "failed";
-type PresentationRuntimePhase =
-  | "preflight"
-  | "starting"
-  | "active"
-  | "finishing"
-  | "failed";
-
 export function PresentationWorkspace(props: {
   fallbackDeck?: Deck;
   initialDeck?: Deck;
@@ -136,7 +133,7 @@ export function PresentationWorkspace(props: {
 
     let isCancelled = false;
     setPhase("loading");
-    void fetchOrCreateRehearsalDeck({
+    void fetchOrCreatePresentationDeck({
       fallbackDeck: props.fallbackDeck,
       projectId: props.projectId,
     })
@@ -286,7 +283,7 @@ export function PresentationWorkspace(props: {
   );
   const checklistKeywords = currentSlide?.keywords ?? [];
   const highlightedKeywordOccurrences = useMemo(
-    () => getHighlightedKeywordOccurrencesForSlide(currentSlide),
+    () => getPresentationHighlightedKeywordOccurrences(currentSlide),
     [currentSlide],
   );
   const rehearsalProgressPercent =
@@ -511,7 +508,7 @@ export function PresentationWorkspace(props: {
   ]);
 
   useEffect(() => {
-    if (runtimePhase !== "active" && runtimePhase !== "finishing") {
+    if (!shouldWarnBeforePresentationUnload(runtimePhase)) {
       return;
     }
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {

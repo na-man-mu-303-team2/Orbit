@@ -2,9 +2,12 @@ import {
   completePresentationAudioResponseSchema,
   createPresentationAudioUploadResponseSchema,
   createPresentationRunResponseSchema,
+  getDeckResponseSchema,
   getPresentationRunReportResponseSchema,
   getPresentationRunResponseSchema,
+  putDeckResponseSchema,
   type AssetUploadUrlResponse,
+  type Deck,
   type PresentationRecordingMode,
 } from "@orbit/shared";
 
@@ -17,6 +20,52 @@ export type PresentationRuntimeIdentity = {
   sessionId: string;
   status: "created" | "uploading" | "processing" | "succeeded" | "failed" | "cancelled";
 };
+
+export async function fetchOrCreatePresentationDeck(input: {
+  fallbackDeck?: Deck;
+  projectId?: string;
+  fetcher?: typeof fetch;
+}) {
+  const projectId = input.projectId ?? input.fallbackDeck?.projectId;
+  if (!projectId) {
+    throw new Error("발표 자료를 불러올 프로젝트가 지정되지 않았습니다.");
+  }
+
+  const fetcher = input.fetcher ?? fetch;
+  const url = `/api/v1/projects/${segment(projectId)}/deck`;
+  const response = await fetcher(url);
+  if (response.ok) {
+    return getDeckResponseSchema.parse(await response.json()).deck;
+  }
+
+  if (response.status === 404 && input.fallbackDeck) {
+    const putResponse = await fetcher(url, {
+      body: JSON.stringify({
+        deck: input.fallbackDeck,
+        snapshotReason: "deck-replaced",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "PUT",
+    });
+    if (!putResponse.ok) {
+      throw new Error(
+        await readPresentationError(
+          putResponse,
+          "발표 자료를 초기화하지 못했습니다.",
+        ),
+      );
+    }
+    return putDeckResponseSchema.parse(await putResponse.json()).deck;
+  }
+
+  if (input.fallbackDeck && (response.status === 401 || response.status === 403)) {
+    return input.fallbackDeck;
+  }
+
+  throw new Error(
+    await readPresentationError(response, "발표 자료를 불러오지 못했습니다."),
+  );
+}
 
 export async function createPresentationRuntime(input: {
   deckId: string;
@@ -228,6 +277,13 @@ async function requestJson(url: string, init?: RequestInit) {
     throw new Error(message);
   }
   return payload;
+}
+
+async function readPresentationError(response: Response, fallback: string) {
+  const payload = await response.json().catch(() => null);
+  return payload && typeof payload === "object" && "message" in payload
+    ? String(payload.message)
+    : fallback;
 }
 
 function runsUrl(projectId: string, sessionId: string) {
