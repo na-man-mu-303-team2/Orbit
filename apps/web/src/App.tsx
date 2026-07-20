@@ -1094,8 +1094,12 @@ function AppFrame(props: {
     >
       <OrbitAppHeader
         activeItem={getAppNavigationItem(route)}
+        avatar={user?.avatar}
         isAuthenticated={isAuthenticated}
         isLoggingOut={isLoggingOut}
+        onAvatarUpdated={(nextUser) =>
+          queryClient.setQueryData<AuthUser | null>(authMeQueryKey, nextUser)
+        }
         onLogout={() => void handleLogout()}
         onNavigate={navigateTo}
         userInitial={userInitial}

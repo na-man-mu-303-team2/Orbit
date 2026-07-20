@@ -90,7 +90,103 @@
   color: var(--redesign-color-on-primary);
   font-size: var(--redesign-type-body-sm-size);
   font-weight: 800;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
   box-shadow: var(--redesign-glow-primary);
+}
+
+.orbit-app-header-redesign .orbit-app-header-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.orbit-app-header-avatar-input {
+  display: none;
+}
+
+.orbit-app-header-redesign .orbit-app-header-avatar-error {
+  margin: 0;
+  padding: var(--redesign-space-2) 0 0;
+  color: var(--redesign-color-error);
+  font-size: var(--redesign-type-label-sm-size);
+  line-height: 1.35;
+}
+
+.orbit-avatar-settings {
+  display: grid;
+  gap: var(--redesign-space-5);
+}
+
+.orbit-avatar-settings-upload {
+  align-items: center;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.orbit-avatar-settings-grid {
+  display: grid;
+  gap: var(--redesign-space-2);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.orbit-avatar-section-toggle {
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--redesign-color-on-surface);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 750;
+  justify-content: space-between;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.orbit-avatar-section-toggle svg {
+  transition: transform var(--redesign-duration-fast) var(--redesign-ease-standard);
+}
+
+.orbit-avatar-section-toggle svg.open {
+  transform: rotate(180deg);
+}
+
+.orbit-avatar-choice {
+  aspect-ratio: 1;
+  border: 2px solid transparent;
+  border-radius: var(--redesign-radius-full);
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+}
+
+.orbit-avatar-choice img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.orbit-avatar-choice:hover:not(:disabled),
+.orbit-avatar-choice:focus-visible {
+  border-color: var(--redesign-color-primary);
+}
+
+.orbit-avatar-choice.selected {
+  border-color: var(--redesign-color-primary);
+  box-shadow: var(--redesign-focus-ring);
+}
+
+.orbit-avatar-choice:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 /* Account dropdown — shared var(--redesign-color-light-surface) menu with account context */

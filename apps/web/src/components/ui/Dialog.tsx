@@ -1,5 +1,6 @@
 import { IconX } from "@tabler/icons-react";
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { OrbitIconButton } from "./IconButton";
 import "./dialog.css";
 
@@ -79,7 +80,7 @@ export function OrbitDialog(props: {
 
   if (!props.open) return null;
 
-  return (
+  return createPortal(
     <div
       className="redesign-dialog-backdrop"
       onMouseDown={(event) => {
@@ -114,6 +115,7 @@ export function OrbitDialog(props: {
         <div className="redesign-dialog-body">{props.children}</div>
         {props.footer ? <footer className="redesign-dialog-footer">{props.footer}</footer> : null}
       </section>
-    </div>
+    </div>,
+    document.body
   );
 }

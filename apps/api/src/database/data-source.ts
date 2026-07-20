@@ -63,6 +63,7 @@ import { CenterSmartArtCardText2026071705000 } from "./migrations/2026071705000-
 import { ReplaceStoryReviewWithCoverPreview2026071706000 } from "./migrations/2026071706000-ReplaceStoryReviewWithCoverPreview";
 import { AddProjectMemberPins2026071801000 } from "./migrations/2026071801000-AddProjectMemberPins";
 import { CreatePresentationRuns2026072001000 } from "./migrations/2026072001000-CreatePresentationRuns";
+import { AddProfileAvatars2026072101000 } from "./migrations/2026072101000-AddProfileAvatars";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -138,6 +139,7 @@ export const databaseOptions: DataSourceOptions = {
     AddProjectMemberPins2026071801000,
     CreatePresentationRuns2026072001000,
     AddPresentationDetailedReport2026072002000,
+    AddProfileAvatars2026072101000,
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

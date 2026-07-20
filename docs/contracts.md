@@ -1203,6 +1203,7 @@ Implementation locations:
 - `export-result`
 - `report-result`
 - `thumbnail`
+- `profile-avatar`
 - `rehearsal-slide-snapshot`
 - `design-asset`
 

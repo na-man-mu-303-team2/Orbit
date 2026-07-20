@@ -9,10 +9,12 @@ import {
 } from "@orbit/shared";
 import type {
   AuthResponse,
+  AuthAvatar,
   AuthSession,
   AuthUser,
   LoginRequest,
   MeResponse,
+  OfficialAvatarId,
   RegisterRequest
 } from "@orbit/shared";
 import {
@@ -31,6 +33,8 @@ type UserRow = {
   user_id: string;
   email: string;
   password_hash: string;
+  avatar_type: "official" | "uploaded" | null;
+  avatar_id: string | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -67,7 +71,7 @@ export class AuthService {
         `
           INSERT INTO users (user_id, email, password_hash, created_at, updated_at)
           VALUES ($1, $2, $3, $4, $4)
-          RETURNING user_id, email, password_hash, created_at, updated_at
+          RETURNING user_id, email, password_hash, avatar_type, avatar_id, created_at, updated_at
         `,
         [`user_${randomUUID()}`, credentials.email, passwordHash, now]
       );
@@ -123,6 +127,38 @@ export class AuthService {
     }
   }
 
+  /** 현재 세션의 사용자 아바타 선택을 DB와 Redis 세션에 함께 반영한다. */
+  async updateAvatar(
+    sessionId: string,
+    userId: string,
+    avatar: AuthAvatar
+  ): Promise<AuthUser> {
+    const avatarId = avatar.kind === "official" ? avatar.avatarId : avatar.fileId;
+    await this.dataSource.query(
+      `
+        UPDATE users
+        SET avatar_type = $2, avatar_id = $3, updated_at = now()
+        WHERE user_id = $1
+      `,
+      [userId, avatar.kind, avatarId]
+    );
+    const userRow = await this.findUserById(userId);
+    if (!userRow) {
+      throw new UnauthorizedException("Authentication required");
+    }
+    const user = this.toAuthUser(userRow);
+    const session = await this.sessions.get(sessionId);
+    if (session?.user.userId === userId) {
+      const remainingTtlSeconds = Math.ceil(
+        (new Date(session.expiresAt).getTime() - Date.now()) / 1000
+      );
+      if (remainingTtlSeconds > 0) {
+        await this.sessions.set(sessionId, { ...session, user }, remainingTtlSeconds);
+      }
+    }
+    return user;
+  }
+
   /** 인증 성공 시 7일 TTL의 session payload를 만들고 session id와 함께 반환한다. */
   private async createSession(user: AuthUser): Promise<AuthResult> {
     const authenticatedAt = new Date();
@@ -149,11 +185,25 @@ export class AuthService {
   private async findUserByEmail(email: string): Promise<UserRow | undefined> {
     const rows = await this.dataSource.query<UserRow[]>(
       `
-        SELECT user_id, email, password_hash, created_at, updated_at
+        SELECT user_id, email, password_hash, avatar_type, avatar_id, created_at, updated_at
         FROM users
         WHERE lower(email) = lower($1)
       `,
       [email]
+    );
+
+    return rows[0];
+  }
+
+  private async findUserById(userId: string): Promise<UserRow | undefined> {
+    const rows = await this.dataSource.query<UserRow[]>(
+      `
+        SELECT user_id, email, password_hash, avatar_type, avatar_id, created_at, updated_at
+        FROM users
+        WHERE user_id = $1
+        LIMIT 1
+      `,
+      [userId]
     );
 
     return rows[0];
@@ -164,9 +214,20 @@ export class AuthService {
     return authUserSchema.parse({
       userId: row.user_id,
       email: row.email,
-      createdAt: toIso(row.created_at)
+      createdAt: toIso(row.created_at),
+      avatar: toAuthAvatar(row),
     });
   }
+}
+
+function toAuthAvatar(row: UserRow): AuthAvatar | null {
+  if (row.avatar_type === "official" && row.avatar_id) {
+    return { kind: "official", avatarId: row.avatar_id as OfficialAvatarId };
+  }
+  if (row.avatar_type === "uploaded" && row.avatar_id) {
+    return { kind: "uploaded", fileId: row.avatar_id };
+  }
+  return null;
 }
 
 /** 가입 여부를 드러내지 않는 공통 로그인 실패 예외를 만든다. */

@@ -12,6 +12,7 @@ type DropdownMenuItemProps = ComponentPropsWithoutRef<"button"> & {
 };
 
 type DropdownMenuAccountProps = Omit<ComponentPropsWithoutRef<"div">, "children"> & {
+  avatarUrl?: string;
   initial: string;
   label: string;
 };
@@ -37,6 +38,7 @@ export function DropdownMenu({
 
 export function DropdownMenuAccount({
   className = "",
+  avatarUrl,
   initial,
   label,
   role = "presentation",
@@ -49,7 +51,15 @@ export function DropdownMenuAccount({
       {...accountProps}
     >
       <span aria-hidden="true" className="redesign-dropdown-menu-account-avatar">
-        {initial}
+        {avatarUrl ? (
+          <img
+            alt="프로필 이미지"
+            className="redesign-dropdown-menu-account-avatar-image"
+            src={avatarUrl}
+          />
+        ) : (
+          initial
+        )}
       </span>
       <strong>{label}</strong>
     </div>
