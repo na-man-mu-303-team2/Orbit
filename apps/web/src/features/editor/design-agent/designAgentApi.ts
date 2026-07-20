@@ -103,8 +103,24 @@ export async function applyDesignAgentProposal(
       payload && typeof payload === "object" && "message" in payload
         ? String(payload.message)
         : `Design agent apply failed: ${response.status}`;
+    if (response.status === 409) {
+      throw new DesignAgentProposalStaleError(message);
+    }
     throw new Error(message);
   }
 
   return applyDesignAgentProposalResponseSchema.parse(await response.json());
+}
+
+export class DesignAgentProposalStaleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DesignAgentProposalStaleError";
+  }
+}
+
+export function isDesignAgentProposalStaleError(
+  error: unknown,
+): error is DesignAgentProposalStaleError {
+  return error instanceof DesignAgentProposalStaleError;
 }

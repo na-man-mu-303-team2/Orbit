@@ -1,7 +1,7 @@
 import { createDemoDeck } from "@orbit/editor-core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { DesignProposalCompareCard } from "./DesignProposalCompareCard";
+import { DesignProposalPreviewModal } from "./DesignProposalPreviewModal";
 
 vi.mock("../../../slides/rendering", () => ({
   ReadOnlySlideCanvas: (props: { deck: { version: number } }) => (
@@ -9,12 +9,12 @@ vi.mock("../../../slides/rendering", () => ({
   ),
 }));
 
-describe("DesignProposalCompareCard", () => {
-  it("renders explicit Before and After labels from separate deck snapshots", () => {
+describe("DesignProposalPreviewModal", () => {
+  it("renders simultaneous Before and After snapshots in the accessible dialog", () => {
     const beforeDeck = createDemoDeck();
     const afterDeck = { ...beforeDeck, version: beforeDeck.version + 1 };
     const html = renderToStaticMarkup(
-      <DesignProposalCompareCard
+      <DesignProposalPreviewModal
         afterDeck={afterDeck}
         beforeDeck={beforeDeck}
         lifecycle="proposal-ready"
@@ -23,36 +23,36 @@ describe("DesignProposalCompareCard", () => {
         warnings={[]}
         onApply={() => undefined}
         onClose={() => undefined}
-        onPreview={() => undefined}
       />,
     );
 
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-modal="true"');
     expect(html).toContain("Before");
     expect(html).toContain("After");
     expect(html).toContain(`data-version="${beforeDeck.version}"`);
     expect(html).toContain(`data-version="${afterDeck.version}"`);
-    expect(html).toContain("미리보기");
   });
 
-  it("announces stale state and blocks apply while keeping preview available", () => {
+  it("keeps comparison visible and disables apply when stale", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(
-      <DesignProposalCompareCard
+      <DesignProposalPreviewModal
         afterDeck={{ ...deck, version: deck.version + 1 }}
         beforeDeck={deck}
         lifecycle="stale"
         slideId={deck.slides[0]!.slideId}
         summary="오래된 제안"
-        warnings={[]}
+        warnings={["일부 요소는 변경하지 않았습니다."]}
         onApply={() => undefined}
         onClose={() => undefined}
-        onPreview={() => undefined}
       />,
     );
 
-    expect(html).toContain("원본이 변경된 제안");
-    expect(html).toContain("다시 생성해 주세요");
-    expect(html).toMatch(/<button class="primary" disabled=""[^>]*>적용<\/button>/);
-    expect(html).toMatch(/<button type="button"><svg[^>]*>.*미리보기<\/button>/s);
+    expect(html).toContain("이 제안은 적용할 수 없습니다");
+    expect(html).toContain("일부 요소는 변경하지 않았습니다.");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*><span>적용<\/span><\/button>/);
+    expect(html).toContain("Before");
+    expect(html).toContain("After");
   });
 });

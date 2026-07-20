@@ -1,8 +1,10 @@
 import { createDemoDeck } from "@orbit/editor-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  applyDesignAgentProposal,
   createDesignAgentMessage,
   createDesignImageGeneration,
+  isDesignAgentProposalStaleError,
   pollDesignImageGeneration,
 } from "./designAgentApi";
 
@@ -41,6 +43,20 @@ describe("design agent message API", () => {
       content: "사용자에게 보이는 요청",
       intentPreset: "tidy-layout",
     });
+  });
+});
+
+describe("design proposal apply API", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("maps a server conflict to the shared stale proposal state", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ message: "Design agent proposal baseVersion is stale." }),
+      { status: 409, headers: { "content-type": "application/json" } },
+    )));
+
+    const request = applyDesignAgentProposal("project_1", "proposal_1");
+    await expect(request).rejects.toSatisfy(isDesignAgentProposalStaleError);
   });
 });
 

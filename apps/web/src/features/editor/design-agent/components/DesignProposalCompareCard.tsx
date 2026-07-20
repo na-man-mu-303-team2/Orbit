@@ -1,12 +1,15 @@
 import type { Deck } from "@orbit/shared";
 import { IconArrowRight, IconArrowsMaximize, IconX } from "@tabler/icons-react";
 import { ReadOnlySlideCanvas } from "../../../slides/rendering";
+import {
+  canApplyDesignProposal,
+  type DesignProposalLifecycle,
+} from "../designProposalLifecycle";
 
 type DesignProposalCompareCardProps = {
   afterDeck: Deck;
   beforeDeck: Deck;
-  isApplying: boolean;
-  isStale: boolean;
+  lifecycle: DesignProposalLifecycle;
   onApply: () => void;
   onClose: () => void;
   onPreview: () => void;
@@ -28,12 +31,21 @@ export function DesignProposalCompareCard(props: DesignProposalCompareCardProps)
 
   const beforeScale = Math.min(0.12, 128 / props.beforeDeck.canvas.width);
   const afterScale = Math.min(0.12, 128 / props.afterDeck.canvas.width);
+  const isApplying = props.lifecycle === "applying";
+  const isStale = props.lifecycle === "stale";
+  const canApply = canApplyDesignProposal(props.lifecycle);
 
   return (
     <section className="design-proposal-compare-card" aria-label="디자인 제안 Before/After">
       <header className="design-proposal-compare-header">
         <div>
-          <strong>{props.isStale ? "원본이 변경된 제안" : "디자인 제안 준비됨"}</strong>
+          <strong>
+            {isStale
+              ? "원본이 변경된 제안"
+              : props.lifecycle === "failed"
+                ? "제안 적용 실패"
+                : "디자인 제안 준비됨"}
+          </strong>
           <span>{props.summary}</span>
         </div>
         <button aria-label="디자인 제안 닫기" type="button" onClick={props.onClose}>
@@ -69,9 +81,14 @@ export function DesignProposalCompareCard(props: DesignProposalCompareCardProps)
         </figure>
       </div>
 
-      {props.isStale ? (
+      {isStale ? (
         <p className="design-proposal-stale-message" role="status">
           제안 생성 후 슬라이드가 변경되었습니다. 적용하려면 다시 생성해 주세요.
+        </p>
+      ) : null}
+      {props.lifecycle === "failed" ? (
+        <p className="design-proposal-failed-message" role="alert">
+          제안을 적용하지 못했습니다. 다시 적용할 수 있습니다.
         </p>
       ) : null}
       {props.warnings.length ? (
@@ -85,11 +102,15 @@ export function DesignProposalCompareCard(props: DesignProposalCompareCardProps)
         </button>
         <button
           className="primary"
-          disabled={props.isApplying || props.isStale}
+          disabled={!canApply}
           type="button"
           onClick={props.onApply}
         >
-          {props.isApplying ? "적용 중..." : "적용"}
+          {isApplying
+            ? "적용 중..."
+            : props.lifecycle === "failed"
+              ? "다시 적용"
+              : "적용"}
         </button>
       </footer>
     </section>

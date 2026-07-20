@@ -10,7 +10,7 @@ import {
   type AiChatState
 } from "./AiChatPanel";
 
-vi.mock("./DesignProposalPreviewModal", () => ({
+vi.mock("../../design-agent/components/DesignProposalPreviewModal", () => ({
   DesignProposalPreviewModal: () => null
 }));
 vi.mock("../../design-agent/components/DesignProposalCompareCard", () => ({

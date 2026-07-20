@@ -171,6 +171,7 @@
 }
 
 .design-proposal-stale-message,
+.design-proposal-failed-message,
 .design-proposal-inline-warning {
   margin: 0;
   padding: var(--redesign-space-2);
@@ -182,6 +183,11 @@
 .design-proposal-stale-message {
   background: var(--redesign-color-warning-subtle);
   color: var(--redesign-color-warning);
+}
+
+.design-proposal-failed-message {
+  background: var(--redesign-color-error-subtle);
+  color: var(--redesign-color-error);
 }
 
 .design-proposal-inline-warning {
@@ -271,4 +277,84 @@
   padding: 0 var(--redesign-space-2);
   border: var(--redesign-border-subtle);
   background: var(--redesign-color-surface-container);
+}
+
+.design-proposal-applied-message {
+  margin: 0 var(--redesign-space-4) var(--redesign-space-3);
+  padding: var(--redesign-space-3);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-success-subtle);
+  color: var(--redesign-color-success);
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: var(--redesign-type-body-sm-line-height);
+}
+
+.design-proposal-preview-dialog {
+  max-width: min(1040px, calc(100vw - var(--redesign-space-8)));
+}
+
+.design-proposal-modal-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--redesign-space-4);
+}
+
+.design-proposal-modal-comparison figure {
+  display: grid;
+  gap: var(--redesign-space-2);
+  min-width: 0;
+  margin: 0;
+}
+
+.design-proposal-modal-comparison figcaption {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-md-size);
+  font-weight: 700;
+}
+
+.design-proposal-modal-slide {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--redesign-space-3);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-surface-container-low);
+}
+
+.design-proposal-modal-slide.after {
+  border-color: var(--redesign-color-secondary-fixed-dim);
+}
+
+.design-proposal-modal-state,
+.design-proposal-modal-warning {
+  margin: var(--redesign-space-3) 0 0;
+  padding: var(--redesign-space-3);
+  border-radius: var(--redesign-radius-md);
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: var(--redesign-type-body-sm-line-height);
+}
+
+.design-proposal-modal-state,
+.design-proposal-modal-warning {
+  background: var(--redesign-color-warning-subtle);
+  color: var(--redesign-color-warning);
+}
+
+.design-proposal-modal-state.error {
+  background: var(--redesign-color-error-subtle);
+  color: var(--redesign-color-error);
+}
+
+@media (max-width: 720px) {
+  .design-proposal-preview-dialog {
+    max-width: 100%;
+  }
+
+  .design-proposal-modal-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
