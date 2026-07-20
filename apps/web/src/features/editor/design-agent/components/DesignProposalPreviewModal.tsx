@@ -33,7 +33,7 @@ export function DesignProposalPreviewModal(
   const canApply = canApplyDesignProposal(props.lifecycle);
   const beforeScale = Math.min(0.3, 420 / props.beforeDeck.canvas.width);
   const afterScale = Math.min(0.3, 420 / props.afterDeck.canvas.width);
-  const content = (
+  const dialog = (
     <OrbitDialog
       className="design-proposal-preview-dialog"
       closeDisabled={isApplying}
@@ -99,6 +99,11 @@ export function DesignProposalPreviewModal(
         </p>
       ) : null}
     </OrbitDialog>
+  );
+  const content = (
+    <div className="redesign-dark design-proposal-preview-portal">
+      {dialog}
+    </div>
   );
 
   if (typeof document === "undefined" || !document.body) return content;

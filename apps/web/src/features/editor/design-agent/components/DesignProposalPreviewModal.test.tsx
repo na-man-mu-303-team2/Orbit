@@ -30,6 +30,7 @@ describe("DesignProposalPreviewModal", () => {
 
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-modal="true"');
+    expect(html).toContain("redesign-dark design-proposal-preview-portal");
     expect(html).toContain('tabindex="-1"');
     expect(html).toContain("data-orbit-dialog-initial");
     expect(html).toContain('aria-label="닫기"');
