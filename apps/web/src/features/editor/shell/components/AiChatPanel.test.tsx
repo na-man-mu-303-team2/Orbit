@@ -13,6 +13,9 @@ import {
 vi.mock("./DesignProposalPreviewModal", () => ({
   DesignProposalPreviewModal: () => null
 }));
+vi.mock("../../design-agent/components/DesignProposalCompareCard", () => ({
+  DesignProposalCompareCard: () => null
+}));
 
 const editorShellCssPath = path.join(
   process.cwd(),

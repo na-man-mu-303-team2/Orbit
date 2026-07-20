@@ -1,11 +1,9 @@
-import { applyDeckPatch } from "@orbit/editor-core";
 import type {
   ApplyDesignAgentProposalResponse,
   Deck,
   DesignAgentIntentPreset,
   DesignImageGenerationResult,
   DesignImageReferenceAttachment,
-  DesignAgentProposal,
   SelectedDesignImageReference,
   SpeakerNotesSuggestionMode,
   Slide
@@ -29,7 +27,13 @@ import {
   DesignAssistantHome,
   type DesignAssistantQuickAction
 } from "../../design-agent/components/DesignAssistantHome";
+import { DesignProposalCompareCard } from "../../design-agent/components/DesignProposalCompareCard";
 import "../../design-agent/design-assistant.css";
+import {
+  buildDesignProposalPreview,
+  isDesignProposalStale,
+  type DesignProposalPreview
+} from "../../design-agent/designProposalPreview";
 import {
   getAssetValidationMessage,
   uploadProjectAsset
@@ -55,11 +59,6 @@ export type AiChatState = {
   messages: AiChatMessage[];
   projectId: string;
   sessionId: string | null;
-};
-
-type PendingPreview = {
-  candidateDeck: Deck;
-  proposal: DesignAgentProposal;
 };
 
 type SelectedImagePreview = {
@@ -106,7 +105,9 @@ export function AiChatPanel(props: AiChatPanelProps) {
   const [referenceImages, setReferenceImages] = useState<
     DesignImageReferenceAttachment[]
   >([]);
-  const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
+  const [pendingPreview, setPendingPreview] =
+    useState<DesignProposalPreview | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [failedQuickAction, setFailedQuickAction] =
     useState<DesignAssistantQuickAction | null>(null);
   const [quickActionError, setQuickActionError] = useState<string | null>(null);
@@ -199,6 +200,8 @@ export function AiChatPanel(props: AiChatPanelProps) {
     intentPreset?: DesignAgentIntentPreset
   ) {
     if (!props.currentSlide) return;
+    const baseDeck = props.deck;
+    const baseSlide = props.currentSlide;
     const result = await createDesignAgentMessage(props.projectId, {
       ...(props.chatState.sessionId
         ? { sessionId: props.chatState.sessionId }
@@ -206,12 +209,12 @@ export function AiChatPanel(props: AiChatPanelProps) {
       content,
       ...(intentPreset ? { intentPreset } : {}),
       context: {
-        deckId: props.deck.deckId,
-        baseVersion: props.deck.version,
-        canvas: props.deck.canvas,
-        slide: props.currentSlide,
+        deckId: baseDeck.deckId,
+        baseVersion: baseDeck.version,
+        canvas: baseDeck.canvas,
+        slide: baseSlide,
         selectedElementIds: props.selectedElementIds,
-        theme: props.deck.theme
+        theme: baseDeck.theme
       }
     });
     props.onChatStateChange((current) =>
@@ -225,24 +228,8 @@ export function AiChatPanel(props: AiChatPanelProps) {
     }
 
     if (result.proposal) {
-      const previewResult = applyDeckPatch(props.deck, {
-        deckId: result.proposal.deckId,
-        baseVersion: result.proposal.baseVersion,
-        source: "ai",
-        operations: result.proposal.operations
-      });
-      if (!previewResult.ok) {
-        const detail = previewResult.error.details?.[0];
-        throw new Error(
-          `AI 제안의 미리보기를 만들지 못했습니다: ${
-            detail ?? previewResult.error.message
-          }`,
-        );
-      }
-      setPendingPreview({
-        candidateDeck: previewResult.deck,
-        proposal: result.proposal
-      });
+      setPendingPreview(buildDesignProposalPreview(baseDeck, result.proposal));
+      setIsPreviewOpen(false);
     }
 
     const warningText = result.proposal?.warnings.length
@@ -370,6 +357,12 @@ export function AiChatPanel(props: AiChatPanelProps) {
 
   async function handleApplyPreview() {
     if (!pendingPreview || isApplying) return;
+    if (isDesignProposalStale(props.deck, pendingPreview.proposal)) {
+      setQuickActionError(
+        "제안 생성 후 슬라이드가 변경되었습니다. 제안을 다시 생성해 주세요."
+      );
+      return;
+    }
     setIsApplying(true);
     try {
       const applied = await applyDesignAgentProposal(
@@ -378,6 +371,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
       );
       props.onProposalApplied(applied);
       setPendingPreview(null);
+      setIsPreviewOpen(false);
       updateMessages((current) => [
         ...current,
         {
@@ -415,6 +409,9 @@ export function AiChatPanel(props: AiChatPanelProps) {
       !isSending &&
       !isUploadingReferenceImage
   );
+  const isPendingPreviewStale = Boolean(
+    pendingPreview && isDesignProposalStale(props.deck, pendingPreview.proposal)
+  );
 
   return (
     <section className="ai-chat-panel" aria-label="AI 채팅">
@@ -432,6 +429,23 @@ export function AiChatPanel(props: AiChatPanelProps) {
           onRetry={failedQuickAction
             ? () => void handleQuickAction(failedQuickAction)
             : undefined}
+        />
+      ) : null}
+      {pendingPreview ? (
+        <DesignProposalCompareCard
+          afterDeck={pendingPreview.candidateDeck}
+          beforeDeck={pendingPreview.baseDeck}
+          isApplying={isApplying}
+          isStale={isPendingPreviewStale}
+          slideId={pendingPreview.proposal.slideId}
+          summary={pendingPreview.proposal.summary ?? pendingPreview.proposal.title}
+          warnings={pendingPreview.proposal.warnings}
+          onApply={() => void handleApplyPreview()}
+          onClose={() => {
+            setPendingPreview(null);
+            setIsPreviewOpen(false);
+          }}
+          onPreview={() => setIsPreviewOpen(true)}
         />
       ) : null}
       <div className="ai-chat-history" aria-live="polite">
@@ -608,7 +622,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
         </div>
       </form>
 
-      {pendingPreview ? (
+      {pendingPreview && isPreviewOpen ? (
         <DesignProposalPreviewModal
           deck={pendingPreview.candidateDeck}
           slideId={pendingPreview.proposal.slideId}
@@ -616,7 +630,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
           warnings={pendingPreview.proposal.warnings}
           isApplying={isApplying}
           onApply={() => void handleApplyPreview()}
-          onClose={() => setPendingPreview(null)}
+          onClose={() => setIsPreviewOpen(false)}
         />
       ) : null}
     </section>

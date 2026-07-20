@@ -83,6 +83,154 @@
   background: var(--redesign-color-surface-container);
 }
 
+.design-proposal-compare-card {
+  display: grid;
+  gap: var(--redesign-space-3);
+  margin: 0 var(--redesign-space-4) var(--redesign-space-3);
+  padding: var(--redesign-space-3);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface-container);
+}
+
+.design-proposal-compare-header {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--redesign-space-2);
+}
+
+.design-proposal-compare-header > div {
+  display: grid;
+  gap: var(--redesign-space-1);
+  min-width: 0;
+}
+
+.design-proposal-compare-header strong {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-md-size);
+}
+
+.design-proposal-compare-header span {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: var(--redesign-type-body-sm-line-height);
+}
+
+.design-proposal-compare-header button {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+  width: var(--redesign-size-control-sm);
+  height: var(--redesign-size-control-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--redesign-radius-md);
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  cursor: pointer;
+}
+
+.design-proposal-inline-comparison {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: var(--redesign-space-2);
+}
+
+.design-proposal-inline-comparison figure {
+  display: grid;
+  gap: var(--redesign-space-1);
+  min-width: 0;
+  margin: 0;
+}
+
+.design-proposal-inline-comparison figcaption {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 700;
+}
+
+.design-proposal-inline-slide {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface-container-lowest);
+}
+
+.design-proposal-inline-slide.after {
+  border-color: var(--redesign-color-secondary-fixed-dim);
+}
+
+.design-proposal-compare-arrow {
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.design-proposal-stale-message,
+.design-proposal-inline-warning {
+  margin: 0;
+  padding: var(--redesign-space-2);
+  border-radius: var(--redesign-radius-md);
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: var(--redesign-type-body-sm-line-height);
+}
+
+.design-proposal-stale-message {
+  background: var(--redesign-color-warning-subtle);
+  color: var(--redesign-color-warning);
+}
+
+.design-proposal-inline-warning {
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.design-proposal-inline-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--redesign-space-2);
+}
+
+.design-proposal-inline-actions button {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+  gap: var(--redesign-space-1);
+  min-height: var(--redesign-size-control-sm);
+  padding: 0 var(--redesign-space-3);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 700;
+}
+
+.design-proposal-inline-actions button.primary {
+  border-color: var(--redesign-color-primary);
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+}
+
+.design-proposal-inline-actions button:disabled {
+  border-color: var(--redesign-color-disabled);
+  background: var(--redesign-color-disabled-container);
+  color: var(--redesign-color-on-disabled);
+  cursor: not-allowed;
+}
+
+.design-proposal-inline-actions button:focus-visible,
+.design-proposal-compare-header button:focus-visible {
+  outline: var(--redesign-border-active);
+  outline-offset: var(--redesign-space-1);
+}
+
 .design-assistant-primary-action:hover:not(:disabled),
 .design-assistant-secondary-actions button:hover:not(:disabled) {
   border-color: var(--redesign-color-primary-outline);
