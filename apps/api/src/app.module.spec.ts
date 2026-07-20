@@ -14,5 +14,6 @@ describe("AppModule", () => {
     expect(moduleNames).not.toContain("AiTemplateDeckGenerationModule");
     expect(moduleNames).toContain("PptxOoxmlGenerationsModule");
     expect(moduleNames).toContain("GenerateDeckModule");
+    expect(moduleNames).toContain("CommunityTemplatesModule");
   });
 });
