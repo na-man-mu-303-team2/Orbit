@@ -8,7 +8,7 @@ export type {
   ApplyDeckPatchOptions,
   ApplyDeckPatchResult,
   ApplyDeckPatchSuccess,
-  DeckPatchVersionMetadata
+  DeckPatchVersionMetadata,
 } from "./patches/deckPatch";
 export {
   createAddAnimationWithKeywordTriggerPatch,
@@ -22,31 +22,23 @@ export {
   deriveKeywordUsage,
   findKeywordByTerm,
   getAnimationTriggerAction,
-  getKeywordTriggerLabel
+  getKeywordTriggerLabel,
 } from "./patches/actionOperations";
 export type {
   DerivedKeywordActionUsage,
   DerivedKeywordOccurrenceUsage,
-  DerivedKeywordUsage
+  DerivedKeywordUsage,
 } from "./patches/actionOperations";
-export {
-  suggestLegacyKeywordTriggerRepairs
-} from "./patches/legacyKeywordTriggerRepair";
+export { suggestLegacyKeywordTriggerRepairs } from "./patches/legacyKeywordTriggerRepair";
 export type {
   LegacyKeywordTriggerRepairConfidence,
-  LegacyKeywordTriggerRepairSuggestion
+  LegacyKeywordTriggerRepairSuggestion,
 } from "./patches/legacyKeywordTriggerRepair";
-export {
-  removeLegacyAiGeneratedTitleAnimations
-} from "./patches/legacyAiGeneratedAnimationRepair";
+export { removeLegacyAiGeneratedTitleAnimations } from "./patches/legacyAiGeneratedAnimationRepair";
 export { deriveKeywordOccurrences } from "./keywords/keywordOccurrences";
 export type { KeywordOccurrence } from "./keywords/keywordOccurrences";
-export {
-  findDanglingKeywordOccurrenceActions
-} from "./keywords/keywordOccurrenceDiagnostics";
-export type {
-  DanglingKeywordOccurrenceAction
-} from "./keywords/keywordOccurrenceDiagnostics";
+export { findDanglingKeywordOccurrenceActions } from "./keywords/keywordOccurrenceDiagnostics";
+export type { DanglingKeywordOccurrenceAction } from "./keywords/keywordOccurrenceDiagnostics";
 export {
   createAddAnimationPatch,
   createAnimationId,
@@ -55,16 +47,16 @@ export {
   createUpdateAnimationPatch,
   getElementAnimations,
   getNextAnimationOrder,
-  validateSlideAnimations
+  validateSlideAnimations,
 } from "./patches/animationOperations";
 export type {
   SlideAnimationDanglingTargetDiagnostic,
   SlideAnimationDiagnostics,
-  SlideAnimationOrderDiagnostic
+  SlideAnimationOrderDiagnostic,
 } from "./patches/animationOperations";
 export {
   createElementFramePatch,
-  normalizeElementFrameDraft
+  normalizeElementFrameDraft,
 } from "./patches/elementFrame";
 export type { ElementFrameDraft } from "./patches/elementFrame";
 export {
@@ -73,7 +65,7 @@ export {
   getRichTextSelectionCharacterStyle,
   getRichTextSelectionParagraphStyle,
   getRichTextSemanticText,
-  normalizeRichTextProps
+  normalizeRichTextProps,
 } from "./text/richTextOperations";
 export type {
   RichTextCharacterStylePatch,
@@ -81,13 +73,13 @@ export type {
   RichTextRange,
   RichTextSelectionCharacterStyle,
   RichTextSelectionParagraphStyle,
-  RichTextSelectionValue
+  RichTextSelectionValue,
 } from "./text/richTextOperations";
 export {
   createTableOperationPatch,
   getTableOperationCapability,
   getTableStructureCapability,
-  normalizeTableCellRange
+  normalizeTableCellRange,
 } from "./table/tableOperations";
 export type {
   TableCellRange,
@@ -96,20 +88,20 @@ export type {
   TableOperationDisabledReason,
   TableOperationPatchResult,
   TableStructureCapability,
-  TableStructureDisabledReason
+  TableStructureDisabledReason,
 } from "./table/tableOperations";
 export {
   buildGroupedFrameOperations,
   createGroupedElementFramePatch,
   getGroupChildElements,
   getGroupedSelectionBounds,
-  transformGroupedChildFrame
+  transformGroupedChildFrame,
 } from "./patches/groupFrame";
 export {
   createAddElementPatch,
   createDeleteElementPatch,
   createElementId,
-  createUpdateElementPropsPatch
+  createUpdateElementPropsPatch,
 } from "./patches/elementOperations";
 export {
   createAddSlidePatch,
@@ -120,7 +112,7 @@ export {
 export {
   animationTimelineDiagnosticLimit,
   createAnimationTimeline,
-  getAnimationTimelineRoot
+  getAnimationTimelineRoot,
 } from "./playback/animationTimeline";
 export type {
   AnimationStartMode,
@@ -129,7 +121,7 @@ export type {
   AnimationTimelinePlan,
   AnimationTimelineRoot,
   PlannedAnimationTimelineEffect,
-  TimelineAnimationInput
+  TimelineAnimationInput,
 } from "./playback/animationTimeline";
 export { normalizeLegacyAnimationStartModes } from "./patches/legacyAnimationStartModeMigration";
 export {
@@ -139,7 +131,7 @@ export {
   createUpdateActivityResultDefinitionPatch,
   duplicateActivityResultsSlide,
   duplicateActivitySlide,
-  remapActivityDefinitionsForDeckDuplicate
+  remapActivityDefinitionsForDeckDuplicate,
 } from "./patches/activitySlideOperations";
 export {
   createSlidePlaybackState,
@@ -147,13 +139,20 @@ export {
   getNextClickAnimation,
   playNextClickAnimation,
   resolveCueActions,
-  resolveTriggeredActions
+  resolveTriggeredActions,
 } from "./playback/slidePlayback";
 export type {
   ClickPlaybackResult,
   SlideActionExecutionResult,
-  SlidePlaybackState
+  SlidePlaybackState,
 } from "./playback/slidePlayback";
+export {
+  CommunityTemplateSanitizationError,
+  sanitizeCommunityTemplate,
+} from "./community-templates/sanitizeCommunityTemplate";
+export type { CommunityTemplateSanitizationErrorCode } from "./community-templates/sanitizeCommunityTemplate";
+export { materializeCommunityTemplate } from "./community-templates/materializeCommunityTemplate";
+export type { MaterializeCommunityTemplateInput } from "./community-templates/materializeCommunityTemplate";
 
 export function createDemoDeck(): Deck {
   return deckSchema.parse({
@@ -182,7 +181,7 @@ export function createDemoDeck(): Deck {
         secondary: "#7c3aed",
         surface: "#ffffff",
         muted: "#f3f4f6",
-        border: "#dbe3f0"
+        border: "#dbe3f0",
       },
       typography: {
         headingFontFamily: "Inter",
@@ -190,7 +189,7 @@ export function createDemoDeck(): Deck {
         titleSize: 56,
         headingSize: 36,
         bodySize: 22,
-        captionSize: 16
+        captionSize: 16,
       },
       effects: {
         borderRadius: 10,
@@ -199,9 +198,9 @@ export function createDemoDeck(): Deck {
           blur: 18,
           offsetX: 0,
           offsetY: 8,
-          opacity: 0.16
-        }
-      }
+          opacity: 0.16,
+        },
+      },
     },
     slides: [
       {
@@ -219,8 +218,8 @@ export function createDemoDeck(): Deck {
             src: "/files/backgrounds/opening-grid.png",
             alt: "Opening grid",
             fit: "cover",
-            opacity: 0.28
-          }
+            opacity: 0.28,
+          },
         },
         speakerNotes: "ORBIT 데모 흐름을 소개합니다.",
         keywords: [
@@ -234,8 +233,8 @@ export function createDemoDeck(): Deck {
             keywordId: "kw_2",
             text: "Deck Schema",
             synonyms: ["발표 자료 구조"],
-            abbreviations: ["Schema"]
-          }
+            abbreviations: ["Schema"],
+          },
         ],
         elements: [
           {
@@ -265,8 +264,8 @@ export function createDemoDeck(): Deck {
               fontSize: 28,
               fontWeight: "medium",
               color: "#334155",
-              lineHeight: 1.4
-            }
+              lineHeight: 1.4,
+            },
           },
           {
             elementId: "el_3",
@@ -286,9 +285,9 @@ export function createDemoDeck(): Deck {
                 blur: 18,
                 offsetX: 0,
                 offsetY: 10,
-                opacity: 0.14
-              }
-            }
+                opacity: 0.14,
+              },
+            },
           },
           {
             elementId: "el_4",
@@ -303,8 +302,8 @@ export function createDemoDeck(): Deck {
               alt: "Editor preview",
               fit: "cover",
               focusX: 0.5,
-              focusY: 0.5
-            }
+              focusY: 0.5,
+            },
           },
           {
             elementId: "el_5",
@@ -318,9 +317,9 @@ export function createDemoDeck(): Deck {
               fill: "transparent",
               stroke: "#2563eb",
               strokeWidth: 4,
-              borderRadius: 0
-            }
-          }
+              borderRadius: 0,
+            },
+          },
         ],
         animations: [
           {
@@ -339,8 +338,8 @@ export function createDemoDeck(): Deck {
             order: 2,
             durationMs: 600,
             delayMs: 120,
-            easing: "ease-in-out"
-          }
+            easing: "ease-in-out",
+          },
         ],
       },
       {
@@ -353,16 +352,17 @@ export function createDemoDeck(): Deck {
           fontFamily: "Inter",
           backgroundColor: "#ffffff",
           textColor: "#111827",
-          accentColor: "#7c3aed"
+          accentColor: "#7c3aed",
         },
-        speakerNotes: "두 번째 슬라이드에서는 ORBIT-14 계약이 협업 기능의 기준이 된다는 점을 강조합니다.",
+        speakerNotes:
+          "두 번째 슬라이드에서는 ORBIT-14 계약이 협업 기능의 기준이 된다는 점을 강조합니다.",
         keywords: [
           {
             keywordId: "kw_3",
             text: "slideId",
             synonyms: ["슬라이드 식별자"],
-            abbreviations: ["SID"]
-          }
+            abbreviations: ["SID"],
+          },
         ],
         elements: [
           {
@@ -377,8 +377,8 @@ export function createDemoDeck(): Deck {
               text: "Shared Data Contract",
               fontSize: 44,
               fontWeight: "bold",
-              color: "#111827"
-            }
+              color: "#111827",
+            },
           },
           {
             elementId: "el_7",
@@ -406,15 +406,15 @@ export function createDemoDeck(): Deck {
                 showGrid: true,
                 xAxisTitle: "영역",
                 yAxisTitle: "반영도",
-                unit: "%"
+                unit: "%",
               },
               data: [
                 { label: "Deck", value: 100 },
                 { label: "Slide", value: 100 },
                 { label: "Element", value: 82 },
-                { label: "Animation", value: 76 }
-              ]
-            }
+                { label: "Animation", value: 76 },
+              ],
+            },
           },
           {
             elementId: "el_8",
@@ -425,8 +425,8 @@ export function createDemoDeck(): Deck {
             width: 520,
             height: 280,
             props: {
-              childElementIds: ["el_9", "el_10"]
-            }
+              childElementIds: ["el_9", "el_10"],
+            },
           },
           {
             elementId: "el_9",
@@ -440,8 +440,8 @@ export function createDemoDeck(): Deck {
               fill: "#ede9fe",
               stroke: "#c4b5fd",
               strokeWidth: 2,
-              borderRadius: 0
-            }
+              borderRadius: 0,
+            },
           },
           {
             elementId: "el_10",
@@ -461,16 +461,16 @@ export function createDemoDeck(): Deck {
                 { x: 92, y: 100, mode: "corner" },
                 { x: 48, y: 148, mode: "corner" },
                 { x: 56, y: 100, mode: "corner" },
-                { x: 20, y: 100, mode: "corner" }
+                { x: 20, y: 100, mode: "corner" },
               ],
               stroke: "#9333ea",
               strokeWidth: 2,
               viewBoxWidth: 220,
               viewBoxHeight: 160,
               pathData:
-                "M 20 20 L 200 20 L 200 100 L 92 100 L 48 148 L 56 100 L 20 100 Z"
-            }
-          }
+                "M 20 20 L 200 20 L 200 100 L 92 100 L 48 148 L 56 100 L 20 100 Z",
+            },
+          },
         ],
         animations: [
           {
@@ -480,10 +480,10 @@ export function createDemoDeck(): Deck {
             order: 1,
             durationMs: 500,
             delayMs: 0,
-            easing: "ease-out"
-          }
-        ]
-      }
+            easing: "ease-out",
+          },
+        ],
+      },
     ],
   });
 }

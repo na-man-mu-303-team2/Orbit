@@ -62,8 +62,8 @@ export function createPrivateCommunityTemplateDeck(): Deck {
     {
       keywordId: `kw_${privateTemplateMarker}`,
       text: privateTemplateMarker,
-      synonyms: [privateTemplateMarker],
-      abbreviations: [privateTemplateMarker],
+      synonyms: [`${privateTemplateMarker}_synonym`],
+      abbreviations: [`${privateTemplateMarker}_abbreviation`],
     },
   ];
   firstSlide.animations = [
