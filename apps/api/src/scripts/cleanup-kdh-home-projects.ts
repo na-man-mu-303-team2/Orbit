@@ -16,6 +16,14 @@ export const kdhHomeProjectOwnerEmail = "kdh@orbit.com";
 
 export const kdhHomeCleanupConfirmToken = "delete-kdh-home-projects";
 
+/**
+ * Second lock, required only when APP_ENV is production. The fixture reached
+ * the AWS production database too, so the cleanup has to be possible there --
+ * but never by accident, and never with the same token that unlocks staging.
+ */
+export const kdhHomeCleanupProductionToken =
+  "i-understand-this-deletes-production-data";
+
 export { kdhHomeProjectIds };
 
 /**
@@ -85,11 +93,17 @@ export function assertKdhHomeCleanupAllowed(
   config: Pick<OrbitConfig, "APP_ENV">,
   env: NodeJS.ProcessEnv,
 ): void {
-  if (config.APP_ENV === "production")
-    throw new Error("Kdh home project cleanup is forbidden in production.");
   if (env.KDH_HOME_CLEANUP_CONFIRM !== kdhHomeCleanupConfirmToken)
     throw new Error(
       `KDH_HOME_CLEANUP_CONFIRM must be set to "${kdhHomeCleanupConfirmToken}".`,
+    );
+  if (
+    config.APP_ENV === "production" &&
+    env.KDH_HOME_CLEANUP_ALLOW_PRODUCTION !== kdhHomeCleanupProductionToken
+  )
+    throw new Error(
+      "Kdh home project cleanup in production additionally requires " +
+        `KDH_HOME_CLEANUP_ALLOW_PRODUCTION="${kdhHomeCleanupProductionToken}".`,
     );
 }
 
