@@ -7,6 +7,7 @@ import {
 import {
   createSlidePracticeAnalysisRequestSchema,
   createSlidePracticeReportRequestSchema,
+  listSlidePracticeReportsQuerySchema,
   slidePracticeAnalysisResultResponseSchema,
   slidePracticeReportListResponseSchema,
   slidePracticeReportRecordSchema,
@@ -299,6 +300,15 @@ describe("slide practice server analysis contract", () => {
       ...request,
       transcript: "저장하면 안 되는 원문",
     }).success).toBe(false);
+    expect(createSlidePracticeAnalysisRequestSchema.safeParse({
+      ...request,
+      contentHashVersion: "slide-text-v1",
+      slideContentHash: "b".repeat(64),
+    }).success).toBe(true);
+    expect(createSlidePracticeAnalysisRequestSchema.safeParse({
+      ...request,
+      slideContentHash: "b".repeat(64),
+    }).success).toBe(false);
   });
 
   it("returns only bounded state and a derived report", () => {
@@ -344,6 +354,21 @@ describe("slide practice server analysis contract", () => {
       transcriptSegments: [{ text: "발표를 시작합니다", startMs: 0, endMs: 2_000 }],
       pauseSegments: [],
     }).success).toBe(true);
+  });
+});
+
+describe("slide practice report list query", () => {
+  it("validates comparable history hashes and bounded limits", () => {
+    expect(listSlidePracticeReportsQuerySchema.parse({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      slideContentHash: "e".repeat(64),
+      limit: "5",
+    }).limit).toBe(5);
+    expect(listSlidePracticeReportsQuerySchema.safeParse({
+      slideContentHash: "E".repeat(64),
+    }).success).toBe(false);
+    expect(listSlidePracticeReportsQuerySchema.safeParse({ limit: "101" }).success).toBe(false);
   });
 });
 

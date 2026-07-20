@@ -9,6 +9,7 @@ import {
 
 const identifierSchema = z.string().trim().min(1).max(128);
 const nullableFiniteMetricSchema = z.number().finite().nullable();
+export const slidePracticeContentHashSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
 export const slidePracticeQualityStateSchema = z.enum([
   "measured",
@@ -347,7 +348,7 @@ export const slidePracticeReportV3Schema = slidePracticeReportBodySchema.extend(
   reportVersion: z.literal(3),
   metricDefinitionVersion: z.literal(3),
   contentHashVersion: z.literal("slide-text-v1"),
-  slideContentHash: z.string().regex(/^[a-f0-9]{64}$/),
+  slideContentHash: slidePracticeContentHashSchema,
 }).strict();
 
 const slidePracticeReportVariantSchema = z.union([
@@ -434,6 +435,24 @@ export const createSlidePracticeAnalysisRequestSchema = z.object({
   mimeType: z.enum(allowedRehearsalAudioMimeTypes),
   size: z.number().int().positive().max(maxRehearsalAudioUploadSizeBytes),
   deviceIdHash: z.string().trim().min(1).max(128).nullable(),
+  contentHashVersion: z.literal("slide-text-v1").optional(),
+  slideContentHash: slidePracticeContentHashSchema.optional(),
+}).strict().superRefine((request, context) => {
+  if ((request.contentHashVersion === undefined) !== (request.slideContentHash === undefined)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["slideContentHash"],
+      message: "Slide practice content hash version and value must be provided together",
+    });
+  }
+});
+
+export const listSlidePracticeReportsQuerySchema = z.object({
+  deckId: identifierSchema.optional(),
+  slideId: identifierSchema.optional(),
+  slideContentHash: slidePracticeContentHashSchema.optional(),
+  cursor: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
 }).strict();
 
 export const completeSlidePracticeAnalysisRequestSchema = z.object({
@@ -496,5 +515,6 @@ export type VoiceBaselineRecord = z.infer<typeof voiceBaselineRecordSchema>;
 export type UpsertVoiceBaselineRequest = z.infer<typeof upsertVoiceBaselineRequestSchema>;
 export type SlidePracticeAnalysis = z.infer<typeof slidePracticeAnalysisSchema>;
 export type CreateSlidePracticeAnalysisRequest = z.infer<typeof createSlidePracticeAnalysisRequestSchema>;
+export type ListSlidePracticeReportsQuery = z.infer<typeof listSlidePracticeReportsQuerySchema>;
 export type CompleteSlidePracticeAnalysisRequest = z.infer<typeof completeSlidePracticeAnalysisRequestSchema>;
 export type SlidePracticeServerAudioResponse = z.infer<typeof slidePracticeServerAudioResponseSchema>;
