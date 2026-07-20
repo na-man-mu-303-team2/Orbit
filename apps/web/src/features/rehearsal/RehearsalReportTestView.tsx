@@ -10,7 +10,10 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FillerMetricDetails } from "./RehearsalReportTestMetricDetails";
+import {
+  FillerMetricDetails,
+  LongSilenceMetricDetails,
+} from "./RehearsalReportTestMetricDetails";
 import { RehearsalReportTestNavigator } from "./RehearsalReportTestNavigator";
 import { RehearsalReportTestOverview } from "./RehearsalReportTestOverview";
 import { RehearsalSlideCanvasPreview } from "./RehearsalSlideCanvasPreview";
@@ -230,6 +233,19 @@ export function RehearsalReportTestView({
               tone={slideMetrics.filler.tone}
             />
             <SummaryRow
+              details={
+                deck && selectedSlide ? (
+                  <LongSilenceMetricDetails
+                    audioPlaybackAvailable={audioPlaybackAvailable}
+                    deck={deck}
+                    formatDuration={formatDuration}
+                    report={report}
+                    slideId={selectedSlide.slideId}
+                  />
+                ) : undefined
+              }
+              detailsHint="이 슬라이드의 5초 이상 침묵 구간"
+              detailsLabel="긴 침묵 발생 구간"
               icon={CirclePause}
               label="긴 침묵(5초 이상)"
               value={slideMetrics.longSilence.value}

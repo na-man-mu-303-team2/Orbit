@@ -170,6 +170,7 @@ export function FillerMetricDetails({
 type SilenceProps = CommonProps & {
   audioPlaybackAvailable: boolean;
   formatDuration: (seconds: number) => string;
+  slideId?: string;
 };
 
 export function LongSilenceMetricDetails({
@@ -177,14 +178,17 @@ export function LongSilenceMetricDetails({
   deck,
   formatDuration,
   report,
+  slideId,
 }: SilenceProps) {
   const playback = useRehearsalAudioSegmentPlayback(report.runId);
-  const silences = buildLongSilenceDetails(deck, report);
+  const silences = buildLongSilenceDetails(deck, report, slideId);
 
   if (silences.length === 0) {
     return (
       <p className="rrd-test-metric-empty">
-        5초 이상 발화가 없었던 구간이 없습니다.
+        {slideId
+          ? "이 슬라이드에서 5초 이상 긴 침묵이 감지되지 않았습니다."
+          : "5초 이상 발화가 없었던 구간이 없습니다."}
       </p>
     );
   }
@@ -266,7 +270,11 @@ export function LongSilenceMetricDetails({
   );
 }
 
-export function buildLongSilenceDetails(deck: Deck, report: RehearsalReport) {
+export function buildLongSilenceDetails(
+  deck: Deck,
+  report: RehearsalReport,
+  slideId?: string,
+) {
   const longSilences = report.silenceAnalysis.segments.filter(
     (segment) => segment.durationSeconds >= 5,
   );
@@ -297,7 +305,7 @@ export function buildLongSilenceDetails(deck: Deck, report: RehearsalReport) {
     const slide = window
       ? deck.slides.find((candidate) => candidate.slideId === window.slideId)
       : undefined;
-    if (!slide) return [];
+    if (!slide || (slideId && slide.slideId !== slideId)) return [];
 
     return [
       {
