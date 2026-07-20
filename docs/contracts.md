@@ -632,6 +632,115 @@ API는 pending migration 또는 필수 `project_members.is_pinned` 컬럼 누락
 schema가 준비되지 않았으면 listen 전에 기동을 중단한다. `/health/readiness`도 동일한
 검사를 사용한다.
 
+## 커뮤니티 템플릿 계약
+
+커뮤니티 템플릿은 source project의 공개 상태나 원본 `Deck` JSON이 아니라 개인정보가
+제거된 immutable `CommunityTemplateSnapshot`이다. source project와 owner가 삭제되어도
+저장된 snapshot의 조회와 사용은 유지된다.
+
+category는 다음 4개 값만 저장한다.
+
+```text
+business, education, portfolio, event
+```
+
+- `templateId`는 `community_template_` prefix를 사용한다.
+- snapshot `schemaVersion`은 literal `1`이다.
+- 공개 title은 trim 후 1~60자다.
+- list query의 `query`는 최대 60자, `page`는 양의 정수, `limit`은 기본 24·최대 48이다.
+- use request의 `clientRequestId`는 UUID이며 `(userId, clientRequestId)` 범위의 멱등성 key다.
+- 정제 snapshot은 최대 100장, UTF-8 JSON 10 MiB 이하다.
+
+snapshot 구조:
+
+```ts
+type CommunityTemplateSnapshot = {
+  schemaVersion: 1;
+  canvas: DeckCanvas;
+  theme: CommunityTemplateTheme;
+  targetDurationMinutes: number;
+  slides: CommunityTemplateSlide[];
+};
+```
+
+`CommunityTemplateSlide`는 `content`만 허용하고 `slideId`, `order`, literal
+`슬라이드 제목`, 정제된 `style`, 안전한 `elements`만 저장한다. snapshot과 preview의
+object schema는 strict하며 다음 정보는 구조적으로 허용하지 않는다.
+
+- `projectId`, `deckId`, Deck title/version/metadata
+- `thumbnailUrl`, `speakerNotes`, `keywords`, `semanticCues`, `aiNotes`
+- `activity`, `activityResult`, transition, animation, action
+- `backgroundImage`, `image`, `svg`, `src`, `url`, `fileId`
+- slide/element OOXML origin, source part, edit capability
+
+text는 role에 따라 `제목을 입력하세요` 또는 `내용을 입력하세요`만 허용하고 rich text
+`runs`와 `paragraphs`는 저장하지 않는다. image와 SVG는 같은 frame의 neutral `rect`로
+바뀐다. table cell은 `내용`, chart는 type과 style만 유지한 deterministic sample data를
+사용한다. activity 또는 activity-results slide가 하나라도 있으면 공개를 거절한다.
+font family는 ORBIT catalog 값만 허용하며 알 수 없는 값은 `Pretendard`로 정규화한다.
+
+preview는 full snapshot을 반환하지 않고 다음 첫 slide projection만 사용한다.
+
+```ts
+type CommunityTemplatePreview = {
+  canvas: DeckCanvas;
+  theme: CommunityTemplateTheme;
+  slide: CommunityTemplateSlide;
+};
+```
+
+API:
+
+- `GET /api/v1/community-templates`
+- `GET /api/v1/community-templates/recent`
+- `GET /api/v1/workspaces/:workspaceId/community-templates/sources`
+- `POST /api/v1/workspaces/:workspaceId/community-templates`
+- `POST /api/v1/workspaces/:workspaceId/community-templates/:templateId/use`
+
+모든 endpoint는 signed session 인증을 요구한다. list/recent/use는 모든 로그인 사용자가
+사용할 수 있다. sources는 현재 사용자가 accepted owner인 project만 반환하며 publish는
+source project owner만 성공한다. publish request는 `sourceProjectId`, `title`, `category`,
+literal `rightsConfirmed: true`만 허용한다. client가 snapshot, preview, Deck JSON,
+`ownerUserId`, source version을 전달할 수 없다.
+
+public card DTO는 `templateId`, `title`, `category`, 정제된 `preview`, `createdAt`만 갖고
+`ownerUserId`, `sourceProjectId`, `sourceDeckId`, full snapshot을 포함하지 않는다. 공개 시
+서버가 현재 source Deck을 다시 읽고 `deckSchema`와 sanitizer를 통과시킨 뒤 snapshot을
+저장한다.
+
+use는 하나의 database transaction에서 다음을 원자적으로 처리한다.
+
+1. 사용자와 `clientRequestId` 범위의 advisory transaction lock과 기존 결과 확인
+2. 저장 snapshot을 shared schema로 검증
+3. 새 project와 accepted owner membership 생성
+4. 새 `deck_`, `slide_`, `el_` ID와 group reference를 발급한 Deck 생성
+5. current Deck과 초기 `deck_snapshots` row 생성
+6. `community_template_usages` upsert
+7. `community_template_use_requests` 결과 저장
+
+같은 사용자와 `clientRequestId`가 같은 template에 재전송되면 기존 project와 `deckId`를
+반환한다. 다른 template에 재사용하면 HTTP 409
+`COMMUNITY_TEMPLATE_USE_CONFLICT`를 반환한다. 생성 Deck은 `version: 1`,
+`metadata.sourceType: "manual"`이며 `deckSchema`를 통과한다.
+
+bounded 실패 code:
+
+- `COMMUNITY_TEMPLATE_NOT_FOUND`
+- `COMMUNITY_TEMPLATE_SOURCE_NOT_FOUND`
+- `COMMUNITY_TEMPLATE_OWNER_REQUIRED`
+- `COMMUNITY_TEMPLATE_ACTIVITY_UNSUPPORTED`
+- `COMMUNITY_TEMPLATE_SANITIZATION_FAILED`
+- `COMMUNITY_TEMPLATE_SNAPSHOT_TOO_LARGE`
+- `COMMUNITY_TEMPLATE_USE_CONFLICT`
+- `COMMUNITY_TEMPLATE_SCHEMA_NOT_READY`
+
+구현 위치:
+
+- `packages/shared/src/community-templates/community-template.schema.ts`
+- `packages/shared/src/community-templates/community-template-api.schema.ts`
+- `packages/editor-core/src/community-templates`
+- `apps/api/src/community-templates`
+
 ## AI 덱 생성 계약
 
 AI 덱 생성은 사용자 입력과 참고자료 fileId를 받아 비동기 Job으로 실행한다. public 계약은 요청/응답과 최종 Deck JSON에 필요한 metadata/evidence만 포함하고, planner/layout 중간 모델은 Python worker 내부 구현으로 둔다.
