@@ -9,6 +9,7 @@ import {
   type AssetUploadUrlResponse,
   type Deck,
   type PresentationRecordingMode,
+  type SlideTranscriptSnapshot,
 } from "@orbit/shared";
 
 import { activityApi } from "../activity-slides/api/activityApi";
@@ -19,7 +20,13 @@ export type PresentationRuntimeIdentity = {
   recordingMode: PresentationRecordingMode;
   runId: string;
   sessionId: string;
-  status: "created" | "uploading" | "processing" | "succeeded" | "failed" | "cancelled";
+  status:
+    | "created"
+    | "uploading"
+    | "processing"
+    | "succeeded"
+    | "failed"
+    | "cancelled";
 };
 
 export async function fetchOrCreatePresentationDeck(input: {
@@ -59,7 +66,10 @@ export async function fetchOrCreatePresentationDeck(input: {
     return putDeckResponseSchema.parse(await putResponse.json()).deck;
   }
 
-  if (input.fallbackDeck && (response.status === 401 || response.status === 403)) {
+  if (
+    input.fallbackDeck &&
+    (response.status === 401 || response.status === 403)
+  ) {
     return input.fallbackDeck;
   }
 
@@ -74,16 +84,19 @@ export async function createPresentationRuntime(input: {
   projectId: string;
   recordingMode: PresentationRecordingMode;
 }): Promise<PresentationRuntimeIdentity> {
-  const { audienceUrl, session } = await activityApi.createSession(input.projectId, {
-    accessMode: "public",
-    deckId: input.deckId,
-    reuseCurrent: true,
-  });
+  const { audienceUrl, session } = await activityApi.createSession(
+    input.projectId,
+    {
+      accessMode: "public",
+      deckId: input.deckId,
+      reuseCurrent: true,
+    },
+  );
   const response = await requestJson(
     runsUrl(input.projectId, session.sessionId),
     {
       body: JSON.stringify({
-        expectedDeckVersion: input.deckVersion,
+        expectedDeckVersion: session.deckVersion,
         recordingMode: input.recordingMode,
       }),
       headers: { "content-type": "application/json" },
@@ -102,9 +115,11 @@ export async function createPresentationRuntime(input: {
 
 export async function uploadPresentationRecording(input: {
   file: File;
+  liveTranscript?: string;
   projectId: string;
   runId: string;
   sessionId: string;
+  slideTranscriptSnapshots?: SlideTranscriptSnapshot[];
 }) {
   const file = normalizePresentationRecordingFile(input.file);
   const current = await getPresentationRun(input);
@@ -134,7 +149,8 @@ export async function uploadPresentationRecording(input: {
       method: "POST",
     },
   );
-  const { upload } = createPresentationAudioUploadResponseSchema.parse(uploadResponse);
+  const { upload } =
+    createPresentationAudioUploadResponseSchema.parse(uploadResponse);
   await putPresentationRecording(upload, file);
   const completed = await completePendingPresentationRecording({
     ...input,
@@ -159,14 +175,17 @@ export async function completePresentationWithoutAudio(input: {
   }
 
   if (current.run.recordingMode === "microphone") {
-    const response = await requestJson(runsUrl(input.projectId, input.sessionId), {
-      body: JSON.stringify({
-        expectedDeckVersion: current.run.deckVersion,
-        recordingMode: "none",
-      }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
+    const response = await requestJson(
+      runsUrl(input.projectId, input.sessionId),
+      {
+        body: JSON.stringify({
+          expectedDeckVersion: current.run.deckVersion,
+          recordingMode: "none",
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      },
+    );
     const { run } = createPresentationRunResponseSchema.parse(response);
     if (run.runId !== input.runId || run.recordingMode !== "none") {
       throw new Error("빈 발표 녹음을 마이크 없이 완료하지 못했습니다.");
@@ -174,7 +193,10 @@ export async function completePresentationWithoutAudio(input: {
   }
 
   try {
-    await completePresentationRecording({ ...input, body: { withoutAudio: true } });
+    await completePresentationRecording({
+      ...input,
+      body: { withoutAudio: true },
+    });
   } catch (cause) {
     const reconciled = await getPresentationRun(input);
     if (!hasCompletedAudioStep(reconciled.run.status)) {
@@ -226,7 +248,13 @@ export async function retryPresentationAnalysis(input: {
 }
 
 async function completePresentationRecording(input: {
-  body: { fileId: string } | { withoutAudio: true };
+  body:
+    | {
+        fileId: string;
+        liveTranscript?: string;
+        slideTranscriptSnapshots?: SlideTranscriptSnapshot[];
+      }
+    | { withoutAudio: true };
   projectId: string;
   runId: string;
   sessionId: string;
@@ -244,13 +272,19 @@ async function completePresentationRecording(input: {
 
 async function completePendingPresentationRecording(input: {
   fileId: string;
+  liveTranscript?: string;
   projectId: string;
   runId: string;
   sessionId: string;
+  slideTranscriptSnapshots?: SlideTranscriptSnapshot[];
 }) {
   try {
     await completePresentationRecording({
-      body: { fileId: input.fileId },
+      body: {
+        fileId: input.fileId,
+        liveTranscript: input.liveTranscript,
+        slideTranscriptSnapshots: input.slideTranscriptSnapshots,
+      },
       projectId: input.projectId,
       runId: input.runId,
       sessionId: input.sessionId,
@@ -269,10 +303,15 @@ async function completePendingPresentationRecording(input: {
 }
 
 function hasCompletedAudioStep(status: PresentationRuntimeIdentity["status"]) {
-  return status === "processing" || status === "succeeded" || status === "failed";
+  return (
+    status === "processing" || status === "succeeded" || status === "failed"
+  );
 }
 
-async function putPresentationRecording(upload: AssetUploadUrlResponse, file: File) {
+async function putPresentationRecording(
+  upload: AssetUploadUrlResponse,
+  file: File,
+) {
   const response = await fetch(upload.uploadUrl, {
     body: file,
     headers: upload.headers,

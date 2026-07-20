@@ -285,6 +285,8 @@ export class PresentationRunsService {
         runId,
         deckId: run.deckId,
         audioFileId: request.fileId,
+        liveTranscript: request.liveTranscript,
+        slideTranscriptSnapshots: request.slideTranscriptSnapshots,
       },
     });
     processingRun.jobId = job.jobId;
@@ -301,6 +303,8 @@ export class PresentationRunsService {
         runId,
         deckId: run.deckId,
         audioFileId: request.fileId,
+        liveTranscript: request.liveTranscript,
+        slideTranscriptSnapshots: request.slideTranscriptSnapshots,
       });
       this.logger.info(
         {
@@ -408,6 +412,8 @@ export class PresentationRunsService {
         runId,
         deckId: run.deckId,
         audioFileId: run.audioFileId,
+        liveTranscript: null,
+        slideTranscriptSnapshots: [],
       },
     });
     processingRun.jobId = job.jobId;
@@ -424,6 +430,8 @@ export class PresentationRunsService {
         runId,
         deckId: run.deckId,
         audioFileId: run.audioFileId,
+        liveTranscript: null,
+        slideTranscriptSnapshots: [],
       });
       this.logger.info(
         {

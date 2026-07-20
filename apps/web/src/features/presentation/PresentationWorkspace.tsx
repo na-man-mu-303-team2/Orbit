@@ -1,9 +1,13 @@
-import { createSlidePlaybackState, type SlidePlaybackState } from "@orbit/editor-core";
+import {
+  createSlidePlaybackState,
+  type SlidePlaybackState,
+} from "@orbit/editor-core";
 import type {
   Deck,
   DeckElement,
   PresentationRecordingMode,
   Slide,
+  SlideTranscriptSnapshot,
 } from "@orbit/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OrbitButton, OrbitFailureState } from "../../components/ui";
@@ -95,13 +99,17 @@ export function PresentationWorkspace(props: {
   );
   const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
   const [timerDurationInput, setTimerDurationInput] = useState(() =>
-    formatClock(props.initialDeck ? getDeckTargetSeconds(props.initialDeck) : 5 * 60),
+    formatClock(
+      props.initialDeck ? getDeckTargetSeconds(props.initialDeck) : 5 * 60,
+    ),
   );
   const [editingTimeField, setEditingTimeField] = useState<
     "elapsed" | "duration" | null
   >(null);
   const [hasManualTimerDuration, setHasManualTimerDuration] = useState(false);
-  const requiresPresentationRuntime = Boolean(props.projectId && !props.initialDeck);
+  const requiresPresentationRuntime = Boolean(
+    props.projectId && !props.initialDeck,
+  );
   const [runtimePhase, setRuntimePhase] = useState<PresentationRuntimePhase>(
     requiresPresentationRuntime ? "preflight" : "active",
   );
@@ -117,7 +125,20 @@ export function PresentationWorkspace(props: {
   const recordedFileRef = useRef<File | null>(null);
   const startPromiseRef = useRef<Promise<void> | null>(null);
   const finishPromiseRef = useRef<Promise<void> | null>(null);
-  const playbackStateRef = useRef<SlidePlaybackState>(createSlidePlaybackState());
+  const slideTranscriptSnapshotsRef = useRef<SlideTranscriptSnapshot[]>([]);
+  const slideTranscriptVisitVersionsRef = useRef<Map<string, number>>(
+    new Map(),
+  );
+  const activeSlideTranscriptVisitRef = useRef<{
+    slideId: string;
+    slideNum: number;
+    visitedAt: string;
+    visitedVer: number;
+  } | null>(null);
+  const previousSlideIndexRef = useRef(currentSlideIndex);
+  const playbackStateRef = useRef<SlidePlaybackState>(
+    createSlidePlaybackState(),
+  );
   const previousHitKeywordIdsRef = useRef<Set<string>>(new Set());
   const advanceControllerStateRef = useRef<AdvanceControllerState>(
     createInitialAdvanceControllerState(),
@@ -125,7 +146,9 @@ export function PresentationWorkspace(props: {
   const finalSentenceCommittedAtMsRef = useRef<number | null>(null);
   const finalSentenceSpokenAtMsRef = useRef<number | null>(null);
   const [advanceControllerState, setAdvanceControllerState] =
-    useState<AdvanceControllerState>(() => createInitialAdvanceControllerState());
+    useState<AdvanceControllerState>(() =>
+      createInitialAdvanceControllerState(),
+    );
   const [autoAdvanceNowMs, setAutoAdvanceNowMs] = useState(0);
   const speech = usePresentationSpeech(props.projectId);
 
@@ -153,7 +176,11 @@ export function PresentationWorkspace(props: {
           return;
         }
 
-        setError(cause instanceof Error ? cause.message : "발표 자료를 불러오지 못했습니다.");
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "발표 자료를 불러오지 못했습니다.",
+        );
         setPhase("failed");
       });
 
@@ -216,6 +243,17 @@ export function PresentationWorkspace(props: {
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
   const nextSlide = deck?.slides[currentSlideIndex + 1] ?? null;
+  useEffect(() => {
+    if (runtimePhase !== "active" || !currentSlide) {
+      previousSlideIndexRef.current = currentSlideIndex;
+      return;
+    }
+    if (previousSlideIndexRef.current !== currentSlideIndex) {
+      captureSlideTranscriptSnapshot("slide-change");
+      beginSlideTranscriptVisit(currentSlide, currentSlideIndex);
+      previousSlideIndexRef.current = currentSlideIndex;
+    }
+  }, [currentSlide, currentSlideIndex, runtimePhase]);
   const triggerAnimationIds = useMemo(
     () => (currentSlide ? getTriggerAnimationIdsForSlide(currentSlide) : []),
     [currentSlide],
@@ -232,25 +270,26 @@ export function PresentationWorkspace(props: {
   );
   const currentSlideTargetSeconds =
     deck && currentSlide ? getSlideTargetSeconds(deck, currentSlide) : 0;
-  const timing: RehearsalTimingSnapshot = deck && currentSlide
-    ? {
-        currentSlideElapsedSeconds: slideElapsedSeconds,
-        currentSlideOvertime:
-          currentSlideTargetSeconds > 0 &&
-          slideElapsedSeconds > currentSlideTargetSeconds,
-        currentSlideTargetSeconds,
-        deckTargetSeconds: timerDurationSeconds,
-        elapsedSeconds,
-        remainingSeconds: timerDurationSeconds - elapsedSeconds,
-      }
-    : {
-        currentSlideElapsedSeconds: 0,
-        currentSlideOvertime: false,
-        currentSlideTargetSeconds: 0,
-        deckTargetSeconds: timerDurationSeconds,
-        elapsedSeconds,
-        remainingSeconds: timerDurationSeconds - elapsedSeconds,
-      };
+  const timing: RehearsalTimingSnapshot =
+    deck && currentSlide
+      ? {
+          currentSlideElapsedSeconds: slideElapsedSeconds,
+          currentSlideOvertime:
+            currentSlideTargetSeconds > 0 &&
+            slideElapsedSeconds > currentSlideTargetSeconds,
+          currentSlideTargetSeconds,
+          deckTargetSeconds: timerDurationSeconds,
+          elapsedSeconds,
+          remainingSeconds: timerDurationSeconds - elapsedSeconds,
+        }
+      : {
+          currentSlideElapsedSeconds: 0,
+          currentSlideOvertime: false,
+          currentSlideTargetSeconds: 0,
+          deckTargetSeconds: timerDurationSeconds,
+          elapsedSeconds,
+          remainingSeconds: timerDurationSeconds - elapsedSeconds,
+        };
   const adviceState: TimingAdviceState = {
     pace: "normal",
     slideOvertime: timing.currentSlideOvertime,
@@ -269,21 +308,19 @@ export function PresentationWorkspace(props: {
         : [],
     [currentSlide],
   );
-  const panelSnapshot = useMemo(
-    () => {
-      if (
-        speech.state.snapshot &&
-        speech.state.snapshot.slideId === currentSlide?.slideId
-      ) {
-        return speech.state.snapshot;
-      }
-      return createEmptySpeechTrackerSnapshot({
-        matchableSentenceCount: sentences.filter((sentence) => sentence.matchable).length,
-        slideId: currentSlide?.slideId ?? "presentation-empty",
-      });
-    },
-    [currentSlide?.slideId, sentences, speech.state.snapshot],
-  );
+  const panelSnapshot = useMemo(() => {
+    if (
+      speech.state.snapshot &&
+      speech.state.snapshot.slideId === currentSlide?.slideId
+    ) {
+      return speech.state.snapshot;
+    }
+    return createEmptySpeechTrackerSnapshot({
+      matchableSentenceCount: sentences.filter((sentence) => sentence.matchable)
+        .length,
+      slideId: currentSlide?.slideId ?? "presentation-empty",
+    });
+  }, [currentSlide?.slideId, sentences, speech.state.snapshot]);
   const checklistKeywords = currentSlide?.keywords ?? [];
   const highlightedKeywordOccurrences = useMemo(
     () => getPresentationHighlightedKeywordOccurrences(currentSlide),
@@ -291,14 +328,19 @@ export function PresentationWorkspace(props: {
   );
   const rehearsalProgressPercent =
     timerDurationSeconds > 0
-      ? Math.min(100, Math.max(0, (elapsedSeconds / timerDurationSeconds) * 100))
+      ? Math.min(
+          100,
+          Math.max(0, (elapsedSeconds / timerDurationSeconds) * 100),
+        )
       : 0;
   const presentationStatusLabel =
     runtimePhase === "finishing"
       ? "발표 저장 중"
-      : isTimerRunning
-        ? "발표 진행 중"
-        : "발표 준비";
+      : speech.state.status === "paused"
+        ? "발표 일시정지"
+        : isTimerRunning
+          ? "발표 진행 중"
+          : "발표 준비";
   const miniSlideScale = deck ? getMiniSlideScale(deck) : 0.14;
   const { presenterScale, presenterStageRef } = usePresenterStageScale(deck);
   const infoCards: PresenterInfoCardItem[] = [
@@ -342,7 +384,9 @@ export function PresentationWorkspace(props: {
 
     cancelAutoAdvanceForManualCommand();
     setPresenterStepIndex(0);
-    setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
+    setCurrentSlideIndex((current) =>
+      Math.min(deck.slides.length - 1, current + 1),
+    );
   }, [cancelAutoAdvanceForManualCommand, deck]);
 
   const handleNextPresenterStep = useCallback(() => {
@@ -386,7 +430,10 @@ export function PresentationWorkspace(props: {
       return;
     }
 
-    const timer = window.setInterval(() => setAutoAdvanceNowMs(Date.now()), 250);
+    const timer = window.setInterval(
+      () => setAutoAdvanceNowMs(Date.now()),
+      250,
+    );
     return () => window.clearInterval(timer);
   }, [runtimePhase, speech.state.status]);
 
@@ -578,6 +625,8 @@ export function PresentationWorkspace(props: {
         await speech.start(stream, currentSlide);
       }
 
+      resetSlideTranscriptSnapshots(deck, currentSlideIndex);
+
       setElapsedSeconds(0);
       setSlideElapsedSeconds(0);
       setIsTimerRunning(true);
@@ -593,7 +642,9 @@ export function PresentationWorkspace(props: {
         recordingRef.current = null;
         runtimeRef.current = null;
         setRuntimeError(
-          cause instanceof Error ? cause.message : "실전 발표를 시작하지 못했습니다.",
+          cause instanceof Error
+            ? cause.message
+            : "실전 발표를 시작하지 못했습니다.",
         );
         setRuntimeFailureOperation("start");
         setRuntimePhase("failed");
@@ -620,6 +671,8 @@ export function PresentationWorkspace(props: {
       setRuntimeError("");
       setRuntimeFailureOperation(null);
       setIsTimerRunning(false);
+      captureSlideTranscriptSnapshot("rehearsal-end");
+      const liveTranscript = speech.getTranscript();
       await speech.stop();
 
       if (recordingRef.current && !recordedFileRef.current) {
@@ -629,9 +682,11 @@ export function PresentationWorkspace(props: {
       if (recordedFileRef.current && recordedFileRef.current.size > 0) {
         await uploadPresentationRecording({
           file: recordedFileRef.current,
+          liveTranscript,
           projectId: props.projectId,
           runId: runtime.runId,
           sessionId: runtime.sessionId,
+          slideTranscriptSnapshots: slideTranscriptSnapshotsRef.current,
         });
       } else {
         await completePresentationWithoutAudio({
@@ -647,7 +702,9 @@ export function PresentationWorkspace(props: {
     })()
       .catch((cause) => {
         setRuntimeError(
-          cause instanceof Error ? cause.message : "발표 기록을 저장하지 못했습니다.",
+          cause instanceof Error
+            ? cause.message
+            : "발표 기록을 저장하지 못했습니다.",
         );
         setRuntimeFailureOperation("finish");
         setRuntimePhase("failed");
@@ -670,9 +727,14 @@ export function PresentationWorkspace(props: {
     void finishPresentation();
   }
 
-  function handleTimePrimaryAction() {
+  async function handleTimePrimaryAction() {
     if (isTimerRunning) {
       setIsTimerRunning(false);
+      recordingRef.current?.pause();
+      streamRef.current?.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+      });
+      await speech.pause().catch(() => undefined);
       return;
     }
 
@@ -684,7 +746,64 @@ export function PresentationWorkspace(props: {
       });
     }
 
+    streamRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = true;
+    });
+    recordingRef.current?.resume();
+    if (
+      requestedRecordingMode === "microphone" &&
+      streamRef.current &&
+      currentSlide
+    ) {
+      await speech
+        .resume(streamRef.current, currentSlide)
+        .catch(() => undefined);
+    }
     setIsTimerRunning(true);
+  }
+
+  function beginSlideTranscriptVisit(
+    slide: Slide,
+    slideIndex: number,
+    visitedAt = new Date().toISOString(),
+  ) {
+    const visitedVer =
+      (slideTranscriptVisitVersionsRef.current.get(slide.slideId) ?? 0) + 1;
+    slideTranscriptVisitVersionsRef.current.set(slide.slideId, visitedVer);
+    activeSlideTranscriptVisitRef.current = {
+      slideId: slide.slideId,
+      slideNum: slideIndex + 1,
+      visitedAt,
+      visitedVer,
+    };
+  }
+
+  function captureSlideTranscriptSnapshot(
+    reason: SlideTranscriptSnapshot["reason"],
+    capturedAt = new Date().toISOString(),
+  ) {
+    const activeVisit = activeSlideTranscriptVisitRef.current;
+    if (!activeVisit) {
+      return;
+    }
+    slideTranscriptSnapshotsRef.current.push({
+      ...activeVisit,
+      capturedAt,
+      reason,
+      transcript: speech.getTranscript(),
+    });
+    activeSlideTranscriptVisitRef.current = null;
+  }
+
+  function resetSlideTranscriptSnapshots(activeDeck: Deck, slideIndex: number) {
+    slideTranscriptSnapshotsRef.current = [];
+    slideTranscriptVisitVersionsRef.current = new Map();
+    activeSlideTranscriptVisitRef.current = null;
+    previousSlideIndexRef.current = slideIndex;
+    const slide = activeDeck.slides[slideIndex];
+    if (slide) {
+      beginSlideTranscriptVisit(slide, slideIndex);
+    }
   }
 
   function commitElapsedTimeInput(value: string) {
@@ -730,7 +849,9 @@ export function PresentationWorkspace(props: {
           retryLabel="다시 불러오기"
           secondaryAction={
             <OrbitButton
-              onClick={() => navigateToProject(deck?.projectId ?? props.projectId)}
+              onClick={() =>
+                navigateToProject(deck?.projectId ?? props.projectId)
+              }
               size="prominent"
               variant="secondary"
             >
@@ -760,8 +881,12 @@ export function PresentationWorkspace(props: {
   }
 
   if (runtimePhase === "failed") {
-    const failureOperation = runtimeFailureOperation === "finish" ? "finish" : "start";
-    const failureCopy = getPresentationFailureCopy(failureOperation, runtimeError);
+    const failureOperation =
+      runtimeFailureOperation === "finish" ? "finish" : "start";
+    const failureCopy = getPresentationFailureCopy(
+      failureOperation,
+      runtimeError,
+    );
 
     return (
       <main className="rehearsal-presenter-shell">
@@ -786,7 +911,9 @@ export function PresentationWorkspace(props: {
                 </OrbitButton>
               ) : null}
               <OrbitButton
-                onClick={() => navigateToProject(deck?.projectId ?? props.projectId)}
+                onClick={() =>
+                  navigateToProject(deck?.projectId ?? props.projectId)
+                }
                 size="prominent"
                 variant="secondary"
               >
@@ -896,7 +1023,9 @@ export function PresentationWorkspace(props: {
           isSaving={runtimePhase === "finishing"}
           onClose={() => navigateToProject(deck?.projectId ?? props.projectId)}
           onGoHome={navigateToHome}
-          onOpenProject={() => navigateToProject(deck?.projectId ?? props.projectId)}
+          onOpenProject={() =>
+            navigateToProject(deck?.projectId ?? props.projectId)
+          }
           onOpenReport={() => {
             const runtime = runtimeRef.current;
             if (!runtime || !props.projectId) {
@@ -1050,9 +1179,11 @@ function usePresenterStageScale(deck: Deck | null) {
       const bounds = stage.getBoundingClientRect();
       const style = window.getComputedStyle(stage);
       const horizontalPadding =
-        Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+        Number.parseFloat(style.paddingLeft) +
+        Number.parseFloat(style.paddingRight);
       const verticalPadding =
-        Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+        Number.parseFloat(style.paddingTop) +
+        Number.parseFloat(style.paddingBottom);
       const availableWidth = Math.max(0, bounds.width - horizontalPadding);
       const availableHeight = Math.max(0, bounds.height - verticalPadding);
       const nextScale = Math.min(

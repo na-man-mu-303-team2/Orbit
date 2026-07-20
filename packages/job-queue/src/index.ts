@@ -68,10 +68,14 @@ export const slidePracticeAnalysisQueueName = "slide-practice-analysis";
 export const slidePracticeAnalysisJobName = "slide-practice-analysis";
 export const challengeQnaGenerationQueueName = "challenge-qna-generation";
 export const challengeQnaGenerationJobName = "challenge-qna-generation";
-export const challengeQnaAnswerAnalysisQueueName = "challenge-qna-answer-analysis";
-export const challengeQnaAnswerAnalysisJobName = "challenge-qna-answer-analysis";
-export const slideQuestionGuideGenerationQueueName = "slide-question-guide-generation";
-export const slideQuestionGuideGenerationJobName = "slide-question-guide-generation";
+export const challengeQnaAnswerAnalysisQueueName =
+  "challenge-qna-answer-analysis";
+export const challengeQnaAnswerAnalysisJobName =
+  "challenge-qna-answer-analysis";
+export const slideQuestionGuideGenerationQueueName =
+  "slide-question-guide-generation";
+export const slideQuestionGuideGenerationJobName =
+  "slide-question-guide-generation";
 export const generateDeckQueueName = "generate-deck";
 export const generateDeckJobName = "generate-deck";
 export const generateDeckStagedCoordinatorJobName =
@@ -173,12 +177,19 @@ export type EnqueueSlidePracticeAnalysisJobInput = {
 };
 
 export type EnqueueChallengeQnaGenerationJobInput = {
-  driver: "bullmq" | "sqs"; redisUrl: string; jobId: string; projectId: string;
-  qnaSessionId: string; generationRevision: number;
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+  jobId: string;
+  projectId: string;
+  qnaSessionId: string;
+  generationRevision: number;
 };
 
 export type EnqueueChallengeQnaAnswerAnalysisJobInput = {
-  driver: "bullmq" | "sqs"; redisUrl: string; jobId: string; projectId: string;
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+  jobId: string;
+  projectId: string;
   answerAttemptId: string;
 };
 
@@ -236,13 +247,14 @@ export interface EnqueueDeckExportJobInput extends DeckExportBullMqPayload {
   redisUrl: string;
 }
 
-export type SemanticCueExtractionBullMqPayload = SemanticCueExtractionJobPayload;
+export type SemanticCueExtractionBullMqPayload =
+  SemanticCueExtractionJobPayload;
 
 export type EnqueueSemanticCueExtractionJobInput =
   SemanticCueExtractionBullMqPayload & {
-  driver: "bullmq" | "sqs";
-  redisUrl: string;
-};
+    driver: "bullmq" | "sqs";
+    redisUrl: string;
+  };
 
 export type SpeakerNotesSuggestionBullMqPayload =
   SpeakerNotesSuggestionJobPayload;
@@ -318,11 +330,15 @@ export async function enqueueReferenceExtractJob(
   });
 
   try {
-    await queue.add(referenceExtractJobName, {
-      jobId: input.jobId,
-      projectId: input.projectId,
-      files: input.files,
-    } satisfies ReferenceExtractBullMqPayload, canonicalJobOptions(input.jobId));
+    await queue.add(
+      referenceExtractJobName,
+      {
+        jobId: input.jobId,
+        projectId: input.projectId,
+        files: input.files,
+      } satisfies ReferenceExtractBullMqPayload,
+      canonicalJobOptions(input.jobId),
+    );
   } finally {
     await queue.close();
   }
@@ -340,15 +356,19 @@ export async function enqueueRehearsalSttJob(
   });
 
   try {
-    await queue.add(rehearsalSttJobName, {
-      jobId: input.jobId,
-      projectId: input.projectId,
-      runId: input.runId,
-      deckId: input.deckId,
-      audioFileId: input.audioFileId,
-      liveTranscript: input.liveTranscript ?? null,
-      slideTranscriptSnapshots: input.slideTranscriptSnapshots ?? [],
-    } satisfies RehearsalSttBullMqPayload, canonicalJobOptions(input.jobId));
+    await queue.add(
+      rehearsalSttJobName,
+      {
+        jobId: input.jobId,
+        projectId: input.projectId,
+        runId: input.runId,
+        deckId: input.deckId,
+        audioFileId: input.audioFileId,
+        liveTranscript: input.liveTranscript ?? null,
+        slideTranscriptSnapshots: input.slideTranscriptSnapshots ?? [],
+      } satisfies RehearsalSttBullMqPayload,
+      canonicalJobOptions(input.jobId),
+    );
   } finally {
     await queue.close();
   }
@@ -375,6 +395,8 @@ export async function enqueuePresentationAnalysisJob(
         runId: input.runId,
         deckId: input.deckId,
         audioFileId: input.audioFileId,
+        liveTranscript: input.liveTranscript ?? null,
+        slideTranscriptSnapshots: input.slideTranscriptSnapshots ?? [],
       }),
       canonicalJobOptions(input.jobId),
     );
@@ -470,7 +492,7 @@ export async function retryAiDeckStagedCoordinatorJob(input: {
   projectId: string;
 }): Promise<void> {
   const queue = new Queue(generateDeckQueueName, {
-    connection: redisConnectionOptions(input.redisUrl)
+    connection: redisConnectionOptions(input.redisUrl),
   });
   try {
     const existing = await queue.getJob(input.jobId);
@@ -480,7 +502,7 @@ export async function retryAiDeckStagedCoordinatorJob(input: {
     await queue.add(
       generateDeckStagedCoordinatorJobName,
       { jobId: input.jobId, projectId: input.projectId },
-      { ...canonicalJobOptions(input.jobId), removeOnFail: false }
+      { ...canonicalJobOptions(input.jobId), removeOnFail: false },
     );
   } finally {
     await queue.close();
@@ -516,7 +538,8 @@ export async function enqueueAiDeckGenerationStageJob(
 export async function enqueueFocusedPracticeAnalysisJob(
   input: EnqueueFocusedPracticeAnalysisJobInput,
 ): Promise<void> {
-  if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
+  if (input.driver === "sqs")
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
   const queue = new Queue(focusedPracticeAnalysisQueueName, {
     connection: redisConnectionOptions(input.redisUrl),
   });
@@ -538,7 +561,8 @@ export async function enqueueFocusedPracticeAnalysisJob(
 export async function enqueueSlidePracticeAnalysisJob(
   input: EnqueueSlidePracticeAnalysisJobInput,
 ): Promise<void> {
-  if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
+  if (input.driver === "sqs")
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
   const queue = new Queue(slidePracticeAnalysisQueueName, {
     connection: redisConnectionOptions(input.redisUrl),
   });
@@ -557,31 +581,58 @@ export async function enqueueSlidePracticeAnalysisJob(
   }
 }
 
-export async function enqueueChallengeQnaGenerationJob(input: EnqueueChallengeQnaGenerationJobInput): Promise<void> {
-  if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
-  const queue = new Queue(challengeQnaGenerationQueueName, { connection: redisConnectionOptions(input.redisUrl) });
+export async function enqueueChallengeQnaGenerationJob(
+  input: EnqueueChallengeQnaGenerationJobInput,
+): Promise<void> {
+  if (input.driver === "sqs")
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  const queue = new Queue(challengeQnaGenerationQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
   try {
-    await queue.add(challengeQnaGenerationJobName, challengeQnaGenerationJobPayloadSchema.parse({
-      jobId: input.jobId, projectId: input.projectId, qnaSessionId: input.qnaSessionId,
-      generationRevision: input.generationRevision,
-    }), canonicalJobOptions(input.jobId));
-  } finally { await queue.close(); }
+    await queue.add(
+      challengeQnaGenerationJobName,
+      challengeQnaGenerationJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        qnaSessionId: input.qnaSessionId,
+        generationRevision: input.generationRevision,
+      }),
+      canonicalJobOptions(input.jobId),
+    );
+  } finally {
+    await queue.close();
+  }
 }
 
-export async function enqueueChallengeQnaAnswerAnalysisJob(input: EnqueueChallengeQnaAnswerAnalysisJobInput): Promise<void> {
-  if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
-  const queue = new Queue(challengeQnaAnswerAnalysisQueueName, { connection: redisConnectionOptions(input.redisUrl) });
+export async function enqueueChallengeQnaAnswerAnalysisJob(
+  input: EnqueueChallengeQnaAnswerAnalysisJobInput,
+): Promise<void> {
+  if (input.driver === "sqs")
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  const queue = new Queue(challengeQnaAnswerAnalysisQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
   try {
-    await queue.add(challengeQnaAnswerAnalysisJobName, challengeQnaAnswerAnalysisJobPayloadSchema.parse({
-      jobId: input.jobId, projectId: input.projectId, answerAttemptId: input.answerAttemptId,
-    }), canonicalJobOptions(input.jobId));
-  } finally { await queue.close(); }
+    await queue.add(
+      challengeQnaAnswerAnalysisJobName,
+      challengeQnaAnswerAnalysisJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        answerAttemptId: input.answerAttemptId,
+      }),
+      canonicalJobOptions(input.jobId),
+    );
+  } finally {
+    await queue.close();
+  }
 }
 
 export async function enqueueSlideQuestionGuideGenerationJob(
   input: EnqueueSlideQuestionGuideGenerationJobInput,
 ): Promise<void> {
-  if (input.driver === "sqs") throw new Error("SqsJobQueue adapter is not implemented yet.");
+  if (input.driver === "sqs")
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
   const queue = new Queue(slideQuestionGuideGenerationQueueName, {
     connection: redisConnectionOptions(input.redisUrl),
   });
@@ -612,15 +663,19 @@ export async function enqueueDeckExportJob(
   });
 
   try {
-    await queue.add(deckExportJobName, {
-      jobId: input.jobId,
-      projectId: input.projectId,
-      deck: deckSchema.parse(input.deck),
-      format: deckExportFormatSchema.parse(input.format),
-      ...(input.presentationSessionId
-        ? { presentationSessionId: input.presentationSessionId }
-        : {}),
-    } satisfies DeckExportBullMqPayload, canonicalJobOptions(input.jobId));
+    await queue.add(
+      deckExportJobName,
+      {
+        jobId: input.jobId,
+        projectId: input.projectId,
+        deck: deckSchema.parse(input.deck),
+        format: deckExportFormatSchema.parse(input.format),
+        ...(input.presentationSessionId
+          ? { presentationSessionId: input.presentationSessionId }
+          : {}),
+      } satisfies DeckExportBullMqPayload,
+      canonicalJobOptions(input.jobId),
+    );
   } finally {
     await queue.close();
   }
@@ -638,11 +693,15 @@ export async function enqueueSemanticCueExtractionJob(
   });
 
   try {
-    await queue.add(semanticCueExtractionJobName, semanticCueExtractionJobPayloadSchema.parse({
-      jobId: input.jobId,
-      projectId: input.projectId,
-      request: input.request,
-    }), canonicalJobOptions(input.jobId));
+    await queue.add(
+      semanticCueExtractionJobName,
+      semanticCueExtractionJobPayloadSchema.parse({
+        jobId: input.jobId,
+        projectId: input.projectId,
+        request: input.request,
+      }),
+      canonicalJobOptions(input.jobId),
+    );
   } finally {
     await queue.close();
   }
@@ -708,11 +767,15 @@ export async function enqueuePptxOoxmlGenerationJob(
   });
 
   try {
-    await queue.add(pptxOoxmlGenerationJobName, {
-      jobId: input.jobId,
-      projectId: input.projectId,
-      request: input.request,
-    } satisfies PptxOoxmlGenerationBullMqPayload, canonicalJobOptions(input.jobId));
+    await queue.add(
+      pptxOoxmlGenerationJobName,
+      {
+        jobId: input.jobId,
+        projectId: input.projectId,
+        request: input.request,
+      } satisfies PptxOoxmlGenerationBullMqPayload,
+      canonicalJobOptions(input.jobId),
+    );
   } finally {
     await queue.close();
   }
@@ -730,14 +793,18 @@ export async function enqueuePptxOoxmlSyncJob(
   });
 
   try {
-    await queue.add(pptxOoxmlSyncJobName, {
-      jobId: input.jobId,
-      projectId: input.projectId,
-      deckId: input.deckId,
-      changeId: input.changeId,
-      targetDeckVersion: input.targetDeckVersion,
-      syncCapabilityVersion: input.syncCapabilityVersion,
-    } satisfies PptxOoxmlSyncBullMqPayload, canonicalJobOptions(input.jobId));
+    await queue.add(
+      pptxOoxmlSyncJobName,
+      {
+        jobId: input.jobId,
+        projectId: input.projectId,
+        deckId: input.deckId,
+        changeId: input.changeId,
+        targetDeckVersion: input.targetDeckVersion,
+        syncCapabilityVersion: input.syncCapabilityVersion,
+      } satisfies PptxOoxmlSyncBullMqPayload,
+      canonicalJobOptions(input.jobId),
+    );
   } finally {
     await queue.close();
   }
@@ -755,10 +822,14 @@ export async function enqueueWorkerHealthCheckJob(
   });
 
   try {
-    await queue.add(workerHealthCheckJobName, {
-      jobId: input.jobId,
-      projectId: input.projectId,
-    } satisfies WorkerHealthCheckBullMqPayload, canonicalJobOptions(input.jobId));
+    await queue.add(
+      workerHealthCheckJobName,
+      {
+        jobId: input.jobId,
+        projectId: input.projectId,
+      } satisfies WorkerHealthCheckBullMqPayload,
+      canonicalJobOptions(input.jobId),
+    );
   } finally {
     await queue.close();
   }

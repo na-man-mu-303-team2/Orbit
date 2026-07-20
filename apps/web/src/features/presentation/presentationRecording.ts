@@ -1,4 +1,6 @@
 export type PresentationRecordingSession = {
+  pause: () => void;
+  resume: () => void;
   stop: () => Promise<File>;
 };
 
@@ -11,7 +13,10 @@ export function createPresentationRecordingSession(
   }
 
   const mimeType = selectPresentationRecordingMimeType(recorderCtor);
-  const recorder = new recorderCtor(stream, mimeType ? { mimeType } : undefined);
+  const recorder = new recorderCtor(
+    stream,
+    mimeType ? { mimeType } : undefined,
+  );
   const chunks: BlobPart[] = [];
   recorder.addEventListener("dataavailable", (event) => {
     if (event.data.size > 0) chunks.push(event.data);
@@ -19,15 +24,29 @@ export function createPresentationRecordingSession(
   recorder.start(1000);
 
   return {
+    pause() {
+      if (recorder.state === "recording") {
+        recorder.pause();
+      }
+    },
+    resume() {
+      if (recorder.state === "paused") {
+        recorder.resume();
+      }
+    },
     stop() {
       return new Promise<File>((resolve, reject) => {
         const finish = () => {
           const type = recorder.mimeType || mimeType || "audio/webm";
           resolve(
             normalizePresentationRecordingFile(
-              new File(chunks, `presentation-${Date.now()}.${fileExtension(type)}`, {
-                type,
-              }),
+              new File(
+                chunks,
+                `presentation-${Date.now()}.${fileExtension(type)}`,
+                {
+                  type,
+                },
+              ),
             ),
           );
         };
@@ -36,19 +55,27 @@ export function createPresentationRecordingSession(
           return;
         }
         recorder.addEventListener("stop", finish, { once: true });
-        recorder.addEventListener("error", () => reject(new Error("발표 녹음을 저장하지 못했습니다.")), {
-          once: true,
-        });
+        recorder.addEventListener(
+          "error",
+          () => reject(new Error("발표 녹음을 저장하지 못했습니다.")),
+          {
+            once: true,
+          },
+        );
         recorder.stop();
       });
     },
   };
 }
 
-export function selectPresentationRecordingMimeType(recorderCtor: typeof MediaRecorder) {
-  return ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((type) =>
-    recorderCtor.isTypeSupported(type),
-  ) ?? "";
+export function selectPresentationRecordingMimeType(
+  recorderCtor: typeof MediaRecorder,
+) {
+  return (
+    ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((type) =>
+      recorderCtor.isTypeSupported(type),
+    ) ?? ""
+  );
 }
 
 export function normalizePresentationRecordingMimeType(mimeType: string) {

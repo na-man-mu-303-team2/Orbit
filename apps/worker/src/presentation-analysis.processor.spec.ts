@@ -161,6 +161,45 @@ describe("buildPresentationDetailedReport", () => {
     expect(report.slideTimings).toHaveLength(1);
     expect(report.missedKeywords).toEqual([]);
   });
+
+  it("uses live presentation transcripts for the rehearsal-format report", () => {
+    const report = buildPresentationDetailedReport(
+      audioEvidence(),
+      presentationInputRow().deck_snapshot_json,
+      {
+        deckId: payload.deckId,
+        projectId: payload.projectId,
+        runId: payload.runId,
+      },
+      "2026-07-20T00:00:01.000Z",
+      {
+        liveTranscript: "음 제품 전략을 설명하고 다음 계획을 안내합니다",
+        slideTranscriptSnapshots: [
+          {
+            capturedAt: "2026-07-20T00:00:01.000Z",
+            reason: "rehearsal-end",
+            slideId: "slide_1",
+            slideNum: 1,
+            transcript: "음 제품 전략을 설명하고 다음 계획을 안내합니다",
+            visitedAt: "2026-07-20T00:00:00.000Z",
+            visitedVer: 1,
+          },
+        ],
+      },
+    );
+
+    expect(report.transcript).toBe(
+      "음 제품 전략을 설명하고 다음 계획을 안내합니다",
+    );
+    expect(report.metrics.fillerWordCount).toBe(1);
+    expect(report.missedKeywords).toEqual([]);
+    expect(report.slideInsights).toEqual([
+      expect.objectContaining({
+        fillerWordCount: 1,
+        slideId: "slide_1",
+      }),
+    ]);
+  });
 });
 
 function presentationInputRow() {

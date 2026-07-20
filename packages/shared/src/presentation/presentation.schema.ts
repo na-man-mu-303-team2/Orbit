@@ -9,6 +9,7 @@ import { activityRunSchema } from "../activity/activity-runtime.schema";
 import { assetUploadUrlResponseSchema } from "../files/file.schema";
 import { jobSchema } from "../jobs/job.schema";
 import { rehearsalReportSchema } from "../rehearsals/rehearsal.schema";
+import { slideTranscriptSnapshotsSchema } from "../rehearsals/slide-transcript-snapshot.schema";
 
 export const presentationAccessModeSchema = z.enum(["passcode", "public"]);
 
@@ -217,7 +218,13 @@ export const createPresentationAudioUploadResponseSchema = z
   .strict();
 
 export const completePresentationAudioRequestSchema = z.union([
-  z.object({ fileId: z.string().min(1) }).strict(),
+  z
+    .object({
+      fileId: z.string().min(1),
+      liveTranscript: z.string().max(200_000).nullable().default(null),
+      slideTranscriptSnapshots: slideTranscriptSnapshotsSchema.default([]),
+    })
+    .strict(),
   z.object({ withoutAudio: z.literal(true) }).strict(),
 ]);
 
@@ -271,6 +278,8 @@ export const presentationAnalysisJobPayloadSchema = z
     runId: z.string().min(1),
     deckId: deckIdSchema,
     audioFileId: z.string().min(1),
+    liveTranscript: z.string().max(200_000).nullable().default(null),
+    slideTranscriptSnapshots: slideTranscriptSnapshotsSchema.default([]),
   })
   .strict();
 

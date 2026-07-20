@@ -40,7 +40,7 @@ describe("presentationApi", () => {
     expect(String(fetcher.mock.calls[0]?.[0])).not.toContain("rehearsal");
   });
 
-  it("creates one audience session and one isolated presentation run", async () => {
+  it("creates one audience session and one isolated presentation run with the session deck version", async () => {
     const createSession = vi
       .spyOn(activityApi, "createSession")
       .mockResolvedValue({
@@ -57,7 +57,7 @@ describe("presentationApi", () => {
     await expect(
       createPresentationRuntime({
         deckId: "deck_1",
-        deckVersion: 4,
+        deckVersion: 3,
         projectId: "project_1",
         recordingMode: "microphone",
       }),
@@ -120,9 +120,21 @@ describe("presentationApi", () => {
     });
     await uploadPresentationRecording({
       file,
+      liveTranscript: "안녕하세요 실전 발표입니다.",
       projectId: "project_1",
       runId: "presentation_run_1",
       sessionId: "session_live",
+      slideTranscriptSnapshots: [
+        {
+          capturedAt: now,
+          reason: "rehearsal-end",
+          slideId: "slide_1",
+          slideNum: 1,
+          transcript: "안녕하세요 실전 발표입니다.",
+          visitedAt: now,
+          visitedVer: 1,
+        },
+      ],
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -139,6 +151,18 @@ describe("presentationApi", () => {
     });
     expect(JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))).toEqual({
       fileId: "file_audio_1",
+      liveTranscript: "안녕하세요 실전 발표입니다.",
+      slideTranscriptSnapshots: [
+        {
+          capturedAt: now,
+          reason: "rehearsal-end",
+          slideId: "slide_1",
+          slideNum: 1,
+          transcript: "안녕하세요 실전 발표입니다.",
+          visitedAt: now,
+          visitedVer: 1,
+        },
+      ],
     });
   });
 

@@ -20,6 +20,21 @@ describe("presentationRecording", () => {
     await expect(file.text()).resolves.toBe("presentation audio");
   });
 
+  it("pauses and resumes the recorder with the presentation timer", async () => {
+    const session = createPresentationRecordingSession(
+      { getTracks: () => [] } as unknown as MediaStream,
+      FakePresentationMediaRecorder as unknown as typeof MediaRecorder,
+    );
+
+    session.pause();
+    expect(FakePresentationMediaRecorder.latest?.state).toBe("paused");
+
+    session.resume();
+    expect(FakePresentationMediaRecorder.latest?.state).toBe("recording");
+
+    await session.stop();
+  });
+
   it("fails clearly when the browser cannot record audio", () => {
     expect(() =>
       createPresentationRecordingSession(
@@ -45,6 +60,8 @@ describe("presentationRecording", () => {
 });
 
 class FakePresentationMediaRecorder {
+  static latest: FakePresentationMediaRecorder | null = null;
+
   static isTypeSupported(type: string) {
     return type === "audio/webm;codecs=opus";
   }
@@ -58,14 +75,26 @@ class FakePresentationMediaRecorder {
     options?: MediaRecorderOptions,
   ) {
     this.mimeType = options?.mimeType ?? "";
+    FakePresentationMediaRecorder.latest = this;
   }
 
   addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
-    const callback = typeof listener === "function" ? listener : listener.handleEvent.bind(listener);
+    const callback =
+      typeof listener === "function"
+        ? listener
+        : listener.handleEvent.bind(listener);
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), callback]);
   }
 
   start() {
+    this.state = "recording";
+  }
+
+  pause() {
+    this.state = "paused";
+  }
+
+  resume() {
     this.state = "recording";
   }
 

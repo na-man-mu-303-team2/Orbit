@@ -12,6 +12,7 @@ import {
   type Job,
   type PresentationVoiceReport,
   type RehearsalReport,
+  type SlideTranscriptSnapshot,
   type SlidePracticeServerAudioResponse,
 } from "@orbit/shared";
 import { createHash } from "node:crypto";
@@ -157,6 +158,7 @@ export async function processPresentationAnalysisJob(
     const voiceReport = buildPresentationVoiceReport(
       evidence,
       input.deck_snapshot_json.slides.map((slide) => slide.speakerNotes),
+      payload.liveTranscript,
     );
     const detailedReport = buildPresentationDetailedReport(
       evidence,
@@ -165,6 +167,11 @@ export async function processPresentationAnalysisJob(
         deckId: payload.deckId,
         projectId: payload.projectId,
         runId: payload.runId,
+      },
+      new Date().toISOString(),
+      {
+        liveTranscript: payload.liveTranscript,
+        slideTranscriptSnapshots: payload.slideTranscriptSnapshots,
       },
     );
     await dataSource.query(
@@ -229,16 +236,23 @@ export function buildPresentationDetailedReport(
   deck: PresentationAnalysisInput["deck_snapshot_json"],
   identity: { deckId: string; projectId: string; runId: string },
   generatedAt = new Date().toISOString(),
+  liveEvidence: {
+    liveTranscript?: string | null;
+    slideTranscriptSnapshots?: SlideTranscriptSnapshot[];
+  } = {},
 ): RehearsalReport {
+  const reportTranscript =
+    liveEvidence.liveTranscript?.trim() || evidence.transcript;
   const voiceReport = buildPresentationVoiceReport(
     evidence,
     deck.slides.map((slide) => slide.speakerNotes),
+    reportTranscript,
   );
   const durationSeconds = voiceReport.durationSeconds;
-  const characterCount = evidence.transcript.replace(/\s/g, "").length;
+  const characterCount = reportTranscript.replace(/\s/g, "").length;
   const charactersPerMinute =
     durationSeconds > 0 ? characterCount / (durationSeconds / 60) : 0;
-  const fillers = analyzeKoreanFillers(evidence.transcript);
+  const fillers = analyzeKoreanFillers(reportTranscript);
   const volumeAnalysis = buildPresentationVolumeAnalysis(
     evidence,
     durationSeconds,
@@ -251,7 +265,7 @@ export function buildPresentationDetailedReport(
     slide.keywords.filter((keyword) => keyword.required),
   );
   const matchedKeywordCount = requiredKeywords.filter((keyword) =>
-    normalizeText(evidence.transcript).includes(normalizeText(keyword.text)),
+    normalizeText(reportTranscript).includes(normalizeText(keyword.text)),
   ).length;
   const keywordCoverage =
     requiredKeywords.length > 0
@@ -268,14 +282,14 @@ export function buildPresentationDetailedReport(
     projectId: identity.projectId,
     deckId: identity.deckId,
     transcriptRetained: true,
-    transcript: evidence.transcript,
+    transcript: reportTranscript,
     volumeAnalysis,
     silenceAnalysis,
     metrics: {
       durationSeconds,
       charactersPerMinute,
       wordsPerMinute: voiceReport.wordsPerMinute,
-      fillerWordCount: voiceReport.fillerWordCount,
+      fillerWordCount: fillers.totalCount,
       longSilenceCount: silenceAnalysis.longSilenceCount,
       keywordCoverage,
       measurements: {
@@ -309,7 +323,7 @@ export function buildPresentationDetailedReport(
         .filter((keyword) => keyword.required)
         .filter(
           (keyword) =>
-            !normalizeText(evidence.transcript).includes(
+            !normalizeText(reportTranscript).includes(
               normalizeText(keyword.text),
             ),
         )
@@ -332,11 +346,10 @@ export function buildPresentationDetailedReport(
             : 0,
       };
     }),
-    slideInsights: deck.slides.map((slide, index) => ({
-      slideId: slide.slideId ?? `slide_${index + 1}`,
-      fillerWordCount: null,
-      longSilenceCount: null,
-    })),
+    slideInsights: buildPresentationSlideInsights(
+      deck.slides,
+      liveEvidence.slideTranscriptSnapshots ?? [],
+    ),
     aiSummary: {
       headline: "실전 발표 분석이 완료되었습니다.",
       paragraphs: [voiceReport.scriptFeedback],
@@ -350,6 +363,42 @@ export function buildPresentationDetailedReport(
       message: "실전 발표 음성과 대본을 함께 분석했습니다.",
     },
     generatedAt,
+  });
+}
+
+function buildPresentationSlideInsights(
+  slides: PresentationAnalysisInput["deck_snapshot_json"]["slides"],
+  snapshots: SlideTranscriptSnapshot[],
+) {
+  const fillerDetailsBySlide = new Map<string, Map<string, number>>();
+  let previousTranscript = "";
+  for (const snapshot of snapshots) {
+    const segmentTranscript = snapshot.transcript.startsWith(previousTranscript)
+      ? snapshot.transcript.slice(previousTranscript.length)
+      : snapshot.transcript;
+    previousTranscript = snapshot.transcript;
+    const counts =
+      fillerDetailsBySlide.get(snapshot.slideId) ?? new Map<string, number>();
+    for (const detail of analyzeKoreanFillers(segmentTranscript).details) {
+      counts.set(detail.word, (counts.get(detail.word) ?? 0) + detail.count);
+    }
+    fillerDetailsBySlide.set(snapshot.slideId, counts);
+  }
+
+  return slides.map((slide, index) => {
+    const slideId = slide.slideId ?? `slide_${index + 1}`;
+    const fillerWordDetails = [
+      ...(fillerDetailsBySlide.get(slideId) ?? new Map()),
+    ].map(([word, count]) => ({ word, count }));
+    return {
+      slideId,
+      fillerWordCount:
+        snapshots.length > 0
+          ? fillerWordDetails.reduce((total, detail) => total + detail.count, 0)
+          : null,
+      fillerWordDetails,
+      longSilenceCount: null,
+    };
   });
 }
 
@@ -457,7 +506,9 @@ function buildPresentationImprovements(report: PresentationVoiceReport) {
 export function buildPresentationVoiceReport(
   evidence: SlidePracticeServerAudioResponse,
   speakerNotes: string[],
+  transcriptOverride?: string | null,
 ): PresentationVoiceReport {
+  const transcript = transcriptOverride?.trim() || evidence.transcript;
   const durationMs = Math.max(
     evidence.voice.activeSpeechMs,
     ...evidence.loudnessSamples.map((sample) => sample.endMs),
@@ -465,8 +516,8 @@ export function buildPresentationVoiceReport(
     ...evidence.pauseSegments.map((segment) => segment.endMs),
   );
   const durationSeconds = durationMs / 1_000;
-  const spokenWordCount = countSpokenWords(evidence.transcript);
-  const fillers = analyzeKoreanFillers(evidence.transcript);
+  const spokenWordCount = countSpokenWords(transcript);
+  const fillers = analyzeKoreanFillers(transcript);
 
   return presentationVoiceReportSchema.parse({
     durationSeconds,
@@ -478,7 +529,7 @@ export function buildPresentationVoiceReport(
       (segment) => segment.durationMs >= 5_000,
     ).length,
     averagePitchHz: evidence.voice.pitchMedianHz,
-    scriptFeedback: buildScriptFeedback(evidence.transcript, speakerNotes),
+    scriptFeedback: buildScriptFeedback(transcript, speakerNotes),
   });
 }
 
