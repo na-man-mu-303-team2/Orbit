@@ -1,7 +1,6 @@
 import type { ProjectListItem, ProjectTagDefinition } from "@orbit/shared";
 import {
   IconChartBar,
-  IconCheck,
   IconChevronDown,
   IconPin,
   IconPinFilled,
@@ -13,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 import { lazy, Suspense } from "react";
 import { OrbitCard } from "../../components/ui";
+import { ProjectTagChip } from "./ProjectTagChip";
 
 const ProjectSlidePreview = lazy(() => import("./ProjectSlidePreview"));
 
@@ -77,9 +77,14 @@ export function WorkspaceProjectCard(props: WorkspaceProjectCardProps) {
               <summary aria-label={`${project.title} 태그 선택`}><IconTag aria-hidden="true" size={13} /><span>태그</span><IconChevronDown aria-hidden="true" size={12} /></summary>
               <div className="workspace-home-card-tag-dropdown">
                 {props.tagOptions.map((tag) => (
-                  <button aria-pressed={project.tags.includes(tag.name)} key={tag.name} onClick={() => props.onToggleTag(tag.name)} type="button">
-                    <span className={`is-${tag.color}`}>{tag.name}</span>{project.tags.includes(tag.name) ? <IconCheck aria-hidden="true" size={14} /> : null}
-                  </button>
+                  <ProjectTagChip
+                    color={tag.color}
+                    key={tag.name}
+                    name={tag.name}
+                    onClick={() => props.onToggleTag(tag.name)}
+                    selected={project.tags.includes(tag.name)}
+                    showSelectedIcon
+                  />
                 ))}
               </div>
             </details>
@@ -88,7 +93,7 @@ export function WorkspaceProjectCard(props: WorkspaceProjectCardProps) {
           )}
         </div>
         <div className="workspace-home-card-tags">
-          {visibleTags.slice(0, 3).map((tag) => <span className={`is-${tag.color}`} key={tag.name}>{tag.name}</span>)}
+          {visibleTags.slice(0, 3).map((tag) => <ProjectTagChip color={tag.color} key={tag.name} name={tag.name} />)}
           {visibleTags.length > 3 ? <span>+{visibleTags.length - 3}</span> : null}
         </div>
         <small className="workspace-home-card-date">{props.createdAtLabel}</small>

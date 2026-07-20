@@ -1,6 +1,5 @@
 import type {
   Project,
-  ProjectListFilter,
   ProjectListItem,
   ProjectListSort,
   ProjectPageRequest,
@@ -68,6 +67,7 @@ import { WorkspaceProjectCard } from "./WorkspaceProjectCard";
 import "./workspace-home.css";
 import "./figma-home.css";
 import { CreateProjectCard } from "./CreateProjectCard";
+import { ProjectTagChip } from "./ProjectTagChip";
 
 const ProjectSlidePreview = lazy(() => import("./ProjectSlidePreview"));
 
@@ -75,18 +75,10 @@ type ProjectHubProps = {
   onNavigate: (path: string) => void;
 };
 
-type ProjectFilter = ProjectListFilter;
 type ProjectSort = ProjectListSort;
 type ProjectViewMode = "grid" | "list";
 const maxProjectTags = 12;
 const maxTagLength = 20;
-const projectFilters: ReadonlyArray<{ id: ProjectFilter; label: string }> = [
-  { id: "all", label: "전체" },
-  { id: "presentation", label: "발표자료" },
-  { id: "draft", label: "초안" },
-  { id: "shared", label: "공유됨" },
-  { id: "pinned", label: "즐겨찾기" },
-];
 const communityTitles = [
   "AI와 미래",
   "지속가능한 브랜드 전략",
@@ -122,7 +114,6 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
   const communityTrackRef = useRef<HTMLDivElement>(null);
   const pptxInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<ProjectFilter>("all");
   const [sort, setSort] = useState<ProjectSort>("latest");
   const [viewMode, setViewMode] = useState<ProjectViewMode>("grid");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -138,7 +129,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
   const [pptxImportPhase, setPptxImportPhase] = useState<"idle" | "uploading" | "importing">("idle");
   const [actionError, setActionError] = useState("");
   const isImportingPptx = pptxImportPhase !== "idle";
-  const projects = useProjectList({ filter, query, sort, tags: selectedTags });
+  const projects = useProjectList({ filter: "all", query, sort, tags: selectedTags });
   const projectTags = useQuery({
     queryKey: projectTagDefinitionsQueryKey,
     queryFn: () => fetchProjectTagDefinitions(),
@@ -488,16 +479,17 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
         </header>
 
         <div className="workspace-filter-row">
-          <div aria-label="프로젝트 필터" className="workspace-project-filters" role="tablist">
-            {projectFilters.map((item) => (
-              <button aria-selected={filter === item.id} className={filter === item.id ? "is-active" : ""} key={item.id} onClick={() => setFilter(item.id)} role="tab" type="button">{item.label}</button>
-            ))}
-          </div>
           {availableTags.length ? (
             <div aria-label="태그 필터" className="workspace-tag-filter-chips">
               <span className="workspace-tag-filter-label"><IconTag aria-hidden="true" size={14} />태그</span>
               {availableTags.map((tag) => (
-                <button aria-pressed={selectedTags.includes(tag.name)} className={`is-${tag.color}`} key={tag.name} onClick={() => setSelectedTags((current) => current.includes(tag.name) ? current.filter((item) => item !== tag.name) : [...current, tag.name])} type="button">{tag.name}</button>
+                <ProjectTagChip
+                  color={tag.color}
+                  key={tag.name}
+                  name={tag.name}
+                  onClick={() => setSelectedTags((current) => current.includes(tag.name) ? current.filter((item) => item !== tag.name) : [...current, tag.name])}
+                  selected={selectedTags.includes(tag.name)}
+                />
               ))}
             </div>
           ) : null}
@@ -568,7 +560,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
               <div className="workspace-home-empty">
                 <IconSearch aria-hidden="true" size={26} stroke={1.5} />
                 <strong>조건에 맞는 프로젝트가 없습니다.</strong>
-                <button onClick={() => { setQuery(""); setFilter("all"); setSelectedTags([]); }} type="button">필터 초기화</button>
+                <button onClick={() => { setQuery(""); setSelectedTags([]); }} type="button">필터 초기화</button>
               </div>
             ) : null}
             {projects.hasNextPage ? (
@@ -645,7 +637,7 @@ function TagFilterOption(props: { onToggle: () => void; selected: boolean; tag: 
   return (
     <button aria-pressed={props.selected} className="workspace-tag-filter-option" onClick={props.onToggle} type="button">
       <span className="workspace-tag-filter-check">{props.selected ? <IconCheck aria-hidden="true" size={12} /> : null}</span>
-      <span className={`is-${props.tag.color}`}>{props.tag.name}</span>
+      <ProjectTagChip color={props.tag.color} name={props.tag.name} selected={props.selected} />
     </button>
   );
 }

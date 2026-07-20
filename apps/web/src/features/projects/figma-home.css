@@ -1390,12 +1390,6 @@
   cursor: pointer;
 }
 
-.workspace-home-card-tag-dropdown button:hover,
-.workspace-home-card-tag-dropdown button[aria-pressed="true"] {
-  background: var(--redesign-color-primary-subtle);
-  color: var(--redesign-color-primary-emphasis);
-}
-
 .workspace-tag-filter-chips {
   display: flex;
   min-width: 0;
@@ -1602,18 +1596,6 @@
   border-radius: var(--redesign-radius-full);
   font-weight: var(--redesign-type-label-md-weight);
   text-align: left;
-}
-
-.workspace-home-card-tag-dropdown > button:nth-of-type(1) {
-  color: var(--redesign-color-danger-emphasis, #be123c);
-  background: var(--redesign-color-danger-subtle, #fff1f2);
-  border-color: var(--redesign-color-danger-outline, #fecdd3);
-}
-
-.workspace-home-card-tag-dropdown > button:nth-of-type(2) {
-  color: var(--redesign-color-success-emphasis, #166534);
-  background: var(--redesign-color-success-subtle, #f0fdf4);
-  border-color: var(--redesign-color-success-outline, #bbf7d0);
 }
 
 .workspace-tag-modal {
@@ -2159,6 +2141,81 @@
   position: absolute;
   z-index: -1;
 }
+
+.workspace-tag-filter-chips > button {
+  border-color: transparent;
+}
+
+.workspace-home-card.redesign-card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.workspace-home-card .workspace-home-thumb-wrap {
+  border: 0;
+  border-radius: var(--redesign-radius-lg, 12px);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--redesign-color-on-surface) 5%, transparent),
+    0 10px 24px color-mix(in srgb, var(--redesign-color-on-surface) 8%, transparent);
+  overflow: hidden;
+}
+
+.workspace-home-card .workspace-home-thumb-button,
+.workspace-home-card .workspace-home-thumb {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.workspace-home-card .workspace-home-card-caption {
+  background: transparent;
+  border: 0;
+  padding-inline: 2px;
+}
+
+.workspace-project-tag-chip,
+.workspace-home-card-tag-dropdown .workspace-project-tag-chip,
+.workspace-home-card-tags .workspace-project-tag-chip,
+.workspace-tag-filter-chips .workspace-project-tag-chip {
+  align-items: center;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: none;
+  display: inline-flex;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 5px;
+  height: 24px;
+  justify-content: center;
+  line-height: 1;
+  min-height: 24px;
+  padding: 0 10px;
+  width: auto;
+}
+
+button.workspace-project-tag-chip {
+  cursor: pointer;
+}
+
+button.workspace-project-tag-chip:hover {
+  filter: brightness(0.98) saturate(1.08);
+}
+
+.workspace-project-tag-chip.is-selected {
+  filter: saturate(1.12);
+  font-weight: 700;
+}
+
+.workspace-project-tag-chip.is-yellow { background: #fff4bf; color: #7a5200; }
+.workspace-project-tag-chip.is-blue { background: #e6f1ff; color: #1459a6; }
+.workspace-project-tag-chip.is-green { background: #e3f7ee; color: #126447; }
+.workspace-project-tag-chip.is-orange { background: #fff0df; color: #9a4b00; }
+.workspace-project-tag-chip.is-purple { background: #f0eaff; color: #6235a7; }
+.workspace-project-tag-chip.is-red { background: #ffe8e8; color: #a43333; }
 .workspace-tag-filter-button-label {
   align-items: center;
   display: inline-flex;
