@@ -1224,8 +1224,9 @@ function ProjectAccessError(props: { onRetry: () => void; projectId: string }) {
   return (
     <ProjectAccessLayout projectId={props.projectId}>
       <OrbitFailureState
-        description="잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요."
+        description="프로젝트 권한 정보를 서버에서 확인하지 못했습니다."
         onRetry={props.onRetry}
+        recommendedAction="인터넷 연결을 확인한 뒤 다시 확인하세요. 계속 실패하면 프로젝트 소유자에게 내 권한 상태를 문의하세요."
         retryLabel="다시 확인"
         title="프로젝트 권한을 확인하지 못했습니다."
       />
@@ -1279,8 +1280,9 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
     return (
       <ProjectAccessLayout projectId={props.projectId}>
         <OrbitFailureState
-          description="연결을 확인한 뒤 다시 시도해 주세요."
+          description="현재 프로젝트의 접근 상태를 확인하는 중 문제가 발생했습니다."
           onRetry={() => void access.refetch()}
+          recommendedAction="인터넷 연결을 확인한 뒤 다시 확인하세요. 같은 문제가 계속되면 프로젝트 목록으로 돌아가 다시 열어보세요."
           retryLabel="다시 확인"
           title="권한 상태를 확인하지 못했습니다."
         />

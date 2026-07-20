@@ -139,8 +139,9 @@ export function RehearsalProjectOverviewPage({
             </div>
           ) : state === "error" ? (
             <OrbitFailureState
-              description="연결을 확인한 뒤 프로젝트 리포트를 다시 불러오세요."
+              description="리허설 리포트 데이터를 가져오는 중 연결 문제가 발생했습니다."
               onRetry={() => setReloadKey((value) => value + 1)}
+              recommendedAction="인터넷 연결을 확인한 뒤 리포트를 다시 불러오세요."
               title="프로젝트 리포트를 불러오지 못했습니다."
             />
           ) : runs.length === 0 ? (

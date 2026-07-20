@@ -95,8 +95,9 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
     return (
       <main className="presentation-report-state-page">
         <OrbitFailureState
-          description="실전 발표 세션 주소를 확인하거나 잠시 후 다시 시도해 주세요."
+          description="실전 발표 기록을 가져오지 못했습니다."
           onRetry={() => void runQuery.refetch()}
+          recommendedAction="발표 세션 주소와 인터넷 연결을 확인한 뒤 다시 시도하세요."
           title="실전 발표 기록을 불러오지 못했습니다."
         />
       </main>
@@ -149,7 +150,10 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
           <div className="presentation-report-partial-error" role="alert">
             <div>
               <strong>음성 분석을 완료하지 못했습니다.</strong>
-              <p>{run.error?.message ?? "녹음 파일이 남아 있다면 다시 분석할 수 있습니다."}</p>
+              <p>
+                녹음 파일이 남아 있다면 다시 분석할 수 있습니다. 아래 버튼으로
+                다시 시도해 주세요.
+              </p>
             </div>
             <OrbitButton
               icon={<IconRefresh aria-hidden="true" size={17} />}
@@ -169,8 +173,9 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
           </div>
         ) : reportQuery.isError || !voiceReport ? (
           <OrbitFailureState
-            description="청중 참여 결과는 보존되어 있으며, 음성 분석만 다시 불러옵니다."
+            description="음성 분석 결과만 불러오지 못했습니다. 청중 참여 결과는 그대로 보존됩니다."
             onRetry={() => void reportQuery.refetch()}
+            recommendedAction="잠시 후 음성 분석 결과를 다시 불러오세요. 반복해서 실패하면 녹음 업로드 상태를 확인하세요."
             title="음성 분석 결과를 불러오지 못했습니다."
           />
         ) : (
@@ -220,8 +225,9 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
           </div>
         ) : reportQuery.isError ? (
           <OrbitFailureState
-            description="음성 분석 결과는 그대로 유지됩니다. 청중 결과만 다시 불러옵니다."
+            description="청중 참여 결과만 불러오지 못했습니다. 음성 분석 결과는 그대로 유지됩니다."
             onRetry={() => void reportQuery.refetch()}
+            recommendedAction="잠시 후 청중 결과를 다시 불러오세요. 발표 세션이 종료되었는지도 확인하세요."
             title="청중 참여 결과를 불러오지 못했습니다."
           />
         ) : audienceActivities.length === 0 ? (

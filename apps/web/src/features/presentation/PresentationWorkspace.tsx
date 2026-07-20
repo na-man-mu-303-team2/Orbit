@@ -6,6 +6,7 @@ import type {
   Slide,
 } from "@orbit/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { OrbitButton, OrbitFailureState } from "../../components/ui";
 import { PresentationScreen } from "./PresentationScreen";
 import { PresentationCompletionDialog } from "./PresentationCompletionDialog";
 import { PresentationMicCheckModal } from "./PresentationMicCheckModal";
@@ -22,6 +23,7 @@ import {
 } from "./presentationRecording";
 import { usePresentationSpeech } from "./usePresentationSpeech";
 import { getPresentationHighlightedKeywordOccurrences } from "./presentationKeywordOccurrences";
+import { getPresentationFailureCopy } from "./presentationFailureCopy";
 import {
   shouldWarnBeforePresentationUnload,
   type PresentationRuntimePhase,
@@ -717,21 +719,27 @@ export function PresentationWorkspace(props: {
   }
 
   if (phase === "failed") {
+    const failureCopy = getPresentationFailureCopy("load", error);
+
     return (
-      <PresenterStatusShell
-        action={
-          <button
-            className="rehearsal-exit-button"
-            type="button"
-            onClick={() => navigateToProject(deck?.projectId ?? props.projectId)}
-          >
-            프로젝트로 돌아가기
-          </button>
-        }
-        title="발표 화면을 열지 못했습니다."
-      >
-        {error || "발표 자료를 불러오지 못했습니다."}
-      </PresenterStatusShell>
+      <main className="rehearsal-presenter-shell">
+        <OrbitFailureState
+          description={failureCopy.description}
+          onRetry={() => window.location.reload()}
+          recommendedAction={failureCopy.recommendedAction}
+          retryLabel="다시 불러오기"
+          secondaryAction={
+            <OrbitButton
+              onClick={() => navigateToProject(deck?.projectId ?? props.projectId)}
+              size="prominent"
+              variant="secondary"
+            >
+              프로젝트로 돌아가기
+            </OrbitButton>
+          }
+          title={failureCopy.title}
+        />
+      </main>
     );
   }
 
@@ -752,44 +760,43 @@ export function PresentationWorkspace(props: {
   }
 
   if (runtimePhase === "failed") {
+    const failureOperation = runtimeFailureOperation === "finish" ? "finish" : "start";
+    const failureCopy = getPresentationFailureCopy(failureOperation, runtimeError);
+
     return (
-      <PresenterStatusShell
-        action={
-          <div className="rehearsal-status-actions">
-            <button
-              className="rehearsal-exit-button"
-              type="button"
-              onClick={() =>
-                runtimeFailureOperation === "finish"
-                  ? void finishPresentation()
-                  : void startPresentation(requestedRecordingMode)
-              }
-            >
-              다시 시도
-            </button>
-            {runtimeFailureOperation === "start" &&
-            requestedRecordingMode === "microphone" ? (
-              <button
-                className="rehearsal-exit-button"
-                type="button"
-                onClick={() => void startPresentation("none")}
+      <main className="rehearsal-presenter-shell">
+        <OrbitFailureState
+          description={failureCopy.description}
+          onRetry={() =>
+            runtimeFailureOperation === "finish"
+              ? void finishPresentation()
+              : void startPresentation(requestedRecordingMode)
+          }
+          recommendedAction={failureCopy.recommendedAction}
+          secondaryAction={
+            <>
+              {runtimeFailureOperation === "start" &&
+              requestedRecordingMode === "microphone" ? (
+                <OrbitButton
+                  onClick={() => void startPresentation("none")}
+                  size="prominent"
+                  variant="secondary"
+                >
+                  마이크 없이 시작
+                </OrbitButton>
+              ) : null}
+              <OrbitButton
+                onClick={() => navigateToProject(deck?.projectId ?? props.projectId)}
+                size="prominent"
+                variant="secondary"
               >
-                마이크 없이 시작
-              </button>
-            ) : null}
-            <button
-              className="rehearsal-exit-button"
-              type="button"
-              onClick={() => navigateToProject(deck?.projectId ?? props.projectId)}
-            >
-              프로젝트로 돌아가기
-            </button>
-          </div>
-        }
-        title="실전 발표를 계속하지 못했습니다."
-      >
-        {runtimeError || "잠시 후 다시 시도해 주세요."}
-      </PresenterStatusShell>
+                프로젝트로 돌아가기
+              </OrbitButton>
+            </>
+          }
+          title={failureCopy.title}
+        />
+      </main>
     );
   }
 

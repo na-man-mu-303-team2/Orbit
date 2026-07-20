@@ -19,7 +19,7 @@
   margin: 0;
 }
 
-.redesign-failure-state p {
+.redesign-failure-state-description {
   color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-headline-md-size);
   font-weight: var(--redesign-type-headline-md-weight);
@@ -28,12 +28,46 @@
   margin: var(--redesign-space-2) 0 0;
 }
 
-.redesign-failure-state .redesign-button {
+.redesign-failure-state-guide {
+  background: var(--redesign-color-surface-container-low);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-lg);
+  box-sizing: border-box;
+  margin-top: var(--redesign-space-8);
+  max-width: 560px;
+  padding: var(--redesign-space-5) var(--redesign-space-6);
+  text-align: left;
+  width: 100%;
+}
+
+.redesign-failure-state-guide strong {
+  display: block;
+  font-size: var(--redesign-type-title-md-size);
+  font-weight: var(--redesign-type-title-md-weight);
+  line-height: var(--redesign-type-title-md-line-height);
+}
+
+.redesign-failure-state-guide p {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-lg-size);
+  line-height: var(--redesign-type-body-lg-line-height);
+  margin: var(--redesign-space-2) 0 0;
+}
+
+.redesign-failure-state-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--redesign-space-3);
+  justify-content: center;
+  margin-top: var(--redesign-space-8);
+}
+
+.redesign-failure-state-actions .redesign-button {
   border-width: 2px;
   font-size: var(--redesign-type-headline-md-size);
   font-weight: var(--redesign-type-headline-md-weight);
   line-height: var(--redesign-type-headline-md-line-height);
-  margin-top: var(--redesign-space-12);
   min-width: 172px;
   min-height: var(--redesign-space-20);
 }
@@ -49,14 +83,25 @@
     line-height: var(--redesign-type-headline-lg-mobile-line-height);
   }
 
-  .redesign-failure-state p {
+  .redesign-failure-state-description {
     font-size: var(--redesign-type-body-lg-size);
     line-height: var(--redesign-type-body-lg-line-height);
   }
 
-  .redesign-failure-state .redesign-button {
+  .redesign-failure-state-guide {
+    padding: var(--redesign-space-4);
+  }
+
+  .redesign-failure-state-actions {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .redesign-failure-state-actions .redesign-button {
     font-size: var(--redesign-type-body-lg-size);
     line-height: var(--redesign-type-body-lg-line-height);
     min-height: var(--redesign-size-control-xl);
+    width: 100%;
   }
 }
