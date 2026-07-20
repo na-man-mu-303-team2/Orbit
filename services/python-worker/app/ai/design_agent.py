@@ -3,11 +3,23 @@ from __future__ import annotations
 import json
 import math
 import re
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
 DECK_ELEMENT_COORDINATE_LIMIT = 1_000_000
+DesignAgentIntentPreset = Literal[
+    "redesign-slide",
+    "tidy-layout",
+    "emphasize-message",
+    "recommend-animation",
+]
+KNOWN_DESIGN_AGENT_INTENT_PRESETS = {
+    "redesign-slide",
+    "tidy-layout",
+    "emphasize-message",
+    "recommend-animation",
+}
 
 
 class DesignAgentHistoryItem(BaseModel):
@@ -85,6 +97,11 @@ class DesignAgentRequest(BaseModel):
     project_id: str = Field(alias="projectId", min_length=1)
     session_id: str = Field(alias="sessionId", min_length=1, max_length=200)
     question: str = Field(min_length=1, max_length=2_000)
+    intent_preset: str | None = Field(
+        default=None,
+        alias="intentPreset",
+        max_length=100,
+    )
     context: DesignAgentContext
     history: list[DesignAgentHistoryItem] = Field(default_factory=list, max_length=10)
     available_smart_art_layouts: list[AvailableSmartArtLayout] = Field(
@@ -376,8 +393,12 @@ class AnimationPayload(BaseModel):
 
     animation_id: str = Field(alias="animationId", pattern=r"^anim_[A-Za-z0-9_-]+$")
     element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
-    type: Literal["fade-in", "fade-out"]
+    type: Literal["appear", "fade-in", "fade-out", "zoom-in"]
     order: int = Field(gt=0)
+    start_mode: (
+        Literal["on-slide-enter", "on-click", "with-previous", "after-previous"]
+        | None
+    ) = Field(default=None, alias="startMode")
     duration_ms: int = Field(alias="durationMs", ge=100, le=2_000)
     delay_ms: int = Field(alias="delayMs", ge=0, le=2_000)
     easing: Literal["linear", "ease-in", "ease-out", "ease-in-out"] = "ease-out"
@@ -386,8 +407,12 @@ class AnimationPayload(BaseModel):
 class AnimationPatch(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    type: Literal["fade-in", "fade-out"] | None = None
+    type: Literal["appear", "fade-in", "fade-out", "zoom-in"] | None = None
     order: int | None = Field(default=None, gt=0)
+    start_mode: (
+        Literal["on-slide-enter", "on-click", "with-previous", "after-previous"]
+        | None
+    ) = Field(default=None, alias="startMode")
     duration_ms: int | None = Field(default=None, alias="durationMs", ge=100, le=2_000)
     delay_ms: int | None = Field(default=None, alias="delayMs", ge=0, le=2_000)
     easing: Literal["linear", "ease-in", "ease-out", "ease-in-out"] | None = None
@@ -659,6 +684,7 @@ def generate_design_proposal(
             instructions=design_agent_system_prompt(
                 request.context.canvas,
                 request.capabilities,
+                _known_intent_preset(request),
             ),
             input=design_agent_user_prompt(request),
             text=DESIGN_AGENT_RESPONSE_FORMAT,
@@ -951,9 +977,21 @@ def _is_broad_preset_request(question: str) -> bool:
     )
 
 
+def _known_intent_preset(
+    request: DesignAgentRequest,
+) -> DesignAgentIntentPreset | None:
+    preset = request.intent_preset
+    if preset in KNOWN_DESIGN_AGENT_INTENT_PRESETS:
+        return cast(DesignAgentIntentPreset, preset)
+    return None
+
+
 def _build_deterministic_animation_proposal(
     request: DesignAgentRequest,
 ) -> DesignAgentResponse | None:
+    if _known_intent_preset(request) == "recommend-animation":
+        return _build_animation_recommendation(request)
+
     question = " ".join(request.question.lower().split())
     if not any(token in question for token in ("애니메이션", "페이드", "fade")):
         return None
@@ -1072,6 +1110,170 @@ def _build_deterministic_animation_proposal(
     })
 
 
+def _build_animation_recommendation(
+    request: DesignAgentRequest,
+) -> DesignAgentResponse:
+    slide = request.context.slide
+    if slide.get("ooxmlOrigin") == "imported":
+        if not slide.get("ooxmlSourceSlidePart"):
+            return _animation_recommendation_unavailable(
+                request,
+                "가져온 슬라이드의 안정적인 OOXML 위치 정보가 없어 애니메이션을 추천할 수 없습니다.",
+            )
+        motion_capabilities = slide.get("ooxmlMotionCapabilities")
+        coverage = (
+            motion_capabilities.get("importedMainSequenceCoverage")
+            if isinstance(motion_capabilities, dict)
+            else None
+        )
+        if coverage not in {"absent", "complete"}:
+            return _animation_recommendation_unavailable(
+                request,
+                "가져온 슬라이드의 애니메이션 구조를 완전하게 보존할 수 없어 추천을 적용할 수 없습니다.",
+            )
+
+    if "add_animation" not in request.capabilities.operations:
+        return _animation_recommendation_unavailable(
+            request,
+            "현재 편집 환경에서는 애니메이션 추가를 지원하지 않습니다.",
+        )
+
+    animations = [
+        animation
+        for animation in slide.get("animations", [])
+        if isinstance(animation, dict) and animation.get("animationId")
+    ]
+    animated_element_ids = {
+        str(animation.get("elementId"))
+        for animation in animations
+        if animation.get("elementId")
+    }
+    excluded_roles = {"background", "decoration", "footer"}
+    targets = sorted(
+        (
+            element
+            for element in slide.get("elements", [])
+            if isinstance(element, dict)
+            and element.get("elementId")
+            and element.get("visible") is not False
+            and element.get("role") not in excluded_roles
+            and element.get("type") != "group"
+            and str(element.get("elementId")) not in animated_element_ids
+        ),
+        key=lambda element: (
+            0 if element.get("role") == "title" else 1,
+            float(element.get("y", 0)),
+            float(element.get("x", 0)),
+            str(element.get("elementId")),
+        ),
+    )[:8]
+    if not targets:
+        return _animation_recommendation_unavailable(
+            request,
+            "추천할 수 있는 새 애니메이션 대상이 없습니다.",
+        )
+
+    group_memberships: dict[str, set[str]] = {}
+    for element in slide.get("elements", []):
+        if not isinstance(element, dict) or element.get("type") != "group":
+            continue
+        group_id = str(element.get("elementId", ""))
+        props = element.get("props")
+        child_ids = props.get("childElementIds", []) if isinstance(props, dict) else []
+        for child_id in child_ids:
+            group_memberships.setdefault(str(child_id), set()).add(group_id)
+
+    existing_ids = {str(animation["animationId"]) for animation in animations}
+    next_order = max(
+        (int(animation.get("order", 0)) for animation in animations),
+        default=0,
+    ) + 1
+    operations: list[DesignAgentOperation] = []
+    previous_element_id: str | None = None
+    core_started = False
+    for target in targets:
+        element_id = str(target["elementId"])
+        start_mode: Literal[
+            "on-slide-enter",
+            "on-click",
+            "with-previous",
+            "after-previous",
+        ]
+        if target.get("role") == "title" and previous_element_id is None:
+            start_mode = "on-slide-enter"
+        elif not core_started:
+            start_mode = "on-click"
+            core_started = True
+        elif (
+            previous_element_id is not None
+            and group_memberships.get(element_id, set())
+            & group_memberships.get(previous_element_id, set())
+        ):
+            start_mode = "with-previous"
+        else:
+            start_mode = "after-previous"
+
+        animation_type: Literal["appear", "fade-in", "zoom-in"] = (
+            "fade-in"
+            if target.get("role") == "title"
+            else "zoom-in"
+            if target.get("type") in {"image", "chart", "table"}
+            else "appear"
+        )
+        animation_id = _next_animation_id(element_id, existing_ids)
+        existing_ids.add(animation_id)
+        operations.append(AddAnimationOperation(
+            type="add_animation",
+            slideId=str(slide.get("slideId", "")),
+            animation=AnimationPayload(
+                animationId=animation_id,
+                elementId=element_id,
+                type=animation_type,
+                order=next_order,
+                startMode=start_mode,
+                durationMs=500,
+                delayMs=0,
+                easing="ease-out",
+            ),
+        ))
+        next_order += 1
+        previous_element_id = element_id
+
+    return DesignAgentResponse.model_validate({
+        "message": "발표 흐름에 맞춰 제목과 핵심 요소가 순서대로 나타나는 애니메이션 추천안을 만들었습니다.",
+        "interpretedIntent": {
+            "target": "current-slide",
+            "action": request.question,
+            "alignment": None,
+        },
+        "operations": [
+            operation.model_dump(by_alias=True, exclude_none=True)
+            for operation in operations
+        ],
+        "affectedElementIds": [str(target["elementId"]) for target in targets],
+        "warnings": [],
+        "smartArtRequest": None,
+    })
+
+
+def _animation_recommendation_unavailable(
+    request: DesignAgentRequest,
+    message: str,
+) -> DesignAgentResponse:
+    return DesignAgentResponse.model_validate({
+        "message": message,
+        "interpretedIntent": {
+            "target": "current-slide",
+            "action": request.question,
+            "alignment": None,
+        },
+        "operations": [],
+        "affectedElementIds": [],
+        "warnings": [],
+        "smartArtRequest": None,
+    })
+
+
 def _animation_target_candidates(
     question: str,
     elements: list[dict[str, Any]],
@@ -1120,9 +1322,11 @@ def _next_animation_id(element_id: str, existing_ids: set[str]) -> str:
 def design_agent_system_prompt(
     canvas: DesignAgentCanvas,
     capabilities: DesignAgentCapabilities | None = None,
+    intent_preset: DesignAgentIntentPreset | None = None,
 ) -> str:
     horizontal_margin = round(canvas.width * 0.05, 2)
     vertical_margin = round(canvas.height * 0.0667, 2)
+    preset_instruction = _intent_preset_instruction(intent_preset)
     return (
         "You are ORBIT's slide design reconstruction agent. "
         "Interpret the user's Korean or English design request and return only the "
@@ -1155,6 +1359,7 @@ def design_agent_system_prompt(
         "must finish fully inside the canvas. Emit the smallest necessary set of operations. "
         "Broad requests such as '꾸며줘', '보기 좋게', '디자인해줘', beautify, or redesign "
         "mean a substantial composition redesign, not a minor frame or color adjustment. "
+        f"{preset_instruction} "
         "Prefer smartArtRequest and a server-side preset for those broad requests whenever "
         "the visible content can form two to five items. "
         f"Capabilities: {json.dumps(capabilities.model_dump(by_alias=True) if capabilities else {}, ensure_ascii=False)}. "
@@ -1180,7 +1385,7 @@ def design_agent_system_prompt(
         "array when the diagram is newly added. Never include hidden or unknown element IDs. "
         "A server-side layout preset places the shapes. "
         "When the request is not about creating such a diagram, set smartArtRequest to null. "
-        "Animation requests are supported only with add_animation, update_animation, and "
+        "Animation free-form requests are supported only with add_animation, update_animation, and "
         "delete_animation. Only use fade-in and fade-out effects. Prefer selected elements; "
         "when nothing is selected, target only visible elements clearly identified by the "
         "request. Use durationMs 100-2000, delayMs 0-2000, easing ease-out, a unique anim_ "
@@ -1199,6 +1404,7 @@ def design_agent_system_prompt(
 def design_agent_user_prompt(request: DesignAgentRequest) -> str:
     payload = {
         "question": request.question,
+        "intentPreset": _known_intent_preset(request),
         "context": request.context.model_dump(by_alias=True),
         "history": [item.model_dump() for item in request.history],
         "availableSmartArtLayouts": [
@@ -1207,6 +1413,35 @@ def design_agent_user_prompt(request: DesignAgentRequest) -> str:
         ],
     }
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _intent_preset_instruction(
+    intent_preset: DesignAgentIntentPreset | None,
+) -> str:
+    if intent_preset == "redesign-slide":
+        return (
+            "The routing hint is redesign-slide: improve the whole current slide composition "
+            "while preserving slideId, speaker notes, keywords, semantic cues, actions, factual "
+            "meaning, and editable text elements."
+        )
+    if intent_preset == "tidy-layout":
+        return (
+            "The routing hint is tidy-layout: preserve every text string and data value; only "
+            "repair alignment, spacing, overflow, collisions, canvas boundaries, and repeated "
+            "element sizing with frame or non-content property updates."
+        )
+    if intent_preset == "emphasize-message":
+        return (
+            "The routing hint is emphasize-message: infer the key message only from the title, "
+            "speaker notes, and existing text; never invent facts, numbers, or sources, and prefer "
+            "typography, contrast, whitespace, and supporting shapes."
+        )
+    if intent_preset == "recommend-animation":
+        return (
+            "The routing hint is recommend-animation: prioritize an animation proposal and keep "
+            "the visible question separate from this routing hint."
+        )
+    return "No recognized routing hint is present; interpret the user's question as before."
 
 
 def normalize_design_proposal(
@@ -1436,6 +1671,8 @@ def validate_design_proposal(
                 "SmartArt source elements are also targeted by direct operations."
             )
 
+    _validate_intent_preset_policy(request, response)
+
     payload = response.model_dump(by_alias=True, exclude_none=True)
     payload["operations"] = [
         operation.model_dump(by_alias=True, exclude_none=True)
@@ -1446,6 +1683,43 @@ def validate_design_proposal(
         payload["interpretedIntent"]["target"] = "current-slide"
     payload["warnings"] = warnings[:20]
     return DesignAgentResponse.model_validate(payload)
+
+
+def _validate_intent_preset_policy(
+    request: DesignAgentRequest,
+    response: DesignAgentResponse,
+) -> None:
+    intent_preset = _known_intent_preset(request)
+    if intent_preset == "tidy-layout":
+        for operation in response.operations:
+            if not isinstance(
+                operation,
+                (UpdateElementFrameOperation, UpdateElementPropsOperation),
+            ):
+                raise DesignAgentGenerationError(
+                    "tidy-layout may only update element layout and presentation properties."
+                )
+            if (
+                isinstance(operation, UpdateElementPropsOperation)
+                and operation.props.text is not None
+            ):
+                raise DesignAgentGenerationError(
+                    "tidy-layout must preserve existing text content."
+                )
+    if intent_preset == "recommend-animation":
+        for operation in response.operations:
+            if not isinstance(operation, AddAnimationOperation):
+                raise DesignAgentGenerationError(
+                    "recommend-animation may only add animations."
+                )
+            if operation.animation.type not in {"appear", "fade-in", "zoom-in"}:
+                raise DesignAgentGenerationError(
+                    "recommend-animation uses only export-compatible effects."
+                )
+            if operation.animation.start_mode is None:
+                raise DesignAgentGenerationError(
+                    "recommend-animation requires an explicit startMode."
+                )
 
 
 def _allows_unselected_slide_sources(question: str) -> bool:

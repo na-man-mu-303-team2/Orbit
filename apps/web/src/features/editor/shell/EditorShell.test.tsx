@@ -482,6 +482,20 @@ describe("editor shell", () => {
       deck: previousDeck,
       slideId: previousDeck.slides[1]?.slideId ?? previousDeck.slides[0]?.slideId
     });
+
+    const appliedDeck = {
+      ...previousDeck,
+      title: "AI 디자인 적용 후",
+      version: previousDeck.version + 1
+    };
+    const undo = resolveHistoryNavigation({
+      currentDeck: appliedDeck,
+      currentSlideId: appliedDeck.slides[1]?.slideId ?? null,
+      stack: history
+    });
+
+    expect(undo?.targetEntry.deck).toBe(previousDeck);
+    expect(undo?.nextStack).toHaveLength(49);
   });
 
   it("prompts before discarding a dirty speaker notes draft", () => {
