@@ -1,0 +1,126 @@
+.design-assistant-home {
+  display: grid;
+  gap: var(--redesign-space-3);
+  padding: var(--redesign-space-5) var(--redesign-space-4) var(--redesign-space-4);
+  border-bottom: var(--redesign-border-subtle);
+  background: var(--redesign-color-surface-container-high);
+}
+
+.design-assistant-hero-icon {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+  width: var(--redesign-size-control-md);
+  height: var(--redesign-size-control-md);
+  border-radius: var(--redesign-radius-lg);
+  background: linear-gradient(
+    135deg,
+    var(--redesign-color-primary-container),
+    var(--redesign-color-secondary-container)
+  );
+  color: var(--redesign-color-on-surface);
+}
+
+.design-assistant-home-copy {
+  display: grid;
+  gap: var(--redesign-space-1);
+}
+
+.design-assistant-home-copy h2,
+.design-assistant-home-copy p {
+  margin: 0;
+}
+
+.design-assistant-home-copy h2 {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-title-md-size);
+  line-height: var(--redesign-type-title-md-line-height);
+}
+
+.design-assistant-home-copy p {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: var(--redesign-type-body-sm-line-height);
+}
+
+.design-assistant-primary-action,
+.design-assistant-secondary-actions button,
+.design-assistant-action-error button {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+  gap: var(--redesign-space-2);
+  min-height: var(--redesign-size-control-md);
+  border-radius: var(--redesign-radius-md);
+  color: var(--redesign-color-on-surface);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 700;
+  transition: var(--redesign-transition-color);
+}
+
+.design-assistant-primary-action {
+  width: 100%;
+  border: 0;
+  background: linear-gradient(
+    120deg,
+    var(--redesign-color-primary-container),
+    var(--redesign-color-secondary-container)
+  );
+}
+
+.design-assistant-secondary-actions {
+  display: grid;
+  gap: var(--redesign-space-2);
+}
+
+.design-assistant-secondary-actions button {
+  justify-content: flex-start;
+  width: 100%;
+  padding: 0 var(--redesign-space-3);
+  border: var(--redesign-border-subtle);
+  background: var(--redesign-color-surface-container);
+}
+
+.design-assistant-primary-action:hover:not(:disabled),
+.design-assistant-secondary-actions button:hover:not(:disabled) {
+  border-color: var(--redesign-color-primary-outline);
+  background-color: var(--redesign-color-primary-subtle);
+}
+
+.design-assistant-primary-action:focus-visible,
+.design-assistant-secondary-actions button:focus-visible,
+.design-assistant-action-error button:focus-visible {
+  outline: var(--redesign-border-active);
+  outline-offset: var(--redesign-space-1);
+}
+
+.design-assistant-primary-action:disabled,
+.design-assistant-secondary-actions button:disabled,
+.design-assistant-action-error button:disabled {
+  color: var(--redesign-color-on-disabled);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.design-assistant-action-error {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--redesign-space-2);
+  padding: var(--redesign-space-2) var(--redesign-space-3);
+  border: 1px solid var(--redesign-color-error);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-error-subtle);
+  color: var(--redesign-color-error);
+  font-size: var(--redesign-type-body-sm-size);
+}
+
+.design-assistant-action-error button {
+  flex: none;
+  min-height: var(--redesign-size-control-sm);
+  padding: 0 var(--redesign-space-2);
+  border: var(--redesign-border-subtle);
+  background: var(--redesign-color-surface-container);
+}

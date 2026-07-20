@@ -2,6 +2,7 @@ import { applyDeckPatch } from "@orbit/editor-core";
 import type {
   ApplyDesignAgentProposalResponse,
   Deck,
+  DesignAgentIntentPreset,
   DesignImageGenerationResult,
   DesignImageReferenceAttachment,
   DesignAgentProposal,
@@ -24,6 +25,11 @@ import {
   createDesignImageGeneration,
   pollDesignImageGeneration
 } from "../../design-agent/designAgentApi";
+import {
+  DesignAssistantHome,
+  type DesignAssistantQuickAction
+} from "../../design-agent/components/DesignAssistantHome";
+import "../../design-agent/design-assistant.css";
 import {
   getAssetValidationMessage,
   uploadProjectAsset
@@ -91,8 +97,6 @@ export function createInitialAiChatState(projectId: string): AiChatState {
   };
 }
 
-const smartArtSuggestion = "현재 가운데에 있는 내용을 내용에 맞는 SmartArt 형태로 디자인해줘.";
-
 export function AiChatPanel(props: AiChatPanelProps) {
   const designEditingEnabled = props.designEditingEnabled ?? true;
   const [draft, setDraft] = useState("");
@@ -103,6 +107,9 @@ export function AiChatPanel(props: AiChatPanelProps) {
     DesignImageReferenceAttachment[]
   >([]);
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
+  const [failedQuickAction, setFailedQuickAction] =
+    useState<DesignAssistantQuickAction | null>(null);
+  const [quickActionError, setQuickActionError] = useState<string | null>(null);
   const [mode, setMode] = useState<"design" | "image">("design");
   const referenceImageInputRef = useRef<HTMLInputElement | null>(null);
   const maxReferenceImages = 3;
@@ -114,11 +121,6 @@ export function AiChatPanel(props: AiChatPanelProps) {
   const isFirstSlide = Boolean(
     props.currentSlide && props.deck.slides[0]?.slideId === props.currentSlide.slideId,
   );
-
-  function applySuggestedPrompt(prompt: string) {
-    setMode("design");
-    setDraft(prompt);
-  }
 
   async function handleReferenceImageSelection(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -192,6 +194,72 @@ export function AiChatPanel(props: AiChatPanelProps) {
     );
   }
 
+  async function submitDesignRequest(
+    content: string,
+    intentPreset?: DesignAgentIntentPreset
+  ) {
+    if (!props.currentSlide) return;
+    const result = await createDesignAgentMessage(props.projectId, {
+      ...(props.chatState.sessionId
+        ? { sessionId: props.chatState.sessionId }
+        : {}),
+      content,
+      ...(intentPreset ? { intentPreset } : {}),
+      context: {
+        deckId: props.deck.deckId,
+        baseVersion: props.deck.version,
+        canvas: props.deck.canvas,
+        slide: props.currentSlide,
+        selectedElementIds: props.selectedElementIds,
+        theme: props.deck.theme
+      }
+    });
+    props.onChatStateChange((current) =>
+      current.projectId === props.projectId
+        ? { ...current, sessionId: result.sessionId }
+        : current
+    );
+
+    if (result.uiAction?.type === "open-speaker-notes-assistant") {
+      props.onSpeakerNotesAssistantRequest(result.uiAction.mode);
+    }
+
+    if (result.proposal) {
+      const previewResult = applyDeckPatch(props.deck, {
+        deckId: result.proposal.deckId,
+        baseVersion: result.proposal.baseVersion,
+        source: "ai",
+        operations: result.proposal.operations
+      });
+      if (!previewResult.ok) {
+        const detail = previewResult.error.details?.[0];
+        throw new Error(
+          `AI 제안의 미리보기를 만들지 못했습니다: ${
+            detail ?? previewResult.error.message
+          }`,
+        );
+      }
+      setPendingPreview({
+        candidateDeck: previewResult.deck,
+        proposal: result.proposal
+      });
+    }
+
+    const warningText = result.proposal?.warnings.length
+      ? `\n\n주의: ${result.proposal.warnings.join(" ")}`
+      : "";
+    updateMessages((current) => [
+      ...current,
+      {
+        id: result.responseMessage.messageId,
+        role: "assistant",
+        content: `${result.responseMessage.content}${
+          result.proposal ? "\n\n미리보기를 확인해 주세요." : ""
+        }${warningText}`
+      }
+    ]);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const content = draft.trim();
@@ -230,65 +298,40 @@ export function AiChatPanel(props: AiChatPanelProps) {
         return;
       }
 
-      const result = await createDesignAgentMessage(props.projectId, {
-        ...(props.chatState.sessionId
-          ? { sessionId: props.chatState.sessionId }
-          : {}),
-        content,
-        context: {
-          deckId: props.deck.deckId,
-          baseVersion: props.deck.version,
-          canvas: props.deck.canvas,
-          slide: props.currentSlide,
-          selectedElementIds: props.selectedElementIds,
-          theme: props.deck.theme
-        }
-      });
-      props.onChatStateChange((current) =>
-        current.projectId === props.projectId
-          ? { ...current, sessionId: result.sessionId }
-          : current
-      );
-
-      if (result.uiAction?.type === "open-speaker-notes-assistant") {
-        props.onSpeakerNotesAssistantRequest(result.uiAction.mode);
-      }
-
-      if (result.proposal) {
-        const previewResult = applyDeckPatch(props.deck, {
-          deckId: result.proposal.deckId,
-          baseVersion: result.proposal.baseVersion,
-          source: "ai",
-          operations: result.proposal.operations
-        });
-        if (!previewResult.ok) {
-          const detail = previewResult.error.details?.[0];
-          throw new Error(
-            `AI 제안의 미리보기를 만들지 못했습니다: ${
-              detail ?? previewResult.error.message
-            }`,
-          );
-        }
-        setPendingPreview({
-          candidateDeck: previewResult.deck,
-          proposal: result.proposal
-        });
-      }
-
-      const warningText = result.proposal?.warnings.length
-        ? `\n\n주의: ${result.proposal.warnings.join(" ")}`
-        : "";
-      updateMessages((current) => [
-        ...current,
-        {
-          id: result.responseMessage.messageId,
-          role: "assistant",
-          content: `${result.responseMessage.content}${
-            result.proposal ? "\n\n미리보기를 확인해 주세요." : ""
-          }${warningText}`
-        }
-      ]);
+      setQuickActionError(null);
+      setFailedQuickAction(null);
+      await submitDesignRequest(content);
     } catch (error) {
+      appendErrorMessage(error);
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  async function handleQuickAction(action: DesignAssistantQuickAction) {
+    if (!props.currentSlide || !designEditingEnabled || isSending) return;
+    setMode("design");
+    setFailedQuickAction(action);
+    setQuickActionError(null);
+    updateMessages((current) => [
+      ...current,
+      {
+        id: `user-${crypto.randomUUID()}`,
+        role: "user",
+        content: action.content
+      }
+    ]);
+    setIsSending(true);
+
+    try {
+      await submitDesignRequest(action.content, action.intentPreset);
+      setFailedQuickAction(null);
+    } catch (error) {
+      setQuickActionError(
+        error instanceof Error
+          ? `디자인 제안을 만들지 못했습니다. ${error.message}`
+          : "디자인 제안을 만들지 못했습니다."
+      );
       appendErrorMessage(error);
     } finally {
       setIsSending(false);
@@ -380,6 +423,17 @@ export function AiChatPanel(props: AiChatPanelProps) {
           특수 장표는 AI 디자인 대신 장표 설정에서 관리합니다.
         </p>
       ) : null}
+      {designEditingEnabled && props.currentSlide ? (
+        <DesignAssistantHome
+          disabled={isSending || isUploadingReferenceImage}
+          errorMessage={quickActionError ?? undefined}
+          isGenerating={mode === "design" && isSending}
+          onAction={(action) => void handleQuickAction(action)}
+          onRetry={failedQuickAction
+            ? () => void handleQuickAction(failedQuickAction)
+            : undefined}
+        />
+      ) : null}
       <div className="ai-chat-history" aria-live="polite">
         {props.chatState.messages.map((message) => (
           <div className={`ai-chat-message ${message.role}`} key={message.id}>
@@ -437,24 +491,15 @@ export function AiChatPanel(props: AiChatPanelProps) {
         ) : null}
       </div>
 
-      {mode === "design" && designEditingEnabled && props.currentSlide ? (
+      {mode === "design" && designEditingEnabled && props.currentSlide && isFirstSlide ? (
         <div aria-label="추천 AI 요청" className="ai-chat-suggestions">
           <button
             type="button"
             disabled={isSending}
-            onClick={() => applySuggestedPrompt(smartArtSuggestion)}
+            onClick={() => props.onSpeakerNotesAssistantRequest("icebreaker")}
           >
-            가운데 내용을 SmartArt로 디자인
+            아이스브레이킹 인트로 추가
           </button>
-          {isFirstSlide ? (
-            <button
-              type="button"
-              disabled={isSending}
-              onClick={() => props.onSpeakerNotesAssistantRequest("icebreaker")}
-            >
-              아이스브레이킹 인트로 추가
-            </button>
-          ) : null}
         </div>
       ) : null}
 
