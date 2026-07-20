@@ -64,6 +64,7 @@ export * from "./rehearsals/rehearsal-audio-analysis.schema";
 export * from "./rehearsals/rehearsal-evaluation-snapshot";
 export * from "./rehearsals/rehearsal-semantic-evidence.schema";
 export * from "./rehearsals/rehearsal-transcript-artifact.schema";
+export * from "./rehearsals/slide-transcript-snapshot.schema";
 export * from "./rehearsals/rehearsal.schema";
 export * from "./realtime/websocket.schema";
 export * from "./slide-practice/filler-policy";

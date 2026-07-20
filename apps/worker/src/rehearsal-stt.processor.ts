@@ -13,6 +13,7 @@ import {
   rehearsalRunMetaSchema,
   rehearsalSemanticCueOutcomeSchema,
   rehearsalSemanticEvaluationSchema,
+  slideTranscriptSnapshotsSchema,
   type Job,
   type RehearsalAudioProcessingResponse,
   type RehearsalEvaluationSnapshot,
@@ -41,6 +42,7 @@ const rehearsalSttPayloadSchema = z.object({
   deckId: z.string().min(1),
   audioFileId: z.string().min(1),
   liveTranscript: z.string().max(200_000).nullable().default(null),
+  slideTranscriptSnapshots: slideTranscriptSnapshotsSchema.default([]),
 });
 
 const audioAssetRowSchema = z.object({
@@ -442,6 +444,7 @@ export async function processRehearsalSttJob(
       transcriptJsonStatus: runInput.transcript_json_status,
       transcriptTextStatus: runInput.transcript_text_status,
       liveTranscript: payload.liveTranscript,
+      slideTranscriptSnapshots: payload.slideTranscriptSnapshots,
       transcription: audioProcessingResponse,
     });
   } catch {

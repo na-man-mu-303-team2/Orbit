@@ -487,6 +487,7 @@ export class RehearsalsService {
         deckId: run.deckId,
         audioFileId: request.fileId,
         liveTranscript: request.liveTranscript,
+        slideTranscriptSnapshots: request.slideTranscriptSnapshots,
       });
 
       this.logger.info(
@@ -647,12 +648,33 @@ export class RehearsalsService {
         }
       : null;
     const audioPlaybackAvailable = await this.isAudioPlaybackAvailable(run);
+    const transcriptDownloadAvailable =
+      await this.isTranscriptDownloadAvailable(run);
 
     return getRehearsalReportResponseSchema.parse({
       run: toRehearsalRun(run),
       report: responseReport,
       audioPlaybackAvailable,
+      transcriptDownloadAvailable,
     });
+  }
+
+  private async isTranscriptDownloadAvailable(
+    run: RehearsalRunEntity,
+  ): Promise<boolean> {
+    if (
+      run.status !== "succeeded" ||
+      !run.transcriptRetained ||
+      !run.transcriptTextFileId
+    ) {
+      return false;
+    }
+
+    return this.filesService.isOwnerOnlyAssetAvailable(
+      run.projectId,
+      run.transcriptTextFileId,
+      "rehearsal-transcript-text",
+    );
   }
 
   private async isAudioPlaybackAvailable(
@@ -870,6 +892,52 @@ export class RehearsalsService {
       expiresAt: expiresAt.toISOString(),
       retentionExpiresAt: retentionExpiresAt.toISOString(),
     });
+  }
+
+  async getDownload(
+    runId: string,
+    artifact: "audio" | "transcript",
+  ): Promise<{ body: Buffer; contentType: string; fileName: string }> {
+    const run = await this.getRunEntity(runId);
+    if (run.status !== "succeeded") {
+      throw new ConflictException({
+        code: "REHEARSAL_DOWNLOAD_NOT_READY",
+        message: "Rehearsal downloads are available after processing succeeds.",
+      });
+    }
+
+    if (artifact === "transcript") {
+      if (!run.transcriptRetained || !run.transcriptTextFileId) {
+        throw new GoneException({
+          code: "REHEARSAL_TRANSCRIPT_UNAVAILABLE",
+          message: "Rehearsal transcript is no longer available.",
+        });
+      }
+      const file = await this.filesService.readOwnerOnlyAssetContent(
+        run.projectId,
+        run.transcriptTextFileId,
+        "rehearsal-transcript-text",
+      );
+      return { ...file, fileName: "transcript.txt" };
+    }
+
+    if (
+      !run.audioFileId ||
+      run.rawAudioDeletedAt ||
+      !run.rawAudioDeleteDeadlineAt ||
+      run.rawAudioDeleteDeadlineAt.getTime() <= Date.now()
+    ) {
+      throw new GoneException({
+        code: "REHEARSAL_AUDIO_EXPIRED",
+        message: "Rehearsal audio is no longer available.",
+      });
+    }
+    const file = await this.filesService.readOwnerOnlyAssetContent(
+      run.projectId,
+      run.audioFileId,
+      "rehearsal-audio",
+    );
+    return { ...file, fileName: "rehearsal.webm" };
   }
 
   async getComparison(projectId: string, runId: string) {

@@ -8,7 +8,9 @@ import {
   MessageCircleMore,
   Target,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FillerMetricDetails } from "./RehearsalReportTestMetricDetails";
 import { RehearsalReportTestNavigator } from "./RehearsalReportTestNavigator";
 import { RehearsalReportTestOverview } from "./RehearsalReportTestOverview";
 import { RehearsalSlideCanvasPreview } from "./RehearsalSlideCanvasPreview";
@@ -201,6 +203,9 @@ export function RehearsalReportTestView({
               tone={slideMetrics.speakingRate.tone}
             />
             <SummaryRow
+              details={<FillerMetricDetails report={report} />}
+              detailsHint="단어별 사용 횟수와 비중"
+              detailsLabel="사용한 습관어"
               icon={MessageCircleMore}
               label="습관어"
               value={slideMetrics.filler.value}
@@ -267,6 +272,9 @@ export function RehearsalReportTestView({
 }
 
 type SummaryRowProps = {
+  details?: ReactNode;
+  detailsHint?: string;
+  detailsLabel?: string;
   icon: typeof Clock3;
   label: string;
   meta: string;
@@ -274,15 +282,70 @@ type SummaryRowProps = {
   value: string;
 };
 
-function SummaryRow({ icon: Icon, label, meta, tone, value }: SummaryRowProps) {
+function SummaryRow({
+  details,
+  detailsHint,
+  detailsLabel,
+  icon: Icon,
+  label,
+  meta,
+  tone,
+  value,
+}: SummaryRowProps) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelDetailsClose = () => {
+    if (closeTimerRef.current !== null) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+  const openDetails = () => {
+    cancelDetailsClose();
+    setDetailsOpen(true);
+  };
+  const scheduleDetailsClose = () => {
+    cancelDetailsClose();
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
+      setDetailsOpen(false);
+    }, 250);
+  };
+
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current !== null) {
+        clearTimeout(closeTimerRef.current);
+      }
+    },
+  );
+
   return (
-    <div className="rrd-test-summary-row">
+    <div
+      className={`rrd-test-summary-row${details ? " has-details" : ""}`}
+      onMouseEnter={openDetails}
+      onMouseLeave={scheduleDetailsClose}
+    >
       <span className="rrd-test-summary-icon">
         <Icon aria-hidden="true" size={20} />
       </span>
       <span>{label}</span>
       <strong>{value}</strong>
       <em className={tone ? `is-${tone}` : undefined}>{meta}</em>
+      {details && detailsOpen ? (
+        <aside
+          aria-label={detailsLabel}
+          className="rrd-test-metric-popover"
+          onMouseEnter={openDetails}
+          onMouseLeave={scheduleDetailsClose}
+        >
+          <header>
+            <strong>{detailsLabel}</strong>
+            <span>{detailsHint}</span>
+          </header>
+          {details}
+        </aside>
+      ) : null}
     </div>
   );
 }
