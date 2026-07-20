@@ -157,10 +157,42 @@ test.describe("ORBIT-2 ORBIT-10 ORBIT-36 ORBIT-58 smoke", () => {
     await expect(page.getByRole("heading", { name: "리허설을 시작할까요?" })).toBeVisible();
     await page.getByRole("button", { name: "음성 없이 연습하기" }).click();
 
-    await expect(page.getByText("리허설 · 자동 따라가기")).toBeVisible();
+    await expect(page.getByRole("region", { name: "리허설 타이머" })).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "발표 대본 프롬프터" }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "리허설 마치기" })).toBeVisible();
+  });
+
+  test("finishes a voice-less live presentation and opens its unified report", async ({
+    page
+  }) => {
+    const created = await createAuthenticatedProject(page, {
+      deck: smokeDeck as Deck,
+      label: "presentation-smoke",
+    });
+    const projectId = created.project.projectId;
+
+    await page.goto(`/presentation/${projectId}`);
+    await expect(
+      page.getByRole("heading", { name: "발표 전 마이크를 확인해 주세요" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "마이크 없이 시작" }).click();
+
+    await expect(page.getByText("발표 · 스크립트와 타이머")).toBeVisible();
     await expect(
       page.getByText(smokeDeck.slides[0]?.title ?? "", { exact: true }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "리허설 마치기" })).toBeVisible();
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "발표 종료" }).click();
+
+    await expect(page).toHaveURL(
+      new RegExp(`/presentation/${projectId}/report/[^?]+\\?runId=`),
+    );
+    await expect(page.getByRole("heading", { name: "발표 리포트" })).toBeVisible();
+    await expect(page.getByText("마이크 없이 발표했습니다.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "응답 결과" })).toBeVisible();
+    await expect(page.getByText("수집된 청중 결과가 없습니다.")).toBeVisible();
   });
 });

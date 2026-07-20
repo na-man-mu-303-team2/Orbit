@@ -1,4 +1,4 @@
-import type { RehearsalRun } from "@orbit/shared";
+import type { PresentationRun, RehearsalRun } from "@orbit/shared";
 
 export const rehearsalNavigationRequestEvent =
   "orbit:rehearsal-navigation-request";
@@ -29,6 +29,13 @@ export function navigateTo(path: string) {
 export function formatRunDate(iso: string): string {
   const d = new Date(iso);
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export function getPresentationReportPath(
+  projectId: string,
+  run: Pick<PresentationRun, "runId" | "sessionId">,
+) {
+  return `/presentation/${encodeURIComponent(projectId)}/report/${encodeURIComponent(run.sessionId)}?runId=${encodeURIComponent(run.runId)}`;
 }
 
 export function sortRehearsalRunsByCreatedAt(runs: RehearsalRun[]) {

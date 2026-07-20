@@ -94,6 +94,11 @@ body .rehearsal-report-page .rehearsal-report-nav-head > span {
   font-weight: 800;
 }
 
+body .rehearsal-report-page .rehearsal-report-nav-section-head {
+  border-top: 1px solid var(--redesign-color-outline-variant);
+  margin-top: var(--redesign-space-2);
+}
+
 body .rehearsal-report-page .rehearsal-report-nav-current {
   background: var(--redesign-color-secondary-container);
   border: 1px solid var(--redesign-color-secondary-fixed-dim);

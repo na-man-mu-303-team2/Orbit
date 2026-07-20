@@ -85,6 +85,41 @@ describe("ActivityPresenterPanel", () => {
     expect(updateStatus).not.toHaveBeenCalled();
   });
 
+  it("uses the presentation workspace session without creating another session", async () => {
+    const slide = createActivitySlide(createDemoDeck(), "poll");
+    const draftRun = activityRun(slide, "draft", 0);
+    const openRun = activityRun(slide, "open", 1);
+    const getCurrentSession = vi.spyOn(activityApi, "getCurrentSession");
+    const createSession = vi.spyOn(activityApi, "createSession");
+    vi.spyOn(activityApi, "ensureRun").mockResolvedValue({ run: draftRun });
+    vi.spyOn(activityApi, "updateRunStatus").mockResolvedValue({ run: openRun });
+    vi.spyOn(activityApi, "getPresenterResult").mockResolvedValue({
+      result: presenterResult(slide, "open")
+    });
+
+    await expect(loadActivityPresenterRuntime({
+      activityId: slide.activity.activityId,
+      autoStart: true,
+      deckId: "deck_demo",
+      deckVersion: 1,
+      presentationSession: {
+        audienceUrl: "/audience/session_live",
+        sessionId: "session_live"
+      },
+      projectId: "project_demo"
+    })).resolves.toMatchObject({
+      audienceUrl: `/audience/session_live/a/${slide.activity.activityId}`,
+      sessionId: "session_live"
+    });
+    expect(getCurrentSession).not.toHaveBeenCalled();
+    expect(createSession).not.toHaveBeenCalled();
+    expect(activityApi.ensureRun).toHaveBeenCalledWith(
+      "project_demo",
+      "session_live",
+      slide.activity.activityId
+    );
+  });
+
   it("replaces a stale session when the current Deck adds the requested Activity", async () => {
     const slide = createActivitySlide(createDemoDeck(), "pre-question");
     const draftRun = activityRun(slide, "draft", 0);

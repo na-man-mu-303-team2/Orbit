@@ -9,6 +9,8 @@ import { ProjectAssetEntity } from "../files/project-asset.entity";
 import { ProjectEntity } from "../projects/project.entity";
 import { ProjectMemberEntity } from "../projects/project-member.entity";
 import { RehearsalRunEntity } from "../rehearsals/rehearsal-run.entity";
+import { PresentationRunEntity } from "../presentation-sessions/presentation-run.entity";
+import { AddPresentationDetailedReport2026072002000 } from "./migrations/2026072002000-AddPresentationDetailedReport";
 import { CreateDeckPersistenceTables2026062701000 } from "./migrations/2026062701000-CreateDeckPersistenceTables";
 import { CreateAuthUsers2026062702000 } from "./migrations/2026062702000-CreateAuthUsers";
 import { CreateMigrationCommandCheck2026062700000 } from "./migrations/2026062700000-CreateMigrationCommandCheck";
@@ -60,6 +62,7 @@ import { RepairActivityRetentionPrivacy2026071704000 } from "./migrations/202607
 import { CenterSmartArtCardText2026071705000 } from "./migrations/2026071705000-CenterSmartArtCardText";
 import { ReplaceStoryReviewWithCoverPreview2026071706000 } from "./migrations/2026071706000-ReplaceStoryReviewWithCoverPreview";
 import { AddProjectMemberPins2026071801000 } from "./migrations/2026071801000-AddProjectMemberPins";
+import { CreatePresentationRuns2026072001000 } from "./migrations/2026072001000-CreatePresentationRuns";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -75,10 +78,11 @@ export const databaseOptions: DataSourceOptions = {
     ProjectMemberEntity,
     ProjectAssetEntity,
     RehearsalRunEntity,
+    PresentationRunEntity,
     SavedDesignPackEntity,
     DesignAgentMessageEntity,
     DesignAgentProposalEntity,
-    SmartArtLayoutEntity
+    SmartArtLayoutEntity,
   ],
   migrations: [
     CreateMigrationCommandCheck2026062700000,
@@ -131,11 +135,13 @@ export const databaseOptions: DataSourceOptions = {
     RepairActivityRetentionPrivacy2026071704000,
     CenterSmartArtCardText2026071705000,
     ReplaceStoryReviewWithCoverPreview2026071706000,
-    AddProjectMemberPins2026071801000
+    AddProjectMemberPins2026071801000,
+    CreatePresentationRuns2026072001000,
+    AddPresentationDetailedReport2026072002000,
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
-  logging: false
+  logging: false,
 };
 
 export default new DataSource(databaseOptions);
