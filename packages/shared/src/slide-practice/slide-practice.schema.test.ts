@@ -63,9 +63,37 @@ const report = {
   },
 } as const;
 
+const reportV3 = {
+  ...report,
+  reportVersion: 3,
+  metricDefinitionVersion: 3,
+  contentHashVersion: "slide-text-v1",
+  slideContentHash: "a".repeat(64),
+} as const;
+
 describe("slidePracticeReportSchema", () => {
   it("accepts derived metrics without transcript or audio", () => {
     expect(slidePracticeReportSchema.parse(report)).toEqual(report);
+  });
+
+  it("keeps v1/v2 compatibility and requires the complete v3 hash contract", () => {
+    expect(slidePracticeReportSchema.safeParse(report).success).toBe(true);
+    expect(slidePracticeReportSchema.safeParse({
+      ...report,
+      reportVersion: 2,
+      metricDefinitionVersion: 2,
+    }).success).toBe(true);
+    expect(slidePracticeReportSchema.safeParse(reportV3).success).toBe(true);
+    expect(slidePracticeReportSchema.safeParse({
+      ...reportV3,
+      slideContentHash: "A".repeat(64),
+    }).success).toBe(false);
+    expect(slidePracticeReportSchema.safeParse({
+      ...reportV3,
+      metricDefinitionVersion: 2,
+    }).success).toBe(false);
+    const { slideContentHash: _slideContentHash, ...missingHash } = reportV3;
+    expect(slidePracticeReportSchema.safeParse(missingHash).success).toBe(false);
   });
 
   it("reads legacy classifier reports and accepts classifier v4 reports", () => {
