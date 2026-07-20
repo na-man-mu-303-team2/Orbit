@@ -1,5 +1,5 @@
 import type { Project } from "@orbit/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconChevronRight,
   IconPlus
@@ -8,7 +8,17 @@ import { useMemo, useState } from "react";
 import { WorkspaceContainer } from "../../components/patterns";
 import { OrbitFailureState } from "../../components/ui";
 import "../../styles/tokens.css";
-import { fetchProjects, updateProjectPin } from "./ProjectAssetWorkspace";
+import { CommunityTemplateGalleryDialog } from "../community-templates/CommunityTemplateGalleryDialog";
+import { CommunityTemplateShelf } from "../community-templates/CommunityTemplateShelf";
+import {
+  communityTemplateKeys,
+  fetchCommunityTemplateShelf,
+} from "../community-templates/communityTemplateApi";
+import {
+  createProject,
+  fetchProjects,
+  updateProjectPin,
+} from "./ProjectAssetWorkspace";
 import { WorkspaceProjectCard } from "./WorkspaceProjectCard";
 import "./workspace-home.css";
 
@@ -17,7 +27,10 @@ type ProjectHubProps = {
 };
 
 export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string }) {
+  const queryClient = useQueryClient();
   const projects = useProjectList();
+  const templates = useCommunityTemplateShelf();
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const [pinningId, setPinningId] = useState<string | null>(null);
   const [pinError, setPinError] = useState("");
   const recentProjects = useMemo(() => {
@@ -26,6 +39,13 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
     const rest = sorted.filter((project) => !project.isPinned);
     return [...pinned, ...rest].slice(0, 10);
   }, [projects.data]);
+  const blankProject = useMutation({
+    mutationFn: () => createProject("새 프레젠테이션"),
+    onSuccess: async (project) => {
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      props.onNavigate(projectPath(project));
+    },
+  });
 
   async function togglePinnedProject(projectId: string, isPinned: boolean) {
     if (pinningId) return;
@@ -52,9 +72,26 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
         className="workspace-home-main"
         width="content"
       >
+        <h1 className="workspace-home-visually-hidden">ORBIT 홈</h1>
+        <CommunityTemplateShelf
+          cards={templates.data?.items ?? []}
+          error={
+            templates.isError
+              ? "템플릿을 불러오지 못했습니다."
+              : blankProject.isError
+                ? "빈 프레젠테이션을 만들지 못했습니다."
+                : null
+          }
+          isCreatingBlank={blankProject.isPending}
+          loading={templates.isLoading}
+          onCreateBlank={() => blankProject.mutate()}
+          onOpenGallery={() => setGalleryOpen(true)}
+          onRetry={() => void templates.refetch()}
+        />
+
         <header className="workspace-home-head">
           <div>
-            <h1>최근 작업</h1>
+            <h2>최근 작업</h2>
           </div>
           <button
             className="workspace-home-more"
@@ -119,12 +156,25 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
           )}
         </div>
       </WorkspaceContainer>
+      <CommunityTemplateGalleryDialog
+        onClose={() => setGalleryOpen(false)}
+        open={galleryOpen}
+      />
     </div>
   );
 }
 
 function useProjectList() {
   return useQuery({ queryKey: ["projects"], queryFn: () => fetchProjects(), retry: false });
+}
+
+function useCommunityTemplateShelf() {
+  return useQuery({
+    queryKey: communityTemplateKeys.shelf,
+    queryFn: () => fetchCommunityTemplateShelf(),
+    retry: false,
+    staleTime: 60_000,
+  });
 }
 
 function sortProjects<T extends Project>(
