@@ -36,14 +36,17 @@ describe("presentationApi", () => {
       }),
     ).resolves.toEqual({
       audienceUrl: "/audience/session_live",
+      recordingMode: "microphone",
       runId: "presentation_run_1",
       sessionId: "session_live",
+      status: "created",
     });
 
     expect(createSession).toHaveBeenCalledOnce();
     expect(createSession).toHaveBeenCalledWith("project_1", {
       accessMode: "public",
       deckId: "deck_1",
+      reuseCurrent: true,
     });
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe(

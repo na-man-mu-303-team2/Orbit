@@ -12,8 +12,10 @@ import { activityApi } from "../activity-slides/api/activityApi";
 
 export type PresentationRuntimeIdentity = {
   audienceUrl: string;
+  recordingMode: PresentationRecordingMode;
   runId: string;
   sessionId: string;
+  status: "created" | "uploading" | "processing" | "succeeded" | "failed" | "cancelled";
 };
 
 export async function createPresentationRuntime(input: {
@@ -25,6 +27,7 @@ export async function createPresentationRuntime(input: {
   const { audienceUrl, session } = await activityApi.createSession(input.projectId, {
     accessMode: "public",
     deckId: input.deckId,
+    reuseCurrent: true,
   });
   const response = await requestJson(
     runsUrl(input.projectId, session.sessionId),
@@ -38,7 +41,13 @@ export async function createPresentationRuntime(input: {
     },
   );
   const { run } = createPresentationRunResponseSchema.parse(response);
-  return { audienceUrl, runId: run.runId, sessionId: session.sessionId };
+  return {
+    audienceUrl,
+    recordingMode: run.recordingMode,
+    runId: run.runId,
+    sessionId: session.sessionId,
+    status: run.status,
+  };
 }
 
 export async function uploadPresentationRecording(input: {

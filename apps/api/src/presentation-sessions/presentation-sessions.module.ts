@@ -1,11 +1,12 @@
 import { enqueuePresentationAnalysisJob } from "@orbit/job-queue";
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { AuthModule } from "../auth/auth.module";
 import { DecksModule } from "../decks/decks.module";
 import { FilesModule } from "../files/files.module";
 import { JobsModule } from "../jobs/jobs.module";
 import { ProjectsModule } from "../projects/projects.module";
+import { ActivitiesModule } from "../activities/activities.module";
 import { AudienceSessionsController } from "./audience-sessions.controller";
 import { PresentationSessionsController } from "./presentation-sessions.controller";
 import { PresentationSessionsService } from "./presentation-sessions.service";
@@ -26,6 +27,7 @@ import {
     FilesModule,
     JobsModule,
     ProjectsModule,
+    forwardRef(() => ActivitiesModule),
   ],
   controllers: [
     AudienceSessionsController,

@@ -3,6 +3,8 @@ import { z } from "zod";
 import { isoDateTimeSchema } from "../common/time.schema";
 import { deckIdSchema } from "../deck/id.schema";
 import { activityRunIdSchema } from "../activity/activity-id.schema";
+import { activityPresenterResultSchema } from "../activity/activity-results.schema";
+import { activityRunSchema } from "../activity/activity-runtime.schema";
 import { assetUploadUrlResponseSchema } from "../files/file.schema";
 import { jobSchema } from "../jobs/job.schema";
 
@@ -56,7 +58,8 @@ export const createPresentationSessionRequestSchema = z
     startsAt: isoDateTimeSchema.optional(),
     expiresAt: isoDateTimeSchema.optional(),
     accessMode: presentationAccessModeSchema.default("passcode"),
-    passcode: z.string().regex(/^\d{4}$/).optional()
+    passcode: z.string().regex(/^\d{4}$/).optional(),
+    reuseCurrent: z.boolean().optional()
   })
   .strict()
   .superRefine((request, ctx) => {
@@ -219,7 +222,24 @@ export const presentationRunReportSchema = z
     analysisStatus: presentationRunStatusSchema,
     recordingMode: presentationRecordingModeSchema,
     voiceReport: presentationVoiceReportSchema.nullable(),
-    audienceSummary: z.record(z.unknown()).nullable()
+    audienceSummary: z
+      .object({
+        activities: z.array(
+          z
+            .object({
+              availability: z.enum([
+                "raw-retained",
+                "aggregate-only",
+                "results-deleted"
+              ]),
+              result: activityPresenterResultSchema.nullable(),
+              run: activityRunSchema
+            })
+            .strict()
+        )
+      })
+      .strict()
+      .nullable()
   })
   .strict();
 

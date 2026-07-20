@@ -19,7 +19,6 @@ import {
   OrbitFailureState,
   OrbitStatus,
 } from "../../components/ui";
-import { activityApi } from "../activity-slides/api/activityApi";
 import {
   getPresentationReport,
   getPresentationRun,
@@ -74,11 +73,6 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
         : false,
     retry: false,
   });
-  const audienceQuery = useQuery({
-    queryKey: ["presentation-audience-report", props.projectId, props.sessionId],
-    queryFn: () => activityApi.getSessionResults(props.projectId, props.sessionId),
-    retry: false,
-  });
   const retryAnalysis = useMutation({
     mutationFn: () =>
       retryPresentationAnalysis({
@@ -112,7 +106,7 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
   const run = runQuery.data.run;
   const report = reportQuery.data?.report;
   const voiceReport = report?.voiceReport ?? run.voiceReport;
-  const audienceActivities = audienceQuery.data?.activities ?? [];
+  const audienceActivities = report?.audienceSummary?.activities ?? [];
 
   return (
     <main className="presentation-report-page">
@@ -212,22 +206,22 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
             <span>청중 참여</span>
             <h2 id="audience-report-title">응답 결과</h2>
           </div>
-          {audienceQuery.data ? (
+          {report?.audienceSummary ? (
             <OrbitStatus tone="info">
               응답 {countAudienceResponses(audienceActivities)}개
             </OrbitStatus>
           ) : null}
         </div>
 
-        {audienceQuery.isLoading ? (
+        {reportQuery.isLoading ? (
           <div className="presentation-report-processing" role="status">
             <span aria-hidden="true" className="presentation-report-spinner" />
             <strong>청중 응답을 불러오고 있습니다.</strong>
           </div>
-        ) : audienceQuery.isError ? (
+        ) : reportQuery.isError ? (
           <OrbitFailureState
             description="음성 분석 결과는 그대로 유지됩니다. 청중 결과만 다시 불러옵니다."
-            onRetry={() => void audienceQuery.refetch()}
+            onRetry={() => void reportQuery.refetch()}
             title="청중 참여 결과를 불러오지 못했습니다."
           />
         ) : audienceActivities.length === 0 ? (

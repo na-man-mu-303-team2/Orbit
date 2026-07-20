@@ -15,6 +15,7 @@ import {
 import {
   BadRequestException,
   ConflictException,
+  forwardRef,
   Inject,
   Injectable,
   NotFoundException,
@@ -25,6 +26,7 @@ import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { QueryFailedError, Repository } from "typeorm";
 
 import { parseRequest } from "../common/zod-request";
+import { ActivityResultsService } from "../activities/activity-results.service";
 import { DecksService } from "../decks/decks.service";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
@@ -58,6 +60,8 @@ export class PresentationRunsService {
     private readonly decks: DecksService,
     private readonly files: FilesService,
     private readonly jobs: JobsService,
+    @Inject(forwardRef(() => ActivityResultsService))
+    private readonly activityResults: ActivityResultsService,
     @Inject(PRESENTATION_ANALYSIS_ENQUEUE_JOB)
     private readonly enqueueAnalysis: PresentationAnalysisEnqueueJob,
     @InjectPinoLogger(PresentationRunsService.name)
@@ -468,6 +472,10 @@ export class PresentationRunsService {
 
   async getReport(projectId: string, sessionId: string, runId: string) {
     const run = await this.getRunEntity(projectId, sessionId, runId);
+    const audienceArchive = await this.activityResults.getSessionArchive(
+      projectId,
+      sessionId,
+    );
     return getPresentationRunReportResponseSchema.parse({
       report: {
         runId,
@@ -476,7 +484,7 @@ export class PresentationRunsService {
         analysisStatus: run.status,
         recordingMode: run.recordingMode,
         voiceReport: run.voiceReport,
-        audienceSummary: null,
+        audienceSummary: { activities: audienceArchive.activities },
       },
     });
   }

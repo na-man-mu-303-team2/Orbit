@@ -71,6 +71,15 @@ describe("PresentationWorkspace", () => {
     expect(source).not.toContain("completeRehearsalAudioUpload");
   });
 
+  it("uses the shared auto-advance controller in live mode only", () => {
+    const source = fs.readFileSync(presentationWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("evaluateAdvanceController");
+    expect(source).toContain('mode: "live"');
+    expect(source).toContain("live: true");
+    expect(source).toContain("rehearsal: false");
+  });
+
   it("renders the auto-start presenter controls for an Activity slide", () => {
     const deck = createDemoDeck();
     const activitySlide = createActivitySlide(deck, "pre-question");

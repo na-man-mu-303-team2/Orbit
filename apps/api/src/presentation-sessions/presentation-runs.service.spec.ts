@@ -5,6 +5,7 @@ import type { Repository } from "typeorm";
 import type { DecksService } from "../decks/decks.service";
 import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
+import type { ActivityResultsService } from "../activities/activity-results.service";
 import { PresentationRunEntity } from "./presentation-run.entity";
 import type { PresentationSessionsService } from "./presentation-sessions.service";
 import {
@@ -99,10 +100,14 @@ function createService(existingRun: PresentationRunEntity | null = null) {
   } as unknown as JobsService;
   const enqueue = vi.fn().mockResolvedValue(undefined) as unknown as
     PresentationAnalysisEnqueueJob;
+  const activityResults = {
+    getSessionArchive: vi.fn().mockResolvedValue({ activities: [] }),
+  } as unknown as ActivityResultsService;
   const logger = { info: vi.fn(), error: vi.fn() } as never;
 
   return {
     decks,
+    activityResults,
     enqueue,
     files,
     jobs,
@@ -113,6 +118,7 @@ function createService(existingRun: PresentationRunEntity | null = null) {
       decks,
       files,
       jobs,
+      activityResults,
       enqueue,
       logger,
     ),
@@ -234,5 +240,65 @@ describe("PresentationRunsService", () => {
       "presentation-audio",
     );
     expect(fixture.enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("combines audience activity results with the presentation voice report", async () => {
+    const activity = {
+      availability: "raw-retained",
+      result: null,
+      run: {
+        activityRunId: "activity_run_1",
+        presentationSessionId: "session_1",
+        activityId: "activity_1",
+        sourceSlideId: "slide_1",
+        version: 1,
+        supersedesActivityRunId: null,
+        definitionSnapshot: {
+          activityId: "activity_1",
+          template: "poll",
+          title: "실시간 투표",
+          description: "한 가지를 선택해 주세요.",
+          questions: [
+            {
+              questionId: "question_1",
+              type: "single-choice",
+              prompt: "어떤 선택이 가장 적합한가요?",
+              required: true,
+              options: [
+                { optionId: "option_1", label: "선택 1" },
+                { optionId: "option_2", label: "선택 2" },
+              ],
+            },
+          ],
+          allowDisplayName: false,
+        },
+        definitionFingerprint: "fingerprint_1",
+        status: "closed",
+        revision: 1,
+        isCurrent: true,
+        responseCount: 0,
+        openedAt: now.toISOString(),
+        closedAt: now.toISOString(),
+        revealedAt: null,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+    };
+    const fixture = createService(makeRun({ status: "succeeded" }));
+    vi.mocked(fixture.activityResults.getSessionArchive).mockResolvedValue({
+      activities: [activity],
+    } as never);
+
+    const result = await fixture.service.getReport(
+      "project_1",
+      "session_1",
+      "presentation_run_1",
+    );
+
+    expect(result.report.audienceSummary?.activities).toMatchObject([activity]);
+    expect(fixture.activityResults.getSessionArchive).toHaveBeenCalledWith(
+      "project_1",
+      "session_1",
+    );
   });
 });

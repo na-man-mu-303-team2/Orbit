@@ -16,6 +16,22 @@ describe("PresentationSessionRepository", () => {
     expect(sql).toContain("WHERE sessions.session_id = $1");
   });
 
+  it("locks the current session while a live runtime is being reused", async () => {
+    const query = vi.fn().mockResolvedValue([]);
+    const repository = new PresentationSessionRepository({} as DataSource);
+
+    await repository.findCurrentForUpdate(
+      { query } as never,
+      "project_1",
+      "deck_1"
+    );
+
+    const sql = String(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("status IN ('draft', 'live')");
+    expect(sql).toContain("expires_at > now()");
+    expect(sql).toContain("FOR UPDATE");
+  });
+
   it("casts the shared close timestamp before adding the retention interval", async () => {
     const query = vi
       .fn()

@@ -75,6 +75,22 @@ describe("PresentationSession Activity contract", () => {
     ).toBe(false);
   });
 
+  it("keeps session reuse opt-in for the live runtime", () => {
+    expect(
+      createPresentationSessionRequestSchema.parse({
+        deckId: "deck_1",
+        accessMode: "public"
+      }).reuseCurrent
+    ).toBeUndefined();
+    expect(
+      createPresentationSessionRequestSchema.parse({
+        deckId: "deck_1",
+        accessMode: "public",
+        reuseCurrent: true
+      }).reuseCurrent
+    ).toBe(true);
+  });
+
   it("represents the absence of a current session without a dangling URL", () => {
     expect(
       getCurrentPresentationSessionResponseSchema.safeParse({

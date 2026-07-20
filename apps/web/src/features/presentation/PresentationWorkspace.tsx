@@ -40,6 +40,18 @@ import {
   resolveKeywordTriggeredActions,
   resolveTriggeredActionPlaybackUpdate,
 } from "../rehearsal/playback/triggeredActionPlayback";
+import { AutoAdvanceStatus } from "../rehearsal/advance/AutoAdvanceStatus";
+import {
+  defaultAutoAdvanceConfig,
+  defaultAutoAdvancePolicy,
+} from "../rehearsal/advance/autoAdvanceConfig";
+import {
+  cancelAdvanceCountdown,
+  createInitialAdvanceControllerState,
+  evaluateAdvanceController,
+  resetAdvanceControllerForSlide,
+  type AdvanceControllerState,
+} from "../rehearsal/advance/advanceController";
 import { createDefaultPhraseExtractor } from "../rehearsal/speech/phraseExtractor";
 import type { SpeechTrackerSnapshot } from "../rehearsal/speech/speechTrackingEvents";
 import {
@@ -107,6 +119,14 @@ export function PresentationWorkspace(props: {
   const finishPromiseRef = useRef<Promise<void> | null>(null);
   const playbackStateRef = useRef<SlidePlaybackState>(createSlidePlaybackState());
   const previousHitKeywordIdsRef = useRef<Set<string>>(new Set());
+  const advanceControllerStateRef = useRef<AdvanceControllerState>(
+    createInitialAdvanceControllerState(),
+  );
+  const finalSentenceCommittedAtMsRef = useRef<number | null>(null);
+  const finalSentenceSpokenAtMsRef = useRef<number | null>(null);
+  const [advanceControllerState, setAdvanceControllerState] =
+    useState<AdvanceControllerState>(() => createInitialAdvanceControllerState());
+  const [autoAdvanceNowMs, setAutoAdvanceNowMs] = useState(0);
   const speech = usePresentationSpeech(props.projectId);
 
   useEffect(() => {
@@ -300,19 +320,30 @@ export function PresentationWorkspace(props: {
     ? `다음 키워드 "${nextSlide.keywords[0].text}"를 확인하세요`
     : "마지막 슬라이드를 마무리할 흐름을 점검하세요";
 
+  const cancelAutoAdvanceForManualCommand = useCallback(() => {
+    const result = cancelAdvanceCountdown(
+      advanceControllerStateRef.current,
+      "manual",
+    );
+    advanceControllerStateRef.current = result.state;
+    setAdvanceControllerState(result.state);
+  }, []);
+
   const goPrevious = useCallback(() => {
+    cancelAutoAdvanceForManualCommand();
     setPresenterStepIndex(0);
     setCurrentSlideIndex((current) => Math.max(0, current - 1));
-  }, []);
+  }, [cancelAutoAdvanceForManualCommand]);
 
   const goNext = useCallback(() => {
     if (!deck) {
       return;
     }
 
+    cancelAutoAdvanceForManualCommand();
     setPresenterStepIndex(0);
     setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
-  }, [deck]);
+  }, [cancelAutoAdvanceForManualCommand, deck]);
 
   const handleNextPresenterStep = useCallback(() => {
     if (!deck || !slideshowAnimationPlan) {
@@ -338,10 +369,105 @@ export function PresentationWorkspace(props: {
   useEffect(() => {
     previousHitKeywordIdsRef.current = new Set();
     playbackStateRef.current = createSlidePlaybackState();
+    finalSentenceCommittedAtMsRef.current = null;
+    finalSentenceSpokenAtMsRef.current = null;
+    const nextAdvanceState = currentSlide
+      ? resetAdvanceControllerForSlide(currentSlide.slideId)
+      : createInitialAdvanceControllerState();
+    advanceControllerStateRef.current = nextAdvanceState;
+    setAdvanceControllerState(nextAdvanceState);
     if (currentSlide && speech.state.status === "listening") {
       speech.enterSlide(currentSlide);
     }
   }, [currentSlide, speech.enterSlide, speech.state.status]);
+
+  useEffect(() => {
+    if (runtimePhase !== "active" || speech.state.status !== "listening") {
+      return;
+    }
+
+    const timer = window.setInterval(() => setAutoAdvanceNowMs(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [runtimePhase, speech.state.status]);
+
+  useEffect(() => {
+    if (
+      !deck ||
+      !currentSlide ||
+      !slideshowAnimationPlan ||
+      runtimePhase !== "active" ||
+      speech.state.status !== "listening"
+    ) {
+      return;
+    }
+
+    const nowMs = autoAdvanceNowMs || Date.now();
+    if (panelSnapshot.finalSentenceCommitted === true) {
+      finalSentenceCommittedAtMsRef.current ??= nowMs;
+    } else {
+      finalSentenceCommittedAtMsRef.current = null;
+    }
+    if (panelSnapshot.finalSentenceSpoken) {
+      finalSentenceSpokenAtMsRef.current ??=
+        speech.state.lastTranscriptActivityAtMs ?? nowMs;
+    } else {
+      finalSentenceSpokenAtMsRef.current = null;
+    }
+
+    const lastActivityAtMs = speech.state.lastTranscriptActivityAtMs;
+    const silenceDurationMs = lastActivityAtMs
+      ? Math.max(0, nowMs - lastActivityAtMs)
+      : 0;
+    const result = evaluateAdvanceController(
+      advanceControllerStateRef.current,
+      {
+        effectiveCoverage: panelSnapshot.effectiveCoverage,
+        finalSentenceCommitted: panelSnapshot.finalSentenceCommitted === true,
+        finalSentenceCommittedAtMs: finalSentenceCommittedAtMsRef.current,
+        finalSentenceSpoken: panelSnapshot.finalSentenceSpoken,
+        finalSentenceSpokenAtMs: finalSentenceSpokenAtMsRef.current,
+        isLastSlide: currentSlideIndex >= deck.slides.length - 1,
+        mode: "live",
+        nowMs,
+        pause: {
+          isPaused:
+            lastActivityAtMs !== null &&
+            silenceDurationMs >= presentationAutoAdvancePolicy.pauseMs,
+          silenceDurationMs,
+        },
+        policy: presentationAutoAdvancePolicy,
+        remainingTriggerSteps: Math.max(
+          0,
+          slideshowAnimationPlan.maxStepIndex - presenterStepIndex,
+        ),
+        semanticAutoActionAllowed: true,
+        slideId: currentSlide.slideId,
+      },
+      defaultAutoAdvanceConfig,
+    );
+    advanceControllerStateRef.current = result.state;
+    setAdvanceControllerState(result.state);
+
+    if (result.commands.some((command) => command.type === "advance-slide")) {
+      setPresenterStepIndex(0);
+      setCurrentSlideIndex((current) =>
+        Math.min(deck.slides.length - 1, current + 1),
+      );
+    }
+  }, [
+    autoAdvanceNowMs,
+    currentSlide,
+    currentSlideIndex,
+    deck,
+    panelSnapshot.effectiveCoverage,
+    panelSnapshot.finalSentenceCommitted,
+    panelSnapshot.finalSentenceSpoken,
+    presenterStepIndex,
+    runtimePhase,
+    slideshowAnimationPlan,
+    speech.state.lastTranscriptActivityAtMs,
+    speech.state.status,
+  ]);
 
   useEffect(() => {
     if (!currentSlide || !slideshowAnimationPlan || runtimePhase !== "active") {
@@ -427,7 +553,18 @@ export function PresentationWorkspace(props: {
         }));
       runtimeRef.current = runtime;
 
-      if (recordingMode === "microphone") {
+      if (runtime.status !== "created") {
+        navigateToPresentationReport({
+          projectId: props.projectId,
+          runId: runtime.runId,
+          sessionId: runtime.sessionId,
+        });
+        return;
+      }
+
+      setRequestedRecordingMode(runtime.recordingMode);
+
+      if (runtime.recordingMode === "microphone") {
         const deviceId = readRehearsalMicrophoneDeviceId();
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -659,6 +796,14 @@ export function PresentationWorkspace(props: {
     <>
       <PresentationScreen
         adviceState={adviceState}
+        autoAdvanceStatus={
+          <AutoAdvanceStatus
+            countdownMs={presentationAutoAdvancePolicy.countdownMs}
+            nowMs={autoAdvanceNowMs}
+            onFinish={requestPresentationExit}
+            state={advanceControllerState}
+          />
+        }
         currentSlide={currentSlide}
         currentSlideIndex={currentSlideIndex}
         deck={deck}
@@ -741,6 +886,12 @@ export function PresentationWorkspace(props: {
     </>
   );
 }
+
+const presentationAutoAdvancePolicy = Object.freeze({
+  ...defaultAutoAdvancePolicy,
+  live: true,
+  rehearsal: false,
+});
 
 function navigateToProject(projectId?: string) {
   if (!projectId || typeof window === "undefined") {

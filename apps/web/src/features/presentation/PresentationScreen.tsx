@@ -1,5 +1,6 @@
 import type { Deck, DeckElement, Slide } from "@orbit/shared";
 import { Presentation } from "lucide-react";
+import type { ReactNode } from "react";
 import { ActivityPresenterPanel } from "../activity-slides";
 import { RehearsalPanel } from "../rehearsal/panel/RehearsalPanel";
 import type { RehearsalTimingSnapshot, TimingAdviceState } from "../rehearsal/panel/rehearsalTiming";
@@ -15,6 +16,7 @@ import {
 
 export function PresentationScreen(props: {
   adviceState: TimingAdviceState;
+  autoAdvanceStatus?: ReactNode;
   deck: Deck | null;
   currentSlide: Slide | null;
   currentSlideIndex: number;
@@ -168,6 +170,7 @@ export function PresentationScreen(props: {
               adviceState={props.adviceState}
               highlightedKeywordOccurrences={props.highlightedKeywordOccurrences}
               keywords={props.keywords ?? []}
+              liveSlot={props.autoAdvanceStatus}
               mode="live"
               sentences={props.sentences}
               showAdvicePanel={false}

@@ -10,6 +10,7 @@ import { fetchLiveSttRuntimeConfig } from "../rehearsal/stt/liveSttRuntimeConfig
 
 type PresentationSpeechState = {
   error: string | null;
+  lastTranscriptActivityAtMs: number | null;
   snapshot: SpeechTrackerSnapshot | null;
   status: "idle" | "starting" | "listening" | "stopped" | "error";
   wordsPerMinute: number;
@@ -17,6 +18,7 @@ type PresentationSpeechState = {
 
 const initialState: PresentationSpeechState = {
   error: null,
+  lastTranscriptActivityAtMs: null,
   snapshot: null,
   status: "idle",
   wordsPerMinute: 0,
@@ -76,13 +78,15 @@ export function usePresentationSpeech(projectId?: string) {
           port.onResult((result) => {
             const tracker = trackerRef.current;
             if (!tracker) return;
+            const transcriptActivityAtMs = Date.now();
             tracker.acceptResult(result);
             if (result.isFinal) {
               finalWordCountRef.current += result.text.trim().split(/\s+/).filter(Boolean).length;
             }
-            const elapsedMinutes = Math.max((Date.now() - startedAtRef.current) / 60_000, 1 / 60);
+            const elapsedMinutes = Math.max((transcriptActivityAtMs - startedAtRef.current) / 60_000, 1 / 60);
             setState((current) => ({
               ...current,
+              lastTranscriptActivityAtMs: transcriptActivityAtMs,
               snapshot: tracker.snapshot(),
               wordsPerMinute: Math.round(finalWordCountRef.current / elapsedMinutes),
             }));

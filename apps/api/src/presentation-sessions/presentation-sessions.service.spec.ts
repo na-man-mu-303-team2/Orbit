@@ -38,6 +38,7 @@ function createService(
     closeActive: vi.fn().mockResolvedValue([]),
     insert: vi.fn().mockResolvedValue(sessionRow),
     findCurrent: vi.fn().mockResolvedValue(sessionRow),
+    findCurrentForUpdate: vi.fn().mockResolvedValue(null),
     list: vi.fn().mockResolvedValue([sessionRow]),
     updateAccess: vi.fn().mockResolvedValue(sessionRow),
     close: vi.fn().mockResolvedValue({
@@ -107,6 +108,49 @@ describe("PresentationSessionsService", () => {
       expect.anything(),
       expect.objectContaining({ deckId: "deck_1", deckVersion: 7, userId: "user_1" })
     );
+  });
+
+  it("reuses the matching live-runtime session without closing audience activity", async () => {
+    const { repository, service } = createService({
+      findCurrentForUpdate: vi.fn().mockResolvedValue(sessionRow)
+    });
+
+    await expect(
+      service.create("project_1", "user_1", {
+        deckId: "deck_1",
+        accessMode: "public",
+        reuseCurrent: true
+      })
+    ).resolves.toMatchObject({
+      audienceUrl: "/audience/session_existing",
+      session: { sessionId: "session_existing", deckVersion: 7 }
+    });
+
+    expect(repository.findCurrentForUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      "project_1",
+      "deck_1"
+    );
+    expect(repository.closeActive).not.toHaveBeenCalled();
+    expect(repository.insert).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse a session from another deck version", async () => {
+    const { repository, service } = createService({
+      findCurrentForUpdate: vi.fn().mockResolvedValue({
+        ...sessionRow,
+        deck_version: 6
+      })
+    });
+
+    await service.create("project_1", "user_1", {
+      deckId: "deck_1",
+      accessMode: "public",
+      reuseCurrent: true
+    });
+
+    expect(repository.closeActive).toHaveBeenCalledOnce();
+    expect(repository.insert).toHaveBeenCalledOnce();
   });
 
   it("keeps the active session when Deck materialization fails", async () => {

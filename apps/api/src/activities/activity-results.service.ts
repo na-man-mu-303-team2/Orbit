@@ -15,7 +15,14 @@ import {
   getAudienceActivityResponseSchema
 } from "@orbit/shared";
 import type { ActivityAnswer, ActivityPresenterResult, ActivityPublicResult } from "@orbit/shared";
-import { ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import {
+  ConflictException,
+  forwardRef,
+  Inject,
+  Injectable,
+  NotFoundException,
+  Optional
+} from "@nestjs/common";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 
 import { PresentationSessionsService } from "../presentation-sessions/presentation-sessions.service";
@@ -31,6 +38,7 @@ import {
 export class ActivityResultsService {
   constructor(
     private readonly repository: ActivityResultsRepository,
+    @Inject(forwardRef(() => PresentationSessionsService))
     @Optional()
     private readonly presentationSessionsService?: PresentationSessionsService,
     @InjectPinoLogger(ActivityResultsService.name)
