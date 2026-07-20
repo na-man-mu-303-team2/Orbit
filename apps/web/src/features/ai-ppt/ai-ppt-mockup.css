@@ -537,7 +537,7 @@
 
 .ai-ppt-ai-palette-flow {
   display: grid;
-  gap: 25px;
+  gap: var(--redesign-space-6);
   grid-auto-rows: 304px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: var(--redesign-space-4);
@@ -2282,7 +2282,7 @@
 }
 
 .ai-ppt-font-grid {
-  gap: 25px;
+  gap: var(--redesign-space-6);
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -2368,7 +2368,7 @@
 }
 
 .ai-ppt-palette-grid {
-  gap: 25px;
+  gap: var(--redesign-space-6);
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
