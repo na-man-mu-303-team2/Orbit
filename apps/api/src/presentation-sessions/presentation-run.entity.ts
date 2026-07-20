@@ -1,6 +1,7 @@
 import type {
   Deck,
   PresentationRecordingMode,
+  RehearsalReport,
   PresentationRunStatus,
   PresentationVoiceReport,
 } from "@orbit/shared";
@@ -45,6 +46,9 @@ export class PresentationRunEntity {
 
   @Column({ name: "voice_report_json", nullable: true, type: "jsonb" })
   voiceReport!: PresentationVoiceReport | null;
+
+  @Column({ name: "detailed_report_json", nullable: true, type: "jsonb" })
+  detailedReport!: RehearsalReport | null;
 
   @Column({ name: "raw_audio_deleted_at", nullable: true, type: "timestamptz" })
   rawAudioDeletedAt!: Date | null;

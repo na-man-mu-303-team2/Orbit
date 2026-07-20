@@ -19,6 +19,7 @@ const run = {
   status: "created" as const,
   error: null,
   voiceReport: null,
+  detailedReport: null,
   startedAt: "2026-07-20T00:00:00.000Z",
   endedAt: null,
   createdAt: "2026-07-20T00:00:00.000Z",

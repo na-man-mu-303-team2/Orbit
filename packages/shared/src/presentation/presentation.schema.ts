@@ -1,12 +1,14 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
+import { deckSchema } from "../deck/deck.schema";
 import { deckIdSchema } from "../deck/id.schema";
 import { activityRunIdSchema } from "../activity/activity-id.schema";
 import { activityPresenterResultSchema } from "../activity/activity-results.schema";
 import { activityRunSchema } from "../activity/activity-runtime.schema";
 import { assetUploadUrlResponseSchema } from "../files/file.schema";
 import { jobSchema } from "../jobs/job.schema";
+import { rehearsalReportSchema } from "../rehearsals/rehearsal.schema";
 
 export const presentationAccessModeSchema = z.enum(["passcode", "public"]);
 
@@ -30,7 +32,7 @@ export const presentationSessionSchema = z
     rawResponsesDeletedAt: isoDateTimeSchema.nullable(),
     resultsDeletedAt: isoDateTimeSchema.nullable(),
     createdAt: isoDateTimeSchema,
-    updatedAt: isoDateTimeSchema
+    updatedAt: isoDateTimeSchema,
   })
   .strict()
   .superRefine((session, ctx) => {
@@ -40,14 +42,14 @@ export const presentationSessionSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["expiresAt"],
-        message: "expiresAt must be later than startsAt"
+        message: "expiresAt must be later than startsAt",
       });
     }
     if (expiresAt - startsAt > 30 * 24 * 60 * 60 * 1000) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["expiresAt"],
-        message: "presentation access cannot exceed 30 days"
+        message: "presentation access cannot exceed 30 days",
       });
     }
   });
@@ -58,8 +60,11 @@ export const createPresentationSessionRequestSchema = z
     startsAt: isoDateTimeSchema.optional(),
     expiresAt: isoDateTimeSchema.optional(),
     accessMode: presentationAccessModeSchema.default("passcode"),
-    passcode: z.string().regex(/^\d{4}$/).optional(),
-    reuseCurrent: z.boolean().optional()
+    passcode: z
+      .string()
+      .regex(/^\d{4}$/)
+      .optional(),
+    reuseCurrent: z.boolean().optional(),
   })
   .strict()
   .superRefine((request, ctx) => {
@@ -67,14 +72,14 @@ export const createPresentationSessionRequestSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["passcode"],
-        message: "passcode is required for passcode access"
+        message: "passcode is required for passcode access",
       });
     }
     if (request.accessMode === "public" && request.passcode !== undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["passcode"],
-        message: "public access must not include a passcode"
+        message: "public access must not include a passcode",
       });
     }
   });
@@ -84,31 +89,38 @@ export const updatePresentationSessionAccessRequestSchema = z
     startsAt: isoDateTimeSchema,
     expiresAt: isoDateTimeSchema,
     accessMode: presentationAccessModeSchema,
-    passcode: z.string().regex(/^\d{4}$/).optional()
+    passcode: z
+      .string()
+      .regex(/^\d{4}$/)
+      .optional(),
   })
   .strict()
   .superRefine((request, ctx) => {
     const startsAt = new Date(request.startsAt).getTime();
     const expiresAt = new Date(request.expiresAt).getTime();
-    if (expiresAt <= startsAt || expiresAt - startsAt > 30 * 24 * 60 * 60 * 1000) {
+    if (
+      expiresAt <= startsAt ||
+      expiresAt - startsAt > 30 * 24 * 60 * 60 * 1000
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["expiresAt"],
-        message: "presentation access must be later than startsAt and no longer than 30 days"
+        message:
+          "presentation access must be later than startsAt and no longer than 30 days",
       });
     }
     if (request.accessMode === "passcode" && request.passcode === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["passcode"],
-        message: "passcode is required for passcode access"
+        message: "passcode is required for passcode access",
       });
     }
     if (request.accessMode === "public" && request.passcode !== undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["passcode"],
-        message: "public access must not include a passcode"
+        message: "public access must not include a passcode",
       });
     }
   });
@@ -120,7 +132,7 @@ export const presentationSessionResponseSchema = z
 export const presentationSessionWithAudienceUrlResponseSchema = z
   .object({
     session: presentationSessionSchema,
-    audienceUrl: z.string().min(1)
+    audienceUrl: z.string().min(1),
   })
   .strict();
 
@@ -130,7 +142,7 @@ export const presentationRunStatusSchema = z.enum([
   "processing",
   "succeeded",
   "failed",
-  "cancelled"
+  "cancelled",
 ]);
 
 export const presentationRecordingModeSchema = z.enum(["microphone", "none"]);
@@ -138,7 +150,7 @@ export const presentationRecordingModeSchema = z.enum(["microphone", "none"]);
 export const presentationRunErrorSchema = z
   .object({
     code: z.string().min(1),
-    message: z.string().min(1)
+    message: z.string().min(1),
   })
   .strict();
 
@@ -150,7 +162,7 @@ export const presentationVoiceReportSchema = z
     fillerWordCount: z.number().int().nonnegative(),
     longSilenceCount: z.number().int().nonnegative(),
     averagePitchHz: z.number().nonnegative().nullable(),
-    scriptFeedback: z.string().default("")
+    scriptFeedback: z.string().default(""),
   })
   .strict();
 
@@ -167,17 +179,18 @@ export const presentationRunSchema = z
     status: presentationRunStatusSchema,
     error: presentationRunErrorSchema.nullable(),
     voiceReport: presentationVoiceReportSchema.nullable(),
+    detailedReport: rehearsalReportSchema.nullable().default(null),
     startedAt: isoDateTimeSchema,
     endedAt: isoDateTimeSchema.nullable(),
     createdAt: isoDateTimeSchema,
-    updatedAt: isoDateTimeSchema
+    updatedAt: isoDateTimeSchema,
   })
   .strict();
 
 export const createPresentationRunRequestSchema = z
   .object({
     expectedDeckVersion: z.number().int().positive(),
-    recordingMode: presentationRecordingModeSchema.default("microphone")
+    recordingMode: presentationRecordingModeSchema.default("microphone"),
   })
   .strict();
 
@@ -185,32 +198,33 @@ export const createPresentationRunResponseSchema = z
   .object({ run: presentationRunSchema })
   .strict();
 
-export const getPresentationRunResponseSchema = createPresentationRunResponseSchema;
+export const getPresentationRunResponseSchema =
+  createPresentationRunResponseSchema;
 
 export const createPresentationAudioUploadRequestSchema = z
   .object({
     originalName: z.string().trim().min(1).max(255),
     mimeType: z.string().trim().min(1),
-    size: z.number().int().positive()
+    size: z.number().int().positive(),
   })
   .strict();
 
 export const createPresentationAudioUploadResponseSchema = z
   .object({
     run: presentationRunSchema,
-    upload: assetUploadUrlResponseSchema
+    upload: assetUploadUrlResponseSchema,
   })
   .strict();
 
 export const completePresentationAudioRequestSchema = z.union([
   z.object({ fileId: z.string().min(1) }).strict(),
-  z.object({ withoutAudio: z.literal(true) }).strict()
+  z.object({ withoutAudio: z.literal(true) }).strict(),
 ]);
 
 export const completePresentationAudioResponseSchema = z
   .object({
     run: presentationRunSchema,
-    job: jobSchema.nullable()
+    job: jobSchema.nullable(),
   })
   .strict();
 
@@ -222,6 +236,8 @@ export const presentationRunReportSchema = z
     analysisStatus: presentationRunStatusSchema,
     recordingMode: presentationRecordingModeSchema,
     voiceReport: presentationVoiceReportSchema.nullable(),
+    detailedReport: rehearsalReportSchema.nullable().default(null),
+    deck: deckSchema,
     audienceSummary: z
       .object({
         activities: z.array(
@@ -230,16 +246,16 @@ export const presentationRunReportSchema = z
               availability: z.enum([
                 "raw-retained",
                 "aggregate-only",
-                "results-deleted"
+                "results-deleted",
               ]),
               result: activityPresenterResultSchema.nullable(),
-              run: activityRunSchema
+              run: activityRunSchema,
             })
-            .strict()
-        )
+            .strict(),
+        ),
       })
       .strict()
-      .nullable()
+      .nullable(),
   })
   .strict();
 
@@ -254,14 +270,14 @@ export const presentationAnalysisJobPayloadSchema = z
     sessionId: z.string().min(1),
     runId: z.string().min(1),
     deckId: deckIdSchema,
-    audioFileId: z.string().min(1)
+    audioFileId: z.string().min(1),
   })
   .strict();
 
 export const getCurrentPresentationSessionResponseSchema = z
   .object({
     session: presentationSessionSchema.nullable(),
-    audienceUrl: z.string().min(1).nullable()
+    audienceUrl: z.string().min(1).nullable(),
   })
   .strict()
   .superRefine((response, ctx) => {
@@ -269,7 +285,7 @@ export const getCurrentPresentationSessionResponseSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["audienceUrl"],
-        message: "session and audienceUrl must be present or absent together"
+        message: "session and audienceUrl must be present or absent together",
       });
     }
   });
@@ -344,7 +360,7 @@ export const verifyAudienceAccessSessionResponseSchema = z.object({
 export const audiencePresentationAvailabilitySchema = z.enum([
   "scheduled",
   "open",
-  "closed"
+  "closed",
 ]);
 
 export const audiencePresentationPublicInfoSchema = z
@@ -354,7 +370,7 @@ export const audiencePresentationPublicInfoSchema = z
     accessMode: presentationAccessModeSchema,
     startsAt: isoDateTimeSchema,
     expiresAt: isoDateTimeSchema,
-    availability: audiencePresentationAvailabilitySchema
+    availability: audiencePresentationAvailabilitySchema,
   })
   .strict();
 
@@ -363,7 +379,12 @@ export const getAudiencePresentationPublicInfoResponseSchema = z
   .strict();
 
 export const joinAudiencePresentationRequestSchema = z
-  .object({ passcode: z.string().regex(/^\d{4}$/).optional() })
+  .object({
+    passcode: z
+      .string()
+      .regex(/^\d{4}$/)
+      .optional(),
+  })
   .strict();
 
 export const audiencePresentationAccessSchema = z
@@ -374,12 +395,15 @@ export const audiencePresentationAccessSchema = z
     accessMode: presentationAccessModeSchema,
     startsAt: isoDateTimeSchema,
     expiresAt: isoDateTimeSchema,
-    activeActivityRunId: activityRunIdSchema.nullable()
+    activeActivityRunId: activityRunIdSchema.nullable(),
   })
   .strict();
 
 export const audiencePresentationAccessResponseSchema = z
-  .object({ verified: z.literal(true), session: audiencePresentationAccessSchema })
+  .object({
+    verified: z.literal(true),
+    session: audiencePresentationAccessSchema,
+  })
   .strict();
 
 export type PresentationSession = z.infer<typeof presentationSessionSchema>;

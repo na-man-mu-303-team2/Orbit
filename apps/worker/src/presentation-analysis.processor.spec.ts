@@ -3,6 +3,7 @@ import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildPresentationDetailedReport,
   buildPresentationVoiceReport,
   processPresentationAnalysisJob,
 } from "./presentation-analysis.processor";
@@ -19,7 +20,7 @@ const payload = {
 describe("processPresentationAnalysisJob", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("stores the voice report only in presentation_runs", async () => {
+  it("stores the detailed report only in presentation_runs", async () => {
     const query = vi
       .fn()
       .mockResolvedValueOnce([presentationInputRow()])
@@ -32,8 +33,9 @@ describe("processPresentationAnalysisJob", () => {
     const removeObject = vi.fn(async () => undefined);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify(audioEvidence()), { status: 200 }),
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify(audioEvidence()), { status: 200 }),
       ),
     );
 
@@ -58,11 +60,16 @@ describe("processPresentationAnalysisJob", () => {
         longSilenceCount: 1,
         averagePitchHz: 176,
       },
+      detailedReport: {
+        reportId: `presentation_report_${payload.runId}`,
+        transcriptRetained: true,
+      },
     });
     expect(removeObject).toHaveBeenCalledWith("private/presentation.webm");
 
     const executedSql = query.mock.calls.map(([sql]) => String(sql)).join("\n");
     expect(executedSql).toContain("presentation_runs");
+    expect(executedSql).toContain("detailed_report_json");
     expect(executedSql).not.toContain("rehearsal_runs");
     expect(executedSql).not.toContain("practice_goal");
     expect(executedSql).not.toContain("rehearsal_project");
@@ -119,6 +126,43 @@ describe("buildPresentationVoiceReport", () => {
   });
 });
 
+describe("buildPresentationDetailedReport", () => {
+  it("projects presentation audio into the full rehearsal report contract", () => {
+    const report = buildPresentationDetailedReport(
+      audioEvidence(),
+      presentationInputRow().deck_snapshot_json,
+      {
+        deckId: payload.deckId,
+        projectId: payload.projectId,
+        runId: payload.runId,
+      },
+      "2026-07-20T00:00:01.000Z",
+    );
+
+    expect(report).toMatchObject({
+      reportId: "presentation_report_presentation-run-a",
+      transcript: "음 어 오늘 발표에서는 제품 전략과 실행 계획을 설명합니다",
+      volumeAnalysis: {
+        measurementState: "measured",
+        averageDbfs: -31.5,
+      },
+      silenceAnalysis: {
+        measurementState: "measured",
+        longSilenceCount: 1,
+      },
+      metrics: {
+        longSilenceCount: 1,
+        keywordCoverage: 1,
+      },
+      aiSummary: {
+        headline: "실전 발표 분석이 완료되었습니다.",
+      },
+    });
+    expect(report.slideTimings).toHaveLength(1);
+    expect(report.missedKeywords).toEqual([]);
+  });
+});
+
 function presentationInputRow() {
   return {
     run_id: payload.runId,
@@ -127,7 +171,19 @@ function presentationInputRow() {
     deck_id: payload.deckId,
     deck_snapshot_json: {
       slides: [
-        { speakerNotes: "오늘 발표에서는 제품 전략과 고객 가치를 설명합니다." },
+        {
+          estimatedSeconds: 60,
+          keywords: [
+            {
+              keywordId: "keyword_1",
+              required: true,
+              text: "제품 전략",
+            },
+          ],
+          slideId: "slide_1",
+          speakerNotes: "오늘 발표에서는 제품 전략과 고객 가치를 설명합니다.",
+          title: "제품 전략",
+        },
       ],
     },
     status: "processing",
@@ -168,16 +224,11 @@ function audioEvidence() {
         endMs: 3_000,
       },
     ],
-    pauseSegments: [
-      { startMs: 3_000, endMs: 8_000, durationMs: 5_000 },
-    ],
+    pauseSegments: [{ startMs: 3_000, endMs: 8_000, durationMs: 5_000 }],
   };
 }
 
-function jobRow(
-  status: "running" | "succeeded" | "failed",
-  progress: number,
-) {
+function jobRow(status: "running" | "succeeded" | "failed", progress: number) {
   return {
     job_id: payload.jobId,
     project_id: payload.projectId,
@@ -188,6 +239,16 @@ function jobRow(
     result:
       status === "succeeded"
         ? {
+            detailedReport: buildPresentationDetailedReport(
+              audioEvidence(),
+              presentationInputRow().deck_snapshot_json,
+              {
+                deckId: payload.deckId,
+                projectId: payload.projectId,
+                runId: payload.runId,
+              },
+              "2026-07-20T00:00:01.000Z",
+            ),
             runId: payload.runId,
             sessionId: payload.sessionId,
             voiceReport: buildPresentationVoiceReport(audioEvidence(), [

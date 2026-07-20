@@ -48,8 +48,7 @@ export class PresentationRunsService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
   private readonly presentationAudioUploadRequestSchema =
     createAssetUploadUrlRequestSchema({
-      maxRehearsalAudioUploadSizeBytes:
-        this.config.REHEARSAL_AUDIO_MAX_BYTES,
+      maxRehearsalAudioUploadSizeBytes: this.config.REHEARSAL_AUDIO_MAX_BYTES,
       allowedPrivatePurpose: "presentation-audio",
     });
 
@@ -68,11 +67,7 @@ export class PresentationRunsService {
     private readonly logger: PinoLogger,
   ) {}
 
-  async createRun(
-    projectId: string,
-    sessionId: string,
-    body: unknown,
-  ) {
+  async createRun(projectId: string, sessionId: string, body: unknown) {
     const request = parseRequest(createPresentationRunRequestSchema, body);
     const session = await this.sessions.getSessionForPresenter(
       projectId,
@@ -130,6 +125,7 @@ export class PresentationRunsService {
       status: "created",
       error: null,
       voiceReport: null,
+      detailedReport: null,
       rawAudioDeletedAt: null,
       rawAudioDeleteDeadlineAt: null,
       startedAt: now,
@@ -494,6 +490,8 @@ export class PresentationRunsService {
         analysisStatus: run.status,
         recordingMode: run.recordingMode,
         voiceReport: run.voiceReport,
+        detailedReport: run.detailedReport,
+        deck: run.deckSnapshot,
         audienceSummary: { activities: audienceArchive.activities },
       },
     });
@@ -527,6 +525,7 @@ export function toPresentationRun(run: PresentationRunEntity): PresentationRun {
     status: run.status,
     error: run.error,
     voiceReport: run.voiceReport,
+    detailedReport: run.detailedReport,
     startedAt: run.startedAt.toISOString(),
     endedAt: run.endedAt?.toISOString() ?? null,
     createdAt: run.createdAt.toISOString(),

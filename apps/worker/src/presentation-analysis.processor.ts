@@ -2,11 +2,16 @@ import type { StoragePort } from "@orbit/storage";
 import {
   analyzeKoreanFillers,
   jobSchema,
+  legacyRehearsalSilenceAnalysis,
+  legacyRehearsalVolumeAnalysis,
+  legacyRehearsalReportMetricsDefaults,
   presentationAnalysisJobPayloadSchema,
   presentationVoiceReportSchema,
+  rehearsalReportSchema,
   slidePracticeServerAudioResponseSchema,
   type Job,
   type PresentationVoiceReport,
+  type RehearsalReport,
   type SlidePracticeServerAudioResponse,
 } from "@orbit/shared";
 import { createHash } from "node:crypto";
@@ -21,7 +26,25 @@ const presentationAnalysisInputSchema = z.object({
   deck_snapshot_json: z
     .object({
       slides: z.array(
-        z.object({ speakerNotes: z.string().default("") }).passthrough(),
+        z
+          .object({
+            estimatedSeconds: z.number().int().positive().optional(),
+            keywords: z
+              .array(
+                z
+                  .object({
+                    keywordId: z.string().min(1).optional(),
+                    required: z.boolean().default(false),
+                    text: z.string().trim().min(1),
+                  })
+                  .passthrough(),
+              )
+              .default([]),
+            slideId: z.string().min(1).optional(),
+            speakerNotes: z.string().default(""),
+            title: z.string().trim().min(1).optional(),
+          })
+          .passthrough(),
       ),
     })
     .passthrough(),
@@ -40,7 +63,9 @@ const presentationAnalysisInputSchema = z.object({
   purpose: z.literal("presentation-audio"),
 });
 
-type PresentationAnalysisInput = z.infer<typeof presentationAnalysisInputSchema>;
+type PresentationAnalysisInput = z.infer<
+  typeof presentationAnalysisInputSchema
+>;
 
 export async function processPresentationAnalysisJob(
   dataSource: DataSource,
@@ -133,9 +158,19 @@ export async function processPresentationAnalysisJob(
       evidence,
       input.deck_snapshot_json.slides.map((slide) => slide.speakerNotes),
     );
+    const detailedReport = buildPresentationDetailedReport(
+      evidence,
+      input.deck_snapshot_json,
+      {
+        deckId: payload.deckId,
+        projectId: payload.projectId,
+        runId: payload.runId,
+      },
+    );
     await dataSource.query(
       `UPDATE presentation_runs
-       SET status = 'succeeded', voice_report_json = $2::jsonb, error = NULL,
+       SET status = 'succeeded', voice_report_json = $2::jsonb,
+           detailed_report_json = $5::jsonb, error = NULL,
            updated_at = now()
        WHERE run_id = $1 AND project_id = $3 AND session_id = $4
          AND status = 'processing'`,
@@ -144,6 +179,7 @@ export async function processPresentationAnalysisJob(
         JSON.stringify(voiceReport),
         payload.projectId,
         payload.sessionId,
+        JSON.stringify(detailedReport),
       ],
     );
     await deletePresentationAudio(dataSource, storage, input);
@@ -154,7 +190,12 @@ export async function processPresentationAnalysisJob(
       "succeeded",
       100,
       "실전 발표 분석 완료",
-      { runId: payload.runId, sessionId: payload.sessionId, voiceReport },
+      {
+        detailedReport,
+        runId: payload.runId,
+        sessionId: payload.sessionId,
+        voiceReport,
+      },
       null,
     );
   } catch (error) {
@@ -181,6 +222,236 @@ export async function processPresentationAnalysisJob(
       failure,
     );
   }
+}
+
+export function buildPresentationDetailedReport(
+  evidence: SlidePracticeServerAudioResponse,
+  deck: PresentationAnalysisInput["deck_snapshot_json"],
+  identity: { deckId: string; projectId: string; runId: string },
+  generatedAt = new Date().toISOString(),
+): RehearsalReport {
+  const voiceReport = buildPresentationVoiceReport(
+    evidence,
+    deck.slides.map((slide) => slide.speakerNotes),
+  );
+  const durationSeconds = voiceReport.durationSeconds;
+  const characterCount = evidence.transcript.replace(/\s/g, "").length;
+  const charactersPerMinute =
+    durationSeconds > 0 ? characterCount / (durationSeconds / 60) : 0;
+  const fillers = analyzeKoreanFillers(evidence.transcript);
+  const volumeAnalysis = buildPresentationVolumeAnalysis(
+    evidence,
+    durationSeconds,
+  );
+  const silenceAnalysis = buildPresentationSilenceAnalysis(
+    evidence,
+    durationSeconds,
+  );
+  const requiredKeywords = deck.slides.flatMap((slide) =>
+    slide.keywords.filter((keyword) => keyword.required),
+  );
+  const matchedKeywordCount = requiredKeywords.filter((keyword) =>
+    normalizeText(evidence.transcript).includes(normalizeText(keyword.text)),
+  ).length;
+  const keywordCoverage =
+    requiredKeywords.length > 0
+      ? matchedKeywordCount / requiredKeywords.length
+      : 0;
+  const totalTargetSeconds = deck.slides.reduce(
+    (sum, slide) => sum + (slide.estimatedSeconds ?? 60),
+    0,
+  );
+
+  return rehearsalReportSchema.parse({
+    reportId: `presentation_report_${identity.runId}`,
+    runId: identity.runId,
+    projectId: identity.projectId,
+    deckId: identity.deckId,
+    transcriptRetained: true,
+    transcript: evidence.transcript,
+    volumeAnalysis,
+    silenceAnalysis,
+    metrics: {
+      durationSeconds,
+      charactersPerMinute,
+      wordsPerMinute: voiceReport.wordsPerMinute,
+      fillerWordCount: voiceReport.fillerWordCount,
+      longSilenceCount: silenceAnalysis.longSilenceCount,
+      keywordCoverage,
+      measurements: {
+        ...legacyRehearsalReportMetricsDefaults.measurements,
+        duration: measuredMetric(),
+        charactersPerMinute: measuredMetric(),
+        wordsPerMinute: measuredMetric(),
+        fillerWordCount: measuredMetric(),
+        longSilenceCount:
+          silenceAnalysis.measurementState === "measured"
+            ? measuredMetric(2)
+            : {
+                ...legacyRehearsalReportMetricsDefaults.measurements
+                  .longSilenceCount,
+                metricDefinitionVersion: 1,
+              },
+      },
+      keywordCoverageMeasurement:
+        requiredKeywords.length > 0
+          ? { state: "measured" }
+          : { state: "unmeasured", reason: "no-keywords" },
+    },
+    speedSamples: evidence.speedSamples.map((sample) => ({
+      startSecond: sample.startMs / 1_000,
+      endSecond: sample.endMs / 1_000,
+      wordsPerMinute: voiceReport.wordsPerMinute,
+    })),
+    fillerWordDetails: fillers.details,
+    missedKeywords: deck.slides.flatMap((slide, slideIndex) =>
+      slide.keywords
+        .filter((keyword) => keyword.required)
+        .filter(
+          (keyword) =>
+            !normalizeText(evidence.transcript).includes(
+              normalizeText(keyword.text),
+            ),
+        )
+        .map((keyword, keywordIndex) => ({
+          slideId: slide.slideId ?? `slide_${slideIndex + 1}`,
+          keywordId:
+            keyword.keywordId ??
+            `keyword_${slideIndex + 1}_${keywordIndex + 1}`,
+          text: keyword.text,
+        })),
+    ),
+    slideTimings: deck.slides.map((slide, index) => {
+      const targetSeconds = slide.estimatedSeconds ?? 60;
+      return {
+        slideId: slide.slideId ?? `slide_${index + 1}`,
+        targetSeconds,
+        actualSeconds:
+          totalTargetSeconds > 0
+            ? (durationSeconds * targetSeconds) / totalTargetSeconds
+            : 0,
+      };
+    }),
+    slideInsights: deck.slides.map((slide, index) => ({
+      slideId: slide.slideId ?? `slide_${index + 1}`,
+      fillerWordCount: null,
+      longSilenceCount: null,
+    })),
+    aiSummary: {
+      headline: "실전 발표 분석이 완료되었습니다.",
+      paragraphs: [voiceReport.scriptFeedback],
+    },
+    coaching: {
+      status: "succeeded",
+      summary: voiceReport.scriptFeedback,
+      strengths: [],
+      improvements: buildPresentationImprovements(voiceReport),
+      nextPracticeFocus: voiceReport.scriptFeedback,
+      message: "실전 발표 음성과 대본을 함께 분석했습니다.",
+    },
+    generatedAt,
+  });
+}
+
+function measuredMetric(metricDefinitionVersion = 1) {
+  return {
+    measurementState: "measured" as const,
+    metricDefinitionVersion,
+    reasonCode: null,
+  };
+}
+
+function buildPresentationVolumeAnalysis(
+  evidence: SlidePracticeServerAudioResponse,
+  durationSeconds: number,
+) {
+  if (durationSeconds <= 0 || evidence.voice.loudnessDb === null) {
+    return legacyRehearsalVolumeAnalysis;
+  }
+
+  return {
+    metricDefinitionVersion: 2 as const,
+    measurementState: "measured" as const,
+    reasonCode: null,
+    averageDbfs: evidence.voice.loudnessDb,
+    baselineDbfs: evidence.voice.loudnessDb,
+    variationDb: Math.max(0, evidence.voice.loudnessMadDb ?? 0),
+    activeRatio: clamp(
+      evidence.voice.activeSpeechMs / (durationSeconds * 1_000),
+      0,
+      1,
+    ),
+    issueSegments: [],
+  };
+}
+
+function buildPresentationSilenceAnalysis(
+  evidence: SlidePracticeServerAudioResponse,
+  durationSeconds: number,
+) {
+  if (durationSeconds <= 0) return legacyRehearsalSilenceAnalysis;
+
+  const segments = evidence.pauseSegments
+    .map((segment) => {
+      const startSeconds = clamp(segment.startMs / 1_000, 0, durationSeconds);
+      const endSeconds = clamp(segment.endMs / 1_000, 0, durationSeconds);
+      const segmentDurationSeconds = endSeconds - startSeconds;
+      return {
+        category:
+          segmentDurationSeconds >= 5 ? ("long" as const) : ("brief" as const),
+        startSeconds,
+        endSeconds,
+        durationSeconds: segmentDurationSeconds,
+      };
+    })
+    .filter((segment) => segment.durationSeconds >= 0.25)
+    .sort((left, right) => left.startSeconds - right.startSeconds);
+  const totalSilenceSeconds = segments.reduce(
+    (sum, segment) => sum + segment.durationSeconds,
+    0,
+  );
+
+  return {
+    metricDefinitionVersion: 2 as const,
+    measurementState: "measured" as const,
+    reasonCode: null,
+    detector: "silero-vad" as const,
+    detectorVersion: "presentation-audio-evidence-v1",
+    speechThreshold: 0.5 as const,
+    minimumSilenceMs: 250 as const,
+    longSilenceMs: 5_000 as const,
+    analysisWindowStartSeconds: 0,
+    analysisWindowEndSeconds: durationSeconds,
+    totalSilenceSeconds,
+    silenceRatio: clamp(totalSilenceSeconds / durationSeconds, 0, 1),
+    longSilenceCount: segments.filter((segment) => segment.category === "long")
+      .length,
+    detectedSegmentCount: segments.length,
+    segmentsTruncated: false,
+    segments,
+  };
+}
+
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function buildPresentationImprovements(report: PresentationVoiceReport) {
+  const improvements: string[] = [];
+  if (report.longSilenceCount > 0) {
+    improvements.push(
+      "5초 이상 멈춘 구간을 줄이고 문장 사이 호흡을 일정하게 유지해 보세요.",
+    );
+  }
+  if (report.fillerWordCount > 0) {
+    improvements.push("습관어 대신 짧게 호흡한 뒤 다음 문장을 이어가 보세요.");
+  }
+  if (improvements.length === 0) {
+    improvements.push(
+      "현재 말하기 흐름을 유지하면서 핵심 메시지를 더 분명하게 강조해 보세요.",
+    );
+  }
+  return improvements;
 }
 
 export function buildPresentationVoiceReport(
@@ -230,7 +501,8 @@ function buildScriptFeedback(transcript: string, speakerNotes: string[]) {
   const coverage =
     noteTerms.length > 0 ? matchedTerms.length / noteTerms.length : 0;
   if (coverage >= 0.65) return "대본의 핵심 흐름을 대부분 따라 발표했습니다.";
-  if (coverage >= 0.35) return "대본의 주요 흐름은 전달했지만 일부 내용을 보완할 수 있습니다.";
+  if (coverage >= 0.35)
+    return "대본의 주요 흐름은 전달했지만 일부 내용을 보완할 수 있습니다.";
   return "대본과 다른 표현이 많았습니다. 핵심 메시지가 빠지지 않았는지 확인해 주세요.";
 }
 

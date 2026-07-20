@@ -25,6 +25,7 @@ type Props = {
   deck: Deck | null;
   formatDuration: (seconds: number) => string;
   report: RehearsalReport;
+  reportMode?: "presentation" | "rehearsal";
 };
 
 export function RehearsalReportTestView({
@@ -32,6 +33,7 @@ export function RehearsalReportTestView({
   deck,
   formatDuration,
   report,
+  reportMode = "rehearsal",
 }: Props) {
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const effectiveSelectedSlideId = selectedSlideId;
@@ -119,6 +121,7 @@ export function RehearsalReportTestView({
           deck={deck}
           formatDuration={formatDuration}
           report={report}
+          reportMode={reportMode}
         />
       ) : null}
 
@@ -216,7 +219,9 @@ export function RehearsalReportTestView({
             />
           </div>
           <p className="rrd-test-mock-note">
-            리허설 분석 결과를 기준으로 표시합니다.
+            {reportMode === "presentation"
+              ? "실전 발표 분석 결과를 기준으로 표시합니다."
+              : "리허설 분석 결과를 기준으로 표시합니다."}
           </p>
         </aside>
       </div>
@@ -256,10 +261,15 @@ export function RehearsalReportTestView({
         <button
           type="button"
           onClick={() =>
-            navigateTo(`/rehearsal/${encodeURIComponent(report.projectId)}`)
+            navigateTo(
+              reportMode === "presentation"
+                ? `/project/${encodeURIComponent(report.projectId)}`
+                : `/rehearsal/${encodeURIComponent(report.projectId)}`,
+            )
           }
         >
-          연습하기 <ArrowRight aria-hidden="true" size={18} />
+          {reportMode === "presentation" ? "에디터로 돌아가기" : "연습하기"}{" "}
+          <ArrowRight aria-hidden="true" size={18} />
         </button>
       </section>
     </section>

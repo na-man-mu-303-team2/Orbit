@@ -1,4 +1,5 @@
 import type { Job } from "@orbit/shared";
+import { createDemoDeck } from "@orbit/editor-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Repository } from "typeorm";
 
@@ -23,6 +24,15 @@ vi.mock("@orbit/config", () => ({
 
 const now = new Date("2026-07-20T00:00:00.000Z");
 
+function createDeckSnapshot() {
+  return {
+    ...createDemoDeck(),
+    deckId: "deck_1",
+    projectId: "project_1",
+    version: 4,
+  };
+}
+
 function makeRun(
   patch: Partial<PresentationRunEntity> = {},
 ): PresentationRunEntity {
@@ -32,13 +42,14 @@ function makeRun(
     sessionId: "session_1",
     deckId: "deck_1",
     deckVersion: 4,
-    deckSnapshot: { deckId: "deck_1", version: 4 },
+    deckSnapshot: createDeckSnapshot(),
     recordingMode: "microphone",
     audioFileId: null,
     jobId: null,
     status: "created",
     error: null,
     voiceReport: null,
+    detailedReport: null,
     rawAudioDeletedAt: null,
     rawAudioDeleteDeadlineAt: null,
     startedAt: now,
@@ -73,7 +84,7 @@ function createService(existingRun: PresentationRunEntity | null = null) {
   } as unknown as PresentationSessionsService;
   const decks = {
     getDeck: vi.fn().mockResolvedValue({
-      deck: { deckId: "deck_1", version: 4 },
+      deck: createDeckSnapshot(),
     }),
   } as unknown as DecksService;
   const files = {
@@ -98,8 +109,9 @@ function createService(existingRun: PresentationRunEntity | null = null) {
     get: vi.fn().mockResolvedValue(queuedJob),
     update: vi.fn(),
   } as unknown as JobsService;
-  const enqueue = vi.fn().mockResolvedValue(undefined) as unknown as
-    PresentationAnalysisEnqueueJob;
+  const enqueue = vi
+    .fn()
+    .mockResolvedValue(undefined) as unknown as PresentationAnalysisEnqueueJob;
   const activityResults = {
     getSessionArchive: vi.fn().mockResolvedValue({ activities: [] }),
   } as unknown as ActivityResultsService;

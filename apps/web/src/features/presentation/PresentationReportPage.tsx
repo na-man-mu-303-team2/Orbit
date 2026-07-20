@@ -19,6 +19,7 @@ import {
   OrbitFailureState,
   OrbitStatus,
 } from "../../components/ui";
+import { RehearsalReportTestView } from "../rehearsal/RehearsalReportTestView";
 import {
   getPresentationReport,
   getPresentationRun,
@@ -36,7 +37,12 @@ type PresentationReportPageProps = {
 export function PresentationReportPage(props: PresentationReportPageProps) {
   const queryClient = useQueryClient();
   const runQuery = useQuery({
-    queryKey: ["presentation-run", props.projectId, props.sessionId, props.runId],
+    queryKey: [
+      "presentation-run",
+      props.projectId,
+      props.sessionId,
+      props.runId,
+    ],
     queryFn: () =>
       props.runId
         ? getPresentationRun({
@@ -49,7 +55,9 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
             sessionId: props.sessionId,
           }),
     refetchInterval: (query) =>
-      isPresentationAnalysisPending(query.state.data?.run.status) ? 2_000 : false,
+      isPresentationAnalysisPending(query.state.data?.run.status)
+        ? 2_000
+        : false,
     retry: false,
   });
   const resolvedRunId = runQuery.data?.run.runId ?? props.runId;
@@ -129,7 +137,10 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
         </OrbitButtonLink>
       </header>
 
-      <section aria-labelledby="voice-report-title" className="presentation-report-section">
+      <section
+        aria-labelledby="voice-report-title"
+        className="presentation-report-section"
+      >
         <div className="presentation-report-section-heading">
           <div>
             <span>발표 음성</span>
@@ -163,7 +174,8 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
               분석 다시 시도
             </OrbitButton>
           </div>
-        ) : isPresentationAnalysisPending(run.status) || reportQuery.isLoading ? (
+        ) : isPresentationAnalysisPending(run.status) ||
+          reportQuery.isLoading ? (
           <div className="presentation-report-processing" role="status">
             <span aria-hidden="true" className="presentation-report-spinner" />
             <div>
@@ -178,34 +190,68 @@ export function PresentationReportPage(props: PresentationReportPageProps) {
             recommendedAction="잠시 후 음성 분석 결과를 다시 불러오세요. 반복해서 실패하면 녹음 업로드 상태를 확인하세요."
             title="음성 분석 결과를 불러오지 못했습니다."
           />
+        ) : report?.detailedReport ? (
+          <RehearsalReportTestView
+            audioPlaybackAvailable={false}
+            deck={report.deck}
+            formatDuration={formatDuration}
+            report={report.detailedReport}
+            reportMode="presentation"
+          />
         ) : (
           <>
             <div className="presentation-voice-metrics">
-              <VoiceMetric label="발표 시간" value={formatDuration(voiceReport.durationSeconds)} />
-              <VoiceMetric label="말 속도" value={`${Math.round(voiceReport.wordsPerMinute)} 어절/분`} />
+              <VoiceMetric
+                label="발표 시간"
+                value={formatDuration(voiceReport.durationSeconds)}
+              />
+              <VoiceMetric
+                label="말 속도"
+                value={`${Math.round(voiceReport.wordsPerMinute)} 어절/분`}
+              />
               <VoiceMetric
                 label="평균 음량"
-                value={voiceReport.averageVolumeDbfs === null ? "측정 안 됨" : `${voiceReport.averageVolumeDbfs.toFixed(1)} dBFS`}
+                value={
+                  voiceReport.averageVolumeDbfs === null
+                    ? "측정 안 됨"
+                    : `${voiceReport.averageVolumeDbfs.toFixed(1)} dBFS`
+                }
               />
-              <VoiceMetric label="습관어" value={`${voiceReport.fillerWordCount}회`} />
-              <VoiceMetric label="긴 쉼" value={`${voiceReport.longSilenceCount}회`} />
+              <VoiceMetric
+                label="습관어"
+                value={`${voiceReport.fillerWordCount}회`}
+              />
+              <VoiceMetric
+                label="긴 쉼"
+                value={`${voiceReport.longSilenceCount}회`}
+              />
               <VoiceMetric
                 label="평균 피치"
-                value={voiceReport.averagePitchHz === null ? "측정 안 됨" : `${voiceReport.averagePitchHz.toFixed(1)} Hz`}
+                value={
+                  voiceReport.averagePitchHz === null
+                    ? "측정 안 됨"
+                    : `${voiceReport.averagePitchHz.toFixed(1)} Hz`
+                }
               />
             </div>
             <article className="presentation-voice-feedback">
               <IconCheck aria-hidden="true" size={20} />
               <div>
                 <h3>대본 연결 피드백</h3>
-                <p>{voiceReport.scriptFeedback || "대본과 발표 음성을 안정적으로 연결했습니다."}</p>
+                <p>
+                  {voiceReport.scriptFeedback ||
+                    "대본과 발표 음성을 안정적으로 연결했습니다."}
+                </p>
               </div>
             </article>
           </>
         )}
       </section>
 
-      <section aria-labelledby="audience-report-title" className="presentation-report-section">
+      <section
+        aria-labelledby="audience-report-title"
+        className="presentation-report-section"
+      >
         <div className="presentation-report-section-heading">
           <div>
             <span>청중 참여</span>
@@ -266,10 +312,14 @@ function AudienceResultCard({ item }: { item: ActivitySessionResultItem }) {
           <span>{activityTemplateLabel(definition.template)}</span>
           <h3>{definition.title}</h3>
         </div>
-        <strong>{item.result?.responseCount ?? item.run.responseCount}개 응답</strong>
+        <strong>
+          {item.result?.responseCount ?? item.run.responseCount}개 응답
+        </strong>
       </header>
       {item.availability === "results-deleted" ? (
-        <p className="presentation-audience-unavailable">보관 기간이 지나 결과가 삭제되었습니다.</p>
+        <p className="presentation-audience-unavailable">
+          보관 기간이 지나 결과가 삭제되었습니다.
+        </p>
       ) : item.result ? (
         <div className="presentation-audience-question-list">
           {item.result.aggregates.map((aggregate) => {
@@ -281,19 +331,30 @@ function AudienceResultCard({ item }: { item: ActivitySessionResultItem }) {
                 <h4>{question?.prompt ?? "질문"}</h4>
                 {aggregate.type === "rating" ? (
                   <p className="presentation-audience-average">
-                    평균 <strong>{aggregate.average?.toFixed(1) ?? "–"}</strong> / 5
+                    평균 <strong>{aggregate.average?.toFixed(1) ?? "–"}</strong>{" "}
+                    / 5
                   </p>
                 ) : aggregate.choices.length > 0 ? (
                   <ul>
                     {aggregate.choices.map((choice) => {
-                      const option = question && "options" in question
-                        ? question.options.find((candidate) => candidate.optionId === choice.optionId)
-                        : undefined;
+                      const option =
+                        question && "options" in question
+                          ? question.options.find(
+                              (candidate) =>
+                                candidate.optionId === choice.optionId,
+                            )
+                          : undefined;
                       return (
                         <li key={choice.optionId}>
                           <span>{option?.label ?? "선택 항목"}</span>
                           <strong>{Math.round(choice.ratio * 100)}%</strong>
-                          <i style={{ "--result-ratio": `${choice.ratio * 100}%` } as CSSProperties} />
+                          <i
+                            style={
+                              {
+                                "--result-ratio": `${choice.ratio * 100}%`,
+                              } as CSSProperties
+                            }
+                          />
                         </li>
                       );
                     })}
@@ -313,7 +374,9 @@ function AudienceResultCard({ item }: { item: ActivitySessionResultItem }) {
           ) : null}
         </div>
       ) : (
-        <p className="presentation-audience-unavailable">집계 결과를 아직 만들지 못했습니다.</p>
+        <p className="presentation-audience-unavailable">
+          집계 결과를 아직 만들지 못했습니다.
+        </p>
       )}
     </article>
   );
@@ -331,12 +394,15 @@ function ReportLoadingState() {
 }
 
 export function isPresentationAnalysisPending(status?: PresentationRunStatus) {
-  return status === "created" || status === "uploading" || status === "processing";
+  return (
+    status === "created" || status === "uploading" || status === "processing"
+  );
 }
 
 export function countAudienceResponses(items: ActivitySessionResultItem[]) {
   return items.reduce(
-    (total, item) => total + (item.result?.responseCount ?? item.run.responseCount),
+    (total, item) =>
+      total + (item.result?.responseCount ?? item.run.responseCount),
     0,
   );
 }
@@ -358,7 +424,9 @@ function reportStatusTone(status: PresentationRunStatus) {
   return "info" as const;
 }
 
-function activityTemplateLabel(template: "pre-question" | "poll" | "satisfaction") {
+function activityTemplateLabel(
+  template: "pre-question" | "poll" | "satisfaction",
+) {
   if (template === "pre-question") return "사전 질문";
   if (template === "poll") return "실시간 투표";
   return "만족도 조사";

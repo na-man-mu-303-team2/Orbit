@@ -21,9 +21,11 @@ afterEach(() => {
 describe("presentationApi", () => {
   it("loads the presentation deck without calling a rehearsal endpoint", async () => {
     const deck = createDemoDeck();
-    const fetcher = vi.fn().mockResolvedValue(
-      jsonResponse({ deck, projectId: deck.projectId, updatedAt: now }),
-    );
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ deck, projectId: deck.projectId, updatedAt: now }),
+      );
 
     await expect(
       fetchOrCreatePresentationDeck({
@@ -32,18 +34,24 @@ describe("presentationApi", () => {
       }),
     ).resolves.toEqual(deck);
 
-    expect(fetcher).toHaveBeenCalledWith(`/api/v1/projects/${deck.projectId}/deck`);
+    expect(fetcher).toHaveBeenCalledWith(
+      `/api/v1/projects/${deck.projectId}/deck`,
+    );
     expect(String(fetcher.mock.calls[0]?.[0])).not.toContain("rehearsal");
   });
 
   it("creates one audience session and one isolated presentation run", async () => {
-    const createSession = vi.spyOn(activityApi, "createSession").mockResolvedValue({
-      audienceUrl: "/audience/session_live",
-      session: presentationSession(),
-    });
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ run: presentationRun("created", "microphone") }),
-    );
+    const createSession = vi
+      .spyOn(activityApi, "createSession")
+      .mockResolvedValue({
+        audienceUrl: "/audience/session_live",
+        session: presentationSession(),
+      });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ run: presentationRun("created", "microphone") }),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
@@ -172,11 +180,15 @@ describe("presentationApi", () => {
       sessionId: "session_live",
     });
 
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
+    ).toMatchObject({
       mimeType: "audio/webm",
     });
     expect(fetchMock.mock.calls[2]?.[1]?.body).toBeInstanceOf(File);
-    expect((fetchMock.mock.calls[2]?.[1]?.body as File).type).toBe("audio/webm");
+    expect((fetchMock.mock.calls[2]?.[1]?.body as File).type).toBe(
+      "audio/webm",
+    );
   });
 
   it("skips duplicate upload after the server already accepted audio completion", async () => {
@@ -304,6 +316,7 @@ describe("presentationApi", () => {
   });
 
   it("completes without audio and reads the combined report from the same session", async () => {
+    const deck = createDemoDeck();
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -327,6 +340,8 @@ describe("presentationApi", () => {
             analysisStatus: "succeeded",
             recordingMode: "none",
             voiceReport: null,
+            detailedReport: null,
+            deck,
             audienceSummary: null,
           },
         }),
@@ -357,7 +372,9 @@ describe("presentationApi", () => {
       "/api/v1/projects/project_1/presentation-sessions/session_live/runs",
       "/api/v1/projects/project_1/presentation-sessions/session_live/runs/presentation_run_1/report",
     ]);
-    expect(fetchMock.mock.calls.every(([url]) => !String(url).includes("rehearsal"))).toBe(true);
+    expect(
+      fetchMock.mock.calls.every(([url]) => !String(url).includes("rehearsal")),
+    ).toBe(true);
   });
 
   it("falls back to no-audio completion when microphone recording is empty", async () => {

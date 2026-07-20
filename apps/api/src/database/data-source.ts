@@ -10,6 +10,7 @@ import { ProjectEntity } from "../projects/project.entity";
 import { ProjectMemberEntity } from "../projects/project-member.entity";
 import { RehearsalRunEntity } from "../rehearsals/rehearsal-run.entity";
 import { PresentationRunEntity } from "../presentation-sessions/presentation-run.entity";
+import { AddPresentationDetailedReport2026072002000 } from "./migrations/2026072002000-AddPresentationDetailedReport";
 import { CreateDeckPersistenceTables2026062701000 } from "./migrations/2026062701000-CreateDeckPersistenceTables";
 import { CreateAuthUsers2026062702000 } from "./migrations/2026062702000-CreateAuthUsers";
 import { CreateMigrationCommandCheck2026062700000 } from "./migrations/2026062700000-CreateMigrationCommandCheck";
@@ -81,7 +82,7 @@ export const databaseOptions: DataSourceOptions = {
     SavedDesignPackEntity,
     DesignAgentMessageEntity,
     DesignAgentProposalEntity,
-    SmartArtLayoutEntity
+    SmartArtLayoutEntity,
   ],
   migrations: [
     CreateMigrationCommandCheck2026062700000,
@@ -135,11 +136,12 @@ export const databaseOptions: DataSourceOptions = {
     CenterSmartArtCardText2026071705000,
     ReplaceStoryReviewWithCoverPreview2026071706000,
     AddProjectMemberPins2026071801000,
-    CreatePresentationRuns2026072001000
+    CreatePresentationRuns2026072001000,
+    AddPresentationDetailedReport2026072002000,
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
-  logging: false
+  logging: false,
 };
 
 export default new DataSource(databaseOptions);

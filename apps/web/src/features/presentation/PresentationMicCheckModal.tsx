@@ -1,4 +1,9 @@
-import { IconCheck, IconMicrophone, IconMicrophoneOff, IconX } from "@tabler/icons-react";
+import {
+  IconCheck,
+  IconMicrophone,
+  IconMicrophoneOff,
+  IconX,
+} from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -8,7 +13,12 @@ import {
 } from "../presenter-shell/microphoneSettings";
 import "../rehearsal/preflight/rehearsal-mic-check-modal.css";
 
-type PermissionState = "checking" | "granted" | "prompt" | "denied" | "unsupported";
+type PermissionState =
+  | "checking"
+  | "granted"
+  | "prompt"
+  | "denied"
+  | "unsupported";
 
 export function PresentationMicCheckModal(props: {
   onClose: () => void;
@@ -17,7 +27,9 @@ export function PresentationMicCheckModal(props: {
 }) {
   const [permission, setPermission] = useState<PermissionState>("checking");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState(readRehearsalMicrophoneDeviceId);
+  const [selectedDeviceId, setSelectedDeviceId] = useState(
+    readRehearsalMicrophoneDeviceId,
+  );
   const [error, setError] = useState("");
   const [heardVoice, setHeardVoice] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
@@ -28,13 +40,44 @@ export function PresentationMicCheckModal(props: {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setPermission("unsupported");
-    } else {
-      setPermission("prompt");
-    }
     return () => {
       document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let permissionStatus: globalThis.PermissionStatus | null = null;
+
+    async function syncPermission() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setPermission("unsupported");
+        return;
+      }
+      try {
+        permissionStatus = await navigator.permissions?.query({
+          name: "microphone" as PermissionName,
+        });
+        if (!permissionStatus || cancelled) {
+          if (!cancelled) setPermission("prompt");
+          return;
+        }
+        const update = () =>
+          setPermission(permissionStatus!.state as PermissionState);
+        update();
+        permissionStatus.onchange = update;
+        if (permissionStatus.state === "granted") {
+          void startPreview(selectedDeviceId);
+        }
+      } catch {
+        if (!cancelled) setPermission("prompt");
+      }
+    }
+
+    void syncPermission();
+    return () => {
+      cancelled = true;
+      if (permissionStatus) permissionStatus.onchange = null;
       stopPreview();
     };
   }, []);
@@ -53,19 +96,26 @@ export function PresentationMicCheckModal(props: {
       });
       streamRef.current = stream;
       setPermission("granted");
-      const audioDevices = (await navigator.mediaDevices.enumerateDevices()).filter(
-        (device) => device.kind === "audioinput",
-      );
+      const audioDevices = (
+        await navigator.mediaDevices.enumerateDevices()
+      ).filter((device) => device.kind === "audioinput");
       setDevices(audioDevices);
-      const activeDeviceId = stream.getAudioTracks()[0]?.getSettings().deviceId ?? deviceId;
+      const activeDeviceId =
+        stream.getAudioTracks()[0]?.getSettings().deviceId ?? deviceId;
       if (activeDeviceId) {
         setSelectedDeviceId(activeDeviceId);
         writeRehearsalMicrophoneDeviceId(activeDeviceId);
       }
       drawWaveform(stream);
     } catch (cause) {
-      setPermission(cause instanceof DOMException && cause.name === "NotAllowedError" ? "denied" : "prompt");
-      setError("브라우저에서 마이크 사용을 허용하거나 마이크 없이 시작해 주세요.");
+      setPermission(
+        cause instanceof DOMException && cause.name === "NotAllowedError"
+          ? "denied"
+          : "prompt",
+      );
+      setError(
+        "브라우저에서 마이크 사용을 허용하거나 마이크 없이 시작해 주세요.",
+      );
     }
   }
 
@@ -105,7 +155,8 @@ export function PresentationMicCheckModal(props: {
   }
 
   function stopPreview() {
-    if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
+    if (animationRef.current !== null)
+      cancelAnimationFrame(animationRef.current);
     animationRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -115,55 +166,119 @@ export function PresentationMicCheckModal(props: {
 
   return (
     <div className="rehearsal-mic-modal-backdrop">
-      <section aria-labelledby="presentation-mic-title" aria-modal="true" className="rehearsal-mic-modal" role="dialog">
+      <section
+        aria-labelledby="presentation-mic-title"
+        aria-modal="true"
+        className="rehearsal-mic-modal"
+        role="dialog"
+      >
         <div className="rehearsal-mic-modal-scroll">
           <header>
             <div>
-              <h2 id="presentation-mic-title">발표 전 마이크를 확인해 주세요</h2>
+              <h2 id="presentation-mic-title">
+                발표 전 마이크를 확인해 주세요
+              </h2>
               <p>발표 음성을 기록하면 종료 후 말하기 분석을 제공합니다.</p>
             </div>
-            <button aria-label="닫기" className="rehearsal-mic-modal-close" onClick={props.onClose} type="button">
+            <button
+              aria-label="닫기"
+              className="rehearsal-mic-modal-close"
+              onClick={props.onClose}
+              type="button"
+            >
               <IconX size={20} />
             </button>
           </header>
-          <div className={`rehearsal-mic-step${permission === "granted" ? " rehearsal-mic-step-active" : ""}`}>
+          <div
+            className={`rehearsal-mic-step${permission === "granted" ? " rehearsal-mic-step-active" : ""}`}
+          >
             <span className="rehearsal-mic-step-number">1</span>
             <div>
               <div className="rehearsal-mic-step-heading">
                 <strong>마이크 권한</strong>
-                {permission === "granted" ? <span className="rehearsal-mic-success"><IconCheck size={14} /> 권한 허용됨</span> : null}
+                {permission === "granted" ? (
+                  <span className="rehearsal-mic-success">
+                    <IconCheck size={14} /> 권한 허용됨
+                  </span>
+                ) : null}
               </div>
               {permission === "granted" ? (
                 <label className="rehearsal-mic-device">
                   <span>사용할 마이크</span>
-                  <select value={selectedDeviceId} onChange={(event) => void startPreview(event.target.value)}>
-                    {devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `마이크 ${index + 1}`}</option>)}
+                  <select
+                    value={selectedDeviceId}
+                    onChange={(event) => void startPreview(event.target.value)}
+                  >
+                    {devices.map((device, index) => (
+                      <option key={device.deviceId} value={device.deviceId}>
+                        {device.label || `마이크 ${index + 1}`}
+                      </option>
+                    ))}
                   </select>
                 </label>
               ) : (
-                <button className="rehearsal-mic-permission-button" onClick={() => void startPreview()} type="button">
+                <button
+                  className="rehearsal-mic-permission-button"
+                  onClick={() => void startPreview()}
+                  type="button"
+                >
                   <IconMicrophone size={17} /> 마이크 권한 허용
                 </button>
               )}
-              {error ? <p className="rehearsal-mic-error" role="alert">{error}</p> : null}
+              {error ? (
+                <p className="rehearsal-mic-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
             </div>
           </div>
-          <div className={`rehearsal-mic-step${heardVoice ? " rehearsal-mic-step-active" : ""}`}>
+          <div
+            className={`rehearsal-mic-step${heardVoice ? " rehearsal-mic-step-active" : ""}`}
+          >
             <span className="rehearsal-mic-step-number">2</span>
             <div>
               <div className="rehearsal-mic-step-heading">
                 <strong>인식 확인</strong>
-                <span className={heardVoice ? "rehearsal-mic-success" : undefined}>
-                  {heardVoice ? <IconCheck size={14} /> : <IconMicrophoneOff size={14} />}
+                <span
+                  className={heardVoice ? "rehearsal-mic-success" : undefined}
+                >
+                  {heardVoice ? (
+                    <IconCheck size={14} />
+                  ) : (
+                    <IconMicrophoneOff size={14} />
+                  )}
                   {heardVoice ? "목소리가 잘 들려요" : "목소리를 들려주세요"}
                 </span>
               </div>
-              <canvas aria-label="실시간 마이크 입력 파형" className="rehearsal-mic-waveform" ref={canvasRef} role="img" />
+              <canvas
+                aria-label="실시간 마이크 입력 파형"
+                className="rehearsal-mic-waveform"
+                ref={canvasRef}
+                role="img"
+              />
             </div>
           </div>
           <footer>
-            <button disabled={permission !== "granted"} onClick={() => { stopPreview(); props.onStart(); }} type="button">발표 시작</button>
-            <button className="rehearsal-mic-skip" onClick={() => { stopPreview(); props.onStartWithoutMicrophone(); }} type="button">마이크 없이 시작</button>
+            <button
+              disabled={permission !== "granted"}
+              onClick={() => {
+                stopPreview();
+                props.onStart();
+              }}
+              type="button"
+            >
+              발표 시작
+            </button>
+            <button
+              className="rehearsal-mic-skip"
+              onClick={() => {
+                stopPreview();
+                props.onStartWithoutMicrophone();
+              }}
+              type="button"
+            >
+              마이크 없이 시작
+            </button>
           </footer>
         </div>
       </section>
