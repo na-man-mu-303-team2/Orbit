@@ -13,6 +13,9 @@ describe("PracticeCelebrationFeedback", () => {
     );
     expect(html).toContain('aria-label="습관어 사용 없음"');
     expect(html).toContain('aria-live="polite"');
+    expect(html).toContain('aria-label="ORBIT 마스코트와 함께 기뻐하기"');
+    expect(html).toContain('type="button"');
+    expect(html).toContain("editor-practice-visually-hidden");
     expect(html).toContain("오늘은 ‘음…’ 같은 습관어가 없었어요");
     expect(html).toContain("참 잘했어요 · GREAT");
     expect(html).toContain("is-new");
@@ -56,6 +59,7 @@ describe("PracticeCelebrationFeedback", () => {
     );
     const reducedMotion = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
     expect(reducedMotion).toContain(".editor-practice-celebration-mascot-flight");
+    expect(reducedMotion).toContain(".editor-practice-celebration-mascot-button:hover");
     expect(reducedMotion).toContain(".editor-practice-celebration-mascot-stage");
     expect(reducedMotion).toContain(".editor-practice-celebration-mascot-character");
     expect(reducedMotion).toContain(".editor-practice-celebration-mascot.is-blinking");
@@ -71,6 +75,8 @@ describe("PracticeCelebrationFeedback", () => {
     );
     expect(css).toContain(".is-new .editor-practice-celebration-mascot-flight");
     expect(css).toContain("editor-practice-mascot-fly-in");
+    expect(css).toContain(".editor-practice-celebration-mascot-flight.is-reacting");
+    expect(css).toContain("editor-practice-mascot-react");
     expect(css).toContain("editor-practice-mascot-drift");
     expect(css).toContain("editor-practice-mascot-cheer");
     expect(css).toContain("editor-practice-mascot-open-eyes");

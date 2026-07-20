@@ -846,9 +846,43 @@
   position: relative;
 }
 
-.orbit-shell .editor-practice-celebration-mascot-flight {
+.orbit-shell .editor-practice-celebration-mascot-button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: var(--redesign-radius-full);
+  cursor: pointer;
   max-width: 168px;
+  padding: 0;
+  transition: transform var(--redesign-duration-fast) var(--redesign-ease-standard);
   width: min(76%, 168px);
+}
+
+.orbit-shell .editor-practice-celebration-mascot-button:hover {
+  transform: scale(1.035);
+}
+
+.orbit-shell .editor-practice-celebration-mascot-button:active {
+  transform: scale(0.96);
+}
+
+.orbit-shell .editor-practice-celebration-mascot-button:focus-visible {
+  outline: 2px solid var(--redesign-color-primary);
+  outline-offset: 2px;
+}
+
+.orbit-shell .editor-practice-visually-hidden {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.orbit-shell .editor-practice-celebration-mascot-flight {
+  width: 100%;
 }
 
 .orbit-shell .editor-practice-celebration-mascot-stage {
@@ -904,6 +938,12 @@
     var(--redesign-ease-emphasized) both;
 }
 
+.orbit-shell .editor-practice-celebration-mascot-flight.is-reacting {
+  animation: editor-practice-mascot-react
+    calc(var(--redesign-duration-slow) + var(--redesign-duration-normal))
+    var(--redesign-ease-emphasized) both;
+}
+
 .orbit-shell .editor-practice-celebration.is-new .editor-practice-celebration-stamp {
   animation: editor-practice-stamp-celebrate
     calc(var(--redesign-duration-slow) + var(--redesign-duration-instant))
@@ -934,6 +974,14 @@
   76% { transform: translate3d(-3px, -4px, 0) rotate(-0.5deg); }
 }
 
+@keyframes editor-practice-mascot-react {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+  18% { transform: translate3d(0, 3px, 0) rotate(-5deg) scale(1.05, 0.94); }
+  42% { transform: translate3d(0, -16px, 0) rotate(9deg) scale(0.94, 1.08); }
+  62% { transform: translate3d(0, -6px, 0) rotate(-7deg) scale(1.03); }
+  80% { transform: translate3d(0, 1px, 0) rotate(3deg) scale(0.98, 1.02); }
+}
+
 @keyframes editor-practice-mascot-cheer {
   0%, 54%, 78%, 100% { transform: translate3d(0, 0, 0) rotate(0) scale(1); }
   58% { transform: translate3d(0, 3px, 0) rotate(-2deg) scale(1.04, 0.96); }
@@ -960,12 +1008,18 @@
 
 @media (prefers-reduced-motion: reduce) {
   .orbit-shell .editor-practice-celebration.is-new .editor-practice-celebration-mascot-flight,
+  .orbit-shell .editor-practice-celebration-mascot-flight.is-reacting,
   .orbit-shell .editor-practice-celebration-mascot-stage,
   .orbit-shell .editor-practice-celebration-mascot-character,
   .orbit-shell .editor-practice-celebration-mascot.is-open,
   .orbit-shell .editor-practice-celebration-mascot.is-blinking,
   .orbit-shell .editor-practice-celebration.is-new .editor-practice-celebration-stamp {
     animation: none;
+    transform: none;
+  }
+
+  .orbit-shell .editor-practice-celebration-mascot-button:hover,
+  .orbit-shell .editor-practice-celebration-mascot-button:active {
     transform: none;
   }
 

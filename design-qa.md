@@ -102,6 +102,18 @@ final result: passed
 - Browser verification: computed animation이 `editor-practice-mascot-drift` 5.4s, `editor-practice-mascot-cheer` 6.4s로 적용됐다. `aria-live="polite"`, console warning/error 없음, `prefers-reduced-motion: reduce`에서 stage/character/open/blink animation이 모두 `none`임을 확인했다.
 - Comparison history: 첫 비교에서 card layout이나 asset crop의 P0/P1/P2 회귀가 없었다. 추가 visual fix는 필요하지 않았다.
 
+## Click reaction follow-up — 2026-07-21
+
+- Source visual truth: 클릭 전 안정 상태 `/private/tmp/orbit-mascot-click-before.png`와 사용자의 “클릭하면 반응” 피드백.
+- Implementation screenshot: 클릭 후 210ms 반응 frame `/private/tmp/orbit-mascot-click-reaction-final.png`.
+- Full-view comparison: `/private/tmp/orbit-mascot-click-comparison-final.png`.
+- Viewport/state: 1280 × 720, slide 3, `리포트` tab, 동일한 5회 QA fixture.
+- Focused region comparison: full-view에서 마스코트의 상승·회전과 focus outline이 읽혀 별도 crop은 필요하지 않았다.
+- Findings: card layout과 raster asset은 유지된다. 마스코트는 접근 가능한 native button이 되었고 pointer click마다 540ms `editor-practice-mascot-react`가 새로 시작된다. focus-visible outline, hover/active feedback, 반복 클릭마다 교대로 갱신되는 polite live message를 추가했다.
+- Fonts and typography: 시각 text 변경 없음. Spacing and layout rhythm: button reset으로 기존 168px slot과 card 높이를 유지했다. Colors and visual tokens: 기존 primary focus color와 motion token만 사용했다. Image quality and asset fidelity: 기존 WebP frame을 그대로 사용했다. Copy and content: visible copy 변경 없음.
+- Browser verification: pointer 클릭과 반복 클릭에서 live message가 각각 갱신되고 reaction transform이 active/settled state 사이에서 변경됐다. button이 접근성 tree에 `ORBIT 마스코트와 함께 기뻐하기`로 노출되고 focus target이 됨을 확인했다. `prefers-reduced-motion: reduce`에서는 reaction animation이 `none`, hover transition이 `0s`였다. console warning/error와 가로 overflow는 없었다.
+- Comparison history: 동일 viewport/state 전후 비교에서 새로운 P0/P1/P2 회귀가 없었다.
+
 final result: passed
 
 ---
