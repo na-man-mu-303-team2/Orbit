@@ -1,5 +1,6 @@
 import {
   demoIds,
+  createProjectRequestSchema,
   deleteProjectResponseSchema,
   projectMembersResponseSchema,
   projectAccessResponseSchema,
@@ -31,7 +32,7 @@ import {
 import { InjectDataSource } from "@nestjs/typeorm";
 import { InjectRepository } from "@nestjs/typeorm";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
-import { DataSource, In, Repository } from "typeorm";
+import { DataSource, EntityManager, In, Repository } from "typeorm";
 import { serializeLogError } from "../logging";
 import { isKdhHomeProjectId } from "./kdh-home-project-ids";
 import { ProjectEntity } from "./project.entity";
@@ -70,33 +71,41 @@ export class ProjectsService {
     input: CreateProjectRequest,
     userId: string,
   ): Promise<Project> {
-    this.assertWorkspaceAccess(workspaceId);
     const now = new Date();
+    return this.dataSource.transaction((manager) =>
+      this.createInTransaction(manager, workspaceId, input, userId, now),
+    );
+  }
 
-    const savedProject = await this.dataSource.transaction(async (manager) => {
-      await this.ensureDemoWorkspace(manager, userId, now);
-      const project = manager.create(ProjectEntity, {
-        projectId: `project_${randomUUID()}`,
-        workspaceId,
-        title: input.title ?? defaultProjectTitle,
-        createdBy: userId,
-        createdAt: now,
-      });
-      const createdProject = await manager.save(project);
-      await manager.save(
-        manager.create(ProjectMemberEntity, {
-          projectId: createdProject.projectId,
-          userId,
-          role: "owner",
-          status: "accepted",
-          createdAt: now,
-        }),
-      );
-
-      return createdProject;
+  async createInTransaction(
+    manager: EntityManager,
+    workspaceId: string,
+    input: CreateProjectRequest,
+    userId: string,
+    createdAt = new Date(),
+  ): Promise<Project> {
+    this.assertWorkspaceAccess(workspaceId);
+    const request = createProjectRequestSchema.parse(input);
+    await this.ensureDemoWorkspace(manager, userId, createdAt);
+    const project = manager.create(ProjectEntity, {
+      projectId: `project_${randomUUID()}`,
+      workspaceId,
+      title: request.title ?? defaultProjectTitle,
+      createdBy: userId,
+      createdAt,
     });
+    const createdProject = await manager.save(project);
+    await manager.save(
+      manager.create(ProjectMemberEntity, {
+        projectId: createdProject.projectId,
+        userId,
+        role: "owner",
+        status: "accepted",
+        createdAt,
+      }),
+    );
 
-    return this.toProjectDto(savedProject);
+    return this.toProjectDto(createdProject);
   }
 
   private async ensureDemoWorkspace(
