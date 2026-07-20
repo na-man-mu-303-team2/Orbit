@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   assertKdhHomeCleanupAllowed,
   assertNoResidualRows,
+  assertNoStorageObjectsAtRisk,
   assertProjectsAreOwnedByFixtureAccount,
+  countStorageObjects,
   kdhHomeCleanupConfirmToken,
   kdhHomeCleanupTableOrder,
   kdhHomeProjectIds,
@@ -167,6 +169,44 @@ describe("assertProjectsAreOwnedByFixtureAccount", () => {
         kdhHomeProjectIds,
       ),
     ).rejects.toThrow("project_kdh_home_02");
+  });
+});
+
+describe("storage object guard", () => {
+  it("allows cleanup when nothing references an object in storage", () => {
+    expect(() =>
+      assertNoStorageObjectsAtRisk({ liveAssets: 0, pendingDeletions: 0 }),
+    ).not.toThrow();
+  });
+
+  it("refuses when a live asset row would strand its object", () => {
+    expect(() =>
+      assertNoStorageObjectsAtRisk({ liveAssets: 2, pendingDeletions: 0 }),
+    ).toThrow("strand those objects");
+  });
+
+  it("refuses when the deletion outbox has not drained", () => {
+    expect(() =>
+      assertNoStorageObjectsAtRisk({ liveAssets: 0, pendingDeletions: 1 }),
+    ).toThrow("strand those objects");
+  });
+
+  it("ignores assets and outbox rows whose objects are already deleted", async () => {
+    const seen: string[] = [];
+    const manager = {
+      async query(sql: string) {
+        if (sql.includes("to_regclass")) return [{ oid: "1" }];
+        seen.push(sql);
+        return [{ total: 0 }];
+      },
+    } as never;
+
+    await expect(
+      countStorageObjects(manager, kdhHomeProjectIds),
+    ).resolves.toEqual({ liveAssets: 0, pendingDeletions: 0 });
+    expect(
+      seen.every((sql) => sql.includes("status IS DISTINCT FROM 'deleted'")),
+    ).toBe(true);
   });
 });
 

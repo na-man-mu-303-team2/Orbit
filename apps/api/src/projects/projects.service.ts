@@ -33,6 +33,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { DataSource, In, Repository } from "typeorm";
 import { serializeLogError } from "../logging";
+import { isKdhHomeProjectId } from "./kdh-home-project-ids";
 import { ProjectEntity } from "./project.entity";
 import { ProjectMemberEntity } from "./project-member.entity";
 
@@ -251,6 +252,9 @@ export class ProjectsService {
     try {
       const project = await this.findProjectOrDemo(projectId);
       const member = await this.findProjectMember(project.projectId, userId);
+      if (isKdhHomeProjectId(project.projectId) && !member) {
+        throw new NotFoundException(`Project not found: ${projectId}`);
+      }
 
       return projectAccessResponseSchema.parse({
         project: this.toProjectDto(project),
@@ -278,6 +282,10 @@ export class ProjectsService {
   ): Promise<ProjectAccessResponse> {
     const project = await this.findProjectOrDemo(projectId);
     const existing = await this.findProjectMember(project.projectId, userId);
+
+    if (isKdhHomeProjectId(project.projectId) && !existing) {
+      throw new NotFoundException(`Project not found: ${projectId}`);
+    }
 
     if (existing?.status === "accepted") {
       return {

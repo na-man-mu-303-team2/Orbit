@@ -8,6 +8,7 @@ import { DataSource, QueryFailedError, Repository } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 import { ProjectEntity } from "./project.entity";
 import { ProjectMemberEntity } from "./project-member.entity";
+import { kdhHomeProjectIds } from "./kdh-home-project-ids";
 import { ProjectsService } from "./projects.service";
 
 type ProjectFindOptions = {
@@ -414,6 +415,31 @@ describe("ProjectsService", () => {
     await expect(service.list(demoIds.workspaceId, "user_1")).resolves.toEqual([
       expect.objectContaining({ projectId: "project_accepted" }),
     ]);
+  });
+
+  it("hides leftover kdh fixture projects from non-members, even with a known project ID", async () => {
+    // The fixture rows outlive the seeder until the cleanup script is run by
+    // hand, and their IDs are guessable.
+    const project = new ProjectEntity();
+    project.projectId = kdhHomeProjectIds[0];
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "브랜드 리뉴얼 제안";
+    project.createdBy = "user_kdh";
+    project.createdAt = new Date("2026-07-18T00:00:00.000Z");
+    const owner = new ProjectMemberEntity();
+    owner.projectId = project.projectId;
+    owner.userId = "user_kdh";
+    owner.role = "owner";
+    owner.status = "accepted";
+    owner.createdAt = project.createdAt;
+    const service = createService({ projects: [project], members: [owner] });
+
+    await expect(
+      service.getProjectAccess(project.projectId, "user_other"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.requestAccess(project.projectId, "user_other", "viewer"),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it("stores project pins independently for each accepted member", async () => {
