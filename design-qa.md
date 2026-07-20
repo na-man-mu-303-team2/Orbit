@@ -633,3 +633,31 @@ final result: passed
 ### 결과
 
 `passed`
+
+---
+
+# 홈 프로젝트 목록 로딩 실패 상태 design QA
+
+- Source visual truth: `/Users/choeyeongbin/Desktop/스크린샷 2026-07-20 오전 4.47.46.png`.
+- Implementation screenshot: `/private/tmp/orbit-home-error-after.png`.
+- Verification route: `http://localhost:5174/?qa=project-error`.
+- Verification viewport: 1280 × 720.
+- QA state: 인증 요청은 실제 로컬 API로 전달하고 프로젝트 목록 요청만 503으로 응답하는 임시 로컬 프록시를 사용했다.
+
+## Findings and fixes
+
+1. 기존 실패 제목과 버튼이 최근 작업 영역의 카드보다 지나치게 커서 페이지의 정보 위계를 압도했다.
+2. 공통 실패 컴포넌트는 유지하고 홈 화면에만 토큰 기반 축약 스타일을 적용해 다른 화면의 전면 오류 상태에 영향을 주지 않았다.
+3. 실패 상태의 높이, radius, border, surface, shadow를 프로젝트 카드 문법과 맞췄다.
+4. 제목과 본문을 `title-lg`, `body-sm` 계층으로 낮추고 원인, 권장 행동, 재시도 순서를 유지했다.
+5. 재시도 문구를 `목록 다시 불러오기`로 구체화해 버튼의 결과를 바로 이해할 수 있게 했다.
+
+## Verification
+
+- 원본과 구현 결과를 한 번에 비교해 최근 작업 그리드의 위계와 정렬이 개선된 것을 확인했다.
+- 실패 상태 섹션이 1개 렌더링되고 제목, 원인, 권장 행동, 재시도 문구가 모두 표시되는 것을 확인했다.
+- 브라우저 error/warning 로그가 비어 있음을 확인했다.
+- Web 테스트 266개 파일, 1660개 테스트가 통과했다.
+- Web TypeScript 검사가 통과했다.
+
+final result: passed

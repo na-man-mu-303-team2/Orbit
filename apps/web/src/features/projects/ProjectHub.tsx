@@ -98,6 +98,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
               description="프로젝트 목록을 가져오는 중 연결 문제가 발생했습니다."
               onRetry={() => void projects.refetch()}
               recommendedAction="인터넷 연결을 확인한 뒤 목록을 다시 불러오세요."
+              retryLabel="목록 다시 불러오기"
               title="프로젝트를 불러오지 못했습니다."
             />
           ) : (
