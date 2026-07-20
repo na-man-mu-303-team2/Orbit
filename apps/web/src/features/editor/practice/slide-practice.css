@@ -598,6 +598,286 @@
   font-size: var(--redesign-type-label-sm-size);
 }
 
+.orbit-shell .editor-practice-growth-dashboard {
+  display: grid;
+  gap: var(--redesign-space-3);
+  min-width: 0;
+}
+
+.orbit-shell .editor-practice-growth-header {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--redesign-space-3);
+  justify-content: space-between;
+}
+
+.orbit-shell .editor-practice-growth-header h2,
+.orbit-shell .editor-practice-growth-header p,
+.orbit-shell .editor-practice-trend-card h3,
+.orbit-shell .editor-practice-trend-card p,
+.orbit-shell .editor-practice-growth-context p {
+  margin: 0;
+}
+
+.orbit-shell .editor-practice-growth-header h2 {
+  font-size: var(--redesign-type-title-md-size);
+}
+
+.orbit-shell .editor-practice-growth-header p,
+.orbit-shell .editor-practice-growth-context p {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.orbit-shell .editor-practice-growth-header > span {
+  background: var(--redesign-color-primary-subtle);
+  border-radius: var(--redesign-radius-full);
+  color: var(--redesign-color-primary-emphasis);
+  font-size: var(--redesign-type-label-sm-size);
+  padding: var(--redesign-space-1) var(--redesign-space-2);
+  white-space: nowrap;
+}
+
+.orbit-shell .editor-practice-growth-empty,
+.orbit-shell .editor-practice-growth-context,
+.orbit-shell .editor-practice-key-metrics,
+.orbit-shell .editor-practice-trend-card,
+.orbit-shell .editor-practice-current-detail {
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
+  min-width: 0;
+}
+
+.orbit-shell .editor-practice-growth-empty {
+  color: var(--redesign-color-on-surface-variant);
+  margin: 0;
+  padding: var(--redesign-space-6);
+  text-align: center;
+}
+
+.orbit-shell .editor-practice-growth-grid {
+  display: grid;
+  gap: var(--redesign-space-3);
+  grid-template-areas:
+    "trend"
+    "metrics"
+    "context";
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.orbit-shell .editor-practice-trend-card {
+  grid-area: trend;
+  padding: var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-trend-card > header {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--redesign-space-3);
+  justify-content: space-between;
+}
+
+.orbit-shell .editor-practice-trend-card h3 {
+  font-size: var(--redesign-type-body-md-size);
+}
+
+.orbit-shell .editor-practice-trend-card header p {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.orbit-shell .editor-practice-trend-direction {
+  border-radius: var(--redesign-radius-full);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  padding: var(--redesign-space-1) var(--redesign-space-2);
+  white-space: nowrap;
+}
+
+.orbit-shell .editor-practice-trend-direction.improved {
+  background: var(--redesign-color-success-subtle);
+  color: var(--redesign-color-success);
+}
+
+.orbit-shell .editor-practice-trend-tabs {
+  display: grid;
+  gap: var(--redesign-space-1);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: var(--redesign-space-3);
+}
+
+.orbit-shell .editor-practice-trend-tabs button {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--redesign-radius-md);
+  color: var(--redesign-color-on-surface-variant);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--redesign-type-label-sm-size);
+  min-width: 0;
+  padding: var(--redesign-space-2);
+}
+
+.orbit-shell .editor-practice-trend-tabs button[aria-selected="true"] {
+  background: var(--redesign-color-primary-subtle);
+  border-color: var(--redesign-color-primary-outline);
+  color: var(--redesign-color-primary-emphasis);
+  font-weight: 700;
+}
+
+.orbit-shell .editor-practice-trend-tabs button:focus-visible {
+  outline: 2px solid var(--redesign-color-primary);
+  outline-offset: 2px;
+}
+
+.orbit-shell .editor-practice-trend-chart {
+  display: block;
+  height: auto;
+  margin-top: var(--redesign-space-2);
+  max-width: 100%;
+  overflow: visible;
+  width: 100%;
+}
+
+.orbit-shell .editor-practice-trend-baseline {
+  stroke: var(--redesign-color-outline-variant);
+}
+
+.orbit-shell .editor-practice-trend-line {
+  stroke: var(--redesign-color-primary);
+  stroke-linecap: round;
+  stroke-width: 3;
+}
+
+.orbit-shell .editor-practice-trend-point {
+  fill: var(--redesign-color-surface-container-lowest);
+  stroke: var(--redesign-color-primary);
+  stroke-width: 3;
+}
+
+.orbit-shell .editor-practice-trend-gap {
+  stroke: var(--redesign-color-outline);
+  stroke-dasharray: 3 4;
+}
+
+.orbit-shell .editor-practice-trend-date,
+.orbit-shell .editor-practice-trend-gap-label,
+.orbit-shell .editor-practice-trend-value {
+  fill: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.orbit-shell .editor-practice-trend-value {
+  fill: var(--redesign-color-on-surface);
+  font-weight: 700;
+}
+
+.orbit-shell .editor-practice-key-metrics {
+  display: grid;
+  gap: var(--redesign-space-2);
+  grid-area: metrics;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: var(--redesign-space-3);
+}
+
+.orbit-shell .editor-practice-key-metrics > div {
+  background: var(--redesign-color-surface-container-low);
+  border-radius: var(--redesign-radius-md);
+  display: grid;
+  gap: var(--redesign-space-1);
+  min-width: 0;
+  padding: var(--redesign-space-3);
+}
+
+.orbit-shell .editor-practice-key-metrics span {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.orbit-shell .editor-practice-key-metrics strong {
+  font-size: var(--redesign-type-body-sm-size);
+  overflow-wrap: anywhere;
+}
+
+.orbit-shell .editor-practice-growth-context {
+  display: grid;
+  gap: var(--redesign-space-2);
+  grid-area: context;
+  padding: var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-current-detail {
+  overflow: clip;
+}
+
+.orbit-shell .editor-practice-current-detail > summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: var(--redesign-space-3);
+  justify-content: space-between;
+  padding: var(--redesign-space-3) var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-current-detail > summary:focus-visible {
+  outline: 2px solid var(--redesign-color-primary);
+  outline-offset: -2px;
+}
+
+.orbit-shell .editor-practice-current-detail time {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.orbit-shell .editor-practice-current-detail .editor-practice-history-detail {
+  border: 0;
+  border-radius: 0;
+  padding: var(--redesign-space-4);
+}
+
+.orbit-shell .editor-practice-legacy-notice {
+  background: var(--redesign-color-warning-subtle);
+  color: var(--redesign-color-warning);
+  margin: 0 var(--redesign-space-4);
+  padding: var(--redesign-space-2) var(--redesign-space-3);
+}
+
+.orbit-shell .editor-practice-history-error {
+  gap: var(--redesign-space-3);
+}
+
+.orbit-shell .editor-practice-history-error p {
+  margin: 0;
+}
+
+.orbit-shell .editor-practice-history-error button {
+  background: var(--redesign-color-primary);
+  border: 0;
+  border-radius: var(--redesign-radius-md);
+  color: var(--redesign-color-on-primary);
+  cursor: pointer;
+  font: inherit;
+  padding: var(--redesign-space-2) var(--redesign-space-3);
+}
+
+@media (min-width: 960px) and (max-width: 1279px) {
+  .orbit-shell .editor-practice-growth-grid {
+    grid-template-areas:
+      "trend metrics"
+      "trend context";
+    grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+  }
+}
+
+@media (min-width: 1280px) {
+  .orbit-shell .editor-practice-growth-grid {
+    grid-template-areas: "trend metrics context";
+    grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr) minmax(220px, 1fr);
+  }
+}
+
 .orbit-shell .speaker-notes-report-panel .editor-practice-graph-grid {
   gap: var(--redesign-space-3);
 }

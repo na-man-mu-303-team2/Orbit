@@ -7,7 +7,7 @@ import {
   deriveKeywordActionUsage,
   validateSlideAnimations
 } from "../../../../../../packages/editor-core/src/index";
-import { demoIds, type Slide } from "@orbit/shared";
+import { demoIds, slideQuestionGuideTextHashInput, type Slide } from "@orbit/shared";
 import type { Job } from "../../../../../../packages/shared/src/jobs/job.schema";
 import { getRenderableSlideElements } from "../canvas/EditorCanvas";
 import { getImageCropActionState } from "../canvas/image/imageCropSession";
@@ -179,6 +179,7 @@ import { useEditorDocumentController } from "./hooks/useEditorDocumentController
 import { useEditorCanvasCommands } from "./hooks/useEditorCanvasCommands";
 import {
   minSpeakerNotesPanelHeight,
+  reportSpeakerNotesPanelHeight,
   useSpeakerNotesPanelLayout
 } from "./hooks/useSpeakerNotesPanelLayout";
 import { useEditorSlideCommands } from "./hooks/useEditorSlideCommands";
@@ -614,7 +615,10 @@ export function EditorShell(props: { projectId?: string }) {
     deckId: deck.deckId,
     deckVersion: deck.version,
     slideId: rehearsalSlide?.slideId ?? null,
-    slideOrder: rehearsalSlide?.order ?? 0
+    slideOrder: rehearsalSlide?.order ?? 0,
+    slideContentHashInput: rehearsalSlide
+      ? slideQuestionGuideTextHashInput(rehearsalSlide)
+      : null
   });
   const [practiceReportRefreshToken, setPracticeReportRefreshToken] = useState(0);
   const [requestedSpeakerNotesTab, setRequestedSpeakerNotesTab] =
@@ -632,7 +636,7 @@ export function EditorShell(props: { projectId?: string }) {
     handledPracticeReportIdRef.current = practiceSessionId;
     setPracticeReportRefreshToken((current) => current + 1);
     setRequestedSpeakerNotesTab("report");
-    speakerNotesPanelActions.expand();
+    speakerNotesPanelActions.requestHeight(reportSpeakerNotesPanelHeight);
     void handleExitSlideRehearsal({ force: true });
   }, [slidePracticeSession.report?.practiceSessionId]);
 
@@ -711,6 +715,12 @@ export function EditorShell(props: { projectId?: string }) {
   const handleStartSpeakerNotesEdit = speakerNotesEditorActions.startEdit;
   const getSpeakerNotesPanelMaxHeight = speakerNotesPanelActions.getMaxHeight;
   const handleToggleSpeakerNotesPanel = speakerNotesPanelActions.toggle;
+  function handleSpeakerNotesTabSelected(tab: SpeakerNotesTab) {
+    setRequestedSpeakerNotesTab(null);
+    if (tab === "report") {
+      speakerNotesPanelActions.requestHeight(reportSpeakerNotesPanelHeight);
+    }
+  }
   const handleSpeakerNotesResizeStart = (
     event: ReactPointerEvent<HTMLButtonElement>
   ) => speakerNotesPanelActions.handleResizeStart(event, isSpeakerNotesEditing);
@@ -2373,7 +2383,7 @@ export function EditorShell(props: { projectId?: string }) {
                 onSelectKeywordActionMode={handleSelectKeywordActionMode}
                 onSelectKeywordText={handleSpeakerNotesKeywordSelection}
                 onStartEdit={handleStartSpeakerNotesEdit}
-                onTabSelected={() => setRequestedSpeakerNotesTab(null)}
+                onTabSelected={handleSpeakerNotesTabSelected}
                 onToggleMaximized={speakerNotesPanelActions.toggleMaximized}
                 onTogglePanel={handleToggleSpeakerNotesPanel}
                 selectedKeyword={selectedKeyword}

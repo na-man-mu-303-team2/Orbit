@@ -39,6 +39,7 @@ describe("submitSlidePracticeAudio", () => {
       deckVersion: 2,
       slideId: "slide-1",
       slideOrder: 0,
+      slideContentHash: "a".repeat(64),
       startedAt: "2026-07-17T00:00:00.000Z",
       deviceIdHash: "device-hash",
       blob: new Blob(["audio"], { type: "audio/webm;codecs=opus" }),
@@ -48,6 +49,8 @@ describe("submitSlidePracticeAudio", () => {
     expect(result.reportId).toBe("report-1");
     const createBody = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
     expect(createBody.mimeType).toBe("audio/webm");
+    expect(createBody.contentHashVersion).toBe("slide-text-v1");
+    expect(createBody.slideContentHash).toBe("a".repeat(64));
     expect(createBody).not.toHaveProperty("transcript");
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
@@ -80,6 +83,7 @@ describe("submitSlidePracticeAudio", () => {
       deckVersion: 2,
       slideId: "slide-1",
       slideOrder: 0,
+      slideContentHash: "a".repeat(64),
       startedAt: "2026-07-17T00:00:00.000Z",
       deviceIdHash: "device-hash",
       blob: new Blob(["audio"], { type: "audio/webm;codecs=opus" }),
