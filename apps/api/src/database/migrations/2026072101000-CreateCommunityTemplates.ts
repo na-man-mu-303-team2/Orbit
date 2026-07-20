@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class CreateCommunityTemplates2026072101000
-  implements MigrationInterface
-{
+export class CreateCommunityTemplates2026072101000 implements MigrationInterface {
   name = "CreateCommunityTemplates2026072101000";
 
   async up(queryRunner: QueryRunner): Promise<void> {
