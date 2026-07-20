@@ -62,8 +62,12 @@ function makeRun(
 
 function createService(existingRun: PresentationRunEntity | null = null) {
   let storedRun = existingRun;
+  const findAndCount = vi.fn(async () =>
+    storedRun ? [[storedRun], 1] as const : [[], 0] as const,
+  );
   const repository = {
     findOne: vi.fn(async () => storedRun),
+    findAndCount,
     create: vi.fn((value) => makeRun(value)),
     save: vi.fn(async (value) => {
       storedRun = value;
@@ -122,6 +126,7 @@ function createService(existingRun: PresentationRunEntity | null = null) {
     activityResults,
     enqueue,
     files,
+    findAndCount,
     jobs,
     repository,
     service: new PresentationRunsService(
@@ -211,6 +216,31 @@ describe("PresentationRunsService", () => {
     expect(fixture.repository.findOne).toHaveBeenCalledWith({
       where: { projectId: "project_1", sessionId: "session_1" },
     });
+  });
+
+  it("lists completed presentation runs for the report hub", async () => {
+    const fixture = createService(
+      makeRun({ status: "succeeded", endedAt: now }),
+    );
+
+    const result = await fixture.service.listProjectRuns("project_1", {
+      page: "1",
+      pageSize: "20",
+    });
+
+    expect(result).toMatchObject({
+      page: 1,
+      pageSize: 20,
+      total: 1,
+      runs: [{ runId: "presentation_run_1", status: "succeeded" }],
+    });
+    expect(fixture.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        order: { createdAt: "DESC" },
+        skip: 0,
+        take: 20,
+      }),
+    );
   });
 
   it("finishes a no-microphone run without creating an analysis job", async () => {

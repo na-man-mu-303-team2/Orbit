@@ -202,6 +202,15 @@ export const createPresentationRunResponseSchema = z
 export const getPresentationRunResponseSchema =
   createPresentationRunResponseSchema;
 
+export const listPresentationRunsResponseSchema = z
+  .object({
+    runs: z.array(presentationRunSchema),
+    total: z.number().int().nonnegative(),
+    page: z.number().int().positive(),
+    pageSize: z.number().int().positive(),
+  })
+  .strict();
+
 export const createPresentationAudioUploadRequestSchema = z
   .object({
     originalName: z.string().trim().min(1).max(255),
@@ -418,6 +427,9 @@ export const audiencePresentationAccessResponseSchema = z
 export type PresentationSession = z.infer<typeof presentationSessionSchema>;
 export type PresentationRun = z.infer<typeof presentationRunSchema>;
 export type PresentationRunStatus = z.infer<typeof presentationRunStatusSchema>;
+export type ListPresentationRunsResponse = z.infer<
+  typeof listPresentationRunsResponseSchema
+>;
 export type PresentationRecordingMode = z.infer<
   typeof presentationRecordingModeSchema
 >;

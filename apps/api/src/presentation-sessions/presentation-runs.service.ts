@@ -10,6 +10,7 @@ import {
   createPresentationRunResponseSchema,
   getPresentationRunReportResponseSchema,
   getPresentationRunResponseSchema,
+  listPresentationRunsResponseSchema,
   type PresentationRun,
 } from "@orbit/shared";
 import {
@@ -23,7 +24,7 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { randomUUID } from "node:crypto";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
-import { QueryFailedError, Repository } from "typeorm";
+import { IsNull, Not, QueryFailedError, Repository } from "typeorm";
 
 import { parseRequest } from "../common/zod-request";
 import { ActivityResultsService } from "../activities/activity-results.service";
@@ -375,6 +376,27 @@ export class PresentationRunsService {
     });
   }
 
+  async listProjectRuns(
+    projectId: string,
+    query: { page?: string; pageSize?: string },
+  ) {
+    const page = parsePositiveInteger(query.page, 1);
+    const pageSize = Math.min(parsePositiveInteger(query.pageSize, 50), 100);
+    const [runs, total] = await this.runs.findAndCount({
+      where: { projectId, endedAt: Not(IsNull()) },
+      order: { createdAt: "DESC" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+
+    return listPresentationRunsResponseSchema.parse({
+      runs: runs.map(toPresentationRun),
+      total,
+      page,
+      pageSize,
+    });
+  }
+
   async retryAnalysis(projectId: string, sessionId: string, runId: string) {
     const run = await this.getRunEntity(projectId, sessionId, runId);
     if (
@@ -539,6 +561,11 @@ export function toPresentationRun(run: PresentationRunEntity): PresentationRun {
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
   };
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function isUniqueViolation(error: unknown): boolean {

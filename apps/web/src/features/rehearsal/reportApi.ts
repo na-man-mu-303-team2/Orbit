@@ -1,10 +1,12 @@
 import {
   demoIds,
   getRehearsalProjectSummaryResponseSchema,
+  listPresentationRunsResponseSchema,
   rehearsalRunComparisonSchema,
 } from "@orbit/shared";
 import type {
   Project,
+  PresentationRun,
   RehearsalProjectSummary,
   RehearsalRun,
   RehearsalRunComparison,
@@ -59,6 +61,22 @@ export async function fetchProjectRehearsalReportRuns(
   }
   const data = (await response.json()) as { runs: RehearsalRun[]; total: number };
   return { runs: data.runs ?? [], total: data.total ?? 0 };
+}
+
+export async function fetchProjectPresentationReportRuns(
+  projectId: string,
+  fetcher: Fetcher = fetch,
+): Promise<{ runs: PresentationRun[]; total: number }> {
+  const params = new URLSearchParams({ page: "1", pageSize: "100" });
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/presentation-runs?${params.toString()}`,
+    { credentials: "include" },
+  );
+  if (!response.ok) {
+    throw new Error(`실전 발표 기록을 불러오지 못했습니다. (${response.status})`);
+  }
+  const data = listPresentationRunsResponseSchema.parse(await response.json());
+  return { runs: data.runs, total: data.total };
 }
 
 export async function fetchRehearsalRunComparison(

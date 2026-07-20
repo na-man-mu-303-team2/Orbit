@@ -13,7 +13,10 @@ import { PresentationSessionsService } from "./presentation-sessions.service";
 import { PresentationSessionRepository } from "./presentation-session.repository";
 import { AudienceRateLimitService } from "./audience-rate-limit.service";
 import { PresentationRunEntity } from "./presentation-run.entity";
-import { PresentationRunsController } from "./presentation-runs.controller";
+import {
+  PresentationRunsController,
+  ProjectPresentationRunsController,
+} from "./presentation-runs.controller";
 import {
   PRESENTATION_ANALYSIS_ENQUEUE_JOB,
   PresentationRunsService,
@@ -33,6 +36,7 @@ import {
     AudienceSessionsController,
     PresentationSessionsController,
     PresentationRunsController,
+    ProjectPresentationRunsController,
   ],
   providers: [
     AudienceRateLimitService,

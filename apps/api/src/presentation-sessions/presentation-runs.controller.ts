@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Req,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -125,6 +126,34 @@ export class PresentationRunsController {
   ) {
     const user = await this.getCurrentUser(request);
     await this.projects.assertCanWriteProject(projectId, user.userId);
+  }
+
+  private async getCurrentUser(request: SignedCookieRequest) {
+    const value = request.signedCookies?.[authSessionCookieName];
+    if (typeof value !== "string" || value.length === 0) {
+      throw new UnauthorizedException("Authentication required");
+    }
+    return (await this.authService.me(value)).user;
+  }
+}
+
+@Controller("api/v1/projects/:projectId/presentation-runs")
+export class ProjectPresentationRunsController {
+  constructor(
+    private readonly authService: AuthService,
+    private readonly projects: ProjectsService,
+    private readonly runs: PresentationRunsService,
+  ) {}
+
+  @Get()
+  async list(
+    @Param("projectId") projectId: string,
+    @Query() query: { page?: string; pageSize?: string },
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projects.assertCanReadProject(projectId, user.userId);
+    return this.runs.listProjectRuns(projectId, query);
   }
 
   private async getCurrentUser(request: SignedCookieRequest) {
