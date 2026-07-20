@@ -80,7 +80,7 @@ export function OrbitDialog(props: {
 
   if (!props.open) return null;
 
-  return createPortal(
+  const dialog = (
     <div
       className="redesign-dialog-backdrop"
       onMouseDown={(event) => {
@@ -115,7 +115,8 @@ export function OrbitDialog(props: {
         <div className="redesign-dialog-body">{props.children}</div>
         {props.footer ? <footer className="redesign-dialog-footer">{props.footer}</footer> : null}
       </section>
-    </div>,
-    document.body
+    </div>
   );
+
+  return typeof document === "undefined" ? dialog : createPortal(dialog, document.body);
 }

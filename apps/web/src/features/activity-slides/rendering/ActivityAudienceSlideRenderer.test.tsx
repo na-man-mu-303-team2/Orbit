@@ -61,7 +61,7 @@ describe("ActivityAudienceSlideRenderer", () => {
       />
     );
 
-    expect(html).toContain("ORBIT");
+    expect(html).toContain("main-logo.png");
     expect(html).toContain("--activity-color-background:#090909");
     expect(html).toContain("--activity-color-accent:#c5b0f4");
     expect(html).not.toContain("LIVE ACTIVITY");
