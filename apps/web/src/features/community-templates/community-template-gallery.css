@@ -108,7 +108,9 @@
     var(--redesign-color-surface-container-low) 100%
   );
   background-size: 200% 100%;
-  animation: community-template-skeleton 1.5s ease-in-out infinite;
+  animation:
+    community-template-skeleton var(--redesign-duration-loop) ease-in-out
+    infinite;
 }
 
 .community-template-blank-preview {
@@ -308,7 +310,8 @@
   border: 2px solid var(--redesign-color-primary-container);
   border-top-color: var(--redesign-color-primary);
   border-radius: 50%;
-  animation: community-template-spin 0.8s linear infinite;
+  animation: community-template-spin var(--redesign-duration-loop) linear
+    infinite;
 }
 
 .community-template-apply-error,
