@@ -1,10 +1,15 @@
 import { ForbiddenException } from "@nestjs/common";
-import { createDemoDeck, sanitizeCommunityTemplate } from "@orbit/editor-core";
+import {
+  createActivitySlide,
+  createDemoDeck,
+  sanitizeCommunityTemplate,
+} from "@orbit/editor-core";
 import type {
   CommunityTemplateCategory,
   CommunityTemplateSnapshot,
   Project,
 } from "@orbit/shared";
+import { deckSchema } from "@orbit/shared";
 import type { PinoLogger } from "nestjs-pino";
 import type { DataSource, EntityManager } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
@@ -87,7 +92,7 @@ class CommunityTemplateTestDatabase {
       ) as T;
     }
     if (
-      query.includes("FROM project_members") &&
+      query.includes("INNER JOIN project_members") &&
       query.includes("role = 'owner'")
     ) {
       const [workspaceId, userId] = params as [string, string];
@@ -206,7 +211,20 @@ class CommunityTemplateTestDatabase {
       query.includes("FROM community_templates") &&
       query.includes("preview_json")
     ) {
-      return [...this.templates.values()] as T;
+      const [search, category, limit, offset] = params as [
+        string | null,
+        CommunityTemplateCategory | null,
+        number,
+        number,
+      ];
+      return [...this.templates.values()]
+        .filter(
+          (template) =>
+            (!search || template.title.includes(search)) &&
+            (!category || template.category === category),
+        )
+        .sort((left, right) => right.created_at.localeCompare(left.created_at))
+        .slice(offset, offset + limit) as T;
     }
 
     throw new Error(`Unhandled test query: ${query}`);
@@ -305,6 +323,41 @@ describe("CommunityTemplatesService", () => {
     });
   });
 
+  it("applies search, category, and bounded pagination", async () => {
+    const { database, service } = createFixture();
+    const seed = database.templates.get("community_template_seed")!;
+    database.templates.set("community_template_business", {
+      ...seed,
+      template_id: "community_template_business",
+      title: "분기 비즈니스 리뷰",
+      category: "business",
+      created_at: "2026-07-22T00:00:00.000Z",
+    });
+
+    await expect(
+      service.list({
+        query: "비즈니스",
+        category: "business",
+        page: 1,
+        limit: 1,
+      }),
+    ).resolves.toMatchObject({
+      items: [
+        {
+          templateId: "community_template_business",
+          title: "분기 비즈니스 리뷰",
+          category: "business",
+        },
+      ],
+      page: 1,
+      hasMore: false,
+    });
+    await expect(service.list({ page: 1, limit: 1 })).resolves.toMatchObject({
+      items: [{ templateId: "community_template_business" }],
+      hasMore: true,
+    });
+  });
+
   it("lists only owner source projects in the requested workspace", async () => {
     const { service } = createFixture();
     expect(await service.listSources("workspace_demo_1", "user_owner")).toEqual(
@@ -366,6 +419,48 @@ describe("CommunityTemplatesService", () => {
     ).rejects.toMatchObject({
       status: 403,
       response: { code: "COMMUNITY_TEMPLATE_OWNER_REQUIRED" },
+    });
+  });
+
+  it("returns bounded source-not-found and activity-unsupported errors", async () => {
+    const { database, decksService, service } = createFixture();
+    const publishInput = {
+      sourceProjectId: "project_demo_1",
+      title: "공개 템플릿",
+      category: "business" as const,
+      rightsConfirmed: true as const,
+    };
+    database.sourceProjects.clear();
+    await expect(
+      service.publish("workspace_demo_1", publishInput, "user_owner"),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { code: "COMMUNITY_TEMPLATE_SOURCE_NOT_FOUND" },
+    });
+
+    const source = createDemoDeck();
+    database.sourceProjects.set(source.projectId, {
+      project_id: source.projectId,
+      workspace_id: "workspace_demo_1",
+      title: source.title,
+      created_at: "2026-07-20T00:00:00.000Z",
+    });
+    const activity = createActivitySlide(source, "satisfaction");
+    const activityDeck = deckSchema.parse({
+      ...source,
+      slides: [...source.slides, activity],
+    });
+    vi.mocked(decksService.getDeck).mockResolvedValueOnce({
+      projectId: source.projectId,
+      deck: activityDeck,
+      updatedAt: "2026-07-21T00:00:00.000Z",
+    });
+
+    await expect(
+      service.publish("workspace_demo_1", publishInput, "user_owner"),
+    ).rejects.toMatchObject({
+      status: 422,
+      response: { code: "COMMUNITY_TEMPLATE_ACTIVITY_UNSUPPORTED" },
     });
   });
 
