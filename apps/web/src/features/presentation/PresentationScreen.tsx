@@ -3,7 +3,9 @@ import { Presentation } from "lucide-react";
 import type { ReactNode } from "react";
 import { ActivityPresenterPanel } from "../activity-slides";
 import { RehearsalPanel } from "../rehearsal/panel/RehearsalPanel";
+import { createRehearsalScriptPrompterRows } from "../rehearsal/panel/rehearsalScriptPrompter";
 import type { RehearsalTimingSnapshot, TimingAdviceState } from "../rehearsal/panel/rehearsalTiming";
+import { RehearsalScriptTeleprompter } from "../rehearsal/presenter/RehearsalScriptTeleprompter";
 import { SlideshowRenderer } from "../rehearsal/presenter/SlideshowRenderer";
 import type { SpeechTrackerSnapshot } from "../rehearsal/speech/speechTrackingEvents";
 import {
@@ -66,6 +68,11 @@ export function PresentationScreen(props: {
   const nextSlideTitle = props.nextSlide
     ? getSlideTitle(props.nextSlide)
     : "다음 슬라이드 없음";
+  const teleprompterRows = getPresentationTeleprompterRows({
+    sentences: props.sentences,
+    snapshot: props.panelSnapshot,
+    speakerNotes: props.currentSlide?.speakerNotes ?? "",
+  });
 
   return (
     <main className="rehearsal-presenter-shell">
@@ -181,9 +188,46 @@ export function PresentationScreen(props: {
             />
           )}
         </aside>
+
+        <RehearsalScriptTeleprompter
+          focusScopeId={props.currentSlide?.slideId ?? "presentation-empty"}
+          progressPercent={Math.round(
+            (props.panelSnapshot.scriptProgress?.ratio ?? 0) * 100,
+          )}
+          rows={teleprompterRows}
+        />
       </section>
     </main>
   );
+}
+
+function getPresentationTeleprompterRows(input: {
+  sentences: Parameters<typeof RehearsalPanel>[0]["sentences"];
+  snapshot: SpeechTrackerSnapshot;
+  speakerNotes: string;
+}) {
+  if (input.sentences.length === 0) {
+    return [
+      {
+        id: "presentation-fallback",
+        isFocusTarget: true,
+        status: "current" as const,
+        text: input.speakerNotes.trim() || "발표자 노트가 없습니다.",
+      },
+    ];
+  }
+
+  return createRehearsalScriptPrompterRows({
+    sentences: input.sentences,
+    coveredSentenceIds: input.snapshot.coveredSentenceIds,
+    coveredSentenceMatchKinds: input.snapshot.coveredSentenceMatchKinds,
+    prompterProgress: input.snapshot.prompterProgress,
+  }).map((row) => ({
+    id: row.sentence.sentenceId,
+    isFocusTarget: row.isFocusTarget,
+    status: row.status,
+    text: row.sentence.text,
+  }));
 }
 
 function getSlideTitle(slide: Slide) {

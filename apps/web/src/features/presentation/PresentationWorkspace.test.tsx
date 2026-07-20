@@ -48,6 +48,8 @@ describe("PresentationWorkspace", () => {
     expect(html).toContain("발표 시간");
     expect(html).toContain("키워드");
     expect(html).toContain("대본");
+    expect(html).toContain('aria-label="발표 대본 프롬프터"');
+    expect(html).toContain('aria-label="원문 기준 실시간 진행률"');
     expect(html).not.toContain("Live STT");
     expect(html).not.toContain("Report AI");
   });
