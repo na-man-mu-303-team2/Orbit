@@ -4,6 +4,37 @@ import {
   type Deck,
 } from "@orbit/shared";
 
+// 다음 슬라이드가 공개될 때까지의 간격
+export const aiDeckRevealIntervalMs = 1250;
+// 모든 슬라이드가 공개된 후 편집기로 이동하기 전 유지 시간
+export const aiDeckFinalSlideHoldMs = 1000;
+
+// 연출 공식
+// 전체 시간(ms) = 슬라이드 수 × aiDeckRevealIntervalMs + aiDeckFinalSlideHoldMs
+
+export function aiDeckPreviewDisplayState(
+  preview: AiDeckPreviewResponse | null,
+  revealedCount: number,
+): Pick<AiDeckPreviewResponse, "status" | "progress"> {
+  if (!preview) return { status: "planning", progress: 0 };
+  const total = preview.deck?.slides.length ?? preview.outline.length;
+  if (preview.status !== "ready" || total === 0 || revealedCount >= total) {
+    return { status: preview.status, progress: preview.progress };
+  }
+  const revealedRatio = Math.max(0, Math.min(revealedCount, total)) / total;
+  return {
+    status: "rendering",
+    progress: Math.min(96, Math.round(12 + revealedRatio * 84)),
+  };
+}
+
+export function aiDeckPlaybackDurationMs(slideCount: number): number {
+  return (
+    Math.max(0, slideCount) * aiDeckRevealIntervalMs +
+    (slideCount > 0 ? aiDeckFinalSlideHoldMs : 0)
+  );
+}
+
 export function readySlidePrefix(
   deck: Deck | null,
   completedSlideIds: readonly string[],

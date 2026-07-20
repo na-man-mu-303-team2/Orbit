@@ -23,11 +23,18 @@ import {
   ServiceUnavailableException
 } from "@nestjs/common";
 import { parseRequest } from "../common/zod-request";
+import { InjectDataSource } from "@nestjs/typeorm";
+import type { DataSource } from "typeorm";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { ProjectsService } from "../projects/projects.service";
 import { SavedDesignPacksService } from "../saved-design-packs/saved-design-packs.service";
 import { PresentationBriefsService } from "../presentation-briefs/presentation-briefs.service";
+import {
+  demoDeckCacheUnavailable,
+  isDemoDeckCacheRequest,
+  readDemoDeckCache,
+} from "./demo-deck-cache";
 
 type GenerateDeckJobResponse = ReturnType<
   typeof generateDeckStartResponseSchema.parse
@@ -48,7 +55,10 @@ export class GenerateDeckService {
     @Optional()
     private readonly savedDesignPacksService?: SavedDesignPacksService,
     @Optional()
-    private readonly presentationBriefs?: PresentationBriefsService
+    private readonly presentationBriefs?: PresentationBriefsService,
+    @Optional()
+    @InjectDataSource()
+    private readonly dataSource?: DataSource,
   ) {
     if (this.config.AI_DECK_EXECUTION_MODE === "sqs") {
       throw new Error("AI Deck SQS transport is not implemented yet.");
@@ -86,11 +96,37 @@ export class GenerateDeckService {
           }
         : {}),
     });
+    const useDemoCache = isDemoDeckCacheRequest(
+      this.config,
+      storedPayload.requestedByUserId,
+      storedPayload.request.topic,
+    );
+    if (useDemoCache) {
+      const sourceProjectId = this.config.DEMO_AI_DECK_SOURCE_PROJECT_ID;
+      if (
+        !sourceProjectId ||
+        sourceProjectId === projectId ||
+        !userId ||
+        !this.dataSource
+      ) {
+        throw demoDeckCacheUnavailable();
+      }
+      try {
+        await this.projectsService.assertCanReadProject(sourceProjectId, userId);
+        await readDemoDeckCache(this.dataSource, sourceProjectId, userId);
+      } catch {
+        throw demoDeckCacheUnavailable();
+      }
+    }
     const queuedJob = await this.jobsService.create({
       projectId,
       type: "ai-deck-generation",
       payload: storedPayload
     });
+
+    if (useDemoCache) {
+      return generateDeckStartResponseSchema.parse({ job: queuedJob });
+    }
 
     try {
       await this.enqueueJob({

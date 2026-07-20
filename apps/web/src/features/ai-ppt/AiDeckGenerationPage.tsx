@@ -6,6 +6,9 @@ import { OrbitButton } from "../../components/ui";
 import { getResponsiveEditorStageScale } from "../editor/shell/utils/editorLayout";
 import { ReadOnlySlideCanvas } from "../slides/rendering";
 import {
+  aiDeckFinalSlideHoldMs,
+  aiDeckPreviewDisplayState,
+  aiDeckRevealIntervalMs,
   previewBannerText,
   readySlidePrefix,
   requestAiDeckPreview,
@@ -47,7 +50,7 @@ export function AiDeckGenerationPage(props: {
     }
     const timer = window.setTimeout(
       () => setRevealedCount((count) => Math.min(count + 1, availableCount)),
-      500,
+      aiDeckRevealIntervalMs,
     );
     return () => window.clearTimeout(timer);
   }, [availableCount, revealedCount]);
@@ -96,11 +99,19 @@ export function AiDeckGenerationPage(props: {
       !handoffStarted.current
     ) {
       handoffStarted.current = true;
-      void queryClient
-        .invalidateQueries({ queryKey: ["deck", props.projectId] })
-        .finally(() =>
-          replaceRoute(`/project/${encodeURIComponent(props.projectId)}`),
-        );
+      const handoff = () => {
+        void queryClient
+          .invalidateQueries({ queryKey: ["deck", props.projectId] })
+          .finally(() =>
+            replaceRoute(`/project/${encodeURIComponent(props.projectId)}`),
+          );
+      };
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        handoff();
+        return;
+      }
+      const timer = window.setTimeout(handoff, aiDeckFinalSlideHoldMs);
+      return () => window.clearTimeout(timer);
     }
   }, [preview, props.projectId, queryClient, revealedCount]);
 
@@ -127,6 +138,7 @@ export function AiDeckGenerationPage(props: {
     selectedIndex < revealedCount
       ? (preview?.deck?.slides[selectedIndex] ?? null)
       : null;
+  const displayState = aiDeckPreviewDisplayState(preview, revealedCount);
 
   return (
     <section className="ai-deck-generation-page">
@@ -136,8 +148,8 @@ export function AiDeckGenerationPage(props: {
           <h1>슬라이드를 만들고 있습니다.</h1>
         </div>
         <div className="ai-deck-generation-progress" role="status">
-          <strong>{preview?.progress ?? 0}%</strong>
-          <span>{statusLabel(preview?.status)}</span>
+          <strong>{displayState.progress}%</strong>
+          <span>{statusLabel(displayState.status)}</span>
         </div>
       </header>
 
