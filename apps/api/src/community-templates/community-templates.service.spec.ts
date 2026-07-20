@@ -1,4 +1,4 @@
-import { ForbiddenException } from "@nestjs/common";
+import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import {
   createActivitySlide,
   createDemoDeck,
@@ -445,6 +445,17 @@ describe("CommunityTemplatesService", () => {
       title: source.title,
       created_at: "2026-07-20T00:00:00.000Z",
     });
+    vi.mocked(decksService.getDeck).mockRejectedValueOnce(
+      new NotFoundException("private deck lookup detail"),
+    );
+
+    await expect(
+      service.publish("workspace_demo_1", publishInput, "user_owner"),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: { code: "COMMUNITY_TEMPLATE_SOURCE_NOT_FOUND" },
+    });
+
     const activity = createActivitySlide(source, "satisfaction");
     const activityDeck = deckSchema.parse({
       ...source,

@@ -219,7 +219,19 @@ export class CommunityTemplatesService {
         throw error;
       }
 
-      const { deck } = await this.decksService.getDeck(request.sourceProjectId);
+      let deck: Awaited<ReturnType<DecksService["getDeck"]>>["deck"];
+      try {
+        ({ deck } = await this.decksService.getDeck(request.sourceProjectId));
+      } catch (error) {
+        if (error instanceof NotFoundException) {
+          throw communityTemplateException(
+            "COMMUNITY_TEMPLATE_SOURCE_NOT_FOUND",
+            HttpStatus.NOT_FOUND,
+            "공개할 원본 프로젝트를 찾을 수 없습니다.",
+          );
+        }
+        throw error;
+      }
       const snapshot = sanitizeCommunityTemplate(deck);
       const preview = communityTemplatePreviewSchema.parse({
         canvas: snapshot.canvas,
