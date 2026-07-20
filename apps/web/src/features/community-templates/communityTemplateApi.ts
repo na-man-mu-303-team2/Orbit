@@ -4,6 +4,9 @@ import {
   communityTemplateListQuerySchema,
   communityTemplateListResponseSchema,
   communityTemplateRecentResponseSchema,
+  communityTemplateSourceListResponseSchema,
+  publishCommunityTemplateRequestSchema,
+  publishCommunityTemplateResponseSchema,
   useCommunityTemplateRequestSchema,
   useCommunityTemplateResponseSchema,
   type CommunityTemplateApiErrorCode,
@@ -22,6 +25,8 @@ export const communityTemplateKeys = {
   list: (query: CommunityTemplateListQuery) =>
     ["community-templates", "list", query] as const,
   recent: ["community-templates", "recent"] as const,
+  sources: (workspaceId: string) =>
+    ["community-templates", "sources", workspaceId] as const,
 };
 
 export class CommunityTemplateWebError extends Error {
@@ -90,6 +95,61 @@ export async function fetchRecentCommunityTemplates(
   return communityTemplateRecentResponseSchema.parse(await response.json());
 }
 
+export async function fetchCommunityTemplateSources(
+  rawWorkspaceId: string,
+  fetcher: CommunityTemplateFetcher = fetch,
+) {
+  const workspaceId = parseWorkspaceId(rawWorkspaceId);
+  const response = await fetcher(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/community-templates/sources`,
+    { credentials: "include" },
+  );
+  if (!response.ok) {
+    throw await readCommunityTemplateError(
+      response,
+      "공개할 프로젝트를 불러오지 못했습니다.",
+    );
+  }
+  return communityTemplateSourceListResponseSchema.parse(
+    await response.json(),
+  );
+}
+
+export async function publishCommunityTemplate(
+  rawInput: {
+    workspaceId: string;
+    sourceProjectId: string;
+    title: string;
+    category: string;
+    rightsConfirmed: boolean;
+  },
+  fetcher: CommunityTemplateFetcher = fetch,
+) {
+  const workspaceId = parseWorkspaceId(rawInput.workspaceId);
+  const request = publishCommunityTemplateRequestSchema.parse({
+    sourceProjectId: rawInput.sourceProjectId,
+    title: rawInput.title,
+    category: rawInput.category,
+    rightsConfirmed: rawInput.rightsConfirmed,
+  });
+  const response = await fetcher(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/community-templates`,
+    {
+      body: JSON.stringify(request),
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  if (!response.ok) {
+    throw await readCommunityTemplateError(
+      response,
+      "커뮤니티 템플릿을 등록하지 못했습니다.",
+    );
+  }
+  return publishCommunityTemplateResponseSchema.parse(await response.json());
+}
+
 export async function useCommunityTemplate(
   rawInput: {
     workspaceId: string;
@@ -98,13 +158,7 @@ export async function useCommunityTemplate(
   },
   fetcher: CommunityTemplateFetcher = fetch,
 ) {
-  const workspaceId = rawInput.workspaceId.trim();
-  if (!workspaceId || workspaceId.length > 200) {
-    throw new CommunityTemplateWebError(
-      "워크스페이스 정보를 확인할 수 없습니다.",
-      400,
-    );
-  }
+  const workspaceId = parseWorkspaceId(rawInput.workspaceId);
   const templateId = communityTemplateIdSchema.parse(rawInput.templateId);
   const request = useCommunityTemplateRequestSchema.parse({
     clientRequestId: rawInput.clientRequestId,
@@ -125,6 +179,17 @@ export async function useCommunityTemplate(
     );
   }
   return useCommunityTemplateResponseSchema.parse(await response.json());
+}
+
+function parseWorkspaceId(rawWorkspaceId: string) {
+  const workspaceId = rawWorkspaceId.trim();
+  if (!workspaceId || workspaceId.length > 200) {
+    throw new CommunityTemplateWebError(
+      "워크스페이스 정보를 확인할 수 없습니다.",
+      400,
+    );
+  }
+  return workspaceId;
 }
 
 async function readCommunityTemplateError(

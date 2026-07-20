@@ -6,6 +6,8 @@ import {
   buildCommunityTemplateListSearch,
   fetchCommunityTemplateList,
   fetchRecentCommunityTemplates,
+  fetchCommunityTemplateSources,
+  publishCommunityTemplate,
   useCommunityTemplate,
 } from "./communityTemplateApi";
 
@@ -165,5 +167,128 @@ describe("communityTemplateApi", () => {
       code: "COMMUNITY_TEMPLATE_USE_CONFLICT",
       message: "같은 요청 ID가 다른 템플릿에 사용되었습니다.",
     } satisfies Partial<CommunityTemplateWebError>);
+  });
+
+  it("fetches only the shared owner-source projection for a workspace", async () => {
+    const sourceProject = {
+      projectId: "project_owner_source",
+      title: "분기 리뷰 원본",
+      createdAt: "2026-07-20T00:00:00.000Z",
+    };
+    const fetcher = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ items: [sourceProject] }), {
+          status: 200,
+        }),
+    );
+
+    await expect(
+      fetchCommunityTemplateSources("workspace_demo_1", fetcher),
+    ).resolves.toEqual({ items: [sourceProject] });
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/workspaces/workspace_demo_1/community-templates/sources",
+      { credentials: "include" },
+    );
+  });
+
+  it("rejects source responses containing private membership or snapshot data", async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                projectId: "project_owner_source",
+                title: "분기 리뷰 원본",
+                createdAt: "2026-07-20T00:00:00.000Z",
+                ownerUserId: "user_private",
+                deckSnapshot: { private: true },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+    );
+
+    await expect(
+      fetchCommunityTemplateSources("workspace_demo_1", fetcher),
+    ).rejects.toThrow();
+  });
+
+  it("parses the publish request and response through the shared contract", async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ template: publicCard }), { status: 201 }),
+    );
+
+    await expect(
+      publishCommunityTemplate(
+        {
+          workspaceId: "workspace_demo_1",
+          sourceProjectId: "project_owner_source",
+          title: "  교육 발표 템플릿  ",
+          category: "education",
+          rightsConfirmed: true,
+        },
+        fetcher,
+      ),
+    ).resolves.toEqual({ template: publicCard });
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/workspaces/workspace_demo_1/community-templates",
+      {
+        body: JSON.stringify({
+          sourceProjectId: "project_owner_source",
+          title: "교육 발표 템플릿",
+          category: "education",
+          rightsConfirmed: true,
+        }),
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      },
+    );
+  });
+
+  it("does not send publish without rights and hides malformed server errors", async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            message: "raw database failure: community_templates",
+            stack: "private stack",
+          }),
+          { status: 500 },
+        ),
+    );
+
+    await expect(
+      publishCommunityTemplate(
+        {
+          workspaceId: "workspace_demo_1",
+          sourceProjectId: "project_owner_source",
+          title: "교육 발표 템플릿",
+          category: "education",
+          rightsConfirmed: false,
+        },
+        fetcher,
+      ),
+    ).rejects.toThrow();
+    expect(fetcher).not.toHaveBeenCalled();
+
+    await expect(
+      publishCommunityTemplate(
+        {
+          workspaceId: "workspace_demo_1",
+          sourceProjectId: "project_owner_source",
+          title: "교육 발표 템플릿",
+          category: "education",
+          rightsConfirmed: true,
+        },
+        fetcher,
+      ),
+    ).rejects.toMatchObject({
+      name: "CommunityTemplateWebError",
+      message: "커뮤니티 템플릿을 등록하지 못했습니다.",
+    });
   });
 });
