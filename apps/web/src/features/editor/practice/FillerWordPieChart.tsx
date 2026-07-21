@@ -1,3 +1,7 @@
+import {
+  resolveSlidePracticeFillerMeasurement,
+  type SlidePracticeFillerMeasurement,
+} from "@orbit/shared";
 import { useId } from "react";
 
 const FILLER_CHART_COLORS = [
@@ -49,11 +53,23 @@ export function buildFillerWordChartItems(
 
 export function FillerWordPieChart(props: {
   details: readonly FillerDetail[];
+  measurement?: SlidePracticeFillerMeasurement;
   totalCount: number;
 }) {
   const titleId = useId();
   const descriptionId = useId();
-  const items = buildFillerWordChartItems(props.details, props.totalCount);
+  const measurement = resolveSlidePracticeFillerMeasurement({
+    policyVersion: 1,
+    measurement: props.measurement,
+  });
+  const measured = measurement.state === "measured";
+  const items = measured
+    ? buildFillerWordChartItems(props.details, props.totalCount)
+    : [];
+  const summary = fillerMeasurementSummary(
+    measurement.reasonCode,
+    props.totalCount,
+  );
 
   return (
     <section className="editor-practice-filler-chart" aria-labelledby={titleId}>
@@ -62,10 +78,18 @@ export function FillerWordPieChart(props: {
           <h3 id={titleId}>습관어 사용 비율</h3>
           <p>연습 중 사용한 표현별 횟수와 점유율입니다.</p>
         </div>
-        <strong>{props.totalCount}회</strong>
+        <strong>{measured ? `${props.totalCount}회` : summary.label}</strong>
       </header>
 
-      {items.length > 0 ? (
+      {!measured ? (
+        <p
+          aria-label={summary.ariaLabel}
+          className="editor-practice-filler-empty"
+          role="status"
+        >
+          {summary.message}
+        </p>
+      ) : items.length > 0 ? (
         <div className="editor-practice-filler-chart-body">
           <svg
             className="editor-practice-filler-pie"
@@ -113,6 +137,31 @@ export function FillerWordPieChart(props: {
       )}
     </section>
   );
+}
+
+function fillerMeasurementSummary(
+  reasonCode: "FILLER_VERBATIM_UNAVAILABLE" | "FILLER_VERBATIM_NOT_APPLIED" | null,
+  totalCount: number,
+) {
+  if (reasonCode === "FILLER_VERBATIM_NOT_APPLIED" && totalCount > 0) {
+    return {
+      ariaLabel: `기존 전사 참고 습관어 최소 ${totalCount}회`,
+      label: `최소 ${totalCount}회`,
+      message: `기존 전사에서 최소 ${totalCount}회 감지됨 · 참고용이며 추세에는 사용하지 않습니다.`,
+    };
+  }
+  if (reasonCode === "FILLER_VERBATIM_UNAVAILABLE") {
+    return {
+      ariaLabel: "습관어 측정 불가",
+      label: "측정 불가",
+      message: "축어 전사를 완료하지 못해 습관어를 측정할 수 없습니다.",
+    };
+  }
+  return {
+    ariaLabel: "습관어 측정 불가",
+    label: "측정 불가",
+    message: "축어 전사가 적용되지 않아 습관어를 측정할 수 없습니다.",
+  };
 }
 
 type PieSegment = {

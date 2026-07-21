@@ -63,6 +63,21 @@ describe("PracticeTrendDashboard", () => {
     expect(html).not.toContain("습관어 사용 없음");
   });
 
+  it("최신 회차의 축어 전사가 unavailable이면 습관어 0을 성공으로 표시하지 않는다", () => {
+    const html = renderToStaticMarkup(
+      <PracticeTrendDashboard
+        reports={[
+          report(2, { fillerCount: 0, fillerMeasurement: "unmeasured" }),
+          report(1, { fillerCount: 2 }),
+        ]}
+        slideContentHash={currentHash}
+      />,
+    );
+
+    expect(html).toContain('aria-label="측정 불가"');
+    expect(html).not.toContain("습관어 사용 없음");
+  });
+
   it("방향키와 Home/End 키로 지표 탭을 순환한다", () => {
     expect(nextPracticeTrendMetric("fillerRate", "ArrowLeft")).toBe("pauseRatio");
     expect(nextPracticeTrendMetric("fillerRate", "ArrowRight")).toBe("pace");
@@ -76,6 +91,7 @@ function report(
   index: number,
   options: {
     fillerCount?: number;
+    fillerMeasurement?: "measured" | "unmeasured";
     qualityState?: "measured" | "unmeasured";
   } = {},
 ): PracticeReportV3Record {
@@ -104,6 +120,27 @@ function report(
       policyVersion: 1,
       totalCount: fillerCount,
       details: fillerCount === 0 ? [] : [{ word: "음", count: fillerCount }],
+      measurement: options.fillerMeasurement === "unmeasured"
+        ? {
+            metricDefinitionVersion: 2,
+            state: "unmeasured",
+            reasonCode: "FILLER_VERBATIM_UNAVAILABLE",
+            source: {
+              mode: "openai-verbatim",
+              model: "gpt-4o-mini-transcribe",
+              promptVersion: "korean-filler-verbatim-v1",
+            },
+          }
+        : {
+            metricDefinitionVersion: 2,
+            state: "measured",
+            reasonCode: null,
+            source: {
+              mode: "openai-verbatim",
+              model: "gpt-4o-mini-transcribe",
+              promptVersion: "korean-filler-verbatim-v1",
+            },
+          },
     },
     voice: {
       activeSpeechMs: 60_000,

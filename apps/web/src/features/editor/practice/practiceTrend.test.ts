@@ -64,6 +64,21 @@ describe("practice trend model", () => {
     expect(series.segments).toEqual([]);
   });
 
+  it("excludes legacy and unavailable filler measurements from filler trends", () => {
+    const series = buildPracticeTrendSeries({
+      reports: [
+        report(3, { fillerCount: 1 }),
+        report(2, { fillerMeasurement: "unmeasured", fillerCount: 0 }),
+        report(1, { fillerMeasurement: "legacy", fillerCount: 4 }),
+      ],
+      slideContentHash: currentHash,
+      metric: "fillerRate",
+    });
+
+    expect(series.points.map((point) => point.reportId)).toEqual(["report-3"]);
+    expect(series.points.map((point) => point.value)).toEqual([1]);
+  });
+
   it("treats less than five seconds of active speech as an unmeasured filler rate", () => {
     const series = buildPracticeTrendSeries({
       reports: [report(1, { activeSpeechMs: 4_999, fillerCount: 0 })],
@@ -116,6 +131,7 @@ function report(
   options: {
     activeSpeechMs?: number;
     fillerCount?: number;
+    fillerMeasurement?: "measured" | "unmeasured" | "legacy";
     qualityState?: "measured" | "unmeasured";
   } = {},
 ): PracticeReportV3Record {
@@ -145,6 +161,7 @@ function report(
       policyVersion: 1,
       totalCount: fillerCount,
       details: fillerCount === 0 ? [] : [{ word: "음", count: fillerCount }],
+      ...fillerMeasurement(options.fillerMeasurement ?? "measured"),
     },
     voice: {
       activeSpeechMs,
@@ -167,6 +184,32 @@ function report(
       : { state: "measured", reasons: [] },
     source: { kind: "server", sttEngine: "report-stt", deviceIdHash: null, baselineVersion: null },
   };
+}
+
+function fillerMeasurement(state: "measured" | "unmeasured" | "legacy") {
+  if (state === "legacy") return {};
+  const source = {
+    mode: "openai-verbatim" as const,
+    model: "gpt-4o-mini-transcribe",
+    promptVersion: "korean-filler-verbatim-v1" as const,
+  };
+  return state === "measured"
+    ? {
+        measurement: {
+          metricDefinitionVersion: 2 as const,
+          state: "measured" as const,
+          reasonCode: null,
+          source,
+        },
+      }
+    : {
+        measurement: {
+          metricDefinitionVersion: 2 as const,
+          state: "unmeasured" as const,
+          reasonCode: "FILLER_VERBATIM_UNAVAILABLE" as const,
+          source,
+        },
+      };
 }
 
 function legacyReport(index: number): LegacyPracticeReportRecord {

@@ -24,7 +24,21 @@ export function practiceCelebrationReportFixture(): Extract<
     durationMs: 60_000,
     syllableCount: 100,
     meanRecognitionConfidence: 0.9,
-    fillers: { policyVersion: 1, totalCount: 0, details: [] },
+    fillers: {
+      policyVersion: 1,
+      totalCount: 0,
+      details: [],
+      measurement: {
+        metricDefinitionVersion: 2,
+        state: "measured",
+        reasonCode: null,
+        source: {
+          mode: "openai-verbatim",
+          model: "gpt-4o-mini-transcribe",
+          promptVersion: "korean-filler-verbatim-v1",
+        },
+      },
+    },
     voice: {
       activeSpeechMs: 50_000,
       pauseRatio: 0.2,

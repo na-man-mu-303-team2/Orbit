@@ -13,6 +13,7 @@ describe("FillerWordPieChart", () => {
     const html = renderToStaticMarkup(
       <FillerWordPieChart
         totalCount={6}
+        measurement={measuredFillerMeasurement}
         details={[
           { word: "음", count: 3 },
           { word: "어", count: 2 },
@@ -44,10 +45,50 @@ describe("FillerWordPieChart", () => {
 
   it("습관어가 없으면 빈 상태를 표시한다", () => {
     const html = renderToStaticMarkup(
-      <FillerWordPieChart totalCount={0} details={[]} />,
+      <FillerWordPieChart
+        totalCount={0}
+        details={[]}
+        measurement={measuredFillerMeasurement}
+      />,
     );
 
     expect(html).toContain("감지된 습관어가 없습니다.");
+    expect(html).not.toContain("<svg");
+  });
+
+  it("legacy 0회와 축어 실패를 측정 불가로 표시한다", () => {
+    const legacyHtml = renderToStaticMarkup(
+      <FillerWordPieChart totalCount={0} details={[]} />,
+    );
+    const unavailableHtml = renderToStaticMarkup(
+      <FillerWordPieChart
+        totalCount={0}
+        details={[]}
+        measurement={{
+          ...measuredFillerMeasurement,
+          state: "unmeasured",
+          reasonCode: "FILLER_VERBATIM_UNAVAILABLE",
+        }}
+      />,
+    );
+
+    expect(legacyHtml).toContain("축어 전사가 적용되지 않아 습관어를 측정할 수 없습니다.");
+    expect(unavailableHtml).toContain("축어 전사를 완료하지 못해 습관어를 측정할 수 없습니다.");
+    expect(legacyHtml).not.toContain("감지된 습관어가 없습니다.");
+    expect(unavailableHtml).not.toContain("감지된 습관어가 없습니다.");
+    expect(legacyHtml).toContain('aria-label="습관어 측정 불가"');
+  });
+
+  it("legacy 양수 집계는 최소 감지 횟수 참고로만 표시한다", () => {
+    const html = renderToStaticMarkup(
+      <FillerWordPieChart
+        totalCount={3}
+        details={[{ word: "음", count: 3 }]}
+      />,
+    );
+
+    expect(html).toContain("기존 전사에서 최소 3회 감지됨");
+    expect(html).toContain("참고용이며 추세에는 사용하지 않습니다.");
     expect(html).not.toContain("<svg");
   });
 
@@ -148,6 +189,17 @@ describe("FillerWordPieChart", () => {
     expect(html).toContain("정말 잘했어요 개선점이 없어요!!");
   });
 });
+
+const measuredFillerMeasurement = {
+  metricDefinitionVersion: 2,
+  state: "measured",
+  reasonCode: null,
+  source: {
+    mode: "openai-verbatim",
+    model: "gpt-4o-mini-transcribe",
+    promptVersion: "korean-filler-verbatim-v1",
+  },
+} as const;
 
 type LegacySlidePracticeReport = Exclude<SlidePracticeReport, { reportVersion: 3 }>;
 

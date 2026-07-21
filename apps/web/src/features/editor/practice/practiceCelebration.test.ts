@@ -19,6 +19,21 @@ describe("practice celebration", () => {
     ["unmeasured", { quality: { state: "unmeasured", reasons: ["insufficient-speech"] } }],
     ["short speech", { voice: { activeSpeechMs: 4_999 } }],
     ["filler total", { fillers: { totalCount: 1, details: [{ word: "음", count: 1 }] } }],
+    ["legacy filler", { fillers: { measurement: undefined } }],
+    ["unavailable filler", {
+      fillers: {
+        measurement: {
+          metricDefinitionVersion: 2,
+          state: "unmeasured",
+          reasonCode: "FILLER_VERBATIM_UNAVAILABLE",
+          source: {
+            mode: "openai-verbatim",
+            model: "gpt-4o-mini-transcribe",
+            promptVersion: "korean-filler-verbatim-v1",
+          },
+        },
+      },
+    }],
   ])("%s 기록은 no-filler 성공으로 처리하지 않는다", (_label, patch) => {
     expect(practiceCelebrationOutcome(report(patch)).noFiller).toBe(false);
   });
@@ -80,7 +95,21 @@ function report(patch: Record<string, unknown> = {}): SlidePracticeReportRecord 
     durationMs: 60_000,
     syllableCount: 100,
     meanRecognitionConfidence: 0.9,
-    fillers: { policyVersion: 1, totalCount: 0, details: [] },
+    fillers: {
+      policyVersion: 1,
+      totalCount: 0,
+      details: [],
+      measurement: {
+        metricDefinitionVersion: 2,
+        state: "measured",
+        reasonCode: null,
+        source: {
+          mode: "openai-verbatim",
+          model: "gpt-4o-mini-transcribe",
+          promptVersion: "korean-filler-verbatim-v1",
+        },
+      },
+    },
     voice: {
       activeSpeechMs: 50_000,
       pauseRatio: 0.2,

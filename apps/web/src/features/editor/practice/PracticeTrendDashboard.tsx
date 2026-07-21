@@ -1,6 +1,7 @@
 import {
   classifyLoudnessStability,
   isWithinTargetRange,
+  resolveSlidePracticeFillerMeasurement,
   slidePracticeMetricTargets,
   type SlidePracticeReportRecord,
 } from "@orbit/shared";
@@ -93,7 +94,7 @@ export function PracticeTrendDashboard(props: {
               <PracticeTrendChart series={series} unit={selectedMetric.unit} />
             </div>
           </section>
-          <PracticeMetricCards latest={latest!} reports={comparable} />
+          <PracticeMetricCards latest={latest!} />
           {latest && celebration?.noFiller ? (
             <PracticeCelebrationFeedback
               animate={props.animationSessionId === latest.practiceSessionId}
@@ -185,16 +186,18 @@ function PracticeTrendChart(props: { series: PracticeTrendSeries; unit: string }
 
 function PracticeMetricCards(props: {
   latest: SlidePracticeReportRecord;
-  reports: readonly SlidePracticeReportRecord[];
 }) {
-  const fillerSeries = buildPracticeTrendSeries({
-    reports: props.reports,
-    slideContentHash: props.latest.reportVersion === 3 ? props.latest.slideContentHash : "",
-    metric: "fillerRate",
-  });
-  const fillerRate = fillerSeries.points.at(-1)?.value ?? null;
   const voice = props.latest.voice;
   const isMeasured = props.latest.quality.state === "measured";
+  const fillerMeasured = resolveSlidePracticeFillerMeasurement(
+    props.latest.fillers,
+  ).state === "measured";
+  const fillerRate = isMeasured
+    && fillerMeasured
+    && !props.latest.quality.reasons.includes("stt-unavailable")
+    && voice.activeSpeechMs >= slidePracticeMetricTargets.activeSpeechMinimumMs
+    ? props.latest.fillers.totalCount / (voice.activeSpeechMs / 60_000)
+    : null;
   const pace = isMeasured ? voice.syllablesPerSecond : null;
   const loudness = isMeasured ? voice.loudnessDb : null;
   const loudnessMad = isMeasured ? voice.loudnessMadDb : null;

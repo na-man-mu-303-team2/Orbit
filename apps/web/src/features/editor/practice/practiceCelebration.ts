@@ -1,5 +1,6 @@
 import {
   isWithinTargetRange,
+  resolveSlidePracticeFillerMeasurement,
   slidePracticeMetricTargets,
   type SlidePracticeReportRecord,
 } from "@orbit/shared";
@@ -12,8 +13,10 @@ export type PracticeCelebrationOutcome = {
 export function practiceCelebrationOutcome(
   report: SlidePracticeReportRecord,
 ): PracticeCelebrationOutcome {
+  const fillerMeasurement = resolveSlidePracticeFillerMeasurement(report.fillers);
   const noFiller = report.reportVersion === 3
     && report.quality.state === "measured"
+    && fillerMeasurement.state === "measured"
     && report.voice.activeSpeechMs >= slidePracticeMetricTargets.activeSpeechMinimumMs
     && report.fillers.totalCount === 0
     && report.fillers.details.every((filler) => filler.count === 0);

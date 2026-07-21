@@ -1,5 +1,6 @@
 import {
   distanceToTargetRange,
+  resolveSlidePracticeFillerMeasurement,
   slidePracticeMetricTargets,
   type SlidePracticeReportRecord,
 } from "@orbit/shared";
@@ -56,7 +57,12 @@ export function buildPracticeTrendSeries(input: {
   slideContentHash: string;
   metric: PracticeTrendMetric;
 }): PracticeTrendSeries {
-  const reports = comparablePracticeReports(input.reports, input.slideContentHash);
+  const comparable = comparablePracticeReports(input.reports, input.slideContentHash);
+  const reports = input.metric === "fillerRate"
+    ? comparable.filter((report) => (
+        resolveSlidePracticeFillerMeasurement(report.fillers).state === "measured"
+      ))
+    : comparable;
   const points = reports.map((report, index) => ({
     reportId: report.reportId,
     practiceSessionId: report.practiceSessionId,
@@ -91,7 +97,8 @@ function metricValue(
   if (report.quality.state === "unmeasured") return null;
   if (metric === "fillerRate") {
     if (
-      report.quality.state !== "measured"
+      resolveSlidePracticeFillerMeasurement(report.fillers).state !== "measured"
+      || report.quality.state !== "measured"
       || report.quality.reasons.includes("stt-unavailable")
       || report.voice.activeSpeechMs < slidePracticeMetricTargets.activeSpeechMinimumMs
     ) {
