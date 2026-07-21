@@ -362,7 +362,15 @@ describe("ProjectsService", () => {
     expect(project.workspaceId).toBe(demoIds.workspaceId);
     expect(project.createdBy).toBe("user_1");
     expect(project.title).toBe("Quarterly Review");
-    expect(projects).toEqual([{ ...project, isPinned: false }]);
+    expect(projects).toEqual([
+      {
+        ...project,
+        generation: null,
+        isPinned: false,
+        pinnedAt: null,
+        tags: [],
+      },
+    ]);
   });
 
   it("rejects workspace access outside the demo boundary", async () => {
@@ -515,19 +523,30 @@ describe("ProjectsService", () => {
       members: [owner, viewer],
     });
 
-    await expect(
-      service.updatePin(
-        demoIds.workspaceId,
-        project.projectId,
-        owner.userId,
-        true,
-      ),
-    ).resolves.toEqual({ projectId: project.projectId, isPinned: true });
+    const pin = await service.updatePin(
+      demoIds.workspaceId,
+      project.projectId,
+      owner.userId,
+      true,
+    );
+    expect(pin).toEqual({
+      projectId: project.projectId,
+      isPinned: true,
+      pinnedAt: expect.any(String),
+    });
     await expect(service.list(demoIds.workspaceId, owner.userId)).resolves.toEqual([
-      expect.objectContaining({ projectId: project.projectId, isPinned: true }),
+      expect.objectContaining({
+        projectId: project.projectId,
+        isPinned: true,
+        pinnedAt: pin.pinnedAt,
+      }),
     ]);
     await expect(service.list(demoIds.workspaceId, viewer.userId)).resolves.toEqual([
-      expect.objectContaining({ projectId: project.projectId, isPinned: false }),
+      expect.objectContaining({
+        projectId: project.projectId,
+        isPinned: false,
+        pinnedAt: null,
+      }),
     ]);
   });
 

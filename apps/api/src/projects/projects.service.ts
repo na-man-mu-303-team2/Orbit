@@ -8,17 +8,20 @@ import {
   projectListResponseSchema,
   projectSchema,
   updateProjectPinResponseSchema,
+  updateProjectTagsResponseSchema,
 } from "@orbit/shared";
 import type {
   CreateProjectRequest,
   DeleteProjectResponse,
   Project,
   ProjectListItem,
+  ProjectGenerationSummary,
   ProjectMemberRole,
   ProjectMembersResponse,
   ProjectAccessResponse,
   ProjectApiErrorCode,
   UpdateProjectPinResponse,
+  UpdateProjectTagsResponse,
 } from "@orbit/shared";
 import { randomUUID } from "crypto";
 import {
@@ -51,6 +54,14 @@ type MemberRow = {
 type UserLookupRow = {
   user_id: string;
   email: string;
+};
+
+type ActiveGenerationRow = {
+  job_id: string;
+  project_id: string;
+  status: "queued" | "running";
+  progress: number;
+  message: string;
 };
 
 @Injectable()
@@ -176,6 +187,7 @@ export class ProjectsService {
       where: { workspaceId, projectId: In(projectIds) },
       order: { createdAt: "DESC" },
     });
+    const activeGenerations = await this.findActiveGenerationJobs(projectIds);
     const membershipsByProjectId = new Map(
       acceptedMemberships.map((membership) => [membership.projectId, membership]),
     );
@@ -184,7 +196,127 @@ export class ProjectsService {
       projects.map((project) => ({
         ...this.toProjectDto(project),
         isPinned: Boolean(membershipsByProjectId.get(project.projectId)?.isPinned),
+        pinnedAt:
+          membershipsByProjectId.get(project.projectId)?.pinnedAt?.toISOString() ?? null,
+        tags: project.tags ?? [],
+        generation: activeGenerations.get(project.projectId) ?? null,
       })),
+    );
+  }
+
+  async listPage(
+    workspaceId: string,
+    userId: string,
+    input: ProjectPageRequest,
+  ): Promise<ProjectPageResponse> {
+    this.assertWorkspaceAccess(workspaceId);
+    const conditions = [
+      "p.workspace_id = $1",
+      "pm.user_id = $2",
+      "pm.status = 'accepted'",
+      "pm.role IN ('owner', 'editor', 'viewer')",
+    ];
+    const values: Array<string | number | string[]> = [workspaceId, userId];
+    const addValue = (value: string | number | string[]) => {
+      values.push(value);
+      return `$${values.length}`;
+    };
+
+    if (input.query) {
+      const escaped = input.query.replace(/[\\%_]/g, "\\$&");
+      conditions.push(`p.title ILIKE ${addValue(`%${escaped}%`)} ESCAPE '\\'`);
+    }
+    if (input.tags.length > 0) conditions.push(`p.tags @> ${addValue(input.tags)}::text[]`);
+    if (input.filter === "pinned") conditions.push("pm.is_pinned = true");
+    if (input.filter === "shared") conditions.push("'공유됨' = ANY(p.tags)");
+    if (input.filter === "draft") conditions.push("p.title ~* '(초안|draft|새 프레젠테이션|untitled)'");
+    if (input.filter === "presentation") conditions.push("p.title !~* '(초안|draft|새 프레젠테이션|untitled)'");
+
+    const secondaryOrder = input.sort === "oldest"
+      ? "p.created_at ASC"
+      : input.sort === "name"
+        ? "lower(p.title) ASC"
+        : "p.created_at DESC";
+    const limitRef = addValue(input.limit);
+    const offsetRef = addValue((input.page - 1) * input.limit);
+    const rows = await this.dataSource.query<Array<{
+      project_id: string;
+      is_pinned: boolean;
+      pinned_at: Date | string | null;
+      total_count: number | string;
+    }>>(
+      `
+        SELECT p.project_id, pm.is_pinned, pm.pinned_at, COUNT(*) OVER() AS total_count
+        FROM projects p
+        INNER JOIN project_members pm ON pm.project_id = p.project_id
+        WHERE ${conditions.join(" AND ")}
+        ORDER BY pm.is_pinned DESC, pm.pinned_at DESC NULLS LAST,
+          ${secondaryOrder}, p.project_id ASC
+        LIMIT ${limitRef}
+        OFFSET ${offsetRef}
+      `,
+      values,
+    );
+    const total = Number(rows[0]?.total_count ?? 0);
+    if (rows.length === 0) {
+      return projectPageResponseSchema.parse({
+        items: [], total, page: input.page, limit: input.limit, hasMore: false,
+      });
+    }
+
+    const projectIds = rows.map((row) => row.project_id);
+    const projects = await this.projectsRepository.find({
+      where: { workspaceId, projectId: In(projectIds) },
+    });
+    const projectsById = new Map(projects.map((project) => [project.projectId, project]));
+    const activeGenerations = await this.findActiveGenerationJobs(projectIds);
+    const items = rows.flatMap((row) => {
+      const project = projectsById.get(row.project_id);
+      if (!project) return [];
+      return [{
+        ...this.toProjectDto(project),
+        isPinned: row.is_pinned,
+        pinnedAt: row.pinned_at ? new Date(row.pinned_at).toISOString() : null,
+        tags: project.tags ?? [],
+        generation: activeGenerations.get(project.projectId) ?? null,
+      }];
+    });
+
+    return projectPageResponseSchema.parse({
+      items,
+      total,
+      page: input.page,
+      limit: input.limit,
+      hasMore: input.page * input.limit < total,
+    });
+  }
+
+  private async findActiveGenerationJobs(
+    projectIds: string[],
+  ): Promise<Map<string, ProjectGenerationSummary>> {
+    const rows = await this.dataSource.query<ActiveGenerationRow[]>(
+      `
+        SELECT DISTINCT ON (project_id)
+          job_id, project_id, status, progress, message
+        FROM jobs
+        WHERE project_id = ANY($1::text[])
+          AND type = 'ai-deck-generation'
+          AND status IN ('queued', 'running')
+        ORDER BY project_id, created_at DESC
+      `,
+      [projectIds],
+    );
+
+    return new Map(
+      rows.map((row) => [
+        row.project_id,
+        {
+          jobId: row.job_id,
+          status: row.status,
+          progress: row.progress,
+          message: row.message,
+        },
+      ]),
     );
   }
 
@@ -224,9 +356,42 @@ export class ProjectsService {
       requesterUserId,
     );
     member.isPinned = isPinned;
+    member.pinnedAt = isPinned ? new Date() : null;
     await this.projectMembersRepository.save(member);
 
-    return updateProjectPinResponseSchema.parse({ projectId, isPinned });
+    this.logger?.info(
+      { event: "project.pin_updated", projectId, userId: requesterUserId, isPinned },
+      "Project pin updated.",
+    );
+    return updateProjectPinResponseSchema.parse({
+      projectId,
+      isPinned,
+      pinnedAt: member.pinnedAt?.toISOString() ?? null,
+    });
+  }
+
+  async updateTags(
+    workspaceId: string,
+    projectId: string,
+    requesterUserId: string,
+    tags: string[],
+  ): Promise<UpdateProjectTagsResponse> {
+    const project = await this.assertCanWriteProject(projectId, requesterUserId);
+    if (project.workspaceId !== workspaceId) {
+      throw new NotFoundException(`Project not found: ${projectId}`);
+    }
+
+    await this.projectsRepository.update({ projectId, workspaceId }, { tags });
+    this.logger?.info(
+      {
+        event: "project.tags_updated",
+        projectId,
+        userId: requesterUserId,
+        tagCount: tags.length,
+      },
+      "Project tags updated.",
+    );
+    return updateProjectTagsResponseSchema.parse({ projectId, tags });
   }
 
   async getAccessibleProject(projectId: string): Promise<Project> {
@@ -638,3 +803,8 @@ export class ProjectsService {
     });
   }
 }
+import {
+  projectPageResponseSchema,
+  type ProjectPageRequest,
+  type ProjectPageResponse,
+} from "@orbit/shared";

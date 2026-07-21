@@ -8,15 +8,8 @@
 
 .redesign-orbit-brand img {
   display: block;
-  width: 28px;
-  height: 28px;
+  width: auto;
+  height: 32px;
   object-fit: contain;
-  transform: scale(1.28);
-}
-
-.redesign-orbit-brand-wordmark {
-  font-family: var(--redesign-font-family);
-  font-size: var(--redesign-type-title-md-size);
-  font-weight: 800;
-  letter-spacing: -0.03em;
+  transform: none;
 }

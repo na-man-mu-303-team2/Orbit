@@ -17,10 +17,20 @@ describe("project pin contracts", () => {
           title: "Pinned deck",
           createdBy: "user_1",
           createdAt: "2026-07-18T00:00:00.000Z",
+          generation: null,
           isPinned: true,
+          pinnedAt: "2026-07-20T00:00:00.000Z",
+          tags: [],
         },
       ]),
-    ).toEqual([expect.objectContaining({ isPinned: true })]);
+    ).toEqual([
+      expect.objectContaining({
+        generation: null,
+        isPinned: true,
+        pinnedAt: "2026-07-20T00:00:00.000Z",
+        tags: [],
+      }),
+    ]);
   });
 
   it("rejects non-boolean project pin updates", () => {
