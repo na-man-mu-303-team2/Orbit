@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 import { databaseOptions } from "./data-source";
 
 describe("database migration registry", () => {
-  it("registers slide practice content hash as the latest migration", () => {
+  it("registers slide practice content hash and keeps migrations ordered", () => {
     const migrations = databaseOptions.migrations;
     expect(Array.isArray(migrations)).toBe(true);
-    const latest = Array.isArray(migrations) ? migrations.at(-1) : null;
-    expect(typeof latest).toBe("function");
-    expect((latest as { name?: string } | null)?.name)
-      .toBe("AddSlidePracticeContentHash2026072101000");
+    const migrationNames = Array.isArray(migrations)
+      ? migrations.map((migration) => (migration as { name?: string }).name)
+      : [];
+    const latest = migrationNames.at(-1);
+    expect(migrationNames).toContain("AddSlidePracticeContentHash2026072101000");
+    expect(latest).toBe("AddUserDisplayNames2026072104000");
   });
 });

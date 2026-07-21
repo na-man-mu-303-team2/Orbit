@@ -109,6 +109,18 @@
   --redesign-color-light-warning-subtle: #fff8e8;
   --redesign-color-light-error: #d3283f;
   --redesign-color-light-error-subtle: #fff2f2;
+  --redesign-color-tag-yellow: #7a5200;
+  --redesign-color-tag-yellow-container: #fff4bf;
+  --redesign-color-tag-blue: #1459a6;
+  --redesign-color-tag-blue-container: #e6f1ff;
+  --redesign-color-tag-green: #126447;
+  --redesign-color-tag-green-container: #e3f7ee;
+  --redesign-color-tag-orange: #9a4b00;
+  --redesign-color-tag-orange-container: #fff0df;
+  --redesign-color-tag-purple: #6235a7;
+  --redesign-color-tag-purple-container: #f0eaff;
+  --redesign-color-tag-red: #a43333;
+  --redesign-color-tag-red-container: #ffe8e8;
 
   /* Typography — single family across all roles */
   --redesign-font-family: "Pretendard", sans-serif;
@@ -182,6 +194,7 @@
   --redesign-type-label-sm-weight: 600;
   --redesign-type-label-sm-line-height: 16px;
   --redesign-type-label-sm-tracking: 0.05em;
+  --redesign-type-label-xs-size: 11px;
 
   /* Micro copy is reserved for scaled slide previews and dense metadata. */
   --redesign-type-micro-md-size: 8px;
@@ -255,6 +268,11 @@
 
   /* Elevation — tonal layers first, restrained shadow for overlays only */
   --redesign-shadow-none: none;
+  --redesign-shadow-sm: 0 1px 2px rgba(17, 17, 20, 0.06);
+  --redesign-shadow-md: var(--redesign-shadow-raised);
+  --redesign-shadow-outline-primary: 0 0 0 1px var(--redesign-color-primary-outline);
+  --redesign-shadow-outline-current: 0 0 0 1px currentColor;
+  --redesign-text-tertiary: var(--redesign-color-on-surface-variant);
   --redesign-shadow-raised: 0 8px 24px rgba(17, 17, 20, 0.08);
   --redesign-shadow-overlay: 0 20px 56px rgba(17, 17, 20, 0.16);
   --redesign-shadow-focus-inverse: 0 0 0 3px

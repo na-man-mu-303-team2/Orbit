@@ -743,3 +743,30 @@ final result: passed
 - Web TypeScript 검사가 통과했다.
 
 final result: passed
+
+---
+
+# 홈 단일 페이지 리디자인 design QA (2026-07-21)
+
+- Source visual truth: `/Users/choeyeongbin/Downloads/생성된 이미지 1 (7).png`.
+- Verification route: `http://localhost:5173/`.
+- QA state: 로그인된 Chrome 탭의 실제 렌더링과 DOM 치수, 인터랙션을 확인했다.
+
+## Visual and responsive checks
+
+1. 헤더, 다크 커뮤니티, 흰색 프로젝트 영역의 수직 구조와 대비를 참조 시안에 맞췄다.
+2. 커뮤니티는 태그 없이 대표 카드 1개와 보조 카드 4개로 구성했다.
+3. 프로젝트 툴바는 생성 액션, 검색, 정렬, 태그 필터를 유지하며 1280px 아래에서 두 줄로 전환된다.
+4. 프로젝트 카드는 넓은 데스크톱에서 4열, 1130px 검증 화면에서 3열로 전환되고 가로 오버플로가 없다.
+5. 각 썸네일에 핀, 리허설, 리포트, 삭제 버튼 4개가 노출된다.
+6. AI 생성 작업은 썸네일 위 진행 상태, 퍼센트, 진행 바로 표시된다.
+
+## Interaction and build checks
+
+- 태그 필터 팝오버와 새 태그 모달이 뷰포트 안에서 열리는 것을 확인했다.
+- 검증한 프로젝트 카드마다 썸네일 액션 버튼이 정확히 4개 존재한다.
+- `pnpm --filter @orbit/shared build`가 통과했다.
+- `pnpm --filter @orbit/web build`가 기존 chunk-size 경고만 남기고 통과했다.
+- Chrome 확장 캡처는 CDP 5초 제한으로 실패해 마지막 인증 캡처와 이후 실제 DOM 실측을 함께 판정 근거로 사용했다.
+
+final result: passed

@@ -16,6 +16,7 @@ export const filePurposeSchema = z.enum([
   "export-result",
   "report-result",
   "thumbnail",
+  "profile-avatar",
   "rehearsal-slide-snapshot",
   "design-asset",
 ]);
@@ -129,6 +130,14 @@ export function createAssetUploadUrlRequestSchema(
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "design-asset is reserved for internal derived assets.",
+        path: ["purpose"],
+      });
+    }
+
+    if (value.purpose === "profile-avatar") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "profile-avatar is reserved for the profile avatar command.",
         path: ["purpose"],
       });
     }

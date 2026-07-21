@@ -565,6 +565,7 @@ API:
 - `POST /api/v1/workspaces/:workspaceId/projects`
 - `GET /api/v1/workspaces/:workspaceId/projects`
 - `PATCH /api/v1/workspaces/:workspaceId/projects/:projectId/pin`
+- `PATCH /api/v1/workspaces/:workspaceId/projects/:projectId/tags`
 - `DELETE /api/v1/workspaces/:workspaceId/projects/:projectId`
 
 결정 사항:
@@ -572,7 +573,9 @@ API:
 - 인증 시스템이 완성되기 전까지는 `DEMO_WORKSPACE_ID`와 `DEMO_USER_ID`를 기준으로 project boundary를 검증한다.
 - `workspaceId`가 데모 워크스페이스와 다르면 권한 실패로 처리한다.
 - 프로젝트 목록의 각 항목은 로그인 사용자의 `project_members.is_pinned` 값을 `isPinned`으로 포함한다.
+- 프로젝트 목록의 각 항목은 `tags`와 최신 활성 `ai-deck-generation` 작업의 `generation` 요약을 포함한다. 활성 작업이 없으면 `generation`은 `null`이다.
 - 프로젝트 고정 변경 요청은 `{ "isPinned": true }`, 응답은 `{ "projectId": "project_1", "isPinned": true }` 구조이며 accepted member 본인의 상태만 변경한다.
+- 프로젝트 태그 변경 요청은 `{ "tags": ["중요", "완료"] }` 구조다. 태그는 프로젝트당 최대 12개, 각 20자 이하이며 중복을 허용하지 않는다.
 - 프로젝트 삭제는 accepted owner만 수행할 수 있으며 응답은 `{ "projectId": "project_1" }` 구조다.
 - 프로젝트 응답은 `packages/shared/src/projects/project.schema.ts`의 schema로 검증한다.
 
@@ -1206,6 +1209,7 @@ Implementation locations:
 - `export-result`
 - `report-result`
 - `thumbnail`
+- `profile-avatar`
 - `rehearsal-slide-snapshot`
 - `design-asset`
 
