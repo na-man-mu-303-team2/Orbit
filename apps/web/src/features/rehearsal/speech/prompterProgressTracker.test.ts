@@ -109,7 +109,7 @@ describe("createPrompterProgressTracker", () => {
     const tracker = createTracker();
 
     expect(
-      tracker.resyncNext(evidence({ sentenceId: "sentence_2", source: "semantic-assisted" }))
+      tracker.resyncForward(evidence({ sentenceId: "sentence_2", source: "semantic-assisted" }))
     ).toBe(true);
     expect(tracker.snapshot()).toMatchObject({
       currentSentenceId: "sentence_2",
@@ -125,6 +125,52 @@ describe("createPrompterProgressTracker", () => {
       skippedSentenceIds: ["sentence_1"],
       lastCommitSource: "semantic-assisted"
     });
+  });
+
+  it("세 문장 앞의 강한 evidence까지 건너뛴 문장을 기록하며 복구한다", () => {
+    const tracker = createPrompterProgressTracker({
+      slideId: "slide_1",
+      sentences: createForwardResyncSentences(),
+      maxEvidenceAgeMs: 1_500,
+      maxResyncDistance: 3
+    });
+
+    expect(
+      tracker.resyncForward(
+        evidence({ sentenceId: "sentence_4", source: "semantic-assisted" })
+      )
+    ).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      revision: 1,
+      currentSentenceId: "sentence_4",
+      committedSentenceIds: [],
+      skippedSentenceIds: ["sentence_1", "sentence_2", "sentence_3"]
+    });
+
+    expect(tracker.acceptBoundary({ type: "stt-final", atMs: 1_100 })).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      currentSentenceId: "sentence_5",
+      committedSentenceIds: ["sentence_4"],
+      skippedSentenceIds: ["sentence_1", "sentence_2", "sentence_3"]
+    });
+  });
+
+  it("세 문장을 넘는 evidence로는 현재 위치를 건너뛰지 않는다", () => {
+    const tracker = createPrompterProgressTracker({
+      slideId: "slide_1",
+      sentences: createForwardResyncSentences(),
+      maxResyncDistance: 3
+    });
+
+    expect(
+      tracker.resyncForward(evidence({ sentenceId: "sentence_5" }))
+    ).toBe(false);
+    expect(tracker.snapshot()).toMatchObject({
+      revision: 0,
+      currentSentenceId: "sentence_1",
+      committedSentenceIds: []
+    });
+    expect(tracker.snapshot()).not.toHaveProperty("skippedSentenceIds");
   });
 
   it("오래된 evidence와 boundary보다 나중인 evidence는 commit하지 않는다", () => {
@@ -213,6 +259,15 @@ function createTracker() {
     sentences,
     maxEvidenceAgeMs: 1_500
   });
+}
+
+function createForwardResyncSentences() {
+  return Array.from({ length: 5 }, (_, index) => ({
+    sentenceId: `sentence_${index + 1}`,
+    index,
+    matchable: true,
+    isFinalTrigger: index === 4
+  }));
 }
 
 function evidence(
