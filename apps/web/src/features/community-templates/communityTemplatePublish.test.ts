@@ -21,7 +21,7 @@ describe("community template publish", () => {
       errors: {
         sourceProjectId: "공개할 프로젝트를 선택해 주세요.",
         title: "템플릿 이름은 1자 이상 60자 이하로 입력해 주세요.",
-        category: "카테고리를 선택해 주세요.",
+        category: "대표 주제를 선택해 주세요.",
         rightsConfirmed: "공개 권리를 확인해 주세요.",
       },
     });

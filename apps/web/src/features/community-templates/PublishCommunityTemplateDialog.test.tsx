@@ -1,8 +1,10 @@
 import type { CommunityTemplateSourceProject } from "@orbit/shared";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { PublishCommunityTemplateView } from "./PublishCommunityTemplateDialog";
+import { communityTemplateKeys } from "./communityTemplateApi";
 
 const source: CommunityTemplateSourceProject = {
   projectId: "project_owner_source",
@@ -15,26 +17,34 @@ const source: CommunityTemplateSourceProject = {
 function renderView(
   overrides: Partial<Parameters<typeof PublishCommunityTemplateView>[0]> = {},
 ) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  queryClient.setQueryData(communityTemplateKeys.categories, {
+    items: [{ categoryId: "business", name: "비즈니스" }],
+  });
   return renderToStaticMarkup(
-    <PublishCommunityTemplateView
-      draft={{
-        sourceProjectId: "",
-        title: "",
-        category: "",
-        tags: [],
-        rightsConfirmed: false,
-      }}
-      errors={{}}
-      onChange={vi.fn()}
-      onClose={vi.fn()}
-      onRetrySources={vi.fn()}
-      onSubmit={vi.fn()}
-      open
-      publishError={null}
-      sources={{ items: [source], loading: false, error: null }}
-      submitting={false}
-      {...overrides}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <PublishCommunityTemplateView
+        draft={{
+          sourceProjectId: "",
+          title: "",
+          category: "",
+          tags: [],
+          rightsConfirmed: false,
+        }}
+        errors={{}}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+        onRetrySources={vi.fn()}
+        onSubmit={vi.fn()}
+        open
+        publishError={null}
+        sources={{ items: [source], loading: false, error: null }}
+        submitting={false}
+        {...overrides}
+      />
+    </QueryClientProvider>,
   );
 }
 
@@ -46,7 +56,7 @@ describe("PublishCommunityTemplateDialog", () => {
     expect(html).toContain("공개할 프로젝트");
     expect(html).toContain(source.title);
     expect(html).toContain("템플릿 이름");
-    expect(html).toContain("카테고리");
+    expect(html).toContain("대표 주제");
     expect(html).toContain(
       "공개 가능한 디자인이며 공유할 권리를 보유하고 있습니다.",
     );
