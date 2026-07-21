@@ -267,10 +267,10 @@ export const orbitEnvSchema = z.object({
   OPENAI_IMAGE_MODEL: defaultedString("gpt-image-1"),
   IMAGE_PROVIDER: z.enum(["disabled", "openai"]).default("openai"),
   PUBLIC_IMAGE_PROVIDER: z.enum(["disabled", "openverse"]).default("openverse"),
-  IMAGE_MAX_PER_DECK: optionalIntegerInRange("IMAGE_MAX_PER_DECK", 4, 0, 12),
+  IMAGE_MAX_PER_DECK: optionalIntegerInRange("IMAGE_MAX_PER_DECK", 0, 0, 12),
   IMAGE_MAX_PER_USER_PER_DAY: optionalIntegerInRange(
     "IMAGE_MAX_PER_USER_PER_DAY",
-    30,
+    0,
     0,
     200
   ),
