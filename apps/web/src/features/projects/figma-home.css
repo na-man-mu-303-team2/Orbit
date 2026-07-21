@@ -2268,17 +2268,17 @@
 }
 
 .workspace-home-card.redesign-card {
-  background: transparent;
+  background: var(--redesign-color-surface);
   border: 0;
-  border-radius: 0;
-  box-shadow: var(--redesign-shadow-none);
+  border-radius: var(--redesign-radius-lg);
+  box-shadow: var(--redesign-shadow-card);
   overflow: visible;
 }
 
 .workspace-home-card .workspace-home-thumb-wrap {
   border: 0;
-  border-radius: var(--redesign-radius-lg);
-  box-shadow: var(--redesign-shadow-card);
+  border-radius: var(--redesign-radius-lg) var(--redesign-radius-lg) 0 0;
+  box-shadow: var(--redesign-shadow-none);
   overflow: hidden;
 }
 
@@ -2292,7 +2292,12 @@
 .workspace-home-card .workspace-home-card-caption {
   background: transparent;
   border: 0;
-  padding-inline: 2px;
+  padding-inline: var(--redesign-space-4);
+}
+
+.workspace-home-grid {
+  column-gap: var(--redesign-space-8);
+  row-gap: var(--redesign-space-10);
 }
 
 .workspace-project-tag-chip,
