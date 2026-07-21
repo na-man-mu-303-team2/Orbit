@@ -2682,7 +2682,7 @@ button.workspace-project-tag-chip:hover {
   }
 
   .workspace-community-intro-heading {
-    align-items: flex-start;
+    align-items: end;
     justify-items: start;
     text-align: left;
     width: 100%;
