@@ -7,6 +7,7 @@ import {
   assertProjectsAreOwnedByFixtureAccount,
   countStorageObjects,
   kdhHomeCleanupConfirmToken,
+  kdhHomeCleanupProductionToken,
   kdhHomeCleanupTableOrder,
   kdhHomeProjectIds,
 } from "./cleanup-kdh-home-projects";
@@ -66,10 +67,46 @@ function tableIndex(table: string): number {
 }
 
 describe("kdh home cleanup guard", () => {
-  it("refuses to run in production even with the token", () => {
+  it("refuses production with only the staging token", () => {
     expect(() =>
       assertKdhHomeCleanupAllowed({ APP_ENV: "production" }, confirmed),
-    ).toThrow("forbidden in production");
+    ).toThrow("KDH_HOME_CLEANUP_ALLOW_PRODUCTION");
+  });
+
+  it("refuses production when the second token is wrong", () => {
+    expect(() =>
+      assertKdhHomeCleanupAllowed(
+        { APP_ENV: "production" },
+        { ...confirmed, KDH_HOME_CLEANUP_ALLOW_PRODUCTION: "yes" },
+      ),
+    ).toThrow("KDH_HOME_CLEANUP_ALLOW_PRODUCTION");
+  });
+
+  it("allows production only with both tokens", () => {
+    expect(() =>
+      assertKdhHomeCleanupAllowed(
+        { APP_ENV: "production" },
+        {
+          ...confirmed,
+          KDH_HOME_CLEANUP_ALLOW_PRODUCTION: kdhHomeCleanupProductionToken,
+        },
+      ),
+    ).not.toThrow();
+  });
+
+  it("does not require the production token outside production", () => {
+    expect(() =>
+      assertKdhHomeCleanupAllowed({ APP_ENV: "staging" }, confirmed),
+    ).not.toThrow();
+  });
+
+  it("still requires the confirm token in production", () => {
+    expect(() =>
+      assertKdhHomeCleanupAllowed(
+        { APP_ENV: "production" },
+        { KDH_HOME_CLEANUP_ALLOW_PRODUCTION: kdhHomeCleanupProductionToken },
+      ),
+    ).toThrow("KDH_HOME_CLEANUP_CONFIRM");
   });
 
   it("requires the explicit confirmation token", () => {

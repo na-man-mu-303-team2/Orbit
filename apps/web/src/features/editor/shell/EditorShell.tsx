@@ -8,7 +8,6 @@ import {
   validateSlideAnimations
 } from "../../../../../../packages/editor-core/src/index";
 import { demoIds, slideQuestionGuideTextHashInput, type Slide } from "@orbit/shared";
-import type { Job } from "../../../../../../packages/shared/src/jobs/job.schema";
 import { getRenderableSlideElements } from "../canvas/EditorCanvas";
 import { getImageCropActionState } from "../canvas/image/imageCropSession";
 import {
@@ -101,7 +100,6 @@ import type {
   DeckAnimation,
   DeckExportFormat,
   DeckExportRequest,
-  OoxmlSyncState,
   SemanticCue,
 } from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -169,7 +167,6 @@ import { useEditorViewport } from "./hooks/useEditorViewport";
 import { useSlideRenderPipeline } from "./hooks/useSlideRenderPipeline";
 import { useEditorKeyboardShortcuts } from "./hooks/useEditorKeyboardShortcuts";
 import type { EditorEscapeLayer } from "./editorKeyboardCommands";
-import { useOoxmlSyncJob } from "./hooks/useOoxmlSyncJob";
 import { useSpeakerNotesEditor } from "./hooks/useSpeakerNotesEditor";
 import {
   canAcceptCanvasImageDrop,
@@ -413,11 +410,6 @@ export function EditorShell(props: { projectId?: string }) {
     isRightPanelOpen: boolean;
     isSlidesPaneCollapsed: boolean;
   } | null>(null);
-  const {
-    job: ooxmlSyncJob,
-    retry: retryOoxmlSync,
-    state: ooxmlSyncState
-  } = useOoxmlSyncJob(projectId);
 
   const health = useQuery({
     queryKey: ["health"],
@@ -852,7 +844,6 @@ export function EditorShell(props: { projectId?: string }) {
     isUsingFallbackDeck,
     saveState
   });
-  const ooxmlSyncStatus = getOoxmlSyncStatus(ooxmlSyncJob, ooxmlSyncState);
   function hasUnsavedEditorChanges() {
     return editorDocumentActions.hasUnsavedChanges();
   }
@@ -1995,12 +1986,15 @@ export function EditorShell(props: { projectId?: string }) {
           isSlideRehearsalActive={isSlideRehearsalActive}
           isUsingFallbackDeck={isUsingFallbackDeck}
           lastSavedAtLabel={formatLastSavedAtLabel(lastSavedAt)}
-          ooxmlSyncStatus={ooxmlSyncStatus}
           onExitToHome={handleExitToHome}
           onOpenExport={openExportDialog}
           onImportPptx={openPptxFilePicker}
           onOpenAudienceLink={() => {
             setIsAudienceLinkModalOpen(true);
+            setActiveTopMenu(null);
+          }}
+          onOpenPresenceDebug={() => {
+            setIsPresenceDebugOpen(true);
             setActiveTopMenu(null);
           }}
           onOpenShare={openSharePanel}
@@ -2019,9 +2013,6 @@ export function EditorShell(props: { projectId?: string }) {
               operations: [{ type: "update_deck", title }],
               source: "user"
             }));
-          }}
-          onRetryOoxmlSync={() => {
-            void retryOoxmlSync().catch(() => undefined);
           }}
           onSave={() => void handleSaveDeck()}
           onStartFullRehearsal={() => void handleStartFullRehearsal()}
@@ -2353,10 +2344,11 @@ export function EditorShell(props: { projectId?: string }) {
                 message={slidePracticeSession.message}
                 onNextSentence={moveSlideRehearsalToNextSentence}
                 onPreviousSentence={moveSlideRehearsalToPreviousSentence}
+                onRetryRuntimeConfig={slidePracticeSession.retryRuntimeConfig}
                 onSkipSentence={skipCurrentSlideRehearsalSentence}
                 onStart={() => void handleStartSlidePractice()}
                 onStop={() => void handleStopSlidePractice()}
-                slidePracticeEnabled={slidePracticeSession.slidePracticeEnabled}
+                runtimeState={slidePracticeSession.runtimeState}
                 practiceState={slidePracticeSession.state}
                 slide={rehearsalSlide}
                 state={slideRehearsalState}
@@ -2686,69 +2678,6 @@ export function getEditorStatusLabel(props: {
   }
 
   return "저장됨";
-}
-
-export function getOoxmlSyncStatus(
-  job: Job | null,
-  state: OoxmlSyncState | null,
-) {
-  if (state?.status === "not-applicable") {
-    return null;
-  }
-
-  if (state?.status === "stale") {
-    return {
-      detail: `현재 Deck version ${state.deckVersion}, 동기화 version ${state.syncedDeckVersion ?? "없음"}`,
-      kind: "failed",
-      label: state.retryable ? "동기화 재시도" : "OOXML 동기화 실패",
-      retryable: state.retryable
-    };
-  }
-
-  if (state?.status === "failed") {
-    const failedJob = state.job ?? job;
-    return {
-      detail: failedJob?.error?.message ?? "PPTX OOXML sync failed.",
-      kind: "failed",
-      label: state.retryable ? "동기화 재시도" : "OOXML 동기화 실패",
-      retryable: state.retryable
-    };
-  }
-
-  if (!job || job.type !== "pptx-ooxml-sync") return null;
-
-  const warnings = readOoxmlSyncWarnings(job);
-  if (job.status === "failed") {
-    return {
-      detail: job.error?.message ?? "PPTX OOXML sync failed.",
-      kind: "failed",
-      label: "OOXML 동기화 실패",
-      retryable: false
-    };
-  }
-
-  if (job.status === "succeeded") {
-    return {
-      detail: warnings.join("\n") || "PPTX OOXML sync completed.",
-      kind: warnings.length > 0 ? "warning" : "succeeded",
-      label: warnings.length > 0 ? "OOXML 동기화 경고" : "OOXML 동기화 완료",
-      retryable: false
-    };
-  }
-
-  return {
-    detail: job.message || "PPTX OOXML sync is queued.",
-    kind: "pending",
-    label: "OOXML 동기화 중",
-    retryable: false
-  };
-}
-
-function readOoxmlSyncWarnings(job: Job): string[] {
-  const warnings = job.result?.warnings;
-  return Array.isArray(warnings)
-    ? warnings.filter((warning): warning is string => typeof warning === "string")
-    : [];
 }
 
 function pptxImportMenuMeta(state: PptxImportState) {

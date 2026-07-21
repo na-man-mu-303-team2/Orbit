@@ -166,6 +166,28 @@ describe("DisplayControls", () => {
     expect(source).not.toContain("autoPlace: checked");
     expect(source).not.toContain("fullscreen: event.currentTarget.checked");
   });
+
+  it("shows delegated fullscreen only after the slide window connects", () => {
+    const source = fs.readFileSync(displayControlsSourcePath, "utf8");
+    const start = source.indexOf("const canStartRemoteFullscreen =");
+    const end = source.indexOf("useEffect(", start);
+
+    expect(source.slice(start, end)).toContain(
+      'channelStatus === "connected"',
+    );
+  });
+
+  it("turns off automatic placement and clears the selected screen", () => {
+    const source = fs.readFileSync(displayControlsSourcePath, "utf8");
+    const start = source.indexOf("function handleWindowManagementToggle(");
+    const end = source.indexOf("function toggleDisplayOptions(", start);
+    const toggleBody = source.slice(start, end);
+
+    expect(toggleBody).toContain("autoPlaceDisabledByUserRef.current = true");
+    expect(toggleBody).toContain("autoPlace: false");
+    expect(toggleBody).toContain("setScreenOptions([])");
+    expect(toggleBody).toContain("setSelectedScreenIndex(null)");
+  });
 });
 
 function createScreen(options: {
