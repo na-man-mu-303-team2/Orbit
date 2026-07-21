@@ -627,7 +627,7 @@ a.project-summary-slide-row:hover {
 }
 
 .project-summary-chart-title > strong {
-  color: var(--redesign-color-secondary);
+  color: var(--redesign-color-primary);
   font-size: var(--redesign-type-title-md-size);
 }
 
@@ -1098,8 +1098,8 @@ a.project-summary-slide-row:hover {
 }
 
 .project-summary-slide-row.is-attention {
-  border: 1px solid var(--redesign-color-secondary);
-  border-radius: var(--redesign-radius-lg);
+  border: 1px solid var(--redesign-color-error);
+  border-radius: 0;
   margin-top: -1px;
 }
 
@@ -1145,7 +1145,7 @@ a.project-summary-slide-row:hover {
 }
 
 .project-summary-slide-target > i {
-  background: var(--redesign-color-secondary);
+  background: var(--redesign-color-primary);
   border-radius: 50%;
   flex: 0 0 7px;
   height: 7px;
@@ -1153,7 +1153,7 @@ a.project-summary-slide-row:hover {
 }
 
 .project-summary-slide-target > strong {
-  color: var(--redesign-color-secondary);
+  color: var(--redesign-color-primary);
 }
 
 .project-summary-slide-time-track {
@@ -1183,6 +1183,10 @@ a.project-summary-slide-row:hover {
   display: block;
   height: 100%;
   width: var(--metric-width);
+}
+
+.project-summary-slide-metric-track.is-overrun > i {
+  background: var(--redesign-color-primary);
 }
 
 .project-summary-slide-metric-track.is-coverage > i {
@@ -1233,10 +1237,12 @@ a.project-summary-slide-row:hover {
   stroke: var(--redesign-color-secondary);
 }
 
-.project-summary-mini-chart.is-secondary .report-project-chart-point,
-.project-summary-mini-chart.is-secondary .project-summary-chart-title > strong {
+.project-summary-mini-chart.is-secondary .report-project-chart-point {
   fill: var(--redesign-color-secondary);
-  color: var(--redesign-color-secondary);
+}
+
+.project-summary-mini-chart.is-secondary .project-summary-chart-title > strong {
+  color: var(--redesign-color-primary);
 }
 
 .project-summary-mini-chart.is-danger .report-project-chart-line {
