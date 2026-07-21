@@ -15,6 +15,7 @@ type CategoryValue = CommunityTemplateCategory | "";
 export function CommunityTemplateCategoryDropdown(props: {
   disabled?: boolean;
   id: string;
+  includeAllOption?: boolean;
   invalid?: boolean;
   onChange: (value: CategoryValue) => void;
   value: CategoryValue;
@@ -30,14 +31,19 @@ export function CommunityTemplateCategoryDropdown(props: {
   });
   const options = useMemo(
     () =>
-      (categories.data?.items ?? []).filter((option) =>
+      [
+        ...(props.includeAllOption
+          ? [{ categoryId: "" as const, name: "전체" }]
+          : []),
+        ...(categories.data?.items ?? []),
+      ].filter((option) =>
         option.name.toLocaleLowerCase("ko-KR").includes(
           query.trim().toLocaleLowerCase("ko-KR"),
         ),
       ),
-    [categories.data, query],
+    [categories.data, props.includeAllOption, query],
   );
-  const selected = categories.data?.items.find(
+  const selected = options.find(
     (option) => option.categoryId === props.value,
   );
 

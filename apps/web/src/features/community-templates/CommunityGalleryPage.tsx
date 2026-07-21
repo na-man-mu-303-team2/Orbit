@@ -134,6 +134,7 @@ export function CommunityGalleryPage(props: {
             <span className="community-gallery-filter-label">대표 주제</span>
             <CommunityTemplateCategoryDropdown
               id="community-gallery-category"
+              includeAllOption
               onChange={setCategory}
               value={category}
             />
