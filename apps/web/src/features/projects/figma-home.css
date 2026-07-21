@@ -2203,25 +2203,9 @@
     var(--redesign-color-primary-container) 76%,
     var(--redesign-color-light-surface)
   );
-  background:
-    radial-gradient(
-      72% 130% at 6% 8%,
-      color-mix(in srgb, var(--redesign-color-primary-container) 62%, var(--redesign-color-light-surface)) 0%,
-      transparent 66%
-    ),
-    radial-gradient(
-      62% 120% at 94% 72%,
-      color-mix(in srgb, var(--redesign-color-primary) 14%, var(--redesign-color-light-surface)) 0%,
-      transparent 68%
-    ),
-    linear-gradient(
-      128deg,
-      var(--workspace-community-stage-edge) 0%,
-      color-mix(in srgb, var(--redesign-color-primary-container) 68%, var(--redesign-color-light-surface)) 52%,
-      color-mix(in srgb, var(--redesign-color-primary) 12%, var(--redesign-color-light-surface)) 100%
-    );
+  background: transparent;
   border-radius: var(--redesign-radius-xl);
-  box-shadow: 0 18px 44px color-mix(in srgb, var(--redesign-color-primary) 10%, transparent);
+  box-shadow: none;
   grid-template-columns: var(--redesign-size-control-md) minmax(0, 1fr) var(--redesign-size-control-md);
   gap: var(--redesign-space-4);
   isolation: isolate;
@@ -2231,13 +2215,8 @@
 
 .workspace-community-carousel::before,
 .workspace-community-carousel::after {
-  bottom: var(--redesign-space-8);
-  content: "";
-  pointer-events: none;
-  position: absolute;
-  top: var(--redesign-space-8);
-  width: clamp(36px, 5vw, 72px);
-  z-index: 2;
+  content: none;
+  display: none;
 }
 
 .workspace-community-carousel::before {
@@ -2251,6 +2230,7 @@
 }
 
 .workspace-community-track {
+  background: transparent;
   grid-column: 2;
   grid-row: 1;
   min-width: 0;
