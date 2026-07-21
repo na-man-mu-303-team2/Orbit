@@ -29,7 +29,15 @@ const initialDraft: CommunityTemplatePublishDraft = {
   rightsConfirmed: false,
 };
 
+function createInitialDraft(projectId?: string): CommunityTemplatePublishDraft {
+  return {
+    ...initialDraft,
+    sourceProjectId: projectId ?? "",
+  };
+}
+
 export function PublishCommunityTemplateDialog(props: {
+  initialProjectId?: string;
   onClose: () => void;
   onPublished: (title: string) => void;
   open: boolean;
@@ -37,7 +45,7 @@ export function PublishCommunityTemplateDialog(props: {
 }) {
   const workspaceId = props.workspaceId ?? demoIds.workspaceId;
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState(initialDraft);
+  const [draft, setDraft] = useState(() => createInitialDraft(props.initialProjectId));
   const [errors, setErrors] = useState<CommunityTemplatePublishErrors>({});
   const [publishError, setPublishError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -52,12 +60,12 @@ export function PublishCommunityTemplateDialog(props: {
 
   useEffect(() => {
     if (!props.open) return;
-    setDraft(initialDraft);
+    setDraft(createInitialDraft(props.initialProjectId));
     setErrors({});
     setPublishError(null);
     setSubmitting(false);
     submitLockRef.current = false;
-  }, [props.open]);
+  }, [props.initialProjectId, props.open]);
 
   useEffect(() => {
     if (!props.open) return;

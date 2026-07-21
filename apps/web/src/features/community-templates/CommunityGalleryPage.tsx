@@ -47,11 +47,15 @@ export function CommunityGalleryPage(props: {
   onNavigate: (path: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const initialPublishProjectId = useMemo(
+    () => new URLSearchParams(window.location.search).get("publishProjectId")?.trim() || undefined,
+    [],
+  );
   const [query, setQuery] = useState("");
   const [category, setCategory] =
     useState<CommunityTemplateCategory | undefined>();
   const [sort, setSort] = useState<CommunityTemplateSort>("popular");
-  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(Boolean(initialPublishProjectId));
   const [notice, setNotice] = useState<string | null>(null);
   const templates = useInfiniteQuery({
     queryKey: ["community", "discover", query.trim(), category, sort],
@@ -72,6 +76,14 @@ export function CommunityGalleryPage(props: {
     () => templates.data?.pages.flatMap((page) => page.items) ?? [],
     [templates.data],
   );
+  function closePublishDialog() {
+    setPublishOpen(false);
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("publishProjectId")) {
+      url.searchParams.delete("publishProjectId");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+  }
   return (
     <main className="community-page">
       <WorkspaceContainer as="section" className="community-page-hero" width="content">
@@ -163,9 +175,10 @@ export function CommunityGalleryPage(props: {
       </WorkspaceContainer>
 
       <PublishCommunityTemplateDialog
-        onClose={() => setPublishOpen(false)}
+        initialProjectId={initialPublishProjectId}
+        onClose={closePublishDialog}
         onPublished={(title) => {
-          setPublishOpen(false);
+          closePublishDialog();
           setNotice(`“${title}” 자료를 커뮤니티에 공개했습니다.`);
           void queryClient.invalidateQueries({ queryKey: ["community"] });
         }}

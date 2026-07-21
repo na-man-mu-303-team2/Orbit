@@ -6582,6 +6582,7 @@
 }
 
 .orbit-shell .share-top-button { order: 1; }
+.orbit-shell .editor-share-menu-anchor { order: 1; }
 .orbit-shell .editor-rehearsal-button { order: 2; }
 .orbit-shell .top-action-menu { order: 3; }
 .orbit-shell .refresh-top-button { order: 4; }
