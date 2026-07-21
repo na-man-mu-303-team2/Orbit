@@ -65,7 +65,28 @@ if [[ "$DEPLOYMENT_MODE" == "environment-only" ]]; then
     uv run python -c 'from app.config import load_config; load_config()'
   doppler run -- "${COMPOSE[@]}" up -d --no-build --force-recreate api worker python-worker web
 else
-  doppler run -- "${COMPOSE[@]}" build
+  # Prepare service images. Default keeps the existing on-box build so
+  # behaviour is unchanged until the registry cutover is deliberately enabled.
+  # Set DEPLOY_USE_REGISTRY=true (once GHCR images and auth are in place) to
+  # pull prebuilt api/worker/python-worker images; the env-specific web image
+  # is still built locally. See
+  # docs/runbooks/deploy-image-registry-migration.md.
+  if [ "${DEPLOY_USE_REGISTRY:-false}" = "true" ]; then
+    IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io}"
+    IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse HEAD)}"
+    export IMAGE_TAG
+    ghcr_user="${GHCR_USERNAME:-${GITHUB_ACTOR:-orbit-deploy}}"
+    ghcr_token="${GHCR_TOKEN:-${GITHUB_TOKEN:-}}"
+    if [ -z "$ghcr_token" ]; then
+      echo "DEPLOY_USE_REGISTRY=true but no GHCR token (set GHCR_TOKEN or GITHUB_TOKEN)."
+      exit 1
+    fi
+    printf '%s' "$ghcr_token" | docker login "$IMAGE_REGISTRY" -u "$ghcr_user" --password-stdin
+    doppler run -- "${COMPOSE[@]}" pull api worker python-worker
+    doppler run -- "${COMPOSE[@]}" build web
+  else
+    doppler run -- "${COMPOSE[@]}" build
+  fi
   doppler run -- "${COMPOSE[@]}" up -d postgres redis minio minio-init
   doppler run -- "${COMPOSE[@]}" run --rm api corepack pnpm db:migration:run
   doppler run -- "${COMPOSE[@]}" up -d
