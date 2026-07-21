@@ -117,6 +117,7 @@ import {
   type EditorValidationTargetView
 } from "../ai/quality/validationPresentation";
 import {
+  ActivityQrInsertDialog,
   ActivityResultSlideInspector,
   ActivitySlideInspector
 } from "../../activity-slides";
@@ -404,6 +405,7 @@ export function EditorShell(props: { projectId?: string }) {
   const [exportDialogFormat, setExportDialogFormat] =
     useState<DeckExportFormat>("pptx");
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [isActivityQrInsertOpen, setIsActivityQrInsertOpen] = useState(false);
   const [isTargetDurationOpen, setIsTargetDurationOpen] = useState(false);
   const editorStageRef = useRef<Konva.Stage | null>(null);
   const panelStateBeforeRehearsalRef = useRef<{
@@ -810,6 +812,7 @@ export function EditorShell(props: { projectId?: string }) {
   }
   const hasBlockingEditorDialog = Boolean(
     isAudienceLinkModalOpen ||
+    isActivityQrInsertOpen ||
     isExitConfirmOpen ||
     isExportDialogOpen ||
     isTargetDurationOpen ||
@@ -984,6 +987,7 @@ export function EditorShell(props: { projectId?: string }) {
   const handleAddActivitySlide = editorCanvasActions.addActivitySlide;
   const handleAddActivityResultsSlide =
     editorCanvasActions.addActivityResultsSlide;
+  const handleAddActivityQrElement = editorCanvasActions.addActivityQrElement;
   const handleAddTextElement = editorCanvasActions.addTextElement;
   const handleCanvasBackgroundSelectionClear = editorCanvasActions.clearCanvasSelection;
   const handleCommitCustomShapeGeometry = editorCanvasActions.commitCustomShapeGeometry;
@@ -2117,6 +2121,17 @@ export function EditorShell(props: { projectId?: string }) {
           }
         }}
       />
+      <ActivityQrInsertDialog
+        deck={deck}
+        onClose={() => setIsActivityQrInsertOpen(false)}
+        onInsert={(activityId) => {
+          if (handleAddActivityQrElement(activityId)) {
+            setIsActivityQrInsertOpen(false);
+          }
+        }}
+        open={isActivityQrInsertOpen}
+        targetSlide={currentSlide}
+      />
       {isDeckLoading ? (
         <div
           aria-label="발표 자료를 불러오는 중"
@@ -2220,6 +2235,7 @@ export function EditorShell(props: { projectId?: string }) {
               isStageFitToViewport={isStageFitToViewport}
               onAddText={handleAddTextElement}
               onOpenIconLibrary={toggleIconLibrary}
+              onOpenActivityQrInsert={() => setIsActivityQrInsertOpen(true)}
               onOpenImagePicker={() => {
                 if (currentSlide) {
                   openImageFilePicker({

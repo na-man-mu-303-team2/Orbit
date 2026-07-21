@@ -121,6 +121,110 @@ describe("Activity slide Deck contract", () => {
     expect(result.success).toBe(true);
   });
 
+  it("requires a reusable QR element to reference an Activity in the same Deck", () => {
+    const contentSlide = {
+      ...slideBase("slide_content", 1),
+      elements: [
+        {
+          elementId: "el_qr_1",
+          type: "activity-qr",
+          x: 100,
+          y: 100,
+          width: 240,
+          height: 240,
+          rotation: 0,
+          opacity: 1,
+          zIndex: 1,
+          locked: false,
+          visible: true,
+          props: { activityId: "activity_1" }
+        }
+      ]
+    };
+    const activitySlide = {
+      ...slideBase("slide_activity", 2),
+      kind: "activity",
+      activity: activityDefinition()
+    };
+
+    expect(deckSchema.safeParse(deckWith([contentSlide, activitySlide])).success).toBe(true);
+    expect(
+      deckSchema.safeParse(
+        deckWith([{ ...contentSlide, elements: [{ ...contentSlide.elements[0], props: { activityId: "activity_missing" } }] }, activitySlide])
+      ).success
+    ).toBe(false);
+  });
+
+  it("migrates the temporary image marker to an activity-qr element", () => {
+    const result = deckSchema.parse(
+      deckWith([
+        {
+          ...slideBase("slide_content", 1),
+          elements: [
+            {
+              elementId: "el_qr_legacy",
+              type: "image",
+              x: 100,
+              y: 100,
+              width: 240,
+              height: 240,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 1,
+              locked: false,
+              visible: true,
+              props: {
+                src: "orbit-activity://activity_1/participant",
+                alt: "참여 QR 코드"
+              }
+            }
+          ]
+        },
+        {
+          ...slideBase("slide_activity", 2),
+          kind: "activity",
+          activity: activityDefinition()
+        }
+      ])
+    );
+
+    expect(result.slides[0]?.elements[0]).toMatchObject({
+      type: "activity-qr",
+      props: { activityId: "activity_1" }
+    });
+  });
+
+  it("keeps a legacy marker as an image when its source Activity was already removed", () => {
+    const result = deckSchema.parse(
+      deckWith([
+        {
+          ...slideBase("slide_content", 1),
+          elements: [
+            {
+              elementId: "el_qr_orphaned_legacy",
+              type: "image",
+              x: 100,
+              y: 100,
+              width: 240,
+              height: 240,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 1,
+              locked: false,
+              visible: true,
+              props: {
+                src: "orbit-activity://activity_removed/participant",
+                alt: "참여 QR 코드"
+              }
+            }
+          ]
+        }
+      ])
+    );
+
+    expect(result.slides[0]?.elements[0]?.type).toBe("image");
+  });
+
   it("rejects runtime data stored on Activity slides", () => {
     const result = deckSchema.safeParse(
       deckWith([

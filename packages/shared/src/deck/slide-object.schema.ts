@@ -14,6 +14,7 @@ export const deckElementTypeSchema = z.enum([
   "star",
   "ring",
   "image",
+  "activity-qr",
   "svg",
   "group",
   "customShape",
@@ -239,6 +240,15 @@ export const imageElementPropsSchema = z.object({
   crop: imageCropSchema.optional()
 });
 
+/**
+ * A stable reference to an activity whose participant URL is resolved at
+ * presentation time. The URL and rendered QR bitmap are deliberately not
+ * persisted in Deck JSON because both are scoped to a presentation session.
+ */
+export const activityQrElementPropsSchema = z.object({
+  activityId: z.string().trim().min(1)
+});
+
 export const svgElementPropsSchema = imageElementPropsSchema;
 
 export const groupElementPropsSchema = z
@@ -334,6 +344,11 @@ export const imageElementSchema = deckElementBaseSchema.extend({
   props: imageElementPropsSchema
 });
 
+export const activityQrElementSchema = deckElementBaseSchema.extend({
+  type: z.literal("activity-qr"),
+  props: activityQrElementPropsSchema
+});
+
 export const svgElementSchema = deckElementBaseSchema.extend({
   type: z.literal("svg"),
   props: svgElementPropsSchema
@@ -369,6 +384,7 @@ export const deckElementSchema = z.discriminatedUnion("type", [
   starElementSchema,
   ringElementSchema,
   imageElementSchema,
+  activityQrElementSchema,
   svgElementSchema,
   groupElementSchema,
   customShapeElementSchema,
@@ -396,6 +412,7 @@ export type TextFontWeight = z.infer<typeof textFontWeightSchema>;
 export type TextElementProps = z.infer<typeof textElementPropsSchema>;
 export type ImageFit = z.infer<typeof imageFitSchema>;
 export type ImageElementProps = z.infer<typeof imageElementPropsSchema>;
+export type ActivityQrElementProps = z.infer<typeof activityQrElementPropsSchema>;
 export type SvgElementProps = z.infer<typeof svgElementPropsSchema>;
 export type GroupElementProps = z.infer<typeof groupElementPropsSchema>;
 export type TableCellProps = z.infer<typeof tableCellPropsSchema>;

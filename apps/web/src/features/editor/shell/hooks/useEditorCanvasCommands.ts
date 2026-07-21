@@ -464,6 +464,33 @@ export function useEditorCanvasCommands(args: {
     args.setInsertTool("select");
   }
 
+  function addActivityQrElement(activityId: string) {
+    if (!canEditSlideCanvas(args.currentSlide) || !activityId.trim()) return false;
+    const elementId = createElementId(args.deck);
+    const size = Math.min(args.deck.canvas.width, args.deck.canvas.height) * 0.2;
+    args.commitPatch((currentDeck) =>
+      createAddElementPatch(currentDeck, args.currentSlide!.slideId, {
+        elementId,
+        type: "activity-qr",
+        role: "media",
+        x: (args.deck.canvas.width - size) / 2,
+        y: (args.deck.canvas.height - size) / 2,
+        width: size,
+        height: size,
+        rotation: 0,
+        opacity: 1,
+        zIndex: getNextElementZIndex(args.currentSlide!.elements),
+        locked: false,
+        visible: true,
+        props: { activityId: activityId.trim() }
+      })
+    );
+    args.setSelectedElementIds([elementId]);
+    args.setEditingElementId(null);
+    args.setInsertTool("select");
+    return true;
+  }
+
   function addChartElement(type: ChartInsertType = "bar") {
     if (!canEditSlideCanvas(args.currentSlide)) return;
     const elementId = createElementId(args.deck);
@@ -1398,6 +1425,7 @@ export function useEditorCanvasCommands(args: {
     actions: {
       addChartElement,
       addActivityResultsSlide,
+      addActivityQrElement,
       addIconElement,
       addSlide,
       addActivitySlide,
