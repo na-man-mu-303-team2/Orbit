@@ -2220,7 +2220,6 @@
       color-mix(in srgb, var(--redesign-color-primary-container) 68%, var(--redesign-color-light-surface)) 52%,
       color-mix(in srgb, var(--redesign-color-primary) 12%, var(--redesign-color-light-surface)) 100%
     );
-  border: 1px solid color-mix(in srgb, var(--redesign-color-primary) 22%, transparent);
   border-radius: var(--redesign-radius-xl);
   box-shadow: 0 18px 44px color-mix(in srgb, var(--redesign-color-primary) 10%, transparent);
   grid-template-columns: minmax(0, 1fr);
