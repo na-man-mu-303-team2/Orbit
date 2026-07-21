@@ -61,7 +61,7 @@ export class SlidePracticeService {
       });
     }
     const { deck } = await this.decks.getDeck(projectId);
-    if (deck.deckId !== request.deckId || deck.version !== request.deckVersion) {
+    if (deck.deckId !== request.deckId) {
       throw new ConflictException({
         code: "SLIDE_PRACTICE_DECK_VERSION_MISMATCH",
         message: "The practice deck version does not match the current deck version.",
@@ -69,13 +69,27 @@ export class SlidePracticeService {
       });
     }
     const slide = deck.slides.find((candidate) => candidate.slideId === request.slideId);
-    if (!slide || slide.order !== request.slideOrder) {
+    if (!slide) {
       throw new NotFoundException("Slide not found at the requested order in the current deck.");
     }
     const slideContentHash = sha256Canonical(slideQuestionGuideTextHashInput(slide));
-    if (request.slideContentHash && request.slideContentHash !== slideContentHash) {
+    const hasContentHash = Boolean(request.contentHashVersion && request.slideContentHash);
+    if (hasContentHash && request.slideContentHash !== slideContentHash) {
       throwSlidePracticeContentHashMismatch(slideContentHash);
     }
+    if (!hasContentHash && deck.version !== request.deckVersion) {
+      throw new ConflictException({
+        code: "SLIDE_PRACTICE_DECK_VERSION_MISMATCH",
+        message: "The practice deck version does not match the current deck version.",
+        actualDeckVersion: deck.version,
+      });
+    }
+    if (!hasContentHash && slide.order !== request.slideOrder) {
+      throw new NotFoundException("Slide not found at the requested order in the current deck.");
+    }
+    const freshnessResolution = deck.version === request.deckVersion
+      ? "exact"
+      : "content-hash";
     const upload = await this.files.createUploadUrl(
       projectId,
       {
@@ -104,10 +118,10 @@ export class SlidePracticeService {
         actorUserId,
         request.clientRequestId,
         request.practiceSessionId,
-        request.deckId,
-        request.deckVersion,
-        request.slideId,
-        request.slideOrder,
+        deck.deckId,
+        deck.version,
+        slide.slideId,
+        slide.order,
         slidePracticeContentHashVersion,
         slideContentHash,
         request.startedAt,
@@ -123,9 +137,12 @@ export class SlidePracticeService {
       event: "slide_practice.analysis.created",
       projectId,
       analysisId: analysis.analysisId,
-      deckId: request.deckId,
-      deckVersion: request.deckVersion,
-      slideId: request.slideId,
+      deckId: deck.deckId,
+      deckVersion: deck.version,
+      requestedDeckVersion: request.deckVersion,
+      resolvedDeckVersion: deck.version,
+      freshnessResolution,
+      slideId: slide.slideId,
     }, "Slide practice analysis created.");
     return createSlidePracticeAnalysisResponseSchema.parse({ analysis, upload });
   }

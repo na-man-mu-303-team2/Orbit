@@ -13,6 +13,8 @@ export async function autoCreateSlideQuestionGuides(input: {
   clientRequestId: string;
   deckId: string;
   expectedDeckVersion: number;
+  contentHashVersion: "slide-text-v1";
+  expectedDeckTextHash: string;
 }) {
   const response = await fetch(
     `/api/v1/projects/${encodeURIComponent(input.projectId)}/slide-question-guides/auto`,
@@ -24,12 +26,14 @@ export async function autoCreateSlideQuestionGuides(input: {
         clientRequestId: input.clientRequestId,
         deckId: input.deckId,
         expectedDeckVersion: input.expectedDeckVersion,
+        contentHashVersion: input.contentHashVersion,
+        expectedDeckTextHash: input.expectedDeckTextHash,
         questionCount: 3,
       }),
     },
   );
   if (!response.ok) {
-    throw new Error(await responseMessage(response, "예상 질문 자동 생성을 시작하지 못했습니다."));
+    throw await responseError(response, "예상 질문 자동 생성을 시작하지 못했습니다.");
   }
   return autoCreateSlideQuestionGuidesResponseSchema.parse(await response.json());
 }
@@ -55,6 +59,8 @@ export async function createSlideQuestionGuide(input: {
   deckId: string;
   slideId: string;
   expectedDeckVersion: number;
+  contentHashVersion: "slide-text-v1";
+  expectedSlideContentHash: string;
 }) {
   const response = await fetch(
     `/api/v1/projects/${encodeURIComponent(input.projectId)}/slide-question-guides`,
@@ -67,11 +73,13 @@ export async function createSlideQuestionGuide(input: {
         deckId: input.deckId,
         slideId: input.slideId,
         expectedDeckVersion: input.expectedDeckVersion,
+        contentHashVersion: input.contentHashVersion,
+        expectedSlideContentHash: input.expectedSlideContentHash,
         questionCount: 3,
       }),
     },
   );
-  if (!response.ok) throw new Error(await responseMessage(response, "예상 질문 생성을 시작하지 못했습니다."));
+  if (!response.ok) throw await responseError(response, "예상 질문 생성을 시작하지 못했습니다.");
   return slideQuestionGuideJobResponseSchema.parse(await response.json());
 }
 
@@ -119,10 +127,41 @@ export async function listSlideQuestionGuides(input: {
 }
 
 async function responseMessage(response: Response, fallback: string) {
+  return (await responseError(response, fallback)).message;
+}
+
+export class SlideQuestionGuideApiError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string,
+    readonly actualDeckVersion?: number,
+  ) {
+    super(message);
+    this.name = "SlideQuestionGuideApiError";
+  }
+}
+
+async function responseError(response: Response, fallback: string) {
   try {
-    const payload = await response.json() as { message?: string | { message?: string } };
-    return typeof payload.message === "string" ? payload.message : payload.message?.message ?? fallback;
+    const payload = await response.json() as {
+      code?: string;
+      actualDeckVersion?: number;
+      message?: string | {
+        code?: string;
+        actualDeckVersion?: number;
+        message?: string;
+      };
+    };
+    const details = typeof payload.message === "object" ? payload.message : payload;
+    const message = typeof payload.message === "string"
+      ? payload.message
+      : payload.message?.message ?? fallback;
+    return new SlideQuestionGuideApiError(
+      message,
+      details.code,
+      details.actualDeckVersion,
+    );
   } catch {
-    return fallback;
+    return new SlideQuestionGuideApiError(fallback);
   }
 }

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
 import { deckSnapshotIdSchema } from "../deck/deck-api.schema";
-import type { Slide } from "../deck/deck.schema";
+import type { Deck, Slide } from "../deck/deck.schema";
 import { jobSchema } from "../jobs/job.schema";
 
 const identifierSchema = z.string().trim().min(1).max(128);
@@ -74,6 +74,20 @@ export function slideQuestionGuideTextHashInput(slide: Slide) {
   return {
     speakerNotes: slide.speakerNotes.trim(),
     textSegments: Array.from(new Set(textSegments)),
+  };
+}
+
+export function slideQuestionGuideDeckTextHashInput(
+  deck: Pick<Deck, "slides">,
+) {
+  return {
+    slides: [...deck.slides]
+      .sort((left, right) => left.order - right.order || left.slideId.localeCompare(right.slideId))
+      .map((slide) => ({
+        slideId: slide.slideId,
+        order: slide.order,
+        text: slideQuestionGuideTextHashInput(slide),
+      })),
   };
 }
 
@@ -188,20 +202,44 @@ export const slideQuestionGuideResearchSchema = z.object({
   }
 });
 
+const contentHashVersionFields = {
+  contentHashVersion: z.literal("slide-text-v1").optional(),
+  expectedSlideContentHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+};
+
 export const createSlideQuestionGuideRequestSchema = z.object({
   clientRequestId: identifierSchema,
   deckId: identifierSchema,
   slideId: identifierSchema,
   expectedDeckVersion: z.number().int().positive(),
   questionCount: z.literal(3),
-}).strict();
+  ...contentHashVersionFields,
+}).strict().superRefine((request, context) => {
+  if ((request.contentHashVersion === undefined) !== (request.expectedSlideContentHash === undefined)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["expectedSlideContentHash"],
+      message: "Slide question content hash version and value must be provided together",
+    });
+  }
+});
 
 export const autoCreateSlideQuestionGuidesRequestSchema = z.object({
   clientRequestId: identifierSchema,
   deckId: identifierSchema,
   expectedDeckVersion: z.number().int().positive(),
   questionCount: z.literal(3),
-}).strict();
+  contentHashVersion: z.literal("slide-text-v1").optional(),
+  expectedDeckTextHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+}).strict().superRefine((request, context) => {
+  if ((request.contentHashVersion === undefined) !== (request.expectedDeckTextHash === undefined)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["expectedDeckTextHash"],
+      message: "Slide question deck text hash version and value must be provided together",
+    });
+  }
+});
 
 export const slideQuestionGuideJobPayloadSchema = z.object({
   jobId: identifierSchema,

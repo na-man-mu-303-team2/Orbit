@@ -8,6 +8,7 @@ import {
   slideQuestionGuideJobResponseSchema,
   slideQuestionGuideListResponseSchema,
   slideQuestionGuideSchema,
+  slideQuestionGuideDeckTextHashInput,
   slideQuestionGuideTextHashInput,
   type Deck,
   type Slide,
@@ -48,7 +49,7 @@ export class SlideQuestionGuidesService {
     if (existing) return existing;
 
     const { deck } = await this.decksService.getDeck(projectId);
-    if (deck.deckId !== request.deckId || deck.version !== request.expectedDeckVersion) {
+    if (deck.deckId !== request.deckId) {
       throw new ConflictException({
         code: "SLIDE_QUESTION_DECK_VERSION_MISMATCH",
         message: "The expected deck version does not match the current deck version.",
@@ -57,6 +58,22 @@ export class SlideQuestionGuidesService {
     }
     const slide = deck.slides.find((candidate) => candidate.slideId === request.slideId);
     if (!slide) throw new NotFoundException("Slide not found in the current deck.");
+    const slideContentHash = sha256Canonical(slideQuestionGuideTextHashInput(slide));
+    const hasContentHash = Boolean(request.contentHashVersion && request.expectedSlideContentHash);
+    if (hasContentHash && request.expectedSlideContentHash !== slideContentHash) {
+      throw new ConflictException({
+        code: "SLIDE_QUESTION_CONTENT_HASH_MISMATCH",
+        message: "The expected slide content does not match the current slide content.",
+        actualDeckVersion: deck.version,
+      });
+    }
+    if (!hasContentHash && deck.version !== request.expectedDeckVersion) {
+      throw new ConflictException({
+        code: "SLIDE_QUESTION_DECK_VERSION_MISMATCH",
+        message: "The expected deck version does not match the current deck version.",
+        actualDeckVersion: deck.version,
+      });
+    }
 
     const snapshot = await this.decksService.getOrCreateSnapshot(deck);
     return this.createForSlide({
@@ -66,6 +83,8 @@ export class SlideQuestionGuidesService {
       deck,
       slide,
       deckSnapshotId: snapshot.snapshotId,
+      requestedDeckVersion: request.expectedDeckVersion,
+      freshnessResolution: deck.version === request.expectedDeckVersion ? "exact" : "content-hash",
     });
   }
 
@@ -73,13 +92,32 @@ export class SlideQuestionGuidesService {
     this.assertEnabled();
     const request = autoCreateSlideQuestionGuidesRequestSchema.parse(body);
     const { deck } = await this.decksService.getDeck(projectId);
-    if (deck.deckId !== request.deckId || deck.version !== request.expectedDeckVersion) {
+    if (deck.deckId !== request.deckId) {
       throw new ConflictException({
         code: "SLIDE_QUESTION_DECK_VERSION_MISMATCH",
         message: "The expected deck version does not match the current deck version.",
         actualDeckVersion: deck.version,
       });
     }
+    const deckTextHash = sha256Canonical(slideQuestionGuideDeckTextHashInput(deck));
+    const hasContentHash = Boolean(request.contentHashVersion && request.expectedDeckTextHash);
+    if (hasContentHash && request.expectedDeckTextHash !== deckTextHash) {
+      throw new ConflictException({
+        code: "SLIDE_QUESTION_DECK_CONTENT_HASH_MISMATCH",
+        message: "The expected deck text does not match the current deck text.",
+        actualDeckVersion: deck.version,
+      });
+    }
+    if (!hasContentHash && deck.version !== request.expectedDeckVersion) {
+      throw new ConflictException({
+        code: "SLIDE_QUESTION_DECK_VERSION_MISMATCH",
+        message: "The expected deck version does not match the current deck version.",
+        actualDeckVersion: deck.version,
+      });
+    }
+    const freshnessResolution = deck.version === request.expectedDeckVersion
+      ? "exact"
+      : "content-hash";
 
     const snapshot = await this.decksService.getOrCreateSnapshot(deck);
     const slides: Array<Record<string, unknown>> = [];
@@ -102,6 +140,8 @@ export class SlideQuestionGuidesService {
           deck,
           slide,
           deckSnapshotId: snapshot.snapshotId,
+          requestedDeckVersion: request.expectedDeckVersion,
+          freshnessResolution,
         });
         slides.push({ status: "accepted", slideId: slide.slideId, ...accepted });
       } catch (error) {
@@ -123,6 +163,9 @@ export class SlideQuestionGuidesService {
       projectId,
       deckId: deck.deckId,
       deckVersion: deck.version,
+      requestedDeckVersion: request.expectedDeckVersion,
+      resolvedDeckVersion: deck.version,
+      freshnessResolution,
       slideCount: deck.slides.length,
       acceptedCount: response.slides.filter((slide) => slide.status === "accepted").length,
       failedCount: response.slides.filter((slide) => slide.status === "failed").length,
@@ -137,6 +180,8 @@ export class SlideQuestionGuidesService {
     deck: Deck;
     slide: Slide;
     deckSnapshotId: string;
+    requestedDeckVersion: number;
+    freshnessResolution: "exact" | "content-hash";
   }) {
     const existing = await this.findByClientRequest(
       input.projectId,
@@ -217,6 +262,9 @@ export class SlideQuestionGuidesService {
         projectId: input.projectId,
         deckId: input.deck.deckId,
         deckVersion: input.deck.version,
+        requestedDeckVersion: input.requestedDeckVersion,
+        resolvedDeckVersion: input.deck.version,
+        freshnessResolution: input.freshnessResolution,
         slideId: input.slide.slideId,
         guideId,
         jobId: job.jobId,
