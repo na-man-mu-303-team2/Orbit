@@ -652,7 +652,7 @@
 .community-template-source-option.is-disabled:hover {
   transform: none;
   border-color: var(--redesign-color-outline-variant);
-  box-shadow: none;
+  box-shadow: var(--redesign-shadow-none);
 }
 
 .community-template-source-option.is-disabled .community-template-source-copy small {
@@ -662,7 +662,7 @@
 
 .community-template-source-option:has(input:checked) {
   border: 2px solid var(--redesign-color-primary);
-  box-shadow: 0 0 0 3px var(--redesign-color-primary-subtle);
+  box-shadow: var(--redesign-shadow-outline-primary-subtle);
 }
 
 .community-template-source-option:focus-within {

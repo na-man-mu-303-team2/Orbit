@@ -31,7 +31,7 @@
       var(--redesign-color-surface) 48%,
       var(--redesign-color-secondary-container) 100%
     );
-  box-shadow: none;
+  box-shadow: var(--redesign-shadow-none);
   isolation: isolate;
 }
 

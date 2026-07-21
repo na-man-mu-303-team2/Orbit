@@ -2226,7 +2226,7 @@
   );
   background: transparent;
   border-radius: var(--redesign-radius-xl);
-  box-shadow: none;
+  box-shadow: var(--redesign-shadow-none);
   grid-template-columns: var(--redesign-size-control-md) minmax(0, 1fr) var(--redesign-size-control-md);
   gap: var(--redesign-space-4);
   isolation: isolate;
@@ -2272,7 +2272,7 @@
 .workspace-community-arrow {
   background: transparent !important;
   border: 0 !important;
-  box-shadow: none !important;
+  box-shadow: var(--redesign-shadow-none) !important;
   color: var(--redesign-color-primary-emphasis) !important;
   grid-row: 1;
   justify-self: center;
