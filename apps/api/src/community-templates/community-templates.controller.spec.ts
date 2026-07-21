@@ -6,6 +6,7 @@ import {
   CommunityTemplatesController,
   WorkspaceCommunityTemplatesController,
 } from "./community-templates.controller";
+import { CommunityTemplateRateLimitService } from "./community-template-rate-limit.service";
 import { CommunityTemplatesService } from "./community-templates.service";
 
 function createControllers() {
@@ -19,13 +20,22 @@ function createControllers() {
   const auth = {
     me: vi.fn(async () => ({ user: { userId: "user_1" } })),
   } as unknown as AuthService;
+  const rateLimit = {
+    consume: vi.fn(async () => undefined),
+  } as unknown as CommunityTemplateRateLimitService;
   return {
     auth,
-    publicController: new CommunityTemplatesController(auth, service),
+    publicController: new CommunityTemplatesController(
+      auth,
+      service,
+      rateLimit,
+    ),
+    rateLimit,
     service,
     workspaceController: new WorkspaceCommunityTemplatesController(
       auth,
       service,
+      rateLimit,
     ),
   };
 }
