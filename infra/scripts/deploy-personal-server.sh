@@ -65,7 +65,32 @@ if [[ "$DEPLOYMENT_MODE" == "environment-only" ]]; then
     uv run python -c 'from app.config import load_config; load_config()'
   doppler run -- "${COMPOSE[@]}" up -d --no-build --force-recreate api worker python-worker web
 else
-  doppler run -- "${COMPOSE[@]}" build
+  # Prepare service images. Use prebuilt GHCR images when a GHCR token is
+  # available; otherwise fall back to building on-box so deploys keep working
+  # before the token is configured. Set the GHCR_TOKEN (and optional
+  # GHCR_USERNAME) secrets in Doppler to make the registry path the default for
+  # personal staging. Set DEPLOY_USE_REGISTRY=false to force the on-box build.
+  # The env-specific web image is always built locally. See
+  # docs/runbooks/deploy-image-registry-migration.md.
+  ghcr_token="${GHCR_TOKEN:-${GITHUB_TOKEN:-}}"
+  if [ -z "$ghcr_token" ]; then
+    ghcr_token="$(doppler secrets get GHCR_TOKEN --plain 2>/dev/null || true)"
+  fi
+  if [ "${DEPLOY_USE_REGISTRY:-auto}" != "false" ] && [ -n "$ghcr_token" ]; then
+    IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io}"
+    # Use the branch tag (e.g. develop) rather than the exact commit SHA:
+    # commits that touch only scripts or docs do not trigger build-images, so
+    # a per-SHA tag may not exist, while the branch tag always points at the
+    # latest built app image.
+    IMAGE_TAG="${IMAGE_TAG:-$DEPLOY_BRANCH}"
+    export IMAGE_TAG
+    ghcr_user="${GHCR_USERNAME:-$(doppler secrets get GHCR_USERNAME --plain 2>/dev/null || echo orbit-deploy)}"
+    printf '%s' "$ghcr_token" | docker login "$IMAGE_REGISTRY" -u "$ghcr_user" --password-stdin
+    doppler run -- "${COMPOSE[@]}" pull api worker python-worker
+    doppler run -- "${COMPOSE[@]}" build web
+  else
+    doppler run -- "${COMPOSE[@]}" build
+  fi
   doppler run -- "${COMPOSE[@]}" up -d postgres redis minio minio-init
   doppler run -- "${COMPOSE[@]}" run --rm api corepack pnpm db:migration:run
   doppler run -- "${COMPOSE[@]}" up -d

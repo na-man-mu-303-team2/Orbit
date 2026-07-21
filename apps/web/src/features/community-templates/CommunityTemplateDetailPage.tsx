@@ -307,23 +307,39 @@ export function CommunityTemplateDetailPage(props: {
 
           <section className="community-detail-comments">
             <header><h2>댓글 <span>{template.stats.commentCount}</span></h2></header>
-            <OrbitTextarea maxLength={500} onChange={(event) => setComment(event.currentTarget.value)} placeholder="제작자에게 따뜻한 조언과 감상을 남겨주세요." rows={3} value={comment} />
-            <div className="community-comment-submit"><small>{comment.length} / 500</small><OrbitButton disabled={!comment.trim()} loading={submittingComment} onClick={() => void submitComment()}>등록</OrbitButton></div>
-            {comments.data?.items.map((item) => (
-              <article className="community-comment" key={item.commentId}>
-                <span className="community-comment-avatar">{item.author.avatarUrl ? <img alt="" src={item.author.avatarUrl} /> : item.author.displayName.slice(0, 1)}</span>
-                <div>
-                  <header><strong>{item.author.displayName}</strong><time>{formatRelativeDate(item.createdAt)}</time></header>
-                  {editingId === item.commentId ? (
-                    <div className="community-comment-edit"><OrbitTextarea maxLength={500} onChange={(event) => setEditingBody(event.currentTarget.value)} rows={3} value={editingBody} /><div><OrbitIconButton aria-label="수정 취소" onClick={() => setEditingId(null)}><IconX size={15} /></OrbitIconButton><OrbitIconButton aria-label="수정 저장" onClick={() => void saveComment(item)}><IconCheck size={15} /></OrbitIconButton></div></div>
-                  ) : <p>{item.body}</p>}
-                  {item.ownedByMe && editingId !== item.commentId ? (
-                    <div className="community-comment-actions"><button onClick={() => { setEditingId(item.commentId); setEditingBody(item.body); }} type="button"><IconPencil size={13} />수정</button><button onClick={() => void removeComment(item)} type="button"><IconTrash size={13} />삭제</button></div>
-                  ) : null}
+            <div className="community-comments-list">
+              {comments.isLoading ? <p className="community-comments-state">댓글을 불러오는 중입니다.</p> : null}
+              {!comments.isLoading && comments.data?.items.length === 0 ? (
+                <div className="community-comments-empty">
+                  <OrbitEmptyState
+                    description="제작자에게 첫 감상과 응원을 남겨보세요."
+                    title="아직 등록된 댓글이 없습니다."
+                  />
                 </div>
-              </article>
-            ))}
-            {comments.isLoading ? <p className="community-comments-state">댓글을 불러오는 중입니다.</p> : null}
+              ) : null}
+              {comments.data?.items.map((item) => (
+                <article className="community-comment" key={item.commentId}>
+                  <span className="community-comment-avatar">{item.author.avatarUrl ? <img alt="" src={item.author.avatarUrl} /> : item.author.displayName.slice(0, 1)}</span>
+                  <div>
+                    <header><strong>{item.author.displayName}</strong><time>{formatRelativeDate(item.createdAt)}</time></header>
+                    {editingId === item.commentId ? (
+                      <div className="community-comment-edit"><OrbitTextarea maxLength={500} onChange={(event) => setEditingBody(event.currentTarget.value)} rows={3} value={editingBody} /><div><OrbitIconButton aria-label="수정 취소" onClick={() => setEditingId(null)}><IconX size={15} /></OrbitIconButton><OrbitIconButton aria-label="수정 저장" onClick={() => void saveComment(item)}><IconCheck size={15} /></OrbitIconButton></div></div>
+                    ) : <p>{item.body}</p>}
+                    {item.ownedByMe && editingId !== item.commentId ? (
+                      <div className="community-comment-actions">
+                        <OrbitIconButton aria-label="댓글 수정" onClick={() => { setEditingId(item.commentId); setEditingBody(item.body); }}><IconPencil size={14} /></OrbitIconButton>
+                        <OrbitIconButton aria-label="댓글 삭제" onClick={() => void removeComment(item)}><IconTrash size={14} /></OrbitIconButton>
+                      </div>
+                    ) : null}
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="community-comment-composer">
+              <span className="community-comment-composer-label">댓글 작성</span>
+              <OrbitTextarea maxLength={500} onChange={(event) => setComment(event.currentTarget.value)} placeholder="제작자에게 따뜻한 조언과 감상을 남겨주세요." rows={3} value={comment} />
+              <div className="community-comment-submit"><small>{comment.length} / 500</small><OrbitButton disabled={!comment.trim()} loading={submittingComment} onClick={() => void submitComment()}>등록</OrbitButton></div>
+            </div>
           </section>
         </aside>
       </WorkspaceContainer>

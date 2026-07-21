@@ -23,6 +23,7 @@ describe("EditorToolbar", () => {
         onFitStageToViewport={vi.fn()}
         onOpenIconLibrary={vi.fn()}
         onOpenImagePicker={vi.fn()}
+        onOpenActivityQrInsert={vi.fn()}
         onRedo={vi.fn()}
         onSelectTool={vi.fn()}
         onToggleChartMenu={vi.fn()}
@@ -43,6 +44,7 @@ describe("EditorToolbar", () => {
       "도형",
       "차트",
       "아이콘",
+      "참여 QR 코드",
       "이미지"
     ]) {
       const control = html.match(
@@ -71,6 +73,7 @@ describe("EditorToolbar", () => {
         onFitStageToViewport={vi.fn()}
         onOpenIconLibrary={vi.fn()}
         onOpenImagePicker={vi.fn()}
+        onOpenActivityQrInsert={vi.fn()}
         onRedo={vi.fn()}
         onSelectTool={vi.fn()}
         onToggleChartMenu={vi.fn()}
@@ -108,6 +111,7 @@ describe("EditorToolbar", () => {
         onFitStageToViewport={vi.fn()}
         onOpenIconLibrary={vi.fn()}
         onOpenImagePicker={vi.fn()}
+        onOpenActivityQrInsert={vi.fn()}
         onOpenRightPanel={vi.fn()}
         onRedo={vi.fn()}
         onSelectTool={vi.fn()}

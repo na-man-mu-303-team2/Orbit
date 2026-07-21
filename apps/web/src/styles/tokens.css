@@ -41,6 +41,11 @@
   --redesign-color-primary-fixed-dim: #8dd4ff;
   --redesign-color-on-primary-fixed: #001c2e;
   --redesign-color-on-primary-fixed-variant: #004a75;
+  --redesign-gradient-primary: linear-gradient(
+    135deg,
+    var(--redesign-color-primary),
+    var(--redesign-color-secondary)
+  );
 
   /* Secondary — Vivid Purple */
   --redesign-color-secondary: #8b3dff;
@@ -144,6 +149,8 @@
   --redesign-type-display-sm-weight: 750;
   --redesign-type-display-sm-line-height: 48px;
   --redesign-type-display-sm-tracking: -0.03em;
+  --redesign-type-display-sm-responsive-min-size: 38px;
+  --redesign-type-display-sm-responsive-max-size: 54px;
 
   --redesign-type-headline-lg-size: 32px;
   --redesign-type-headline-lg-weight: 700;
@@ -197,6 +204,7 @@
   --redesign-type-label-xs-size: 11px;
 
   /* Micro copy is reserved for scaled slide previews and dense metadata. */
+  --redesign-type-micro-lg-size: 10px;
   --redesign-type-micro-md-size: 8px;
   --redesign-type-micro-sm-size: 7px;
 
@@ -279,6 +287,7 @@
   --redesign-shadow-focus-inverse: 0 0 0 3px
     color-mix(in srgb, var(--redesign-color-inverse-on-surface) 30%, transparent);
   --redesign-shadow-inset-subtle: inset 0 0 0 1px color-mix(in srgb, var(--redesign-color-primary) 4%, transparent);
+  --redesign-shadow-inset-outline-variant: inset 0 0 0 var(--redesign-border-width) var(--redesign-color-outline-variant);
   --redesign-shadow-inset-primary: inset 0 0 0 1px var(--redesign-color-primary);
   --redesign-shadow-inset-primary-emphasis: inset 0 0 0 1px var(--redesign-color-primary-emphasis);
   --redesign-shadow-inset-secondary: inset 0 0 0 1px var(--redesign-color-secondary-fixed-dim);
@@ -314,6 +323,9 @@
   --redesign-duration-fast: 150ms;
   --redesign-duration-normal: 220ms;
   --redesign-duration-slow: 320ms;
+  --redesign-duration-deliberate: 360ms;
+  --redesign-duration-reveal: 560ms;
+  --redesign-duration-stagger: 80ms;
   --redesign-duration-loop: 1000ms;
   --redesign-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --redesign-ease-emphasized: cubic-bezier(0.2, 0, 0, 1.2);

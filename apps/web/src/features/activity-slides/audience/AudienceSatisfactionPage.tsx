@@ -520,10 +520,17 @@ export function AudienceSatisfactionForm(props: {
             return (
               <fieldset
                 aria-describedby={errors[question.questionId] ? errorId : undefined}
+                aria-required={question.required}
                 className="activity-rating-field"
                 key={question.questionId}
               >
-                <legend><span>{index + 1}</span>{question.prompt}{question.required ? <em>필수</em> : null}</legend>
+                <legend>
+                  <AudienceQuestionLabel
+                    index={index}
+                    prompt={question.prompt}
+                    required={question.required}
+                  />
+                </legend>
                 <div className="activity-rating-options">
                   {[1, 2, 3, 4, 5].map((value) => (
                     <label key={value}>
@@ -553,11 +560,18 @@ export function AudienceSatisfactionForm(props: {
                 error={errors[question.questionId]}
                 id={`activity-question-${question.questionId}`}
                 key={question.questionId}
-                label={<><span>{index + 1}</span>{question.prompt}{question.required ? <em>필수</em> : null}</>}
+                label={
+                  <AudienceQuestionLabel
+                    index={index}
+                    prompt={question.prompt}
+                    required={question.required}
+                  />
+                }
               >
                 <OrbitTextarea
                   maxLength={2000}
                   placeholder="의견을 입력해 주세요."
+                  required={question.required}
                   rows={5}
                   value={props.draft.freeText[question.questionId] ?? ""}
                   onChange={(event) => props.onChange({
@@ -572,10 +586,17 @@ export function AudienceSatisfactionForm(props: {
             return (
               <fieldset
                 aria-describedby={errors[question.questionId] ? errorId : undefined}
+                aria-required={question.required}
                 className="activity-choice-field"
                 key={question.questionId}
               >
-                <legend><span>{index + 1}</span>{question.prompt}{question.required ? <em>필수</em> : null}</legend>
+                <legend>
+                  <AudienceQuestionLabel
+                    index={index}
+                    prompt={question.prompt}
+                    required={question.required}
+                  />
+                </legend>
                 <div className="activity-choice-options">
                   {question.options.map((option) => (
                     <label key={option.optionId}>
@@ -606,10 +627,17 @@ export function AudienceSatisfactionForm(props: {
             return (
               <fieldset
                 aria-describedby={errors[question.questionId] ? errorId : undefined}
+                aria-required={question.required}
                 className="activity-choice-field"
                 key={question.questionId}
               >
-                <legend><span>{index + 1}</span>{question.prompt}{question.required ? <em>필수</em> : null}</legend>
+                <legend>
+                  <AudienceQuestionLabel
+                    index={index}
+                    prompt={question.prompt}
+                    required={question.required}
+                  />
+                </legend>
                 <p>{selected.length}/{maxSelections}개 선택 · 최대 {maxSelections}개</p>
                 <div className="activity-choice-options">
                   {question.options.map((option) => (
@@ -655,10 +683,39 @@ export function AudienceSatisfactionForm(props: {
         </OrbitField>
       ) : null}
 
-      <OrbitButton icon={<IconArrowRight aria-hidden="true" />} disabled={props.isSubmitting} onClick={submit}>
+      <OrbitButton
+        icon={<IconArrowRight aria-hidden="true" />}
+        loading={props.isSubmitting}
+        onClick={submit}
+        size="prominent"
+        variant="primary"
+      >
         {props.isSubmitting ? "저장 중" : templateCopy.submitLabel}
       </OrbitButton>
     </section>
+  );
+}
+
+function AudienceQuestionLabel(props: {
+  index: number;
+  prompt: string;
+  required: boolean;
+}) {
+  return (
+    <>
+      <span className="activity-question-number" aria-hidden="true">
+        {props.index + 1}
+      </span>
+      <span className="activity-question-copy">
+        {props.prompt}
+        {props.required ? (
+          <>
+            <span className="activity-required-mark" aria-hidden="true">*</span>
+            <span className="activity-visually-hidden">필수</span>
+          </>
+        ) : null}
+      </span>
+    </>
   );
 }
 

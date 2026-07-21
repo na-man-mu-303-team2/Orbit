@@ -30,6 +30,20 @@ export function ImageElementContent(props: {
   imageProps: ImageElementProps;
   projectId: string;
 }) {
+  return <StaticImageContent {...props} />;
+}
+
+function StaticImageContent(props: {
+  frame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  imageProps: ImageElementProps;
+  projectId: string;
+}) {
   const { frame, imageProps, projectId } = props;
   const image = useLoadedImage(projectId, resolveEditorAssetUrl(imageProps.src));
   const layout =

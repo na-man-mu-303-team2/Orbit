@@ -376,15 +376,87 @@ export type OoxmlMotionCapabilities = z.infer<
   typeof ooxmlMotionCapabilitiesSchema
 >;
 
+const legacyActivityQrReferencePrefix = "orbit-activity://";
+const legacyActivityQrReferenceSuffix = "/participant";
+
+function normalizeLegacyActivityQrElements(
+  input: Record<string, unknown>,
+  activityIds: Set<string>
+) {
+  if (!Array.isArray(input.elements)) {
+    return input;
+  }
+
+  return {
+    ...input,
+    elements: input.elements.map((element) => {
+      const activityId = getLegacyActivityQrActivityId(element);
+      if (
+        !activityId ||
+        !activityIds.has(activityId) ||
+        typeof element !== "object" ||
+        element === null
+      ) {
+        return element;
+      }
+
+      return {
+        ...element,
+        type: "activity-qr",
+        props: { activityId }
+      };
+    })
+  };
+}
+
+function getLegacyActivityQrActivityId(element: unknown): string | null {
+  if (
+    typeof element !== "object" ||
+    element === null ||
+    !(
+      "type" in element &&
+      element.type === "image" &&
+      "props" in element &&
+      typeof element.props === "object" &&
+      element.props !== null &&
+      "src" in element.props &&
+      typeof element.props.src === "string"
+    )
+  ) {
+    return null;
+  }
+
+  const src = element.props.src;
+  if (
+    !src.startsWith(legacyActivityQrReferencePrefix) ||
+    !src.endsWith(legacyActivityQrReferenceSuffix)
+  ) {
+    return null;
+  }
+
+  const encodedActivityId = src.slice(
+    legacyActivityQrReferencePrefix.length,
+    -legacyActivityQrReferenceSuffix.length
+  );
+  if (!encodedActivityId || encodedActivityId.includes("/")) {
+    return null;
+  }
+
+  try {
+    const activityId = decodeURIComponent(encodedActivityId).trim();
+    return activityId || null;
+  } catch {
+    return null;
+  }
+}
+
 export const slideSchema: z.ZodType<Slide, z.ZodTypeDef, unknown> = z
   .preprocess((input) => {
-    if (
-      typeof input === "object" &&
-      input !== null &&
-      !Array.isArray(input) &&
-      !("kind" in input)
-    ) {
-      return { ...input, kind: "content" };
+    if (typeof input === "object" && input !== null && !Array.isArray(input)) {
+      if (!("kind" in input)) {
+        return { ...input, kind: "content" };
+      }
+      return input;
     }
     return input;
   }, normalizedSlideSchema)
@@ -554,7 +626,9 @@ const deckObjectSchema = z.object({
 
 export const deckShellSchema = deckObjectSchema.omit({ slides: true });
 
-export const deckSchema = deckObjectSchema.superRefine((deck, ctx) => {
+export const deckSchema = z
+  .preprocess(normalizeLegacyActivityQrDeck, deckObjectSchema)
+  .superRefine((deck, ctx) => {
   const activityIds = new Set<string>();
   const hasActivitySlides = deck.slides.some(
     (slide) => slide.kind === "activity" || slide.kind === "activity-results"
@@ -582,7 +656,61 @@ export const deckSchema = deckObjectSchema.superRefine((deck, ctx) => {
     }
     activityIds.add(slide.activity.activityId);
   });
-});
+
+  deck.slides.forEach((slide, slideIndex) => {
+    slide.elements.forEach((element, elementIndex) => {
+      if (element.type !== "activity-qr") {
+        return;
+      }
+
+      if (!activityIds.has(element.props.activityId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["slides", slideIndex, "elements", elementIndex, "props", "activityId"],
+          message: "activity QR elements must reference an activity in the same Deck"
+        });
+      }
+    });
+  });
+  });
+
+function normalizeLegacyActivityQrDeck(input: unknown) {
+  if (
+    typeof input !== "object" ||
+    input === null ||
+    Array.isArray(input) ||
+    !("slides" in input) ||
+    !Array.isArray(input.slides)
+  ) {
+    return input;
+  }
+
+  const activityIds = new Set(
+    input.slides.flatMap((slide) =>
+      typeof slide === "object" &&
+      slide !== null &&
+      !Array.isArray(slide) &&
+      "kind" in slide &&
+      slide.kind === "activity" &&
+      "activity" in slide &&
+      typeof slide.activity === "object" &&
+      slide.activity !== null &&
+      "activityId" in slide.activity &&
+      typeof slide.activity.activityId === "string"
+        ? [slide.activity.activityId]
+        : []
+    )
+  );
+
+  return {
+    ...input,
+    slides: input.slides.map((slide) =>
+      typeof slide === "object" && slide !== null && !Array.isArray(slide)
+        ? normalizeLegacyActivityQrElements(slide, activityIds)
+        : slide
+    )
+  };
+}
 
 export type Deck = z.infer<typeof deckSchema>;
 export type DeckShell = z.infer<typeof deckShellSchema>;

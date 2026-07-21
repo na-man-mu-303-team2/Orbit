@@ -7,6 +7,7 @@ import {
   IconPhotoPlus as ImagePlus,
   IconIcons,
   IconPointer as MousePointer2,
+  IconQrcode,
   IconShape as Shapes,
   IconTypography as Type
 } from "@tabler/icons-react";
@@ -30,6 +31,7 @@ type EditorToolbarProps = {
   isStageFitToViewport: boolean;
   onAddText: () => void;
   onOpenImagePicker: () => void;
+  onOpenActivityQrInsert: () => void;
   onOpenIconLibrary: () => void;
   onOpenRightPanel?: () => void;
   onRedo: () => void;
@@ -118,6 +120,16 @@ export function EditorToolbar(props: EditorToolbarProps) {
             onClick={props.onOpenIconLibrary}
           >
             <IconIcons size={17} />
+          </button>
+          <button
+            aria-label="참여 QR 코드"
+            className="tool-button"
+            disabled={!props.canUseCurrentSlide}
+            title={editDisabledTitle ?? "참여 QR 코드 추가"}
+            type="button"
+            onClick={props.onOpenActivityQrInsert}
+          >
+            <IconQrcode size={17} />
           </button>
           <button
             aria-label="이미지"

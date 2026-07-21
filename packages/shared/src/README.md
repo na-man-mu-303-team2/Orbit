@@ -58,7 +58,7 @@ canonical coaching result나 Job payload/result에 포함하지 않는다.
 
 ## Activity Slides 계약 메모
 
-- Deck에는 `ActivityDefinition`과 `sourceActivityId` 참조만 저장한다. run, response, aggregate, QR, audience URL은 Deck이나 `slide.elements`에 넣지 않는다.
+- Deck에는 `ActivityDefinition`과 `sourceActivityId` 참조만 저장한다. 참여 QR을 일반 장표에 배치할 때도 전용 `activity-qr` 요소에 activity ID 참조만 저장하고, run, response, aggregate, QR 이미지, audience URL은 Deck이나 `slide.elements`에 넣지 않는다.
 - `kind`가 없는 legacy slide는 parse 시 `content`로 정규화한다. `activity`와 `activity-results`가 하나라도 있으면 Deck canvas는 `wide-16-9`여야 한다.
 - presenter/public/editor 결과는 서로 독립된 strict schema다. public 결과에는 선택 이름과 pending/hidden 주관식 원문이 존재할 수 없다.
 - 응답은 HTTP transaction으로 저장하고 WebSocket은 commit 후 revision 알림과 public projection만 전달한다.

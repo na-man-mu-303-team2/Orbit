@@ -53,6 +53,7 @@ services:
         awslogs-create-group: "false"
 
   api:
+    image: ghcr.io/na-man-mu-303-team2/orbit-api:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: infra/docker/api.Dockerfile
@@ -94,6 +95,7 @@ services:
         awslogs-create-group: "false"
 
   worker:
+    image: ghcr.io/na-man-mu-303-team2/orbit-worker:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: infra/docker/worker.Dockerfile
@@ -126,6 +128,7 @@ services:
         awslogs-create-group: "false"
 
   python-worker:
+    image: ghcr.io/na-man-mu-303-team2/orbit-python-worker:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: infra/docker/python-worker.Dockerfile

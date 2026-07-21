@@ -62,6 +62,7 @@ x-orbit-env: &orbit-env
 
 services:
   api:
+    image: ghcr.io/na-man-mu-303-team2/orbit-api:${IMAGE_TAG:-latest}
     env_file: !reset []
     environment:
       <<: *orbit-env
@@ -85,6 +86,7 @@ services:
     restart: unless-stopped
 
   worker:
+    image: ghcr.io/na-man-mu-303-team2/orbit-worker:${IMAGE_TAG:-latest}
     env_file: !reset []
     environment:
       <<: *orbit-env
@@ -106,6 +108,7 @@ services:
     restart: unless-stopped
 
   python-worker:
+    image: ghcr.io/na-man-mu-303-team2/orbit-python-worker:${IMAGE_TAG:-latest}
     env_file: !reset []
     environment:
       <<: *orbit-env

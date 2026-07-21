@@ -25,6 +25,7 @@ import type { ComponentType } from "react";
 import type { ElementPresentationState } from "./ReadOnlySlideCanvas";
 
 import { ImageElementContent } from "./ImageElementContent";
+import { ActivityQrElementContent } from "../../activity-slides/rendering/ActivityQrElementContent";
 import { getTableLayout } from "./tableLayout";
 import {
   buildCustomShapePathDataFromNodes,
@@ -181,6 +182,17 @@ export function ElementNodeContent(props: {
       <ImageElementContent
         frame={frame}
         imageProps={element.props}
+        projectId={deck.projectId}
+      />
+    );
+  }
+
+  if (element.type === "activity-qr") {
+    return (
+      <ActivityQrElementContent
+        activityId={element.props.activityId}
+        deckId={deck.deckId}
+        frame={frame}
         projectId={deck.projectId}
       />
     );

@@ -1,4 +1,5 @@
 import type { Deck, DeckExportFormat } from "@orbit/shared";
+import { useQuery } from "@tanstack/react-query";
 import {
   IconChevronDown as ChevronDown,
   IconClock as Clock,
@@ -10,6 +11,11 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
+import {
+  authMeQueryKey,
+  fetchCurrentUser,
+  getAvatarUrl,
+} from "../../../auth/auth-session";
 import type { EditorShellUiUpdater, TopMenu } from "../editorShellUiStore";
 import {
   getPresenceUserInitial,
@@ -109,6 +115,11 @@ export function EditorTopbar(props: EditorTopbarProps) {
   } = props;
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(deckTitle);
+  const { data: currentUser } = useQuery({
+    queryFn: () => fetchCurrentUser(),
+    queryKey: authMeQueryKey,
+  });
+  const currentUserAvatarUrl = getAvatarUrl(currentUser?.avatar);
 
   useEffect(() => {
     if (!isEditingTitle) setTitleDraft(deckTitle);
@@ -279,15 +290,27 @@ export function EditorTopbar(props: EditorTopbarProps) {
             onClick={onOpenPresenceDebug}
             type="button"
           >
-            {projectPresenceUsers.slice(0, 4).map((user) => (
-              <span
-                className="avatar"
-                key={`${user.id}-${user.connectedAt}`}
-                title={getPresenceUserLabel(user)}
-              >
-                {getPresenceUserInitial(user)}
-              </span>
-            ))}
+            {projectPresenceUsers.slice(0, 4).map((user) => {
+              const avatarUrl = user.userId === currentUser?.userId
+                ? currentUserAvatarUrl
+                : null;
+
+              return (
+                <span
+                  className="avatar"
+                  key={`${user.id}-${user.connectedAt}`}
+                  title={getPresenceUserLabel(user)}
+                >
+                  {avatarUrl ? (
+                    <img
+                      alt=""
+                      className="presence-avatar-image"
+                      src={avatarUrl}
+                    />
+                  ) : getPresenceUserInitial(user)}
+                </span>
+              );
+            })}
             {projectPresenceUsers.length > 4 ? (
               <span className="avatar presence-avatar-more">
                 +{projectPresenceUsers.length - 4}

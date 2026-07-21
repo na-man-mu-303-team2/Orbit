@@ -81,7 +81,36 @@ fi
 COMPOSE=(docker compose -f "$COMPOSE_FILE")
 
 "${COMPOSE[@]}" config --quiet
-"${COMPOSE[@]}" build
+
+# Prepare service images. Default keeps the existing on-box build so behaviour
+# is unchanged until the registry cutover is deliberately enabled. Set
+# DEPLOY_USE_REGISTRY=true (once GHCR images and auth are in place) to pull
+# prebuilt images instead of building them here. See
+# docs/runbooks/deploy-image-registry-migration.md.
+if [ "${DEPLOY_USE_REGISTRY:-false}" = "true" ]; then
+  IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io}"
+  # Use the branch tag (e.g. main) rather than the exact commit SHA: commits
+  # that touch only scripts or docs do not trigger build-images, so a per-SHA
+  # tag may not exist, while the branch tag always points at the latest built
+  # app image.
+  IMAGE_TAG="${IMAGE_TAG:-$(git -C "$APP_DIR" rev-parse --abbrev-ref HEAD)}"
+  export IMAGE_TAG
+  ghcr_user="${GHCR_USERNAME:-orbit-deploy}"
+  ghcr_token="${GHCR_TOKEN:-}"
+  if [ -z "$ghcr_token" ] && [ -n "${GHCR_TOKEN_SSM_PARAM:-}" ]; then
+    ghcr_token="$(aws ssm get-parameter --with-decryption --region "$AWS_REGION" \
+      --name "$GHCR_TOKEN_SSM_PARAM" --query 'Parameter.Value' --output text)"
+  fi
+  if [ -z "$ghcr_token" ]; then
+    echo "DEPLOY_USE_REGISTRY=true but no GHCR token (set GHCR_TOKEN or GHCR_TOKEN_SSM_PARAM)."
+    exit 1
+  fi
+  printf '%s' "$ghcr_token" | docker login "$IMAGE_REGISTRY" -u "$ghcr_user" --password-stdin
+  "${COMPOSE[@]}" pull api worker python-worker
+else
+  "${COMPOSE[@]}" build
+fi
+
 "${COMPOSE[@]}" up -d --wait --wait-timeout 120 redis private-evidence-redis
 "${COMPOSE[@]}" run --rm --no-deps api corepack pnpm --filter @orbit/api migration:run
 "${COMPOSE[@]}" up -d
