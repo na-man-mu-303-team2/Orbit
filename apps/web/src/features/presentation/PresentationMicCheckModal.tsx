@@ -11,6 +11,11 @@ import {
   readRehearsalMicrophoneDeviceId,
   writeRehearsalMicrophoneDeviceId,
 } from "../presenter-shell/microphoneSettings";
+import {
+  E5ModelPreparationPanel,
+  getE5ModelPreparationLabel,
+  useE5ModelPreparation,
+} from "../rehearsal/speech/E5ModelPreparation";
 import "../rehearsal/preflight/rehearsal-mic-check-modal.css";
 
 type PermissionState =
@@ -32,6 +37,7 @@ export function PresentationMicCheckModal(props: {
   );
   const [error, setError] = useState("");
   const [heardVoice, setHeardVoice] = useState(false);
+  const e5Preparation = useE5ModelPreparation();
   const streamRef = useRef<MediaStream | null>(null);
   const contextRef = useRef<AudioContext | null>(null);
   const animationRef = useRef<number | null>(null);
@@ -258,9 +264,31 @@ export function PresentationMicCheckModal(props: {
               />
             </div>
           </div>
+          <div
+            className={`rehearsal-mic-step${e5Preparation.isReady ? " rehearsal-mic-step-active" : ""}`}
+          >
+            <span className="rehearsal-mic-step-number">3</span>
+            <div>
+              <div className="rehearsal-mic-step-heading">
+                <strong>AI 대본 매칭 모델</strong>
+                <span
+                  className={
+                    e5Preparation.isReady ? "rehearsal-mic-success" : undefined
+                  }
+                >
+                  {e5Preparation.isReady ? <IconCheck size={14} /> : null}
+                  {getE5ModelPreparationLabel(e5Preparation.state)}
+                </span>
+              </div>
+              <E5ModelPreparationPanel
+                prepare={e5Preparation.prepare}
+                state={e5Preparation.state}
+              />
+            </div>
+          </div>
           <footer>
             <button
-              disabled={permission !== "granted"}
+              disabled={permission !== "granted" || !e5Preparation.isReady}
               onClick={() => {
                 stopPreview();
                 props.onStart();

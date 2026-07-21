@@ -7,6 +7,8 @@ import {
 export const E5_MODEL_ID = "Xenova/multilingual-e5-small" as const;
 export const E5_EMBEDDING_DIMENSIONS = 384;
 export const E5_PREFIX_MODE = "query-query" as const;
+export const E5_MODEL_READY_STORAGE_KEY =
+  "orbit.e5-embedding-model.Xenova-multilingual-e5-small.ready" as const;
 
 export type E5EmbeddingProgress = {
   status: string;
@@ -33,6 +35,7 @@ type E5FeatureExtractorLoader = () => Promise<E5FeatureExtractor>;
 
 let sharedExtractorPromise: Promise<E5FeatureExtractor> | null = null;
 let sharedServicePromise: Promise<E5EmbeddingService> | null = null;
+let isSharedServiceReady = false;
 const progressListeners = new Set<(progress: E5EmbeddingProgress) => void>();
 
 export async function getE5EmbeddingService(
@@ -42,11 +45,41 @@ export async function getE5EmbeddingService(
     progressListeners.add(onProgress);
   }
 
-  sharedServicePromise ??= loadDefaultE5FeatureExtractor().then((extractor) =>
-    createE5EmbeddingService(async () => extractor)
-  );
+  try {
+    sharedServicePromise ??= loadDefaultE5FeatureExtractor()
+      .then((extractor) => createE5EmbeddingService(async () => extractor))
+      .then((service) => {
+        isSharedServiceReady = true;
+        writeE5ModelReadyMarker();
+        return service;
+      })
+      .catch((cause: unknown) => {
+        sharedExtractorPromise = null;
+        sharedServicePromise = null;
+        isSharedServiceReady = false;
+        throw cause;
+      });
 
-  return sharedServicePromise;
+    return await sharedServicePromise;
+  } finally {
+    if (onProgress) {
+      progressListeners.delete(onProgress);
+    }
+  }
+}
+
+export function isE5EmbeddingModelPrepared(
+  storage: Pick<Storage, "getItem"> | null = getBrowserStorage()
+) {
+  if (isSharedServiceReady) {
+    return true;
+  }
+
+  try {
+    return storage?.getItem(E5_MODEL_READY_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 export function createE5EmbeddingService(
@@ -157,4 +190,24 @@ function toFloat32Array(data: ArrayLike<number>, start: number, length: number) 
 
 function normalizeEmbeddingText(text: string) {
   return text.normalize("NFC").replace(/\s+/g, " ").trim();
+}
+
+function writeE5ModelReadyMarker() {
+  try {
+    getBrowserStorage()?.setItem(E5_MODEL_READY_STORAGE_KEY, "1");
+  } catch {
+    // The in-memory service remains available when browser storage is blocked.
+  }
+}
+
+function getBrowserStorage(): Pick<Storage, "getItem" | "setItem"> | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }

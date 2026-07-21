@@ -4,7 +4,9 @@ import {
   createE5EmbeddingService,
   E5_EMBEDDING_DIMENSIONS,
   E5_MODEL_ID,
-  E5_PREFIX_MODE
+  E5_MODEL_READY_STORAGE_KEY,
+  E5_PREFIX_MODE,
+  isE5EmbeddingModelPrepared
 } from "./e5EmbeddingService";
 
 describe("createE5EmbeddingService", () => {
@@ -65,5 +67,17 @@ describe("E5 constants", () => {
     expect(E5_MODEL_ID).toBe("Xenova/multilingual-e5-small");
     expect(E5_PREFIX_MODE).toBe("query-query");
     expect(E5_EMBEDDING_DIMENSIONS).toBe(384);
+  });
+
+  it("브라우저에 준비 완료 표식이 있을 때 최초 다운로드를 다시 요구하지 않는다", () => {
+    const getItem = vi.fn((key: string) =>
+      key === E5_MODEL_READY_STORAGE_KEY ? "1" : null
+    );
+
+    expect(isE5EmbeddingModelPrepared({ getItem })).toBe(true);
+    expect(getItem).toHaveBeenCalledWith(E5_MODEL_READY_STORAGE_KEY);
+    expect(
+      isE5EmbeddingModelPrepared({ getItem: () => null })
+    ).toBe(false);
   });
 });

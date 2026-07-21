@@ -84,6 +84,10 @@
   background: var(--redesign-color-primary);
 }
 
+.rehearsal-mic-step:last-of-type::before {
+  display: none;
+}
+
 .rehearsal-mic-step-number {
   align-items: center;
   border: 1px solid var(--redesign-color-outline);

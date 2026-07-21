@@ -283,6 +283,9 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("리허설을 시작할까요?");
     expect(html).toContain("마이크 권한 확인");
     expect(html).toContain("마이크 연결 확인");
+    expect(html).toContain("AI 대본 매칭 모델");
+    expect(html).toContain("최초 1회 다운로드 필요");
+    expect(html).toContain("모델 다운로드");
     expect(html).not.toContain("음성 인식 준비");
     expect(html).toContain(`슬라이드 ${deck.slides.length}장 로드됨`);
     expect(html).toContain("음성 트리거");

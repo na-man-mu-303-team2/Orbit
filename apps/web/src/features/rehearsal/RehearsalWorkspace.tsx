@@ -284,8 +284,15 @@ import { createMockSemanticCueNliProvider } from "./speech/mockSemanticCueNliPro
 import { createBrowserTransformersSemanticCueNliProvider } from "./speech/browserSemanticCueNliProvider";
 import {
   getE5EmbeddingService,
+  isE5EmbeddingModelPrepared,
   type E5EmbeddingService,
 } from "./speech/e5EmbeddingService";
+import {
+  E5ModelPreparationPanel,
+  getE5ModelPreparationLabel,
+  useE5ModelPreparation,
+  type E5ModelPreparationState,
+} from "./speech/E5ModelPreparation";
 import {
   createIdleSemanticDebugState,
   createSemanticDebugState,
@@ -2101,7 +2108,11 @@ export function RehearsalWorkspace(props: {
   >(null);
   const shouldAutoStartRef = useRef<
     "microphone" | "without-voice" | "starting" | null
-  >(props.preflightMode ?? null);
+  >(
+    props.preflightMode === "microphone" && !isE5EmbeddingModelPrepared()
+      ? null
+      : (props.preflightMode ?? null),
+  );
   const [p3RunMeta, setP3RunMeta] = useState<RehearsalRunMeta | null>(null);
   const [previousPracticeSummary, setPreviousPracticeSummary] =
     useState<RehearsalPracticeSummary | null>(() =>
@@ -6062,6 +6073,7 @@ function RehearsalPreflightScreen(props: {
     null,
   );
   const [matchedPhrases, setMatchedPhrases] = useState<readonly string[]>([]);
+  const e5Preparation = useE5ModelPreparation();
   const preflightStreamRef = useRef<MediaStream | null>(null);
   const preflightLiveSttPortRef = useRef<LiveSttPort | null>(null);
   const preflightLiveSttCleanupRef = useRef<(() => void) | null>(null);
@@ -6134,11 +6146,14 @@ function RehearsalPreflightScreen(props: {
     triggerCount,
   );
   const isMicrophoneGranted = microphonePermission === "granted";
-  const canStartWithMicrophone = props.canStart && isMicrophoneGranted;
+  const canStartWithMicrophone =
+    props.canStart && isMicrophoneGranted && e5Preparation.isReady;
   const startDisabledReason = !props.canStart
     ? "발표자료 로딩이 끝난 뒤 시작할 수 있습니다."
     : !isMicrophoneGranted
       ? "마이크 연결을 확인해야 리허설을 시작할 수 있습니다."
+      : !e5Preparation.isReady
+        ? "AI 대본 매칭 모델을 준비해야 리허설을 시작할 수 있습니다."
       : "";
 
   async function requestPreflightMicrophonePermission() {
@@ -6346,6 +6361,19 @@ function RehearsalPreflightScreen(props: {
             label="마이크 권한 확인"
             status={permissionStatus}
             value={permissionStatus.value}
+          />
+          <PreflightStatusRow
+            details={
+              e5Preparation.isReady ? undefined : (
+                <E5ModelPreparationPanel
+                  prepare={e5Preparation.prepare}
+                  state={e5Preparation.state}
+                />
+              )
+            }
+            label="AI 대본 매칭 모델"
+            status={getE5PreflightStatus(e5Preparation.state)}
+            value={getE5ModelPreparationLabel(e5Preparation.state)}
           />
           {isMicrophoneGranted ? (
             <PreflightStatusRow
@@ -6576,6 +6604,34 @@ function getPreflightTriggerStatus(
     tone: "info",
     value: `음성 트리거 ${triggerCount}개`,
   };
+}
+
+function getE5PreflightStatus(
+  state: E5ModelPreparationState,
+): PreflightStatus {
+  switch (state.status) {
+    case "ready":
+      return { icon: "check", tone: "success", value: "사용 준비됨" };
+    case "error":
+      return {
+        icon: "danger",
+        tone: "danger",
+        value: getE5ModelPreparationLabel(state),
+      };
+    case "required":
+      return {
+        icon: "warning",
+        tone: "warning",
+        value: getE5ModelPreparationLabel(state),
+      };
+    case "checking":
+    case "downloading":
+      return {
+        icon: "info",
+        tone: "info",
+        value: getE5ModelPreparationLabel(state),
+      };
+  }
 }
 
 function getSemanticDebugPanelStorage(): Pick<
