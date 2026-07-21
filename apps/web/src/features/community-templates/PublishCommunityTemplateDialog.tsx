@@ -25,6 +25,7 @@ const initialDraft: CommunityTemplatePublishDraft = {
   sourceProjectId: "",
   title: "",
   category: "",
+  description: "",
   rightsConfirmed: false,
 };
 

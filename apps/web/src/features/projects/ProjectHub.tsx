@@ -422,7 +422,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
                 <p className="workspace-section-kicker">COMMUNITY</p>
                 <h1>커뮤니티</h1>
               </div>
-              <OrbitButton className="workspace-community-intro-arrow" onClick={() => { setApplyFailure(null); setPublishReturnFocus(false); setGalleryOpen(true); }} variant="secondary">
+              <OrbitButton className="workspace-community-intro-arrow" onClick={() => props.onNavigate("/community")} variant="secondary">
                 더보기
               </OrbitButton>
             </header>

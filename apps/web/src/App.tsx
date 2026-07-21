@@ -1,3 +1,5 @@
+import { CommunityGalleryPage } from "./features/community-templates/CommunityGalleryPage";
+import { CommunityTemplateDetailPage } from "./features/community-templates/CommunityTemplateDetailPage";
 import {
   deckSchema,
   demoIds,
@@ -125,6 +127,8 @@ export type Route =
   | { name: "challenge-qna"; projectId: string; sourceFullRunId: string }
   | { name: "report-mockup" }
   | { name: "report-list" }
+  | { name: "community" }
+  | { name: "community-detail"; templateId: string }
   | { name: "report-project-overview"; projectId: string }
   | { name: "not-found" }
   | { name: "deck-render" };
@@ -395,6 +399,14 @@ export function getRoute(pathname?: string, search?: string): Route {
         : { name: "project-list" };
     }
     if (normalized === "/reports") return { name: "report-list" };
+    if (normalized === "/community") return { name: "community" };
+    const communityTemplateMatch = normalized.match(/^\/community\/([^/]+)$/);
+    if (communityTemplateMatch) {
+      return {
+        name: "community-detail",
+        templateId: decodeURIComponent(communityTemplateMatch[1]),
+      };
+    }
     const reportProjectMatch = normalized.match(/^\/reports\/([^/]+)$/);
     if (reportProjectMatch) {
       return {
@@ -779,6 +791,17 @@ function renderRoute(route: Route, user?: AuthUser) {
       <ProfilePage onNavigate={navigateTo} user={user} />
     ) : (
       <AuthLoadingFallback />
+    );
+  }
+  if (route.name === "community") {
+    return <CommunityGalleryPage onNavigate={navigateTo} />;
+  }
+  if (route.name === "community-detail") {
+    return (
+      <CommunityTemplateDetailPage
+        onNavigate={navigateTo}
+        templateId={route.templateId}
+      />
     );
   }
   if (route.name === "create-deck") return <AiPptWizardPage />;

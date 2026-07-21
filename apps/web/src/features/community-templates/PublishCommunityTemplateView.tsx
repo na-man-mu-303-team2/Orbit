@@ -7,6 +7,7 @@ import {
   OrbitField,
   OrbitInput,
   OrbitSelect,
+  OrbitTextarea,
 } from "../../components/ui";
 import {
   CommunityTemplateSourcePicker,
@@ -24,6 +25,7 @@ const fieldIds: Record<keyof CommunityTemplatePublishDraft, string> = {
   sourceProjectId: "community-template-publish-source",
   title: "community-template-publish-title",
   category: "community-template-publish-category",
+  description: "community-template-publish-description",
   rightsConfirmed: "community-template-publish-rights",
 };
 
@@ -150,6 +152,27 @@ export function PublishCommunityTemplateView(
             <option value="portfolio">포트폴리오</option>
             <option value="event">이벤트</option>
           </OrbitSelect>
+        </OrbitField>
+
+        <OrbitField
+          error={props.errors.description}
+          hint={`${props.draft.description?.length ?? 0} / 300`}
+          id={fieldIds.description}
+          label="짧은 소개글"
+        >
+          <OrbitTextarea
+            disabled={props.submitting}
+            maxLength={300}
+            onChange={(event) =>
+              props.onChange({
+                ...props.draft,
+                description: event.target.value,
+              })
+            }
+            placeholder="어떤 발표에 잘 어울리는 프로젝트인지 소개해 주세요."
+            rows={4}
+            value={props.draft.description ?? ""}
+          />
         </OrbitField>
 
         <label className="community-template-rights-field">

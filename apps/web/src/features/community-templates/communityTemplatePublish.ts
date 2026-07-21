@@ -7,6 +7,7 @@ export type CommunityTemplatePublishDraft = {
   sourceProjectId: string;
   title: string;
   category: "" | PublishCommunityTemplateRequest["category"];
+  description?: string;
   rightsConfirmed: boolean;
 };
 
@@ -19,6 +20,7 @@ const fieldOrder: CommunityTemplatePublishField[] = [
   "sourceProjectId",
   "title",
   "category",
+  "description",
   "rightsConfirmed",
 ];
 
@@ -39,6 +41,9 @@ export function createCommunityTemplatePublishRequest(
   }
   if (!draft.category) {
     errors.category = "카테고리를 선택해 주세요.";
+  }
+  if ((draft.description?.trim().length ?? 0) > 300) {
+    errors.description = "소개글은 300자 이하로 입력해 주세요.";
   }
   if (!draft.rightsConfirmed) {
     errors.rightsConfirmed = "공개 권리를 확인해 주세요.";
@@ -67,6 +72,7 @@ export async function executeCommunityTemplatePublish(
       sourceProjectId: string;
       title: string;
       category: PublishCommunityTemplateRequest["category"];
+      description?: string;
       rightsConfirmed: boolean;
     }) => Promise<{ template: { title: string } }>;
   },
