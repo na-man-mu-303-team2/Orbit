@@ -47,6 +47,16 @@ export const communityTemplateSourceProjectSchema = z
     projectId: boundedIdSchema,
     title: z.string().trim().min(1).max(120),
     createdAt: isoDateTimeSchema,
+    publishable: z.boolean(),
+    unavailableReason: z
+      .enum([
+        "ALREADY_PUBLISHED",
+        "SOURCE_DECK_NOT_FOUND",
+        "ACTIVITY_UNSUPPORTED",
+        "SANITIZATION_FAILED",
+        "SNAPSHOT_TOO_LARGE",
+      ])
+      .nullable(),
   })
   .strict();
 
@@ -68,6 +78,35 @@ export const publishCommunityTemplateResponseSchema = z
   .object({ template: communityTemplateCardSchema })
   .strict();
 
+export const updateCommunityTemplateRequestSchema = z
+  .object({
+    title: communityTemplateTitleSchema.optional(),
+    category: communityTemplateCategorySchema.optional(),
+    description: z.string().trim().max(300).optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.title !== undefined ||
+      value.category !== undefined ||
+      value.description !== undefined,
+    "수정할 값을 하나 이상 입력해 주세요.",
+  );
+
+export const updateCommunityTemplateResponseSchema = z
+  .object({
+    templateId: communityTemplateIdSchema,
+    title: communityTemplateTitleSchema,
+    category: communityTemplateCategorySchema,
+    description: z.string().trim().max(500),
+    updatedAt: isoDateTimeSchema,
+  })
+  .strict();
+
+export const unpublishCommunityTemplateResponseSchema = z
+  .object({ templateId: communityTemplateIdSchema, unpublished: z.literal(true) })
+  .strict();
+
 export const useCommunityTemplateRequestSchema = z
   .object({ clientRequestId: z.string().uuid() })
   .strict();
@@ -84,6 +123,7 @@ export const communityTemplateApiErrorCodeSchema = z.enum([
   "COMMUNITY_TEMPLATE_NOT_FOUND",
   "COMMUNITY_TEMPLATE_SOURCE_NOT_FOUND",
   "COMMUNITY_TEMPLATE_OWNER_REQUIRED",
+  "COMMUNITY_TEMPLATE_ALREADY_PUBLISHED",
   "COMMUNITY_TEMPLATE_ACTIVITY_UNSUPPORTED",
   "COMMUNITY_TEMPLATE_SANITIZATION_FAILED",
   "COMMUNITY_TEMPLATE_SNAPSHOT_TOO_LARGE",
@@ -120,6 +160,12 @@ export type PublishCommunityTemplateRequest = z.infer<
 >;
 export type PublishCommunityTemplateResponse = z.infer<
   typeof publishCommunityTemplateResponseSchema
+>;
+export type UpdateCommunityTemplateRequest = z.infer<
+  typeof updateCommunityTemplateRequestSchema
+>;
+export type UpdateCommunityTemplateResponse = z.infer<
+  typeof updateCommunityTemplateResponseSchema
 >;
 export type UseCommunityTemplateRequest = z.infer<
   typeof useCommunityTemplateRequestSchema
