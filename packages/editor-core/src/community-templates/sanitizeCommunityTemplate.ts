@@ -205,7 +205,11 @@ function sanitizeElement(
 ): CommunityTemplateElement {
   const base = sanitizeElementBase(element);
 
-  if (element.type === "image" || element.type === "svg") {
+  if (
+    element.type === "image" ||
+    element.type === "svg" ||
+    element.type === "activity-qr"
+  ) {
     return createNeutralPlaceholder(base, theme);
   }
 

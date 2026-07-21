@@ -9,6 +9,7 @@ export {
   findActivityPreviewSlide
 } from "./audience/ActivityAudiencePreviewPage";
 export { ActivitySlideInspector } from "./editor/ActivitySlideInspector";
+export { ActivityQrInsertDialog } from "./editor/ActivityQrInsertDialog";
 export {
   ActivityResultSlideInspector,
   findActivityResultSource

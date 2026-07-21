@@ -204,6 +204,16 @@ export function remapActivityDefinitionsForDeckDuplicate(
       slide.activityResult.sourceActivityId;
   }
 
+  for (const slide of clone.slides) {
+    for (const element of slide.elements) {
+      if (element.type !== "activity-qr") {
+        continue;
+      }
+      element.props.activityId =
+        activityIdMap.get(element.props.activityId) ?? element.props.activityId;
+    }
+  }
+
   return deckSchema.parse(clone);
 }
 

@@ -53,6 +53,13 @@ export async function projectActivityDeckForStaticExport(
   );
 
   for (const [index, slide] of projected.slides.entries()) {
+    if (slide.kind === "content") {
+      projected.slides[index] = {
+        ...slide,
+        elements: staticActivityQrElements(slide.elements),
+      };
+      continue;
+    }
     if (slide.kind === "activity") {
       const { kind: _kind, activity, ...base } = slide;
       projected.slides[index] = {
@@ -122,6 +129,30 @@ export async function projectActivityDeckForStaticExport(
   }
 
   return deckSchema.parse(projected);
+}
+
+function staticActivityQrElements(elements: DeckElement[]) {
+  return elements.map((element) => {
+    if (element.type !== "activity-qr") {
+      return element;
+    }
+
+    return {
+      ...element,
+      role: "body",
+      type: "text",
+      props: {
+        text: "참여 QR 코드는 라이브 발표에서 표시됩니다.",
+        color: "#475467",
+        fontFamily: "Arial",
+        fontSize: 24,
+        fontWeight: "normal",
+        align: "center",
+        verticalAlign: "middle",
+        lineHeight: 1.2,
+      },
+    } satisfies DeckElement;
+  });
 }
 
 async function loadActivityExportResult(

@@ -33,6 +33,7 @@ import {
   type PresentationRuntimePhase,
 } from "./presentationLifecycle";
 import { activityApi } from "../activity-slides/api/activityApi";
+import { prepareActivityQrRuns } from "../activity-slides/model/activityQrElements";
 import {
   getRehearsalMicrophoneAudioConstraints,
   readRehearsalMicrophoneDeviceId,
@@ -608,6 +609,12 @@ export function PresentationWorkspace(props: {
         });
         return;
       }
+
+      await prepareActivityQrRuns({
+        deck,
+        projectId: props.projectId,
+        sessionId: runtime.sessionId,
+      });
 
       setRequestedRecordingMode(runtime.recordingMode);
 

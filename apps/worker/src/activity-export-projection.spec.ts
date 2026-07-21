@@ -34,6 +34,53 @@ describe("projectActivityDeckForStaticExport", () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it("replaces a dynamic activity reference on a content slide for static export", async () => {
+    const deck = activityDeck();
+    deck.slides.unshift({
+      kind: "content",
+      slideId: "slide_closing_1",
+      order: 1,
+      title: "마무리",
+      thumbnailUrl: "",
+      style: {},
+      speakerNotes: "",
+      elements: [{
+        elementId: "el_activity_reference",
+        type: "activity-qr",
+        role: "media",
+        x: 700,
+        y: 300,
+        width: 320,
+        height: 320,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 1,
+        locked: false,
+        visible: true,
+        props: { activityId: "activity_1" },
+      }],
+      keywords: [],
+      semanticCues: [],
+      animations: [],
+      actions: [],
+    });
+
+    const projected = await projectActivityDeckForStaticExport(
+      { query: vi.fn() } as unknown as DataSource,
+      deck.projectId,
+      deck,
+    );
+    const closingSlide = projected.slides.find(
+      (slide) => slide.slideId === "slide_closing_1",
+    );
+
+    expect(closingSlide?.elements[0]).toMatchObject({
+      type: "text",
+      props: { text: "참여 QR 코드는 라이브 발표에서 표시됩니다." },
+    });
+    expect(JSON.stringify(projected)).not.toContain('"activity-qr"');
+  });
+
   it("exports distinct summary, chart, and approved-text layouts", async () => {
     const deck = activityDeck();
     const query = vi.fn(async (sql: string) => {

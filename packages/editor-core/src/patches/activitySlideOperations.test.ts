@@ -163,4 +163,101 @@ describe("Activity slide operations", () => {
       );
     }
   });
+
+  it("remaps reusable QR references during whole Deck duplication", () => {
+    const deck = deckWithSatisfaction();
+    const source = deck.slides.find((slide) => slide.kind === "activity");
+    const content = deck.slides.find((slide) => slide.kind === "content");
+    if (!source || !content) throw new Error("missing fixture slide");
+    const completeDeck = deckSchema.parse({
+      ...deck,
+      slides: deck.slides.map((slide) =>
+        slide.slideId === content.slideId
+          ? {
+              ...slide,
+              elements: [
+                ...slide.elements,
+                {
+                  elementId: "el_activity_qr_1",
+                  type: "activity-qr",
+                  x: 100,
+                  y: 100,
+                  width: 240,
+                  height: 240,
+                  rotation: 0,
+                  opacity: 1,
+                  zIndex: 99,
+                  locked: false,
+                  visible: true,
+                  props: { activityId: source.activity.activityId }
+                }
+              ]
+            }
+          : slide
+      )
+    });
+
+    const duplicate = remapActivityDefinitionsForDeckDuplicate(
+      completeDeck,
+      "deck_activity_qr_copy"
+    );
+    const duplicatedActivity = duplicate.slides.find((slide) => slide.kind === "activity");
+    const duplicatedQr = duplicate.slides
+      .flatMap((slide) => slide.elements)
+      .find((element) => element.type === "activity-qr");
+
+    expect(duplicatedActivity?.kind).toBe("activity");
+    expect(duplicatedQr?.type).toBe("activity-qr");
+    if (duplicatedActivity?.kind === "activity" && duplicatedQr?.type === "activity-qr") {
+      expect(duplicatedQr.props.activityId).toBe(duplicatedActivity.activity.activityId);
+    }
+  });
+
+  it("removes reusable QR elements when their Activity source is deleted", () => {
+    const deck = deckWithSatisfaction();
+    const source = deck.slides.find((slide) => slide.kind === "activity");
+    const content = deck.slides.find((slide) => slide.kind === "content");
+    if (!source || !content) throw new Error("missing fixture slide");
+    const completeDeck = deckSchema.parse({
+      ...deck,
+      slides: deck.slides.map((slide) =>
+        slide.slideId === content.slideId
+          ? {
+              ...slide,
+              elements: [
+                ...slide.elements,
+                {
+                  elementId: "el_activity_qr_delete",
+                  type: "activity-qr",
+                  x: 100,
+                  y: 100,
+                  width: 240,
+                  height: 240,
+                  rotation: 0,
+                  opacity: 1,
+                  zIndex: 99,
+                  locked: false,
+                  visible: true,
+                  props: { activityId: source.activity.activityId }
+                }
+              ]
+            }
+          : slide
+      )
+    });
+    const result = applyDeckPatch(completeDeck, {
+      deckId: completeDeck.deckId,
+      baseVersion: completeDeck.version,
+      operations: [{ type: "delete_slide", slideId: source.slideId }]
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(
+        result.deck.slides.flatMap((slide) => slide.elements).some(
+          (element) => element.type === "activity-qr"
+        )
+      ).toBe(false);
+    }
+  });
 });

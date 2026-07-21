@@ -229,7 +229,10 @@ function applyOperation(
         );
       }
 
-      deck.slides.splice(slideIndex, 1);
+      const [deletedSlide] = deck.slides.splice(slideIndex, 1);
+      if (deletedSlide.kind === "activity") {
+        removeActivityQrElements(deck, deletedSlide.activity.activityId);
+      }
       normalizeSlideOrders(deck);
       return { ok: true };
     }
@@ -673,6 +676,44 @@ function applyOperation(
 
     default:
       return unsupportedOperation(operation);
+  }
+}
+
+function removeActivityQrElements(deck: Deck, activityId: string) {
+  for (const slide of deck.slides) {
+    const removedElementIds = slide.elements
+      .filter(
+        (element) =>
+          element.type === "activity-qr" &&
+          element.props.activityId === activityId,
+      )
+      .map((element) => element.elementId);
+    if (removedElementIds.length === 0) {
+      continue;
+    }
+
+    const removedElementIdSet = new Set(removedElementIds);
+    const removedAnimationIds = slide.animations
+      .filter((animation) => removedElementIdSet.has(animation.elementId))
+      .map((animation) => animation.animationId);
+    if (
+      slide.aiNotes?.compositionPlan?.primaryFocalElementId &&
+      removedElementIdSet.has(slide.aiNotes.compositionPlan.primaryFocalElementId)
+    ) {
+      delete slide.aiNotes.compositionPlan.primaryFocalElementId;
+    }
+    slide.elements = slide.elements.filter(
+      (element) => !removedElementIdSet.has(element.elementId),
+    );
+    slide.animations = slide.animations.filter(
+      (animation) => !removedElementIdSet.has(animation.elementId),
+    );
+    const removedActionIds = removeActionsForAnimations(slide, removedAnimationIds);
+    for (const elementId of removedElementIds) {
+      removeElementFromGroups(slide, elementId);
+      removeElementReferences(slide, elementId);
+    }
+    removeActionReferences(slide, removedActionIds);
   }
 }
 

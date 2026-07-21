@@ -533,6 +533,7 @@ export function SelectionQuickBar(props: {
 function getElementTypeLabel(type: DeckElement["type"]) {
   const labels: Record<DeckElement["type"], string> = {
     arrow: "화살표",
+    "activity-qr": "참여 QR 코드",
     chart: "차트",
     customShape: "사용자 도형",
     ellipse: "타원",
