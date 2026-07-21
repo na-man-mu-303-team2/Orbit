@@ -18,6 +18,7 @@ import {
   IconArrowRight,
   IconCheck,
   IconChevronLeft,
+  IconChevronRight,
   IconChevronDown,
   IconEye,
   IconFileUpload,
@@ -447,7 +448,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
                   })}
               </div>
               <OrbitIconButton aria-label="다음 커뮤니티 프로젝트" className="workspace-community-arrow is-next" onClick={() => scrollCommunity(1)}>
-                <IconArrowRight aria-hidden="true" size={18} />
+                <IconChevronRight aria-hidden="true" size={18} />
               </OrbitIconButton>
             </div>
           </div>

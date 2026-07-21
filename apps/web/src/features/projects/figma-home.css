@@ -2225,7 +2225,8 @@
   box-shadow: 0 18px 44px color-mix(in srgb, var(--redesign-color-primary) 10%, transparent);
   grid-template-columns: minmax(0, 1fr);
   isolation: isolate;
-  padding: var(--redesign-space-8);
+  padding-block: var(--redesign-space-8);
+  padding-inline: calc(var(--redesign-space-8) + var(--redesign-size-control-md));
 }
 
 .workspace-community-carousel::before,
@@ -2269,13 +2270,13 @@
 }
 
 .workspace-community-arrow.is-previous {
-  left: var(--redesign-space-3);
+  left: var(--redesign-space-4);
   right: auto;
 }
 
 .workspace-community-arrow.is-next {
   left: auto;
-  right: var(--redesign-space-3);
+  right: var(--redesign-space-4);
 }
 
 .workspace-community-arrow:hover {
