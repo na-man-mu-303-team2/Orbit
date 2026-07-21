@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import logging
 import math
 import re
+from concurrent.futures import ThreadPoolExecutor
+from time import perf_counter
+from collections.abc import Callable
+from typing import Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.audio.analysis.models import DecodedAudio
 from app.audio.source import load_audio_content
 from app.audio.transcribe import (
     AudioTranscribeRequest,
+    ProviderTranscription,
     ReportSttProvider,
     TranscriptSegment,
     build_audio_transcribe_response,
@@ -25,6 +31,57 @@ ACTIVE_SPEECH_THRESHOLD_DB = -48.0
 MINIMUM_PAUSE_MS = 250
 MAXIMUM_TRANSCRIPT_SEGMENTS = 100
 RMS_FLOOR = 1e-6
+FILLER_VERBATIM_PROMPT_VERSION: Literal["korean-filler-verbatim-v1"] = (
+    "korean-filler-verbatim-v1"
+)
+
+logger = logging.getLogger(__name__)
+
+
+class SlidePracticeFillerVerbatimSettings(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    model: str = Field(min_length=1, max_length=100)
+    prompt: str = Field(min_length=1, max_length=4_000)
+    prompt_version: Literal["korean-filler-verbatim-v1"] = Field(
+        alias="promptVersion"
+    )
+
+
+class SlidePracticeAudioRequest(AudioTranscribeRequest):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    filler_verbatim: SlidePracticeFillerVerbatimSettings | None = Field(
+        default=None,
+        alias="fillerVerbatim",
+    )
+
+
+class SlidePracticeFillerVerbatimResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    state: Literal["succeeded", "unavailable"]
+    transcript: str | None = Field(default=None, max_length=100_000)
+    model: str = Field(min_length=1, max_length=100)
+    prompt_version: Literal["korean-filler-verbatim-v1"] = Field(
+        alias="promptVersion"
+    )
+    reason_code: Literal["FILLER_VERBATIM_UNAVAILABLE"] | None = Field(
+        alias="reasonCode"
+    )
+
+    @model_validator(mode="after")
+    def validate_state(self) -> SlidePracticeFillerVerbatimResponse:
+        if self.state == "succeeded" and (
+            self.transcript is None or self.reason_code is not None
+        ):
+            raise ValueError("succeeded filler transcription requires transcript")
+        if self.state == "unavailable" and (
+            self.transcript is not None
+            or self.reason_code != "FILLER_VERBATIM_UNAVAILABLE"
+        ):
+            raise ValueError("unavailable filler transcription requires reason code")
+        return self
 
 
 class SlidePracticeVoiceMetrics(BaseModel):
@@ -107,17 +164,44 @@ class SlidePracticeAudioResponse(BaseModel):
         alias="pauseSegments",
         max_length=MAXIMUM_TRANSCRIPT_SEGMENTS,
     )
+    filler_verbatim: SlidePracticeFillerVerbatimResponse = Field(
+        alias="fillerVerbatim"
+    )
 
 
 def process_slide_practice_audio(
-    payload: AudioTranscribeRequest,
+    payload: SlidePracticeAudioRequest,
     provider: ReportSttProvider,
+    *,
+    filler_provider: ReportSttProvider | None = None,
 ) -> SlidePracticeAudioResponse:
     """Report STT와 서버 PCM 분석을 한 원본 로드에서 수행한다."""
     from app.audio.analysis.decoder import decode_audio
 
     audio_content = load_audio_content(payload.audio)
-    provider_transcription = transcribe_audio_content(audio_content, provider)
+    filler_started_at = perf_counter()
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        primary_future = executor.submit(
+            transcribe_audio_content,
+            audio_content,
+            provider,
+            payload.pronunciation_context,
+        )
+        filler_future = (
+            executor.submit(
+                transcribe_audio_content,
+                audio_content,
+                filler_provider,
+            )
+            if payload.filler_verbatim is not None and filler_provider is not None
+            else None
+        )
+        provider_transcription = primary_future.result()
+        filler_verbatim = _resolve_filler_verbatim(
+            payload.filler_verbatim,
+            filler_future.result if filler_future is not None else None,
+            filler_started_at,
+        )
     transcription = build_audio_transcribe_response(payload, provider_transcription)
     loudness_samples: list[SlidePracticeLoudnessSample] = []
     duration_ms = int(round((transcription.duration_seconds or 0) * 1_000))
@@ -143,6 +227,60 @@ def process_slide_practice_audio(
         ),
         transcriptSegments=transcript_segments,
         pauseSegments=build_slide_practice_pause_segments(transcript_segments),
+        fillerVerbatim=filler_verbatim,
+    )
+
+
+def _resolve_filler_verbatim(
+    settings: SlidePracticeFillerVerbatimSettings | None,
+    resolve_transcription: Callable[[], ProviderTranscription] | None,
+    started_at: float,
+) -> SlidePracticeFillerVerbatimResponse:
+    model = settings.model if settings is not None else "not-configured"
+    if settings is None or resolve_transcription is None:
+        return _unavailable_filler_verbatim(model)
+
+    try:
+        transcription = resolve_transcription()
+    except Exception:
+        logger.warning(
+            "slide_practice_filler_verbatim_unavailable",
+            extra={
+                "status": "unavailable",
+                "model": model,
+                "prompt_version": settings.prompt_version,
+                "latency_ms": round((perf_counter() - started_at) * 1_000),
+            },
+        )
+        return _unavailable_filler_verbatim(model)
+
+    logger.info(
+        "slide_practice_filler_verbatim_succeeded",
+        extra={
+            "status": "succeeded",
+            "model": model,
+            "prompt_version": settings.prompt_version,
+            "latency_ms": round((perf_counter() - started_at) * 1_000),
+        },
+    )
+    return SlidePracticeFillerVerbatimResponse(
+        state="succeeded",
+        transcript=transcription.transcript,
+        model=model,
+        promptVersion=settings.prompt_version,
+        reasonCode=None,
+    )
+
+
+def _unavailable_filler_verbatim(
+    model: str,
+) -> SlidePracticeFillerVerbatimResponse:
+    return SlidePracticeFillerVerbatimResponse(
+        state="unavailable",
+        transcript=None,
+        model=model,
+        promptVersion=FILLER_VERBATIM_PROMPT_VERSION,
+        reasonCode="FILLER_VERBATIM_UNAVAILABLE",
     )
 
 

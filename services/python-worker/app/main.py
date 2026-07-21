@@ -112,6 +112,7 @@ from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
     AudioTranscriptionError,
+    OpenAISpeechToTextProvider,
     PronunciationContextTerm,
     ReportSttProviderDependency,
     TranscriptSegment,
@@ -123,6 +124,7 @@ from app.audio.processing import (
     process_rehearsal_audio,
 )
 from app.audio.slide_practice import (
+    SlidePracticeAudioRequest,
     SlidePracticeAudioResponse,
     process_slide_practice_audio,
 )
@@ -848,11 +850,27 @@ def process_rehearsal_audio_endpoint(
 
 @app.post("/slide-practice/analyze-audio", response_model=SlidePracticeAudioResponse)
 def process_slide_practice_audio_endpoint(
-    payload: AudioTranscribeRequest,
+    payload: SlidePracticeAudioRequest,
     provider: ReportSttProviderDependency,
+    request: Request,
 ) -> SlidePracticeAudioResponse:
+    config = _config(request)
+    filler_provider = (
+        OpenAISpeechToTextProvider(
+            api_key=config.openai_api_key,
+            model=payload.filler_verbatim.model,
+            language=config.transcribe_language_code,
+            prompt=payload.filler_verbatim.prompt,
+        )
+        if payload.filler_verbatim is not None and config.openai_api_key
+        else None
+    )
     try:
-        return process_slide_practice_audio(payload, provider)
+        return process_slide_practice_audio(
+            payload,
+            provider,
+            filler_provider=filler_provider,
+        )
     except AudioTranscriptionError as exc:
         raise to_http_exception(exc) from exc
 

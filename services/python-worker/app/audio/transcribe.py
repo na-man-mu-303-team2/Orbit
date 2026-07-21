@@ -94,10 +94,18 @@ SpeechToTextProvider = ReportSttProvider
 class OpenAISpeechToTextProvider:
     name = "openai"
 
-    def __init__(self, *, api_key: str, model: str, language: str) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        language: str,
+        prompt: str | None = None,
+    ) -> None:
         self.model = model
         self._api_key = api_key
         self._language = language
+        self._prompt = prompt
 
     def transcribe(
         self,
@@ -116,7 +124,9 @@ class OpenAISpeechToTextProvider:
                 "language": _openai_language(self._language),
                 "response_format": _openai_response_format(self.model),
             }
-            prompt = _build_openai_pronunciation_prompt(pronunciation_context or [])
+            prompt = self._prompt or _build_openai_pronunciation_prompt(
+                pronunciation_context or []
+            )
             if prompt:
                 request_options["prompt"] = prompt
             result: Any = client.audio.transcriptions.create(

@@ -1,14 +1,159 @@
 import numpy as np
+import pytest
 
+from app.audio import slide_practice
 from app.audio.analysis.models import DecodedAudio
+from app.audio.models import AudioContent
 from app.audio.slide_practice import (
+    SlidePracticeAudioRequest,
     analyze_slide_practice_voice,
     build_slide_practice_loudness_samples,
     build_slide_practice_pause_segments,
     build_slide_practice_speed_samples,
     build_slide_practice_transcript_segments,
+    process_slide_practice_audio,
 )
-from app.audio.transcribe import TranscriptSegment
+from app.audio.transcribe import (
+    AudioTranscriptionError,
+    ProviderTranscription,
+    TranscriptSegment,
+)
+
+
+class FakeProvider:
+    name = "fake"
+
+    def __init__(self, transcript: str, *, model: str) -> None:
+        self.transcript = transcript
+        self.model = model
+        self.calls: list[AudioContent] = []
+
+    def transcribe(self, audio: AudioContent, pronunciation_context=None):
+        self.calls.append(audio)
+        return ProviderTranscription(
+            transcript=self.transcript,
+            language="ko",
+            provider=self.name,
+            model=self.model,
+            duration_seconds=4,
+            segments=[TranscriptSegment(text=self.transcript, startSeconds=0, endSeconds=4)],
+        )
+
+
+class FailingProvider:
+    name = "fake"
+    model = "failing-model"
+
+    def transcribe(self, audio: AudioContent, pronunciation_context=None):
+        raise RuntimeError(f"failed for {audio.file_name}")
+
+
+def _slide_request() -> SlidePracticeAudioRequest:
+    return SlidePracticeAudioRequest.model_validate({
+        "runId": "run-1",
+        "projectId": "project-1",
+        "audio": {
+            "fileId": "file-1",
+            "storageUrl": "/unused/rehearsal.webm",
+            "mimeType": "audio/webm",
+        },
+        "fillerVerbatim": {
+            "model": "gpt-4o-mini-transcribe",
+            "prompt": "음, 어, 반복과 말더듬을 그대로 보존하세요.",
+            "promptVersion": "korean-filler-verbatim-v1",
+        },
+    })
+
+
+def test_runs_primary_and_filler_transcription_once_from_one_audio_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    audio = AudioContent(
+        data=b"shared audio",
+        file_name="rehearsal.webm",
+        mime_type="audio/webm",
+    )
+    load_calls = 0
+
+    def fake_load(_reference):
+        nonlocal load_calls
+        load_calls += 1
+        return audio
+
+    monkeypatch.setattr(slide_practice, "load_audio_content", fake_load)
+    monkeypatch.setattr(
+        "app.audio.analysis.decoder.decode_audio",
+        lambda _audio: DecodedAudio(
+            samples=np.asarray([], dtype=np.float32),
+            sample_rate_hz=16_000,
+            duration_seconds=4,
+        ),
+    )
+    primary = FakeProvider("발표를 시작합니다", model="whisper-1")
+    filler = FakeProvider("음 어 발표를 시작합니다", model="gpt-4o-mini-transcribe")
+
+    result = process_slide_practice_audio(
+        _slide_request(),
+        primary,
+        filler_provider=filler,
+    )
+
+    assert load_calls == 1
+    assert primary.calls == [audio]
+    assert filler.calls == [audio]
+    assert result.transcript == "발표를 시작합니다"
+    assert result.filler_verbatim.transcript == "음 어 발표를 시작합니다"
+    assert result.filler_verbatim.state == "succeeded"
+
+
+def test_keeps_primary_analysis_when_filler_transcription_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        slide_practice,
+        "load_audio_content",
+        lambda _reference: AudioContent(
+            data=b"shared audio",
+            file_name="rehearsal.webm",
+            mime_type="audio/webm",
+        ),
+    )
+    primary = FakeProvider("발표를 시작합니다", model="whisper-1")
+
+    result = process_slide_practice_audio(
+        _slide_request(),
+        primary,
+        filler_provider=FailingProvider(),
+    )
+
+    assert result.transcript == "발표를 시작합니다"
+    assert result.filler_verbatim.state == "unavailable"
+    assert result.filler_verbatim.transcript is None
+    assert result.filler_verbatim.reason_code == "FILLER_VERBATIM_UNAVAILABLE"
+
+
+def test_primary_transcription_failure_still_fails_the_analysis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        slide_practice,
+        "load_audio_content",
+        lambda _reference: AudioContent(
+            data=b"shared audio",
+            file_name="rehearsal.webm",
+            mime_type="audio/webm",
+        ),
+    )
+
+    with pytest.raises(AudioTranscriptionError):
+        process_slide_practice_audio(
+            _slide_request(),
+            FailingProvider(),
+            filler_provider=FakeProvider(
+                "음 어 발표를 시작합니다",
+                model="gpt-4o-mini-transcribe",
+            ),
+        )
 
 
 def test_analyzes_server_pcm_with_browser_compatible_metric_ranges() -> None:

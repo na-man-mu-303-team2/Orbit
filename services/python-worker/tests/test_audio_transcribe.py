@@ -307,6 +307,41 @@ def test_openai_stt_uses_bounded_pronunciation_context_as_prompt(
     )
 
 
+def test_openai_stt_applies_explicit_filler_verbatim_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeTranscriptions:
+        def create(self, **kwargs: object) -> dict[str, str]:
+            calls.append(kwargs)
+            return {"text": "음 어 어 발표를 시작합니다"}
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key: str) -> None:
+            self.audio = SimpleNamespace(transcriptions=FakeTranscriptions())
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    prompt = "음, 어, 반복과 말더듬을 그대로 보존하세요. 존재하지 않으면 만들지 마세요."
+    provider = OpenAISpeechToTextProvider(
+        api_key="test-key",
+        model="gpt-4o-mini-transcribe",
+        language="ko-KR",
+        prompt=prompt,
+    )
+
+    result = provider.transcribe(
+        AudioContent(
+            data=b"fake webm bytes",
+            file_name="rehearsal.webm",
+            mime_type="audio/webm",
+        )
+    )
+
+    assert calls[0]["prompt"] == prompt
+    assert result.transcript == "음 어 어 발표를 시작합니다"
+
+
 def test_whisper1_uses_verbose_json_and_parses_segments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
