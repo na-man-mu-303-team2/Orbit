@@ -35,7 +35,7 @@ export function SpeakerNotesPanel(props: SpeakerNotesScriptTabProps & {
   celebrationSessionId: string | null;
   contentRef: RefObject<HTMLDivElement | null>;
   deck: Deck;
-  flushPendingSaves: () => Promise<void>;
+  flushPendingSaves: () => Promise<Deck>;
   height: number;
   isExpanded: boolean;
   isMaximized: boolean;

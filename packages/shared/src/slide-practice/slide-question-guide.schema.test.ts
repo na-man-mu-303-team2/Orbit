@@ -4,6 +4,8 @@ import type { Slide } from "../deck/deck.schema";
 import {
   autoCreateSlideQuestionGuidesRequestSchema,
   autoCreateSlideQuestionGuidesResponseSchema,
+  createSlideQuestionGuideRequestSchema,
+  slideQuestionGuideDeckTextHashInput,
   slideQuestionGuideDeckContextSlideSchema,
   slideQuestionGuideJobPayloadSchema,
   slideQuestionGuideJobResultSchema,
@@ -46,6 +48,41 @@ describe("slide question guide privacy contract", () => {
     }).success).toBe(true);
   });
 
+  it("accepts hash-aware requests and rejects incomplete hash pairs", () => {
+    const manual = {
+      clientRequestId: "manual-request-1",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      expectedDeckVersion: 3,
+      questionCount: 3,
+    };
+    const automatic = {
+      clientRequestId: "auto-request-1",
+      deckId: "deck-1",
+      expectedDeckVersion: 3,
+      questionCount: 3,
+    };
+
+    expect(createSlideQuestionGuideRequestSchema.safeParse({
+      ...manual,
+      contentHashVersion: "slide-text-v1",
+      expectedSlideContentHash: "a".repeat(64),
+    }).success).toBe(true);
+    expect(createSlideQuestionGuideRequestSchema.safeParse({
+      ...manual,
+      contentHashVersion: "slide-text-v1",
+    }).success).toBe(false);
+    expect(autoCreateSlideQuestionGuidesRequestSchema.safeParse({
+      ...automatic,
+      contentHashVersion: "slide-text-v1",
+      expectedDeckTextHash: "b".repeat(64),
+    }).success).toBe(true);
+    expect(autoCreateSlideQuestionGuidesRequestSchema.safeParse({
+      ...automatic,
+      expectedDeckTextHash: "not-a-hash",
+    }).success).toBe(false);
+  });
+
   it("accepts frozen and legacy source snapshots", () => {
     const legacy = {
       slideId: "slide-1",
@@ -81,6 +118,35 @@ describe("slide question guide privacy contract", () => {
     );
     expect(slideQuestionGuideTextHashInput(textEdit)).not.toEqual(
       slideQuestionGuideTextHashInput(slide),
+    );
+  });
+
+  it("builds deck text freshness from slide identity, order, and canonical text only", () => {
+    const slide = {
+      slideId: "slide-1",
+      order: 1,
+      title: "시장 진입 전략",
+      speakerNotes: "교육 시장을 우선 검증합니다.",
+      style: { backgroundColor: "#ffffff" },
+      elements: [{ props: { text: "첫 고객군", color: "#111111" } }],
+    } as Slide;
+    const deck = { slides: [slide] } as Parameters<typeof slideQuestionGuideDeckTextHashInput>[0];
+    const visualEdit = {
+      slides: [{
+        ...slide,
+        style: { backgroundColor: "#000000" },
+        elements: [{ props: { text: "첫 고객군", color: "#ffffff" } }],
+      }],
+    } as Parameters<typeof slideQuestionGuideDeckTextHashInput>[0];
+    const textEdit = {
+      slides: [{ ...slide, speakerNotes: "수정된 발표자 노트" }],
+    } as Parameters<typeof slideQuestionGuideDeckTextHashInput>[0];
+
+    expect(slideQuestionGuideDeckTextHashInput(visualEdit)).toEqual(
+      slideQuestionGuideDeckTextHashInput(deck),
+    );
+    expect(slideQuestionGuideDeckTextHashInput(textEdit)).not.toEqual(
+      slideQuestionGuideDeckTextHashInput(deck),
     );
   });
 

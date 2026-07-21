@@ -510,6 +510,7 @@ export function EditorShell(props: { projectId?: string }) {
     applyPersistedDeck,
     commitPatch,
     flush: flushPendingSavesBeforeManualAction,
+    flushAndGetPersistedDeck,
     flushPendingSaveBatch,
     flushScheduledUndoRedoPersist,
     setLastPatchLabel,
@@ -602,7 +603,7 @@ export function EditorShell(props: { projectId?: string }) {
       (slide) => slide.slideId === slideRehearsalState.activeSlideId
     ) ?? currentSlide;
   const slidePracticeSession = useSlidePracticeSession({
-    beforeStart: flushPendingSavesBeforeManualAction,
+    beforeStart: flushAndGetPersistedDeck,
     projectId,
     deckId: deck.deckId,
     deckVersion: deck.version,
@@ -2363,7 +2364,7 @@ export function EditorShell(props: { projectId?: string }) {
                 currentSlide={currentSlide}
                 deck={deck}
                 draft={speakerNotesDraft}
-                flushPendingSaves={flushPendingSavesBeforeManualAction}
+                flushPendingSaves={flushAndGetPersistedDeck}
                 guidance={speakerNotesLengthGuidance}
                 height={speakerNotesPanelHeight}
                 isEditing={isSpeakerNotesEditing}

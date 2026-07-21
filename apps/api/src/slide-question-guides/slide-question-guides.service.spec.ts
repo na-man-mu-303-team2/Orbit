@@ -1,4 +1,9 @@
-import { deckSchema, type Job } from "@orbit/shared";
+import {
+  deckSchema,
+  slideQuestionGuideDeckTextHashInput,
+  slideQuestionGuideTextHashInput,
+  type Job,
+} from "@orbit/shared";
 import { ForbiddenException } from "@nestjs/common";
 import type { DataSource } from "typeorm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,6 +23,71 @@ vi.mock("@orbit/job-queue", () => ({
 }));
 
 import { SlideQuestionGuidesService } from "./slide-question-guides.service";
+import { sha256Canonical } from "../practice-goals/evaluation-plan";
+
+describe("SlideQuestionGuidesService freshness", () => {
+  beforeEach(() => {
+    mocks.config.SLIDE_QUESTION_GUIDES_ENABLED = true;
+    mocks.enqueue.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("accepts a stale manual version when the target slide text hash matches", async () => {
+    const harness = createHarness();
+    const slide = harness.deck.slides[0]!;
+
+    await harness.service.create("project-1", "user-1", {
+      clientRequestId: "manual-hash-match",
+      deckId: harness.deck.deckId,
+      slideId: slide.slideId,
+      expectedDeckVersion: harness.deck.version - 1,
+      contentHashVersion: "slide-text-v1",
+      expectedSlideContentHash: sha256Canonical(slideQuestionGuideTextHashInput(slide)),
+      questionCount: 3,
+    });
+
+    expect(harness.sourceSnapshots[0]).toMatchObject({
+      deckVersion: harness.deck.version,
+      slideId: slide.slideId,
+    });
+    expect(harness.decksService.getOrCreateSnapshot).toHaveBeenCalledWith(harness.deck);
+  });
+
+  it("rejects a manual request when the target slide text hash changed", async () => {
+    const harness = createHarness();
+    const slide = harness.deck.slides[0]!;
+
+    await expect(harness.service.create("project-1", "user-1", {
+      clientRequestId: "manual-hash-mismatch",
+      deckId: harness.deck.deckId,
+      slideId: slide.slideId,
+      expectedDeckVersion: harness.deck.version - 1,
+      contentHashVersion: "slide-text-v1",
+      expectedSlideContentHash: "f".repeat(64),
+      questionCount: 3,
+    })).rejects.toMatchObject({
+      response: { code: "SLIDE_QUESTION_CONTENT_HASH_MISMATCH" },
+    });
+    expect(harness.jobsService.create).not.toHaveBeenCalled();
+  });
+
+  it("accepts a stale automatic version when the full deck text hash matches", async () => {
+    const harness = createHarness();
+
+    const response = await harness.service.autoCreate("project-1", "user-1", {
+      clientRequestId: "auto-hash-match",
+      deckId: harness.deck.deckId,
+      expectedDeckVersion: harness.deck.version - 1,
+      contentHashVersion: "slide-text-v1",
+      expectedDeckTextHash: sha256Canonical(slideQuestionGuideDeckTextHashInput(harness.deck)),
+      questionCount: 3,
+    });
+
+    expect(response.deckVersion).toBe(harness.deck.version);
+    expect(harness.sourceSnapshots.every(
+      (snapshot) => snapshot.deckVersion === harness.deck.version,
+    )).toBe(true);
+  });
+});
 
 describe("SlideQuestionGuidesService auto batch", () => {
   beforeEach(() => {

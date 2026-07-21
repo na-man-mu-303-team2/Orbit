@@ -55,6 +55,46 @@ describe("SlidePracticeService content hash", () => {
     expect(harness.insertedAnalysisParameters[10]).toBe(expectedHash);
   });
 
+  it("accepts a stale deck version when the target slide text hash is unchanged", async () => {
+    const harness = createHarness({ persistAnalysis: true });
+    const slide = harness.deck.slides[0]!;
+    const expectedHash = sha256Canonical(slideQuestionGuideTextHashInput(slide));
+    const request = {
+      ...analysisRequest(harness.deck, expectedHash),
+      deckVersion: harness.deck.version + 4,
+      slideOrder: slide.order + 3,
+    };
+
+    await harness.service.createAnalysis(
+      harness.deck.projectId,
+      "user-1",
+      request,
+    );
+
+    expect(harness.insertedAnalysisParameters[6]).toBe(harness.deck.version);
+    expect(harness.insertedAnalysisParameters[8]).toBe(slide.order);
+    expect(harness.files.createUploadUrl).toHaveBeenCalledOnce();
+  });
+
+  it("keeps strict deck version validation for legacy clients without a content hash", async () => {
+    const harness = createHarness();
+    const request = {
+      ...analysisRequest(harness.deck, "a".repeat(64)),
+      deckVersion: harness.deck.version + 1,
+    } as Record<string, unknown>;
+    delete request.contentHashVersion;
+    delete request.slideContentHash;
+
+    await expect(harness.service.createAnalysis(
+      harness.deck.projectId,
+      "user-1",
+      request,
+    )).rejects.toMatchObject({
+      response: { code: "SLIDE_PRACTICE_DECK_VERSION_MISMATCH" },
+    });
+    expect(harness.files.createUploadUrl).not.toHaveBeenCalled();
+  });
+
   it("rejects a stale v3 report hash against the current deck", async () => {
     const harness = createHarness();
     const slide = harness.deck.slides[0]!;

@@ -1,3 +1,4 @@
+import { createDemoDeck } from "@orbit/editor-core";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -11,6 +12,7 @@ import {
 import { countSpokenSyllables } from "./fillerAnalyzer";
 import {
   createPracticeTranscriptState,
+  createSlidePracticeSessionSnapshot,
   finalizePracticeTranscript,
   getSlidePracticeErrorMessage,
   prepareSlidePracticeStart,
@@ -20,6 +22,33 @@ import {
   slidePracticeRuntimeUnavailableMessage,
   updatePracticeTranscript,
 } from "./useSlidePracticeSession";
+
+describe("slide practice persisted snapshot", () => {
+  it("uses the acknowledged deck version and slide order after a save flush", async () => {
+    const initial = createDemoDeck();
+    const slide = initial.slides[0]!;
+    const acknowledged = {
+      ...initial,
+      version: initial.version + 2,
+      slides: initial.slides.map((candidate) => (
+        candidate.slideId === slide.slideId
+          ? { ...candidate, order: candidate.order + 1 }
+          : candidate
+      )),
+    };
+
+    const snapshot = await createSlidePracticeSessionSnapshot({
+      deck: acknowledged,
+      practiceSessionId: "practice-1",
+      slideId: slide.slideId,
+      startedAt: "2026-07-21T00:00:00.000Z",
+    });
+
+    expect(snapshot.deckVersion).toBe(acknowledged.version);
+    expect(snapshot.slideOrder).toBe(slide.order + 1);
+    expect(snapshot.slideContentHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+});
 
 describe("slide practice transcript finalization", () => {
   it("final 없이 종료된 마지막 interim 전사를 분석 입력으로 보존한다", () => {
@@ -114,7 +143,11 @@ describe("slide practice feature gate guidance", () => {
         calls.push("audio-start");
         return "stream";
       },
-    })).resolves.toEqual({ deviceIdHash: "device-hash", stream: "stream" });
+    })).resolves.toEqual({
+      beforeStartResult: undefined,
+      deviceIdHash: "device-hash",
+      stream: "stream",
+    });
 
     expect(calls).toEqual(["before-start", "device-id", "audio-start"]);
   });

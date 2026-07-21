@@ -362,6 +362,25 @@ export function useEditorDocumentController(args: {
     });
   }
 
+  async function flushAndGetPersistedDeck(): Promise<Deck> {
+    await flush();
+    const persistedDeck = persistedBaseDeckRef.current ?? args.persistedDeck;
+    if (!persistedDeck) {
+      throw withSaveErrorCode(
+        new Error("최신 저장 상태를 찾지 못했습니다. 다시 불러온 뒤 저장해 주세요."),
+        "missing-persisted-base"
+      );
+    }
+    if (!shouldApplyManualSaveResult({
+      snapshotDeck: persistedDeck,
+      currentDeck: workingDeckRef.current
+    })) {
+      throw new Error("저장 중 편집 내용이 변경되었습니다. 저장 후 다시 시도해 주세요.");
+    }
+    applyPersistedDeck(persistedDeck);
+    return persistedDeck;
+  }
+
   async function save(commitPendingNotes: () => boolean | undefined) {
     const activeProjectId = workingDeckRef.current.projectId || args.persistedDeck?.projectId;
     if (!activeProjectId) {
@@ -495,6 +514,7 @@ export function useEditorDocumentController(args: {
       applyPersistedDeck,
       commitPatch,
       flush,
+      flushAndGetPersistedDeck,
       flushPendingSaveBatch,
       flushScheduledUndoRedoPersist,
       hasUnsavedChanges,
