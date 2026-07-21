@@ -5,8 +5,9 @@ docker compose up -d postgres redis private-evidence-redis minio minio-init
 until docker compose exec -T postgres pg_isready -U orbit -d orbit >/dev/null 2>&1; do sleep 1; done
 until docker compose exec -T redis redis-cli ping 2>/dev/null | grep -q PONG; do sleep 1; done
 until docker compose exec -T private-evidence-redis redis-cli ping 2>/dev/null | grep -q PONG; do sleep 1; done
-pnpm --filter @orbit/api test
-pnpm --filter @orbit/worker test
+
+# 통합 vitest가 @orbit/editor-core 등 워크스페이스 패키지의 빌드 산출물(dist)에 의존하므로 먼저 빌드한다.
+pnpm --filter "@orbit/worker^..." build
 
 python_port="${PPTX_INTEGRATION_PYTHON_PORT:-18080}"
 python_url="http://127.0.0.1:${python_port}"
