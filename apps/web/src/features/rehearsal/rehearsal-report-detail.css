@@ -34,7 +34,8 @@
 .rrd-root .rrd-hero-date { color: var(--redesign-color-on-surface-variant); display: block; font-size: var(--redesign-type-body-sm-size); margin: var(--redesign-space-1) 0 0; }
 .rrd-hero-status { align-items: center; color: var(--redesign-color-success); display: inline-flex; font-size: var(--redesign-type-body-sm-size); font-weight: 800; gap: var(--redesign-space-2); margin-top: var(--redesign-space-1); }
 .rrd-hero-status i { background: var(--redesign-color-success); border-radius: var(--redesign-radius-full); height: var(--redesign-space-2); width: var(--redesign-space-2); }
-.rrd-root .rrd-hero-action { flex: 0 0 auto; }
+.rrd-root .rrd-hero-actions .redesign-button-secondary { background: var(--redesign-color-surface-container-lowest); }
+.rrd-root .rrd-hero-action { border-radius: var(--redesign-radius); flex: 0 0 auto; }
 .rrd-analysis-tabs { align-items: center; background: var(--redesign-color-surface-container-low); border: 1px solid var(--redesign-color-outline-variant); border-radius: var(--redesign-radius-xl); display: flex; gap: var(--redesign-space-7); padding: 0 var(--redesign-space-4); }
 .rrd-analysis-tabs button { background: transparent; border: 0; color: var(--redesign-color-on-surface-variant); cursor: pointer; font: inherit; font-size: var(--redesign-type-body-md-size); font-weight: 750; margin-bottom: -1px; padding: var(--redesign-space-3) 2px var(--redesign-space-3); position: relative; }
 .rrd-analysis-tabs button::after { background: var(--redesign-color-primary-emphasis); border-radius: var(--redesign-radius-full); bottom: 0; content: ""; height: calc(var(--redesign-border-width) * 3); left: 0; opacity: 0; position: absolute; transform: scaleX(.5); transition: opacity var(--redesign-duration-fast) var(--redesign-ease-standard), transform var(--redesign-duration-fast) var(--redesign-ease-standard); width: 100%; }
@@ -143,7 +144,7 @@ body .rehearsal-report-page .rehearsal-report-nav-history .rehearsal-report-nav-
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-item.active {
-  background: var(--redesign-color-primary-emphasis);
+  background: var(--redesign-color-primary);
   box-shadow: var(--redesign-glow-secondary);
   color: var(--redesign-color-on-primary);
 }
