@@ -480,6 +480,10 @@ export class CommunityTemplatesService {
     const orderBy =
       query.sort === "latest"
         ? "created_at DESC, template_id DESC"
+        : query.sort === "views"
+          ? "view_count DESC, created_at DESC, template_id DESC"
+          : query.sort === "likes"
+            ? "like_count DESC, created_at DESC, template_id DESC"
         : query.sort === "recommended"
           ? "((like_count * 3 + comment_count * 2 + use_count * 2 + view_count + share_count * 2) / POWER(EXTRACT(EPOCH FROM (now() - created_at)) / 86400 + 2, 0.45)) DESC, created_at DESC"
           : "(like_count * 3 + comment_count * 2 + use_count * 2 + view_count + share_count * 2) DESC, created_at DESC";

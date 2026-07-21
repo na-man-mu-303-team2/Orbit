@@ -14,6 +14,8 @@ export const communityTemplateSortSchema = z.enum([
   "popular",
   "latest",
   "recommended",
+  "views",
+  "likes",
 ]);
 
 export const communityTemplateAuthorSchema = z

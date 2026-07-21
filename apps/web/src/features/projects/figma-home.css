@@ -1748,6 +1748,36 @@
   display: none;
 }
 
+.workspace-community-state {
+  display: grid;
+  width: 100%;
+  min-height: 210px;
+  flex: 1 0 100%;
+  place-content: center;
+  justify-items: center;
+  gap: var(--redesign-space-2);
+  border: 1px dashed var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
+  background: color-mix(in srgb, var(--redesign-color-surface) 72%, transparent);
+  color: var(--redesign-color-on-surface-variant);
+  text-align: center;
+}
+
+.workspace-community-state strong { color: var(--redesign-color-on-surface); }
+
+.workspace-community-author-fallback {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--redesign-color-primary-container);
+  color: var(--redesign-color-on-primary-container);
+  font-size: var(--redesign-type-label-xs-size);
+  font-weight: 750;
+}
+
 .workspace-community-card,
 .workspace-community-card.is-featured {
   display: flex;

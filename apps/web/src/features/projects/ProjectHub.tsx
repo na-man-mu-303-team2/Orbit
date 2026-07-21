@@ -32,8 +32,6 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import {
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -55,7 +53,6 @@ import { uploadAndImportPptxTemplate } from "../editor/shell/api/editorJobApi";
 import {
   createProjectTagDefinition,
   fetchProjectTagDefinitions,
-  officialAvatarIds,
   projectTagDefinitionsQueryKey,
 } from "../auth/auth-session";
 import {
@@ -78,6 +75,8 @@ import { ProjectTagChip } from "./ProjectTagChip";
 import { CommunityTemplateGalleryDialog } from "../community-templates/CommunityTemplateGalleryDialog";
 import { CommunityTemplatePublishToast } from "../community-templates/CommunityTemplatePublishToast";
 import { PublishCommunityTemplateDialog } from "../community-templates/PublishCommunityTemplateDialog";
+import { CommunityTemplatePreview } from "../community-templates/CommunityTemplatePreview";
+import { fetchCommunityDiscover } from "../community-templates/communitySocialApi";
 import {
   createCommunityTemplateApplyAttempt,
   executeCommunityTemplateApply,
@@ -89,8 +88,6 @@ import {
   useCommunityTemplate,
 } from "../community-templates/communityTemplateApi";
 
-const ProjectSlidePreview = lazy(() => import("./ProjectSlidePreview"));
-
 type ProjectHubProps = {
   onNavigate: (path: string) => void;
 };
@@ -99,28 +96,6 @@ type ProjectSort = ProjectListSort;
 type ProjectViewMode = "grid" | "list";
 const maxProjectTags = 12;
 const maxTagLength = 20;
-const communityTitles = [
-  "AI와 미래",
-  "지속가능한 브랜드 전략",
-  "MZ세대의 소비 트렌드",
-  "우주 탐사의 현재와 미래",
-  "효과적인 프레젠테이션",
-];
-const communityAuthors = ["김지훈", "이서연", "박소담", "최민우", "정하늘"];
-const communityDescriptions = [
-  "변화하는 기술, 우리의 삶",
-  "지속 가능한 성장을 위한 접근",
-  "2026 인사이트 리포트",
-  "인류의 새로운 도전",
-  "설득력을 높이는 디자인과 스토리",
-];
-const communityStats = [
-  { likes: "256", views: "18.2k" },
-  { likes: "198", views: "12.7k" },
-  { likes: "142", views: "9.4k" },
-  { likes: "131", views: "7.8k" },
-  { likes: "97", views: "6.1k" },
-];
 const projectTagColorOptions: Array<{ label: string; value: ProjectTagColor }> = [
   { label: "노랑", value: "yellow" },
   { label: "파랑", value: "blue" },
@@ -165,23 +140,25 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
     queryFn: () => fetchProjectTagDefinitions(),
     retry: false,
   });
+  const communityTemplates = useQuery({
+    queryKey: ["community", "home", "latest"],
+    queryFn: () =>
+      fetchCommunityDiscover({
+        sort: "latest",
+        page: 1,
+        limit: 6,
+      }),
+    retry: false,
+    staleTime: 60_000,
+  });
 
   const loadedProjects = useMemo(
     () => projects.data?.pages.flatMap((page) => page.items) ?? [],
     [projects.data],
   );
-  const communityProjects = useMemo(
-    () => loadedProjects.slice(0, 5),
-    [loadedProjects],
-  );
   const communityItems = useMemo(
-    () => communityTitles.map((_, index) => ({
-      authorIndex: index,
-      project: communityProjects.length > 0
-        ? communityProjects[index % communityProjects.length]
-        : null,
-    })),
-    [communityProjects],
+    () => communityTemplates.data?.items ?? [],
+    [communityTemplates.data],
   );
   useEffect(() => {
     const track = communityTrackRef.current;
@@ -432,45 +409,52 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
                 <IconChevronLeft aria-hidden="true" size={18} />
               </OrbitIconButton>
               <div className="workspace-community-track" ref={communityTrackRef}>
-                {[...communityItems, ...communityItems].map(({ authorIndex, project }, index) => {
-                  const stat = communityStats[authorIndex];
-                  const isDuplicate = index >= communityItems.length;
-                  return (
-                    <button
-                      aria-hidden={isDuplicate || undefined}
-                      aria-label={`${communityTitles[authorIndex]} 커뮤니티 발표자료`}
-                      className={`workspace-community-card${index % communityItems.length === 0 ? " is-featured" : ""}`}
-                      key={`${isDuplicate ? "duplicate" : "original"}-${authorIndex}-${project?.projectId ?? "sample"}`}
-                      onClick={project ? () => props.onNavigate(projectPath(project)) : undefined}
-                      tabIndex={isDuplicate ? -1 : 0}
-                      type="button"
-                    >
-                      <span className="workspace-community-index">{String(authorIndex + 1).padStart(2, "0")}</span>
-                      <span className="workspace-community-preview">
-                        <span className="workspace-community-preview-fallback"><IconSparkles aria-hidden="true" size={28} stroke={1.5} /></span>
-                        {project ? (
-                          <Suspense fallback={null}>
-                            <ProjectSlidePreview className="workspace-community-preview-canvas" projectId={project.projectId} />
-                          </Suspense>
-                        ) : null}
-                        <span className="workspace-community-preview-copy">
-                          <strong>{communityTitles[authorIndex]}</strong>
-                          <small>{communityDescriptions[authorIndex]}</small>
+                {communityTemplates.isLoading ? (
+                  <div className="workspace-community-state" role="status">최근 공개 자료를 불러오는 중입니다.</div>
+                ) : communityItems.length === 0 ? (
+                  <div className="workspace-community-state">
+                    <strong>아직 공개된 발표 프로젝트가 없습니다.</strong>
+                    <span>첫 프로젝트를 공유해 커뮤니티를 시작해 보세요.</span>
+                  </div>
+                ) : [...communityItems, ...communityItems].map((card, index) => {
+                    const itemIndex = index % communityItems.length;
+                    const isDuplicate = index >= communityItems.length;
+                    return (
+                      <button
+                        aria-hidden={isDuplicate || undefined}
+                        aria-label={`${card.title} 커뮤니티 발표자료`}
+                        className={`workspace-community-card${itemIndex === 0 ? " is-featured" : ""}`}
+                        key={`${isDuplicate ? "duplicate" : "original"}-${card.templateId}`}
+                        onClick={() => props.onNavigate(`/community/${encodeURIComponent(card.templateId)}`)}
+                        tabIndex={isDuplicate ? -1 : 0}
+                        type="button"
+                      >
+                        <span className="workspace-community-index">{String(itemIndex + 1).padStart(2, "0")}</span>
+                        <span className="workspace-community-preview">
+                          <span className="workspace-community-preview-fallback"><IconSparkles aria-hidden="true" size={28} stroke={1.5} /></span>
+                          <CommunityTemplatePreview card={card} className="workspace-community-preview-canvas" />
+                          <span className="workspace-community-preview-copy">
+                            <strong>{card.title}</strong>
+                            <small>{card.description || "새롭게 공개된 발표 프로젝트"}</small>
+                          </span>
                         </span>
-                      </span>
-                      <span className="workspace-community-meta">
-                        <small>
-                          <img alt="" src={`/avatars/${officialAvatarIds[authorIndex]}.png`} />
-                          <span>{communityAuthors[authorIndex]}</span>
-                        </small>
-                        <span className="workspace-community-stats">
-                          <span><IconEye aria-hidden="true" size={13} />{stat.views}</span>
-                          <span><IconHeartFilled aria-hidden="true" size={12} />{stat.likes}</span>
+                        <span className="workspace-community-meta">
+                          <small>
+                            {card.author.avatarUrl ? (
+                              <img alt="" src={card.author.avatarUrl} />
+                            ) : (
+                              <span className="workspace-community-author-fallback" aria-hidden="true">{card.author.displayName.slice(0, 1)}</span>
+                            )}
+                            <span>{card.author.displayName}</span>
+                          </small>
+                          <span className="workspace-community-stats">
+                            <span><IconEye aria-hidden="true" size={13} />{formatCommunityCount(card.stats.viewCount)}</span>
+                            <span><IconHeartFilled aria-hidden="true" size={12} />{formatCommunityCount(card.stats.likeCount)}</span>
+                          </span>
                         </span>
-                      </span>
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  })}
               </div>
               <OrbitIconButton aria-label="다음 커뮤니티 프로젝트" className="workspace-community-arrow is-next" onClick={() => scrollCommunity(1)}>
                 <IconArrowRight aria-hidden="true" size={18} />
@@ -726,6 +710,12 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
       ) : null}
     </main>
   );
+}
+
+function formatCommunityCount(value: number) {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return String(value);
 }
 
 function useProjectList(input: Omit<ProjectPageRequest, "limit" | "page">) {
