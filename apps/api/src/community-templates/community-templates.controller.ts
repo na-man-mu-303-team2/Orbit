@@ -14,6 +14,7 @@ import {
   communityTemplateCommentIdSchema,
   communityTemplateCommentListQuerySchema,
   communityTemplateCommentMutationSchema,
+  communityTemplateTagListQuerySchema,
   communityTemplateDiscoverQuerySchema,
   communityTemplateIdSchema,
   communityTemplateListQuerySchema,
@@ -63,6 +64,20 @@ export class CommunityTemplatesController {
     return this.service.discover(
       parseRequest(communityTemplateDiscoverQuerySchema, query ?? {}),
       user.userId,
+    );
+  }
+
+  @Get("categories")
+  async categories(@Req() request: SignedCookieRequest) {
+    await getCurrentUser(this.authService, request);
+    return this.service.listCategories();
+  }
+
+  @Get("tags")
+  async tags(@Query() query: unknown, @Req() request: SignedCookieRequest) {
+    await getCurrentUser(this.authService, request);
+    return this.service.listTags(
+      parseRequest(communityTemplateTagListQuerySchema, query ?? {}),
     );
   }
 

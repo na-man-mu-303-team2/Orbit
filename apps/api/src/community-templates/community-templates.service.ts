@@ -8,6 +8,7 @@ import {
   communityTemplateApiErrorCodeSchema,
   communityTemplateApiErrorSchema,
   communityTemplateCardSchema,
+  communityTemplateCategoryListResponseSchema,
   communityTemplateCommentListResponseSchema,
   communityTemplateCommentResponseSchema,
   communityTemplateDetailSchema,
@@ -22,6 +23,8 @@ import {
   communityTemplateRecentResponseSchema,
   communityTemplateSnapshotSchema,
   communityTemplateSourceListResponseSchema,
+  communityTemplateTagIdSchema,
+  communityTemplateTagListResponseSchema,
   createCommunityTemplateReportResponseSchema,
   publishCommunityTemplateRequestSchema,
   publishCommunityTemplateResponseSchema,
@@ -39,6 +42,7 @@ import type {
   CommunityTemplateDiscoverQuery,
   CommunityTemplateListQuery,
   CommunityTemplateModerationQuery,
+  CommunityTemplateTagListQuery,
   CreateCommunityTemplateReportRequest,
   PublishCommunityTemplateRequest,
   UpdateCommunityTemplateReportRequest,
@@ -100,6 +104,8 @@ type UseTransactionResult = {
 };
 
 type CommunityDiscoverRow = PublicTemplateRow & {
+  category_name: string;
+  tags: unknown;
   description: string;
   snapshot_json?: unknown;
   owner_user_id: string;
@@ -151,20 +157,85 @@ export class CommunityTemplatesService {
     private readonly logger?: PinoLogger,
   ) {}
 
+  async listCategories() {
+    const rows = await this.dataSource.query<
+      Array<{ category_id: CommunityTemplateCategory; name: string }>
+    >(
+      `
+        SELECT category_id, name
+        FROM community_categories
+        WHERE active = true
+        ORDER BY sort_order ASC
+      `,
+    );
+    return communityTemplateCategoryListResponseSchema.parse({
+      items: rows.map((row) => ({
+        categoryId: row.category_id,
+        name: row.name,
+      })),
+    });
+  }
+
+  async listTags(query: CommunityTemplateTagListQuery) {
+    const rows = await this.dataSource.query<
+      Array<{ tag_id: string; name: string; usage_count: number }>
+    >(
+      `
+        SELECT
+          tags.tag_id,
+          tags.name,
+          COUNT(DISTINCT CASE
+            WHEN templates.deleted_at IS NULL THEN links.template_id
+          END)::int AS usage_count
+        FROM community_tags tags
+        LEFT JOIN community_template_tags links ON links.tag_id = tags.tag_id
+        LEFT JOIN community_templates templates
+          ON templates.template_id = links.template_id
+        WHERE ($1::text IS NULL OR tags.name ILIKE '%' || $1 || '%')
+        GROUP BY tags.tag_id, tags.name
+        HAVING (
+          $2::text = 'all'
+          OR COUNT(DISTINCT CASE
+            WHEN templates.deleted_at IS NULL THEN links.template_id
+          END) > 0
+        )
+        ORDER BY
+          CASE WHEN $3::text = 'popular' THEN COUNT(DISTINCT CASE
+            WHEN templates.deleted_at IS NULL THEN links.template_id
+          END) END DESC,
+          lower(tags.name) ASC
+        LIMIT $4
+      `,
+      [query.query ?? null, query.scope, query.sort, query.limit],
+    );
+    return communityTemplateTagListResponseSchema.parse({
+      items: rows.map((row) => ({
+        tagId: row.tag_id,
+        name: row.name,
+        usageCount: Number(row.usage_count),
+      })),
+    });
+  }
+
   async list(query: CommunityTemplateListQuery) {
     try {
       const offset = (query.page - 1) * query.limit;
       const rows = await this.dataSource.query<PublicTemplateRow[]>(
         `
-          SELECT template_id, title, category, preview_json, created_at
+          SELECT template_id, title, category_id AS category, preview_json, created_at
           FROM community_templates
           WHERE deleted_at IS NULL
             AND ($1::text IS NULL OR title ILIKE '%' || $1 || '%')
-            AND ($2::text IS NULL OR category = $2)
+            AND ($2::text IS NULL OR category_id = $2)
           ORDER BY created_at DESC, template_id DESC
           LIMIT $3 OFFSET $4
         `,
-        [query.query ?? null, query.category ?? null, query.limit + 1, offset],
+        [
+          query.query ?? null,
+          query.categoryId ?? query.category ?? null,
+          query.limit + 1,
+          offset,
+        ],
       );
       const hasMore = rows.length > query.limit;
       return communityTemplateListResponseSchema.parse({
@@ -184,7 +255,7 @@ export class CommunityTemplatesService {
           SELECT
             community_templates.template_id,
             community_templates.title,
-            community_templates.category,
+            community_templates.category_id AS category,
             community_templates.preview_json,
             community_templates.created_at
           FROM community_template_usages
@@ -279,6 +350,7 @@ export class CommunityTemplatesService {
     userId: string,
   ) {
     const request = publishCommunityTemplateRequestSchema.parse(input);
+    const categoryId = request.categoryId ?? request.category!;
     let templateId: string | undefined;
     try {
       const sourceRows = await this.dataSource.query<
@@ -308,6 +380,20 @@ export class CommunityTemplatesService {
           "COMMUNITY_TEMPLATE_ALREADY_PUBLISHED",
           HttpStatus.CONFLICT,
           "이미 커뮤니티에 공개된 프로젝트입니다.",
+        );
+      }
+
+      const categoryRows = await this.dataSource.query<
+        Array<{ category_id: string }>
+      >(
+        `SELECT category_id FROM community_categories WHERE category_id = $1 AND active = true`,
+        [categoryId],
+      );
+      if (!categoryRows[0]) {
+        throw communityTemplateException(
+          "COMMUNITY_TEMPLATE_CATEGORY_NOT_FOUND",
+          HttpStatus.BAD_REQUEST,
+          "선택한 대표 주제를 사용할 수 없습니다.",
         );
       }
 
@@ -358,8 +444,9 @@ export class CommunityTemplatesService {
       );
       const createdAt = new Date().toISOString();
 
-      await this.dataSource.query(
-        `
+      await this.dataSource.transaction(async (manager) => {
+        await manager.query(
+          `
           INSERT INTO community_templates (
             template_id,
             owner_user_id,
@@ -367,33 +454,42 @@ export class CommunityTemplatesService {
             source_deck_id,
             source_deck_version,
             title,
-            category,
+            category_id,
             description,
             snapshot_json,
             preview_json,
             created_at
           )
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        `,
-        [
-          templateId,
-          userId,
-          request.sourceProjectId,
-          deck.deckId,
-          deck.version,
-          request.title,
-          request.category,
-          request.description ?? "",
-          snapshot,
-          preview,
-          createdAt,
-        ],
-      );
+          `,
+          [
+            templateId,
+            userId,
+            request.sourceProjectId,
+            deck.deckId,
+            deck.version,
+            request.title,
+            categoryId,
+            request.description ?? "",
+            snapshot,
+            preview,
+            createdAt,
+          ],
+        );
+        if (request.tags.length > 0) {
+          await this.replaceTemplateTags(
+            manager,
+            templateId!,
+            request.tags,
+            userId,
+          );
+        }
+      });
 
       const card = communityTemplateCardSchema.parse({
         templateId,
         title: request.title,
-        category: request.category,
+        category: categoryId,
         preview,
         createdAt,
       });
@@ -404,7 +500,8 @@ export class CommunityTemplatesService {
           sourceProjectId: request.sourceProjectId,
           sourceDeckId: deck.deckId,
           sourceVersion: deck.version,
-          category: request.category,
+          categoryId,
+          tagCount: request.tags.length,
           slideCount: snapshot.slides.length,
         },
         "Community template published.",
@@ -418,7 +515,7 @@ export class CommunityTemplatesService {
           templateId,
           sourceProjectId: request.sourceProjectId,
           workspaceId,
-          category: request.category,
+          categoryId,
           errorCode: readCommunityTemplateErrorCode(exception),
         },
         "Community template publish failed.",
@@ -493,7 +590,8 @@ export class CommunityTemplatesService {
           SELECT
             templates.template_id,
             templates.title,
-            templates.category,
+            templates.category_id AS category,
+            categories.name AS category_name,
             templates.description,
             templates.preview_json,
             templates.created_at,
@@ -508,21 +606,46 @@ export class CommunityTemplatesService {
             COALESCE((SELECT SUM(usages.use_count)::int FROM community_template_usages usages WHERE usages.template_id = templates.template_id), 0) AS use_count,
             EXISTS(
               SELECT 1 FROM community_template_likes mine
-              WHERE mine.template_id = templates.template_id AND mine.user_id = $3
-            ) AS liked_by_me
+              WHERE mine.template_id = templates.template_id AND mine.user_id = $4
+            ) AS liked_by_me,
+            COALESCE((
+              SELECT jsonb_agg(
+                jsonb_build_object('tagId', tags.tag_id, 'name', tags.name)
+                ORDER BY lower(tags.name)
+              )
+              FROM community_template_tags template_tags
+              INNER JOIN community_tags tags ON tags.tag_id = template_tags.tag_id
+              WHERE template_tags.template_id = templates.template_id
+            ), '[]'::jsonb) AS tags
           FROM community_templates templates
           INNER JOIN users ON users.user_id = templates.owner_user_id
+          INNER JOIN community_categories categories
+            ON categories.category_id = templates.category_id
           WHERE ($1::text IS NULL OR templates.title ILIKE '%' || $1 || '%' OR users.display_name ILIKE '%' || $1 || '%')
-            AND ($2::text IS NULL OR templates.category = $2)
+            AND ($2::text IS NULL OR templates.category_id = $2)
+            AND (
+              $3::text[] IS NULL
+              OR NOT EXISTS (
+                SELECT 1
+                FROM unnest($3::text[]) requested_tags(tag_id)
+                WHERE NOT EXISTS (
+                  SELECT 1
+                  FROM community_template_tags matched_tags
+                  WHERE matched_tags.template_id = templates.template_id
+                    AND matched_tags.tag_id = requested_tags.tag_id
+                )
+              )
+            )
             AND templates.deleted_at IS NULL
         )
         SELECT * FROM community
         ORDER BY ${orderBy}
-        LIMIT $4 OFFSET $5
+        LIMIT $5 OFFSET $6
       `,
       [
         query.query ?? null,
-        query.category ?? null,
+        query.categoryId ?? query.category ?? null,
+        query.tagIds?.length ? query.tagIds : null,
         userId,
         query.limit + 1,
         offset,
@@ -541,7 +664,8 @@ export class CommunityTemplatesService {
         SELECT
           templates.template_id,
           templates.title,
-          templates.category,
+          templates.category_id AS category,
+          categories.name AS category_name,
           templates.description,
           templates.preview_json,
           templates.snapshot_json,
@@ -558,9 +682,20 @@ export class CommunityTemplatesService {
           EXISTS(
             SELECT 1 FROM community_template_likes mine
             WHERE mine.template_id = templates.template_id AND mine.user_id = $2
-          ) AS liked_by_me
+          ) AS liked_by_me,
+          COALESCE((
+            SELECT jsonb_agg(
+              jsonb_build_object('tagId', tags.tag_id, 'name', tags.name)
+              ORDER BY lower(tags.name)
+            )
+            FROM community_template_tags template_tags
+            INNER JOIN community_tags tags ON tags.tag_id = template_tags.tag_id
+            WHERE template_tags.template_id = templates.template_id
+          ), '[]'::jsonb) AS tags
         FROM community_templates templates
         INNER JOIN users ON users.user_id = templates.owner_user_id
+        INNER JOIN community_categories categories
+          ON categories.category_id = templates.category_id
         WHERE templates.template_id = $1
           AND templates.deleted_at IS NULL
       `,
@@ -599,7 +734,8 @@ export class CommunityTemplatesService {
     const rows = await this.dataSource.query<CommunityDiscoverRow[]>(
       `
         SELECT
-          templates.template_id, templates.title, templates.category,
+          templates.template_id, templates.title, templates.category_id AS category,
+          categories.name AS category_name,
           templates.description, templates.preview_json, templates.created_at,
           templates.owner_user_id, users.display_name, users.avatar_type, users.avatar_id,
           (SELECT COUNT(*)::int FROM community_template_likes WHERE template_id = templates.template_id) AS like_count,
@@ -607,9 +743,20 @@ export class CommunityTemplatesService {
           (SELECT COUNT(*)::int FROM community_template_shares WHERE template_id = templates.template_id) AS share_count,
           (SELECT COUNT(*)::int FROM community_template_comments WHERE template_id = templates.template_id) AS comment_count,
           COALESCE((SELECT SUM(use_count)::int FROM community_template_usages WHERE template_id = templates.template_id), 0) AS use_count,
-          EXISTS(SELECT 1 FROM community_template_likes WHERE template_id = templates.template_id AND user_id = $2) AS liked_by_me
+          EXISTS(SELECT 1 FROM community_template_likes WHERE template_id = templates.template_id AND user_id = $2) AS liked_by_me,
+          COALESCE((
+            SELECT jsonb_agg(
+              jsonb_build_object('tagId', tags.tag_id, 'name', tags.name)
+              ORDER BY lower(tags.name)
+            )
+            FROM community_template_tags template_tags
+            INNER JOIN community_tags tags ON tags.tag_id = template_tags.tag_id
+            WHERE template_tags.template_id = templates.template_id
+          ), '[]'::jsonb) AS tags
         FROM community_templates templates
         INNER JOIN users ON users.user_id = templates.owner_user_id
+        INNER JOIN community_categories categories
+          ON categories.category_id = templates.category_id
         WHERE templates.owner_user_id = $2
           AND templates.deleted_at IS NULL
           AND ($1::text IS NULL OR templates.title ILIKE '%' || $1 || '%')
@@ -630,6 +777,20 @@ export class CommunityTemplatesService {
     input: UpdateCommunityTemplateRequest,
     userId: string,
   ) {
+    const categoryId = input.categoryId ?? input.category;
+    if (categoryId) {
+      const categories = await this.dataSource.query<Array<{ category_id: string }>>(
+        `SELECT category_id FROM community_categories WHERE category_id = $1 AND active = true`,
+        [categoryId],
+      );
+      if (!categories[0]) {
+        throw communityTemplateException(
+          "COMMUNITY_TEMPLATE_CATEGORY_NOT_FOUND",
+          HttpStatus.BAD_REQUEST,
+          "선택한 대표 주제를 사용할 수 없습니다.",
+        );
+      }
+    }
     const rows = await this.dataSource.query<
       Array<{
         template_id: string;
@@ -643,15 +804,20 @@ export class CommunityTemplatesService {
         UPDATE community_templates
         SET
           title = COALESCE($3, title),
-          category = COALESCE($4, category),
+          category_id = COALESCE($4, category_id),
           description = COALESCE($5, description),
           updated_at = now()
         WHERE template_id = $1 AND owner_user_id = $2 AND deleted_at IS NULL
-        RETURNING template_id, title, category, description, updated_at
+        RETURNING template_id, title, category_id AS category, description, updated_at
       `,
-      [templateId, userId, input.title ?? null, input.category ?? null, input.description ?? null],
+      [templateId, userId, input.title ?? null, categoryId ?? null, input.description ?? null],
     );
     if (!rows[0]) await this.throwTemplateOwnerError(templateId, userId);
+    if (input.tags !== undefined) {
+      await this.dataSource.transaction((manager) =>
+        this.replaceTemplateTags(manager, templateId, input.tags!, userId),
+      );
+    }
     const row = rows[0]!;
     this.logger?.info(
       { event: "community_template.metadata_updated", templateId, userId },
@@ -964,7 +1130,7 @@ export class CommunityTemplatesService {
         SELECT
           template_id,
           title,
-          category,
+          category_id AS category,
           snapshot_json,
           preview_json,
           source_deck_version,
@@ -1082,6 +1248,8 @@ export class CommunityTemplatesService {
       templateId: row.template_id,
       title: row.title,
       category: row.category,
+      categoryName: row.category_name,
+      tags: row.tags,
       description: row.description,
       preview: row.preview_json,
       createdAt: toIso(row.created_at),
@@ -1103,6 +1271,41 @@ export class CommunityTemplatesService {
       },
       likedByMe: row.liked_by_me,
     });
+  }
+
+  private async replaceTemplateTags(
+    manager: Pick<EntityManager, "query">,
+    templateId: string,
+    names: string[],
+    userId: string,
+  ) {
+    await manager.query(
+      `DELETE FROM community_template_tags WHERE template_id = $1`,
+      [templateId],
+    );
+    for (const name of names) {
+      const tagId = communityTemplateTagIdSchema.parse(
+        "community_tag_" + randomUUID(),
+      );
+      const rows = await manager.query<Array<{ tag_id: string }>>(
+        `
+          INSERT INTO community_tags (tag_id, name, created_by_user_id)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (lower(btrim(name)))
+          DO UPDATE SET updated_at = community_tags.updated_at
+          RETURNING tag_id
+        `,
+        [tagId, name, userId],
+      );
+      await manager.query(
+        `
+          INSERT INTO community_template_tags (template_id, tag_id)
+          VALUES ($1, $2)
+          ON CONFLICT DO NOTHING
+        `,
+        [templateId, rows[0]!.tag_id],
+      );
+    }
   }
 
   private toComment(row: CommunityCommentRow, userId: string) {
@@ -1216,7 +1419,7 @@ export class CommunityTemplatesService {
         reports.reporter_user_id, reporters.display_name AS reporter_display_name,
         reporters.avatar_type AS reporter_avatar_type,
         reporters.avatar_id AS reporter_avatar_id,
-        templates.template_id, templates.title, templates.category,
+        templates.template_id, templates.title, templates.category_id AS category,
         templates.preview_json, templates.created_at
       FROM community_template_reports reports
       INNER JOIN community_templates templates ON templates.template_id = reports.template_id

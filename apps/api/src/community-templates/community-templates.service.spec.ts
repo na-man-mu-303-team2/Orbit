@@ -82,6 +82,12 @@ class CommunityTemplateTestDatabase {
 
     if (query.startsWith("SELECT pg_advisory_xact_lock")) return [] as T;
     if (
+      query.includes("FROM community_categories") &&
+      query.includes("category_id = $1")
+    ) {
+      return [{ category_id: params[0] }] as T;
+    }
+    if (
       query.includes("FROM projects") &&
       query.includes("workspace_id = $2")
     ) {
@@ -116,6 +122,7 @@ class CommunityTemplateTestDatabase {
         sourceVersion,
         title,
         category,
+        ,
         snapshot,
         preview,
         createdAt,
@@ -127,6 +134,7 @@ class CommunityTemplateTestDatabase {
         number,
         string,
         CommunityTemplateCategory,
+        string,
         CommunityTemplateSnapshot,
         unknown,
         string,
