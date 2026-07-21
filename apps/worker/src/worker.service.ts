@@ -554,12 +554,17 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             storage,
             this.config.PYTHON_WORKER_URL,
             job.data,
-            (event) => {
-              const level = event.status === "unavailable" ? "warn" : "info";
-              this.logger[level](
-                event,
-                "Slide practice coaching completed.",
-              );
+            {
+              fillerVerbatimModel: this.config.OPENAI_FILLER_TRANSCRIPTION_MODEL,
+              onEvent: (event) => {
+                const level = event.status === "unavailable" ? "warn" : "info";
+                this.logger[level](
+                  event,
+                  event.event === "slide_practice.coaching.completed"
+                    ? "Slide practice coaching completed."
+                    : "Slide practice filler verbatim transcription completed.",
+                );
+              },
             },
           ),
       },

@@ -9,6 +9,7 @@ import {
   deckSchema,
   findSlidePracticeCoachingIssues,
   jobSchema,
+  slidePracticeFillerVerbatimRequestSchema,
   slidePracticeAnalysisJobPayloadSchema,
   slidePracticeAnalysisJobResultSchema,
   slidePracticeCoachingSelectionContentSchema,
@@ -21,6 +22,8 @@ import {
   type SlidePracticeCoaching,
   type SlidePracticeCoachingEvidenceCandidate,
   type SlidePracticeCoachingIssueCode,
+  type SlidePracticeFillerMeasurement,
+  type SlidePracticeFillerVerbatimRequest,
   type SlidePracticeReport,
 } from "@orbit/shared";
 import { applyDeckPatch } from "@orbit/editor-core";
@@ -28,7 +31,17 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
 
+import {
+  buildKoreanFillerVerbatimPrompt,
+  koreanFillerVerbatimPromptVersion,
+} from "./filler-verbatim-transcription";
+
 const reportRetentionMs = 90 * 24 * 60 * 60 * 1_000;
+
+export type SlidePracticeAnalysisRuntime = {
+  fillerVerbatimModel: string;
+  onEvent?: (event: SlidePracticeAnalysisBusinessEvent) => void;
+};
 
 const inputRowSchema = z.object({
   analysis_id: z.string(),
@@ -72,7 +85,7 @@ export async function processSlidePracticeAnalysisJob(
   storage: Pick<StoragePort, "getSignedReadUrl" | "removeObject">,
   pythonWorkerUrl: string,
   rawPayload: unknown,
-  onEvent?: (event: SlidePracticeAnalysisBusinessEvent) => void,
+  runtime: SlidePracticeAnalysisRuntime,
 ): Promise<Job> {
   const payload = slidePracticeAnalysisJobPayloadSchema.parse(rawPayload);
   const rows = await dataSource.query(
@@ -105,6 +118,12 @@ export async function processSlidePracticeAnalysisJob(
       throw new SlidePracticeProcessingError("AUDIO_ANALYSIS_FAILED");
     }
     let response: Response;
+    const fillerVerbatim = slidePracticeFillerVerbatimRequestSchema.parse({
+      model: runtime.fillerVerbatimModel,
+      prompt: buildKoreanFillerVerbatimPrompt(),
+      promptVersion: koreanFillerVerbatimPromptVersion,
+    });
+    const transcriptionStartedAt = Date.now();
     try {
       response = await fetch(new URL("/slide-practice/analyze-audio", pythonWorkerUrl), {
         method: "POST",
@@ -117,6 +136,7 @@ export async function processSlidePracticeAnalysisJob(
             storageUrl,
             mimeType: row.mime_type,
           },
+          fillerVerbatim,
         }),
         signal: AbortSignal.timeout(120_000),
       });
@@ -130,9 +150,25 @@ export async function processSlidePracticeAnalysisJob(
     } catch {
       throw new SlidePracticeProcessingError("AUDIO_ANALYSIS_FAILED");
     }
+    const fillerMeasurement = resolveFillerMeasurement(
+      evidence,
+      fillerVerbatim,
+    );
+    emitBusinessEvent(runtime.onEvent, {
+      event: "slide_practice.filler_verbatim.completed",
+      jobId: payload.jobId,
+      projectId: payload.projectId,
+      analysisId: payload.analysisId,
+      status: fillerMeasurement.state === "measured" ? "succeeded" : "unavailable",
+      model: fillerVerbatim.model,
+      promptVersion: fillerVerbatim.promptVersion,
+      durationMs: Math.max(0, Date.now() - transcriptionStartedAt),
+    });
     cleanup = await deleteRawAudio(dataSource, storage, row);
     const syllableCount = countSpokenSyllables(evidence.transcript);
-    const fillers = analyzeKoreanFillers(evidence.transcript);
+    const fillers = fillerMeasurement.state === "measured"
+      ? analyzeKoreanFillers(evidence.fillerVerbatim?.transcript ?? "")
+      : { policyVersion: 1 as const, totalCount: 0, details: [] };
     const voice = {
       ...evidence.voice,
       syllablesPerSecond: evidence.voice.activeSpeechMs >= 1_000
@@ -185,6 +221,7 @@ export async function processSlidePracticeAnalysisJob(
         policyVersion: 1,
         totalCount: fillers.totalCount,
         details: fillers.details,
+        measurement: fillerMeasurement,
       },
       voice,
       loudnessSamples: evidence.loudnessSamples,
@@ -201,7 +238,10 @@ export async function processSlidePracticeAnalysisJob(
       },
     });
     const coachingStartedAt = Date.now();
-    const issueCodes = findSlidePracticeCoachingIssues(reportWithoutCoaching);
+    const issueCodes = findSlidePracticeCoachingIssues(reportWithoutCoaching)
+      .filter((issueCode) => (
+        issueCode !== "filler-use" || fillerMeasurement.state === "measured"
+      ));
     const speakerNotes = issueCodes.length > 0
       ? await loadSpeakerNotes(dataSource, row).catch(() => "")
       : "";
@@ -220,7 +260,7 @@ export async function processSlidePracticeAnalysisJob(
       evidenceCandidates,
       report: reportWithoutCoaching,
     });
-    emitBusinessEvent(onEvent, {
+    emitBusinessEvent(runtime.onEvent, {
       event: "slide_practice.coaching.completed",
       jobId: payload.jobId,
       projectId: payload.projectId,
@@ -276,6 +316,7 @@ async function createSlidePracticeCoaching(input: {
 }): Promise<SlidePracticeCoaching> {
   if (input.issueCodes.length === 0) {
     return input.report.quality.state === "measured"
+      && input.report.fillers.measurement?.state === "measured"
       ? {
           status: "not-needed",
           summary: "정말 잘했어요 개선점이 없어요!!",
@@ -372,6 +413,35 @@ async function createSlidePracticeCoaching(input: {
       input.issueCodes,
     );
   }
+}
+
+function resolveFillerMeasurement(
+  evidence: z.infer<typeof slidePracticeServerAudioResponseSchema>,
+  request: SlidePracticeFillerVerbatimRequest,
+): SlidePracticeFillerMeasurement {
+  const source = {
+    mode: "openai-verbatim" as const,
+    model: request.model,
+    promptVersion: request.promptVersion,
+  };
+  if (
+    evidence.fillerVerbatim?.state === "succeeded"
+    && evidence.fillerVerbatim.model === request.model
+    && evidence.fillerVerbatim.promptVersion === request.promptVersion
+  ) {
+    return {
+      metricDefinitionVersion: 2,
+      state: "measured",
+      reasonCode: null,
+      source,
+    };
+  }
+  return {
+    metricDefinitionVersion: 2,
+    state: "unmeasured",
+    reasonCode: "FILLER_VERBATIM_UNAVAILABLE",
+    source,
+  };
 }
 
 function unavailableCoaching(
@@ -471,15 +541,26 @@ async function loadSpeakerNotes(
     ?.speakerNotes.slice(0, 6_000) ?? "";
 }
 
-export type SlidePracticeAnalysisBusinessEvent = {
-  event: "slide_practice.coaching.completed";
-  jobId: string;
-  projectId: string;
-  analysisId: string;
-  status: SlidePracticeCoaching["status"];
-  issueCodes: SlidePracticeCoachingIssueCode[];
-  durationMs: number;
-};
+export type SlidePracticeAnalysisBusinessEvent =
+  | {
+      event: "slide_practice.coaching.completed";
+      jobId: string;
+      projectId: string;
+      analysisId: string;
+      status: SlidePracticeCoaching["status"];
+      issueCodes: SlidePracticeCoachingIssueCode[];
+      durationMs: number;
+    }
+  | {
+      event: "slide_practice.filler_verbatim.completed";
+      jobId: string;
+      projectId: string;
+      analysisId: string;
+      status: "succeeded" | "unavailable";
+      model: string;
+      promptVersion: typeof koreanFillerVerbatimPromptVersion;
+      durationMs: number;
+    };
 
 function emitBusinessEvent(
   onEvent: ((event: SlidePracticeAnalysisBusinessEvent) => void) | undefined,

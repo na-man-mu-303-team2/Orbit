@@ -3,7 +3,10 @@ import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createTestDeck } from "./generate-deck/test-deck.fixture";
-import { processSlidePracticeAnalysisJob } from "./slide-practice-analysis.processor";
+import {
+  processSlidePracticeAnalysisJob,
+  type SlidePracticeAnalysisBusinessEvent,
+} from "./slide-practice-analysis.processor";
 
 const payload = {
   jobId: "job-slide-practice",
@@ -17,15 +20,16 @@ describe("processSlidePracticeAnalysisJob", () => {
   it("stores only derived metrics and deletes private audio", async () => {
     const query = createQuery();
     const removeObject = vi.fn(async () => undefined);
+    const businessEvents: unknown[] = [];
     const fetcher = vi.fn(async (url: unknown, _init?: RequestInit) => {
       if (String(url).endsWith("/slide-practice/coaching")) {
         return new Response(JSON.stringify({
-          summary: "습관어와 말 속도를 함께 연습해 보세요.",
+          summary: "말 속도를 천천히 연습해 보세요.",
           item: {
             evidenceId: "evidence-1",
-            category: "filler",
-            title: "습관어 줄이기",
-            reason: "습관어가 반복됐습니다.",
+            category: "pitch",
+            title: "억양 변화 주기",
+            reason: "억양 변화가 적습니다.",
             action: "핵심 문장부터 시작해 보세요.",
             practiceTip: "추천 문장을 세 번 읽어 보세요.",
           },
@@ -33,7 +37,7 @@ describe("processSlidePracticeAnalysisJob", () => {
         }), { status: 200 });
       }
       return new Response(JSON.stringify({
-        transcript: "음 어 발표를 시작합니다",
+        transcript: "발표를 시작합니다",
         provider: "openai",
         meanRecognitionConfidence: null,
         voice: voiceMetrics(),
@@ -45,11 +49,18 @@ describe("processSlidePracticeAnalysisJob", () => {
           { startMs: 0, endMs: 5_000, syllablesPerSecond: 2.2 },
         ],
         transcriptSegments: [{
-          text: "음 어 발표를 시작합니다",
+          text: "발표를 시작합니다",
           startMs: 0,
           endMs: 2_000,
         }],
         pauseSegments: [],
+        fillerVerbatim: {
+          state: "succeeded",
+          transcript: "음 어 발표를 시작합니다",
+          model: "gpt-4o-mini-transcribe",
+          promptVersion: "korean-filler-verbatim-v1",
+          reasonCode: null,
+        },
       }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetcher);
@@ -62,6 +73,7 @@ describe("processSlidePracticeAnalysisJob", () => {
       } as unknown as StoragePort,
       "http://python-worker:8000",
       payload,
+      runtime((event) => businessEvents.push(event)),
     );
 
     expect(job.status).toBe("succeeded");
@@ -84,6 +96,9 @@ describe("processSlidePracticeAnalysisJob", () => {
     expect(persisted).toContain('"scriptEvidence"');
     expect(persisted).toContain('"classifierVersion":4');
     expect(persisted).toContain('"mode":"lullaby"');
+    expect(persisted).toContain('"totalCount":2');
+    expect(persisted).toContain('"state":"measured"');
+    expect(persisted).toContain('"mode":"openai-verbatim"');
     const reportInsert = query.mock.calls.find(([sql]) => (
       String(sql).includes("INSERT INTO slide_practice_reports")
     ));
@@ -93,9 +108,19 @@ describe("processSlidePracticeAnalysisJob", () => {
       String(url).endsWith("/slide-practice/coaching")
     ));
     expect(String(coachingRequest?.[1]?.body)).toContain("loudness-unstable");
+    expect(String(coachingRequest?.[1]?.body)).toContain("filler-use");
     expect(String(coachingRequest?.[1]?.body)).not.toContain("transcript");
     expect(String(coachingRequest?.[1]?.body)).not.toContain("audio");
     expect(String(coachingRequest?.[1]?.body)).not.toContain("음 어 발표를 시작합니다");
+    const analysisRequest = fetcher.mock.calls.find(([url]) => (
+      String(url).endsWith("/slide-practice/analyze-audio")
+    ));
+    const analysisBody = String(analysisRequest?.[1]?.body);
+    expect(analysisBody).toContain('"model":"gpt-4o-mini-transcribe"');
+    expect(analysisBody).toContain('"promptVersion":"korean-filler-verbatim-v1"');
+    expect(analysisBody).toContain("음, 어, 으, 아");
+    expect(analysisBody).toContain("반복, 말더듬, 문장 재시작");
+    expect(JSON.stringify(businessEvents)).not.toContain("음 어 발표를 시작합니다");
   });
 
   it("queues raw audio deletion when server analysis fails", async () => {
@@ -110,6 +135,7 @@ describe("processSlidePracticeAnalysisJob", () => {
       } as unknown as StoragePort,
       "http://python-worker:8000",
       payload,
+      runtime(),
     );
 
     expect(job.status).toBe("failed");
@@ -118,7 +144,7 @@ describe("processSlidePracticeAnalysisJob", () => {
 
   it("preserves unmeasured metrics as null instead of zero", async () => {
     const query = createQuery();
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+    const fetcher = vi.fn(async (_url: unknown, _init?: RequestInit) => new Response(JSON.stringify({
       transcript: "짧음",
       provider: "openai",
       meanRecognitionConfidence: null,
@@ -134,7 +160,15 @@ describe("processSlidePracticeAnalysisJob", () => {
       speedSamples: [],
       transcriptSegments: [],
       pauseSegments: [],
-    }), { status: 200 })));
+      fillerVerbatim: {
+        state: "unavailable",
+        transcript: null,
+        model: "gpt-4o-mini-transcribe",
+        promptVersion: "korean-filler-verbatim-v1",
+        reasonCode: "FILLER_VERBATIM_UNAVAILABLE",
+      },
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
 
     const job = await processSlidePracticeAnalysisJob(
       { query } as unknown as DataSource,
@@ -144,6 +178,7 @@ describe("processSlidePracticeAnalysisJob", () => {
       } as unknown as StoragePort,
       "http://python-worker:8000",
       payload,
+      runtime(),
     );
 
     expect(job.status).toBe("succeeded");
@@ -151,6 +186,7 @@ describe("processSlidePracticeAnalysisJob", () => {
       .find(([sql]) => String(sql).includes("INSERT INTO slide_practice_reports"))?.[1] ?? [];
     const report = persistedParameters[12] as {
       quality: { state: string; reasons: string[] };
+      fillers: { measurement: { state: string; reasonCode: string } };
       voice: { loudnessDb: number | null; syllablesPerSecond: number | null };
     };
     expect(report.quality).toEqual({
@@ -159,9 +195,23 @@ describe("processSlidePracticeAnalysisJob", () => {
     });
     expect(report.voice.syllablesPerSecond).toBeNull();
     expect(report.voice.loudnessDb).toBeNull();
+    expect(report.fillers.measurement).toMatchObject({
+      state: "unmeasured",
+      reasonCode: "FILLER_VERBATIM_UNAVAILABLE",
+    });
     expect(JSON.stringify(report)).not.toContain('"syllablesPerSecond":0');
+    expect(fetcher.mock.calls
+      .filter(([url]) => String(url).endsWith("/slide-practice/coaching")))
+      .toHaveLength(0);
   });
 });
+
+function runtime(onEvent?: (event: SlidePracticeAnalysisBusinessEvent) => void) {
+  return {
+    fillerVerbatimModel: "gpt-4o-mini-transcribe",
+    onEvent,
+  };
+}
 
 function createQuery() {
   return vi.fn(async (sql: string, parameters?: unknown[]) => {
