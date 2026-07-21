@@ -8,7 +8,7 @@ import type {
 import {
   IconChartBar,
   IconExternalLink,
-  IconPlayerPause,
+  IconPlayerPauseFilled,
   IconPlayerPlay,
   IconPresentationAnalytics,
   IconUsers
@@ -214,7 +214,7 @@ export function ActivityPresenterPanel(props: {
             <OrbitButton
               className="activity-presenter-primary-command"
               disabled={!runtime || pending}
-              icon={<IconPlayerPause aria-hidden="true" size={18} stroke={1.8} />}
+              icon={<IconPlayerPauseFilled aria-hidden="true" size={18} />}
               onClick={() => void updateStatus(primary.nextStatus)}
             >
               {pending ? "상태 변경 중" : primary.label}
@@ -231,7 +231,7 @@ export function ActivityPresenterPanel(props: {
           icon={primary.nextStatus === "open" ? (
             <IconPlayerPlay aria-hidden="true" size={18} stroke={1.8} />
           ) : (
-            <IconPlayerPause aria-hidden="true" size={18} stroke={1.8} />
+            <IconPlayerPauseFilled aria-hidden="true" size={18} />
           )}
           onClick={() => void updateStatus(primary.nextStatus)}
         >

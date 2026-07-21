@@ -5328,9 +5328,9 @@
 
 .report-rehearsal-button {
   align-items: center;
-  background: var(--redesign-color-primary-emphasis);
+  background: var(--redesign-color-primary);
   border: 0;
-  border-radius: var(--redesign-radius-xl);
+  border-radius: var(--redesign-radius);
   color: var(--redesign-color-on-primary);
   cursor: pointer;
   display: inline-flex;

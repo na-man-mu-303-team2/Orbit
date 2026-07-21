@@ -64,12 +64,17 @@
 }
 
 .report-overview-hero-detail-button {
+  background: var(--redesign-color-surface-container-lowest);
   font-size: var(--redesign-type-body-md-size);
   font-weight: 850;
   justify-self: start;
   min-height: 44px;
   margin-top: var(--redesign-space-1);
   padding-inline: var(--redesign-space-5);
+}
+
+.report-overview-hero-detail-button:hover:not(:disabled) {
+  background: var(--redesign-color-surface-container-high);
 }
 
 .report-overview-hero-actions {
