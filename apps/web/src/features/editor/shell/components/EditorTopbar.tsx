@@ -36,22 +36,16 @@ type EditorTopbarProps = {
   isSlideRehearsalActive: boolean;
   isUsingFallbackDeck: boolean;
   lastSavedAtLabel: string | null;
-  ooxmlSyncStatus: {
-    detail: string;
-    kind: string;
-    label: string;
-    retryable: boolean;
-  } | null;
   onExitToHome: () => void;
   onOpenExport: (format: DeckExportFormat) => void;
   onImportPptx: () => void;
   onOpenAudienceLink: () => void;
   onOpenCommunityShare: () => void;
+  onOpenPresenceDebug: () => void;
   onOpenShare: () => void;
   onOpenTargetDuration: () => void;
   onRefresh: () => void;
   onRenameDeckTitle: (title: string) => void;
-  onRetryOoxmlSync: () => void;
   onSave: () => void;
   onStartFullRehearsal: () => void;
   onStartPresentation: () => void;
@@ -87,17 +81,16 @@ export function EditorTopbar(props: EditorTopbarProps) {
     isSlideRehearsalActive,
     isUsingFallbackDeck,
     lastSavedAtLabel,
-    ooxmlSyncStatus,
     onExitToHome,
     onOpenExport,
     onImportPptx,
     onOpenAudienceLink,
     onOpenCommunityShare,
+    onOpenPresenceDebug,
     onOpenShare,
     onOpenTargetDuration,
     onRefresh,
     onRenameDeckTitle,
-    onRetryOoxmlSync,
     onSave,
     onStartFullRehearsal,
     onStartPresentation,
@@ -280,9 +273,11 @@ export function EditorTopbar(props: EditorTopbarProps) {
 
       <div className="top-actions">
         {projectPresenceUsers.length > 0 ? (
-          <div
+          <button
             aria-label="소켓 접속 상태 보기"
             className="presence-avatar-trigger"
+            onClick={onOpenPresenceDebug}
+            type="button"
           >
             {projectPresenceUsers.slice(0, 4).map((user) => (
               <span
@@ -298,7 +293,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
                 +{projectPresenceUsers.length - 4}
               </span>
             ) : null}
-          </div>
+          </button>
         ) : null}
         {canMutateDeck ? (
           <EditorIconButton
@@ -321,17 +316,6 @@ export function EditorTopbar(props: EditorTopbarProps) {
             retrying={saveFailed}
             statusLabel={saveStatusLabel}
           />
-        ) : null}
-        {ooxmlSyncStatus ? (
-          <button
-            className={`ooxml-sync-pill ${ooxmlSyncStatus.kind}`}
-            disabled={!ooxmlSyncStatus.retryable}
-            onClick={onRetryOoxmlSync}
-            title={ooxmlSyncStatus.detail}
-            type="button"
-          >
-            {ooxmlSyncStatus.label}
-          </button>
         ) : null}
         {/* 에디터 상단에서는 브리프 이동 버튼을 숨긴다.
         <button aria-label="브리프" className="editor-context-top-button" title="브리프" onClick={() => { window.location.href = `/project/${encodeURIComponent(projectId)}/brief`; }} type="button">...</button>

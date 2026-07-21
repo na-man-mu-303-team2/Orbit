@@ -37,6 +37,9 @@ jobs:
           node infra/scripts/check-env.mjs
           node --test infra/scripts/personal-staging-env.test.mjs infra/scripts/personal-staging-wrapper.test.mjs
 
+      - name: Validate AWS production Compose contract
+        run: node infra/scripts/check-aws-production-compose.mjs
+
   sync-personal-staging-env:
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     needs:

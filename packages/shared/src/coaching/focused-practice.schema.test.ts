@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { maxRehearsalAudioUploadSizeBytes } from "../files/file.schema";
 import {
   completeFocusedPracticeAudioRequestSchema,
+  createFocusedPracticeAttemptRequestSchema,
   focusedPracticeAttemptSummarySchema,
   focusedPracticeAttemptSchema,
   focusedPracticeSessionSchema,
@@ -50,6 +52,16 @@ describe("focusedPracticeSessionSchema", () => {
         ...focusedPracticeSession.snapshot,
         goalSetRef: { goalSetId: "goalset_1", revision: 0 },
       },
+    }).success).toBe(false);
+  });
+});
+
+describe("createFocusedPracticeAttemptRequestSchema", () => {
+  it("rejects private audio above the rehearsal upload limit", () => {
+    expect(createFocusedPracticeAttemptRequestSchema.safeParse({
+      clientRequestId: "request_1",
+      mimeType: "audio/webm",
+      size: maxRehearsalAudioUploadSizeBytes + 1
     }).success).toBe(false);
   });
 });
