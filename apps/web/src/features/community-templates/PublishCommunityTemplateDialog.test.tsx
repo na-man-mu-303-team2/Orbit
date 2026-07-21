@@ -52,7 +52,7 @@ describe("PublishCommunityTemplateDialog", () => {
   it("renders only bounded source metadata and accessible publish fields", () => {
     const html = renderView();
 
-    expect(html).toContain("내 슬라이드 올리기");
+    expect(html).toContain("프로젝트 공유하기");
     expect(html).toContain("공개할 프로젝트");
     expect(html).toContain(source.title);
     expect(html).toContain("템플릿 이름");
