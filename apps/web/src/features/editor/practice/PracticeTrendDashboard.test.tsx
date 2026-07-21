@@ -74,7 +74,20 @@ describe("PracticeTrendDashboard", () => {
       />,
     );
 
-    expect(html).toContain('aria-label="측정 불가"');
+    expect(html).toContain('aria-label="축어 전사를 완료하지 못해 습관어 측정 불가"');
+    expect(html).not.toContain("습관어 사용 없음");
+  });
+
+  it("legacy 양수 집계는 최소 감지 횟수 참고로만 표시한다", () => {
+    const html = renderToStaticMarkup(
+      <PracticeTrendDashboard
+        reports={[report(1, { fillerCount: 3, fillerMeasurement: "legacy" })]}
+        slideContentHash={currentHash}
+      />,
+    );
+
+    expect(html).toContain("최소 3회 · 참고");
+    expect(html).toContain('aria-label="기존 전사에서 최소 3회 감지됨, 참고용"');
     expect(html).not.toContain("습관어 사용 없음");
   });
 
@@ -91,7 +104,7 @@ function report(
   index: number,
   options: {
     fillerCount?: number;
-    fillerMeasurement?: "measured" | "unmeasured";
+    fillerMeasurement?: "measured" | "unmeasured" | "legacy";
     qualityState?: "measured" | "unmeasured";
   } = {},
 ): PracticeReportV3Record {
@@ -120,7 +133,7 @@ function report(
       policyVersion: 1,
       totalCount: fillerCount,
       details: fillerCount === 0 ? [] : [{ word: "음", count: fillerCount }],
-      measurement: options.fillerMeasurement === "unmeasured"
+      ...(options.fillerMeasurement === "legacy" ? {} : { measurement: options.fillerMeasurement === "unmeasured"
         ? {
             metricDefinitionVersion: 2,
             state: "unmeasured",
@@ -141,6 +154,7 @@ function report(
               promptVersion: "korean-filler-verbatim-v1",
             },
           },
+      }),
     },
     voice: {
       activeSpeechMs: 60_000,

@@ -189,24 +189,30 @@ function PracticeMetricCards(props: {
 }) {
   const voice = props.latest.voice;
   const isMeasured = props.latest.quality.state === "measured";
-  const fillerMeasured = resolveSlidePracticeFillerMeasurement(
+  const fillerMeasurement = resolveSlidePracticeFillerMeasurement(
     props.latest.fillers,
-  ).state === "measured";
+  );
+  const fillerMeasured = fillerMeasurement.state === "measured";
   const fillerRate = isMeasured
     && fillerMeasured
     && !props.latest.quality.reasons.includes("stt-unavailable")
     && voice.activeSpeechMs >= slidePracticeMetricTargets.activeSpeechMinimumMs
     ? props.latest.fillers.totalCount / (voice.activeSpeechMs / 60_000)
     : null;
+  const fillerDisplay = formatFillerMetric(
+    props.latest.fillers.totalCount,
+    fillerMeasurement.reasonCode,
+    fillerRate,
+  );
   const pace = isMeasured ? voice.syllablesPerSecond : null;
   const loudness = isMeasured ? voice.loudnessDb : null;
   const loudnessMad = isMeasured ? voice.loudnessMadDb : null;
   return (
     <section aria-label="이번 회차 핵심 지표" className="editor-practice-key-metrics">
       <MetricCard
-        accessibleValue={fillerRate === null ? "측정 불가" : `${fillerRate.toFixed(1)} 회/분`}
+        accessibleValue={fillerDisplay.accessibleValue}
         label="습관어"
-        value={fillerRate === null ? "측정 불가" : `${fillerRate.toFixed(1)}회/분`}
+        value={fillerDisplay.value}
       />
       <MetricCard
         accessibleValue={formatAccessibleMetric(pace, "음절/초", 1)}
@@ -225,6 +231,33 @@ function PracticeMetricCards(props: {
       />
     </section>
   );
+}
+
+function formatFillerMetric(
+  totalCount: number,
+  reasonCode: "FILLER_VERBATIM_UNAVAILABLE" | "FILLER_VERBATIM_NOT_APPLIED" | null,
+  fillerRate: number | null,
+) {
+  if (reasonCode === "FILLER_VERBATIM_NOT_APPLIED" && totalCount > 0) {
+    return {
+      accessibleValue: `기존 전사에서 최소 ${totalCount}회 감지됨, 참고용`,
+      value: `최소 ${totalCount}회 · 참고`,
+    };
+  }
+  if (fillerRate !== null) {
+    return {
+      accessibleValue: `${fillerRate.toFixed(1)} 회/분`,
+      value: `${fillerRate.toFixed(1)}회/분`,
+    };
+  }
+  return {
+    accessibleValue: reasonCode === "FILLER_VERBATIM_UNAVAILABLE"
+      ? "축어 전사를 완료하지 못해 습관어 측정 불가"
+      : reasonCode === "FILLER_VERBATIM_NOT_APPLIED"
+        ? "축어 전사가 적용되지 않아 습관어 측정 불가"
+        : "습관어 측정 불가",
+    value: "측정 불가",
+  };
 }
 
 function MetricCard(props: { accessibleValue: string; label: string; value: string }) {
