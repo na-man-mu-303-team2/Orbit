@@ -2,12 +2,15 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
 
+import app.main as api_module
 from app.slide_practice_coaching import (
     SlidePracticeCoachingError,
     SlidePracticeCoachingRequest,
     generate_slide_practice_coaching,
 )
+from tests.test_config import VALID_ENV
 
 
 class FakeResponses:
@@ -68,6 +71,20 @@ def test_rejects_coaching_for_an_unmeasured_issue_category() -> None:
             api_key=None,
             client=FakeOpenAIClient(payload),
         )
+
+
+def test_endpoint_accepts_loudness_unstable_issue_code() -> None:
+    payload = request().model_dump(by_alias=True)
+    payload["issueCodes"] = ["loudness-unstable"]
+    payload["evidenceCandidates"][0]["issueCodes"] = ["loudness-unstable"]
+    api_module.app.state.config = api_module.load_config(VALID_ENV)
+
+    response = TestClient(api_module.app).post(
+        "/slide-practice/coaching",
+        json=payload,
+    )
+
+    assert response.status_code == 503
 
 
 def request() -> SlidePracticeCoachingRequest:

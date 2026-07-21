@@ -15,6 +15,7 @@ SlidePracticeIssueCode = Literal[
     "pitch-wide",
     "loudness-low",
     "loudness-high",
+    "loudness-unstable",
 ]
 SlidePracticeCoachingCategory = Literal[
     "filler",
