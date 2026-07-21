@@ -57,6 +57,11 @@ describe("AudienceSatisfactionForm", () => {
     expect(html).toContain("추가 의견이 있다면 알려주세요.");
     expect(html).toContain("의견 제출");
     expect(html).toContain('data-activity-template="satisfaction"');
+    expect(html).toContain('class="activity-required-mark"');
+    expect(html).toContain('aria-hidden="true">*</span>');
+    expect(html).toContain('class="activity-visually-hidden">필수</span>');
+    expect(html).toContain("redesign-button-primary");
+    expect(html).toContain("redesign-button-prominent");
     expect(html).not.toContain("SATISFACTION SURVEY");
     expect(html).not.toContain("speakerNotes");
   });
