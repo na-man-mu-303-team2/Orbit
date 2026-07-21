@@ -71,8 +71,8 @@
 
 .activity-response-card {
   gap: var(--redesign-space-7);
-  max-width: 1048px;
-  padding: var(--redesign-space-12) var(--redesign-space-14);
+  max-width: 760px;
+  padding: var(--redesign-space-10);
 }
 
 .activity-audience-card h1 {
@@ -131,7 +131,7 @@
 .activity-rating-field legend,
 .activity-choice-field legend,
 .activity-text-question > span {
-  align-items: center;
+  align-items: flex-start;
   color: var(--redesign-color-on-surface);
   display: flex;
   font-size: var(--redesign-type-title-md-size);
@@ -139,11 +139,10 @@
   gap: var(--redesign-space-2);
   line-height: 1.45;
   padding: 0 3px;
+  width: 100%;
 }
 
-.activity-rating-field legend > span,
-.activity-choice-field legend > span,
-.activity-text-question > span > span {
+.activity-question-number {
   align-items: center;
   background: var(--redesign-color-primary-container);
   border-radius: var(--redesign-radius-full);
@@ -155,13 +154,29 @@
   color: var(--redesign-color-on-primary-container);
 }
 
-.activity-rating-field em,
-.activity-choice-field em,
-.activity-text-question em {
-  color: var(--redesign-color-primary-emphasis);
-  font-size: var(--redesign-type-label-sm-size);
-  font-style: normal;
-  margin-left: auto;
+.activity-question-copy {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding-top: var(--redesign-space-1);
+}
+
+.activity-required-mark {
+  color: var(--redesign-color-error);
+  display: inline-block;
+  font-size: 1em;
+  font-weight: 900;
+  margin-left: var(--redesign-space-1);
+}
+
+.activity-visually-hidden {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
 
 .activity-rating-options {
@@ -304,6 +319,8 @@
   min-height: 64px;
   position: sticky;
   bottom: 12px;
+  width: 100%;
+  z-index: 2;
 }
 
 .activity-transition-banner {
@@ -493,24 +510,25 @@
   font-size: var(--redesign-type-label-sm-size);
 }
 
-@media (max-width: 520px) {
+@media (max-width: 720px) {
   .activity-audience-header-inner {
     min-height: var(--redesign-size-header);
   }
 
   .activity-audience-main {
     min-height: calc(100dvh - var(--redesign-size-header));
-    padding-block: var(--redesign-space-6) var(--redesign-space-8);
+    padding-block: var(--redesign-space-4) var(--redesign-space-8);
   }
 
   .activity-audience-card {
     border-radius: var(--redesign-radius-lg);
     gap: var(--redesign-space-4);
-    padding: var(--redesign-space-6) var(--redesign-space-4);
+    padding: var(--redesign-space-5) var(--redesign-space-4);
   }
 
   .activity-response-card {
-    padding: var(--redesign-space-7) var(--redesign-space-4);
+    gap: var(--redesign-space-5);
+    padding: var(--redesign-space-6) var(--redesign-space-4);
   }
 
   .activity-audience-card h1 {
@@ -521,6 +539,15 @@
   .activity-response-card h1 {
     font-size: var(--redesign-type-headline-lg-size);
     line-height: var(--redesign-type-headline-lg-line-height);
+  }
+
+  .activity-response-description {
+    font-size: var(--redesign-type-body-md-size);
+    line-height: var(--redesign-type-body-md-line-height);
+  }
+
+  .activity-question-list {
+    gap: var(--redesign-space-4);
   }
 
   .activity-audience-status {
@@ -536,12 +563,34 @@
     padding: var(--redesign-space-4) var(--redesign-space-3);
   }
 
+  .activity-rating-field legend,
+  .activity-choice-field legend,
+  .activity-text-question > span {
+    font-size: var(--redesign-type-body-md-size);
+    line-height: var(--redesign-type-body-md-line-height);
+  }
+
+  .activity-question-number {
+    flex-basis: 32px;
+    font-size: var(--redesign-type-body-sm-size);
+    height: 32px;
+  }
+
+  .activity-question-copy {
+    padding-top: var(--redesign-space-1);
+  }
+
   .activity-rating-options {
     gap: var(--redesign-space-1);
   }
 
   .activity-rating-options label {
     min-height: 52px;
+  }
+
+  .activity-rating-options span {
+    border-radius: var(--redesign-radius-lg);
+    font-size: var(--redesign-type-body-lg-size);
   }
 
   .activity-choice-options label,
@@ -554,8 +603,14 @@
     padding-inline: var(--redesign-space-4);
   }
 
+  .activity-text-question textarea {
+    min-height: 120px;
+  }
+
   .activity-response-card > .redesign-button,
   .activity-join-card > .redesign-button {
+    bottom: max(var(--redesign-space-3), env(safe-area-inset-bottom));
+    box-shadow: var(--redesign-shadow-overlay);
     min-height: var(--redesign-size-control-xl);
   }
 }

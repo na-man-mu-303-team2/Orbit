@@ -18,7 +18,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconFileText } from "@tabler/icons-react";
 import type { FormEvent, ReactNode } from "react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createDemoDeck } from "../../../packages/editor-core/src/index";
 import {
   OrbitAppHeader,
@@ -1122,9 +1122,16 @@ function AppFrame(props: {
   const { children, isAuthenticated, route, user } = props;
   const queryClient = useQueryClient();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const pageRef = useRef<HTMLElement>(null);
   const isHomeDashboard = route.name === "home";
+  const routeScrollKey = JSON.stringify(route);
   const userLabel = user ? getUserLabel(user) : "로그인";
   const userInitial = user ? getUserInitial(user) : "U";
+
+  useEffect(() => {
+    pageRef.current?.scrollTo({ left: 0, top: 0 });
+    window.scrollTo({ left: 0, top: 0 });
+  }, [routeScrollKey]);
 
   async function handleLogout() {
     if (isLoggingOut) return;
@@ -1164,7 +1171,9 @@ function AppFrame(props: {
         userInitial={userInitial}
         userLabel={userLabel}
       />
-      <main className="orbit-page">{children}</main>
+      <main ref={pageRef} className="orbit-page">
+        {children}
+      </main>
     </div>
   );
 }

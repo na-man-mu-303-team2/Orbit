@@ -6,11 +6,15 @@ import type {
   ActivitySlide,
   Deck
 } from "@orbit/shared";
-import { IconChartBar, IconQrcode } from "@tabler/icons-react";
+import {
+  IconChartBar,
+  IconCircleFilled,
+  IconGridDots,
+  IconQrcode
+} from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 import { createQrDataUrl } from "../../editor/audience-link/audienceLinkUtils";
-import { OrbitBrand } from "../../../components/ui";
 import { activityApi } from "../api/activityApi";
 import { createActivityThemeStyle } from "./activityThemeStyle";
 import "./activity-audience-slide.css";
@@ -123,6 +127,7 @@ export function ActivityAudienceSlideRenderer(props: {
   const publicResult = props.status === "results" ? props.publicResult : null;
 
   const scale = props.scale ?? 1;
+  const statusHeading = activityStatusHeading(props.status);
 
   return (
     <div
@@ -138,8 +143,30 @@ export function ActivityAudienceSlideRenderer(props: {
           transform: `scale(${scale})`
         }}
       >
+        <IconCircleFilled
+          aria-hidden="true"
+          className="activity-audience-decoration activity-audience-decoration-orb"
+          size={720}
+        />
+        <IconGridDots
+          aria-hidden="true"
+          className="activity-audience-decoration activity-audience-decoration-dots-top"
+          size={112}
+          stroke={2.2}
+        />
+        <IconGridDots
+          aria-hidden="true"
+          className="activity-audience-decoration activity-audience-decoration-dots-bottom"
+          size={112}
+          stroke={2.2}
+        />
         <header>
-          <OrbitBrand className="activity-slide-brand" />
+          <div className="activity-audience-live-badge">
+            <span>
+              <IconChartBar aria-hidden="true" size={28} stroke={2.4} />
+            </span>
+            <strong>{activityTemplateBadge(activity.template)}</strong>
+          </div>
           <h1>{activity.title}</h1>
           {activity.description ? <p>{activity.description}</p> : null}
         </header>
@@ -155,12 +182,12 @@ export function ActivityAudienceSlideRenderer(props: {
                 <IconQrcode aria-hidden="true" size={160} stroke={1.4} />
               )}
             </div>
-            <div>
-              <strong>{activityStatusHeading(props.status)}</strong>
+            <div className="activity-audience-participation-copy">
+              <strong aria-label={statusHeading.full}>
+                <span>{statusHeading.accent}</span>
+                {statusHeading.rest}
+              </strong>
               <p>{activityStatusMessage(props.status)}</p>
-              {props.audienceUrl ? (
-                <span className="activity-audience-url">{props.audienceUrl}</span>
-              ) : null}
             </div>
           </section>
         )}
@@ -255,15 +282,35 @@ export function canonicalActivityUrl(audienceUrl: string, activityId: string) {
     : base.toString();
 }
 
-function activityStatusHeading(status: AudienceProjection["status"]) {
-  if (status === "open") return "지금 참여해주세요";
-  if (status === "closed") return "응답이 마감되었습니다";
-  if (status === "results") return "결과를 준비하고 있습니다";
-  return "발표자가 참여를 준비하고 있습니다";
+function activityTemplateBadge(template: ActivityDefinition["template"]) {
+  if (template === "poll") return "LIVE POLL";
+  if (template === "pre-question") return "LIVE Q&A";
+  return "LIVE SURVEY";
+}
+
+function activityStatusHeading(status: AudienceProjection["status"]): {
+  accent: string;
+  full: string;
+  rest: string;
+} {
+  if (status === "open") {
+    return { accent: "지금 참여", full: "지금 참여해 주세요", rest: "해 주세요" };
+  }
+  if (status === "closed") {
+    return { accent: "응답이 마감", full: "응답이 마감되었습니다", rest: "되었습니다" };
+  }
+  if (status === "results") {
+    return { accent: "결과를 준비", full: "결과를 준비하고 있습니다", rest: "하고 있습니다" };
+  }
+  return {
+    accent: "발표자가 참여를 준비",
+    full: "발표자가 참여를 준비하고 있습니다",
+    rest: "하고 있습니다"
+  };
 }
 
 function activityStatusMessage(status: AudienceProjection["status"]) {
-  if (status === "open") return "QR 코드를 스캔해 응답을 보내주세요.";
+  if (status === "open") return "스마트폰으로 QR 코드를 스캔해\n응답을 보내주세요.";
   if (status === "closed") return "잠시 후 결과를 공개합니다.";
   return "참여 화면이 열리면 이곳에 QR 코드가 표시됩니다.";
 }

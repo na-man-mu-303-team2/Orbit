@@ -164,6 +164,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
   useEffect(() => {
     const track = communityTrackRef.current;
     if (!track) return undefined;
+    track.scrollLeft = 0;
 
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const moveTrack = () => {
@@ -393,9 +394,11 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
                 <p className="workspace-section-kicker">COMMUNITY</p>
                 <h1>커뮤니티</h1>
                 <span className="workspace-community-latest-label">인기순</span>
+                <p className="workspace-community-intro-description">다양한 사용자의 발표를 발견해 보세요.</p>
               </div>
               <OrbitButton className="workspace-community-intro-arrow" onClick={() => props.onNavigate("/community")} variant="secondary">
                 더보기
+                <IconChevronRight aria-hidden="true" size={16} />
               </OrbitButton>
             </header>
 
@@ -424,10 +427,10 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
                         <span className="workspace-community-preview">
                           <span className="workspace-community-preview-fallback"><IconSparkles aria-hidden="true" size={28} stroke={1.5} /></span>
                           <CommunityTemplatePreview card={card} className="workspace-community-preview-canvas" />
-                          <span className="workspace-community-preview-copy">
-                            <strong>{card.title}</strong>
-                            <small>{card.description || "새롭게 공개된 발표 프로젝트"}</small>
-                          </span>
+                        </span>
+                        <span className="workspace-community-preview-copy">
+                          <strong>{card.title}</strong>
+                          <small>{card.description || "새롭게 공개된 발표 프로젝트"}</small>
                         </span>
                         <span className="workspace-community-meta">
                           <small>

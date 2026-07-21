@@ -41,17 +41,7 @@
 .activity-presenter-error { color: var(--redesign-color-warning); font-size: var(--redesign-type-label-sm-size); font-weight: 750; line-height: 1.4; margin: 0; }
 
 .activity-presenter-primary-command {
-  align-items: center;
-  background: var(--redesign-color-success);
-  border: 1px solid var(--redesign-color-success);
-  border-radius: var(--redesign-radius-xl);
-  color: var(--redesign-color-on-surface);
-  display: inline-flex;
-  font-size: var(--redesign-type-body-sm-size);
-  font-weight: 950;
-  gap: var(--redesign-space-2);
-  justify-content: center;
-  min-height: 40px;
+  width: 100%;
 }
 
 .activity-presenter-command-row {
@@ -60,22 +50,12 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.activity-presenter-command-row > button {
+.activity-presenter-command-row > .redesign-button {
   min-width: 0;
 }
 
 .activity-presenter-secondary-command {
-  align-items: center;
-  background: var(--redesign-color-surface-container-lowest);
-  border: 1px solid var(--redesign-color-success);
-  border-radius: var(--redesign-radius-xl);
-  color: var(--redesign-color-on-surface);
-  display: inline-flex;
-  font-size: var(--redesign-type-body-sm-size);
-  font-weight: 900;
-  gap: var(--redesign-space-2);
-  justify-content: center;
-  min-height: 40px;
+  width: 100%;
 }
 
 .activity-presenter-reopen-help {
@@ -84,8 +64,6 @@
   line-height: 1.4;
   margin: calc(var(--redesign-space-1) * -1) 0 0;
 }
-
-.activity-presenter-primary-command:disabled { cursor: wait; opacity: 0.55; }
 
 .activity-presenter-result-detail,
 .activity-presenter-result-detail section,

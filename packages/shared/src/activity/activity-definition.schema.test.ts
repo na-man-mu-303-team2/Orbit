@@ -31,6 +31,27 @@ describe("activityDefinitionSchema", () => {
     });
   });
 
+  it("preserves authored spacing and line breaks while rejecting blank required text", () => {
+    const authored = activityDefinitionSchema.parse({
+      ...satisfactionDefinition(),
+      title: "발표 만족도 ",
+      description: "첫 번째 안내\n두 번째 안내 ",
+      questions: [{
+        ...satisfactionDefinition().questions[0],
+        prompt: "발표는 정말 유익했나요? "
+      }]
+    });
+    const blankTitle = activityDefinitionSchema.safeParse({
+      ...satisfactionDefinition(),
+      title: "  \n"
+    });
+
+    expect(authored.title).toBe("발표 만족도 ");
+    expect(authored.description).toBe("첫 번째 안내\n두 번째 안내 ");
+    expect(authored.questions[0]?.prompt).toBe("발표는 정말 유익했나요? ");
+    expect(blankTitle.success).toBe(false);
+  });
+
   it("accepts one to five free-text questions for pre-question", () => {
     const result = activityDefinitionSchema.safeParse({
       ...satisfactionDefinition(),
