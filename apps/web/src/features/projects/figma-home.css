@@ -2180,6 +2180,89 @@
   z-index: -1;
 }
 
+/* Keep the section heading on the page surface and frame only the carousel. */
+.workspace-community-band {
+  background: var(--redesign-color-surface);
+  isolation: auto;
+  overflow: visible;
+}
+
+.workspace-community-band::before {
+  content: none;
+  display: none;
+}
+
+.workspace-community-carousel {
+  --workspace-community-stage-edge: color-mix(
+    in srgb,
+    var(--redesign-color-primary-subtle) 74%,
+    var(--redesign-color-light-surface)
+  );
+  background:
+    radial-gradient(
+      72% 130% at 6% 8%,
+      color-mix(in srgb, var(--redesign-color-light-surface) 90%, var(--redesign-color-primary-subtle)) 0%,
+      transparent 66%
+    ),
+    radial-gradient(
+      62% 120% at 94% 72%,
+      color-mix(in srgb, var(--redesign-color-primary-container) 44%, var(--redesign-color-light-surface)) 0%,
+      transparent 68%
+    ),
+    linear-gradient(
+      128deg,
+      var(--workspace-community-stage-edge) 0%,
+      color-mix(in srgb, var(--redesign-color-primary-subtle) 58%, var(--redesign-color-light-surface)) 52%,
+      color-mix(in srgb, var(--redesign-color-primary-container) 34%, var(--redesign-color-light-surface)) 100%
+    );
+  border-radius: var(--redesign-radius-xl);
+  isolation: isolate;
+  padding: var(--redesign-space-8);
+}
+
+.workspace-community-carousel::before,
+.workspace-community-carousel::after {
+  bottom: var(--redesign-space-8);
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  top: var(--redesign-space-8);
+  width: clamp(36px, 5vw, 72px);
+  z-index: 2;
+}
+
+.workspace-community-carousel::before {
+  background: linear-gradient(90deg, var(--workspace-community-stage-edge), transparent);
+  left: 0;
+}
+
+.workspace-community-carousel::after {
+  background: linear-gradient(270deg, var(--workspace-community-stage-edge), transparent);
+  right: 0;
+}
+
+.workspace-community-track {
+  z-index: 1;
+}
+
+.workspace-community-arrow {
+  position: relative;
+  z-index: 3;
+}
+
+@media (max-width: 820px) {
+  .workspace-community-carousel {
+    padding: var(--redesign-space-6);
+  }
+
+  .workspace-community-carousel::before,
+  .workspace-community-carousel::after {
+    bottom: var(--redesign-space-6);
+    top: var(--redesign-space-6);
+    width: var(--redesign-space-10);
+  }
+}
+
 .workspace-tag-filter-chips > button {
   border-color: transparent;
 }
