@@ -29,6 +29,9 @@ describe("ORBIT-93 project asset upload helpers", () => {
             createdBy: "user_1",
             createdAt: "2026-07-18T00:00:00.000Z",
             isPinned: true,
+            pinnedAt: "2026-07-20T00:00:00.000Z",
+            tags: [],
+            generation: null,
           },
         ]),
       ),
@@ -195,7 +198,11 @@ describe("ORBIT-93 project asset upload helpers", () => {
         expect(JSON.parse(String(init?.body))).toEqual({ isPinned: true });
 
         return new Response(
-          JSON.stringify({ projectId: "project_smoke", isPinned: true }),
+          JSON.stringify({
+            projectId: "project_smoke",
+            isPinned: true,
+            pinnedAt: "2026-07-20T00:00:00.000Z",
+          }),
         );
       },
     );
@@ -203,6 +210,7 @@ describe("ORBIT-93 project asset upload helpers", () => {
     await expect(updateProjectPin("project_smoke", true, fetcher)).resolves.toEqual({
       projectId: "project_smoke",
       isPinned: true,
+      pinnedAt: "2026-07-20T00:00:00.000Z",
     });
   });
 

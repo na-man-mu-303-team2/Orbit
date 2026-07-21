@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 
 import { AuthModule } from "../auth/auth.module";
 import { DecksModule } from "../decks/decks.module";
@@ -19,7 +19,12 @@ import { ActivityTextModerationRepository } from "./activity-text-moderation.rep
 import { ActivityTextModerationService } from "./activity-text-moderation.service";
 
 @Module({
-  imports: [AuthModule, DecksModule, ProjectsModule, PresentationSessionsModule],
+  imports: [
+    AuthModule,
+    DecksModule,
+    ProjectsModule,
+    forwardRef(() => PresentationSessionsModule)
+  ],
   controllers: [
     ActivityRunsController,
     AudienceActivityController,

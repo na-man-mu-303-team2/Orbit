@@ -635,13 +635,12 @@ async function canStartDesignPlanning(
       [message.pipelineJobId, message.projectId],
     ),
   );
-  const designSelected = Boolean(
-    parent &&
-      typeof parent === "object" &&
-      "payload" in parent &&
-      generateDeckStoredJobPayloadSchema.parse(parent.payload).designSelection,
-  );
-  if (!designSelected) return false;
+  if (!parent || typeof parent !== "object" || !("payload" in parent)) {
+    return false;
+  }
+  const stored = generateDeckStoredJobPayloadSchema.parse(parent.payload);
+  if (!stored.designSelection) return false;
+  if (!stored.coverPlan) return true;
   const cover = firstQueryRow(
     await manager.query(
       `SELECT status FROM ai_deck_generation_stages

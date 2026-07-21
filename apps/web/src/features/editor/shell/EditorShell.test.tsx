@@ -11,7 +11,6 @@ import type {
   DeckPatch,
   DeckElement,
   Job,
-  OoxmlSyncState,
   SemanticCue
 } from "@orbit/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -21,8 +20,7 @@ import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EditorShell,
-  getEditorStatusLabel,
-  getOoxmlSyncStatus
+  getEditorStatusLabel
 } from "./EditorShell";
 import { useEditorShellUiStore } from "./editorShellUiStore";
 import { EditorStateNotice } from "./components/EditorStateNotice";
@@ -168,52 +166,6 @@ describe("editor shell", () => {
         saveState: "error"
       })
     ).toBe("저장 실패");
-  });
-
-  it("disables OOXML retry when the API marks the failed state non-retryable", () => {
-    const job = jobPayload("failed", null, "pptx-ooxml-sync");
-    job.error = {
-      code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
-      message: "unsupported authored element",
-      retryable: false,
-      syncCapabilityVersion: 2
-    };
-    const state: OoxmlSyncState = {
-      status: "failed",
-      deckId: "deck_ai_1",
-      deckVersion: 53,
-      syncedDeckVersion: 52,
-      retryable: false,
-      job
-    };
-
-    expect(getOoxmlSyncStatus(job, state)).toMatchObject({
-      label: "OOXML 동기화 실패",
-      retryable: false
-    });
-  });
-
-  it("shows retry only when the OOXML state API allows it", () => {
-    const job = jobPayload("failed", null, "pptx-ooxml-sync");
-    job.error = {
-      code: "PPTX_OOXML_SYNC_FAILED",
-      message: "worker unavailable",
-      retryable: true,
-      syncCapabilityVersion: 2
-    };
-    const state: OoxmlSyncState = {
-      status: "failed",
-      deckId: "deck_ai_1",
-      deckVersion: 53,
-      syncedDeckVersion: 52,
-      retryable: true,
-      job
-    };
-
-    expect(getOoxmlSyncStatus(job, state)).toMatchObject({
-      label: "동기화 재시도",
-      retryable: true
-    });
   });
 
   it("does not call retry for a non-retryable OOXML failure", async () => {
@@ -482,6 +434,20 @@ describe("editor shell", () => {
       deck: previousDeck,
       slideId: previousDeck.slides[1]?.slideId ?? previousDeck.slides[0]?.slideId
     });
+
+    const appliedDeck = {
+      ...previousDeck,
+      title: "AI 디자인 적용 후",
+      version: previousDeck.version + 1
+    };
+    const undo = resolveHistoryNavigation({
+      currentDeck: appliedDeck,
+      currentSlideId: appliedDeck.slides[1]?.slideId ?? null,
+      stack: history
+    });
+
+    expect(undo?.targetEntry.deck).toBe(previousDeck);
+    expect(undo?.nextStack).toHaveLength(49);
   });
 
   it("prompts before discarding a dirty speaker notes draft", () => {

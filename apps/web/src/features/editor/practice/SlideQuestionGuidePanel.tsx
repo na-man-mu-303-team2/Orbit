@@ -15,7 +15,6 @@ import { type ReactNode, useEffect, useState } from "react";
 
 import { OrbitButton } from "../../../components/ui";
 import { fetchLiveSttRuntimeConfig } from "../../rehearsal/stt/liveSttRuntimeConfig";
-import { fetchDeck } from "../shell/api/deckPersistenceApi";
 import {
   createSlideQuestionGuide,
   getSlideQuestionGuide,
@@ -38,7 +37,7 @@ export function SlideQuestionGuidePanel(props: {
   deck: Deck;
   slide: Slide | null;
   refreshToken: number;
-  flushPendingSaves: () => Promise<void>;
+  flushPendingSaves: () => Promise<Deck>;
 }) {
   const [guide, setGuide] = useState<SlideQuestionGuide | null>(null);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
@@ -98,16 +97,23 @@ export function SlideQuestionGuidePanel(props: {
     setStatus("generating");
     setMessage("");
     try {
-      await props.flushPendingSaves();
-      const serverDeck = await fetchDeck(props.projectId);
-      if (!serverDeck.slides.some((slide) => slide.slideId === props.slide?.slideId)) {
+      const serverDeck = await props.flushPendingSaves();
+      const serverSlide = serverDeck.slides.find(
+        (slide) => slide.slideId === props.slide?.slideId,
+      );
+      if (!serverSlide) {
         throw new Error("현재 슬라이드가 서버 덱에 없습니다.");
       }
+      const expectedSlideContentHash = await sha256Canonical(
+        slideQuestionGuideTextHashInput(serverSlide),
+      );
       const created = await createSlideQuestionGuide({
         projectId: props.projectId,
         deckId: serverDeck.deckId,
         slideId: props.slide.slideId,
         expectedDeckVersion: serverDeck.version,
+        contentHashVersion: "slide-text-v1",
+        expectedSlideContentHash,
       });
       await waitForSlideQuestionGuideJob(created.job.jobId);
       const next = await getSlideQuestionGuide(props.projectId, created.guideId);
@@ -116,7 +122,7 @@ export function SlideQuestionGuidePanel(props: {
       setStatus("idle");
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "예상 질문 생성에 실패했습니다.");
+      setMessage(getSlideQuestionGuideErrorMessage(error));
     }
   }
 
@@ -182,6 +188,19 @@ export function SlideQuestionGuidePanel(props: {
       )}
     </div>
   );
+}
+
+export function getSlideQuestionGuideErrorMessage(error: unknown) {
+  const code = error && typeof error === "object" && "code" in error
+    ? String(error.code)
+    : "";
+  if (
+    code === "SLIDE_QUESTION_CONTENT_HASH_MISMATCH"
+    || code === "SLIDE_QUESTION_DECK_CONTENT_HASH_MISMATCH"
+  ) {
+    return "슬라이드 내용이 변경되었습니다. 최신 내용을 확인한 뒤 다시 시도해 주세요.";
+  }
+  return error instanceof Error ? error.message : "예상 질문 생성에 실패했습니다.";
 }
 
 export async function resolveSlideQuestionGuideRuntimeState(

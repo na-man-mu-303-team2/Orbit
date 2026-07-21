@@ -23,6 +23,7 @@ type Props = {
   deck: Deck;
   formatDuration: (seconds: number) => string;
   report: RehearsalReport;
+  reportMode?: "presentation" | "rehearsal";
 };
 
 export function RehearsalReportTestOverview({
@@ -30,6 +31,7 @@ export function RehearsalReportTestOverview({
   deck,
   formatDuration,
   report,
+  reportMode = "rehearsal",
 }: Props) {
   const totalActualSeconds = report.slideTimings.reduce(
     (sum, timing) => sum + timing.actualSeconds,
@@ -267,7 +269,9 @@ export function RehearsalReportTestOverview({
             />
           </div>
           <p className="rrd-test-mock-note">
-            모든 슬라이드의 리허설 분석 결과를 합산합니다.
+            {reportMode === "presentation"
+              ? "모든 슬라이드의 실전 발표 분석 결과를 합산합니다."
+              : "모든 슬라이드의 리허설 분석 결과를 합산합니다."}
           </p>
         </aside>
       </div>
@@ -305,10 +309,15 @@ export function RehearsalReportTestOverview({
         <button
           type="button"
           onClick={() =>
-            navigateTo(`/rehearsal/${encodeURIComponent(report.projectId)}`)
+            navigateTo(
+              reportMode === "presentation"
+                ? `/project/${encodeURIComponent(report.projectId)}`
+                : `/rehearsal/${encodeURIComponent(report.projectId)}`,
+            )
           }
         >
-          연습하기 <ArrowRight aria-hidden="true" size={18} />
+          {reportMode === "presentation" ? "에디터로 돌아가기" : "연습하기"}{" "}
+          <ArrowRight aria-hidden="true" size={18} />
         </button>
       </section>
     </div>

@@ -32,15 +32,17 @@ const speakerNotesTabs: Array<{ id: SpeakerNotesTab; label: string }> = [
 
 export function SpeakerNotesPanel(props: SpeakerNotesScriptTabProps & {
   canGenerateQuestionGuides: boolean;
+  celebrationSessionId: string | null;
   contentRef: RefObject<HTMLDivElement | null>;
   deck: Deck;
-  flushPendingSaves: () => Promise<void>;
+  flushPendingSaves: () => Promise<Deck>;
   height: number;
   isExpanded: boolean;
   isMaximized: boolean;
   isResizing: boolean;
   maxHeight: number;
   minHeight: number;
+  onCelebrationConsumed: (sessionId: string) => void;
   onTabSelected: (tab: SpeakerNotesTab) => void;
   onResizeKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
   onResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
@@ -195,7 +197,9 @@ export function SpeakerNotesPanel(props: SpeakerNotesScriptTabProps & {
         ) : null}
         {activeTab === "report" ? (
           <SpeakerNotesReportTab
+            celebrationSessionId={props.celebrationSessionId}
             deck={props.deck}
+            onCelebrationConsumed={props.onCelebrationConsumed}
             projectId={props.projectId}
             refreshToken={props.reportRefreshToken}
             slide={props.currentSlide}

@@ -36,6 +36,88 @@ final result: passed
 
 ---
 
+# 리허설 성장 추세 회차 표기와 축하 마스코트 motion design QA
+
+- Source visual truth: 사용자 브라우저 주석 화면과 `/private/tmp/orbit-product-design-source.png`.
+- Implementation screenshot: `/private/tmp/orbit-product-design-implementation-final.png`.
+- Expanded implementation evidence: `/private/tmp/orbit-product-design-maximized.png`.
+- Full-view comparison: `/private/tmp/orbit-product-design-comparison.png`.
+- Focused report comparison: `/private/tmp/orbit-product-design-focused-comparison.png`.
+- Viewport: 2207 × 1324 요청 화면 기준. 브라우저 screenshot은 browser chrome을 제외한 2109 × 1324 content capture.
+- State: slide 3, 하단 발표 메모 펼침, `리포트` tab, 동일 내용 report 5회, 습관어 없음과 GREAT 조건 충족.
+
+## Full-view comparison evidence
+
+- 원본과 구현을 같은 viewport와 editor 상태로 나란히 비교했다.
+- 캔버스, slide rail, property panel, report dock의 크기와 시각 계층은 유지됐다.
+- 변경 범위는 chart의 x-axis label과 축하 카드 mascot motion layer에 한정됐다.
+- source가 실제 API의 4회 기록, implementation이 QA fixture의 5회 기록이라 `4회 비교`/`5회 비교` 차이는 의도된 데이터 차이다.
+
+## Focused region comparison evidence
+
+- 확대된 implementation에서 `1회차 (7/13)`부터 `5회차 (7/21)`까지 point와 일대일로 정렬되고 서로 겹치지 않음을 확인했다.
+- 정상 눈과 감은 눈 asset은 모두 1254 × 1254, 동일한 subject placement와 transparent edge를 사용한다.
+- mascot은 stable state에서 card 안에 유지되며 horizontal overflow가 없다.
+
+## Required fidelity surfaces
+
+- Fonts and typography: 기존 Pretendard와 `--redesign-type-*` 역할을 유지했다. 새 회차/날짜 label은 기존 chart label 크기와 weight를 그대로 사용한다.
+- Spacing and layout rhythm: 기존 3-column dashboard와 celebration card padding, radius, asset slot 크기를 변경하지 않았다. 긴 label도 5개 point 간격 안에 정렬된다.
+- Colors and visual tokens: 기존 primary subtle/outline surface와 motion duration/easing token만 사용하고 새 색상값을 추가하지 않았다.
+- Image quality and asset fidelity: 기존 ORBIT thumbs-up mascot을 edit target으로 사용해 눈만 감긴 raster frame을 생성했다. chroma-key 제거 후 RGBA WebP의 네 모서리 alpha가 0이고 subject edge에 green background가 남지 않았다.
+- Copy and content: x-axis의 모호한 `오늘` 반복을 `N회차 (M/D)`로 교체했다. 축하 카드 copy와 접근 가능한 이름은 유지했다.
+
+## Interaction and accessibility verification
+
+- 상시 animation: `editor-practice-mascot-float`, `editor-practice-mascot-open-eyes`, `editor-practice-mascot-blink-eyes`가 적용됨을 확인했다.
+- 새 rehearsal에만 `.is-new`가 붙고 `editor-practice-mascot-fly-in`이 실행되도록 one-shot 경계를 유지했다.
+- `aria-live="polite"`, decorative image의 빈 `alt`, celebration card overflow 없음 확인.
+- `prefers-reduced-motion: reduce`에서 stage/open/blink animation이 모두 `none`, blink frame opacity가 `0`임을 브라우저에서 확인했다.
+- 브라우저 console warning/error 없음.
+
+## Comparison history
+
+1. P2 — 첫 브라우저 pass에서 reduced-motion이 부유 transform은 멈췄지만 더 구체적인 eye-frame selector 때문에 blink opacity animation이 남았다.
+2. Fix — reduced-motion selector를 `.is-open`과 `.is-blinking`에 직접 적용해 우선순위를 바로잡았다.
+3. Post-fix evidence — 브라우저 computed style에서 stage/open/blink animation이 모두 `none`이고 blink image가 숨겨짐을 확인했다.
+4. Final pass — 요청 영역에 남은 actionable P0/P1/P2 차이가 없다.
+
+## Follow-up polish
+
+- P3: one-shot fly-in의 중간 frame 자동 캡처는 이전 pass의 인앱 브라우저 연결 중단으로 남겼다. keyframe 존재, 800ms token duration, component `.is-new` gating, unit test는 통과했다.
+
+## Dynamic motion follow-up — 2026-07-21
+
+- Source visual truth: 기존 안정 상태 `/private/tmp/orbit-dynamic-before.png`와 사용자의 “조금 더 동적인 애니메이션” 피드백.
+- Implementation screenshot: 환호 점프 구간 `/private/tmp/orbit-dynamic-cheer.png`.
+- Full-view comparison: `/private/tmp/orbit-dynamic-comparison.png`.
+- Viewport: 1280 × 720, slide 3, `리포트` tab, 동일한 5회 QA fixture.
+- Focused region comparison: full-view에서도 축하 카드의 마스코트 크기와 위치가 충분히 읽혀 별도 crop은 만들지 않았다.
+- Findings: 기존 card 크기, copy, asset 선명도, GREAT stamp 위치는 유지된다. 새 drift와 cheer transform을 별도 wrapper에 분리해 자연스러운 부유 중 6.4초마다 짧은 squash-and-stretch 점프가 합성된다. fly-in은 120% x offset에서 곡선 overshoot로 강화하고 stamp는 220ms 늦게 등장한다.
+- Fonts and typography: 변경 없음.
+- Spacing and layout rhythm: card와 asset slot 크기는 변경하지 않았고 문서 가로 overflow가 없다.
+- Colors and visual tokens: 새 색상 없이 기존 motion duration/easing token만 사용했다.
+- Image quality and asset fidelity: 기존 RGBA WebP frame을 그대로 사용하며 blur는 fly-in 시작 38% 안에서만 3px에서 0으로 해소된다.
+- Copy and content: 변경 없음.
+- Browser verification: computed animation이 `editor-practice-mascot-drift` 5.4s, `editor-practice-mascot-cheer` 6.4s로 적용됐다. `aria-live="polite"`, console warning/error 없음, `prefers-reduced-motion: reduce`에서 stage/character/open/blink animation이 모두 `none`임을 확인했다.
+- Comparison history: 첫 비교에서 card layout이나 asset crop의 P0/P1/P2 회귀가 없었다. 추가 visual fix는 필요하지 않았다.
+
+## Click reaction follow-up — 2026-07-21
+
+- Source visual truth: 클릭 전 안정 상태 `/private/tmp/orbit-mascot-click-before.png`와 사용자의 “클릭하면 반응” 피드백.
+- Implementation screenshot: 클릭 후 210ms 반응 frame `/private/tmp/orbit-mascot-click-reaction-final.png`.
+- Full-view comparison: `/private/tmp/orbit-mascot-click-comparison-final.png`.
+- Viewport/state: 1280 × 720, slide 3, `리포트` tab, 동일한 5회 QA fixture.
+- Focused region comparison: full-view에서 마스코트의 상승·회전과 focus outline이 읽혀 별도 crop은 필요하지 않았다.
+- Findings: card layout과 raster asset은 유지된다. 마스코트는 접근 가능한 native button이 되었고 pointer click마다 540ms `editor-practice-mascot-react`가 새로 시작된다. focus-visible outline, hover/active feedback, 반복 클릭마다 교대로 갱신되는 polite live message를 추가했다.
+- Fonts and typography: 시각 text 변경 없음. Spacing and layout rhythm: button reset으로 기존 168px slot과 card 높이를 유지했다. Colors and visual tokens: 기존 primary focus color와 motion token만 사용했다. Image quality and asset fidelity: 기존 WebP frame을 그대로 사용했다. Copy and content: visible copy 변경 없음.
+- Browser verification: pointer 클릭과 반복 클릭에서 live message가 각각 갱신되고 reaction transform이 active/settled state 사이에서 변경됐다. button이 접근성 tree에 `ORBIT 마스코트와 함께 기뻐하기`로 노출되고 focus target이 됨을 확인했다. `prefers-reduced-motion: reduce`에서는 reaction animation이 `none`, hover transition이 `0s`였다. console warning/error와 가로 overflow는 없었다.
+- Comparison history: 동일 viewport/state 전후 비교에서 새로운 P0/P1/P2 회귀가 없었다.
+
+final result: passed
+
+---
+
 # Rehearsal microphone modal — Frame 13 refinement
 
 - Source visual truth: `C:/Users/Runner/Desktop/Frame 13.png`.
@@ -633,3 +715,58 @@ final result: passed
 ### 결과
 
 `passed`
+
+---
+
+# 홈 프로젝트 목록 로딩 실패 상태 design QA
+
+- Source visual truth: `/Users/choeyeongbin/Desktop/스크린샷 2026-07-20 오전 4.47.46.png`.
+- Implementation screenshot: `/private/tmp/orbit-home-error-after.png`.
+- Verification route: `http://localhost:5174/?qa=project-error`.
+- Verification viewport: 1280 × 720.
+- QA state: 인증 요청은 실제 로컬 API로 전달하고 프로젝트 목록 요청만 503으로 응답하는 임시 로컬 프록시를 사용했다.
+
+## Findings and fixes
+
+1. 기존 실패 제목과 버튼이 최근 작업 영역의 카드보다 지나치게 커서 페이지의 정보 위계를 압도했다.
+2. 공통 실패 컴포넌트는 유지하고 홈 화면에만 토큰 기반 축약 스타일을 적용해 다른 화면의 전면 오류 상태에 영향을 주지 않았다.
+3. 실패 상태의 높이, radius, border, surface, shadow를 프로젝트 카드 문법과 맞췄다.
+4. 제목과 본문을 `title-lg`, `body-sm` 계층으로 낮추고 원인, 권장 행동, 재시도 순서를 유지했다.
+5. 재시도 문구를 `목록 다시 불러오기`로 구체화해 버튼의 결과를 바로 이해할 수 있게 했다.
+
+## Verification
+
+- 원본과 구현 결과를 한 번에 비교해 최근 작업 그리드의 위계와 정렬이 개선된 것을 확인했다.
+- 실패 상태 섹션이 1개 렌더링되고 제목, 원인, 권장 행동, 재시도 문구가 모두 표시되는 것을 확인했다.
+- 브라우저 error/warning 로그가 비어 있음을 확인했다.
+- Web 테스트 266개 파일, 1660개 테스트가 통과했다.
+- Web TypeScript 검사가 통과했다.
+
+final result: passed
+
+---
+
+# 홈 단일 페이지 리디자인 design QA (2026-07-21)
+
+- Source visual truth: `/Users/choeyeongbin/Downloads/생성된 이미지 1 (7).png`.
+- Verification route: `http://localhost:5173/`.
+- QA state: 로그인된 Chrome 탭의 실제 렌더링과 DOM 치수, 인터랙션을 확인했다.
+
+## Visual and responsive checks
+
+1. 헤더, 다크 커뮤니티, 흰색 프로젝트 영역의 수직 구조와 대비를 참조 시안에 맞췄다.
+2. 커뮤니티는 태그 없이 대표 카드 1개와 보조 카드 4개로 구성했다.
+3. 프로젝트 툴바는 생성 액션, 검색, 정렬, 태그 필터를 유지하며 1280px 아래에서 두 줄로 전환된다.
+4. 프로젝트 카드는 넓은 데스크톱에서 4열, 1130px 검증 화면에서 3열로 전환되고 가로 오버플로가 없다.
+5. 각 썸네일에 핀, 리허설, 리포트, 삭제 버튼 4개가 노출된다.
+6. AI 생성 작업은 썸네일 위 진행 상태, 퍼센트, 진행 바로 표시된다.
+
+## Interaction and build checks
+
+- 태그 필터 팝오버와 새 태그 모달이 뷰포트 안에서 열리는 것을 확인했다.
+- 검증한 프로젝트 카드마다 썸네일 액션 버튼이 정확히 4개 존재한다.
+- `pnpm --filter @orbit/shared build`가 통과했다.
+- `pnpm --filter @orbit/web build`가 기존 chunk-size 경고만 남기고 통과했다.
+- Chrome 확장 캡처는 CDP 5초 제한으로 실패해 마지막 인증 캡처와 이후 실제 DOM 실측을 함께 판정 근거로 사용했다.
+
+final result: passed

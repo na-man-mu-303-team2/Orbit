@@ -1,15 +1,54 @@
-import { describe, expect, it } from "vitest";
+import { createDemoDeck } from "@orbit/editor-core";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
 
-import { describePracticeQuality, formatPracticePace } from "./SlidePracticePanel";
+import {
+  describePracticeQuality,
+  formatPracticePace,
+  getSlidePracticeStartLabel,
+  SlidePracticeRuntimeNotice,
+} from "./SlidePracticePanel";
 import { countSpokenSyllables } from "./fillerAnalyzer";
 import {
   createPracticeTranscriptState,
+  createSlidePracticeSessionSnapshot,
   finalizePracticeTranscript,
   getSlidePracticeErrorMessage,
+  prepareSlidePracticeStart,
+  resolveSlidePracticeRuntimeState,
   shouldUpdateVoiceBaseline,
   slidePracticeDisabledMessage,
+  slidePracticeRuntimeUnavailableMessage,
   updatePracticeTranscript,
 } from "./useSlidePracticeSession";
+
+describe("slide practice persisted snapshot", () => {
+  it("uses the acknowledged deck version and slide order after a save flush", async () => {
+    const initial = createDemoDeck();
+    const slide = initial.slides[0]!;
+    const acknowledged = {
+      ...initial,
+      version: initial.version + 2,
+      slides: initial.slides.map((candidate) => (
+        candidate.slideId === slide.slideId
+          ? { ...candidate, order: candidate.order + 1 }
+          : candidate
+      )),
+    };
+
+    const snapshot = await createSlidePracticeSessionSnapshot({
+      deck: acknowledged,
+      practiceSessionId: "practice-1",
+      slideId: slide.slideId,
+      startedAt: "2026-07-21T00:00:00.000Z",
+    });
+
+    expect(snapshot.deckVersion).toBe(acknowledged.version);
+    expect(snapshot.slideOrder).toBe(slide.order + 1);
+    expect(snapshot.slideContentHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+});
 
 describe("slide practice transcript finalization", () => {
   it("final 없이 종료된 마지막 interim 전사를 분석 입력으로 보존한다", () => {
@@ -57,6 +96,82 @@ describe("slide practice feature gate guidance", () => {
         "연습 녹음을 완료하지 못했습니다.",
       ),
     ).toBe(slidePracticeDisabledMessage);
+  });
+  it("활성, 비활성, 조회 실패 runtime config를 서로 다른 상태로 구분한다", async () => {
+    await expect(resolveSlidePracticeRuntimeState(async () => ({
+      slidePracticeEnabled: true,
+    }))).resolves.toBe("enabled");
+    await expect(resolveSlidePracticeRuntimeState(async () => ({
+      slidePracticeEnabled: false,
+    }))).resolves.toBe("disabled");
+    await expect(resolveSlidePracticeRuntimeState(async () => {
+      throw new Error("runtime config unavailable");
+    })).resolves.toBe("unavailable");
+  });
+
+  it.each(["checking", "disabled", "unavailable"] as const)(
+    "%s 상태에서는 저장 준비, 장치 식별, 마이크 시작을 모두 막는다",
+    async (runtimeState) => {
+      const beforeStart = vi.fn(async () => undefined);
+      const getDeviceIdHash = vi.fn(async () => "device-hash");
+      const startAudio = vi.fn(async () => "stream");
+
+      await expect(prepareSlidePracticeStart({
+        runtimeState,
+        beforeStart,
+        getDeviceIdHash,
+        startAudio,
+      })).rejects.toThrow();
+
+      expect(beforeStart).not.toHaveBeenCalled();
+      expect(getDeviceIdHash).not.toHaveBeenCalled();
+      expect(startAudio).not.toHaveBeenCalled();
+    },
+  );
+
+  it("활성 상태에서는 기존 녹음 준비 순서를 유지한다", async () => {
+    const calls: string[] = [];
+
+    await expect(prepareSlidePracticeStart({
+      runtimeState: "enabled",
+      beforeStart: async () => { calls.push("before-start"); },
+      getDeviceIdHash: async () => {
+        calls.push("device-id");
+        return "device-hash";
+      },
+      startAudio: async () => {
+        calls.push("audio-start");
+        return "stream";
+      },
+    })).resolves.toEqual({
+      beforeStartResult: undefined,
+      deviceIdHash: "device-hash",
+      stream: "stream",
+    });
+
+    expect(calls).toEqual(["before-start", "device-id", "audio-start"]);
+  });
+
+  it("비활성과 조회 실패를 다른 안내로 표시하고 조회 실패에 재시도를 제공한다", () => {
+    const disabledHtml = renderToStaticMarkup(
+      createElement(SlidePracticeRuntimeNotice, {
+        onRetry: vi.fn(),
+        runtimeState: "disabled",
+      }),
+    );
+    const unavailableHtml = renderToStaticMarkup(
+      createElement(SlidePracticeRuntimeNotice, {
+        onRetry: vi.fn(),
+        runtimeState: "unavailable",
+      }),
+    );
+
+    expect(disabledHtml).toContain(slidePracticeDisabledMessage);
+    expect(disabledHtml).not.toContain("설정 다시 확인");
+    expect(unavailableHtml).toContain(slidePracticeRuntimeUnavailableMessage);
+    expect(unavailableHtml).toContain("설정 다시 확인");
+    expect(getSlidePracticeStartLabel("idle", "checking")).toBe("연습 기능 확인 중…");
+    expect(getSlidePracticeStartLabel("idle", "unavailable")).toBe("설정 확인 필요");
   });
 });
 

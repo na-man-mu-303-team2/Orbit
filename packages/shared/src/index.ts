@@ -1,6 +1,9 @@
 export * from "./common/demo-ids";
 export * from "./common/canonical-json";
 export * from "./common/time.schema";
+export * from "./community-templates/community-template.schema";
+export * from "./community-templates/community-template-api.schema";
+export * from "./community-templates/community-template-social.schema";
 export * from "./activity/activity-api.schema";
 export * from "./activity/activity-aggregate";
 export * from "./activity/activity-definition.schema";
@@ -69,5 +72,6 @@ export * from "./rehearsals/rehearsal.schema";
 export * from "./realtime/websocket.schema";
 export * from "./slide-practice/filler-policy";
 export * from "./slide-practice/slide-practice-analysis";
+export * from "./slide-practice/slide-practice-policy";
 export * from "./slide-practice/slide-practice.schema";
 export * from "./slide-practice/slide-question-guide.schema";

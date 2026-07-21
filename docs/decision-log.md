@@ -10,6 +10,7 @@
   - seed 코드만 제거하고 기존 row는 방치한다.
   - seed 코드·자산·테스트를 제거하고, 남은 row를 지우는 일회성 script를 함께 추가한다.
 - Final decision: `kdh-home-project-seed.ts`와 spec, `home-project-covers` WebP 10개, `projects.service.ts`의 `ensureKdhHomeProjects()` 호출·정의를 제거한다. **접근 가드는 유지한다**: cleanup script는 배포 뒤 수동 실행이라 그 사이 고정 10개 row가 남아 있고 ID가 예측 가능하므로, 가드를 지우면 fixture 격리가 cleanup 성공 여부에 의존하게 된다. ID 목록과 `isKdhHomeProjectId()`는 `apps/api/src/projects/kdh-home-project-ids.ts`로 옮겨 service와 script가 함께 참조하며, cleanup 완료 후 후속 PR에서 이 모듈과 가드를 삭제한다. 남은 row는 신규 `apps/api/src/scripts/cleanup-kdh-home-projects.ts`로 정리하며, script는 production에서 거부하고 `KDH_HOME_CLEANUP_CONFIRM` 토큰을 요구하며 dry-run이 기본값이다. 삭제 대상은 고정 10개 project ID 리터럴로 한정하고, 실행 전 각 project의 소유자 email이 `kdh@orbit.com`인지 검증한다.
+- Production 실행 경로: fixture는 AWS production DB에도 생성되어 있었다(`kdh_account=1`, `fixture_projects=10`, `live_assets=0`). production 전면 금지 가드를 유지하면 정리 자체가 불가능하고, 표지 자산만 삭제된 상태로 배포되어 카드는 남고 이미지만 깨진다. 따라서 금지를 해제하는 대신 **두 번째 잠금**을 추가한다: `APP_ENV=production`에서는 `KDH_HOME_CLEANUP_CONFIRM`에 더해 `KDH_HOME_CLEANUP_ALLOW_PRODUCTION`까지 있어야 실행된다. "실수로는 불가능하되 의도하면 가능"이라는 원래 취지는 유지된다.
 - Storage 안전장치: `project_assets`는 `storage_key`를 들고 있고 `storage_deletion_outbox`는 worker의 `reconcileStorageDeletionOutbox`가 `removeObject`를 호출하게 만드는 유일한 근거다. 두 row를 객체 삭제 전에 지우면 S3/MinIO에 객체만 남는다. 따라서 apply 단계에서 `status`가 `deleted`가 아닌 asset이나 미완료 outbox row가 있으면 거부한다. 우회 flag는 두지 않는다 — 올바른 해결은 일반 파일 삭제 경로로 객체까지 지우는 것이다.
 - Rationale: `decks`는 `projects`를 FK로 참조하지 않아 project 삭제만으로는 orphan이 남고, deck을 참조하는 4개 테이블이 `ON DELETE RESTRICT`라 삭제 순서가 동작에 영향을 준다. 따라서 순서를 명시한 script가 필요하다. `project_id` 컬럼을 가진 모든 테이블을 `pg_attribute`로 훑는 잔여 스캔을 commit 직전에 두어, 이 script 작성 이후 추가된 테이블이 있으면 반쪽 삭제를 commit하지 않고 rollback한다. `activity_runs`는 자기 참조 RESTRICT가 있어 bulk delete 전에 `supersedes_activity_run_id`를 NULL로 푼다.
 - Affected files: `apps/api/src/projects/projects.service.ts`, `apps/api/src/scripts/cleanup-kdh-home-projects.ts`, `apps/api/package.json`, `package.json`, 삭제된 `apps/api/src/projects/kdh-home-project-seed.ts`·`apps/web/public/assets/home-project-covers/**`, 관련 테스트.
@@ -395,6 +396,30 @@
 - Affected files: `.env.staging.example`, `docker-compose.staging.yml`, `docs/conventions/environment.md`, `docs/decision-log.md`.
 - Follow-up review notes: production의 report STT 모델은 전사 정확도, 비용, 시간 기반 지표 요구를 따로 검토한 뒤 확정한다. staging 배포 뒤 실제 리허설 녹음에서 `durationSeconds`, `speedSamples`, `pauseDetails`가 채워지는지 확인한다.
 
+## ORBIT AWS production deploy safety ordering
+
+- Context: PR #232는 `main` push를 AWS production 배포로 연결하지만, `main`이 앱 workspace를 포함하지 않으면 `pnpm install`과 Docker Compose build가 실패한다. 또한 frontend S3 publish가 backend 배포보다 먼저 일어나면 실패한 backend와 새 frontend가 섞일 수 있고, CloudFront distribution-level `CustomErrorResponses`는 API 403/404를 `/index.html` 200으로 바꿀 수 있다.
+- Options considered:
+  - 기존 순서처럼 static web을 먼저 publish하고 distribution-level error response로 SPA fallback을 처리한다.
+  - web publish를 backend 성공 후로 미루되, distribution-level error response는 유지한다.
+  - production deploy branch에 앱 workspace를 포함하고, backend 배포/검증 후 web을 publish하며, SPA fallback은 default static behavior의 CloudFront Function으로 제한한다.
+- Final decision: PR branch에 `origin/develop`을 merge해 production deploy branch가 앱 workspace를 포함하게 한다. EC2 wrapper는 `GitHubOwner`, `GitHubRepo`, `GitHubDeployBranch` parameter를 clone target으로 사용하고, 빈 `/opt/orbit/source`만 최초 clone 대상으로 허용한다. GitHub Actions는 SSM command를 직접 polling해 긴 Docker build/migration을 기다리고, CloudFront API/socket 검증 후 static web S3 sync와 invalidation을 수행한다. SPA fallback은 default static behavior의 CloudFront Function으로만 처리한다.
+- Rationale: 같은 branch에서 web build와 EC2 deploy가 일어나야 frontend/backend contract가 맞고, backend 실패 시 새 frontend가 먼저 노출되는 상황을 피할 수 있다. API/socket behavior를 distribution-level error rewrite에서 분리해야 인증 실패나 누락 route 같은 backend 오류 의미를 유지할 수 있다.
+- Affected files: `.github/workflows/deploy-aws-production.yml`, `infra/aws/main-production-bootstrap.yaml`, `docs/runbooks/aws-main-auto-deployment.md`, `docs/decision-log.md`.
+- Follow-up review notes: 첫 production stack update 뒤 CloudFront Function association, `/api/health`, `/socket.io/?EIO=4&transport=polling`, `/missing-api-route`의 HTTP status, S3 static publish, EC2 `/opt/orbit/source` clone branch를 실제 AWS에서 확인한다. 장기 production 목표인 ECS Fargate 전환은 `docs/deployment.md` 기준으로 별도 PR에서 다시 검토한다.
+
+## ORBIT AWS production EC2 bootstrap refresh
+
+- Context: PR #237로 CloudFormation UserData에서 `/opt/orbit/source` 선생성은 제거됐지만, 기존 EC2 인스턴스의 root disk와 `/usr/local/sbin/orbit-deploy-aws-production` wrapper는 그대로 남아 있어 첫 배포가 같은 non-git checkout 방어 로직에서 다시 실패했다. CloudFormation change set은 UserData 변경을 기존 `AWS::EC2::Instance`의 in-place update로 처리했고 새 bootstrap을 실행하지 않았다.
+- Options considered:
+  - 기존 EC2에서 `/opt/orbit/source`만 수동 삭제한다.
+  - 기존 EC2의 `/usr/local/sbin/orbit-deploy-aws-production`만 수동 교체한다.
+  - EC2 logical resource id를 바꿔 새 인스턴스를 만들고 최신 bootstrap을 처음부터 실행한다.
+- Final decision: production template의 EC2 logical resource를 `AppInstance`에서 `AppServerInstance`로 바꿔 CloudFormation이 새 EC2 인스턴스를 생성하도록 한다. CloudFront origin, GitHub Actions deploy role SSM target, EC2 output 참조는 새 logical id로 함께 갱신한다. RDS와 S3 bucket logical id 및 retention policy는 변경하지 않는다.
+- Rationale: 운영 서버 내부 파일을 수동으로 고쳐 drift를 만들기보다, 저장소의 최신 bootstrap template을 source of truth로 삼아 재현 가능한 상태를 만든다. RDS/S3는 유지하면서 앱 서버만 새 bootstrap 상태로 교체하는 것이 이번 장애의 실제 경계에 가장 좁게 맞다.
+- Affected files: `infra/aws/main-production-bootstrap.yaml`, `docs/decision-log.md`.
+- Follow-up review notes: merge 후 CloudFormation change set에서 `AppServerInstance` 생성, `AppInstance` 삭제, `WebDistribution` origin 갱신, `GitHubActionsDeployRole` SSM target 갱신만 발생하고 RDS/S3 변경이 없는지 확인한다. stack update 뒤 새 `Ec2InstanceId`, SSM managed status, deploy key, `/opt/orbit/source` clone, CloudFront `/api/health`와 `/socket.io/?EIO=4&transport=polling`을 검증한다.
+
 ## ORBIT P0 parallel coaching contract boundary
 
 - Context: 네 담당자가 평가기, 음성 측정, 집중 연습, report 통합을 병렬 구현하려면 기존 C0 read contract만으로는 사용자 focus revision, 한국어 CPM, STT confidence 부재, pause v2, 문장 target, 짧은 음성 근거의 보존·권한 경계가 고정되지 않는다. 현재 raw audio는 분석 뒤 삭제되고, 30~60초 모범 발화 audio는 Later 후보이므로 P0 Evidence Clip과도 구분해야 한다.
@@ -454,6 +479,18 @@
 - Rationale: 앱 secret과 서버 credential을 GitHub로 복사하지 않고 기존 self-hosted runner·Doppler read-only token·배포 lock을 재사용한다. 검증 실패를 서비스 교체 전에 확정하고, 코드 변경이 없는 secret 갱신에는 image build를 생략한다. 짧은 수명의 GitHub App installation token은 relay가 없는 정적 Webhook 인증에 사용하지 않는다.
 - Affected files: `.github/workflows/environment-contract-ci.yml`, `.github/workflows/deploy-personal-staging.yml`, `infra/scripts/deploy-personal-server.sh`, `docs/conventions/environment.md`, `docs/runbooks/personal-server-deployment.md`, `docs/testing/test-matrix.md`, `README.md`, `docs/decision-log.md`.
 - Follow-up review notes: merge 전에 서버 wrapper를 mode와 SHA를 받되 `full`은 기존 script 호환을 위해 SHA-only로 전달하는 버전으로 갱신하고, PR #264의 단순 full redeploy 경로는 중복으로 merge하지 않는다. merge 뒤 Doppler `stg` Webhook과 `Actions: write` fine-grained token을 저장소 범위로 설정한다. 첫 변경에서 preflight 실패 시 기존 컨테이너가 유지되는지, 성공 시 네 앱 컨테이너만 재생성되는지, 중복 delivery가 직렬화되는지 확인한다.
+## ORBIT AWS production private evidence Redis isolation
+
+- Context: `main` 자동 배포가 API migration의 production 환경 검증에서 `PRIVATE_EVIDENCE_REDIS_URL must not use the local default in production`으로 중단됐다. private evidence 원문은 최대 30분만 보존하고 작업큐 Redis의 persistence·volume·backup 경계와 분리해야 하지만, AWS Compose에는 전용 서비스와 URL 주입이 없었다. 기존 EC2의 `/etc/orbit/production.env`는 저장소 template 변경으로 자동 갱신되지 않는다.
+- Options considered:
+  - 기존 작업큐 Redis를 private evidence에도 공유하고 production 검증을 완화한다.
+  - 기존 `/etc/orbit/production.env`에 전용 URL만 수동 추가하고 같은 Redis를 사용한다.
+  - AWS Compose에 volume·RDB·AOF·host port가 없는 별도 Redis를 추가하고 API/Worker에 내부 URL을 직접 주입한다.
+- Final decision: `docker-compose.aws.yml`에 `private-evidence-redis`를 추가하고 `--save "" --appendonly no`로 실행한다. API와 Worker는 `PRIVATE_EVIDENCE_REDIS_URL=redis://private-evidence-redis:6379`을 Compose `environment`에서 직접 받고 `service_healthy`를 기다린다. EC2 deploy wrapper는 작업큐 Redis와 private evidence Redis를 최대 120초 기다린 뒤 migration을 실행한다. 현재 EC2 env 파일에 새 키가 없어도 첫 복구가 가능하도록 `required_keys`에는 추가하지 않는다.
+- Rationale: 작업큐 데이터의 영속성과 발표 원문의 비영속 보존 정책을 분리하고, 기존 운영 env 파일을 수동 변경해야만 배포되는 순서 의존성을 없앤다. production에서 로컬 기본값을 거부하는 기존 검증은 유지하며, PR CI가 정확한 URL·비영속 설정·health dependency·CloudWatch stream·AWS template 동기화를 검사한다.
+- Affected files: `docker-compose.aws.yml`, `infra/scripts/deploy-aws-ec2.sh`, `infra/aws/ec2-production.env.example`, `infra/aws/main-production-bootstrap.yaml`, `infra/scripts/check-aws-production-compose.mjs`, `.github/workflows/environment-contract-ci.yml`, `docs/runbooks/aws-main-auto-deployment.md`, `docs/decision-log.md`.
+- Follow-up review notes: Redis `maxmemory`와 CloudWatch memory alarm은 실제 사용량을 측정한 뒤 별도 결정한다. ElastiCache 또는 managed Redis 전환과 SSM 기반 전체 production env 자동 동기화는 이번 장애 복구 범위에 포함하지 않는다. merge 후 두 Redis health, migration, API/Socket.IO, static web 배포를 새 `main` workflow에서 확인한다.
+
 ## ORBIT personal staging env source policy and safe Doppler sync
 
 - Context: 새 env key가 예시 파일에 추가돼도 Doppler key 생성과 개인 서버 Compose 전달은 별개여서, 운영자가 key를 하나씩 만들고 서버 배포 script를 다시 실행했다. 모든 예시 값을 Doppler에 일괄 복사하면 secret placeholder나 환경별 URL을 실제 값처럼 저장하고 기존 secret을 덮어쓸 위험이 있다.
@@ -784,3 +821,27 @@
 - Rationale: DB migration, transcript 복원, STT 재분석 없이 당시 Deck 기준의 저장 증거로 과거 회차를 즉시 계산할 수 있다. Keyword 언급과 Semantic Cue 의미 평가의 계약을 분리해 소비자가 두 지표를 혼동하지 않으며 API와 Web을 단계적으로 배포할 수 있다.
 - Affected files: `packages/shared/src/rehearsals/rehearsal.schema.ts`, `apps/api/src/rehearsals/rehearsal-project-summary.ts`, `apps/web/src/features/rehearsal/rehearsalProjectSummaryModel.ts`, `apps/web/src/features/rehearsal/RehearsalProjectSummaryDashboard.tsx`, 관련 테스트, `docs/contracts.md`, `docs/decision-log.md`.
 - Follow-up review notes: 실제 프로젝트의 1·2·3회차가 각각 `0/39`, `1/42`, `3/42`로 집계되는지 확인한다. STT 품질 gate 실패와 keyword 없는 Deck에서 `N/A`가 유지되는지, 사용자 데이터가 쌓인 뒤 70%·90% 상태 임계값을 재검토한다.
+
+## ORBIT production editor QnA and slide practice rollout
+
+- Context: `main` production의 실제 env와 저장소 template에서 `SLIDE_PRACTICE_ENABLED`, `SLIDE_QUESTION_GUIDES_ENABLED`가 누락되거나 `false`여서 QnA가 정상적으로 사전 차단됐고, 부분 슬라이드 연습은 녹음 종료 뒤 API 403을 사용자에게 노출했다. 두 flag의 코드 기본값은 `false`이며 현재 project allowlist 계약은 없다.
+- Options considered:
+  - API의 feature flag 검사를 제거하고 production에서 항상 두 기능을 실행한다.
+  - 실제 EC2 env만 수동 수정하고 저장소 template와 deploy 검증은 그대로 둔다.
+  - 코드 기본값과 API 방어선을 유지하면서 production template와 실제 env에 두 flag를 명시하고, Web이 runtime config를 녹음 전에 확인하도록 한다.
+- Final decision: AWS `main` production의 모든 project에서 두 flag를 `true`로 명시한다. `.env.production.example`, EC2 env example, CloudFormation bootstrap example을 동기화하고 deploy wrapper에서 두 key를 필수로 검사한다. 부분 슬라이드 연습 Web은 `checking`, `enabled`, `disabled`, `unavailable`을 구분하며 `enabled` 전에는 저장 준비, device ID 확인, microphone 시작을 모두 막고 조회 실패에 `설정 다시 확인`을 제공한다. API 403 검사는 최종 방어선으로 유지한다.
+- Rationale: 기능 공개 정책과 실제 배포 계약을 일치시키고, 누락된 env가 조용히 기능을 끄는 상태를 방지한다. runtime config 조회 실패와 명시적 비활성을 분리하면 사용자가 연결 문제를 기능 종료로 오해하지 않으며, rollback 후에도 헛녹음과 raw 403 노출을 막을 수 있다.
+- Affected files: `.env.production.example`, `.env.staging.example`, `infra/aws/ec2-production.env.example`, `infra/aws/main-production-bootstrap.yaml`, `infra/scripts/deploy-aws-ec2.sh`, `infra/scripts/check-aws-production-compose.mjs`, `apps/web/src/features/editor/practice/**`, `apps/web/src/features/editor/shell/**`, `docs/conventions/environment.md`, `docs/runbooks/aws-main-auto-deployment.md`, `docs/decision-log.md`.
+- Follow-up review notes: PR CI 이후 SSM으로 실제 `/etc/orbit/production.env`의 두 flag만 안전하게 갱신하고, `main` 자동 배포 뒤 runtime config, QnA Job, 10초 이상 연습 report, raw audio 삭제 event를 확인한다. 장애 시 두 flag를 `false`로 되돌리고 재배포한다.
+
+## ORBIT slide practice and QnA content-hash freshness
+
+- Context: 부분 슬라이드 연습 시작 직전 저장과 QnA 자동 생성 사이에 Deck version이 바뀌면, 대상 슬라이드의 실제 질문·연습 입력이 그대로여도 API가 전체 `deckVersion` 불일치로 요청을 거부했다. 저장 controller도 acknowledged Deck을 ref에는 반영하면서 React state와 version이 잠시 달라질 수 있었다.
+- Options considered:
+  - 모든 Deck 변경을 계속 충돌로 취급하고 사용자에게 새로고침을 요구한다.
+  - 연습 시작 version의 전체 Deck을 별도 예약 API로 영구 고정한다.
+  - 저장 완료 Deck을 Web의 단일 source로 동기화하고, API freshness는 title·text·alt·speaker notes canonical hash를 우선한다.
+- Final decision: 신규 Web은 저장 queue를 flush한 acknowledged Deck으로 연습 session snapshot과 QnA hash를 만든다. 부분 연습과 수동 QnA는 target slide hash, 자동 QnA는 slide ID·order·text hash로 만든 Deck text hash가 같으면 version 차이를 허용하고 현재 server Deck snapshot/version으로 처리한다. 실제 text hash 충돌만 409로 거부하며 자동 QnA는 최신 Deck으로 한 번만 재시도한다. hash가 없는 과거 client는 strict version 검증을 유지한다.
+- Rationale: 시각 변경과 다른 슬라이드 편집으로 녹음·질문 생성을 잃지 않으면서, 실제 발표 텍스트나 대본이 바뀐 경우에는 오래된 입력으로 분석하지 않는다. DB migration이나 raw slide 원문 로그 없이 기존 frozen snapshot과 provenance 계약을 유지한다.
+- Affected files: `packages/shared/src/slide-practice`, `apps/api/src/slide-practice`, `apps/api/src/slide-question-guides`, `apps/web/src/features/editor/practice`, `apps/web/src/features/editor/shell`, `docs/contracts.md`, 관련 테스트.
+- Follow-up review notes: 다른 slide/visual-only edit 뒤 연습 종료와 QnA 생성이 성공하는지, target speaker notes 변경은 upload·Job 생성 전에 한국어 안내로 중단되는지, 로그에 원문 없이 requested/resolved version과 freshness resolution만 남는지 확인한다.

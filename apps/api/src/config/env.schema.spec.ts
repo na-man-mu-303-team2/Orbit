@@ -127,6 +127,42 @@ describe("ORBIT env validation", () => {
     expect(() => loadOrbitConfig({ ...validEnv, COACHING_IDEMPOTENCY_HMAC_PREVIOUS_SECRET: "previous-secret" }, { service: "api" })).toThrow("COACHING_IDEMPOTENCY_HMAC_PREVIOUS_SECRET");
   });
 
+  it("validates the demo AI deck cache startup guardrails", () => {
+    expect(
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          DEMO_AI_DECK_CACHE_ENABLED: "true",
+          DEMO_AI_DECK_SOURCE_PROJECT_ID: "project-source",
+          DEMO_AI_DECK_TRIGGER_TOPIC: "Orbit demo",
+        },
+        { service: "api" },
+      ),
+    ).toMatchObject({
+      DEMO_AI_DECK_CACHE_ENABLED: true,
+      DEMO_AI_DECK_SOURCE_PROJECT_ID: "project-source",
+      DEMO_AI_DECK_TRIGGER_TOPIC: "Orbit demo",
+    });
+    expect(() =>
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          APP_ENV: "production",
+          DEMO_AI_DECK_CACHE_ENABLED: "true",
+          DEMO_AI_DECK_SOURCE_PROJECT_ID: "project-source",
+          DEMO_AI_DECK_TRIGGER_TOPIC: "Orbit demo",
+        },
+        { service: "api" },
+      ),
+    ).toThrow("DEMO_AI_DECK_CACHE_ENABLED");
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, DEMO_AI_DECK_CACHE_ENABLED: "true" },
+        { service: "api" },
+      ),
+    ).toThrow("DEMO_AI_DECK_SOURCE_PROJECT_ID");
+  });
+
   it("requires private evidence Redis to be isolated from the durable queue Redis", () => {
     expect(() =>
       loadOrbitConfig(

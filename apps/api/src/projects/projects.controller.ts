@@ -6,15 +6,18 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UnauthorizedException,
 } from "@nestjs/common";
 import {
   createProjectRequestSchema,
   createProjectAccessRequestSchema,
+  projectPageRequestSchema,
   updateProjectMemberRoleRequestSchema,
   updateProjectMemberStatusRequestSchema,
   updateProjectPinRequestSchema,
+  updateProjectTagsRequestSchema,
   updateProjectRequestSchema,
   upsertProjectMemberRequestSchema,
 } from "@orbit/shared";
@@ -42,6 +45,17 @@ export class ProjectsController {
   ) {
     const user = await this.getCurrentUser(request);
     return this.projectsService.list(workspaceId, user.userId);
+  }
+
+  @Get("page")
+  async listProjectPage(
+    @Param("workspaceId") workspaceId: string,
+    @Query() query: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const input = parseRequest(projectPageRequestSchema, query ?? {});
+    const user = await this.getCurrentUser(request);
+    return this.projectsService.listPage(workspaceId, user.userId, input);
   }
 
   @Post()
@@ -100,6 +114,23 @@ export class ProjectsController {
       projectId,
       user.userId,
       input.isPinned,
+    );
+  }
+
+  @Patch(":projectId/tags")
+  async updateProjectTags(
+    @Param("workspaceId") workspaceId: string,
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const input = parseRequest(updateProjectTagsRequestSchema, body ?? {});
+    const user = await this.getCurrentUser(request);
+    return this.projectsService.updateTags(
+      workspaceId,
+      projectId,
+      user.userId,
+      input.tags,
     );
   }
 

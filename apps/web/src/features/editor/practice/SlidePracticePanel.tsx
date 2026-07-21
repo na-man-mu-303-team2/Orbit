@@ -1,10 +1,22 @@
-import type { Deck, Slide, SlidePracticeReport } from "@orbit/shared";
+import {
+  slideQuestionGuideTextHashInput,
+  type Deck,
+  type Slide,
+  type SlidePracticeReport,
+} from "@orbit/shared";
 import { useEffect, useRef } from "react";
 
+import { OrbitButton } from "../../../components/ui";
 import { PracticeReportContent } from "./PracticeReportContent";
 import "./slide-practice.css";
 import { flushOfflinePracticeReports } from "./slidePracticeApi";
-import { useSlidePracticeSession } from "./useSlidePracticeSession";
+import {
+  slidePracticeDisabledMessage,
+  slidePracticeRuntimeUnavailableMessage,
+  type PracticeSessionState,
+  type SlidePracticeRuntimeState,
+  useSlidePracticeSession,
+} from "./useSlidePracticeSession";
 
 export function SlidePracticePanel(props: {
   projectId: string;
@@ -20,6 +32,9 @@ export function SlidePracticePanel(props: {
     deckVersion: props.deck.version,
     slideId: props.slide?.slideId ?? null,
     slideOrder: props.slide?.order ?? 0,
+    slideContentHashInput: props.slide
+      ? slideQuestionGuideTextHashInput(props.slide)
+      : null,
   });
 
   useEffect(() => {
@@ -52,23 +67,67 @@ export function SlidePracticePanel(props: {
         ) : (
           <button
             className="editor-practice-start"
-            disabled={!props.slide || busy}
+            disabled={!props.slide || busy || session.runtimeState !== "enabled"}
             type="button"
             onClick={() => void session.start()}
           >
-            {session.state === "stopping" ? "분석 중…" : session.state === "starting" ? "준비 중…" : "연습 시작"}
+            {getSlidePracticeStartLabel(session.state, session.runtimeState)}
           </button>
         )}
       </div>
+      <SlidePracticeRuntimeNotice
+        onRetry={session.retryRuntimeConfig}
+        runtimeState={session.runtimeState}
+      />
       {recording ? (
         <div className="editor-practice-transcript" aria-live="polite">
           녹음 중입니다. 연습을 종료하면 서버에서 전사와 목소리 지표를 분석합니다.
         </div>
       ) : null}
-      {session.message ? <p className="editor-practice-message" role="status">{session.message}</p> : null}
+      {session.message &&
+      session.message !== slidePracticeDisabledMessage &&
+      session.message !== slidePracticeRuntimeUnavailableMessage ? (
+        <p className="editor-practice-message" role="status">{session.message}</p>
+      ) : null}
       {session.report && props.showInlineResult !== false ? <PracticeResult report={session.report} /> : null}
     </div>
   );
+}
+
+export function SlidePracticeRuntimeNotice(props: {
+  onRetry: () => void;
+  runtimeState: SlidePracticeRuntimeState;
+}) {
+  if (props.runtimeState === "disabled") {
+    return <p className="editor-practice-message">{slidePracticeDisabledMessage}</p>;
+  }
+  if (props.runtimeState !== "unavailable") return null;
+  return (
+    <div aria-live="polite" className="editor-practice-runtime-error">
+      <p className="editor-practice-message">
+        {slidePracticeRuntimeUnavailableMessage}
+      </p>
+      <OrbitButton
+        onClick={props.onRetry}
+        size="compact"
+        variant="secondary"
+      >
+        설정 다시 확인
+      </OrbitButton>
+    </div>
+  );
+}
+
+export function getSlidePracticeStartLabel(
+  state: PracticeSessionState,
+  runtimeState: SlidePracticeRuntimeState,
+) {
+  if (runtimeState === "checking") return "연습 기능 확인 중…";
+  if (runtimeState === "disabled") return "사용할 수 없음";
+  if (runtimeState === "unavailable") return "설정 확인 필요";
+  if (state === "stopping") return "분석 중…";
+  if (state === "starting") return "준비 중…";
+  return "연습 시작";
 }
 
 export function PracticeResult({ report }: { report: SlidePracticeReport }) {

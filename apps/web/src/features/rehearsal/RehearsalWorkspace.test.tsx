@@ -103,6 +103,12 @@ const rehearsalWorkspaceSourcePath = fileURLToPath(
 const rehearsalWorkspaceCssPath = fileURLToPath(
   new URL("./rehearsal-workspace-orbit.css", import.meta.url),
 );
+const editorTopbarSourcePath = fileURLToPath(
+  new URL("../editor/shell/components/EditorTopbar.tsx", import.meta.url),
+);
+const editorShellSourcePath = fileURLToPath(
+  new URL("../editor/shell/EditorShell.tsx", import.meta.url),
+);
 const rehearsalPanelSourcePath = fileURLToPath(
   new URL("./panel/RehearsalPanel.tsx", import.meta.url),
 );
@@ -173,6 +179,18 @@ describe("RehearsalWorkspace", () => {
     expect(css).toMatch(
       /@media \(max-width:1120px\)[\s\S]*?\.rehearsal-presenter-shell \.rehearsal-presenter-main \{[^}]*grid-template-rows: var\(--rehearsal-stage-block-size\);/,
     );
+  });
+
+  it("keeps remote presenter script rows readable on the light script surface", () => {
+    const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
+
+    expect(css).toMatch(
+      /\.presenter-remote-script \.presenter-script-row \{[^}]*color: var\(--redesign-color-on-light-variant\);/s,
+    );
+    expect(css).toMatch(
+      /\.presenter-remote-script \.presenter-script-row--current \{[^}]*color: var\(--redesign-color-on-light\);/s,
+    );
+    expect(css).not.toContain(".presenter-script-row.current");
   });
 
   it("keeps the audience controls inside the presenter topbar", () => {
@@ -817,6 +835,37 @@ describe("RehearsalWorkspace", () => {
     expect(receiverBody).toContain("onPreviousSlide={goPrevious}");
   });
 
+  it("disables presenter keyboard shortcuts while the rehearsal completion dialog is visible", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const keyboardStart = source.indexOf("usePresenterKeyboard({");
+    const keyboardEnd = source.indexOf("});", keyboardStart);
+    const keyboardBody = source.slice(keyboardStart, keyboardEnd);
+
+    expect(source).toContain("const isRehearsalCompletionVisible =");
+    expect(keyboardBody).toContain("!isRehearsalCompletionVisible");
+  });
+
+  it("returns to the rehearsal preflight instead of forcing microphone recording", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const start = source.indexOf("const handleCompletionPracticeAgain =");
+    const end = source.indexOf("const handleCompletionPrimaryAction =", start);
+    const practiceAgainBody = source.slice(start, end);
+
+    expect(practiceAgainBody).toContain("returnToPreflight()");
+    expect(practiceAgainBody).not.toContain("startRecording()");
+  });
+
+  it("keeps the presence avatar as the socket status dialog trigger", () => {
+    const topbarSource = fs.readFileSync(editorTopbarSourcePath, "utf8");
+    const shellSource = fs.readFileSync(editorShellSourcePath, "utf8");
+
+    expect(topbarSource).toContain("onOpenPresenceDebug: () => void;");
+    expect(topbarSource).toContain("onClick={onOpenPresenceDebug}");
+    expect(topbarSource).toContain("type=\"button\"");
+    expect(shellSource).toContain("onOpenPresenceDebug={() => {");
+    expect(shellSource).toContain("setIsPresenceDebugOpen(true);");
+  });
+
   it("supports Google Slides style fullscreen in the current document", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const currentWindowStart = source.indexOf(
@@ -863,6 +912,15 @@ describe("RehearsalWorkspace", () => {
     expect(slideReceiverRenderBody).not.toContain("DisplayControls");
     expect(slideReceiverRenderBody).not.toContain("RehearsalPanel");
     expect(slideReceiverRenderBody).not.toContain("speakerNotes");
+  });
+
+  it("keeps single-screen entry and safe Live STT recovery controls", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("onClick={() => setIsSingleScreenOpen(true)}");
+    expect(source).toContain("sanitizeLiveSttErrorMessage(liveError)");
+    expect(source).toContain("retryInitialRecordingLiveStt()");
+    expect(source).toContain("음성 인식 다시 연결");
   });
 
   it("resets presenter step when P4 auto advance command completes", () => {

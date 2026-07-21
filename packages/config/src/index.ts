@@ -217,6 +217,9 @@ export const orbitEnvSchema = z.object({
   SLIDE_PRACTICE_ENABLED: booleanStringSchema.default(false),
   SLIDE_QUESTION_GUIDES_ENABLED: booleanStringSchema.default(false),
   DEMO_COACHING_FIXTURE_ENABLED: booleanStringSchema.default(false),
+  DEMO_AI_DECK_CACHE_ENABLED: booleanStringSchema.default(false),
+  DEMO_AI_DECK_SOURCE_PROJECT_ID: optionalString,
+  DEMO_AI_DECK_TRIGGER_TOPIC: optionalString,
   DEMO_FIXTURE_ENV_ALLOWLIST: commaSeparatedStringSchema.default([]),
   ADAPTIVE_COACHING_PROJECT_ALLOWLIST: commaSeparatedStringSchema.default([]),
   COACHING_IDEMPOTENCY_HMAC_SECRET: optionalString,
@@ -312,6 +315,15 @@ export const orbitEnvSchema = z.object({
   }
   if (value.APP_ENV === "production" && value.DEMO_COACHING_FIXTURE_ENABLED) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["DEMO_COACHING_FIXTURE_ENABLED"], message: "Demo coaching fixtures are forbidden in production" });
+  }
+  if (value.APP_ENV === "production" && value.DEMO_AI_DECK_CACHE_ENABLED) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["DEMO_AI_DECK_CACHE_ENABLED"], message: "Demo AI deck cache is forbidden in production" });
+  }
+  if (value.DEMO_AI_DECK_CACHE_ENABLED && !value.DEMO_AI_DECK_SOURCE_PROJECT_ID) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["DEMO_AI_DECK_SOURCE_PROJECT_ID"], message: "Demo AI deck source project is required when the cache is enabled" });
+  }
+  if (value.DEMO_AI_DECK_CACHE_ENABLED && !value.DEMO_AI_DECK_TRIGGER_TOPIC) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["DEMO_AI_DECK_TRIGGER_TOPIC"], message: "Demo AI deck trigger topic is required when the cache is enabled" });
   }
   if (value.APP_ENV === "production" && value.ADAPTIVE_REHEARSAL_COACH_ENABLED && (!value.COACHING_IDEMPOTENCY_HMAC_SECRET || value.COACHING_IDEMPOTENCY_HMAC_SECRET.length < 32)) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["COACHING_IDEMPOTENCY_HMAC_SECRET"], message: "Production coaching idempotency HMAC secret must be at least 32 characters" });

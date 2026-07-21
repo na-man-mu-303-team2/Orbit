@@ -144,6 +144,244 @@ def test_generates_and_validates_design_operations() -> None:
     assert "untrusted presentation data" in client.responses.calls[0]["instructions"]
 
 
+@pytest.mark.parametrize(
+    "intent_preset",
+    [
+        "redesign-slide",
+        "tidy-layout",
+        "emphasize-message",
+    ],
+)
+def test_routes_known_intent_preset_separately_from_visible_question(
+    intent_preset: str,
+) -> None:
+    request = request_payload()
+    request.intent_preset = intent_preset
+    client = FakeClient(proposal_payload())
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=client,
+    )
+
+    prompt = json.loads(client.responses.calls[0]["input"])
+    assert result.operations
+    assert prompt["question"] == "이미지를 오른쪽으로 옮겨줘"
+    assert prompt["intentPreset"] == intent_preset
+    assert intent_preset in client.responses.calls[0]["instructions"]
+
+
+def test_recommends_export_compatible_animation_timeline_without_llm() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.context.selected_element_ids = []
+    request.capabilities.operations.append("add_animation")
+    request.context.slide["elements"] = [
+        {
+            "elementId": "el_title",
+            "type": "text",
+            "role": "title",
+            "x": 120,
+            "y": 60,
+            "width": 1200,
+            "height": 100,
+            "visible": True,
+        },
+        {
+            "elementId": "el_body_1",
+            "type": "text",
+            "role": "body",
+            "x": 160,
+            "y": 240,
+            "width": 600,
+            "height": 160,
+            "visible": True,
+        },
+        {
+            "elementId": "el_body_2",
+            "type": "text",
+            "role": "body",
+            "x": 160,
+            "y": 440,
+            "width": 600,
+            "height": 160,
+            "visible": True,
+        },
+        {
+            "elementId": "el_image",
+            "type": "image",
+            "role": "media",
+            "x": 920,
+            "y": 700,
+            "width": 720,
+            "height": 300,
+            "visible": True,
+        },
+        {
+            "elementId": "el_group",
+            "type": "group",
+            "role": "body",
+            "x": 120,
+            "y": 200,
+            "width": 680,
+            "height": 440,
+            "visible": True,
+            "props": {"childElementIds": ["el_body_1", "el_body_2"]},
+        },
+        {
+            "elementId": "el_footer",
+            "type": "text",
+            "role": "footer",
+            "x": 120,
+            "y": 1000,
+            "width": 600,
+            "height": 40,
+            "visible": True,
+        },
+    ]
+    request.context.slide["animations"] = []
+    client = FakeClient(proposal_payload())
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=client,
+    )
+
+    assert client.responses.calls == []
+    assert [operation.animation.start_mode for operation in result.operations] == [
+        "on-slide-enter",
+        "on-click",
+        "with-previous",
+        "after-previous",
+    ]
+    assert {operation.animation.type for operation in result.operations} <= {
+        "appear",
+        "fade-in",
+        "zoom-in",
+    }
+    assert [operation.animation.type for operation in result.operations] == [
+        "fade-in",
+        "appear",
+        "appear",
+        "zoom-in",
+    ]
+    assert [operation.animation.order for operation in result.operations] == [1, 2, 3, 4]
+    assert all(operation.animation.duration_ms == 500 for operation in result.operations)
+    assert result.affected_element_ids == [
+        "el_title",
+        "el_body_1",
+        "el_body_2",
+        "el_image",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("slide_patch", "expected_message"),
+    [
+        ({"ooxmlOrigin": "imported"}, "위치 정보"),
+        (
+            {
+                "ooxmlOrigin": "imported",
+                "ooxmlSourceSlidePart": "ppt/slides/slide1.xml",
+                "ooxmlMotionCapabilities": {
+                    "importedMainSequenceCoverage": "partial",
+                },
+            },
+            "완전하게 보존",
+        ),
+    ],
+)
+def test_animation_recommendation_fails_closed_for_unsafe_imported_slide(
+    slide_patch: dict[str, Any],
+    expected_message: str,
+) -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.append("add_animation")
+    request.context.slide.update(slide_patch)
+    client = FakeClient(proposal_payload())
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=client,
+    )
+
+    assert client.responses.calls == []
+    assert result.operations == []
+    assert expected_message in result.message
+
+
+def test_animation_recommendation_allows_safe_imported_slide() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.append("add_animation")
+    request.context.slide.update({
+        "ooxmlOrigin": "imported",
+        "ooxmlSourceSlidePart": "ppt/slides/slide1.xml",
+        "ooxmlMotionCapabilities": {
+            "importedMainSequenceCoverage": "complete",
+        },
+    })
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=FakeClient(proposal_payload()),
+    )
+
+    assert len(result.operations) == 1
+    assert result.operations[0].animation.type == "zoom-in"
+    assert result.operations[0].animation.start_mode == "on-click"
+
+
+def test_unknown_intent_preset_falls_back_to_question_interpretation() -> None:
+    request = request_payload()
+    request.intent_preset = "future-layout-mode"
+    client = FakeClient(proposal_payload())
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=client,
+    )
+
+    prompt = json.loads(client.responses.calls[0]["input"])
+    assert result.operations
+    assert prompt["question"] == request.question
+    assert prompt["intentPreset"] is None
+    assert "No recognized routing hint" in client.responses.calls[0]["instructions"]
+
+
+def test_tidy_layout_rejects_text_content_mutation() -> None:
+    request = request_payload()
+    request.intent_preset = "tidy-layout"
+    payload = proposal_payload()
+    payload["operations"] = [
+        {
+            "type": "update_element_props",
+            "slideId": "slide_1",
+            "elementId": "el_image",
+            "props": {"text": "새로운 사실"},
+        }
+    ]
+
+    with pytest.raises(DesignAgentGenerationError, match="preserve existing text"):
+        generate_design_proposal(
+            request,
+            model="test-model",
+            api_key=None,
+            client=FakeClient(payload),
+        )
+
+
 @pytest.mark.parametrize("x", [-1, 1500])
 def test_rejects_frame_update_result_outside_canvas(x: float) -> None:
     with pytest.raises(DesignAgentGenerationError, match="outside the canvas"):
@@ -167,6 +405,22 @@ def test_allows_off_canvas_element_as_frame_update_target() -> None:
     )
 
     assert result.operations[0].frame.x == 80
+
+
+def test_allows_non_geometry_update_for_off_canvas_element() -> None:
+    request = request_payload()
+    request.context.slide["elements"][0]["x"] = -240
+    payload = proposal_payload()
+    payload["operations"][0]["frame"] = {"opacity": 0.5}
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=FakeClient(payload),
+    )
+
+    assert result.operations[0].frame.opacity == 0.5
 
 
 def test_validates_off_canvas_target_after_all_frame_updates() -> None:

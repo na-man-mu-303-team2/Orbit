@@ -870,6 +870,62 @@ describe("SpeechTracker", () => {
     });
   });
 
+  it.each([
+    {
+      transcript: "셋째 문장은 실행 일정과 협업 방향을 명확하게 정리합니다",
+      expectedCommittedSentenceId: "sentence_3",
+      expectedCurrentSentenceId: "sentence_4",
+      expectedSkippedSentenceIds: ["sentence_1", "sentence_2"]
+    },
+    {
+      transcript: "넷째 문장은 예상 성과와 다음 단계를 구체적으로 공유합니다",
+      expectedCommittedSentenceId: "sentence_4",
+      expectedCurrentSentenceId: "sentence_5",
+      expectedSkippedSentenceIds: ["sentence_1", "sentence_2", "sentence_3"]
+    }
+  ])(
+    "현재보다 두세 문장 앞을 읽으면 $expectedCommittedSentenceId 위치로 복구한다",
+    ({
+      transcript,
+      expectedCommittedSentenceId,
+      expectedCurrentSentenceId,
+      expectedSkippedSentenceIds
+    }) => {
+      const tracker = createForwardResyncSpeechTracker();
+
+      tracker.acceptResult({
+        text: transcript,
+        isFinal: true,
+        timestampMs: [0, 1_000]
+      });
+
+      expect(tracker.snapshot().prompterProgress).toMatchObject({
+        currentSentenceId: expectedCurrentSentenceId,
+        committedSentenceIds: [expectedCommittedSentenceId],
+        skippedSentenceIds: expectedSkippedSentenceIds,
+        lastCommitSource: "lexical"
+      });
+    }
+  );
+
+  it("현재보다 네 문장 앞을 읽으면 자동으로 건너뛰지 않는다", () => {
+    const tracker = createForwardResyncSpeechTracker();
+
+    tracker.acceptResult({
+      text: "다섯째 문장은 결론과 후속 조치를 마지막으로 안내합니다",
+      isFinal: true,
+      timestampMs: [0, 1_000]
+    });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      currentSentenceId: "sentence_1",
+      committedSentenceIds: []
+    });
+    expect(tracker.snapshot().prompterProgress).not.toHaveProperty(
+      "skippedSentenceIds"
+    );
+  });
+
   it("E5 match는 lexical token이 있을 때만 현재 문장 commit을 보조한다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",
@@ -1003,6 +1059,20 @@ function createOverlappingSentenceTracker() {
   return createSpeechTracker({
     slideId: "slide_1",
     speakerNotes: `${OVERLAPPING_FIRST_SENTENCE}. ${OVERLAPPING_SECOND_SENTENCE}.`,
+    keywords: []
+  });
+}
+
+function createForwardResyncSpeechTracker() {
+  return createSpeechTracker({
+    slideId: "slide_1",
+    speakerNotes: [
+      "첫 문장은 제품 전략과 고객 문제를 구체적으로 설명합니다.",
+      "둘째 문장은 시장 변화와 사용자 요구를 자세하게 검토합니다.",
+      "셋째 문장은 실행 일정과 협업 방향을 명확하게 정리합니다.",
+      "넷째 문장은 예상 성과와 다음 단계를 구체적으로 공유합니다.",
+      "다섯째 문장은 결론과 후속 조치를 마지막으로 안내합니다."
+    ].join(" "),
     keywords: []
   });
 }

@@ -7,7 +7,11 @@ import {
   type PrompterLexicalEvidenceSnapshot
 } from "./prompterLexicalEvidence";
 import { createPrompterFinalDeduplicator } from "./prompterFinalDeduplicator";
-import { createPrompterProgressTracker, type PrompterBoundary } from "./prompterProgressTracker";
+import {
+  createPrompterProgressTracker,
+  defaultPrompterResyncDistance,
+  type PrompterBoundary
+} from "./prompterProgressTracker";
 import {
   mergeSpeechTrackingConfig,
   type SpeechTrackingConfig,
@@ -113,7 +117,8 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
     sentences
   });
   let prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
-  let prompterLookaheadLexicalEvidence = createLexicalEvidenceForNextSentence();
+  let prompterLookaheadLexicalEvidence =
+    createLexicalEvidenceForLookaheadSentences();
   let inheritedPrompterEvidenceOwner: InheritedPrompterEvidenceOwner | null =
     null;
   const prompterFinalDeduplicator = createPrompterFinalDeduplicator({
@@ -168,35 +173,48 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
         });
       }
 
-      const nextSentence = findNextPrompterSentence(
-        currentSentence?.sentenceId,
+      const lookaheadSentences = findPrompterLookaheadSentences(
+        currentSentence?.sentenceId
       );
-      if (nextSentence && prompterLookaheadLexicalEvidence) {
-        const lookaheadEvidence = prompterLookaheadLexicalEvidence.acceptResult(
-          {
-            sentenceId: nextSentence.sentenceId,
-            transcriptText: matchingText,
-            sentenceProgressRatio:
-              scriptProgress.sentenceId === nextSentence.sentenceId
-                ? scriptProgress.sentenceRatio
-                : 0,
-            atMs
-          },
-        );
+      const nextSentence = lookaheadSentences[0] ?? null;
+      let forwardResyncCandidate: {
+        evidence: PrompterLexicalEvidenceSnapshot;
+        sentence: ExtractedSentence;
+      } | null = null;
+      for (const lookaheadSentence of lookaheadSentences) {
+        const lookaheadAccumulator =
+          prompterLookaheadLexicalEvidence.get(lookaheadSentence.sentenceId);
+        if (!lookaheadAccumulator) {
+          continue;
+        }
+        const lookaheadEvidence = lookaheadAccumulator.acceptResult({
+          sentenceId: lookaheadSentence.sentenceId,
+          transcriptText: matchingText,
+          sentenceProgressRatio:
+            scriptProgress.sentenceId === lookaheadSentence.sentenceId
+              ? scriptProgress.sentenceRatio
+              : 0,
+          atMs
+        });
         const lookaheadCommitEligible =
           isPrompterLexicalCommitEligible(lookaheadEvidence);
-        if (result.isFinal && currentSentence && currentCommitEligible) {
+        if (
+          lookaheadSentence.sentenceId === nextSentence?.sentenceId &&
+          result.isFinal &&
+          currentSentence &&
+          currentCommitEligible
+        ) {
           const residualTranscript = removeCurrentSentenceEvidence({
             transcriptText: matchingText,
             currentSentenceText: currentSentence.text,
           });
           const carryAccumulator =
-            createPrompterLexicalEvidenceAccumulator(nextSentence);
+            createPrompterLexicalEvidenceAccumulator(lookaheadSentence);
           const carryEvidence = carryAccumulator.acceptResult({
-            sentenceId: nextSentence.sentenceId,
+            sentenceId: lookaheadSentence.sentenceId,
             transcriptText: residualTranscript,
             sentenceProgressRatio:
-              scriptProgress.sentenceId === nextSentence.sentenceId
+              scriptProgress.sentenceId === lookaheadSentence.sentenceId
                 ? scriptProgress.sentenceRatio
                 : 0,
             atMs,
@@ -209,7 +227,7 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
               slideId: prompterProgress.slideId,
               ownerRevision: prompterProgress.revision,
               ownerCurrentSentenceId: currentSentence.sentenceId,
-              sentenceId: nextSentence.sentenceId,
+              sentenceId: lookaheadSentence.sentenceId,
               accumulator: carryAccumulator,
               evidence: carryEvidence,
               atMs
@@ -221,17 +239,23 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
           lookaheadCommitEligible &&
           (result.isFinal || lookaheadEvidence.stableResultCount >= 2)
         ) {
-          const resynced = prompterProgressTracker.resyncNext({
-            sentenceId: nextSentence.sentenceId,
-            revision: prompterProgress.revision,
-            candidate: true,
-            commitEligible: true,
-            source: "lexical",
-            atMs: lookaheadEvidence.updatedAtMs ?? atMs
-          });
-          if (resynced) {
-            refreshPrompterLexicalEvidence();
-          }
+          forwardResyncCandidate ??= {
+            evidence: lookaheadEvidence,
+            sentence: lookaheadSentence
+          };
+        }
+      }
+      if (forwardResyncCandidate) {
+        const resynced = prompterProgressTracker.resyncForward({
+          sentenceId: forwardResyncCandidate.sentence.sentenceId,
+          revision: prompterProgress.revision,
+          candidate: true,
+          commitEligible: true,
+          source: "lexical",
+          atMs: forwardResyncCandidate.evidence.updatedAtMs ?? atMs
+        });
+        if (resynced) {
+          refreshPrompterLexicalEvidence();
         }
       }
 
@@ -476,18 +500,24 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       : null;
   }
 
-  function createLexicalEvidenceForNextSentence(): PrompterLexicalEvidenceAccumulator | null {
+  function createLexicalEvidenceForLookaheadSentences() {
     const currentSentenceId =
       prompterProgressTracker.snapshot().currentSentenceId;
-    const nextSentence = findNextPrompterSentence(currentSentenceId);
-    return nextSentence
-      ? createPrompterLexicalEvidenceAccumulator(nextSentence)
-      : null;
+    return new Map(
+      findPrompterLookaheadSentences(currentSentenceId).map((sentence) => [
+        sentence.sentenceId,
+        createPrompterLexicalEvidenceAccumulator(sentence)
+      ])
+    );
   }
 
   function findNextPrompterSentence(currentSentenceId?: string | null) {
+    return findPrompterLookaheadSentences(currentSentenceId)[0] ?? null;
+  }
+
+  function findPrompterLookaheadSentences(currentSentenceId?: string | null) {
     if (!currentSentenceId) {
-      return null;
+      return [];
     }
     const matchableSentences = sentences.filter(
       (sentence) => sentence.matchable,
@@ -496,14 +526,18 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       (sentence) => sentence.sentenceId === currentSentenceId,
     );
     return currentIndex >= 0
-      ? (matchableSentences[currentIndex + 1] ?? null)
-      : null;
+      ? matchableSentences.slice(
+          currentIndex + 1,
+          currentIndex + 1 + defaultPrompterResyncDistance
+        )
+      : [];
   }
 
   function refreshPrompterLexicalEvidence() {
     inheritedPrompterEvidenceOwner = null;
     prompterLexicalEvidence = createLexicalEvidenceForCurrentSentence();
-    prompterLookaheadLexicalEvidence = createLexicalEvidenceForNextSentence();
+    prompterLookaheadLexicalEvidence =
+      createLexicalEvidenceForLookaheadSentences();
   }
 
   function inheritPrompterLookaheadEvidence(carry: PrompterLookaheadCarry) {
@@ -573,13 +607,16 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       return;
     }
 
-    const nextSentence = findNextPrompterSentence(progress.currentSentenceId);
-    const lookaheadEvidence = prompterLookaheadLexicalEvidence?.snapshot();
+    const lookaheadSentence = findPrompterLookaheadSentences(
+      progress.currentSentenceId
+    ).find((sentence) => sentence.sentenceId === sentenceId);
+    const lookaheadEvidence =
+      prompterLookaheadLexicalEvidence.get(sentenceId)?.snapshot();
     if (
-      nextSentence?.sentenceId === sentenceId &&
+      lookaheadSentence &&
       lookaheadEvidence &&
       lookaheadEvidence.matchedMeaningfulTokenCount >= 2 &&
-      prompterProgressTracker.resyncNext({
+      prompterProgressTracker.resyncForward({
         sentenceId,
         revision: progress.revision,
         candidate: true,

@@ -1,6 +1,7 @@
 import {
   coachingIdSchema,
   completeFocusedPracticeAudioRequestSchema,
+  createAssetUploadUrlRequestSchema,
   createFocusedPracticeAttemptRequestSchema,
   createFocusedPracticeSessionRequestSchema,
   deckSchema,
@@ -33,6 +34,10 @@ import {
 @Injectable()
 export class FocusedPracticeService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
+  private readonly focusedPracticeAudioUploadRequestSchema = createAssetUploadUrlRequestSchema({
+    maxRehearsalAudioUploadSizeBytes: this.config.REHEARSAL_AUDIO_MAX_BYTES,
+    allowedPrivatePurpose: "focused-practice-audio"
+  });
 
   constructor(
     private readonly dataSource: DataSource,
@@ -249,12 +254,12 @@ export class FocusedPracticeService {
       [sessionId, request.clientRequestId],
     ));
     if (existing) return { attempt: toAttempt(existing), upload: null };
-    const upload = await this.files.createUploadUrl(projectId, {
+    const upload = await this.files.createUploadUrl(projectId, this.focusedPracticeAudioUploadRequestSchema.parse({
       originalName: focusedPracticeAudioFileName(request.mimeType),
       mimeType: request.mimeType,
       size: request.size,
       purpose: "focused-practice-audio",
-    });
+    }));
     const now = new Date();
     const rows = await this.dataSource.query(
       `INSERT INTO focused_practice_attempts (
@@ -311,15 +316,39 @@ export class FocusedPracticeService {
         duration_ms = $3, slide_timeline_json = $4 WHERE attempt_id = $1 AND status = 'uploading' RETURNING *`,
       [attemptId, job.jobId, request.durationMs, JSON.stringify(request.slideTimeline)],
     );
-    await enqueueFocusedPracticeAnalysisJob({
-      driver: this.config.JOB_QUEUE_DRIVER,
-      redisUrl: this.config.REDIS_URL,
-      jobId: job.jobId,
-      projectId: String(attempt.project_id),
-      practiceSessionId: String(attempt.practice_session_id),
-      attemptId,
-      audioFileId: request.fileId,
-    });
+    try {
+      await enqueueFocusedPracticeAnalysisJob({
+        driver: this.config.JOB_QUEUE_DRIVER,
+        redisUrl: this.config.REDIS_URL,
+        jobId: job.jobId,
+        projectId: String(attempt.project_id),
+        practiceSessionId: String(attempt.practice_session_id),
+        attemptId,
+        audioFileId: request.fileId,
+      });
+      this.logger?.info({ event: "job.enqueued", jobId: job.jobId, jobType: job.type, projectId: String(attempt.project_id) }, "Focused practice analysis job enqueued.");
+    } catch (error) {
+      let rawAudioDeletedAt: string | null = null;
+      let cleanupState: "deleted" | "pending" = "pending";
+      let cleanupError: unknown;
+      try {
+        rawAudioDeletedAt = await this.files.deleteUploadedAsset(String(attempt.project_id), request.fileId, "focused-practice-audio");
+        cleanupState = "deleted";
+      } catch (caughtCleanupError) {
+        cleanupError = caughtCleanupError;
+      }
+      await Promise.all([
+        this.jobs.update(job.jobId, {
+          status: "failed", progress: 0, message: "Focused practice analysis enqueue failed.",
+          error: { code: "FOCUSED_PRACTICE_ANALYSIS_ENQUEUE_FAILED", message: "Focused practice analysis enqueue failed." },
+        }),
+        this.dataSource.query(`UPDATE focused_practice_attempts SET status='failed',error_code='PROVIDER_UNAVAILABLE',
+          cleanup_state=$2,raw_audio_deleted_at=$3,raw_audio_delete_deadline_at=CASE WHEN $2='deleted' THEN NULL ELSE raw_audio_delete_deadline_at END,completed_at=now()
+          WHERE attempt_id=$1 AND analysis_job_id=$4 AND status='queued'`, [attemptId, cleanupState, rawAudioDeletedAt, job.jobId]),
+      ]);
+      this.logger?.error({ event: "job.enqueue_failed", jobId: job.jobId, jobType: job.type, projectId: String(attempt.project_id), errorName: error instanceof Error ? error.name : "UnknownError", cleanupErrorName: cleanupError instanceof Error ? cleanupError.name : cleanupError ? "UnknownError" : undefined }, "Focused practice analysis enqueue failed.");
+      throw error;
+    }
     return { attempt: toAttempt(first(rows)!), job };
   }
 

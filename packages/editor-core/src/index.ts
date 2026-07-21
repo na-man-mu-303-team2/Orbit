@@ -154,6 +154,13 @@ export type {
   SlideActionExecutionResult,
   SlidePlaybackState
 } from "./playback/slidePlayback";
+export {
+  CommunityTemplateSanitizationError,
+  sanitizeCommunityTemplate
+} from "./community-templates/sanitizeCommunityTemplate";
+export type { CommunityTemplateSanitizationErrorCode } from "./community-templates/sanitizeCommunityTemplate";
+export { materializeCommunityTemplate } from "./community-templates/materializeCommunityTemplate";
+export type { MaterializeCommunityTemplateInput } from "./community-templates/materializeCommunityTemplate";
 
 export function createDemoDeck(): Deck {
   return deckSchema.parse({

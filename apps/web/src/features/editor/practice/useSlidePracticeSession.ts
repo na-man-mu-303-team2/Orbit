@@ -1,9 +1,11 @@
-import type {
-  SlidePracticeReport,
-  VoiceBaselineMetrics,
-  VoiceBaselineRecord,
+import {
+  slideQuestionGuideTextHashInput,
+  type Deck,
+  type SlidePracticeReport,
+  type VoiceBaselineMetrics,
+  type VoiceBaselineRecord,
 } from "@orbit/shared";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useFocusedPracticeAudio, type FocusedPracticeCapture } from "../../coaching/useFocusedPracticeAudio";
 import { fetchLiveSttRuntimeConfig } from "../../rehearsal/stt/liveSttRuntimeConfig";
@@ -14,6 +16,7 @@ import {
   submitSlidePracticeAudio,
   upsertVoiceBaseline,
 } from "./slidePracticeApi";
+import { sha256Canonical } from "./slideQuestionGuideApi";
 
 export type PracticeSessionState =
   | "idle"
@@ -22,6 +25,12 @@ export type PracticeSessionState =
   | "stopping"
   | "completed"
   | "error";
+
+export type SlidePracticeRuntimeState =
+  | "checking"
+  | "enabled"
+  | "disabled"
+  | "unavailable";
 
 const slidePracticeAudioConstraints: MediaTrackConstraints = {
   echoCancellation: true,
@@ -35,7 +44,9 @@ export type PracticeTranscriptState = {
 };
 
 export const slidePracticeDisabledMessage =
-  "부분 슬라이드 연습 기능이 현재 환경에서 꺼져 있습니다.";
+  "이 환경에서는 슬라이드 연습 기능을 사용할 수 없습니다.";
+export const slidePracticeRuntimeUnavailableMessage =
+  "슬라이드 연습 설정을 확인하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.";
 
 export function createPracticeTranscriptState(): PracticeTranscriptState {
   return { finalParts: [], interim: "" };
@@ -67,22 +78,88 @@ export function shouldUpdateVoiceBaseline(
   return qualityState !== "unmeasured" && activeSpeechMs >= 5_000;
 }
 
+export async function resolveSlidePracticeRuntimeState(
+  fetchRuntimeConfig: () => Promise<{ slidePracticeEnabled: boolean }> = fetchLiveSttRuntimeConfig,
+): Promise<Exclude<SlidePracticeRuntimeState, "checking">> {
+  try {
+    const runtimeConfig = await fetchRuntimeConfig();
+    return runtimeConfig.slidePracticeEnabled ? "enabled" : "disabled";
+  } catch {
+    return "unavailable";
+  }
+}
+
+export function getSlidePracticeRuntimeMessage(
+  runtimeState: SlidePracticeRuntimeState,
+) {
+  if (runtimeState === "disabled") return slidePracticeDisabledMessage;
+  if (runtimeState === "unavailable") {
+    return slidePracticeRuntimeUnavailableMessage;
+  }
+  return "";
+}
+
+export async function prepareSlidePracticeStart<T, TBeforeStart = void>(input: {
+  runtimeState: SlidePracticeRuntimeState;
+  beforeStart: () => Promise<TBeforeStart>;
+  getDeviceIdHash: () => Promise<string | null>;
+  startAudio: () => Promise<T>;
+}) {
+  if (input.runtimeState !== "enabled") {
+    throw new Error(
+      getSlidePracticeRuntimeMessage(input.runtimeState) ||
+        "슬라이드 연습 기능을 확인하고 있습니다.",
+    );
+  }
+  const beforeStartResult = await input.beforeStart();
+  const deviceIdHash = await input.getDeviceIdHash();
+  const stream = await input.startAudio();
+  return { beforeStartResult, deviceIdHash, stream };
+}
+
+export async function createSlidePracticeSessionSnapshot(input: {
+  deck: Deck;
+  practiceSessionId: string;
+  slideId: string;
+  startedAt: string;
+}) {
+  const source = await createSlidePracticeSourceSnapshot(input.deck, input.slideId);
+  return {
+    practiceSessionId: input.practiceSessionId,
+    ...source,
+    startedAt: input.startedAt,
+  };
+}
+
+async function createSlidePracticeSourceSnapshot(deck: Deck, slideId: string) {
+  const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
+  if (!slide) throw new Error("현재 슬라이드가 서버 덱에 없습니다.");
+  return {
+    slideId: slide.slideId,
+    slideOrder: slide.order,
+    deckId: deck.deckId,
+    deckVersion: deck.version,
+    slideContentHash: await sha256Canonical(slideQuestionGuideTextHashInput(slide)),
+  };
+}
+
 export function useSlidePracticeSession(input: {
-  beforeStart?: () => Promise<void>;
+  beforeStart?: () => Promise<Deck | void>;
   projectId: string;
   deckId: string;
   deckVersion: number;
   slideId: string | null;
   slideOrder: number;
+  slideContentHashInput: unknown | null;
 }) {
   const audio = useFocusedPracticeAudio(300_000, slidePracticeAudioConstraints);
   const [state, setState] = useState<PracticeSessionState>("idle");
   const [elapsedMs, setElapsedMs] = useState(0);
   const [report, setReport] = useState<SlidePracticeReport | null>(null);
   const [message, setMessage] = useState("");
-  const [slidePracticeEnabled, setSlidePracticeEnabled] = useState<
-    boolean | null
-  >(null);
+  const [runtimeState, setRuntimeState] =
+    useState<SlidePracticeRuntimeState>("checking");
+  const [runtimeConfigRequest, setRuntimeConfigRequest] = useState(0);
   const startedAtRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const deviceIdHashRef = useRef<string | null>(null);
@@ -94,33 +171,56 @@ export function useSlidePracticeSession(input: {
     deckId: string;
     deckVersion: number;
     startedAt: string;
+    slideContentHash: string;
   } | null>(null);
 
   async function start(): Promise<MediaStream | null> {
-    if (!input.slideId || state === "starting" || state === "recording") return null;
+    if (
+      !input.slideId
+      || input.slideContentHashInput === null
+      || state === "starting"
+      || state === "recording"
+    ) return null;
+    if (runtimeState !== "enabled") {
+      setMessage(
+        getSlidePracticeRuntimeMessage(runtimeState) ||
+          "슬라이드 연습 기능을 확인하고 있습니다.",
+      );
+      return null;
+    }
     setState("starting");
     setMessage("");
     setReport(null);
     try {
-      const enabled =
-        slidePracticeEnabled ??
-        (await fetchLiveSttRuntimeConfig()).slidePracticeEnabled;
-      setSlidePracticeEnabled(enabled);
-      if (!enabled) {
-        throw new Error(slidePracticeDisabledMessage);
-      }
-      await input.beforeStart?.();
-      deviceIdHashRef.current = await getStableDeviceIdHash().catch(() => null);
-      const stream = await audio.start();
+      const slideId = input.slideId;
+      const prepared = await prepareSlidePracticeStart({
+        runtimeState,
+        beforeStart: async () => {
+          const persistedDeck = await input.beforeStart?.();
+          return persistedDeck
+            ? createSlidePracticeSourceSnapshot(persistedDeck, slideId)
+            : {
+                slideId,
+                slideOrder: input.slideOrder,
+                deckId: input.deckId,
+                deckVersion: input.deckVersion,
+                slideContentHash: await sha256Canonical(input.slideContentHashInput),
+              };
+        },
+        getDeviceIdHash: () => getStableDeviceIdHash().catch(() => null),
+        startAudio: audio.start,
+      });
+      deviceIdHashRef.current = prepared.deviceIdHash;
+      const stream = prepared.stream;
+      const sourceSnapshot = prepared.beforeStartResult;
       const startedAt = Date.now();
       startedAtRef.current = startedAt;
+      const practiceSessionId = `slide_practice_${crypto.randomUUID()}`;
+      const startedAtIso = new Date(startedAt).toISOString();
       sessionSnapshotRef.current = {
-        practiceSessionId: `slide_practice_${crypto.randomUUID()}`,
-        slideId: input.slideId,
-        slideOrder: input.slideOrder,
-        deckId: input.deckId,
-        deckVersion: input.deckVersion,
-        startedAt: new Date(startedAt).toISOString(),
+        practiceSessionId,
+        ...sourceSnapshot,
+        startedAt: startedAtIso,
       };
       timerRef.current = setInterval(() => setElapsedMs(Date.now() - startedAt), 200);
       setElapsedMs(0);
@@ -155,7 +255,7 @@ export function useSlidePracticeSession(input: {
     sessionSnapshotRef.current = null;
     startedAtRef.current = null;
     setElapsedMs(0);
-    setMessage(slidePracticeEnabled === false ? slidePracticeDisabledMessage : "");
+    setMessage(getSlidePracticeRuntimeMessage(runtimeState));
     setReport(null);
     setState("idle");
     return true;
@@ -177,6 +277,7 @@ export function useSlidePracticeSession(input: {
         deckVersion: snapshot.deckVersion,
         slideId: snapshot.slideId,
         slideOrder: snapshot.slideOrder,
+        slideContentHash: snapshot.slideContentHash,
         startedAt: snapshot.startedAt,
         deviceIdHash: deviceIdHashRef.current,
         blob: capture.blob,
@@ -221,18 +322,29 @@ export function useSlidePracticeSession(input: {
 
   useEffect(() => {
     let cancelled = false;
-    void fetchLiveSttRuntimeConfig()
-      .then((runtimeConfig) => {
-        if (cancelled) return;
-        setSlidePracticeEnabled(runtimeConfig.slidePracticeEnabled);
-        if (!runtimeConfig.slidePracticeEnabled) {
-          setMessage(slidePracticeDisabledMessage);
-        }
-      })
-      .catch(() => undefined);
+    setRuntimeState("checking");
+    void resolveSlidePracticeRuntimeState().then((nextState) => {
+      if (cancelled) return;
+      setRuntimeState(nextState);
+      setMessage((current) =>
+        current &&
+        current !== slidePracticeDisabledMessage &&
+        current !== slidePracticeRuntimeUnavailableMessage
+          ? current
+          : getSlidePracticeRuntimeMessage(nextState),
+      );
+    });
     return () => {
       cancelled = true;
     };
+  }, [runtimeConfigRequest]);
+
+  const retryRuntimeConfig = useCallback(() => {
+    setRuntimeState("checking");
+    setMessage((current) =>
+      current === slidePracticeRuntimeUnavailableMessage ? "" : current,
+    );
+    setRuntimeConfigRequest((current) => current + 1);
   }, []);
 
   return {
@@ -241,7 +353,8 @@ export function useSlidePracticeSession(input: {
     report,
     message,
     reset,
-    slidePracticeEnabled,
+    retryRuntimeConfig,
+    runtimeState,
     start,
     stop,
   };
@@ -249,9 +362,11 @@ export function useSlidePracticeSession(input: {
 
 export function getSlidePracticeErrorMessage(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : "";
-  return message.includes("Slide practice is not enabled")
-    ? slidePracticeDisabledMessage
-    : message || fallback;
+  if (message.includes("Slide practice is not enabled")) return slidePracticeDisabledMessage;
+  if (message.includes("content hash") || message.includes("slide content")) {
+    return "슬라이드 내용이 변경되었습니다. 최신 내용을 확인한 뒤 다시 시도해 주세요.";
+  }
+  return message || fallback;
 }
 
 function mergeBaseline(

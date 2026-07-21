@@ -7,6 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 CompositionId = Literal[
+    "cover-classic-corporate",
+    "cover-visual-impact",
+    "cover-immersive-background",
+    "cover-research-author",
+    "cover-structured-report",
+    "cover-modern-high-tech",
     "hero-split",
     "hero-full-bleed",
     "minimal-cover",
@@ -25,6 +31,12 @@ BackgroundMode = Literal["light", "dark", "image"]
 AssetRole = Literal["evidence", "atmosphere", "decoration", "none"]
 
 COMPOSITION_IDS = (
+    "cover-classic-corporate",
+    "cover-visual-impact",
+    "cover-immersive-background",
+    "cover-research-author",
+    "cover-structured-report",
+    "cover-modern-high-tech",
     "hero-split",
     "hero-full-bleed",
     "minimal-cover",
@@ -40,7 +52,22 @@ COMPOSITION_IDS = (
     "cta-closing",
 )
 
+COVER_COMPOSITION_IDS: tuple[CompositionId, ...] = (
+    "cover-classic-corporate",
+    "cover-visual-impact",
+    "cover-immersive-background",
+    "cover-research-author",
+    "cover-structured-report",
+    "cover-modern-high-tech",
+)
+
 COMPOSITION_CONTACT_SHEET = """
+cover-classic-corporate | general business/company/proposal cover | no image | centered corporate
+cover-visual-impact | product/event/campaign cover | required representative image | text-left/image-right
+cover-immersive-background | keynote/vision/brand cover | required background image | full-bleed overlay
+cover-research-author | research/academic author cover | required verified presenter photo | portrait-left/author-right
+cover-structured-report | quarterly/research/executive report cover | no image | structured split report
+cover-modern-high-tech | AI/IT/startup/technical cover | no image | dark neon technology
 hero-split | cover/launch | 1-3 items | evidence or atmosphere image | split-hero
 hero-full-bleed | cover/section | 1-2 items | required image | full-bleed
 minimal-cover | cover | 1-3 items | no image | minimal
@@ -60,6 +87,9 @@ ART_DIRECTOR_INSTRUCTIONS = """
 You are the visual art director for an editable 16:9 presentation.
 Return only the requested JSON.
 Choose one curated composition per slide; never invent coordinates or IDs.
+For the first slide, choose only an ID listed in its eligibleCompositionIds.
+Use cover-research-author only when coverContent.profileImageAssetId is present.
+Never invent a person or use an unrelated asset as a headshot.
 Give every slide one clear focal point and vary adjacent silhouettes.
 Translate designDirection and each slide visualIntent into a subject-specific visual
 concept, imageStyle, surfaceStyle, and composition sequence. Do not default to generic
@@ -263,6 +293,8 @@ def art_director_prompt(
                 for item in slide.get("contentItems", [])[:6]
             ],
             "slideType": str(slide.get("slideType", "")),
+            "coverContent": slide.get("coverContent"),
+            "eligibleCompositionIds": slide.get("eligibleCompositionIds", []),
             "mediaIntent": {
                 key: slide.get("mediaIntent", {}).get(key)
                 for key in ("kind", "prompt", "alt", "required")

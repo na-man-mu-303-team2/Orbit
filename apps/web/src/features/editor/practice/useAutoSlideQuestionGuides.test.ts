@@ -14,6 +14,7 @@ vi.mock("../../rehearsal/stt/liveSttRuntimeConfig", () => ({
 vi.mock("./slideQuestionGuideApi", () => ({
   autoCreateSlideQuestionGuides: mocks.autoCreate,
   createAutoSlideQuestionGuidesClientRequestId: mocks.clientRequestId,
+  sha256Canonical: vi.fn(async (value: unknown) => JSON.stringify(value)),
   waitForSlideQuestionGuideJob: mocks.waitForJob
 }))
 
@@ -132,6 +133,85 @@ describe("runAutoSlideQuestionGuideGeneration", () => {
 
     expect(mocks.autoCreate).not.toHaveBeenCalled()
     expect(onStatus).not.toHaveBeenCalled()
+  })
+
+  it("refetches and retries exactly once when the deck text changes during auto creation", async () => {
+    const initial = createDemoDeck()
+    const latest = {
+      ...initial,
+      version: initial.version + 1,
+      slides: initial.slides.map((slide, index) => (
+        index === 0 ? { ...slide, speakerNotes: "최신 발표자 노트" } : slide
+      ))
+    }
+    mocks.autoCreate
+      .mockRejectedValueOnce(Object.assign(new Error("stale"), {
+        code: "SLIDE_QUESTION_DECK_CONTENT_HASH_MISMATCH"
+      }))
+      .mockResolvedValueOnce({
+        deckId: latest.deckId,
+        deckVersion: latest.version,
+        slides: []
+      })
+    const onDeckRefreshed = vi.fn()
+    const fetchLatestDeck = vi.fn().mockResolvedValue(latest)
+
+    await runAutoSlideQuestionGuideGeneration({
+      deck: initial,
+      fetchLatestDeck,
+      isActive: () => true,
+      onDeckRefreshed,
+      onRefresh: vi.fn(),
+      onStatus: vi.fn(),
+      projectId: initial.projectId
+    })
+
+    expect(fetchLatestDeck).toHaveBeenCalledOnce()
+    expect(onDeckRefreshed).toHaveBeenCalledWith(latest)
+    expect(mocks.autoCreate).toHaveBeenCalledTimes(2)
+    expect(mocks.autoCreate.mock.calls[0]?.[0]).toMatchObject({
+      expectedDeckVersion: initial.version,
+      contentHashVersion: "slide-text-v1"
+    })
+    expect(mocks.autoCreate.mock.calls[1]?.[0]).toMatchObject({
+      expectedDeckVersion: latest.version,
+      contentHashVersion: "slide-text-v1"
+    })
+    expect(mocks.autoCreate.mock.calls[0]?.[0].expectedDeckTextHash)
+      .not.toBe(mocks.autoCreate.mock.calls[1]?.[0].expectedDeckTextHash)
+  })
+
+  it("marks the refreshed deck slides failed when the single retry also conflicts", async () => {
+    const initial = createDemoDeck()
+    const latest = {
+      ...initial,
+      version: initial.version + 1,
+      slides: [
+        ...initial.slides,
+        { ...initial.slides[0]!, slideId: "slide-latest", order: 99 }
+      ]
+    }
+    mocks.autoCreate
+      .mockRejectedValueOnce(Object.assign(new Error("stale"), {
+        code: "SLIDE_QUESTION_DECK_CONTENT_HASH_MISMATCH"
+      }))
+      .mockRejectedValueOnce(Object.assign(new Error("stale again"), {
+        code: "SLIDE_QUESTION_DECK_CONTENT_HASH_MISMATCH"
+      }))
+    const onStatus = vi.fn()
+
+    await runAutoSlideQuestionGuideGeneration({
+      deck: initial,
+      fetchLatestDeck: vi.fn().mockResolvedValue(latest),
+      isActive: () => true,
+      onDeckRefreshed: vi.fn(),
+      onRefresh: vi.fn(),
+      onStatus,
+      projectId: initial.projectId
+    })
+
+    expect(mocks.autoCreate).toHaveBeenCalledTimes(2)
+    expect(onStatus).toHaveBeenCalledWith("slide-latest", "failed")
   })
 })
 

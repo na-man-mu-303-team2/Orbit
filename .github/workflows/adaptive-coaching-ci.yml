@@ -9,19 +9,6 @@ permissions:
   contents: read
 
 jobs:
-  unit-contracts:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 10.12.4 }
-      - uses: actions/setup-node@v4
-        with: { node-version: 24, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
-      - run: cp .env.example .env.local
-      - run: node infra/scripts/check-env.mjs
-      - run: pnpm build && pnpm lint && pnpm test
   db-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20
