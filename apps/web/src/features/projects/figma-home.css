@@ -1877,7 +1877,16 @@
 }
 
 .workspace-community-intro-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--redesign-space-3);
   width: max-content;
+}
+
+.workspace-community-latest-label {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: var(--redesign-type-label-sm-weight);
 }
 
 .workspace-community-intro-arrow.redesign-button {
