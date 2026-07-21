@@ -814,6 +814,7 @@ main.rehearsal-presenter-shell {
   color: var(--redesign-color-on-surface-variant);
   display: flex;
   gap: var(--redesign-space-4);
+  justify-content: center;
   margin-top: var(--redesign-space-7);
   min-height: 96px;
   padding: var(--redesign-space-5) var(--redesign-space-6) 0;
