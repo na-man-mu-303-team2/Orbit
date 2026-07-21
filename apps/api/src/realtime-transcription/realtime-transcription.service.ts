@@ -1,5 +1,8 @@
 import { loadOrbitConfig } from "@orbit/config";
-import { realtimeTranscriptionClientSecretResponseSchema } from "@orbit/shared";
+import {
+  realtimeOobClientSecretResponseSchema,
+  realtimeTranscriptionClientSecretResponseSchema,
+} from "@orbit/shared";
 import {
   BadGatewayException,
   Inject,
@@ -32,6 +35,61 @@ export class RealtimeTranscriptionService {
   ) {}
 
   async createClientSecret(input: { projectId: string; userId: string }) {
+    const secret = await this.requestClientSecret(
+      input,
+      {
+        type: "transcription",
+        audio: {
+          input: {
+            transcription: {
+              model: this.config.OPENAI_REALTIME_TRANSCRIPTION_MODEL,
+              language: "ko",
+              delay: this.config.OPENAI_REALTIME_TRANSCRIPTION_DELAY,
+            },
+            turn_detection: null,
+          },
+        },
+      },
+      "openai.realtime_client_secret",
+    );
+
+    return realtimeTranscriptionClientSecretResponseSchema.parse({
+      clientSecret: secret.value,
+      expiresAt: secret.expires_at,
+      model: this.config.OPENAI_REALTIME_TRANSCRIPTION_MODEL,
+      delay: this.config.OPENAI_REALTIME_TRANSCRIPTION_DELAY,
+    });
+  }
+
+  async createOobClientSecret(input: { projectId: string; userId: string }) {
+    if (this.config.FILLER_TRANSCRIPTION_MODE !== "realtime-oob") {
+      throw new ServiceUnavailableException(
+        "Realtime OOB filler transcription is not enabled.",
+      );
+    }
+    const secret = await this.requestClientSecret(
+      input,
+      {
+        type: "realtime",
+        model: this.config.OPENAI_REALTIME_OOB_MODEL,
+        output_modalities: ["text"],
+        audio: { input: { turn_detection: null } },
+      },
+      "openai.realtime_oob_client_secret",
+    );
+
+    return realtimeOobClientSecretResponseSchema.parse({
+      clientSecret: secret.value,
+      expiresAt: secret.expires_at,
+      model: this.config.OPENAI_REALTIME_OOB_MODEL,
+    });
+  }
+
+  private async requestClientSecret(
+    input: { projectId: string; userId: string },
+    session: Record<string, unknown>,
+    eventPrefix: string,
+  ) {
     if (!this.config.OPENAI_API_KEY) {
       throw new ServiceUnavailableException("OpenAI API key is not configured.");
     }
@@ -47,19 +105,7 @@ export class RealtimeTranscriptionService {
               anchor: "created_at",
               seconds: this.config.OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS
             },
-            session: {
-              type: "transcription",
-              audio: {
-                input: {
-                  transcription: {
-                    model: this.config.OPENAI_REALTIME_TRANSCRIPTION_MODEL,
-                    language: "ko",
-                    delay: this.config.OPENAI_REALTIME_TRANSCRIPTION_DELAY
-                  },
-                  turn_detection: null
-                }
-              }
-            }
+            session,
           }),
           headers: {
             Authorization: `Bearer ${this.config.OPENAI_API_KEY}`,
@@ -73,7 +119,7 @@ export class RealtimeTranscriptionService {
     } catch (error) {
       this.logger.warn(
         {
-          event: "openai.realtime_client_secret.unavailable",
+          event: `${eventPrefix}.unavailable`,
           projectId: input.projectId,
           userIdHash: safetyIdentifier,
           error: serializeLogError(error)
@@ -88,7 +134,7 @@ export class RealtimeTranscriptionService {
     if (!response.ok) {
       this.logger.warn(
         {
-          event: "openai.realtime_client_secret.failed",
+          event: `${eventPrefix}.failed`,
           projectId: input.projectId,
           userIdHash: safetyIdentifier,
           status: response.status
@@ -104,7 +150,7 @@ export class RealtimeTranscriptionService {
     } catch (error) {
       this.logger.warn(
         {
-          event: "openai.realtime_client_secret.invalid_response",
+          event: `${eventPrefix}.invalid_response`,
           projectId: input.projectId,
           userIdHash: safetyIdentifier,
           error: serializeLogError(error)
@@ -118,7 +164,7 @@ export class RealtimeTranscriptionService {
     if (!parsed.success) {
       this.logger.warn(
         {
-          event: "openai.realtime_client_secret.invalid_response",
+          event: `${eventPrefix}.invalid_response`,
           projectId: input.projectId,
           userIdHash: safetyIdentifier,
           issues: parsed.error.issues.map((issue) => ({
@@ -131,12 +177,7 @@ export class RealtimeTranscriptionService {
       throw new BadGatewayException("OpenAI Realtime client secret response is invalid.");
     }
 
-    return realtimeTranscriptionClientSecretResponseSchema.parse({
-      clientSecret: parsed.data.value,
-      expiresAt: parsed.data.expires_at,
-      model: this.config.OPENAI_REALTIME_TRANSCRIPTION_MODEL,
-      delay: this.config.OPENAI_REALTIME_TRANSCRIPTION_DELAY
-    });
+    return parsed.data;
   }
 }
 

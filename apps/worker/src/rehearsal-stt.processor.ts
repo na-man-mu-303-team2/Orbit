@@ -14,6 +14,7 @@ import {
   rehearsalSemanticCueOutcomeSchema,
   rehearsalSemanticEvaluationSchema,
   rehearsalUtteranceBoundariesSchema,
+  rehearsalOobVerbatimResultsSchema,
   slideTranscriptSnapshotsSchema,
   type Job,
   type RehearsalAudioProcessingResponse,
@@ -50,6 +51,7 @@ const rehearsalSttPayloadSchema = z.object({
   liveTranscript: z.string().max(200_000).nullable().default(null),
   slideTranscriptSnapshots: slideTranscriptSnapshotsSchema.default([]),
   utteranceBoundaries: rehearsalUtteranceBoundariesSchema,
+  oobVerbatimResults: rehearsalOobVerbatimResultsSchema,
 });
 
 const audioAssetRowSchema = z.object({
@@ -380,6 +382,7 @@ export async function processRehearsalSttJob(
         mode: verbatimRuntime.mode,
         apiKey: verbatimRuntime.apiKey,
         miniModel: verbatimRuntime.miniModel,
+        oobModel: verbatimRuntime.oobModel,
         fetcher: verbatimRuntime.fetcher,
         onEvent: verbatimRuntime.onEvent,
       }
@@ -388,6 +391,7 @@ export async function processRehearsalSttJob(
     storage,
     storageKey: asset.storage_key,
     boundaries: payload.utteranceBoundaries,
+    oobResults: payload.oobVerbatimResults,
     pronunciationTerms: deckContext.evaluationSnapshot
       ? buildTranscriptionPronunciationContext(deckContext.evaluationSnapshot)
       : [],
@@ -836,6 +840,7 @@ function buildRehearsalReport(
     fillerOccurrences: verbatimEvidence.fillerOccurrences,
     disfluencyOccurrences: verbatimEvidence.disfluencyOccurrences,
     verbatimCoachingSource: verbatimEvidence.source,
+    verbatimCoachingTelemetry: verbatimEvidence.telemetry,
     missedKeywords: buildReportMissedKeywords(analysis.missedKeywords),
     utteranceOutcomes: runMeta.utteranceOutcomes,
     semanticCueDecisions: runMeta.semanticCueDecisions,

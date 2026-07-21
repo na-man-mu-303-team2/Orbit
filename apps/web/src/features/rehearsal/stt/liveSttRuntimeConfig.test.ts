@@ -9,6 +9,7 @@ describe("fetchLiveSttRuntimeConfig", () => {
       new Response(
         JSON.stringify({
           liveSttEngine: "web-speech",
+          fillerTranscriptionMode: "mini",
           adaptiveRehearsalCoachEnabled: false,
           focusedPracticeEnabled: false,
           challengeQnaEnabled: false,
@@ -20,6 +21,7 @@ describe("fetchLiveSttRuntimeConfig", () => {
 
     await expect(fetchLiveSttRuntimeConfig(fetcher as never)).resolves.toEqual({
       liveSttEngine: "web-speech",
+      fillerTranscriptionMode: "mini",
       adaptiveRehearsalCoachEnabled: false,
       focusedPracticeEnabled: false,
       challengeQnaEnabled: false,

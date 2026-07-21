@@ -135,6 +135,7 @@ export interface RehearsalSttBullMqPayload {
   liveTranscript?: string | null;
   slideTranscriptSnapshots?: import("@orbit/shared").SlideTranscriptSnapshot[];
   utteranceBoundaries?: import("@orbit/shared").RehearsalUtteranceBoundary[];
+  oobVerbatimResults?: import("@orbit/shared").RehearsalOobVerbatimResult[];
 }
 
 export interface EnqueueRehearsalSttJobInput extends RehearsalSttBullMqPayload {
@@ -368,6 +369,7 @@ export async function enqueueRehearsalSttJob(
         liveTranscript: input.liveTranscript ?? null,
         slideTranscriptSnapshots: input.slideTranscriptSnapshots ?? [],
         utteranceBoundaries: input.utteranceBoundaries ?? [],
+        oobVerbatimResults: input.oobVerbatimResults ?? [],
       } satisfies RehearsalSttBullMqPayload,
       canonicalJobOptions(input.jobId),
     );

@@ -36,6 +36,8 @@ const validEnv = {
   OPENAI_REALTIME_TRANSCRIPTION_MODEL: "gpt-realtime-whisper",
   OPENAI_REALTIME_TRANSCRIPTION_DELAY: "minimal",
   OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS: "600",
+  FILLER_TRANSCRIPTION_MODE: "mini",
+  OPENAI_REALTIME_OOB_MODEL: "gpt-realtime-2.1",
   AWS_REGION: "ap-northeast-2",
   AWS_ACCESS_KEY_ID: "",
   AWS_SECRET_ACCESS_KEY: "",
@@ -131,6 +133,49 @@ describe("RealtimeTranscriptionService", () => {
     expect(JSON.parse(String(request.body)).session.audio.input.transcription.delay).toBe(
       "low"
     );
+  });
+
+  it("issues a text-only realtime OOB secret only in opt-in mode", async () => {
+    vi.stubEnv("FILLER_TRANSCRIPTION_MODE", "realtime-oob");
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ value: "ek_oob", expires_at: 1790000000 })),
+    );
+    const service = new RealtimeTranscriptionService(
+      fetcher as unknown as typeof fetch,
+      createLogger(),
+    );
+
+    await expect(
+      service.createOobClientSecret({
+        projectId: "project_1",
+        userId: "user_1",
+      }),
+    ).resolves.toEqual({
+      clientSecret: "ek_oob",
+      expiresAt: 1790000000,
+      model: "gpt-realtime-2.1",
+    });
+    const request = fetcher.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body)).session).toEqual({
+      type: "realtime",
+      model: "gpt-realtime-2.1",
+      output_modalities: ["text"],
+      audio: { input: { turn_detection: null } },
+    });
+  });
+
+  it("fails closed when realtime OOB mode is not enabled", async () => {
+    const service = new RealtimeTranscriptionService(
+      vi.fn() as unknown as typeof fetch,
+      createLogger(),
+    );
+
+    await expect(
+      service.createOobClientSecret({
+        projectId: "project_1",
+        userId: "user_1",
+      }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it("fails closed when OpenAI API key is unavailable", async () => {

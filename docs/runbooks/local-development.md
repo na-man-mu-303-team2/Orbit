@@ -91,6 +91,9 @@ docker compose ps
 `FILLER_TRANSCRIPTION_MODE=mini`와
 `OPENAI_FILLER_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe`를 사용한다. OOB 정밀 모드는
 로컬 평가가 필요한 경우에만 `FILLER_TRANSCRIPTION_MODE=realtime-oob`로 명시한다.
+이 모드에서는 브라우저가 별도의 `gpt-realtime-2.1` precision session을 열고 같은 local
+VAD commit을 사용한다. OOB 연결·응답 timeout은 발표 제어를 중단하지 않으며 녹음 종료
+후 해당 발화가 `gpt-4o-mini-transcribe` fallback 대상으로 전달되어야 한다.
 
 runtime config 또는 Realtime session 설정 검증이 실패하면 Web Speech로 자동 전환하지
 않고 Live STT 오류를 표시하며 수동 발표 제어는 계속 사용할 수 있어야 한다.

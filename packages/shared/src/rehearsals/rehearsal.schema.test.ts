@@ -382,11 +382,22 @@ describe("rehearsalReportSchema", () => {
         completedUtterances: 1,
         totalUtterances: 1,
       },
+      verbatimCoachingTelemetry: {
+        oobAttemptedResponses: 2,
+        oobCompletedResponses: 1,
+        oobFailedResponses: 1,
+        oobTotalLatencyMs: 12_800,
+        oobMaxLatencyMs: 12_000,
+        oobInputTokens: 20,
+        oobOutputTokens: 4,
+        miniFallbackUtterances: 1,
+      },
     });
 
     expect(report.fillerOccurrences?.[0]?.normalized).toBe("음");
     expect(report.disfluencyOccurrences?.[0]?.kind).toBe("repetition");
     expect(report.verbatimCoachingSource?.mode).toBe("mini");
+    expect(report.verbatimCoachingTelemetry?.oobFailedResponses).toBe(1);
   });
 
   it("defaults optional official detail sections to empty values", () => {
@@ -948,6 +959,7 @@ describe("completeRehearsalAudioUploadRequestSchema", () => {
     expect(request.liveTranscript).toBeNull();
     expect(request.slideTranscriptSnapshots).toEqual([]);
     expect(request.utteranceBoundaries).toEqual([]);
+    expect(request.oobVerbatimResults).toEqual([]);
   });
 
   it("accepts the accumulated browser live transcript", () => {
@@ -1004,6 +1016,42 @@ describe("completeRehearsalAudioUploadRequestSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("accepts correlated OOB results and rejects incomplete success", () => {
+    const request = completeRehearsalAudioUploadRequestSchema.parse({
+      fileId: "file_audio_1",
+      oobVerbatimResults: [
+        {
+          utteranceId: "utterance-1",
+          fragmentSequence: 1,
+          responseId: "response-1",
+          status: "completed",
+          latencyMs: 820,
+          transcript: "음 결과",
+          inputTokens: 20,
+          outputTokens: 3,
+          failureCode: null,
+        },
+      ],
+    });
+    expect(request.oobVerbatimResults[0]?.responseId).toBe("response-1");
+
+    expect(
+      completeRehearsalAudioUploadRequestSchema.safeParse({
+        fileId: "file_audio_1",
+        oobVerbatimResults: [
+          {
+            utteranceId: "utterance-1",
+            fragmentSequence: 1,
+            responseId: null,
+            status: "completed",
+            latencyMs: 820,
+            transcript: null,
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 });
 

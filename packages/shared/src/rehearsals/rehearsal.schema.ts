@@ -414,6 +414,19 @@ export const verbatimCoachingSourceSchema = z
     }
   });
 
+export const verbatimCoachingTelemetrySchema = z
+  .object({
+    oobAttemptedResponses: z.number().int().nonnegative(),
+    oobCompletedResponses: z.number().int().nonnegative(),
+    oobFailedResponses: z.number().int().nonnegative(),
+    oobTotalLatencyMs: z.number().int().nonnegative(),
+    oobMaxLatencyMs: z.number().int().nonnegative(),
+    oobInputTokens: z.number().int().nonnegative(),
+    oobOutputTokens: z.number().int().nonnegative(),
+    miniFallbackUtterances: z.number().int().nonnegative(),
+  })
+  .strict();
+
 export const rehearsalReportMissedKeywordSchema = z
   .object({
     slideId: deckSlideIdSchema,
@@ -764,6 +777,7 @@ const rehearsalReportObjectSchema = z
       .array(rehearsalDisfluencyOccurrenceSchema)
       .optional(),
     verbatimCoachingSource: verbatimCoachingSourceSchema.optional(),
+    verbatimCoachingTelemetry: verbatimCoachingTelemetrySchema.optional(),
     missedKeywords: z.array(rehearsalReportMissedKeywordSchema).default([]),
     utteranceOutcomes: z.array(rehearsalUtteranceOutcomeSchema).default([]),
     semanticCueDecisions: z
@@ -1111,12 +1125,74 @@ export const rehearsalUtteranceBoundariesSchema = z
     }
   });
 
+export const rehearsalOobVerbatimResultSchema = z
+  .object({
+    utteranceId: z.string().trim().min(1).max(128),
+    fragmentSequence: z.number().int().positive(),
+    responseId: z.string().trim().min(1).max(128).nullable(),
+    status: z.enum(["completed", "failed"]),
+    latencyMs: z.number().int().nonnegative().max(120_000),
+    transcript: z.string().trim().min(1).max(20_000).nullable().default(null),
+    inputTokens: z.number().int().nonnegative().nullable().default(null),
+    outputTokens: z.number().int().nonnegative().nullable().default(null),
+    failureCode: z
+      .enum(["connection", "response-error", "timeout"])
+      .nullable()
+      .default(null),
+  })
+  .strict()
+  .superRefine((result, context) => {
+    if (result.status === "completed" && (!result.responseId || !result.transcript)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "completed OOB result requires responseId and transcript.",
+        path: ["status"],
+      });
+    }
+    if (result.status === "failed" && !result.failureCode) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "failed OOB result requires failureCode.",
+        path: ["failureCode"],
+      });
+    }
+  });
+
+export const rehearsalOobVerbatimResultsSchema = z
+  .array(rehearsalOobVerbatimResultSchema)
+  .max(4_000)
+  .default([])
+  .superRefine((results, context) => {
+    const fragmentKeys = new Set<string>();
+    const responseIds = new Set<string>();
+    results.forEach((result, index) => {
+      const fragmentKey = `${result.utteranceId}:${result.fragmentSequence}`;
+      if (fragmentKeys.has(fragmentKey)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "OOB fragment identity must be unique.",
+          path: [index, "fragmentSequence"],
+        });
+      }
+      fragmentKeys.add(fragmentKey);
+      if (result.responseId && responseIds.has(result.responseId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "OOB responseId must be unique.",
+          path: [index, "responseId"],
+        });
+      }
+      if (result.responseId) responseIds.add(result.responseId);
+    });
+  });
+
 export const completeRehearsalAudioUploadUrlRequestSchema = z.object({
   fileId: z.string().min(1),
   recordingDurationSeconds: rehearsalRecordingDurationSecondsSchema,
   liveTranscript: z.string().max(200_000).nullable().default(null),
   slideTranscriptSnapshots: slideTranscriptSnapshotsSchema.default([]),
   utteranceBoundaries: rehearsalUtteranceBoundariesSchema,
+  oobVerbatimResults: rehearsalOobVerbatimResultsSchema,
 });
 
 export const rehearsalAudioSha256Schema = z
@@ -1843,6 +1919,12 @@ export type CompleteRehearsalAudioUploadResponse = z.infer<
 >;
 export type RehearsalUtteranceBoundary = z.infer<
   typeof rehearsalUtteranceBoundarySchema
+>;
+export type VerbatimCoachingTelemetry = z.infer<
+  typeof verbatimCoachingTelemetrySchema
+>;
+export type RehearsalOobVerbatimResult = z.infer<
+  typeof rehearsalOobVerbatimResultSchema
 >;
 export type CreateRehearsalAudioClipRequest = z.infer<
   typeof createRehearsalAudioClipRequestSchema

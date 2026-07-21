@@ -64,6 +64,7 @@ describe("RuntimeConfigController", () => {
 
     expect(new RuntimeConfigController().getRuntimeConfig()).toEqual({
       liveSttEngine: "web-speech",
+      fillerTranscriptionMode: "mini",
       adaptiveRehearsalCoachEnabled: false,
       focusedPracticeEnabled: false,
       challengeQnaEnabled: false,

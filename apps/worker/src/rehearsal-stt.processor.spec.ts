@@ -457,6 +457,16 @@ describe("processRehearsalSttJob", () => {
               },
             ],
           ]),
+          telemetry: {
+            oobAttemptedResponses: 0,
+            oobCompletedResponses: 0,
+            oobFailedResponses: 0,
+            oobTotalLatencyMs: 0,
+            oobMaxLatencyMs: 0,
+            oobInputTokens: 0,
+            oobOutputTokens: 0,
+            miniFallbackUtterances: 0,
+          },
         })),
       },
     );

@@ -40,6 +40,21 @@ export class RealtimeTranscriptionController {
     });
   }
 
+  @Post("oob-client-secret")
+  @HttpCode(HttpStatus.OK)
+  async createOobClientSecret(
+    @Param("projectId") projectId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+
+    return this.realtimeTranscriptionService.createOobClientSecret({
+      projectId,
+      userId: user.userId,
+    });
+  }
+
   private async getCurrentUser(request: SignedCookieRequest) {
     const sessionId = getSignedSessionId(request);
     if (!sessionId) {

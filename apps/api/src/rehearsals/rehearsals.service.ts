@@ -489,6 +489,7 @@ export class RehearsalsService {
         liveTranscript: request.liveTranscript,
         slideTranscriptSnapshots: request.slideTranscriptSnapshots,
         utteranceBoundaries: request.utteranceBoundaries,
+        oobVerbatimResults: request.oobVerbatimResults,
       });
 
       this.logger.info(

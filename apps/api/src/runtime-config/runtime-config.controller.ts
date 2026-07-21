@@ -10,6 +10,7 @@ export class RuntimeConfigController {
   getRuntimeConfig() {
     return runtimeConfigResponseSchema.parse({
       liveSttEngine: this.config.LIVE_STT_ENGINE,
+      fillerTranscriptionMode: this.config.FILLER_TRANSCRIPTION_MODE,
       adaptiveRehearsalCoachEnabled: this.config.ADAPTIVE_REHEARSAL_COACH_ENABLED,
       focusedPracticeEnabled: this.config.FOCUSED_PRACTICE_ENABLED,
       challengeQnaEnabled: this.config.CHALLENGE_QNA_ENABLED,

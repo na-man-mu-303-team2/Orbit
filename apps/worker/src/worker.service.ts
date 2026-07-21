@@ -322,6 +322,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
               mode: this.config.FILLER_TRANSCRIPTION_MODE,
               apiKey: this.config.OPENAI_API_KEY,
               miniModel: this.config.OPENAI_FILLER_TRANSCRIPTION_MODEL,
+              oobModel: this.config.OPENAI_REALTIME_OOB_MODEL,
               onEvent: (event) => {
                 const level = event.status === "degraded" ? "warn" : "info";
                 this.logger[level](

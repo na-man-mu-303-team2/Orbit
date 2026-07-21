@@ -29,6 +29,7 @@ import {
   type RehearsalEvaluationSnapshot,
   type RehearsalRun,
   type RehearsalRunMeta,
+  type RehearsalOobVerbatimResult,
   type RehearsalUtteranceBoundary,
   type RetryRehearsalSemanticEvaluationResponse,
   type SemanticCapabilityEvent,
@@ -142,6 +143,11 @@ import {
 } from "./stt/liveSttPort";
 import { createLiveSttPort } from "./stt/liveSttEngineRegistry";
 import { fetchLiveSttRuntimeConfig } from "./stt/liveSttRuntimeConfig";
+import {
+  OpenAiRealtimeOobFillerPort,
+  type RealtimeOobFillerPort,
+  type RealtimeOobFillerResult,
+} from "./stt/openAiRealtimeOobFillerPort";
 import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
 import {
@@ -750,6 +756,7 @@ export async function completeRehearsalAudioUpload(
   fetcher: Fetcher = fetch,
   slideTranscriptSnapshots: SlideTranscriptSnapshot[] = [],
   utteranceBoundaries: RehearsalUtteranceBoundary[] = [],
+  oobVerbatimResults: RehearsalOobVerbatimResult[] = [],
 ) {
   const liveTranscript =
     typeof liveTranscriptOrFetcher === "function"
@@ -767,6 +774,7 @@ export async function completeRehearsalAudioUpload(
       liveTranscript,
       slideTranscriptSnapshots,
       utteranceBoundaries,
+      oobVerbatimResults,
     }),
   });
 
@@ -1022,6 +1030,7 @@ export async function runRehearsalUploadFlow(options: {
   liveTranscript?: string | null;
   slideTranscriptSnapshots?: SlideTranscriptSnapshot[];
   utteranceBoundaries?: RehearsalUtteranceBoundary[];
+  oobVerbatimResults?: RehearsalOobVerbatimResult[];
   slideTimeline?: UpdateRehearsalRunMetaRequest["slideTimeline"];
 }) {
   const fetcher = options.fetcher ?? fetch;
@@ -1070,6 +1079,7 @@ export async function runRehearsalUploadFlow(options: {
     fetcher,
     options.slideTranscriptSnapshots ?? [],
     options.utteranceBoundaries ?? [],
+    options.oobVerbatimResults ?? [],
   );
   const job = await pollRehearsalJob(completed.job.jobId, {
     fetcher,
@@ -2152,6 +2162,10 @@ export function RehearsalWorkspace(props: {
   const provisionalFillerDetectorRef = useRef(
     createProvisionalFillerDetector(),
   );
+  const realtimeOobFillerPortRef = useRef<RealtimeOobFillerPort | null>(null);
+  const realtimeOobEnabledRef = useRef(false);
+  const realtimeOobResultsRef = useRef<RehearsalOobVerbatimResult[]>([]);
+  const pendingRealtimeOobCompletionRef = useRef<Promise<void> | null>(null);
   const activeRunRef = useRef<RehearsalRun | null>(null);
   const preparedSlideSnapshotsRef = useRef<
     Array<{ fileId: string; slideId: string }> | undefined
@@ -3055,6 +3069,8 @@ export function RehearsalWorkspace(props: {
       utteranceBoundaryCollectorRef.current.reset();
       provisionalFillerDetectorRef.current.reset();
       setProvisionalFillerCue(null);
+      realtimeOobResultsRef.current = [];
+      pendingRealtimeOobCompletionRef.current = null;
       session.start();
       resetSlideTranscriptSnapshots(activeDeck, currentSlideIndexRef.current);
       setPhase("recording");
@@ -3235,7 +3251,6 @@ export function RehearsalWorkspace(props: {
     setIsTimerRunning(false);
     resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
-    cleanupLiveSttSubscriptions();
     const p3Session = p3SessionRef.current;
     p3SessionRef.current = null;
     pendingP3SlideIndexRef.current = null;
@@ -3251,9 +3266,12 @@ export function RehearsalWorkspace(props: {
         .catch(() => null);
       pendingP3RunMetaRef.current = runMetaPromise;
       void runMetaPromise;
+      pendingRealtimeOobCompletionRef.current = finishRealtimeOobFiller();
     } else {
       void liveSttPortRef.current?.stop();
+      pendingRealtimeOobCompletionRef.current = finishRealtimeOobFiller();
     }
+    cleanupLiveSttSubscriptions();
     setLiveAudioLevel(null);
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current,
@@ -3308,6 +3326,9 @@ export function RehearsalWorkspace(props: {
           }
         } else {
           await liveSttPortRef.current?.stop();
+        }
+        if (isRecordingPause) {
+          await finishRealtimeOobFiller();
         }
       },
     });
@@ -3373,6 +3394,9 @@ export function RehearsalWorkspace(props: {
         setMediaStreamTracksEnabled(stream, true);
         if (phase === "recording") {
           await sessionRef.current?.resume();
+          if (realtimeOobEnabledRef.current) {
+            void startRealtimeOobFiller(stream);
+          }
         }
       }
 
@@ -3522,16 +3546,20 @@ export function RehearsalWorkspace(props: {
     return port;
   }
 
-  async function resolveEffectiveLiveSttEngine(): Promise<LiveSttEngineId> {
+  async function resolveEffectiveLiveSttRuntime(): Promise<
+    {
+      liveSttEngine: LiveSttEngineId;
+      fillerTranscriptionMode: "mini" | "realtime-oob";
+    }
+  > {
     if (props.liveSttPort) {
-      return props.liveSttPort.engineId;
+      return {
+        liveSttEngine: props.liveSttPort.engineId,
+        fillerTranscriptionMode: "mini",
+      };
     }
 
-    try {
-      return (await fetchLiveSttRuntimeConfig()).liveSttEngine;
-    } catch {
-      return presenterSettings.sttEngine;
-    }
+    return await fetchLiveSttRuntimeConfig();
   }
 
   function getOrCreateSemanticMatcher() {
@@ -3667,11 +3695,17 @@ export function RehearsalWorkspace(props: {
 
     let port: LiveSttPort;
     try {
-      const effectiveEngineId = await resolveEffectiveLiveSttEngine();
+      const runtimeConfig = await resolveEffectiveLiveSttRuntime();
       if (!shouldContinue()) {
         return false;
       }
-      port = getOrCreateLiveSttPort(effectiveEngineId);
+      port = getOrCreateLiveSttPort(runtimeConfig.liveSttEngine);
+      realtimeOobEnabledRef.current =
+        runtimeConfig.fillerTranscriptionMode === "realtime-oob" &&
+        recordingClockRef.current !== null;
+      if (realtimeOobEnabledRef.current) {
+        void startRealtimeOobFiller(stream);
+      }
     } catch (cause) {
       if (!shouldContinue()) {
         return false;
@@ -3714,6 +3748,12 @@ export function RehearsalWorkspace(props: {
           recordingAtMs,
         ),
       );
+      if (
+        event.type === "speech-fragment-committed" ||
+        event.type === "speech-ended"
+      ) {
+        realtimeOobFillerPortRef.current?.commit(event.utteranceId);
+      }
     });
     liveSttSubscriptionCleanupRef.current = () => {
       unsubscribeResult();
@@ -4527,11 +4567,77 @@ export function RehearsalWorkspace(props: {
     liveSttSubscriptionCleanupRef.current = null;
   }
 
+  async function startRealtimeOobFiller(stream: MediaStream) {
+    const previous = realtimeOobFillerPortRef.current;
+    realtimeOobFillerPortRef.current = null;
+    await previous?.stop().catch(() => undefined);
+    if (!realtimeOobEnabledRef.current) return;
+
+    const activeProjectId =
+      deckRef.current?.projectId ?? props.projectId ?? demoIds.projectId;
+    const port = new OpenAiRealtimeOobFillerPort({
+      projectId: activeProjectId,
+    });
+    realtimeOobFillerPortRef.current = port;
+    port.onResult(handleRealtimeOobResult);
+    try {
+      await port.start(stream);
+      if (
+        realtimeOobFillerPortRef.current !== port ||
+        !realtimeOobEnabledRef.current
+      ) {
+        await port.stop();
+      }
+    } catch {
+      if (realtimeOobFillerPortRef.current === port) {
+        realtimeOobFillerPortRef.current = null;
+      }
+      await port.stop().catch(() => undefined);
+    }
+  }
+
+  function handleRealtimeOobResult(result: RealtimeOobFillerResult) {
+    const uploadResult: RehearsalOobVerbatimResult = {
+      utteranceId: result.utteranceId,
+      fragmentSequence: result.fragmentSequence,
+      responseId: result.responseId,
+      status: result.status,
+      latencyMs: Math.round(result.latencyMs),
+      transcript: result.transcript ?? null,
+      inputTokens: result.inputTokens ?? null,
+      outputTokens: result.outputTokens ?? null,
+      failureCode: result.failureCode ?? null,
+    };
+    realtimeOobResultsRef.current = [
+      ...realtimeOobResultsRef.current,
+      uploadResult,
+    ].slice(-4_000);
+    if (result.status === "completed" && result.transcript) {
+      applyProvisionalFillerChanges(
+        provisionalFillerDetectorRef.current.confirmVerbatim({
+          utteranceId: result.utteranceId,
+          transcript: result.transcript,
+          detectedAtMs: recordingClockRef.current?.elapsedMs() ?? 0,
+        }),
+      );
+    }
+  }
+
+  async function finishRealtimeOobFiller() {
+    const port = realtimeOobFillerPortRef.current;
+    if (!port) return;
+    await port.drainAndStop().catch(() => undefined);
+    if (realtimeOobFillerPortRef.current === port) {
+      realtimeOobFillerPortRef.current = null;
+    }
+  }
+
   async function submitRecording(activeDeck: Deck, audioFile: File) {
     setPhase("uploading");
     setError("");
 
     try {
+      await pendingRealtimeOobCompletionRef.current;
       let uploadRun = activeRunRef.current;
       if (!uploadRun) {
         const recovered = await createRehearsalRunForUpload(
@@ -4565,6 +4671,7 @@ export function RehearsalWorkspace(props: {
         ),
         slideTranscriptSnapshots: slideTranscriptSnapshotsRef.current,
         utteranceBoundaries: utteranceBoundaryCollectorRef.current.snapshot(),
+        oobVerbatimResults: realtimeOobResultsRef.current,
         onJobUpdate: (nextJob) => {
           setJob(nextJob);
           setPhase("processing");
@@ -5334,7 +5441,9 @@ export function RehearsalWorkspace(props: {
         }
         deck={deck}
         previousSummary={previousPracticeSummary}
-        resolveLiveSttEngine={resolveEffectiveLiveSttEngine}
+        resolveLiveSttEngine={async () =>
+          (await resolveEffectiveLiveSttRuntime()).liveSttEngine
+        }
         onPracticeWithoutVoice={startPracticeWithoutVoice}
         onStart={() => void startRecording()}
       />

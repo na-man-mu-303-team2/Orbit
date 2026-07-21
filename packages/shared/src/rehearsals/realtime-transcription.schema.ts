@@ -14,3 +14,15 @@ export const realtimeTranscriptionClientSecretResponseSchema = z
 export type RealtimeTranscriptionClientSecretResponse = z.infer<
   typeof realtimeTranscriptionClientSecretResponseSchema
 >;
+
+export const realtimeOobClientSecretResponseSchema = z
+  .object({
+    clientSecret: z.string().min(1),
+    expiresAt: z.number().int().positive(),
+    model: z.string().trim().min(1),
+  })
+  .strict();
+
+export type RealtimeOobClientSecretResponse = z.infer<
+  typeof realtimeOobClientSecretResponseSchema
+>;

@@ -112,7 +112,7 @@ ORBIT_PPTX_OOXML_VECTOR_IMPORT=true
 
 브라우저 리허설 Live STT의 실행 엔진은 API runtime config가 내려주는 `LIVE_STT_ENGINE=openai-realtime | web-speech` 값이 우선한다. presenter localStorage의 `sttEngine` 값은 실행 엔진을 덮어쓰지 않는다. 기본값은 `openai-realtime`이며 API가 프로젝트 권한 확인 후 OpenAI Realtime transcription client secret을 발급한다. `OPENAI_REALTIME_TRANSCRIPTION_MODEL` 기본값은 `gpt-realtime-whisper`, delay 기본값은 `xhigh`다. `OPENAI_REALTIME_TRANSCRIPTION_DELAY`는 `minimal | low | medium | high | xhigh`, `OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS`는 10초부터 7200초까지 허용한다. runtime config 조회 실패 시 다른 provider로 자동 전환하지 않는다.
 
-습관어 축어 전사는 Live control과 분리한다. `FILLER_TRANSCRIPTION_MODE=mini | realtime-oob`이고 기본값은 `mini`다. mini 경로는 `OPENAI_FILLER_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe`, opt-in OOB 경로는 `OPENAI_REALTIME_OOB_MODEL=gpt-realtime-2.1`을 사용한다. `gpt-realtime-whisper`에는 filler prompt를 전달하지 않는다.
+습관어 축어 전사는 Live control과 분리한다. `FILLER_TRANSCRIPTION_MODE=mini | realtime-oob`이고 기본값은 `mini`다. mini 경로는 `OPENAI_FILLER_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe`, opt-in OOB 경로는 `OPENAI_REALTIME_OOB_MODEL=gpt-realtime-2.1`을 사용한다. runtime config는 이 mode만 공개하며 API key나 model secret은 노출하지 않는다. OOB session은 12초 안에 완료되지 않거나 실패한 발화를 mini로 보완한다. `gpt-realtime-whisper`에는 filler prompt를 전달하지 않는다.
 
 `LIVE_STT_ENGINE=web-speech`는 Chrome Web Speech on-device 경로를 사용한다. 이 값에서는 OpenAI Realtime client secret을 요청하지 않으며, 브라우저가 온디바이스 Web Speech 또는 한국어 언어팩을 지원하지 않으면 OpenAI로 자동 fallback하지 않고 명확한 Live STT 시작 오류를 표시한다.
 

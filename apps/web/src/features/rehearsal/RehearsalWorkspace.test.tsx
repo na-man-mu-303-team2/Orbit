@@ -1083,7 +1083,7 @@ describe("RehearsalWorkspace", () => {
     expect(getOrCreateLiveSttPortBody).toContain("cachedPort?.dispose()");
     expect(getOrCreateLiveSttPortBody).toContain("engineId");
     expect(source).toContain("await fetchLiveSttRuntimeConfig()");
-    expect(source).toContain("return presenterSettings.sttEngine");
+    expect(source).not.toContain("liveSttEngine: presenterSettings.sttEngine");
     expect(source).toContain("props.resolveLiveSttEngine()");
     expect(source).toContain("props.createLiveSttPort(engineId)");
   });
@@ -3320,6 +3320,7 @@ describe("runRehearsalUploadFlow", () => {
         },
       ],
       utteranceBoundaries: [],
+      oobVerbatimResults: [],
     });
   });
 

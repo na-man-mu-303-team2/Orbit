@@ -25,7 +25,12 @@ describe("RealtimeTranscriptionController", () => {
         expiresAt: 1790000000,
         model: "gpt-realtime-whisper",
         delay: "minimal"
-      })
+      }),
+      createOobClientSecret: vi.fn().mockResolvedValue({
+        clientSecret: "ek_oob_test",
+        expiresAt: 1790000000,
+        model: "gpt-realtime-2.1",
+      }),
     };
     const controller = new RealtimeTranscriptionController(
       authService as never,
@@ -53,17 +58,35 @@ describe("RealtimeTranscriptionController", () => {
       projectId: "project_1",
       userId: "user_1"
     });
+
+    await expect(
+      controller.createOobClientSecret("project_1", {
+        signedCookies: {
+          [authSessionCookieName]: "session_1",
+        },
+      } as never),
+    ).resolves.toMatchObject({ model: "gpt-realtime-2.1" });
+    expect(realtimeTranscriptionService.createOobClientSecret).toHaveBeenCalledWith({
+      projectId: "project_1",
+      userId: "user_1",
+    });
   });
 
   it("rejects requests without a signed session cookie", async () => {
     const controller = new RealtimeTranscriptionController(
       { me: vi.fn() } as never,
       { assertCanReadProject: vi.fn() } as never,
-      { createClientSecret: vi.fn() } as never
+      { createClientSecret: vi.fn(), createOobClientSecret: vi.fn() } as never
     );
 
     await expect(
       controller.createClientSecret("project_1", { signedCookies: {} } as never)
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    await expect(
+      controller.createOobClientSecret("project_1", {
+        signedCookies: {},
+      } as never),
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

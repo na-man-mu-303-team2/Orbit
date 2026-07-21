@@ -1,10 +1,11 @@
 import { z } from "zod";
 
-import { liveSttEngineSchema } from "./runtime";
+import { fillerTranscriptionModeSchema, liveSttEngineSchema } from "./runtime";
 
 export const runtimeConfigResponseSchema = z
   .object({
     liveSttEngine: liveSttEngineSchema,
+    fillerTranscriptionMode: fillerTranscriptionModeSchema.default("mini"),
     adaptiveRehearsalCoachEnabled: z.boolean(),
     focusedPracticeEnabled: z.boolean(),
     challengeQnaEnabled: z.boolean(),
