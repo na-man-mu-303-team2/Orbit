@@ -6,9 +6,9 @@ import {
   OrbitDialog,
   OrbitField,
   OrbitInput,
-  OrbitSelect,
   OrbitTextarea,
 } from "../../components/ui";
+import { CommunityTemplateCategoryDropdown } from "./CommunityTemplateCategoryDropdown";
 import {
   CommunityTemplateSourcePicker,
   type CommunityTemplateSourceState,
@@ -88,6 +88,7 @@ export function PublishCommunityTemplateView(
             form={formId}
             loading={props.submitting}
             type="submit"
+            variant="primary"
           >
             {props.submitting ? "등록 중" : "커뮤니티에 등록"}
           </OrbitButton>
@@ -136,22 +137,18 @@ export function PublishCommunityTemplateView(
           id={fieldIds.category}
           label="카테고리"
         >
-          <OrbitSelect
+          <CommunityTemplateCategoryDropdown
             disabled={props.submitting}
-            onChange={(event) =>
+            id={fieldIds.category}
+            invalid={Boolean(props.errors.category)}
+            onChange={(category) =>
               props.onChange({
                 ...props.draft,
-                category: event.target.value as CommunityTemplatePublishDraft["category"],
+                category,
               })
             }
             value={props.draft.category}
-          >
-            <option value="">카테고리를 선택해 주세요</option>
-            <option value="business">비즈니스</option>
-            <option value="education">교육</option>
-            <option value="portfolio">포트폴리오</option>
-            <option value="event">이벤트</option>
-          </OrbitSelect>
+          />
         </OrbitField>
 
         <OrbitField
