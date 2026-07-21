@@ -96,7 +96,7 @@ export function CommunityGalleryPage(props: {
       <WorkspaceContainer as="section" className="community-page-hero" width="content">
         <header className="community-page-hero-heading">
           <div>
-            <h1>Orbit Community</h1>
+            <h1>Community</h1>
           </div>
           <GradientButton className="community-page-publish" onClick={() => setPublishOpen(true)}>
             <IconUpload aria-hidden="true" size={17} />

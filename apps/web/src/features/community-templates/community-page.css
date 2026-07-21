@@ -6,9 +6,73 @@
 }
 
 .community-page-hero {
+  position: relative;
   display: grid;
   gap: var(--redesign-space-7);
+  margin-top: var(--redesign-space-8);
   padding-block: var(--redesign-space-14) var(--redesign-space-8);
+  padding-inline: var(--redesign-space-8);
+  overflow: hidden;
+  border-radius: var(--redesign-radius-xl);
+  background:
+    radial-gradient(
+      circle at 12% 15%,
+      color-mix(in srgb, var(--redesign-color-primary) 25%, transparent) 0,
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 88% 18%,
+      color-mix(in srgb, var(--redesign-color-secondary) 22%, transparent) 0,
+      transparent 31%
+    ),
+    linear-gradient(
+      125deg,
+      var(--redesign-color-primary-subtle) 0%,
+      var(--redesign-color-surface) 48%,
+      var(--redesign-color-secondary-container) 100%
+    );
+  box-shadow: inset 0 0 0 1px var(--redesign-color-primary-outline);
+  isolation: isolate;
+}
+
+.community-page-hero::before,
+.community-page-hero::after {
+  position: absolute;
+  z-index: -1;
+  content: "";
+  border-radius: var(--redesign-radius-full);
+  pointer-events: none;
+}
+
+.community-page-hero::before {
+  top: -72px;
+  right: 18%;
+  width: 210px;
+  height: 210px;
+  background: color-mix(
+    in srgb,
+    var(--redesign-color-primary-container) 65%,
+    transparent
+  );
+  transform: rotate(18deg);
+}
+
+.community-page-hero::after {
+  right: -42px;
+  bottom: -86px;
+  width: 280px;
+  height: 180px;
+  background: color-mix(
+    in srgb,
+    var(--redesign-color-secondary-container) 58%,
+    transparent
+  );
+  transform: rotate(-12deg);
+}
+
+.community-page-hero > * {
+  position: relative;
+  z-index: 1;
 }
 
 .community-page-hero-heading {
@@ -327,7 +391,11 @@
 }
 
 @media (max-width: 640px) {
-  .community-page-hero { padding-block: var(--redesign-space-9) var(--redesign-space-6); }
+  .community-page-hero {
+    margin: var(--redesign-space-4);
+    padding: var(--redesign-space-9) var(--redesign-space-5) var(--redesign-space-6);
+    border-radius: var(--redesign-radius-xl);
+  }
   .community-page-hero h1 { font-size: var(--redesign-type-headline-lg-mobile-size); }
   .community-page-publish { width: 100%; }
   .community-gallery-grid { grid-template-columns: 1fr; }
