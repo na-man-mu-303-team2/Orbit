@@ -912,11 +912,74 @@ export const rehearsalRecordingDurationSecondsSchema = z
   .nullable()
   .default(null);
 
+export const rehearsalUtteranceBoundarySchema = z
+  .object({
+    utteranceId: z.string().trim().min(1).max(128),
+    sequence: z.number().int().positive(),
+    startMs: z.number().int().nonnegative(),
+    endMs: z.number().int().positive(),
+    commitReason: z.enum(["silence", "max-duration", "stopped"]),
+    slideId: deckSlideIdSchema.nullable(),
+    deckRevision: z.number().int().nonnegative(),
+  })
+  .strict()
+  .superRefine((boundary, context) => {
+    if (boundary.endMs <= boundary.startMs) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "utterance boundary endMs must be greater than startMs.",
+        path: ["endMs"],
+      });
+    }
+    if (boundary.endMs - boundary.startMs > 60_000) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "utterance boundary duration cannot exceed 60 seconds.",
+        path: ["endMs"],
+      });
+    }
+  });
+
+export const rehearsalUtteranceBoundariesSchema = z
+  .array(rehearsalUtteranceBoundarySchema)
+  .max(2_000)
+  .default([])
+  .superRefine((boundaries, context) => {
+    const ids = new Set<string>();
+    let previousStartMs = -1;
+    for (const [index, boundary] of boundaries.entries()) {
+      if (ids.has(boundary.utteranceId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "utteranceId must be unique within a rehearsal.",
+          path: [index, "utteranceId"],
+        });
+      }
+      ids.add(boundary.utteranceId);
+      if (boundary.sequence !== index + 1) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "utterance sequence must be contiguous and start at one.",
+          path: [index, "sequence"],
+        });
+      }
+      if (boundary.startMs < previousStartMs) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "utterance boundaries must be ordered by startMs.",
+          path: [index, "startMs"],
+        });
+      }
+      previousStartMs = boundary.startMs;
+    }
+  });
+
 export const completeRehearsalAudioUploadUrlRequestSchema = z.object({
   fileId: z.string().min(1),
   recordingDurationSeconds: rehearsalRecordingDurationSecondsSchema,
   liveTranscript: z.string().max(200_000).nullable().default(null),
   slideTranscriptSnapshots: slideTranscriptSnapshotsSchema.default([]),
+  utteranceBoundaries: rehearsalUtteranceBoundariesSchema,
 });
 
 export const rehearsalAudioSha256Schema = z
@@ -1633,6 +1696,9 @@ export type CompleteRehearsalAudioChunkUploadRequest = z.infer<
 >;
 export type CompleteRehearsalAudioUploadResponse = z.infer<
   typeof completeRehearsalAudioUploadResponseSchema
+>;
+export type RehearsalUtteranceBoundary = z.infer<
+  typeof rehearsalUtteranceBoundarySchema
 >;
 export type CreateRehearsalAudioClipRequest = z.infer<
   typeof createRehearsalAudioClipRequestSchema

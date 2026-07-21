@@ -19,6 +19,7 @@ import {
   type LiveSttPort,
   type LiveSttResult,
   type LiveSttSessionConfig,
+  type LiveSttSpeechActivityEvent,
   type LiveSttUnsubscribe
 } from "./liveSttPort";
 import { RealtimeFinalOrderer } from "./realtimeFinalOrderer";
@@ -107,6 +108,9 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
   private readonly readinessTimeoutMs: number;
   private readonly resultSubscribers = new Set<(result: LiveSttResult) => void>();
   private readonly errorSubscribers = new Set<(error: LiveSttError) => void>();
+  private readonly speechActivitySubscribers = new Set<
+    (event: LiveSttSpeechActivityEvent) => void
+  >();
   private readonly partialTextByEventKey = new Map<string, string>();
   private readonly revisionByEventKey = new Map<string, number>();
   private readonly commitSequenceByItemKey = new Map<string, number>();
@@ -207,6 +211,13 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
 
   async stop() {
     this.rejectReady(new LiveSttError("start_failed", "OpenAI Realtime STT 시작이 중단되었습니다."));
+    if (this.activeSpeechStartedAtMs !== null || this.speechDetectorState.isSpeaking) {
+      this.emitSpeechActivity({
+        type: "speech-ended",
+        occurredAtMs: this.now(),
+        reason: "stopped"
+      });
+    }
     this.startedAtMs = null;
     this.finalOrderer.reset();
     this.audioLevelMeter?.stop();
@@ -233,10 +244,18 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     return () => this.errorSubscribers.delete(cb);
   }
 
+  onSpeechActivity(
+    cb: (event: LiveSttSpeechActivityEvent) => void
+  ): LiveSttUnsubscribe {
+    this.speechActivitySubscribers.add(cb);
+    return () => this.speechActivitySubscribers.delete(cb);
+  }
+
   async dispose() {
     await this.stop();
     this.resultSubscribers.clear();
     this.errorSubscribers.clear();
+    this.speechActivitySubscribers.clear();
   }
 
   readBiasPhrasesForTest() { return this.biasPhrases; }
@@ -345,11 +364,17 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     this.speechDetectorState = transition.state;
     if (transition.speechStartedAtMs !== null && this.activeSpeechStartedAtMs === null) {
       this.activeSpeechStartedAtMs = transition.speechStartedAtMs;
+      this.emitSpeechActivity({
+        type: "speech-started",
+        occurredAtMs: transition.speechStartedAtMs
+      });
       this.recordDiagnostic("vad.speech_started");
     }
-    if (transition.speechEndedAtMs !== null) this.commitActiveSpeech("silence");
+    if (transition.speechEndedAtMs !== null) {
+      this.commitActiveSpeech("silence", transition.speechEndedAtMs);
+    }
     if (this.activeSpeechStartedAtMs !== null && now - this.activeSpeechStartedAtMs >= this.maxCommitIntervalMs) {
-      this.commitActiveSpeech("max-duration");
+      this.commitActiveSpeech("max-duration", now);
       if (this.speechDetectorState.isSpeaking) this.activeSpeechStartedAtMs = now;
     }
   };
@@ -450,12 +475,20 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     if (reorderTimedOut) this.recordDiagnostic("transcript.final_reorder_timeout", { commitSequence: sequence });
   }
 
-  private commitActiveSpeech(reason: "silence" | "max-duration") {
+  private commitActiveSpeech(
+    reason: "silence" | "max-duration",
+    occurredAtMs: number
+  ) {
     if (this.activeSpeechStartedAtMs === null || !isDataChannelOpen(this.dataChannel)) return;
     const sequence = this.nextCommitSequence++;
     this.send({ type: "input_audio_buffer.commit" });
     this.pendingCommitSequences.push(sequence);
     this.activeSpeechStartedAtMs = null;
+    this.emitSpeechActivity(
+      reason === "silence"
+        ? { type: "speech-ended", occurredAtMs, reason: "silence" }
+        : { type: "speech-fragment-committed", occurredAtMs }
+    );
     this.recordDiagnostic("audio.committed", { commitSequence: sequence, reason });
   }
 
@@ -537,6 +570,9 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
 
   private emitResult(result: LiveSttResult) { for (const subscriber of this.resultSubscribers) subscriber(result); }
   private emitError(error: LiveSttError) { for (const subscriber of this.errorSubscribers) subscriber(error); }
+  private emitSpeechActivity(event: LiveSttSpeechActivityEvent) {
+    for (const subscriber of this.speechActivitySubscribers) subscriber(event);
+  }
 }
 
 function assertUsableAudioTrack(track: MediaStreamTrack | undefined): asserts track is MediaStreamTrack {

@@ -455,6 +455,7 @@ describe("RehearsalsService", () => {
       slideTranscriptSnapshots: [],
       audioFileId: "file-audio",
       liveTranscript: "브라우저에서 인식한 전체 문장",
+      utteranceBoundaries: [],
     });
   });
 

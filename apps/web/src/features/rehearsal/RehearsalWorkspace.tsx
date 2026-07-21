@@ -29,6 +29,7 @@ import {
   type RehearsalEvaluationSnapshot,
   type RehearsalRun,
   type RehearsalRunMeta,
+  type RehearsalUtteranceBoundary,
   type RetryRehearsalSemanticEvaluationResponse,
   type SemanticCapabilityEvent,
   type Slide,
@@ -143,6 +144,14 @@ import { createLiveSttPort } from "./stt/liveSttEngineRegistry";
 import { fetchLiveSttRuntimeConfig } from "./stt/liveSttRuntimeConfig";
 import { normalizeLiveTranscriptText } from "./stt/liveTranscriptText";
 import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
+import {
+  createRecordingClock,
+  type RecordingClock,
+} from "./recordingClock";
+import {
+  createUtteranceBoundaryCollector,
+  type UtteranceBoundaryCollector,
+} from "./utteranceBoundaryCollector";
 import {
   getKeywordOccurrenceTriggerIdsForSlide,
   resolveCueTriggeredActions,
@@ -363,6 +372,7 @@ type RehearsalRuntimeStatus =
 
 type RecordingSession = {
   recorder: MediaRecorder;
+  clock: RecordingClock;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
   start: () => void;
@@ -734,6 +744,7 @@ export async function completeRehearsalAudioUpload(
   liveTranscriptOrFetcher: string | null | Fetcher = null,
   fetcher: Fetcher = fetch,
   slideTranscriptSnapshots: SlideTranscriptSnapshot[] = [],
+  utteranceBoundaries: RehearsalUtteranceBoundary[] = [],
 ) {
   const liveTranscript =
     typeof liveTranscriptOrFetcher === "function"
@@ -750,6 +761,7 @@ export async function completeRehearsalAudioUpload(
       fileId,
       liveTranscript,
       slideTranscriptSnapshots,
+      utteranceBoundaries,
     }),
   });
 
@@ -1004,6 +1016,7 @@ export async function runRehearsalUploadFlow(options: {
   runMeta?: RehearsalRunMeta | null;
   liveTranscript?: string | null;
   slideTranscriptSnapshots?: SlideTranscriptSnapshot[];
+  utteranceBoundaries?: RehearsalUtteranceBoundary[];
   slideTimeline?: UpdateRehearsalRunMetaRequest["slideTimeline"];
 }) {
   const fetcher = options.fetcher ?? fetch;
@@ -1051,6 +1064,7 @@ export async function runRehearsalUploadFlow(options: {
     options.liveTranscript ?? null,
     fetcher,
     options.slideTranscriptSnapshots ?? [],
+    options.utteranceBoundaries ?? [],
   );
   const job = await pollRehearsalJob(completed.job.jobId, {
     fetcher,
@@ -1106,6 +1120,7 @@ export function createRecordingSession(
   options: {
     recorderCtor?: typeof MediaRecorder;
     now?: () => Date;
+    clockNow?: () => number;
     onError: (error: Error) => void;
     onStop: (file: File) => void;
   },
@@ -1117,6 +1132,7 @@ export function createRecordingSession(
   }
 
   const recorder = new Recorder(stream, { mimeType });
+  const clock = createRecordingClock(options.clockNow);
   const chunks: Blob[] = [];
 
   recorder.ondataavailable = (event) => {
@@ -1141,11 +1157,13 @@ export function createRecordingSession(
 
   return {
     recorder,
+    clock,
     pause: async () => {
       if (recorder.state === "recording") {
         await transitionMediaRecorder(recorder, "paused", "pause", () =>
           recorder.pause(),
         );
+        clock.pause();
       }
     },
     resume: async () => {
@@ -1153,10 +1171,15 @@ export function createRecordingSession(
         await transitionMediaRecorder(recorder, "recording", "resume", () =>
           recorder.resume(),
         );
+        clock.resume();
       }
     },
-    start: () => recorder.start(),
+    start: () => {
+      recorder.start();
+      clock.start();
+    },
     stop: () => {
+      clock.stop();
       if (recorder.state !== "inactive") {
         recorder.stop();
       }
@@ -2115,6 +2138,10 @@ export function RehearsalWorkspace(props: {
     "elapsed" | "duration" | null
   >(null);
   const sessionRef = useRef<RecordingSession | null>(null);
+  const recordingClockRef = useRef<RecordingClock | null>(null);
+  const utteranceBoundaryCollectorRef = useRef<UtteranceBoundaryCollector>(
+    createUtteranceBoundaryCollector(),
+  );
   const activeRunRef = useRef<RehearsalRun | null>(null);
   const preparedSlideSnapshotsRef = useRef<
     Array<{ fileId: string; slideId: string }> | undefined
@@ -2998,6 +3025,7 @@ export function RehearsalWorkspace(props: {
             streamRef.current = null;
           }
           sessionRef.current = null;
+          recordingClockRef.current = null;
           cancelPendingEvaluationRun();
           setError(recordingError.message);
           setPhase("failed");
@@ -3013,6 +3041,8 @@ export function RehearsalWorkspace(props: {
       });
       streamRef.current = stream;
       sessionRef.current = session;
+      recordingClockRef.current = session.clock;
+      utteranceBoundaryCollectorRef.current.reset();
       session.start();
       resetSlideTranscriptSnapshots(activeDeck, currentSlideIndexRef.current);
       setPhase("recording");
@@ -3216,10 +3246,15 @@ export function RehearsalWorkspace(props: {
     setLiveStatus((current) =>
       current === "listening" || current === "starting" ? "stopped" : current,
     );
+    utteranceBoundaryCollectorRef.current.finish(
+      recordingClockRef.current?.elapsedMs() ?? 0,
+      "stopped",
+    );
     sessionRef.current?.stop();
     stopMediaStream(streamRef.current);
     streamRef.current = null;
     sessionRef.current = null;
+    recordingClockRef.current = null;
     setRehearsalRuntimeStatus("idle");
     rehearsalRuntimeStatusRef.current = "idle";
   }
@@ -3645,9 +3680,26 @@ export function RehearsalWorkspace(props: {
 
     const unsubscribeResult = port.onResult(handleLiveSttResult);
     const unsubscribeError = port.onError(handleLiveSttError);
+    const unsubscribeSpeechActivity = port.onSpeechActivity?.((event) => {
+      const recordingClock = recordingClockRef.current;
+      const activeDeck = deckRef.current;
+      if (!recordingClock || !activeDeck) {
+        return;
+      }
+      utteranceBoundaryCollectorRef.current.accept(
+        event,
+        recordingClock.elapsedMsAt(event.occurredAtMs),
+        {
+          slideId:
+            activeDeck.slides[currentSlideIndexRef.current]?.slideId ?? null,
+          deckRevision: activeDeck.version,
+        },
+      );
+    });
     liveSttSubscriptionCleanupRef.current = () => {
       unsubscribeResult();
       unsubscribeError();
+      unsubscribeSpeechActivity?.();
     };
 
     let session: P3RehearsalSession | null = null;
@@ -4465,6 +4517,7 @@ export function RehearsalWorkspace(props: {
           liveSessionTranscriptBufferRef.current,
         ),
         slideTranscriptSnapshots: slideTranscriptSnapshotsRef.current,
+        utteranceBoundaries: utteranceBoundaryCollectorRef.current.snapshot(),
         onJobUpdate: (nextJob) => {
           setJob(nextJob);
           setPhase("processing");

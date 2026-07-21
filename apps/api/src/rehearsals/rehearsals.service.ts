@@ -488,6 +488,7 @@ export class RehearsalsService {
         audioFileId: request.fileId,
         liveTranscript: request.liveTranscript,
         slideTranscriptSnapshots: request.slideTranscriptSnapshots,
+        utteranceBoundaries: request.utteranceBoundaries,
       });
 
       this.logger.info(

@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LiveSttAudioLevelEvent } from "../liveStt";
-import type { LiveSttResult } from "./liveSttPort";
+import type {
+  LiveSttResult,
+  LiveSttSpeechActivityEvent,
+} from "./liveSttPort";
 import { OpenAiRealtimeLiveSttPort } from "./openAiRealtimeLiveSttPort";
 
 describe("OpenAiRealtimeLiveSttPort", () => {
@@ -64,6 +67,20 @@ describe("OpenAiRealtimeLiveSttPort", () => {
         finalReorderTimedOut: false
       }
     });
+  });
+
+  it("VAD confirmation보다 첫 threshold crossing을 발화 onset으로 전달한다", async () => {
+    const harness = createHarness();
+    const events: LiveSttSpeechActivityEvent[] = [];
+    harness.port.onSpeechActivity((event) => events.push(event));
+    await harness.ready();
+
+    harness.speakAndCommit("item_1");
+
+    expect(events).toEqual([
+      { type: "speech-started", occurredAtMs: 1_550 },
+      { type: "speech-ended", occurredAtMs: 2_500, reason: "silence" },
+    ]);
   });
 
   it("out-of-order final을 commit sequence 순서로 방출한다", async () => {

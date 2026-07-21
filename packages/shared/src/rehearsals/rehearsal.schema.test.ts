@@ -897,6 +897,7 @@ describe("completeRehearsalAudioUploadRequestSchema", () => {
     expect(request.recordingDurationSeconds).toBeNull();
     expect(request.liveTranscript).toBeNull();
     expect(request.slideTranscriptSnapshots).toEqual([]);
+    expect(request.utteranceBoundaries).toEqual([]);
   });
 
   it("accepts the accumulated browser live transcript", () => {
@@ -906,6 +907,53 @@ describe("completeRehearsalAudioUploadRequestSchema", () => {
     });
 
     expect(request.liveTranscript).toBe("첫 문장 두 번째 문장");
+  });
+
+  it("accepts ordered recording-clock utterance boundaries", () => {
+    const request = completeRehearsalAudioUploadRequestSchema.parse({
+      fileId: "file_audio_1",
+      utteranceBoundaries: [
+        {
+          utteranceId: "utterance-1",
+          sequence: 1,
+          startMs: 700,
+          endMs: 2_500,
+          commitReason: "silence",
+          slideId: "slide_1",
+          deckRevision: 3,
+        },
+      ],
+    });
+
+    expect(request.utteranceBoundaries[0]?.startMs).toBe(700);
+  });
+
+  it("rejects duplicate or out-of-order utterance boundaries", () => {
+    const result = completeRehearsalAudioUploadRequestSchema.safeParse({
+      fileId: "file_audio_1",
+      utteranceBoundaries: [
+        {
+          utteranceId: "utterance-1",
+          sequence: 2,
+          startMs: 1_000,
+          endMs: 2_000,
+          commitReason: "silence",
+          slideId: null,
+          deckRevision: 1,
+        },
+        {
+          utteranceId: "utterance-1",
+          sequence: 1,
+          startMs: 900,
+          endMs: 2_100,
+          commitReason: "stopped",
+          slideId: null,
+          deckRevision: 1,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
   });
 });
 

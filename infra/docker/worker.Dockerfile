@@ -2,6 +2,8 @@ FROM node:24-alpine AS deps
 
 WORKDIR /app
 
+RUN apk add --no-cache ffmpeg
+
 RUN corepack enable && corepack prepare pnpm@10.12.4 --activate
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./

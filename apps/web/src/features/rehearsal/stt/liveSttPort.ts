@@ -85,6 +85,21 @@ export class LiveSttError extends Error {
 
 export type LiveSttUnsubscribe = () => void;
 
+export type LiveSttSpeechActivityEvent =
+  | {
+      type: "speech-started";
+      occurredAtMs: number;
+    }
+  | {
+      type: "speech-fragment-committed";
+      occurredAtMs: number;
+    }
+  | {
+      type: "speech-ended";
+      occurredAtMs: number;
+      reason: "silence" | "stopped";
+    };
+
 export type LiveSttPort = {
   readonly engineId: LiveSttEngineId;
   readonly capabilities: LiveSttCapabilities;
@@ -93,6 +108,9 @@ export type LiveSttPort = {
   updateBiasPhrases: (phrases: readonly LiveSttBiasPhrase[]) => void | Promise<void>;
   onResult: (cb: (result: LiveSttResult) => void) => LiveSttUnsubscribe;
   onError: (cb: (error: LiveSttError) => void) => LiveSttUnsubscribe;
+  onSpeechActivity?: (
+    cb: (event: LiveSttSpeechActivityEvent) => void,
+  ) => LiveSttUnsubscribe;
   dispose: () => void | Promise<void>;
 };
 

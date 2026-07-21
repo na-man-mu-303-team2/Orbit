@@ -3319,6 +3319,7 @@ describe("runRehearsalUploadFlow", () => {
           reason: "rehearsal-end",
         },
       ],
+      utteranceBoundaries: [],
     });
   });
 

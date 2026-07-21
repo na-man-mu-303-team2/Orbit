@@ -13,6 +13,7 @@ import {
   rehearsalRunMetaSchema,
   rehearsalSemanticCueOutcomeSchema,
   rehearsalSemanticEvaluationSchema,
+  rehearsalUtteranceBoundariesSchema,
   slideTranscriptSnapshotsSchema,
   type Job,
   type RehearsalAudioProcessingResponse,
@@ -43,6 +44,7 @@ const rehearsalSttPayloadSchema = z.object({
   audioFileId: z.string().min(1),
   liveTranscript: z.string().max(200_000).nullable().default(null),
   slideTranscriptSnapshots: slideTranscriptSnapshotsSchema.default([]),
+  utteranceBoundaries: rehearsalUtteranceBoundariesSchema,
 });
 
 const audioAssetRowSchema = z.object({

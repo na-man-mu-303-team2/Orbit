@@ -134,6 +134,7 @@ export interface RehearsalSttBullMqPayload {
   audioFileId: string;
   liveTranscript?: string | null;
   slideTranscriptSnapshots?: import("@orbit/shared").SlideTranscriptSnapshot[];
+  utteranceBoundaries?: import("@orbit/shared").RehearsalUtteranceBoundary[];
 }
 
 export interface EnqueueRehearsalSttJobInput extends RehearsalSttBullMqPayload {
@@ -366,6 +367,7 @@ export async function enqueueRehearsalSttJob(
         audioFileId: input.audioFileId,
         liveTranscript: input.liveTranscript ?? null,
         slideTranscriptSnapshots: input.slideTranscriptSnapshots ?? [],
+        utteranceBoundaries: input.utteranceBoundaries ?? [],
       } satisfies RehearsalSttBullMqPayload,
       canonicalJobOptions(input.jobId),
     );

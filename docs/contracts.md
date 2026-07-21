@@ -1511,8 +1511,9 @@ API:
   - `size`는 service runtime schema에서 `REPORT_STT_PROVIDER`와 `REHEARSAL_AUDIO_MAX_BYTES` 기준으로 검증한다.
   - response: `{ "run": RehearsalRun, "upload": AssetUploadUrlResponse }`
 - `POST /api/v1/rehearsals/:runId/audio/complete`
-  - request: `{ "fileId": "file_audio_1", "recordingDurationSeconds": 90.25 }`
+  - request: `{ "fileId": "file_audio_1", "recordingDurationSeconds": 90.25, "utteranceBoundaries": [{ "utteranceId": "utterance_1", "sequence": 1, "startMs": 700, "endMs": 2500, "commitReason": "silence", "slideId": "slide_1", "deckRevision": 7 }] }`
   - `recordingDurationSeconds`는 생략하거나 `null`일 수 있고, 값이 있으면 양수 finite number여야 한다.
+  - `utteranceBoundaries`는 optional이며 생략 시 빈 배열이다. 각 항목은 pause 구간을 제외한 MediaRecorder clock의 정수 millisecond 범위이고, `utteranceId`가 유일하며 `sequence/startMs` 순서로 정렬되어야 한다. `commitReason`은 `silence | max-duration | stopped`다.
   - run에 연결된 `fileId`만 허용하고, 업로드 완료 확인 뒤 `rehearsal-stt` Job을 enqueue한다. Web/API producer는 enqueue 전에 `recordingDurationSeconds`를 Run meta에 저장한다.
   - response: `{ "run": RehearsalRun, "job": Job }`
 - `GET /api/v1/rehearsals/:runId`
@@ -2520,3 +2521,15 @@ Worker는 이 배열을 MinIO의 `transcript.json`에 보존한다. `transcript.
 리포트 생성 시 Worker는 인접한 누적 `transcript`의 차이로 각 방문 구간 발화를
 복원한다. 같은 `slideId`의 재방문 구간은 합산하며, 결과는
 `slideInsights[].fillerWordCount`와 `slideInsights[].fillerWordDetails[]`에 저장한다.
+
+# Rehearsal utterance boundaries
+
+`audio/complete`의 선택 필드 `utteranceBoundaries[]`는 공통 adaptive VAD가 수집한
+coaching용 발화 구간이다. onset은 200ms attack 확인 시점이 아니라 첫 threshold
+crossing이며 clip에는 최대 300ms pre-roll이 포함된다. 10초 Realtime safety commit은
+경계를 닫지 않고 실제 silence 전까지 같은 발화로 유지한다. 연속 발화가 60초를
+넘을 때만 `max-duration` 경계로 분리한다.
+
+Worker는 기존 `rehearsal-audio` private object를 메모리로 읽고 각 구간을 mono 16kHz
+WAV buffer로 추출한다. 이 파생 clip은 별도 File/asset으로 저장하지 않으며 verbatim
+전사 직후 폐기한다. 원본 오디오의 14일 보존·owner-only 접근 계약은 변경하지 않는다.
