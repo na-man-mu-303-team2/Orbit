@@ -58,6 +58,11 @@ export type LiveSttResult = {
   resultRevision?: number;
   confidence?: number;
   alternatives?: LiveSttAlternative[];
+  metadata?: {
+    commitSequence?: number;
+    contentIndex?: number;
+    finalReorderTimedOut?: boolean;
+  };
 };
 
 export type LiveSttErrorCode =
