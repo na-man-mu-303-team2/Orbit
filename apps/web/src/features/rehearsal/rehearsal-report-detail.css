@@ -103,7 +103,7 @@ body .rehearsal-report-page .rehearsal-report-nav-section-head {
 body .rehearsal-report-page .rehearsal-report-nav-current {
   background: var(--redesign-color-primary-container);
   border: 1px solid var(--redesign-color-primary-emphasis);
-  border-radius: var(--redesign-radius-xl);
+  border-radius: var(--redesign-radius);
   display: grid;
   gap: 3px;
   margin: 0 var(--redesign-space-3) var(--redesign-space-2);
@@ -145,6 +145,7 @@ body .rehearsal-report-page .rehearsal-report-nav-history .rehearsal-report-nav-
 
 body .rehearsal-report-page .rehearsal-report-nav-item.active {
   background: var(--redesign-color-primary);
+  border-radius: var(--redesign-radius);
   box-shadow: var(--redesign-glow-secondary);
   color: var(--redesign-color-on-primary);
 }
