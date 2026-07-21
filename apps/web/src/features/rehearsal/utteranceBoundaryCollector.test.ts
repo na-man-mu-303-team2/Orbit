@@ -3,16 +3,14 @@ import { createUtteranceBoundaryCollector } from "./utteranceBoundaryCollector";
 
 describe("createUtteranceBoundaryCollector", () => {
   it("uses the first threshold crossing and applies 300ms pre-roll", () => {
-    const collector = createUtteranceBoundaryCollector({
-      createId: (sequence) => `utterance-${sequence}`,
-    });
+    const collector = createUtteranceBoundaryCollector();
     collector.accept(
-      { type: "speech-started", occurredAtMs: 1_200 },
+      { type: "speech-started", utteranceId: "utterance-1", occurredAtMs: 1_200 },
       1_200,
       { slideId: "slide-1", deckRevision: 4 },
     );
     collector.accept(
-      { type: "speech-ended", occurredAtMs: 2_700, reason: "silence" },
+      { type: "speech-ended", utteranceId: "utterance-1", occurredAtMs: 2_700, reason: "silence" },
       2_700,
       { slideId: "slide-1", deckRevision: 4 },
     );
@@ -31,26 +29,24 @@ describe("createUtteranceBoundaryCollector", () => {
   });
 
   it("keeps 10-second safety commits in one coaching utterance", () => {
-    const collector = createUtteranceBoundaryCollector({
-      createId: (sequence) => `utterance-${sequence}`,
-    });
+    const collector = createUtteranceBoundaryCollector();
     collector.accept(
-      { type: "speech-started", occurredAtMs: 1_000 },
+      { type: "speech-started", utteranceId: "utterance-1", occurredAtMs: 1_000 },
       1_000,
       { slideId: "slide-1", deckRevision: 1 },
     );
     collector.accept(
-      { type: "speech-fragment-committed", occurredAtMs: 11_000 },
+      { type: "speech-fragment-committed", utteranceId: "utterance-1", occurredAtMs: 11_000 },
       11_000,
       { slideId: "slide-1", deckRevision: 1 },
     );
     collector.accept(
-      { type: "speech-fragment-committed", occurredAtMs: 21_000 },
+      { type: "speech-fragment-committed", utteranceId: "utterance-1", occurredAtMs: 21_000 },
       21_000,
       { slideId: "slide-1", deckRevision: 1 },
     );
     collector.accept(
-      { type: "speech-ended", occurredAtMs: 22_000, reason: "silence" },
+      { type: "speech-ended", utteranceId: "utterance-1", occurredAtMs: 22_000, reason: "silence" },
       22_000,
       { slideId: "slide-1", deckRevision: 1 },
     );
@@ -59,23 +55,21 @@ describe("createUtteranceBoundaryCollector", () => {
   });
 
   it("splits only continuous speech longer than 60 seconds", () => {
-    const collector = createUtteranceBoundaryCollector({
-      createId: (sequence) => `utterance-${sequence}`,
-    });
+    const collector = createUtteranceBoundaryCollector();
     collector.accept(
-      { type: "speech-started", occurredAtMs: 1_000 },
+      { type: "speech-started", utteranceId: "utterance-1", occurredAtMs: 1_000 },
       1_000,
       { slideId: "slide-1", deckRevision: 1 },
     );
     collector.accept(
-      { type: "speech-fragment-committed", occurredAtMs: 61_000 },
+      { type: "speech-fragment-committed", utteranceId: "utterance-1", occurredAtMs: 61_000 },
       61_000,
       { slideId: "slide-1", deckRevision: 1 },
     );
     expect(collector.snapshot()).toHaveLength(0);
 
     collector.accept(
-      { type: "speech-ended", occurredAtMs: 62_000, reason: "silence" },
+      { type: "speech-ended", utteranceId: "utterance-1", occurredAtMs: 62_000, reason: "silence" },
       62_000,
       { slideId: "slide-2", deckRevision: 2 },
     );
@@ -83,12 +77,14 @@ describe("createUtteranceBoundaryCollector", () => {
     expect(collector.snapshot()).toEqual([
       expect.objectContaining({
         sequence: 1,
+        utteranceId: "utterance-1",
         startMs: 700,
         endMs: 60_700,
         commitReason: "max-duration",
       }),
       expect.objectContaining({
         sequence: 2,
+        utteranceId: "utterance-1:segment-2",
         startMs: 60_700,
         endMs: 62_000,
         commitReason: "silence",

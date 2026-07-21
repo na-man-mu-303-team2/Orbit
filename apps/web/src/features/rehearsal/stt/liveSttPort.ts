@@ -59,6 +59,7 @@ export type LiveSttResult = {
   confidence?: number;
   alternatives?: LiveSttAlternative[];
   metadata?: {
+    coachingUtteranceId?: string;
     commitSequence?: number;
     contentIndex?: number;
     finalReorderTimedOut?: boolean;
@@ -88,14 +89,17 @@ export type LiveSttUnsubscribe = () => void;
 export type LiveSttSpeechActivityEvent =
   | {
       type: "speech-started";
+      utteranceId: string;
       occurredAtMs: number;
     }
   | {
       type: "speech-fragment-committed";
+      utteranceId: string;
       occurredAtMs: number;
     }
   | {
       type: "speech-ended";
+      utteranceId: string;
       occurredAtMs: number;
       reason: "silence" | "stopped";
     };

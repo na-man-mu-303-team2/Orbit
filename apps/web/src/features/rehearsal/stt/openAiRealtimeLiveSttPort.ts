@@ -63,6 +63,7 @@ type OpenAiRealtimeLiveSttPortOptions = {
   ) => AudioLevelMeter;
   createPeerConnection?: () => OpenAiRealtimePeerConnection;
   fetcher?: typeof fetch;
+  createUtteranceId?: () => string;
   now?: () => number;
   onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
   noiseCalibrationMs?: number;
@@ -82,6 +83,11 @@ type PendingFinal = {
   resultRevision: number;
 };
 
+type PendingCommit = {
+  sequence: number;
+  coachingUtteranceId: string;
+};
+
 export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
   readonly engineId = "openai-realtime";
   readonly capabilities: LiveSttCapabilities = {
@@ -93,6 +99,7 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
   readonly projectId: string;
 
   private readonly fetcher: typeof fetch;
+  private readonly createUtteranceId: () => string;
   private readonly now: () => number;
   private readonly onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
   private readonly createPeerConnection: () => OpenAiRealtimePeerConnection;
@@ -114,8 +121,9 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
   private readonly partialTextByEventKey = new Map<string, string>();
   private readonly revisionByEventKey = new Map<string, number>();
   private readonly commitSequenceByItemKey = new Map<string, number>();
+  private readonly coachingUtteranceIdByItemKey = new Map<string, string>();
   private readonly pendingFinalByItemKey = new Map<string, PendingFinal>();
-  private readonly pendingCommitSequences: number[] = [];
+  private readonly pendingCommits: PendingCommit[] = [];
   private readonly diagnostics = new RealtimeSttDiagnosticRingBuffer();
   private readonly finalOrderer: RealtimeFinalOrderer<PendingFinal>;
   private peerConnection: OpenAiRealtimePeerConnection | null = null;
@@ -133,6 +141,7 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
   private speechThresholdDb: number | null = null;
   private speechDetectorState: SpeechDetectorState = initialSpeechDetectorState;
   private activeSpeechStartedAtMs: number | null = null;
+  private activeCoachingUtteranceId: string | null = null;
   private nextCommitSequence = 1;
   private readyResolve: (() => void) | null = null;
   private readyReject: ((error: Error) => void) | null = null;
@@ -142,6 +151,7 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
   constructor(options: OpenAiRealtimeLiveSttPortOptions) {
     this.projectId = options.projectId;
     this.fetcher = options.fetcher ?? defaultFetch;
+    this.createUtteranceId = options.createUtteranceId ?? defaultCreateUtteranceId;
     this.now = options.now ?? (() => Date.now());
     this.onAudioLevel = options.onAudioLevel;
     this.createPeerConnection = options.createPeerConnection ?? createDefaultPeerConnection;
@@ -211,9 +221,13 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
 
   async stop() {
     this.rejectReady(new LiveSttError("start_failed", "OpenAI Realtime STT 시작이 중단되었습니다."));
-    if (this.activeSpeechStartedAtMs !== null || this.speechDetectorState.isSpeaking) {
+    if (
+      this.activeCoachingUtteranceId !== null &&
+      (this.activeSpeechStartedAtMs !== null || this.speechDetectorState.isSpeaking)
+    ) {
       this.emitSpeechActivity({
         type: "speech-ended",
+        utteranceId: this.activeCoachingUtteranceId,
         occurredAtMs: this.now(),
         reason: "stopped"
       });
@@ -364,8 +378,10 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     this.speechDetectorState = transition.state;
     if (transition.speechStartedAtMs !== null && this.activeSpeechStartedAtMs === null) {
       this.activeSpeechStartedAtMs = transition.speechStartedAtMs;
+      this.activeCoachingUtteranceId ??= this.createUtteranceId();
       this.emitSpeechActivity({
         type: "speech-started",
+        utteranceId: this.activeCoachingUtteranceId,
         occurredAtMs: transition.speechStartedAtMs
       });
       this.recordDiagnostic("vad.speech_started");
@@ -425,14 +441,18 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
 
   private handleAudioBufferCommitted(event: Record<string, unknown>) {
     const itemId = typeof event.item_id === "string" ? event.item_id : null;
-    const sequence = this.pendingCommitSequences.shift();
-    if (!itemId || sequence === undefined) return;
+    const pendingCommit = this.pendingCommits.shift();
+    if (!itemId || !pendingCommit) return;
     const key = `${itemId}:0`;
-    this.commitSequenceByItemKey.set(key, sequence);
+    this.commitSequenceByItemKey.set(key, pendingCommit.sequence);
+    this.coachingUtteranceIdByItemKey.set(
+      key,
+      pendingCommit.coachingUtteranceId,
+    );
     const pending = this.pendingFinalByItemKey.get(key);
     if (pending) {
       this.pendingFinalByItemKey.delete(key);
-      this.finalOrderer.push(sequence, pending);
+      this.finalOrderer.push(pendingCommit.sequence, pending);
     }
   }
 
@@ -445,7 +465,8 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     this.emitTranscript(next, false, {
       utteranceId: getRealtimeTranscriptUtteranceId(event),
       resultRevision: this.incrementResultRevision(key),
-      contentIndex: getContentIndex(event)
+      contentIndex: getContentIndex(event),
+      coachingUtteranceId: this.coachingUtteranceIdByItemKey.get(key),
     });
   }
 
@@ -470,7 +491,8 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
       resultRevision: final.resultRevision,
       contentIndex: final.contentIndex,
       commitSequence: sequence,
-      finalReorderTimedOut: reorderTimedOut
+      finalReorderTimedOut: reorderTimedOut,
+      coachingUtteranceId: this.coachingUtteranceIdByItemKey.get(final.key),
     });
     if (reorderTimedOut) this.recordDiagnostic("transcript.final_reorder_timeout", { commitSequence: sequence });
   }
@@ -479,16 +501,22 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     reason: "silence" | "max-duration",
     occurredAtMs: number
   ) {
-    if (this.activeSpeechStartedAtMs === null || !isDataChannelOpen(this.dataChannel)) return;
+    if (
+      this.activeSpeechStartedAtMs === null ||
+      this.activeCoachingUtteranceId === null ||
+      !isDataChannelOpen(this.dataChannel)
+    ) return;
+    const utteranceId = this.activeCoachingUtteranceId;
     const sequence = this.nextCommitSequence++;
+    this.pendingCommits.push({ sequence, coachingUtteranceId: utteranceId });
     this.send({ type: "input_audio_buffer.commit" });
-    this.pendingCommitSequences.push(sequence);
     this.activeSpeechStartedAtMs = null;
     this.emitSpeechActivity(
       reason === "silence"
-        ? { type: "speech-ended", occurredAtMs, reason: "silence" }
-        : { type: "speech-fragment-committed", occurredAtMs }
+        ? { type: "speech-ended", utteranceId, occurredAtMs, reason: "silence" }
+        : { type: "speech-fragment-committed", utteranceId, occurredAtMs }
     );
+    if (reason === "silence") this.activeCoachingUtteranceId = null;
     this.recordDiagnostic("audio.committed", { commitSequence: sequence, reason });
   }
 
@@ -502,6 +530,7 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     utteranceId: string | null;
     resultRevision: number;
     contentIndex: number;
+    coachingUtteranceId?: string;
     commitSequence?: number;
     finalReorderTimedOut?: boolean;
   }) {
@@ -515,6 +544,9 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
       ...(identity.utteranceId === null ? {} : { utteranceId: identity.utteranceId, resultRevision: identity.resultRevision }),
       metadata: {
         contentIndex: identity.contentIndex,
+        ...(identity.coachingUtteranceId === undefined
+          ? {}
+          : { coachingUtteranceId: identity.coachingUtteranceId }),
         ...(identity.commitSequence === undefined ? {} : { commitSequence: identity.commitSequence }),
         ...(identity.finalReorderTimedOut === undefined ? {} : { finalReorderTimedOut: identity.finalReorderTimedOut })
       }
@@ -555,8 +587,9 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     this.partialTextByEventKey.clear();
     this.revisionByEventKey.clear();
     this.commitSequenceByItemKey.clear();
+    this.coachingUtteranceIdByItemKey.clear();
     this.pendingFinalByItemKey.clear();
-    this.pendingCommitSequences.length = 0;
+    this.pendingCommits.length = 0;
     this.finalOrderer.reset();
     this.token = null;
     this.activeConfiguration = { model: null, delay: null };
@@ -565,6 +598,7 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     this.speechThresholdDb = null;
     this.speechDetectorState = initialSpeechDetectorState;
     this.activeSpeechStartedAtMs = null;
+    this.activeCoachingUtteranceId = null;
     this.nextCommitSequence = 1;
   }
 
@@ -573,6 +607,11 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
   private emitSpeechActivity(event: LiveSttSpeechActivityEvent) {
     for (const subscriber of this.speechActivitySubscribers) subscriber(event);
   }
+}
+
+function defaultCreateUtteranceId() {
+  return globalThis.crypto?.randomUUID?.() ??
+    `utterance-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function assertUsableAudioTrack(track: MediaStreamTrack | undefined): asserts track is MediaStreamTrack {

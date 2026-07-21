@@ -62,6 +62,7 @@ describe("OpenAiRealtimeLiveSttPort", () => {
       utteranceId: "item_1:0",
       resultRevision: 2,
       metadata: {
+        coachingUtteranceId: "coaching-1",
         commitSequence: 1,
         contentIndex: 0,
         finalReorderTimedOut: false
@@ -78,8 +79,8 @@ describe("OpenAiRealtimeLiveSttPort", () => {
     harness.speakAndCommit("item_1");
 
     expect(events).toEqual([
-      { type: "speech-started", occurredAtMs: 1_550 },
-      { type: "speech-ended", occurredAtMs: 2_500, reason: "silence" },
+      { type: "speech-started", utteranceId: "coaching-1", occurredAtMs: 1_550 },
+      { type: "speech-ended", utteranceId: "coaching-1", occurredAtMs: 2_500, reason: "silence" },
     ]);
   });
 
@@ -179,6 +180,7 @@ function createHarness(options: {
   finalReorderTimeoutMs?: number;
   track?: { readyState: MediaStreamTrackState; enabled: boolean; muted: boolean };
 } = {}) {
+  let nextUtteranceId = 1;
   let now = 0;
   let meterCallback: ((event: LiveSttAudioLevelEvent) => void) | undefined;
   const peer = new FakePeerConnection();
@@ -192,6 +194,7 @@ function createHarness(options: {
     },
     createPeerConnection: () => peer,
     fetcher,
+    createUtteranceId: () => `coaching-${nextUtteranceId++}`,
     now: () => now,
     noiseCalibrationMs: 1500,
     finalReorderTimeoutMs: options.finalReorderTimeoutMs

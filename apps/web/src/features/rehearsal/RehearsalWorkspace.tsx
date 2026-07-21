@@ -153,6 +153,11 @@ import {
   type UtteranceBoundaryCollector,
 } from "./utteranceBoundaryCollector";
 import {
+  createProvisionalFillerDetector,
+  hasScriptAlignedLexicalEvidence,
+  type ProvisionalFillerEvent,
+} from "./provisionalFillerDetector";
+import {
   getKeywordOccurrenceTriggerIdsForSlide,
   resolveCueTriggeredActions,
   resolveKeywordOccurrenceTriggeredActions,
@@ -2050,6 +2055,8 @@ export function RehearsalWorkspace(props: {
   const [liveDebugPcmRecording, setLiveDebugPcmRecording] =
     useState<LiveSttDebugPcmRecording | null>(null);
   const [liveCue, setLiveCue] = useState<LiveSttAnimationCueEvent | null>(null);
+  const [provisionalFillerCue, setProvisionalFillerCue] =
+    useState<ProvisionalFillerEvent | null>(null);
   const [liveSlideAdvance, setLiveSlideAdvance] =
     useState<LiveSttSlideAdvanceEvent | null>(null);
   const [p3SessionState, setP3SessionState] =
@@ -2141,6 +2148,9 @@ export function RehearsalWorkspace(props: {
   const recordingClockRef = useRef<RecordingClock | null>(null);
   const utteranceBoundaryCollectorRef = useRef<UtteranceBoundaryCollector>(
     createUtteranceBoundaryCollector(),
+  );
+  const provisionalFillerDetectorRef = useRef(
+    createProvisionalFillerDetector(),
   );
   const activeRunRef = useRef<RehearsalRun | null>(null);
   const preparedSlideSnapshotsRef = useRef<
@@ -3043,6 +3053,8 @@ export function RehearsalWorkspace(props: {
       sessionRef.current = session;
       recordingClockRef.current = session.clock;
       utteranceBoundaryCollectorRef.current.reset();
+      provisionalFillerDetectorRef.current.reset();
+      setProvisionalFillerCue(null);
       session.start();
       resetSlideTranscriptSnapshots(activeDeck, currentSlideIndexRef.current);
       setPhase("recording");
@@ -3686,14 +3698,21 @@ export function RehearsalWorkspace(props: {
       if (!recordingClock || !activeDeck) {
         return;
       }
+      const recordingAtMs = recordingClock.elapsedMsAt(event.occurredAtMs);
       utteranceBoundaryCollectorRef.current.accept(
         event,
-        recordingClock.elapsedMsAt(event.occurredAtMs),
+        recordingAtMs,
         {
           slideId:
             activeDeck.slides[currentSlideIndexRef.current]?.slideId ?? null,
           deckRevision: activeDeck.version,
         },
+      );
+      applyProvisionalFillerChanges(
+        provisionalFillerDetectorRef.current.acceptSpeechActivity(
+          event,
+          recordingAtMs,
+        ),
       );
     });
     liveSttSubscriptionCleanupRef.current = () => {
@@ -4072,6 +4091,21 @@ export function RehearsalWorkspace(props: {
     });
     const activeDeck = deckRef.current;
     const activeSlide = activeDeck?.slides[currentSlideIndexRef.current];
+    const recordingClock = recordingClockRef.current;
+    if (recordingClock && activeSlide) {
+      applyProvisionalFillerChanges(
+        provisionalFillerDetectorRef.current.acceptPartial({
+          utteranceId: result.metadata?.coachingUtteranceId,
+          transcript: result.text,
+          detectedAtMs: recordingClock.elapsedMsAt(Date.now()),
+          hasScriptAlignedLexicalEvidence: hasScriptAlignedLexicalEvidence(
+            result.text,
+            activeSlide.speakerNotes,
+          ),
+          scriptText: activeSlide.speakerNotes,
+        }),
+      );
+    }
     handleLivePartialTranscript(
       {
         type: "partial-transcript",
@@ -4086,6 +4120,19 @@ export function RehearsalWorkspace(props: {
         slideRevision: activeDeck?.version ?? 0,
       }),
     );
+  }
+
+  function applyProvisionalFillerChanges(
+    changes: readonly ProvisionalFillerEvent[],
+  ) {
+    const latest = changes.at(-1);
+    if (!latest) return;
+    setProvisionalFillerCue((current) => {
+      if (latest.status === "retracted") {
+        return current?.utteranceId === latest.utteranceId ? null : current;
+      }
+      return latest;
+    });
   }
 
   function handleLivePartialTranscript(
@@ -5735,6 +5782,21 @@ export function RehearsalWorkspace(props: {
                         <span>{liveCue.text}</span>
                       </div>
                       <p>현재 슬라이드에서 키워드를 감지했습니다.</p>
+                    </div>
+                  )}
+
+                  {provisionalFillerCue?.status === "provisional" && (
+                    <div className="job-status" aria-live="polite">
+                      <div>
+                        <strong>임시 코칭</strong>
+                        <span>
+                          {provisionalFillerCue.kind ===
+                          "lexical-filler-candidate"
+                            ? `습관어 후보: ${provisionalFillerCue.surface}`
+                            : "짧은 머뭇거림 후보"}
+                        </span>
+                      </div>
+                      <p>녹음 종료 후 정밀 전사로 다시 확인합니다.</p>
                     </div>
                   )}
 

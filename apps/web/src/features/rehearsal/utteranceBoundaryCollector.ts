@@ -7,6 +7,8 @@ type BoundaryContext = {
 };
 
 type ActiveUtterance = BoundaryContext & {
+  utteranceId: string;
+  segmentIndex: number;
   onsetMs: number;
   clipStartMs: number;
 };
@@ -29,12 +31,10 @@ const defaultPreRollMs = 300;
 const defaultMaximumGroupMs = 60_000;
 
 export function createUtteranceBoundaryCollector(options: {
-  createId?: (sequence: number) => string;
   maximumGroupMs?: number;
   preRollMs?: number;
 } = {}): UtteranceBoundaryCollector {
   const boundaries: RehearsalUtteranceBoundary[] = [];
-  const createId = options.createId ?? defaultCreateId;
   const maximumGroupMs = options.maximumGroupMs ?? defaultMaximumGroupMs;
   const preRollMs = options.preRollMs ?? defaultPreRollMs;
   let active: ActiveUtterance | null = null;
@@ -44,14 +44,14 @@ export function createUtteranceBoundaryCollector(options: {
     startMs: number,
     endMs: number,
     reason: RehearsalUtteranceBoundary["commitReason"],
-    context: BoundaryContext,
+    context: ActiveUtterance,
   ) {
     if (endMs <= startMs) {
       return;
     }
     const sequence = nextSequence++;
     boundaries.push({
-      utteranceId: createId(sequence),
+      utteranceId: createSegmentId(context.utteranceId, context.segmentIndex),
       sequence,
       startMs: Math.round(startMs),
       endMs: Math.round(endMs),
@@ -71,6 +71,8 @@ export function createUtteranceBoundaryCollector(options: {
       const splitAtMs: number = current.clipStartMs + maximumGroupMs;
       appendBoundary(current.clipStartMs, splitAtMs, "max-duration", current);
       active = {
+        utteranceId: current.utteranceId,
+        segmentIndex: current.segmentIndex + 1,
         onsetMs: splitAtMs,
         clipStartMs: splitAtMs,
         slideId: context.slideId,
@@ -96,6 +98,8 @@ export function createUtteranceBoundaryCollector(options: {
       if (event.type === "speech-started") {
         if (!active) {
           active = {
+            utteranceId: event.utteranceId,
+            segmentIndex: 0,
             onsetMs: recordingAtMs,
             clipStartMs: Math.max(recordingAtMs - preRollMs, 0),
             ...context,
@@ -119,7 +123,10 @@ export function createUtteranceBoundaryCollector(options: {
   };
 }
 
-function defaultCreateId(sequence: number) {
-  const randomId = globalThis.crypto?.randomUUID?.();
-  return randomId ? `utterance-${randomId}` : `utterance-${sequence}`;
+function createSegmentId(utteranceId: string, segmentIndex: number) {
+  if (segmentIndex === 0) {
+    return utteranceId;
+  }
+  const suffix = `:segment-${segmentIndex + 1}`;
+  return `${utteranceId.slice(0, 128 - suffix.length)}${suffix}`;
 }
