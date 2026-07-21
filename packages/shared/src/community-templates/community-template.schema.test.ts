@@ -172,12 +172,14 @@ describe("community template API contract", () => {
     const request = {
       sourceProjectId: "project_source",
       title: "교육 템플릿",
-      category: "education",
+      categoryId: "education",
+      tags: [" 생성형 AI ", "생성형 ai", "UX 리서치"],
       rightsConfirmed: true,
     };
-    expect(publishCommunityTemplateRequestSchema.parse(request)).toEqual(
-      request,
-    );
+    expect(publishCommunityTemplateRequestSchema.parse(request)).toEqual({
+      ...request,
+      tags: ["생성형 AI", "UX 리서치"],
+    });
     expect(() =>
       publishCommunityTemplateRequestSchema.parse({
         ...request,

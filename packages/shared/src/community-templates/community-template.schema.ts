@@ -15,13 +15,53 @@ import { themeColorSchema } from "../deck/theme.schema";
 
 export const maxCommunityTemplateSlides = 100;
 export const maxCommunityTemplateSnapshotBytes = 10 * 1024 * 1024;
+export const maxCommunityTemplateTags = 5;
 
 export const communityTemplateCategorySchema = z.enum([
   "business",
   "education",
+  "design",
+  "technology",
+  "marketing",
+  "data-research",
   "portfolio",
+  "career",
   "event",
+  "culture-lifestyle",
+  "other",
 ]);
+
+export const communityTemplateCategoryIdSchema =
+  communityTemplateCategorySchema;
+
+export const communityTemplateCategoryOptionSchema = z
+  .object({
+    categoryId: communityTemplateCategoryIdSchema,
+    name: z.string().trim().min(1).max(30),
+  })
+  .strict();
+
+export const communityTemplateTagIdSchema = z
+  .string()
+  .regex(/^community_tag_[A-Za-z0-9_-]+$/)
+  .max(200);
+
+export const communityTemplateTagNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(30)
+  .refine(
+    (value) => !/[\u0000-\u001f\u007f]/u.test(value),
+    "태그에 허용되지 않는 제어 문자가 포함되어 있습니다.",
+  );
+
+export const communityTemplateTagSchema = z
+  .object({
+    tagId: communityTemplateTagIdSchema,
+    name: communityTemplateTagNameSchema,
+  })
+  .strict();
 
 export const communityTemplateIdSchema = z
   .string()
@@ -486,6 +526,12 @@ export const communityTemplatePreviewSchema = z
 
 export type CommunityTemplateCategory = z.infer<
   typeof communityTemplateCategorySchema
+>;
+export type CommunityTemplateCategoryOption = z.infer<
+  typeof communityTemplateCategoryOptionSchema
+>;
+export type CommunityTemplateTag = z.infer<
+  typeof communityTemplateTagSchema
 >;
 export type CommunityTemplateSnapshot = z.infer<
   typeof communityTemplateSnapshotSchema

@@ -2,9 +2,12 @@ import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
 import {
+  communityTemplateCategoryIdSchema,
   communityTemplateCategorySchema,
   communityTemplateIdSchema,
   communityTemplateSnapshotSchema,
+  communityTemplateTagIdSchema,
+  communityTemplateTagSchema,
 } from "./community-template.schema";
 import { communityTemplateCardSchema } from "./community-template-api.schema";
 
@@ -40,6 +43,14 @@ export const communityTemplateDiscoverQuerySchema = z
   .object({
     query: z.string().trim().max(60).optional(),
     category: communityTemplateCategorySchema.optional(),
+    categoryId: communityTemplateCategoryIdSchema.optional(),
+    tagIds: z.preprocess(
+      (value) =>
+        typeof value === "string"
+          ? value.split(",").map((item) => item.trim()).filter(Boolean)
+          : value,
+      z.array(communityTemplateTagIdSchema).max(20).optional(),
+    ),
     sort: communityTemplateSortSchema.default("popular"),
     page: z.coerce.number().int().positive().default(1),
     limit: z.coerce.number().int().positive().max(48).default(18),
@@ -48,6 +59,8 @@ export const communityTemplateDiscoverQuerySchema = z
 
 export const communityTemplateDiscoverCardSchema = communityTemplateCardSchema
   .extend({
+    categoryName: z.string().trim().min(1).max(30),
+    tags: z.array(communityTemplateTagSchema).max(5),
     description: z.string().trim().max(500),
     author: communityTemplateAuthorSchema,
     stats: communityTemplateStatsSchema,

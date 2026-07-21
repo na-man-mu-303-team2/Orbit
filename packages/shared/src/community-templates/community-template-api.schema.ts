@@ -3,10 +3,15 @@ import { z } from "zod";
 import { isoDateTimeSchema } from "../common/time.schema";
 import { projectSchema } from "../projects/project.schema";
 import {
+  communityTemplateCategoryIdSchema,
+  communityTemplateCategoryOptionSchema,
   communityTemplateCategorySchema,
   communityTemplateIdSchema,
   communityTemplatePreviewSchema,
+  communityTemplateTagNameSchema,
+  communityTemplateTagSchema,
   communityTemplateTitleSchema,
+  maxCommunityTemplateTags,
 } from "./community-template.schema";
 
 const boundedIdSchema = z.string().trim().min(1).max(200);
@@ -15,10 +20,49 @@ export const communityTemplateListQuerySchema = z
   .object({
     query: z.string().trim().max(60).optional(),
     category: communityTemplateCategorySchema.optional(),
+    categoryId: communityTemplateCategoryIdSchema.optional(),
     page: z.coerce.number().int().positive().default(1),
     limit: z.coerce.number().int().positive().max(48).default(24),
   })
   .strict();
+
+export const communityTemplateCategoryListResponseSchema = z
+  .object({ items: z.array(communityTemplateCategoryOptionSchema) })
+  .strict();
+
+export const communityTemplateTagListQuerySchema = z
+  .object({
+    query: z.string().trim().max(30).optional(),
+    scope: z.enum(["used", "all"]).default("used"),
+    sort: z.enum(["popular", "name"]).default("popular"),
+    limit: z.coerce.number().int().positive().max(30).default(12),
+  })
+  .strict();
+
+export const communityTemplateTagSuggestionSchema =
+  communityTemplateTagSchema.extend({
+    usageCount: z.number().int().nonnegative(),
+  });
+
+export const communityTemplateTagListResponseSchema = z
+  .object({ items: z.array(communityTemplateTagSuggestionSchema) })
+  .strict();
+
+export const communityTemplateTagNamesSchema = z
+  .array(communityTemplateTagNameSchema)
+  .transform((values) => {
+    const seen = new Set<string>();
+    return values.filter((value) => {
+      const key = value.toLocaleLowerCase("ko-KR");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  })
+  .refine(
+    (values) => values.length <= maxCommunityTemplateTags,
+    "태그는 최대 5개까지 입력할 수 있습니다.",
+  );
 
 export const communityTemplateCardSchema = z
   .object({
@@ -68,11 +112,17 @@ export const publishCommunityTemplateRequestSchema = z
   .object({
     sourceProjectId: boundedIdSchema,
     title: communityTemplateTitleSchema,
-    category: communityTemplateCategorySchema,
+    categoryId: communityTemplateCategoryIdSchema.optional(),
+    category: communityTemplateCategorySchema.optional(),
+    tags: communityTemplateTagNamesSchema.default([]),
     description: z.string().trim().max(300).optional(),
     rightsConfirmed: z.literal(true),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) => value.categoryId !== undefined || value.category !== undefined,
+    { message: "대표 주제를 선택해 주세요.", path: ["categoryId"] },
+  );
 
 export const publishCommunityTemplateResponseSchema = z
   .object({ template: communityTemplateCardSchema })
@@ -82,6 +132,8 @@ export const updateCommunityTemplateRequestSchema = z
   .object({
     title: communityTemplateTitleSchema.optional(),
     category: communityTemplateCategorySchema.optional(),
+    categoryId: communityTemplateCategoryIdSchema.optional(),
+    tags: communityTemplateTagNamesSchema.optional(),
     description: z.string().trim().max(300).optional(),
   })
   .strict()
@@ -89,6 +141,8 @@ export const updateCommunityTemplateRequestSchema = z
     (value) =>
       value.title !== undefined ||
       value.category !== undefined ||
+      value.categoryId !== undefined ||
+      value.tags !== undefined ||
       value.description !== undefined,
     "수정할 값을 하나 이상 입력해 주세요.",
   );
@@ -124,6 +178,7 @@ export const communityTemplateApiErrorCodeSchema = z.enum([
   "COMMUNITY_TEMPLATE_SOURCE_NOT_FOUND",
   "COMMUNITY_TEMPLATE_OWNER_REQUIRED",
   "COMMUNITY_TEMPLATE_ALREADY_PUBLISHED",
+  "COMMUNITY_TEMPLATE_CATEGORY_NOT_FOUND",
   "COMMUNITY_TEMPLATE_ACTIVITY_UNSUPPORTED",
   "COMMUNITY_TEMPLATE_SANITIZATION_FAILED",
   "COMMUNITY_TEMPLATE_SNAPSHOT_TOO_LARGE",
@@ -141,6 +196,15 @@ export const communityTemplateApiErrorSchema = z
 
 export type CommunityTemplateListQuery = z.infer<
   typeof communityTemplateListQuerySchema
+>;
+export type CommunityTemplateCategoryListResponse = z.infer<
+  typeof communityTemplateCategoryListResponseSchema
+>;
+export type CommunityTemplateTagListQuery = z.infer<
+  typeof communityTemplateTagListQuerySchema
+>;
+export type CommunityTemplateTagListResponse = z.infer<
+  typeof communityTemplateTagListResponseSchema
 >;
 export type CommunityTemplateCard = z.infer<typeof communityTemplateCardSchema>;
 export type CommunityTemplateListResponse = z.infer<

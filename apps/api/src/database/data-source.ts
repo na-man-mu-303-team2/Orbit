@@ -71,6 +71,7 @@ import { AddUserProjectTagsAndPinnedAt2026072103000 } from "./migrations/2026072
 import { AddUserDisplayNames2026072104000 } from "./migrations/2026072104000-AddUserDisplayNames";
 import { AddCommunityTemplateEngagement2026072105000 } from "./migrations/2026072105000-AddCommunityTemplateEngagement";
 import { AddCommunityTemplateGovernance2026072106000 } from "./migrations/2026072106000-AddCommunityTemplateGovernance";
+import { AddCommunityCategoriesAndTags2026072107000 } from "./migrations/2026072107000-AddCommunityCategoriesAndTags";
 
 loadDotenv({ path: "../../.env.local" });
 loadDotenv({ path: ".env.local" });
@@ -154,6 +155,7 @@ export const databaseOptions: DataSourceOptions = {
     AddUserDisplayNames2026072104000,
     AddCommunityTemplateEngagement2026072105000,
     AddCommunityTemplateGovernance2026072106000,
+    AddCommunityCategoriesAndTags2026072107000,
   ],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

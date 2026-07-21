@@ -663,11 +663,15 @@ schema가 준비되지 않았으면 listen 전에 기동을 중단한다. `/heal
 제거된 immutable `CommunityTemplateSnapshot`이다. source project와 owner가 삭제되어도
 저장된 snapshot의 조회와 사용은 유지된다.
 
-category는 다음 4개 값만 저장한다.
+대표 주제는 관리형 `community_categories`에서 하나를 필수 선택한다.
 
 ```text
-business, education, portfolio, event
+business, education, design, technology, marketing, data-research,
+portfolio, career, event, culture-lifestyle, other
 ```
+
+사용자 태그는 게시물당 최대 5개이며 trim 후 1~30자다. 태그 이름은
+`lower(btrim(name))` 기준으로 고유하고, 기존 태그를 재사용한다.
 
 - `templateId`는 `community_template_` prefix를 사용한다.
 - snapshot `schemaVersion`은 literal `1`이다.
@@ -722,6 +726,8 @@ API:
 - `POST /api/v1/workspaces/:workspaceId/community-templates`
 - `POST /api/v1/workspaces/:workspaceId/community-templates/:templateId/use`
 - `GET /api/v1/community-templates/discover`
+- `GET /api/v1/community-templates/categories`
+- `GET /api/v1/community-templates/tags`
 - `GET /api/v1/community-templates/:templateId`
 - `PUT|DELETE /api/v1/community-templates/:templateId/like`
 - `POST /api/v1/community-templates/:templateId/view`
@@ -732,7 +738,10 @@ API:
 커뮤니티 공개는 사용자가 소유한 프로젝트 중 하나를 명시적으로 선택한 뒤 해당
 프로젝트 전체를 immutable snapshot으로 저장한다. 다른 프로젝트는 공개되지 않으며
 원본 프로젝트의 이후 변경도 이미 공개된 snapshot을 변경하지 않는다. 공개 요청은
-300자 이하 `description`을 선택적으로 포함할 수 있다.
+300자 이하 `description`과 최대 5개의 `tags`를 선택적으로 포함할 수 있다.
+게시물과 태그는 `community_template_tags` N:M 관계로 저장한다. 태그 조회는 사용 횟수
+기반 인기순과 이름순을 제공하며, 갤러리에는 실제 공개 게시물에서 사용 중인 태그만
+노출한다.
 
 좋아요는 `(template_id, user_id)` unique 상태이며 PUT/DELETE를 멱등 처리한다. 조회는
 로그인 사용자·템플릿·날짜별 한 번만 집계하고, 공유는 실제 공유 동작마다 event row를
@@ -742,8 +751,9 @@ API:
 
 모든 endpoint는 signed session 인증을 요구한다. list/recent/use는 모든 로그인 사용자가
 사용할 수 있다. sources는 현재 사용자가 accepted owner인 project만 반환하며 publish는
-source project owner만 성공한다. publish request는 `sourceProjectId`, `title`, `category`,
-literal `rightsConfirmed: true`만 허용한다. client가 snapshot, preview, Deck JSON,
+source project owner만 성공한다. publish request는 `sourceProjectId`, `title`,
+`categoryId`, `tags`, literal `rightsConfirmed: true`를 허용한다. client가 snapshot,
+preview, Deck JSON,
 `ownerUserId`, source version을 전달할 수 없다.
 
 public card DTO는 `templateId`, `title`, `category`, 정제된 `preview`, `createdAt`만 갖고
@@ -771,6 +781,7 @@ bounded 실패 code:
 - `COMMUNITY_TEMPLATE_NOT_FOUND`
 - `COMMUNITY_TEMPLATE_SOURCE_NOT_FOUND`
 - `COMMUNITY_TEMPLATE_OWNER_REQUIRED`
+- `COMMUNITY_TEMPLATE_CATEGORY_NOT_FOUND`
 - `COMMUNITY_TEMPLATE_ACTIVITY_UNSUPPORTED`
 - `COMMUNITY_TEMPLATE_SANITIZATION_FAILED`
 - `COMMUNITY_TEMPLATE_SNAPSHOT_TOO_LARGE`
