@@ -100,8 +100,8 @@ body .rehearsal-report-page .rehearsal-report-nav-section-head {
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-current {
-  background: var(--redesign-color-secondary-container);
-  border: 1px solid var(--redesign-color-secondary-fixed-dim);
+  background: var(--redesign-color-primary-container);
+  border: 1px solid var(--redesign-color-primary-emphasis);
   border-radius: var(--redesign-radius-xl);
   display: grid;
   gap: 3px;
@@ -116,7 +116,7 @@ body .rehearsal-report-page .rehearsal-report-nav-current small {
 }
 
 body .rehearsal-report-page .rehearsal-report-nav-current strong {
-  color: var(--redesign-color-inverse-surface);
+  color: var(--redesign-color-on-surface);
   font-size: var(--redesign-type-body-sm-size);
 }
 
