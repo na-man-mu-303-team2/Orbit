@@ -165,6 +165,10 @@
       "source": "repo-default",
       "delivery": "compose"
     },
+    "FILLER_TRANSCRIPTION_MODE": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
     "LLM_PROVIDER": {
       "source": "repo-default",
       "delivery": "compose"
@@ -193,6 +197,10 @@
       "source": "repo-default",
       "delivery": "compose"
     },
+    "OPENAI_FILLER_TRANSCRIPTION_MODEL": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
     "OPENAI_IMAGE_MODEL": {
       "source": "repo-default",
       "delivery": "code-default"
@@ -205,13 +213,17 @@
       "source": "repo-default",
       "delivery": "code-default"
     },
+    "OPENAI_REALTIME_OOB_MODEL": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
     "OPENAI_REALTIME_TRANSCRIPTION_DELAY": {
       "source": "repo-default",
-      "delivery": "code-default"
+      "delivery": "compose"
     },
     "OPENAI_REALTIME_TRANSCRIPTION_MODEL": {
       "source": "repo-default",
-      "delivery": "code-default"
+      "delivery": "compose"
     },
     "OPENAI_TRANSCRIPTION_MODEL": {
       "source": "repo-default",

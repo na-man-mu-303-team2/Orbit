@@ -21,12 +21,13 @@ export const aiDeckWorkerQueueSchema = z.enum([
 export const liveSttProviderSchema = z.literal("sherpa");
 export const liveSttEngineSchema = z.enum(["openai-realtime", "web-speech"]);
 export const reportSttProviderSchema = z.enum(["openai", "whisperx"]);
+export const fillerTranscriptionModeSchema = z.enum(["mini", "realtime-oob"]);
 export const openAiRealtimeTranscriptionDelaySchema = z.enum([
   "minimal",
   "low",
   "medium",
   "high",
-  "xhigh"
+  "xhigh",
 ]);
 export const ocrProviderSchema = z.enum(["python", "textract"]);
 export const llmProviderSchema = z.literal("openai");
@@ -38,8 +39,10 @@ export const openAiModelDefaults = {
   model: "gpt-4.1-mini",
   embeddingModel: "text-embedding-3-small",
   realtimeTranscriptionModel: "gpt-realtime-whisper",
-  realtimeTranscriptionDelay: "minimal",
-  realtimeClientSecretTtlSeconds: 600
+  realtimeTranscriptionDelay: "xhigh",
+  realtimeClientSecretTtlSeconds: 600,
+  fillerTranscriptionModel: "gpt-4o-mini-transcribe",
+  realtimeOobModel: "gpt-realtime-2.1",
 } as const;
 
 export type NodeEnv = z.infer<typeof nodeEnvSchema>;
@@ -51,6 +54,9 @@ export type AiDeckWorkerQueue = z.infer<typeof aiDeckWorkerQueueSchema>;
 export type LiveSttProvider = z.infer<typeof liveSttProviderSchema>;
 export type LiveSttEngine = z.infer<typeof liveSttEngineSchema>;
 export type ReportSttProvider = z.infer<typeof reportSttProviderSchema>;
+export type FillerTranscriptionMode = z.infer<
+  typeof fillerTranscriptionModeSchema
+>;
 export type OpenAiRealtimeTranscriptionDelay = z.infer<
   typeof openAiRealtimeTranscriptionDelaySchema
 >;

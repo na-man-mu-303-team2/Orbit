@@ -51,15 +51,15 @@ LLM_PROVIDER=openai
 
 현재 지원하는 조합은 다음과 같다.
 
-| `AI_DECK_EXECUTION_MODE` | `AI_DECK_WORKER_QUEUE` | 현재 동작                                                                                                                            |
-| ------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `monolith`               | `all`                  | 회귀 검증과 운영 rollback용 기존 full-deck 호환 경로를 실행한다. 제거 대상이 아니다.                                                  |
-| `bullmq`                 | `all`                  | rollback용 staged 경로다. coordinator부터 OCR·planning·image·QA·publication 전체 queue, dispatcher와 reconciler를 실행한다.          |
-| `bullmq`                 | `reference-extract`    | `generate-deck` coordinator queue와 `reference-extract` queue만 소비한다. 다른 Job queue를 처리할 `all` Worker가 별도로 있어야 한다. |
-| `bullmq`                 | `research-content`     | `source-grounding`, `content-planning` queue만 소비한다.                                                                             |
-| `bullmq`                 | `design-layout`        | `design-planning`, `layout-compile` queue만 소비한다.                                                                                |
-| `bullmq`                 | `image`                | `image-slide` queue만 소비한다. legacy에서는 image 대상 slide, v2에서는 모든 slide의 상세 생성·asset·QA shard를 처리한다.             |
-| `bullmq`                 | `qa-finalize`          | `semantic-quality`, `rendered-visual-quality`, `publication` queue만 소비한다.                                                       |
+| `AI_DECK_EXECUTION_MODE` | `AI_DECK_WORKER_QUEUE` | 현재 동작                                                                                                                                                                            |
+| ------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `monolith`               | `all`                  | 회귀 검증과 운영 rollback용 기존 full-deck 호환 경로를 실행한다. 제거 대상이 아니다.                                                                                                 |
+| `bullmq`                 | `all`                  | rollback용 staged 경로다. coordinator부터 OCR·planning·image·QA·publication 전체 queue, dispatcher와 reconciler를 실행한다.                                                          |
+| `bullmq`                 | `reference-extract`    | `generate-deck` coordinator queue와 `reference-extract` queue만 소비한다. 다른 Job queue를 처리할 `all` Worker가 별도로 있어야 한다.                                                 |
+| `bullmq`                 | `research-content`     | `source-grounding`, `content-planning` queue만 소비한다.                                                                                                                             |
+| `bullmq`                 | `design-layout`        | `design-planning`, `layout-compile` queue만 소비한다.                                                                                                                                |
+| `bullmq`                 | `image`                | `image-slide` queue만 소비한다. legacy에서는 image 대상 slide, v2에서는 모든 slide의 상세 생성·asset·QA shard를 처리한다.                                                            |
+| `bullmq`                 | `qa-finalize`          | `semantic-quality`, `rendered-visual-quality`, `publication` queue만 소비한다.                                                                                                       |
 | `pg`                     | `all`                  | 로컬 기본값. `ai_deck_generation_stages`를 직접 claim한다. AI Deck BullMQ coordinator·stage queue는 enqueue/consume하지 않고 process 전체 5개, 사용자 전체 5개 기본 상한을 적용한다. |
 
 `AI_DECK_EXECUTION_MODE=sqs`는 도입 취소된 미지원 값이며 API와 Worker가 startup에서 거부한다. dedicated role은 `bullmq` 실행 모드에서만 허용되고 `pg`는 `all`만 허용된다. 지원되지 않는 값을 설정해 겉보기에는 정상인 비활성 Worker가 뜨는 동작은 허용하지 않는다.
@@ -98,16 +98,21 @@ OPENAI_MODEL=gpt-4.1-mini
 OPENAI_TRANSCRIPTION_MODEL=whisper-1
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper
-OPENAI_REALTIME_TRANSCRIPTION_DELAY=minimal
+OPENAI_REALTIME_TRANSCRIPTION_DELAY=xhigh
 OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS=600
-LIVE_STT_ENGINE=web-speech
+OPENAI_FILLER_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+OPENAI_REALTIME_OOB_MODEL=gpt-realtime-2.1
+LIVE_STT_ENGINE=openai-realtime
+FILLER_TRANSCRIPTION_MODE=mini
 AI_SLIDE_IMAGE_REVIEW_MODE=auto
 ORBIT_PPTX_OOXML_VECTOR_IMPORT=true
 ```
 
 리허설 리포트의 시간 기반 지표를 계산해야 하는 local/staging report STT는 `OPENAI_TRANSCRIPTION_MODEL=whisper-1`을 사용한다. `whisper-1`의 `verbose_json` 응답은 duration과 segment timestamp를 제공하므로 WPM, 구간별 속도, 긴 침묵 계산에 사용할 수 있다. production 모델은 전사 정확도와 시간 지표 요구를 함께 검토한 뒤 별도로 고정한다.
 
-브라우저 리허설 Live STT의 실행 엔진은 API runtime config가 내려주는 `LIVE_STT_ENGINE=openai-realtime | web-speech` 값이 우선한다. presenter localStorage의 `sttEngine` 값은 실행 엔진을 덮어쓰지 않는다. 기본값은 `web-speech`이며 Chrome Web Speech on-device 경로를 사용한다. `LIVE_STT_ENGINE=openai-realtime`로 설정하면 API가 프로젝트 권한 확인 후 OpenAI Realtime transcription client secret을 발급한다. `OPENAI_REALTIME_TRANSCRIPTION_MODEL` 기본값은 `gpt-realtime-whisper`이고, `OPENAI_REALTIME_TRANSCRIPTION_DELAY`는 `minimal | low | medium | high | xhigh`, `OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS`는 10초부터 7200초까지 허용한다.
+브라우저 리허설 Live STT의 실행 엔진은 API runtime config가 내려주는 `LIVE_STT_ENGINE=openai-realtime | web-speech` 값이 우선한다. presenter localStorage의 `sttEngine` 값은 실행 엔진을 덮어쓰지 않는다. 기본값은 `openai-realtime`이며 API가 프로젝트 권한 확인 후 OpenAI Realtime transcription client secret을 발급한다. `OPENAI_REALTIME_TRANSCRIPTION_MODEL` 기본값은 `gpt-realtime-whisper`, delay 기본값은 `xhigh`다. `OPENAI_REALTIME_TRANSCRIPTION_DELAY`는 `minimal | low | medium | high | xhigh`, `OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS`는 10초부터 7200초까지 허용한다. runtime config 조회 실패 시 다른 provider로 자동 전환하지 않는다.
+
+습관어 축어 전사는 Live control과 분리한다. `FILLER_TRANSCRIPTION_MODE=mini | realtime-oob`이고 기본값은 `mini`다. mini 경로는 `OPENAI_FILLER_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe`, opt-in OOB 경로는 `OPENAI_REALTIME_OOB_MODEL=gpt-realtime-2.1`을 사용한다. `gpt-realtime-whisper`에는 filler prompt를 전달하지 않는다.
 
 `LIVE_STT_ENGINE=web-speech`는 Chrome Web Speech on-device 경로를 사용한다. 이 값에서는 OpenAI Realtime client secret을 요청하지 않으며, 브라우저가 온디바이스 Web Speech 또는 한국어 언어팩을 지원하지 않으면 OpenAI로 자동 fallback하지 않고 명확한 Live STT 시작 오류를 표시한다.
 

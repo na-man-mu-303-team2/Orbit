@@ -83,6 +83,18 @@ curl http://localhost:8000/health
 docker compose ps
 ```
 
+## Realtime 발표 제어 기본값 확인
+
+`.env.local`에서 `LIVE_STT_ENGINE=openai-realtime`,
+`OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper`,
+`OPENAI_REALTIME_TRANSCRIPTION_DELAY=xhigh`를 사용한다. 습관어 최종 분석은 기본적으로
+`FILLER_TRANSCRIPTION_MODE=mini`와
+`OPENAI_FILLER_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe`를 사용한다. OOB 정밀 모드는
+로컬 평가가 필요한 경우에만 `FILLER_TRANSCRIPTION_MODE=realtime-oob`로 명시한다.
+
+runtime config 또는 Realtime session 설정 검증이 실패하면 Web Speech로 자동 전환하지
+않고 Live STT 오류를 표시하며 수동 발표 제어는 계속 사용할 수 있어야 한다.
+
 ## 프로젝트 생성과 파일 업로드 smoke
 
 ```bash

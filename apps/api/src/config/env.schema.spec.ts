@@ -30,6 +30,7 @@ const validEnv = {
   LIVE_STT_PROVIDER: "sherpa",
   LIVE_STT_ENGINE: "openai-realtime",
   REPORT_STT_PROVIDER: "openai",
+  FILLER_TRANSCRIPTION_MODE: "mini",
   OCR_PROVIDER: "python",
   LLM_PROVIDER: "openai",
   OPENAI_API_KEY: "",
@@ -37,8 +38,10 @@ const validEnv = {
   OPENAI_TRANSCRIPTION_MODEL: "gpt-4o-transcribe",
   OPENAI_EMBEDDING_MODEL: "text-embedding-3-small",
   OPENAI_REALTIME_TRANSCRIPTION_MODEL: "gpt-realtime-whisper",
-  OPENAI_REALTIME_TRANSCRIPTION_DELAY: "minimal",
+  OPENAI_REALTIME_TRANSCRIPTION_DELAY: "xhigh",
   OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS: "600",
+  OPENAI_FILLER_TRANSCRIPTION_MODEL: "gpt-4o-mini-transcribe",
+  OPENAI_REALTIME_OOB_MODEL: "gpt-realtime-2.1",
   AWS_REGION: "ap-northeast-2",
   AWS_ACCESS_KEY_ID: "",
   AWS_SECRET_ACCESS_KEY: "",
@@ -205,8 +208,13 @@ describe("ORBIT env validation", () => {
     expect(config.OPENAI_REALTIME_TRANSCRIPTION_MODEL).toBe(
       "gpt-realtime-whisper"
     );
-    expect(config.OPENAI_REALTIME_TRANSCRIPTION_DELAY).toBe("minimal");
+    expect(config.OPENAI_REALTIME_TRANSCRIPTION_DELAY).toBe("xhigh");
     expect(config.OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS).toBe(600);
+    expect(config.FILLER_TRANSCRIPTION_MODE).toBe("mini");
+    expect(config.OPENAI_FILLER_TRANSCRIPTION_MODEL).toBe(
+      "gpt-4o-mini-transcribe"
+    );
+    expect(config.OPENAI_REALTIME_OOB_MODEL).toBe("gpt-realtime-2.1");
   });
 
   it("validates realtime transcription delay and client secret ttl", () => {
@@ -318,13 +326,22 @@ describe("ORBIT env validation", () => {
     ).toThrow(/REPORT_STT_PROVIDER/);
   });
 
-  it("defaults browser Live STT engine to Chrome on-device Web Speech", () => {
+  it("defaults browser Live STT engine to OpenAI Realtime", () => {
     const env = { ...validEnv } as Partial<typeof validEnv>;
     delete env.LIVE_STT_ENGINE;
 
     const config = loadOrbitConfig(env as NodeJS.ProcessEnv, { service: "api" });
 
-    expect(config.LIVE_STT_ENGINE).toBe("web-speech");
+    expect(config.LIVE_STT_ENGINE).toBe("openai-realtime");
+  });
+
+  it("rejects unsupported filler transcription modes", () => {
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, FILLER_TRANSCRIPTION_MODE: "live-control" },
+        { service: "worker" }
+      )
+    ).toThrow(/FILLER_TRANSCRIPTION_MODE/);
   });
 
   it("accepts WhisperX report STT when hosted provider config exists", () => {

@@ -7,7 +7,9 @@ This directory owns browser live-control STT only.
 - OpenAI Realtime, Sherpa, Web Speech, and Moonshine implement the same port.
 - `openai-realtime` is the default browser live STT engine. It requests a
   project-scoped client secret from the Orbit API, then connects to OpenAI
-  Realtime over WebRTC with `gpt-realtime-whisper`.
+  Realtime over WebRTC with `gpt-realtime-whisper/xhigh`.
+- `web-speech` remains an explicit environment rollback path. Runtime config
+  failures never switch providers automatically.
 - CI tests use contract tests and deterministic mock harness output.
 - Real OpenAI/Sherpa/Web Speech/Moonshine model runs are local/manual because
   external provider access and large browser model assets are not available in CI.

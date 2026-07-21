@@ -3,6 +3,7 @@ import {
   aiDeckWorkerQueueSchema,
   appEnvSchema,
   defaultRehearsalAudioMaxBytes,
+  fillerTranscriptionModeSchema,
   jobQueueDriverSchema,
   liveSttProviderSchema,
   liveSttEngineSchema,
@@ -256,7 +257,7 @@ export const orbitEnvSchema = z.object({
     32
   ),
   LIVE_STT_PROVIDER: liveSttProviderSchema,
-  LIVE_STT_ENGINE: liveSttEngineSchema.default("web-speech"),
+  LIVE_STT_ENGINE: liveSttEngineSchema.default("openai-realtime"),
   REPORT_STT_PROVIDER: reportSttProviderSchema,
   REHEARSAL_AUDIO_MAX_BYTES: optionalPositiveInteger(
     "REHEARSAL_AUDIO_MAX_BYTES",
@@ -291,6 +292,13 @@ export const orbitEnvSchema = z.object({
     openAiModelDefaults.realtimeClientSecretTtlSeconds,
     10,
     7200
+  ),
+  FILLER_TRANSCRIPTION_MODE: fillerTranscriptionModeSchema.default("mini"),
+  OPENAI_FILLER_TRANSCRIPTION_MODEL: defaultedString(
+    openAiModelDefaults.fillerTranscriptionModel
+  ),
+  OPENAI_REALTIME_OOB_MODEL: defaultedString(
+    openAiModelDefaults.realtimeOobModel
   ),
   WHISPERX_API_URL: optionalUrl("WHISPERX_API_URL"),
   WHISPERX_API_KEY: optionalString,
