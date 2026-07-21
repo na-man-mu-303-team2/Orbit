@@ -88,6 +88,17 @@ class CommunityTemplateTestDatabase {
       return [{ category_id: params[0] }] as T;
     }
     if (
+      query.includes("FROM community_templates") &&
+      query.includes("source_project_id = $1") &&
+      query.includes("deleted_at IS NULL")
+    ) {
+      const sourceProjectId = String(params[0]);
+      const existing = [...this.templates.values()].find(
+        (template) => template.source_project_id === sourceProjectId,
+      );
+      return (existing ? [{ template_id: existing.template_id }] : []) as T;
+    }
+    if (
       query.includes("FROM projects") &&
       query.includes("workspace_id = $2")
     ) {
@@ -375,6 +386,8 @@ describe("CommunityTemplatesService", () => {
             projectId: "project_demo_1",
             title: "ORBIT Demo Deck",
             createdAt: "2026-07-20T00:00:00.000Z",
+            publishable: true,
+            unavailableReason: null,
           },
         ],
       },
