@@ -165,28 +165,24 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
     if (!track) return undefined;
 
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    let animationFrame = 0;
-    let previousTime = window.performance.now();
+    const moveTrack = () => {
+      if (reducedMotion.matches || track.matches(":hover") || track.contains(document.activeElement)) return;
 
-    const moveTrack = (currentTime: number) => {
-      const elapsed = Math.min(currentTime - previousTime, 50);
-      previousTime = currentTime;
+      const firstCard = track.querySelector<HTMLElement>(".workspace-community-card");
+      const maxScrollLeft = track.scrollWidth - track.clientWidth;
+      if (!firstCard || maxScrollLeft <= 1) return;
 
-      if (!reducedMotion.matches && !track.matches(":hover") && !track.contains(document.activeElement)) {
-        const maxScrollLeft = track.scrollWidth - track.clientWidth;
-        if (maxScrollLeft > 0) {
-          track.scrollLeft += elapsed * 0.025;
-          if (track.scrollLeft >= maxScrollLeft) {
-            track.scrollLeft = 0;
-          }
-        }
-      }
-
-      animationFrame = window.requestAnimationFrame(moveTrack);
+      const gap = Number.parseFloat(window.getComputedStyle(track).columnGap) || 0;
+      const step = firstCard.offsetWidth + gap;
+      const atEnd = track.scrollLeft >= maxScrollLeft - 2;
+      track.scrollTo({
+        behavior: "smooth",
+        left: atEnd ? 0 : Math.min(track.scrollLeft + step, maxScrollLeft),
+      });
     };
 
-    animationFrame = window.requestAnimationFrame(moveTrack);
-    return () => window.cancelAnimationFrame(animationFrame);
+    const interval = window.setInterval(moveTrack, 3_800);
+    return () => window.clearInterval(interval);
   }, [communityItems.length]);
   const availableTags = useMemo(() => projectTags.data?.tags ?? [], [projectTags.data]);
   const cardTagOptions = availableTags;
