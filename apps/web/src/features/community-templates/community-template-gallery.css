@@ -482,6 +482,23 @@
   box-shadow: var(--redesign-shadow-card);
 }
 
+.community-template-source-option.is-disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  filter: saturate(0.55);
+}
+
+.community-template-source-option.is-disabled:hover {
+  transform: none;
+  border-color: var(--redesign-color-outline-variant);
+  box-shadow: none;
+}
+
+.community-template-source-option.is-disabled .community-template-source-copy small {
+  color: var(--redesign-color-error);
+  white-space: normal;
+}
+
 .community-template-source-option:has(input:checked) {
   border: 2px solid var(--redesign-color-primary);
   box-shadow: 0 0 0 3px var(--redesign-color-primary-subtle);

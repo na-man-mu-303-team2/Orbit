@@ -57,13 +57,18 @@ export function CommunityTemplateSourcePicker(props: {
         <div className="community-template-source-list">
           {props.state.items.map((source) => (
             <label
-              className="community-template-source-option"
+              aria-disabled={!source.publishable}
+              className={`community-template-source-option${source.publishable ? "" : " is-disabled"}`}
               key={source.projectId}
-              title={source.title}
+              title={
+                source.publishable
+                  ? source.title
+                  : getUnavailableReason(source.unavailableReason)
+              }
             >
               <input
                 checked={props.selectedProjectId === source.projectId}
-                disabled={props.disabled}
+                disabled={props.disabled || !source.publishable}
                 name="community-template-source-project"
                 onChange={() => props.onChange(source.projectId)}
                 type="radio"
@@ -80,7 +85,11 @@ export function CommunityTemplateSourcePicker(props: {
               </span>
               <span className="community-template-source-copy">
                 <strong>{source.title}</strong>
-                <small>{formatSourceDate(source.createdAt)}</small>
+                <small>
+                  {source.publishable
+                    ? formatSourceDate(source.createdAt)
+                    : getUnavailableReason(source.unavailableReason)}
+                </small>
               </span>
               <span className="community-template-source-check" aria-hidden="true" />
             </label>
@@ -95,6 +104,23 @@ export function CommunityTemplateSourcePicker(props: {
       ) : null}
     </fieldset>
   );
+}
+
+function getUnavailableReason(
+  reason: CommunityTemplateSourceProject["unavailableReason"],
+) {
+  switch (reason) {
+    case "ALREADY_PUBLISHED":
+      return "이미 커뮤니티에 공개됨";
+    case "ACTIVITY_UNSUPPORTED":
+      return "활동 슬라이드는 공개할 수 없음";
+    case "SNAPSHOT_TOO_LARGE":
+      return "프로젝트 용량이 공개 제한을 초과함";
+    case "SOURCE_DECK_NOT_FOUND":
+      return "슬라이드 데이터를 찾을 수 없음";
+    default:
+      return "안전한 공개 형식으로 변환할 수 없음";
+  }
 }
 
 function formatSourceDate(createdAt: string) {

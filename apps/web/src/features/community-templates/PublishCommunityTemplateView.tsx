@@ -83,7 +83,7 @@ export function PublishCommunityTemplateView(
             disabled={
               props.sources.loading ||
               Boolean(props.sources.error) ||
-              props.sources.items.length === 0
+              !props.sources.items.some((source) => source.publishable)
             }
             form={formId}
             loading={props.submitting}

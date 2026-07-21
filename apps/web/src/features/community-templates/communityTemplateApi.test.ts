@@ -174,6 +174,8 @@ describe("communityTemplateApi", () => {
       projectId: "project_owner_source",
       title: "분기 리뷰 원본",
       createdAt: "2026-07-20T00:00:00.000Z",
+      publishable: true,
+      unavailableReason: null,
     };
     const fetcher = vi.fn(
       async () =>
@@ -201,6 +203,8 @@ describe("communityTemplateApi", () => {
                 projectId: "project_owner_source",
                 title: "분기 리뷰 원본",
                 createdAt: "2026-07-20T00:00:00.000Z",
+                publishable: true,
+                unavailableReason: null,
                 ownerUserId: "user_private",
                 deckSnapshot: { private: true },
               },

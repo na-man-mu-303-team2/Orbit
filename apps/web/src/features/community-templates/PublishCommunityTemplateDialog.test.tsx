@@ -8,6 +8,8 @@ const source: CommunityTemplateSourceProject = {
   projectId: "project_owner_source",
   title: "매우 긴 원본 프로젝트 제목이 레이아웃을 넘지 않고 안전하게 잘려야 합니다",
   createdAt: "2026-07-20T00:00:00.000Z",
+  publishable: true,
+  unavailableReason: null,
 };
 
 function renderView(

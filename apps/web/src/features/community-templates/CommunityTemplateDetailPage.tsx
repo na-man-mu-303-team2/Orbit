@@ -3,6 +3,8 @@ import {
   type CommunityTemplateCard,
   type CommunityTemplateComment,
   type CommunityTemplateDetail,
+  type CommunityTemplateCategory,
+  type CommunityTemplateReportReason,
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,6 +12,7 @@ import {
   IconCheck,
   IconHeart,
   IconPencil,
+  IconFlag,
   IconShare3,
   IconSparkles,
   IconTrash,
@@ -22,7 +25,11 @@ import {
   GradientButton,
   OrbitButton,
   OrbitEmptyState,
+  OrbitDialog,
+  OrbitField,
   OrbitIconButton,
+  OrbitInput,
+  OrbitSelect,
   OrbitTextarea,
 } from "../../components/ui";
 import { CommunityTemplatePreview } from "./CommunityTemplatePreview";
@@ -35,8 +42,11 @@ import {
   fetchCommunityDetail,
   recordCommunityShare,
   recordCommunityView,
+  reportCommunityTemplate,
   setCommunityLike,
+  unpublishCommunityTemplate,
   updateCommunityComment,
+  updateCommunityTemplate,
 } from "./communitySocialApi";
 import "./community-page.css";
 
@@ -53,6 +63,15 @@ export function CommunityTemplateDetailPage(props: {
   const [actionError, setActionError] = useState<string | null>(null);
   const [likeBusy, setLikeBusy] = useState(false);
   const [useBusy, setUseBusy] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [manageBusy, setManageBusy] = useState(false);
+  const [manageTitle, setManageTitle] = useState("");
+  const [manageCategory, setManageCategory] = useState<CommunityTemplateCategory>("business");
+  const [manageDescription, setManageDescription] = useState("");
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportReason, setReportReason] = useState<CommunityTemplateReportReason>("inappropriate");
+  const [reportDetails, setReportDetails] = useState("");
   const detail = useQuery({
     queryKey: ["community", "detail", props.templateId],
     queryFn: () => fetchCommunityDetail(props.templateId),
@@ -170,6 +189,75 @@ export function CommunityTemplateDetailPage(props: {
     await Promise.all([comments.refetch(), detail.refetch()]);
   }
 
+  function openManagement() {
+    if (!detail.data) return;
+    setManageTitle(detail.data.title);
+    setManageCategory(detail.data.category);
+    setManageDescription(detail.data.description);
+    setManageOpen(true);
+  }
+
+  async function saveManagement() {
+    const title = manageTitle.trim();
+    if (!title || manageBusy) return;
+    setManageBusy(true);
+    setActionError(null);
+    try {
+      const updated = await updateCommunityTemplate(props.templateId, {
+        title,
+        category: manageCategory,
+        description: manageDescription,
+      });
+      queryClient.setQueryData<CommunityTemplateDetail>(
+        ["community", "detail", props.templateId],
+        (current) => current ? {
+          ...current,
+          title: updated.title,
+          category: updated.category,
+          description: updated.description,
+        } : current,
+      );
+      await queryClient.invalidateQueries({ queryKey: ["community", "discover"] });
+      setManageOpen(false);
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : "공개 정보를 수정하지 못했습니다.");
+    } finally {
+      setManageBusy(false);
+    }
+  }
+
+  async function unpublish() {
+    if (manageBusy || !window.confirm("이 프로젝트를 커뮤니티에서 공개 취소할까요?")) return;
+    setManageBusy(true);
+    setActionError(null);
+    try {
+      await unpublishCommunityTemplate(props.templateId);
+      await queryClient.invalidateQueries({ queryKey: ["community"] });
+      props.onNavigate("/community");
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : "공개를 취소하지 못했습니다.");
+      setManageBusy(false);
+    }
+  }
+
+  async function submitReport() {
+    if (reportBusy) return;
+    setReportBusy(true);
+    setActionError(null);
+    try {
+      await reportCommunityTemplate(props.templateId, {
+        reason: reportReason,
+        details: reportDetails,
+      });
+      setReportOpen(false);
+      setReportDetails("");
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : "신고를 접수하지 못했습니다.");
+    } finally {
+      setReportBusy(false);
+    }
+  }
+
   if (detail.isLoading) return <div className="community-detail-loading" role="status"><IconSparkles size={24} />발표자료를 펼치고 있습니다.</div>;
   if (detail.isError || !detail.data) {
     return <OrbitEmptyState action={<OrbitButton onClick={() => props.onNavigate("/community")}>커뮤니티로 돌아가기</OrbitButton>} description="삭제되었거나 접근할 수 없는 자료입니다." title="발표자료를 찾을 수 없습니다." />;
@@ -183,6 +271,11 @@ export function CommunityTemplateDetailPage(props: {
           <OrbitIconButton aria-label="커뮤니티로 돌아가기" onClick={() => props.onNavigate("/community")}><IconArrowLeft size={19} /></OrbitIconButton>
           <div><h1>{template.title}</h1><p>{template.category} · 전체 {template.snapshot.slides.length}장</p></div>
           <div className="community-detail-header-actions">
+            {template.ownedByMe ? (
+              <OrbitButton icon={<IconPencil size={16} />} onClick={openManagement} variant="secondary">공개 정보 수정</OrbitButton>
+            ) : (
+              <OrbitButton icon={<IconFlag size={16} />} onClick={() => setReportOpen(true)} variant="secondary">신고</OrbitButton>
+            )}
             <OrbitButton icon={<IconShare3 size={16} />} onClick={() => void shareTemplate()} variant="secondary">공유하기</OrbitButton>
             <OrbitButton icon={<IconHeart size={16} />} loading={likeBusy} onClick={() => void toggleLike()} variant={template.likedByMe ? "primary" : "secondary"}>{compactCount(template.stats.likeCount)} 좋아요</OrbitButton>
           </div>
@@ -237,6 +330,37 @@ export function CommunityTemplateDetailPage(props: {
 
       {actionError ? <div className="community-detail-error" role="alert">{actionError}</div> : null}
       <button className={`community-detail-floating-like${template.likedByMe ? " is-active" : ""}`} disabled={likeBusy} onClick={() => void toggleLike()} type="button"><IconHeart size={19} />{template.likedByMe ? "좋아요 취소" : "좋아요 누르기"}</button>
+
+      <OrbitDialog
+        className="community-detail-management-dialog"
+        closeDisabled={manageBusy}
+        description="커뮤니티에 표시되는 제목과 소개를 관리합니다. 슬라이드 원본은 변경되지 않습니다."
+        footer={<><OrbitButton disabled={manageBusy} onClick={() => void unpublish()} variant="secondary">공개 취소</OrbitButton><OrbitButton disabled={!manageTitle.trim()} loading={manageBusy} onClick={() => void saveManagement()}>저장</OrbitButton></>}
+        onClose={() => setManageOpen(false)}
+        open={manageOpen}
+        title="공개 정보 수정"
+      >
+        <div className="community-detail-dialog-fields">
+          <OrbitField id="community-manage-title" label="제목"><OrbitInput maxLength={60} onChange={(event) => setManageTitle(event.currentTarget.value)} value={manageTitle} /></OrbitField>
+          <OrbitField id="community-manage-category" label="카테고리"><OrbitSelect onChange={(event) => setManageCategory(event.currentTarget.value as CommunityTemplateCategory)} value={manageCategory}><option value="business">비즈니스</option><option value="education">교육</option><option value="portfolio">포트폴리오</option><option value="event">이벤트</option></OrbitSelect></OrbitField>
+          <OrbitField hint={`${manageDescription.length} / 300`} id="community-manage-description" label="짧은 소개글"><OrbitTextarea maxLength={300} onChange={(event) => setManageDescription(event.currentTarget.value)} rows={4} value={manageDescription} /></OrbitField>
+        </div>
+      </OrbitDialog>
+
+      <OrbitDialog
+        className="community-detail-report-dialog"
+        closeDisabled={reportBusy}
+        description="운영 정책을 위반하거나 권리를 침해한 자료를 알려주세요. 신고 내용은 작성자에게 공개되지 않습니다."
+        footer={<><OrbitButton disabled={reportBusy} onClick={() => setReportOpen(false)} variant="secondary">취소</OrbitButton><OrbitButton loading={reportBusy} onClick={() => void submitReport()}>신고 접수</OrbitButton></>}
+        onClose={() => setReportOpen(false)}
+        open={reportOpen}
+        title="커뮤니티 자료 신고"
+      >
+        <div className="community-detail-dialog-fields">
+          <OrbitField id="community-report-reason" label="신고 사유"><OrbitSelect onChange={(event) => setReportReason(event.currentTarget.value as CommunityTemplateReportReason)} value={reportReason}><option value="copyright">저작권 침해</option><option value="spam">스팸 또는 홍보</option><option value="harassment">괴롭힘 또는 혐오</option><option value="inappropriate">부적절한 콘텐츠</option><option value="other">기타</option></OrbitSelect></OrbitField>
+          <OrbitField hint={`${reportDetails.length} / 500`} id="community-report-details" label="상세 내용"><OrbitTextarea maxLength={500} onChange={(event) => setReportDetails(event.currentTarget.value)} placeholder="운영자가 확인할 수 있도록 문제를 간단히 설명해 주세요." rows={5} value={reportDetails} /></OrbitField>
+        </div>
+      </OrbitDialog>
     </main>
   );
 }

@@ -121,6 +121,7 @@ export async function publishCommunityTemplate(
     sourceProjectId: string;
     title: string;
     category: string;
+    description?: string;
     rightsConfirmed: boolean;
   },
   fetcher: CommunityTemplateFetcher = fetch,
@@ -130,6 +131,7 @@ export async function publishCommunityTemplate(
     sourceProjectId: rawInput.sourceProjectId,
     title: rawInput.title,
     category: rawInput.category,
+    description: rawInput.description,
     rightsConfirmed: rawInput.rightsConfirmed,
   });
   const response = await fetcher(

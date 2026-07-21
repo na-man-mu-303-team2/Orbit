@@ -4,8 +4,15 @@ import {
   communityTemplateDetailSchema,
   communityTemplateDiscoverResponseSchema,
   communityTemplateEngagementResponseSchema,
+  createCommunityTemplateReportRequestSchema,
+  createCommunityTemplateReportResponseSchema,
+  unpublishCommunityTemplateResponseSchema,
+  updateCommunityTemplateRequestSchema,
+  updateCommunityTemplateResponseSchema,
   type CommunityTemplateCommentListQuery,
   type CommunityTemplateDiscoverQuery,
+  type CreateCommunityTemplateReportRequest,
+  type UpdateCommunityTemplateRequest,
 } from "@orbit/shared";
 
 const basePath = "/api/v1/community-templates";
@@ -99,6 +106,40 @@ export async function deleteCommunityComment(
   await request(
     `${basePath}/${encodeURIComponent(templateId)}/comments/${encodeURIComponent(commentId)}`,
     { method: "DELETE" },
+  );
+}
+
+export async function updateCommunityTemplate(
+  templateId: string,
+  input: UpdateCommunityTemplateRequest,
+) {
+  const body = updateCommunityTemplateRequestSchema.parse(input);
+  return updateCommunityTemplateResponseSchema.parse(
+    await request(`${basePath}/${encodeURIComponent(templateId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+export async function unpublishCommunityTemplate(templateId: string) {
+  return unpublishCommunityTemplateResponseSchema.parse(
+    await request(`${basePath}/${encodeURIComponent(templateId)}`, {
+      method: "DELETE",
+    }),
+  );
+}
+
+export async function reportCommunityTemplate(
+  templateId: string,
+  input: CreateCommunityTemplateReportRequest,
+) {
+  const body = createCommunityTemplateReportRequestSchema.parse(input);
+  return createCommunityTemplateReportResponseSchema.parse(
+    await request(`${basePath}/${encodeURIComponent(templateId)}/reports`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   );
 }
 
