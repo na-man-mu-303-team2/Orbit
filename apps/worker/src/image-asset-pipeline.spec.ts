@@ -640,6 +640,63 @@ describe("image asset pipeline", () => {
       )
     ).toBe(true);
   });
+
+  it("treats zero deck and daily limits as unlimited", async () => {
+    const generate = vi.fn<GeneratedImageProvider["generate"]>(async () => ({
+      body: pngHeader(1280, 720),
+      mimeType: "image/png",
+      fileName: "generated.png",
+      provider: "openai"
+    }));
+    const query = vi.fn(async (sql: string) =>
+      sql.includes("count(*) FILTER") ? [{ user_count: "999" }] : []
+    );
+    const putObject = vi.fn(async () => ({
+      key: "key",
+      url: "url",
+      contentType: "image/png",
+      purpose: "design-asset" as const,
+      size: 24
+    }));
+    const first = imageDeck("ai-generated");
+    const second = {
+      ...first.slides[0],
+      slideId: "slide_2",
+      order: 2,
+      aiNotes: {
+        ...first.slides[0].aiNotes,
+        compositionPlan: first.slides[0].aiNotes?.compositionPlan
+          ? {
+              ...first.slides[0].aiNotes.compositionPlan,
+              primaryFocalElementId: "el_2_media_placeholder"
+            }
+          : undefined
+      },
+      elements: first.slides[0].elements.map((element) => ({
+        ...element,
+        elementId: element.elementId.replace("el_", "el_2_")
+      }))
+    };
+    const candidate = deckSchema.parse({
+      ...first,
+      slides: [first.slides[0], second]
+    });
+
+    const result = await resolveDeckImageAssets(
+      { query } as unknown as DataSource,
+      { putObject } as Pick<StoragePort, "putObject">,
+      candidate,
+      {
+        generated: { generate },
+        maxPerDeck: 0,
+        maxPerUserPerDay: 0
+      },
+      { userId: "user_1" }
+    );
+
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.warnings).toEqual([]);
+  });
 });
 
 function imageDeck(
