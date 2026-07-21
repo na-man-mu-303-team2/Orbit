@@ -78,6 +78,9 @@
   gap: var(--redesign-space-2);
 }
 
+.community-gallery-sort-block { display: grid; gap: var(--redesign-space-2); }
+.community-gallery-sort-help { margin: 0; color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-label-xs-size); }
+
 .community-gallery-filter-label {
   padding-left: var(--redesign-space-4);
   border-left: 1px solid var(--redesign-color-outline-variant);
@@ -204,6 +207,10 @@
   color: var(--redesign-color-on-primary-container);
   font-weight: 750;
 }
+
+.community-gallery-card-author img,
+.community-detail-author img,
+.community-comment-avatar img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
 
 .community-gallery-card-stats {
   display: flex;

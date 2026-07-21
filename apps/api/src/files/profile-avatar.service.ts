@@ -66,6 +66,25 @@ export class ProfileAvatarService {
     const stored = await this.storage.getObjectStream(avatar.storage_key);
     return { ...stored, contentType: avatar.mime_type };
   }
+
+  async openCommunityAvatar(userId: string) {
+    const rows = await this.dataSource.query<AvatarRow[]>(
+      `
+        SELECT uploads.storage_key, uploads.mime_type
+        FROM users
+        INNER JOIN user_avatar_uploads uploads
+          ON uploads.file_id = users.avatar_id
+          AND uploads.user_id = users.user_id
+        WHERE users.user_id = $1
+          AND users.avatar_type = 'uploaded'
+      `,
+      [userId],
+    );
+    const avatar = rows[0];
+    if (!avatar) throw new NotFoundException("Profile image not found.");
+    const stored = await this.storage.getObjectStream(avatar.storage_key);
+    return { ...stored, contentType: avatar.mime_type };
+  }
 }
 
 function fileExtension(mimeType: string): "jpg" | "png" | "webp" {

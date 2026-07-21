@@ -83,6 +83,20 @@ export class ProfileAvatarController {
     return new StreamableFile(avatar.body);
   }
 
+  @Get("users/:userId")
+  async readCommunityAvatar(
+    @Param("userId") userId: string,
+    @Req() request: SignedCookieRequest,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    await this.getCurrentUser(request);
+    const avatar = await this.profileAvatarService.openCommunityAvatar(userId);
+    response.setHeader("cache-control", "private, max-age=300");
+    response.setHeader("content-type", avatar.contentType);
+    response.setHeader("content-length", String(avatar.contentLength));
+    return new StreamableFile(avatar.body);
+  }
+
   private async getCurrentUser(request: SignedCookieRequest): Promise<{ sessionId: string; user: AuthUser }> {
     const sessionId = getSignedSessionId(request);
     if (!sessionId) throw new UnauthorizedException("Authentication required");

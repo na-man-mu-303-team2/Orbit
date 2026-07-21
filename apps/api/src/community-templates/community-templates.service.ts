@@ -104,6 +104,8 @@ type CommunityDiscoverRow = PublicTemplateRow & {
   snapshot_json?: unknown;
   owner_user_id: string;
   display_name: string;
+  avatar_type: "official" | "uploaded" | null;
+  avatar_id: string | null;
   like_count: number;
   view_count: number;
   share_count: number;
@@ -117,6 +119,8 @@ type CommunityCommentRow = {
   template_id: string;
   author_user_id: string;
   display_name: string;
+  avatar_type: "official" | "uploaded" | null;
+  avatar_id: string | null;
   body: string;
   created_at: Date | string;
   updated_at: Date | string;
@@ -126,6 +130,8 @@ type CommunityReportRow = PublicTemplateRow & {
   report_id: string;
   reporter_user_id: string;
   reporter_display_name: string;
+  reporter_avatar_type: "official" | "uploaded" | null;
+  reporter_avatar_id: string | null;
   reason: CreateCommunityTemplateReportRequest["reason"];
   details: string;
   status: UpdateCommunityTemplateReportRequest["status"];
@@ -489,6 +495,8 @@ export class CommunityTemplatesService {
             templates.created_at,
             templates.owner_user_id,
             users.display_name,
+            users.avatar_type,
+            users.avatar_id,
             (SELECT COUNT(*)::int FROM community_template_likes likes WHERE likes.template_id = templates.template_id) AS like_count,
             (SELECT COUNT(*)::int FROM community_template_views views WHERE views.template_id = templates.template_id) AS view_count,
             (SELECT COUNT(*)::int FROM community_template_shares shares WHERE shares.template_id = templates.template_id) AS share_count,
@@ -536,6 +544,8 @@ export class CommunityTemplatesService {
           templates.created_at,
           templates.owner_user_id,
           users.display_name,
+          users.avatar_type,
+          users.avatar_id,
           (SELECT COUNT(*)::int FROM community_template_likes likes WHERE likes.template_id = templates.template_id) AS like_count,
           (SELECT COUNT(*)::int FROM community_template_views views WHERE views.template_id = templates.template_id) AS view_count,
           (SELECT COUNT(*)::int FROM community_template_shares shares WHERE shares.template_id = templates.template_id) AS share_count,
@@ -587,7 +597,7 @@ export class CommunityTemplatesService {
         SELECT
           templates.template_id, templates.title, templates.category,
           templates.description, templates.preview_json, templates.created_at,
-          templates.owner_user_id, users.display_name,
+          templates.owner_user_id, users.display_name, users.avatar_type, users.avatar_id,
           (SELECT COUNT(*)::int FROM community_template_likes WHERE template_id = templates.template_id) AS like_count,
           (SELECT COUNT(*)::int FROM community_template_views WHERE template_id = templates.template_id) AS view_count,
           (SELECT COUNT(*)::int FROM community_template_shares WHERE template_id = templates.template_id) AS share_count,
@@ -799,7 +809,7 @@ export class CommunityTemplatesService {
     await this.assertCommunityTemplateExists(templateId);
     const rows = await this.dataSource.query<CommunityCommentRow[]>(
       `
-        SELECT comments.*, users.display_name
+        SELECT comments.*, users.display_name, users.avatar_type, users.avatar_id
         FROM community_template_comments comments
         INNER JOIN users ON users.user_id = comments.author_user_id
         WHERE comments.template_id = $1
@@ -829,7 +839,7 @@ export class CommunityTemplatesService {
           VALUES ($1, $2, $3, $4)
           RETURNING *
         )
-        SELECT inserted.*, users.display_name
+        SELECT inserted.*, users.display_name, users.avatar_type, users.avatar_id
         FROM inserted INNER JOIN users ON users.user_id = inserted.author_user_id
       `,
       [commentId, templateId, userId, input.body],
@@ -857,7 +867,7 @@ export class CommunityTemplatesService {
           WHERE comment_id = $1 AND template_id = $2 AND author_user_id = $3
           RETURNING *
         )
-        SELECT updated.*, users.display_name
+        SELECT updated.*, users.display_name, users.avatar_type, users.avatar_id
         FROM updated INNER JOIN users ON users.user_id = updated.author_user_id
       `,
       [commentId, templateId, userId, input.body],
@@ -1074,7 +1084,11 @@ export class CommunityTemplatesService {
       author: {
         userId: row.owner_user_id,
         displayName: row.display_name,
-        avatarUrl: null,
+        avatarUrl: communityAvatarUrl(
+          row.owner_user_id,
+          row.avatar_type,
+          row.avatar_id,
+        ),
       },
       stats: {
         likeCount: Number(row.like_count),
@@ -1095,7 +1109,11 @@ export class CommunityTemplatesService {
       author: {
         userId: row.author_user_id,
         displayName: row.display_name,
-        avatarUrl: null,
+        avatarUrl: communityAvatarUrl(
+          row.author_user_id,
+          row.avatar_type,
+          row.avatar_id,
+        ),
       },
       ownedByMe: row.author_user_id === userId,
       createdAt: toIso(row.created_at),
@@ -1192,6 +1210,8 @@ export class CommunityTemplatesService {
         reports.resolution_note, reports.created_at AS report_created_at,
         reports.updated_at AS report_updated_at,
         reports.reporter_user_id, reporters.display_name AS reporter_display_name,
+        reporters.avatar_type AS reporter_avatar_type,
+        reporters.avatar_id AS reporter_avatar_id,
         templates.template_id, templates.title, templates.category,
         templates.preview_json, templates.created_at
       FROM community_template_reports reports
@@ -1216,7 +1236,11 @@ export class CommunityTemplatesService {
       reporter: {
         userId: row.reporter_user_id,
         displayName: row.reporter_display_name,
-        avatarUrl: null,
+        avatarUrl: communityAvatarUrl(
+          row.reporter_user_id,
+          row.reporter_avatar_type,
+          row.reporter_avatar_id,
+        ),
       },
       reason: row.reason,
       details: row.details,
@@ -1316,4 +1340,18 @@ function isUniqueViolation(error: unknown) {
     "code" in error &&
     error.code === "23505"
   );
+}
+
+function communityAvatarUrl(
+  userId: string,
+  avatarType: "official" | "uploaded" | null,
+  avatarId: string | null,
+) {
+  if (avatarType === "official" && avatarId) {
+    return `/avatars/${encodeURIComponent(avatarId)}.png`;
+  }
+  if (avatarType === "uploaded" && avatarId) {
+    return `/api/v1/auth/avatar/users/${encodeURIComponent(userId)}`;
+  }
+  return null;
 }

@@ -37,10 +37,26 @@ const categoryOptions: Array<{
   { label: "이벤트", value: "event" },
 ];
 
-const sortOptions: Array<{ label: string; value: CommunityTemplateSort }> = [
-  { label: "인기순", value: "popular" },
-  { label: "최신순", value: "latest" },
-  { label: "추천 자료", value: "recommended" },
+const sortOptions: Array<{
+  description: string;
+  label: string;
+  value: CommunityTemplateSort;
+}> = [
+  {
+    label: "인기순",
+    value: "popular",
+    description: "좋아요·댓글·사용·공유·조회 반응을 가중 합산한 순서",
+  },
+  {
+    label: "최신순",
+    value: "latest",
+    description: "커뮤니티에 공개된 시각이 최신인 순서",
+  },
+  {
+    label: "추천 자료",
+    value: "recommended",
+    description: "인기 점수에 시간 감쇠를 적용해 최근 반응도 함께 반영한 순서",
+  },
 ];
 
 export function CommunityGalleryPage(props: {
@@ -72,6 +88,7 @@ export function CommunityGalleryPage(props: {
     () => templates.data?.pages.flatMap((page) => page.items) ?? [],
     [templates.data],
   );
+  const activeSort = sortOptions.find((option) => option.value === sort)!;
 
   return (
     <main className="community-page">
@@ -79,8 +96,8 @@ export function CommunityGalleryPage(props: {
         <header className="community-page-hero-heading">
           <div>
             <span className="redesign-eyebrow">ORBIT COMMUNITY</span>
-            <h1>디자이너들의 인사이트가 담긴 발표 자료</h1>
-            <p>다른 사용자가 공개한 프로젝트를 둘러보고, 마음에 드는 구성을 내 발표에 활용해 보세요.</p>
+            <h1>좋은 발표의 흐름을 발견하세요</h1>
+            <p>다른 사용자가 공개한 발표 프로젝트를 둘러보고, 마음에 드는 구성은 내 발표로 가져와 연습까지 이어가세요.</p>
           </div>
           <GradientButton className="community-page-publish" onClick={() => setPublishOpen(true)}>
             <IconUpload aria-hidden="true" size={17} />
@@ -100,19 +117,24 @@ export function CommunityGalleryPage(props: {
 
       <WorkspaceContainer as="section" className="community-gallery" width="content">
         <div className="community-gallery-toolbar">
-          <div aria-label="커뮤니티 정렬" className="community-gallery-sort" role="tablist">
-            {sortOptions.map((option) => (
-              <button
-                aria-selected={sort === option.value}
-                className={sort === option.value ? "is-active" : ""}
-                key={option.value}
-                onClick={() => setSort(option.value)}
-                role="tab"
-                type="button"
-              >
-                {option.label}
-              </button>
-            ))}
+          <div className="community-gallery-sort-block">
+            <div aria-label="커뮤니티 정렬" className="community-gallery-sort" role="tablist">
+              {sortOptions.map((option) => (
+                <button
+                  aria-label={`${option.label}: ${option.description}`}
+                  aria-selected={sort === option.value}
+                  className={sort === option.value ? "is-active" : ""}
+                  key={option.value}
+                  onClick={() => setSort(option.value)}
+                  role="tab"
+                  title={option.description}
+                  type="button"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <p className="community-gallery-sort-help">{activeSort.description}</p>
           </div>
           <span className="community-gallery-filter-label">발표 주제</span>
           <div aria-label="커뮤니티 카테고리" className="community-gallery-categories">
@@ -191,7 +213,11 @@ function CommunityGalleryCard(props: {
       <button className="community-gallery-card-copy" onClick={props.onOpen} type="button">
         <strong>{props.card.title}</strong>
         <span className="community-gallery-card-author">
-          <span aria-hidden="true">{props.card.author.displayName.slice(0, 1)}</span>
+          <span aria-hidden="true">
+            {props.card.author.avatarUrl ? (
+              <img alt="" src={props.card.author.avatarUrl} />
+            ) : props.card.author.displayName.slice(0, 1)}
+          </span>
           {props.card.author.displayName}
         </span>
         <span className="community-gallery-card-stats">

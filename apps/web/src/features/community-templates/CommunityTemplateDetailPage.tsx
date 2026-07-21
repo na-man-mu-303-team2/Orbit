@@ -294,7 +294,7 @@ export function CommunityTemplateDetailPage(props: {
 
         <aside className="community-detail-sidebar">
           <section className="community-detail-creator">
-            <div className="community-detail-author"><span>{template.author.displayName.slice(0, 1)}</span><div><strong>{template.author.displayName}</strong><small>ORBIT Creator</small></div></div>
+            <div className="community-detail-author"><span>{template.author.avatarUrl ? <img alt="" src={template.author.avatarUrl} /> : template.author.displayName.slice(0, 1)}</span><div><strong>{template.author.displayName}</strong><small>ORBIT Creator</small></div></div>
             <div className="community-detail-description"><strong>제작자 한마디</strong><p>{template.description || "발표의 흐름과 시각적 완성도를 함께 고려한 템플릿입니다. 내 콘텐츠에 맞게 자유롭게 활용해 보세요."}</p></div>
             <dl className="community-detail-stats">
               <div><dt>좋아요</dt><dd>{compactCount(template.stats.likeCount)}</dd></div>
@@ -311,7 +311,7 @@ export function CommunityTemplateDetailPage(props: {
             <div className="community-comment-submit"><small>{comment.length} / 500</small><OrbitButton disabled={!comment.trim()} loading={submittingComment} onClick={() => void submitComment()}>등록</OrbitButton></div>
             {comments.data?.items.map((item) => (
               <article className="community-comment" key={item.commentId}>
-                <span className="community-comment-avatar">{item.author.displayName.slice(0, 1)}</span>
+                <span className="community-comment-avatar">{item.author.avatarUrl ? <img alt="" src={item.author.avatarUrl} /> : item.author.displayName.slice(0, 1)}</span>
                 <div>
                   <header><strong>{item.author.displayName}</strong><time>{formatRelativeDate(item.createdAt)}</time></header>
                   {editingId === item.commentId ? (
