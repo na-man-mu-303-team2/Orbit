@@ -24,6 +24,7 @@ export * from "./coaching/p0-core-contract.fixtures";
 export * from "./coaching/presenter-aid.schema";
 export * from "./coaching/rehearsal-analyze.schema";
 export * from "./coaching/rehearsal-focus-profile.schema";
+export * from "./coaching/korean-filler-classifier";
 export * from "./coaching/speech-evidence.schema";
 export * from "./auth/auth.schema";
 export * from "./config/runtime-config.schema";

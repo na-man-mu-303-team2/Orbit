@@ -285,6 +285,135 @@ export const rehearsalReportFillerWordDetailSchema = z
   })
   .strict();
 
+export const rehearsalFillerOccurrenceSchema = z
+  .object({
+    utteranceId: z.string().trim().min(1).max(128),
+    surface: z.string().min(1),
+    normalized: z.string().min(1),
+    category: z.enum([
+      "vocalized-pause",
+      "hesitation",
+      "discourse-marker",
+    ]),
+    charStart: z.number().int().nonnegative(),
+    charEnd: z.number().int().positive(),
+    offsetScope: z.literal("utterance"),
+    evidenceKinds: z
+      .array(
+        z.enum([
+          "standalone-token",
+          "pause-boundary",
+          "punctuation-isolation",
+          "repetition-or-restart",
+          "not-in-script",
+        ]),
+      )
+      .min(1),
+    slideId: deckSlideIdSchema.nullable(),
+  })
+  .strict()
+  .refine((occurrence) => occurrence.charEnd > occurrence.charStart, {
+    message: "filler occurrence end must be greater than start.",
+    path: ["charEnd"],
+  });
+
+export const rehearsalDisfluencyOccurrenceSchema = z
+  .object({
+    utteranceId: z.string().trim().min(1).max(128),
+    surface: z.string().min(1),
+    normalized: z.string().min(1),
+    kind: z.enum(["repetition", "stutter", "restart"]),
+    charStart: z.number().int().nonnegative(),
+    charEnd: z.number().int().positive(),
+    offsetScope: z.literal("utterance"),
+    slideId: deckSlideIdSchema.nullable(),
+  })
+  .strict()
+  .refine((occurrence) => occurrence.charEnd > occurrence.charStart, {
+    message: "disfluency occurrence end must be greater than start.",
+    path: ["charEnd"],
+  });
+
+export const legacyVerbatimCoachingSource = {
+  mode: "legacy" as const,
+  state: "completed" as const,
+  model: "legacy-report-stt",
+  promptVersion: null,
+  classifierVersion: "legacy-filler-policy-v1",
+  completedUtterances: 0,
+  totalUtterances: 0,
+};
+
+export const verbatimCoachingSourceSchema = z
+  .object({
+    mode: z.enum(["mini", "realtime-oob", "legacy"]),
+    state: z.enum(["completed", "degraded", "unavailable"]),
+    model: z.string().trim().min(1),
+    promptVersion: z.string().trim().min(1).nullable(),
+    classifierVersion: z.string().trim().min(1),
+    completedUtterances: z.number().int().nonnegative(),
+    totalUtterances: z.number().int().nonnegative(),
+  })
+  .strict()
+  .superRefine((source, context) => {
+    if (source.completedUtterances > source.totalUtterances) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "completed utterances cannot exceed total utterances.",
+        path: ["completedUtterances"],
+      });
+    }
+    if (source.mode === "legacy" && source.promptVersion !== null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "legacy coaching source cannot have a prompt version.",
+        path: ["promptVersion"],
+      });
+    }
+    if (source.mode !== "legacy" && source.promptVersion === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "verbatim coaching source requires a prompt version.",
+        path: ["promptVersion"],
+      });
+    }
+    if (
+      source.mode !== "legacy" &&
+      source.state === "completed" &&
+      (source.totalUtterances === 0 ||
+        source.completedUtterances !== source.totalUtterances)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "completed source requires every utterance to complete.",
+        path: ["state"],
+      });
+    }
+    if (
+      source.mode !== "legacy" &&
+      source.state === "degraded" &&
+      (source.completedUtterances === 0 ||
+        source.completedUtterances >= source.totalUtterances)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "degraded source requires a partial utterance result.",
+        path: ["state"],
+      });
+    }
+    if (
+      source.mode !== "legacy" &&
+      source.state === "unavailable" &&
+      source.completedUtterances !== 0
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "unavailable source cannot include completed utterances.",
+        path: ["completedUtterances"],
+      });
+    }
+  });
+
 export const rehearsalReportMissedKeywordSchema = z
   .object({
     slideId: deckSlideIdSchema,
@@ -630,6 +759,11 @@ const rehearsalReportObjectSchema = z
     fillerWordDetails: z
       .array(rehearsalReportFillerWordDetailSchema)
       .default([]),
+    fillerOccurrences: z.array(rehearsalFillerOccurrenceSchema).optional(),
+    disfluencyOccurrences: z
+      .array(rehearsalDisfluencyOccurrenceSchema)
+      .optional(),
+    verbatimCoachingSource: verbatimCoachingSourceSchema.optional(),
     missedKeywords: z.array(rehearsalReportMissedKeywordSchema).default([]),
     utteranceOutcomes: z.array(rehearsalUtteranceOutcomeSchema).default([]),
     semanticCueDecisions: z
@@ -787,6 +921,9 @@ function normalizeLegacyRehearsalReport(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
 
   const report = { ...(value as Record<string, unknown>) };
+  report.fillerOccurrences ??= [];
+  report.disfluencyOccurrences ??= [];
+  report.verbatimCoachingSource ??= legacyVerbatimCoachingSource;
   delete report.pauseDetails;
   delete report.pauseV2Details;
   report.silenceAnalysis ??= legacyRehearsalSilenceAnalysis;
@@ -1649,6 +1786,13 @@ export type RehearsalReportSlideTiming = z.infer<
 >;
 export type RehearsalReportQnaSummary = z.infer<
   typeof rehearsalReportQnaSummarySchema
+>;
+export type FillerOccurrence = z.infer<typeof rehearsalFillerOccurrenceSchema>;
+export type DisfluencyOccurrence = z.infer<
+  typeof rehearsalDisfluencyOccurrenceSchema
+>;
+export type VerbatimCoachingSource = z.infer<
+  typeof verbatimCoachingSourceSchema
 >;
 export type RehearsalReport = z.infer<typeof rehearsalReportSchema>;
 export type RehearsalSemanticCueDecision = z.infer<

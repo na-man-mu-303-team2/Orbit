@@ -1372,6 +1372,21 @@ word-level segment는 보관하지 않는다. 두 `project_assets` row와
 습관어 측정은 `unavailable`이다. 말하기 속도, 키워드 포함률, 침묵, 의미 평가는 기존
 서버 STT와 오디오 분석 결과를 유지한다.
 
+기본 `mini` 경로는 발화 clip마다 `language=ko`, `response_format=json`,
+`gpt-4o-mini-transcribe`를 사용한다. 동시성은 2, 발화 timeout은 30초이며 429/5xx와
+timeout/network 오류는 한 번만 재시도한다. prompt는 코드 상수
+`korean-filler-verbatim-v1`로 versioning하고 문법 교정 금지, `음/어/으/아`, 반복,
+말더듬, 문장 재시작 보존, 들리지 않은 표현 추측 금지를 포함한다. 모델 응답에서는
+count를 읽지 않고 text만 사용한다.
+
+Worker는 축어 text를 `korean-filler-classifier-v2`로 분류한다. report의 기존
+`metrics.fillerWordCount`와 `fillerWordDetails[]`는 confirmed occurrence에서 파생하고,
+additive `fillerOccurrences[]`, `disfluencyOccurrences[]`,
+`verbatimCoachingSource`를 제공한다. `verbatimCoachingSource`는 `mode`, `state`, `model`,
+`promptVersion`, `classifierVersion`, `completedUtterances`, `totalUtterances`를 포함한다.
+일부 발화만 성공하면 `degraded`, 모두 실패하거나 축어 원천이 없으면 `unavailable`다.
+legacy report는 `mode=legacy`, `promptVersion=null`로 정규화한다.
+
 리허설 소유자는 `GET /api/v1/rehearsals/:runId/downloads/transcript`와
 `GET /api/v1/rehearsals/:runId/downloads/audio`를 통해 각각 보존된
 `transcript.txt`와 원본 `rehearsal.webm`을 attachment로 내려받을 수 있다. 두 API는

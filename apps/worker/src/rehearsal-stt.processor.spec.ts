@@ -406,6 +406,59 @@ describe("processRehearsalSttJob", () => {
       undefined,
       silenceEvents,
       speakingRateEvents,
+      undefined,
+      {
+        mode: "mini",
+        apiKey: "test-key",
+        miniModel: "gpt-4o-mini-transcribe",
+        createEvidence: vi.fn(async () => ({
+          source: {
+            mode: "mini" as const,
+            state: "completed" as const,
+            model: "gpt-4o-mini-transcribe",
+            promptVersion: "korean-filler-verbatim-v1",
+            classifierVersion: "korean-filler-classifier-v2",
+            completedUtterances: 1,
+            totalUtterances: 1,
+          },
+          fillerOccurrences: [
+            {
+              utteranceId: "utterance-1",
+              surface: "어",
+              normalized: "어",
+              category: "vocalized-pause" as const,
+              charStart: 0,
+              charEnd: 1,
+              offsetScope: "utterance" as const,
+              evidenceKinds: ["standalone-token" as const],
+              slideId: "slide_1",
+            },
+            {
+              utteranceId: "utterance-1",
+              surface: "어",
+              normalized: "어",
+              category: "vocalized-pause" as const,
+              charStart: 2,
+              charEnd: 3,
+              offsetScope: "utterance" as const,
+              evidenceKinds: ["standalone-token" as const],
+              slideId: "slide_1",
+            },
+          ],
+          disfluencyOccurrences: [],
+          fillerWordCount: 2,
+          fillerWordDetails: [{ word: "어", count: 2 }],
+          slideFillers: new Map([
+            [
+              "slide_1",
+              {
+                fillerWordCount: 2,
+                fillerWordDetails: [{ word: "어", count: 2 }],
+              },
+            ],
+          ]),
+        })),
+      },
     );
 
     expect(job.status).toBe("succeeded");
@@ -500,7 +553,14 @@ describe("processRehearsalSttJob", () => {
                 "다음 연습에서는 도입부 핵심 문장을 고정하세요.",
               ],
             },
-            fillerWordDetails: [{ word: "음", count: 1 }],
+            fillerWordDetails: [{ word: "어", count: 2 }],
+            verbatimCoachingSource: expect.objectContaining({
+              mode: "mini",
+              state: "completed",
+            }),
+            fillerOccurrences: expect.arrayContaining([
+              expect.objectContaining({ normalized: "어" }),
+            ]),
             silenceAnalysis: silenceAnalysisFixture,
             semanticCueDecisions: [
               expect.objectContaining({
@@ -1612,6 +1672,10 @@ function createQueryMock() {
 
 function createStorage() {
   return {
+    getObject: vi.fn(async () => ({
+      body: new Uint8Array([1, 2, 3]),
+      contentType: "audio/webm",
+    })),
     getSignedReadUrl: vi.fn(async () => "http://localhost:9000/rehearsal.webm"),
     headObject: vi.fn(async () => null),
     putObject: vi.fn(async (value) => ({
@@ -1625,7 +1689,11 @@ function createStorage() {
     removeObject: vi.fn(async () => undefined),
   } as unknown as Pick<
     StoragePort,
-    "getSignedReadUrl" | "headObject" | "putObject" | "removeObject"
+    | "getObject"
+    | "getSignedReadUrl"
+    | "headObject"
+    | "putObject"
+    | "removeObject"
   >;
 }
 

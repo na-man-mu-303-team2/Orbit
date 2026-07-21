@@ -318,6 +318,23 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
               const level = event.event.endsWith(".failed") ? "error" : "info";
               this.logger[level](event, "Rehearsal transcript artifacts updated.");
             },
+            {
+              mode: this.config.FILLER_TRANSCRIPTION_MODE,
+              apiKey: this.config.OPENAI_API_KEY,
+              miniModel: this.config.OPENAI_FILLER_TRANSCRIPTION_MODEL,
+              onEvent: (event) => {
+                const level = event.status === "degraded" ? "warn" : "info";
+                this.logger[level](
+                  {
+                    ...event,
+                    projectId: job.data.projectId,
+                    runId: job.data.runId,
+                    jobId: job.data.jobId,
+                  },
+                  "Rehearsal filler verbatim transcription updated.",
+                );
+              },
+            },
           ),
       },
       {

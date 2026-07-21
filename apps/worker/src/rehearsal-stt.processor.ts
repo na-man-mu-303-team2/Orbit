@@ -35,6 +35,11 @@ import {
   loadPracticeGoalRankingContext,
   publishPracticeGoalSet,
 } from "./practice-goal-derivation";
+import {
+  createRehearsalVerbatimCoachingEvidence,
+  type RehearsalVerbatimCoachingEvidence,
+  type RehearsalVerbatimRuntimeOptions,
+} from "./rehearsal-verbatim-coaching";
 
 const rehearsalSttPayloadSchema = z.object({
   jobId: z.string().min(1),
@@ -258,11 +263,18 @@ export type RehearsalTranscriptArtifactBusinessEvent = {
   artifactCount: 2;
   errorCode?: "REHEARSAL_TRANSCRIPT_STORAGE_FAILED";
 };
+type RehearsalVerbatimProcessorRuntime = RehearsalVerbatimRuntimeOptions & {
+  createEvidence?: typeof createRehearsalVerbatimCoachingEvidence;
+};
 export async function processRehearsalSttJob(
   dataSource: DataSource,
   storage: Pick<
     StoragePort,
-    "getSignedReadUrl" | "headObject" | "putObject" | "removeObject"
+    | "getObject"
+    | "getSignedReadUrl"
+    | "headObject"
+    | "putObject"
+    | "removeObject"
   >,
   pythonWorkerUrl: string,
   rawPayload: unknown,
@@ -279,6 +291,7 @@ export async function processRehearsalSttJob(
   onTranscriptArtifactEvent?: (
     event: RehearsalTranscriptArtifactBusinessEvent,
   ) => void,
+  verbatimRuntime?: RehearsalVerbatimProcessorRuntime,
 ): Promise<Job> {
   const payloadResult = rehearsalSttPayloadSchema.safeParse(rawPayload);
   if (!payloadResult.success) {
@@ -359,6 +372,27 @@ export async function processRehearsalSttJob(
         : "Rehearsal STT input unavailable.",
     );
   }
+
+  const createVerbatimEvidence =
+    verbatimRuntime?.createEvidence ?? createRehearsalVerbatimCoachingEvidence;
+  const verbatimRuntimeOptions = verbatimRuntime
+    ? {
+        mode: verbatimRuntime.mode,
+        apiKey: verbatimRuntime.apiKey,
+        miniModel: verbatimRuntime.miniModel,
+        fetcher: verbatimRuntime.fetcher,
+        onEvent: verbatimRuntime.onEvent,
+      }
+    : undefined;
+  const verbatimEvidencePromise = createVerbatimEvidence({
+    storage,
+    storageKey: asset.storage_key,
+    boundaries: payload.utteranceBoundaries,
+    pronunciationTerms: deckContext.evaluationSnapshot
+      ? buildTranscriptionPronunciationContext(deckContext.evaluationSnapshot)
+      : [],
+    runtime: verbatimRuntimeOptions,
+  });
 
   await progressJob(dataSource, payload.jobId, 30, "음성 변환 중");
 
@@ -484,11 +518,14 @@ export async function processRehearsalSttJob(
       audioProcessingResponse,
       runMeta,
     );
-    analysis = applyLiveTranscriptFillerAnalysis(
-      analysis,
-      payload.liveTranscript,
-      payload.slideTranscriptSnapshots,
-    );
+    const verbatimEvidence = await verbatimEvidencePromise;
+    if (verbatimEvidence.source.mode === "legacy") {
+      analysis = applyLiveTranscriptFillerAnalysis(
+        analysis,
+        payload.liveTranscript,
+        payload.slideTranscriptSnapshots,
+      );
+    }
     onSlideSpeakingRateEvent?.(
       buildSlideSpeakingRateBusinessEvent(payload, analysis.slideInsights),
     );
@@ -503,6 +540,7 @@ export async function processRehearsalSttJob(
     );
   }
 
+  const verbatimEvidence = await verbatimEvidencePromise;
   const semanticResult = await analyzeSemanticCuesForReport(
     pythonWorkerUrl,
     payload,
@@ -524,6 +562,7 @@ export async function processRehearsalSttJob(
       deckContext,
       runMeta,
       semanticResult,
+      verbatimEvidence,
     );
   } catch (error) {
     return failAndScheduleRawAudioDeletion(
@@ -708,6 +747,29 @@ function applySlideTranscriptFillerAnalysis(
   return [...existingBySlide.values()];
 }
 
+function applyVerbatimSlideFillers(
+  slideInsights: z.infer<typeof analyzeResponseSchema>["slideInsights"],
+  evidence: RehearsalVerbatimCoachingEvidence,
+): Array<
+  Omit<z.infer<typeof analyzeSlideInsightSchema>, "fillerWordCount"> & {
+    fillerWordCount: number | null;
+  }
+> {
+  if (evidence.source.mode === "legacy") {
+    return slideInsights;
+  }
+
+  return slideInsights.map((insight) => {
+    const fillers = evidence.slideFillers.get(insight.slideId);
+    const isComplete = evidence.source.state === "completed";
+    return {
+      ...insight,
+      fillerWordCount: fillers?.fillerWordCount ?? (isComplete ? 0 : null),
+      fillerWordDetails: fillers?.fillerWordDetails ?? [],
+    };
+  });
+}
+
 function buildRehearsalReport(
   payload: RehearsalSttPayload,
   transcription: RehearsalAudioProcessingResponse,
@@ -716,6 +778,7 @@ function buildRehearsalReport(
   deckContext: DeckAnalysisContext,
   runMeta: RehearsalRunMeta,
   semanticResult: SemanticAnalysisResult,
+  verbatimEvidence: RehearsalVerbatimCoachingEvidence,
 ): RehearsalReport {
   const requiredKeywordCount = deckContext.deckKeywords.filter(
     (keyword) => keyword.required,
@@ -730,6 +793,13 @@ function buildRehearsalReport(
     requiredKeywordCount > 0 &&
     hasTimestampedTranscriptSegments &&
     buildAnalyzeSlideTimeline(deckContext, runMeta).length > 0;
+  const usesVerbatimCoaching = verbatimEvidence.source.mode !== "legacy";
+  const fillerWordCount = usesVerbatimCoaching
+    ? verbatimEvidence.fillerWordCount
+    : analysis.fillerWordCount;
+  const fillerWordDetails = usesVerbatimCoaching
+    ? verbatimEvidence.fillerWordDetails
+    : analysis.fillerWordDetails;
 
   return rehearsalReportSchema.parse({
     reportId: `report_${payload.runId}`,
@@ -743,12 +813,13 @@ function buildRehearsalReport(
     metrics: {
       durationSeconds: transcription.durationSeconds ?? 0,
       wordsPerMinute: analysis.wordsPerMinute,
-      fillerWordCount: analysis.fillerWordCount,
+      fillerWordCount,
       longSilenceCount: transcription.silenceAnalysis.longSilenceCount,
       keywordCoverage: analysis.keywordCoverage,
       measurements: buildReportMeasurements(
         transcription,
         requiredKeywordCount > 0,
+        verbatimEvidence,
       ),
       keywordCoverageMeasurement:
         requiredKeywordCount === 0
@@ -761,14 +832,20 @@ function buildRehearsalReport(
               },
     },
     speedSamples: analysis.speedSamples,
-    fillerWordDetails: analysis.fillerWordDetails,
+    fillerWordDetails,
+    fillerOccurrences: verbatimEvidence.fillerOccurrences,
+    disfluencyOccurrences: verbatimEvidence.disfluencyOccurrences,
+    verbatimCoachingSource: verbatimEvidence.source,
     missedKeywords: buildReportMissedKeywords(analysis.missedKeywords),
     utteranceOutcomes: runMeta.utteranceOutcomes,
     semanticCueDecisions: runMeta.semanticCueDecisions,
     semanticEvaluation: semanticResult.semanticEvaluation,
     semanticCueOutcomes: semanticResult.semanticCueOutcomes,
     slideTimings: buildSlideTimings(deckContext, runMeta),
-    slideInsights: analysis.slideInsights,
+    slideInsights: applyVerbatimSlideFillers(
+      analysis.slideInsights,
+      verbatimEvidence,
+    ),
     qnaSummary: {
       questionCount: 0,
       questionSummary: "",
@@ -867,6 +944,7 @@ async function analyzeTranscript(
 function buildReportMeasurements(
   transcription: RehearsalAudioProcessingResponse,
   hasKeywords: boolean,
+  verbatimEvidence: RehearsalVerbatimCoachingEvidence,
 ) {
   const measured = {
     measurementState: "measured" as const,
@@ -890,7 +968,15 @@ function buildReportMeasurements(
       reasonCode: "UNSUPPORTED_CPM_LANGUAGE" as const,
     },
     wordsPerMinute: measured,
-    fillerWordCount: measured,
+    fillerWordCount:
+      verbatimEvidence.source.state === "unavailable" &&
+      verbatimEvidence.source.mode !== "legacy"
+        ? {
+            measurementState: "unmeasured" as const,
+            metricDefinitionVersion: 1,
+            reasonCode: "FILLER_VERBATIM_UNAVAILABLE" as const,
+          }
+        : measured,
     longSilenceCount: silenceMeasured
       ? {
           ...measured,

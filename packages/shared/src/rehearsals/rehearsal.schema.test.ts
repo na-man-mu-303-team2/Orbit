@@ -9,6 +9,7 @@ import {
   createRehearsalAudioClipRequestSchema,
   createRehearsalAudioUploadUrlRequestSchema,
   getRehearsalReportResponseSchema,
+  legacyVerbatimCoachingSource,
   rehearsalAudioPlaybackUrlResponseSchema,
   rehearsalProjectSummarySchema,
   rehearsalRunComparisonSchema,
@@ -344,6 +345,50 @@ describe("rehearsalReportSchema", () => {
     expect(report.aiSummary?.headline).toBe("도입부 핵심 메시지가 약했습니다.");
   });
 
+  it("accepts additive verbatim coaching source and occurrence evidence", () => {
+    const report = rehearsalReportSchema.parse({
+      ...rehearsalReportFixture(),
+      fillerOccurrences: [
+        {
+          utteranceId: "utterance-1",
+          surface: "음",
+          normalized: "음",
+          category: "vocalized-pause",
+          charStart: 0,
+          charEnd: 1,
+          offsetScope: "utterance",
+          evidenceKinds: ["standalone-token", "pause-boundary"],
+          slideId: "slide_1",
+        },
+      ],
+      disfluencyOccurrences: [
+        {
+          utteranceId: "utterance-1",
+          surface: "결과 결과",
+          normalized: "결과결과",
+          kind: "repetition",
+          charStart: 2,
+          charEnd: 7,
+          offsetScope: "utterance",
+          slideId: "slide_1",
+        },
+      ],
+      verbatimCoachingSource: {
+        mode: "mini",
+        state: "completed",
+        model: "gpt-4o-mini-transcribe",
+        promptVersion: "korean-filler-verbatim-v1",
+        classifierVersion: "korean-filler-classifier-v2",
+        completedUtterances: 1,
+        totalUtterances: 1,
+      },
+    });
+
+    expect(report.fillerOccurrences?.[0]?.normalized).toBe("음");
+    expect(report.disfluencyOccurrences?.[0]?.kind).toBe("repetition");
+    expect(report.verbatimCoachingSource?.mode).toBe("mini");
+  });
+
   it("defaults optional official detail sections to empty values", () => {
     const report = rehearsalReportSchema.parse(rehearsalReportFixture());
 
@@ -364,6 +409,11 @@ describe("rehearsalReportSchema", () => {
       sttConfidence: { state: "unavailable", source: "none" },
       sentenceBoundaries: { state: "unavailable", source: "none" },
     });
+    expect(report.fillerOccurrences).toEqual([]);
+    expect(report.disfluencyOccurrences).toEqual([]);
+    expect(report.verbatimCoachingSource).toEqual(
+      legacyVerbatimCoachingSource,
+    );
     expect(report.speedSamples).toEqual([]);
     expect(report.silenceAnalysis.measurementState).toBe("unmeasured");
     expect(report.silenceAnalysis.reasonCode).toBe("LEGACY_REPORT");
