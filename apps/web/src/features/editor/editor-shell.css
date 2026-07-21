@@ -491,6 +491,14 @@
   box-shadow: var(--redesign-shadow-raised);
 }
 
+.presence-avatar-image {
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
 .presence-avatar-more {
   background: var(--redesign-color-primary-subtle);
   border-color: var(--redesign-color-primary-outline);
