@@ -6,7 +6,7 @@ import type { AutoSlideQuestionGuideStatus } from "../../practice/useAutoSlideQu
 export function SpeakerNotesQnaTab(props: {
   canGenerate: boolean;
   deck: Deck;
-  flushPendingSaves: () => Promise<void>;
+  flushPendingSaves: () => Promise<Deck>;
   projectId: string;
   questionGuideAutoStatus: AutoSlideQuestionGuideStatus;
   questionGuideRefreshToken: number;

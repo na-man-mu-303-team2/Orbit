@@ -181,6 +181,18 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("keeps remote presenter script rows readable on the light script surface", () => {
+    const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
+
+    expect(css).toMatch(
+      /\.presenter-remote-script \.presenter-script-row \{[^}]*color: var\(--redesign-color-on-light-variant\);/s,
+    );
+    expect(css).toMatch(
+      /\.presenter-remote-script \.presenter-script-row--current \{[^}]*color: var\(--redesign-color-on-light\);/s,
+    );
+    expect(css).not.toContain(".presenter-script-row.current");
+  });
+
   it("keeps the audience controls inside the presenter topbar", () => {
     const css = fs.readFileSync(rehearsalWorkspaceCssPath, "utf8");
 
@@ -919,10 +931,10 @@ describe("RehearsalWorkspace", () => {
 
     expect(autoAdvanceBody).toContain("evaluateAdvanceController");
     expect(autoAdvanceBody).toContain('command.type !== "advance-slide"');
-    expect(autoAdvanceBody).toContain("setPresenterStepIndex(0)");
-    expect(autoAdvanceBody.indexOf("setPresenterStepIndex(0)")).toBeLessThan(
-      autoAdvanceBody.indexOf("setCurrentSlideIndex"),
-    );
+    expect(autoAdvanceBody).toContain("requestPreparedSlideChange");
+    expect(autoAdvanceBody).toContain('source: "auto"');
+    expect(autoAdvanceBody).toContain("stepIndex: 0");
+    expect(autoAdvanceBody).not.toContain("setCurrentSlideIndex");
   });
 
   it("keeps the presenter step on the last slide when no next slide exists", () => {
@@ -935,11 +947,12 @@ describe("RehearsalWorkspace", () => {
     expect(handleNextPresenterStepBody).toContain(
       "slideCount: deck.slides.length",
     );
+    expect(handleNextPresenterStepBody).toContain("requestPreparedSlideChange");
     expect(handleNextPresenterStepBody).toContain(
-      "setPresenterStepIndex(nextState.stepIndex)",
+      "stepIndex: nextState.stepIndex",
     );
     expect(handleNextPresenterStepBody).toContain(
-      "setCurrentSlideIndex(nextState.slideIndex)",
+      "targetSlideIndex: nextState.slideIndex",
     );
   });
 
@@ -952,11 +965,9 @@ describe("RehearsalWorkspace", () => {
     expect(handleNextPresenterStepBody).not.toContain(
       "setPresenterStepIndex((currentStep)",
     );
-    expect(
-      handleNextPresenterStepBody.indexOf(
-        "setPresenterStepIndex(nextState.stepIndex)",
-      ),
-    ).toBeLessThan(handleNextPresenterStepBody.indexOf("setCurrentSlideIndex"));
+    expect(handleNextPresenterStepBody).not.toContain("setPresenterStepIndex(");
+    expect(handleNextPresenterStepBody).not.toContain("setCurrentSlideIndex(");
+    expect(handleNextPresenterStepBody).toContain("requestPreparedSlideChange");
   });
 
   it("routes the top timer play button through report recording pause and resume", () => {
@@ -3177,6 +3188,18 @@ describe("runRehearsalUploadFlow", () => {
     const result = await runRehearsalUploadFlow({
       runId: "run-1",
       audioFile,
+      liveTranscript: "브라우저에서 인식한 전체 문장",
+      slideTranscriptSnapshots: [
+        {
+          slideId: "slide_1",
+          slideNum: 1,
+          visitedVer: 1,
+          transcript: "첫 문장",
+          visitedAt: "2026-07-20T04:00:00.000Z",
+          capturedAt: "2026-07-20T04:01:00.000Z",
+          reason: "rehearsal-end",
+        },
+      ],
       slideTimeline: [
         { slideId: "slide_1", enteredAt: "2026-06-29T00:00:00.000Z" },
       ],
@@ -3203,6 +3226,21 @@ describe("runRehearsalUploadFlow", () => {
     expect(calls[2]?.init).toMatchObject({
       method: "PATCH",
       headers: { "content-type": "application/json" },
+    });
+    expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({
+      fileId: "file-audio",
+      liveTranscript: "브라우저에서 인식한 전체 문장",
+      slideTranscriptSnapshots: [
+        {
+          slideId: "slide_1",
+          slideNum: 1,
+          visitedVer: 1,
+          transcript: "첫 문장",
+          visitedAt: "2026-07-20T04:00:00.000Z",
+          capturedAt: "2026-07-20T04:01:00.000Z",
+          reason: "rehearsal-end",
+        },
+      ],
     });
   });
 

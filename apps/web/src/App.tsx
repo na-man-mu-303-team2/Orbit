@@ -1,3 +1,5 @@
+import { CommunityGalleryPage } from "./features/community-templates/CommunityGalleryPage";
+import { CommunityTemplateDetailPage } from "./features/community-templates/CommunityTemplateDetailPage";
 import {
   deckSchema,
   demoIds,
@@ -25,6 +27,7 @@ import {
 import { RedesignSystemPage } from "./features/design-system/RedesignSystemPage";
 import { OrbitButton, OrbitEmptyState, OrbitFailureState } from "./components/ui";
 import { OrbitAuthPage } from "./features/auth/AuthPage";
+import { ProfilePage } from "./features/auth/ProfilePage";
 import {
   authMeQueryKey,
   fetchCurrentUser,
@@ -59,7 +62,12 @@ import { RehearsalReportListPage } from "./features/rehearsal/RehearsalReportLis
 import { RehearsalProjectPickerPage } from "./features/rehearsal/RehearsalProjectPickerPage";
 import { RehearsalProjectOverviewPage } from "./features/rehearsal/RehearsalProjectOverviewPage";
 import { RehearsalMicCheckModal } from "./features/rehearsal/preflight/RehearsalMicCheckModal";
+import {
+  isRehearsalEntryPath,
+  rehearsalNavigationRequestEvent,
+} from "./features/rehearsal/rehearsalUtils";
 import { PresentationWorkspace } from "./features/presentation/PresentationWorkspace";
+import { PresentationReportPage } from "./features/presentation/PresentationReportPage";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
@@ -73,6 +81,7 @@ export type Route =
   | { name: "mockup"; screen: OrbitMockupScreen }
   | { name: "login" }
   | { name: "signup" }
+  | { name: "profile" }
   | { name: "home" }
   | { name: "create-deck" }
   | { name: "project-list" }
@@ -88,6 +97,12 @@ export type Route =
   | { name: "audience-session"; sessionId: string }
   | { name: "audience-activity"; sessionId: string; activityId: string }
   | { name: "presentation"; projectId: string }
+  | {
+      name: "presentation-report";
+      projectId: string;
+      sessionId: string;
+      runId?: string;
+    }
   | { name: "present"; deckId: string; sessionId?: string }
   | {
       name: "rehearsal";
@@ -112,16 +127,13 @@ export type Route =
   | { name: "challenge-qna"; projectId: string; sourceFullRunId: string }
   | { name: "report-mockup" }
   | { name: "report-list" }
+  | { name: "community" }
+  | { name: "community-detail"; templateId: string }
   | { name: "report-project-overview"; projectId: string }
   | { name: "not-found" }
   | { name: "deck-render" };
 
 export const deckRenderPayloadStorageKey = "orbit.deckRenderPayload.v1";
-
-const fixedAccountPresentation = {
-  initial: "K",
-  label: "kdh@orbit.com",
-} as const;
 
 const EditorShell = lazy(() =>
   import("./features/editor/shell/EditorShell").then((module) => ({
@@ -333,6 +345,7 @@ export function getRoute(pathname?: string, search?: string): Route {
   try {
     if (normalized === "/login") return { name: "login" };
     if (normalized === "/signup") return { name: "signup" };
+    if (normalized === "/profile") return { name: "profile" };
     if (normalized === "/design-system") return { name: "design-system" };
     if (normalized === "/mockup") return { name: "mockup", screen: "public" };
     if (normalized === "/mockup/home")
@@ -386,6 +399,14 @@ export function getRoute(pathname?: string, search?: string): Route {
         : { name: "project-list" };
     }
     if (normalized === "/reports") return { name: "report-list" };
+    if (normalized === "/community") return { name: "community" };
+    const communityTemplateMatch = normalized.match(/^\/community\/([^/]+)$/);
+    if (communityTemplateMatch) {
+      return {
+        name: "community-detail",
+        templateId: decodeURIComponent(communityTemplateMatch[1]),
+      };
+    }
     const reportProjectMatch = normalized.match(/^\/reports\/([^/]+)$/);
     if (reportProjectMatch) {
       return {
@@ -412,6 +433,18 @@ export function getRoute(pathname?: string, search?: string): Route {
       return {
         name: "audience-session",
         sessionId: decodeURIComponent(audienceSessionMatch[1]),
+      };
+    }
+
+    const presentationReportMatch = normalized.match(
+      /^\/presentation\/([^/]+)\/report\/([^/]+)$/,
+    );
+    if (presentationReportMatch) {
+      return {
+        name: "presentation-report",
+        projectId: decodeURIComponent(presentationReportMatch[1]),
+        sessionId: decodeURIComponent(presentationReportMatch[2]),
+        runId: new URLSearchParams(currentSearch).get("runId") ?? undefined,
       };
     }
 
@@ -596,15 +629,13 @@ export function getRoute(pathname?: string, search?: string): Route {
   }
 }
 
-const rehearsalNavigationRequestEvent = "orbit:rehearsal-navigation-request";
-
-function isRehearsalEntryPath(path: string) {
-  const url = new URL(path, window.location.origin);
-  return url.origin === window.location.origin && /^\/rehearsal\/[^/]+\/?$/.test(url.pathname);
-}
-
 function navigateImmediately(path: string) {
   window.history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function replaceImmediately(path: string) {
+  window.history.replaceState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
@@ -675,7 +706,30 @@ export function App() {
     retry: false,
   });
 
+  useEffect(() => {
+    if (!auth.isPending && route.name === "profile" && !auth.data) {
+      navigateTo("/login");
+    }
+  }, [auth.data, auth.isPending, route.name]);
+
+  useEffect(() => {
+    if (
+      !auth.isPending &&
+      auth.data &&
+      (route.name === "login" || route.name === "signup")
+    ) {
+      replaceImmediately("/");
+    }
+  }, [auth.data, auth.isPending, route.name]);
+
   if (auth.isPending && shouldWaitForAuthResolution(route)) {
+    return withRehearsalModal(<AuthLoadingFallback />);
+  }
+
+  if (
+    auth.data &&
+    (route.name === "login" || route.name === "signup")
+  ) {
     return withRehearsalModal(<AuthLoadingFallback />);
   }
 
@@ -700,8 +754,6 @@ export function App() {
 
 export function shouldWaitForAuthResolution(route: Route) {
   return ![
-    "login",
-    "signup",
     "design-system",
     "mockup",
     "report-mockup",
@@ -751,6 +803,24 @@ function renderRoute(route: Route, user?: AuthUser) {
         isAuthenticated={Boolean(user)}
         mode="register"
         onNavigate={navigateTo}
+      />
+    );
+  }
+  if (route.name === "profile") {
+    return user ? (
+      <ProfilePage onNavigate={navigateTo} user={user} />
+    ) : (
+      <AuthLoadingFallback />
+    );
+  }
+  if (route.name === "community") {
+    return <CommunityGalleryPage onNavigate={navigateTo} />;
+  }
+  if (route.name === "community-detail") {
+    return (
+      <CommunityTemplateDetailPage
+        onNavigate={navigateTo}
+        templateId={route.templateId}
       />
     );
   }
@@ -841,6 +911,17 @@ function renderRoute(route: Route, user?: AuthUser) {
         }
         projectId={route.projectId}
       />
+    );
+  }
+  if (route.name === "presentation-report") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <PresentationReportPage
+          projectId={route.projectId}
+          runId={route.runId}
+          sessionId={route.sessionId}
+        />
+      </ProjectAccessGate>
     );
   }
   if (route.name === "present") {
@@ -1042,8 +1123,8 @@ function AppFrame(props: {
   const queryClient = useQueryClient();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const isHomeDashboard = route.name === "home";
-  const userLabel = user ? fixedAccountPresentation.label : "로그인";
-  const userInitial = user ? fixedAccountPresentation.initial : "U";
+  const userLabel = user ? getUserLabel(user) : "로그인";
+  const userInitial = user ? getUserInitial(user) : "U";
 
   async function handleLogout() {
     if (isLoggingOut) return;
@@ -1072,8 +1153,12 @@ function AppFrame(props: {
     >
       <OrbitAppHeader
         activeItem={getAppNavigationItem(route)}
+        avatar={user?.avatar}
         isAuthenticated={isAuthenticated}
         isLoggingOut={isLoggingOut}
+        onAvatarUpdated={(nextUser) =>
+          queryClient.setQueryData<AuthUser | null>(authMeQueryKey, nextUser)
+        }
         onLogout={() => void handleLogout()}
         onNavigate={navigateTo}
         userInitial={userInitial}
@@ -1089,7 +1174,8 @@ export function getAppNavigationItem(route: Route): OrbitAppNavigationItem {
   if (
     route.name === "report-list" ||
     route.name === "report-project-overview" ||
-    route.name === "rehearsal-report"
+    route.name === "rehearsal-report" ||
+    route.name === "presentation-report"
   ) {
     return "reports";
   }
@@ -1100,6 +1186,15 @@ export function getAppNavigationItem(route: Route): OrbitAppNavigationItem {
     return "rehearsal";
   }
   return "project";
+}
+
+function getUserInitial(user: AuthUser) {
+  const source = user.displayName?.trim() || getUserLabel(user) || "U";
+  return source.slice(0, 1).toUpperCase();
+}
+
+function getUserLabel(user: AuthUser) {
+  return user.displayName?.trim() || user.email?.trim() || user.userId;
 }
 
 async function readApiError(response: Response, fallback: string) {
@@ -1189,8 +1284,9 @@ function ProjectAccessError(props: { onRetry: () => void; projectId: string }) {
   return (
     <ProjectAccessLayout projectId={props.projectId}>
       <OrbitFailureState
-        description="잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요."
+        description="프로젝트 권한 정보를 서버에서 확인하지 못했습니다."
         onRetry={props.onRetry}
+        recommendedAction="인터넷 연결을 확인한 뒤 다시 확인하세요. 계속 실패하면 프로젝트 소유자에게 내 권한 상태를 문의하세요."
         retryLabel="다시 확인"
         title="프로젝트 권한을 확인하지 못했습니다."
       />
@@ -1244,8 +1340,9 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
     return (
       <ProjectAccessLayout projectId={props.projectId}>
         <OrbitFailureState
-          description="연결을 확인한 뒤 다시 시도해 주세요."
+          description="현재 프로젝트의 접근 상태를 확인하는 중 문제가 발생했습니다."
           onRetry={() => void access.refetch()}
+          recommendedAction="인터넷 연결을 확인한 뒤 다시 확인하세요. 같은 문제가 계속되면 프로젝트 목록으로 돌아가 다시 열어보세요."
           retryLabel="다시 확인"
           title="권한 상태를 확인하지 못했습니다."
         />

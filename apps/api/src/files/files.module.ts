@@ -5,6 +5,8 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { AuthModule } from "../auth/auth.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { FilesController } from "./files.controller";
+import { ProfileAvatarController } from "./profile-avatar.controller";
+import { ProfileAvatarService } from "./profile-avatar.service";
 import { ProjectAssetEntity } from "./project-asset.entity";
 import {
   FilesService,
@@ -14,9 +16,10 @@ import {
 
 @Module({
   imports: [AuthModule, TypeOrmModule.forFeature([ProjectAssetEntity]), ProjectsModule],
-  controllers: [FilesController],
+  controllers: [FilesController, ProfileAvatarController],
   providers: [
     FilesService,
+    ProfileAvatarService,
     {
       provide: UPLOAD_PROXY_ORIGIN,
       useFactory: () => {

@@ -10,6 +10,7 @@ import {
   getPresenterRemoteTimingState,
   isPresenterRemoteOwnerStale,
   reconcilePresenterRemoteOutputMode,
+  scrollPresenterRemoteScriptRowIntoView,
   splitPresenterRemoteNotes,
   PresenterRemoteWindow,
 } from "./PresenterRemoteWindow";
@@ -59,6 +60,39 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("발표 종료");
     expect(html).not.toContain("Partial transcript");
     expect(html).not.toContain("rawAudio");
+  });
+
+  it("현재 대본 행을 스크롤 영역 중앙으로 이동한다", () => {
+    const scrollTo = vi.fn();
+
+    scrollPresenterRemoteScriptRowIntoView(
+      {
+        getBoundingClientRect: () => ({ height: 300, top: 100 }),
+        scrollTo,
+        scrollTop: 200,
+      },
+      {
+        getBoundingClientRect: () => ({ height: 40, top: 430 }),
+      },
+      "smooth",
+    );
+
+    expect(scrollTo).toHaveBeenCalledWith({
+      behavior: "smooth",
+      top: 400,
+    });
+  });
+
+  it("발표자 대본을 자동 스크롤 영역으로 표시한다", () => {
+    const html = renderToStaticMarkup(
+      <PresenterRemoteWindow
+        deck={p0AnimationDeck}
+        identity={identity}
+        initialState={createPresenterSlideshowState(p0AnimationDeck)}
+      />,
+    );
+
+    expect(html).toContain('data-auto-scroll="true"');
   });
 
   it("splits presenter notes into cue rows", () => {

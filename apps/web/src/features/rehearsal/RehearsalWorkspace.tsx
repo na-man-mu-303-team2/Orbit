@@ -32,6 +32,7 @@ import {
   type RetryRehearsalSemanticEvaluationResponse,
   type SemanticCapabilityEvent,
   type Slide,
+  type SlideTranscriptSnapshot,
   type UpdateRehearsalRunMetaRequest,
   type BriefRef,
   type EvaluatorLensRef,
@@ -98,6 +99,16 @@ import {
   clearPreparedRehearsalSlideSnapshots,
   readPreparedRehearsalSlideSnapshots,
 } from "./rehearsalSlideSnapshots";
+import { requestRehearsalMicrophoneStream } from "../presenter-shell/microphoneSettings";
+export {
+  getRehearsalMicrophoneAudioConstraints,
+  isLiveSttRawMicDebugEnabled,
+  readRehearsalMicrophoneDeviceId,
+  rehearsalMicrophoneAudioConstraints,
+  rehearsalRawMicrophoneAudioConstraints,
+  requestRehearsalMicrophoneStream,
+  writeRehearsalMicrophoneDeviceId,
+} from "../presenter-shell/microphoneSettings";
 import {
   LiveSttAdapterError,
   type LiveSttAdapter,
@@ -159,6 +170,11 @@ import {
 } from "./presenter/displayManager";
 import { SingleScreenPresenter } from "./presenter/SingleScreenPresenter";
 import { SlideshowRenderer } from "./presenter/SlideshowRenderer";
+import {
+  createSlideAssetNavigationGate,
+  type SlideNavigationRequest,
+  type SlideNavigationResult,
+} from "./presenter/slideAssetNavigationGate";
 import { createSlideshowAnimationPlan } from "./presenter/slideshowStepModel";
 import { getNextPresenterStepState } from "./presenter/presenterStepNavigation";
 import {
@@ -182,6 +198,12 @@ import {
 } from "./advance/advanceController";
 import { RehearsalPanel } from "./panel/RehearsalPanel";
 import {
+  clearProjectSlideImageCache,
+  preloadSlideAssets,
+  prepareSlideAssets,
+  retainSlideAssetWindow,
+} from "../slides/rendering";
+import {
   canRetryInitialRecordingLiveStt,
   createInitialLiveSttRetryCoordinator,
   sanitizeLiveSttErrorMessage,
@@ -202,6 +224,7 @@ import {
 } from "./panel/SemanticCueDebugPanel";
 import {
   SemanticSpeechDebugPanel,
+  semanticSpeechDebugPanelStorageKey,
   shouldShowSemanticSpeechDebugPanel,
 } from "./panel/SemanticSpeechDebugPanel";
 import {
@@ -379,21 +402,7 @@ const preferredAudioMimeTypes = [
   "audio/webm",
   "audio/mp4",
 ];
-export const rehearsalMicrophoneAudioConstraints: MediaTrackConstraints = {
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true,
-  channelCount: 1,
-};
-export const rehearsalRawMicrophoneAudioConstraints: MediaTrackConstraints = {
-  echoCancellation: false,
-  noiseSuppression: false,
-  autoGainControl: false,
-  channelCount: 1,
-};
 const liveSttBiasModeStorageKey = "orbit.liveStt.biasMode";
-const liveSttRawMicDebugStorageKey = "orbit.liveStt.debugRawMic";
-const rehearsalMicrophoneDeviceStorageKey = "orbit.rehearsal.microphoneDeviceId";
 const liveSttDebugDecodingMethodStorageKey =
   "orbit.liveStt.debugDecodingMethod";
 const rehearsalPracticeSummaryStoragePrefix = "orbit.rehearsal.lastSummary";
@@ -717,12 +726,26 @@ export async function uploadRehearsalAudio(
 export async function completeRehearsalAudioUpload(
   runId: string,
   fileId: string,
+  liveTranscriptOrFetcher: string | null | Fetcher = null,
   fetcher: Fetcher = fetch,
+  slideTranscriptSnapshots: SlideTranscriptSnapshot[] = [],
 ) {
-  const response = await fetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}/audio/complete`, {
+  const liveTranscript =
+    typeof liveTranscriptOrFetcher === "function"
+      ? null
+      : liveTranscriptOrFetcher;
+  const requestFetcher =
+    typeof liveTranscriptOrFetcher === "function"
+      ? liveTranscriptOrFetcher
+      : fetcher;
+  const response = await requestFetcher(`/api/v1/rehearsals/${encodeURIComponent(runId)}/audio/complete`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ fileId }),
+    body: JSON.stringify({
+      fileId,
+      liveTranscript,
+      slideTranscriptSnapshots,
+    }),
   });
 
   if (!response.ok) {
@@ -974,6 +997,8 @@ export async function runRehearsalUploadFlow(options: {
   pollDelayMs?: number;
   pollTimeoutMs?: number;
   runMeta?: RehearsalRunMeta | null;
+  liveTranscript?: string | null;
+  slideTranscriptSnapshots?: SlideTranscriptSnapshot[];
   slideTimeline?: UpdateRehearsalRunMetaRequest["slideTimeline"];
 }) {
   const fetcher = options.fetcher ?? fetch;
@@ -1018,7 +1043,9 @@ export async function runRehearsalUploadFlow(options: {
   const completed = await completeRehearsalAudioUpload(
     options.runId,
     uploadResponse.upload.fileId,
+    options.liveTranscript ?? null,
     fetcher,
+    options.slideTranscriptSnapshots ?? [],
   );
   const job = await pollRehearsalJob(completed.job.jobId, {
     fetcher,
@@ -1608,57 +1635,6 @@ export function getLiveAudioLevelPercent(level: LiveSttAudioLevelEvent | null) {
   return clamp(((level.rmsDb + 55) / 55) * 100, 0, 100);
 }
 
-export function requestRehearsalMicrophoneStream(
-  mediaDevices: Pick<MediaDevices, "getUserMedia"> = navigator.mediaDevices,
-) {
-  const deviceId = readRehearsalMicrophoneDeviceId();
-  return mediaDevices.getUserMedia({
-    audio: {
-      ...getRehearsalMicrophoneAudioConstraints(),
-      ...(deviceId ? { deviceId: { ideal: deviceId } } : {}),
-    },
-  });
-}
-
-export function readRehearsalMicrophoneDeviceId(
-  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage(),
-) {
-  try {
-    return storage?.getItem(rehearsalMicrophoneDeviceStorageKey) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-export function writeRehearsalMicrophoneDeviceId(
-  deviceId: string,
-  storage: Pick<Storage, "setItem"> | null = readBrowserLocalStorage(),
-) {
-  try {
-    if (deviceId) storage?.setItem(rehearsalMicrophoneDeviceStorageKey, deviceId);
-  } catch {
-    // Browsers can block storage while still allowing microphone access.
-  }
-}
-
-export function getRehearsalMicrophoneAudioConstraints(
-  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage(),
-) {
-  return isLiveSttRawMicDebugEnabled(storage)
-    ? rehearsalRawMicrophoneAudioConstraints
-    : rehearsalMicrophoneAudioConstraints;
-}
-
-export function isLiveSttRawMicDebugEnabled(
-  storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage(),
-) {
-  try {
-    return storage?.getItem(liveSttRawMicDebugStorageKey) === "1";
-  } catch {
-    return false;
-  }
-}
-
 export function getLiveSttDebugDecodingMethod(
   storage: Pick<Storage, "getItem"> | null = readBrowserLocalStorage(),
 ): LiveSttDecodingMethod | null {
@@ -2009,6 +1985,13 @@ export function RehearsalWorkspace(props: {
   const [semanticDebugState, setSemanticDebugState] = useState(
     createIdleSemanticDebugState,
   );
+  const [liveSessionTranscript, setLiveSessionTranscript] = useState("");
+  const [showSemanticDebugPanel, setShowSemanticDebugPanel] = useState(() =>
+    shouldShowSemanticSpeechDebugPanel({
+      isDevelopment: import.meta.env.DEV,
+      storage: getSemanticDebugPanelStorage(),
+    }),
+  );
   const [semanticCueDebugEvents, setSemanticCueDebugEvents] = useState<
     SemanticCueDebugEvent[]
   >([]);
@@ -2070,6 +2053,8 @@ export function RehearsalWorkspace(props: {
     useState<RehearsalRuntimeStatus>("idle");
   const [scriptAutoFollowKey, setScriptAutoFollowKey] = useState(0);
   const [isSingleScreenOpen, setIsSingleScreenOpen] = useState(false);
+  const [isSlidePreparationPending, setIsSlidePreparationPending] =
+    useState(false);
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
   const [timeMode, setTimeMode] = useState<RehearsalTimeMode>("stopwatch");
   const [timerDurationSeconds, setTimerDurationSeconds] = useState(() =>
@@ -2118,6 +2103,17 @@ export function RehearsalWorkspace(props: {
   const liveTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
     createLiveTranscriptBuffer(),
   );
+  const liveSessionTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
+    createLiveTranscriptBuffer(),
+  );
+  const slideTranscriptSnapshotsRef = useRef<SlideTranscriptSnapshot[]>([]);
+  const slideTranscriptVisitVersionsRef = useRef(new Map<string, number>());
+  const activeSlideTranscriptVisitRef = useRef<{
+    slideId: string;
+    slideNum: number;
+    visitedAt: string;
+    visitedVer: number;
+  } | null>(null);
   const liveKeywordStateRef = useRef<LiveTranscriptAnalysis | null>(null);
   const liveKeywordOccurrenceStateRef =
     useRef<LiveKeywordOccurrenceState | null>(null);
@@ -2135,8 +2131,58 @@ export function RehearsalWorkspace(props: {
   const lastSentenceSpokenAtMsRef = useRef<number | null>(null);
   const finalSentenceCommittedAtMsRef = useRef<number | null>(null);
   const pauseDetectorRef = useRef<PauseDetector | null>(null);
+  const slideNavigationGateRef = useRef<ReturnType<
+    typeof createSlideAssetNavigationGate
+  > | null>(null);
+
+  if (slideNavigationGateRef.current === null) {
+    slideNavigationGateRef.current = createSlideAssetNavigationGate({
+      commit: (request) => {
+        const deckSnapshot = deckRef.current;
+        presenterStepIndexRef.current = request.stepIndex;
+        currentSlideIndexRef.current = request.targetSlideIndex;
+        setPresenterStepIndex(request.stepIndex);
+        setCurrentSlideIndex(request.targetSlideIndex);
+        if (deckSnapshot) {
+          retainSlideAssetWindow(deckSnapshot, request.targetSlideIndex);
+        }
+      },
+      onPendingChange: setIsSlidePreparationPending,
+      prepare: async (request) => {
+        const deckSnapshot = deckRef.current;
+        const slide = deckSnapshot?.slides[request.targetSlideIndex];
+        if (!deckSnapshot || !slide) return;
+        await prepareSlideAssets(deckSnapshot, slide);
+      },
+    });
+  }
   const { settings: presenterSettings, save: savePresenterSettings } =
     usePresenterSettings();
+
+  useEffect(() => {
+    function handleDeveloperModeShortcut(event: KeyboardEvent) {
+      if (
+        event.repeat ||
+        !event.ctrlKey ||
+        !event.shiftKey ||
+        event.altKey ||
+        event.key.toLocaleLowerCase() !== "q"
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      setShowSemanticDebugPanel((current) => {
+        const next = !current;
+        writeSemanticDebugPanelPreference(next);
+        return next;
+      });
+    }
+
+    window.addEventListener("keydown", handleDeveloperModeShortcut);
+    return () =>
+      window.removeEventListener("keydown", handleDeveloperModeShortcut);
+  }, []);
 
   useEffect(() => {
     if (import.meta.env.MODE === "test" || !ENABLE_REHEARSAL_NLI) {
@@ -2298,6 +2344,34 @@ export function RehearsalWorkspace(props: {
       ? Math.max(timerDurationSeconds - elapsedSeconds, 0)
       : elapsedSeconds;
 
+  function requestPreparedSlideChange(
+    request: SlideNavigationRequest,
+  ): Promise<SlideNavigationResult> {
+    const deckSnapshot = deckRef.current;
+    if (!deckSnapshot || deckSnapshot.slides.length === 0) {
+      return Promise.resolve("ignored");
+    }
+
+    const targetSlideIndex = Math.min(
+      deckSnapshot.slides.length - 1,
+      Math.max(0, request.targetSlideIndex),
+    );
+    const normalizedRequest = { ...request, targetSlideIndex };
+    const gate = slideNavigationGateRef.current;
+
+    if (
+      targetSlideIndex === currentSlideIndexRef.current &&
+      gate &&
+      !gate.isPending()
+    ) {
+      presenterStepIndexRef.current = request.stepIndex;
+      setPresenterStepIndex(request.stepIndex);
+      return Promise.resolve("committed");
+    }
+
+    return gate?.request(normalizedRequest) ?? Promise.resolve("ignored");
+  }
+
   function handlePresenterRemoteCommand(command: PresenterRemoteCommand) {
     const deckSnapshot = deckRef.current;
     if (!deckSnapshot) {
@@ -2348,9 +2422,11 @@ export function RehearsalWorkspace(props: {
     }
 
     if (command.action === "prev") {
-      presenterStepIndexRef.current = 0;
-      setPresenterStepIndex(0);
-      setCurrentSlideIndex((current) => Math.max(0, current - 1));
+      void requestPreparedSlideChange({
+        source: "manual",
+        stepIndex: 0,
+        targetSlideIndex: currentSlideIndexRef.current - 1,
+      });
       return;
     }
 
@@ -2359,12 +2435,11 @@ export function RehearsalWorkspace(props: {
         deckSnapshot.slides.length - 1,
         Math.max(0, Math.trunc(command.slideIndex)),
       );
-      presenterStepIndexRef.current = Math.max(
-        0,
-        Math.trunc(command.stepIndex ?? 0),
-      );
-      setPresenterStepIndex(presenterStepIndexRef.current);
-      setCurrentSlideIndex(nextSlideIndex);
+      void requestPreparedSlideChange({
+        source: "remote-goto",
+        stepIndex: Math.max(0, Math.trunc(command.stepIndex ?? 0)),
+        targetSlideIndex: nextSlideIndex,
+      });
       return;
     }
 
@@ -2383,9 +2458,11 @@ export function RehearsalWorkspace(props: {
       maxStepIndex: plan.maxStepIndex,
       slideCount: deckSnapshot.slides.length,
     });
-    presenterStepIndexRef.current = nextState.stepIndex;
-    setPresenterStepIndex(nextState.stepIndex);
-    setCurrentSlideIndex(nextState.slideIndex);
+    void requestPreparedSlideChange({
+      source: "manual",
+      stepIndex: nextState.stepIndex,
+      targetSlideIndex: nextState.slideIndex,
+    });
   }
 
   useEffect(() => {
@@ -2430,6 +2507,27 @@ export function RehearsalWorkspace(props: {
   ]);
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
+
+  useEffect(() => {
+    const projectId = deck?.projectId;
+    if (!projectId) return;
+
+    return () => {
+      slideNavigationGateRef.current?.cancel();
+      clearProjectSlideImageCache(projectId);
+    };
+  }, [deck?.projectId]);
+
+  useEffect(() => {
+    if (!deck || !currentSlide) return;
+
+    retainSlideAssetWindow(deck, currentSlideIndex);
+    void preloadSlideAssets(deck, currentSlide, "high");
+    const nextSlide = deck.slides[currentSlideIndex + 1];
+    if (nextSlide) {
+      void preloadSlideAssets(deck, nextSlide, "low");
+    }
+  }, [currentSlide?.slideId, currentSlideIndex, deck]);
   const visibleSemanticCapabilityEvents = useMemo(() => {
     if (practiceWithoutVoiceAt === null) {
       return semanticCapabilityEvents;
@@ -2706,6 +2804,20 @@ export function RehearsalWorkspace(props: {
     setSlideElapsedSeconds(0);
   }, [currentSlide?.slideId]);
 
+  useEffect(() => {
+    const activeVisit = activeSlideTranscriptVisitRef.current;
+    if (
+      !activeVisit ||
+      !currentSlide ||
+      activeVisit.slideId === currentSlide.slideId
+    ) {
+      return;
+    }
+
+    captureSlideTranscriptSnapshot("slide-change");
+    beginSlideTranscriptVisit(currentSlide, currentSlideIndex);
+  }, [currentSlide?.slideId, currentSlideIndex]);
+
   const isRehearsalCompletionVisible =
     Boolean(deck) &&
     (hasLocalCompletion ||
@@ -2805,6 +2917,7 @@ export function RehearsalWorkspace(props: {
     setLiveError("");
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
+    resetLiveSessionTranscript();
     resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
@@ -2841,6 +2954,7 @@ export function RehearsalWorkspace(props: {
       streamRef.current = stream;
       sessionRef.current = session;
       session.start();
+      resetSlideTranscriptSnapshots(activeDeck, currentSlideIndexRef.current);
       setPhase("recording");
       setIsTimerRunning(true);
       setRehearsalRuntimeStatus("running");
@@ -2894,6 +3008,7 @@ export function RehearsalWorkspace(props: {
     setIsTimerRunning(true);
     setRehearsalRuntimeStatus("running");
     rehearsalRuntimeStatusRef.current = "running";
+    resetLiveSessionTranscript();
     resetLivePlaybackForSlide(currentSlide);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
 
@@ -3011,6 +3126,7 @@ export function RehearsalWorkspace(props: {
   function stopRecording() {
     if (phase !== "recording") return;
 
+    captureSlideTranscriptSnapshot("rehearsal-end");
     liveSttRetryCoordinatorRef.current.cancel();
     setRehearsalRuntimeStatus("stopping");
     setPhase("uploading");
@@ -3737,14 +3853,19 @@ export function RehearsalWorkspace(props: {
         continue;
       }
 
-      setPresenterStepIndex(0);
-      setCurrentSlideIndex(currentSlideIndex + 1);
-      setLiveSlideAdvance({
-        type: "slide-advance",
-        fromSlideId: currentSlide.slideId,
-        toSlideId: nextSlide.slideId,
-        reason: "keyword-coverage",
-        coverage: input.effectiveCoverage,
+      void requestPreparedSlideChange({
+        source: "auto",
+        stepIndex: 0,
+        targetSlideIndex: currentSlideIndex + 1,
+      }).then((result) => {
+        if (result !== "committed") return;
+        setLiveSlideAdvance({
+          type: "slide-advance",
+          fromSlideId: currentSlide.slideId,
+          toSlideId: nextSlide.slideId,
+          reason: "keyword-coverage",
+          coverage: input.effectiveCoverage,
+        });
       });
     }
   }
@@ -3806,6 +3927,13 @@ export function RehearsalWorkspace(props: {
       event,
     );
     liveTranscriptBufferRef.current = nextBuffer;
+
+    const nextSessionBuffer = applyLiveTranscriptEvent(
+      liveSessionTranscriptBufferRef.current,
+      event,
+    );
+    liveSessionTranscriptBufferRef.current = nextSessionBuffer;
+    setLiveSessionTranscript(renderLiveTranscriptBuffer(nextSessionBuffer));
 
     const transcript = renderLiveTranscriptBuffer(nextBuffer);
     const biasMode = getLiveSttBiasMode();
@@ -3945,9 +4073,14 @@ export function RehearsalWorkspace(props: {
 
     if (playbackUpdate.shouldAdvanceSlide) {
       cancelAutoAdvanceForManualCommand();
-      presenterStepIndexRef.current = 0;
-      setPresenterStepIndex(0);
-      setCurrentSlideIndex((current) => Math.min(slideCount - 1, current + 1));
+      void requestPreparedSlideChange({
+        source: "auto",
+        stepIndex: 0,
+        targetSlideIndex: Math.min(
+          slideCount - 1,
+          currentSlideIndexRef.current + 1,
+        ),
+      });
       return;
     }
 
@@ -3970,6 +4103,60 @@ export function RehearsalWorkspace(props: {
       createRehearsalCommandConfirmationState();
     setLiveKeywordState(nextKeywordState);
     setLiveCue(null);
+  }
+
+  function resetLiveSessionTranscript() {
+    liveSessionTranscriptBufferRef.current = createLiveTranscriptBuffer();
+    setLiveSessionTranscript("");
+  }
+
+  function beginSlideTranscriptVisit(
+    slide: Slide,
+    slideIndex: number,
+    visitedAt = new Date().toISOString(),
+  ) {
+    const visitedVer =
+      (slideTranscriptVisitVersionsRef.current.get(slide.slideId) ?? 0) + 1;
+    slideTranscriptVisitVersionsRef.current.set(slide.slideId, visitedVer);
+    activeSlideTranscriptVisitRef.current = {
+      slideId: slide.slideId,
+      slideNum: slideIndex + 1,
+      visitedAt,
+      visitedVer,
+    };
+  }
+
+  function captureSlideTranscriptSnapshot(
+    reason: SlideTranscriptSnapshot["reason"],
+    capturedAt = new Date().toISOString(),
+  ) {
+    const activeVisit = activeSlideTranscriptVisitRef.current;
+    if (!activeVisit) {
+      return;
+    }
+
+    slideTranscriptSnapshotsRef.current.push({
+      ...activeVisit,
+      transcript: renderLiveTranscriptBuffer(
+        liveSessionTranscriptBufferRef.current,
+      ),
+      capturedAt,
+      reason,
+    });
+    activeSlideTranscriptVisitRef.current = null;
+  }
+
+  function resetSlideTranscriptSnapshots(
+    activeDeck: Deck,
+    slideIndex: number,
+  ) {
+    slideTranscriptSnapshotsRef.current = [];
+    slideTranscriptVisitVersionsRef.current = new Map();
+    activeSlideTranscriptVisitRef.current = null;
+    const slide = activeDeck.slides[slideIndex];
+    if (slide) {
+      beginSlideTranscriptVisit(slide, slideIndex);
+    }
   }
 
   function resetLivePlaybackForSlide(slide: Slide | null) {
@@ -4038,6 +4225,10 @@ export function RehearsalWorkspace(props: {
         runId: uploadRun.runId,
         audioFile,
         runMeta,
+        liveTranscript: renderLiveTranscriptBuffer(
+          liveSessionTranscriptBufferRef.current,
+        ),
+        slideTranscriptSnapshots: slideTranscriptSnapshotsRef.current,
         onJobUpdate: (nextJob) => {
           setJob(nextJob);
           setPhase("processing");
@@ -4125,16 +4316,20 @@ export function RehearsalWorkspace(props: {
 
   const goPrevious = () => {
     cancelAutoAdvanceForManualCommand();
-    setPresenterStepIndex(0);
-    setCurrentSlideIndex((current) => Math.max(0, current - 1));
+    void requestPreparedSlideChange({
+      source: "manual",
+      stepIndex: 0,
+      targetSlideIndex: currentSlideIndexRef.current - 1,
+    });
   };
   const goNext = () => {
     if (!deck) return;
     cancelAutoAdvanceForManualCommand();
-    setPresenterStepIndex(0);
-    setCurrentSlideIndex((current) =>
-      Math.min(deck.slides.length - 1, current + 1),
-    );
+    void requestPreparedSlideChange({
+      source: "manual",
+      stepIndex: 0,
+      targetSlideIndex: currentSlideIndexRef.current + 1,
+    });
   };
   const handleNextPresenterStep = () => {
     if (!deck || !slideshowAnimationPlan) return;
@@ -4146,8 +4341,11 @@ export function RehearsalWorkspace(props: {
       maxStepIndex: slideshowAnimationPlan.maxStepIndex,
       slideCount: deck.slides.length,
     });
-    setPresenterStepIndex(nextState.stepIndex);
-    setCurrentSlideIndex(nextState.slideIndex);
+    void requestPreparedSlideChange({
+      source: "manual",
+      stepIndex: nextState.stepIndex,
+      targetSlideIndex: nextState.slideIndex,
+    });
   };
   const finishRehearsal = () => {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
@@ -4445,7 +4643,6 @@ export function RehearsalWorkspace(props: {
   }, [currentSlide]);
   const hasDeletedRawAudio = Boolean(run?.rawAudioDeletedAt);
   const nextSlide = deck?.slides[currentSlideIndex + 1] ?? null;
-  const miniSlideScale = deck ? getMiniSlideScale(deck) : 0.14;
   const prompterRows = getRehearsalPrompterRows(
     p3Sentences,
     p3PanelSnapshot.coveredSentenceIds,
@@ -4808,10 +5005,6 @@ export function RehearsalWorkspace(props: {
     );
   }
 
-  const showSemanticDebugPanel = shouldShowSemanticSpeechDebugPanel({
-    isDevelopment: import.meta.env.DEV,
-    storage: getSemanticDebugPanelStorage(),
-  });
   const showSemanticCueDebugPanel = shouldShowSemanticCueDebugPanel({
     flagEnabled: getSemanticCueRuntimeFlags(import.meta.env).debugPanelEnabled,
     locationSearch:
@@ -5031,19 +5224,8 @@ export function RehearsalWorkspace(props: {
         <PresenterStageSection
           currentIndex={currentSlideIndex}
           emptyStageLabel={"\ubc1c\ud45c\uc790\ub8cc \ub85c\ub529 \uc911"}
+          navigationPending={isSlidePreparationPending}
           nextHint={nextSlideHint}
-          nextSlideContent={
-            deck && nextSlide ? (
-              <SlideshowRenderer
-                deck={deck}
-                playInitialEntryAnimations={false}
-                renderMode="presenter"
-                scale={miniSlideScale}
-                slideId={nextSlide.slideId}
-                stepIndex={0}
-              />
-            ) : undefined
-          }
           nextSlideTitle={nextSlide ? getSlideTitle(nextSlide) : "다음 슬라이드 없음"}
           onNext={goNext}
           onPrevious={goPrevious}
@@ -5317,6 +5499,7 @@ export function RehearsalWorkspace(props: {
       </section>
       {showSemanticDebugPanel ? (
         <SemanticSpeechDebugPanel
+          liveTranscript={liveSessionTranscript}
           semanticMatchingEnabled={
             presenterSettings.advancePolicy.semanticMatching
           }
@@ -5922,7 +6105,10 @@ function getPreflightTriggerStatus(
   };
 }
 
-function getSemanticDebugPanelStorage(): Pick<Storage, "getItem"> | null {
+function getSemanticDebugPanelStorage(): Pick<
+  Storage,
+  "getItem" | "setItem"
+> | null {
   if (typeof window === "undefined") {
     return null;
   }
@@ -5931,6 +6117,17 @@ function getSemanticDebugPanelStorage(): Pick<Storage, "getItem"> | null {
     return window.localStorage;
   } catch {
     return null;
+  }
+}
+
+function writeSemanticDebugPanelPreference(enabled: boolean) {
+  try {
+    getSemanticDebugPanelStorage()?.setItem(
+      semanticSpeechDebugPanelStorageKey,
+      enabled ? "1" : "0",
+    );
+  } catch {
+    // The shortcut still works for the current page when storage is blocked.
   }
 }
 
@@ -6110,6 +6307,8 @@ export function RehearsalReportPage(props: {
   const [deck, setDeck] = useState<Deck | null>(props.initialDeck ?? null);
   const [run, setRun] = useState<RehearsalRun | null>(props.initialRun ?? null);
   const [audioPlaybackAvailable, setAudioPlaybackAvailable] = useState(true);
+  const [transcriptDownloadAvailable, setTranscriptDownloadAvailable] =
+    useState(false);
   const [report, setReport] = useState<RehearsalReport | null>(
     props.initialReport ?? null,
   );
@@ -6179,6 +6378,9 @@ export function RehearsalReportPage(props: {
         setAudioPlaybackAvailable(
           response.audioPlaybackAvailable ?? Boolean(response.run.audioFileId),
         );
+        setTranscriptDownloadAvailable(
+          response.transcriptDownloadAvailable ?? false,
+        );
         setReport(nextState.status === "ready" ? response.report : null);
         setStatus(nextState.status);
         setError(nextState.error);
@@ -6196,6 +6398,9 @@ export function RehearsalReportPage(props: {
                   setRun(r.run);
                   setAudioPlaybackAvailable(
                     r.audioPlaybackAvailable ?? Boolean(r.run.audioFileId),
+                  );
+                  setTranscriptDownloadAvailable(
+                    r.transcriptDownloadAvailable ?? false,
                   );
                   setReport(r.report);
                   setStatus(r.report ? "ready" : "failed");
@@ -6356,6 +6561,7 @@ export function RehearsalReportPage(props: {
           ) : report ? (
             <RehearsalReportDocument
               audioPlaybackAvailable={audioPlaybackAvailable}
+              transcriptDownloadAvailable={transcriptDownloadAvailable}
               report={report}
               deck={deck}
               onSemanticRetry={handleSemanticRetry}
@@ -6718,10 +6924,6 @@ function getAutoAdvanceCountdownSeconds(
     0,
   );
   return Math.max(1, Math.ceil(remainingMs / 1000));
-}
-
-function getMiniSlideScale(deck: Deck) {
-  return Math.min(0.16, 154 / deck.canvas.width, 87 / deck.canvas.height);
 }
 
 function RehearsalReportLoadingShell() {

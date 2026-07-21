@@ -93,8 +93,9 @@ export function ActivityResultsPage(props: {
     return (
       <main className="activity-results-state-page">
         <OrbitFailureState
-          description="잠시 후 다시 시도하거나 프로젝트 권한과 세션 주소를 확인해 주세요."
+          description="발표 세션과 청중 응답을 가져오지 못했습니다."
           onRetry={() => void archive.refetch()}
+          recommendedAction="인터넷 연결과 세션 주소를 확인한 뒤 다시 시도하세요. 프로젝트 권한이 없다면 소유자에게 확인하세요."
           title="발표 세션 결과를 불러오지 못했습니다."
         />
       </main>

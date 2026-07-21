@@ -589,6 +589,7 @@ class RawInput(BaseModel):
     visual_plan_policy: VisualPlanPolicy | None = None
     reference_policy: ReferencePolicy | None = None
     reference_file_ids: list[str] = Field(default_factory=list)
+    official_asset_file_ids: list[str] = Field(default_factory=list)
     references: list[GenerateDeckReference]
     reference_keywords: list[GenerateDeckReferenceKeyword]
     reference_context: list[ReferenceContext]
@@ -754,6 +755,27 @@ class GeneratedStorySlide(BaseModel):
     obligation_refs: list[str] = Field(default_factory=list, alias="obligationRefs")
 
 
+class CoverContent(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
+
+    title: str = Field(min_length=1)
+    subtitle: str | None = None
+    kicker: str | None = None
+    presenter_name: str | None = Field(default=None, alias="presenterName")
+    presenter_role: str | None = Field(default=None, alias="presenterRole")
+    organization: str | None = None
+    date_text: str | None = Field(default=None, alias="dateText")
+    venue: str | None = None
+    report_period: str | None = Field(default=None, alias="reportPeriod")
+    document_label: str | None = Field(default=None, alias="documentLabel")
+    media_query: str | None = Field(default=None, alias="mediaQuery")
+    profile_image_asset_id: str | None = Field(
+        default=None,
+        alias="profileImageAssetId",
+    )
+    speaker_notes: str = Field(default="", alias="speakerNotes")
+
+
 class GeneratedStoryBriefAnalysis(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -777,6 +799,7 @@ class GeneratedStoryPlan(BaseModel):
         default_factory=GeneratedStoryBriefAnalysis,
         alias="briefAnalysis",
     )
+    cover_content: CoverContent | None = Field(default=None, alias="coverContent")
     slides: list[GeneratedStorySlide] = Field(min_length=1)
     critical_facts: list[CriticalFact] = Field(
         default_factory=list,
@@ -834,6 +857,7 @@ class SlidePlan(BaseModel):
     content_items: list[GeneratedContentItem] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)
     obligation_refs: list[str] = Field(default_factory=list, alias="obligationRefs")
+    cover_content: CoverContent | None = Field(default=None, alias="coverContent")
 
 
 class ContentPlan(BaseModel):

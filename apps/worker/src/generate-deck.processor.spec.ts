@@ -1625,6 +1625,57 @@ describe("processGenerateDeckJob", () => {
       );
     });
 
+    it("requests a no-image fallback for an unresolved generated cover", async () => {
+      const base = programV2DeckWithOptionalMedia();
+      const deck = deckSchema.parse({
+        ...base,
+        metadata: {
+          ...base.metadata,
+          designProgramSnapshot: {
+            ...base.metadata.designProgramSnapshot,
+            compositionIds: ["cover-visual-impact"]
+          }
+        },
+        slides: [
+          {
+            ...base.slides[0],
+            aiNotes: {
+              ...base.slides[0].aiNotes,
+              compositionPlan: {
+                ...base.slides[0].aiNotes?.compositionPlan,
+                compositionId: "cover-visual-impact",
+                requiredAsset: true
+              }
+            }
+          }
+        ]
+      });
+      const fallbackDeck = programV2Deck();
+      let fallbackBody: Record<string, unknown> | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_input: unknown, init?: RequestInit) => {
+          fallbackBody = JSON.parse(String(init?.body));
+          return visualRepairResponse(fallbackDeck);
+        })
+      );
+
+      const outcome = await resolveGenerateDeckAssets({
+        dataSource: { query: dynamicJobQuery() } as unknown as DataSource,
+        storage,
+        pythonWorkerUrl: "http://localhost:8000",
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation,
+        officialAssetFileIds: []
+      });
+
+      expect(fallbackBody).toMatchObject({
+        dropOptionalMediaSlideIds: [],
+        dropFailedCoverMediaSlideIds: ["slide_1"]
+      });
+      expect(outcome.deck).toEqual(fallbackDeck);
+    });
+
     it("runs the bounded semantic repair without mutating the input deck", () => {
       const deck = deckSchema.parse(
         createDeck({

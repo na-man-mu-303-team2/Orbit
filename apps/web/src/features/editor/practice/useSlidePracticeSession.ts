@@ -1,7 +1,9 @@
-import type {
-  SlidePracticeReport,
-  VoiceBaselineMetrics,
-  VoiceBaselineRecord,
+import {
+  slideQuestionGuideTextHashInput,
+  type Deck,
+  type SlidePracticeReport,
+  type VoiceBaselineMetrics,
+  type VoiceBaselineRecord,
 } from "@orbit/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -14,6 +16,7 @@ import {
   submitSlidePracticeAudio,
   upsertVoiceBaseline,
 } from "./slidePracticeApi";
+import { sha256Canonical } from "./slideQuestionGuideApi";
 
 export type PracticeSessionState =
   | "idle"
@@ -96,9 +99,9 @@ export function getSlidePracticeRuntimeMessage(
   return "";
 }
 
-export async function prepareSlidePracticeStart<T>(input: {
+export async function prepareSlidePracticeStart<T, TBeforeStart = void>(input: {
   runtimeState: SlidePracticeRuntimeState;
-  beforeStart?: () => Promise<void>;
+  beforeStart: () => Promise<TBeforeStart>;
   getDeviceIdHash: () => Promise<string | null>;
   startAudio: () => Promise<T>;
 }) {
@@ -108,19 +111,46 @@ export async function prepareSlidePracticeStart<T>(input: {
         "슬라이드 연습 기능을 확인하고 있습니다.",
     );
   }
-  await input.beforeStart?.();
+  const beforeStartResult = await input.beforeStart();
   const deviceIdHash = await input.getDeviceIdHash();
   const stream = await input.startAudio();
-  return { deviceIdHash, stream };
+  return { beforeStartResult, deviceIdHash, stream };
+}
+
+export async function createSlidePracticeSessionSnapshot(input: {
+  deck: Deck;
+  practiceSessionId: string;
+  slideId: string;
+  startedAt: string;
+}) {
+  const source = await createSlidePracticeSourceSnapshot(input.deck, input.slideId);
+  return {
+    practiceSessionId: input.practiceSessionId,
+    ...source,
+    startedAt: input.startedAt,
+  };
+}
+
+async function createSlidePracticeSourceSnapshot(deck: Deck, slideId: string) {
+  const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
+  if (!slide) throw new Error("현재 슬라이드가 서버 덱에 없습니다.");
+  return {
+    slideId: slide.slideId,
+    slideOrder: slide.order,
+    deckId: deck.deckId,
+    deckVersion: deck.version,
+    slideContentHash: await sha256Canonical(slideQuestionGuideTextHashInput(slide)),
+  };
 }
 
 export function useSlidePracticeSession(input: {
-  beforeStart?: () => Promise<void>;
+  beforeStart?: () => Promise<Deck | void>;
   projectId: string;
   deckId: string;
   deckVersion: number;
   slideId: string | null;
   slideOrder: number;
+  slideContentHashInput: unknown | null;
 }) {
   const audio = useFocusedPracticeAudio(300_000, slidePracticeAudioConstraints);
   const [state, setState] = useState<PracticeSessionState>("idle");
@@ -141,10 +171,16 @@ export function useSlidePracticeSession(input: {
     deckId: string;
     deckVersion: number;
     startedAt: string;
+    slideContentHash: string;
   } | null>(null);
 
   async function start(): Promise<MediaStream | null> {
-    if (!input.slideId || state === "starting" || state === "recording") return null;
+    if (
+      !input.slideId
+      || input.slideContentHashInput === null
+      || state === "starting"
+      || state === "recording"
+    ) return null;
     if (runtimeState !== "enabled") {
       setMessage(
         getSlidePracticeRuntimeMessage(runtimeState) ||
@@ -156,23 +192,35 @@ export function useSlidePracticeSession(input: {
     setMessage("");
     setReport(null);
     try {
+      const slideId = input.slideId;
       const prepared = await prepareSlidePracticeStart({
         runtimeState,
-        beforeStart: input.beforeStart,
+        beforeStart: async () => {
+          const persistedDeck = await input.beforeStart?.();
+          return persistedDeck
+            ? createSlidePracticeSourceSnapshot(persistedDeck, slideId)
+            : {
+                slideId,
+                slideOrder: input.slideOrder,
+                deckId: input.deckId,
+                deckVersion: input.deckVersion,
+                slideContentHash: await sha256Canonical(input.slideContentHashInput),
+              };
+        },
         getDeviceIdHash: () => getStableDeviceIdHash().catch(() => null),
         startAudio: audio.start,
       });
       deviceIdHashRef.current = prepared.deviceIdHash;
       const stream = prepared.stream;
+      const sourceSnapshot = prepared.beforeStartResult;
       const startedAt = Date.now();
       startedAtRef.current = startedAt;
+      const practiceSessionId = `slide_practice_${crypto.randomUUID()}`;
+      const startedAtIso = new Date(startedAt).toISOString();
       sessionSnapshotRef.current = {
-        practiceSessionId: `slide_practice_${crypto.randomUUID()}`,
-        slideId: input.slideId,
-        slideOrder: input.slideOrder,
-        deckId: input.deckId,
-        deckVersion: input.deckVersion,
-        startedAt: new Date(startedAt).toISOString(),
+        practiceSessionId,
+        ...sourceSnapshot,
+        startedAt: startedAtIso,
       };
       timerRef.current = setInterval(() => setElapsedMs(Date.now() - startedAt), 200);
       setElapsedMs(0);
@@ -229,6 +277,7 @@ export function useSlidePracticeSession(input: {
         deckVersion: snapshot.deckVersion,
         slideId: snapshot.slideId,
         slideOrder: snapshot.slideOrder,
+        slideContentHash: snapshot.slideContentHash,
         startedAt: snapshot.startedAt,
         deviceIdHash: deviceIdHashRef.current,
         blob: capture.blob,
@@ -313,9 +362,11 @@ export function useSlidePracticeSession(input: {
 
 export function getSlidePracticeErrorMessage(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : "";
-  return message.includes("Slide practice is not enabled")
-    ? slidePracticeDisabledMessage
-    : message || fallback;
+  if (message.includes("Slide practice is not enabled")) return slidePracticeDisabledMessage;
+  if (message.includes("content hash") || message.includes("slide content")) {
+    return "슬라이드 내용이 변경되었습니다. 최신 내용을 확인한 뒤 다시 시도해 주세요.";
+  }
+  return message || fallback;
 }
 
 function mergeBaseline(

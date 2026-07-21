@@ -53,6 +53,31 @@ describe("RehearsalsController", () => {
     expect(rehearsalsService.getAudioPlaybackUrl).toHaveBeenCalledWith("run-1");
   });
 
+  it("requires project read permission and returns an attachment download", async () => {
+    const { controller, projectsService, rehearsalsService } = createController();
+    const response = { setHeader: vi.fn() };
+
+    await controller.downloadArtifact(
+      "run-1",
+      "transcript",
+      signedRequest(),
+      response as never,
+    );
+
+    expect(projectsService.assertCanReadProject).toHaveBeenCalledWith(
+      "project-a",
+      "user-1",
+    );
+    expect(rehearsalsService.getDownload).toHaveBeenCalledWith(
+      "run-1",
+      "transcript",
+    );
+    expect(response.setHeader).toHaveBeenCalledWith(
+      "content-disposition",
+      'attachment; filename="transcript.txt"',
+    );
+  });
+
   it("requires project read permission before returning a run comparison", async () => {
     const { controller, projectsService, rehearsalsService } = createController();
 
@@ -138,6 +163,11 @@ function createController() {
       playbackUrl: "https://storage.example.com/audio?signature=short-lived",
       expiresAt: "2026-07-16T00:15:00.000Z",
       retentionExpiresAt: "2026-07-30T00:00:00.000Z",
+    })),
+    getDownload: vi.fn(async () => ({
+      body: Buffer.from("transcript"),
+      contentType: "text/plain; charset=utf-8",
+      fileName: "transcript.txt",
     })),
     getRunProjectId: vi.fn(async () => "project-a"),
   };

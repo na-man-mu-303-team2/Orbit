@@ -3,12 +3,15 @@ import {
   createSlidePracticeAnalysisRequestSchema,
   createSlidePracticeAnalysisResponseSchema,
   createSlidePracticeReportRequestSchema,
+  listSlidePracticeReportsQuerySchema,
+  slidePracticeContentHashVersion,
   slidePracticeAnalysisResultResponseSchema,
   slidePracticeAnalysisSchema,
   slidePracticeReportListResponseSchema,
   slidePracticeReportRecordSchema,
   upsertVoiceBaselineRequestSchema,
   voiceBaselineRecordSchema,
+  slideQuestionGuideTextHashInput,
 } from "@orbit/shared";
 import { loadOrbitConfig } from "@orbit/config";
 import { enqueueSlidePracticeAnalysisJob } from "@orbit/job-queue";
@@ -17,21 +20,14 @@ import { InjectDataSource } from "@nestjs/typeorm";
 import { randomUUID } from "node:crypto";
 import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import type { DataSource } from "typeorm";
-import { z } from "zod";
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { ProjectsService } from "../projects/projects.service";
 import { DecksService } from "../decks/decks.service";
+import { sha256Canonical } from "../practice-goals/evaluation-plan";
 
 const practiceReportRetentionMs = 90 * 24 * 60 * 60 * 1_000;
 const voiceBaselineRetentionMs = 180 * 24 * 60 * 60 * 1_000;
-const listQuerySchema = z.object({
-  deckId: z.string().trim().min(1).max(128).optional(),
-  slideId: z.string().trim().min(1).max(128).optional(),
-  cursor: z.string().datetime().optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(30),
-}).strict();
-
 @Injectable()
 export class SlidePracticeService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
@@ -65,7 +61,7 @@ export class SlidePracticeService {
       });
     }
     const { deck } = await this.decks.getDeck(projectId);
-    if (deck.deckId !== request.deckId || deck.version !== request.deckVersion) {
+    if (deck.deckId !== request.deckId) {
       throw new ConflictException({
         code: "SLIDE_PRACTICE_DECK_VERSION_MISMATCH",
         message: "The practice deck version does not match the current deck version.",
@@ -73,9 +69,27 @@ export class SlidePracticeService {
       });
     }
     const slide = deck.slides.find((candidate) => candidate.slideId === request.slideId);
-    if (!slide || slide.order !== request.slideOrder) {
+    if (!slide) {
       throw new NotFoundException("Slide not found at the requested order in the current deck.");
     }
+    const slideContentHash = sha256Canonical(slideQuestionGuideTextHashInput(slide));
+    const hasContentHash = Boolean(request.contentHashVersion && request.slideContentHash);
+    if (hasContentHash && request.slideContentHash !== slideContentHash) {
+      throwSlidePracticeContentHashMismatch(slideContentHash);
+    }
+    if (!hasContentHash && deck.version !== request.deckVersion) {
+      throw new ConflictException({
+        code: "SLIDE_PRACTICE_DECK_VERSION_MISMATCH",
+        message: "The practice deck version does not match the current deck version.",
+        actualDeckVersion: deck.version,
+      });
+    }
+    if (!hasContentHash && slide.order !== request.slideOrder) {
+      throw new NotFoundException("Slide not found at the requested order in the current deck.");
+    }
+    const freshnessResolution = deck.version === request.deckVersion
+      ? "exact"
+      : "content-hash";
     const upload = await this.files.createUploadUrl(
       projectId,
       {
@@ -90,12 +104,13 @@ export class SlidePracticeService {
     const rows = await this.dataSource.query(
       `INSERT INTO slide_practice_audio_analyses (
         analysis_id, project_id, created_by, client_request_id, practice_session_id,
-        deck_id, deck_version, slide_id, slide_order, started_at, duration_ms,
+        deck_id, deck_version, slide_id, slide_order, content_hash_version,
+        slide_content_hash, started_at, duration_ms,
         device_id_hash, status, audio_file_id, analysis_job_id, report_id,
         error_code, cleanup_state, raw_audio_deleted_at, raw_audio_delete_deadline_at,
         created_at, updated_at, expires_at, completed_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11,'uploading',$12,NULL,NULL,
-        NULL,'pending',NULL,$13,$14,$14,$15,NULL)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,$13,'uploading',$14,NULL,NULL,
+        NULL,'pending',NULL,$15,$16,$16,$17,NULL)
       RETURNING *`,
       [
         `practice_analysis_${randomUUID()}`,
@@ -103,10 +118,12 @@ export class SlidePracticeService {
         actorUserId,
         request.clientRequestId,
         request.practiceSessionId,
-        request.deckId,
-        request.deckVersion,
-        request.slideId,
-        request.slideOrder,
+        deck.deckId,
+        deck.version,
+        slide.slideId,
+        slide.order,
+        slidePracticeContentHashVersion,
+        slideContentHash,
         request.startedAt,
         request.deviceIdHash,
         upload.fileId,
@@ -120,9 +137,12 @@ export class SlidePracticeService {
       event: "slide_practice.analysis.created",
       projectId,
       analysisId: analysis.analysisId,
-      deckId: request.deckId,
-      deckVersion: request.deckVersion,
-      slideId: request.slideId,
+      deckId: deck.deckId,
+      deckVersion: deck.version,
+      requestedDeckVersion: request.deckVersion,
+      resolvedDeckVersion: deck.version,
+      freshnessResolution,
+      slideId: slide.slideId,
     }, "Slide practice analysis created.");
     return createSlidePracticeAnalysisResponseSchema.parse({ analysis, upload });
   }
@@ -199,14 +219,29 @@ export class SlidePracticeService {
     ));
     if (existing) return { report: toPracticeReport(existing) };
 
+    if (request.report.reportVersion === 3) {
+      const { deck } = await this.decks.getDeck(projectId);
+      const slide = deck.deckId === request.report.deckId
+        ? deck.slides.find((candidate) => candidate.slideId === request.report.slideId)
+        : null;
+      if (!slide || slide.order !== request.report.slideOrder) {
+        throw new NotFoundException("Slide not found at the requested order in the current deck.");
+      }
+      const slideContentHash = sha256Canonical(slideQuestionGuideTextHashInput(slide));
+      if (request.report.slideContentHash !== slideContentHash) {
+        throwSlidePracticeContentHashMismatch(slideContentHash);
+      }
+    }
+
     const now = new Date();
     const reportId = `practice_report_${randomUUID()}`;
     const rows = await this.dataSource.query(
       `INSERT INTO slide_practice_reports (
         report_id, project_id, created_by, client_request_id, deck_id, deck_version,
-        slide_id, slide_order, metric_definition_version, classifier_version,
+        slide_id, slide_order, content_hash_version, slide_content_hash,
+        metric_definition_version, classifier_version,
         report_json, created_at, expires_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       ON CONFLICT (project_id, created_by, client_request_id) DO NOTHING
       RETURNING *`,
       [
@@ -218,6 +253,8 @@ export class SlidePracticeService {
         request.report.deckVersion,
         request.report.slideId,
         request.report.slideOrder,
+        request.report.reportVersion === 3 ? request.report.contentHashVersion : null,
+        request.report.reportVersion === 3 ? request.report.slideContentHash : null,
         request.report.metricDefinitionVersion,
         request.report.classifierVersion,
         request.report,
@@ -250,7 +287,7 @@ export class SlidePracticeService {
     rawQuery: Record<string, string | undefined>,
   ) {
     this.assertEnabled();
-    const query = listQuerySchema.parse(rawQuery);
+    const query = listSlidePracticeReportsQuerySchema.parse(rawQuery);
     const rows = await this.dataSource.query(
       `SELECT * FROM slide_practice_reports
        WHERE project_id = $1
@@ -258,10 +295,23 @@ export class SlidePracticeService {
          AND expires_at > now()
          AND ($3::text IS NULL OR deck_id = $3)
          AND ($4::text IS NULL OR slide_id = $4)
-         AND ($5::timestamptz IS NULL OR created_at < $5)
+         AND ($5::text IS NULL OR (
+           slide_content_hash = $5
+           AND content_hash_version = 'slide-text-v1'
+           AND metric_definition_version = 3
+         ))
+         AND ($6::timestamptz IS NULL OR created_at < $6)
        ORDER BY created_at DESC
-       LIMIT $6`,
-      [projectId, actorUserId, query.deckId ?? null, query.slideId ?? null, query.cursor ?? null, query.limit + 1],
+       LIMIT $7`,
+      [
+        projectId,
+        actorUserId,
+        query.deckId ?? null,
+        query.slideId ?? null,
+        query.slideContentHash ?? null,
+        query.cursor ?? null,
+        query.limit + 1,
+      ],
     );
     const page = rows.slice(0, query.limit);
     const last = page.at(-1);
@@ -379,4 +429,12 @@ function firstRow(value: unknown): Record<string, any> | null {
 
 function toIso(value: unknown) {
   return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
+}
+
+function throwSlidePracticeContentHashMismatch(actualSlideContentHash: string): never {
+  throw new ConflictException({
+    code: "SLIDE_PRACTICE_CONTENT_HASH_MISMATCH",
+    message: "The slide practice content hash does not match the current slide content.",
+    actualSlideContentHash,
+  });
 }

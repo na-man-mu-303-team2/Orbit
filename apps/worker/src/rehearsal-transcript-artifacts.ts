@@ -1,4 +1,5 @@
 import { rehearsalTranscriptArtifactSchema } from "@orbit/shared";
+import type { SlideTranscriptSnapshot } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
 import { createHash } from "node:crypto";
 import type { DataSource } from "typeorm";
@@ -17,6 +18,8 @@ export type RehearsalTranscriptArtifactInput = {
   transcriptTextFileId: string | null;
   transcriptJsonStatus: string | null;
   transcriptTextStatus: string | null;
+  liveTranscript?: string | null;
+  slideTranscriptSnapshots?: SlideTranscriptSnapshot[];
   transcription: {
     transcript: string;
     language: string;
@@ -74,6 +77,8 @@ export async function storeRehearsalTranscriptArtifacts(
 
   const artifact = rehearsalTranscriptArtifactSchema.parse({
     text: input.transcription.transcript,
+    liveTranscript: input.liveTranscript ?? null,
+    slideTranscriptSnapshots: input.slideTranscriptSnapshots ?? [],
     language: input.transcription.language,
     duration: input.transcription.durationSeconds ?? 0,
     provider: input.transcription.provider,

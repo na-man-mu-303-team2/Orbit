@@ -2,6 +2,7 @@ import type { StoragePort } from "@orbit/storage";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  applyLiveTranscriptFillerAnalysis,
   buildTranscriptionPronunciationContext,
   processRehearsalSttJob,
 } from "./rehearsal-stt.processor";
@@ -13,6 +14,96 @@ const payload = {
   deckId: "deck-a",
   audioFileId: "file-audio",
 };
+
+describe("applyLiveTranscriptFillerAnalysis", () => {
+  const serverAnalysis = {
+    runId: "run-a",
+    wordsPerMinute: 123,
+    fillerWordCount: 1,
+    longSilenceCount: 2,
+    keywordCoverage: 0.75,
+    speedSamples: [{ startSecond: 0, endSecond: 10, wordsPerMinute: 123 }],
+    fillerWordDetails: [{ word: "음", count: 1 }],
+    missedKeywords: [{ slideId: "slide-1", keywordId: "keyword-1", text: "목표" }],
+    slideInsights: [],
+  };
+
+  it("uses the live transcript only for aggregate filler metrics", () => {
+    const result = applyLiveTranscriptFillerAnalysis(
+      serverAnalysis,
+      "음 오늘은 어 그러니까 핵심을 설명합니다",
+    );
+
+    expect(result.fillerWordCount).toBe(3);
+    expect(result.fillerWordDetails).toEqual(expect.arrayContaining([
+      { word: "그러니까", count: 1 },
+      { word: "어", count: 1 },
+      { word: "음", count: 1 },
+    ]));
+    expect(result.wordsPerMinute).toBe(serverAnalysis.wordsPerMinute);
+    expect(result.keywordCoverage).toBe(serverAnalysis.keywordCoverage);
+    expect(result.speedSamples).toBe(serverAnalysis.speedSamples);
+    expect(result.missedKeywords).toBe(serverAnalysis.missedKeywords);
+    expect(result.slideInsights).toBe(serverAnalysis.slideInsights);
+  });
+
+  it("keeps the server filler result when no live transcript is available", () => {
+    expect(applyLiveTranscriptFillerAnalysis(serverAnalysis, null)).toBe(
+      serverAnalysis,
+    );
+  });
+
+  it("limits filler details to each slide snapshot interval", () => {
+    const result = applyLiveTranscriptFillerAnalysis(
+      serverAnalysis,
+      "음 첫 번째 어 두 번째 음 다시",
+      [
+        {
+          slideId: "slide-1",
+          slideNum: 1,
+          visitedVer: 1,
+          transcript: "음 첫 번째",
+          visitedAt: "2026-07-20T04:00:00.000Z",
+          capturedAt: "2026-07-20T04:00:10.000Z",
+          reason: "slide-change",
+        },
+        {
+          slideId: "slide-2",
+          slideNum: 2,
+          visitedVer: 1,
+          transcript: "음 첫 번째 어 두 번째",
+          visitedAt: "2026-07-20T04:00:10.000Z",
+          capturedAt: "2026-07-20T04:00:20.000Z",
+          reason: "slide-change",
+        },
+        {
+          slideId: "slide-1",
+          slideNum: 1,
+          visitedVer: 2,
+          transcript: "음 첫 번째 어 두 번째 음 다시",
+          visitedAt: "2026-07-20T04:00:20.000Z",
+          capturedAt: "2026-07-20T04:00:30.000Z",
+          reason: "rehearsal-end",
+        },
+      ],
+    );
+
+    expect(result.slideInsights).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          slideId: "slide-1",
+          fillerWordCount: 2,
+          fillerWordDetails: [{ word: "음", count: 2 }],
+        }),
+        expect.objectContaining({
+          slideId: "slide-2",
+          fillerWordCount: 1,
+          fillerWordDetails: [{ word: "어", count: 1 }],
+        }),
+      ]),
+    );
+  });
+});
 
 const assetRow = {
   file_id: "file-audio",

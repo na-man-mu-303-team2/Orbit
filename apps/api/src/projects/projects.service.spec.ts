@@ -4,7 +4,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { demoIds } from "@orbit/shared";
-import { DataSource, QueryFailedError, Repository } from "typeorm";
+import { DataSource, EntityManager, QueryFailedError, Repository } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 import { ProjectEntity } from "./project.entity";
 import { ProjectMemberEntity } from "./project-member.entity";
@@ -242,6 +242,50 @@ function createService(args?: {
 }
 
 describe("ProjectsService", () => {
+  it("creates a project and accepted owner membership with a caller transaction manager", async () => {
+    const saved: Array<Record<string, unknown>> = [];
+    const manager = {
+      async query(query: string) {
+        return query.includes("to_regclass") ? [] : [];
+      },
+      create(_entity: unknown, input: Record<string, unknown>) {
+        return input;
+      },
+      async save(entity: Record<string, unknown>) {
+        saved.push(entity);
+        return entity;
+      },
+    } as unknown as EntityManager;
+    const service = new ProjectsService(
+      {} as DataSource,
+      createProjectRepository(),
+      createProjectMemberRepository(),
+    );
+
+    const project = await service.createInTransaction(
+      manager,
+      demoIds.workspaceId,
+      { title: "Template project" },
+      "user_template",
+      new Date("2026-07-21T00:00:00.000Z"),
+    );
+
+    expect(project).toMatchObject({
+      workspaceId: demoIds.workspaceId,
+      title: "Template project",
+      createdBy: "user_template",
+      createdAt: "2026-07-21T00:00:00.000Z",
+    });
+    expect(saved).toHaveLength(2);
+    expect(saved[1]).toMatchObject({
+      projectId: project.projectId,
+      userId: "user_template",
+      role: "owner",
+      status: "accepted",
+      createdAt: new Date("2026-07-21T00:00:00.000Z"),
+    });
+  });
+
   it("returns a structured service unavailable error when access membership lookup fails", async () => {
     const project = new ProjectEntity();
     project.projectId = "project_schema_drift";
@@ -318,7 +362,15 @@ describe("ProjectsService", () => {
     expect(project.workspaceId).toBe(demoIds.workspaceId);
     expect(project.createdBy).toBe("user_1");
     expect(project.title).toBe("Quarterly Review");
-    expect(projects).toEqual([{ ...project, isPinned: false }]);
+    expect(projects).toEqual([
+      {
+        ...project,
+        generation: null,
+        isPinned: false,
+        pinnedAt: null,
+        tags: [],
+      },
+    ]);
   });
 
   it("rejects workspace access outside the demo boundary", async () => {
@@ -471,19 +523,30 @@ describe("ProjectsService", () => {
       members: [owner, viewer],
     });
 
-    await expect(
-      service.updatePin(
-        demoIds.workspaceId,
-        project.projectId,
-        owner.userId,
-        true,
-      ),
-    ).resolves.toEqual({ projectId: project.projectId, isPinned: true });
+    const pin = await service.updatePin(
+      demoIds.workspaceId,
+      project.projectId,
+      owner.userId,
+      true,
+    );
+    expect(pin).toEqual({
+      projectId: project.projectId,
+      isPinned: true,
+      pinnedAt: expect.any(String),
+    });
     await expect(service.list(demoIds.workspaceId, owner.userId)).resolves.toEqual([
-      expect.objectContaining({ projectId: project.projectId, isPinned: true }),
+      expect.objectContaining({
+        projectId: project.projectId,
+        isPinned: true,
+        pinnedAt: pin.pinnedAt,
+      }),
     ]);
     await expect(service.list(demoIds.workspaceId, viewer.userId)).resolves.toEqual([
-      expect.objectContaining({ projectId: project.projectId, isPinned: false }),
+      expect.objectContaining({
+        projectId: project.projectId,
+        isPinned: false,
+        pinnedAt: null,
+      }),
     ]);
   });
 

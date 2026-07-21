@@ -4,6 +4,7 @@ import {
   generateDeckValidationSchema,
   slideSchema,
   type AiDeckGenerationStage,
+  type GenerateDeckJobResult,
 } from "@orbit/shared";
 import { z } from "zod";
 
@@ -76,7 +77,11 @@ export const qualityArtifactPayloadSchema = z
   })
   .strict();
 
-export const publicationArtifactPayloadSchema = z
+export const publicationArtifactPayloadSchema: z.ZodType<
+  { result: GenerateDeckJobResult },
+  z.ZodTypeDef,
+  { result: z.input<typeof generateDeckJobResultSchema> }
+> = z
   .object({
     result: generateDeckJobResultSchema,
   })

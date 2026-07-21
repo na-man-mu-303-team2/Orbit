@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   findCurrentSlideQuestionGuide,
+  getSlideQuestionGuideErrorMessage,
   getAdjacentQuestionId,
   getInitialQuestionId,
   getSuggestedAnswerPreview,
@@ -26,6 +27,17 @@ const source = {
 };
 
 describe("SlideQuestionGuidePanel official sources", () => {
+  it("대상 슬라이드 freshness 충돌을 한국어 재시도 안내로 바꾼다", () => {
+    const error = Object.assign(new Error("server detail"), {
+      code: "SLIDE_QUESTION_CONTENT_HASH_MISMATCH",
+    });
+
+    expect(getSlideQuestionGuideErrorMessage(error)).toBe(
+      "슬라이드 내용이 변경되었습니다. 최신 내용을 확인한 뒤 다시 시도해 주세요.",
+    );
+    expect(getSlideQuestionGuideErrorMessage(new Error("network failed"))).toBe("network failed");
+  });
+
   it("상단 설명 없이 런타임 설정을 확인한 뒤 질문 생성 액션을 표시한다", () => {
     const deck = createDemoDeck();
     const html = renderToStaticMarkup(

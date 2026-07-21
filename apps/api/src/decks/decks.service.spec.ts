@@ -690,6 +690,29 @@ describe("DecksService", () => {
     vi.unstubAllEnvs();
   });
 
+  it("creates an initial Deck and snapshot with a caller transaction manager", async () => {
+    const { dataSource, service } = createService();
+    const deck = createDeck();
+
+    const result = await service.createInitialDeckInTransaction(
+      dataSource as unknown as EntityManager,
+      deck,
+      "2026-07-21T00:00:00.000Z",
+    );
+
+    expect(result.deck).toEqual(deck);
+    expect(result.snapshot).toMatchObject({
+      projectId: deck.projectId,
+      deckId: deck.deckId,
+      version: 1,
+      reason: "deck-replaced",
+      createdAt: "2026-07-21T00:00:00.000Z",
+    });
+    expect(dataSource.decks.get(deck.projectId)?.deck_json).toEqual(deck);
+    expect(dataSource.snapshotRows).toHaveLength(1);
+    expect(dataSource.projectTitles.get(deck.projectId)).toBe(deck.title);
+  });
+
   it("stores and reads a current deck with an automatic snapshot", async () => {
     const { dataSource, service } = createService();
     const deck = createDeck();

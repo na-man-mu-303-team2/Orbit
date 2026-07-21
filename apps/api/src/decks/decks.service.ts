@@ -158,6 +158,12 @@ export type SpeakerNotesSuggestionEnqueueJob = (
 export const SPEAKER_NOTES_SUGGESTION_ENQUEUE_JOB =
   "SPEAKER_NOTES_SUGGESTION_ENQUEUE_JOB";
 
+export type InitialDeckWriteResult = {
+  deck: Deck;
+  snapshot: DeckSnapshot;
+  updatedAt: string;
+};
+
 @Injectable()
 export class DecksService {
   constructor(
@@ -235,6 +241,29 @@ export class DecksService {
         true,
       )
     ).deck;
+  }
+
+  async createInitialDeckInTransaction(
+    manager: EntityManager,
+    deck: Deck,
+    createdAt: string,
+  ): Promise<InitialDeckWriteResult> {
+    const initialDeck = deckSchema.parse(deck);
+    const storedDeck = await this.writeDeckCheckpoint(
+      manager,
+      initialDeck,
+      createdAt,
+      null,
+    );
+    await this.updateProjectTitle(manager, storedDeck.projectId, storedDeck.title);
+    const snapshot = await this.createSnapshot(
+      manager,
+      storedDeck,
+      "deck-replaced",
+      createdAt,
+    );
+
+    return { deck: storedDeck, snapshot, updatedAt: createdAt };
   }
 
   async getPptxImportQuality(

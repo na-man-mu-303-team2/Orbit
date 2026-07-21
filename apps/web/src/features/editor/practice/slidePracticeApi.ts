@@ -35,11 +35,13 @@ export async function listSlidePracticeReports(input: {
   projectId: string;
   deckId?: string;
   slideId?: string;
+  slideContentHash?: string;
   limit?: number;
 }): Promise<SlidePracticeReportListResponse> {
   const search = new URLSearchParams();
   if (input.deckId) search.set("deckId", input.deckId);
   if (input.slideId) search.set("slideId", input.slideId);
+  if (input.slideContentHash) search.set("slideContentHash", input.slideContentHash);
   search.set("limit", String(input.limit ?? 30));
   const response = await fetch(
     `/api/v1/projects/${encodeURIComponent(input.projectId)}/slide-practice-reports?${search}`,
@@ -56,6 +58,7 @@ export async function submitSlidePracticeAudio(input: {
   deckVersion: number;
   slideId: string;
   slideOrder: number;
+  slideContentHash: string;
   startedAt: string;
   deviceIdHash: string | null;
   blob: Blob;
@@ -74,6 +77,8 @@ export async function submitSlidePracticeAudio(input: {
         deckVersion: input.deckVersion,
         slideId: input.slideId,
         slideOrder: input.slideOrder,
+        contentHashVersion: "slide-text-v1",
+        slideContentHash: input.slideContentHash,
         startedAt: input.startedAt,
         mimeType: normalizeCoachingAudioMimeType(input.blob.type),
         size: input.blob.size,

@@ -38,12 +38,14 @@ describe("AI PPT wizard UI", () => {
     );
     expect(html).toContain('aria-label="참고 자료 파일 업로드"');
     expect(html).toContain("내용 구성");
-    expect(html).toContain("사용자 입력만");
+    expect(html).toContain("웹 리서치 허용");
     expect(html).toContain("이미지 구성");
-    expect(html).toContain("이미지 최소화");
-    expect(html).toContain('aria-haspopup="menu"');
-    expect(html).toContain("첨부 파일 분석과 웹 검색은 실행하지 않습니다");
-    expect(html).toContain("도형과 타이포 중심으로 구성합니다");
+    expect(html).toContain("AI 이미지 사용");
+    expect(html.match(/type="checkbox"/g)).toHaveLength(2);
+    expect(html.match(/<label class="ai-ppt-policy-checkbox">/g)).toHaveLength(2);
+    expect(html).not.toContain('aria-haspopup="menu"');
+    expect(html).toContain("입력한 내용만 사용합니다");
+    expect(html).toContain("이미지 없이 도형과 타이포 중심으로 구성합니다");
     expect(html).not.toContain(
       "선택한 어조는 슬라이드 디자인이 아닌 발표 대본에만 반영됩니다.",
     );
@@ -88,6 +90,9 @@ describe("AI PPT wizard UI", () => {
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain("AI로 컬러 팔레트 만들기");
     expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('class="ai-ppt-ai-palette-create"');
+    expect(html).toContain('class="ai-ppt-ai-palette-create-icon"');
+    expect(html).not.toContain("workspace-home-create");
     expect(html).not.toContain('id="ai-ppt-ai-palette-panel"');
     expect(html.indexOf("ai-ppt-palette-swatches")).toBeLessThan(
       html.indexOf("ai-ppt-palette-mockup"),

@@ -430,6 +430,8 @@ describe("RehearsalsService", () => {
 
     const result = await service.completeAudioUpload(run.runId, {
       fileId: "file-audio",
+      liveTranscript: "브라우저에서 인식한 전체 문장",
+      slideTranscriptSnapshots: [],
     });
 
     expect(result.run).toMatchObject({
@@ -450,7 +452,9 @@ describe("RehearsalsService", () => {
       projectId: "project-a",
       runId: run.runId,
       deckId: "deck-a",
+      slideTranscriptSnapshots: [],
       audioFileId: "file-audio",
+      liveTranscript: "브라우저에서 인식한 전체 문장",
     });
   });
 
@@ -775,6 +779,30 @@ describe("RehearsalsService", () => {
     );
   });
 
+  it("reports transcript download as available when the retained object exists", async () => {
+    const isOwnerOnlyAssetAvailable = vi.fn(async () => true);
+    const service = createService({
+      filesServicePatch: { isOwnerOnlyAssetAvailable },
+    });
+    const run = await createRun(service);
+    await saveRunPatch(service, run.runId, {
+      status: "succeeded",
+      rehearsalReport,
+      transcriptRetained: true,
+      transcriptTextFileId: "file-transcript-text",
+    });
+
+    const result = await service.getReport(run.runId);
+
+    expect(result.report?.transcriptRetained).toBe(false);
+    expect(result.transcriptDownloadAvailable).toBe(true);
+    expect(isOwnerOnlyAssetAvailable).toHaveBeenCalledWith(
+      "project-a",
+      "file-transcript-text",
+      "rehearsal-transcript-text",
+    );
+  });
+
   it("compares a succeeded run with the previous succeeded run", async () => {
     const service = createService();
     const previous = await createRun(service);
@@ -956,6 +984,65 @@ describe("RehearsalsService", () => {
       response: { code: "REHEARSAL_AUDIO_EXPIRED" },
     });
     expect(createPrivateAudioReadUrl).not.toHaveBeenCalled();
+  });
+
+  it("downloads the retained transcript artifact from private storage", async () => {
+    const readOwnerOnlyAssetContent = vi.fn(async () => ({
+      body: Buffer.from("전체 transcript", "utf8"),
+      contentType: "text/plain; charset=utf-8",
+      originalName: "transcript.txt",
+    }));
+    const service = createService({
+      filesServicePatch: { readOwnerOnlyAssetContent },
+    });
+    const run = await createRun(service);
+    await saveRunPatch(service, run.runId, {
+      status: "succeeded",
+      transcriptRetained: true,
+      transcriptTextFileId: "file-transcript-text",
+    });
+
+    const result = await service.getDownload(run.runId, "transcript");
+
+    expect(result.fileName).toBe("transcript.txt");
+    expect(result.body.toString("utf8")).toBe("전체 transcript");
+    expect(readOwnerOnlyAssetContent).toHaveBeenCalledWith(
+      "project-a",
+      "file-transcript-text",
+      "rehearsal-transcript-text",
+    );
+  });
+
+  it("downloads retained rehearsal audio and rejects expired audio", async () => {
+    const readOwnerOnlyAssetContent = vi.fn(async () => ({
+      body: Buffer.from("audio"),
+      contentType: "audio/webm",
+      originalName: "recording.webm",
+    }));
+    const service = createService({
+      filesServicePatch: { readOwnerOnlyAssetContent },
+    });
+    const run = await createRun(service);
+    await saveRunPatch(service, run.runId, {
+      audioFileId: "file-audio",
+      status: "succeeded",
+      rawAudioDeletedAt: null,
+      rawAudioDeleteDeadlineAt: new Date(Date.now() + 60_000),
+    });
+
+    const result = await service.getDownload(run.runId, "audio");
+    expect(result).toMatchObject({
+      contentType: "audio/webm",
+      fileName: "rehearsal.webm",
+    });
+
+    await saveRunPatch(service, run.runId, {
+      rawAudioDeleteDeadlineAt: new Date("2020-01-01T00:00:00.000Z"),
+    });
+    await expect(service.getDownload(run.runId, "audio")).rejects.toMatchObject({
+      status: 410,
+      response: { code: "REHEARSAL_AUDIO_EXPIRED" },
+    });
   });
 
   it("creates an ID-only semantic evaluation retry job when cached evidence exists", async () => {
@@ -1213,6 +1300,12 @@ function createService(
       async () => "https://storage.example.com/audio?signature=short-lived",
     ),
     isPrivateAudioAvailable: vi.fn(async () => true),
+    isOwnerOnlyAssetAvailable: vi.fn(async () => true),
+    readOwnerOnlyAssetContent: vi.fn(async () => ({
+      body: Buffer.from("asset"),
+      contentType: "application/octet-stream",
+      originalName: "asset.bin",
+    })),
     ...options.filesServicePatch,
   } as unknown as FilesService;
   const projectsService = {

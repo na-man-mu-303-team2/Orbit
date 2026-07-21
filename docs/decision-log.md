@@ -833,3 +833,15 @@
 - Rationale: 기능 공개 정책과 실제 배포 계약을 일치시키고, 누락된 env가 조용히 기능을 끄는 상태를 방지한다. runtime config 조회 실패와 명시적 비활성을 분리하면 사용자가 연결 문제를 기능 종료로 오해하지 않으며, rollback 후에도 헛녹음과 raw 403 노출을 막을 수 있다.
 - Affected files: `.env.production.example`, `.env.staging.example`, `infra/aws/ec2-production.env.example`, `infra/aws/main-production-bootstrap.yaml`, `infra/scripts/deploy-aws-ec2.sh`, `infra/scripts/check-aws-production-compose.mjs`, `apps/web/src/features/editor/practice/**`, `apps/web/src/features/editor/shell/**`, `docs/conventions/environment.md`, `docs/runbooks/aws-main-auto-deployment.md`, `docs/decision-log.md`.
 - Follow-up review notes: PR CI 이후 SSM으로 실제 `/etc/orbit/production.env`의 두 flag만 안전하게 갱신하고, `main` 자동 배포 뒤 runtime config, QnA Job, 10초 이상 연습 report, raw audio 삭제 event를 확인한다. 장애 시 두 flag를 `false`로 되돌리고 재배포한다.
+
+## ORBIT slide practice and QnA content-hash freshness
+
+- Context: 부분 슬라이드 연습 시작 직전 저장과 QnA 자동 생성 사이에 Deck version이 바뀌면, 대상 슬라이드의 실제 질문·연습 입력이 그대로여도 API가 전체 `deckVersion` 불일치로 요청을 거부했다. 저장 controller도 acknowledged Deck을 ref에는 반영하면서 React state와 version이 잠시 달라질 수 있었다.
+- Options considered:
+  - 모든 Deck 변경을 계속 충돌로 취급하고 사용자에게 새로고침을 요구한다.
+  - 연습 시작 version의 전체 Deck을 별도 예약 API로 영구 고정한다.
+  - 저장 완료 Deck을 Web의 단일 source로 동기화하고, API freshness는 title·text·alt·speaker notes canonical hash를 우선한다.
+- Final decision: 신규 Web은 저장 queue를 flush한 acknowledged Deck으로 연습 session snapshot과 QnA hash를 만든다. 부분 연습과 수동 QnA는 target slide hash, 자동 QnA는 slide ID·order·text hash로 만든 Deck text hash가 같으면 version 차이를 허용하고 현재 server Deck snapshot/version으로 처리한다. 실제 text hash 충돌만 409로 거부하며 자동 QnA는 최신 Deck으로 한 번만 재시도한다. hash가 없는 과거 client는 strict version 검증을 유지한다.
+- Rationale: 시각 변경과 다른 슬라이드 편집으로 녹음·질문 생성을 잃지 않으면서, 실제 발표 텍스트나 대본이 바뀐 경우에는 오래된 입력으로 분석하지 않는다. DB migration이나 raw slide 원문 로그 없이 기존 frozen snapshot과 provenance 계약을 유지한다.
+- Affected files: `packages/shared/src/slide-practice`, `apps/api/src/slide-practice`, `apps/api/src/slide-question-guides`, `apps/web/src/features/editor/practice`, `apps/web/src/features/editor/shell`, `docs/contracts.md`, 관련 테스트.
+- Follow-up review notes: 다른 slide/visual-only edit 뒤 연습 종료와 QnA 생성이 성공하는지, target speaker notes 변경은 upload·Job 생성 전에 한국어 안내로 중단되는지, 로그에 원문 없이 requested/resolved version과 freshness resolution만 남는지 확인한다.

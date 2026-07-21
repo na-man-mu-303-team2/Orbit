@@ -3,6 +3,7 @@ import { slideQuestionGuideTextHashInput } from "@orbit/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createSlideQuestionGuide,
   createAutoSlideQuestionGuidesClientRequestId,
   sha256Canonical,
   waitForSlideQuestionGuideJob,
@@ -60,6 +61,30 @@ describe("slide question guide canonical hash", () => {
     await expect(
       sha256Canonical(slideQuestionGuideTextHashInput(textEdit)),
     ).resolves.not.toBe(hash);
+  });
+});
+
+describe("slide question guide freshness errors", () => {
+  it("preserves the server freshness code for actionable UI guidance", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      message: {
+        code: "SLIDE_QUESTION_CONTENT_HASH_MISMATCH",
+        message: "The expected slide content does not match the current slide content.",
+        actualDeckVersion: 4,
+      },
+    }), { status: 409 })));
+
+    await expect(createSlideQuestionGuide({
+      projectId: "project-1",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      expectedDeckVersion: 3,
+      contentHashVersion: "slide-text-v1",
+      expectedSlideContentHash: "a".repeat(64),
+    })).rejects.toMatchObject({
+      code: "SLIDE_QUESTION_CONTENT_HASH_MISMATCH",
+      actualDeckVersion: 4,
+    });
   });
 });
 

@@ -10,6 +10,7 @@ import {
   referenceExtractQueueName,
   rehearsalSemanticEvaluationQueueName,
   rehearsalSttQueueName,
+  presentationAnalysisQueueName,
   semanticCueExtractionQueueName,
   speakerNotesSuggestionQueueName,
   workerHealthCheckQueueName,
@@ -61,6 +62,7 @@ import { processReferenceExtractJob } from "./reference-extract.processor";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
 import { processRehearsalSemanticEvaluationJob } from "./rehearsal-semantic-evaluation.processor";
 import { processRehearsalSttJob } from "./rehearsal-stt.processor";
+import { processPresentationAnalysisJob } from "./presentation-analysis.processor";
 import { processSemanticCueExtractionJob } from "./semantic-cue-extraction.processor";
 import { processSpeakerNotesSuggestionJob } from "./speaker-notes-suggestion.processor";
 import { workerStorage } from "./storage";
@@ -87,6 +89,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly allQueueNames = [
     referenceExtractQueueName,
     rehearsalSttQueueName,
+    presentationAnalysisQueueName,
     rehearsalSemanticEvaluationQueueName,
     generateDeckQueueName,
     deckExportQueueName,
@@ -315,6 +318,16 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
               const level = event.event.endsWith(".failed") ? "error" : "info";
               this.logger[level](event, "Rehearsal transcript artifacts updated.");
             },
+          ),
+      },
+      {
+        queueName: presentationAnalysisQueueName,
+        handler: (job) =>
+          processPresentationAnalysisJob(
+            this.dataSource,
+            storage,
+            this.config.PYTHON_WORKER_URL,
+            job.data,
           ),
       },
       {

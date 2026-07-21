@@ -12,6 +12,18 @@ const input = {
   transcriptTextFileId: null,
   transcriptJsonStatus: null,
   transcriptTextStatus: null,
+  slideTranscriptSnapshots: [
+    {
+      slideId: "slide-1",
+      slideNum: 1,
+      visitedVer: 1,
+      transcript: "첫 문장",
+      visitedAt: "2026-07-20T04:00:00.000Z",
+      capturedAt: "2026-07-20T04:01:00.000Z",
+      reason: "slide-change" as const,
+    },
+  ],
+  liveTranscript: "브라우저에서 인식한 전체 문장",
   transcription: {
     transcript: "안녕하세요. 발표를 시작하겠습니다.",
     language: "ko",
@@ -58,6 +70,8 @@ describe("storeRehearsalTranscriptArtifacts", () => {
     const jsonBody = JSON.parse(Buffer.from(jsonCall?.body ?? []).toString("utf8"));
     expect(jsonBody).toEqual({
       text: input.transcription.transcript,
+      liveTranscript: input.liveTranscript,
+      slideTranscriptSnapshots: input.slideTranscriptSnapshots,
       language: "ko",
       duration: 5.4,
       provider: "whisperx",

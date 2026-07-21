@@ -8,7 +8,12 @@ import {
   MessageCircleMore,
   Target,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  FillerMetricDetails,
+  LongSilenceMetricDetails,
+} from "./RehearsalReportTestMetricDetails";
 import { RehearsalReportTestNavigator } from "./RehearsalReportTestNavigator";
 import { RehearsalReportTestOverview } from "./RehearsalReportTestOverview";
 import { RehearsalSlideCanvasPreview } from "./RehearsalSlideCanvasPreview";
@@ -25,6 +30,7 @@ type Props = {
   deck: Deck | null;
   formatDuration: (seconds: number) => string;
   report: RehearsalReport;
+  reportMode?: "presentation" | "rehearsal";
 };
 
 export function RehearsalReportTestView({
@@ -32,6 +38,7 @@ export function RehearsalReportTestView({
   deck,
   formatDuration,
   report,
+  reportMode = "rehearsal",
 }: Props) {
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const effectiveSelectedSlideId = selectedSlideId;
@@ -91,6 +98,13 @@ export function RehearsalReportTestView({
       ),
     [report, selectedSlide?.keywords, selectedSlide?.slideId],
   );
+  const selectedSlideInsight = useMemo(
+    () =>
+      report.slideInsights.find(
+        (insight) => insight.slideId === selectedSlide?.slideId,
+      ) ?? null,
+    [report.slideInsights, selectedSlide?.slideId],
+  );
   const findingRows = [
     { icon: Gauge, label: "말하기 속도", ...slideMetrics.speakingRate },
     { icon: MessageCircleMore, label: "습관어", ...slideMetrics.filler },
@@ -119,6 +133,7 @@ export function RehearsalReportTestView({
           deck={deck}
           formatDuration={formatDuration}
           report={report}
+          reportMode={reportMode}
         />
       ) : null}
 
@@ -201,6 +216,19 @@ export function RehearsalReportTestView({
               tone={slideMetrics.speakingRate.tone}
             />
             <SummaryRow
+              details={
+                <FillerMetricDetails
+                  fillerWordCount={
+                    selectedSlideInsight?.fillerWordCount ?? undefined
+                  }
+                  fillerWordDetails={
+                    selectedSlideInsight?.fillerWordDetails ?? []
+                  }
+                  report={report}
+                />
+              }
+              detailsHint="단어별 사용 횟수와 비중"
+              detailsLabel="사용한 습관어"
               icon={MessageCircleMore}
               label="습관어"
               value={slideMetrics.filler.value}
@@ -208,6 +236,19 @@ export function RehearsalReportTestView({
               tone={slideMetrics.filler.tone}
             />
             <SummaryRow
+              details={
+                deck && selectedSlide ? (
+                  <LongSilenceMetricDetails
+                    audioPlaybackAvailable={audioPlaybackAvailable}
+                    deck={deck}
+                    formatDuration={formatDuration}
+                    report={report}
+                    slideId={selectedSlide.slideId}
+                  />
+                ) : undefined
+              }
+              detailsHint="이 슬라이드의 5초 이상 침묵 구간"
+              detailsLabel="긴 침묵 발생 구간"
               icon={CirclePause}
               label="긴 침묵(5초 이상)"
               value={slideMetrics.longSilence.value}
@@ -216,7 +257,9 @@ export function RehearsalReportTestView({
             />
           </div>
           <p className="rrd-test-mock-note">
-            리허설 분석 결과를 기준으로 표시합니다.
+            {reportMode === "presentation"
+              ? "실전 발표 분석 결과를 기준으로 표시합니다."
+              : "리허설 분석 결과를 기준으로 표시합니다."}
           </p>
         </aside>
       </div>
@@ -256,10 +299,15 @@ export function RehearsalReportTestView({
         <button
           type="button"
           onClick={() =>
-            navigateTo(`/rehearsal/${encodeURIComponent(report.projectId)}`)
+            navigateTo(
+              reportMode === "presentation"
+                ? `/project/${encodeURIComponent(report.projectId)}`
+                : `/rehearsal/${encodeURIComponent(report.projectId)}`,
+            )
           }
         >
-          연습하기 <ArrowRight aria-hidden="true" size={18} />
+          {reportMode === "presentation" ? "에디터로 돌아가기" : "연습하기"}{" "}
+          <ArrowRight aria-hidden="true" size={18} />
         </button>
       </section>
     </section>
@@ -267,6 +315,9 @@ export function RehearsalReportTestView({
 }
 
 type SummaryRowProps = {
+  details?: ReactNode;
+  detailsHint?: string;
+  detailsLabel?: string;
   icon: typeof Clock3;
   label: string;
   meta: string;
@@ -274,15 +325,70 @@ type SummaryRowProps = {
   value: string;
 };
 
-function SummaryRow({ icon: Icon, label, meta, tone, value }: SummaryRowProps) {
+function SummaryRow({
+  details,
+  detailsHint,
+  detailsLabel,
+  icon: Icon,
+  label,
+  meta,
+  tone,
+  value,
+}: SummaryRowProps) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelDetailsClose = () => {
+    if (closeTimerRef.current !== null) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+  const openDetails = () => {
+    cancelDetailsClose();
+    setDetailsOpen(true);
+  };
+  const scheduleDetailsClose = () => {
+    cancelDetailsClose();
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
+      setDetailsOpen(false);
+    }, 250);
+  };
+
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current !== null) {
+        clearTimeout(closeTimerRef.current);
+      }
+    },
+  );
+
   return (
-    <div className="rrd-test-summary-row">
+    <div
+      className={`rrd-test-summary-row${details ? " has-details" : ""}`}
+      onMouseEnter={openDetails}
+      onMouseLeave={scheduleDetailsClose}
+    >
       <span className="rrd-test-summary-icon">
         <Icon aria-hidden="true" size={20} />
       </span>
       <span>{label}</span>
       <strong>{value}</strong>
       <em className={tone ? `is-${tone}` : undefined}>{meta}</em>
+      {details && detailsOpen ? (
+        <aside
+          aria-label={detailsLabel}
+          className="rrd-test-metric-popover"
+          onMouseEnter={openDetails}
+          onMouseLeave={scheduleDetailsClose}
+        >
+          <header>
+            <strong>{detailsLabel}</strong>
+            <span>{detailsHint}</span>
+          </header>
+          {details}
+        </aside>
+      ) : null}
     </div>
   );
 }

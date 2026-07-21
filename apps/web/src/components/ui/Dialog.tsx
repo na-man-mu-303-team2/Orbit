@@ -1,5 +1,6 @@
 import { IconX } from "@tabler/icons-react";
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { OrbitIconButton } from "./IconButton";
 import "./dialog.css";
 
@@ -39,7 +40,12 @@ export function OrbitDialog(props: {
     if (!props.open) return;
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const frame = window.requestAnimationFrame(() => {
-      const preferred = dialogRef.current?.querySelector<HTMLElement>("[data-orbit-dialog-initial]");
+      const preferredCandidates = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          "[data-orbit-dialog-initial]",
+        ) ?? [],
+      );
+      const preferred = preferredCandidates[preferredCandidates.length - 1];
       const first = dialogRef.current?.querySelector<HTMLElement>(dialogFocusableSelector);
       (preferred ?? first ?? dialogRef.current)?.focus();
     });
@@ -79,7 +85,7 @@ export function OrbitDialog(props: {
 
   if (!props.open) return null;
 
-  return (
+  const dialog = (
     <div
       className="redesign-dialog-backdrop"
       onMouseDown={(event) => {
@@ -116,4 +122,6 @@ export function OrbitDialog(props: {
       </section>
     </div>
   );
+
+  return typeof document === "undefined" ? dialog : createPortal(dialog, document.body);
 }

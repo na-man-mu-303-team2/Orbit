@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { slideTranscriptSnapshotsSchema } from "./slide-transcript-snapshot.schema";
 
 import { isoDateTimeSchema } from "../common/time.schema";
 import {
@@ -304,6 +305,9 @@ export const rehearsalReportSlideInsightSchema = z
   .object({
     slideId: deckSlideIdSchema,
     fillerWordCount: z.number().int().nonnegative().nullable(),
+    fillerWordDetails: z
+      .array(rehearsalReportFillerWordDetailSchema)
+      .optional(),
     longSilenceCount: z.number().int().nonnegative().nullable(),
     speakingRate: rehearsalSlideSpeakingRateSchema.default(
       legacyRehearsalSlideSpeakingRate,
@@ -911,6 +915,8 @@ export const rehearsalRecordingDurationSecondsSchema = z
 export const completeRehearsalAudioUploadUrlRequestSchema = z.object({
   fileId: z.string().min(1),
   recordingDurationSeconds: rehearsalRecordingDurationSecondsSchema,
+  liveTranscript: z.string().max(200_000).nullable().default(null),
+  slideTranscriptSnapshots: slideTranscriptSnapshotsSchema.default([]),
 });
 
 export const rehearsalAudioSha256Schema = z
@@ -1055,6 +1061,7 @@ export const getRehearsalReportResponseSchema = z.object({
   run: rehearsalRunSchema,
   report: rehearsalReportSchema.nullable(),
   audioPlaybackAvailable: z.boolean().optional(),
+  transcriptDownloadAvailable: z.boolean().optional(),
 });
 
 export const rehearsalComparisonIssueSchema = z
