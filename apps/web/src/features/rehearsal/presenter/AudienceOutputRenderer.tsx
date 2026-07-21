@@ -98,6 +98,7 @@ export function AudienceOutputRenderer(props: {
     <SlideshowRenderer
       deck={deck}
       highlights={state.highlights}
+      overlayAnimationIds={state.overlayAnimationIds}
       renderMode="slide-window"
       scale={scale}
       slideId={state.slideId}

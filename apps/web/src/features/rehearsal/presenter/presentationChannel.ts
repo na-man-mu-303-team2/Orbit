@@ -465,6 +465,8 @@ function parsePresenterSlideshowState(
         typeof highlight.elementId === "string" &&
         typeof highlight.active === "boolean",
     ) &&
+    (value.overlayAnimationIds === undefined ||
+      isStringArray(value.overlayAnimationIds)) &&
     (value.speech === undefined || isPresenterSpeechState(value.speech)) &&
     (value.timing === undefined || isPresenterTimingState(value.timing))
   ) {

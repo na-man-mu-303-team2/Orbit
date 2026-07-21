@@ -139,6 +139,7 @@ export function PresentationWorkspace(props: {
   const playbackStateRef = useRef<SlidePlaybackState>(
     createSlidePlaybackState(),
   );
+  const [overlayAnimationIds, setOverlayAnimationIds] = useState<string[]>([]);
   const previousHitKeywordIdsRef = useRef<Set<string>>(new Set());
   const advanceControllerStateRef = useRef<AdvanceControllerState>(
     createInitialAdvanceControllerState(),
@@ -413,6 +414,7 @@ export function PresentationWorkspace(props: {
   useEffect(() => {
     previousHitKeywordIdsRef.current = new Set();
     playbackStateRef.current = createSlidePlaybackState();
+    setOverlayAnimationIds([]);
     finalSentenceCommittedAtMsRef.current = null;
     finalSentenceSpokenAtMsRef.current = null;
     const nextAdvanceState = currentSlide
@@ -540,6 +542,7 @@ export function PresentationWorkspace(props: {
         slideAnimationPlan: slideshowAnimationPlan,
       });
       playbackStateRef.current = update.playbackState;
+      setOverlayAnimationIds(update.playbackState.playedAnimationIds);
       if (update.shouldAdvanceSlide) {
         goNext();
         return;
@@ -982,6 +985,7 @@ export function PresentationWorkspace(props: {
           });
         }}
         panelSnapshot={panelSnapshot}
+        overlayAnimationIds={overlayAnimationIds}
         presentationSession={runtimeRef.current ?? undefined}
         presenterScale={presenterScale}
         presenterStageRef={presenterStageRef}

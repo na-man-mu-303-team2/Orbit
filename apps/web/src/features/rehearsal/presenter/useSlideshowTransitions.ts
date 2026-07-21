@@ -18,6 +18,7 @@ export {
 
 export function useSlideshowTransitions(args: {
   deck: Deck;
+  overlayAnimationIds?: Iterable<string>;
   playInitialEntryAnimations?: boolean;
   reducedMotion: boolean;
   slide: Slide;
@@ -28,6 +29,10 @@ export function useSlideshowTransitions(args: {
   const triggerAnimationIds = useMemo(
     () => [...(args.triggerAnimationIds ?? [])],
     [args.triggerAnimationIds]
+  );
+  const overlayAnimationIds = useMemo(
+    () => [...(args.overlayAnimationIds ?? [])],
+    [args.overlayAnimationIds]
   );
   const plan = useMemo(
     () =>
@@ -50,11 +55,18 @@ export function useSlideshowTransitions(args: {
     () =>
       computeSettledElementStates({
         deck: args.deck,
+        overlayAnimationIds,
         slide: args.slide,
         stepIndex: args.stepIndex,
         triggerAnimationIds
       }),
-    [args.deck, args.slide, args.stepIndex, triggerAnimationIds]
+    [
+      args.deck,
+      args.slide,
+      args.stepIndex,
+      overlayAnimationIds,
+      triggerAnimationIds
+    ]
   );
   const baseStates = useMemo(
     () => createBaseElementStates(args.deck, args.slide),
@@ -75,6 +87,7 @@ export function useSlideshowTransitions(args: {
         : targetStates
   }));
   const previousAddressRef = useRef<{
+    overlayAnimationIds: string[];
     slideId: string;
     stepIndex: number;
   } | null>(null);
@@ -85,6 +98,7 @@ export function useSlideshowTransitions(args: {
     const previousAddress = previousAddressRef.current;
     const previousSettledStates = settledStatesRef.current;
     previousAddressRef.current = {
+      overlayAnimationIds,
       slideId: args.slide.slideId,
       stepIndex: args.stepIndex
     };
@@ -104,13 +118,28 @@ export function useSlideshowTransitions(args: {
     const shouldPlaySlideEntry = isSlideChange && args.stepIndex === 0;
     const stepDelta =
       previousAddress === null ? 0 : args.stepIndex - previousAddress.stepIndex;
+    const previousOverlayAnimationIds = new Set(
+      previousAddress?.overlayAnimationIds ?? []
+    );
+    const newlyInvokedOverlayAnimations = plan.animations.filter(
+      (animation) =>
+        overlayAnimationIds.includes(animation.animationId) &&
+        !previousOverlayAnimationIds.has(animation.animationId)
+    );
     const activePlan = isInitialEntry ? initialEntryPlan : plan;
     const transitionAnimations = isInitialEntry || shouldPlaySlideEntry
       ? activePlan.entryAnimations
       : stepDelta === 1
-        ? plan.triggerSteps[args.stepIndex - 1]?.animations ?? []
-        : [];
-    const shouldPlayTransition = isInitialEntry || shouldPlaySlideEntry || stepDelta === 1;
+        ? (plan.triggerSteps[args.stepIndex - 1]?.animations ?? []).filter(
+            (animation) =>
+              !overlayAnimationIds.includes(animation.animationId)
+          )
+        : newlyInvokedOverlayAnimations;
+    const shouldPlayTransition =
+      isInitialEntry ||
+      shouldPlaySlideEntry ||
+      stepDelta === 1 ||
+      newlyInvokedOverlayAnimations.length > 0;
 
     if (
       args.reducedMotion ||
@@ -168,6 +197,7 @@ export function useSlideshowTransitions(args: {
     args.stepIndex,
     baseStates,
     initialEntryPlan,
+    overlayAnimationIds,
     plan,
     playInitialEntryAnimations,
     targetStates

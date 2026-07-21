@@ -8,6 +8,7 @@ import {
   cancelAdvanceCountdown,
   createInitialAdvanceControllerState,
   evaluateAdvanceController,
+  evaluateVoiceAdvanceCommand,
   type AdvanceControllerSnapshot
 } from "./advanceController";
 import { createP4FixtureSnapshot } from "./__fixtures__/p4AutoAdvanceFixture";
@@ -359,6 +360,38 @@ describe("advanceController", () => {
 
     expect(disabledLive.state.status).toBe("disabled");
     expect(enabledLive.state.status).toBe("ready");
+  });
+
+  it("음성 advance command도 coverage와 final commit gate를 통과해야 한다", () => {
+    const blocked = evaluateVoiceAdvanceCommand(
+      createInitialAdvanceControllerState(),
+      createSnapshot({ effectiveCoverage: 0.69, finalSentenceCommitted: true })
+    );
+    const ready = evaluateVoiceAdvanceCommand(
+      createInitialAdvanceControllerState(),
+      createSnapshot({ effectiveCoverage: 0.7, finalSentenceCommitted: true })
+    );
+
+    expect(blocked.commands).toEqual([]);
+    expect(ready.commands).toEqual([
+      { type: "advance-slide", slideId: "slide-1" }
+    ]);
+  });
+
+  it("음성 advance command는 남은 build를 건너뛰지 않는다", () => {
+    const result = evaluateVoiceAdvanceCommand(
+      createInitialAdvanceControllerState(),
+      createSnapshot({
+        effectiveCoverage: 1,
+        finalSentenceCommitted: true,
+        remainingTriggerSteps: 2
+      })
+    );
+
+    expect(result.commands).toEqual([
+      { type: "show-builds-remaining", remainingTriggerSteps: 2 }
+    ]);
+    expect(result.state.status).toBe("blocked-by-builds");
   });
 });
 

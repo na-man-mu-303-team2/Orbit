@@ -74,6 +74,28 @@ describe("rehearsalCommands", () => {
     });
   });
 
+  it("확정 partial 뒤 같은 final은 다시 실행하지 않고 이후 utterance는 허용한다", () => {
+    const state = createRehearsalCommandConfirmationState();
+    const candidateAt = (matchedAt: number, isFinal: boolean) =>
+      detectRehearsalCommandCandidate(
+        {
+          transcript: "강조",
+          isFinal,
+          confidence: null
+        },
+        { now: () => matchedAt }
+      );
+
+    expect(confirmRehearsalCommandCandidate(state, candidateAt(1_000, false))).toBeNull();
+    expect(
+      confirmRehearsalCommandCandidate(state, candidateAt(1_300, false))
+    ).toMatchObject({ action: "animation-cue" });
+    expect(confirmRehearsalCommandCandidate(state, candidateAt(1_500, true))).toBeNull();
+    expect(
+      confirmRehearsalCommandCandidate(state, candidateAt(4_000, true))
+    ).toMatchObject({ action: "animation-cue" });
+  });
+
   it("exports control phrases as live STT bias terms", () => {
     expect(getRehearsalCommandBiasTerms()).toEqual(
       expect.arrayContaining([

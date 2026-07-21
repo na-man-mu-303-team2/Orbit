@@ -84,6 +84,23 @@ export function resolveTriggeredActionPlaybackUpdate(args: {
   let shouldAdvanceSlide = false;
 
   for (const action of args.actions) {
+    const actionAnimationId =
+      action.effect.kind === "play-animation"
+        ? action.effect.animationId
+        : null;
+    if (
+      actionAnimationId !== null &&
+      args.slideAnimationPlan.triggerSteps
+        .slice(0, args.presenterStepIndex)
+        .some((step) =>
+          step.animations.some(
+            (animation) =>
+              animation.animationId === actionAnimationId
+          )
+        )
+    ) {
+      continue;
+    }
     const result = executeSlideAction(args.slide, nextPlaybackState, action);
 
     if (!result) {
@@ -93,20 +110,6 @@ export function resolveTriggeredActionPlaybackUpdate(args: {
     nextPlaybackState = result.state;
 
     if (result.kind === "play-animation") {
-      const triggerStepIndex = args.slideAnimationPlan.triggerSteps.findIndex((step) =>
-        step.animations.some(
-          (animation) =>
-            animation.animationId === result.animation.animationId
-        )
-      );
-
-      if (triggerStepIndex >= 0) {
-        nextPresenterStepIndex = Math.max(
-          nextPresenterStepIndex,
-          triggerStepIndex + 1
-        );
-      }
-
       continue;
     }
 

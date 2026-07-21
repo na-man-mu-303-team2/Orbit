@@ -38,6 +38,7 @@ export type PresenterSpeechState = {
 export type PresenterSlideshowState = {
   audienceOutputMode: AudienceOutputMode;
   highlights: PresenterHighlightState[];
+  overlayAnimationIds?: string[];
   slideId: string;
   slideIndex: number;
   speech?: PresenterSpeechState;
@@ -60,6 +61,7 @@ export function createPresenterSlideshowState(
   return {
     audienceOutputMode: "slide",
     highlights: [],
+    overlayAnimationIds: [],
     slideId: firstSlide?.slideId ?? "",
     slideIndex: 0,
     stepIndex: 0,
@@ -135,6 +137,7 @@ function moveToSlide(
       ...state,
       slideId: "",
       slideIndex: 0,
+      overlayAnimationIds: [],
       stepIndex: 0,
     };
   }
@@ -145,6 +148,7 @@ function moveToSlide(
     ...state,
     slideId: slides[slideIndex]?.slideId ?? state.slideId,
     slideIndex,
+    overlayAnimationIds: [],
     // 슬라이드 이동은 항상 복원 가능한 진입 상태에서 시작한다.
     stepIndex: 0,
   };

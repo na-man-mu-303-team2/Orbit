@@ -31,6 +31,7 @@ import {
   buildLiveSttBiasContext,
   cancelRehearsalRun,
   confirmKeywordOccurrenceMatches,
+  createLiveControlEvidenceScope,
   createRehearsalRun,
   createRehearsalRunForUpload,
   createKeywordOccurrenceAnimationCueEvent,
@@ -39,6 +40,7 @@ import {
   createRecordingFile,
   createRecordingSession,
   evaluateLiveTranscript,
+  filterLiveTranscriptAnalysisKeywords,
   fetchRehearsalReport,
   fetchOrCreateRehearsalDeck,
   getRehearsalFinishPath,
@@ -423,7 +425,7 @@ describe("RehearsalWorkspace", () => {
     const initialOccurrenceState = createLiveKeywordOccurrenceState(
       slide.slideId,
     );
-    const earlyTranscript = "오늘은 AI 덱 생성 파이프라인을 소개합니다.";
+    const earlyTranscript = "오늘은 AI";
     const earlyAnalysis = evaluateLiveTranscript(slide, earlyTranscript);
     const earlyMatches = matchKeywordOccurrenceTriggers({
       slide,
@@ -1964,6 +1966,74 @@ describe("RehearsalWorkspace", () => {
     expect(analysis.missingKeywordIds).toEqual([]);
   });
 
+  it("keeps every processed keyword from one transcript and recalculates coverage", () => {
+    const slide = {
+      ...createDemoDeck().slides[0]!,
+      slideId: "slide_1",
+      keywords: [
+        {
+          keywordId: "kw_1",
+          text: "ORBIT",
+          synonyms: ["오르빗"],
+          abbreviations: [],
+          required: true,
+        },
+        {
+          keywordId: "kw_2",
+          text: "Realtime",
+          synonyms: ["리얼타임"],
+          abbreviations: [],
+          required: true,
+        },
+      ],
+    };
+    const analysis = evaluateLiveTranscript(slide, "오르빗 리얼타임");
+
+    expect(
+      filterLiveTranscriptAnalysisKeywords(
+        analysis,
+        new Set(["kw_1", "kw_2"]),
+      ),
+    ).toMatchObject({
+      coverage: 1,
+      detectedKeywords: [
+        { keywordId: "kw_1", coverage: 1 },
+        { keywordId: "kw_2", coverage: 1 },
+      ],
+      missingKeywordIds: [],
+    });
+    expect(
+      filterLiveTranscriptAnalysisKeywords(analysis, new Set(["kw_1"])),
+    ).toMatchObject({
+      coverage: 0.5,
+      detectedKeywords: [{ keywordId: "kw_1", coverage: 0.5 }],
+      missingKeywordIds: ["kw_2"],
+    });
+  });
+
+  it("preserves Realtime utterance identity for live-control idempotency", () => {
+    expect(
+      createLiveControlEvidenceScope({
+        result: {
+          text: "강조",
+          isFinal: false,
+          timestampMs: [100, 200],
+          utteranceId: "item_1",
+          metadata: { contentIndex: 2 },
+        },
+        sessionId: "session_1",
+        slideId: "slide_1",
+        slideRevision: 4,
+      }),
+    ).toEqual({
+      sessionId: "session_1",
+      slideId: "slide_1",
+      slideRevision: 4,
+      utteranceId: "item_1",
+      contentIndex: 2,
+    });
+  });
+
   it("matches generated Korean pronunciations and exposes them to live STT bias", () => {
     const deck = createDemoDeck();
     deck.slides[0]!.speakerNotes = "OpenAI API를 활용했습니다.";
@@ -2548,6 +2618,17 @@ describe("RehearsalWorkspace", () => {
     ).toBe(1);
     expect(
       getRemainingTriggerStepsForSlide({
+        playedAnimationIds: [
+          "anim_image_zoom_in",
+          "anim_group_fade_out",
+        ],
+        slide,
+        stepIndex: 0,
+        triggerAnimationIds,
+      }),
+    ).toBe(1);
+    expect(
+      getRemainingTriggerStepsForSlide({
         slide,
         stepIndex: 2,
         triggerAnimationIds,
@@ -2727,7 +2808,7 @@ describe("RehearsalWorkspace", () => {
     expect(finish.state.status).toBe("finish-suggested");
   });
 
-  it("treats spoken advance commands as manual overrides", () => {
+  it("routes spoken advance commands through the AdvanceController gate", () => {
     const state = createRehearsalCommandConfirmationState();
     const confirmedCommand = confirmRehearsalCommandCandidate(
       state,
@@ -2740,13 +2821,10 @@ describe("RehearsalWorkspace", () => {
 
     expect(confirmedCommand).toMatchObject({ action: "advance-slide" });
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
-    const start = source.indexOf(
-      "if (isAdvanceSlideCommand(confirmedCommand))",
-    );
+    const start = source.indexOf("isAdvanceSlideCommand(confirmedCommand)");
     const commandBody = source.slice(start, start + 180);
 
-    expect(commandBody).toContain("cancelAutoAdvanceForManualCommand()");
-    expect(commandBody).toContain("goNext()");
+    expect(commandBody).toContain("runVoiceAdvanceCommandEvaluation()");
     expect(
       detectRehearsalCommandCandidate({
         transcript: "안녕하세요. 다음 슬라이드는.",

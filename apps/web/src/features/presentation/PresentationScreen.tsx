@@ -42,6 +42,7 @@ export function PresentationScreen(props: {
   onPrimaryAction: () => void;
   onReset: () => void;
   onTimeModeChange: (value: PresenterTimeMode) => void;
+  overlayAnimationIds: string[];
   panelSnapshot: SpeechTrackerSnapshot;
   presentationSession?: {
     audienceUrl: string;
@@ -130,6 +131,7 @@ export function PresentationScreen(props: {
             props.deck && props.currentSlide ? (
               <SlideshowRenderer
                 deck={props.deck}
+                overlayAnimationIds={props.overlayAnimationIds}
                 scale={props.presenterScale}
                 slideId={props.currentSlide.slideId}
                 stepIndex={props.presenterStepIndex}

@@ -152,6 +152,10 @@ import {
   resolveTriggeredActionPlaybackUpdate,
 } from "./playback/triggeredActionPlayback";
 import {
+  createLiveControlIdempotencyGate,
+  type LiveControlEvidenceScope,
+} from "./playback/liveControlIdempotency";
+import {
   DisplayControls,
   type RequestDisplayScreensResult,
   type RequestSlideWindowFullscreenResult,
@@ -193,6 +197,7 @@ import {
   cancelAdvanceCountdown,
   createInitialAdvanceControllerState,
   evaluateAdvanceController,
+  evaluateVoiceAdvanceCommand,
   resetAdvanceControllerForSlide,
   type AdvanceControllerState,
 } from "./advance/advanceController";
@@ -1467,6 +1472,50 @@ export function renderLiveTranscriptBuffer(buffer: LiveTranscriptBuffer) {
   );
 }
 
+export function createLiveControlEvidenceScope(options: {
+  result: LiveSttResult;
+  sessionId: string;
+  slideId: string;
+  slideRevision: number | string;
+}): LiveControlEvidenceScope {
+  return {
+    sessionId: options.sessionId,
+    slideId: options.slideId,
+    slideRevision: options.slideRevision,
+    utteranceId:
+      options.result.utteranceId ??
+      `legacy-${Math.max(0, options.result.timestampMs[0])}`,
+    contentIndex: options.result.metadata?.contentIndex ?? 0,
+  };
+}
+
+export function filterLiveTranscriptAnalysisKeywords(
+  analysis: LiveTranscriptAnalysis,
+  processedKeywordIds: ReadonlySet<string>,
+): LiveTranscriptAnalysis {
+  const detectedKeywords = analysis.detectedKeywords.filter((keyword) =>
+    processedKeywordIds.has(keyword.keywordId),
+  );
+  const allKeywordIds = new Set([
+    ...analysis.detectedKeywords.map((keyword) => keyword.keywordId),
+    ...analysis.missingKeywordIds,
+  ]);
+  const coverage =
+    allKeywordIds.size === 0 ? 0 : detectedKeywords.length / allKeywordIds.size;
+
+  return {
+    ...analysis,
+    coverage,
+    detectedKeywords: detectedKeywords.map((keyword) => ({
+      ...keyword,
+      coverage,
+    })),
+    missingKeywordIds: [...allKeywordIds].filter(
+      (keywordId) => !processedKeywordIds.has(keywordId),
+    ),
+  };
+}
+
 function appendLiveTranscriptText(current: string, next: string) {
   return [current, next]
     .map(normalizeLiveTranscriptDisplayText)
@@ -2121,6 +2170,9 @@ export function RehearsalWorkspace(props: {
   const liveCommandConfirmationRef = useRef(
     createRehearsalCommandConfirmationState(),
   );
+  const liveControlIdempotencyGateRef = useRef(
+    createLiveControlIdempotencyGate(),
+  );
   const presenterStepIndexRef = useRef(0);
   const slidePlaybackStateRef = useRef<SlidePlaybackState>(
     createSlidePlaybackState(),
@@ -2617,6 +2669,7 @@ export function RehearsalWorkspace(props: {
         ? {
             audienceOutputMode,
             highlights: [],
+            overlayAnimationIds: slidePlaybackState.playedAnimationIds,
             slideId: currentSlide.slideId,
             slideIndex: currentSlideIndex,
             speech: {
@@ -2664,6 +2717,7 @@ export function RehearsalWorkspace(props: {
       rehearsalRuntimeStatus,
       semanticDebugState,
       semanticCapabilityItems,
+      slidePlaybackState.playedAnimationIds,
       slideElapsedSeconds,
       timeMode,
       timerDurationSeconds,
@@ -2730,10 +2784,16 @@ export function RehearsalWorkspace(props: {
       })
     : null;
   const remainingTriggerSteps = slideshowAnimationPlan
-    ? getRemainingTriggerStepsFromPlan(
-        slideshowAnimationPlan.maxStepIndex,
-        presenterStepIndex,
-      )
+    ? slideshowAnimationPlan.triggerSteps
+        .slice(presenterStepIndex)
+        .filter(
+          (step) =>
+            !step.animations.every((animation) =>
+              slidePlaybackState.playedAnimationIds.includes(
+                animation.animationId,
+              ),
+            ),
+        ).length
     : 0;
   const liveAudioLevelLabel = getLiveAudioLevelLabel(liveAudioLevel);
   const liveAudioLevelPercent = getLiveAudioLevelPercent(liveAudioLevel);
@@ -3581,6 +3641,7 @@ export function RehearsalWorkspace(props: {
     setLiveAudioLevel(null);
     pendingP3SlideIndexRef.current = null;
     cleanupLiveSttSubscriptions();
+    liveControlIdempotencyGateRef.current.reset();
 
     const unsubscribeResult = port.onResult(handleLiveSttResult);
     const unsubscribeError = port.onError(handleLiveSttError);
@@ -3870,6 +3931,61 @@ export function RehearsalWorkspace(props: {
     }
   }
 
+  function runVoiceAdvanceCommandEvaluation() {
+    const deckSnapshot = deckRef.current;
+    const slideIndex = currentSlideIndexRef.current;
+    const slide = deckSnapshot?.slides[slideIndex];
+    const speechSnapshot = p3SessionRef.current?.getState().snapshot;
+    if (!deckSnapshot || !slide || !speechSnapshot) {
+      return false;
+    }
+
+    const result = evaluateVoiceAdvanceCommand(
+      advanceControllerStateRef.current,
+      {
+        effectiveCoverage: speechSnapshot.effectiveCoverage,
+        finalSentenceCommitted:
+          speechSnapshot.finalSentenceCommitted === true,
+        isLastSlide: slideIndex >= deckSnapshot.slides.length - 1,
+        policy: presenterSettings.advancePolicy,
+        remainingTriggerSteps: getRemainingTriggerStepsForSlide({
+          slide,
+          playedAnimationIds: slidePlaybackStateRef.current.playedAnimationIds,
+          stepIndex: presenterStepIndexRef.current,
+          triggerAnimationIds: getTriggerAnimationIdsForSlide(slide),
+        }),
+        slideId: slide.slideId,
+      },
+    );
+    updateAdvanceControllerState(result.state);
+
+    if (
+      !result.commands.some((command) => command.type === "advance-slide")
+    ) {
+      return false;
+    }
+
+    const nextSlide = deckSnapshot.slides[slideIndex + 1];
+    if (!nextSlide) {
+      return false;
+    }
+    void requestPreparedSlideChange({
+      source: "auto",
+      stepIndex: 0,
+      targetSlideIndex: slideIndex + 1,
+    }).then((navigationResult) => {
+      if (navigationResult !== "committed") return;
+      setLiveSlideAdvance({
+        type: "slide-advance",
+        fromSlideId: slide.slideId,
+        toSlideId: nextSlide.slideId,
+        reason: "keyword-coverage",
+        coverage: speechSnapshot.effectiveCoverage,
+      });
+    });
+    return true;
+  }
+
   function handleLiveSttError(error: LiveSttError) {
     if (rehearsalRuntimeStatusRef.current === "paused") {
       return;
@@ -3902,15 +4018,28 @@ export function RehearsalWorkspace(props: {
       atMs: Date.now(),
       isFinal: result.isFinal,
     });
-    handleLivePartialTranscript({
-      type: "partial-transcript",
-      transcript: result.text,
-      isFinal: result.isFinal,
-      confidence: result.confidence ?? null,
-    });
+    const activeDeck = deckRef.current;
+    const activeSlide = activeDeck?.slides[currentSlideIndexRef.current];
+    handleLivePartialTranscript(
+      {
+        type: "partial-transcript",
+        transcript: result.text,
+        isFinal: result.isFinal,
+        confidence: result.confidence ?? null,
+      },
+      createLiveControlEvidenceScope({
+        result,
+        sessionId: presentationChannel.sessionId,
+        slideId: activeSlide?.slideId ?? "slide-unavailable",
+        slideRevision: activeDeck?.version ?? 0,
+      }),
+    );
   }
 
-  function handleLivePartialTranscript(event: LiveSttPartialTranscriptEvent) {
+  function handleLivePartialTranscript(
+    event: LiveSttPartialTranscriptEvent,
+    evidenceScope: LiveControlEvidenceScope,
+  ) {
     if (rehearsalRuntimeStatusRef.current === "paused") {
       return;
     }
@@ -3946,10 +4075,18 @@ export function RehearsalWorkspace(props: {
       matchingTranscript,
       activeRunRef.current?.evaluationSnapshot?.pronunciationLexicon,
     );
-    const confirmedCommand = confirmRehearsalCommandCandidate(
+    const detectedCommand = detectRehearsalCommandCandidate(event);
+    let confirmedCommand = confirmRehearsalCommandCandidate(
       liveCommandConfirmationRef.current,
-      detectRehearsalCommandCandidate(event),
+      detectedCommand,
     );
+    if (
+      !confirmedCommand &&
+      event.isFinal &&
+      isAdvanceSlideCommand(detectedCommand)
+    ) {
+      confirmedCommand = detectedCommand;
+    }
     const slideTriggerAnimationIds = getTriggerAnimationIdsForSlide(slide);
     const slideAnimationPlan = createSlideshowAnimationPlan({
       slide,
@@ -3969,15 +4106,18 @@ export function RehearsalWorkspace(props: {
       confirmedOccurrenceIds: occurrenceState.confirmedOccurrenceIds,
     });
 
+    const processedOccurrenceMatches: typeof occurrenceMatches = [];
     for (const occurrenceMatch of occurrenceMatches) {
-      setLiveCue(
-        createKeywordOccurrenceAnimationCueEvent({
-          match: occurrenceMatch,
-          slideId: slide.slideId,
-        }),
-      );
-
-      applyTriggeredSlideActions(
+      const occurrenceTargetId = `occurrence:${occurrenceMatch.occurrenceId}`;
+      if (
+        liveControlIdempotencyGateRef.current.isClaimed(
+          evidenceScope,
+          occurrenceTargetId,
+        )
+      ) {
+        continue;
+      }
+      const processed = applyTriggeredSlideActions(
         slide,
         slideAnimationPlan,
         resolveKeywordOccurrenceTriggeredActions(
@@ -3985,12 +4125,27 @@ export function RehearsalWorkspace(props: {
           occurrenceMatch.keywordId,
           occurrenceMatch.occurrenceId,
         ),
-        deckSnapshot.slides.length,
+        evidenceScope,
+        event.isFinal,
+      );
+      if (!processed) {
+        continue;
+      }
+      liveControlIdempotencyGateRef.current.claim(
+        evidenceScope,
+        occurrenceTargetId,
+      );
+      processedOccurrenceMatches.push(occurrenceMatch);
+      setLiveCue(
+        createKeywordOccurrenceAnimationCueEvent({
+          match: occurrenceMatch,
+          slideId: slide.slideId,
+        }),
       );
     }
     liveKeywordOccurrenceStateRef.current = confirmKeywordOccurrenceMatches(
       occurrenceState,
-      occurrenceMatches,
+      processedOccurrenceMatches,
     );
 
     const previousDetectedIds = new Set(
@@ -4000,28 +4155,58 @@ export function RehearsalWorkspace(props: {
           )
         : [],
     );
-    const newlyDetected = analysis.detectedKeywords.find(
+    const newlyDetected = analysis.detectedKeywords.filter(
       (keyword) => !previousDetectedIds.has(keyword.keywordId),
     );
+    const processedKeywordIds = new Set(previousDetectedIds);
 
-    if (newlyDetected) {
+    for (const keyword of newlyDetected) {
+      if (
+        !liveControlIdempotencyGateRef.current.claim(
+          evidenceScope,
+          `keyword:${keyword.keywordId}`,
+        )
+      ) {
+        continue;
+      }
+      processedKeywordIds.add(keyword.keywordId);
       setLiveCue({
         type: "animation-cue",
         slideId: slide.slideId,
-        keywordId: newlyDetected.keywordId,
+        keywordId: keyword.keywordId,
         cue: "emphasis",
-        text: newlyDetected.text,
+        text: keyword.text,
       });
 
+    }
+
+    for (const keyword of analysis.detectedKeywords) {
       applyTriggeredSlideActions(
         slide,
         slideAnimationPlan,
-        resolveKeywordTriggeredActions(slide, newlyDetected.keywordId),
-        deckSnapshot.slides.length,
+        resolveKeywordTriggeredActions(slide, keyword.keywordId),
+        evidenceScope,
+        event.isFinal,
       );
     }
 
-    if (isEmphasisCommand(confirmedCommand)) {
+    const confirmedCommandTargetId = confirmedCommand
+      ? `command:${confirmedCommand.action}:${confirmedCommand.cue ?? "none"}`
+      : null;
+    const shouldProcessConfirmedCommand = Boolean(
+      confirmedCommand &&
+      confirmedCommandTargetId &&
+      !liveControlIdempotencyGateRef.current.isClaimed(
+        evidenceScope,
+        confirmedCommandTargetId,
+      ),
+    );
+
+    if (shouldProcessConfirmedCommand && isEmphasisCommand(confirmedCommand)) {
+      liveControlIdempotencyGateRef.current.claim(
+        evidenceScope,
+        confirmedCommandTargetId!,
+      );
       setLiveCue({
         type: "animation-cue",
         slideId: slide.slideId,
@@ -4034,17 +4219,29 @@ export function RehearsalWorkspace(props: {
         slide,
         slideAnimationPlan,
         resolveCueTriggeredActions(slide, "emphasis"),
-        deckSnapshot.slides.length,
+        evidenceScope,
+        event.isFinal,
       );
     }
 
-    setLiveKeywordState(analysis);
-    liveKeywordStateRef.current = analysis;
+    const processedAnalysis = filterLiveTranscriptAnalysisKeywords(
+      analysis,
+      processedKeywordIds,
+    );
+    setLiveKeywordState(processedAnalysis);
+    liveKeywordStateRef.current = processedAnalysis;
     setLiveStatus("listening");
 
-    if (isAdvanceSlideCommand(confirmedCommand)) {
-      cancelAutoAdvanceForManualCommand();
-      goNext();
+    if (
+      shouldProcessConfirmedCommand &&
+      event.isFinal &&
+      isAdvanceSlideCommand(confirmedCommand) &&
+      runVoiceAdvanceCommandEvaluation()
+    ) {
+      liveControlIdempotencyGateRef.current.claim(
+        evidenceScope,
+        confirmedCommandTargetId!,
+      );
     }
   }
 
@@ -4052,14 +4249,23 @@ export function RehearsalWorkspace(props: {
     slide: Slide,
     slideAnimationPlan: ReturnType<typeof createSlideshowAnimationPlan>,
     actions: Slide["actions"],
-    slideCount: number,
+    evidenceScope: LiveControlEvidenceScope,
+    allowAdvance: boolean,
   ) {
-    if (actions.length === 0) {
-      return;
+    const unclaimedActions = actions.filter(
+      (action) =>
+        (allowAdvance || action.effect.kind !== "go-to-next-slide") &&
+        !liveControlIdempotencyGateRef.current.isClaimed(
+          evidenceScope,
+          `action:${action.actionId}`,
+        ),
+    );
+    if (unclaimedActions.length === 0) {
+      return false;
     }
 
     const playbackUpdate = resolveTriggeredActionPlaybackUpdate({
-      actions,
+      actions: unclaimedActions,
       playbackState: slidePlaybackStateRef.current,
       presenterStepIndex: presenterStepIndexRef.current,
       slide,
@@ -4071,23 +4277,53 @@ export function RehearsalWorkspace(props: {
       setSlidePlaybackState(playbackUpdate.playbackState);
     }
 
+    let processed = false;
+    for (const action of unclaimedActions) {
+      if (action.effect.kind !== "play-animation") {
+        continue;
+      }
+      const actionAnimationId = action.effect.animationId;
+      const animationWasProcessed =
+        playbackUpdate.playbackState.playedAnimationIds.includes(
+          actionAnimationId,
+        ) ||
+        slideAnimationPlan.triggerSteps
+          .slice(0, presenterStepIndexRef.current)
+          .some((step) =>
+            step.animations.some(
+              (animation) =>
+                animation.animationId === actionAnimationId,
+            ),
+          );
+      if (animationWasProcessed) {
+        liveControlIdempotencyGateRef.current.claim(
+          evidenceScope,
+          `action:${action.actionId}`,
+        );
+        processed = true;
+      }
+    }
+
     if (playbackUpdate.shouldAdvanceSlide) {
-      cancelAutoAdvanceForManualCommand();
-      void requestPreparedSlideChange({
-        source: "auto",
-        stepIndex: 0,
-        targetSlideIndex: Math.min(
-          slideCount - 1,
-          currentSlideIndexRef.current + 1,
-        ),
-      });
-      return;
+      if (runVoiceAdvanceCommandEvaluation()) {
+        for (const action of unclaimedActions) {
+          if (action.effect.kind === "go-to-next-slide") {
+            liveControlIdempotencyGateRef.current.claim(
+              evidenceScope,
+              `action:${action.actionId}`,
+            );
+          }
+        }
+        return true;
+      }
+      return processed;
     }
 
     if (playbackUpdate.presenterStepIndex !== presenterStepIndexRef.current) {
       presenterStepIndexRef.current = playbackUpdate.presenterStepIndex;
       setPresenterStepIndex(playbackUpdate.presenterStepIndex);
     }
+    return processed;
   }
 
   function resetLiveTranscriptForSlide(slide: Slide | null) {
@@ -5234,6 +5470,7 @@ export function RehearsalWorkspace(props: {
             deck && currentSlide && presenterScale !== null ? (
               <SlideshowRenderer
                 deck={deck}
+                overlayAnimationIds={slidePlaybackState.playedAnimationIds}
                 scale={presenterScale}
                 slideId={currentSlide.slideId}
                 stepIndex={presenterStepIndex}
@@ -7125,6 +7362,7 @@ export function getRemainingTriggerStepsFromPlan(
 }
 
 export function getRemainingTriggerStepsForSlide(options: {
+  playedAnimationIds?: Iterable<string>;
   slide: Slide;
   stepIndex: number;
   triggerAnimationIds: Iterable<string>;
@@ -7133,8 +7371,15 @@ export function getRemainingTriggerStepsForSlide(options: {
     slide: options.slide,
     triggerAnimationIds: options.triggerAnimationIds,
   });
-
-  return getRemainingTriggerStepsFromPlan(plan.maxStepIndex, options.stepIndex);
+  const playedAnimationIds = new Set(options.playedAnimationIds ?? []);
+  return plan.triggerSteps
+    .slice(options.stepIndex)
+    .filter(
+      (step) =>
+        !step.animations.every((animation) =>
+          playedAnimationIds.has(animation.animationId),
+        ),
+    ).length;
 }
 
 function createEmptySpeechTrackerSnapshot(options: {

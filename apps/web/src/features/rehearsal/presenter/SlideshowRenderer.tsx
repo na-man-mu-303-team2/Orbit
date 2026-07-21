@@ -21,6 +21,7 @@ const emptyTriggerAnimationIds: readonly string[] = [];
 export function SlideshowRenderer(props: {
   deck: Deck;
   highlights?: SlideRuntimeHighlight[];
+  overlayAnimationIds?: Iterable<string>;
   playInitialEntryAnimations?: boolean;
   renderMode?: SlideshowRenderMode;
   scale?: number;
@@ -31,6 +32,7 @@ export function SlideshowRenderer(props: {
   const {
     deck,
     highlights = [],
+    overlayAnimationIds = emptyTriggerAnimationIds,
     playInitialEntryAnimations: playInitialEntryAnimationsProp,
     renderMode = "presenter",
     scale = 1,
@@ -80,6 +82,7 @@ export function SlideshowRenderer(props: {
     <SlideshowRendererContent
       deck={deck}
       highlights={highlights}
+      overlayAnimationIds={overlayAnimationIds}
       playInitialEntryAnimations={playInitialEntryAnimations}
       reducedMotion={reducedMotion}
       renderMode={renderMode}
@@ -94,6 +97,7 @@ export function SlideshowRenderer(props: {
 function SlideshowRendererContent(props: {
   deck: Deck;
   highlights: SlideRuntimeHighlight[];
+  overlayAnimationIds: Iterable<string>;
   playInitialEntryAnimations: boolean;
   reducedMotion: boolean;
   renderMode: SlideshowRenderMode;
@@ -105,6 +109,7 @@ function SlideshowRendererContent(props: {
   const {
     deck,
     highlights,
+    overlayAnimationIds,
     playInitialEntryAnimations,
     reducedMotion,
     renderMode,
@@ -115,6 +120,7 @@ function SlideshowRendererContent(props: {
   } = props;
   const { elementStates, settledElementStates } = useSlideshowTransitions({
     deck,
+    overlayAnimationIds,
     playInitialEntryAnimations,
     reducedMotion,
     slide,

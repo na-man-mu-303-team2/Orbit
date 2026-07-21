@@ -61,7 +61,7 @@ export function matchKeywordOccurrenceTriggers(options: {
     }
 
     if (
-      currentCharOffset < occurrence.start ||
+      currentCharOffset < Math.max(0, occurrence.start - window.beforeChars) ||
       currentCharOffset > occurrence.end + window.afterChars
     ) {
       return [];

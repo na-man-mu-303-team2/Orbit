@@ -82,6 +82,7 @@ export function createSlideshowAnimationPlan(
 
 export function computeSettledElementStates(args: {
   deck: Deck;
+  overlayAnimationIds?: Iterable<string>;
   slide: Slide;
   stepIndex: number;
   triggerAnimationIds?: Iterable<string>;
@@ -107,6 +108,17 @@ export function computeSettledElementStates(args: {
       applySettledAnimation(states, animation, baseStates[animation.elementId]);
     }
   });
+
+  const overlayAnimationIds = new Set(args.overlayAnimationIds ?? []);
+  for (const animation of plan.animations) {
+    if (overlayAnimationIds.has(animation.animationId)) {
+      applySettledAnimation(
+        states,
+        animation,
+        baseStates[animation.elementId]
+      );
+    }
+  }
 
   return states;
 }

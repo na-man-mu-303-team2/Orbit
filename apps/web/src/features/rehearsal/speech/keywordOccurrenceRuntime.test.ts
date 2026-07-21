@@ -24,7 +24,7 @@ describe("matchKeywordOccurrenceTriggers", () => {
     const matches = matchKeywordOccurrenceTriggers({
       slide,
       targetOccurrenceIds: ["kwo_slide_1_kw_ai_47_49"],
-      transcript: "오늘은 AI 덱 생성 파이프라인을 소개합니다.",
+      transcript: "오늘은 AI",
       latestTranscript: "AI",
       confidence: 0.95
     });
@@ -49,6 +49,24 @@ describe("matchKeywordOccurrenceTriggers", () => {
         text: "AI",
         currentCharOffset: 55
       }
+    ]);
+  });
+
+  it("beforeChars 안에서 발화한 target occurrence를 허용한다", () => {
+    const matches = matchKeywordOccurrenceTriggers({
+      slide,
+      targetOccurrenceIds: ["kwo_slide_1_kw_ai_47_49"],
+      transcript:
+        "오늘은 AI 덱 생성 파이프라인을 소개합니다. 중간에도 AI를 언급합니다.",
+      latestTranscript: "AI",
+      confidence: 0.95,
+      window: { beforeChars: 24, afterChars: 0 }
+    });
+
+    expect(matches).toEqual([
+      expect.objectContaining({
+        occurrenceId: "kwo_slide_1_kw_ai_47_49"
+      })
     ]);
   });
 

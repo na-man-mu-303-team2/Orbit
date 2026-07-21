@@ -51,6 +51,16 @@ export type AdvanceControllerResult = {
   state: AdvanceControllerState;
 };
 
+export type VoiceAdvanceCommandSnapshot = Pick<
+  AdvanceControllerSnapshot,
+  | "effectiveCoverage"
+  | "finalSentenceCommitted"
+  | "isLastSlide"
+  | "policy"
+  | "remainingTriggerSteps"
+  | "slideId"
+>;
+
 export function createInitialAdvanceControllerState(): AdvanceControllerState {
   return {
     countdownStartedAtMs: null,
@@ -98,6 +108,70 @@ export function cancelAdvanceCountdown(
       manualGuidanceShown: false,
       remainingTriggerSteps: 0,
       status: reason === "manual" ? "tracking" : "ready"
+    }
+  };
+}
+
+export function evaluateVoiceAdvanceCommand(
+  state: AdvanceControllerState,
+  snapshot: VoiceAdvanceCommandSnapshot
+): AdvanceControllerResult {
+  const nextBaseState =
+    state.slideId === snapshot.slideId
+      ? state
+      : resetAdvanceControllerForSlide(snapshot.slideId);
+  const isCoverageReady =
+    snapshot.effectiveCoverage >= snapshot.policy.threshold &&
+    snapshot.finalSentenceCommitted;
+
+  if (!isCoverageReady) {
+    return {
+      commands: [],
+      state: {
+        ...nextBaseState,
+        countdownStartedAtMs: null,
+        remainingTriggerSteps: 0,
+        status: "tracking"
+      }
+    };
+  }
+
+  if (snapshot.remainingTriggerSteps > 0) {
+    return {
+      commands: [
+        {
+          type: "show-builds-remaining",
+          remainingTriggerSteps: snapshot.remainingTriggerSteps
+        }
+      ],
+      state: {
+        ...nextBaseState,
+        countdownStartedAtMs: null,
+        remainingTriggerSteps: snapshot.remainingTriggerSteps,
+        status: "blocked-by-builds"
+      }
+    };
+  }
+
+  if (snapshot.isLastSlide) {
+    return {
+      commands: [{ type: "suggest-finish", slideId: snapshot.slideId }],
+      state: {
+        ...nextBaseState,
+        countdownStartedAtMs: null,
+        remainingTriggerSteps: 0,
+        status: "finish-suggested"
+      }
+    };
+  }
+
+  return {
+    commands: [{ type: "advance-slide", slideId: snapshot.slideId }],
+    state: {
+      ...nextBaseState,
+      countdownStartedAtMs: null,
+      remainingTriggerSteps: 0,
+      status: "tracking"
     }
   };
 }

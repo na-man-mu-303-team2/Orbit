@@ -85,6 +85,23 @@ describe("slideshowStepModel", () => {
     expect(step3.el_custom?.rotation).toBe(0);
   });
 
+  it("speech overlay animation을 main step 진행 없이 settled state에 적용한다", () => {
+    const states = computeSettledElementStates({
+      deck: p0AnimationDeck,
+      overlayAnimationIds: ["anim_image_zoom_in", "anim_group_fade_out"],
+      slide,
+      stepIndex: 0,
+      triggerAnimationIds: ["anim_image_zoom_in", "anim_group_fade_out"]
+    });
+
+    expect(states.el_image).toMatchObject({
+      visible: true,
+      scaleX: 1,
+      scaleY: 1
+    });
+    expect(states.el_group).toMatchObject({ visible: false, opacity: 0 });
+  });
+
   it("keeps grouped children in presentation state for child-targeted animations", () => {
     const slideWithChildAnimation = {
       ...slide,

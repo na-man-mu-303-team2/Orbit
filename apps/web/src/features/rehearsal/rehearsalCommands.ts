@@ -19,6 +19,7 @@ export type RehearsalCommandCandidate = {
 
 export type RehearsalCommandConfirmationState = {
   previousCandidate: RehearsalCommandCandidate | null;
+  lastConfirmedCandidate: RehearsalCommandCandidate | null;
 };
 
 export const defaultRehearsalCommandConfig: RehearsalCommandDefinition[] = [
@@ -37,7 +38,8 @@ const defaultPartialConfirmationWindowMs = 1_600;
 
 export function createRehearsalCommandConfirmationState(): RehearsalCommandConfirmationState {
   return {
-    previousCandidate: null
+    previousCandidate: null,
+    lastConfirmedCandidate: null
   };
 }
 
@@ -116,8 +118,23 @@ export function confirmRehearsalCommandCandidate(
     return null;
   }
 
+  const confirmationWindowMs =
+    options.partialConfirmationWindowMs ?? defaultPartialConfirmationWindowMs;
+  if (
+    state.lastConfirmedCandidate &&
+    isSameCommandCandidate(state.lastConfirmedCandidate, candidate) &&
+    candidate.matchedAt - state.lastConfirmedCandidate.matchedAt <=
+      confirmationWindowMs
+  ) {
+    if (candidate.isFinal) {
+      state.previousCandidate = null;
+    }
+    return null;
+  }
+
   if (candidate.isFinal) {
     state.previousCandidate = null;
+    state.lastConfirmedCandidate = candidate;
     return candidate;
   }
 
@@ -127,11 +144,12 @@ export function confirmRehearsalCommandCandidate(
     return null;
   }
 
-  const confirmationWindowMs =
-    options.partialConfirmationWindowMs ?? defaultPartialConfirmationWindowMs;
-  return candidate.matchedAt - previous.matchedAt <= confirmationWindowMs
-    ? candidate
-    : null;
+  if (candidate.matchedAt - previous.matchedAt > confirmationWindowMs) {
+    return null;
+  }
+
+  state.lastConfirmedCandidate = candidate;
+  return candidate;
 }
 
 export function normalizeRehearsalCommandTranscript(value: string) {

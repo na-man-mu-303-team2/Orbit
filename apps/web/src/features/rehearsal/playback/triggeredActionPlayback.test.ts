@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import { createSlidePlaybackState } from "@orbit/editor-core";
 import type { Slide } from "@orbit/shared";
+import { createSlideshowAnimationPlan } from "../presenter/slideshowStepModel";
 
 import {
   getKeywordOccurrenceTriggerIdsForSlide,
   resolveKeywordOccurrenceTriggeredActions,
-  resolveKeywordTriggeredActions
+  resolveKeywordTriggeredActions,
+  resolveTriggeredActionPlaybackUpdate
 } from "./triggeredActionPlayback";
 
 describe("triggeredActionPlayback", () => {
@@ -31,6 +34,52 @@ describe("triggeredActionPlayback", () => {
     const slide = createSlide();
 
     expect(resolveKeywordTriggeredActions(slide, "kw_ai")).toEqual([]);
+  });
+
+  it("speech animation을 overlay state로 기록하고 main timeline step은 유지한다", () => {
+    const slide = createSlide();
+    const actions = resolveKeywordOccurrenceTriggeredActions(
+      slide,
+      "kw_ai",
+      "kwo_slide_1_kw_ai_47_49"
+    );
+    const update = resolveTriggeredActionPlaybackUpdate({
+      actions,
+      playbackState: createSlidePlaybackState(),
+      presenterStepIndex: 0,
+      slide,
+      slideAnimationPlan: createSlideshowAnimationPlan({
+        slide,
+        triggerAnimationIds: ["anim_occurrence"]
+      })
+    });
+
+    expect(update.presenterStepIndex).toBe(0);
+    expect(update.playbackState.playedAnimationIds).toEqual([
+      "anim_occurrence"
+    ]);
+  });
+
+  it("main timeline에서 이미 완료한 animation은 speech overlay로 다시 실행하지 않는다", () => {
+    const slide = createSlide();
+    const actions = resolveKeywordOccurrenceTriggeredActions(
+      slide,
+      "kw_ai",
+      "kwo_slide_1_kw_ai_47_49"
+    );
+    const update = resolveTriggeredActionPlaybackUpdate({
+      actions,
+      playbackState: createSlidePlaybackState(),
+      presenterStepIndex: 1,
+      slide,
+      slideAnimationPlan: createSlideshowAnimationPlan({
+        slide,
+        triggerAnimationIds: ["anim_occurrence"]
+      })
+    });
+
+    expect(update.playbackState.playedAnimationIds).toEqual([]);
+    expect(update.presenterStepIndex).toBe(1);
   });
 });
 
