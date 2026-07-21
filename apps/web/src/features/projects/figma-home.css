@@ -1397,7 +1397,6 @@
   gap: var(--redesign-space-2);
   padding-left: var(--redesign-space-3);
   overflow-x: auto;
-  border-left: var(--redesign-border-subtle);
   scrollbar-width: none;
 }
 
