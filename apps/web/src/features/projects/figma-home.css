@@ -2332,9 +2332,9 @@
 }
 
 .workspace-home-card.redesign-card {
-  background: var(--redesign-color-surface);
-  border: 0;
+  border: var(--redesign-border-width) solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface);
   box-shadow: var(--redesign-shadow-card);
   overflow: visible;
 }
@@ -2342,6 +2342,7 @@
 .workspace-home-card .workspace-home-thumb-wrap {
   border: 0;
   border-radius: var(--redesign-radius-lg) var(--redesign-radius-lg) 0 0;
+  background: var(--redesign-color-surface-container-low);
   box-shadow: var(--redesign-shadow-none);
   overflow: hidden;
 }
