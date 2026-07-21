@@ -8,6 +8,7 @@ import {
   WorkspaceCommunityTemplatesController,
 } from "./community-templates.controller";
 import { CommunityTemplatesService } from "./community-templates.service";
+import { CommunityTemplateRateLimitService } from "./community-template-rate-limit.service";
 
 @Module({
   imports: [AuthModule, ProjectsModule, DecksModule],
@@ -15,6 +16,6 @@ import { CommunityTemplatesService } from "./community-templates.service";
     CommunityTemplatesController,
     WorkspaceCommunityTemplatesController,
   ],
-  providers: [CommunityTemplatesService],
+  providers: [CommunityTemplatesService, CommunityTemplateRateLimitService],
 })
 export class CommunityTemplatesModule {}

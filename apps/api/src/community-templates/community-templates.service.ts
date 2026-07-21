@@ -16,12 +16,18 @@ import {
   communityTemplateEngagementResponseSchema,
   communityTemplateIdSchema,
   communityTemplateListResponseSchema,
+  communityTemplateModerationListResponseSchema,
+  communityTemplateReportSchema,
   communityTemplatePreviewSchema,
   communityTemplateRecentResponseSchema,
   communityTemplateSnapshotSchema,
   communityTemplateSourceListResponseSchema,
+  createCommunityTemplateReportResponseSchema,
   publishCommunityTemplateRequestSchema,
   publishCommunityTemplateResponseSchema,
+  unpublishCommunityTemplateResponseSchema,
+  updateCommunityTemplateReportResponseSchema,
+  updateCommunityTemplateResponseSchema,
   useCommunityTemplateRequestSchema,
   useCommunityTemplateResponseSchema,
 } from "@orbit/shared";
@@ -32,12 +38,17 @@ import type {
   CommunityTemplateCommentListQuery,
   CommunityTemplateDiscoverQuery,
   CommunityTemplateListQuery,
+  CommunityTemplateModerationQuery,
+  CreateCommunityTemplateReportRequest,
   PublishCommunityTemplateRequest,
+  UpdateCommunityTemplateReportRequest,
+  UpdateCommunityTemplateRequest,
   UseCommunityTemplateRequest,
   UseCommunityTemplateResponse,
 } from "@orbit/shared";
 import {
   ForbiddenException,
+  ConflictException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -68,6 +79,7 @@ type SourceProjectRow = {
   project_id: string;
   title: string;
   created_at: Date | string;
+  already_published: boolean;
 };
 
 type ExistingUseRow = {
@@ -110,6 +122,18 @@ type CommunityCommentRow = {
   updated_at: Date | string;
 };
 
+type CommunityReportRow = PublicTemplateRow & {
+  report_id: string;
+  reporter_user_id: string;
+  reporter_display_name: string;
+  reason: CreateCommunityTemplateReportRequest["reason"];
+  details: string;
+  status: UpdateCommunityTemplateReportRequest["status"];
+  resolution_note: string | null;
+  report_created_at: Date | string;
+  report_updated_at: Date | string;
+};
+
 @Injectable()
 export class CommunityTemplatesService {
   constructor(
@@ -128,7 +152,8 @@ export class CommunityTemplatesService {
         `
           SELECT template_id, title, category, preview_json, created_at
           FROM community_templates
-          WHERE ($1::text IS NULL OR title ILIKE '%' || $1 || '%')
+          WHERE deleted_at IS NULL
+            AND ($1::text IS NULL OR title ILIKE '%' || $1 || '%')
             AND ($2::text IS NULL OR category = $2)
           ORDER BY created_at DESC, template_id DESC
           LIMIT $3 OFFSET $4
@@ -160,6 +185,7 @@ export class CommunityTemplatesService {
           INNER JOIN community_templates
             ON community_templates.template_id = community_template_usages.template_id
           WHERE community_template_usages.user_id = $1
+            AND community_templates.deleted_at IS NULL
           ORDER BY community_template_usages.last_used_at DESC
           LIMIT 4
         `,
@@ -177,7 +203,16 @@ export class CommunityTemplatesService {
     try {
       const rows = await this.dataSource.query<SourceProjectRow[]>(
         `
-          SELECT projects.project_id, projects.title, projects.created_at
+          SELECT
+            projects.project_id,
+            projects.title,
+            projects.created_at,
+            EXISTS(
+              SELECT 1
+              FROM community_templates templates
+              WHERE templates.source_project_id = projects.project_id
+                AND templates.deleted_at IS NULL
+            ) AS already_published
           FROM projects
           INNER JOIN project_members
             ON project_members.project_id = projects.project_id
@@ -189,13 +224,44 @@ export class CommunityTemplatesService {
         `,
         [workspaceId, userId],
       );
-      return communityTemplateSourceListResponseSchema.parse({
-        items: rows.map((row) => ({
-          projectId: row.project_id,
-          title: row.title,
-          createdAt: toIso(row.created_at),
-        })),
-      });
+      const items = await Promise.all(
+        rows.map(async (row) => {
+          let unavailableReason:
+            | "ALREADY_PUBLISHED"
+            | "SOURCE_DECK_NOT_FOUND"
+            | "ACTIVITY_UNSUPPORTED"
+            | "SANITIZATION_FAILED"
+            | "SNAPSHOT_TOO_LARGE"
+            | null = row.already_published ? "ALREADY_PUBLISHED" : null;
+          if (!unavailableReason) {
+            try {
+              const { deck } = await this.decksService.getDeck(row.project_id);
+              sanitizeCommunityTemplate(deck);
+            } catch (error) {
+              if (error instanceof NotFoundException) {
+                unavailableReason = "SOURCE_DECK_NOT_FOUND";
+              } else if (error instanceof CommunityTemplateSanitizationError) {
+                unavailableReason =
+                  error.code === "COMMUNITY_TEMPLATE_ACTIVITY_UNSUPPORTED"
+                    ? "ACTIVITY_UNSUPPORTED"
+                    : error.code === "COMMUNITY_TEMPLATE_SNAPSHOT_TOO_LARGE"
+                      ? "SNAPSHOT_TOO_LARGE"
+                      : "SANITIZATION_FAILED";
+              } else {
+                throw error;
+              }
+            }
+          }
+          return {
+            projectId: row.project_id,
+            title: row.title,
+            createdAt: toIso(row.created_at),
+            publishable: unavailableReason === null,
+            unavailableReason,
+          };
+        }),
+      );
+      return communityTemplateSourceListResponseSchema.parse({ items });
     } catch (error) {
       throw toCommunityTemplateException(error, "read");
     }
@@ -224,6 +290,18 @@ export class CommunityTemplatesService {
           "COMMUNITY_TEMPLATE_SOURCE_NOT_FOUND",
           HttpStatus.NOT_FOUND,
           "공개할 원본 프로젝트를 찾을 수 없습니다.",
+        );
+      }
+
+      const existingRows = await this.dataSource.query<Array<{ template_id: string }>>(
+        `SELECT template_id FROM community_templates WHERE source_project_id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [request.sourceProjectId],
+      );
+      if (existingRows[0]) {
+        throw communityTemplateException(
+          "COMMUNITY_TEMPLATE_ALREADY_PUBLISHED",
+          HttpStatus.CONFLICT,
+          "이미 커뮤니티에 공개된 프로젝트입니다.",
         );
       }
 
@@ -424,6 +502,7 @@ export class CommunityTemplatesService {
           INNER JOIN users ON users.user_id = templates.owner_user_id
           WHERE ($1::text IS NULL OR templates.title ILIKE '%' || $1 || '%' OR users.display_name ILIKE '%' || $1 || '%')
             AND ($2::text IS NULL OR templates.category = $2)
+            AND templates.deleted_at IS NULL
         )
         SELECT * FROM community
         ORDER BY ${orderBy}
@@ -469,6 +548,7 @@ export class CommunityTemplatesService {
         FROM community_templates templates
         INNER JOIN users ON users.user_id = templates.owner_user_id
         WHERE templates.template_id = $1
+          AND templates.deleted_at IS NULL
       `,
       [templateId, userId],
     );
@@ -499,6 +579,189 @@ export class CommunityTemplatesService {
       "Community template like state changed.",
     );
     return this.readEngagement(templateId, userId);
+  }
+
+  async listMine(query: CommunityTemplateDiscoverQuery, userId: string) {
+    const rows = await this.dataSource.query<CommunityDiscoverRow[]>(
+      `
+        SELECT
+          templates.template_id, templates.title, templates.category,
+          templates.description, templates.preview_json, templates.created_at,
+          templates.owner_user_id, users.display_name,
+          (SELECT COUNT(*)::int FROM community_template_likes WHERE template_id = templates.template_id) AS like_count,
+          (SELECT COUNT(*)::int FROM community_template_views WHERE template_id = templates.template_id) AS view_count,
+          (SELECT COUNT(*)::int FROM community_template_shares WHERE template_id = templates.template_id) AS share_count,
+          (SELECT COUNT(*)::int FROM community_template_comments WHERE template_id = templates.template_id) AS comment_count,
+          COALESCE((SELECT SUM(use_count)::int FROM community_template_usages WHERE template_id = templates.template_id), 0) AS use_count,
+          EXISTS(SELECT 1 FROM community_template_likes WHERE template_id = templates.template_id AND user_id = $2) AS liked_by_me
+        FROM community_templates templates
+        INNER JOIN users ON users.user_id = templates.owner_user_id
+        WHERE templates.owner_user_id = $2
+          AND templates.deleted_at IS NULL
+          AND ($1::text IS NULL OR templates.title ILIKE '%' || $1 || '%')
+        ORDER BY templates.created_at DESC, templates.template_id DESC
+        LIMIT $3 OFFSET $4
+      `,
+      [query.query ?? null, userId, query.limit + 1, (query.page - 1) * query.limit],
+    );
+    return communityTemplateDiscoverResponseSchema.parse({
+      items: rows.slice(0, query.limit).map((row) => this.toDiscoverCard(row)),
+      page: query.page,
+      hasMore: rows.length > query.limit,
+    });
+  }
+
+  async updateTemplate(
+    templateId: string,
+    input: UpdateCommunityTemplateRequest,
+    userId: string,
+  ) {
+    const rows = await this.dataSource.query<
+      Array<{
+        template_id: string;
+        title: string;
+        category: CommunityTemplateCategory;
+        description: string;
+        updated_at: Date | string;
+      }>
+    >(
+      `
+        UPDATE community_templates
+        SET
+          title = COALESCE($3, title),
+          category = COALESCE($4, category),
+          description = COALESCE($5, description),
+          updated_at = now()
+        WHERE template_id = $1 AND owner_user_id = $2 AND deleted_at IS NULL
+        RETURNING template_id, title, category, description, updated_at
+      `,
+      [templateId, userId, input.title ?? null, input.category ?? null, input.description ?? null],
+    );
+    if (!rows[0]) await this.throwTemplateOwnerError(templateId, userId);
+    const row = rows[0]!;
+    this.logger?.info(
+      { event: "community_template.metadata_updated", templateId, userId },
+      "Community template metadata updated.",
+    );
+    return updateCommunityTemplateResponseSchema.parse({
+      templateId: row.template_id,
+      title: row.title,
+      category: row.category,
+      description: row.description,
+      updatedAt: toIso(row.updated_at),
+    });
+  }
+
+  async unpublishTemplate(templateId: string, userId: string) {
+    const rows = await this.dataSource.query<Array<{ template_id: string }>>(
+      `
+        UPDATE community_templates
+        SET deleted_at = now(), deleted_by_user_id = $2, updated_at = now()
+        WHERE template_id = $1 AND owner_user_id = $2 AND deleted_at IS NULL
+        RETURNING template_id
+      `,
+      [templateId, userId],
+    );
+    if (!rows[0]) await this.throwTemplateOwnerError(templateId, userId);
+    this.logger?.info(
+      { event: "community_template.unpublished", templateId, userId },
+      "Community template unpublished.",
+    );
+    return unpublishCommunityTemplateResponseSchema.parse({ templateId, unpublished: true });
+  }
+
+  async createReport(
+    templateId: string,
+    input: CreateCommunityTemplateReportRequest,
+    userId: string,
+  ) {
+    const ownerRows = await this.dataSource.query<Array<{ owner_user_id: string }>>(
+      `SELECT owner_user_id FROM community_templates WHERE template_id = $1 AND deleted_at IS NULL`,
+      [templateId],
+    );
+    if (!ownerRows[0]) throw new NotFoundException("커뮤니티 템플릿을 찾을 수 없습니다.");
+    if (ownerRows[0].owner_user_id === userId) {
+      throw new ForbiddenException("내가 공개한 자료는 신고할 수 없습니다.");
+    }
+    const reportId = `community_report_${randomUUID()}`;
+    try {
+      const rows = await this.dataSource.query<Array<{ created_at: Date | string }>>(
+        `
+          INSERT INTO community_template_reports (
+            report_id, template_id, reporter_user_id, reason, details
+          ) VALUES ($1, $2, $3, $4, $5)
+          RETURNING created_at
+        `,
+        [reportId, templateId, userId, input.reason, input.details ?? ""],
+      );
+      this.logger?.info(
+        { event: "community_template.report_created", reportId, templateId, userId, reason: input.reason },
+        "Community template report created.",
+      );
+      return createCommunityTemplateReportResponseSchema.parse({
+        reportId,
+        status: "open",
+        createdAt: toIso(rows[0]!.created_at),
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new ConflictException("이미 신고한 자료입니다.");
+      }
+      throw error;
+    }
+  }
+
+  async listReports(query: CommunityTemplateModerationQuery, userId: string) {
+    await this.assertModerator(userId);
+    const rows = await this.dataSource.query<CommunityReportRow[]>(
+      `${this.reportSelectSql()}
+       WHERE ($1::text IS NULL OR reports.status = $1)
+       ORDER BY reports.created_at DESC, reports.report_id DESC
+       LIMIT $2 OFFSET $3`,
+      [query.status ?? null, query.limit + 1, (query.page - 1) * query.limit],
+    );
+    return communityTemplateModerationListResponseSchema.parse({
+      items: rows.slice(0, query.limit).map((row) => this.toReport(row)),
+      page: query.page,
+      hasMore: rows.length > query.limit,
+    });
+  }
+
+  async updateReport(
+    reportId: string,
+    input: UpdateCommunityTemplateReportRequest,
+    moderatorUserId: string,
+  ) {
+    await this.assertModerator(moderatorUserId);
+    const rows = await this.dataSource.query<Array<{ template_id: string }>>(
+      `
+        UPDATE community_template_reports
+        SET status = $2, resolution_note = $3, reviewed_by_user_id = $4, updated_at = now()
+        WHERE report_id = $1
+        RETURNING template_id
+      `,
+      [reportId, input.status, input.resolutionNote ?? null, moderatorUserId],
+    );
+    if (!rows[0]) throw new NotFoundException("신고 내역을 찾을 수 없습니다.");
+    if (input.hideTemplate) {
+      await this.dataSource.query(
+        `
+          UPDATE community_templates
+          SET deleted_at = COALESCE(deleted_at, now()),
+              deleted_by_user_id = $2,
+              moderation_note = $3,
+              updated_at = now()
+          WHERE template_id = $1
+        `,
+        [rows[0].template_id, moderatorUserId, input.resolutionNote ?? "신고 검토에 따른 비공개"],
+      );
+    }
+    const report = await this.readReport(reportId);
+    this.logger?.info(
+      { event: "community_template.report_reviewed", reportId, templateId: rows[0].template_id, moderatorUserId, status: input.status, hidden: input.hideTemplate },
+      "Community template report reviewed.",
+    );
+    return updateCommunityTemplateReportResponseSchema.parse({ report });
   }
 
   async recordView(templateId: string, userId: string) {
@@ -694,6 +957,7 @@ export class CommunityTemplatesService {
           created_at
         FROM community_templates
         WHERE template_id = $1
+          AND deleted_at IS NULL
         FOR SHARE
       `,
       [templateId],
@@ -841,7 +1105,7 @@ export class CommunityTemplatesService {
 
   private async assertCommunityTemplateExists(templateId: string) {
     const rows = await this.dataSource.query<Array<{ exists: boolean }>>(
-      `SELECT EXISTS(SELECT 1 FROM community_templates WHERE template_id = $1) AS exists`,
+      `SELECT EXISTS(SELECT 1 FROM community_templates WHERE template_id = $1 AND deleted_at IS NULL) AS exists`,
       [templateId],
     );
     if (!rows[0]?.exists) throw new NotFoundException("커뮤니티 템플릿을 찾을 수 없습니다.");
@@ -898,12 +1162,83 @@ export class CommunityTemplatesService {
     }
     throw new NotFoundException("댓글을 찾을 수 없습니다.");
   }
+
+  private async throwTemplateOwnerError(templateId: string, userId: string): Promise<never> {
+    const rows = await this.dataSource.query<Array<{ owner_user_id: string; deleted_at: Date | string | null }>>(
+      `SELECT owner_user_id, deleted_at FROM community_templates WHERE template_id = $1`,
+      [templateId],
+    );
+    if (!rows[0] || rows[0].deleted_at) {
+      throw new NotFoundException("커뮤니티 템플릿을 찾을 수 없습니다.");
+    }
+    if (rows[0].owner_user_id !== userId) {
+      throw new ForbiddenException("내가 공개한 자료만 관리할 수 있습니다.");
+    }
+    throw new NotFoundException("커뮤니티 템플릿을 찾을 수 없습니다.");
+  }
+
+  private async assertModerator(userId: string) {
+    const rows = await this.dataSource.query<Array<{ allowed: boolean }>>(
+      `SELECT is_community_moderator AS allowed FROM users WHERE user_id = $1`,
+      [userId],
+    );
+    if (!rows[0]?.allowed) throw new ForbiddenException("커뮤니티 운영자 권한이 필요합니다.");
+  }
+
+  private reportSelectSql() {
+    return `
+      SELECT
+        reports.report_id, reports.reason, reports.details, reports.status,
+        reports.resolution_note, reports.created_at AS report_created_at,
+        reports.updated_at AS report_updated_at,
+        reports.reporter_user_id, reporters.display_name AS reporter_display_name,
+        templates.template_id, templates.title, templates.category,
+        templates.preview_json, templates.created_at
+      FROM community_template_reports reports
+      INNER JOIN community_templates templates ON templates.template_id = reports.template_id
+      INNER JOIN users reporters ON reporters.user_id = reports.reporter_user_id
+    `;
+  }
+
+  private async readReport(reportId: string) {
+    const rows = await this.dataSource.query<CommunityReportRow[]>(
+      `${this.reportSelectSql()} WHERE reports.report_id = $1`,
+      [reportId],
+    );
+    if (!rows[0]) throw new NotFoundException("신고 내역을 찾을 수 없습니다.");
+    return this.toReport(rows[0]);
+  }
+
+  private toReport(row: CommunityReportRow) {
+    return communityTemplateReportSchema.parse({
+      reportId: row.report_id,
+      template: this.parsePublicCards([row])[0],
+      reporter: {
+        userId: row.reporter_user_id,
+        displayName: row.reporter_display_name,
+        avatarUrl: null,
+      },
+      reason: row.reason,
+      details: row.details,
+      status: row.status,
+      resolutionNote: row.resolution_note,
+      createdAt: toIso(row.report_created_at),
+      updatedAt: toIso(row.report_updated_at),
+    });
+  }
 }
 
 function toCommunityTemplateException(
   error: unknown,
   operation: "publish" | "use" | "read",
 ): HttpException {
+  if (operation === "publish" && isUniqueViolation(error)) {
+    return communityTemplateException(
+      "COMMUNITY_TEMPLATE_ALREADY_PUBLISHED",
+      HttpStatus.CONFLICT,
+      "이미 커뮤니티에 공개된 프로젝트입니다.",
+    );
+  }
   if (error instanceof HttpException) {
     const code = readCommunityTemplateErrorCode(error);
     if (code) return error;
@@ -972,4 +1307,13 @@ function toIso(value: Date | string) {
   return value instanceof Date
     ? value.toISOString()
     : new Date(value).toISOString();
+}
+
+function isUniqueViolation(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "23505"
+  );
 }

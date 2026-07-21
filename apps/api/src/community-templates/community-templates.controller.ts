@@ -17,7 +17,12 @@ import {
   communityTemplateDiscoverQuerySchema,
   communityTemplateIdSchema,
   communityTemplateListQuerySchema,
+  communityTemplateModerationQuerySchema,
+  communityTemplateReportIdSchema,
+  createCommunityTemplateReportRequestSchema,
   publishCommunityTemplateRequestSchema,
+  updateCommunityTemplateReportRequestSchema,
+  updateCommunityTemplateRequestSchema,
   useCommunityTemplateRequestSchema,
 } from "@orbit/shared";
 import { z } from "zod";
@@ -25,6 +30,7 @@ import { z } from "zod";
 import { AuthService } from "../auth/auth.service";
 import { getCurrentUser, SignedCookieRequest } from "../auth/current-user";
 import { parseRequest } from "../common/zod-request";
+import { CommunityTemplateRateLimitService } from "./community-template-rate-limit.service";
 import { CommunityTemplatesService } from "./community-templates.service";
 
 const workspaceIdSchema = z.string().trim().min(1).max(200);
@@ -34,6 +40,7 @@ export class CommunityTemplatesController {
   constructor(
     private readonly authService: AuthService,
     private readonly service: CommunityTemplatesService,
+    private readonly rateLimit: CommunityTemplateRateLimitService,
   ) {}
 
   @Get()
@@ -59,6 +66,41 @@ export class CommunityTemplatesController {
     );
   }
 
+  @Get("mine")
+  async mine(@Query() query: unknown, @Req() request: SignedCookieRequest) {
+    const user = await getCurrentUser(this.authService, request);
+    return this.service.listMine(
+      parseRequest(communityTemplateDiscoverQuerySchema, query ?? {}),
+      user.userId,
+    );
+  }
+
+  @Get("moderation/reports")
+  async moderationReports(
+    @Query() query: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    return this.service.listReports(
+      parseRequest(communityTemplateModerationQuerySchema, query ?? {}),
+      user.userId,
+    );
+  }
+
+  @Patch("moderation/reports/:reportId")
+  async moderateReport(
+    @Param("reportId") rawReportId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    return this.service.updateReport(
+      parseRequest(communityTemplateReportIdSchema, rawReportId),
+      parseRequest(updateCommunityTemplateReportRequestSchema, body ?? {}),
+      user.userId,
+    );
+  }
+
   @Get(":templateId")
   async detail(
     @Param("templateId") rawTemplateId: string,
@@ -75,6 +117,7 @@ export class CommunityTemplatesController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
+    await this.rateLimit.consume("engagement", user.userId);
     return this.service.setLike(
       parseRequest(communityTemplateIdSchema, rawTemplateId),
       user.userId,
@@ -88,6 +131,7 @@ export class CommunityTemplatesController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
+    await this.rateLimit.consume("engagement", user.userId);
     return this.service.setLike(
       parseRequest(communityTemplateIdSchema, rawTemplateId),
       user.userId,
@@ -101,6 +145,7 @@ export class CommunityTemplatesController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
+    await this.rateLimit.consume("view", user.userId);
     return this.service.recordView(
       parseRequest(communityTemplateIdSchema, rawTemplateId),
       user.userId,
@@ -113,6 +158,7 @@ export class CommunityTemplatesController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
+    await this.rateLimit.consume("share", user.userId);
     return this.service.recordShare(
       parseRequest(communityTemplateIdSchema, rawTemplateId),
       user.userId,
@@ -140,6 +186,7 @@ export class CommunityTemplatesController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
+    await this.rateLimit.consume("comment", user.userId);
     return this.service.createComment(
       parseRequest(communityTemplateIdSchema, rawTemplateId),
       parseRequest(communityTemplateCommentMutationSchema, body ?? {}),
@@ -155,6 +202,7 @@ export class CommunityTemplatesController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
+    await this.rateLimit.consume("comment", user.userId);
     return this.service.updateComment(
       parseRequest(communityTemplateIdSchema, rawTemplateId),
       parseRequest(communityTemplateCommentIdSchema, rawCommentId),
@@ -170,9 +218,53 @@ export class CommunityTemplatesController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
+    await this.rateLimit.consume("comment", user.userId);
     return this.service.deleteComment(
       parseRequest(communityTemplateIdSchema, rawTemplateId),
       parseRequest(communityTemplateCommentIdSchema, rawCommentId),
+      user.userId,
+    );
+  }
+
+  @Patch(":templateId")
+  async updateTemplate(
+    @Param("templateId") rawTemplateId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.rateLimit.consume("manage", user.userId);
+    return this.service.updateTemplate(
+      parseRequest(communityTemplateIdSchema, rawTemplateId),
+      parseRequest(updateCommunityTemplateRequestSchema, body ?? {}),
+      user.userId,
+    );
+  }
+
+  @Delete(":templateId")
+  async unpublishTemplate(
+    @Param("templateId") rawTemplateId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.rateLimit.consume("manage", user.userId);
+    return this.service.unpublishTemplate(
+      parseRequest(communityTemplateIdSchema, rawTemplateId),
+      user.userId,
+    );
+  }
+
+  @Post(":templateId/reports")
+  async reportTemplate(
+    @Param("templateId") rawTemplateId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.rateLimit.consume("report", user.userId);
+    return this.service.createReport(
+      parseRequest(communityTemplateIdSchema, rawTemplateId),
+      parseRequest(createCommunityTemplateReportRequestSchema, body ?? {}),
       user.userId,
     );
   }
@@ -183,6 +275,7 @@ export class WorkspaceCommunityTemplatesController {
   constructor(
     private readonly authService: AuthService,
     private readonly service: CommunityTemplatesService,
+    private readonly rateLimit: CommunityTemplateRateLimitService,
   ) {}
 
   @Get("sources")
@@ -202,6 +295,7 @@ export class WorkspaceCommunityTemplatesController {
     @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
+    await this.rateLimit.consume("publish", user.userId);
     const workspaceId = parseRequest(workspaceIdSchema, rawWorkspaceId);
     const input = parseRequest(
       publishCommunityTemplateRequestSchema,
