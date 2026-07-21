@@ -173,15 +173,12 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
       previousTime = currentTime;
 
       if (!reducedMotion.matches && !track.matches(":hover") && !track.contains(document.activeElement)) {
-        track.scrollLeft += elapsed * 0.025;
-
-        const firstCard = track.children.item(0) as HTMLElement | null;
-        const firstDuplicate = track.children.item(communityItems.length) as HTMLElement | null;
-        const cycleWidth = firstCard && firstDuplicate
-          ? firstDuplicate.offsetLeft - firstCard.offsetLeft
-          : 0;
-        if (cycleWidth > 0 && track.scrollLeft >= cycleWidth) {
-          track.scrollLeft -= cycleWidth;
+        const maxScrollLeft = track.scrollWidth - track.clientWidth;
+        if (maxScrollLeft > 0) {
+          track.scrollLeft += elapsed * 0.025;
+          if (track.scrollLeft >= maxScrollLeft) {
+            track.scrollLeft = 0;
+          }
         }
       }
 
@@ -417,20 +414,16 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
                     <strong>아직 공개된 발표 프로젝트가 없습니다.</strong>
                     <span>첫 프로젝트를 공유해 커뮤니티를 시작해 보세요.</span>
                   </div>
-                ) : [...communityItems, ...communityItems].map((card, index) => {
-                    const itemIndex = index % communityItems.length;
-                    const isDuplicate = index >= communityItems.length;
+                ) : communityItems.map((card, index) => {
                     return (
                       <button
-                        aria-hidden={isDuplicate || undefined}
                         aria-label={`${card.title} 커뮤니티 발표자료`}
-                        className={`workspace-community-card${itemIndex === 0 ? " is-featured" : ""}`}
-                        key={`${isDuplicate ? "duplicate" : "original"}-${card.templateId}`}
+                        className={`workspace-community-card${index === 0 ? " is-featured" : ""}`}
+                        key={card.templateId}
                         onClick={() => props.onNavigate(`/community/${encodeURIComponent(card.templateId)}`)}
-                        tabIndex={isDuplicate ? -1 : 0}
                         type="button"
                       >
-                        <span className="workspace-community-index">{String(itemIndex + 1).padStart(2, "0")}</span>
+                        <span className="workspace-community-index">{String(index + 1).padStart(2, "0")}</span>
                         <span className="workspace-community-preview">
                           <span className="workspace-community-preview-fallback"><IconSparkles aria-hidden="true" size={28} stroke={1.5} /></span>
                           <CommunityTemplatePreview card={card} className="workspace-community-preview-canvas" />
