@@ -96,14 +96,14 @@
 
 .community-gallery-topic-picker {
   display: grid;
-  grid-template-columns: auto minmax(180px, 230px) auto;
+  grid-template-columns: auto 32px auto;
   align-items: center;
-  gap: var(--redesign-space-2);
-  padding: var(--redesign-space-1) var(--redesign-space-2) var(--redesign-space-1) var(--redesign-space-3);
+  gap: var(--redesign-space-1);
+  padding: 2px 4px 2px var(--redesign-space-3);
   border: var(--redesign-border-width) solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-lg);
+  border-radius: var(--redesign-radius-full);
   background: var(--redesign-color-surface);
-  box-shadow: var(--redesign-shadow-card);
+  box-shadow: var(--redesign-shadow-none);
 }
 
 .community-gallery-topic-picker-label {
@@ -114,6 +114,33 @@
   font-size: var(--redesign-type-label-md-size);
   font-weight: 700;
   white-space: nowrap;
+}
+
+.community-gallery-topic-picker .community-template-category-trigger {
+  min-height: 32px;
+  width: 32px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--redesign-radius-full);
+  background: transparent;
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.community-gallery-topic-picker .community-template-category-trigger > span {
+  display: none;
+}
+
+.community-gallery-topic-picker .community-template-category-trigger:hover:not(:disabled),
+.community-gallery-topic-picker .community-template-category-trigger[aria-expanded="true"] {
+  border-color: transparent;
+}
+
+.community-gallery-topic-picker .community-template-category-menu.redesign-dropdown-menu {
+  right: 0;
+  left: auto;
+  width: min(240px, calc(100vw - 32px));
 }
 
 .community-gallery-shell .community-gallery-grid {
