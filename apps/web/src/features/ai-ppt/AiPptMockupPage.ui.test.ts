@@ -90,6 +90,9 @@ describe("AI PPT wizard UI", () => {
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain("AI로 컬러 팔레트 만들기");
     expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('class="ai-ppt-ai-palette-create"');
+    expect(html).toContain('class="ai-ppt-ai-palette-create-icon"');
+    expect(html).not.toContain("workspace-home-create");
     expect(html).not.toContain('id="ai-ppt-ai-palette-panel"');
     expect(html.indexOf("ai-ppt-palette-swatches")).toBeLessThan(
       html.indexOf("ai-ppt-palette-mockup"),

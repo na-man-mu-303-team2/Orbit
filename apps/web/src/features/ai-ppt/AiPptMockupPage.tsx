@@ -1248,11 +1248,11 @@ function StyleColorStep(props: {
           <button
             aria-controls="ai-ppt-ai-palette-panel"
             aria-expanded={props.isAiPaletteOpen}
-            className="workspace-home-create ai-ppt-ai-palette-create"
+            className="ai-ppt-ai-palette-create"
             type="button"
             onClick={props.onOpenAiPalette}
           >
-            <span aria-hidden="true" className="workspace-home-create-icon">
+            <span aria-hidden="true" className="ai-ppt-ai-palette-create-icon">
               <IconPlus size={22} stroke={1.8} />
             </span>
             <strong>AI로 컬러 팔레트 만들기</strong>
