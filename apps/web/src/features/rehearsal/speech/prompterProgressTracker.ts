@@ -38,7 +38,7 @@ export type PrompterProgressSnapshot = {
 
 export type PrompterProgressTracker = {
   acceptEvidence: (evidence: PrompterProgressEvidence) => boolean;
-  resyncNext: (evidence: PrompterProgressEvidence) => boolean;
+  resyncForward: (evidence: PrompterProgressEvidence) => boolean;
   acceptBoundary: (boundary: PrompterBoundary) => boolean;
   manualNext: (atMs: number) => boolean;
   manualPrevious: (atMs: number) => boolean;
@@ -47,15 +47,22 @@ export type PrompterProgressTracker = {
   snapshot: () => PrompterProgressSnapshot;
 };
 
+export const defaultPrompterResyncDistance = 3;
+
 export function createPrompterProgressTracker(options: {
   slideId: string;
   sentences: readonly PrompterProgressSentence[];
   maxEvidenceAgeMs?: number;
+  maxResyncDistance?: number;
 }): PrompterProgressTracker {
   const sentences = options.sentences
     .filter((sentence) => sentence.matchable)
     .sort((left, right) => left.index - right.index);
   const maxEvidenceAgeMs = options.maxEvidenceAgeMs ?? 1_500;
+  const maxResyncDistance = Math.max(
+    1,
+    Math.trunc(options.maxResyncDistance ?? defaultPrompterResyncDistance)
+  );
   let currentIndex = 0;
   let revision = 0;
   let phase: PrompterProgressPhase = "tracking";
@@ -102,23 +109,29 @@ export function createPrompterProgressTracker(options: {
     return commitCurrent(latestEvidence?.source ?? "lexical");
   }
 
-  function resyncNext(evidence: PrompterProgressEvidence) {
+  function resyncForward(evidence: PrompterProgressEvidence) {
     const currentSentence = sentences[currentIndex];
-    const nextSentence = sentences[currentIndex + 1];
+    const targetIndex = sentences.findIndex(
+      (sentence, index) =>
+        index > currentIndex && sentence.sentenceId === evidence.sentenceId
+    );
+    const resyncDistance = targetIndex - currentIndex;
     if (
       !currentSentence ||
-      !nextSentence ||
-      evidence.sentenceId !== nextSentence.sentenceId ||
+      targetIndex < 0 ||
+      resyncDistance > maxResyncDistance ||
       !evidence.candidate ||
       !evidence.commitEligible
     ) {
       return false;
     }
 
-    if (!skippedSentenceIds.includes(currentSentence.sentenceId)) {
-      skippedSentenceIds = [...skippedSentenceIds, currentSentence.sentenceId];
+    const skippedSentenceIdSet = new Set(skippedSentenceIds);
+    for (const skippedSentence of sentences.slice(currentIndex, targetIndex)) {
+      skippedSentenceIdSet.add(skippedSentence.sentenceId);
     }
-    currentIndex += 1;
+    skippedSentenceIds = [...skippedSentenceIdSet];
+    currentIndex = targetIndex;
     revision += 1;
     latestEvidence = { ...evidence, revision };
     phase = "candidate";
@@ -247,7 +260,7 @@ export function createPrompterProgressTracker(options: {
 
   return {
     acceptEvidence,
-    resyncNext,
+    resyncForward,
     acceptBoundary,
     manualNext,
     manualPrevious,
