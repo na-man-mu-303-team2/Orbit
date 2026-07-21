@@ -364,14 +364,20 @@
 .community-detail-creator > button { width: 100%; }
 .community-detail-comments h2 { margin: 0 0 var(--redesign-space-4); font-size: var(--redesign-type-title-md-size); }
 .community-detail-comments h2 span { color: var(--redesign-color-primary); }
+.community-comments-list { display: grid; max-height: 360px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.community-comments-empty { display: grid; min-height: 180px; place-items: center; }
+.community-comments-empty .redesign-empty-state { padding: var(--redesign-space-5) var(--redesign-space-3); }
+.community-comment-composer { display: grid; gap: var(--redesign-space-3); margin-top: var(--redesign-space-4); padding-top: var(--redesign-space-4); border-top: 1px solid var(--redesign-color-outline-variant); }
+.community-comment-composer-label { color: var(--redesign-color-on-surface); font-size: var(--redesign-type-label-md-size); font-weight: 750; }
 .community-comment-submit { display: flex; justify-content: space-between; align-items: center; margin-top: var(--redesign-space-2); }
 .community-comment-submit small { color: var(--redesign-color-on-surface-variant); }
 .community-comment { display: grid; grid-template-columns: 32px 1fr; gap: var(--redesign-space-3); padding-block: var(--redesign-space-4); border-bottom: 1px solid var(--redesign-color-outline-variant); }
+.community-comment:last-child { border-bottom: 0; }
 .community-comment > div > header { display: flex; gap: var(--redesign-space-2); align-items: baseline; }
 .community-comment time { color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-label-xs-size); }
 .community-comment p { margin: var(--redesign-space-2) 0 0; color: var(--redesign-color-on-surface-variant); white-space: pre-wrap; line-height: 1.55; }
-.community-comment-actions { display: flex; gap: var(--redesign-space-2); margin-top: var(--redesign-space-2); }
-.community-comment-actions button { display: inline-flex; align-items: center; gap: 3px; border: 0; background: transparent; color: var(--redesign-color-on-surface-variant); cursor: pointer; }
+.community-comment-actions { display: flex; gap: var(--redesign-space-1); margin-top: var(--redesign-space-2); }
+.community-comment-actions .redesign-icon-button { width: 30px; height: 30px; min-height: 30px; color: var(--redesign-color-on-surface-variant); }
 .community-comment-edit > div { display: flex; justify-content: flex-end; gap: var(--redesign-space-1); }
 .community-comments-state { color: var(--redesign-color-on-surface-variant); text-align: center; }
 .community-detail-error { position: fixed; left: 50%; bottom: 28px; z-index: 30; transform: translateX(-50%); background: var(--redesign-color-error-container); color: var(--redesign-color-on-error-container); box-shadow: var(--redesign-shadow-overlay); }
