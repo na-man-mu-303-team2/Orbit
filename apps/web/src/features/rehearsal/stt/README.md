@@ -12,7 +12,11 @@ This directory owns browser live-control STT only.
   failures never switch providers automatically.
 - CI tests use contract tests and deterministic mock harness output.
 - Real OpenAI/Sherpa/Web Speech/Moonshine model runs are local/manual because
-  external provider access and large browser model assets are not available in CI.
+external provider access and large browser model assets are not available in CI.
+- Product-owned diagnostics keep a bounded, transcript-free event ring and turn
+  latency summary. Set `localStorage["orbit.liveStt.debugRealtime"] = "true"`
+  only during local measurement to mirror safe connection, VAD, first-delta,
+  commit-to-final, and onset-to-final metadata to the browser console.
 
 Web Speech is treated as non-local for consent purposes. MDN documents that
 some browsers, including Chrome, can use a server-based recognition engine for

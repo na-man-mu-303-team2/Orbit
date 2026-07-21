@@ -84,6 +84,45 @@ describe("OpenAiRealtimeLiveSttPort", () => {
     ]);
   });
 
+  it("onset, first delta, commit, final latency를 transcript 없이 집계한다", async () => {
+    const harness = createHarness();
+    await harness.ready();
+    harness.speakAndCommit("item_1");
+    harness.advanceNow(100);
+    harness.peer.dataChannel.emitMessage({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item_1",
+      content_index: 0,
+      delta: "음",
+    });
+    harness.advanceNow(400);
+    harness.complete("item_1", "음 결과");
+
+    expect(harness.port.readMetricsForTest()).toEqual({
+      turns: [
+        {
+          sequence: 1,
+          speechStartedAtMs: 1_550,
+          committedAtMs: 2_500,
+          firstDeltaAtMs: 2_600,
+          completedAtMs: 3_000,
+        },
+      ],
+      summary: {
+        completedTurns: 1,
+        firstDeltaLatencyMedianMs: 1_050,
+        firstDeltaLatencyP95Ms: 1_050,
+        commitToFinalMedianMs: 500,
+        commitToFinalP95Ms: 500,
+        onsetToFinalMedianMs: 1_450,
+        onsetToFinalP95Ms: 1_450,
+      },
+    });
+    expect(JSON.stringify(harness.port.readDiagnosticsForTest())).not.toContain(
+      "음 결과",
+    );
+  });
+
   it("out-of-order final을 commit sequence 순서로 방출한다", async () => {
     const harness = createHarness();
     const finals: string[] = [];
@@ -270,7 +309,10 @@ function createHarness(options: {
     openAndVerifySession,
     calibrate,
     speakAndCommit,
-    complete
+    complete,
+    advanceNow: (durationMs: number) => {
+      now += durationMs;
+    }
   };
 }
 

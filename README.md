@@ -232,7 +232,7 @@ docker compose config --quiet
 - 로컬 실행 전 `.env.example`을 복사해 `.env.local`을 만듭니다.
 - `.env`, `.env.local`, API 키, 토큰, 비밀값은 커밋하지 않습니다.
 - staging/production 예시는 `.env.staging.example`, `.env.production.example`을 기준으로 합니다.
-- `develop` 기본값 기준 Live STT는 `LIVE_STT_ENGINE=web-speech`(Chrome Web Speech, 고정 모델명 없음)를 사용합니다. `LIVE_STT_ENGINE=openai-realtime` 사용 시 Live STT 모델은 `gpt-realtime-whisper`이고, Report STT는 `OPENAI_TRANSCRIPTION_MODEL=whisper-1`입니다.
+- `develop` 기본값 기준 Live STT는 `LIVE_STT_ENGINE=openai-realtime`과 `gpt-realtime-whisper/xhigh`를 사용합니다. `LIVE_STT_ENGINE=web-speech`는 명시적인 rollback 경로이며 runtime config 실패 시 provider를 자동 전환하지 않습니다. 습관어 최종 분석 기본값은 `FILLER_TRANSCRIPTION_MODE=mini`와 `gpt-4o-mini-transcribe`이고, Report STT는 `OPENAI_TRANSCRIPTION_MODEL=whisper-1`입니다.
 - 환경변수 규칙은 [docs/conventions/environment.md](docs/conventions/environment.md)를 확인합니다.
 
 ```bash

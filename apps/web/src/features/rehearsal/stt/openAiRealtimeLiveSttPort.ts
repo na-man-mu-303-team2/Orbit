@@ -31,6 +31,8 @@ import {
 } from "./realtimeSessionVerification";
 import {
   RealtimeSttDiagnosticRingBuffer,
+  summarizeRealtimeSttMetrics,
+  type RealtimeSttTurnMetric,
   type RealtimeSttDiagnosticEvent
 } from "./realtimeSttDiagnostics";
 
@@ -81,6 +83,7 @@ type PendingFinal = {
   utteranceId: string | null;
   contentIndex: number;
   resultRevision: number;
+  completedAtMs: number;
 };
 
 type PendingCommit = {
@@ -122,7 +125,9 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
   private readonly revisionByEventKey = new Map<string, number>();
   private readonly commitSequenceByItemKey = new Map<string, number>();
   private readonly coachingUtteranceIdByItemKey = new Map<string, string>();
+  private readonly firstDeltaAtMsByItemKey = new Map<string, number>();
   private readonly pendingFinalByItemKey = new Map<string, PendingFinal>();
+  private readonly turnMetricsBySequence = new Map<number, RealtimeSttTurnMetric>();
   private readonly pendingCommits: PendingCommit[] = [];
   private readonly diagnostics = new RealtimeSttDiagnosticRingBuffer();
   private readonly finalOrderer: RealtimeFinalOrderer<PendingFinal>;
@@ -274,6 +279,12 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
 
   readBiasPhrasesForTest() { return this.biasPhrases; }
   readDiagnosticsForTest() { return this.diagnostics.read(); }
+  readMetricsForTest() {
+    const turns = [...this.turnMetricsBySequence.values()].sort(
+      (left, right) => left.sequence - right.sequence,
+    );
+    return { turns, summary: summarizeRealtimeSttMetrics(turns) };
+  }
 
   private createReadyPromise() {
     const promise = new Promise<void>((resolve, reject) => {
@@ -450,6 +461,17 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
       pendingCommit.coachingUtteranceId,
     );
     const pending = this.pendingFinalByItemKey.get(key);
+    const pendingMetric = this.turnMetricsBySequence.get(pendingCommit.sequence);
+    const pendingFirstDeltaAtMs = this.firstDeltaAtMsByItemKey.get(key);
+    if (pendingMetric && pendingFirstDeltaAtMs !== undefined) {
+      pendingMetric.firstDeltaAtMs = pendingFirstDeltaAtMs;
+      this.firstDeltaAtMsByItemKey.delete(key);
+      this.recordFirstDeltaDiagnostic(pendingMetric);
+    }
+    if (pendingMetric && pending) {
+      pendingMetric.completedAtMs = pending.completedAtMs;
+      this.recordCompletionMetric(pendingMetric);
+    }
     if (pending) {
       this.pendingFinalByItemKey.delete(key);
       this.finalOrderer.push(pendingCommit.sequence, pending);
@@ -462,6 +484,7 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     const key = getRealtimeTranscriptEventKey(event);
     const next = `${this.partialTextByEventKey.get(key) ?? ""}${delta}`;
     this.partialTextByEventKey.set(key, next);
+    this.recordFirstDeltaMetric(key);
     this.emitTranscript(next, false, {
       utteranceId: getRealtimeTranscriptUtteranceId(event),
       resultRevision: this.incrementResultRevision(key),
@@ -477,12 +500,20 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
       text: typeof event.transcript === "string" ? event.transcript : this.partialTextByEventKey.get(key) ?? "",
       utteranceId: getRealtimeTranscriptUtteranceId(event),
       contentIndex: getContentIndex(event),
-      resultRevision: this.incrementResultRevision(key)
+      resultRevision: this.incrementResultRevision(key),
+      completedAtMs: this.now(),
     };
     this.partialTextByEventKey.delete(key);
     const sequence = this.commitSequenceByItemKey.get(key);
     if (sequence === undefined) this.pendingFinalByItemKey.set(key, final);
-    else this.finalOrderer.push(sequence, final);
+    else {
+      const metric = this.turnMetricsBySequence.get(sequence);
+      if (metric) {
+        metric.completedAtMs = final.completedAtMs;
+        this.recordCompletionMetric(metric);
+      }
+      this.finalOrderer.push(sequence, final);
+    }
   }
 
   private emitOrderedFinal(final: PendingFinal, sequence: number, reorderTimedOut: boolean) {
@@ -508,6 +539,13 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     ) return;
     const utteranceId = this.activeCoachingUtteranceId;
     const sequence = this.nextCommitSequence++;
+    this.turnMetricsBySequence.set(sequence, {
+      sequence,
+      speechStartedAtMs: this.activeSpeechStartedAtMs,
+      committedAtMs: occurredAtMs,
+      firstDeltaAtMs: null,
+      completedAtMs: null,
+    });
     this.pendingCommits.push({ sequence, coachingUtteranceId: utteranceId });
     this.send({ type: "input_audio_buffer.commit" });
     this.activeSpeechStartedAtMs = null;
@@ -524,6 +562,46 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     const revision = (this.revisionByEventKey.get(key) ?? 0) + 1;
     this.revisionByEventKey.set(key, revision);
     return revision;
+  }
+
+  private recordFirstDeltaMetric(key: string) {
+    const sequence = this.commitSequenceByItemKey.get(key);
+    if (sequence === undefined) {
+      if (!this.firstDeltaAtMsByItemKey.has(key)) {
+        this.firstDeltaAtMsByItemKey.set(key, this.now());
+      }
+      return;
+    }
+    const metric = this.turnMetricsBySequence.get(sequence);
+    if (!metric || metric.firstDeltaAtMs !== null) return;
+    metric.firstDeltaAtMs = this.now();
+    this.recordFirstDeltaDiagnostic(metric);
+  }
+
+  private recordFirstDeltaDiagnostic(metric: RealtimeSttTurnMetric) {
+    if (metric.firstDeltaAtMs === null) return;
+    this.recordDiagnostic("transcript.first_delta", {
+      commitSequence: metric.sequence,
+      onsetToFirstDeltaMs: Math.max(
+        metric.firstDeltaAtMs - metric.speechStartedAtMs,
+        0,
+      ),
+    });
+  }
+
+  private recordCompletionMetric(metric: RealtimeSttTurnMetric) {
+    if (metric.completedAtMs === null || metric.committedAtMs === null) return;
+    this.recordDiagnostic("transcript.completed", {
+      commitSequence: metric.sequence,
+      commitToFinalMs: Math.max(
+        metric.completedAtMs - metric.committedAtMs,
+        0,
+      ),
+      onsetToFinalMs: Math.max(
+        metric.completedAtMs - metric.speechStartedAtMs,
+        0,
+      ),
+    });
   }
 
   private emitTranscript(text: string, isFinal: boolean, identity: {
@@ -588,7 +666,9 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     this.revisionByEventKey.clear();
     this.commitSequenceByItemKey.clear();
     this.coachingUtteranceIdByItemKey.clear();
+    this.firstDeltaAtMsByItemKey.clear();
     this.pendingFinalByItemKey.clear();
+    this.turnMetricsBySequence.clear();
     this.pendingCommits.length = 0;
     this.finalOrderer.reset();
     this.token = null;
