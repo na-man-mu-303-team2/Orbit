@@ -86,6 +86,15 @@ export class LiveSttError extends Error {
 
 export type LiveSttUnsubscribe = () => void;
 
+export type LiveSttNoiseCalibrationEvent =
+  | {
+      type: "started";
+      durationMs: number;
+    }
+  | {
+      type: "completed" | "cancelled";
+    };
+
 export type LiveSttSpeechActivityEvent =
   | {
       type: "speech-started";

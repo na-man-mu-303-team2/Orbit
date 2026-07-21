@@ -1,6 +1,10 @@
 import { demoIds } from "@orbit/shared";
 import type { LiveSttAudioLevelEvent } from "../liveStt";
-import { type LiveSttEngineId, type LiveSttPort } from "./liveSttPort";
+import {
+  type LiveSttEngineId,
+  type LiveSttNoiseCalibrationEvent,
+  type LiveSttPort
+} from "./liveSttPort";
 import { MoonshineLiveSttPort } from "./moonshineLiveSttPort";
 import { OpenAiRealtimeLiveSttPort } from "./openAiRealtimeLiveSttPort";
 import { RerankingLiveSttPort } from "./rerankingLiveSttPort";
@@ -12,6 +16,7 @@ export const defaultLiveSttEngineId: LiveSttEngineId = "openai-realtime";
 export type CreateLiveSttPortOptions = {
   projectId?: string;
   onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
+  onNoiseCalibration?: (event: LiveSttNoiseCalibrationEvent) => void;
 };
 
 export function createLiveSttPort(
@@ -22,7 +27,8 @@ export function createLiveSttPort(
     case "openai-realtime":
       return new OpenAiRealtimeLiveSttPort({
         projectId: options.projectId ?? demoIds.projectId,
-        onAudioLevel: options.onAudioLevel
+        onAudioLevel: options.onAudioLevel,
+        onNoiseCalibration: options.onNoiseCalibration
       });
     case "sherpa":
       return createSherpaLiveSttPort();

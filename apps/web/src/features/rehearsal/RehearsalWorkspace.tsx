@@ -68,6 +68,7 @@ import {
   type ReactNode,
 } from "react";
 import { JobProgressDisplay } from "./JobProgressDisplay";
+import { NoiseCalibrationOverlay } from "./NoiseCalibrationOverlay";
 import { RehearsalReportDocument } from "./RehearsalReportDocument";
 import { RehearsalRunNav } from "./RehearsalRunNav";
 import { RehearsalRunComparisonOverview } from "./RehearsalRunComparisonOverview";
@@ -138,6 +139,7 @@ import {
   LiveSttError,
   type LiveSttBiasPhrase,
   type LiveSttEngineId,
+  type LiveSttNoiseCalibrationEvent,
   type LiveSttPort,
   type LiveSttResult,
 } from "./stt/liveSttPort";
@@ -1981,6 +1983,7 @@ function createDefaultLiveSttPort(
     engineId?: LiveSttEngineId;
     legacyAdapter?: LiveSttAdapter;
     onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
+    onNoiseCalibration?: (event: LiveSttNoiseCalibrationEvent) => void;
     onDebugPcmAvailable?: (recording: LiveSttDebugPcmRecording) => void;
     getDecodingMethod?: () => LiveSttDecodingMethod | null;
     projectId?: string;
@@ -1990,6 +1993,7 @@ function createDefaultLiveSttPort(
     engineId,
     legacyAdapter,
     onAudioLevel,
+    onNoiseCalibration,
     onDebugPcmAvailable,
     getDecodingMethod,
     projectId,
@@ -2018,6 +2022,7 @@ function createDefaultLiveSttPort(
 
   return createLiveSttPort(engineId, {
     onAudioLevel,
+    onNoiseCalibration,
     projectId,
   });
 }
@@ -2062,6 +2067,7 @@ export function RehearsalWorkspace(props: {
     useState<LiveTranscriptAnalysis | null>(null);
   const [liveAudioLevel, setLiveAudioLevel] =
     useState<LiveSttAudioLevelEvent | null>(null);
+  const [isNoiseCalibrating, setIsNoiseCalibrating] = useState(false);
   const [liveDebugPcmRecording, setLiveDebugPcmRecording] =
     useState<LiveSttDebugPcmRecording | null>(null);
   const [liveCue, setLiveCue] = useState<LiveSttAnimationCueEvent | null>(null);
@@ -3027,6 +3033,7 @@ export function RehearsalWorkspace(props: {
     setIsCompletionModalOpen(false);
     setLiveError("");
     setLiveAudioLevel(null);
+    setIsNoiseCalibrating(false);
     setLiveDebugPcmRecording(null);
     resetLiveSessionTranscript();
     resetLivePlaybackForSlide(currentSlide);
@@ -3538,6 +3545,9 @@ export function RehearsalWorkspace(props: {
       engineId,
       legacyAdapter: props.liveSttAdapter,
       onAudioLevel: setLiveAudioLevel,
+      onNoiseCalibration: (event) => {
+        setIsNoiseCalibrating(event.type === "started");
+      },
       onDebugPcmAvailable: setLiveDebugPcmRecording,
       getDecodingMethod: getLiveSttDebugDecodingMethod,
       projectId: activeProjectId,
@@ -4109,6 +4119,7 @@ export function RehearsalWorkspace(props: {
     setLiveStatus(isLiveSttUnavailable(error) ? "unavailable" : "failed");
     setLiveError(error.message);
     setLiveAudioLevel(null);
+    setIsNoiseCalibrating(false);
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
   }
 
@@ -5472,6 +5483,7 @@ export function RehearsalWorkspace(props: {
 
   return (
     <main className="rehearsal-presenter-shell">
+      {isNoiseCalibrating ? <NoiseCalibrationOverlay /> : null}
       {isRehearsalCompletionVisible && deck ? (
         <RehearsalCompletionScreen
           hasReportTarget={Boolean(run?.runId)}

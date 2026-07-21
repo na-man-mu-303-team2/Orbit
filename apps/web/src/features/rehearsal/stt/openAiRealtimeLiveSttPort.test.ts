@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LiveSttAudioLevelEvent } from "../liveStt";
 import type {
+  LiveSttNoiseCalibrationEvent,
   LiveSttResult,
   LiveSttSpeechActivityEvent,
 } from "./liveSttPort";
@@ -23,6 +24,10 @@ describe("OpenAiRealtimeLiveSttPort", () => {
     harness.calibrate();
     await start;
 
+    expect(harness.noiseCalibrationEvents).toEqual([
+      { type: "started", durationMs: 1500 },
+      { type: "completed" }
+    ]);
     expect(harness.peer.dataChannel.sentPayloads).toContainEqual({
       type: "input_audio_buffer.clear"
     });
@@ -222,6 +227,7 @@ function createHarness(options: {
   let nextUtteranceId = 1;
   let now = 0;
   let meterCallback: ((event: LiveSttAudioLevelEvent) => void) | undefined;
+  const noiseCalibrationEvents: LiveSttNoiseCalibrationEvent[] = [];
   const peer = new FakePeerConnection();
   const track = new FakeTrack(options.track);
   const fetcher = createFetcher();
@@ -236,6 +242,7 @@ function createHarness(options: {
     createUtteranceId: () => `coaching-${nextUtteranceId++}`,
     now: () => now,
     noiseCalibrationMs: 1500,
+    onNoiseCalibration: (event) => noiseCalibrationEvents.push(event),
     finalReorderTimeoutMs: options.finalReorderTimeoutMs
   });
   const audioSource = {
@@ -303,6 +310,7 @@ function createHarness(options: {
     peer,
     track,
     fetcher,
+    noiseCalibrationEvents,
     start,
     ready,
     waitForNegotiation,

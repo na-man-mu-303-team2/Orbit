@@ -16,6 +16,7 @@ import {
   normalizeLiveSttBiasPhrases,
   type LiveSttBiasPhrase,
   type LiveSttCapabilities,
+  type LiveSttNoiseCalibrationEvent,
   type LiveSttPort,
   type LiveSttResult,
   type LiveSttSessionConfig,
@@ -68,6 +69,7 @@ type OpenAiRealtimeLiveSttPortOptions = {
   createUtteranceId?: () => string;
   now?: () => number;
   onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
+  onNoiseCalibration?: (event: LiveSttNoiseCalibrationEvent) => void;
   noiseCalibrationMs?: number;
   noiseThresholdMarginDb?: number;
   speechAttackMs?: number;
@@ -105,6 +107,9 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
   private readonly createUtteranceId: () => string;
   private readonly now: () => number;
   private readonly onAudioLevel?: (event: LiveSttAudioLevelEvent) => void;
+  private readonly onNoiseCalibration?: (
+    event: LiveSttNoiseCalibrationEvent
+  ) => void;
   private readonly createPeerConnection: () => OpenAiRealtimePeerConnection;
   private readonly createAudioLevelMeter: (
     stream: MediaStream,
@@ -144,6 +149,7 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
   private calibrationStartedAtMs: number | null = null;
   private noiseFloorSamples: number[] = [];
   private speechThresholdDb: number | null = null;
+  private isNoiseCalibrationActive = false;
   private speechDetectorState: SpeechDetectorState = initialSpeechDetectorState;
   private activeSpeechStartedAtMs: number | null = null;
   private activeCoachingUtteranceId: string | null = null;
@@ -159,6 +165,7 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     this.createUtteranceId = options.createUtteranceId ?? defaultCreateUtteranceId;
     this.now = options.now ?? (() => Date.now());
     this.onAudioLevel = options.onAudioLevel;
+    this.onNoiseCalibration = options.onNoiseCalibration;
     this.createPeerConnection = options.createPeerConnection ?? createDefaultPeerConnection;
     this.createAudioLevelMeter = options.createAudioLevelMeter ?? createAnalyserAudioLevelMeter;
     this.noiseCalibrationMs = options.noiseCalibrationMs ?? 1500;
@@ -226,6 +233,7 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
 
   async stop() {
     this.rejectReady(new LiveSttError("start_failed", "OpenAI Realtime STT 시작이 중단되었습니다."));
+    this.finishNoiseCalibration("cancelled");
     if (
       this.activeCoachingUtteranceId !== null &&
       (this.activeSpeechStartedAtMs !== null || this.speechDetectorState.isSpeaking)
@@ -373,6 +381,7 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
         this.speechThresholdDb = resolveAdaptiveSpeechThresholdDb(noiseFloorDb, this.noiseThresholdMarginDb);
         this.send({ type: "input_audio_buffer.clear" });
         this.recordDiagnostic("vad.calibration_completed", { noiseFloorDb, speechThresholdDb: this.speechThresholdDb });
+        this.finishNoiseCalibration("completed");
         this.resolveReady();
       }
       return;
@@ -447,6 +456,11 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     }
     this.calibrationStartedAtMs = this.now();
     this.noiseFloorSamples = [];
+    this.isNoiseCalibrationActive = true;
+    this.onNoiseCalibration?.({
+      type: "started",
+      durationMs: this.noiseCalibrationMs
+    });
     this.recordDiagnostic("session.configuration_verified", { delaySource: verification.delaySource });
   }
 
@@ -650,8 +664,15 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
 
   private failRuntime(message: string) {
     const error = new LiveSttError("runtime_error", message);
+    this.finishNoiseCalibration("cancelled");
     this.rejectReady(error);
     this.emitError(error);
+  }
+
+  private finishNoiseCalibration(type: "completed" | "cancelled") {
+    if (!this.isNoiseCalibrationActive) return;
+    this.isNoiseCalibrationActive = false;
+    this.onNoiseCalibration?.({ type });
   }
 
   private recordDiagnostic(type: string, metadata?: RealtimeSttDiagnosticEvent["metadata"]) {
@@ -674,6 +695,7 @@ export class OpenAiRealtimeLiveSttPort implements LiveSttPort {
     this.token = null;
     this.activeConfiguration = { model: null, delay: null };
     this.calibrationStartedAtMs = null;
+    this.isNoiseCalibrationActive = false;
     this.noiseFloorSamples = [];
     this.speechThresholdDb = null;
     this.speechDetectorState = initialSpeechDetectorState;
