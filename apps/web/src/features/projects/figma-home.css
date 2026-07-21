@@ -2200,13 +2200,13 @@
   background:
     radial-gradient(
       72% 110% at 10% 38%,
-      color-mix(in srgb, var(--redesign-color-primary-container) 28%, transparent) 0%,
+      color-mix(in srgb, var(--redesign-color-primary-container) 48%, transparent) 0%,
       transparent 72%
     ),
     linear-gradient(
       180deg,
       var(--redesign-color-surface) 0%,
-      color-mix(in srgb, var(--redesign-color-primary-subtle) 42%, var(--redesign-color-surface)) 52%,
+      color-mix(in srgb, var(--redesign-color-primary-subtle) 68%, var(--redesign-color-surface)) 52%,
       var(--redesign-color-surface) 100%
     );
   isolation: auto;
