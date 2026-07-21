@@ -139,8 +139,8 @@ describe("App shell routing", () => {
   });
 
   it("renders public routes without waiting for the current-user request", () => {
-    expect(shouldWaitForAuthResolution({ name: "login" })).toBe(false);
-    expect(shouldWaitForAuthResolution({ name: "signup" })).toBe(false);
+    expect(shouldWaitForAuthResolution({ name: "login" })).toBe(true);
+    expect(shouldWaitForAuthResolution({ name: "signup" })).toBe(true);
     expect(shouldWaitForAuthResolution({ name: "report-mockup" })).toBe(false);
     expect(shouldWaitForAuthResolution({ name: "not-found" })).toBe(false);
     expect(

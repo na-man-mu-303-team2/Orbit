@@ -634,6 +634,11 @@ function navigateImmediately(path: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function replaceImmediately(path: string) {
+  window.history.replaceState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
 function navigateTo(path: string) {
   if (isRehearsalEntryPath(path) && !new URL(path, window.location.origin).searchParams.has("preflight")) {
     window.dispatchEvent(new CustomEvent(rehearsalNavigationRequestEvent, { detail: path }));
@@ -707,7 +712,24 @@ export function App() {
     }
   }, [auth.data, auth.isPending, route.name]);
 
+  useEffect(() => {
+    if (
+      !auth.isPending &&
+      auth.data &&
+      (route.name === "login" || route.name === "signup")
+    ) {
+      replaceImmediately("/");
+    }
+  }, [auth.data, auth.isPending, route.name]);
+
   if (auth.isPending && shouldWaitForAuthResolution(route)) {
+    return withRehearsalModal(<AuthLoadingFallback />);
+  }
+
+  if (
+    auth.data &&
+    (route.name === "login" || route.name === "signup")
+  ) {
     return withRehearsalModal(<AuthLoadingFallback />);
   }
 
@@ -732,8 +754,6 @@ export function App() {
 
 export function shouldWaitForAuthResolution(route: Route) {
   return ![
-    "login",
-    "signup",
     "design-system",
     "mockup",
     "report-mockup",
