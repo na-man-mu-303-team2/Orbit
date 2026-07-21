@@ -2222,10 +2222,11 @@
     );
   border-radius: var(--redesign-radius-xl);
   box-shadow: 0 18px 44px color-mix(in srgb, var(--redesign-color-primary) 10%, transparent);
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: var(--redesign-size-control-md) minmax(0, 1fr) var(--redesign-size-control-md);
+  gap: var(--redesign-space-4);
   isolation: isolate;
   padding-block: var(--redesign-space-8);
-  padding-inline: calc(var(--redesign-space-8) + var(--redesign-size-control-md));
+  padding-inline: var(--redesign-space-6);
 }
 
 .workspace-community-carousel::before,
@@ -2241,17 +2242,18 @@
 
 .workspace-community-carousel::before {
   background: linear-gradient(90deg, var(--workspace-community-stage-edge), transparent);
-  left: 0;
+  left: calc(var(--redesign-space-6) + var(--redesign-size-control-md) + var(--redesign-space-4));
 }
 
 .workspace-community-carousel::after {
   background: linear-gradient(270deg, var(--workspace-community-stage-edge), transparent);
-  right: 0;
+  right: calc(var(--redesign-space-6) + var(--redesign-size-control-md) + var(--redesign-space-4));
 }
 
 .workspace-community-track {
-  grid-column: 1;
+  grid-column: 2;
   grid-row: 1;
+  min-width: 0;
   z-index: 1;
 }
 
@@ -2260,22 +2262,18 @@
   border: 0 !important;
   box-shadow: none !important;
   color: var(--redesign-color-primary-emphasis) !important;
-  grid-column: 1;
   grid-row: 1;
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+  justify-self: center;
+  position: static;
   z-index: 3;
 }
 
 .workspace-community-arrow.is-previous {
-  left: var(--redesign-space-4);
-  right: auto;
+  grid-column: 1;
 }
 
 .workspace-community-arrow.is-next {
-  left: auto;
-  right: var(--redesign-space-4);
+  grid-column: 3;
 }
 
 .workspace-community-arrow:hover {
@@ -2289,7 +2287,16 @@
 
 @media (max-width: 820px) {
   .workspace-community-carousel {
+    grid-template-columns: minmax(0, 1fr);
     padding: var(--redesign-space-6);
+  }
+
+  .workspace-community-track {
+    grid-column: 1;
+  }
+
+  .workspace-community-arrow {
+    display: none;
   }
 
   .workspace-community-carousel::before,
@@ -2297,6 +2304,14 @@
     bottom: var(--redesign-space-6);
     top: var(--redesign-space-6);
     width: var(--redesign-space-10);
+  }
+
+  .workspace-community-carousel::before {
+    left: var(--redesign-space-6);
+  }
+
+  .workspace-community-carousel::after {
+    right: var(--redesign-space-6);
   }
 }
 
