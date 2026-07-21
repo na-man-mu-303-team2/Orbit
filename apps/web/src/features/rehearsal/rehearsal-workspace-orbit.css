@@ -828,6 +828,7 @@ main.rehearsal-presenter-shell {
 .rehearsal-completion-report > div {
   display: grid;
   gap: var(--redesign-space-1);
+  text-align: center;
 }
 
 .rehearsal-completion-report strong {
