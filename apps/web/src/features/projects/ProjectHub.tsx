@@ -395,7 +395,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
               <div className="workspace-community-intro-heading">
                 <p className="workspace-section-kicker">COMMUNITY</p>
                 <h1>커뮤니티</h1>
-                <span className="workspace-community-latest-label">좋아요 많은 게시물</span>
+                <span className="workspace-community-latest-label">인기순</span>
               </div>
               <OrbitButton className="workspace-community-intro-arrow" onClick={() => props.onNavigate("/community")} variant="secondary">
                 더보기

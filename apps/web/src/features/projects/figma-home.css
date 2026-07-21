@@ -2195,27 +2195,30 @@
 .workspace-community-carousel {
   --workspace-community-stage-edge: color-mix(
     in srgb,
-    var(--redesign-color-primary-subtle) 74%,
+    var(--redesign-color-primary-container) 76%,
     var(--redesign-color-light-surface)
   );
   background:
     radial-gradient(
       72% 130% at 6% 8%,
-      color-mix(in srgb, var(--redesign-color-light-surface) 90%, var(--redesign-color-primary-subtle)) 0%,
+      color-mix(in srgb, var(--redesign-color-primary-container) 62%, var(--redesign-color-light-surface)) 0%,
       transparent 66%
     ),
     radial-gradient(
       62% 120% at 94% 72%,
-      color-mix(in srgb, var(--redesign-color-primary-container) 44%, var(--redesign-color-light-surface)) 0%,
+      color-mix(in srgb, var(--redesign-color-primary) 14%, var(--redesign-color-light-surface)) 0%,
       transparent 68%
     ),
     linear-gradient(
       128deg,
       var(--workspace-community-stage-edge) 0%,
-      color-mix(in srgb, var(--redesign-color-primary-subtle) 58%, var(--redesign-color-light-surface)) 52%,
-      color-mix(in srgb, var(--redesign-color-primary-container) 34%, var(--redesign-color-light-surface)) 100%
+      color-mix(in srgb, var(--redesign-color-primary-container) 68%, var(--redesign-color-light-surface)) 52%,
+      color-mix(in srgb, var(--redesign-color-primary) 12%, var(--redesign-color-light-surface)) 100%
     );
+  border: 1px solid color-mix(in srgb, var(--redesign-color-primary) 22%, transparent);
   border-radius: var(--redesign-radius-xl);
+  box-shadow: 0 18px 44px color-mix(in srgb, var(--redesign-color-primary) 10%, transparent);
+  grid-template-columns: minmax(0, 1fr);
   isolation: isolate;
   padding: var(--redesign-space-8);
 }
@@ -2242,12 +2245,41 @@
 }
 
 .workspace-community-track {
+  grid-column: 1;
+  grid-row: 1;
   z-index: 1;
 }
 
 .workspace-community-arrow {
-  position: relative;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: var(--redesign-color-primary-emphasis) !important;
+  grid-column: 1;
+  grid-row: 1;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 3;
+}
+
+.workspace-community-arrow.is-previous {
+  left: var(--redesign-space-3);
+  right: auto;
+}
+
+.workspace-community-arrow.is-next {
+  left: auto;
+  right: var(--redesign-space-3);
+}
+
+.workspace-community-arrow:hover {
+  background: color-mix(in srgb, var(--redesign-color-light-surface) 64%, transparent) !important;
+}
+
+.workspace-projects-heading h2 {
+  font-size: calc(var(--redesign-type-display-sm-size) + var(--redesign-space-1));
+  line-height: 1.15;
 }
 
 @media (max-width: 820px) {
