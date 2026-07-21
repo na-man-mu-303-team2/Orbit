@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { databaseOptions } from "./data-source";
 
 describe("database migration registry", () => {
-  it("registers slide practice content hash and keeps migrations ordered", () => {
+  it("registers the latest community engagement migration in order", () => {
     const migrations = databaseOptions.migrations;
     expect(Array.isArray(migrations)).toBe(true);
     const migrationNames = Array.isArray(migrations)
@@ -11,6 +11,9 @@ describe("database migration registry", () => {
       : [];
     const latest = migrationNames.at(-1);
     expect(migrationNames).toContain("AddSlidePracticeContentHash2026072101000");
-    expect(latest).toBe("AddUserDisplayNames2026072104000");
+    expect(migrationNames.indexOf("AddUserDisplayNames2026072104000")).toBeLessThan(
+      migrationNames.indexOf("AddCommunityTemplateEngagement2026072105000"),
+    );
+    expect(latest).toBe("AddCommunityTemplateEngagement2026072105000");
   });
 });

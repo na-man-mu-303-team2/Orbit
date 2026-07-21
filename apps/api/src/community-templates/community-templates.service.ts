@@ -8,6 +8,12 @@ import {
   communityTemplateApiErrorCodeSchema,
   communityTemplateApiErrorSchema,
   communityTemplateCardSchema,
+  communityTemplateCommentListResponseSchema,
+  communityTemplateCommentResponseSchema,
+  communityTemplateDetailSchema,
+  communityTemplateDiscoverCardSchema,
+  communityTemplateDiscoverResponseSchema,
+  communityTemplateEngagementResponseSchema,
   communityTemplateIdSchema,
   communityTemplateListResponseSchema,
   communityTemplatePreviewSchema,
@@ -23,6 +29,8 @@ import type {
   CommunityTemplateApiErrorCode,
   CommunityTemplateCard,
   CommunityTemplateCategory,
+  CommunityTemplateCommentListQuery,
+  CommunityTemplateDiscoverQuery,
   CommunityTemplateListQuery,
   PublishCommunityTemplateRequest,
   UseCommunityTemplateRequest,
@@ -77,6 +85,29 @@ type UseTransactionResult = {
   category?: CommunityTemplateCategory;
   slideCount?: number;
   idempotent: boolean;
+};
+
+type CommunityDiscoverRow = PublicTemplateRow & {
+  description: string;
+  snapshot_json?: unknown;
+  owner_user_id: string;
+  display_name: string;
+  like_count: number;
+  view_count: number;
+  share_count: number;
+  comment_count: number;
+  use_count: number;
+  liked_by_me: boolean;
+};
+
+type CommunityCommentRow = {
+  comment_id: string;
+  template_id: string;
+  author_user_id: string;
+  display_name: string;
+  body: string;
+  created_at: Date | string;
+  updated_at: Date | string;
 };
 
 @Injectable()
@@ -253,11 +284,12 @@ export class CommunityTemplatesService {
             source_deck_version,
             title,
             category,
+            description,
             snapshot_json,
             preview_json,
             created_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         `,
         [
           templateId,
@@ -267,6 +299,7 @@ export class CommunityTemplatesService {
           deck.version,
           request.title,
           request.category,
+          request.description ?? "",
           snapshot,
           preview,
           createdAt,
@@ -356,6 +389,241 @@ export class CommunityTemplatesService {
       );
       throw exception;
     }
+  }
+
+  async discover(query: CommunityTemplateDiscoverQuery, userId: string) {
+    const offset = (query.page - 1) * query.limit;
+    const orderBy =
+      query.sort === "latest"
+        ? "created_at DESC, template_id DESC"
+        : query.sort === "recommended"
+          ? "((like_count * 3 + comment_count * 2 + use_count * 2 + view_count + share_count * 2) / POWER(EXTRACT(EPOCH FROM (now() - created_at)) / 86400 + 2, 0.45)) DESC, created_at DESC"
+          : "(like_count * 3 + comment_count * 2 + use_count * 2 + view_count + share_count * 2) DESC, created_at DESC";
+    const rows = await this.dataSource.query<CommunityDiscoverRow[]>(
+      `
+        WITH community AS (
+          SELECT
+            templates.template_id,
+            templates.title,
+            templates.category,
+            templates.description,
+            templates.preview_json,
+            templates.created_at,
+            templates.owner_user_id,
+            users.display_name,
+            (SELECT COUNT(*)::int FROM community_template_likes likes WHERE likes.template_id = templates.template_id) AS like_count,
+            (SELECT COUNT(*)::int FROM community_template_views views WHERE views.template_id = templates.template_id) AS view_count,
+            (SELECT COUNT(*)::int FROM community_template_shares shares WHERE shares.template_id = templates.template_id) AS share_count,
+            (SELECT COUNT(*)::int FROM community_template_comments comments WHERE comments.template_id = templates.template_id) AS comment_count,
+            COALESCE((SELECT SUM(usages.use_count)::int FROM community_template_usages usages WHERE usages.template_id = templates.template_id), 0) AS use_count,
+            EXISTS(
+              SELECT 1 FROM community_template_likes mine
+              WHERE mine.template_id = templates.template_id AND mine.user_id = $3
+            ) AS liked_by_me
+          FROM community_templates templates
+          INNER JOIN users ON users.user_id = templates.owner_user_id
+          WHERE ($1::text IS NULL OR templates.title ILIKE '%' || $1 || '%' OR users.display_name ILIKE '%' || $1 || '%')
+            AND ($2::text IS NULL OR templates.category = $2)
+        )
+        SELECT * FROM community
+        ORDER BY ${orderBy}
+        LIMIT $4 OFFSET $5
+      `,
+      [
+        query.query ?? null,
+        query.category ?? null,
+        userId,
+        query.limit + 1,
+        offset,
+      ],
+    );
+    return communityTemplateDiscoverResponseSchema.parse({
+      items: rows.slice(0, query.limit).map((row) => this.toDiscoverCard(row)),
+      page: query.page,
+      hasMore: rows.length > query.limit,
+    });
+  }
+
+  async getCommunityDetail(templateId: string, userId: string) {
+    const rows = await this.dataSource.query<CommunityDiscoverRow[]>(
+      `
+        SELECT
+          templates.template_id,
+          templates.title,
+          templates.category,
+          templates.description,
+          templates.preview_json,
+          templates.snapshot_json,
+          templates.created_at,
+          templates.owner_user_id,
+          users.display_name,
+          (SELECT COUNT(*)::int FROM community_template_likes likes WHERE likes.template_id = templates.template_id) AS like_count,
+          (SELECT COUNT(*)::int FROM community_template_views views WHERE views.template_id = templates.template_id) AS view_count,
+          (SELECT COUNT(*)::int FROM community_template_shares shares WHERE shares.template_id = templates.template_id) AS share_count,
+          (SELECT COUNT(*)::int FROM community_template_comments comments WHERE comments.template_id = templates.template_id) AS comment_count,
+          COALESCE((SELECT SUM(usages.use_count)::int FROM community_template_usages usages WHERE usages.template_id = templates.template_id), 0) AS use_count,
+          EXISTS(
+            SELECT 1 FROM community_template_likes mine
+            WHERE mine.template_id = templates.template_id AND mine.user_id = $2
+          ) AS liked_by_me
+        FROM community_templates templates
+        INNER JOIN users ON users.user_id = templates.owner_user_id
+        WHERE templates.template_id = $1
+      `,
+      [templateId, userId],
+    );
+    const row = rows[0];
+    if (!row) throw new NotFoundException("커뮤니티 템플릿을 찾을 수 없습니다.");
+    return communityTemplateDetailSchema.parse({
+      ...this.toDiscoverCard(row),
+      snapshot: row.snapshot_json,
+      ownedByMe: row.owner_user_id === userId,
+    });
+  }
+
+  async setLike(templateId: string, userId: string, liked: boolean) {
+    await this.assertCommunityTemplateExists(templateId);
+    if (liked) {
+      await this.dataSource.query(
+        `INSERT INTO community_template_likes (template_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [templateId, userId],
+      );
+    } else {
+      await this.dataSource.query(
+        `DELETE FROM community_template_likes WHERE template_id = $1 AND user_id = $2`,
+        [templateId, userId],
+      );
+    }
+    this.logger?.info(
+      { event: liked ? "community_template.liked" : "community_template.unliked", templateId, userId },
+      "Community template like state changed.",
+    );
+    return this.readEngagement(templateId, userId);
+  }
+
+  async recordView(templateId: string, userId: string) {
+    await this.assertCommunityTemplateExists(templateId);
+    await this.dataSource.query(
+      `
+        INSERT INTO community_template_views (template_id, user_id, viewed_on)
+        VALUES ($1, $2, CURRENT_DATE)
+        ON CONFLICT (template_id, user_id, viewed_on)
+        DO UPDATE SET viewed_at = community_template_views.viewed_at
+      `,
+      [templateId, userId],
+    );
+    return this.readEngagement(templateId, userId);
+  }
+
+  async recordShare(templateId: string, userId: string) {
+    await this.assertCommunityTemplateExists(templateId);
+    await this.dataSource.query(
+      `INSERT INTO community_template_shares (share_id, template_id, user_id) VALUES ($1, $2, $3)`,
+      [`community_share_${randomUUID()}`, templateId, userId],
+    );
+    this.logger?.info(
+      { event: "community_template.shared", templateId, userId },
+      "Community template shared.",
+    );
+    return this.readEngagement(templateId, userId);
+  }
+
+  async listComments(
+    templateId: string,
+    query: CommunityTemplateCommentListQuery,
+    userId: string,
+  ) {
+    await this.assertCommunityTemplateExists(templateId);
+    const rows = await this.dataSource.query<CommunityCommentRow[]>(
+      `
+        SELECT comments.*, users.display_name
+        FROM community_template_comments comments
+        INNER JOIN users ON users.user_id = comments.author_user_id
+        WHERE comments.template_id = $1
+        ORDER BY comments.created_at DESC, comments.comment_id DESC
+        LIMIT $2 OFFSET $3
+      `,
+      [templateId, query.limit + 1, (query.page - 1) * query.limit],
+    );
+    return communityTemplateCommentListResponseSchema.parse({
+      items: rows.slice(0, query.limit).map((row) => this.toComment(row, userId)),
+      page: query.page,
+      hasMore: rows.length > query.limit,
+    });
+  }
+
+  async createComment(
+    templateId: string,
+    input: { body: string },
+    userId: string,
+  ) {
+    await this.assertCommunityTemplateExists(templateId);
+    const commentId = `community_comment_${randomUUID()}`;
+    const rows = await this.dataSource.query<CommunityCommentRow[]>(
+      `
+        WITH inserted AS (
+          INSERT INTO community_template_comments (comment_id, template_id, author_user_id, body)
+          VALUES ($1, $2, $3, $4)
+          RETURNING *
+        )
+        SELECT inserted.*, users.display_name
+        FROM inserted INNER JOIN users ON users.user_id = inserted.author_user_id
+      `,
+      [commentId, templateId, userId, input.body],
+    );
+    this.logger?.info(
+      { event: "community_template.comment_created", templateId, commentId, userId },
+      "Community template comment created.",
+    );
+    return communityTemplateCommentResponseSchema.parse({
+      comment: this.toComment(rows[0]!, userId),
+    });
+  }
+
+  async updateComment(
+    templateId: string,
+    commentId: string,
+    input: { body: string },
+    userId: string,
+  ) {
+    const rows = await this.dataSource.query<CommunityCommentRow[]>(
+      `
+        WITH updated AS (
+          UPDATE community_template_comments
+          SET body = $4, updated_at = now()
+          WHERE comment_id = $1 AND template_id = $2 AND author_user_id = $3
+          RETURNING *
+        )
+        SELECT updated.*, users.display_name
+        FROM updated INNER JOIN users ON users.user_id = updated.author_user_id
+      `,
+      [commentId, templateId, userId, input.body],
+    );
+    if (!rows[0]) await this.throwCommentMutationError(templateId, commentId, userId);
+    this.logger?.info(
+      { event: "community_template.comment_updated", templateId, commentId, userId },
+      "Community template comment updated.",
+    );
+    return communityTemplateCommentResponseSchema.parse({
+      comment: this.toComment(rows[0]!, userId),
+    });
+  }
+
+  async deleteComment(templateId: string, commentId: string, userId: string) {
+    const rows = await this.dataSource.query<Array<{ comment_id: string }>>(
+      `
+        DELETE FROM community_template_comments
+        WHERE comment_id = $1 AND template_id = $2 AND author_user_id = $3
+        RETURNING comment_id
+      `,
+      [commentId, templateId, userId],
+    );
+    if (!rows[0]) await this.throwCommentMutationError(templateId, commentId, userId);
+    this.logger?.info(
+      { event: "community_template.comment_deleted", templateId, commentId, userId },
+      "Community template comment deleted.",
+    );
+    return { deleted: true };
   }
 
   private async useInTransaction(
@@ -529,6 +797,106 @@ export class CommunityTemplatesService {
       );
       return [];
     });
+  }
+
+  private toDiscoverCard(row: CommunityDiscoverRow) {
+    return communityTemplateDiscoverCardSchema.parse({
+      templateId: row.template_id,
+      title: row.title,
+      category: row.category,
+      description: row.description,
+      preview: row.preview_json,
+      createdAt: toIso(row.created_at),
+      author: {
+        userId: row.owner_user_id,
+        displayName: row.display_name,
+        avatarUrl: null,
+      },
+      stats: {
+        likeCount: Number(row.like_count),
+        viewCount: Number(row.view_count),
+        shareCount: Number(row.share_count),
+        commentCount: Number(row.comment_count),
+        useCount: Number(row.use_count),
+      },
+      likedByMe: row.liked_by_me,
+    });
+  }
+
+  private toComment(row: CommunityCommentRow, userId: string) {
+    return {
+      commentId: row.comment_id,
+      templateId: row.template_id,
+      body: row.body,
+      author: {
+        userId: row.author_user_id,
+        displayName: row.display_name,
+        avatarUrl: null,
+      },
+      ownedByMe: row.author_user_id === userId,
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  private async assertCommunityTemplateExists(templateId: string) {
+    const rows = await this.dataSource.query<Array<{ exists: boolean }>>(
+      `SELECT EXISTS(SELECT 1 FROM community_templates WHERE template_id = $1) AS exists`,
+      [templateId],
+    );
+    if (!rows[0]?.exists) throw new NotFoundException("커뮤니티 템플릿을 찾을 수 없습니다.");
+  }
+
+  private async readEngagement(templateId: string, userId: string) {
+    const rows = await this.dataSource.query<
+      Array<{
+        like_count: number;
+        view_count: number;
+        share_count: number;
+        comment_count: number;
+        use_count: number;
+        liked_by_me: boolean;
+      }>
+    >(
+      `
+        SELECT
+          (SELECT COUNT(*)::int FROM community_template_likes WHERE template_id = $1) AS like_count,
+          (SELECT COUNT(*)::int FROM community_template_views WHERE template_id = $1) AS view_count,
+          (SELECT COUNT(*)::int FROM community_template_shares WHERE template_id = $1) AS share_count,
+          (SELECT COUNT(*)::int FROM community_template_comments WHERE template_id = $1) AS comment_count,
+          COALESCE((SELECT SUM(use_count)::int FROM community_template_usages WHERE template_id = $1), 0) AS use_count,
+          EXISTS(SELECT 1 FROM community_template_likes WHERE template_id = $1 AND user_id = $2) AS liked_by_me
+      `,
+      [templateId, userId],
+    );
+    const row = rows[0]!;
+    return communityTemplateEngagementResponseSchema.parse({
+      templateId,
+      stats: {
+        likeCount: Number(row.like_count),
+        viewCount: Number(row.view_count),
+        shareCount: Number(row.share_count),
+        commentCount: Number(row.comment_count),
+        useCount: Number(row.use_count),
+      },
+      likedByMe: row.liked_by_me,
+    });
+  }
+
+  private async throwCommentMutationError(
+    templateId: string,
+    commentId: string,
+    userId: string,
+  ): Promise<never> {
+    const rows = await this.dataSource.query<Array<{ author_user_id: string }>>(
+      `SELECT author_user_id FROM community_template_comments WHERE template_id = $1 AND comment_id = $2`,
+      [templateId, commentId],
+    );
+    if (!rows[0]) throw new NotFoundException("댓글을 찾을 수 없습니다.");
+    if (rows[0].author_user_id !== userId) {
+      throw new ForbiddenException("내 댓글만 수정하거나 삭제할 수 있습니다.");
+    }
+    throw new NotFoundException("댓글을 찾을 수 없습니다.");
   }
 }
 

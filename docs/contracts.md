@@ -721,6 +721,24 @@ API:
 - `GET /api/v1/workspaces/:workspaceId/community-templates/sources`
 - `POST /api/v1/workspaces/:workspaceId/community-templates`
 - `POST /api/v1/workspaces/:workspaceId/community-templates/:templateId/use`
+- `GET /api/v1/community-templates/discover`
+- `GET /api/v1/community-templates/:templateId`
+- `PUT|DELETE /api/v1/community-templates/:templateId/like`
+- `POST /api/v1/community-templates/:templateId/view`
+- `POST /api/v1/community-templates/:templateId/share`
+- `GET|POST /api/v1/community-templates/:templateId/comments`
+- `PATCH|DELETE /api/v1/community-templates/:templateId/comments/:commentId`
+
+커뮤니티 공개는 사용자가 소유한 프로젝트 중 하나를 명시적으로 선택한 뒤 해당
+프로젝트 전체를 immutable snapshot으로 저장한다. 다른 프로젝트는 공개되지 않으며
+원본 프로젝트의 이후 변경도 이미 공개된 snapshot을 변경하지 않는다. 공개 요청은
+300자 이하 `description`을 선택적으로 포함할 수 있다.
+
+좋아요는 `(template_id, user_id)` unique 상태이며 PUT/DELETE를 멱등 처리한다. 조회는
+로그인 사용자·템플릿·날짜별 한 번만 집계하고, 공유는 실제 공유 동작마다 event row를
+추가한다. 댓글은 1~500자이고 작성자만 수정·삭제할 수 있다. 목록의 인기·추천 정렬은
+좋아요, 댓글, 사용, 조회, 공유와 생성 시각을 서버에서 계산하며 모든 count와
+`likedByMe`, `ownedByMe`는 인증 사용자 기준 응답이다.
 
 모든 endpoint는 signed session 인증을 요구한다. list/recent/use는 모든 로그인 사용자가
 사용할 수 있다. sources는 현재 사용자가 accepted owner인 project만 반환하며 publish는

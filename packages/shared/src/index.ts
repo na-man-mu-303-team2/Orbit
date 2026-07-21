@@ -3,6 +3,7 @@ export * from "./common/canonical-json";
 export * from "./common/time.schema";
 export * from "./community-templates/community-template.schema";
 export * from "./community-templates/community-template-api.schema";
+export * from "./community-templates/community-template-social.schema";
 export * from "./activity/activity-api.schema";
 export * from "./activity/activity-aggregate";
 export * from "./activity/activity-definition.schema";

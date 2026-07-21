@@ -59,6 +59,7 @@ export const publishCommunityTemplateRequestSchema = z
     sourceProjectId: boundedIdSchema,
     title: communityTemplateTitleSchema,
     category: communityTemplateCategorySchema,
+    description: z.string().trim().max(300).optional(),
     rightsConfirmed: z.literal(true),
   })
   .strict();
