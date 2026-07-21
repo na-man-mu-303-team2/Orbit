@@ -64,7 +64,7 @@ describe("ActivityAudienceSlideRenderer", () => {
     expect(html).not.toContain("main-logo.png");
     expect(html).toContain("--activity-color-background:#090909");
     expect(html).toContain("--activity-color-accent:#c5b0f4");
-    expect(html).not.toContain("LIVE ACTIVITY");
+    expect(html).toContain("LIVE SURVEY");
   });
 
   it("renders only the public result projection after reveal", () => {
@@ -95,7 +95,7 @@ describe("ActivityAudienceSlideRenderer", () => {
       />
     );
 
-    expect(html).toContain("응답이 마감되었습니다");
+    expect(html).toContain('aria-label="응답이 마감되었습니다"');
     expect(html).not.toContain("4.2");
     expect(html).not.toContain(">7<");
   });
@@ -110,12 +110,13 @@ describe("ActivityAudienceSlideRenderer", () => {
     const css = fs.readFileSync(activityAudienceSlideCssPath, "utf8");
     const qrFrameRule = css.match(/\.activity-audience-qr-frame\s*\{([^}]*)\}/)?.[1];
 
-    expect(qrFrameRule).toContain("border-radius: var(--redesign-radius-xl)");
-    expect(qrFrameRule).toContain("padding: var(--redesign-space-6)");
+    expect(qrFrameRule).toContain("border-radius: var(--redesign-space-6)");
+    expect(qrFrameRule).toContain("padding: var(--redesign-space-8)");
     expect(qrFrameRule).not.toContain("overflow: hidden");
     expect(css).toContain("grid-template-columns: 520px minmax(0, 1fr)");
     expect(css).toContain("left: 50%");
-    expect(css).toContain("transform: translate(-50%, -50%)");
+    expect(css).toContain("width: 1504px");
+    expect(css).toContain("transform: translateX(-50%)");
   });
 
   it("reveals poll ratios only from the public result projection", () => {
@@ -158,6 +159,7 @@ describe("ActivityAudienceSlideRenderer", () => {
         status="closed"
       />
     );
+    expect(hidden).toContain("LIVE POLL");
     expect(revealed).toContain("100%");
     expect(hidden).not.toContain("100%");
   });
