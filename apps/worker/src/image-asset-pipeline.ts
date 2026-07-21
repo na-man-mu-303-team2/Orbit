@@ -225,7 +225,10 @@ export async function resolveDeckImageAssets(
       (onlySlideIds === undefined || onlySlideIds.has(slide.slideId))
   );
   if (candidates.length === 0) return { deck, warnings };
-  const selected = candidates.slice(0, Math.max(0, runtime.maxPerDeck));
+  const selected =
+    runtime.maxPerDeck === 0
+      ? candidates
+      : candidates.slice(0, runtime.maxPerDeck);
   if (candidates.length > selected.length) {
     warnings.push(
       `Image asset limit retained placeholders on ${candidates.length - selected.length} slide(s).`
@@ -364,6 +367,7 @@ async function remainingDailyBudget(
   scope: ImageAssetScope,
   excludeFileId?: string,
 ) {
+  if (runtime.maxPerUserPerDay === 0) return Number.POSITIVE_INFINITY;
   const rows = (await dataSource.query(
     `
       SELECT
