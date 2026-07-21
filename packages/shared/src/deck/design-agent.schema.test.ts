@@ -1,10 +1,88 @@
 import { describe, expect, it } from "vitest";
 import {
+  createDesignAgentMessageRequestSchema,
   designAgentCapabilities,
+  designAgentWorkerRequestSchema,
   designAgentWorkerResponseSchema,
 } from "./design-agent.schema";
 
+const designAgentContext = {
+  deckId: "deck_1",
+  baseVersion: 1,
+  canvas: {
+    preset: "wide-16-9" as const,
+    width: 1920 as const,
+    height: 1080 as const,
+    aspectRatio: "16:9" as const,
+  },
+  slide: {
+    slideId: "slide_1",
+    order: 1,
+    title: "샘플",
+    style: {},
+    elements: [],
+    animations: [],
+    semanticCues: [],
+    actions: [],
+  },
+  selectedElementIds: [],
+  theme: {
+    themeId: "theme_1",
+    name: "기본",
+    backgroundColor: "#FFFFFF",
+    textColor: "#111111",
+    accentColor: "#3B82F6",
+    fontFamily: "Pretendard",
+  },
+};
+
 describe("design agent schema", () => {
+  it.each([
+    "redesign-slide",
+    "tidy-layout",
+    "emphasize-message",
+    "recommend-animation",
+  ] as const)(
+    "accepts the %s intent preset through the public and worker contracts",
+    (intentPreset) => {
+      const request = createDesignAgentMessageRequestSchema.parse({
+        content: "현재 슬라이드를 개선해 주세요.",
+        intentPreset,
+        context: designAgentContext,
+      });
+      const workerRequest = designAgentWorkerRequestSchema.parse({
+        projectId: "project_1",
+        sessionId: "session_1",
+        question: request.content,
+        intentPreset: request.intentPreset,
+        context: request.context,
+        capabilities: designAgentCapabilities,
+      });
+
+      expect(request.intentPreset).toBe(intentPreset);
+      expect(workerRequest.intentPreset).toBe(intentPreset);
+    },
+  );
+
+  it("keeps intentPreset optional for existing clients", () => {
+    const request = createDesignAgentMessageRequestSchema.parse({
+      content: "오른쪽으로 정렬해 주세요.",
+      context: designAgentContext,
+    });
+
+    expect(request.intentPreset).toBeUndefined();
+  });
+
+  it("rejects an unknown intent preset", () => {
+    const result = createDesignAgentMessageRequestSchema.safeParse({
+      content: "현재 슬라이드를 개선해 주세요.",
+      intentPreset: "replace-slide-with-image",
+      context: designAgentContext,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("enables supported animation patch operations", () => {
     expect(designAgentCapabilities.operations).toEqual(
       expect.arrayContaining(["add_animation", "update_animation", "delete_animation"]),

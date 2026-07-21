@@ -7,7 +7,7 @@ import {
   deriveKeywordActionUsage,
   validateSlideAnimations
 } from "../../../../../../packages/editor-core/src/index";
-import { demoIds, type Slide } from "@orbit/shared";
+import { demoIds, slideQuestionGuideTextHashInput, type Slide } from "@orbit/shared";
 import { getRenderableSlideElements } from "../canvas/EditorCanvas";
 import { getImageCropActionState } from "../canvas/image/imageCropSession";
 import {
@@ -109,7 +109,7 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent
 } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getEditorValidationItems } from "../ai/quality/editorValidation";
 import { createSafeTextOverflowRepair } from "../ai/quality/safeTextOverflowRepair";
 import {
@@ -176,6 +176,7 @@ import { useEditorDocumentController } from "./hooks/useEditorDocumentController
 import { useEditorCanvasCommands } from "./hooks/useEditorCanvasCommands";
 import {
   minSpeakerNotesPanelHeight,
+  reportSpeakerNotesPanelHeight,
   useSpeakerNotesPanelLayout
 } from "./hooks/useSpeakerNotesPanelLayout";
 import { useEditorSlideCommands } from "./hooks/useEditorSlideCommands";
@@ -606,9 +607,14 @@ export function EditorShell(props: { projectId?: string }) {
     deckId: deck.deckId,
     deckVersion: deck.version,
     slideId: rehearsalSlide?.slideId ?? null,
-    slideOrder: rehearsalSlide?.order ?? 0
+    slideOrder: rehearsalSlide?.order ?? 0,
+    slideContentHashInput: rehearsalSlide
+      ? slideQuestionGuideTextHashInput(rehearsalSlide)
+      : null
   });
   const [practiceReportRefreshToken, setPracticeReportRefreshToken] = useState(0);
+  const [practiceCelebrationSessionId, setPracticeCelebrationSessionId] =
+    useState<string | null>(null);
   const [requestedSpeakerNotesTab, setRequestedSpeakerNotesTab] =
     useState<SpeakerNotesTab | null>(null);
   const handledPracticeReportIdRef = useRef<string | null>(null);
@@ -622,11 +628,22 @@ export function EditorShell(props: { projectId?: string }) {
       return;
     }
     handledPracticeReportIdRef.current = practiceSessionId;
+    setPracticeCelebrationSessionId(practiceSessionId);
     setPracticeReportRefreshToken((current) => current + 1);
     setRequestedSpeakerNotesTab("report");
-    speakerNotesPanelActions.expand();
+    speakerNotesPanelActions.requestHeight(reportSpeakerNotesPanelHeight);
     void handleExitSlideRehearsal({ force: true });
   }, [slidePracticeSession.report?.practiceSessionId]);
+
+  useEffect(() => {
+    setPracticeCelebrationSessionId(null);
+  }, [resolvedCurrentSlideId]);
+
+  const handlePracticeCelebrationConsumed = useCallback((sessionId: string) => {
+    setPracticeCelebrationSessionId((current) => (
+      current === sessionId ? null : current
+    ));
+  }, []);
 
   useEffect(() => {
     if (
@@ -703,6 +720,12 @@ export function EditorShell(props: { projectId?: string }) {
   const handleStartSpeakerNotesEdit = speakerNotesEditorActions.startEdit;
   const getSpeakerNotesPanelMaxHeight = speakerNotesPanelActions.getMaxHeight;
   const handleToggleSpeakerNotesPanel = speakerNotesPanelActions.toggle;
+  function handleSpeakerNotesTabSelected(tab: SpeakerNotesTab) {
+    setRequestedSpeakerNotesTab(null);
+    if (tab === "report") {
+      speakerNotesPanelActions.requestHeight(reportSpeakerNotesPanelHeight);
+    }
+  }
   const handleSpeakerNotesResizeStart = (
     event: ReactPointerEvent<HTMLButtonElement>
   ) => speakerNotesPanelActions.handleResizeStart(event, isSpeakerNotesEditing);
@@ -2333,6 +2356,7 @@ export function EditorShell(props: { projectId?: string }) {
             ) : (
               <SpeakerNotesPanel
                 canGenerateQuestionGuides={canMutateDeck}
+                celebrationSessionId={practiceCelebrationSessionId}
                 contentRef={speakerNotesContentRef}
                 currentSlide={currentSlide}
                 deck={deck}
@@ -2347,6 +2371,7 @@ export function EditorShell(props: { projectId?: string }) {
                 maxHeight={getSpeakerNotesPanelMaxHeight()}
                 minHeight={minSpeakerNotesPanelHeight}
                 onCancelEdit={handleCancelSpeakerNotesEdit}
+                onCelebrationConsumed={handlePracticeCelebrationConsumed}
                 onClearKeyword={clearSelectedKeyword}
                 onDeleteKeyword={() => {
                   if (currentSlide && selectedKeyword) {
@@ -2365,7 +2390,7 @@ export function EditorShell(props: { projectId?: string }) {
                 onSelectKeywordActionMode={handleSelectKeywordActionMode}
                 onSelectKeywordText={handleSpeakerNotesKeywordSelection}
                 onStartEdit={handleStartSpeakerNotesEdit}
-                onTabSelected={() => setRequestedSpeakerNotesTab(null)}
+                onTabSelected={handleSpeakerNotesTabSelected}
                 onToggleMaximized={speakerNotesPanelActions.toggleMaximized}
                 onTogglePanel={handleToggleSpeakerNotesPanel}
                 selectedKeyword={selectedKeyword}

@@ -60,7 +60,8 @@ def assemble_program_v2_slide(
         without_canvas_background_elements(compiled.elements),
         limit=48,
     )
-    build_design_pack_content_manifest(slide_plan, elements)
+    if slide_plan.order != 1:
+        build_design_pack_content_manifest(slide_plan, elements)
     for element in elements:
         element.pop("_contentItemIds", None)
     title_element = next(element for element in elements if element["role"] == "title")

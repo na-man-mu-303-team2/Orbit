@@ -92,8 +92,9 @@ export function ActivityAudiencePreviewPage(props: {
 
         {deckQuery.isError ? (
           <OrbitFailureState
-            description="잠시 후 다시 시도해 주세요."
+            description="미리보기에 필요한 장표 정보를 가져오지 못했습니다."
             onRetry={() => void deckQuery.refetch()}
+            recommendedAction="잠시 후 다시 시도하세요. 계속 실패하면 에디터로 돌아가 장표가 저장되어 있는지 확인하세요."
             title="사전 질문 미리보기를 불러오지 못했습니다."
           />
         ) : null}

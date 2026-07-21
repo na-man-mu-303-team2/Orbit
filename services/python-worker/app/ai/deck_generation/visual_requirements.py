@@ -78,7 +78,9 @@ def program_v2_visual_plan(
         source_policy = (
             "official-assets" if direction.asset_role == "evidence" else "ai-generated"
         )
-    elif media_policy in {"ai-generated", "public-assets", "provided-only"}:
+    elif media_policy == "provided-only":
+        source_policy = "official-assets"
+    elif media_policy in {"ai-generated", "public-assets"}:
         source_policy = media_policy
     else:
         source_policy = "minimal"

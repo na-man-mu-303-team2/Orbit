@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 const defaultHeight = 240;
 const initialHeight = 360;
+export const reportSpeakerNotesPanelHeight = 360;
 export const minSpeakerNotesPanelHeight = 120;
 const hideThreshold = 84;
 const keyboardStep = 24;
@@ -30,6 +31,7 @@ export function useSpeakerNotesPanelLayout(args: {
   const heightRef = useRef(defaultHeight);
   const hasExpandedRef = useRef(false);
   const shouldMeasureInitialHeightRef = useRef(false);
+  const hasUserResizedRef = useRef(false);
 
   function getMaxHeight() {
     return getSpeakerNotesPanelMaxHeight(
@@ -85,6 +87,7 @@ export function useSpeakerNotesPanelLayout(args: {
     setIsResizing(true);
 
     function handlePointerMove(pointerEvent: PointerEvent) {
+      hasUserResizedRef.current = true;
       const nextHeight = startHeight + (startClientY - pointerEvent.clientY);
       if (nextHeight < hideThreshold) {
         collapse();
@@ -112,11 +115,13 @@ export function useSpeakerNotesPanelLayout(args: {
     if (isEditing) return;
     if (event.key === "ArrowUp") {
       event.preventDefault();
+      hasUserResizedRef.current = true;
       commitHeight(heightRef.current + keyboardStep);
       return;
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
+      hasUserResizedRef.current = true;
       const nextHeight = heightRef.current - keyboardStep;
       if (nextHeight < minSpeakerNotesPanelHeight) collapse();
       else commitHeight(nextHeight);
@@ -128,6 +133,7 @@ export function useSpeakerNotesPanelLayout(args: {
     setIsMaximized(false);
     hasExpandedRef.current = false;
     shouldMeasureInitialHeightRef.current = false;
+    hasUserResizedRef.current = false;
     setHeight(defaultHeight);
     heightRef.current = defaultHeight;
   }, [args.projectId]);
@@ -158,6 +164,13 @@ export function useSpeakerNotesPanelLayout(args: {
       getMaxHeight,
       handleResizeKeyDown,
       handleResizeStart,
+      requestHeight: (nextHeight: number) => {
+        setIsExpanded(true);
+        if (hasUserResizedRef.current || isMaximized) return;
+        hasExpandedRef.current = true;
+        shouldMeasureInitialHeightRef.current = false;
+        commitHeight(nextHeight);
+      },
       toggle,
       toggleMaximized
     },

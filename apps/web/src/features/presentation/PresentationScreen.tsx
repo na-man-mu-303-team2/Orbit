@@ -1,8 +1,11 @@
 import type { Deck, DeckElement, Slide } from "@orbit/shared";
 import { Presentation } from "lucide-react";
+import type { ReactNode } from "react";
 import { ActivityPresenterPanel } from "../activity-slides";
 import { RehearsalPanel } from "../rehearsal/panel/RehearsalPanel";
+import { createRehearsalScriptPrompterRows } from "../rehearsal/panel/rehearsalScriptPrompter";
 import type { RehearsalTimingSnapshot, TimingAdviceState } from "../rehearsal/panel/rehearsalTiming";
+import { RehearsalScriptTeleprompter } from "../rehearsal/presenter/RehearsalScriptTeleprompter";
 import { SlideshowRenderer } from "../rehearsal/presenter/SlideshowRenderer";
 import type { SpeechTrackerSnapshot } from "../rehearsal/speech/speechTrackingEvents";
 import {
@@ -15,6 +18,7 @@ import {
 
 export function PresentationScreen(props: {
   adviceState: TimingAdviceState;
+  autoAdvanceStatus?: ReactNode;
   deck: Deck | null;
   currentSlide: Slide | null;
   currentSlideIndex: number;
@@ -39,6 +43,10 @@ export function PresentationScreen(props: {
   onReset: () => void;
   onTimeModeChange: (value: PresenterTimeMode) => void;
   panelSnapshot: SpeechTrackerSnapshot;
+  presentationSession?: {
+    audienceUrl: string;
+    sessionId: string;
+  };
   presenterScale: number;
   presenterStageRef: (node: HTMLDivElement | null) => void;
   presenterStepIndex: number;
@@ -55,10 +63,16 @@ export function PresentationScreen(props: {
   timerDurationInput: string;
   totalSlides: number;
   triggerAnimationIds: string[];
+  wordsPerMinute: number;
 }) {
   const nextSlideTitle = props.nextSlide
     ? getSlideTitle(props.nextSlide)
     : "다음 슬라이드 없음";
+  const teleprompterRows = getPresentationTeleprompterRows({
+    sentences: props.sentences,
+    snapshot: props.panelSnapshot,
+    speakerNotes: props.currentSlide?.speakerNotes ?? "",
+  });
 
   return (
     <main className="rehearsal-presenter-shell">
@@ -154,6 +168,7 @@ export function PresentationScreen(props: {
               autoStart
               deckId={props.deck.deckId}
               deckVersion={props.deck.version}
+              presentationSession={props.presentationSession}
               projectId={props.deck.projectId}
               slide={props.currentSlide}
             />
@@ -162,19 +177,57 @@ export function PresentationScreen(props: {
               adviceState={props.adviceState}
               highlightedKeywordOccurrences={props.highlightedKeywordOccurrences}
               keywords={props.keywords ?? []}
-              mode="rehearsal"
+              liveSlot={props.autoAdvanceStatus}
+              mode="live"
               sentences={props.sentences}
               showAdvicePanel={false}
               snapshot={props.panelSnapshot}
               speakerNotes={props.currentSlide?.speakerNotes ?? ""}
               timing={props.timing}
-              wordsPerMinute={0}
+              wordsPerMinute={props.wordsPerMinute}
             />
           )}
         </aside>
+
+        <RehearsalScriptTeleprompter
+          focusScopeId={props.currentSlide?.slideId ?? "presentation-empty"}
+          progressPercent={Math.round(
+            (props.panelSnapshot.scriptProgress?.ratio ?? 0) * 100,
+          )}
+          rows={teleprompterRows}
+        />
       </section>
     </main>
   );
+}
+
+function getPresentationTeleprompterRows(input: {
+  sentences: Parameters<typeof RehearsalPanel>[0]["sentences"];
+  snapshot: SpeechTrackerSnapshot;
+  speakerNotes: string;
+}) {
+  if (input.sentences.length === 0) {
+    return [
+      {
+        id: "presentation-fallback",
+        isFocusTarget: true,
+        status: "current" as const,
+        text: input.speakerNotes.trim() || "발표자 노트가 없습니다.",
+      },
+    ];
+  }
+
+  return createRehearsalScriptPrompterRows({
+    sentences: input.sentences,
+    coveredSentenceIds: input.snapshot.coveredSentenceIds,
+    coveredSentenceMatchKinds: input.snapshot.coveredSentenceMatchKinds,
+    prompterProgress: input.snapshot.prompterProgress,
+  }).map((row) => ({
+    id: row.sentence.sentenceId,
+    isFocusTarget: row.isFocusTarget,
+    status: row.status,
+    text: row.sentence.text,
+  }));
 }
 
 function getSlideTitle(slide: Slide) {

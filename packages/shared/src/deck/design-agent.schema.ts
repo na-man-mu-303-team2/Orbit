@@ -20,6 +20,12 @@ import { speakerNotesSuggestionModeSchema } from "./speaker-notes-assistant.sche
 import { themeSchema } from "./theme.schema";
 
 export const designAgentMessageRoleSchema = z.enum(["user", "assistant"]);
+export const designAgentIntentPresetSchema = z.enum([
+  "redesign-slide",
+  "tidy-layout",
+  "emphasize-message",
+  "recommend-animation",
+]);
 export const designAgentMessageStatusSchema = z.enum([
   "pending",
   "succeeded",
@@ -88,6 +94,7 @@ export const designAgentContextSchema = z.object({
 export const createDesignAgentMessageRequestSchema = z.object({
   sessionId: z.string().trim().min(1).max(200).optional(),
   content: z.string().trim().min(1).max(2_000),
+  intentPreset: designAgentIntentPresetSchema.optional(),
   context: designAgentContextSchema,
 });
 
@@ -111,6 +118,7 @@ export const designAgentWorkerRequestSchema = z.object({
   projectId: z.string().trim().min(1),
   sessionId: z.string().trim().min(1).max(200),
   question: z.string().trim().min(1).max(2_000),
+  intentPreset: designAgentIntentPresetSchema.optional(),
   context: designAgentContextSchema,
   history: z.array(designAgentHistoryItemSchema).max(10).default([]),
   availableSmartArtLayouts: z.array(availableSmartArtLayoutSchema).max(200).default([]),
@@ -193,6 +201,9 @@ export const applyDesignAgentProposalResponseSchema: z.ZodType<{
 
 export type DesignAgentMessageRole = z.infer<
   typeof designAgentMessageRoleSchema
+>;
+export type DesignAgentIntentPreset = z.infer<
+  typeof designAgentIntentPresetSchema
 >;
 export type DesignAgentCapabilities = z.infer<
   typeof designAgentCapabilitiesSchema

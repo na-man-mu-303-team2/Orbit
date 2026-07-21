@@ -99,16 +99,23 @@ describe("Redesign System primitives", () => {
   it("renders a reusable failure state with text-only variations", () => {
     const html = renderToStaticMarkup(
       <OrbitFailureState
-        description="연결을 확인한 뒤 프로젝트 목록을 다시 불러오세요."
+        className="workspace-home-state"
+        description="프로젝트 목록을 가져오는 중 연결 문제가 발생했습니다."
         onRetry={() => undefined}
+        recommendedAction="인터넷 연결을 확인한 뒤 목록을 다시 불러오세요."
         retryLabel="목록 다시 불러오기"
+        secondaryAction={<button type="button">홈으로 이동</button>}
         title="프로젝트를 불러오지 못했습니다."
       />,
     );
 
     expect(html).toContain('role="alert"');
+    expect(html).toContain("redesign-failure-state workspace-home-state");
     expect(html).toContain("프로젝트를 불러오지 못했습니다.");
+    expect(html).toContain("다음과 같이 해보세요");
+    expect(html).toContain("인터넷 연결을 확인한 뒤 목록을 다시 불러오세요.");
     expect(html).toContain("목록 다시 불러오기");
+    expect(html).toContain("홈으로 이동");
   });
 
   it("blocks every dialog dismiss path while closing is disabled", () => {

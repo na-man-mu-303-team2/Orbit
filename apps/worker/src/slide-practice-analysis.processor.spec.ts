@@ -72,7 +72,10 @@ describe("processSlidePracticeAnalysisJob", () => {
       .flatMap(([, parameters]) => parameters ?? []);
     const persisted = JSON.stringify(persistedParameters);
     expect(persisted).not.toContain("음 어 발표를 시작합니다");
-    expect(persisted).toContain('"reportVersion":2');
+    expect(persisted).toContain('"reportVersion":3');
+    expect(persisted).toContain('"metricDefinitionVersion":3');
+    expect(persisted).toContain('"contentHashVersion":"slide-text-v1"');
+    expect(persisted).toContain(`"slideContentHash":"${"a".repeat(64)}"`);
     expect(persisted).toContain('"loudnessSamples"');
     expect(persisted).toContain('"speedSamples"');
     expect(persisted).toContain('"coaching"');
@@ -81,9 +84,15 @@ describe("processSlidePracticeAnalysisJob", () => {
     expect(persisted).toContain('"scriptEvidence"');
     expect(persisted).toContain('"classifierVersion":4');
     expect(persisted).toContain('"mode":"lullaby"');
+    const reportInsert = query.mock.calls.find(([sql]) => (
+      String(sql).includes("INSERT INTO slide_practice_reports")
+    ));
+    expect(reportInsert?.[1]?.[8]).toBe("slide-text-v1");
+    expect(reportInsert?.[1]?.[9]).toBe("a".repeat(64));
     const coachingRequest = fetcher.mock.calls.find(([url]) => (
       String(url).endsWith("/slide-practice/coaching")
     ));
+    expect(String(coachingRequest?.[1]?.body)).toContain("loudness-unstable");
     expect(String(coachingRequest?.[1]?.body)).not.toContain("transcript");
     expect(String(coachingRequest?.[1]?.body)).not.toContain("audio");
     expect(String(coachingRequest?.[1]?.body)).not.toContain("음 어 발표를 시작합니다");
@@ -105,6 +114,52 @@ describe("processSlidePracticeAnalysisJob", () => {
 
     expect(job.status).toBe("failed");
     expect(query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO storage_deletion_outbox"))).toBe(true);
+  });
+
+  it("preserves unmeasured metrics as null instead of zero", async () => {
+    const query = createQuery();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      transcript: "짧음",
+      provider: "openai",
+      meanRecognitionConfidence: null,
+      voice: {
+        ...voiceMetrics(),
+        activeSpeechMs: 500,
+        pitchMedianHz: null,
+        pitchSpanHz: null,
+        loudnessDb: null,
+        loudnessMadDb: null,
+      },
+      loudnessSamples: [],
+      speedSamples: [],
+      transcriptSegments: [],
+      pauseSegments: [],
+    }), { status: 200 })));
+
+    const job = await processSlidePracticeAnalysisJob(
+      { query } as unknown as DataSource,
+      {
+        getSignedReadUrl: vi.fn(async () => "https://private.invalid/slide.webm"),
+        removeObject: vi.fn(async () => undefined),
+      } as unknown as StoragePort,
+      "http://python-worker:8000",
+      payload,
+    );
+
+    expect(job.status).toBe("succeeded");
+    const persistedParameters = query.mock.calls
+      .find(([sql]) => String(sql).includes("INSERT INTO slide_practice_reports"))?.[1] ?? [];
+    const report = persistedParameters[12] as {
+      quality: { state: string; reasons: string[] };
+      voice: { loudnessDb: number | null; syllablesPerSecond: number | null };
+    };
+    expect(report.quality).toEqual({
+      state: "unmeasured",
+      reasons: ["insufficient-speech", "audio-analysis-unavailable", "pitch-unavailable"],
+    });
+    expect(report.voice.syllablesPerSecond).toBeNull();
+    expect(report.voice.loudnessDb).toBeNull();
+    expect(JSON.stringify(report)).not.toContain('"syllablesPerSecond":0');
   });
 });
 
@@ -137,6 +192,8 @@ function inputRow() {
     deck_version: 2,
     slide_id: "slide_test_a",
     slide_order: 1,
+    content_hash_version: "slide-text-v1",
+    slide_content_hash: "a".repeat(64),
     started_at: "2026-07-17T00:00:00.000Z",
     duration_ms: 12_000,
     device_id_hash: null,
@@ -172,7 +229,7 @@ function voiceMetrics() {
     pitchSpanHz: 30,
     pitchValidRatio: 0.8,
     loudnessDb: -40,
-    loudnessMadDb: 2,
+    loudnessMadDb: 3.01,
     syllablesPerSecond: null,
     signalToNoiseDb: 20,
     breathinessRatio: 0.2,

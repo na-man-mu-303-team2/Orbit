@@ -12,7 +12,11 @@ from app.ai.composition_library import (
     design_program_snapshot,
     normalize_design_program,
 )
-from app.ai.design_program import ART_DIRECTOR_INSTRUCTIONS, DeckDesignProgram
+from app.ai.design_program import (
+    ART_DIRECTOR_INSTRUCTIONS,
+    COVER_COMPOSITION_IDS,
+    DeckDesignProgram,
+)
 
 
 def program(slides: list[dict[str, Any]]) -> DeckDesignProgram:
@@ -92,6 +96,51 @@ def test_each_composition_compiles_editable_elements(composition_id: str) -> Non
     assert all(
         element["y"] + element["height"] <= 1080 for element in compiled.elements
     )
+
+
+@pytest.mark.parametrize("composition_id", COVER_COMPOSITION_IDS)
+def test_generated_cover_compositions_render_minimal_cover_content(
+    composition_id: str,
+) -> None:
+    spec = COMPOSITION_SPECS[composition_id]
+    variant = spec.variants[0]
+    direction = {
+        "order": 1,
+        "compositionId": composition_id,
+        "variant": variant,
+        "backgroundMode": variant,
+        "focalType": spec.focal_rule,
+        "assetRole": "evidence" if spec.media_requirement == "required" else "none",
+        "requiredAsset": spec.media_requirement == "required",
+    }
+    design_program = program([direction])
+    slide = {
+        **slide_payload("cover", 0),
+        "title": "AI로 완성하는 발표 경험",
+        "message": "내용에서 리허설까지 하나의 흐름으로",
+        "coverContent": {
+            "title": "AI로 완성하는 발표 경험",
+            "subtitle": "내용에서 리허설까지 하나의 흐름으로",
+            "kicker": "ORBIT PRODUCT BRIEF",
+            "presenterName": "김민지",
+            "presenterRole": "Product Lead",
+            "organization": "ORBIT",
+            "dateText": "2026. 7. 21.",
+            "reportPeriod": "2026 Q3",
+            "documentLabel": "PRODUCT BRIEF",
+            "profileImageAssetId": "asset-profile",
+        },
+    }
+
+    compiled = compile_composition(
+        design_program.slides[0],
+        slide,
+        design_program,
+    )
+
+    assert any(element["role"] == "title" for element in compiled.elements)
+    assert all(element["role"] != "body" for element in compiled.elements)
+    assert not any("agenda" in element["elementId"] for element in compiled.elements)
 
 
 def test_diagram_first_policy_is_explicit_in_art_director_contract() -> None:
@@ -278,7 +327,7 @@ def test_hybrid_media_budget_reserves_ai_atmosphere_when_official_sources_repeat
     ]
     assert len(evidence) == 1
     assert len(atmosphere) >= 2
-    assert normalized.slides[0].asset_role == "atmosphere"
+    assert normalized.slides[0].asset_role == "none"
     assert 3 <= len(evidence) + len(atmosphere) <= 4
 
 
