@@ -246,6 +246,20 @@ function classifyDisfluencies(
       disfluency(input, previous.start, current.end, "repetition"),
     );
   }
+  for (let index = 1; index < tokens.length; index += 1) {
+    const previous = tokens[index - 1];
+    const current = tokens[index];
+    if (
+      !previous ||
+      !current ||
+      previous.normalized.length !== 1 ||
+      !current.normalized.startsWith(previous.normalized) ||
+      !/[,，]\s*$/u.test(input.transcript.slice(previous.end, current.start))
+    ) {
+      continue;
+    }
+    occurrences.push(disfluency(input, previous.start, current.end, "stutter"));
+  }
   for (const match of input.transcript.matchAll(/([\p{L}])\s*[-·]\s*\1[\p{L}]+/gu)) {
     const start = match.index;
     occurrences.push(
