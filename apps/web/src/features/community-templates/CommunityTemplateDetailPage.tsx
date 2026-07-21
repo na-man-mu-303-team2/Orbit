@@ -209,7 +209,7 @@ export function CommunityTemplateDetailPage(props: {
               <div><dt>사용</dt><dd>{compactCount(template.stats.useCount)}</dd></div>
               <div><dt>공유</dt><dd>{compactCount(template.stats.shareCount)}</dd></div>
             </dl>
-            <GradientButton disabled={useBusy} onClick={() => void useTemplate()}><IconSparkles size={17} />{useBusy ? "적용 중" : "이 템플릿 사용하기"}</GradientButton>
+            <GradientButton disabled={useBusy} onClick={() => void useTemplate()}><IconSparkles size={17} />{useBusy ? "적용 중" : "이 프로젝트로 시작하기"}</GradientButton>
           </section>
 
           <section className="community-detail-comments">

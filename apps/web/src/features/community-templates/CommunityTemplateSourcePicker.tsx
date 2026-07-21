@@ -1,4 +1,9 @@
 import type { CommunityTemplateSourceProject } from "@orbit/shared";
+import { lazy, Suspense } from "react";
+
+const ProjectSlidePreview = lazy(
+  () => import("../projects/ProjectSlidePreview"),
+);
 
 export type CommunityTemplateSourceState = {
   items: CommunityTemplateSourceProject[];
@@ -20,11 +25,12 @@ export function CommunityTemplateSourcePicker(props: {
       aria-describedby={props.error ? helperId : undefined}
       aria-invalid={props.error ? "true" : undefined}
       className="community-template-source-field"
+      data-orbit-dialog-initial
       id="community-template-publish-source"
       tabIndex={-1}
     >
       <legend>공개할 프로젝트</legend>
-      <p>서버가 확인한 내 소유 프로젝트만 표시됩니다.</p>
+      <p>선택한 프로젝트의 모든 슬라이드가 커뮤니티에 공개됩니다.</p>
 
       {props.state.loading ? (
         <div
@@ -63,10 +69,20 @@ export function CommunityTemplateSourcePicker(props: {
                 type="radio"
                 value={source.projectId}
               />
-              <span>
+              <span className="community-template-source-thumbnail" aria-hidden="true">
+                <span className="community-template-source-thumbnail-fallback" />
+                <Suspense fallback={null}>
+                  <ProjectSlidePreview
+                    className="community-template-source-thumbnail-canvas"
+                    projectId={source.projectId}
+                  />
+                </Suspense>
+              </span>
+              <span className="community-template-source-copy">
                 <strong>{source.title}</strong>
                 <small>{formatSourceDate(source.createdAt)}</small>
               </span>
+              <span className="community-template-source-check" aria-hidden="true" />
             </label>
           ))}
         </div>

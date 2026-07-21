@@ -401,8 +401,9 @@
 .community-template-publish-dialog {
   display: flex;
   flex-direction: column;
-  max-width: 720px;
-  max-height: min(840px, calc(100vh - 48px));
+  width: min(920px, calc(100vw - 40px));
+  max-width: 920px;
+  max-height: min(860px, calc(100vh - 40px));
   overflow: hidden;
 }
 
@@ -414,6 +415,7 @@
 .community-template-publish-dialog > .redesign-dialog-body {
   min-height: 0;
   overflow: auto;
+  padding: var(--redesign-space-6);
 }
 
 #community-template-publish-form {
@@ -447,26 +449,42 @@
 
 .community-template-source-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--redesign-space-2);
-  margin-top: var(--redesign-space-1);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: var(--redesign-space-3);
+  max-height: 420px;
+  margin-top: var(--redesign-space-2);
+  padding: var(--redesign-space-1);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .community-template-source-option {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--redesign-space-3);
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 0;
   min-width: 0;
-  padding: var(--redesign-space-3);
+  overflow: hidden;
+  padding: 0;
   border: 1px solid var(--redesign-color-outline-variant);
-  border-radius: var(--redesign-radius-md);
-  background: var(--redesign-color-surface-container-low);
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface);
   cursor: pointer;
+  transition: border-color var(--redesign-duration-fast) var(--redesign-ease-standard), box-shadow var(--redesign-duration-fast) var(--redesign-ease-standard), transform var(--redesign-duration-fast) var(--redesign-ease-standard);
+}
+
+.community-template-source-option:hover {
+  transform: translateY(-2px);
+  border-color: var(--redesign-color-primary-outline);
+  box-shadow: var(--redesign-shadow-card);
 }
 
 .community-template-source-option:has(input:checked) {
-  border-color: var(--redesign-color-primary);
-  background: var(--redesign-color-primary-container);
+  border: 2px solid var(--redesign-color-primary);
+  box-shadow: 0 0 0 3px var(--redesign-color-primary-subtle);
 }
 
 .community-template-source-option:focus-within {
@@ -474,41 +492,82 @@
 }
 
 .community-template-source-option input {
-  flex: 0 0 auto;
-  margin: 3px 0 0;
-  accent-color: var(--redesign-color-primary);
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
-.community-template-source-option > span {
+.community-template-source-thumbnail {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--redesign-color-surface-container);
+}
+
+.community-template-source-thumbnail-fallback {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--redesign-color-primary-subtle), var(--redesign-color-surface-container));
+}
+
+.community-template-source-thumbnail-canvas {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.community-template-source-copy {
   display: grid;
   gap: var(--redesign-space-1);
   min-width: 0;
+  padding: var(--redesign-space-3);
 }
 
-.community-template-source-option strong,
-.community-template-source-option small {
+.community-template-source-copy strong,
+.community-template-source-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.community-template-source-option strong {
+.community-template-source-copy strong {
   font-size: var(--redesign-type-body-sm-size);
 }
 
-.community-template-source-option small {
+.community-template-source-copy small {
   color: var(--redesign-color-on-surface-variant);
   font-size: var(--redesign-type-label-sm-size);
 }
 
+.community-template-source-check {
+  position: absolute;
+  top: var(--redesign-space-2);
+  right: var(--redesign-space-2);
+  width: 22px;
+  height: 22px;
+  border: 2px solid color-mix(in srgb, var(--redesign-color-surface) 80%, var(--redesign-color-outline));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--redesign-color-surface) 88%, transparent);
+  box-shadow: var(--redesign-shadow-card);
+}
+
+.community-template-source-option:has(input:checked) .community-template-source-check {
+  border: 6px solid var(--redesign-color-primary);
+  background: var(--redesign-color-surface);
+}
+
 .community-template-source-loading {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--redesign-space-2);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--redesign-space-3);
 }
 
 .community-template-source-loading > span {
-  min-height: 68px;
+  aspect-ratio: 16 / 10.5;
   border-radius: var(--redesign-radius-md);
   background: linear-gradient(
     90deg,
@@ -663,7 +722,7 @@
 
   .community-template-source-list,
   .community-template-source-loading {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .community-template-publisher-strip {
@@ -679,6 +738,11 @@
 @media (max-width: 560px) {
   .community-template-shelf-grid,
   .community-template-gallery-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .community-template-source-list,
+  .community-template-source-loading {
     grid-template-columns: minmax(0, 1fr);
   }
 

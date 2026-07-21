@@ -9,7 +9,6 @@ import {
   IconHeart,
   IconMessageCircle,
   IconSearch,
-  IconSlideshow,
   IconSparkles,
   IconUpload,
 } from "@tabler/icons-react";
@@ -76,32 +75,27 @@ export function CommunityGalleryPage(props: {
 
   return (
     <main className="community-page">
-      <header className="community-page-topbar">
-        <WorkspaceContainer as="div" className="community-page-topbar-inner" width="content">
-          <div className="community-page-brandline">
-            <span aria-hidden="true"><IconSlideshow size={20} /></span>
-            <strong>커뮤니티 갤러리</strong>
-          </div>
-          <label className="community-page-search">
-            <IconSearch aria-hidden="true" size={18} />
-            <OrbitInput
-              aria-label="공유된 발표자료 검색"
-              onChange={(event) => setQuery(event.currentTarget.value)}
-              placeholder="공유된 템플릿과 발표 자료 검색"
-              value={query}
-            />
-          </label>
-          <GradientButton onClick={() => setPublishOpen(true)}>
-            <IconUpload aria-hidden="true" size={17} />
-            슬라이드 공유하기
-          </GradientButton>
-        </WorkspaceContainer>
-      </header>
-
       <WorkspaceContainer as="section" className="community-page-hero" width="content">
-        <span className="redesign-eyebrow">ORBIT COMMUNITY</span>
-        <h1>만드는 사람들의 감각이 모인<br />발표 자료 아카이브</h1>
-        <p>검증된 구성과 시각적 아이디어를 둘러보고, 내 발표에 바로 적용해 보세요.</p>
+        <header className="community-page-hero-heading">
+          <div>
+            <span className="redesign-eyebrow">ORBIT COMMUNITY</span>
+            <h1>디자이너들의 인사이트가 담긴 발표 자료</h1>
+            <p>다른 사용자가 공개한 프로젝트를 둘러보고, 마음에 드는 구성을 내 발표에 활용해 보세요.</p>
+          </div>
+          <GradientButton className="community-page-publish" onClick={() => setPublishOpen(true)}>
+            <IconUpload aria-hidden="true" size={17} />
+            프로젝트 공유하기
+          </GradientButton>
+        </header>
+        <label className="community-page-search">
+          <IconSearch aria-hidden="true" size={19} />
+          <OrbitInput
+            aria-label="공유된 발표자료 검색"
+            onChange={(event) => setQuery(event.currentTarget.value)}
+            placeholder="제목, 소개글, 작성자로 검색"
+            value={query}
+          />
+        </label>
       </WorkspaceContainer>
 
       <WorkspaceContainer as="section" className="community-gallery" width="content">
@@ -120,6 +114,7 @@ export function CommunityGalleryPage(props: {
               </button>
             ))}
           </div>
+          <span className="community-gallery-filter-label">발표 주제</span>
           <div aria-label="커뮤니티 카테고리" className="community-gallery-categories">
             {categoryOptions.map((option) => (
               <button

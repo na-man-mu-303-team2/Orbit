@@ -19,6 +19,7 @@ import {
   type CommunityTemplatePublishDraft,
   type CommunityTemplatePublishErrors,
 } from "./communityTemplatePublish";
+import "./community-template-gallery.css";
 
 const formId = "community-template-publish-form";
 const fieldIds: Record<keyof CommunityTemplatePublishDraft, string> = {
@@ -68,7 +69,7 @@ export function PublishCommunityTemplateView(
     <OrbitDialog
       className="community-template-publish-dialog"
       closeDisabled={props.submitting}
-      description="내 프로젝트의 디자인과 레이아웃을 커뮤니티 템플릿으로 공개합니다."
+      description="공개할 프로젝트를 선택하고 간단한 소개를 남겨주세요. 프로젝트의 모든 슬라이드가 함께 공개됩니다."
       footer={
         <>
           <OrbitButton
@@ -94,7 +95,7 @@ export function PublishCommunityTemplateView(
       }
       onClose={props.onClose}
       open={props.open}
-      title="내 슬라이드 올리기"
+      title="프로젝트 공유하기"
     >
       <form id={formId} onSubmit={submit}>
         {props.publishError ? (
@@ -121,7 +122,6 @@ export function PublishCommunityTemplateView(
           label="템플릿 이름"
         >
           <OrbitInput
-            data-orbit-dialog-initial
             disabled={props.submitting}
             maxLength={60}
             onChange={(event) =>
