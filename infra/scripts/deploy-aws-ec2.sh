@@ -89,7 +89,11 @@ COMPOSE=(docker compose -f "$COMPOSE_FILE")
 # docs/runbooks/deploy-image-registry-migration.md.
 if [ "${DEPLOY_USE_REGISTRY:-false}" = "true" ]; then
   IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io}"
-  IMAGE_TAG="${IMAGE_TAG:-$(git -C "$APP_DIR" rev-parse HEAD)}"
+  # Use the branch tag (e.g. main) rather than the exact commit SHA: commits
+  # that touch only scripts or docs do not trigger build-images, so a per-SHA
+  # tag may not exist, while the branch tag always points at the latest built
+  # app image.
+  IMAGE_TAG="${IMAGE_TAG:-$(git -C "$APP_DIR" rev-parse --abbrev-ref HEAD)}"
   export IMAGE_TAG
   ghcr_user="${GHCR_USERNAME:-orbit-deploy}"
   ghcr_token="${GHCR_TOKEN:-}"

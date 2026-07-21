@@ -78,7 +78,11 @@ else
   fi
   if [ "${DEPLOY_USE_REGISTRY:-auto}" != "false" ] && [ -n "$ghcr_token" ]; then
     IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io}"
-    IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse HEAD)}"
+    # Use the branch tag (e.g. develop) rather than the exact commit SHA:
+    # commits that touch only scripts or docs do not trigger build-images, so
+    # a per-SHA tag may not exist, while the branch tag always points at the
+    # latest built app image.
+    IMAGE_TAG="${IMAGE_TAG:-$DEPLOY_BRANCH}"
     export IMAGE_TAG
     ghcr_user="${GHCR_USERNAME:-$(doppler secrets get GHCR_USERNAME --plain 2>/dev/null || echo orbit-deploy)}"
     printf '%s' "$ghcr_token" | docker login "$IMAGE_REGISTRY" -u "$ghcr_user" --password-stdin
