@@ -60,6 +60,49 @@ export const slidePracticeFillerDetailSchema = z.object({
   count: z.number().int().min(1).max(1_000),
 }).strict();
 
+export const slidePracticeFillerVerbatimPromptVersionSchema = z.literal(
+  "korean-filler-verbatim-v1",
+);
+
+export const slidePracticeFillerMeasurementSourceSchema = z.object({
+  mode: z.literal("openai-verbatim"),
+  model: z.string().trim().min(1).max(100),
+  promptVersion: slidePracticeFillerVerbatimPromptVersionSchema,
+}).strict();
+
+export const slidePracticeFillerMeasurementSchema = z.discriminatedUnion("state", [
+  z.object({
+    metricDefinitionVersion: z.literal(2),
+    state: z.literal("measured"),
+    reasonCode: z.null(),
+    source: slidePracticeFillerMeasurementSourceSchema,
+  }).strict(),
+  z.object({
+    metricDefinitionVersion: z.literal(2),
+    state: z.literal("unmeasured"),
+    reasonCode: z.literal("FILLER_VERBATIM_UNAVAILABLE"),
+    source: slidePracticeFillerMeasurementSourceSchema,
+  }).strict(),
+]);
+
+const legacySlidePracticeFillerMeasurement = {
+  metricDefinitionVersion: 1,
+  state: "unmeasured",
+  reasonCode: "FILLER_VERBATIM_NOT_APPLIED",
+  source: {
+    mode: "legacy",
+    model: null,
+    promptVersion: null,
+  },
+} as const;
+
+export function resolveSlidePracticeFillerMeasurement(fillers: {
+  policyVersion: 1;
+  measurement?: z.infer<typeof slidePracticeFillerMeasurementSchema>;
+}): z.infer<typeof slidePracticeFillerMeasurementSchema> | typeof legacySlidePracticeFillerMeasurement {
+  return fillers.measurement ?? legacySlidePracticeFillerMeasurement;
+}
+
 export const slidePracticeLoudnessSampleSchema = z.object({
   startMs: z.number().int().min(0).max(300_000),
   endMs: z.number().int().positive().max(300_000),
@@ -316,6 +359,7 @@ const slidePracticeReportBodySchema = z.object({
     policyVersion: z.literal(1),
     totalCount: z.number().int().min(0).max(10_000),
     details: z.array(slidePracticeFillerDetailSchema).max(100),
+    measurement: slidePracticeFillerMeasurementSchema.optional(),
   }).strict(),
   voice: slidePracticeVoiceMetricsSchema,
   loudnessSamples: z.array(slidePracticeLoudnessSampleSchema).max(300).optional(),
@@ -482,6 +526,29 @@ export const slidePracticeAnalysisResultResponseSchema = z.object({
   report: slidePracticeReportRecordSchema.nullable(),
 }).strict();
 
+export const slidePracticeFillerVerbatimRequestSchema = z.object({
+  model: z.string().trim().min(1).max(100),
+  prompt: z.string().trim().min(1).max(4_000),
+  promptVersion: slidePracticeFillerVerbatimPromptVersionSchema,
+}).strict();
+
+export const slidePracticeFillerVerbatimResponseSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("succeeded"),
+    transcript: z.string().max(100_000),
+    model: z.string().trim().min(1).max(100),
+    promptVersion: slidePracticeFillerVerbatimPromptVersionSchema,
+    reasonCode: z.null(),
+  }).strict(),
+  z.object({
+    state: z.literal("unavailable"),
+    transcript: z.null(),
+    model: z.string().trim().min(1).max(100),
+    promptVersion: slidePracticeFillerVerbatimPromptVersionSchema,
+    reasonCode: z.literal("FILLER_VERBATIM_UNAVAILABLE"),
+  }).strict(),
+]);
+
 export const slidePracticeServerAudioResponseSchema = z.object({
   transcript: z.string(),
   provider: z.string().trim().min(1).max(80),
@@ -491,11 +558,15 @@ export const slidePracticeServerAudioResponseSchema = z.object({
   speedSamples: z.array(slidePracticeSpeedSampleSchema).max(60),
   transcriptSegments: z.array(slidePracticeTranscriptSegmentSchema).max(100),
   pauseSegments: z.array(slidePracticePauseSegmentSchema).max(100),
+  fillerVerbatim: slidePracticeFillerVerbatimResponseSchema.optional(),
 }).strict();
 
 export type SlidePracticeReport = z.infer<typeof slidePracticeReportSchema>;
 export type SlidePracticeReportV3 = z.infer<typeof slidePracticeReportV3Schema>;
 export type SlidePracticeFillerDetail = z.infer<typeof slidePracticeFillerDetailSchema>;
+export type SlidePracticeFillerMeasurement = z.infer<typeof slidePracticeFillerMeasurementSchema>;
+export type SlidePracticeFillerVerbatimRequest = z.infer<typeof slidePracticeFillerVerbatimRequestSchema>;
+export type SlidePracticeFillerVerbatimResponse = z.infer<typeof slidePracticeFillerVerbatimResponseSchema>;
 export type SlidePracticeLoudnessSample = z.infer<typeof slidePracticeLoudnessSampleSchema>;
 export type SlidePracticeSpeedSample = z.infer<typeof slidePracticeSpeedSampleSchema>;
 export type SlidePracticeTranscriptSegment = z.infer<typeof slidePracticeTranscriptSegmentSchema>;

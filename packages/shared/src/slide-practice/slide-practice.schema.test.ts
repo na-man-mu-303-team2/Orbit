@@ -8,7 +8,9 @@ import {
   createSlidePracticeAnalysisRequestSchema,
   createSlidePracticeReportRequestSchema,
   listSlidePracticeReportsQuerySchema,
+  resolveSlidePracticeFillerMeasurement,
   slidePracticeAnalysisResultResponseSchema,
+  slidePracticeFillerVerbatimRequestSchema,
   slidePracticeReportListResponseSchema,
   slidePracticeReportRecordSchema,
   slidePracticeReportSchema,
@@ -119,6 +121,76 @@ describe("slidePracticeReportSchema", () => {
 
   it("rejects transcript persistence", () => {
     expect(slidePracticeReportSchema.safeParse({ ...report, transcript: "민감한 원문" }).success).toBe(false);
+    expect(slidePracticeReportSchema.safeParse({ ...report, rawAudio: "base64-audio" }).success).toBe(false);
+  });
+
+  it("accepts measured and unavailable filler measurement metadata", () => {
+    expect(slidePracticeReportSchema.safeParse({
+      ...reportV3,
+      fillers: {
+        ...reportV3.fillers,
+        measurement: {
+          metricDefinitionVersion: 2,
+          state: "measured",
+          reasonCode: null,
+          source: {
+            mode: "openai-verbatim",
+            model: "gpt-4o-mini-transcribe",
+            promptVersion: "korean-filler-verbatim-v1",
+          },
+        },
+      },
+    }).success).toBe(true);
+    expect(slidePracticeReportSchema.safeParse({
+      ...reportV3,
+      fillers: {
+        policyVersion: 1,
+        totalCount: 0,
+        details: [],
+        measurement: {
+          metricDefinitionVersion: 2,
+          state: "unmeasured",
+          reasonCode: "FILLER_VERBATIM_UNAVAILABLE",
+          source: {
+            mode: "openai-verbatim",
+            model: "gpt-4o-mini-transcribe",
+            promptVersion: "korean-filler-verbatim-v1",
+          },
+        },
+      },
+    }).success).toBe(true);
+  });
+
+  it("rejects inconsistent filler measurement states", () => {
+    expect(slidePracticeReportSchema.safeParse({
+      ...reportV3,
+      fillers: {
+        ...reportV3.fillers,
+        measurement: {
+          metricDefinitionVersion: 2,
+          state: "measured",
+          reasonCode: "FILLER_VERBATIM_UNAVAILABLE",
+          source: {
+            mode: "openai-verbatim",
+            model: "gpt-4o-mini-transcribe",
+            promptVersion: "korean-filler-verbatim-v1",
+          },
+        },
+      },
+    }).success).toBe(false);
+  });
+
+  it("interprets reports without filler metadata as legacy unmeasured results", () => {
+    expect(resolveSlidePracticeFillerMeasurement(report.fillers)).toEqual({
+      metricDefinitionVersion: 1,
+      state: "unmeasured",
+      reasonCode: "FILLER_VERBATIM_NOT_APPLIED",
+      source: {
+        mode: "legacy",
+        model: null,
+        promptVersion: null,
+      },
+    });
   });
 
   it("requires filler totals to match details", () => {
@@ -293,6 +365,19 @@ describe("slidePracticeReportSchema", () => {
 });
 
 describe("slide practice server analysis contract", () => {
+  it("accepts only bounded versioned filler verbatim settings", () => {
+    expect(slidePracticeFillerVerbatimRequestSchema.safeParse({
+      model: "gpt-4o-mini-transcribe",
+      prompt: "음, 어, 반복과 말더듬을 그대로 보존하세요.",
+      promptVersion: "korean-filler-verbatim-v1",
+    }).success).toBe(true);
+    expect(slidePracticeFillerVerbatimRequestSchema.safeParse({
+      model: "gpt-4o-mini-transcribe",
+      prompt: "음, 어를 보존하세요.",
+      promptVersion: "unversioned-prompt",
+    }).success).toBe(false);
+  });
+
   it("accepts upload metadata but rejects transcript input", () => {
     const request = {
       clientRequestId: "request-1",
@@ -364,6 +449,33 @@ describe("slide practice server analysis contract", () => {
       speedSamples: [{ startMs: 0, endMs: 5_000, syllablesPerSecond: 4 }],
       transcriptSegments: [{ text: "발표를 시작합니다", startMs: 0, endMs: 2_000 }],
       pauseSegments: [],
+      fillerVerbatim: {
+        state: "succeeded",
+        transcript: "음 어 발표를 시작합니다",
+        model: "gpt-4o-mini-transcribe",
+        promptVersion: "korean-filler-verbatim-v1",
+        reasonCode: null,
+      },
+    }).success).toBe(true);
+  });
+
+  it("accepts a bounded unavailable filler transcription without transcript text", () => {
+    expect(slidePracticeServerAudioResponseSchema.safeParse({
+      transcript: "발표를 시작합니다",
+      provider: "openai",
+      meanRecognitionConfidence: null,
+      voice: report.voice,
+      loudnessSamples: [],
+      speedSamples: [],
+      transcriptSegments: [],
+      pauseSegments: [],
+      fillerVerbatim: {
+        state: "unavailable",
+        transcript: null,
+        model: "gpt-4o-mini-transcribe",
+        promptVersion: "korean-filler-verbatim-v1",
+        reasonCode: "FILLER_VERBATIM_UNAVAILABLE",
+      },
     }).success).toBe(true);
   });
 });
