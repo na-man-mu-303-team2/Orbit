@@ -10,7 +10,6 @@ import { IconChartBar, IconQrcode } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 import { createQrDataUrl } from "../../editor/audience-link/audienceLinkUtils";
-import { OrbitBrand } from "../../../components/ui";
 import { activityApi } from "../api/activityApi";
 import { createActivityThemeStyle } from "./activityThemeStyle";
 import "./activity-audience-slide.css";
@@ -139,7 +138,6 @@ export function ActivityAudienceSlideRenderer(props: {
         }}
       >
         <header>
-          <OrbitBrand className="activity-slide-brand" />
           <h1>{activity.title}</h1>
           {activity.description ? <p>{activity.description}</p> : null}
         </header>

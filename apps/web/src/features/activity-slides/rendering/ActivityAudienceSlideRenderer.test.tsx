@@ -45,7 +45,7 @@ const publicResult: ActivityPublicResult = {
 };
 
 describe("ActivityAudienceSlideRenderer", () => {
-  it("uses the deck palette and ORBIT identity without decorative English copy", () => {
+  it("uses the deck palette without presenter-screen branding", () => {
     const html = renderToStaticMarkup(
       <ActivityAudienceSlideRenderer
         activity={slide.activity}
@@ -61,7 +61,7 @@ describe("ActivityAudienceSlideRenderer", () => {
       />
     );
 
-    expect(html).toContain("main-logo.png");
+    expect(html).not.toContain("main-logo.png");
     expect(html).toContain("--activity-color-background:#090909");
     expect(html).toContain("--activity-color-accent:#c5b0f4");
     expect(html).not.toContain("LIVE ACTIVITY");
@@ -113,7 +113,9 @@ describe("ActivityAudienceSlideRenderer", () => {
     expect(qrFrameRule).toContain("border-radius: var(--redesign-radius-xl)");
     expect(qrFrameRule).toContain("padding: var(--redesign-space-6)");
     expect(qrFrameRule).not.toContain("overflow: hidden");
-    expect(css).toContain("grid-template-columns: 560px minmax(0, 1fr)");
+    expect(css).toContain("grid-template-columns: 520px minmax(0, 1fr)");
+    expect(css).toContain("left: 50%");
+    expect(css).toContain("transform: translate(-50%, -50%)");
   });
 
   it("reveals poll ratios only from the public result projection", () => {

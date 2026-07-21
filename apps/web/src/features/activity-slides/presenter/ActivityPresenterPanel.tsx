@@ -15,6 +15,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { OrbitButton } from "../../../components/ui";
 import { activityApi, ActivityApiError } from "../api/activityApi";
 import { startSequentialPolling } from "../model/sequentialPolling";
 import {
@@ -201,43 +202,41 @@ export function ActivityPresenterPanel(props: {
       {getActivityReopenCommand(runtime?.run.status ?? "draft") ? (
         <>
           <div className="activity-presenter-command-row">
-            <button
+            <OrbitButton
               className="activity-presenter-secondary-command"
               disabled={!runtime || pending}
+              icon={<IconPlayerPlay aria-hidden="true" size={18} stroke={1.8} />}
               onClick={() => void updateStatus("open")}
-              type="button"
+              variant="secondary"
             >
-              <IconPlayerPlay aria-hidden="true" size={18} stroke={1.8} />
               {pending ? "상태 변경 중" : "응답 다시 열기"}
-            </button>
-            <button
+            </OrbitButton>
+            <OrbitButton
               className="activity-presenter-primary-command"
               disabled={!runtime || pending}
+              icon={<IconPlayerPause aria-hidden="true" size={18} stroke={1.8} />}
               onClick={() => void updateStatus(primary.nextStatus)}
-              type="button"
             >
-              <IconPlayerPause aria-hidden="true" size={18} stroke={1.8} />
               {pending ? "상태 변경 중" : primary.label}
-            </button>
+            </OrbitButton>
           </div>
           <p className="activity-presenter-reopen-help">
             기존 응답과 집계를 유지한 채 다시 받습니다.
           </p>
         </>
       ) : (
-        <button
+        <OrbitButton
           className="activity-presenter-primary-command"
           disabled={!runtime || pending}
-          onClick={() => void updateStatus(primary.nextStatus)}
-          type="button"
-        >
-          {primary.nextStatus === "open" ? (
+          icon={primary.nextStatus === "open" ? (
             <IconPlayerPlay aria-hidden="true" size={18} stroke={1.8} />
           ) : (
             <IconPlayerPause aria-hidden="true" size={18} stroke={1.8} />
           )}
+          onClick={() => void updateStatus(primary.nextStatus)}
+        >
           {pending ? "상태 변경 중" : primary.label}
-        </button>
+        </OrbitButton>
       )}
     </section>
   );
