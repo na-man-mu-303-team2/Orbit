@@ -6,10 +6,15 @@ import {
   activityQuestionIdSchema
 } from "./activity-id.schema";
 
-const activityTitleSchema = z.string().trim().min(1).max(120);
-const activityDescriptionSchema = z.string().trim().max(500);
-const activityQuestionPromptSchema = z.string().trim().min(1).max(500);
-const ratingLabelSchema = z.string().trim().max(40);
+const nonBlankAuthoredTextSchema = (maxLength: number) =>
+  z.string().min(1).max(maxLength).refine((value) => value.trim().length > 0, {
+    message: "text must contain a non-whitespace character"
+  });
+
+const activityTitleSchema = nonBlankAuthoredTextSchema(120);
+const activityDescriptionSchema = z.string().max(500);
+const activityQuestionPromptSchema = nonBlankAuthoredTextSchema(500);
+const ratingLabelSchema = z.string().max(40);
 
 export const activityTemplateSchema = z.enum([
   "pre-question",
@@ -27,7 +32,7 @@ export const activityQuestionTypeSchema = z.enum([
 export const activityOptionSchema = z
   .object({
     optionId: activityOptionIdSchema,
-    label: z.string().trim().min(1).max(100)
+    label: nonBlankAuthoredTextSchema(100)
   })
   .strict();
 
@@ -40,7 +45,7 @@ const choiceOptionsSchema = z
     const labels = new Set<string>();
 
     options.forEach((option, index) => {
-      const label = option.label.toLocaleLowerCase("ko-KR");
+      const label = option.label.trim().toLocaleLowerCase("ko-KR");
       if (ids.has(option.optionId)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
