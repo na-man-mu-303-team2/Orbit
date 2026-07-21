@@ -37,26 +37,10 @@ const categoryOptions: Array<{
   { label: "이벤트", value: "event" },
 ];
 
-const sortOptions: Array<{
-  description: string;
-  label: string;
-  value: CommunityTemplateSort;
-}> = [
-  {
-    label: "인기순",
-    value: "popular",
-    description: "좋아요·댓글·사용·공유·조회 반응을 가중 합산한 순서",
-  },
-  {
-    label: "최신순",
-    value: "latest",
-    description: "커뮤니티에 공개된 시각이 최신인 순서",
-  },
-  {
-    label: "추천 자료",
-    value: "recommended",
-    description: "인기 점수에 시간 감쇠를 적용해 최근 반응도 함께 반영한 순서",
-  },
+const sortOptions: Array<{ label: string; value: CommunityTemplateSort }> = [
+  { label: "인기순", value: "popular" },
+  { label: "최신순", value: "latest" },
+  { label: "추천 자료", value: "recommended" },
 ];
 
 export function CommunityGalleryPage(props: {
@@ -88,16 +72,12 @@ export function CommunityGalleryPage(props: {
     () => templates.data?.pages.flatMap((page) => page.items) ?? [],
     [templates.data],
   );
-  const activeSort = sortOptions.find((option) => option.value === sort)!;
-
   return (
     <main className="community-page">
       <WorkspaceContainer as="section" className="community-page-hero" width="content">
         <header className="community-page-hero-heading">
           <div>
-            <span className="redesign-eyebrow">ORBIT COMMUNITY</span>
-            <h1>좋은 발표의 흐름을 발견하세요</h1>
-            <p>다른 사용자가 공개한 발표 프로젝트를 둘러보고, 마음에 드는 구성은 내 발표로 가져와 연습까지 이어가세요.</p>
+            <h1>Orbit Community</h1>
           </div>
           <GradientButton className="community-page-publish" onClick={() => setPublishOpen(true)}>
             <IconUpload aria-hidden="true" size={17} />
@@ -117,24 +97,19 @@ export function CommunityGalleryPage(props: {
 
       <WorkspaceContainer as="section" className="community-gallery" width="content">
         <div className="community-gallery-toolbar">
-          <div className="community-gallery-sort-block">
-            <div aria-label="커뮤니티 정렬" className="community-gallery-sort" role="tablist">
-              {sortOptions.map((option) => (
-                <button
-                  aria-label={`${option.label}: ${option.description}`}
-                  aria-selected={sort === option.value}
-                  className={sort === option.value ? "is-active" : ""}
-                  key={option.value}
-                  onClick={() => setSort(option.value)}
-                  role="tab"
-                  title={option.description}
-                  type="button"
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <p className="community-gallery-sort-help">{activeSort.description}</p>
+          <div aria-label="커뮤니티 정렬" className="community-gallery-sort" role="tablist">
+            {sortOptions.map((option) => (
+              <button
+                aria-selected={sort === option.value}
+                className={sort === option.value ? "is-active" : ""}
+                key={option.value}
+                onClick={() => setSort(option.value)}
+                role="tab"
+                type="button"
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
           <span className="community-gallery-filter-label">발표 주제</span>
           <div aria-label="커뮤니티 카테고리" className="community-gallery-categories">
