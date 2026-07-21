@@ -166,11 +166,13 @@ function findCurrentMatchableSentence(
     return sentences[0] ?? null;
   }
 
-  if (prompterProgress.currentSentenceId) {
+  const displaySentenceId =
+    prompterProgress.displaySentenceId ?? prompterProgress.currentSentenceId;
+  if (displaySentenceId) {
     return (
       sentences.find(
         (sentence) =>
-          sentence.sentenceId === prompterProgress.currentSentenceId
+          sentence.sentenceId === displaySentenceId
       ) ??
       sentences[0] ??
       null

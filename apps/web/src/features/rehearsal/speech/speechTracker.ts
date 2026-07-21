@@ -280,10 +280,9 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
       latestFinalSegment: matchingText,
       tailCharacters: config.matchingTailCharacters,
     });
-    const trackingTranscript = appendTranscript(
-      visit.finalTranscript,
-      matchingText,
-    );
+    const trackingTranscript = result.isFinal
+      ? appendTranscript(visit.finalTranscript, matchingText)
+      : visit.finalTranscript;
 
     if (result.isFinal) {
       visit.finalTranscript = trackingTranscript;
@@ -297,7 +296,10 @@ export function createSpeechTracker(input: CreateSpeechTrackerInput): SpeechTrac
         continue;
       }
 
-      if (isSentenceMatched(sentence, finalWindow, config, result.isFinal)) {
+      if (
+        result.isFinal &&
+        isSentenceMatched(sentence, finalWindow, config, true)
+      ) {
         events.push(
           ...coverSentence(sentence, atMs, {
             matchKind: "covered"

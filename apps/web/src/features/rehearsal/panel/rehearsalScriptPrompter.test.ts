@@ -102,6 +102,28 @@ describe("createRehearsalScriptPrompterRows", () => {
     );
   });
 
+  it("moves only the focus row to a provisional display sentence", () => {
+    const rows = createRehearsalScriptPrompterRows({
+      sentences,
+      coveredSentenceIds: [],
+      prompterProgress: progress({
+        phase: "candidate",
+        currentSentenceId: "sentence_1",
+        displaySentenceId: "sentence_4",
+        candidateSentenceId: "sentence_4",
+        committedSentenceIds: []
+      })
+    });
+
+    expect(rows.find((row) => row.isFocusTarget)?.sentence.sentenceId).toBe(
+      "sentence_4"
+    );
+    expect(rows.find((row) => row.sentence.sentenceId === "sentence_1")).toMatchObject({
+      isCommitted: false,
+      status: "pending"
+    });
+  });
+
   it("keeps the final committed row current when all matchable rows are committed", () => {
     const rows = createRehearsalScriptPrompterRows({
       sentences,

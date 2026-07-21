@@ -98,6 +98,8 @@ export function PresenterRemoteWindow(props: {
   const [state, setState] = useState(initialState);
   const [channelError, setChannelError] = useState("");
   const [isOwnerConnected, setOwnerConnected] = useState(false);
+  const [isScriptAutoFollowEnabled, setIsScriptAutoFollowEnabled] =
+    useState(true);
   const channelRef = useRef<ChannelLike | null>(null);
   const commandRetryTimersRef = useRef<number[]>([]);
   const lastOwnerSeenAtRef = useRef<number | null>(null);
@@ -238,12 +240,16 @@ export function PresenterRemoteWindow(props: {
       : null;
 
   useEffect(() => {
+    setIsScriptAutoFollowEnabled(true);
+  }, [slide?.slideId]);
+
+  useEffect(() => {
     const scrollBehavior = getRehearsalTeleprompterScrollBehavior(
       previousScriptFocusKeyRef.current,
       currentScriptFocusKey,
     );
     previousScriptFocusKeyRef.current = currentScriptFocusKey;
-    if (!scrollBehavior) {
+    if (!isScriptAutoFollowEnabled || !scrollBehavior) {
       return;
     }
 
@@ -258,7 +264,7 @@ export function PresenterRemoteWindow(props: {
       currentRow,
       scrollBehavior,
     );
-  }, [currentScriptFocusKey]);
+  }, [currentScriptFocusKey, isScriptAutoFollowEnabled]);
 
   const nextSentenceIndex = getPresenterRemoteNextSentenceIndex(
     noteSentences,
@@ -401,14 +407,38 @@ export function PresenterRemoteWindow(props: {
         <section
           className="presenter-remote-script"
           aria-label="발표자 대본"
-          data-auto-scroll="true"
+          data-auto-scroll={isScriptAutoFollowEnabled ? "true" : "paused"}
+          onPointerDown={() => setIsScriptAutoFollowEnabled(false)}
+          onWheel={() => setIsScriptAutoFollowEnabled(false)}
           ref={scriptViewportRef}
         >
           <div className="presenter-remote-section-heading">
             <span>대본</span>
-            <strong>
-              현재 문장 {cueProgressCurrent} / {cueProgressTotal}
-            </strong>
+            <div className="rehearsal-panel-heading-actions">
+              {!isScriptAutoFollowEnabled ? (
+                <button
+                  className="rehearsal-panel-follow-button"
+                  type="button"
+                  onClick={() => {
+                    setIsScriptAutoFollowEnabled(true);
+                    const viewport = scriptViewportRef.current;
+                    const currentRow = currentScriptRowRef.current;
+                    if (viewport && currentRow) {
+                      scrollPresenterRemoteScriptRowIntoView(
+                        viewport,
+                        currentRow,
+                        "smooth"
+                      );
+                    }
+                  }}
+                >
+                  따라가기
+                </button>
+              ) : null}
+              <strong>
+                현재 문장 {cueProgressCurrent} / {cueProgressTotal}
+              </strong>
+            </div>
           </div>
           <PresenterScriptList
             emptyLabel="대본 없음"
@@ -819,11 +849,13 @@ export function getPresenterRemoteCurrentSentenceIndex(
 
   const prompterProgress = state.speech?.snapshot?.prompterProgress;
   if (prompterProgress) {
-    if (prompterProgress.currentSentenceId) {
+    const displaySentenceId =
+      prompterProgress.displaySentenceId ?? prompterProgress.currentSentenceId;
+    if (displaySentenceId) {
       const trackedSentenceIndex = sentences.findIndex(
         (_sentence, index) =>
           getPresenterRemoteSentenceId(index) ===
-          prompterProgress.currentSentenceId,
+          displaySentenceId,
       );
       if (trackedSentenceIndex >= 0) {
         const shouldShowLeadingDisplaySentence =
@@ -880,11 +912,13 @@ export function getPresenterRemoteNextSentenceIndex(
       return -1;
     }
 
-    const trackedSentenceIndex = prompterProgress.currentSentenceId
+    const displaySentenceId =
+      prompterProgress.displaySentenceId ?? prompterProgress.currentSentenceId;
+    const trackedSentenceIndex = displaySentenceId
       ? sentences.findIndex(
           (_sentence, index) =>
             getPresenterRemoteSentenceId(index) ===
-            prompterProgress.currentSentenceId,
+            displaySentenceId,
         )
       : -1;
     if (trackedSentenceIndex > currentSentenceIndex) {

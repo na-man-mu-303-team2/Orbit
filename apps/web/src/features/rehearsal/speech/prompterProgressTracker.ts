@@ -26,6 +26,7 @@ export type PrompterProgressSnapshot = {
   revision: number;
   phase: PrompterProgressPhase;
   currentSentenceId: string | null;
+  displaySentenceId?: string | null;
   candidateSentenceId: string | null;
   candidateSinceMs: number | null;
   hasCurrentLexicalEvidence?: boolean;
@@ -67,6 +68,7 @@ export function createPrompterProgressTracker(options: {
   let revision = 0;
   let phase: PrompterProgressPhase = "tracking";
   let latestEvidence: PrompterProgressEvidence | null = null;
+  let provisionalDisplayIndex: number | null = null;
   let candidateSinceMs: number | null = null;
   let hasCurrentLexicalEvidence = false;
   let committedSentenceIds: string[] = [];
@@ -120,27 +122,22 @@ export function createPrompterProgressTracker(options: {
       !currentSentence ||
       targetIndex < 0 ||
       resyncDistance > maxResyncDistance ||
+      evidence.revision !== revision ||
       !evidence.candidate ||
       !evidence.commitEligible
     ) {
       return false;
     }
 
-    const skippedSentenceIdSet = new Set(skippedSentenceIds);
-    for (const skippedSentence of sentences.slice(currentIndex, targetIndex)) {
-      skippedSentenceIdSet.add(skippedSentence.sentenceId);
-    }
-    skippedSentenceIds = [...skippedSentenceIdSet];
-    currentIndex = targetIndex;
-    revision += 1;
-    latestEvidence = { ...evidence, revision };
+    provisionalDisplayIndex = targetIndex;
+    latestEvidence = evidence;
     phase = "candidate";
     candidateSinceMs = evidence.atMs;
-    hasCurrentLexicalEvidence = evidence.source === "lexical";
     return true;
   }
 
   function manualNext(_atMs: number) {
+    clearCandidate();
     return commitCurrent("manual");
   }
 
@@ -210,6 +207,8 @@ export function createPrompterProgressTracker(options: {
       revision,
       phase,
       currentSentenceId: currentSentence?.sentenceId ?? null,
+      displaySentenceId:
+        sentences[provisionalDisplayIndex ?? currentIndex]?.sentenceId ?? null,
       candidateSentenceId:
         phase === "candidate" ? (latestEvidence?.sentenceId ?? null) : null,
       candidateSinceMs,
@@ -237,6 +236,18 @@ export function createPrompterProgressTracker(options: {
   function commitCurrent(
     source: Exclude<PrompterProgressSnapshot["lastCommitSource"], null>
   ) {
+    if (provisionalDisplayIndex !== null) {
+      const skippedSentenceIdSet = new Set(skippedSentenceIds);
+      for (const skippedSentence of sentences.slice(
+        currentIndex,
+        provisionalDisplayIndex
+      )) {
+        skippedSentenceIdSet.add(skippedSentence.sentenceId);
+      }
+      skippedSentenceIds = [...skippedSentenceIdSet];
+      currentIndex = provisionalDisplayIndex;
+    }
+
     const currentSentence = sentences[currentIndex];
     if (!currentSentence) {
       return false;
@@ -254,6 +265,7 @@ export function createPrompterProgressTracker(options: {
 
   function clearCandidate() {
     latestEvidence = null;
+    provisionalDisplayIndex = null;
     candidateSinceMs = null;
     phase = "tracking";
   }

@@ -31,6 +31,7 @@ describe("createPrompterProgressTracker", () => {
     expect(tracker.snapshot()).toMatchObject({
       phase: "candidate",
       currentSentenceId: "sentence_1",
+      displaySentenceId: "sentence_1",
       candidateSentenceId: "sentence_1",
       hasCurrentLexicalEvidence: true,
       committedSentenceIds: []
@@ -105,22 +106,26 @@ describe("createPrompterProgressTracker", () => {
     });
   });
 
-  it("다음 문장의 강한 evidence로 현재 위치를 한 문장만 복구한다", () => {
+  it("다음 문장의 강한 evidence는 display만 이동하고 boundary에서 확정한다", () => {
     const tracker = createTracker();
 
     expect(
       tracker.resyncForward(evidence({ sentenceId: "sentence_2", source: "semantic-assisted" }))
     ).toBe(true);
     expect(tracker.snapshot()).toMatchObject({
-      currentSentenceId: "sentence_2",
+      revision: 0,
+      currentSentenceId: "sentence_1",
+      displaySentenceId: "sentence_2",
+      candidateSentenceId: "sentence_2",
       committedSentenceIds: [],
-      skippedSentenceIds: ["sentence_1"],
       lastCommitSource: null
     });
+    expect(tracker.snapshot()).not.toHaveProperty("skippedSentenceIds");
 
     expect(tracker.acceptBoundary({ type: "stt-final", atMs: 1_100 })).toBe(true);
     expect(tracker.snapshot()).toMatchObject({
       currentSentenceId: null,
+      displaySentenceId: null,
       committedSentenceIds: ["sentence_2"],
       skippedSentenceIds: ["sentence_1"],
       lastCommitSource: "semantic-assisted"
@@ -141,15 +146,18 @@ describe("createPrompterProgressTracker", () => {
       )
     ).toBe(true);
     expect(tracker.snapshot()).toMatchObject({
-      revision: 1,
-      currentSentenceId: "sentence_4",
+      revision: 0,
+      currentSentenceId: "sentence_1",
+      displaySentenceId: "sentence_4",
       committedSentenceIds: [],
-      skippedSentenceIds: ["sentence_1", "sentence_2", "sentence_3"]
+      candidateSentenceId: "sentence_4"
     });
+    expect(tracker.snapshot()).not.toHaveProperty("skippedSentenceIds");
 
     expect(tracker.acceptBoundary({ type: "stt-final", atMs: 1_100 })).toBe(true);
     expect(tracker.snapshot()).toMatchObject({
       currentSentenceId: "sentence_5",
+      displaySentenceId: "sentence_5",
       committedSentenceIds: ["sentence_4"],
       skippedSentenceIds: ["sentence_1", "sentence_2", "sentence_3"]
     });
@@ -202,6 +210,20 @@ describe("createPrompterProgressTracker", () => {
       committedSentenceIds: [],
       finalSentenceCommitted: false
     });
+  });
+
+  it("manual next는 provisional display target이 아니라 현재 문장만 commit한다", () => {
+    const tracker = createTracker();
+    tracker.resyncForward(evidence({ sentenceId: "sentence_2" }));
+
+    expect(tracker.manualNext(1_100)).toBe(true);
+    expect(tracker.snapshot()).toMatchObject({
+      currentSentenceId: "sentence_2",
+      displaySentenceId: "sentence_2",
+      committedSentenceIds: ["sentence_1"],
+      lastCommitSource: "manual"
+    });
+    expect(tracker.snapshot()).not.toHaveProperty("skippedSentenceIds");
   });
 
   it("skip current는 현재 문장을 완료하지 않고 다음 문장으로 이동한다", () => {

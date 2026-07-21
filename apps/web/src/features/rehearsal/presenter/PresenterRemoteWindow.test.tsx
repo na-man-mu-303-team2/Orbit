@@ -341,6 +341,36 @@ describe("PresenterRemoteWindow", () => {
     expect(html).not.toContain("presenter-script-row--covered");
   });
 
+  it("restores provisional display focus from the presenter snapshot", () => {
+    const speech = createPresenterSpeechState();
+    const state = {
+      ...createPresenterSlideshowState(p0AnimationDeck),
+      speech: {
+        ...speech,
+        snapshot: {
+          ...speech.snapshot,
+          prompterProgress: {
+            slideId: "slide_p0_1",
+            revision: 0,
+            phase: "candidate" as const,
+            currentSentenceId: "sentence_1",
+            displaySentenceId: "sentence_2",
+            candidateSentenceId: "sentence_2",
+            candidateSinceMs: 500,
+            committedSentenceIds: [],
+            lastCommittedSentenceId: null,
+            lastCommitSource: null,
+            finalSentenceCommitted: false,
+          },
+        },
+      },
+    };
+    const sentences = ["첫 문장입니다", "마지막 문장입니다"];
+
+    expect(getPresenterRemoteCurrentSentenceIndex(sentences, state)).toBe(1);
+    expect(getPresenterRemoteNextSentenceIndex(sentences, state, 1)).toBe(-1);
+  });
+
   it("shows a leading display-only cue until lexical evidence reaches tracking", () => {
     const speech = createPresenterSpeechState();
     const state = {

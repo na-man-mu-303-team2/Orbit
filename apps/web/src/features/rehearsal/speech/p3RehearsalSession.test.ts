@@ -248,9 +248,9 @@ describe("p3RehearsalSession", () => {
     });
 
     expect(events.map((event) => event.type)).toEqual([
-      "sentence-covered",
       "keyword-hit",
       "coverage-updated",
+      "sentence-covered",
       "sentence-covered",
       "last-sentence-spoken",
       "coverage-updated"

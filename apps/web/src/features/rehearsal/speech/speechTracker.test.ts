@@ -39,7 +39,7 @@ describe("SpeechTracker", () => {
     });
   });
 
-  it("partial 전사에서도 키워드를 즉시 체크하고 final 문장 진행과 함께 유지한다", () => {
+  it("partial에서는 키워드만 체크하고 coverage와 문장 진행은 final에서 확정한다", () => {
     const tracker = createSpeechTracker({
       slideId: "slide_1",
       speakerNotes:
@@ -59,14 +59,8 @@ describe("SpeechTracker", () => {
       isFinal: false,
       timestampMs: [0, 500]
     });
-    expect(partialEvents).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: "sentence-covered",
-          sentenceId: "sentence_1",
-          matchKind: "covered"
-        })
-      ])
+    expect(partialEvents.map((event) => event.type)).not.toContain(
+      "sentence-covered"
     );
     expect(partialEvents).toContainEqual({
       type: "keyword-hit",
@@ -75,7 +69,7 @@ describe("SpeechTracker", () => {
       atMs: 500
     });
     expect(tracker.snapshot()).toMatchObject({
-      effectiveCoverage: 0.5,
+      effectiveCoverage: 0,
       hitKeywordIds: ["kw_orbit"],
       prompterProgress: {
         phase: "candidate",
@@ -867,6 +861,47 @@ describe("SpeechTracker", () => {
       committedSentenceIds: ["sentence_2"],
       skippedSentenceIds: ["sentence_1"],
       lastCommitSource: "lexical"
+    });
+  });
+
+  it("안정된 lookahead partial은 display만 이동하고 final에서 skip과 commit을 확정한다", () => {
+    const tracker = createForwardResyncSpeechTracker();
+    const partial = {
+      text: "셋째 문장은 실행 일정과 협업 방향을 명확하게 정리합니다",
+      isFinal: false,
+      timestampMs: [0, 500] as [number, number]
+    };
+
+    tracker.acceptResult(partial);
+    tracker.acceptResult({ ...partial, timestampMs: [0, 700] });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      revision: 0,
+      currentSentenceId: "sentence_1",
+      displaySentenceId: "sentence_3",
+      candidateSentenceId: "sentence_3",
+      committedSentenceIds: []
+    });
+    expect(tracker.snapshot().prompterProgress).not.toHaveProperty(
+      "skippedSentenceIds"
+    );
+    expect(tracker.snapshot()).toMatchObject({
+      coveredSentenceIds: [],
+      sentenceCoverage: 0
+    });
+
+    tracker.acceptResult({
+      ...partial,
+      isFinal: true,
+      timestampMs: [0, 1_000]
+    });
+
+    expect(tracker.snapshot().prompterProgress).toMatchObject({
+      revision: 1,
+      currentSentenceId: "sentence_4",
+      displaySentenceId: "sentence_4",
+      committedSentenceIds: ["sentence_3"],
+      skippedSentenceIds: ["sentence_1", "sentence_2"]
     });
   });
 
