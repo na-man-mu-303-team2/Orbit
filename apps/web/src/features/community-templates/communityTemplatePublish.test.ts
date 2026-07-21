@@ -12,6 +12,7 @@ describe("community template publish", () => {
       sourceProjectId: "",
       title: "",
       category: "",
+      tags: [],
       rightsConfirmed: false,
     });
 
@@ -37,6 +38,7 @@ describe("community template publish", () => {
         sourceProjectId: "project_owner_source",
         title: "  팀 회고 템플릿  ",
         category: "business",
+        tags: [" 팀 회고 ", "팀 회고"],
         rightsConfirmed: true,
       }),
     ).toEqual({
@@ -44,7 +46,8 @@ describe("community template publish", () => {
       request: {
         sourceProjectId: "project_owner_source",
         title: "팀 회고 템플릿",
-        category: "business",
+        categoryId: "business",
+        tags: ["팀 회고"],
         rightsConfirmed: true,
       },
     });
@@ -66,6 +69,8 @@ describe("community template publish", () => {
           sourceProjectId: "project_owner_source",
           title: "팀 회고 템플릿",
           category: "business",
+          categoryId: "business",
+          tags: [],
           rightsConfirmed: true,
         },
       },
@@ -96,7 +101,8 @@ describe("community template publish", () => {
           request: {
             sourceProjectId: "project_owner_source",
             title: "팀 회고 템플릿",
-            category: "business",
+            categoryId: "business",
+            tags: [],
             rightsConfirmed: true,
           },
         },

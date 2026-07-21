@@ -26,7 +26,8 @@ export async function fetchCommunityDiscover(
     sort: input.sort,
   });
   if (input.query) params.set("query", input.query);
-  if (input.category) params.set("category", input.category);
+  if (input.categoryId) params.set("categoryId", input.categoryId);
+  if (input.tagIds?.length) params.set("tagIds", input.tagIds.join(","));
   return communityTemplateDiscoverResponseSchema.parse(
     await request(`${basePath}/discover?${params.toString()}`),
   );

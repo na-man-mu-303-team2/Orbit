@@ -1,12 +1,14 @@
 import {
   publishCommunityTemplateRequestSchema,
+  type CommunityTemplateCategory,
   type PublishCommunityTemplateRequest,
 } from "@orbit/shared";
 
 export type CommunityTemplatePublishDraft = {
   sourceProjectId: string;
   title: string;
-  category: "" | PublishCommunityTemplateRequest["category"];
+  category: "" | CommunityTemplateCategory;
+  tags: string[];
   description?: string;
   rightsConfirmed: boolean;
 };
@@ -20,6 +22,7 @@ const fieldOrder: CommunityTemplatePublishField[] = [
   "sourceProjectId",
   "title",
   "category",
+  "tags",
   "description",
   "rightsConfirmed",
 ];
@@ -29,7 +32,11 @@ export function createCommunityTemplatePublishRequest(
 ):
   | { success: true; request: PublishCommunityTemplateRequest }
   | { success: false; errors: CommunityTemplatePublishErrors } {
-  const parsed = publishCommunityTemplateRequestSchema.safeParse(draft);
+  const { category, ...values } = draft;
+  const parsed = publishCommunityTemplateRequestSchema.safeParse({
+    ...values,
+    categoryId: category || undefined,
+  });
   if (parsed.success) return { success: true, request: parsed.data };
 
   const errors: CommunityTemplatePublishErrors = {};
@@ -40,7 +47,10 @@ export function createCommunityTemplatePublishRequest(
     errors.title = "템플릿 이름은 1자 이상 60자 이하로 입력해 주세요.";
   }
   if (!draft.category) {
-    errors.category = "카테고리를 선택해 주세요.";
+    errors.category = "대표 주제를 선택해 주세요.";
+  }
+  if (draft.tags.length > 5) {
+    errors.tags = "태그는 최대 5개까지 입력할 수 있습니다.";
   }
   if ((draft.description?.trim().length ?? 0) > 300) {
     errors.description = "소개글은 300자 이하로 입력해 주세요.";
@@ -71,7 +81,8 @@ export async function executeCommunityTemplatePublish(
       workspaceId: string;
       sourceProjectId: string;
       title: string;
-      category: PublishCommunityTemplateRequest["category"];
+      categoryId: NonNullable<PublishCommunityTemplateRequest["categoryId"]>;
+      tags: string[];
       description?: string;
       rightsConfirmed: boolean;
     }) => Promise<{ template: { title: string } }>;
@@ -79,7 +90,12 @@ export async function executeCommunityTemplatePublish(
 ) {
   const response = await dependencies.publish({
     workspaceId: input.workspaceId,
-    ...input.request,
+    sourceProjectId: input.request.sourceProjectId,
+    title: input.request.title,
+    categoryId: input.request.categoryId ?? input.request.category!,
+    tags: input.request.tags,
+    description: input.request.description,
+    rightsConfirmed: input.request.rightsConfirmed,
   });
   await Promise.all([
     dependencies.invalidateShelf(),

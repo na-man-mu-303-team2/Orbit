@@ -1,17 +1,16 @@
 import type { CommunityTemplateCategory } from "@orbit/shared";
-import { IconCheck, IconChevronDown } from "@tabler/icons-react";
-import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { IconCheck, IconChevronDown, IconSearch } from "@tabler/icons-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DropdownMenu, DropdownMenuItem } from "../../components/ui";
+import {
+  communityTemplateKeys,
+  fetchCommunityCategories,
+} from "./communityTemplateApi";
+import "./community-template-gallery.css";
 
 type CategoryValue = CommunityTemplateCategory | "";
-
-const options: Array<{ label: string; value: CommunityTemplateCategory }> = [
-  { label: "비즈니스", value: "business" },
-  { label: "교육", value: "education" },
-  { label: "포트폴리오", value: "portfolio" },
-  { label: "이벤트", value: "event" },
-];
 
 export function CommunityTemplateCategoryDropdown(props: {
   disabled?: boolean;
@@ -22,24 +21,39 @@ export function CommunityTemplateCategoryDropdown(props: {
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
-  const selected = options.find((option) => option.value === props.value);
+  const [query, setQuery] = useState("");
+  const categories = useQuery({
+    queryKey: communityTemplateKeys.categories,
+    queryFn: () => fetchCommunityCategories(),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const options = useMemo(
+    () =>
+      (categories.data?.items ?? []).filter((option) =>
+        option.name.toLocaleLowerCase("ko-KR").includes(
+          query.trim().toLocaleLowerCase("ko-KR"),
+        ),
+      ),
+    [categories.data, query],
+  );
+  const selected = categories.data?.items.find(
+    (option) => option.categoryId === props.value,
+  );
 
   useEffect(() => {
     if (!open) return;
-
-    function closeOnPointerDown(event: MouseEvent) {
+    const close = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    }
-
-    function closeOnEscape(event: KeyboardEvent) {
+    };
+    const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
-    }
-
-    document.addEventListener("mousedown", closeOnPointerDown);
-    document.addEventListener("keydown", closeOnEscape);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", escape);
     return () => {
-      document.removeEventListener("mousedown", closeOnPointerDown);
-      document.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", escape);
     };
   }, [open]);
 
@@ -50,42 +64,60 @@ export function CommunityTemplateCategoryDropdown(props: {
         aria-haspopup="listbox"
         aria-invalid={props.invalid || undefined}
         className="community-template-category-trigger"
-        disabled={props.disabled}
+        disabled={props.disabled || categories.isError}
         id={props.id}
         onClick={() => setOpen((current) => !current)}
         type="button"
       >
         <span className={selected ? "" : "is-placeholder"}>
-          {selected?.label ?? "카테고리를 선택해 주세요"}
+          {selected?.name ??
+            (categories.isLoading
+              ? "대표 주제 불러오는 중"
+              : "대표 주제를 선택해 주세요")}
         </span>
         <IconChevronDown aria-hidden="true" size={18} />
       </button>
       {open ? (
         <DropdownMenu
           align="start"
-          aria-label="카테고리 선택"
+          aria-label="대표 주제 선택"
           className="community-template-category-menu"
           role="listbox"
           variant="white"
         >
+          <label className="community-template-category-search">
+            <IconSearch aria-hidden="true" size={16} />
+            <input
+              autoFocus
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              placeholder="대표 주제 검색"
+              value={query}
+            />
+          </label>
           {options.map((option) => {
-            const active = option.value === props.value;
+            const active = option.categoryId === props.value;
             return (
               <DropdownMenuItem
                 aria-selected={active}
                 className={active ? "is-selected" : ""}
                 icon={active ? <IconCheck size={16} /> : undefined}
-                key={option.value}
+                key={option.categoryId}
                 onClick={() => {
-                  props.onChange(option.value);
+                  props.onChange(option.categoryId);
                   setOpen(false);
+                  setQuery("");
                 }}
                 role="option"
               >
-                {option.label}
+                {option.name}
               </DropdownMenuItem>
             );
           })}
+          {!options.length ? (
+            <p className="community-template-category-empty">
+              일치하는 대표 주제가 없습니다.
+            </p>
+          ) : null}
         </DropdownMenu>
       ) : null}
     </div>

@@ -21,6 +21,7 @@ function renderView(
         sourceProjectId: "",
         title: "",
         category: "",
+        tags: [],
         rightsConfirmed: false,
       }}
       errors={{}}
@@ -84,6 +85,7 @@ describe("PublishCommunityTemplateDialog", () => {
         sourceProjectId: "project_owner_source",
         title: "팀 회고 템플릿",
         category: "business",
+        tags: ["팀 회고"],
         rightsConfirmed: true,
       },
       errors: {

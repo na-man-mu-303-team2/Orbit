@@ -9,6 +9,7 @@ import {
   OrbitTextarea,
 } from "../../components/ui";
 import { CommunityTemplateCategoryDropdown } from "./CommunityTemplateCategoryDropdown";
+import { CommunityTemplateTagCombobox } from "./CommunityTemplateTagCombobox";
 import {
   CommunityTemplateSourcePicker,
   type CommunityTemplateSourceState,
@@ -26,6 +27,7 @@ const fieldIds: Record<keyof CommunityTemplatePublishDraft, string> = {
   sourceProjectId: "community-template-publish-source",
   title: "community-template-publish-title",
   category: "community-template-publish-category",
+  tags: "community-template-publish-tags",
   description: "community-template-publish-description",
   rightsConfirmed: "community-template-publish-rights",
 };
@@ -135,7 +137,7 @@ export function PublishCommunityTemplateView(
         <OrbitField
           error={props.errors.category}
           id={fieldIds.category}
-          label="카테고리"
+          label="대표 주제"
         >
           <CommunityTemplateCategoryDropdown
             disabled={props.submitting}
@@ -148,6 +150,20 @@ export function PublishCommunityTemplateView(
               })
             }
             value={props.draft.category}
+          />
+        </OrbitField>
+
+        <OrbitField
+          error={props.errors.tags}
+          hint="기존 태그를 선택하거나 새 태그를 최대 5개까지 만들 수 있습니다."
+          id={fieldIds.tags}
+          label="태그"
+        >
+          <CommunityTemplateTagCombobox
+            disabled={props.submitting}
+            id={fieldIds.tags}
+            onChange={(tags) => props.onChange({ ...props.draft, tags })}
+            value={props.draft.tags}
           />
         </OrbitField>
 

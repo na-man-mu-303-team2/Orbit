@@ -1,16 +1,20 @@
 import {
   communityTemplateApiErrorSchema,
+  communityTemplateCategoryListResponseSchema,
   communityTemplateIdSchema,
   communityTemplateListQuerySchema,
   communityTemplateListResponseSchema,
   communityTemplateRecentResponseSchema,
   communityTemplateSourceListResponseSchema,
+  communityTemplateTagListQuerySchema,
+  communityTemplateTagListResponseSchema,
   publishCommunityTemplateRequestSchema,
   publishCommunityTemplateResponseSchema,
   useCommunityTemplateRequestSchema,
   useCommunityTemplateResponseSchema,
   type CommunityTemplateApiErrorCode,
   type CommunityTemplateListQuery,
+  type CommunityTemplateTagListQuery,
 } from "@orbit/shared";
 
 export type CommunityTemplateFetcher = (
@@ -27,6 +31,9 @@ export const communityTemplateKeys = {
   recent: ["community-templates", "recent"] as const,
   sources: (workspaceId: string) =>
     ["community-templates", "sources", workspaceId] as const,
+  categories: ["community-templates", "categories"] as const,
+  tags: (query: CommunityTemplateTagListQuery) =>
+    ["community-templates", "tags", query] as const,
 };
 
 export class CommunityTemplateWebError extends Error {
@@ -52,6 +59,7 @@ export function buildCommunityTemplateListSearch(
   const search = new URLSearchParams();
   if (query.query) search.set("query", query.query);
   if (query.category) search.set("category", query.category);
+  if (query.categoryId) search.set("categoryId", query.categoryId);
   search.set("page", String(query.page));
   search.set("limit", String(query.limit));
   return search.toString();
@@ -115,12 +123,54 @@ export async function fetchCommunityTemplateSources(
   );
 }
 
+export async function fetchCommunityCategories(
+  fetcher: CommunityTemplateFetcher = fetch,
+) {
+  const response = await fetcher("/api/v1/community-templates/categories", {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw await readCommunityTemplateError(
+      response,
+      "대표 주제를 불러오지 못했습니다.",
+    );
+  }
+  return communityTemplateCategoryListResponseSchema.parse(
+    await response.json(),
+  );
+}
+
+export async function fetchCommunityTags(
+  rawQuery: CommunityTemplateTagListQuery,
+  fetcher: CommunityTemplateFetcher = fetch,
+) {
+  const query = communityTemplateTagListQuerySchema.parse(rawQuery);
+  const search = new URLSearchParams({
+    scope: query.scope,
+    sort: query.sort,
+    limit: String(query.limit),
+  });
+  if (query.query) search.set("query", query.query);
+  const response = await fetcher(
+    "/api/v1/community-templates/tags?" + search.toString(),
+    { credentials: "include" },
+  );
+  if (!response.ok) {
+    throw await readCommunityTemplateError(
+      response,
+      "태그를 불러오지 못했습니다.",
+    );
+  }
+  return communityTemplateTagListResponseSchema.parse(await response.json());
+}
+
 export async function publishCommunityTemplate(
   rawInput: {
     workspaceId: string;
     sourceProjectId: string;
     title: string;
-    category: string;
+    categoryId: string;
+    tags: string[];
     description?: string;
     rightsConfirmed: boolean;
   },
@@ -130,7 +180,8 @@ export async function publishCommunityTemplate(
   const request = publishCommunityTemplateRequestSchema.parse({
     sourceProjectId: rawInput.sourceProjectId,
     title: rawInput.title,
-    category: rawInput.category,
+    categoryId: rawInput.categoryId,
+    tags: rawInput.tags,
     description: rawInput.description,
     rightsConfirmed: rawInput.rightsConfirmed,
   });

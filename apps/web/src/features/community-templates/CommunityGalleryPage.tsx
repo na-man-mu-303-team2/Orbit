@@ -3,7 +3,7 @@ import {
   type CommunityTemplateDiscoverCard,
   type CommunityTemplateSort,
 } from "@orbit/shared";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconEye,
   IconHeart,
@@ -11,6 +11,7 @@ import {
   IconSearch,
   IconSparkles,
   IconUpload,
+  IconX,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 
@@ -22,20 +23,14 @@ import {
   OrbitInput,
 } from "../../components/ui";
 import { CommunityTemplatePreview } from "./CommunityTemplatePreview";
+import { CommunityTemplateCategoryDropdown } from "./CommunityTemplateCategoryDropdown";
 import { PublishCommunityTemplateDialog } from "./PublishCommunityTemplateDialog";
 import { fetchCommunityDiscover } from "./communitySocialApi";
+import {
+  communityTemplateKeys,
+  fetchCommunityTags,
+} from "./communityTemplateApi";
 import "./community-page.css";
-
-const categoryOptions: Array<{
-  label: string;
-  value: CommunityTemplateCategory | undefined;
-}> = [
-  { label: "전체", value: undefined },
-  { label: "비즈니스", value: "business" },
-  { label: "교육", value: "education" },
-  { label: "포트폴리오", value: "portfolio" },
-  { label: "이벤트", value: "event" },
-];
 
 const sortOptions: Array<{ label: string; value: CommunityTemplateSort }> = [
   { label: "인기순", value: "popular" },
@@ -52,17 +47,18 @@ export function CommunityGalleryPage(props: {
     [],
   );
   const [query, setQuery] = useState("");
-  const [category, setCategory] =
-    useState<CommunityTemplateCategory | undefined>();
+  const [category, setCategory] = useState<CommunityTemplateCategory | "">("");
+  const [tagIds, setTagIds] = useState<string[]>([]);
   const [sort, setSort] = useState<CommunityTemplateSort>("popular");
   const [publishOpen, setPublishOpen] = useState(Boolean(initialPublishProjectId));
   const [notice, setNotice] = useState<string | null>(null);
   const templates = useInfiniteQuery({
-    queryKey: ["community", "discover", query.trim(), category, sort],
+    queryKey: ["community", "discover", query.trim(), category, tagIds, sort],
     queryFn: ({ pageParam }) =>
       fetchCommunityDiscover({
         query: query.trim() || undefined,
-        category,
+        categoryId: category || undefined,
+        tagIds: tagIds.length ? tagIds : undefined,
         sort,
         page: pageParam,
         limit: 18,
@@ -70,6 +66,17 @@ export function CommunityGalleryPage(props: {
     initialPageParam: 1,
     getNextPageParam: (lastPage) =>
       lastPage.hasMore ? lastPage.page + 1 : undefined,
+    retry: false,
+  });
+  const availableTagsQuery = {
+    scope: "used" as const,
+    sort: "popular" as const,
+    limit: 20,
+  };
+  const availableTags = useQuery({
+    queryKey: communityTemplateKeys.tags(availableTagsQuery),
+    queryFn: () => fetchCommunityTags(availableTagsQuery),
+    staleTime: 30_000,
     retry: false,
   });
   const cards = useMemo(
@@ -123,20 +130,50 @@ export function CommunityGalleryPage(props: {
               </button>
             ))}
           </div>
-          <span className="community-gallery-filter-label">발표 주제</span>
-          <div aria-label="커뮤니티 카테고리" className="community-gallery-categories">
-            {categoryOptions.map((option) => (
+          <div className="community-gallery-topic-filter">
+            <span className="community-gallery-filter-label">대표 주제</span>
+            <CommunityTemplateCategoryDropdown
+              id="community-gallery-category"
+              onChange={setCategory}
+              value={category}
+            />
+            {category ? (
               <button
-                className={category === option.value ? "is-active" : ""}
-                key={option.label}
-                onClick={() => setCategory(option.value)}
+                aria-label="대표 주제 필터 해제"
+                className="community-gallery-clear-category"
+                onClick={() => setCategory("")}
                 type="button"
               >
-                {option.label}
+                <IconX aria-hidden="true" size={15} />
               </button>
-            ))}
+            ) : null}
           </div>
         </div>
+        {availableTags.data?.items.length ? (
+          <div aria-label="게시물 태그 필터" className="community-gallery-tag-filters">
+            <span>태그</span>
+            {availableTags.data.items.map((tag) => {
+              const active = tagIds.includes(tag.tagId);
+              return (
+                <button
+                  aria-pressed={active}
+                  className={active ? "is-active" : ""}
+                  key={tag.tagId}
+                  onClick={() =>
+                    setTagIds((current) =>
+                      active
+                        ? current.filter((tagId) => tagId !== tag.tagId)
+                        : [...current, tag.tagId],
+                    )
+                  }
+                  type="button"
+                >
+                  {tag.name}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
 
         {notice ? <div className="community-page-notice" role="status">{notice}</div> : null}
         {templates.isLoading ? (
@@ -196,10 +233,17 @@ function CommunityGalleryCard(props: {
     <article className="community-gallery-card">
       <button className="community-gallery-card-preview" onClick={props.onOpen} type="button">
         <CommunityTemplatePreview card={props.card} />
-        <span>{categoryLabel(props.card.category)}</span>
+        <span>{props.card.categoryName}</span>
       </button>
       <button className="community-gallery-card-copy" onClick={props.onOpen} type="button">
         <strong>{props.card.title}</strong>
+        {props.card.tags.length ? (
+          <span className="community-gallery-card-tags">
+            {props.card.tags.slice(0, 3).map((tag) => (
+              <span key={tag.tagId}>{tag.name}</span>
+            ))}
+          </span>
+        ) : null}
         <span className="community-gallery-card-author">
           <span aria-hidden="true">
             {props.card.author.avatarUrl ? (
@@ -216,10 +260,6 @@ function CommunityGalleryCard(props: {
       </button>
     </article>
   );
-}
-
-function categoryLabel(category: CommunityTemplateCategory) {
-  return categoryOptions.find((option) => option.value === category)?.label ?? category;
 }
 
 export function compactCount(value: number) {

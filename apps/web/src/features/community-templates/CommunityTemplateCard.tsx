@@ -8,8 +8,15 @@ import { CommunityTemplatePreview } from "./CommunityTemplatePreview";
 const categoryLabels: Record<CommunityTemplateCategory, string> = {
   business: "비즈니스",
   education: "교육",
+  design: "디자인",
+  technology: "기술",
+  marketing: "마케팅",
+  "data-research": "데이터·리서치",
   portfolio: "포트폴리오",
-  event: "이벤트",
+  career: "커리어",
+  event: "행사",
+  "culture-lifestyle": "문화·라이프",
+  other: "기타",
 };
 
 export function getCommunityTemplateCategoryLabel(
