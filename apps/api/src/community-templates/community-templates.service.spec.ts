@@ -394,6 +394,7 @@ describe("CommunityTemplatesService", () => {
         sourceProjectId: "project_demo_1",
         title: "공개 템플릿",
         category: "business",
+        tags: [],
         rightsConfirmed: true,
       },
       "user_owner",
@@ -420,6 +421,7 @@ describe("CommunityTemplatesService", () => {
           sourceProjectId: "project_demo_1",
           title: "공개 템플릿",
           category: "business",
+          tags: [],
           rightsConfirmed: true,
         },
         "user_other",
@@ -436,6 +438,7 @@ describe("CommunityTemplatesService", () => {
       sourceProjectId: "project_demo_1",
       title: "공개 템플릿",
       category: "business" as const,
+      tags: [],
       rightsConfirmed: true as const,
     };
     database.sourceProjects.clear();
