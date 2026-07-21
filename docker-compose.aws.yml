@@ -63,7 +63,7 @@ services:
     env_file: *env-file
     environment:
       NODE_ENV: production
-      APP_ENV: production
+      APP_ENV: ${APP_ENV:-production}
       API_PORT: 3000
       REDIS_URL: redis://redis:6379
       PRIVATE_EVIDENCE_REDIS_URL: redis://private-evidence-redis:6379
@@ -101,7 +101,7 @@ services:
     env_file: *env-file
     environment:
       NODE_ENV: production
-      APP_ENV: production
+      APP_ENV: ${APP_ENV:-production}
       REDIS_URL: redis://redis:6379
       PRIVATE_EVIDENCE_REDIS_URL: redis://private-evidence-redis:6379
       PYTHON_WORKER_URL: http://python-worker:8000
@@ -132,7 +132,7 @@ services:
     env_file: *env-file
     environment:
       NODE_ENV: production
-      APP_ENV: production
+      APP_ENV: ${APP_ENV:-production}
       API_BASE_URL: http://api:3000
       REDIS_URL: redis://redis:6379
       STORAGE_DRIVER: s3
