@@ -7,7 +7,7 @@
   overflow: visible;
   border-radius: 0;
   background: var(--redesign-color-surface);
-  box-shadow: none;
+  box-shadow: var(--redesign-shadow-none);
 }
 
 .community-page > .community-page-hero::before,
@@ -48,7 +48,7 @@
   border-color: transparent;
   border-radius: var(--redesign-radius-full);
   background: var(--redesign-color-surface-container-low);
-  box-shadow: inset 0 0 0 var(--redesign-border-width) var(--redesign-color-outline-variant);
+  box-shadow: var(--redesign-shadow-inset-outline-variant);
 }
 
 .community-gallery-shell {
@@ -99,7 +99,7 @@
   grid-template-columns: auto 32px auto;
   align-items: center;
   gap: var(--redesign-space-1);
-  padding: 2px 4px 2px var(--redesign-space-3);
+  padding: 2px var(--redesign-space-1) 2px var(--redesign-space-3);
   border: var(--redesign-border-width) solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-full);
   background: var(--redesign-color-surface);
