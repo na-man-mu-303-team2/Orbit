@@ -1981,7 +1981,6 @@ export function EditorShell(props: { projectId?: string }) {
           deckTitle={deck.title}
           isDeckLoading={isDeckLoading}
           isPptxExporting={isPptxExporting}
-          isSharePanelOpen={isSharePanelOpen}
           isSharePermissionLoading={isSharePermissionLoading}
           isSlideRehearsalActive={isSlideRehearsalActive}
           isUsingFallbackDeck={isUsingFallbackDeck}
@@ -1992,6 +1991,9 @@ export function EditorShell(props: { projectId?: string }) {
           onOpenAudienceLink={() => {
             setIsAudienceLinkModalOpen(true);
             setActiveTopMenu(null);
+          }}
+          onOpenCommunityShare={() => {
+            window.location.href = `/community?publishProjectId=${encodeURIComponent(projectId)}`;
           }}
           onOpenPresenceDebug={() => {
             setIsPresenceDebugOpen(true);

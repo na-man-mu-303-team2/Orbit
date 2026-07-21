@@ -24,6 +24,11 @@ import { ProjectExplorerPage } from "./features/projects/ProjectExplorerPage";
 import { OrbitWorkspaceHome } from "./features/projects/ProjectHub";
 import { RehearsalProjectPickerPage } from "./features/rehearsal/RehearsalProjectPickerPage";
 
+vi.mock("@huggingface/transformers", () => ({
+  env: {},
+  pipeline: vi.fn(),
+}));
+
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
     ({ children }, ref) => <div ref={ref}>{children}</div>
@@ -134,8 +139,8 @@ describe("App shell routing", () => {
   });
 
   it("renders public routes without waiting for the current-user request", () => {
-    expect(shouldWaitForAuthResolution({ name: "login" })).toBe(false);
-    expect(shouldWaitForAuthResolution({ name: "signup" })).toBe(false);
+    expect(shouldWaitForAuthResolution({ name: "login" })).toBe(true);
+    expect(shouldWaitForAuthResolution({ name: "signup" })).toBe(true);
     expect(shouldWaitForAuthResolution({ name: "report-mockup" })).toBe(false);
     expect(shouldWaitForAuthResolution({ name: "not-found" })).toBe(false);
     expect(

@@ -6550,9 +6550,20 @@
 }
 
 .orbit-shell .share-top-button { order: 1; }
+.orbit-shell .editor-share-menu-anchor { order: 1; }
 .orbit-shell .editor-rehearsal-button { order: 2; }
 .orbit-shell .top-action-menu { order: 3; }
 .orbit-shell .refresh-top-button { order: 4; }
+
+.orbit-shell .top-actions > .editor-share-menu-anchor {
+  order: 2;
+}
+
+.orbit-shell .editor-share-menu-anchor > .editor-file-menu.redesign-dropdown-menu {
+  left: auto;
+  right: 0;
+  width: min(280px, calc(100vw - 24px));
+}
 
 .orbit-shell .editor-presentation-split {
   align-items: stretch;

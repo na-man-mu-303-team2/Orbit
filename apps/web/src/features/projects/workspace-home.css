@@ -33,6 +33,17 @@
   letter-spacing: 0.18em;
 }
 
+.workspace-home-eyebrow {
+  margin: 0 0 var(--redesign-space-1);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: var(--redesign-type-label-sm-weight);
+  line-height: var(--redesign-type-label-sm-line-height);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.workspace-home-head h2,
 .workspace-community-intro h1,
 .workspace-projects-heading h2 {
   margin: 0;

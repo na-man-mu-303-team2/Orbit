@@ -40,7 +40,12 @@ export function OrbitDialog(props: {
     if (!props.open) return;
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const frame = window.requestAnimationFrame(() => {
-      const preferred = dialogRef.current?.querySelector<HTMLElement>("[data-orbit-dialog-initial]");
+      const preferredCandidates = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          "[data-orbit-dialog-initial]",
+        ) ?? [],
+      );
+      const preferred = preferredCandidates[preferredCandidates.length - 1];
       const first = dialogRef.current?.querySelector<HTMLElement>(dialogFocusableSelector);
       (preferred ?? first ?? dialogRef.current)?.focus();
     });

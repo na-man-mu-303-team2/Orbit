@@ -32,7 +32,6 @@ type EditorTopbarProps = {
   deckTitle: string;
   isDeckLoading: boolean;
   isPptxExporting: boolean;
-  isSharePanelOpen: boolean;
   isSharePermissionLoading: boolean;
   isSlideRehearsalActive: boolean;
   isUsingFallbackDeck: boolean;
@@ -41,6 +40,7 @@ type EditorTopbarProps = {
   onOpenExport: (format: DeckExportFormat) => void;
   onImportPptx: () => void;
   onOpenAudienceLink: () => void;
+  onOpenCommunityShare: () => void;
   onOpenPresenceDebug: () => void;
   onOpenShare: () => void;
   onOpenTargetDuration: () => void;
@@ -77,7 +77,6 @@ export function EditorTopbar(props: EditorTopbarProps) {
     deckTitle,
     isDeckLoading,
     isPptxExporting,
-    isSharePanelOpen,
     isSharePermissionLoading,
     isSlideRehearsalActive,
     isUsingFallbackDeck,
@@ -86,6 +85,7 @@ export function EditorTopbar(props: EditorTopbarProps) {
     onOpenExport,
     onImportPptx,
     onOpenAudienceLink,
+    onOpenCommunityShare,
     onOpenPresenceDebug,
     onOpenShare,
     onOpenTargetDuration,
@@ -347,24 +347,54 @@ export function EditorTopbar(props: EditorTopbarProps) {
             )
           }
         />
-        <EditorIconButton
-          aria-expanded={isSharePanelOpen}
-          aria-haspopup="dialog"
-          className="share-top-button"
-          disabled={!canManageShare || isSharePermissionLoading}
-          icon={<Share2 size={17} />}
-          label="공유"
-          title={
-            canManageShare
-              ? "프로젝트 공유"
-              : "프로젝트 owner만 공유 설정을 변경할 수 있습니다."
-          }
-          onClick={() => {
-            if (!canManageShare) return;
-            onOpenShare();
-            setActiveTopMenu(null);
-          }}
-        />
+        <div className="top-action-menu editor-share-menu-anchor">
+          <EditorIconButton
+            aria-expanded={activeTopMenu === "share"}
+            aria-haspopup="menu"
+            className="share-top-button"
+            disabled={!canManageShare || isSharePermissionLoading}
+            icon={<Share2 size={17} />}
+            label="공유"
+            title={
+              canManageShare
+                ? "프로젝트 공유"
+                : "프로젝트 owner만 공유 설정을 변경할 수 있습니다."
+            }
+            onClick={() => {
+              if (!canManageShare) return;
+              setActiveTopMenu((current) => current === "share" ? null : "share");
+            }}
+          />
+          {activeTopMenu === "share" ? (
+            <EditorFileMenu
+              align="end"
+              groups={[{
+                items: [
+                  {
+                    id: "community-share",
+                    label: "커뮤니티에 공유",
+                    meta: "전체 슬라이드 공개",
+                    onSelect: () => {
+                      setActiveTopMenu(null);
+                      onOpenCommunityShare();
+                    },
+                  },
+                  {
+                    id: "collaborator-share",
+                    label: "공동 작업자에게 공유",
+                    meta: "초대 및 권한 관리",
+                    onSelect: () => {
+                      setActiveTopMenu(null);
+                      onOpenShare();
+                    },
+                  },
+                ],
+              }]}
+              subtitle="공유 방식 선택"
+              title={deckTitle}
+            />
+          ) : null}
+        </div>
       </div>
     </header>
   );

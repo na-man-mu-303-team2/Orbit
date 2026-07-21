@@ -1,17 +1,24 @@
-import type {
-  Project,
-  ProjectListItem,
-  ProjectListSort,
-  ProjectPageRequest,
-  ProjectTagColor,
-  ProjectTagDefinition,
+import {
+  demoIds,
+  type CommunityTemplateCard,
+  type Project,
+  type ProjectListItem,
+  type ProjectListSort,
+  type ProjectPageRequest,
+  type ProjectTagColor,
+  type ProjectTagDefinition,
 } from "@orbit/shared";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   IconAdjustmentsHorizontal,
   IconArrowRight,
   IconCheck,
   IconChevronLeft,
+  IconChevronRight,
   IconChevronDown,
   IconEye,
   IconFileUpload,
@@ -26,8 +33,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import {
-  lazy,
-  Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -48,7 +54,6 @@ import { uploadAndImportPptxTemplate } from "../editor/shell/api/editorJobApi";
 import {
   createProjectTagDefinition,
   fetchProjectTagDefinitions,
-  officialAvatarIds,
   projectTagDefinitionsQueryKey,
 } from "../auth/auth-session";
 import {
@@ -68,8 +73,21 @@ import "./workspace-home.css";
 import "./figma-home.css";
 import { CreateProjectCard } from "./CreateProjectCard";
 import { ProjectTagChip } from "./ProjectTagChip";
-
-const ProjectSlidePreview = lazy(() => import("./ProjectSlidePreview"));
+import { CommunityTemplateGalleryDialog } from "../community-templates/CommunityTemplateGalleryDialog";
+import { CommunityTemplatePublishToast } from "../community-templates/CommunityTemplatePublishToast";
+import { PublishCommunityTemplateDialog } from "../community-templates/PublishCommunityTemplateDialog";
+import { CommunityTemplatePreview } from "../community-templates/CommunityTemplatePreview";
+import { fetchCommunityDiscover } from "../community-templates/communitySocialApi";
+import {
+  createCommunityTemplateApplyAttempt,
+  executeCommunityTemplateApply,
+  type FailedCommunityTemplateApply,
+} from "../community-templates/communityTemplateApplication";
+import {
+  CommunityTemplateWebError,
+  communityTemplateKeys,
+  useCommunityTemplate,
+} from "../community-templates/communityTemplateApi";
 
 type ProjectHubProps = {
   onNavigate: (path: string) => void;
@@ -79,28 +97,6 @@ type ProjectSort = ProjectListSort;
 type ProjectViewMode = "grid" | "list";
 const maxProjectTags = 12;
 const maxTagLength = 20;
-const communityTitles = [
-  "AI와 미래",
-  "지속가능한 브랜드 전략",
-  "MZ세대의 소비 트렌드",
-  "우주 탐사의 현재와 미래",
-  "효과적인 프레젠테이션",
-];
-const communityAuthors = ["김지훈", "이서연", "박소담", "최민우", "정하늘"];
-const communityDescriptions = [
-  "변화하는 기술, 우리의 삶",
-  "지속 가능한 성장을 위한 접근",
-  "2026 인사이트 리포트",
-  "인류의 새로운 도전",
-  "설득력을 높이는 디자인과 스토리",
-];
-const communityStats = [
-  { likes: "256", views: "18.2k" },
-  { likes: "198", views: "12.7k" },
-  { likes: "142", views: "9.4k" },
-  { likes: "131", views: "7.8k" },
-  { likes: "97", views: "6.1k" },
-];
 const projectTagColorOptions: Array<{ label: string; value: ProjectTagColor }> = [
   { label: "노랑", value: "yellow" },
   { label: "파랑", value: "blue" },
@@ -111,8 +107,18 @@ const projectTagColorOptions: Array<{ label: string; value: ProjectTagColor }> =
 ];
 
 export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string }) {
+  const queryClient = useQueryClient();
   const communityTrackRef = useRef<HTMLDivElement>(null);
   const pptxInputRef = useRef<HTMLInputElement>(null);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishReturnFocus, setPublishReturnFocus] = useState(false);
+  const [publishToast, setPublishToast] = useState<string | null>(null);
+  const [applyingInstanceKey, setApplyingInstanceKey] = useState<string | null>(
+    null,
+  );
+  const [applyFailure, setApplyFailure] =
+    useState<FailedCommunityTemplateApply | null>(null);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ProjectSort>("latest");
   const [viewMode, setViewMode] = useState<ProjectViewMode>("grid");
@@ -135,58 +141,99 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
     queryFn: () => fetchProjectTagDefinitions(),
     retry: false,
   });
+  const communityTemplates = useQuery({
+    queryKey: ["community", "home", "latest"],
+    queryFn: () =>
+      fetchCommunityDiscover({
+        sort: "likes",
+        page: 1,
+        limit: 6,
+      }),
+    retry: false,
+    staleTime: 60_000,
+  });
 
   const loadedProjects = useMemo(
     () => projects.data?.pages.flatMap((page) => page.items) ?? [],
     [projects.data],
   );
-  const communityProjects = useMemo(
-    () => loadedProjects.slice(0, 5),
-    [loadedProjects],
-  );
   const communityItems = useMemo(
-    () => communityTitles.map((_, index) => ({
-      authorIndex: index,
-      project: communityProjects.length > 0
-        ? communityProjects[index % communityProjects.length]
-        : null,
-    })),
-    [communityProjects],
+    () => communityTemplates.data?.items ?? [],
+    [communityTemplates.data],
   );
   useEffect(() => {
     const track = communityTrackRef.current;
     if (!track) return undefined;
 
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    let animationFrame = 0;
-    let previousTime = window.performance.now();
+    const moveTrack = () => {
+      if (reducedMotion.matches || track.matches(":hover") || track.contains(document.activeElement)) return;
 
-    const moveTrack = (currentTime: number) => {
-      const elapsed = Math.min(currentTime - previousTime, 50);
-      previousTime = currentTime;
+      const firstCard = track.querySelector<HTMLElement>(".workspace-community-card");
+      const maxScrollLeft = track.scrollWidth - track.clientWidth;
+      if (!firstCard || maxScrollLeft <= 1) return;
 
-      if (!reducedMotion.matches && !track.matches(":hover") && !track.contains(document.activeElement)) {
-        track.scrollLeft += elapsed * 0.025;
-
-        const firstCard = track.children.item(0) as HTMLElement | null;
-        const firstDuplicate = track.children.item(communityItems.length) as HTMLElement | null;
-        const cycleWidth = firstCard && firstDuplicate
-          ? firstDuplicate.offsetLeft - firstCard.offsetLeft
-          : 0;
-        if (cycleWidth > 0 && track.scrollLeft >= cycleWidth) {
-          track.scrollLeft -= cycleWidth;
-        }
-      }
-
-      animationFrame = window.requestAnimationFrame(moveTrack);
+      const gap = Number.parseFloat(window.getComputedStyle(track).columnGap) || 0;
+      const step = firstCard.offsetWidth + gap;
+      const atEnd = track.scrollLeft >= maxScrollLeft - 2;
+      track.scrollTo({
+        behavior: "smooth",
+        left: atEnd ? 0 : Math.min(track.scrollLeft + step, maxScrollLeft),
+      });
     };
 
-    animationFrame = window.requestAnimationFrame(moveTrack);
-    return () => window.cancelAnimationFrame(animationFrame);
+    const interval = window.setInterval(moveTrack, 3_800);
+    return () => window.clearInterval(interval);
   }, [communityItems.length]);
   const availableTags = useMemo(() => projectTags.data?.tags ?? [], [projectTags.data]);
   const cardTagOptions = availableTags;
   const visibleProjects = loadedProjects;
+
+  const dismissPublishToast = useCallback(() => {
+    setPublishToast(null);
+  }, []);
+
+  async function applyTemplate(
+    instanceKey: string,
+    card: CommunityTemplateCard,
+  ) {
+    if (applyingInstanceKey) return;
+
+    const attempt = createCommunityTemplateApplyAttempt(
+      instanceKey,
+      card,
+      applyFailure,
+    );
+    setApplyingInstanceKey(instanceKey);
+    setApplyFailure(null);
+
+    try {
+      await executeCommunityTemplateApply(
+        { attempt, workspaceId: demoIds.workspaceId },
+        {
+          closeGallery: () => setGalleryOpen(false),
+          invalidateProjects: () =>
+            queryClient.invalidateQueries({ queryKey: ["projects"] }),
+          invalidateRecent: () =>
+            queryClient.invalidateQueries({
+              queryKey: communityTemplateKeys.recent,
+            }),
+          navigate: props.onNavigate,
+          useTemplate: useCommunityTemplate,
+        },
+      );
+    } catch (cause) {
+      setApplyFailure({
+        ...attempt,
+        message:
+          cause instanceof CommunityTemplateWebError
+            ? cause.message
+            : "템플릿으로 프로젝트를 만들지 못했습니다.",
+      });
+    } finally {
+      setApplyingInstanceKey(null);
+    }
+  }
 
   async function createBlankProject() {
     if (isCreating || isImportingPptx) return;
@@ -345,8 +392,9 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
               <div className="workspace-community-intro-heading">
                 <p className="workspace-section-kicker">COMMUNITY</p>
                 <h1>커뮤니티</h1>
+                <span className="workspace-community-latest-label">인기순</span>
               </div>
-              <OrbitButton className="workspace-community-intro-arrow" onClick={() => scrollCommunity(1)} variant="secondary">
+              <OrbitButton className="workspace-community-intro-arrow" onClick={() => props.onNavigate("/community")} variant="secondary">
                 더보기
               </OrbitButton>
             </header>
@@ -356,48 +404,51 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
                 <IconChevronLeft aria-hidden="true" size={18} />
               </OrbitIconButton>
               <div className="workspace-community-track" ref={communityTrackRef}>
-                {[...communityItems, ...communityItems].map(({ authorIndex, project }, index) => {
-                  const stat = communityStats[authorIndex];
-                  const isDuplicate = index >= communityItems.length;
-                  return (
-                    <button
-                      aria-hidden={isDuplicate || undefined}
-                      aria-label={`${communityTitles[authorIndex]} 커뮤니티 발표자료`}
-                      className={`workspace-community-card${index % communityItems.length === 0 ? " is-featured" : ""}`}
-                      key={`${isDuplicate ? "duplicate" : "original"}-${authorIndex}-${project?.projectId ?? "sample"}`}
-                      onClick={project ? () => props.onNavigate(projectPath(project)) : undefined}
-                      tabIndex={isDuplicate ? -1 : 0}
-                      type="button"
-                    >
-                      <span className="workspace-community-index">{String(authorIndex + 1).padStart(2, "0")}</span>
-                      <span className="workspace-community-preview">
-                        <span className="workspace-community-preview-fallback"><IconSparkles aria-hidden="true" size={28} stroke={1.5} /></span>
-                        {project ? (
-                          <Suspense fallback={null}>
-                            <ProjectSlidePreview className="workspace-community-preview-canvas" projectId={project.projectId} />
-                          </Suspense>
-                        ) : null}
-                        <span className="workspace-community-preview-copy">
-                          <strong>{communityTitles[authorIndex]}</strong>
-                          <small>{communityDescriptions[authorIndex]}</small>
+                {communityTemplates.isLoading ? (
+                  <div className="workspace-community-state" role="status">최근 공개 자료를 불러오는 중입니다.</div>
+                ) : communityItems.length === 0 ? (
+                  <div className="workspace-community-state">
+                    <strong>아직 공개된 발표 프로젝트가 없습니다.</strong>
+                    <span>첫 프로젝트를 공유해 커뮤니티를 시작해 보세요.</span>
+                  </div>
+                ) : communityItems.map((card, index) => {
+                    return (
+                      <button
+                        aria-label={`${card.title} 커뮤니티 발표자료`}
+                        className={`workspace-community-card${index === 0 ? " is-featured" : ""}`}
+                        key={card.templateId}
+                        onClick={() => props.onNavigate(`/community/${encodeURIComponent(card.templateId)}`)}
+                        type="button"
+                      >
+                        <span className="workspace-community-index">{String(index + 1).padStart(2, "0")}</span>
+                        <span className="workspace-community-preview">
+                          <span className="workspace-community-preview-fallback"><IconSparkles aria-hidden="true" size={28} stroke={1.5} /></span>
+                          <CommunityTemplatePreview card={card} className="workspace-community-preview-canvas" />
+                          <span className="workspace-community-preview-copy">
+                            <strong>{card.title}</strong>
+                            <small>{card.description || "새롭게 공개된 발표 프로젝트"}</small>
+                          </span>
                         </span>
-                      </span>
-                      <span className="workspace-community-meta">
-                        <small>
-                          <img alt="" src={`/avatars/${officialAvatarIds[authorIndex]}.png`} />
-                          <span>{communityAuthors[authorIndex]}</span>
-                        </small>
-                        <span className="workspace-community-stats">
-                          <span><IconEye aria-hidden="true" size={13} />{stat.views}</span>
-                          <span><IconHeartFilled aria-hidden="true" size={12} />{stat.likes}</span>
+                        <span className="workspace-community-meta">
+                          <small>
+                            {card.author.avatarUrl ? (
+                              <img alt="" src={card.author.avatarUrl} />
+                            ) : (
+                              <span className="workspace-community-author-fallback" aria-hidden="true">{card.author.displayName.slice(0, 1)}</span>
+                            )}
+                            <span>{card.author.displayName}</span>
+                          </small>
+                          <span className="workspace-community-stats">
+                            <span><IconEye aria-hidden="true" size={13} />{formatCommunityCount(card.stats.viewCount)}</span>
+                            <span><IconHeartFilled aria-hidden="true" size={12} />{formatCommunityCount(card.stats.likeCount)}</span>
+                          </span>
                         </span>
-                      </span>
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  })}
               </div>
               <OrbitIconButton aria-label="다음 커뮤니티 프로젝트" className="workspace-community-arrow is-next" onClick={() => scrollCommunity(1)}>
-                <IconArrowRight aria-hidden="true" size={18} />
+                <IconChevronRight aria-hidden="true" size={18} />
               </OrbitIconButton>
             </div>
           </div>
@@ -570,6 +621,49 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
         )}
       </WorkspaceContainer>
 
+      <CommunityTemplateGalleryDialog
+        applyingInstanceKey={applyingInstanceKey}
+        applyError={applyFailure?.message ?? null}
+        onApply={(instanceKey, card) => void applyTemplate(instanceKey, card)}
+        onClose={() => {
+          if (applyingInstanceKey) return;
+          setApplyFailure(null);
+          setPublishReturnFocus(false);
+          setGalleryOpen(false);
+        }}
+        onOpenPublish={() => {
+          setPublishReturnFocus(false);
+          setPublishOpen(true);
+        }}
+        onRetryApply={() => {
+          if (applyFailure) {
+            void applyTemplate(applyFailure.instanceKey, applyFailure.card);
+          }
+        }}
+        open={galleryOpen && !publishOpen}
+        publishReturnFocus={publishReturnFocus}
+      />
+
+      <PublishCommunityTemplateDialog
+        onClose={() => {
+          setPublishOpen(false);
+          setPublishReturnFocus(true);
+        }}
+        onPublished={(title) => {
+          setPublishOpen(false);
+          setPublishReturnFocus(true);
+          setPublishToast(title);
+        }}
+        open={publishOpen}
+      />
+
+      {publishToast ? (
+        <CommunityTemplatePublishToast
+          onDismiss={dismissPublishToast}
+          title={publishToast}
+        />
+      ) : null}
+
       {isTagEditorOpen ? (
         <div className="workspace-tag-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !tagSaving) setIsTagEditorOpen(false); }}>
           <section aria-labelledby="workspace-tag-modal-title" aria-modal="true" className="workspace-tag-modal" role="dialog">
@@ -607,6 +701,12 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
       ) : null}
     </main>
   );
+}
+
+function formatCommunityCount(value: number) {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return String(value);
 }
 
 function useProjectList(input: Omit<ProjectPageRequest, "limit" | "page">) {

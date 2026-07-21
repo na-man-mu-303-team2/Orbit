@@ -29,6 +29,7 @@ import { FocusedPracticeModule } from "./focused-practice/focused-practice.modul
 import { ChallengeQnaModule } from "./challenge-qna/challenge-qna.module";
 import { SlidePracticeModule } from "./slide-practice/slide-practice.module";
 import { SlideQuestionGuidesModule } from "./slide-question-guides/slide-question-guides.module";
+import { CommunityTemplatesModule } from "./community-templates/community-templates.module";
 
 @Module({
   imports: [
@@ -58,7 +59,8 @@ import { SlideQuestionGuidesModule } from "./slide-question-guides/slide-questio
     FocusedPracticeModule,
     ChallengeQnaModule,
     SlidePracticeModule,
-    SlideQuestionGuidesModule
+    SlideQuestionGuidesModule,
+    CommunityTemplatesModule
   ],
   providers: [RealtimeGateway]
 })
