@@ -23,8 +23,12 @@ CompositionId = Literal[
     "image-evidence",
     "feature-comparison",
     "process-horizontal",
+    "process-vertical-rail",
     "timeline",
     "diagram-hub",
+    "diagram-orbit",
+    "bento-focus",
+    "editorial-media-band",
     "cta-closing",
 ]
 BackgroundMode = Literal["light", "dark", "image"]
@@ -47,8 +51,12 @@ COMPOSITION_IDS = (
     "image-evidence",
     "feature-comparison",
     "process-horizontal",
+    "process-vertical-rail",
     "timeline",
     "diagram-hub",
+    "diagram-orbit",
+    "bento-focus",
+    "editorial-media-band",
     "cta-closing",
 )
 
@@ -78,8 +86,12 @@ kpi-strip-evidence | evidence/data | 2-4 items | optional evidence image | evide
 image-evidence | evidence/experience | 1-3 items | required evidence image | image-evidence
 feature-comparison | comparison | 2-4 items | no image | comparison
 process-horizontal | process | 3-6 items | no image | process
+process-vertical-rail | sequential process | 3-6 items | no image | vertical rail
 timeline | release/roadmap | 3-6 items | no image | timeline
 diagram-hub | architecture/ecosystem | 3-6 items | no image | diagram
+bento-focus | product features/KPI/value | 2-4 items | no image | asymmetric bento
+diagram-orbit | architecture/ecosystem/relationships | 3-6 items | no image | radial orbit
+editorial-media-band | narrative/evidence/quote | 1-3 items | optional image | horizontal media band
 cta-closing | CTA/closing | 1-3 items | optional atmosphere image | closing
 """.strip()
 
@@ -97,9 +109,12 @@ clean minimal styling unless the user explicitly requests it.
 Keep focal and secondary palette roles visibly distinct when constraints allow it.
 Use evidence images only for factual proof, AI atmosphere only for mood, and native
 shapes for processes, comparisons, timelines, and diagrams.
-Prefer process-horizontal for journeys and processes, timeline for roadmaps and
-schedules, diagram-hub for architectures, metric-poster or kpi-strip-evidence for
-metrics and budgets, and feature-comparison for comparisons. Preserve official
+Prefer process-vertical-rail for sequential processes, timeline only for dated
+roadmaps and schedules, diagram-orbit for architectures and ecosystems, bento-focus
+for compact feature or KPI sets, and editorial-media-band for image-led narratives.
+Use metric-poster or kpi-strip-evidence for metrics and budgets, and
+feature-comparison for comparisons. Keep process-horizontal and diagram-hub as
+compatible fallbacks when their silhouettes better fit the deck. Preserve official
 evidence images when they are the factual proof instead of replacing them.
 Use the requested media budget across the whole deck, not on every slide.
 Respect forbidden styles and locked design values.

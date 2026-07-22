@@ -217,7 +217,7 @@ describe("processGenerateDeckJob", () => {
       id: "design_pack_1",
       name: "Personal report",
       version: 2,
-      baseStylePackId: "brandlogy-modern",
+      baseStylePackId: "technical-system",
       preferences: {
         palette: { primary: "#2563EB" },
         typography: {},
@@ -259,6 +259,9 @@ describe("processGenerateDeckJob", () => {
         ...payload,
         request: {
           ...payload.request,
+          design: {
+            paletteOverride: payload.request.design.paletteOverride
+          },
           savedDesignPack: { id: snapshot.id, version: snapshot.version }
         },
         designPackSnapshot: snapshot
@@ -276,6 +279,9 @@ describe("processGenerateDeckJob", () => {
     const designProgramContext = JSON.parse(pythonRequestBody).designProgramContext;
     expect(designProgramContext.savedDesignPreferences).toMatchObject(
       snapshot.preferences
+    );
+    expect(JSON.parse(pythonRequestBody).design.stylePackId).toBe(
+      "technical-system"
     );
   });
 

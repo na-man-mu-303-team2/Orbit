@@ -17,8 +17,12 @@ export const deckCompositionIdSchema = z.enum([
   "image-evidence",
   "feature-comparison",
   "process-horizontal",
+  "process-vertical-rail",
   "timeline",
   "diagram-hub",
+  "diagram-orbit",
+  "bento-focus",
+  "editorial-media-band",
   "cta-closing"
 ]);
 

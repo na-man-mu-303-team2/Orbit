@@ -146,8 +146,12 @@ def test_generated_cover_compositions_render_minimal_cover_content(
 def test_diagram_first_policy_is_explicit_in_art_director_contract() -> None:
     for composition_id in (
         "process-horizontal",
+        "process-vertical-rail",
         "timeline",
         "diagram-hub",
+        "diagram-orbit",
+        "bento-focus",
+        "editorial-media-band",
         "metric-poster",
         "kpi-strip-evidence",
         "feature-comparison",
@@ -251,7 +255,7 @@ def test_normalizer_preserves_approved_edge_slide_types() -> None:
     )
 
     assert normalized.slides[0].composition_id == "editorial-split"
-    assert normalized.slides[-1].composition_id in {"process-horizontal", "timeline"}
+    assert normalized.slides[-1].composition_id == "process-vertical-rail"
 
 
 def test_normalizer_breaks_long_background_runs_without_single_color_lock() -> None:
@@ -460,7 +464,7 @@ def test_normalizer_reserves_comparison_options_for_constrained_later_slides() -
     assert max(Counter(composition_ids).values()) <= 2
     assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
     assert composition_ids[4] in {"kpi-strip-evidence", "diagram-hub"}
-    assert composition_ids[5] in {"metric-poster", "editorial-split"}
+    assert composition_ids[5] in {"metric-poster", "editorial-split", "bento-focus"}
 
     compiled = compile_composition(normalized.slides[5], slides[5], normalized)
     visible_text = [
@@ -780,6 +784,7 @@ def test_process_label_without_sequence_semantics_uses_feature_composition() -> 
     normalized = normalize_design_program(candidate, slides, media_policy="minimal")
 
     assert normalized.slides[1].composition_id in {
+        "bento-focus",
         "editorial-split",
         "feature-comparison",
         "diagram-hub",
@@ -835,10 +840,7 @@ def test_release_facts_mislabeled_as_process_use_data_composition() -> None:
 
     normalized = normalize_design_program(candidate, slides, media_policy="minimal")
 
-    assert normalized.slides[1].composition_id in {
-        "metric-poster",
-        "kpi-strip-evidence",
-    }
+    assert normalized.slides[1].composition_id == "timeline"
 
 
 def test_single_release_fact_mislabeled_as_process_uses_statement() -> None:
@@ -1566,8 +1568,8 @@ def test_process_and_comparison_do_not_repeat_segmented_silhouette() -> None:
     ]
 
     assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
-    assert normalized.slides[1].composition_id == "process-horizontal"
-    assert normalized.slides[2].composition_id == "editorial-split"
+    assert normalized.slides[1].composition_id == "process-vertical-rail"
+    assert normalized.slides[2].composition_id == "feature-comparison"
 
 
 def test_sequence_allows_third_use_when_five_process_slides_require_it() -> None:
@@ -1601,12 +1603,12 @@ def test_sequence_allows_third_use_when_five_process_slides_require_it() -> None
     body = [direction.composition_id for direction in normalized.slides[1:-1]]
     silhouettes = [COMPOSITION_SPECS[value].silhouette for value in body]
 
-    assert set(body) == {"process-horizontal", "timeline"}
+    assert set(body) == {"process-horizontal", "process-vertical-rail"}
     assert max(Counter(body).values()) == 3
     assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
 
 
-def test_sequence_allows_unavoidable_repeated_silhouette_for_valid_slides() -> None:
+def test_new_media_band_avoids_repeating_problem_silhouettes() -> None:
     slides = [
         slide_payload("cover", 1),
         slide_payload("problem", 1),
@@ -1640,7 +1642,82 @@ def test_sequence_allows_unavoidable_repeated_silhouette_for_valid_slides() -> N
 
     assert len(normalized.slides) == len(slides)
     assert normalized.slides[1].composition_id == "statement-poster"
-    assert normalized.slides[2].composition_id == "statement-poster"
+    assert normalized.slides[2].composition_id == "editorial-media-band"
+
+
+def test_semantic_selector_maps_phase_one_compositions() -> None:
+    slides = [
+        slide_payload("cover", 1),
+        {
+            **slide_payload("process", 3),
+            "title": "Delivery workflow",
+            "message": "Discover, craft, then verify each step.",
+        },
+        {
+            **slide_payload("process", 3),
+            "title": "2027 product roadmap",
+            "contentItems": [
+                {"contentItemId": "q1", "text": "Q1 foundation"},
+                {"contentItemId": "q2", "text": "Q2 beta"},
+                {"contentItemId": "q3", "text": "Q3 launch"},
+            ],
+        },
+        {
+            **slide_payload("solution", 3),
+            "title": "Product capabilities",
+            "message": "Three focused customer values",
+        },
+        {
+            **slide_payload("architecture", 4),
+            "title": "Platform architecture and components",
+            "message": "A connected technical ecosystem",
+        },
+        {
+            **slide_payload("quote", 2),
+            "title": "Customer story",
+            "message": "A field story supported by a representative image",
+        },
+        slide_payload("summary", 1),
+    ]
+    candidate = repeated_program(len(slides))
+    candidate.slides[5].asset_role = "atmosphere"
+
+    normalized = normalize_design_program(
+        candidate,
+        slides,
+        media_policy="minimal",
+    )
+
+    assert [direction.composition_id for direction in normalized.slides[1:-1]] == [
+        "process-vertical-rail",
+        "timeline",
+        "bento-focus",
+        "diagram-orbit",
+        "editorial-media-band",
+    ]
+
+
+def test_varied_layout_exhausts_unique_body_compositions_before_reuse() -> None:
+    slides = [
+        slide_payload("cover", 1),
+        slide_payload("solution", 2),
+        slide_payload("feature-grid", 3),
+        slide_payload("data", 4),
+        slide_payload("problem", 2),
+        slide_payload("summary", 1),
+    ]
+
+    normalized = normalize_design_program(
+        repeated_program(len(slides)),
+        slides,
+        media_policy="minimal",
+        layout_diversity="varied",
+    )
+    body = [direction.composition_id for direction in normalized.slides[1:-1]]
+    silhouettes = [COMPOSITION_SPECS[value].silhouette for value in body]
+
+    assert len(set(body)) == len(body)
+    assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
 
 
 def test_body_hero_split_without_media_uses_native_content_composition() -> None:
@@ -1684,6 +1761,7 @@ def test_body_hero_split_without_media_uses_native_content_composition() -> None
     normalized = normalize_design_program(candidate, slides, media_policy="minimal")
 
     assert normalized.slides[1].composition_id in {
+        "bento-focus",
         "editorial-split",
         "feature-comparison",
         "kpi-strip-evidence",

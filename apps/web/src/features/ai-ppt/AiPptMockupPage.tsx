@@ -426,7 +426,6 @@ export function buildAiPptGenerateDeckPayload(
       `palette=${paletteOption.optionId}`,
       `font=${selectedFont.name}`,
       `mediaPolicy=${mediaPolicy}`,
-      `base=${stylePackId}`,
     ].join("; "),
     brief: {
       audienceText: state.audience.trim(),
@@ -442,8 +441,7 @@ export function buildAiPptGenerateDeckPayload(
       tone: state.tone,
     },
     design: {
-      stylePackId,
-      visualRhythm: "clean",
+      visualRhythm: "auto",
       densityTarget: "medium",
       mediaPolicy,
       layoutDiversity: "varied",

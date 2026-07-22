@@ -1,0 +1,26 @@
+{
+  "id": "data-report",
+  "theme": {
+    "name": "data-report",
+    "headingFontFamily": "Pretendard",
+    "bodyFontFamily": "Pretendard",
+    "background": "#F8FAFC",
+    "surface": "#FFFFFF",
+    "text": "#0F172A",
+    "accent": "#2563EB",
+    "secondary": "#D97706",
+    "muted": "#EAF0F8",
+    "border": "#CBD5E1",
+    "titleSize": 62,
+    "headingSize": 41,
+    "bodySize": 25,
+    "captionSize": 16
+  },
+  "effects": {
+    "borderRadius": 6
+  },
+  "layout": {
+    "rhythm": "evidence-first",
+    "imageTreatment": "documentary-evidence"
+  }
+}
