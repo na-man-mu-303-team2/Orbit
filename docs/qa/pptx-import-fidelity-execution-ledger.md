@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR4 Worker Deck 조립과 notes asset 저장
-- task branch: `feature/pptx-import-pr4-worker-notes-assets`
-- 상태: target branch `--no-ff` merge와 merge 후 Worker notes mapping smoke test 완료, Checkpoint A 검증 대기
+- 단계: Checkpoint A notes import 저장 경계
+- task branch: `test/pptx-import-checkpoint-a`
+- 상태: 실제 기준 PPTX PostgreSQL 검증, target branch `--no-ff` merge와 merge smoke 완료
 
 ## 완료된 작업과 Commit
 
@@ -35,6 +35,7 @@
 | PR2 notes body import         | `fa9cd147`  | `feature/pptx-import-pr2-notes-import` | `4d6a3b5f` | slide→notesSlide→notesMaster relationship 추적, body-only text와 locator 추출          |
 | PR3 notes page renderer       | `3870eccc`  | `feature/pptx-import-pr3-notes-render` | `3da81176` | notes-only PDF, notesSz bounded PNG, count/order proof와 fail-closed diagnostic         |
 | PR4 Worker notes 저장         | `8a3b6b84`  | `feature/pptx-import-pr4-worker-notes-assets` | `926d3721` | Deck speakerNotes 보존, preview file ID sidecar 연결과 저장 실패 bounded warning       |
+| Checkpoint A 저장 경계        | `c95d6eea`  | `test/pptx-import-checkpoint-a` | `17a02898` | 실제 8 notes 저장·재조회, preview 유무 경계와 Job/sidecar/log privacy 검증              |
 
 ## 실행한 검증
 
@@ -80,6 +81,15 @@
 | PR4 Worker build      | `pnpm --filter @orbit/worker... build`                                               | workspace 의존 package와 Worker build 성공          |
 | PR4 8-slide mapping   | 8개 synthetic slide의 Deck note와 notes preview file ID 연결                        | body 8/8, preview 8/8, Job result note 원문 0        |
 | PR4 merge smoke       | 대상 processor spec                                                                 | 9 passed                                             |
+| Checkpoint A 실제 import | 기준 PPTX + Python worker + PostgreSQL opt-in integration                          | 1 passed, 6 skipped                                  |
+| Checkpoint A 저장·재조회 | source/imported Deck note를 SHA-256 digest로 비교                                  | 8/8 exact, 원문 출력 0                               |
+| Checkpoint A preview  | 정상 asset과 저장 실패 주입 경계                                                     | 정상 8/8 design-asset, 실패 8/8 render-unavailable   |
+| Checkpoint A schema   | `deckSchema`, `jobSchema`, `templateBlueprintSchema`, generation result schema      | 모두 통과                                            |
+| Checkpoint A privacy  | sidecar·Job result와 Worker lifecycle logger                                        | notes 원문/XML/base64/URL marker 비노출              |
+| Checkpoint A 대상     | processor와 Worker lifecycle logger spec                                             | 27 passed                                            |
+| Checkpoint A 전체     | Worker 전체 test                                                                     | 384 passed, 15 skipped                               |
+| Checkpoint A lint/build | Worker TypeScript lint와 build                                                     | 모두 통과                                            |
+| Checkpoint A merge smoke | processor와 Worker lifecycle logger spec                                          | 27 passed                                            |
 
 ## PR0 Renderer 측정과 결정
 
@@ -108,6 +118,9 @@
 - 기준 파일 full generation 첫 실행은 기존 slide renderer가 공유 LibreOffice profile을 사용해 exit 1로 실패했다. slide renderer에도 task별 격리 profile을 적용한 뒤 동일 호출에서 slide와 notes preview가 모두 생성됐다.
 - 실제 full generation 중 MuPDF가 PDF structure tree 관련 bounded 경고를 stderr에 냈지만 8 slide·8 notes asset 생성과 package 보존 검증은 통과했다.
 - PR4 별도 worktree의 첫 Worker lint는 workspace package의 `dist`가 없어 `Cannot find module '@orbit/shared'` 등으로 실패했다. 원본 worktree 의존성을 임시 연결하고 `pnpm --filter @orbit/worker... build`로 공통 package를 먼저 빌드한 뒤 같은 lint가 통과했다. 임시 링크·복사본·build 산출물은 검증 후 모두 제거했다.
+- Checkpoint A Python worker 첫 기동은 필수 ORBIT 환경변수 부재로, 두 번째 기동은 `minio` credential 요구로 startup validation에서 종료됐다. secret을 읽거나 주입하지 않고 공개 example의 비밀 없는 값과 사용하지 않는 `s3` adapter 설정으로 다시 시작해 검증했다.
+- Checkpoint A의 첫 PostgreSQL integration은 sandbox가 `127.0.0.1:5432` 연결을 `EPERM`으로 막아 중단됐다. 동일 단일 test를 승인된 로컬 연결 권한으로 재실행해 통과했다.
+- Checkpoint A의 첫 Worker 전체 test는 별도 worktree `dist` 쓰기 `EPERM`으로 중단됐다. 동일 명령을 승인된 쓰기 권한으로 재실행해 384 passed, 15 skipped를 확인했다.
 
 ## 계획 대비 변경과 근거
 
@@ -124,14 +137,15 @@
 - PR2는 notes body와 provenance만 가져오며 전체 notes page preview asset은 PR3에서 추가한다.
 - PR3 preview는 `notesSz` 비율의 최대 1280 px bitmap이며 page count가 전체 slide 수와 일치하고 source slide index가 순차적일 때만 매핑한다.
 - PR4는 `notes_render_<index>` asset 저장 실패만 선택적으로 허용한다. 이 경우 note text는 Deck에 남고 sidecar는 `render-unavailable`, quality report는 `PPTX_NOTES_PREVIEW_ASSET_FAILED` count로 수렴한다.
+- Checkpoint A의 실제 기준 파일 검증은 원본을 저장소에 복사하지 않으며 `PPTX_IMPORT_FIDELITY_REFERENCE_PATH`가 명시된 로컬/보호 CI에서만 실행한다. 일반 Worker suite에서는 이 1개 test가 skip된다.
 
 ## 다음에 시작할 정확한 작업
 
-1. PR4 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. Checkpoint A에서 기준 파일 import 결과의 8개 speakerNotes 저장·재조회와 8개 preview file ID 연결을 검증한다.
-3. preview 미존재 경계에서도 Deck 저장과 기존 Editor contract가 유지되는지 검사한다.
-4. Deck/Job/TemplateBlueprint schema와 Job result·로그의 notes 원문 비노출을 증명한다.
-5. Checkpoint A를 통과하면 `feature/pptx-import-pr5-notes-preview-api`를 target branch HEAD에서 생성한다.
+1. Checkpoint A ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. `feature/pptx-import-pr5-notes-preview-api`를 target branch HEAD에서 생성한다.
+3. owner/editor 전용 slideId별 notes preview metadata와 보호된 asset URL read model을 추가한다.
+4. 다른 project, audience/public route, stale/missing asset의 negative test와 response privacy를 검증한다.
+5. API 대상 test와 build를 통과시킨 뒤 상세 한국어 commit과 `--no-ff` merge를 수행한다.
 
 ## 사용자 결정이 필요한 Blocker
 
