@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD after PR16 merge: `728aaf525d662921bf68ff4ae7b7efdb8364e177`
+- integration HEAD after PR17 merge: `96bea037a366874a95912931e1765b5afe9c0a2d`
 - worktree: clean
 
 ## Baseline
@@ -23,26 +23,54 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR16
-- PR16 integration merge: `728aaf525d662921bf68ff4ae7b7efdb8364e177`
-- 현재 milestone: PR17 — M2 final verification
+- 완료 milestone: PR00~PR17
+- PR17 integration merge: `96bea037a366874a95912931e1765b5afe9c0a2d`
+- 현재 milestone: 없음
 - 활성 child branch/worktree: 없음
 - integration merge 후 검증:
-  - `pnpm --filter @orbit/web test` — 1812 passed
-  - API slide-redesign Job·realtime focused — 7 passed
-  - Worker slide-redesign·progress focused — 28 passed
   - `pnpm typecheck` — 17 tasks 통과
 - child 전체 검증:
-  - `pnpm --filter @orbit/web test` — 1812 passed
+  - `uv run ruff check .` — 통과
+  - `uv run mypy app` — 72 source files 통과
+  - `uv run pytest` — 1009 passed, 1 skipped, 7 warnings
+  - `pnpm --filter @orbit/shared test` — 589 passed
   - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 610 passed, 1 skipped
-  - `pnpm --filter @orbit/worker test` — 401 passed, 14 skipped
+  - `pnpm --filter @orbit/worker test` — 404 passed, 14 skipped
+  - `pnpm --filter @orbit/web test` — 1814 passed
+  - `pnpm build` — 10 tasks 통과
   - `pnpm lint` — 17 tasks 통과
   - `pnpm typecheck` — 17 tasks 통과
-- 남은 stop gate: 없음
-- PR16 child 상태: clean, integration merge 완료
-- 다음 milestone: PR17 — M2 final verification
+  - `pnpm test` — 17 tasks 통과
+  - `node infra/scripts/check-env.mjs`, `docker compose config --quiet` — 통과
+  - 격리 Compose `pnpm test:smoke --grep "slide redesign"` — 1 passed
+- 남은 자동 stop gate: 없음
+- 남은 운영 release gate: 실제 provider 수동 결과·비용·지연 미검증
+- PR17 child 상태: clean, integration merge 완료
+- 다음 milestone: 없음
 
 ## 완료 Milestone 기록
+
+### PR17 — M2 final verification and rollout docs
+
+- integration merge: `96bea037a366874a95912931e1765b5afe9c0a2d`
+- code commit:
+  - `e17ba918` — 이미지 포함 전체 stage, 최종 patch 적용, 참조 보존과 이미지 1장 상한 회귀
+  - `8ea1df2f` — `baseVersion` stale 단락과 provider 예외 fallback·로그 boundedness 회귀
+  - `bcd2ff26` — palette→비동기 Job→final apply smoke, 중간 preview read-only, 단일 undo 복구 회귀
+  - `4dba4a89` — optional `alignment` 생략 정규화와 raw SQL JSONB 직렬화 경계 수정
+  - `cbace236` — M2 QA 결과, 운영 절차, Web·stage·JSONB 최종 계약 기록
+- child 전체 검증:
+  - Python ruff·mypy 통과, pytest 1009 passed, 1 skipped, 7 warnings
+  - Shared 589 passed; API 610 passed, 1 skipped; Worker 404 passed, 14 skipped; Web 1814 passed
+  - `pnpm typecheck` 17/17, `pnpm build` 10/10, `pnpm lint` 17/17, `pnpm test` 17/17
+  - 환경 계약과 Compose config 통과
+  - 격리한 `orbit-pr17` stack에서 Chromium slide-redesign smoke 1/1 통과(4.1초)
+- integration merge 후 검증: `pnpm typecheck` — 17 tasks 통과
+- 자동 release gate: 검증되지 않은 proposal 미노출, optional 이미지 실패 fallback, 원문·elementId·animation·semantic cue 보존, intermediate 적용 차단, final 단일 undo, stale, 민감 로그 비노출 모두 통과
+- 실제 서비스 경계 smoke에서 Python `exclude_none`과 shared optional field 불일치, PostgreSQL JSONB parameter 직렬화 누락을 발견해 회귀 테스트와 함께 수정했다. Compose project 이름 충돌은 별도 이름·포트로 격리했고, 제한된 메모리에서 병렬 image build exit 137은 순차 build로 통과했다.
+- 실제 provider credential은 주입하지 않았고 외부 호출도 수행하지 않았다. 실제 결과 품질은 미검증, 비용·지연은 미측정이며 운영 release gate로 남긴다.
+- 원격 push, PR 생성, 배포, `develop` merge는 수행하지 않았다.
+- child 상태: clean, integration merge 완료
 
 ### PR16 — Web progress and two-stage preview
 
