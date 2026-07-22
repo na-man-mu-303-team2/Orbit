@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD after PR11 merge: `fb389343827642f3cd42292ff5944449a49bdfeb`
+- integration HEAD after PR12 merge: `40680088fac924b04f76410e925af55624c872d1`
 - worktree: clean
 
 ## Baseline
@@ -23,18 +23,39 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR11
-- PR11 integration merge: `fb389343827642f3cd42292ff5944449a49bdfeb`
-- 현재 milestone: PR12 — Python 내부 stage façade
+- 완료 milestone: PR00~PR12
+- PR12 integration merge: `40680088fac924b04f76410e925af55624c872d1`
+- 현재 milestone: PR13 — slide-redesign Job 계약과 enqueue
 - 활성 child branch/worktree: 없음
 - integration merge 후 검증:
-  - `pnpm --filter @orbit/web test` — 1802 passed
-  - `pnpm typecheck` — 17/17 tasks 통과
+  - stage·pipeline·design-agent focused — 88 passed
+  - `pnpm --filter @orbit/shared test` — 579 passed
 - 남은 stop gate: 없음
-- PR11 child 상태: clean, integration merge 완료
-- 다음 milestone: PR12 — Python 내부 stage façade
+- PR12 child 상태: clean, integration merge 완료
+- 다음 milestone: PR13 — slide-redesign Job 계약과 enqueue
 
 ## 완료 Milestone 기록
+
+### PR12 — Python 내부 stage façade
+
+- integration merge: `40680088fac924b04f76410e925af55624c872d1`
+- code commit:
+  - `a450503d` — Zod/Pydantic interpret·compose·verify artifact 계약
+  - `aa310bdf` — 기존 동기 pipeline을 재사용 가능한 stage orchestration으로 분리
+  - `4e2c34ee` — `/internal/slide-redesign/stage` 내부 endpoint와 strict request union
+  - `8e2e2da5` — artifact JSON round-trip, 동기 결과 동등성, endpoint 연속 호출 회귀
+- child 검증:
+  - `uv run ruff check .` — 통과
+  - `uv run mypy app` — 72 source files 통과
+  - `uv run pytest -q` — 1007 passed, 1 skipped
+  - `pnpm --filter @orbit/shared test` — 579 passed
+  - `pnpm typecheck` — 17/17 tasks 통과
+- integration merge 후 검증:
+  - stage·pipeline·design-agent focused — 88 passed
+  - `pnpm --filter @orbit/shared test` — 579 passed
+- 필수 조건: 기존 `/ai/design-agent/propose` 유지, stage artifact를 JSON 직렬화한 조립 결과와 기존 동기 결과 동등성 통과
+- 중간 artifact는 Deck persistence에 저장하지 않고 내부 endpoint request/response에서만 사용
+- child 상태: clean, integration merge 완료
 
 ### PR11 — 배색 선택 Web UI
 
