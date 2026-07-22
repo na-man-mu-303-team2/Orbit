@@ -1180,6 +1180,22 @@ describe("deckSchema validation", () => {
     });
   });
 
+  it("rejects autofit scale metadata without shrink-text mode", () => {
+    const deck = createValidDeck();
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      props: {
+        text: "Invalid autofit",
+        autoFit: "resize-shape",
+        fontScale: 0.84
+      }
+    };
+
+    expect(() => deckSchema.parse(deck)).toThrow(
+      "fontScale and lineSpaceReduction require autoFit=shrink-text"
+    );
+  });
+
   it("preserves mixed italic and underline styles through Deck serialization", () => {
     const deck = createValidDeck();
     const runs = [

@@ -211,6 +211,18 @@ export const textElementPropsSchema = z
     lineHeight: z.number().finite().positive().default(1.2),
     bullet: textElementBulletSchema.optional()
   })
+  .superRefine((props, ctx) => {
+    if (
+      props.autoFit !== "shrink-text" &&
+      (props.fontScale !== undefined || props.lineSpaceReduction !== undefined)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "fontScale and lineSpaceReduction require autoFit=shrink-text"
+      });
+    }
+  })
   .default({});
 
 export const imageFitSchema = z.enum(["contain", "cover", "stretch"]);

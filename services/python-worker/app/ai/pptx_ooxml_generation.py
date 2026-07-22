@@ -121,21 +121,22 @@ SUPPORTED_TABLE_CELL_PROPS = {
 
 SUPPORTED_TEXT_PROPS = {
     "text", "runs", "paragraphs", "bodyInset", "fontFamily", "fontSize",
-    "fontWeight", "italic", "underline", "color", "align", "verticalAlign",
-    "writingMode", "lineHeight", "bullet",
+    "fontWeight", "letterSpacing", "italic", "underline", "color", "align",
+    "verticalAlign", "writingMode", "autoFit", "fontScale",
+    "lineSpaceReduction", "lineHeight", "bullet",
 }
 SUPPORTED_TEXT_PARAGRAPH_PROPS = {
-    "text", "runs", "fontFamily", "fontSize", "fontWeight", "italic",
-    "underline", "color", "align", "lineHeight", "spaceBefore", "spaceAfter",
-    "indent", "bullet",
+    "text", "runs", "fontFamily", "fontSize", "fontWeight", "letterSpacing",
+    "italic", "underline", "color", "align", "lineHeight", "spaceBefore",
+    "spaceAfter", "indent", "bullet",
 }
 SUPPORTED_TEXT_RUN_PROPS = {
-    "text", "fontFamily", "fontSize", "fontWeight", "italic", "underline",
-    "color", "baseline",
+    "text", "fontFamily", "fontSize", "fontWeight", "letterSpacing",
+    "italic", "underline", "color", "baseline",
 }
 SUPPORTED_TEXT_STYLE_PROPS = {
-    "fontFamily", "fontSize", "fontWeight", "italic", "underline", "color",
-    "baseline",
+    "fontFamily", "fontSize", "fontWeight", "letterSpacing", "italic",
+    "underline", "color", "baseline",
 }
 MAX_TEXT_DIFF_MATRIX_CELLS = 250_000
 
@@ -3405,6 +3406,18 @@ def valid_text_props(props: dict[str, Any]) -> bool:
         return False
     if props.get("writingMode", "horizontal") not in {"horizontal", "vertical-270"}:
         return False
+    auto_fit = props.get("autoFit")
+    if auto_fit is not None and auto_fit not in {"none", "shrink-text", "resize-shape"}:
+        return False
+    if "fontScale" in props and not valid_ratio(props.get("fontScale"), positive=True):
+        return False
+    if "lineSpaceReduction" in props and not valid_ratio(props.get("lineSpaceReduction")):
+        return False
+    if (
+        any(key in props for key in ("fontScale", "lineSpaceReduction"))
+        and auto_fit != "shrink-text"
+    ):
+        return False
     if not valid_positive_number(props.get("lineHeight", 1.2)):
         return False
     if not valid_text_body_inset(props.get("bodyInset")):
@@ -3462,8 +3475,10 @@ def valid_text_style_values(value: dict[str, Any]) -> bool:
         return False
     if "fontSize" in value and not valid_positive_number(value.get("fontSize")):
         return False
+    if "letterSpacing" in value and not valid_finite_number(value.get("letterSpacing")):
+        return False
     weight = value.get("fontWeight")
-    if weight is not None and weight not in {"normal", "bold"}:
+    if weight is not None and not valid_text_font_weight(weight):
         return False
     if any(key in value and not isinstance(value.get(key), bool) for key in ("italic", "underline")):
         return False
@@ -3500,6 +3515,20 @@ def valid_positive_number(value: Any) -> bool:
 
 def valid_nonnegative_number(value: Any) -> bool:
     return valid_finite_number(value) and float(value) >= 0
+
+
+def valid_ratio(value: Any, *, positive: bool = False) -> bool:
+    return valid_finite_number(value) and (
+        0 < float(value) <= 1 if positive else 0 <= float(value) <= 1
+    )
+
+
+def valid_text_font_weight(value: Any) -> bool:
+    return (isinstance(value, str) and value in {"normal", "medium", "semibold", "bold"}) or (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and 100 <= value <= 900
+    )
 
 
 def valid_rect_props(props: dict[str, Any]) -> bool:
@@ -4382,6 +4411,27 @@ def apply_text_body_properties(
         ):
             if key in inset:
                 body_pr.set(attribute, str(converter(inset[key], scale)))
+    if "autoFit" in props:
+        for child in list(body_pr):
+            if local_name(child) in {"noAutofit", "normAutofit", "spAutoFit"}:
+                body_pr.remove(child)
+        auto_fit = str(props.get("autoFit"))
+        if auto_fit == "none":
+            ET.SubElement(body_pr, f"{{{DML_NS}}}noAutofit")
+        elif auto_fit == "resize-shape":
+            ET.SubElement(body_pr, f"{{{DML_NS}}}spAutoFit")
+        elif auto_fit == "shrink-text":
+            attributes = {
+                "fontScale": str(round(float(props.get("fontScale", 1)) * 100000)),
+                "lnSpcReduction": str(
+                    round(float(props.get("lineSpaceReduction", 0)) * 100000)
+                ),
+            }
+            ET.SubElement(
+                body_pr,
+                f"{{{DML_NS}}}normAutofit",
+                attributes,
+            )
 
 
 def text_structure_matches(
@@ -4852,6 +4902,11 @@ def patch_run_properties(
         r_pr.set("sz", str(font_size_to_ooxml(differences["fontSize"], scale)))
     if "fontWeight" in differences:
         r_pr.set("b", "1" if is_bold_text_weight(differences["fontWeight"]) else "0")
+    if "letterSpacing" in differences:
+        r_pr.set(
+            "spc",
+            str(letter_spacing_to_ooxml(differences["letterSpacing"], scale)),
+        )
     if "italic" in differences:
         r_pr.set("i", "1" if differences["italic"] else "0")
     if "underline" in differences:
@@ -4904,6 +4959,14 @@ def current_run_style(
         current["italic"] = r_pr.get("i") in {"1", "true"}
     if r_pr.get("u") is not None:
         current["underline"] = r_pr.get("u") not in {"0", "false", "none"}
+    if r_pr.get("spc") is not None:
+        current["letterSpacing"] = round(
+            int_value(r_pr.get("spc"), 0)
+            / 100
+            * 12700
+            * canvas_average_scale(scale),
+            3,
+        )
     solid_fill = first_local_child(r_pr, "solidFill")
     srgb = first_local_child(solid_fill, "srgbClr") if solid_fill is not None else None
     if srgb is not None and srgb.get("val"):
@@ -5086,6 +5149,10 @@ def font_size_to_ooxml(value: Any, scale: PackageFrameScale) -> int:
 
 def canvas_spacing_to_ooxml(value: Any, scale: PackageFrameScale) -> int:
     return max(0, round(float(value) / (12700 * canvas_average_scale(scale)) * 100))
+
+
+def letter_spacing_to_ooxml(value: Any, scale: PackageFrameScale) -> int:
+    return round(float(value) / (12700 * canvas_average_scale(scale)) * 100)
 
 
 def canvas_x_scale(scale: PackageFrameScale) -> float:

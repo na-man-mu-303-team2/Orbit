@@ -110,7 +110,8 @@ export function ElementNodeContent(props: {
           fontFamily={textLayout.fontFamily}
           fontSize={textLayout.fontSize}
           fontStyle={textLayout.fontStyle}
-          lineHeight={textProps.lineHeight}
+          letterSpacing={textLayout.letterSpacing}
+          lineHeight={textLayout.lineHeight}
           listening={false}
           padding={0}
           rotation={-90}
@@ -134,6 +135,7 @@ export function ElementNodeContent(props: {
               key={`${fragment.paragraphIndex}-${fragment.lineIndex}-${index}`}
               lineHeight={1}
               listening={false}
+              letterSpacing={fragment.style.letterSpacing}
               padding={0}
               text={fragment.text}
               textDecoration={fragment.style.underline ? "underline" : undefined}
@@ -151,7 +153,8 @@ export function ElementNodeContent(props: {
           fontFamily={textLayout.fontFamily}
           fontSize={textLayout.fontSize}
           fontStyle={textLayout.fontStyle}
-          lineHeight={textProps.lineHeight}
+          letterSpacing={textLayout.letterSpacing}
+          lineHeight={textLayout.lineHeight}
           listening={false}
           padding={0}
           text={textLayout.text}

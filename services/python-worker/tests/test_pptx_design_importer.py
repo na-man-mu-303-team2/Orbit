@@ -33,6 +33,7 @@ IMPORT_FIDELITY_NOTES_FIXTURE = (
     Path(__file__).parent / "fixtures" / "pptx" / "import-fidelity-notes.pptx"
 )
 PRESENTATION_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
 
 def test_import_pptx_design_imports_only_the_related_notes_body() -> None:
@@ -372,6 +373,73 @@ def test_ooxml_visual_tree_normalizes_explicit_pretendard_variants(
         "PPTX_FONT_BROWSER_FALLBACK: slide=1; "
         "family=Unlisted Presentation Font; fallback=Arial"
     ]
+
+
+def test_ooxml_visual_tree_cascades_layout_text_style_and_preserves_direct_color(
+    tmp_path: Path,
+) -> None:
+    layout_styled_path = tmp_path / "layout-styled.pptx"
+    styled_path = tmp_path / "effective-text-style.pptx"
+    rewrite_pptx_entry(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        layout_styled_path,
+        "ppt/slideLayouts/slideLayout1.xml",
+        configure_title_layout_text_style,
+    )
+    rewrite_pptx_entry(
+        layout_styled_path,
+        styled_path,
+        "ppt/slides/slide1.xml",
+        configure_title_slide_text_overrides,
+    )
+
+    result = import_pptx_ooxml_visual_tree(styled_path, "file_effective_style")
+    title = next(
+        element
+        for element in result.blueprint["slides"][0]["elements"]
+        if element.get("props", {}).get("text") == "Inherited title style"
+    )
+    paragraph = title["props"]["paragraphs"][0]
+    run = paragraph["runs"][0]
+
+    expected_title_props = {
+        "autoFit": "shrink-text",
+        "bodyInset": {
+            "left": 20,
+            "right": 30,
+            "top": 10,
+            "bottom": 7,
+        },
+        "color": "#EF4444",
+        "fontFamily": "Pretendard",
+        "fontScale": 0.8,
+        "fontSize": 72,
+        "fontWeight": 600,
+        "letterSpacing": 2.4,
+        "lineSpaceReduction": 0.1,
+    }
+    assert {
+        key: title["props"][key] for key in expected_title_props
+    } == expected_title_props
+    expected_paragraph_props = {
+        "align": "right",
+        "color": "#EF4444",
+        "fontSize": 72,
+        "letterSpacing": 2.4,
+        "lineHeight": 1.25,
+        "spaceBefore": 12,
+        "spaceAfter": 6,
+    }
+    assert {
+        key: paragraph[key] for key in expected_paragraph_props
+    } == expected_paragraph_props
+    assert run["color"] == "#EF4444"
+    assert "fontSize" not in run
+    assert run["letterSpacing"] == 2.4
+    assert not any(
+        warning.startswith("PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING")
+        for warning in result.warnings
+    )
 
 
 def test_import_pptx_design_marks_placeholders_as_replaceable_slots(
@@ -1749,6 +1817,99 @@ def set_first_text_paragraph_line_spacing(
     with zipfile.ZipFile(pptx_path, "w") as package:
         for name, content in entries.items():
             package.writestr(name, content)
+
+
+def configure_title_layout_text_style(xml: bytes) -> bytes:
+    root = ET.fromstring(xml)
+    shape = placeholder_shape(root, "ctrTitle")
+    text_body = next(
+        child for child in list(shape) if child.tag.rsplit("}", 1)[-1] == "txBody"
+    )
+    body_properties = next(
+        child
+        for child in list(text_body)
+        if child.tag.rsplit("}", 1)[-1] == "bodyPr"
+    )
+    body_properties.set("lIns", "127000")
+    body_properties.set("tIns", "63500")
+    for child in list(body_properties):
+        if child.tag.rsplit("}", 1)[-1] in {
+            "noAutofit",
+            "normAutofit",
+            "spAutoFit",
+        }:
+            body_properties.remove(child)
+    ET.SubElement(
+        body_properties,
+        f"{{{DRAWING_NS}}}normAutofit",
+        {"fontScale": "80000", "lnSpcReduction": "10000"},
+    )
+
+    list_style = next(
+        child
+        for child in list(text_body)
+        if child.tag.rsplit("}", 1)[-1] == "lstStyle"
+    )
+    level_properties = ET.SubElement(
+        list_style,
+        f"{{{DRAWING_NS}}}lvl1pPr",
+        {"algn": "r"},
+    )
+    line_spacing = ET.SubElement(level_properties, f"{{{DRAWING_NS}}}lnSpc")
+    ET.SubElement(line_spacing, f"{{{DRAWING_NS}}}spcPct", {"val": "125000"})
+    space_before = ET.SubElement(level_properties, f"{{{DRAWING_NS}}}spcBef")
+    ET.SubElement(space_before, f"{{{DRAWING_NS}}}spcPts", {"val": "600"})
+    space_after = ET.SubElement(level_properties, f"{{{DRAWING_NS}}}spcAft")
+    ET.SubElement(space_after, f"{{{DRAWING_NS}}}spcPts", {"val": "300"})
+    default_run = ET.SubElement(
+        level_properties,
+        f"{{{DRAWING_NS}}}defRPr",
+        {"sz": "3600"},
+    )
+    fill = ET.SubElement(default_run, f"{{{DRAWING_NS}}}solidFill")
+    ET.SubElement(fill, f"{{{DRAWING_NS}}}srgbClr", {"val": "22C55E"})
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def configure_title_slide_text_overrides(xml: bytes) -> bytes:
+    root = ET.fromstring(xml)
+    shape = placeholder_shape(root, "ctrTitle")
+    text_body = next(
+        child for child in list(shape) if child.tag.rsplit("}", 1)[-1] == "txBody"
+    )
+    body_properties = next(
+        child
+        for child in list(text_body)
+        if child.tag.rsplit("}", 1)[-1] == "bodyPr"
+    )
+    body_properties.set("rIns", "190500")
+    run_properties = next(
+        node for node in text_body.iter() if node.tag.rsplit("}", 1)[-1] == "rPr"
+    )
+    for child in list(run_properties):
+        if child.tag.rsplit("}", 1)[-1] in {
+            "solidFill",
+            "gradFill",
+            "noFill",
+            "pattFill",
+        }:
+            run_properties.remove(child)
+    fill = ET.SubElement(run_properties, f"{{{DRAWING_NS}}}solidFill")
+    ET.SubElement(fill, f"{{{DRAWING_NS}}}srgbClr", {"val": "EF4444"})
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def placeholder_shape(root: ET.Element, placeholder_type: str) -> ET.Element:
+    return next(
+        shape
+        for shape in root.iter()
+        if shape.tag.rsplit("}", 1)[-1] == "sp"
+        and any(
+            node.tag.rsplit("}", 1)[-1] == "ph"
+            and node.get("type") == placeholder_type
+            for node in shape.iter()
+        )
+    )
 
 
 def replace_shape_fill_with_gradient(shape: object) -> None:

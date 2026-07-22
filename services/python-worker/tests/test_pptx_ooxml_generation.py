@@ -168,7 +168,7 @@ def test_import_fidelity_fixture_contains_baseline_risks() -> None:
     assert title_run_properties.get("sz") is None
 
 
-def test_import_fidelity_fixture_imports_notes_and_reproduces_remaining_gaps() -> None:
+def test_import_fidelity_fixture_imports_notes_and_effective_title_style() -> None:
     result = generate_pptx_ooxml(
         IMPORT_FIDELITY_NOTES_FIXTURE,
         "file_import_fidelity_notes",
@@ -202,8 +202,11 @@ def test_import_fidelity_fixture_imports_notes_and_reproduces_remaining_gaps() -
     }
     assert title["props"]["fontFamily"] == "Pretendard"
     assert title["props"]["fontWeight"] == 600
-    assert title["props"]["fontSize"] == 24
-    assert any(
+    assert title["props"]["fontSize"] == 88
+    assert title["props"]["color"] == "#000000"
+    assert title["props"]["letterSpacing"] == 2.4
+    assert title["props"]["runs"][0]["letterSpacing"] == 2.4
+    assert not any(
         warning.startswith("PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING")
         for warning in result.warnings
     )
