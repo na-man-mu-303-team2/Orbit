@@ -90,4 +90,34 @@ describe("ORBIT-93 S3-compatible storage presign", () => {
 
     expect(url.searchParams.get("X-Amz-Expires")).toBe("300");
   });
+
+  it("returns object integrity metadata from HEAD", async () => {
+    const storage = new LocalMinioStorage({
+      endpoint: "http://minio:9000",
+      publicEndpoint: "http://localhost:9000",
+      bucket: "orbit-local",
+      region: "ap-northeast-2",
+      accessKeyId: "orbit",
+      secretAccessKey: "orbit-password",
+      forcePathStyle: true,
+    });
+    const send = vi.fn(async () => ({
+      ContentLength: 1_024,
+      ContentType: "image/png",
+      Metadata: { "orbit-sha256": "a".repeat(64) },
+    }));
+    (
+      storage as unknown as {
+        internalClient: { send: typeof send };
+      }
+    ).internalClient.send = send;
+
+    await expect(storage.headObject("projects/project-1/image.png")).resolves.toEqual(
+      {
+        contentLength: 1_024,
+        contentType: "image/png",
+        metadata: { "orbit-sha256": "a".repeat(64) },
+      },
+    );
+  });
 });
