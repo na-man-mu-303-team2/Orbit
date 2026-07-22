@@ -1720,6 +1720,98 @@ def test_varied_layout_exhausts_unique_body_compositions_before_reuse() -> None:
     assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
 
 
+@pytest.mark.parametrize(
+    "fixture_name",
+    ["product", "kpi", "process", "roadmap", "research"],
+)
+def test_phase_one_sample_decks_meet_visual_diversity_criteria(
+    fixture_name: str,
+) -> None:
+    definitions = {
+        "product": [
+            ("problem", 2, "Customer problem", "Current friction blocks adoption"),
+            ("solution", 3, "Product value", "Three focused customer benefits"),
+            ("feature-grid", 4, "Product capabilities", "A compact feature set"),
+            ("data", 3, "Launch KPI", "72% adoption and 3.4x engagement"),
+            ("quote", 2, "Customer story", "A field story with visual evidence"),
+        ],
+        "kpi": [
+            ("problem", 2, "Performance gap", "Two operating constraints"),
+            ("data", 3, "Growth KPI", "Revenue 42%, retention 91%, NPS 68"),
+            ("chart", 3, "Channel KPI", "Direct 54%, partner 31%, organic 15%"),
+            ("data", 4, "Unit economics", "CAC 18, LTV 96, margin 64%, payback 4"),
+            ("solution", 2, "Management action", "Two priority actions"),
+        ],
+        "process": [
+            ("problem", 2, "Delivery bottleneck", "The current handoff is fragmented"),
+            ("process", 3, "Discovery workflow", "Discover, craft, then verify each step"),
+            ("process", 4, "Execution phases", "Prepare, execute, verify, and improve"),
+            ("data", 3, "Outcome signals", "Lead time 12, defects 3%, adoption 84%"),
+            ("solution", 3, "Operating model", "Clear roles and review cadence"),
+        ],
+        "roadmap": [
+            ("problem", 2, "Roadmap premise", "Sequence investment by readiness"),
+            ("process", 3, "2027 product roadmap", "Quarterly milestones"),
+            ("data", 3, "Readiness signals", "Demand 78%, capacity 64%, risk 18%"),
+            ("feature-grid", 3, "Release scope", "Platform, workflow, and analytics"),
+            ("solution", 2, "Launch decision", "Fund the validated path"),
+        ],
+        "research": [
+            ("problem", 2, "Research question", "Two unresolved customer needs"),
+            ("data", 3, "Evidence summary", "42 interviews, 68% signal, 4 segments"),
+            ("quote", 2, "Participant voice", "A representative field observation"),
+            ("architecture", 4, "Insight ecosystem", "Connected themes and components"),
+            ("solution", 3, "Research implication", "Three evidence-led actions"),
+        ],
+    }[fixture_name]
+    slides = [slide_payload("cover", 1)]
+    for slide_type, item_count, title, message in definitions:
+        slide = slide_payload(slide_type, item_count)
+        slide.update({"title": title, "message": message})
+        if fixture_name == "roadmap" and "roadmap" in title.casefold():
+            slide["contentItems"] = [
+                {"contentItemId": "q1", "text": "Q1 foundation"},
+                {"contentItemId": "q2", "text": "Q2 beta"},
+                {"contentItemId": "q3", "text": "Q3 launch"},
+            ]
+        slides.append(slide)
+    slides.append(slide_payload("summary", 1))
+
+    normalized = normalize_design_program(
+        repeated_program(len(slides)),
+        slides,
+        media_policy="hybrid",
+        media_budget=4,
+        layout_diversity="varied",
+    )
+    body = normalized.slides[1:-1]
+    compiled = [
+        compile_composition(direction, slide, normalized)
+        for direction, slide in zip(normalized.slides, slides, strict=True)
+    ]
+    media_frames = {
+        (
+            element["x"],
+            element["y"],
+            element["width"],
+            element["height"],
+        )
+        for composition in compiled
+        for element in composition.elements
+        if element.get("role") == "media"
+    }
+
+    assert len({direction.composition_id for direction in body}) >= 3
+    assert all(
+        direction.composition_id != "timeline"
+        or content_supports_composition("timeline", slide)
+        for direction, slide in zip(normalized.slides, slides, strict=True)
+    )
+    if fixture_name == "process":
+        assert all(direction.composition_id != "timeline" for direction in body)
+    assert len(media_frames) >= 2
+
+
 def test_body_hero_split_without_media_uses_native_content_composition() -> None:
     slides = [
         slide_payload("cover", 1),
