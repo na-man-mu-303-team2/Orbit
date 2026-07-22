@@ -18,6 +18,7 @@ import { ActivitiesModule } from "./activities/activities.module";
 import { PptAdvisorModule } from "./ppt-advisor/ppt-advisor.module";
 import { ReferencesModule } from "./references/references.module";
 import { RealtimeGateway } from "./realtime/realtime.gateway";
+import { SlideRedesignProgressSubscriber } from "./realtime/slide-redesign-progress.subscriber";
 import { RealtimeTranscriptionModule } from "./realtime-transcription/realtime-transcription.module";
 import { RehearsalsModule } from "./rehearsals/rehearsals.module";
 import { RuntimeConfigModule } from "./runtime-config/runtime-config.module";
@@ -60,8 +61,8 @@ import { CommunityTemplatesModule } from "./community-templates/community-templa
     ChallengeQnaModule,
     SlidePracticeModule,
     SlideQuestionGuidesModule,
-    CommunityTemplatesModule
+    CommunityTemplatesModule,
   ],
-  providers: [RealtimeGateway]
+  providers: [RealtimeGateway, SlideRedesignProgressSubscriber],
 })
 export class AppModule {}

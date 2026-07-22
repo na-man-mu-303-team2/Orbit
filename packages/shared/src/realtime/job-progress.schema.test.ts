@@ -39,4 +39,33 @@ describe("slideRedesignProgressEventSchema", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("requires envelope room and session identifiers to match the payload", () => {
+    const event = {
+      roomId: "project-1",
+      sessionId: "session-1",
+      userId: "system",
+      sentAt: "2026-07-22T00:00:00.000Z",
+      payload: {
+        jobId: "job-redesign-1",
+        projectId: "project-1",
+        sessionId: "session-1",
+        stage: "interpreting",
+        completedStages: [],
+      },
+    };
+
+    expect(
+      slideRedesignProgressEventSchema.safeParse({
+        ...event,
+        roomId: "project-2",
+      }).success,
+    ).toBe(false);
+    expect(
+      slideRedesignProgressEventSchema.safeParse({
+        ...event,
+        sessionId: "session-2",
+      }).success,
+    ).toBe(false);
+  });
 });

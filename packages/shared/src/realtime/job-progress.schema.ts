@@ -15,7 +15,26 @@ export const slideRedesignProgressEventSchema = z
     ...jobProgressEnvelopeShape,
     payload: slideRedesignProgressPayloadSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((event, ctx) => {
+    if (event.roomId !== event.payload.projectId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["roomId"],
+        message: "roomId must match payload.projectId",
+      });
+    }
+    if (event.sessionId !== event.payload.sessionId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sessionId"],
+        message: "sessionId must match payload.sessionId",
+      });
+    }
+  });
+
+export const slideRedesignProgressChannel =
+  "orbit:realtime:slide-redesign-progress";
 
 export type SlideRedesignProgressEvent = z.infer<
   typeof slideRedesignProgressEventSchema

@@ -4,6 +4,7 @@ import { designAgentCapabilities } from "./design-agent.schema";
 import {
   createSlideRedesignJobRequestSchema,
   slideRedesignJobPayloadSchema,
+  slideRedesignJobResultSchema,
   slideRedesignProgressPayloadSchema,
 } from "./slide-redesign-job.schema";
 
@@ -121,5 +122,60 @@ describe("slide redesign job contracts", () => {
         }).success,
       ).toBe(false);
     }
+  });
+
+  it("keeps a completed applicable result self-contained for polling clients", () => {
+    const proposal = {
+      proposalId: "proposal-1",
+      projectId: "project-1",
+      deckId: context.deckId,
+      slideId: context.slide.slideId,
+      requestMessageId: "message-request-1",
+      responseMessageId: "message-response-1",
+      baseVersion: context.baseVersion,
+      title: "Slide redesign proposal",
+      operations: [
+        {
+          type: "update_slide_style" as const,
+          slideId: context.slide.slideId,
+          style: { backgroundColor: "#F8FAFC" },
+        },
+      ],
+      affectedElementIds: [],
+      warnings: [],
+      status: "pending" as const,
+      createdAt: "2026-07-22T00:00:00.000Z",
+      updatedAt: "2026-07-22T00:00:00.000Z",
+    };
+
+    expect(
+      slideRedesignJobResultSchema.parse({
+        outcome: "applicable",
+        sessionId: "session-1",
+        requestMessageId: "message-request-1",
+        responseMessageId: "message-response-1",
+        proposal,
+        stale: false,
+      }).proposal,
+    ).toEqual(proposal);
+  });
+
+  it("rejects proposal/outcome and stale/status contradictions", () => {
+    const result = {
+      outcome: "fallback-allowed",
+      sessionId: "session-1",
+      requestMessageId: "message-request-1",
+      responseMessageId: "message-response-1",
+      stale: true,
+    };
+
+    expect(slideRedesignJobResultSchema.safeParse(result).success).toBe(false);
+    expect(
+      slideRedesignJobResultSchema.safeParse({
+        ...result,
+        outcome: "applicable",
+        stale: false,
+      }).success,
+    ).toBe(false);
   });
 });
