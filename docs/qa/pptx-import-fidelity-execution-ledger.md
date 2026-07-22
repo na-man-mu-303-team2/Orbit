@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR1 공통 import·notes·quality 계약 확장
-- task branch: `feature/pptx-import-pr1-contracts`
-- 상태: target branch `--no-ff` merge와 merge 후 shared smoke test 완료
+- 단계: PR2 OOXML notes body와 provenance import
+- task branch: `feature/pptx-import-pr2-notes-import`
+- 상태: target branch `--no-ff` merge와 merge 후 notes smoke test 완료
 
 ## 완료된 작업과 Commit
 
@@ -32,6 +32,7 @@
 | PR0 기준선 결정              | `6f545bf3`  | `feature/pptx-import-pr0-baseline` | `f3ca2ab3`   | LibreOffice 채택, runtime Konva 기각 및 CI-only 결정 문서화                            |
 | PR1 공통 계약                 | `ae837d6f`  | `feature/pptx-import-pr1-contracts` | `38f0eb3e`   | strict request, optional slide mode, notes sidecar와 bounded diagnostics 검증          |
 | PR1 계약 문서                 | `57cbd3e1`  | `feature/pptx-import-pr1-contracts` | `38f0eb3e`   | `docs/contracts.md`, shared README와 실행 근거 정합화                                  |
+| PR2 notes body import         | `fa9cd147`  | `feature/pptx-import-pr2-notes-import` | `4d6a3b5f` | slide→notesSlide→notesMaster relationship 추적, body-only text와 locator 추출          |
 
 ## 실행한 검증
 
@@ -54,6 +55,13 @@
 | PR1 shared test       | `pnpm --filter @orbit/shared test`                                                    | 54 files, 573 tests passed                           |
 | PR1 shared build      | `pnpm --filter @orbit/shared build`                                                   | TypeScript build 성공                                |
 | PR1 merge smoke       | `pnpm --filter @orbit/shared test`                                                    | 54 files, 573 tests passed                           |
+| PR2 RED               | notes body·외부 관계·body 중복 4개 targeted test                                     | 구현 전 4 failed 확인                                |
+| PR2 importer test     | `pytest tests/test_pptx_design_importer.py`                                           | 35 passed                                            |
+| PR2 generation test   | importer와 OOXML generation 모듈                                                     | 57 passed, 1 skipped                                 |
+| PR2 Python 전체       | Python worker 전체 `pytest`                                                          | 789 passed, 1 skipped                                |
+| PR2 lint/type         | 변경 Python 파일 `ruff check --no-cache`, importer 2개 `mypy`                        | 모두 통과                                            |
+| PR2 실제 notes 비교   | SHA로 식별한 기준 PPTX의 relationship 기반 독립 추출과 importer 결과 비교            | 8/8 exact match, writable 8, warning 0               |
+| PR2 merge smoke       | notes 관련 importer·generation test                                                  | 7 passed, 51 deselected                              |
 
 ## PR0 Renderer 측정과 결정
 
@@ -78,6 +86,7 @@
 - accuracy E2E 초기화에서 data URL을 동일 바이트 `blob:` URL로 바꿔 localStorage에는 짧은 URL만 저장하도록 보정했다. 이후 8/8 capture가 성공했다.
 - sibling worktree의 `node_modules` symlink를 따라간 Pretendard 파일은 Vite serving allow list 밖이라 차단됐다. 앱 코드가 동일한 원본 workspace에서 Vite만 실행해 정상 font 조건으로 측정했다.
 - PR1 첫 shared build는 sandbox가 sibling worktree의 `packages/shared/dist` 생성을 막아 `TS5033 EPERM`으로 실패했다. 동일 명령을 승인된 worktree 쓰기 권한으로 재실행해 성공했고 생성한 ignored `dist`와 임시 dependency symlink는 제거한다.
+- Target이 없는 notes relationship fixture는 `python-pptx`가 package 로드 단계에서 `InvalidXmlError`로 중단되므로, raw OOXML vector importer 경로에서 fail-closed diagnostic을 검증했다.
 
 ## 계획 대비 변경과 근거
 
@@ -91,13 +100,14 @@
 - 원래 worktree의 계획 문서가 untracked였으므로 목표 worktree에는 해당 문서 한 개만 동일 경로로 복사했다.
 - LibreOffice notes page preview는 source app과의 pixel identity가 아니라 page completeness와 순서가 확인된 bounded preview다.
 - Runtime Konva SSIM은 CI 결과이며 production import report에서 측정값처럼 가장하지 않는다.
+- PR2는 notes body와 provenance만 가져오며 전체 notes page preview asset은 PR3에서 추가한다.
 
 ## 다음에 시작할 정확한 작업
 
-1. target branch의 clean 상태와 PR1 ledger commit을 확인한다.
-2. `feature/pptx-import-pr2-notes-import` task branch를 target branch HEAD에서 생성한다.
-3. slide relationship을 따라 notes slide/master와 유일한 body placeholder를 찾고 paragraph/line break/blank line을 보존한다.
-4. raw notes를 로그·quality sidecar에 복제하지 않고 fixture와 기준 PPTX의 8/8 body import를 검증한다.
+1. target branch의 clean 상태와 PR2 ledger commit을 확인한다.
+2. `feature/pptx-import-pr3-notes-render` task branch를 target branch HEAD에서 생성한다.
+3. current package를 bounded LibreOffice notes-only PDF로 변환하고 notes page별 preview bitmap을 생성한다.
+4. renderer 미설치·timeout·page-count mismatch를 `render-unavailable` 진단으로 고정하고 기준 파일 1·4·8 page를 재검증한다.
 
 ## 사용자 결정이 필요한 Blocker
 
