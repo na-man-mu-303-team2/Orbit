@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD: `ddcf65cb`
+- integration HEAD after PR00 merge: `211470905b65f620a9cef3d0ad8eead5e902fa76`
 - worktree: clean
 
 ## Baseline
@@ -23,8 +23,9 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00 (child 검증 완료, integration merge 대기)
-- 현재 milestone: PR00 — 요소 보존 정책과 안전성 판정
+- 완료 milestone: PR00 — 요소 보존 정책과 안전성 판정
+- PR00 integration merge: `211470905b65f620a9cef3d0ad8eead5e902fa76`
+- 현재 milestone: PR01 — Python design-agent 모델 정합화
 - 활성 child branch: `feature/slide-redesign-agent-v2-pr00-safety`
 - 활성 child worktree: `/private/tmp/orbit-slide-redesign-agent-v2-pr00-safety`
 - 완료 checkpoint와 code commit:
@@ -37,7 +38,12 @@
   - `uv run pytest tests/test_slide_redesign_safety.py -v` — 19 passed
 - stop gate: T0.1~T0.12 및 shared element type coverage 통과
 - child worktree: code commit 후 clean
-- 남은 stop gate: integration merge 후 focused test 재실행
+- integration merge 후 검증:
+  - `uv run ruff check app/ai/slide_redesign tests/test_slide_redesign_*.py` — 통과
+  - `uv run mypy app` — 63 source files 통과
+  - `uv run pytest tests/test_slide_redesign_safety.py -v` — 19 passed
+- 남은 stop gate: 없음
+- PR00 child 상태: integration merge 완료, progress commit 후 clean worktree 정리 예정
 - 다음 milestone: PR01 — Python design-agent 모델 정합화
 
 ## 문서와 코드의 불일치
