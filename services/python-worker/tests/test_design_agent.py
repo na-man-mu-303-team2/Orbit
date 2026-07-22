@@ -154,6 +154,8 @@ def add_element_proposal(
             "strokeWidth": 1,
             "borderRadius": 16,
         }
+        if element_type == "polygon":
+            props["sides"] = 5
     payload["operations"] = [
         {
             "type": "add_element",
@@ -193,6 +195,17 @@ def test_accepts_media_rect_role() -> None:
     )
 
     assert result.operations[0].element.role == "media"
+
+
+@pytest.mark.parametrize("element_type", ["ellipse", "line", "polygon"])
+def test_accepts_capability_v2_shape_elements(element_type: str) -> None:
+    result = DesignAgentResponse.model_validate(
+        add_element_proposal(element_type=element_type, role="decoration")
+    )
+
+    operation = result.operations[0]
+    assert operation.type == "add_element"
+    assert operation.element.type == element_type
 
 
 @pytest.mark.parametrize("font_weight", ["semibold", 600])
@@ -287,7 +300,7 @@ def test_slide_style_json_schema_exposes_layout_and_background_image() -> None:
     assert "image-right" in schema_text
 
 
-def test_design_agent_capability_default_remains_version_one() -> None:
+def test_design_agent_capability_version_one_request_remains_supported() -> None:
     capabilities = request_payload().capabilities
 
     assert capabilities.version == "1"

@@ -102,7 +102,7 @@ describe("design agent schema", () => {
     },
   );
 
-  it("rejects unknown capability versions while continuing to emit version 1", () => {
+  it("rejects unknown capability versions while emitting the v2 shape contract", () => {
     const result = designAgentCapabilitiesSchema.safeParse({
       ...designAgentCapabilities,
       version: "3",
@@ -110,8 +110,16 @@ describe("design agent schema", () => {
 
     expect(result.success).toBe(false);
     expect(designAgentCapabilities).toMatchObject({
-      version: "1",
-      addableElementTypes: ["text", "rect", "chart", "table"],
+      version: "2",
+      addableElementTypes: [
+        "text",
+        "rect",
+        "ellipse",
+        "line",
+        "polygon",
+        "chart",
+        "table",
+      ],
     });
   });
 
