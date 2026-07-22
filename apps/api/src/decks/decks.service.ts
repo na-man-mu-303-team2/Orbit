@@ -1771,6 +1771,7 @@ function createOoxmlReplacement(
   const slideOperations = createOoxmlSlideDiff(currentDeck, deck);
   const operations = [
     ...slideOperations,
+    ...createOoxmlSpeakerNotesDiff(currentDeck, deck),
     ...createOoxmlElementDiff(currentDeck, deck),
   ];
 
@@ -1857,6 +1858,26 @@ function validateAndSortSlides(deck: Deck): Deck["slides"] {
     );
   }
   return [...deck.slides].sort((left, right) => left.order - right.order);
+}
+
+function createOoxmlSpeakerNotesDiff(
+  currentDeck: Deck,
+  nextDeck: Deck,
+): DeckPatchOperation[] {
+  const currentSlides = new Map(
+    currentDeck.slides.map((slide) => [slide.slideId, slide]),
+  );
+  return nextDeck.slides.flatMap((slide) => {
+    const current = currentSlides.get(slide.slideId);
+    if (!current || current.speakerNotes === slide.speakerNotes) return [];
+    return [
+      {
+        type: "update_speaker_notes" as const,
+        slideId: slide.slideId,
+        speakerNotes: slide.speakerNotes,
+      },
+    ];
+  });
 }
 
 function createOoxmlElementDiff(
