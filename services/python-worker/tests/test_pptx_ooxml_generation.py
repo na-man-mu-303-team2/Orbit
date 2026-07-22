@@ -452,6 +452,200 @@ def test_sync_pptx_ooxml_applies_text_and_frame_patch(tmp_path: Path) -> None:
     )
 
 
+def test_sync_pptx_ooxml_updates_only_notes_body_and_reimports_text(
+    tmp_path: Path,
+) -> None:
+    source_bytes = IMPORT_FIDELITY_NOTES_FIXTURE.read_bytes()
+    generated = generate_pptx_ooxml(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        "file_notes_sync",
+        render=False,
+    )
+    speaker_notes = "첫 번째 문단\n\n수정된 발표 지시문\n마지막 줄"
+
+    result = sync_pptx_ooxml(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_speaker_notes",
+                "slideId": template_slide_id(generated),
+                "speakerNotes": speaker_notes,
+            }
+        ],
+    )
+    synced_bytes = current_package_bytes(result.assets)
+
+    assert [item.model_dump(by_alias=True, exclude_none=True) for item in result.applied_operations] == [
+        {
+            "operationType": "update_speaker_notes",
+            "slideId": template_slide_id(generated),
+        }
+    ]
+    assert result.unsupported_operations == []
+    assert package_entry(source_bytes, "ppt/notesSlides/_rels/notesSlide1.xml.rels") == package_entry(
+        synced_bytes,
+        "ppt/notesSlides/_rels/notesSlide1.xml.rels",
+    )
+    assert package_entry(source_bytes, "ppt/notesMasters/notesMaster1.xml") == package_entry(
+        synced_bytes,
+        "ppt/notesMasters/notesMaster1.xml",
+    )
+    assert notes_non_body_semantic_hash(source_bytes) == notes_non_body_semantic_hash(
+        synced_bytes
+    )
+    assert notes_body_structure_hash(source_bytes) == notes_body_structure_hash(
+        synced_bytes
+    )
+    source_paragraphs = notes_body_paragraphs(source_bytes)
+    synced_paragraphs = notes_body_paragraphs(synced_bytes)
+    assert ET.tostring(source_paragraphs[0]) == ET.tostring(synced_paragraphs[0])
+    assert {
+        name: digest
+        for name, digest in zip_entry_hashes(source_bytes).items()
+        if name != "ppt/notesSlides/notesSlide1.xml"
+    } == {
+        name: digest
+        for name, digest in zip_entry_hashes(synced_bytes).items()
+        if name != "ppt/notesSlides/notesSlide1.xml"
+    }
+
+    synced_path = tmp_path / "notes-body-synced.pptx"
+    synced_path.write_bytes(synced_bytes)
+    reimported = generate_pptx_ooxml(
+        synced_path,
+        "file_notes_reimported",
+        render=False,
+    )
+    assert reimported.blueprint["slides"][0]["speakerNotes"] == speaker_notes
+
+
+def test_sync_pptx_ooxml_inherits_notes_paragraph_and_run_style(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "styled-notes.pptx"
+    source_path.write_bytes(notes_package_with_body_style())
+    generated = generate_pptx_ooxml(source_path, "file_styled_notes", render=False)
+
+    result = sync_pptx_ooxml(
+        source_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_speaker_notes",
+                "slideId": template_slide_id(generated),
+                "speakerNotes": "첫 번째 문단\n\n새 발표 지시문",
+            }
+        ],
+    )
+
+    source_paragraph = notes_body_paragraphs(source_path.read_bytes())[2]
+    synced_paragraph = notes_body_paragraphs(current_package_bytes(result.assets))[2]
+    assert ET.tostring(source_paragraph.find(f"./{{{DRAWING_NS}}}pPr")) == ET.tostring(
+        synced_paragraph.find(f"./{{{DRAWING_NS}}}pPr")
+    )
+    assert ET.tostring(
+        source_paragraph.find(f"./{{{DRAWING_NS}}}r/{{{DRAWING_NS}}}rPr")
+    ) == ET.tostring(
+        synced_paragraph.find(f"./{{{DRAWING_NS}}}r/{{{DRAWING_NS}}}rPr")
+    )
+
+
+@pytest.mark.parametrize("locator_case", ["missing", "ambiguous"])
+def test_sync_pptx_ooxml_rejects_unsafe_notes_body_locator_without_changes(
+    locator_case: str,
+) -> None:
+    generated = generate_pptx_ooxml(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        "file_notes_locator",
+        render=False,
+    )
+    template_blueprint = copy.deepcopy(generated.template_blueprint)
+    slide = template_blueprint["slides"][0]
+    if locator_case == "missing":
+        slide["notesPage"].pop("bodyShapeId")
+    else:
+        template_blueprint["slides"].append(copy.deepcopy(slide))
+
+    result = sync_pptx_ooxml(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        template_blueprint=template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_speaker_notes",
+                "slideId": template_slide_id(generated),
+                "speakerNotes": "안전하지 않은 locator에서는 저장하지 않음",
+            }
+        ],
+    )
+
+    assert current_package_bytes(result.assets) == IMPORT_FIDELITY_NOTES_FIXTURE.read_bytes()
+    assert [
+        item.model_dump(by_alias=True, exclude_none=True)
+        for item in result.unsupported_operations
+    ] == [
+        {
+            "operationType": "update_speaker_notes",
+            "slideId": template_slide_id(generated),
+            "reasonCode": "NOTES_BODY_LOCATOR_UNSAFE",
+        }
+    ]
+
+
+def test_sync_pptx_ooxml_regenerates_notes_preview_after_body_edit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generated = generate_pptx_ooxml(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        "file_notes_preview_sync",
+        render=False,
+    )
+    monkeypatch.setattr(
+        pptx_ooxml_generation,
+        "render_pptx_to_png_assets",
+        lambda *_args, **_kwargs: [
+            make_test_png_asset("slide_render_1", "slide-01.png")
+        ],
+    )
+    monkeypatch.setattr(
+        pptx_ooxml_generation,
+        "render_pptx_notes_to_png_assets",
+        lambda *_args, **_kwargs: [
+            make_test_png_asset("notes_render_1", "notes-01.png")
+        ],
+    )
+
+    result = sync_pptx_ooxml(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=True,
+        operations=[
+            {
+                "type": "update_speaker_notes",
+                "slideId": template_slide_id(generated),
+                "speakerNotes": "preview 갱신",
+            }
+        ],
+    )
+
+    assert {asset.asset_id for asset in result.assets} >= {
+        "current_package",
+        "slide_render_1",
+        "notes_render_1",
+    }
+
+
 def test_sync_pptx_ooxml_skips_grouped_child_frame_patch(tmp_path: Path) -> None:
     pptx_path = sample_scaled_group_pptx(tmp_path)
     original_bytes = pptx_path.read_bytes()
@@ -1725,6 +1919,96 @@ def shape_xml(
 def package_entry(package_bytes: bytes, name: str) -> bytes:
     with zipfile.ZipFile(BytesIO(package_bytes), "r") as package:
         return package.read(name)
+
+
+def notes_non_body_semantic_hash(package_bytes: bytes) -> str:
+    root = ET.fromstring(
+        package_entry(package_bytes, "ppt/notesSlides/notesSlide1.xml")
+    )
+    shape_tree = root.find(f"./{{{PRESENTATION_NS}}}cSld/{{{PRESENTATION_NS}}}spTree")
+    assert shape_tree is not None
+    for shape in list(shape_tree):
+        placeholder = shape.find(
+            f"./{{{PRESENTATION_NS}}}nvSpPr/{{{PRESENTATION_NS}}}nvPr/"
+            f"{{{PRESENTATION_NS}}}ph"
+        )
+        if placeholder is not None and placeholder.get("type") == "body":
+            shape_tree.remove(shape)
+    return hashlib.sha256(ET.tostring(root)).hexdigest()
+
+
+def notes_body_structure_hash(package_bytes: bytes) -> str:
+    root = ET.fromstring(
+        package_entry(package_bytes, "ppt/notesSlides/notesSlide1.xml")
+    )
+    namespaces = {"a": DRAWING_NS, "p": PRESENTATION_NS}
+    body_shape = next(
+        shape
+        for shape in root.findall("./p:cSld/p:spTree/p:sp", namespaces)
+        if (
+            placeholder := shape.find("./p:nvSpPr/p:nvPr/p:ph", namespaces)
+        )
+        is not None
+        and placeholder.get("type") == "body"
+    )
+    structure = copy.deepcopy(body_shape)
+    text_body = structure.find("./p:txBody", namespaces)
+    assert text_body is not None
+    for paragraph in text_body.findall("./a:p", namespaces):
+        text_body.remove(paragraph)
+    return hashlib.sha256(ET.tostring(structure)).hexdigest()
+
+
+def notes_body_paragraphs(package_bytes: bytes) -> list[ET.Element]:
+    root = ET.fromstring(
+        package_entry(package_bytes, "ppt/notesSlides/notesSlide1.xml")
+    )
+    namespaces = {"a": DRAWING_NS, "p": PRESENTATION_NS}
+    body_shape = next(
+        shape
+        for shape in root.findall("./p:cSld/p:spTree/p:sp", namespaces)
+        if (
+            placeholder := shape.find("./p:nvSpPr/p:nvPr/p:ph", namespaces)
+        )
+        is not None
+        and placeholder.get("type") == "body"
+    )
+    return body_shape.findall("./p:txBody/a:p", namespaces)
+
+
+def notes_package_with_body_style() -> bytes:
+    source_bytes = IMPORT_FIDELITY_NOTES_FIXTURE.read_bytes()
+    notes_part = "ppt/notesSlides/notesSlide1.xml"
+    root = ET.fromstring(package_entry(source_bytes, notes_part))
+    namespaces = {"a": DRAWING_NS, "p": PRESENTATION_NS}
+    body_shape = next(
+        shape
+        for shape in root.findall("./p:cSld/p:spTree/p:sp", namespaces)
+        if (
+            placeholder := shape.find("./p:nvSpPr/p:nvPr/p:ph", namespaces)
+        )
+        is not None
+        and placeholder.get("type") == "body"
+    )
+    paragraph = body_shape.findall("./p:txBody/a:p", namespaces)[2]
+    paragraph.insert(0, ET.Element(f"{{{DRAWING_NS}}}pPr", {"algn": "ctr"}))
+    run = paragraph.find(f"./{{{DRAWING_NS}}}r")
+    assert run is not None
+    run.insert(
+        0,
+        ET.Element(f"{{{DRAWING_NS}}}rPr", {"b": "1", "sz": "1800"}),
+    )
+    updated_notes = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    output = BytesIO()
+    with zipfile.ZipFile(BytesIO(source_bytes), "r") as source:
+        with zipfile.ZipFile(output, "w") as destination:
+            for info in source.infolist():
+                destination.writestr(
+                    info,
+                    updated_notes if info.filename == notes_part else source.read(info),
+                )
+    return output.getvalue()
 
 
 def zip_entry_hashes(package_bytes: bytes) -> dict[str, str]:
