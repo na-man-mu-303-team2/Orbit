@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: Checkpoint C 사용자 시나리오 승인
-- task branch: `test/pptx-import-checkpoint-c`
-- 상태: 실제 기준 파일의 두 import policy notes 보존, notes preview·round-trip, render mode·export·품질 진단 경계를 통합 검증하고 target branch에 `--no-ff` merge함
+- 단계: PR13 asset 성능과 package 보안 hardening
+- task branch: `feature/pptx-import-pr13-asset-security-hardening`
+- 상태: media/storage content hash dedupe, renderer 자원 제한, unsafe package 선검사·sanitize·code 진단을 완료하고 target branch에 `--no-ff` merge함
 
 ## 완료된 작업과 Commit
 
@@ -47,6 +47,7 @@
 | PR11 effective text style     | `6eba286b`, `411c22e4` | `feature/pptx-import-pr11-effective-text-style` | `526c145d` | slide/layout/master/theme cascade, direct run 보존, spacing·inset·autofit 왕복         |
 | PR12 quality regression gate  | `d0669007`, `98a8bf66` | `feature/pptx-import-pr12-quality-regression-gate` | `3e081ee3` | slide별 진단 panel, 평가 상태 계약, actual pixel/fallback gate 자동화                 |
 | Checkpoint C 사용자 시나리오  | `986a72ea` | `test/pptx-import-checkpoint-c` | `45f58e5d` | 실제 두 policy notes digest, preview·round-trip, mode·export·quality 사용자 경계 승인 |
+| PR13 asset/security hardening | `fcbcbb79`, `d9d40948` | `feature/pptx-import-pr13-asset-security-hardening` | `0ea9bb9a` | SHA-256 dedupe, bitmap resource limits, ZIP/relationship/active-content 방어             |
 
 ## 실행한 검증
 
@@ -199,6 +200,15 @@
 | Checkpoint C notes page | 실제 Worker persistence와 sync 후 preview file ID                                         | 최초 8/8, refresh 8/8                                |
 | Checkpoint C mode UI   | rail/canvas mode, quality panel, export dialog 대상 Web test                               | 4 files, 18 tests passed                             |
 | Checkpoint C export    | imported OOXML PPTX/PNG ZIP export processor test                                          | 11 tests passed                                      |
+| PR13 Python 대상       | OOXML generation·importer·sync·package security·resource limit                              | 100 tests passed                                     |
+| PR13 Python 전체       | `uv --cache-dir /tmp/orbit-uv-cache run pytest`                                             | 828 passed                                           |
+| PR13 Python lint/type  | 전체 `ruff check --no-cache .`, `mypy app`                                                   | 모두 통과, mypy 64 source files                      |
+| PR13 Worker 대상       | generation processor content-hash dedupe                                                     | 16 tests passed                                      |
+| PR13 Worker 전체       | `pnpm --filter @orbit/worker test`                                                           | 396 passed, 15 skipped                               |
+| PR13 Worker lint/build | TypeScript no-emit, dependency와 Worker production build                                    | 모두 통과                                            |
+| PR13 실제 성능 전      | PR13 직전 21 MiB 기준 파일 full import                                                       | 14.525s, max RSS 525,926,400 B, asset 50             |
+| PR13 실제 성능 후      | PR13 21 MiB 기준 파일 full import                                                            | 14.400s, max RSS 524,173,312 B, asset 45             |
+| PR13 실제 asset 절감   | generated/storage asset와 decoded bytes                                                      | 50→45, 51,831,177→50,424,674 B                       |
 
 ## PR0 Renderer 측정과 결정
 
@@ -255,6 +265,7 @@
 - PR10 첫 Web test는 필수 `APP_ENV`, `API_BASE_URL`, `WEB_PORT`가 없어 Vite config 단계에서 중단됐다. 비밀값 없는 test/local 값만 명시해 전체 1,818개 test를 통과시켰다.
 - Checkpoint C 첫 두 실행은 경량 `/design/import-pptx` 응답에서 production Worker가 저장하는 notes preview 상태를 assertion해 실패했다. 경량 경로는 두 policy의 notes body digest만 비교하고 preview 8/8은 실제 Worker generation·storage 결과에서 확인하도록 계층을 바로잡았다.
 - Checkpoint C Web 대상 test 첫 실행은 package-local `react` link가 없어 collection 단계에서 중단됐다. 원본 설치의 link tree만 임시 복사해 18개 test를 통과시키고 commit 전에 제거했다.
+- PR13 Worker 전체 test 첫 실행은 integration spec이 가져오는 API/realtime package-local link가 없어 `@orbit/shared` 하위 모듈을 찾지 못했다. API/realtime의 기존 link tree만 임시 복사해 396 passed, 15 skipped를 확인하고 commit 전에 제거했다.
 
 ## 계획 대비 변경과 근거
 
@@ -288,6 +299,9 @@
 - PR12 panel은 composite score를 “구조 품질 점수”, `editabilityCoverage`를 “편집 가능한 객체 비율”로 표시하고 시각 품질이 아님을 명시한다. slide별 selected/recommended mode, pixel 상태/SSIM, unsupported/font count, fallback reason과 notes/motion/global warning을 모두 native `details`로 탐색할 수 있다.
 - PR12 scorer는 `pixelPassed`와 `gatePassed`를 분리한다. editability SSIM `0.80..0.95`는 `fallback_required`로 기록하고 editable candidate는 snapshot 권장, 기존 hybrid는 hybrid 유지 reason을 부여한다. `0.80` 미만, unresolved asset, 부정확한 full-slide fallback은 hard failure다.
 - 실제 기준 최종 PR12 측정은 appearance 8/8 SSIM 1.0, editability pixel 3/8 통과, explicit fallback 5/8이다. 이 수치는 CI report에만 저장되며 runtime quality API에 복사하지 않는다.
+- PR13 Python importer는 같은 media bytes를 SHA-256으로 한 번만 응답하고 모든 element가 같은 `asset:` reference를 사용한다. Worker는 asset 종류와 관계없이 content hash별 한 번만 저장하므로 slide render와 notes preview의 bytes가 같아도 동일 `fileId`로 치환된다.
+- ZIP traversal·중복 entry·entry/total 해제 크기·compression ratio는 parsing 전에 bounded code로 거부한다. external relationship과 macro/OLE/ActiveX는 원본 source-preserving package에는 유지하되 renderer용 in-memory package에서 관계·part·content type을 제거한다.
+- source render는 최대 1920 px, 16 MiB/asset, 256 MiB total, 1,000 pages, 10초 decode이고 notes preview는 최대 1280 px, 8 MiB/asset, 128 MiB total, 1,000 pages, 10초 decode다.
 
 ## 알려진 제한 사항
 
@@ -310,14 +324,15 @@
 - PR11 실제 기준 slides 1·2·3·6·7의 editability-first SSIM은 0.8822~0.9036이며 slide 7만 현재 hybrid reason을 가진다. 이 값을 성공으로 가장하지 않고 PR12에서 slide별 CI measurement와 explicit fallback/recommendation reason으로 노출·gate한다.
 - PR12 actual gate에서 낮은 editable slide 1·2·3·6은 snapshot을 권장하고 slide 7은 hybrid를 유지한다. runtime selected mode는 CI 측정으로 사후 변경하지 않으며 UI의 runtime report와 CI artifact를 구분한다.
 - Checkpoint C에서 경량 `/design/import-pptx`는 notes preview asset을 생성하지 않으므로 두 policy의 notes body 동일성만 digest로 비교한다. notes preview 8/8과 refresh 8/8은 production과 같은 Worker generation·storage 경로에서 검증한다.
+- PR13 실제 기준의 repeated media reference 5개가 Python response에서 제거되어 저장 asset이 50개에서 45개로 감소했다. 시간과 RSS 변화는 단일 로컬 측정값이며 성능 개선을 과장하지 않고 회귀 기준으로만 사용한다.
 
 ## 다음에 시작할 정확한 작업
 
-1. Checkpoint C ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. `feature/pptx-import-pr13-asset-security-hardening`를 target branch HEAD에서 생성한다.
-3. 동일 media content hash dedupe와 slide/notes asset 참조 공유를 구현한다.
-4. notes/source bitmap dimension·byte·decode-time 경계와 unsafe ZIP/relationship/active content code 진단을 추가한다.
-5. Python·Worker 전체 회귀와 실제 21 MiB 기준 파일의 시간·peak RSS·asset count를 측정한다.
+1. PR13 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. 최종 승인 기준의 기능·시각 품질·계약/보안·운영 항목을 기존 자동화와 실제 기준 파일로 재검증한다.
+3. `pnpm build`, `pnpm lint`, `pnpm test`, `node infra/scripts/check-env.mjs`, `docker compose config`를 실행한다.
+4. Python `ruff check .`, `mypy app`, `pytest`를 최종 실행한다.
+5. 최종 결과와 남은 제한을 ledger에 기록하고 goal을 완료한다.
 
 ## 사용자 결정이 필요한 Blocker
 
