@@ -37,6 +37,7 @@ const generatedDesignAssetSchema = z.object({
 const ooxmlGenerationBlueprintSlideSchema = z
   .object({
     sourceSlideIndex: z.number().int().positive().optional(),
+    speakerNotes: z.string().default(""),
     style: slideStyleSchema,
     elements: z.array(deckElementSchema).default([]),
     transition: slideTransitionSchema.optional(),
@@ -70,6 +71,7 @@ type OoxmlTemplateBlueprint =
 type SavedAssetRefs = {
   fileIds: Map<string, string>;
   urls: Map<string, string>;
+  failedNotesPreviewRefs: Set<string>;
 };
 
 type JobRow = {
@@ -167,9 +169,14 @@ export async function processPptxOoxmlGenerationJob(
       payload.projectId,
       generated,
     );
+    const reconciledNotes = reconcileFailedNotesPreviewAssets(
+      generated.templateBlueprint,
+      generated.qualityReport,
+      assetRefs.failedNotesPreviewRefs,
+    );
     const templateBlueprint =
       pptxOoxmlGenerationWorkerResponseSchema.shape.templateBlueprint.parse(
-        replaceAssetRefs(generated.templateBlueprint, assetRefs.fileIds),
+        replaceAssetRefs(reconciledNotes.templateBlueprint, assetRefs.fileIds),
       );
     const deckBlueprint =
       pptxOoxmlGenerationWorkerResponseSchema.shape.blueprint.parse(
@@ -201,7 +208,7 @@ export async function processPptxOoxmlGenerationJob(
         payload.projectId,
         deck.deckId,
         mappedTemplateBlueprint,
-        generated.qualityReport,
+        reconciledNotes.qualityReport,
       );
       await updateProjectTitle(manager, payload.projectId, deck.title);
     });
@@ -211,7 +218,7 @@ export async function processPptxOoxmlGenerationJob(
       templateId: templateBlueprint.templateId,
       sourceFileId: payload.request.fileId,
       currentPackageFileId: templateBlueprint.currentPackageFileId,
-      qualityReport: generated.qualityReport,
+      qualityReport: reconciledNotes.qualityReport,
       warnings: generated.warnings,
     });
 
@@ -319,42 +326,52 @@ async function saveGeneratedDesignAssets(
   const refs: SavedAssetRefs = {
     fileIds: new Map(),
     urls: new Map(),
+    failedNotesPreviewRefs: new Set(),
   };
 
   for (const asset of generated.assets) {
+    const assetRef = `asset:${asset.assetId}`;
     const fileId = `file_${randomUUID()}`;
     const originalName = safeStorageName(asset.fileName);
     const storageKey = `projects/${projectId}/assets/${fileId}-${originalName}`;
     const body = Buffer.from(asset.contentBase64, "base64");
     const url = createAssetContentUrl(projectId, fileId);
 
-    await storage.putObject({
-      key: storageKey,
-      body,
-      contentType: asset.mimeType,
-      purpose: "design-asset",
-    });
-    await dataSource.query(
-      `
-        INSERT INTO project_assets (
-          file_id, project_id, storage_key, original_name, mime_type, size, url,
-          purpose, status, created_at, uploaded_at, deleted_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'design-asset', 'uploaded', now(), now(), null)
-      `,
-      [
-        fileId,
-        projectId,
-        storageKey,
-        originalName,
-        asset.mimeType,
-        body.byteLength,
-        url,
-      ],
-    );
+    try {
+      await storage.putObject({
+        key: storageKey,
+        body,
+        contentType: asset.mimeType,
+        purpose: "design-asset",
+      });
+      await dataSource.query(
+        `
+          INSERT INTO project_assets (
+            file_id, project_id, storage_key, original_name, mime_type, size, url,
+            purpose, status, created_at, uploaded_at, deleted_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, 'design-asset', 'uploaded', now(), now(), null)
+        `,
+        [
+          fileId,
+          projectId,
+          storageKey,
+          originalName,
+          asset.mimeType,
+          body.byteLength,
+          url,
+        ],
+      );
+    } catch (error) {
+      if (isNotesPreviewAssetId(asset.assetId)) {
+        refs.failedNotesPreviewRefs.add(assetRef);
+        continue;
+      }
+      throw error;
+    }
 
-    refs.fileIds.set(`asset:${asset.assetId}`, fileId);
-    refs.urls.set(`asset:${asset.assetId}`, url);
+    refs.fileIds.set(assetRef, fileId);
+    refs.urls.set(assetRef, url);
   }
 
   return refs;
@@ -468,7 +485,7 @@ function buildOoxmlDeck(
               }
             : {}),
         },
-        speakerNotes: "",
+        speakerNotes: blueprintSlide?.speakerNotes ?? "",
         elements,
         keywords: [],
         animations,
@@ -479,6 +496,82 @@ function buildOoxmlDeck(
       };
     }),
   });
+}
+
+function reconcileFailedNotesPreviewAssets(
+  templateBlueprint: OoxmlTemplateBlueprint,
+  qualityReport: QualityReport,
+  failedRefs: ReadonlySet<string>,
+): {
+  templateBlueprint: OoxmlTemplateBlueprint;
+  qualityReport: QualityReport;
+} {
+  if (failedRefs.size === 0) {
+    return { templateBlueprint, qualityReport };
+  }
+
+  let affectedCount = 0;
+  const slides = templateBlueprint.slides.map((slide) => {
+    const notesPage = slide.notesPage;
+    if (
+      !notesPage?.renderAssetFileId ||
+      !failedRefs.has(notesPage.renderAssetFileId)
+    ) {
+      return slide;
+    }
+
+    affectedCount += 1;
+    const downgradedNotesPage = { ...notesPage };
+    delete downgradedNotesPage.renderAssetFileId;
+    return {
+      ...slide,
+      notesPage: {
+        ...downgradedNotesPage,
+        status: "render-unavailable" as const,
+      },
+    };
+  });
+
+  if (affectedCount === 0) {
+    return { templateBlueprint, qualityReport };
+  }
+
+  const diagnostics = qualityReport.notesDiagnostics ?? {
+    total: slides.length,
+    imported: slides.filter((slide) => slide.notesPage?.sourceNotesPart).length,
+    rendered: 0,
+    writable: slides.filter((slide) => slide.notesPage?.bodyWritable).length,
+    warnings: [],
+  };
+  const warningCounts = new Map(
+    diagnostics.warnings.map((warning) => [warning.code, warning.count]),
+  );
+  warningCounts.set(
+    "PPTX_NOTES_PREVIEW_ASSET_FAILED",
+    (warningCounts.get("PPTX_NOTES_PREVIEW_ASSET_FAILED") ?? 0) +
+      affectedCount,
+  );
+
+  return {
+    templateBlueprint: templateBlueprintSchema.parse({
+      ...templateBlueprint,
+      slides,
+    }),
+    qualityReport: qualityReportSchema.parse({
+      ...qualityReport,
+      notesDiagnostics: {
+        ...diagnostics,
+        rendered: Math.max(0, diagnostics.rendered - affectedCount),
+        warnings: [...warningCounts.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([code, count]) => ({ code, count })),
+      },
+    }),
+  };
+}
+
+function isNotesPreviewAssetId(assetId: string): boolean {
+  return /^notes_render_[1-9]\d*$/.test(assetId);
 }
 
 function reconcileMotionCapabilitiesWithDeck(
@@ -582,7 +675,7 @@ function replaceAssetRefs(value: unknown, refs: Map<string, string>): unknown {
     return Object.fromEntries(
       Object.entries(value).map(([key, item]) => [
         key,
-        replaceAssetRefs(item, refs),
+        key === "speakerNotes" ? item : replaceAssetRefs(item, refs),
       ]),
     );
   }
