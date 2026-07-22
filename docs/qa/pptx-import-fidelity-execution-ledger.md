@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR11 slide/layout/master/theme effective text style
-- task branch: `feature/pptx-import-pr11-effective-text-style`
-- 상태: placeholder text cascade, direct run 우선순위, paragraph/body/autofit/letter spacing 계약과 Web rendering을 완료하고 target branch에 `--no-ff` merge함
+- 단계: PR12 품질 패널과 실제 회귀 gate
+- task branch: `feature/pptx-import-pr12-quality-regression-gate`
+- 상태: slide별 품질 진단 UI, pixel/fallback 상태 분리, 실제 8-slide automated gate를 완료하고 target branch에 `--no-ff` merge함
 
 ## 완료된 작업과 Commit
 
@@ -45,6 +45,7 @@
 | PR9 slide render mode         | `c39868ee`  | `feature/pptx-import-pr9-render-mode` | `f3decd83` | preference·pixel·capability로 mode 결정, snapshot tree 보존과 전체 renderer 일치       |
 | PR10 font normalization       | `49142df4`  | `feature/pptx-import-pr10-font-normalization` | `fe51afae` | 명시적 Pretendard alias, unknown 보존·fallback 진단, 실제 browser weight 검증          |
 | PR11 effective text style     | `6eba286b`, `411c22e4` | `feature/pptx-import-pr11-effective-text-style` | `526c145d` | slide/layout/master/theme cascade, direct run 보존, spacing·inset·autofit 왕복         |
+| PR12 quality regression gate  | `d0669007`, `98a8bf66` | `feature/pptx-import-pr12-quality-regression-gate` | `3e081ee3` | slide별 진단 panel, 평가 상태 계약, actual pixel/fallback gate 자동화                 |
 
 ## 실행한 검증
 
@@ -180,6 +181,18 @@
 | PR11 요청 slide 비교  | slides 1·2·3·6·7 appearance/editability SSIM                                            | appearance 5/5 = 1.0, editable 0.8822~0.9036        |
 | PR11 actual style audit | OOXML generation의 원문 없는 bounded metadata                                           | slide 1 title Pretendard bold, size 120, source color, shrink-text |
 | PR11 merge smoke       | layout cascade와 direct color 우선순위 targeted test                                    | 1 passed                                             |
+| PR12 UI RED            | slide mode/pixel/fallback/font/notes/motion/all warning panel test                       | 구현 전 2 failed, idle 1 passed                      |
+| PR12 scorer RED        | pixel/fallback 분리, fallback floor, strict appearance 5개 unit test                     | 구현 전 5 failed                                     |
+| PR12 Shared 전체       | `pnpm --filter @orbit/shared test`와 build                                               | 54 files, 584 tests passed, build 통과               |
+| PR12 Web 대상          | panel, persisted rehydration, EditorShell                                                | 3 files, 86 tests passed                             |
+| PR12 Web 전체          | `pnpm --filter @orbit/web test -- ...`                                                   | 292 files, 1,822 tests passed                        |
+| PR12 Web lint/build    | TypeScript no-emit, production build                                                     | 통과, 기존 dynamic import·chunk-size warning만 발생 |
+| PR12 Worker 대상       | render mode reconcile processor와 lint                                                   | 15 tests passed, lint 통과                            |
+| PR12 Python gate       | scorer unit 5개와 prepare/scorer/test `ruff check`                                       | 5 passed, ruff 통과                                  |
+| PR12 실제 기준 E2E     | mode/tree/thumbnail/reason assertion 포함 8 slides × 두 preference                       | 16/16 capture passed                                 |
+| PR12 실제 gate         | SSIM threshold와 explicit fallback floor                                                | gate 16/16, pixel 11/16, fallback 5, hard failure 0 |
+| PR12 workspace build   | production env를 주입한 `pnpm build`                                                     | 10/10 package build 통과                             |
+| PR12 merge smoke       | scorer fallback semantics                                                               | 5 passed                                             |
 
 ## PR0 Renderer 측정과 결정
 
@@ -264,6 +277,9 @@
 - PR11 importer는 master `txStyles`, master/layout placeholder `lstStyle`, slide shape style, paragraph/run direct formatting을 낮은 우선순위부터 합성한다. Deck의 top-level/paragraph에는 effective style을 materialize하고 run에는 direct property만 남겨, 상속값이 source-preserving sync에서 불필요한 direct formatting으로 기록되지 않게 했다.
 - `normAutofit`의 `fontScale`과 `lnSpcReduction`, run `spc`를 bounded Deck contract로 추가하고 Web canvas·inline editor 및 targeted/generic export에 연결했다. `fontScale`과 `lineSpaceReduction`은 `autoFit=shrink-text`에서만 허용한다.
 - 실제 screenshot은 symlink된 외부 font가 Vite dev allow-list에 막히는 환경 오염을 배제하기 위해 `vite build --mode test`의 bundled Pretendard와 production preview를 사용했다. appearance-first 8/8은 SSIM 1.0을 유지했다.
+- PR12 panel은 composite score를 “구조 품질 점수”, `editabilityCoverage`를 “편집 가능한 객체 비율”로 표시하고 시각 품질이 아님을 명시한다. slide별 selected/recommended mode, pixel 상태/SSIM, unsupported/font count, fallback reason과 notes/motion/global warning을 모두 native `details`로 탐색할 수 있다.
+- PR12 scorer는 `pixelPassed`와 `gatePassed`를 분리한다. editability SSIM `0.80..0.95`는 `fallback_required`로 기록하고 editable candidate는 snapshot 권장, 기존 hybrid는 hybrid 유지 reason을 부여한다. `0.80` 미만, unresolved asset, 부정확한 full-slide fallback은 hard failure다.
+- 실제 기준 최종 PR12 측정은 appearance 8/8 SSIM 1.0, editability pixel 3/8 통과, explicit fallback 5/8이다. 이 수치는 CI report에만 저장되며 runtime quality API에 복사하지 않는다.
 
 ## 알려진 제한 사항
 
@@ -284,14 +300,15 @@
 - PR10 Python fallback 진단은 현재 slide part의 explicit run property를 대상으로 하며 layout/master/theme에서 상속되는 effective family는 PR11 cascade에서 계산한다. Web helper는 실제 Deck에 materialized된 text/table family를 다시 진단한다.
 - Web font availability helper는 PR10에서 계산 경계와 테스트만 제공하며 사용자 노출은 PR12 quality panel에서 연결한다.
 - PR11 실제 기준 slides 1·2·3·6·7의 editability-first SSIM은 0.8822~0.9036이며 slide 7만 현재 hybrid reason을 가진다. 이 값을 성공으로 가장하지 않고 PR12에서 slide별 CI measurement와 explicit fallback/recommendation reason으로 노출·gate한다.
+- PR12 actual gate에서 낮은 editable slide 1·2·3·6은 snapshot을 권장하고 slide 7은 hybrid를 유지한다. runtime selected mode는 CI 측정으로 사후 변경하지 않으며 UI의 runtime report와 CI artifact를 구분한다.
 
 ## 다음에 시작할 정확한 작업
 
-1. PR11 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. `feature/pptx-import-pr12-quality-regression-gate`를 target branch HEAD에서 생성한다.
-3. quality panel에 slide별 selected/recommended mode, pixel 평가 여부, fallback object, font 대체, notes import/render/sync 상태와 모든 bounded warning을 연결한다.
-4. `editabilityCoverage=100%`와 pixel/text fidelity를 분리하고 미평가·실패를 성공 점수로 표시하지 않는 회귀 test를 추가한다.
-5. 실제 8-slide appearance/editability 기준을 CI scorer와 Playwright gate로 자동화한다.
+1. PR12 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. `test/pptx-import-checkpoint-c`를 target branch HEAD에서 생성한다.
+3. 실제 기준 파일의 두 preference, notes body/page, thumbnail/canvas, PNG/PPTX export와 quality failure visibility 사용자 시나리오를 통합 검증한다.
+4. Checkpoint C 근거를 별도 commit/merge/ledger에 기록한다.
+5. `feature/pptx-import-pr13-asset-security-hardening`에서 dedupe, resource bounds, unsafe package 진단을 구현한다.
 
 ## 사용자 결정이 필요한 Blocker
 
