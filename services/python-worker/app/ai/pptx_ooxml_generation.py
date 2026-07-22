@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import zipfile
 from dataclasses import dataclass
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -67,12 +68,28 @@ IMAGE_REL_TYPE = (
 SLIDE_REL_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
 )
+NOTES_SLIDE_REL_TYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide"
+)
+NOTES_MASTER_REL_TYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster"
+)
+THEME_REL_TYPE = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
+)
 SLIDE_LAYOUT_REL_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"
 )
 SLIDE_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.presentationml.slide+xml"
 )
+NOTES_SLIDE_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"
+)
+NOTES_MASTER_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"
+)
+THEME_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.theme+xml"
 P_SP = f"{{{PML_NS}}}sp"
 P_PIC = f"{{{PML_NS}}}pic"
 P_GRAPHIC_FRAME = f"{{{PML_NS}}}graphicFrame"
@@ -179,6 +196,7 @@ PptxOoxmlUnsupportedReasonCode = Literal[
     "NOTES_BODY_LOCATOR_UNSAFE",
     "NOTES_BODY_NOT_WRITABLE",
     "NOTES_BODY_UPDATE_FAILED",
+    "NOTES_MASTER_CAPABILITY_UNSAFE",
     "NOTES_PART_MISSING",
     "OPERATION_TYPE_UNSUPPORTED",
     "PROPS_FIELDS_UNSUPPORTED",
@@ -224,6 +242,32 @@ class PptxOoxmlUnsupportedOperation(PptxOoxmlAppliedOperation):
     reason_code: PptxOoxmlUnsupportedReasonCode = Field(alias="reasonCode")
 
 
+class PptxOoxmlNotesPage(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    status: Literal["preserved", "rendered", "render-unavailable"]
+    source_notes_part: str = Field(
+        alias="sourceNotesPart",
+        pattern=r"^ppt/notesSlides/notesSlide[1-9][0-9]*\.xml$",
+    )
+    source_notes_master_part: str = Field(
+        alias="sourceNotesMasterPart",
+        pattern=r"^ppt/notesMasters/notesMaster[1-9][0-9]*\.xml$",
+    )
+    body_shape_id: str = Field(alias="bodyShapeId", min_length=1, max_length=64)
+    body_writable: Literal[True] = Field(alias="bodyWritable")
+    notes_width_emu: int = Field(alias="notesWidthEmu", gt=0)
+    notes_height_emu: int = Field(alias="notesHeightEmu", gt=0)
+    has_non_body_content: bool = Field(alias="hasNonBodyContent")
+
+
+class PptxOoxmlNotesPageUpdate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    slide_id: str = Field(alias="slideId", min_length=1, max_length=128)
+    notes_page: PptxOoxmlNotesPage = Field(alias="notesPage")
+
+
 class PptxOoxmlAppliedSlideMotion(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -257,6 +301,11 @@ class PptxOoxmlSyncResult(BaseModel):
         default_factory=list,
         max_length=500,
         alias="unsupportedOperations",
+    )
+    notes_pages: list[PptxOoxmlNotesPageUpdate] = Field(
+        default_factory=list,
+        max_length=500,
+        alias="notesPages",
     )
     applied_slide_motion: list[PptxOoxmlAppliedSlideMotion] = Field(
         default_factory=list,
@@ -635,6 +684,15 @@ def sync_pptx_ooxml(
 ) -> PptxOoxmlSyncResult:
     del synced_deck_version
 
+    absent_notes_slide_ids = {
+        str(slide.get("slideId", ""))
+        for slide in template_blueprint.get("slides", [])
+        if isinstance(slide, dict)
+        and isinstance((notes_page := slide.get("notesPage")), dict)
+        and notes_page.get("status") == "absent"
+        and slide.get("slideId")
+    }
+
     presentation = Presentation(str(path))
     scale = PackageFrameScale(
         canvas_width=int_value(deck_canvas.get("width"), CANVAS_WIDTH),
@@ -685,10 +743,42 @@ def sync_pptx_ooxml(
         elementSources=updated_element_sources,
         appliedOperations=applied_operations,
         unsupportedOperations=unsupported_operations,
+        notesPages=(
+            notes_page_updates(
+                template_blueprint,
+                absent_notes_slide_ids,
+            )
+            if not unsupported_operations
+            else []
+        ),
         appliedSlideMotion=applied_slide_motion,
         unsupportedSlideMotion=unsupported_slide_motion,
         warnings=warnings,
     )
+
+
+def notes_page_updates(
+    template_blueprint: dict[str, Any],
+    slide_ids: set[str],
+) -> list[PptxOoxmlNotesPageUpdate]:
+    updates: list[PptxOoxmlNotesPageUpdate] = []
+    for slide in template_blueprint.get("slides", []):
+        if not isinstance(slide, dict) or slide.get("slideId") not in slide_ids:
+            continue
+        notes_page = slide.get("notesPage")
+        if (
+            not isinstance(notes_page, dict)
+            or notes_page.get("status") not in {"preserved", "rendered"}
+            or notes_page.get("bodyWritable") is not True
+        ):
+            continue
+        updates.append(
+            PptxOoxmlNotesPageUpdate(
+                slideId=str(slide["slideId"]),
+                notesPage=PptxOoxmlNotesPage.model_validate(notes_page),
+            )
+        )
+    return updates
 
 
 def detect_canvas(path: Path) -> CanvasSpec:
@@ -1180,9 +1270,27 @@ def apply_patch_operations_to_package(
             and isinstance((notes_page := slide.get("notesPage")), dict)
             and is_safe_notes_part(str(notes_page.get("sourceNotesPart", "")))
         }
+        notes_master_parts = {
+            str(notes_page.get("sourceNotesMasterPart", ""))
+            for slide in template_blueprint.get("slides", [])
+            if isinstance(slide, dict)
+            and isinstance((notes_page := slide.get("notesPage")), dict)
+            and is_safe_notes_master_part(
+                str(notes_page.get("sourceNotesMasterPart", ""))
+            )
+        }
+        notes_relationship_parts = {
+            rels_part_for_slide_part(part)
+            for part in notes_parts | notes_master_parts
+        }
         package_entries = {
             slide_part: source.read(slide_part)
-            for slide_part in slide_parts | notes_parts
+            for slide_part in (
+                slide_parts
+                | notes_parts
+                | notes_master_parts
+                | notes_relationship_parts
+            )
             if slide_part in source_names
         }
         for slide_part in slide_parts:
@@ -1822,7 +1930,9 @@ def xml_subtree_match(content: bytes, local_name_value: str) -> re.Match[bytes] 
 def update_speaker_notes_body(
     operation: dict[str, Any],
     package_entries: dict[str, bytes],
+    added_entries: dict[str, bytes],
     template_blueprint: dict[str, Any],
+    source_package: zipfile.ZipFile,
 ) -> PptxOoxmlUnsupportedReasonCode | None:
     slide_id = str(operation.get("slideId", ""))
     source_slide_part = str(operation.get("sourceSlidePart", ""))
@@ -1841,6 +1951,21 @@ def update_speaker_notes_body(
     notes_page = matching_slides[0].get("notesPage")
     if not isinstance(notes_page, dict):
         return "NOTES_BODY_LOCATOR_UNSAFE"
+    speaker_notes = operation.get("speakerNotes")
+    if not isinstance(speaker_notes, str):
+        return "NOTES_BODY_UPDATE_FAILED"
+    if notes_page.get("status") == "absent":
+        if not speaker_notes:
+            return None
+        return create_speaker_notes_page(
+            matching_slides[0],
+            notes_page,
+            speaker_notes,
+            package_entries,
+            added_entries,
+            template_blueprint,
+            source_package,
+        )
     if notes_page.get("bodyWritable") is not True:
         return "NOTES_BODY_NOT_WRITABLE"
 
@@ -1851,10 +1976,6 @@ def update_speaker_notes_body(
     notes_xml = package_entries.get(notes_part)
     if notes_xml is None:
         return "NOTES_PART_MISSING"
-    speaker_notes = operation.get("speakerNotes")
-    if not isinstance(speaker_notes, str):
-        return "NOTES_BODY_UPDATE_FAILED"
-
     try:
         root = ET.fromstring(notes_xml)
     except ET.ParseError:
@@ -1885,6 +2006,382 @@ def update_speaker_notes_body(
     replace_notes_text_body(text_body, speaker_notes)
     package_entries[notes_part] = xml_bytes(root)
     return None
+
+
+def create_speaker_notes_page(
+    slide: dict[str, Any],
+    notes_page: dict[str, Any],
+    speaker_notes: str,
+    package_entries: dict[str, bytes],
+    added_entries: dict[str, bytes],
+    template_blueprint: dict[str, Any],
+    source_package: zipfile.ZipFile,
+) -> PptxOoxmlUnsupportedReasonCode | None:
+    slide_part = str(slide.get("sourceSlidePart", ""))
+    slide_rels_part = rels_part_for_slide_part(slide_part)
+    slide_rels_xml = package_entries.get(slide_rels_part)
+    content_types_xml = package_entries.get("[Content_Types].xml")
+    presentation_rels_xml = package_entries.get(
+        "ppt/_rels/presentation.xml.rels"
+    )
+    if (
+        not is_safe_slide_part(slide_part)
+        or slide_part not in source_package.namelist()
+        or slide_rels_xml is None
+        or content_types_xml is None
+        or presentation_rels_xml is None
+    ):
+        return "NOTES_MASTER_CAPABILITY_UNSAFE"
+    notes_width_emu = int_value(notes_page.get("notesWidthEmu"), 0)
+    notes_height_emu = int_value(notes_page.get("notesHeightEmu"), 0)
+    if notes_width_emu <= 0 or notes_height_emu <= 0:
+        return "NOTES_MASTER_CAPABILITY_UNSAFE"
+
+    try:
+        slide_rels_root = ET.fromstring(slide_rels_xml)
+        content_types_root = ET.fromstring(content_types_xml)
+        presentation_rels_root = ET.fromstring(presentation_rels_xml)
+    except ET.ParseError:
+        return "NOTES_MASTER_CAPABILITY_UNSAFE"
+    if relationship_type_nodes(slide_rels_root, NOTES_SLIDE_REL_TYPE):
+        return "NOTES_MASTER_CAPABILITY_UNSAFE"
+
+    template = minimal_notes_package_template()
+    if template is None:
+        return "NOTES_MASTER_CAPABILITY_UNSAFE"
+    source_names = set(source_package.namelist()) | set(package_entries) | set(
+        added_entries
+    )
+    actual_master_parts = {
+        name for name in source_names if is_safe_notes_master_part(name)
+    }
+    blueprint_master_parts = {
+        str(candidate_notes_page.get("sourceNotesMasterPart", ""))
+        for candidate_slide in template_blueprint.get("slides", [])
+        if isinstance(candidate_slide, dict)
+        and isinstance(
+            (candidate_notes_page := candidate_slide.get("notesPage")),
+            dict,
+        )
+        and candidate_notes_page.get("sourceNotesMasterPart")
+    }
+    if (
+        len(actual_master_parts) > 1
+        or len(blueprint_master_parts) > 1
+        or blueprint_master_parts - actual_master_parts
+    ):
+        return "NOTES_MASTER_CAPABILITY_UNSAFE"
+
+    existing_presentation_master_relationships = relationship_type_nodes(
+        presentation_rels_root,
+        NOTES_MASTER_REL_TYPE,
+    )
+    if actual_master_parts:
+        notes_master_part = next(iter(actual_master_parts))
+        if blueprint_master_parts != {notes_master_part}:
+            return "NOTES_MASTER_CAPABILITY_UNSAFE"
+        if notes_master_part not in package_entries:
+            return "NOTES_MASTER_CAPABILITY_UNSAFE"
+        try:
+            ET.fromstring(package_entries[notes_master_part])
+        except ET.ParseError:
+            return "NOTES_MASTER_CAPABILITY_UNSAFE"
+        notes_master_rels_part = rels_part_for_slide_part(notes_master_part)
+        notes_master_rels_xml = package_entries.get(notes_master_rels_part)
+        if notes_master_rels_xml is None:
+            return "NOTES_MASTER_CAPABILITY_UNSAFE"
+        try:
+            notes_master_rels_root = ET.fromstring(notes_master_rels_xml)
+        except ET.ParseError:
+            return "NOTES_MASTER_CAPABILITY_UNSAFE"
+        theme_relationships = relationship_type_nodes(
+            notes_master_rels_root,
+            THEME_REL_TYPE,
+        )
+        theme_part = (
+            resolve_relationship_part(
+                notes_master_part,
+                str(theme_relationships[0].get("Target", "")),
+            )
+            if len(theme_relationships) == 1
+            and relationship_is_internal(theme_relationships[0])
+            else ""
+        )
+        try:
+            theme_xml = source_package.read(theme_part)
+            ET.fromstring(theme_xml)
+        except (KeyError, ET.ParseError):
+            return "NOTES_MASTER_CAPABILITY_UNSAFE"
+        if (
+            len(existing_presentation_master_relationships) != 1
+            or not relationship_is_internal(
+                existing_presentation_master_relationships[0]
+            )
+            or resolve_relationship_part(
+                "ppt/presentation.xml",
+                str(existing_presentation_master_relationships[0].get("Target", "")),
+            )
+            != notes_master_part
+            or not is_safe_theme_part(theme_part)
+            or theme_part not in source_names
+            or not content_type_override_matches(
+                content_types_root,
+                notes_master_part,
+                NOTES_MASTER_CONTENT_TYPE,
+            )
+            or not content_type_override_matches(
+                content_types_root,
+                theme_part,
+                THEME_CONTENT_TYPE,
+            )
+        ):
+            return "NOTES_MASTER_CAPABILITY_UNSAFE"
+    else:
+        if blueprint_master_parts or existing_presentation_master_relationships:
+            return "NOTES_MASTER_CAPABILITY_UNSAFE"
+        notes_master_part = next_indexed_part(
+            "ppt/notesMasters/notesMaster",
+            ".xml",
+            source_names,
+        )
+        theme_part = next_indexed_part(
+            "ppt/theme/theme",
+            ".xml",
+            source_names,
+        )
+        if not notes_master_part or not theme_part:
+            return "NOTES_MASTER_CAPABILITY_UNSAFE"
+        try:
+            notes_master_rels_root = ET.fromstring(template["notesMasterRels"])
+        except ET.ParseError:
+            return "NOTES_MASTER_CAPABILITY_UNSAFE"
+        theme_relationships = relationship_type_nodes(
+            notes_master_rels_root,
+            THEME_REL_TYPE,
+        )
+        if len(theme_relationships) != 1 or not relationship_is_internal(
+            theme_relationships[0]
+        ):
+            return "NOTES_MASTER_CAPABILITY_UNSAFE"
+        theme_relationships[0].set(
+            "Target",
+            posixpath.relpath(theme_part, posixpath.dirname(notes_master_part)),
+        )
+        added_entries[notes_master_part] = template["notesMaster"]
+        added_entries[rels_part_for_slide_part(notes_master_part)] = xml_bytes(
+            notes_master_rels_root
+        )
+        added_entries[theme_part] = template["theme"]
+        ET.SubElement(
+            presentation_rels_root,
+            f"{{{PKG_REL_NS}}}Relationship",
+            {
+                "Id": next_relationship_id(presentation_rels_root),
+                "Type": NOTES_MASTER_REL_TYPE,
+                "Target": posixpath.relpath(notes_master_part, "ppt"),
+            },
+        )
+        ensure_content_type_override(
+            content_types_root,
+            notes_master_part,
+            NOTES_MASTER_CONTENT_TYPE,
+        )
+        ensure_content_type_override(
+            content_types_root,
+            theme_part,
+            THEME_CONTENT_TYPE,
+        )
+        source_names.update(
+            {
+                notes_master_part,
+                rels_part_for_slide_part(notes_master_part),
+                theme_part,
+            }
+        )
+
+    notes_part = next_indexed_part(
+        "ppt/notesSlides/notesSlide",
+        ".xml",
+        source_names,
+    )
+    if not notes_part:
+        return "NOTES_MASTER_CAPABILITY_UNSAFE"
+    try:
+        notes_root = ET.fromstring(template["notesSlide"])
+        notes_rels_root = ET.fromstring(template["notesSlideRels"])
+    except ET.ParseError:
+        return "NOTES_MASTER_CAPABILITY_UNSAFE"
+    body_shapes = notes_body_shapes(notes_root)
+    if len(body_shapes) != 1:
+        return "NOTES_MASTER_CAPABILITY_UNSAFE"
+    body_shape_id = notes_shape_id(body_shapes[0])
+    text_body = first_local_child(body_shapes[0], "txBody")
+    if not body_shape_id or text_body is None:
+        return "NOTES_MASTER_CAPABILITY_UNSAFE"
+    notes_master_relationships = relationship_type_nodes(
+        notes_rels_root,
+        NOTES_MASTER_REL_TYPE,
+    )
+    slide_relationships = relationship_type_nodes(notes_rels_root, SLIDE_REL_TYPE)
+    if (
+        len(notes_master_relationships) != 1
+        or len(slide_relationships) != 1
+        or not relationship_is_internal(notes_master_relationships[0])
+        or not relationship_is_internal(slide_relationships[0])
+    ):
+        return "NOTES_MASTER_CAPABILITY_UNSAFE"
+    notes_master_relationships[0].set(
+        "Target",
+        posixpath.relpath(notes_master_part, posixpath.dirname(notes_part)),
+    )
+    slide_relationships[0].set(
+        "Target",
+        posixpath.relpath(slide_part, posixpath.dirname(notes_part)),
+    )
+    replace_notes_text_body(text_body, speaker_notes)
+
+    ET.SubElement(
+        slide_rels_root,
+        f"{{{PKG_REL_NS}}}Relationship",
+        {
+            "Id": next_relationship_id(slide_rels_root),
+            "Type": NOTES_SLIDE_REL_TYPE,
+            "Target": posixpath.relpath(notes_part, posixpath.dirname(slide_part)),
+        },
+    )
+    ensure_content_type_override(
+        content_types_root,
+        notes_part,
+        NOTES_SLIDE_CONTENT_TYPE,
+    )
+    added_entries[notes_part] = xml_bytes(notes_root)
+    added_entries[rels_part_for_slide_part(notes_part)] = xml_bytes(notes_rels_root)
+    package_entries[slide_rels_part] = xml_bytes(slide_rels_root)
+    package_entries["ppt/_rels/presentation.xml.rels"] = xml_bytes(
+        presentation_rels_root
+    )
+    package_entries["[Content_Types].xml"] = xml_bytes(content_types_root)
+    slide["notesPage"] = {
+        "status": "preserved",
+        "sourceNotesPart": notes_part,
+        "sourceNotesMasterPart": notes_master_part,
+        "bodyShapeId": body_shape_id,
+        "bodyWritable": True,
+        "notesWidthEmu": notes_width_emu,
+        "notesHeightEmu": notes_height_emu,
+        "hasNonBodyContent": False,
+    }
+    return None
+
+
+@lru_cache(maxsize=1)
+def minimal_notes_package_template() -> dict[str, bytes] | None:
+    try:
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        slide.notes_slide.notes_text_frame.text = ""
+        buffer = BytesIO()
+        presentation.save(buffer)
+        with zipfile.ZipFile(BytesIO(buffer.getvalue()), "r") as package:
+            notes_master_rels = package.read(
+                "ppt/notesMasters/_rels/notesMaster1.xml.rels"
+            )
+            notes_master_rels_root = ET.fromstring(notes_master_rels)
+            theme_relationships = relationship_type_nodes(
+                notes_master_rels_root,
+                THEME_REL_TYPE,
+            )
+            if len(theme_relationships) != 1 or not relationship_is_internal(
+                theme_relationships[0]
+            ):
+                return None
+            theme_part = resolve_relationship_part(
+                "ppt/notesMasters/notesMaster1.xml",
+                str(theme_relationships[0].get("Target", "")),
+            )
+            template = {
+                "notesSlide": package.read("ppt/notesSlides/notesSlide1.xml"),
+                "notesSlideRels": package.read(
+                    "ppt/notesSlides/_rels/notesSlide1.xml.rels"
+                ),
+                "notesMaster": package.read("ppt/notesMasters/notesMaster1.xml"),
+                "notesMasterRels": notes_master_rels,
+                "theme": package.read(theme_part),
+            }
+        if len(notes_body_shapes(ET.fromstring(template["notesSlide"]))) != 1:
+            return None
+        ET.fromstring(template["notesMaster"])
+        ET.fromstring(template["theme"])
+        return template
+    except (KeyError, OSError, ET.ParseError, zipfile.BadZipFile):
+        return None
+
+
+def notes_body_shapes(root: ET.Element[Any]) -> list[ET.Element[Any]]:
+    common_slide = first_local_child(root, "cSld")
+    shape_tree = (
+        first_local_child(common_slide, "spTree")
+        if common_slide is not None
+        else None
+    )
+    if shape_tree is None:
+        return []
+    return [
+        shape
+        for shape in direct_local_children(shape_tree, "sp")
+        if notes_placeholder_type(shape) == "body"
+    ]
+
+
+def relationship_type_nodes(
+    root: ET.Element[Any],
+    relationship_type: str,
+) -> list[ET.Element[Any]]:
+    return [
+        relationship
+        for relationship in list(root)
+        if relationship.get("Type") == relationship_type
+    ]
+
+
+def relationship_is_internal(relationship: ET.Element[Any]) -> bool:
+    return relationship.get("TargetMode") in {None, "Internal"}
+
+
+def content_type_override_matches(
+    root: ET.Element[Any],
+    part: str,
+    content_type: str,
+) -> bool:
+    matches = [
+        item
+        for item in list(root)
+        if item.tag == f"{{{CONTENT_TYPES_NS}}}Override"
+        and item.get("PartName") == f"/{part}"
+    ]
+    return len(matches) == 1 and matches[0].get("ContentType") == content_type
+
+
+def ensure_content_type_override(
+    root: ET.Element[Any],
+    part: str,
+    content_type: str,
+) -> None:
+    if content_type_override_matches(root, part, content_type):
+        return
+    ET.SubElement(
+        root,
+        f"{{{CONTENT_TYPES_NS}}}Override",
+        {"PartName": f"/{part}", "ContentType": content_type},
+    )
+
+
+def next_indexed_part(prefix: str, suffix: str, names: set[str]) -> str:
+    for index in range(1, 10_001):
+        candidate = f"{prefix}{index}{suffix}"
+        if candidate not in names:
+            return candidate
+    return ""
 
 
 def notes_placeholder_type(shape: ET.Element[Any]) -> str:
@@ -2067,7 +2564,9 @@ def apply_sync_operation(
         return update_speaker_notes_body(
             operation,
             package_entries,
+            added_entries,
             template_blueprint,
+            source_package,
         )
     element_id = operation_element_id(operation)
     operation_slide_part = slide_part_for_operation(
@@ -5673,6 +6172,24 @@ def is_safe_notes_part(value: str) -> bool:
         value.startswith("ppt/notesSlides/notesSlide")
         and value.endswith(".xml")
         and "/" not in value.removeprefix("ppt/notesSlides/")
+        and ".." not in value
+    )
+
+
+def is_safe_notes_master_part(value: str) -> bool:
+    return (
+        value.startswith("ppt/notesMasters/notesMaster")
+        and value.endswith(".xml")
+        and "/" not in value.removeprefix("ppt/notesMasters/")
+        and ".." not in value
+    )
+
+
+def is_safe_theme_part(value: str) -> bool:
+    return (
+        value.startswith("ppt/theme/theme")
+        and value.endswith(".xml")
+        and "/" not in value.removeprefix("ppt/theme/")
         and ".." not in value
     )
 

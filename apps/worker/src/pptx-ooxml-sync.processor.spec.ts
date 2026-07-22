@@ -238,6 +238,183 @@ describe("processPptxOoxmlSyncJob", () => {
     });
   });
 
+  it("persists a newly created notes page locator and preview", async () => {
+    let savedBlueprint: Record<string, unknown> | null = null;
+    const baseBlueprint = templateBlueprint(1);
+    const blueprint = {
+      ...baseBlueprint,
+      slides: baseBlueprint.slides.map((slide) => ({
+        ...slide,
+        notesPage: {
+          status: "absent" as const,
+          bodyWritable: false,
+          notesWidthEmu: 6_858_000,
+          notesHeightEmu: 9_144_000,
+          hasNonBodyContent: false,
+        },
+      })),
+    };
+    const { dataSource } = createDataSource({
+      blueprint,
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_speaker_notes",
+          slideId: "slide_1",
+          speakerNotes: "새 notes page",
+        },
+      ],
+      onBlueprintUpdate: (nextBlueprint) => {
+        savedBlueprint = nextBlueprint;
+        return true;
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        if (String(input).endsWith("current.pptx")) {
+          return new Response("pptx-bytes");
+        }
+        const response = {
+          ...workerResponse([
+            {
+              operationType: "update_speaker_notes" as const,
+              slideId: "slide_1",
+            },
+          ]),
+          notesPages: [
+            {
+              slideId: "slide_1",
+              notesPage: {
+                status: "preserved",
+                sourceNotesPart: "ppt/notesSlides/notesSlide1.xml",
+                sourceNotesMasterPart: "ppt/notesMasters/notesMaster1.xml",
+                bodyShapeId: "3",
+                bodyWritable: true,
+                notesWidthEmu: 6_858_000,
+                notesHeightEmu: 9_144_000,
+                hasNonBodyContent: false,
+              },
+            },
+          ],
+        };
+        response.assets.push({
+          assetId: "notes_render_1",
+          fileName: "notes-01.png",
+          mimeType: "image/png",
+          contentBase64: Buffer.from("created-notes-preview").toString(
+            "base64",
+          ),
+        });
+        return new Response(JSON.stringify(response));
+      }),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(savedBlueprint).toMatchObject({
+      slides: [
+        expect.objectContaining({
+          notesPage: {
+            status: "rendered",
+            sourceNotesPart: "ppt/notesSlides/notesSlide1.xml",
+            sourceNotesMasterPart: "ppt/notesMasters/notesMaster1.xml",
+            bodyShapeId: "3",
+            bodyWritable: true,
+            notesWidthEmu: 6_858_000,
+            notesHeightEmu: 9_144_000,
+            renderAssetFileId: expect.stringMatching(/^file_/),
+            hasNonBodyContent: false,
+          },
+        }),
+      ],
+    });
+  });
+
+  it("rejects unbounded fields in a created notes page locator", async () => {
+    const baseBlueprint = templateBlueprint(1);
+    const { dataSource, query } = createDataSource({
+      blueprint: {
+        ...baseBlueprint,
+        slides: baseBlueprint.slides.map((slide) => ({
+          ...slide,
+          notesPage: {
+            status: "absent" as const,
+            bodyWritable: false,
+            notesWidthEmu: 6_858_000,
+            notesHeightEmu: 9_144_000,
+            hasNonBodyContent: false,
+          },
+        })),
+      },
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_speaker_notes",
+          slideId: "slide_1",
+          speakerNotes: "bounded response validation",
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("current.pptx")
+          ? new Response("pptx-bytes")
+          : new Response(
+              JSON.stringify({
+                ...workerResponse([
+                  {
+                    operationType: "update_speaker_notes",
+                    slideId: "slide_1",
+                  },
+                ]),
+                notesPages: [
+                  {
+                    slideId: "slide_1",
+                    notesPage: {
+                      status: "preserved",
+                      sourceNotesPart: "ppt/notesSlides/notesSlide1.xml",
+                      sourceNotesMasterPart:
+                        "ppt/notesMasters/notesMaster1.xml",
+                      bodyShapeId: "3",
+                      bodyWritable: true,
+                      notesWidthEmu: 6_858_000,
+                      notesHeightEmu: 9_144_000,
+                      hasNonBodyContent: false,
+                      renderAssetFileId: "file_untrusted",
+                    },
+                  },
+                ],
+              }),
+            ),
+      ),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.error).toMatchObject({ code: "PPTX_OOXML_SYNC_FAILED" });
+    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("UPDATE template_blueprints"),
+      ),
+    ).toBe(false);
+  });
+
   it("marks an unsafe notes body locator as retryable without persistence", async () => {
     const { dataSource, query } = createDataSource({
       deckVersion: 2,
@@ -288,6 +465,52 @@ describe("processPptxOoxmlSyncJob", () => {
         String(sql).includes("UPDATE template_blueprints"),
       ),
     ).toBe(false);
+  });
+
+  it("keeps an unsafe notes master capability failure non-retryable", async () => {
+    const { dataSource } = createDataSource({
+      deckVersion: 2,
+      syncedVersion: 1,
+      operations: [
+        {
+          type: "update_speaker_notes",
+          slideId: "slide_1",
+          speakerNotes: "master capability failure",
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("current.pptx")
+          ? new Response("pptx-bytes")
+          : new Response(
+              JSON.stringify({
+                ...workerResponse(),
+                unsupportedOperations: [
+                  {
+                    operationType: "update_speaker_notes",
+                    slideId: "slide_1",
+                    reasonCode: "NOTES_MASTER_CAPABILITY_UNSAFE",
+                  },
+                ],
+              }),
+            ),
+      ),
+    );
+
+    const job = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      "http://localhost:8000",
+      payload,
+    );
+
+    expect(job.error).toMatchObject({
+      code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
+      retryable: false,
+      syncCapabilityVersion: 3,
+    });
   });
 
   it("uses the detected image MIME when legacy asset metadata is wrong", async () => {
@@ -2165,6 +2388,7 @@ function workerResponse(
     elementSources: [],
     appliedOperations,
     unsupportedOperations: [],
+    notesPages: [],
     warnings: [],
   };
 }

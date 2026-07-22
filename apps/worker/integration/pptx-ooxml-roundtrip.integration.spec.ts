@@ -293,6 +293,12 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     );
 
     const imported = (await harness.decks.getDeck(projectId)).deck;
+    const importedBlueprint = await loadTemplateBlueprint(
+      dataSource,
+      projectId,
+      imported.deckId,
+    );
+    expect(importedBlueprint.slides[0]?.notesPage?.status).toBe("absent");
     const initialExportPayload = await enqueueExport(harness, projectId);
     const initialExport = await processDeckExportJob(
       dataSource,
@@ -316,12 +322,14 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
       height: sourceText.height + 47,
     };
     const editedText = "Edited through PostgreSQL OOXML round-trip";
+    const editedNotes = "Created through PostgreSQL OOXML notes round-trip";
     const requested = deckSchema.parse(structuredClone(imported));
     const requestedText = findElement(requested, sourceText.elementId);
     Object.assign(requestedText, expectedFrame);
     if (requestedText.type !== "text")
       throw new Error("Expected text element.");
     requestedText.props.text = editedText;
+    requested.slides[0]!.speakerNotes = editedNotes;
 
     const saved = await harness.decks.putDeck(projectId, {
       baseVersion: imported.version,
@@ -341,6 +349,18 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     );
     expect(syncJob.status, JSON.stringify(syncJob.error)).toBe("succeeded");
     expect(syncJob.result).toMatchObject({ syncedDeckVersion: 2 });
+    const syncedBlueprint = await loadTemplateBlueprint(
+      dataSource,
+      projectId,
+      saved.deck.deckId,
+    );
+    expect(syncedBlueprint.slides[0]?.notesPage).toMatchObject({
+      status: "rendered",
+      bodyWritable: true,
+      sourceNotesPart: "ppt/notesSlides/notesSlide1.xml",
+      sourceNotesMasterPart: "ppt/notesMasters/notesMaster1.xml",
+      renderAssetFileId: expect.stringMatching(/^file_/),
+    });
 
     const exportPayload = await enqueueExport(harness, projectId);
     const exportedJob = await processDeckExportJob(
@@ -366,6 +386,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     expect(reimportedText.y).toBeCloseTo(expectedFrame.y, 0);
     expect(reimportedText.width).toBeCloseTo(expectedFrame.width, 0);
     expect(reimportedText.height).toBeCloseTo(expectedFrame.height, 0);
+    expect(reimported.blueprint.slides?.[0]?.speakerNotes).toBe(editedNotes);
   }, 120_000);
 
   it("coalesces cumulative reorder and authored line, arrow, and chart fallbacks", async () => {

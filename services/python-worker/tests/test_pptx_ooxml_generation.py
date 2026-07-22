@@ -646,6 +646,306 @@ def test_sync_pptx_ooxml_regenerates_notes_preview_after_body_edit(
     }
 
 
+def test_sync_pptx_ooxml_creates_notes_page_without_existing_master(
+    tmp_path: Path,
+) -> None:
+    source_path = sample_pptx(tmp_path)
+    source_bytes = source_path.read_bytes()
+    generated = generate_pptx_ooxml(source_path, "file_notes_create", render=False)
+    assert generated.template_blueprint["slides"][0]["notesPage"]["status"] == (
+        "absent"
+    )
+    speaker_notes = "새 발표 메모\n\n마지막 지시문"
+
+    result = sync_pptx_ooxml(
+        source_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_speaker_notes",
+                "slideId": template_slide_id(generated),
+                "speakerNotes": speaker_notes,
+            }
+        ],
+    )
+    synced_bytes = current_package_bytes(result.assets)
+
+    assert result.unsupported_operations == []
+    assert [item.model_dump(by_alias=True) for item in result.notes_pages] == [
+        {
+            "slideId": template_slide_id(generated),
+            "notesPage": {
+                "status": "preserved",
+                "sourceNotesPart": "ppt/notesSlides/notesSlide1.xml",
+                "sourceNotesMasterPart": "ppt/notesMasters/notesMaster1.xml",
+                "bodyShapeId": "3",
+                "bodyWritable": True,
+                "notesWidthEmu": 6_858_000,
+                "notesHeightEmu": 9_144_000,
+                "hasNonBodyContent": False,
+            },
+        }
+    ]
+    with zipfile.ZipFile(BytesIO(synced_bytes), "r") as package:
+        names = set(package.namelist())
+        assert "ppt/notesSlides/notesSlide1.xml" in names
+        assert "ppt/notesSlides/_rels/notesSlide1.xml.rels" in names
+        assert "ppt/notesMasters/notesMaster1.xml" in names
+        assert "ppt/notesMasters/_rels/notesMaster1.xml.rels" in names
+        assert notes_relationship_targets(
+            package.read("ppt/slides/_rels/slide1.xml.rels")
+        ) == [("notesSlide", "../notesSlides/notesSlide1.xml")]
+        assert notes_relationship_targets(
+            package.read("ppt/notesSlides/_rels/notesSlide1.xml.rels")
+        ) == [
+            ("notesMaster", "../notesMasters/notesMaster1.xml"),
+            ("slide", "../slides/slide1.xml"),
+        ]
+        assert [
+            item
+            for item in notes_relationship_targets(
+                package.read("ppt/_rels/presentation.xml.rels")
+            )
+            if item[0] == "notesMaster"
+        ] == [("notesMaster", "notesMasters/notesMaster1.xml")]
+        assert notes_content_type_parts(package.read("[Content_Types].xml")) == {
+            "/ppt/notesMasters/notesMaster1.xml",
+            "/ppt/notesSlides/notesSlide1.xml",
+        }
+    assert {
+        name: digest
+        for name, digest in zip_entry_hashes(source_bytes).items()
+        if name
+        not in {
+            "[Content_Types].xml",
+            "ppt/_rels/presentation.xml.rels",
+            "ppt/slides/_rels/slide1.xml.rels",
+        }
+    } == {
+        name: digest
+        for name, digest in zip_entry_hashes(synced_bytes).items()
+        if name in zip_entry_hashes(source_bytes)
+        and name
+        not in {
+            "[Content_Types].xml",
+            "ppt/_rels/presentation.xml.rels",
+            "ppt/slides/_rels/slide1.xml.rels",
+        }
+    }
+
+    synced_path = tmp_path / "created-notes.pptx"
+    synced_path.write_bytes(synced_bytes)
+    assert Presentation(synced_path).slides[0].notes_slide.notes_text_frame.text == (
+        speaker_notes
+    )
+    reimported = generate_pptx_ooxml(
+        synced_path,
+        "file_notes_created_reimport",
+        render=False,
+    )
+    assert reimported.blueprint["slides"][0]["speakerNotes"] == speaker_notes
+
+
+def test_sync_pptx_ooxml_reuses_existing_notes_master_for_new_page(
+    tmp_path: Path,
+) -> None:
+    source_path = sample_pptx_with_one_of_two_notes_pages(tmp_path)
+    source_bytes = source_path.read_bytes()
+    generated = generate_pptx_ooxml(
+        source_path,
+        "file_notes_existing_master",
+        render=False,
+    )
+    target_slide_id = template_slide_id(generated, 1)
+    assert generated.template_blueprint["slides"][1]["notesPage"]["status"] == (
+        "absent"
+    )
+
+    result = sync_pptx_ooxml(
+        source_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_speaker_notes",
+                "slideId": target_slide_id,
+                "speakerNotes": "두 번째 슬라이드 발표 메모",
+            }
+        ],
+    )
+    synced_bytes = current_package_bytes(result.assets)
+
+    assert result.unsupported_operations == []
+    assert package_entry(source_bytes, "ppt/notesSlides/notesSlide1.xml") == (
+        package_entry(synced_bytes, "ppt/notesSlides/notesSlide1.xml")
+    )
+    assert package_entry(source_bytes, "ppt/notesMasters/notesMaster1.xml") == (
+        package_entry(synced_bytes, "ppt/notesMasters/notesMaster1.xml")
+    )
+    with zipfile.ZipFile(BytesIO(synced_bytes), "r") as package:
+        assert sorted(
+            name
+            for name in package.namelist()
+            if name.startswith("ppt/notesMasters/notesMaster")
+            and name.endswith(".xml")
+        ) == ["ppt/notesMasters/notesMaster1.xml"]
+        assert notes_relationship_targets(
+            package.read("ppt/notesSlides/_rels/notesSlide2.xml.rels")
+        ) == [
+            ("notesMaster", "../notesMasters/notesMaster1.xml"),
+            ("slide", "../slides/slide2.xml"),
+        ]
+
+    synced_path = tmp_path / "existing-master-notes.pptx"
+    synced_path.write_bytes(synced_bytes)
+    reimported = generate_pptx_ooxml(
+        synced_path,
+        "file_notes_existing_master_reimport",
+        render=False,
+    )
+    assert reimported.blueprint["slides"][1]["speakerNotes"] == (
+        "두 번째 슬라이드 발표 메모"
+    )
+
+
+def test_sync_pptx_ooxml_rejects_unsafe_minimal_notes_master_atomically(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_path = sample_pptx(tmp_path)
+    generated = generate_pptx_ooxml(
+        source_path,
+        "file_notes_unsafe_master",
+        render=False,
+    )
+    monkeypatch.setattr(
+        pptx_ooxml_generation,
+        "minimal_notes_package_template",
+        lambda: None,
+    )
+
+    result = sync_pptx_ooxml(
+        source_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_speaker_notes",
+                "slideId": template_slide_id(generated),
+                "speakerNotes": "생성 불가 시 저장하지 않음",
+            }
+        ],
+    )
+
+    assert current_package_bytes(result.assets) == source_path.read_bytes()
+    assert [
+        item.model_dump(by_alias=True, exclude_none=True)
+        for item in result.unsupported_operations
+    ] == [
+        {
+            "operationType": "update_speaker_notes",
+            "slideId": template_slide_id(generated),
+            "reasonCode": "NOTES_MASTER_CAPABILITY_UNSAFE",
+        }
+    ]
+
+
+def test_sync_pptx_ooxml_rejects_unsafe_existing_notes_master_atomically(
+    tmp_path: Path,
+) -> None:
+    source_path = sample_pptx_with_one_of_two_notes_pages(tmp_path)
+    notes_master_rels_part = (
+        "ppt/notesMasters/_rels/notesMaster1.xml.rels"
+    )
+    root = ET.fromstring(
+        package_entry(source_path.read_bytes(), notes_master_rels_part)
+    )
+    theme_relationship = next(
+        relationship
+        for relationship in root
+        if str(relationship.get("Type", "")).endswith("/theme")
+    )
+    theme_relationship.set("TargetMode", "External")
+    theme_relationship.set("Target", "https://invalid.example/theme.xml")
+    source_path.write_bytes(
+        replace_package_entry(
+            source_path.read_bytes(),
+            notes_master_rels_part,
+            ET.tostring(root, encoding="utf-8", xml_declaration=True),
+        )
+    )
+    source_bytes = source_path.read_bytes()
+    generated = generate_pptx_ooxml(
+        source_path,
+        "file_notes_unsafe_existing_master",
+        render=False,
+    )
+
+    result = sync_pptx_ooxml(
+        source_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_speaker_notes",
+                "slideId": template_slide_id(generated, 1),
+                "speakerNotes": "안전하지 않은 master에는 생성하지 않음",
+            }
+        ],
+    )
+
+    assert current_package_bytes(result.assets) == source_bytes
+    assert [
+        item.model_dump(by_alias=True, exclude_none=True)
+        for item in result.unsupported_operations
+    ] == [
+        {
+            "operationType": "update_speaker_notes",
+            "slideId": template_slide_id(generated, 1),
+            "reasonCode": "NOTES_MASTER_CAPABILITY_UNSAFE",
+        }
+    ]
+
+
+def test_created_notes_page_opens_in_libreoffice(tmp_path: Path) -> None:
+    if not (shutil.which("libreoffice") or shutil.which("soffice")):
+        pytest.skip("LibreOffice is not installed.")
+    source_path = sample_pptx(tmp_path)
+    generated = generate_pptx_ooxml(source_path, "file_notes_open", render=False)
+    result = sync_pptx_ooxml(
+        source_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_speaker_notes",
+                "slideId": template_slide_id(generated),
+                "speakerNotes": "LibreOffice 재개방 검증",
+            }
+        ],
+    )
+
+    assert result.unsupported_operations == []
+    assets = render_pptx_notes_to_png_assets(
+        current_package_bytes(result.assets),
+        notes_width_emu=6_858_000,
+        notes_height_emu=9_144_000,
+        expected_page_count=1,
+    )
+    assert [asset.asset_id for asset in assets] == ["notes_render_1"]
+
+
 def test_sync_pptx_ooxml_skips_grouped_child_frame_patch(tmp_path: Path) -> None:
     pptx_path = sample_scaled_group_pptx(tmp_path)
     original_bytes = pptx_path.read_bytes()
@@ -1719,6 +2019,18 @@ def sample_pptx(tmp_path: Path, *, wide: bool = True) -> Path:
     return pptx_path
 
 
+def sample_pptx_with_one_of_two_notes_pages(tmp_path: Path) -> Path:
+    pptx_path = tmp_path / "one-of-two-notes.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    first = presentation.slides.add_slide(presentation.slide_layouts[6])
+    presentation.slides.add_slide(presentation.slide_layouts[6])
+    first.notes_slide.notes_text_frame.text = "기존 발표 메모"
+    presentation.save(pptx_path)
+    return pptx_path
+
+
 def sample_round_trip_pptx(tmp_path: Path) -> Path:
     pptx_path = tmp_path / "round-trip-source.pptx"
     first_image_path = tmp_path / "first.png"
@@ -1919,6 +2231,43 @@ def shape_xml(
 def package_entry(package_bytes: bytes, name: str) -> bytes:
     with zipfile.ZipFile(BytesIO(package_bytes), "r") as package:
         return package.read(name)
+
+
+def replace_package_entry(package_bytes: bytes, name: str, content: bytes) -> bytes:
+    output = BytesIO()
+    with zipfile.ZipFile(BytesIO(package_bytes), "r") as source:
+        with zipfile.ZipFile(output, "w") as destination:
+            for info in source.infolist():
+                destination.writestr(
+                    info,
+                    content if info.filename == name else source.read(info),
+                )
+    return output.getvalue()
+
+
+def notes_relationship_targets(rels_xml: bytes) -> list[tuple[str, str]]:
+    root = ET.fromstring(rels_xml)
+    return [
+        (relationship_type, str(relationship.get("Target", "")))
+        for relationship in root
+        if (
+            relationship_type := str(relationship.get("Type", "")).rsplit(
+                "/", maxsplit=1
+            )[-1]
+        )
+        in {"notesMaster", "notesSlide", "slide"}
+    ]
+
+
+def notes_content_type_parts(content_types_xml: bytes) -> set[str]:
+    root = ET.fromstring(content_types_xml)
+    return {
+        str(item.get("PartName", ""))
+        for item in root
+        if str(item.get("ContentType", "")).endswith(
+            ("notesMaster+xml", "notesSlide+xml")
+        )
+    }
 
 
 def notes_non_body_semantic_hash(package_bytes: bytes) -> str:

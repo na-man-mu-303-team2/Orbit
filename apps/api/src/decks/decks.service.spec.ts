@@ -1,6 +1,7 @@
 import { HttpException, HttpStatus } from "@nestjs/common";
 import { createActivitySlide, createAddSlidePatch } from "@orbit/editor-core";
 import {
+  PPTX_OOXML_SYNC_CAPABILITY_VERSION,
   deckApiErrorSchema,
   deckSchema,
   createKeywordOccurrenceId,
@@ -1407,7 +1408,7 @@ describe("DecksService", () => {
         deckId: deck.deckId,
         changeId: response.changeRecord.changeId,
         targetDeckVersion: 2,
-        syncCapabilityVersion: 2,
+        syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
       },
     });
     expect(enqueueSyncJob).toHaveBeenCalledWith(
@@ -1525,7 +1526,7 @@ describe("DecksService", () => {
         deckId: current.deckId,
         changeId: "change_deck_demo_1_3_put",
         targetDeckVersion: 3,
-        syncCapabilityVersion: 2,
+        syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
       },
     });
     expect(enqueueSyncJob).toHaveBeenCalledWith(
@@ -1535,6 +1536,59 @@ describe("DecksService", () => {
         targetDeckVersion: 3,
       }),
     );
+  });
+
+  it("records an imported full-save speaker notes change for OOXML sync", async () => {
+    const { dataSource, service } = createService();
+    const base = createDeck();
+    const current = deckSchema.parse({
+      ...base,
+      version: 2,
+      slides: [{ ...base.slides[0], speakerNotes: "" }],
+    });
+    await service.putDeck(current.projectId, { deck: current });
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: current.projectId,
+      deck_id: current.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 2,
+        slides: [
+          {
+            slideIndex: 1,
+            sourceSlideIndex: 1,
+            sourceSlidePart: "ppt/slides/slide1.xml",
+            slots: [],
+          },
+        ],
+      },
+    });
+    const requested = deckSchema.parse({
+      ...current,
+      slides: [
+        {
+          ...current.slides[0],
+          speakerNotes: "Synthetic OOXML notes update",
+        },
+      ],
+    });
+
+    await service.putDeck(current.projectId, {
+      baseVersion: current.version,
+      deck: requested,
+    });
+
+    expect(dataSource.patchRows).toHaveLength(1);
+    expect(dataSource.patchRows[0]?.operations).toEqual([
+      {
+        type: "update_speaker_notes",
+        slideId: current.slides[0]!.slideId,
+        speakerNotes: "Synthetic OOXML notes update",
+      },
+    ]);
   });
 
   it("records an imported full-save slide reorder as one exact permutation", async () => {
@@ -2062,7 +2116,7 @@ describe("DecksService", () => {
         deckId: deck.deckId,
         changeId: response.changeRecord.changeId,
         targetDeckVersion: 2,
-        syncCapabilityVersion: 2,
+        syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
       },
     });
     expect(enqueueSyncJob).toHaveBeenCalledWith(
@@ -2384,7 +2438,7 @@ describe("DecksService", () => {
         deckId: currentDeck.deckId,
         changeId: "change_deck_demo_1_4_put",
         targetDeckVersion: 4,
-        syncCapabilityVersion: 2,
+        syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
       },
     });
     expect(enqueueSyncJob).toHaveBeenCalledWith(
@@ -2934,7 +2988,7 @@ describe("DecksService", () => {
       code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
       message: "unsupported authored element",
       retryable: false,
-      syncCapabilityVersion: 2,
+      syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
     });
 
     const response = await service.getOoxmlSyncState(deck.projectId);
@@ -2955,7 +3009,7 @@ describe("DecksService", () => {
       code: "PPTX_OOXML_SYNC_FAILED",
       message: "worker temporarily unavailable",
       retryable: true,
-      syncCapabilityVersion: 2,
+      syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
     });
 
     const response = await service.getOoxmlSyncState(deck.projectId);

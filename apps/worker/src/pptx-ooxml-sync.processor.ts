@@ -70,6 +70,7 @@ const ooxmlUnsupportedReasonCodeSchema = z.enum([
   "NOTES_BODY_LOCATOR_UNSAFE",
   "NOTES_BODY_NOT_WRITABLE",
   "NOTES_BODY_UPDATE_FAILED",
+  "NOTES_MASTER_CAPABILITY_UNSAFE",
   "NOTES_PART_MISSING",
   "OPERATION_TYPE_UNSUPPORTED",
   "PROPS_FIELDS_UNSUPPORTED",
@@ -105,6 +106,37 @@ const ooxmlUnsupportedOperationSchema = z
     reasonCode: ooxmlUnsupportedReasonCodeSchema,
   })
   .strict();
+
+const ooxmlNotesPageUpdateSchema = z
+  .object({
+    slideId: z.string().min(1).max(128),
+    notesPage: z
+      .object({
+        status: z.literal("preserved"),
+        sourceNotesPart: z
+          .string()
+          .regex(/^ppt\/notesSlides\/notesSlide[1-9][0-9]*\.xml$/),
+        sourceNotesMasterPart: z
+          .string()
+          .regex(/^ppt\/notesMasters\/notesMaster[1-9][0-9]*\.xml$/),
+        bodyShapeId: z.string().min(1).max(64),
+        bodyWritable: z.literal(true),
+        notesWidthEmu: z.number().int().positive().max(10_000_000_000),
+        notesHeightEmu: z.number().int().positive().max(10_000_000_000),
+        hasNonBodyContent: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const ooxmlNotesPageUpdatesSchema = z
+  .array(ooxmlNotesPageUpdateSchema)
+  .max(500)
+  .refine(
+    (updates) =>
+      new Set(updates.map((update) => update.slideId)).size === updates.length,
+    "notes page updates must have unique slide ids",
+  );
 
 const slideMotionTouchedSchema = z
   .object({
@@ -161,6 +193,7 @@ const pptxOoxmlSyncWorkerResponseSchema = z.object({
     .array(ooxmlUnsupportedOperationSchema)
     .max(500)
     .default([]),
+  notesPages: ooxmlNotesPageUpdatesSchema.default([]),
   appliedSlideMotion: z.array(appliedSlideMotionSchema).max(500).default([]),
   unsupportedSlideMotion: z
     .array(unsupportedSlideMotionSchema)
@@ -1819,6 +1852,9 @@ function withSyncResult(
   const notesPreviewUnavailable = synced.warnings.some((warning) =>
     warning.startsWith("PPTX_NOTES_PREVIEW_REFRESH_FAILED:"),
   );
+  const syncedNotesPages = new Map(
+    synced.notesPages.map((update) => [update.slideId, update.notesPage]),
+  );
   return templateBlueprintSchema.parse({
     ...templateBlueprint,
     currentPackageFileId: assets.currentPackageFileId,
@@ -1827,6 +1863,7 @@ function withSyncResult(
       const notesRenderAssetFileId = assets.notesRenderAssetFileIdsByAssetId.get(
         `notes_render_${index + 1}`,
       );
+      const notesPage = syncedNotesPages.get(slide.slideId!) ?? slide.notesPage;
       return {
         ...slide,
         slideIndex: index + 1,
@@ -1836,9 +1873,9 @@ function withSyncResult(
           ) ??
           assets.renderAssetFileIds[index] ??
           slide.renderAssetFileId,
-        notesPage: slide.notesPage
+        notesPage: notesPage
           ? {
-              ...slide.notesPage,
+              ...notesPage,
               ...(notesRenderAssetFileId
                 ? {
                     status: "rendered" as const,
