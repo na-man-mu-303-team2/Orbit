@@ -425,4 +425,49 @@ describe("design agent schema", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("accepts only bounded internal motion planning context", () => {
+    const base = {
+      projectId: "project_1",
+      sessionId: "session_1",
+      question: "애니메이션을 추천해 주세요.",
+      intentPreset: "recommend-animation" as const,
+      context: designAgentContext,
+      capabilities: designAgentCapabilities,
+    };
+    const request = designAgentWorkerRequestSchema.parse({
+      ...base,
+      motionPlanningContext: {
+        allowedTargetElementIds: ["el_1"],
+        effectiveTypography: [
+          {
+            elementId: "el_1",
+            characterCount: 10,
+            dominantFontSize: 24,
+            effectiveFontSize: 20,
+            effectiveLetterSpacing: 0,
+            effectiveLineHeight: 1.2,
+            resolvedFontScale: 0.8,
+          },
+        ],
+        speakerNotes: "발표 흐름",
+        notesPresent: true,
+        notesTruncated: false,
+      },
+    });
+
+    expect(request.motionPlanningContext?.speakerNotes).toBe("발표 흐름");
+    expect(
+      designAgentWorkerRequestSchema.safeParse({
+        ...base,
+        motionPlanningContext: {
+          allowedTargetElementIds: ["el_1"],
+          effectiveTypography: [],
+          speakerNotes: "x".repeat(4_001),
+          notesPresent: true,
+          notesTruncated: true,
+        },
+      }).success,
+    ).toBe(false);
+  });
 });

@@ -9,8 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.ai.motion_planner import (
     MotionImportContext,
+    MotionPlanningContext,
     evaluate_motion_eligibility,
+    extract_motion_context,
     motion_eligibility_message,
+    plan_narrative_motion,
 )
 
 DECK_ELEMENT_COORDINATE_LIMIT = 1_000_000
@@ -148,6 +151,10 @@ class DesignAgentRequest(BaseModel):
     motion_import_context: MotionImportContext | None = Field(
         default=None,
         alias="motionImportContext",
+    )
+    motion_planning_context: MotionPlanningContext | None = Field(
+        default=None,
+        alias="motionPlanningContext",
     )
     history: list[DesignAgentHistoryItem] = Field(default_factory=list, max_length=10)
     available_smart_art_layouts: list[AvailableSmartArtLayout] = Field(
@@ -879,7 +886,20 @@ def generate_design_proposal(
     model: str,
     api_key: str | None,
     client: Any | None = None,
+    motion_planner_model: str | None = None,
+    motion_planner_mode: Literal["off", "shadow", "on"] = "off",
 ) -> DesignAgentResponse:
+    if (
+        _known_intent_preset(request) == "recommend-animation"
+        and motion_planner_mode != "off"
+        and request.motion_planning_context is not None
+    ):
+        _run_motion_planner_shadow(
+            request,
+            model=motion_planner_model or model,
+            api_key=api_key,
+            client=client,
+        )
     deterministic_animation = _build_deterministic_animation_proposal(request)
     if deterministic_animation is not None:
         return validate_design_proposal(
@@ -947,6 +967,40 @@ def generate_design_proposal(
         raise
     except Exception as error:
         raise DesignAgentGenerationError("Design proposal generation failed.") from error
+
+
+def _run_motion_planner_shadow(
+    request: DesignAgentRequest,
+    *,
+    model: str,
+    api_key: str | None,
+    client: Any | None,
+) -> None:
+    eligibility = evaluate_motion_eligibility(
+        request.context.slide,
+        import_context=request.motion_import_context,
+    )
+    if eligibility.outcome != "applicable":
+        return
+    planning_context = request.motion_planning_context
+    if planning_context is None:
+        return
+    if set(planning_context.allowed_target_element_ids) != set(
+        eligibility.allowed_target_element_ids
+    ):
+        return
+    try:
+        extraction = extract_motion_context(request.context.slide, planning_context)
+        if not extraction.context.targets:
+            return
+        plan_narrative_motion(
+            extraction,
+            model=model,
+            api_key=api_key,
+            client=client,
+        )
+    except Exception:
+        return
 
 
 def _build_deterministic_preset_proposal(

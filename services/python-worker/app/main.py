@@ -1092,6 +1092,8 @@ def propose_slide_design(
             payload,
             model=config.openai_model,
             api_key=config.openai_api_key,
+            motion_planner_model=config.openai_motion_planner_model,
+            motion_planner_mode=config.ai_motion_planner_mode,
         )
     except DesignAgentGenerationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error

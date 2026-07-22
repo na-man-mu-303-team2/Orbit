@@ -95,6 +95,8 @@ OpenAI 모델은 코드 상수가 아니라 env로 결정한다.
 
 ```txt
 OPENAI_MODEL=gpt-4.1-mini
+OPENAI_MOTION_PLANNER_MODEL=gpt-4.1-mini-2025-04-14
+AI_MOTION_PLANNER_MODE=shadow
 OPENAI_TRANSCRIPTION_MODEL=whisper-1
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper
@@ -104,6 +106,8 @@ LIVE_STT_ENGINE=web-speech
 AI_SLIDE_IMAGE_REVIEW_MODE=auto
 ORBIT_PPTX_OOXML_VECTOR_IMPORT=true
 ```
+
+`AI_MOTION_PLANNER_MODE=off | shadow | on`은 의미 기반 Motion Planner routing을 제어한다. 초기 배포값은 `shadow`이며 기존 proposal은 유지한 채 strict Narrative Motion Plan의 bounded count/reason만 비교한다. `OPENAI_MOTION_PLANNER_MODEL`은 별도 snapshot으로 고정하고 production에서는 `-YYYY-MM-DD`로 끝나는 dated model ID만 허용한다. notes와 element text는 telemetry나 Job payload/result에 기록하지 않는다.
 
 리허설 리포트의 시간 기반 지표를 계산해야 하는 local/staging report STT는 `OPENAI_TRANSCRIPTION_MODEL=whisper-1`을 사용한다. `whisper-1`의 `verbose_json` 응답은 duration과 segment timestamp를 제공하므로 WPM, 구간별 속도, 긴 침묵 계산에 사용할 수 있다. production 모델은 전사 정확도와 시간 지표 요구를 함께 검토한 뒤 별도로 고정한다.
 

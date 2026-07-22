@@ -194,6 +194,39 @@ describe("ORBIT env validation", () => {
     expect(config.OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS).toBe(900);
   });
 
+  it("validates Motion Planner mode and production snapshot pinning", () => {
+    expect(
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          OPENAI_MOTION_PLANNER_MODEL: "gpt-4.1-mini-2025-04-14",
+          AI_MOTION_PLANNER_MODE: "on",
+        },
+        { service: "api" },
+      ),
+    ).toMatchObject({
+      OPENAI_MOTION_PLANNER_MODEL: "gpt-4.1-mini-2025-04-14",
+      AI_MOTION_PLANNER_MODE: "on",
+    });
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, AI_MOTION_PLANNER_MODE: "preview" },
+        { service: "api" },
+      ),
+    ).toThrow(/AI_MOTION_PLANNER_MODE/);
+    expect(() =>
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          APP_ENV: "production",
+          OPENAI_API_KEY: "configured",
+          OPENAI_MOTION_PLANNER_MODEL: "gpt-4.1-mini",
+        },
+        { service: "api" },
+      ),
+    ).toThrow(/OPENAI_MOTION_PLANNER_MODEL/);
+  });
+
   it("loads realtime transcription defaults when optional env values are omitted", () => {
     const env = { ...validEnv } as Partial<typeof validEnv>;
     delete env.OPENAI_REALTIME_TRANSCRIPTION_MODEL;
