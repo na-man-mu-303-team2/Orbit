@@ -1,4 +1,4 @@
-import { createDemoDeck } from "@orbit/editor-core";
+import { applyDeckPatch, createDemoDeck } from "@orbit/editor-core";
 import {
   deckSchema,
   designAgentCapabilities,
@@ -176,6 +176,156 @@ describe("processSlideRedesignJob", () => {
     expect(result.proposal?.operations).toEqual(
       verifiedArtifact?.response?.operations,
     );
+  });
+
+  it("keeps source text, element references, animations, and semantic cues through the image flow", async () => {
+    const payload = jobPayload();
+    const sourceSlide = payload.context.slide;
+    const sourceElement = sourceSlide.elements.find(
+      (element) => element.type === "text",
+    );
+    if (!sourceElement || sourceElement.type !== "text") {
+      throw new Error("text fixture is missing");
+    }
+    sourceSlide.semanticCues = [
+      {
+        cueId: "scue_redesign_preserved",
+        slideId: sourceSlide.slideId,
+        meaning: "발표자는 원문의 핵심 메시지를 설명한다",
+        importance: "core",
+        reviewStatus: "approved",
+        freshness: "current",
+        origin: "manual",
+        revision: 1,
+        sourceRefs: [],
+        qualityWarnings: [],
+        required: true,
+        priority: 1,
+        candidateKeywords: ["ORBIT"],
+        aliases: {},
+        requiredConcepts: ["핵심 메시지"],
+        nliHypotheses: ["발표자는 원문의 핵심 메시지를 설명했다"],
+        negativeHints: [],
+        targetElementIds: [sourceElement.elementId],
+        triggerActionIds: [],
+      },
+    ];
+    const sourceDeckFixture = createDemoDeck();
+    sourceDeckFixture.slides[0] = structuredClone(sourceSlide);
+    const sourceDeck = deckSchema.parse(sourceDeckFixture);
+    const normalizedSourceSlide = sourceDeck.slides[0]!;
+    const originalText = normalizedSourceSlide.elements
+      .filter((element) => element.type === "text")
+      .map((element) => ({
+        elementId: element.elementId,
+        text: element.props.text,
+      }));
+    const originalImageElementIds = normalizedSourceSlide.elements
+      .filter((element) => element.type === "image")
+      .map((element) => element.elementId);
+    const originalAnimations = structuredClone(normalizedSourceSlide.animations);
+    const originalSemanticCues = structuredClone(
+      normalizedSourceSlide.semanticCues,
+    );
+    const database = new FakeSlideRedesignDatabase(payload);
+    const client = stageClient(payload);
+    client.compose.mockResolvedValueOnce(imageComposeArtifact(payload));
+    client.verify.mockImplementationOnce(async (_request, artifact) => ({
+      stage: "verify",
+      outcome: "applicable",
+      response: artifact.response,
+    }));
+    const progressEvents: Array<{
+      payload: { stage: string; previewProposal?: { operations: unknown[] } };
+    }> = [];
+
+    const job = await processSlideRedesignJob(
+      database.dataSource,
+      "http://python-worker:8000",
+      payload,
+      {
+        client,
+        now: fixedClock(),
+        publishProgress: async (event) => {
+          progressEvents.push(event);
+        },
+        imageRuntime: { maxPerDeck: 1, maxPerUserPerDay: 1 },
+        storage: { putObject: vi.fn() },
+        resolveImageAssets: vi.fn(async (...args: unknown[]) => ({
+          deck: resolvedPreviewDeck(args[2] as Deck),
+          warnings: [],
+          diagnostics: [],
+        })),
+      },
+    );
+
+    const intermediate = progressEvents.find(
+      (event) => event.payload.stage === "ornamenting",
+    )?.payload.previewProposal;
+    expect(intermediate?.operations).toContainEqual(
+      expect.objectContaining({
+        type: "add_element",
+        element: expect.objectContaining({
+          elementId: "el_redesign_media_placeholder",
+          type: "rect",
+        }),
+      }),
+    );
+    expect(JSON.stringify(intermediate)).not.toContain(
+      "el_redesign_media_asset",
+    );
+
+    const result = slideRedesignJobResultSchema.parse(job.result);
+    const proposal = result.proposal;
+    expect(proposal?.operations).toContainEqual(
+      expect.objectContaining({
+        type: "add_element",
+        element: expect.objectContaining({
+          elementId: "el_redesign_media_asset",
+          type: "image",
+        }),
+      }),
+    );
+    if (!proposal) throw new Error("final proposal is missing");
+    const applied = applyDeckPatch(sourceDeck, {
+      deckId: proposal.deckId,
+      baseVersion: proposal.baseVersion,
+      source: "ai",
+      operations: proposal.operations,
+    });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) throw new Error(applied.error.message);
+    const appliedSlide = applied.deck.slides[0]!;
+    expect(
+      appliedSlide.elements
+        .filter((element) => element.type === "text")
+        .map((element) => ({
+          elementId: element.elementId,
+          text: element.props.text,
+        })),
+    ).toEqual(originalText);
+    expect(appliedSlide.animations).toHaveLength(originalAnimations.length);
+    for (const animation of originalAnimations) {
+      expect(
+        appliedSlide.animations.find(
+          (candidate) => candidate.animationId === animation.animationId,
+        ),
+      ).toEqual(expect.objectContaining(animation));
+    }
+    expect(appliedSlide.semanticCues).toEqual(originalSemanticCues);
+    expect(
+      appliedSlide.elements.filter((element) => element.type === "image"),
+    ).toHaveLength(originalImageElementIds.length + 1);
+    for (const elementId of originalImageElementIds) {
+      expect(
+        appliedSlide.elements.some((element) => element.elementId === elementId),
+      ).toBe(true);
+    }
+    expect(
+      appliedSlide.elements.filter(
+        (element) => element.elementId === "el_redesign_media_asset",
+      ),
+    ).toHaveLength(1);
   });
 
   it("keeps layout operations and succeeds when image resolution falls back", async () => {
