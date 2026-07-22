@@ -23,6 +23,7 @@ UNSAFE_ELEMENT_TYPES_BASE: frozenset[str] = frozenset(
     }
 )
 MEDIA_ELEMENT_TYPES: frozenset[str] = frozenset({"image", "svg"})
+ORNAMENT_ELEMENT_TYPES: frozenset[str] = frozenset({"ellipse", "line", "polygon"})
 
 
 @dataclass(frozen=True)
@@ -51,10 +52,24 @@ def find_unsafe_elements(
     for element in slide.get("elements", []):
         if not isinstance(element, dict) or element.get("type") not in unsafe_types:
             continue
+        if _is_owned_ornament(element):
+            continue
         element_id = element.get("elementId")
         if isinstance(element_id, str) and element_id:
             unsafe_ids.append(element_id)
     return unsafe_ids
+
+
+def _is_owned_ornament(element: dict[str, Any]) -> bool:
+    element_id = element.get("elementId")
+    return (
+        element.get("type") in ORNAMENT_ELEMENT_TYPES
+        and element.get("role") == "decoration"
+        and isinstance(element_id, str)
+        and element_id.startswith("el_orn_")
+        and element.get("locked") is not True
+        and element.get("ooxmlOrigin") is None
+    )
 
 
 def collect_element_constraints(slide: dict[str, Any]) -> ElementConstraints:

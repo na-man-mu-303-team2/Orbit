@@ -50,6 +50,8 @@ def request_for(
     width: int = 1920,
     height: int = 1080,
     animations: list[dict[str, Any]] | None = None,
+    capability_version: str = "1",
+    addable_element_types: list[str] | None = None,
 ) -> DesignAgentRequest:
     return DesignAgentRequest.model_validate(
         {
@@ -77,7 +79,7 @@ def request_for(
             "history": [],
             "availableSmartArtLayouts": [],
             "capabilities": {
-                "version": "1",
+                "version": capability_version,
                 "operations": [
                     "add_element",
                     "update_element_frame",
@@ -85,7 +87,8 @@ def request_for(
                     "delete_element",
                     "update_slide_style",
                 ],
-                "addableElementTypes": ["text", "rect", "chart", "table"],
+                "addableElementTypes": addable_element_types
+                or ["text", "rect", "chart", "table"],
                 "canEditTextContent": True,
                 "canGenerateImages": False,
                 "canModifyLockedElements": True,
@@ -252,6 +255,63 @@ def test_applicable_pipeline_response_passes_design_agent_validation() -> None:
 
     assert response.operations
     assert response.interpreted_intent.action == "redesign-slide"
+
+
+def test_capability_v2_pipeline_adds_ornaments_before_deletes() -> None:
+    response = generate_design_proposal(
+        request_for(
+            [
+                *standard_elements(),
+                text_element("el_step_4", "4. 출시", y=850),
+            ],
+            capability_version="2",
+            addable_element_types=[
+                "text",
+                "rect",
+                "ellipse",
+                "line",
+                "polygon",
+                "chart",
+                "table",
+            ],
+        ),
+        model="test-model",
+        api_key=None,
+    )
+
+    operation_types = [operation.type for operation in response.operations]
+    ornament_operations = [
+        operation
+        for operation in response.operations
+        if operation.type == "add_element"
+        and operation.element.element_id.startswith("el_orn_")
+    ]
+    assert ornament_operations
+    assert {operation.element.type for operation in ornament_operations} <= {
+        "ellipse",
+        "line",
+        "polygon",
+    }
+    if "delete_element" in operation_types:
+        first_delete = operation_types.index("delete_element")
+        assert all(
+            operation.type != "add_element"
+            for operation in response.operations[first_delete:]
+        )
+
+
+def test_capability_v1_pipeline_does_not_emit_v2_shapes() -> None:
+    response = generate_design_proposal(
+        request_for(standard_elements()),
+        model="test-model",
+        api_key=None,
+    )
+
+    assert all(
+        operation.type != "add_element"
+        or operation.element.type not in {"ellipse", "line", "polygon"}
+        for operation in response.operations
+    )
 
 
 def test_refused_pipeline_response_is_valid_with_empty_operations() -> None:
