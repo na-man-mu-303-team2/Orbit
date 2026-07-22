@@ -215,13 +215,22 @@ test.describe("ORBIT-2 ORBIT-10 ORBIT-36 ORBIT-58 smoke", () => {
     await page
       .getByRole("button", { name: "슬라이드 다시 디자인", exact: true })
       .click();
+    await expect(
+      page.getByRole("heading", { name: "배색을 골라주세요" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("radiogroup", { name: "배색 선택" }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "선택한 배색으로 미리보기" })
+      .click();
     const proposalCard = page.getByRole("region", {
       name: "디자인 제안 Before/After",
     });
-    await expect(proposalCard).toBeVisible();
+    await expect(proposalCard).toBeVisible({ timeout: 60_000 });
     await proposalCard
       .getByRole("button", { name: "적용", exact: true })
-      .click();
+      .click({ timeout: 60_000 });
 
     await expect(
       page.getByText(

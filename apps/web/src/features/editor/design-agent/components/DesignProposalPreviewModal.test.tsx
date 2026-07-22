@@ -62,6 +62,29 @@ describe("DesignProposalPreviewModal", () => {
     expect(html).toContain("After");
   });
 
+  it("keeps an intermediate preview read-only without rendering apply", () => {
+    const deck = createDemoDeck();
+    const html = renderToStaticMarkup(
+      <DesignProposalPreviewModal
+        afterDeck={{ ...deck, version: deck.version + 1 }}
+        beforeDeck={deck}
+        lifecycle="preview-read-only"
+        readOnly
+        slideId={deck.slides[0]!.slideId}
+        summary="이미지를 준비하는 동안 확인할 수 있는 중간 미리보기"
+        warnings={[]}
+        onApply={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("AI 디자인 중간 미리보기");
+    expect(html).toContain("최종 검토 후 적용할 수 있습니다.");
+    expect(html).not.toMatch(/<button[^>]*><span>적용<\/span><\/button>/);
+    expect(html).toContain("Before");
+    expect(html).toContain("After");
+  });
+
   it("stacks the simultaneous comparison at a narrow viewport", () => {
     const css = fs.readFileSync(
       path.join(
