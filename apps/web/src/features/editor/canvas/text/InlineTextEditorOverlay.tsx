@@ -210,6 +210,14 @@ const InlineTextEditorSurface = forwardRef<
     deck.theme.typography.bodyFontFamily;
   const paragraphs = renderedProps.paragraphs ?? [];
   const bodyInset = resolveTextBodyInset(renderedProps);
+  const importedFontScale =
+    renderedProps.autoFit === "shrink-text"
+      ? (renderedProps.fontScale ?? 1)
+      : 1;
+  const importedLineSpaceScale =
+    renderedProps.autoFit === "shrink-text"
+      ? 1 - (renderedProps.lineSpaceReduction ?? 0)
+      : 1;
   const textLayout = getTextElementLayout({
     frame: {
       height: element.height,
@@ -241,9 +249,12 @@ const InlineTextEditorSurface = forwardRef<
         height: `${element.height * stageScale}px`,
         color: baseColor,
         fontFamily: baseFontFamily,
-        fontSize: `${renderedProps.fontSize * stageScale}px`,
+        fontSize: `${renderedProps.fontSize * importedFontScale * stageScale}px`,
         fontWeight: String(getCssFontWeight(renderedProps.fontWeight)),
-        lineHeight: String(renderedProps.lineHeight),
+        letterSpacing: `${(renderedProps.letterSpacing ?? 0) * stageScale}px`,
+        lineHeight: String(
+          Math.max(0.5, renderedProps.lineHeight * importedLineSpaceScale)
+        ),
         paddingBottom: `${Math.max(0, bodyInset.bottom) * stageScale}px`,
         paddingLeft: `${Math.max(0, bodyInset.left) * stageScale}px`,
         paddingRight: `${Math.max(0, bodyInset.right) * stageScale}px`,
@@ -360,12 +371,15 @@ function getRunStyle(args: {
   const fontWeight =
     run.fontWeight ?? paragraph.fontWeight ?? props.fontWeight;
   const baseline = run.baseline ?? "normal";
+  const fontScale =
+    props.autoFit === "shrink-text" ? (props.fontScale ?? 1) : 1;
   return {
     color: run.color ?? paragraph.color ?? baseColor,
     fontFamily: run.fontFamily ?? paragraph.fontFamily ?? baseFontFamily,
-    fontSize: `${(run.fontSize ?? paragraph.fontSize ?? props.fontSize) * stageScale}px`,
+    fontSize: `${(run.fontSize ?? paragraph.fontSize ?? props.fontSize) * fontScale * stageScale}px`,
     fontStyle: run.italic ?? paragraph.italic ?? props.italic ? "italic" : "normal",
     fontWeight: String(getCssFontWeight(fontWeight)),
+    letterSpacing: `${(run.letterSpacing ?? paragraph.letterSpacing ?? props.letterSpacing ?? 0) * stageScale}px`,
     textDecoration:
       run.underline ?? paragraph.underline ?? props.underline
         ? "underline"

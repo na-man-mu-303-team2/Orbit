@@ -1137,6 +1137,65 @@ describe("deckSchema validation", () => {
     expect(element.props).not.toHaveProperty("underline");
   });
 
+  it("preserves imported text spacing and autofit metadata", () => {
+    const deck = createValidDeck();
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      props: {
+        text: "Autofit",
+        letterSpacing: 1.2,
+        autoFit: "shrink-text",
+        fontScale: 0.84,
+        lineSpaceReduction: 0.12,
+        runs: [{ text: "Autofit", letterSpacing: 1.2 }],
+        paragraphs: [
+          {
+            text: "Autofit",
+            letterSpacing: 1.2,
+            runs: [{ text: "Autofit", letterSpacing: 1.2 }]
+          }
+        ]
+      }
+    };
+
+    const parsed = deckSchema.parse(deck);
+    const element = parsed.slides[0]?.elements[0];
+
+    expect(element?.type).toBe("text");
+    if (!element || element.type !== "text") {
+      throw new Error("expected a text element");
+    }
+    expect(element.props).toMatchObject({
+      autoFit: "shrink-text",
+      fontScale: 0.84,
+      letterSpacing: 1.2,
+      lineSpaceReduction: 0.12,
+      paragraphs: [
+        {
+          letterSpacing: 1.2,
+          runs: [{ letterSpacing: 1.2 }]
+        }
+      ],
+      runs: [{ letterSpacing: 1.2 }]
+    });
+  });
+
+  it("rejects autofit scale metadata without shrink-text mode", () => {
+    const deck = createValidDeck();
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      props: {
+        text: "Invalid autofit",
+        autoFit: "resize-shape",
+        fontScale: 0.84
+      }
+    };
+
+    expect(() => deckSchema.parse(deck)).toThrow(
+      "fontScale and lineSpaceReduction require autoFit=shrink-text"
+    );
+  });
+
   it("preserves mixed italic and underline styles through Deck serialization", () => {
     const deck = createValidDeck();
     const runs = [
