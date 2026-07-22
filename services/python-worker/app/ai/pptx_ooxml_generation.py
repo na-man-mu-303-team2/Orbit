@@ -50,6 +50,11 @@ from app.ai.pptx_motion import (
     replace_main_sequence,
     replace_slide_transition,
 )
+from app.ai.pptx_rendering import (
+    PptxNotesRenderError,
+    PptxNotesRenderErrorCode,
+    render_pptx_notes_to_png_assets,
+)
 
 PML_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 DML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -378,6 +383,19 @@ def generate_pptx_ooxml(
             [{"elements": []} for _slide in template_blueprint["slides"]],
             warnings,
         )
+        for diagnostic_field in ("motionDiagnostics", "notesDiagnostics"):
+            if diagnostic_field in imported.quality_report:
+                quality_report[diagnostic_field] = copy.deepcopy(
+                    imported.quality_report[diagnostic_field]
+                )
+
+    if render:
+        attach_notes_preview_assets(
+            package_bytes,
+            template_blueprint,
+            quality_report,
+            assets,
+        )
 
     return PptxOoxmlGenerationResult(
         canvas=canvas.payload(),
@@ -387,6 +405,125 @@ def generate_pptx_ooxml(
         assets=assets,
         warnings=warnings,
     )
+
+
+def attach_notes_preview_assets(
+    package_bytes: bytes,
+    template_blueprint: dict[str, Any],
+    quality_report: dict[str, Any],
+    assets: list[ImportedDesignAsset],
+) -> None:
+    slides = [
+        slide
+        for slide in template_blueprint.get("slides", [])
+        if isinstance(slide, dict)
+    ]
+    notes_slides = [
+        (index, slide, notes_page)
+        for index, slide in enumerate(slides, start=1)
+        if isinstance((notes_page := slide.get("notesPage")), dict)
+        and notes_page.get("status") == "preserved"
+        and notes_page.get("sourceNotesPart")
+    ]
+    if not notes_slides:
+        return
+
+    try:
+        width, height = notes_preview_dimensions_for_slides(notes_slides)
+        if not notes_preview_order_is_proven(slides):
+            raise PptxNotesRenderError("PPTX_NOTES_PAGE_COUNT_MISMATCH")
+        rendered_assets = render_pptx_notes_to_png_assets(
+            package_bytes,
+            notes_width_emu=width,
+            notes_height_emu=height,
+            expected_page_count=len(slides),
+        )
+        assets_by_id = {asset.asset_id: asset for asset in rendered_assets}
+        selected_assets: list[ImportedDesignAsset] = []
+        for page_index, _slide, notes_page in notes_slides:
+            asset_id = f"notes_render_{page_index}"
+            asset = assets_by_id.get(asset_id)
+            if asset is None:
+                raise PptxNotesRenderError("PPTX_NOTES_PREVIEW_ASSET_FAILED")
+            notes_page["status"] = "rendered"
+            notes_page["renderAssetFileId"] = f"asset:{asset_id}"
+            selected_assets.append(asset)
+        assets.extend(selected_assets)
+    except PptxNotesRenderError as error:
+        for _page_index, _slide, notes_page in notes_slides:
+            notes_page["status"] = "render-unavailable"
+            notes_page.pop("renderAssetFileId", None)
+        add_notes_render_warning(
+            quality_report,
+            error.code,
+            len(notes_slides),
+        )
+        return
+
+    diagnostics = quality_report.setdefault(
+        "notesDiagnostics",
+        {
+            "total": len(slides),
+            "imported": len(notes_slides),
+            "rendered": 0,
+            "writable": 0,
+            "warnings": [],
+        },
+    )
+    diagnostics["rendered"] = len(notes_slides)
+
+
+def notes_preview_dimensions_for_slides(
+    notes_slides: list[tuple[int, dict[str, Any], dict[str, Any]]],
+) -> tuple[int, int]:
+    dimensions = {
+        (
+            int(notes_page.get("notesWidthEmu", 0)),
+            int(notes_page.get("notesHeightEmu", 0)),
+        )
+        for _index, _slide, notes_page in notes_slides
+    }
+    if len(dimensions) != 1:
+        raise PptxNotesRenderError("PPTX_NOTES_PREVIEW_ASSET_FAILED")
+    width, height = next(iter(dimensions))
+    if width <= 0 or height <= 0:
+        raise PptxNotesRenderError("PPTX_NOTES_PREVIEW_ASSET_FAILED")
+    return width, height
+
+
+def notes_preview_order_is_proven(slides: list[dict[str, Any]]) -> bool:
+    return all(
+        int_value(slide.get("sourceSlideIndex"), 0) == index
+        for index, slide in enumerate(slides, start=1)
+    )
+
+
+def add_notes_render_warning(
+    quality_report: dict[str, Any],
+    code: PptxNotesRenderErrorCode,
+    count: int,
+) -> None:
+    diagnostics = quality_report.setdefault(
+        "notesDiagnostics",
+        {
+            "total": count,
+            "imported": count,
+            "rendered": 0,
+            "writable": 0,
+            "warnings": [],
+        },
+    )
+    warnings_by_code = {
+        str(warning.get("code")): int(warning.get("count", 0))
+        for warning in diagnostics.get("warnings", [])
+        if isinstance(warning, dict) and warning.get("code")
+    }
+    warnings_by_code[code] = warnings_by_code.get(code, 0) + max(1, count)
+    diagnostics["rendered"] = 0
+    diagnostics["warnings"] = [
+        {"code": warning_code, "count": warning_count}
+        for warning_code, warning_count in sorted(warnings_by_code.items())
+    ]
 
 
 def sync_pptx_ooxml(
@@ -5735,13 +5872,16 @@ def render_pptx_to_png_assets(
         temp_path = Path(temp_dir)
         pptx_path = temp_path / "source.pptx"
         out_dir = temp_path / "out"
+        profile_dir = temp_path / "profile"
         out_dir.mkdir()
+        profile_dir.mkdir()
         pptx_path.write_bytes(package_bytes)
         try:
             subprocess.run(
                 [
                     executable,
                     "--headless",
+                    f"-env:UserInstallation={profile_dir.resolve().as_uri()}",
                     "--convert-to",
                     "pdf",
                     "--outdir",

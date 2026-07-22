@@ -1,7 +1,9 @@
 import base64
 import copy
 import hashlib
+import importlib
 import shutil
+import subprocess
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -22,6 +24,12 @@ from app.ai.pptx_ooxml_generation import (
     sync_pptx_ooxml,
 )
 from app.ai.pptx_design_importer import ImportedDesignAsset
+from app.ai import pptx_ooxml_generation
+from app.ai.pptx_rendering import (
+    PptxNotesRenderError,
+    PptxNotesRenderErrorCode,
+    render_pptx_notes_to_png_assets,
+)
 from app.main import app
 
 IMPORT_FIDELITY_NOTES_FIXTURE = (
@@ -106,6 +114,13 @@ def test_import_fidelity_fixture_imports_notes_and_reproduces_remaining_gaps() -
         "notesHeightEmu": 9_144_000,
         "hasNonBodyContent": True,
     }
+    assert result.quality_report["notesDiagnostics"] == {
+        "total": 1,
+        "imported": 1,
+        "rendered": 0,
+        "writable": 1,
+        "warnings": [],
+    }
     assert title["props"]["fontFamily"] == "Pretendard SemiBold"
     assert title["props"]["fontWeight"] == "normal"
     assert title["props"]["fontSize"] == 24
@@ -117,6 +132,175 @@ def test_import_fidelity_fixture_imports_notes_and_reproduces_remaining_gaps() -
         "unsupported preset wedgeRoundRectCallout" in warning
         for warning in result.warnings
     )
+
+
+def test_notes_renderer_uses_notes_only_filter_and_notes_size_ratio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+    temporary_paths: list[Path] = []
+
+    monkeypatch.setattr(
+        "app.ai.pptx_rendering.find_libreoffice_executable",
+        lambda: "/test/soffice",
+    )
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        output = Path(command[command.index("--outdir") + 1])
+        source = Path(command[-1])
+        temporary_paths.extend((output.parent, output, source))
+        write_test_pdf(output / "source.pdf", page_count=1)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("app.ai.pptx_rendering.subprocess.run", fake_run)
+
+    assets = render_pptx_notes_to_png_assets(
+        IMPORT_FIDELITY_NOTES_FIXTURE.read_bytes(),
+        notes_width_emu=6_858_000,
+        notes_height_emu=9_144_000,
+        expected_page_count=1,
+    )
+
+    assert len(assets) == 1
+    assert assets[0].asset_id == "notes_render_1"
+    assert assets[0].mime_type == "image/png"
+    with Image.open(BytesIO(base64.b64decode(assets[0].content_base64))) as image:
+        assert image.size == (960, 1280)
+    assert "ExportNotesPages" in commands[0][commands[0].index("--convert-to") + 1]
+    assert "ExportOnlyNotesPages" in commands[0][
+        commands[0].index("--convert-to") + 1
+    ]
+    assert any(argument.startswith("-env:UserInstallation=file:") for argument in commands[0])
+    assert all(not path.exists() for path in temporary_paths)
+
+
+def test_notes_renderer_times_out_and_cleans_temporary_files(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    temporary_paths: list[Path] = []
+    monkeypatch.setattr(
+        "app.ai.pptx_rendering.find_libreoffice_executable",
+        lambda: "/test/soffice",
+    )
+
+    def timeout(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        output = Path(command[command.index("--outdir") + 1])
+        temporary_paths.append(output.parent)
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr("app.ai.pptx_rendering.subprocess.run", timeout)
+
+    with pytest.raises(PptxNotesRenderError) as error:
+        render_pptx_notes_to_png_assets(
+            IMPORT_FIDELITY_NOTES_FIXTURE.read_bytes(),
+            notes_width_emu=6_858_000,
+            notes_height_emu=9_144_000,
+            expected_page_count=1,
+            timeout_seconds=0.01,
+        )
+
+    assert error.value.code == "PPTX_NOTES_RENDER_TIMEOUT"
+    assert all(not path.exists() for path in temporary_paths)
+
+
+def test_notes_renderer_rejects_page_count_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.ai.pptx_rendering.find_libreoffice_executable",
+        lambda: "/test/soffice",
+    )
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        output = Path(command[command.index("--outdir") + 1])
+        write_test_pdf(output / "source.pdf", page_count=2)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("app.ai.pptx_rendering.subprocess.run", fake_run)
+
+    with pytest.raises(PptxNotesRenderError) as error:
+        render_pptx_notes_to_png_assets(
+            IMPORT_FIDELITY_NOTES_FIXTURE.read_bytes(),
+            notes_width_emu=6_858_000,
+            notes_height_emu=9_144_000,
+            expected_page_count=1,
+        )
+
+    assert error.value.code == "PPTX_NOTES_PAGE_COUNT_MISMATCH"
+
+
+def test_generate_pptx_ooxml_maps_notes_preview_only_after_proven_render(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notes_asset = make_test_png_asset("notes_render_1", "notes-01.png")
+    monkeypatch.setattr(
+        pptx_ooxml_generation,
+        "render_pptx_to_png_assets",
+        lambda _package, _canvas: [make_test_png_asset("slide_render_1", "slide-01.png")],
+    )
+    monkeypatch.setattr(
+        pptx_ooxml_generation,
+        "render_pptx_notes_to_png_assets",
+        lambda *_args, **_kwargs: [notes_asset],
+    )
+
+    result = generate_pptx_ooxml(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        "file_notes",
+        render=True,
+    )
+
+    notes_page = result.template_blueprint["slides"][0]["notesPage"]
+    assert notes_page["status"] == "rendered"
+    assert notes_page["renderAssetFileId"] == "asset:notes_render_1"
+    assert result.quality_report["notesDiagnostics"]["rendered"] == 1
+    assert any(asset.asset_id == "notes_render_1" for asset in result.assets)
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "PPTX_NOTES_RENDERER_UNAVAILABLE",
+        "PPTX_NOTES_RENDER_TIMEOUT",
+        "PPTX_NOTES_PAGE_COUNT_MISMATCH",
+    ],
+)
+def test_generate_pptx_ooxml_preserves_package_when_notes_render_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    code: PptxNotesRenderErrorCode,
+) -> None:
+    monkeypatch.setattr(
+        pptx_ooxml_generation,
+        "render_pptx_to_png_assets",
+        lambda _package, _canvas: [make_test_png_asset("slide_render_1", "slide-01.png")],
+    )
+
+    def unavailable(*_args: object, **_kwargs: object) -> list[ImportedDesignAsset]:
+        raise PptxNotesRenderError(code)
+
+    monkeypatch.setattr(
+        pptx_ooxml_generation,
+        "render_pptx_notes_to_png_assets",
+        unavailable,
+    )
+
+    result = generate_pptx_ooxml(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        "file_notes",
+        render=True,
+    )
+
+    assert current_package_bytes(result.assets) == IMPORT_FIDELITY_NOTES_FIXTURE.read_bytes()
+    assert result.blueprint["slides"][0]["speakerNotes"] == (
+        "첫 번째 문단\n\n수동\n줄바꿈"
+    )
+    assert result.template_blueprint["slides"][0]["notesPage"]["status"] == (
+        "render-unavailable"
+    )
+    assert result.quality_report["notesDiagnostics"]["warnings"] == [
+        {"code": code, "count": 1}
+    ]
 
 
 def test_pure_generation_preserves_package_entries_and_source_text(
@@ -1436,6 +1620,26 @@ def sample_duplicate_element_ids_pptx(
         )
     presentation.save(pptx_path)
     return pptx_path, shape_ids
+
+
+def write_test_pdf(path: Path, *, page_count: int) -> None:
+    fitz = importlib.import_module("fitz")
+    document = fitz.open()
+    try:
+        for _index in range(page_count):
+            document.new_page(width=600, height=800)
+        document.save(str(path))
+    finally:
+        document.close()
+
+
+def make_test_png_asset(asset_id: str, file_name: str) -> ImportedDesignAsset:
+    return ImportedDesignAsset(
+        assetId=asset_id,
+        fileName=file_name,
+        mimeType="image/png",
+        contentBase64=base64.b64encode(png_bytes("#336699")).decode("ascii"),
+    )
 
 
 def png_bytes(color: str) -> bytes:
