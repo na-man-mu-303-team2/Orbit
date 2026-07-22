@@ -21,15 +21,15 @@
 
 - 단계: PR0 기준선 fixture와 renderer 위험 검증
 - task branch: `feature/pptx-import-pr0-baseline`
-- 상태: 구현·측정·task branch 검증 완료, target branch merge 대기
+- 상태: target branch `--no-ff` merge와 merge 후 smoke test 완료
 
 ## 완료된 작업과 Commit
 
 | 작업                         | 일반 commit | task branch                        | merge commit | 검증                                                                                   |
 | ---------------------------- | ----------- | ---------------------------------- | ------------ | -------------------------------------------------------------------------------------- |
-| 초기 실행 기준 확인          | `90082d1e`  | `feature/pptx-import-pr0-baseline` | 미병합       | 저장소 규칙, 공통 계약, 구현 계획, commit convention 전체 확인                         |
-| PR0 fixture·renderer harness | `bc8ad700`  | `feature/pptx-import-pr0-baseline` | 미병합       | fixture 회귀 테스트, LibreOffice 위험 측정, synthetic/실제 Konva accuracy harness 추가 |
-| PR0 기준선 결정              | 현재 commit | `feature/pptx-import-pr0-baseline` | 미병합       | LibreOffice 채택, runtime Konva 기각 및 CI-only 결정 문서화                            |
+| 초기 실행 기준 확인          | `90082d1e`  | `feature/pptx-import-pr0-baseline` | `f3ca2ab3`   | 저장소 규칙, 공통 계약, 구현 계획, commit convention 전체 확인                         |
+| PR0 fixture·renderer harness | `bc8ad700`  | `feature/pptx-import-pr0-baseline` | `f3ca2ab3`   | fixture 회귀 테스트, LibreOffice 위험 측정, synthetic/실제 Konva accuracy harness 추가 |
+| PR0 기준선 결정              | `6f545bf3`  | `feature/pptx-import-pr0-baseline` | `f3ca2ab3`   | LibreOffice 채택, runtime Konva 기각 및 CI-only 결정 문서화                            |
 
 ## 실행한 검증
 
@@ -47,6 +47,8 @@
 | LibreOffice container | production worker image notes-only export                                            | 8 pages, 1·4·8 page 순서와 한국어 fallback 육안 확인 |
 | synthetic Konva       | 계획서 지정 Playwright wrapper + SSIM                                                | 16/16 캡처, 평균 0.9532, gate 10/16                  |
 | 실제 기준 Konva       | 8 slides capture + SSIM                                                              | 8/8 캡처, 평균 0.9156, gate 3/8                      |
+| merge 후 Python smoke | `pytest tests/test_pptx_ooxml_generation.py -k import_fidelity_fixture`              | 2 passed, 21 deselected                              |
+| merge 후 Web smoke    | Playwright wrapper `--grep 16_import_fidelity_notes`                                 | 1 passed                                             |
 
 ## PR0 Renderer 측정과 결정
 
@@ -85,10 +87,10 @@
 
 ## 다음에 시작할 정확한 작업
 
-1. PR0 전체 Python 테스트, ruff, Playwright accuracy gate와 deterministic fixture hash를 재검증한다.
-2. PR0 변경을 상세 한국어 commit으로 나누어 기록한다.
-3. `feature/pptx-import-fidelity-speaker-notes`에 `--no-ff` merge하고 merge 후 smoke test와 ledger SHA를 기록한다.
-4. PR1 shared 계약 확장을 새 task branch에서 시작한다.
+1. target branch의 clean 상태와 PR0 ledger commit을 확인한다.
+2. `feature/pptx-import-pr1-contracts` task branch를 target branch HEAD에서 생성한다.
+3. `packages/shared`의 import preference, render mode, notes locator/preview metadata, bounded quality diagnostics를 optional/default 호환으로 확장한다.
+4. `docs/contracts.md`와 shared schema test를 함께 갱신하고 raw notes/XML/base64 field 거부를 검증한다.
 
 ## 사용자 결정이 필요한 Blocker
 
