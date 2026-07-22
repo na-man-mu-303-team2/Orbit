@@ -184,9 +184,32 @@ class ElementPropsPatch(BaseModel):
         return _validate_font_weight(value)
 
 
+class SlideBackgroundImagePatch(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    src: str = Field(min_length=1)
+    alt: str = ""
+    fit: Literal["contain", "cover", "stretch"] = "cover"
+    opacity: float = Field(default=1, ge=0, le=1)
+
+
 class SlideStylePatch(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    layout: (
+        Literal[
+            "title",
+            "title-content",
+            "section",
+            "two-column",
+            "image-left",
+            "image-right",
+            "chart-focus",
+            "quote",
+            "closing",
+        ]
+        | None
+    ) = None
     font_family: str | None = Field(default=None, alias="fontFamily", min_length=1)
     background_color: str | None = Field(
         default=None,
@@ -195,6 +218,9 @@ class SlideStylePatch(BaseModel):
     )
     text_color: str | None = Field(default=None, alias="textColor", min_length=1)
     accent_color: str | None = Field(default=None, alias="accentColor", min_length=1)
+    background_image: SlideBackgroundImagePatch | None = Field(
+        default=None, alias="backgroundImage"
+    )
 
 
 class TextElementProps(BaseModel):
@@ -2177,12 +2203,42 @@ def _delete_element_operation_json_schema() -> dict[str, Any]:
 
 
 def _slide_style_operation_json_schema() -> dict[str, Any]:
+    background_image = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "src": {"type": "string", "minLength": 1},
+            "alt": {"type": "string"},
+            "fit": {
+                "type": "string",
+                "enum": ["contain", "cover", "stretch"],
+            },
+            "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+        },
+        "required": ["src", "alt", "fit", "opacity"],
+    }
     style = _nullable_properties(
         {
+            "layout": {
+                "type": ["string", "null"],
+                "enum": [
+                    "title",
+                    "title-content",
+                    "section",
+                    "two-column",
+                    "image-left",
+                    "image-right",
+                    "chart-focus",
+                    "quote",
+                    "closing",
+                    None,
+                ],
+            },
             "fontFamily": {"type": ["string", "null"]},
             "backgroundColor": {"type": ["string", "null"]},
             "textColor": {"type": ["string", "null"]},
             "accentColor": {"type": ["string", "null"]},
+            "backgroundImage": {"anyOf": [background_image, {"type": "null"}]},
         }
     )
     return {

@@ -254,6 +254,39 @@ def test_element_json_schema_exposes_aligned_roles_and_font_weights() -> None:
     assert "semibold" in schema_text
 
 
+def test_accepts_background_image_and_layout_slide_style_patch() -> None:
+    payload = proposal_payload()
+    payload["operations"] = [
+        {
+            "type": "update_slide_style",
+            "slideId": "slide_1",
+            "style": {
+                "layout": "image-right",
+                "backgroundImage": {
+                    "src": "https://assets.example/background.png",
+                    "alt": "추상적인 배경",
+                    "fit": "cover",
+                    "opacity": 0.7,
+                },
+            },
+        }
+    ]
+
+    result = DesignAgentResponse.model_validate(payload)
+    style = result.operations[0].style
+
+    assert style.layout == "image-right"
+    assert style.background_image is not None
+    assert style.background_image.src.endswith("background.png")
+
+
+def test_slide_style_json_schema_exposes_layout_and_background_image() -> None:
+    schema_text = json.dumps(DESIGN_AGENT_RESPONSE_FORMAT, ensure_ascii=False)
+
+    assert "backgroundImage" in schema_text
+    assert "image-right" in schema_text
+
+
 def test_generates_and_validates_design_operations() -> None:
     client = FakeClient(proposal_payload())
     request = request_payload()
