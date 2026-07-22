@@ -26,8 +26,7 @@
 - 완료 milestone: PR00 — 요소 보존 정책과 안전성 판정
 - PR00 integration merge: `211470905b65f620a9cef3d0ad8eead5e902fa76`
 - 현재 milestone: PR01 — Python design-agent 모델 정합화
-- 활성 child branch: `feature/slide-redesign-agent-v2-pr00-safety`
-- 활성 child worktree: `/private/tmp/orbit-slide-redesign-agent-v2-pr00-safety`
+- 활성 child branch/worktree: 없음
 - 완료 checkpoint와 code commit:
   - `422f9fc4` — fail-closed unsafe element type 판정과 shared schema coverage
   - `9b064d22` — animation/action/semantic cue/locked/group/OOXML 제약 수집
@@ -43,7 +42,7 @@
   - `uv run mypy app` — 63 source files 통과
   - `uv run pytest tests/test_slide_redesign_safety.py -v` — 19 passed
 - 남은 stop gate: 없음
-- PR00 child 상태: integration merge 완료, progress commit 후 clean worktree 정리 예정
+- PR00 child 상태: clean worktree와 local branch 정리 완료
 - 다음 milestone: PR01 — Python design-agent 모델 정합화
 
 ## 문서와 코드의 불일치
