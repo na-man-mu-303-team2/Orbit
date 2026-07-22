@@ -177,6 +177,84 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
         expect(jobPayload.includes(note)).toBe(false);
       }
 
+      const sourceSlideFourNotes = sourceNotes[3]!;
+      expect(sourceSlideFourNotes.includes("\n\n")).toBe(true);
+      const editedSlideFourNotes =
+        `${sourceSlideFourNotes}\n\nSynthetic checkpoint B edit`;
+      const editedDeck = deckSchema.parse(structuredClone(persistedDeck));
+      editedDeck.slides[3]!.speakerNotes = editedSlideFourNotes;
+      const saved = await harness.decks.putDeck(projectId, {
+        baseVersion: persistedDeck.version,
+        deck: editedDeck,
+      });
+      const syncPayload = await enqueueSync(harness, projectId, {
+        deckId: saved.deck.deckId,
+        changeId: await latestChangeId(
+          dataSource,
+          projectId,
+          saved.deck.version,
+        ),
+        targetDeckVersion: saved.deck.version,
+      });
+      const syncJob = await processPptxOoxmlSyncJob(
+        dataSource,
+        storage,
+        pythonWorkerUrl,
+        syncPayload,
+      );
+      expect(syncJob.status, JSON.stringify(syncJob.error)).toBe("succeeded");
+
+      const syncedBlueprint = await loadTemplateBlueprint(
+        dataSource,
+        projectId,
+        saved.deck.deckId,
+      );
+      const refreshedPreviewFileIds = syncedBlueprint.slides.flatMap((slide) =>
+        slide.notesPage?.status === "rendered" &&
+        slide.notesPage.renderAssetFileId
+          ? [slide.notesPage.renderAssetFileId]
+          : [],
+      );
+      expect(refreshedPreviewFileIds).toHaveLength(8);
+      expect(new Set(refreshedPreviewFileIds).size).toBe(8);
+
+      const exportPayload = await enqueueExport(harness, projectId);
+      const exportedJob = await processDeckExportJob(
+        dataSource,
+        storage,
+        pythonWorkerUrl,
+        exportPayload,
+        { ooxmlReadyAttempts: 2, ooxmlReadyDelayMs: 0 },
+      );
+      expect(exportedJob.status, JSON.stringify(exportedJob.error)).toBe(
+        "succeeded",
+      );
+      const reimported = await importPptxWithPython(
+        pythonWorkerUrl,
+        await jobAssetBytes(dataSource, storage, exportedJob),
+        projectId,
+        integrationId("file"),
+      );
+      const expectedEditedDigests = sourceNotes.map((note, index) =>
+        noteDigest(index === 3 ? editedSlideFourNotes : note),
+      );
+      expect(reimported.blueprint.slides).toHaveLength(8);
+      expect(
+        (reimported.blueprint.slides ?? []).map((slide) =>
+          noteDigest(slide.speakerNotes ?? ""),
+        ),
+      ).toEqual(expectedEditedDigests);
+      expect(editedSlideFourNotes.startsWith(`${sourceSlideFourNotes}\n\n`)).toBe(
+        true,
+      );
+
+      const syncedSidecarPayload = JSON.stringify(syncedBlueprint);
+      const syncJobPayload = JSON.stringify(syncJob.result);
+      for (const note of [...sourceNotes, editedSlideFourNotes]) {
+        expect(syncedSidecarPayload.includes(note)).toBe(false);
+        expect(syncJobPayload.includes(note)).toBe(false);
+      }
+
       const fallbackProjectId = integrationId("project");
       const fallbackSourceFileId = integrationId("file");
       const fallbackStorageKey =
