@@ -1,5 +1,6 @@
 import type { Deck, Slide } from "@orbit/shared";
 import { resolveEditorAssetUrl } from "../../editor/shared/editorAssetUrl";
+import { usesSourceSlideSnapshot } from "./elementNormalization";
 
 export type SlideImagePriority = "high" | "low";
 
@@ -139,6 +140,10 @@ const sharedSlideImageCache = createSlideImageCache();
 
 export function collectSlideAssetUrls(_deck: Deck, slide: Slide) {
   const urls = new Set<string>();
+
+  if (usesSourceSlideSnapshot(slide) && slide.thumbnailUrl) {
+    return [resolveEditorAssetUrl(slide.thumbnailUrl)];
+  }
 
   if (slide.elements.length === 0 && slide.thumbnailUrl) {
     return [resolveEditorAssetUrl(slide.thumbnailUrl)];

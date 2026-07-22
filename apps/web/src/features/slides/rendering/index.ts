@@ -18,7 +18,8 @@ export { getActiveHighlightElementIds, HighlightOverlay } from "./highlightOverl
 export { getHighlightOverlayElements } from "./highlightOverlayElements";
 export {
   getRenderableSlideElements,
-  normalizeRenderableElement
+  normalizeRenderableElement,
+  usesSourceSlideSnapshot
 } from "./elementNormalization";
 export {
   clearProjectSlideImageCache,

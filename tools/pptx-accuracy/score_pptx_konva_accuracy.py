@@ -42,22 +42,29 @@ def score_row(row: dict[str, Any], threshold: float) -> dict[str, Any]:
     golden_path = ROOT / row["goldenPath"]
     candidate_path = ROOT / row["candidatePath"]
     reasons = list(row.get("warnings", []))
+    import_preference = row.get("importPreference")
+    expected_render_mode = row.get("expectedRenderMode")
+    source_snapshot_expected = (
+        import_preference == "appearance-first"
+        and expected_render_mode == "snapshot"
+    )
+    required_ssim = 0.99 if source_snapshot_expected else threshold
     ssim: float | None = None
     if not candidate_path.exists():
         reasons.append("candidate image missing")
     else:
         ssim = image_ssim(golden_path.read_bytes(), candidate_path.read_bytes())
-        if ssim < threshold:
-            reasons.append(f"SSIM {ssim:.4f} is below {threshold:.2f}")
-    if row.get("fullSlideFallbackUsed"):
+        if ssim < required_ssim:
+            reasons.append(f"SSIM {ssim:.4f} is below {required_ssim:.2f}")
+    if row.get("fullSlideFallbackUsed") and not source_snapshot_expected:
         reasons.append("full-slide background fallback used")
     unresolved_assets = row.get("unresolvedAssets", [])
     if unresolved_assets:
         reasons.append(f"unresolved assets: {', '.join(unresolved_assets)}")
     passed = (
         ssim is not None
-        and ssim >= threshold
-        and not row.get("fullSlideFallbackUsed")
+        and ssim >= required_ssim
+        and (source_snapshot_expected or not row.get("fullSlideFallbackUsed"))
         and not unresolved_assets
     )
     return {
@@ -69,6 +76,9 @@ def score_row(row: dict[str, Any], threshold: float) -> dict[str, Any]:
         "fullSlideFallbackUsed": bool(row.get("fullSlideFallbackUsed")),
         "unresolvedAssets": unresolved_assets,
         "elementCounts": row.get("elementCounts", {}),
+        "importPreference": import_preference,
+        "expectedRenderMode": expected_render_mode,
+        "requiredSsim": required_ssim,
         "reasons": reasons,
         "goldenPath": row["goldenPath"],
         "candidatePath": row["candidatePath"],

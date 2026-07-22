@@ -91,11 +91,15 @@ export function buildSlideThumbBackground(
 ) {
   const background = slide.style.backgroundColor ?? deck.theme.backgroundColor;
 
+  if (slide.importRenderMode === "snapshot" && slide.thumbnailUrl) {
+    return `url("${resolveEditorAssetUrl(slide.thumbnailUrl)}") center / contain no-repeat, ${background}`;
+  }
+
   if (cachedUrl) {
     return `url("${cachedUrl}") center / contain no-repeat, ${background}`;
   }
 
-  if (slide.thumbnailUrl) {
+  if (!slide.importRenderMode && slide.thumbnailUrl) {
     return `url("${resolveEditorAssetUrl(slide.thumbnailUrl)}") center / contain no-repeat, ${background}`;
   }
 
@@ -117,6 +121,16 @@ export function buildSlideThumbBackground(
 
 export function buildSlideBackgroundStyle(slide: Slide, deck: Deck): CSSProperties {
   const backgroundColor = slide.style.backgroundColor ?? deck.theme.backgroundColor;
+  if (slide.importRenderMode === "snapshot" && slide.thumbnailUrl) {
+    return {
+      backgroundColor,
+      backgroundImage: `url("${resolveEditorAssetUrl(slide.thumbnailUrl)}")`,
+      backgroundPosition: "center",
+      backgroundRepeat: "no-repeat",
+      backgroundSize: "100% 100%",
+      borderRadius: 0
+    };
+  }
   const backgroundImage = slide.style.backgroundImage;
 
   if (!backgroundImage?.src) {

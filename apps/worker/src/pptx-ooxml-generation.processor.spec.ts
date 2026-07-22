@@ -1,7 +1,10 @@
 import type { StoragePort } from "@orbit/storage";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
+import {
+  processPptxOoxmlGenerationJob,
+  selectSlideImportRenderMode
+} from "./pptx-ooxml-generation.processor";
 
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -44,6 +47,7 @@ describe("processPptxOoxmlGenerationJob", () => {
   it("stores editable visual elements, render thumbnails, current package, template blueprint, and job result", async () => {
     const insertedDecks: unknown[] = [];
     const insertedBlueprints: unknown[] = [];
+    const insertedQualityReports: unknown[] = [];
     const query = vi.fn(async (sql: string, params: unknown[]) => {
       if (sql.includes("UPDATE jobs")) {
         return [
@@ -74,6 +78,7 @@ describe("processPptxOoxmlGenerationJob", () => {
       }
       if (sql.includes("INSERT INTO template_blueprints")) {
         insertedBlueprints.push(params[4]);
+        insertedQualityReports.push(params[5]);
       }
       return [];
     });
@@ -126,6 +131,7 @@ describe("processPptxOoxmlGenerationJob", () => {
         thumbnailSource?: string;
       };
       slides: Array<{
+        importRenderMode?: string;
         elements: Array<Record<string, unknown>>;
         transition?: { type: string; durationMs: number };
         animations: Array<Record<string, unknown>>;
@@ -143,6 +149,7 @@ describe("processPptxOoxmlGenerationJob", () => {
     expect(deck.slides[0].thumbnailUrl).toMatch(
       /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
     );
+    expect(deck.slides[0].importRenderMode).toBe("editable");
     expect(deck.slides[0].speakerNotes).toBe("asset:notes_render_1");
     expect(deck.slides[0].style.backgroundImage).toBeUndefined();
     expect(deck.slides[0].transition).toEqual({
@@ -238,6 +245,17 @@ describe("processPptxOoxmlGenerationJob", () => {
       currentPackageFileId: blueprint.currentPackageFileId
     });
     expect(JSON.stringify(job.result)).not.toContain("asset:notes_render_1");
+    expect(insertedQualityReports[0]).toMatchObject({
+      slideReports: [
+        expect.objectContaining({
+          selectedRenderMode: "editable",
+          recommendedRenderMode: "editable",
+          pixelEvaluation: "not-evaluated",
+          unsupportedObjectCount: 0,
+          fontSubstitutionCount: 0
+        })
+      ]
+    });
   });
 
   it("keeps imported speaker notes when a notes preview asset cannot be saved", async () => {
@@ -330,10 +348,21 @@ describe("processPptxOoxmlGenerationJob", () => {
     );
 
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
-    expect((insertedDecks[0] as { slides: Array<{ speakerNotes: string }> }).slides[0])
+    expect((insertedDecks[0] as {
+      slides: Array<{
+        speakerNotes: string;
+        importRenderMode?: string;
+        elements: Array<Record<string, unknown>>;
+      }>;
+    }).slides[0])
       .toMatchObject({
-        speakerNotes: "synthetic-note-line-1\n\nsynthetic-note-line-2"
+        speakerNotes: "synthetic-note-line-1\n\nsynthetic-note-line-2",
+        importRenderMode: "snapshot"
       });
+    expect(
+      (insertedDecks[0] as { slides: Array<{ elements: unknown[] }> }).slides[0]
+        .elements
+    ).not.toHaveLength(0);
     expect(
       (insertedBlueprints[0] as {
         slides: Array<{
@@ -349,6 +378,13 @@ describe("processPptxOoxmlGenerationJob", () => {
       }).slides[0].notesPage.renderAssetFileId
     ).toBeUndefined();
     expect(insertedQualityReports[0]).toMatchObject({
+      slideReports: [
+        expect.objectContaining({
+          selectedRenderMode: "snapshot",
+          recommendedRenderMode: "snapshot",
+          pixelEvaluation: "not-evaluated"
+        })
+      ],
       notesDiagnostics: {
         rendered: 0,
         warnings: [
@@ -498,6 +534,7 @@ describe("processPptxOoxmlGenerationJob", () => {
 
     const deck = insertedDecks[0] as {
       slides: Array<{
+        importRenderMode?: string;
         elements: Array<Record<string, unknown>>;
         animations: Array<Record<string, unknown>>;
         ooxmlMotionCapabilities: {
@@ -514,14 +551,14 @@ describe("processPptxOoxmlGenerationJob", () => {
       fit: "stretch",
       opacity: 1
     });
-    expect(deck.slides[0].elements).not.toEqual(
+    expect(deck.slides[0].importRenderMode).toBe("snapshot");
+    expect(deck.slides[0].elements).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           elementId: "el_ooxml_1_slide_99_fallback_image"
         })
       ])
     );
-    expect(deck.slides[0].elements).toEqual([]);
     expect(deck.slides[0].animations).toEqual([]);
     expect(
       deck.slides[0].ooxmlMotionCapabilities.importedMainSequenceCoverage
@@ -598,11 +635,13 @@ describe("processPptxOoxmlGenerationJob", () => {
 
     const deck = insertedDecks[0] as {
       slides: Array<{
+        importRenderMode?: string;
         elements: Array<{ elementId: string; props?: { src?: string } }>;
         style: { backgroundImage?: { src?: string } };
       }>;
     };
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(deck.slides[0].importRenderMode).toBe("hybrid");
     expect(deck.slides[0].style.backgroundImage).toBeUndefined();
     expect(deck.slides[0].elements).toEqual(
       expect.arrayContaining([
@@ -717,6 +756,75 @@ describe("processPptxOoxmlGenerationJob", () => {
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("PPTX_OOXML_GENERATION_PAYLOAD_INVALID");
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("selectSlideImportRenderMode", () => {
+  const visualElements = [
+    {
+      elementId: "el_safe_vector",
+      type: "rect" as const,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        fill: "#ffffff",
+        stroke: "transparent",
+        strokeWidth: 0,
+        borderRadius: 0
+      }
+    }
+  ];
+
+  it.each([
+    ["appearance-first", "not_evaluated", "not-evaluated", "snapshot"],
+    ["appearance-first", "vectorization_failed", "failed", "snapshot"],
+    ["appearance-first", "passed", "passed", "editable"],
+    ["editability-first", "not_evaluated", "not-evaluated", "editable"]
+  ] as const)(
+    "selects %s / %s as %s diagnostics and %s rendering",
+    (importPreference, status, pixelEvaluation, selectedRenderMode) => {
+      expect(
+        selectSlideImportRenderMode({
+          importPreference,
+          qualityReportSlide: {
+            slideIndex: 1,
+            status,
+            ssim: status === "passed" ? 0.99 : null,
+            reasons: [],
+            fallback: "none"
+          },
+          slideIndex: 1,
+          sourceElementSources: [],
+          visualElements
+        })
+      ).toMatchObject({ pixelEvaluation, selectedRenderMode });
+    }
+  );
+
+  it("fails closed when a relationship-backed source is missing from the visual tree", () => {
+    expect(
+      selectSlideImportRenderMode({
+        importPreference: "editability-first",
+        slideIndex: 1,
+        sourceElementSources: [
+          {
+            elementId: "el_missing_media",
+            relationshipId: "rId5"
+          }
+        ],
+        visualElements
+      })
+    ).toMatchObject({
+      selectedRenderMode: "snapshot",
+      reasons: ["PPTX_RENDER_MODE_SNAPSHOT_RELATIONSHIP_ELEMENT_MISSING"]
+    });
   });
 });
 
@@ -965,6 +1073,18 @@ function workerResponseWithUnresolvedFallback() {
       }
     }
   ];
+  (response.templateBlueprint.slides[0] as typeof response.templateBlueprint.slides[0] & {
+    elementSources: Array<Record<string, unknown>>;
+  }).elementSources = [
+    {
+      elementId: "el_ooxml_1_slide_99_fallback_image",
+      slidePart: "ppt/slides/slide1.xml",
+      shapeId: "99",
+      sourceType: "shape",
+      writable: false,
+      fallbackReason: "unsupported-preset"
+    }
+  ];
   response.assets = response.assets.filter((asset) => asset.assetId !== "image_1");
   return response;
 }
@@ -1093,6 +1213,15 @@ function qualityReport() {
       writable: 1,
       warnings: []
     },
+    slideReports: [
+      {
+        slideIndex: 1,
+        status: "not_evaluated",
+        ssim: null,
+        reasons: [],
+        fallback: "none"
+      }
+    ],
     notes: ["OOXML package rendered to slide PNG"]
   };
 }
