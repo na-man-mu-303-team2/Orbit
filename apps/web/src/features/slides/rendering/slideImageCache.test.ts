@@ -217,4 +217,42 @@ describe("collectSlideAssetUrls", () => {
       "/thumbnail.png"
     ]);
   });
+
+  it("uses only the source thumbnail for snapshot slides with preserved elements", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      importRenderMode: "snapshot" as const,
+      thumbnailUrl: "/source-slide.png",
+      style: {
+        ...deck.slides[0]!.style,
+        backgroundImage: {
+          src: "/vector-background.png",
+          alt: "vector background",
+          fit: "cover" as const,
+          opacity: 1
+        }
+      }
+    };
+
+    expect(slide.elements.length).toBeGreaterThan(0);
+    expect(collectSlideAssetUrls({ ...deck, slides: [slide] }, slide)).toEqual([
+      "/source-slide.png"
+    ]);
+  });
+
+  it("does not pin the source thumbnail for editable or hybrid slides", () => {
+    const deck = createDemoDeck();
+
+    for (const importRenderMode of ["editable", "hybrid"] as const) {
+      const slide = {
+        ...deck.slides[0]!,
+        importRenderMode,
+        thumbnailUrl: "/source-slide.png"
+      };
+      const urls = collectSlideAssetUrls({ ...deck, slides: [slide] }, slide);
+
+      expect(urls).not.toContain("/source-slide.png");
+    }
+  });
 });

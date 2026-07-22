@@ -21,4 +21,13 @@ describe("slide editing policy", () => {
     expect(canEditSlideCanvas(resultSlide)).toBe(false);
     expect(canEditSlideCanvas(null)).toBe(false);
   });
+
+  it("keeps legacy, editable, and hybrid content slides editable but locks snapshots", () => {
+    const slide = createDemoDeck().slides[0]!;
+
+    expect(canEditSlideCanvas(slide)).toBe(true);
+    expect(canEditSlideCanvas({ ...slide, importRenderMode: "editable" })).toBe(true);
+    expect(canEditSlideCanvas({ ...slide, importRenderMode: "hybrid" })).toBe(true);
+    expect(canEditSlideCanvas({ ...slide, importRenderMode: "snapshot" })).toBe(false);
+  });
 });

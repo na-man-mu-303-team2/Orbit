@@ -78,6 +78,7 @@ test.describe("PPTX Konva accuracy render", () => {
               slides?: Array<{
                 elements?: Array<{ props?: { src?: unknown } }>;
                 style?: { backgroundImage?: { src?: unknown } };
+                thumbnailUrl?: unknown;
               }>;
             };
           };
@@ -104,6 +105,7 @@ test.describe("PPTX Konva accuracy render", () => {
             return blobUrl;
           };
           for (const slide of payload.deck?.slides ?? []) {
+            slide.thumbnailUrl = toBlobUrl(slide.thumbnailUrl);
             if (slide.style?.backgroundImage) {
               slide.style.backgroundImage.src = toBlobUrl(
                 slide.style.backgroundImage.src,
@@ -170,9 +172,13 @@ async function waitForDeterministicSlideRender(
         slides?: Array<{
           elements?: Array<{ props?: { src?: unknown }; type?: unknown }>;
           style?: { backgroundImage?: { src?: unknown } };
+          thumbnailUrl?: unknown;
         }>;
       };
       for (const slide of deck.slides ?? []) {
+        if (typeof slide.thumbnailUrl === "string") {
+          imageSources.push(slide.thumbnailUrl);
+        }
         const backgroundSource = slide.style?.backgroundImage?.src;
         if (typeof backgroundSource === "string") {
           imageSources.push(backgroundSource);

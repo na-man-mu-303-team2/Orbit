@@ -58,8 +58,14 @@ def main() -> None:
     tempfile.tempdir = str(TEMP)
 
     if args.source_pptx is not None:
-        prepare_source_pptx(args.source_pptx.resolve())
+        prepare_source_pptx(
+            args.source_pptx.resolve(),
+            preference_pair=args.preference_pair,
+        )
         return
+
+    if args.preference_pair:
+        raise SystemExit("--preference-pair requires --source-pptx")
 
     image_assets = create_image_assets()
     builders = [
@@ -136,10 +142,11 @@ def main() -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-pptx", type=Path)
+    parser.add_argument("--preference-pair", action="store_true")
     return parser.parse_args()
 
 
-def prepare_source_pptx(source: Path) -> None:
+def prepare_source_pptx(source: Path, *, preference_pair: bool = False) -> None:
     result = generate_pptx_ooxml(source, "konva_reference", render=True)
     asset_by_id = {asset.asset_id: asset for asset in result.assets}
     deck, unresolved_assets, _ = build_deck_payload(
@@ -150,18 +157,10 @@ def prepare_source_pptx(source: Path) -> None:
     )
     rows: list[dict[str, Any]] = []
     for index, slide in enumerate(result.blueprint["slides"], start=1):
-        name = f"reference_slide_{index:02d}"
+        base_name = f"reference_slide_{index:02d}"
         golden = asset_by_id[f"slide_render_{index}"]
-        golden_path = GOLDEN / f"{name}.png"
+        golden_path = GOLDEN / f"{base_name}.png"
         golden_path.write_bytes(base64.b64decode(golden.content_base64))
-        payload_path = PAYLOADS / f"{name}.json"
-        slide_deck = json.loads(json.dumps(deck))
-        slide_deck["slides"] = [slide_deck["slides"][index - 1]]
-        slide_deck["slides"][0]["order"] = 1
-        payload_path.write_text(
-            json.dumps({"deck": slide_deck, "slideIndex": 0}, ensure_ascii=False),
-            encoding="utf-8",
-        )
         fallback_objects = sum(
             1
             for element in slide.get("elements", [])
@@ -169,26 +168,67 @@ def prepare_source_pptx(source: Path) -> None:
                 "asset:shape_render_"
             )
         )
-        rows.append(
-            {
-                "name": name,
-                "pptxPath": str(source),
-                "goldenPath": relative_path(golden_path),
-                "payloadPath": relative_path(payload_path),
-                "candidatePath": relative_path(CANDIDATE / f"{name}.png"),
-                "fallbackObjects": fallback_objects,
-                "fullSlideFallbackUsed": bool(
-                    slide.get("style", {}).get("backgroundImage")
+        preference_modes: list[tuple[str | None, str | None]] = [(None, None)]
+        if preference_pair:
+            preference_modes = [
+                ("appearance-first", "snapshot"),
+                (
+                    "editability-first",
+                    "hybrid" if fallback_objects > 0 else "editable",
                 ),
-                "unresolvedAssets": unresolved_assets,
-                "warnings": result.warnings,
-                "elementCounts": element_counts(slide.get("elements", [])),
-            }
-        )
+            ]
+
+        for preference, render_mode in preference_modes:
+            name = (
+                f"{base_name}_{preference}"
+                if preference is not None
+                else base_name
+            )
+            payload_path = PAYLOADS / f"{name}.json"
+            slide_deck = json.loads(json.dumps(deck))
+            slide_deck["slides"] = [slide_deck["slides"][index - 1]]
+            selected_slide = slide_deck["slides"][0]
+            selected_slide["order"] = 1
+            if render_mode is not None:
+                selected_slide["importRenderMode"] = render_mode
+                selected_slide["thumbnailUrl"] = data_url(
+                    golden.mime_type,
+                    golden.content_base64,
+                )
+            payload_path.write_text(
+                json.dumps(
+                    {"deck": slide_deck, "slideIndex": 0},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            rows.append(
+                {
+                    "name": name,
+                    "pptxPath": str(source),
+                    "goldenPath": relative_path(golden_path),
+                    "payloadPath": relative_path(payload_path),
+                    "candidatePath": relative_path(CANDIDATE / f"{name}.png"),
+                    "fallbackObjects": fallback_objects,
+                    "fullSlideFallbackUsed": render_mode == "snapshot",
+                    "unresolvedAssets": unresolved_assets,
+                    "warnings": result.warnings,
+                    "elementCounts": element_counts(slide.get("elements", [])),
+                    **(
+                        {
+                            "importPreference": preference,
+                            "expectedRenderMode": render_mode,
+                        }
+                        if preference is not None
+                        else {}
+                    ),
+                }
+            )
     manifest = {
         "sampleCount": len(rows),
         "threshold": 0.95,
         "route": "/__deck-render",
+        "preferencePair": preference_pair,
         "sourceSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "rows": rows,
     }
