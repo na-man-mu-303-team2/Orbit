@@ -56,7 +56,7 @@ export const designAgentCapabilityOperationSchema = z.enum([
 ]);
 
 export const designAgentCapabilitiesSchema = z.object({
-  version: z.literal("1"),
+  version: z.enum(["1", "2"]),
   operations: z.array(designAgentCapabilityOperationSchema).min(1),
   addableElementTypes: z.array(z.enum(["text", "rect", "chart", "table"])),
   canEditTextContent: z.boolean(),
