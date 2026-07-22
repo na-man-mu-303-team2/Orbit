@@ -2287,6 +2287,8 @@ describe("editor shell", () => {
     const deck = createDemoDeck();
     const slide = deck.slides[0];
 
+    slide.actions = [];
+    slide.animations = [];
     slide.elements = [100, 400, 900].map((x, index) => ({
       elementId: `el_${index + 1}`,
       type: "rect",
@@ -2322,6 +2324,8 @@ describe("editor shell", () => {
   it("moves grouped children when distributing a group selection", () => {
     const deck = createDemoDeck();
     const slide = deck.slides[0];
+    slide.actions = [];
+    slide.animations = [];
     const rect = (elementId: string, x: number, zIndex: number) => ({
       elementId,
       type: "rect" as const,

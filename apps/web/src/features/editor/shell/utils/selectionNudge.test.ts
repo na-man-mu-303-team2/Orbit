@@ -58,6 +58,8 @@ function group(
 
 function deckWithElements(elements: DeckElement[]) {
   const deck = createDemoDeck();
+  deck.slides[0]!.actions = [];
+  deck.slides[0]!.animations = [];
   deck.slides[0]!.elements = elements;
   return deck;
 }
