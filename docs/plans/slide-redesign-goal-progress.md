@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD after PR10 merge: `19824a0ec58e0fdbd89537763b916b8bfb8e58d7`
+- integration HEAD after PR11 merge: `fb389343827642f3cd42292ff5944449a49bdfeb`
 - worktree: clean
 
 ## Baseline
@@ -23,19 +23,37 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR10
-- PR10 integration merge: `19824a0ec58e0fdbd89537763b916b8bfb8e58d7`
-- 현재 milestone: PR11 — 배색 선택 UI
+- 완료 milestone: PR00~PR11
+- PR11 integration merge: `fb389343827642f3cd42292ff5944449a49bdfeb`
+- 현재 milestone: PR12 — Python 내부 stage façade
 - 활성 child branch/worktree: 없음
 - integration merge 후 검증:
-  - palette·pipeline·design-agent focused — 87 passed
-  - `pnpm --filter @orbit/shared test` — 576 passed
-  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 603 passed, 1 skipped
+  - `pnpm --filter @orbit/web test` — 1802 passed
+  - `pnpm typecheck` — 17/17 tasks 통과
 - 남은 stop gate: 없음
-- PR10 child 상태: clean, integration merge 완료
-- 다음 milestone: PR11 — 배색 선택 UI
+- PR11 child 상태: clean, integration merge 완료
+- 다음 milestone: PR12 — Python 내부 stage façade
 
 ## 완료 Milestone 기록
+
+### PR11 — 배색 선택 Web UI
+
+- integration merge: `fb389343827642f3cd42292ff5944449a49bdfeb`
+- code commit:
+  - `089d9530` — native radio group, palette swatch, 현재 테마 기본 선택 카드와 디자인 토큰 스타일
+  - `f65c412a` — 명시적 palette option 요청·선택과 기존 proposal preview 흐름 연결
+  - `a7e164cb` — 접근성, JSON 전송, session 기반 재요청 회귀
+- child 검증:
+  - `pnpm --filter @orbit/web test` — 1802 passed
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 603 passed, 1 skipped
+  - `pnpm typecheck` — 17/17 tasks 통과
+  - `pnpm lint` — 17/17 tasks 통과
+- integration merge 후 검증:
+  - `pnpm --filter @orbit/web test` — 1802 passed
+  - `pnpm typecheck` — 17/17 tasks 통과
+- 접근성 gate: 정확히 3개 native radio, 첫 번째 현재 테마 기본 선택, `radiogroup`, focus-visible, loading disabled와 선택/확정 callback 회귀 통과
+- 수동 키보드 탐색: 최종 M2 브라우저 시각 QA에서 확인 예정
+- child 상태: clean, integration merge 완료
 
 ### PR10 — 배색 선택 backend 계약
 
@@ -256,3 +274,4 @@
 - 실제 provider credential이 필요한 수동 검증
 - 실사용자 시각 품질 검증
 - 운영 지표 수집
+- PR11 배색 카드의 실제 브라우저 키보드·시각 QA
