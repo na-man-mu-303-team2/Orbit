@@ -5,6 +5,7 @@ import type {
   DesignImageGenerationResult,
   DesignImageReferenceAttachment,
   SelectedDesignImageReference,
+  SlideRedesignPaletteOption,
   SpeakerNotesSuggestionMode,
   Slide
 } from "@orbit/shared";
@@ -28,6 +29,7 @@ import {
   DesignAssistantHome,
   type DesignAssistantQuickAction
 } from "../../design-agent/components/DesignAssistantHome";
+import { DesignPaletteOptions } from "../../design-agent/components/DesignPaletteOptions";
 import { DesignProposalCompareCard } from "../../design-agent/components/DesignProposalCompareCard";
 import { DesignProposalPreviewModal } from "../../design-agent/components/DesignProposalPreviewModal";
 import "../../design-agent/design-assistant.css";
@@ -70,9 +72,21 @@ type SelectedImagePreview = {
   previewUrl: string;
 };
 
+type DesignRequestOptions = {
+  intentPreset?: DesignAgentIntentPreset;
+  selectedPaletteOptionId?: string | null;
+  sessionId?: string;
+};
+
 type FailedDesignRequest = {
   content: string;
-  intentPreset?: DesignAgentIntentPreset;
+  options: DesignRequestOptions;
+};
+
+type PendingPaletteSelection = {
+  content: string;
+  options: SlideRedesignPaletteOption[];
+  sessionId: string;
 };
 
 type AiChatPanelProps = {
@@ -120,6 +134,10 @@ export function AiChatPanel(props: AiChatPanelProps) {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [failedDesignRequest, setFailedDesignRequest] =
     useState<FailedDesignRequest | null>(null);
+  const [pendingPaletteSelection, setPendingPaletteSelection] =
+    useState<PendingPaletteSelection | null>(null);
+  const [selectedPaletteOptionId, setSelectedPaletteOptionId] =
+    useState<string | null>(null);
   const [quickActionError, setQuickActionError] = useState<string | null>(null);
   const [mode, setMode] = useState<"design" | "image">("design");
   const referenceImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -207,21 +225,28 @@ export function AiChatPanel(props: AiChatPanelProps) {
 
   async function submitDesignRequest(
     content: string,
-    intentPreset?: DesignAgentIntentPreset
+    options: DesignRequestOptions = {},
   ) {
     if (!props.currentSlide) return;
     const baseDeck = props.deck;
     const baseSlide = props.currentSlide;
+    const requestSessionId = options.sessionId ?? props.chatState.sessionId;
+    const isPaletteSelection = typeof options.selectedPaletteOptionId === "string";
     setProposalLifecycle("generating");
     setPendingPreview(null);
     setIsPreviewOpen(false);
+    if (!isPaletteSelection) {
+      setPendingPaletteSelection(null);
+      setSelectedPaletteOptionId(null);
+    }
     try {
       const result = await createDesignAgentMessage(props.projectId, {
-        ...(props.chatState.sessionId
-          ? { sessionId: props.chatState.sessionId }
-          : {}),
+        ...(requestSessionId ? { sessionId: requestSessionId } : {}),
         content,
-        ...(intentPreset ? { intentPreset } : {}),
+        ...(options.intentPreset ? { intentPreset: options.intentPreset } : {}),
+        ...(options.selectedPaletteOptionId !== undefined
+          ? { selectedPaletteOptionId: options.selectedPaletteOptionId }
+          : {}),
         context: {
           deckId: baseDeck.deckId,
           baseVersion: baseDeck.version,
@@ -239,6 +264,18 @@ export function AiChatPanel(props: AiChatPanelProps) {
 
       if (result.uiAction?.type === "open-speaker-notes-assistant") {
         props.onSpeakerNotesAssistantRequest(result.uiAction.mode);
+      }
+
+      if (result.paletteOptions) {
+        setPendingPaletteSelection({
+          content,
+          options: result.paletteOptions,
+          sessionId: result.sessionId,
+        });
+        setSelectedPaletteOptionId(result.paletteOptions[0].optionId);
+      } else {
+        setPendingPaletteSelection(null);
+        setSelectedPaletteOptionId(null);
       }
 
       if (result.proposal) {
@@ -265,7 +302,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
       ]);
     } catch (error) {
       setProposalLifecycle("failed");
-      setFailedDesignRequest({ content, ...(intentPreset ? { intentPreset } : {}) });
+      setFailedDesignRequest({ content, options });
       throw error;
     }
   }
@@ -339,7 +376,12 @@ export function AiChatPanel(props: AiChatPanelProps) {
     setIsSending(true);
 
     try {
-      await submitDesignRequest(action.content, action.intentPreset);
+      await submitDesignRequest(action.content, {
+        intentPreset: action.intentPreset,
+        ...(action.intentPreset === "redesign-slide"
+          ? { selectedPaletteOptionId: null }
+          : {}),
+      });
     } catch (error) {
       setQuickActionError(
         error instanceof Error
@@ -359,13 +401,47 @@ export function AiChatPanel(props: AiChatPanelProps) {
     try {
       await submitDesignRequest(
         failedDesignRequest.content,
-        failedDesignRequest.intentPreset,
+        failedDesignRequest.options,
       );
     } catch (error) {
       setQuickActionError(
         error instanceof Error
           ? `디자인 제안을 만들지 못했습니다. ${error.message}`
           : "디자인 제안을 만들지 못했습니다."
+      );
+      appendErrorMessage(error);
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  async function handlePaletteConfirm(optionId: string) {
+    if (!pendingPaletteSelection || isSending || !props.currentSlide) return;
+    const selectedOption = pendingPaletteSelection.options.find(
+      (option) => option.optionId === optionId,
+    );
+    if (!selectedOption) return;
+    setQuickActionError(null);
+    setIsSending(true);
+    updateMessages((current) => [
+      ...current,
+      {
+        id: `user-palette-${crypto.randomUUID()}`,
+        role: "user",
+        content: `배색 선택: ${selectedOption.name}`,
+      },
+    ]);
+    try {
+      await submitDesignRequest(pendingPaletteSelection.content, {
+        intentPreset: "redesign-slide",
+        selectedPaletteOptionId: optionId,
+        sessionId: pendingPaletteSelection.sessionId,
+      });
+    } catch (error) {
+      setQuickActionError(
+        error instanceof Error
+          ? `선택한 배색으로 미리보기를 만들지 못했습니다. ${error.message}`
+          : "선택한 배색으로 미리보기를 만들지 못했습니다.",
       );
       appendErrorMessage(error);
     } finally {
@@ -484,7 +560,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
           특수 장표는 AI 디자인 대신 장표 설정에서 관리합니다.
         </p>
       ) : null}
-      {designEditingEnabled && props.currentSlide ? (
+      {designEditingEnabled && props.currentSlide && !pendingPaletteSelection ? (
         <DesignAssistantHome
           disabled={isSending || isUploadingReferenceImage}
           errorMessage={quickActionError ?? undefined}
@@ -493,6 +569,15 @@ export function AiChatPanel(props: AiChatPanelProps) {
           onRetry={failedDesignRequest
             ? () => void handleDesignRetry()
             : undefined}
+        />
+      ) : null}
+      {pendingPaletteSelection ? (
+        <DesignPaletteOptions
+          isSubmitting={isSending}
+          options={pendingPaletteSelection.options}
+          selectedOptionId={selectedPaletteOptionId ?? undefined}
+          onConfirm={(optionId) => void handlePaletteConfirm(optionId)}
+          onSelectionChange={setSelectedPaletteOptionId}
         />
       ) : null}
       {pendingPreview ? (
