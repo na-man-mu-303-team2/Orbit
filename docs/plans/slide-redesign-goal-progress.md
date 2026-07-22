@@ -26,8 +26,7 @@
 - 완료 milestone: PR00~PR01
 - PR01 integration merge: `82d9c6370ab50792ac7adafb7e23e3863367b288`
 - 현재 milestone: PR02 — 슬라이드 해석기와 provenance
-- 활성 child branch: `feature/slide-redesign-agent-v2-pr01-model`
-- 활성 child worktree: `/private/tmp/orbit-slide-redesign-agent-v2-pr01-model`
+- 활성 child branch/worktree: 없음
 - PR01 완료 checkpoint와 code commit:
   - `58fb6cff` — text/rect role과 문자열·정수 fontWeight 및 strict JSON schema 정합화
   - `5ca87260` — shared layout enum과 backgroundImage slide style patch 정합화
@@ -47,7 +46,7 @@
   - `uv run mypy app` — 63 source files 통과
   - `uv run pytest tests/test_design_agent.py -v` — 53 passed
 - 남은 stop gate: 없음
-- PR01 child 상태: integration merge 완료, progress commit 후 clean worktree 정리 예정
+- PR01 child 상태: clean worktree와 local branch 정리 완료
 - 다음 milestone: PR02 — 슬라이드 해석기와 provenance
 
 ## 완료 Milestone 기록
