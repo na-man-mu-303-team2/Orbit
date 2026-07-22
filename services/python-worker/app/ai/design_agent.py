@@ -5,9 +5,18 @@ import math
 import re
 from typing import Annotated, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 DECK_ELEMENT_COORDINATE_LIMIT = 1_000_000
+FontWeight = int | Literal["normal", "medium", "semibold", "bold"]
+
+
+def _validate_font_weight(value: FontWeight | None) -> FontWeight | None:
+    if isinstance(value, int) and not 100 <= value <= 900:
+        raise ValueError("fontWeight must be between 100 and 900")
+    return value
+
+
 DesignAgentIntentPreset = Literal[
     "redesign-slide",
     "tidy-layout",
@@ -157,7 +166,7 @@ class ElementPropsPatch(BaseModel):
         alias="verticalAlign",
     )
     font_size: float | None = Field(default=None, alias="fontSize", gt=0)
-    font_weight: int | None = Field(default=None, alias="fontWeight", ge=100, le=900)
+    font_weight: FontWeight | None = Field(default=None, alias="fontWeight")
     font_family: str | None = Field(default=None, alias="fontFamily", min_length=1)
     fill: str | None = Field(default=None, min_length=1)
     text: str | None = None
@@ -168,6 +177,11 @@ class ElementPropsPatch(BaseModel):
     line_height: float | None = Field(default=None, alias="lineHeight", gt=0)
     corner_radius: float | None = Field(default=None, alias="cornerRadius", ge=0)
     fit: Literal["cover", "contain", "stretch"] | None = None
+
+    @field_validator("font_weight")
+    @classmethod
+    def validate_font_weight(cls, value: FontWeight | None) -> FontWeight | None:
+        return _validate_font_weight(value)
 
 
 class SlideStylePatch(BaseModel):
@@ -189,13 +203,20 @@ class TextElementProps(BaseModel):
     text: str
     font_family: str | None = Field(default=None, alias="fontFamily")
     font_size: float = Field(alias="fontSize", gt=0)
-    font_weight: int = Field(alias="fontWeight", ge=100, le=900)
+    font_weight: FontWeight = Field(alias="fontWeight")
     color: str
     align: Literal["left", "center", "right", "justify"]
     vertical_align: Literal["top", "middle", "bottom"] = Field(
         alias="verticalAlign"
     )
     line_height: float = Field(alias="lineHeight", gt=0)
+
+    @field_validator("font_weight")
+    @classmethod
+    def validate_font_weight(cls, value: FontWeight) -> FontWeight:
+        validated = _validate_font_weight(value)
+        assert validated is not None
+        return validated
 
 
 class RectElementProps(BaseModel):
@@ -273,7 +294,7 @@ class TextElement(BaseModel):
 
     element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
     type: Literal["text"]
-    role: Literal["title", "subtitle", "body", "caption", "footer"]
+    role: Literal["title", "subtitle", "body", "caption", "footer", "highlight"]
     x: float = Field(ge=0)
     y: float = Field(ge=0)
     width: float = Field(gt=0)
@@ -291,7 +312,7 @@ class RectElement(BaseModel):
 
     element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
     type: Literal["rect"]
-    role: Literal["background", "decoration", "highlight"]
+    role: Literal["background", "decoration", "highlight", "media"]
     x: float = Field(ge=0)
     y: float = Field(ge=0)
     width: float = Field(gt=0)
@@ -1851,6 +1872,19 @@ def _nullable_properties(properties: dict[str, dict[str, Any]]) -> dict[str, Any
     }
 
 
+def _font_weight_json_schema(*, nullable: bool) -> dict[str, Any]:
+    variants: list[dict[str, Any]] = [
+        {
+            "type": "string",
+            "enum": ["normal", "medium", "semibold", "bold"],
+        },
+        {"type": "integer", "minimum": 100, "maximum": 900},
+    ]
+    if nullable:
+        variants.append({"type": "null"})
+    return {"anyOf": variants}
+
+
 def _frame_operation_json_schema() -> dict[str, Any]:
     roles = [
         "background",
@@ -1903,11 +1937,7 @@ def _props_operation_json_schema() -> dict[str, Any]:
                 "enum": ["top", "middle", "bottom", None],
             },
             "fontSize": {"type": ["number", "null"], "exclusiveMinimum": 0},
-            "fontWeight": {
-                "type": ["integer", "null"],
-                "minimum": 100,
-                "maximum": 900,
-            },
+            "fontWeight": _font_weight_json_schema(nullable=True),
             "fontFamily": {"type": ["string", "null"]},
             "fill": {"type": ["string", "null"]},
             "text": {"type": ["string", "null"]},
@@ -1945,7 +1975,7 @@ def _element_base_properties(element_type: str, roles: list[str]) -> dict[str, A
 
 def _text_element_json_schema() -> dict[str, Any]:
     properties = _element_base_properties(
-        "text", ["title", "subtitle", "body", "caption", "footer"]
+        "text", ["title", "subtitle", "body", "caption", "footer", "highlight"]
     )
     properties["props"] = {
         "type": "object",
@@ -1954,7 +1984,7 @@ def _text_element_json_schema() -> dict[str, Any]:
             "text": {"type": "string"},
             "fontFamily": {"type": ["string", "null"]},
             "fontSize": {"type": "number", "exclusiveMinimum": 0},
-            "fontWeight": {"type": "integer", "minimum": 100, "maximum": 900},
+            "fontWeight": _font_weight_json_schema(nullable=False),
             "color": {"type": "string"},
             "align": {
                 "type": "string",
@@ -1987,7 +2017,7 @@ def _text_element_json_schema() -> dict[str, Any]:
 
 def _rect_element_json_schema() -> dict[str, Any]:
     properties = _element_base_properties(
-        "rect", ["background", "decoration", "highlight"]
+        "rect", ["background", "decoration", "highlight", "media"]
     )
     properties["props"] = {
         "type": "object",

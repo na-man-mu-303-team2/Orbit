@@ -5,10 +5,13 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from app.ai.design_agent import (
+    DESIGN_AGENT_RESPONSE_FORMAT,
     DesignAgentGenerationError,
     DesignAgentRequest,
+    DesignAgentResponse,
     _build_deterministic_preset_proposal,
     design_agent_system_prompt,
     generate_design_proposal,
@@ -126,6 +129,129 @@ def proposal_payload(*, x: float = 1200) -> dict[str, Any]:
         "affectedElementIds": ["el_image"],
         "warnings": [],
     }
+
+
+def add_element_proposal(
+    *, element_type: str, role: str, font_weight: str | int = 600
+) -> dict[str, Any]:
+    payload = proposal_payload()
+    props: dict[str, Any]
+    if element_type == "text":
+        props = {
+            "text": "강조 문구",
+            "fontFamily": None,
+            "fontSize": 32,
+            "fontWeight": font_weight,
+            "color": "#111827",
+            "align": "left",
+            "verticalAlign": "middle",
+            "lineHeight": 1.2,
+        }
+    else:
+        props = {
+            "fill": "#E5E7EB",
+            "stroke": "#CBD5E1",
+            "strokeWidth": 1,
+            "borderRadius": 16,
+        }
+    payload["operations"] = [
+        {
+            "type": "add_element",
+            "slideId": "slide_1",
+            "element": {
+                "elementId": f"el_{element_type}_alignment",
+                "type": element_type,
+                "role": role,
+                "x": 120,
+                "y": 160,
+                "width": 720,
+                "height": 240,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": 3,
+                "locked": False,
+                "visible": True,
+                "props": props,
+            },
+        }
+    ]
+    payload["affectedElementIds"] = [f"el_{element_type}_alignment"]
+    return payload
+
+
+def test_accepts_highlight_text_role() -> None:
+    result = DesignAgentResponse.model_validate(
+        add_element_proposal(element_type="text", role="highlight")
+    )
+
+    assert result.operations[0].element.role == "highlight"
+
+
+def test_accepts_media_rect_role() -> None:
+    result = DesignAgentResponse.model_validate(
+        add_element_proposal(element_type="rect", role="media")
+    )
+
+    assert result.operations[0].element.role == "media"
+
+
+@pytest.mark.parametrize("font_weight", ["semibold", 600])
+def test_accepts_shared_font_weights(font_weight: str | int) -> None:
+    result = DesignAgentResponse.model_validate(
+        add_element_proposal(
+            element_type="text", role="highlight", font_weight=font_weight
+        )
+    )
+
+    assert result.operations[0].element.props.font_weight == font_weight
+
+
+def test_rejects_out_of_range_add_element_font_weight() -> None:
+    with pytest.raises(ValidationError, match="fontWeight must be between"):
+        DesignAgentResponse.model_validate(
+            add_element_proposal(
+                element_type="text", role="highlight", font_weight=950
+            )
+        )
+
+
+def test_accepts_string_update_element_font_weight() -> None:
+    payload = proposal_payload()
+    payload["operations"] = [
+        {
+            "type": "update_element_props",
+            "slideId": "slide_1",
+            "elementId": "el_image",
+            "props": {"fontWeight": "bold"},
+        }
+    ]
+
+    result = DesignAgentResponse.model_validate(payload)
+
+    assert result.operations[0].props.font_weight == "bold"
+
+
+def test_rejects_out_of_range_update_element_font_weight() -> None:
+    payload = proposal_payload()
+    payload["operations"] = [
+        {
+            "type": "update_element_props",
+            "slideId": "slide_1",
+            "elementId": "el_image",
+            "props": {"fontWeight": 950},
+        }
+    ]
+
+    with pytest.raises(ValidationError, match="fontWeight must be between"):
+        DesignAgentResponse.model_validate(payload)
+
+
+def test_element_json_schema_exposes_aligned_roles_and_font_weights() -> None:
+    schema_text = json.dumps(DESIGN_AGENT_RESPONSE_FORMAT, ensure_ascii=False)
+
+    assert "highlight" in schema_text
+    assert "media" in schema_text
+    assert "semibold" in schema_text
 
 
 def test_generates_and_validates_design_operations() -> None:
