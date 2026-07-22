@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD after PR05 merge: `b815980e0395f82c13ada843a96977ccbf02170e`
+- integration HEAD after PR06 merge: `931e42959e9c0cda7372a73c99508f5a6e432df7`
 - worktree: clean
 
 ## Baseline
@@ -23,19 +23,45 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR05
-- PR05 integration merge: `b815980e0395f82c13ada843a96977ccbf02170e`
-- 현재 milestone: PR06 — M1 통합 검증과 출시 gate
+- 완료 milestone: PR00~PR06
+- PR06 integration merge: `931e42959e9c0cda7372a73c99508f5a6e432df7`
+- 현재 milestone: PR07 — M2 리디자인 범위 착수
 - 활성 child branch/worktree: 없음
 - integration merge 후 검증:
-  - `uv run ruff check app/ai/slide_redesign tests/test_slide_redesign_*.py` — 통과
+  - `uv run ruff check .` — 통과
   - `uv run mypy app` — 68 source files 통과
-  - `uv run pytest tests/test_design_agent.py tests/test_slide_redesign_pipeline.py -q` — 66 passed
+  - `uv run pytest` — 941 passed, 1 skipped
+  - `pnpm --filter @orbit/api test` — 600 passed, 1 skipped
+  - `pnpm --filter @orbit/web test` — 1,796 passed
+  - `pnpm lint`, `pnpm typecheck` — 각각 17/17 tasks 통과
+  - `pnpm test:smoke --grep "slide redesign"` — Chromium 1 passed
 - 남은 stop gate: 없음
-- PR05 child 상태: clean worktree와 local branch 정리 완료
-- 다음 milestone: PR06 — M1 통합 검증과 출시 gate
+- `origin/develop` 최신 확인: `b0f7cc8d`, integration 대비 신규 commit 0개
+- PR06 child 상태: Compose 종료(볼륨 보존), clean worktree와 local branch 정리 완료
+- 다음 milestone: PR07 — M2 리디자인 범위 착수
 
 ## 완료 Milestone 기록
+
+### PR06 — M1 통합 검증과 출시 gate
+
+- integration merge: `931e42959e9c0cda7372a73c99508f5a6e432df7`
+- code commit:
+  - `d4a81e1b` — I1~I8 불변식과 M1 골든 fixture 14종
+  - `6e8f93b6` — 적용 전 Deck patch 검증과 빈 operation proposal 경계
+  - `e609047c` — apply 후 단일 undo 원상 복구 E2E와 반복 실행 고유 사용자
+  - `3fc4e9c0` — 자동 gate와 수동 시각 QA 미검증 범위 기록
+- child와 integration 검증:
+  - `uv run ruff check .` — 통과
+  - `uv run mypy app` — 68 source files 통과
+  - `uv run pytest` — 941 passed, 1 skipped
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 600 passed, 1 skipped
+  - `pnpm --filter @orbit/web test` — 1,796 passed
+  - `pnpm lint`, `pnpm typecheck` — 각각 17/17 tasks 통과
+  - `pnpm test:smoke --grep "slide redesign"` — child에서 연속 2회, integration에서 1회 통과
+- stop gate: 골든 fixture·API 적용 경계·단일 undo를 포함한 M1 자동 안전성 gate 통과
+- 수동 시각 QA: 미실행이며 출시 승인이나 시각 품질 승인으로 간주하지 않음
+- `origin/develop`: fetch 결과 기존 base `b0f7cc8d`와 동일하여 merge 불필요
+- child 상태: Compose 종료(볼륨 보존), clean worktree와 local branch 정리 완료
 
 ### PR05 — 동기 redesign pipeline 결선
 
