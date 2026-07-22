@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+from typing import Any
+
 from app.ai.slide_redesign.slide_extractor import (
+    SlideHierarchy,
+    classify_slide_type,
     collect_text_elements,
     extract_slide,
     infer_hierarchy,
+    heuristic_slide_type,
     split_bullets,
 )
 from app.ai.composition_library import _items
@@ -189,3 +196,90 @@ def test_content_item_ids_are_globally_unique_and_composition_compatible() -> No
 
 def test_split_bullets_keeps_plain_multiline_copy_together() -> None:
     assert split_bullets("첫 문장\n둘째 문장") == ["첫 문장 둘째 문장"]
+
+
+class FakeResponses:
+    def __init__(self, output: object = None, *, error: Exception | None = None) -> None:
+        self.output = output
+        self.error = error
+
+    def create(self, **_: Any) -> SimpleNamespace:
+        if self.error is not None:
+            raise self.error
+        return SimpleNamespace(output_text=json.dumps(self.output, ensure_ascii=False))
+
+
+class FakeClient:
+    def __init__(self, output: object = None, *, error: Exception | None = None) -> None:
+        self.responses = FakeResponses(output, error=error)
+
+
+def feature_hierarchy() -> SlideHierarchy:
+    slide = {
+        "elements": [
+            text_element("el-title", "기능", role="title", font_size=48, y=80),
+            text_element("el-a", "빠른 실행", role="body", y=300),
+            text_element("el-b", "안전한 저장", role="body", y=500),
+            text_element("el-c", "쉬운 공유", role="body", y=700),
+        ]
+    }
+    return infer_hierarchy(collect_text_elements(slide))
+
+
+def test_classify_slide_type_falls_back_when_provider_raises() -> None:
+    hierarchy = feature_hierarchy()
+
+    result = classify_slide_type(
+        hierarchy,
+        model="test-model",
+        api_key=None,
+        client=FakeClient(error=RuntimeError("provider unavailable")),
+    )
+
+    assert result == "feature-grid"
+
+
+def test_classify_slide_type_falls_back_for_unknown_provider_value() -> None:
+    hierarchy = feature_hierarchy()
+
+    result = classify_slide_type(
+        hierarchy,
+        model="test-model",
+        api_key=None,
+        client=FakeClient({"slideType": "unknown-layout"}),
+    )
+
+    assert result == "feature-grid"
+
+
+def test_heuristic_slide_type_covers_structural_signals() -> None:
+    cover = infer_hierarchy(
+        collect_text_elements(
+            {"elements": [text_element("el-title", "제목", role="title")]}
+        )
+    )
+    process = infer_hierarchy(
+        collect_text_elements(
+            {
+                "elements": [
+                    text_element("el-1", "1. 준비", role="body", y=200),
+                    text_element("el-2", "2. 실행", role="body", y=400),
+                    text_element("el-3", "3. 확인", role="body", y=600),
+                ]
+            }
+        )
+    )
+    data = infer_hierarchy(
+        collect_text_elements(
+            {
+                "elements": [
+                    text_element("el-a", "매출 20%", role="body", y=200),
+                    text_element("el-b", "비용 10%", role="body", y=400),
+                ]
+            }
+        )
+    )
+
+    assert heuristic_slide_type(cover) == "cover"
+    assert heuristic_slide_type(process) == "process"
+    assert heuristic_slide_type(data) == "data"

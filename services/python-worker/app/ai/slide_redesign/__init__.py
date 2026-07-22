@@ -18,9 +18,11 @@ from .slide_extractor import (
     ExtractedText,
     SlideHierarchy,
     SlideType,
+    classify_slide_type,
     collect_text_elements,
     extract_slide,
     infer_hierarchy,
+    heuristic_slide_type,
     split_bullets,
 )
 
@@ -40,8 +42,10 @@ __all__ = [
     "ExtractedText",
     "SlideHierarchy",
     "SlideType",
+    "classify_slide_type",
     "collect_text_elements",
     "extract_slide",
     "infer_hierarchy",
+    "heuristic_slide_type",
     "split_bullets",
 ]
