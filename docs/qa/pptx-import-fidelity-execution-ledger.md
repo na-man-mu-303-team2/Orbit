@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR7B notes part가 없는 imported slide의 notes page 생성
-- task branch: `feature/pptx-import-pr7b-notes-part-creation`
-- 상태: 안전한 notes master 재사용·생성, bounded locator 저장, 실제 export/reimport 통합, target branch `--no-ff` merge와 merge smoke 완료
+- 단계: Checkpoint B notes end-to-end
+- task branch: `test/pptx-import-checkpoint-b`
+- 상태: 실제 8-slide notes import·preview·slide 4 편집·export/reimport·privacy 검증, target branch `--no-ff` merge와 merge smoke 완료
 
 ## 완료된 작업과 Commit
 
@@ -40,6 +40,7 @@
 | PR6 notes preview UI          | `f8652252`  | `feature/pptx-import-pr6-notes-preview-ui` | `facafec4` | imported-only tab, current slide preview, bounded 상태·접근성·비편집 경계              |
 | PR7A notes body sync          | `ae45210b`  | `feature/pptx-import-pr7a-notes-body-sync` | `deddc632` | capability v3 targeted body sync, source-preserving style/관계, preview 재생성          |
 | PR7B missing notes page       | `bc2a1599`  | `feature/pptx-import-pr7b-notes-part-creation` | `b36c7bc3` | 검증된 notes master 재사용·최소 구조 생성, bounded locator, export/reimport 왕복       |
+| Checkpoint B notes E2E        | `17965f7d`  | `test/pptx-import-checkpoint-b` | `25355090` | 실제 8/8 notes·preview, slide 4 문단 경계, 수정 후 digest exact match와 privacy         |
 
 ## 실행한 검증
 
@@ -128,6 +129,13 @@
 | PR7B integration        | `bash infra/scripts/test-adaptive-coaching-integration.sh`                             | 8 passed, 보호 기준 파일 1 skipped                   |
 | PR7B LibreOffice open   | 생성 notes page를 notes-only renderer로 재개방                                         | 1/1 notes preview 생성                               |
 | PR7B merge smoke        | 생성·master 재사용·unsafe master·LibreOffice Python 대상                               | 4 passed, 36 deselected                              |
+| Checkpoint B 기준 hash  | `shasum -a 256`                                                                        | ledger의 `96f86a…c835`와 일치                        |
+| Checkpoint B 실제 E2E   | 보호 기준 경로를 주입한 adaptive integration                                            | 9 passed, skip 0                                     |
+| Checkpoint B notes      | import·persist·preview·sync·export·reimport                                              | body 8/8, preview 8/8, digest 8/8 exact              |
+| Checkpoint B slide 4    | 원본 빈 줄 확인 후 synthetic 편집·reimport                                              | 기존 문단 경계 prefix 보존, 최종 digest exact        |
+| Checkpoint B privacy    | Worker audience/log, API·Shared public template 대상                                    | 24 + 10 + 16 = 50 passed                             |
+| Checkpoint B lint       | `pnpm --filter @orbit/worker lint`                                                      | TypeScript no-emit 검사 통과                         |
+| Checkpoint B merge smoke | import fidelity fixture Python 대상                                                    | 2 passed, 38 deselected                              |
 
 ## PR0 Renderer 측정과 결정
 
@@ -190,6 +198,8 @@
 - PR7B는 기존 notes master가 하나일 때 presentation relationship, content type, master XML, internal theme relationship과 theme part를 모두 검증한 뒤에만 재사용한다. master가 없으면 `python-pptx`가 생성한 검증된 최소 notes package template에서 notes master·theme·notes slide를 분리해 충돌 없는 part와 관계를 만든다.
 - PR7B 신규 notes locator는 Python과 Worker 양쪽에서 bounded strict schema로 검증한다. preview file ID는 Python 응답을 신뢰하지 않고 Worker가 실제 저장한 `notes_render_<index>` asset에서만 부여한다.
 - 계획의 예상 파일에는 없던 `DecksService` diff를 함께 변경했다. UI의 전체 Deck 저장이 notes 변경을 patch log에 기록하지 않으면 PR7B 생성 operation 자체가 Worker에 도달하지 않는 실제 integration 결함이 확인됐기 때문이다.
+- Checkpoint B는 실제 notes 원문 비교 assertion 대신 프로세스 내부 SHA-256 digest 배열을 사용한다. exact match와 slide 4 문단 경계를 증명하면서 실패 output과 Git diff에 보호 원문이 나타나지 않게 하기 위함이다.
+- Checkpoint B는 기존 기준 파일 integration을 import-only에서 full-save notes 편집, OOXML sync, preview refresh, PPTX export와 Python reimport까지 확장했다. 별도 fixture 복사 없이 보호 경로 opt-in 조건을 유지한다.
 
 ## 알려진 제한 사항
 
@@ -203,17 +213,16 @@
 - Checkpoint A의 실제 기준 파일 검증은 원본을 저장소에 복사하지 않으며 `PPTX_IMPORT_FIDELITY_REFERENCE_PATH`가 명시된 로컬/보호 CI에서만 실행한다. 일반 Worker suite에서는 이 1개 test가 skip된다.
 - PR5 notes preview metadata는 owner/editor에게만 반환하고 audience/public projection에는 route나 URL을 추가하지 않는다. preview bitmap content는 기존 project-auth asset endpoint를 사용한다.
 - PR6 시점에는 per-slide imported provenance UI gate가 없으므로 `deck.metadata.sourceType === "import"`에서 tab을 노출한다. 이후 imported Deck에 새로 추가된 authored slide는 API의 `unavailable` 상태를 표시하며 PR9의 slide render mode 적용 시 per-slide gate를 재검토한다.
-- PR7A integration의 실제 기준 파일 test는 `PPTX_IMPORT_FIDELITY_REFERENCE_PATH`를 재주입하지 않아 1개가 skip됐다. 실제 8-slide 저장 경계는 Checkpoint A에서 이미 8/8 통과했으며 PR7B 이후 해당 보호 경로로 round-trip을 다시 확인한다.
 - PR7B는 notes page가 없는 imported slide의 첫 비어 있지 않은 대본 저장만 생성한다. 빈 문자열 저장은 package를 불필요하게 변경하지 않는 no-op이며 안전한 단일 notes master 구조를 증명할 수 없는 package는 `NOTES_MASTER_CAPABILITY_UNSAFE`로 종료한다.
-- PR7B 일반 integration에서는 보호 기준 PPTX 경로를 주입하지 않아 실제 8-slide test 1개가 skip됐다. Checkpoint B에서 hash로 확인한 기준 파일을 명시적으로 주입해 body 8/8, slide 4 문단 경계, 수정 후 reimport와 privacy를 다시 검증한다.
+- 실제 8-slide Checkpoint B test는 기준 파일을 저장소에 포함하지 않으므로 `PPTX_IMPORT_FIDELITY_REFERENCE_PATH`가 없는 일반 suite에서 계속 skip된다. hash가 일치하는 보호 로컬/CI 경로에서는 9/9 integration으로 실행된다.
 
 ## 다음에 시작할 정확한 작업
 
-1. PR7B ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. `test/pptx-import-checkpoint-b`를 target branch HEAD에서 생성한다.
-3. hash로 확인한 기준 PPTX를 보호 경로로만 주입해 notes body 8/8와 preview 8/8을 재검증한다.
-4. slide 4의 빈 줄·문단 경계를 포함한 body를 수정하고 PPTX 재개방·reimport exact match를 검증한다.
-5. audience/public projection과 lifecycle log에 notes 원문·locator·preview URL이 노출되지 않는 negative test를 다시 실행한다.
+1. Checkpoint B ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. `feature/pptx-import-pr8-preference-dialog`를 target branch HEAD에서 생성한다.
+3. PR1의 `appearance-first`·`editability-first` enum을 Web 선택 dialog에서 매 import마다 명시적으로 고르게 한다.
+4. 선택값을 strict Web request, API Job payload, Worker와 Python multipart 경계까지 동일하게 전달하고 unknown enum을 거부한다.
+5. legacy request default와 선택 전 import 미시작을 Web·API·Worker 회귀 test로 검증한다.
 
 ## 사용자 결정이 필요한 Blocker
 
