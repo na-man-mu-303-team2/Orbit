@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR12 품질 패널과 실제 회귀 gate
-- task branch: `feature/pptx-import-pr12-quality-regression-gate`
-- 상태: slide별 품질 진단 UI, pixel/fallback 상태 분리, 실제 8-slide automated gate를 완료하고 target branch에 `--no-ff` merge함
+- 단계: Checkpoint C 사용자 시나리오 승인
+- task branch: `test/pptx-import-checkpoint-c`
+- 상태: 실제 기준 파일의 두 import policy notes 보존, notes preview·round-trip, render mode·export·품질 진단 경계를 통합 검증하고 target branch에 `--no-ff` merge함
 
 ## 완료된 작업과 Commit
 
@@ -46,6 +46,7 @@
 | PR10 font normalization       | `49142df4`  | `feature/pptx-import-pr10-font-normalization` | `fe51afae` | 명시적 Pretendard alias, unknown 보존·fallback 진단, 실제 browser weight 검증          |
 | PR11 effective text style     | `6eba286b`, `411c22e4` | `feature/pptx-import-pr11-effective-text-style` | `526c145d` | slide/layout/master/theme cascade, direct run 보존, spacing·inset·autofit 왕복         |
 | PR12 quality regression gate  | `d0669007`, `98a8bf66` | `feature/pptx-import-pr12-quality-regression-gate` | `3e081ee3` | slide별 진단 panel, 평가 상태 계약, actual pixel/fallback gate 자동화                 |
+| Checkpoint C 사용자 시나리오  | `986a72ea` | `test/pptx-import-checkpoint-c` | `45f58e5d` | 실제 두 policy notes digest, preview·round-trip, mode·export·quality 사용자 경계 승인 |
 
 ## 실행한 검증
 
@@ -193,6 +194,11 @@
 | PR12 실제 gate         | SSIM threshold와 explicit fallback floor                                                | gate 16/16, pixel 11/16, fallback 5, hard failure 0 |
 | PR12 workspace build   | production env를 주입한 `pnpm build`                                                     | 10/10 package build 통과                             |
 | PR12 merge smoke       | scorer fallback semantics                                                               | 5 passed                                             |
+| Checkpoint C 실제 import | 보호 기준 파일을 `appearance-first`와 `editability-first`로 각각 import               | notes body digest 8/8 동일                           |
+| Checkpoint C 실제 E2E  | PostgreSQL·Worker·Python·storage round-trip integration                                   | 2 files, 9 tests passed                              |
+| Checkpoint C notes page | 실제 Worker persistence와 sync 후 preview file ID                                         | 최초 8/8, refresh 8/8                                |
+| Checkpoint C mode UI   | rail/canvas mode, quality panel, export dialog 대상 Web test                               | 4 files, 18 tests passed                             |
+| Checkpoint C export    | imported OOXML PPTX/PNG ZIP export processor test                                          | 11 tests passed                                      |
 
 ## PR0 Renderer 측정과 결정
 
@@ -247,6 +253,8 @@
 - PR9 sibling worktree의 임시 root dependency link 때문에 Vite가 원본 Pretendard 경로를 serving allow list 밖으로 경고했다. appearance-first는 bitmap source render를 사용해 8/8 SSIM 1.0이었고, editability-first 결과는 runtime 선택에 쓰지 않는 기존 CI-only 한계로 기록했다.
 - PR10 첫 Python 검증은 기본 `uv` cache가 sandbox 밖 사용자 cache를 열지 못해 중단됐고, 쓰기 가능한 `/tmp/orbit-uv-cache`를 명시해 동일 lock 환경에서 재실행했다. 첫 `ruff` 실행도 sibling worktree cache 쓰기 제한으로 중단되어 승인된 worktree 쓰기 권한으로 다시 실행한 뒤 통과했다.
 - PR10 첫 Web test는 필수 `APP_ENV`, `API_BASE_URL`, `WEB_PORT`가 없어 Vite config 단계에서 중단됐다. 비밀값 없는 test/local 값만 명시해 전체 1,818개 test를 통과시켰다.
+- Checkpoint C 첫 두 실행은 경량 `/design/import-pptx` 응답에서 production Worker가 저장하는 notes preview 상태를 assertion해 실패했다. 경량 경로는 두 policy의 notes body digest만 비교하고 preview 8/8은 실제 Worker generation·storage 결과에서 확인하도록 계층을 바로잡았다.
+- Checkpoint C Web 대상 test 첫 실행은 package-local `react` link가 없어 collection 단계에서 중단됐다. 원본 설치의 link tree만 임시 복사해 18개 test를 통과시키고 commit 전에 제거했다.
 
 ## 계획 대비 변경과 근거
 
@@ -301,14 +309,15 @@
 - Web font availability helper는 PR10에서 계산 경계와 테스트만 제공하며 사용자 노출은 PR12 quality panel에서 연결한다.
 - PR11 실제 기준 slides 1·2·3·6·7의 editability-first SSIM은 0.8822~0.9036이며 slide 7만 현재 hybrid reason을 가진다. 이 값을 성공으로 가장하지 않고 PR12에서 slide별 CI measurement와 explicit fallback/recommendation reason으로 노출·gate한다.
 - PR12 actual gate에서 낮은 editable slide 1·2·3·6은 snapshot을 권장하고 slide 7은 hybrid를 유지한다. runtime selected mode는 CI 측정으로 사후 변경하지 않으며 UI의 runtime report와 CI artifact를 구분한다.
+- Checkpoint C에서 경량 `/design/import-pptx`는 notes preview asset을 생성하지 않으므로 두 policy의 notes body 동일성만 digest로 비교한다. notes preview 8/8과 refresh 8/8은 production과 같은 Worker generation·storage 경로에서 검증한다.
 
 ## 다음에 시작할 정확한 작업
 
-1. PR12 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. `test/pptx-import-checkpoint-c`를 target branch HEAD에서 생성한다.
-3. 실제 기준 파일의 두 preference, notes body/page, thumbnail/canvas, PNG/PPTX export와 quality failure visibility 사용자 시나리오를 통합 검증한다.
-4. Checkpoint C 근거를 별도 commit/merge/ledger에 기록한다.
-5. `feature/pptx-import-pr13-asset-security-hardening`에서 dedupe, resource bounds, unsafe package 진단을 구현한다.
+1. Checkpoint C ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. `feature/pptx-import-pr13-asset-security-hardening`를 target branch HEAD에서 생성한다.
+3. 동일 media content hash dedupe와 slide/notes asset 참조 공유를 구현한다.
+4. notes/source bitmap dimension·byte·decode-time 경계와 unsafe ZIP/relationship/active content code 진단을 추가한다.
+5. Python·Worker 전체 회귀와 실제 21 MiB 기준 파일의 시간·peak RSS·asset count를 측정한다.
 
 ## 사용자 결정이 필요한 Blocker
 
