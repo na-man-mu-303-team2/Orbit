@@ -2,9 +2,12 @@ from __future__ import annotations
 
 # ruff: noqa: E402
 
+import argparse
 import base64
+import hashlib
 import json
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -32,17 +35,31 @@ PAYLOADS = OUT / "payloads"
 CANDIDATE = OUT / "candidate"
 ASSETS = OUT / "assets"
 TEMP = OUT / "tmp"
+IMPORT_FIDELITY_NOTES_FIXTURE = (
+    ROOT
+    / "services"
+    / "python-worker"
+    / "tests"
+    / "fixtures"
+    / "pptx"
+    / "import-fidelity-notes.pptx"
+)
 
 SLIDE_WIDE = 13.333333
 SLIDE_HIGH = 7.5
 
 
 def main() -> None:
+    args = parse_args()
     for directory in (SAMPLES, GOLDEN, PAYLOADS, CANDIDATE, ASSETS, TEMP):
         directory.mkdir(parents=True, exist_ok=True)
     os.environ["TMP"] = str(TEMP)
     os.environ["TEMP"] = str(TEMP)
     tempfile.tempdir = str(TEMP)
+
+    if args.source_pptx is not None:
+        prepare_source_pptx(args.source_pptx.resolve())
+        return
 
     image_assets = create_image_assets()
     builders = [
@@ -61,6 +78,7 @@ def main() -> None:
         ("13_line_chart", sample_line_chart),
         ("14_pie_chart", sample_pie_chart),
         ("15_master_layout_theme", sample_master_layout_theme),
+        ("16_import_fidelity_notes", sample_import_fidelity_notes),
     ]
 
     rows: list[dict[str, Any]] = []
@@ -110,6 +128,72 @@ def main() -> None:
     }
     (OUT / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(json.dumps(manifest, ensure_ascii=False, indent=2))
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source-pptx", type=Path)
+    return parser.parse_args()
+
+
+def prepare_source_pptx(source: Path) -> None:
+    result = generate_pptx_ooxml(source, "konva_reference", render=True)
+    asset_by_id = {asset.asset_id: asset for asset in result.assets}
+    deck, unresolved_assets, _ = build_deck_payload(
+        result.canvas,
+        result.blueprint,
+        result.assets,
+        1,
+    )
+    rows: list[dict[str, Any]] = []
+    for index, slide in enumerate(result.blueprint["slides"], start=1):
+        name = f"reference_slide_{index:02d}"
+        golden = asset_by_id[f"slide_render_{index}"]
+        golden_path = GOLDEN / f"{name}.png"
+        golden_path.write_bytes(base64.b64decode(golden.content_base64))
+        payload_path = PAYLOADS / f"{name}.json"
+        slide_deck = json.loads(json.dumps(deck))
+        slide_deck["slides"] = [slide_deck["slides"][index - 1]]
+        slide_deck["slides"][0]["order"] = 1
+        payload_path.write_text(
+            json.dumps({"deck": slide_deck, "slideIndex": 0}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        fallback_objects = sum(
+            1
+            for element in slide.get("elements", [])
+            if str(element.get("props", {}).get("src", "")).startswith(
+                "asset:shape_render_"
+            )
+        )
+        rows.append(
+            {
+                "name": name,
+                "pptxPath": str(source),
+                "goldenPath": relative_path(golden_path),
+                "payloadPath": relative_path(payload_path),
+                "candidatePath": relative_path(CANDIDATE / f"{name}.png"),
+                "fallbackObjects": fallback_objects,
+                "fullSlideFallbackUsed": bool(
+                    slide.get("style", {}).get("backgroundImage")
+                ),
+                "unresolvedAssets": unresolved_assets,
+                "warnings": result.warnings,
+                "elementCounts": element_counts(slide.get("elements", [])),
+            }
+        )
+    manifest = {
+        "sampleCount": len(rows),
+        "threshold": 0.95,
+        "route": "/__deck-render",
+        "sourceSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "rows": rows,
+    }
+    (OUT / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
@@ -429,6 +513,11 @@ def sample_master_layout_theme(path: Path, assets: dict[str, Path]) -> None:
     slide = prs.slides.add_slide(layout)
     add_title(slide, "Master/Layout Decoration")
     prs.save(path)
+
+
+def sample_import_fidelity_notes(path: Path, assets: dict[str, Path]) -> None:
+    del assets
+    shutil.copyfile(IMPORT_FIDELITY_NOTES_FIXTURE, path)
 
 
 def add_title(slide: Any, text: str) -> None:
