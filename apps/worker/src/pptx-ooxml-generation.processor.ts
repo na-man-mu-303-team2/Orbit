@@ -204,10 +204,14 @@ export async function processPptxOoxmlGenerationJob(
       payload.projectId,
       generated.assets,
     );
+    const failedNotesPreviewRefs = collectMissingNotesPreviewRefs(
+      generated.templateBlueprint,
+      assetRefs.fileIds,
+    );
     const reconciledNotes = reconcileFailedNotesPreviewAssets(
       generated.templateBlueprint,
       generated.qualityReport,
-      assetRefs.failedNotesPreviewRefs,
+      failedNotesPreviewRefs,
     );
     const templateBlueprint =
       pptxOoxmlGenerationWorkerResponseSchema.shape.templateBlueprint.parse(
@@ -709,8 +713,18 @@ function reconcileFailedNotesPreviewAssets(
   };
 }
 
-function isNotesPreviewAssetId(assetId: string): boolean {
-  return /^notes_render_[1-9]\d*$/.test(assetId);
+function collectMissingNotesPreviewRefs(
+  templateBlueprint: OoxmlTemplateBlueprint,
+  storedFileIds: ReadonlyMap<string, string>,
+): Set<string> {
+  const missingRefs = new Set<string>();
+  for (const slide of templateBlueprint.slides) {
+    const ref = slide.notesPage?.renderAssetFileId;
+    if (ref?.startsWith("asset:") && !storedFileIds.has(ref)) {
+      missingRefs.add(ref);
+    }
+  }
+  return missingRefs;
 }
 
 function reconcileMotionCapabilitiesWithDeck(

@@ -16,6 +16,19 @@ const pngSignature = new Uint8Array([
 const currentPackageDigest = createHash("sha256")
   .update("pptx")
   .digest("hex");
+const storedSyncContentByDigest = new Map(
+  [
+    ["pptx", pptxMimeType],
+    ["notes-preview", "image/png"],
+    ["created-notes-preview", "image/png"],
+  ].map(([content, mimeType]) => {
+    const body = Buffer.from(content);
+    return [
+      createHash("sha256").update(body).digest("hex"),
+      { contentLength: body.byteLength, contentType: mimeType },
+    ] as const;
+  }),
+);
 
 const payload = {
   jobId: "job-sync",
@@ -33,11 +46,12 @@ const storage: Pick<StoragePort, "getSignedReadUrl" | "headObject"> = {
   ),
   headObject: vi.fn(async (key: string) => {
     const digest = key.match(/\/([a-f0-9]{64})-/)?.[1];
-    return digest === currentPackageDigest
+    const stored = digest ? storedSyncContentByDigest.get(digest) : undefined;
+    return stored
       ? {
-          contentLength: Buffer.byteLength("pptx"),
-          contentType: pptxMimeType,
-          metadata: { "orbit-sha256": digest }
+          contentLength: stored.contentLength,
+          contentType: stored.contentType,
+          metadata: { "orbit-sha256": digest ?? "" }
         }
       : null;
   }),
@@ -235,12 +249,14 @@ describe("processPptxOoxmlSyncJob", () => {
             slideId: "slide_1",
           },
         ]);
-        response.assets.push({
-          assetId: "notes_render_1",
-          fileName: "notes-01.png",
-          mimeType: "image/png",
-          contentBase64: Buffer.from("notes-preview").toString("base64"),
-        });
+        response.assets.push(
+          storedSyncAsset(
+            "notes_render_1",
+            "notes-01.png",
+            "image/png",
+            "notes-preview",
+          ),
+        );
         return new Response(JSON.stringify(response));
       }),
     );
@@ -327,14 +343,14 @@ describe("processPptxOoxmlSyncJob", () => {
             },
           ],
         };
-        response.assets.push({
-          assetId: "notes_render_1",
-          fileName: "notes-01.png",
-          mimeType: "image/png",
-          contentBase64: Buffer.from("created-notes-preview").toString(
-            "base64",
+        response.assets.push(
+          storedSyncAsset(
+            "notes_render_1",
+            "notes-01.png",
+            "image/png",
+            "created-notes-preview",
           ),
-        });
+        );
         return new Response(JSON.stringify(response));
       }),
     );
@@ -435,7 +451,7 @@ describe("processPptxOoxmlSyncJob", () => {
     );
 
     expect(job.error).toMatchObject({ code: "PPTX_OOXML_SYNC_FAILED" });
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("UPDATE template_blueprints"),
@@ -2425,6 +2441,24 @@ function workerResponse(
     unsupportedOperations: [],
     notesPages: [],
     warnings: [],
+  };
+}
+
+function storedSyncAsset(
+  assetId: string,
+  fileName: string,
+  mimeType: string,
+  content: string,
+) {
+  const body = Buffer.from(content);
+  const sha256 = createHash("sha256").update(body).digest("hex");
+  return {
+    assetId,
+    fileName,
+    mimeType,
+    storageKey: `projects/project-a/jobs/job-sync/pptx-ooxml/${sha256}-${fileName}`,
+    size: body.byteLength,
+    sha256,
   };
 }
 
