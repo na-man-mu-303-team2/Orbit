@@ -33,6 +33,7 @@ from app.ai.pptx_motion import (
     parse_slide_motion,
     supported_main_sequence_shape_ids,
 )
+from app.ai.pptx_package_security import inspect_pptx_package
 
 PML_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 DML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -110,6 +111,7 @@ def import_pptx_design_with_optional_ooxml_vector(
     canvas_width: int = CANVAS_WIDTH,
     canvas_height: int = CANVAS_HEIGHT,
 ) -> PptxDesignImportResult:
+    inspect_pptx_package(path.read_bytes())
     if ooxml_vector_import_disabled():
         return import_pptx_design(
             path,
@@ -226,6 +228,7 @@ class OoxmlTransform:
 @dataclass
 class OoxmlImportState:
     assets: list[ImportedDesignAsset]
+    asset_ids_by_content_hash: dict[str, str]
     asset_colors: dict[str, str]
     theme_colors: dict[str, str]
     theme_fonts: OoxmlThemeFonts
@@ -293,6 +296,7 @@ def import_pptx_ooxml_visual_tree(
         content_types = content_type_map(package)
         state = OoxmlImportState(
             assets=[],
+            asset_ids_by_content_hash={},
             asset_colors={},
             theme_colors=theme_color_map(package),
             theme_fonts=theme_font_scheme(package),
@@ -843,7 +847,7 @@ def chart_element(
     if not relationship_id:
         return None
     rel = relationships_for_part(package, part_path).get(relationship_id)
-    if not rel:
+    if not rel or relationship_is_external(rel):
         return None
     chart_part = resolve_part_path(part_path, rel.get("Target", ""))
     chart = read_xml(package, chart_part)
@@ -1891,6 +1895,10 @@ def image_asset_from_relationship(
             f"OOXML image relationship missing on slide {slide_index}: {relationship_id}"
         )
         return None
+    if relationship_is_external(rel):
+        if "PPTX_EXTERNAL_RELATIONSHIP_BLOCKED" not in state.warnings:
+            state.warnings.append("PPTX_EXTERNAL_RELATIONSHIP_BLOCKED")
+        return None
     image_part = resolve_part_path(part_path, rel.get("Target", ""))
     if image_part not in package.namelist():
         state.warnings.append(
@@ -1898,8 +1906,12 @@ def image_asset_from_relationship(
         )
         return None
     blob = package.read(image_part)
-    asset_id = f"image_{len(state.assets) + 1}"
+    content_hash = hashlib.sha256(blob).hexdigest()
+    existing_asset_id = state.asset_ids_by_content_hash.get(content_hash)
     mime_type = mime_type_for_part(content_types, image_part)
+    if existing_asset_id is not None:
+        return existing_asset_id, mime_type
+    asset_id = f"image_{len(state.assets) + 1}"
     state.assets.append(
         ImportedDesignAsset(
             assetId=asset_id,
@@ -1908,6 +1920,7 @@ def image_asset_from_relationship(
             contentBase64=base64.b64encode(blob).decode("ascii"),
         )
     )
+    state.asset_ids_by_content_hash[content_hash] = asset_id
     color = average_image_color(blob)
     if color:
         state.asset_colors[asset_id] = color
@@ -3492,8 +3505,17 @@ def presentation_slide_parts(package: zipfile.ZipFile) -> list[str]:
         if not rel_id:
             continue
         rel = rels.get(rel_id)
-        if rel and rel.get("Type") == SLIDE_REL_TYPE:
-            slide_parts.append(resolve_part_path("ppt/presentation.xml", rel.get("Target", "")))
+        if (
+            rel
+            and rel.get("Type") == SLIDE_REL_TYPE
+            and not relationship_is_external(rel)
+        ):
+            slide_parts.append(
+                resolve_part_path(
+                    "ppt/presentation.xml",
+                    rel.get("Target", ""),
+                )
+            )
     return slide_parts
 
 
@@ -3688,9 +3710,17 @@ def relationship_target_by_type(
     if not part_path:
         return None
     for rel in rels.values():
-        if rel.get("Type") == rel_type and rel.get("Target"):
+        if (
+            rel.get("Type") == rel_type
+            and rel.get("Target")
+            and not relationship_is_external(rel)
+        ):
             return resolve_part_path(part_path, rel["Target"])
     return None
+
+
+def relationship_is_external(relationship: dict[str, str]) -> bool:
+    return relationship.get("TargetMode", "").lower() == "external"
 
 
 def rels_path_for_part(part_path: str) -> str:
