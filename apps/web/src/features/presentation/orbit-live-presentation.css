@@ -107,8 +107,18 @@
 
 .orbit-live-presenter-shell .animation-flow-navigator-drawer-open,
 .orbit-live-presenter-shell .animation-flow-drawer-toggle {
-  background: color-mix(in srgb, var(--redesign-color-dark-surface) 88%, transparent);
-  border-color: color-mix(in srgb, var(--redesign-color-on-dark) 13%, transparent);
+  background: color-mix(in srgb, var(--redesign-color-dark-surface) 94%, transparent);
+  border-color: color-mix(in srgb, var(--redesign-color-on-dark) 28%, transparent);
+  color: var(--redesign-color-on-dark);
+}
+
+.orbit-live-presenter-shell .animation-flow-drawer-drag-handle {
+  color: color-mix(in srgb, var(--redesign-color-on-dark) 72%, transparent);
+}
+
+.orbit-live-presenter-shell .animation-flow-drawer-drag-handle:hover,
+.orbit-live-presenter-shell .animation-flow-drawer-drag-handle:focus-visible {
+  background: color-mix(in srgb, var(--redesign-color-on-dark) 12%, transparent);
   color: var(--redesign-color-on-dark);
 }
 

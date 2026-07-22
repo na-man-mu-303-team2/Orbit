@@ -565,18 +565,8 @@ main.rehearsal-presenter-shell {
 .rehearsal-presenter-shell .animation-flow-navigator-header {
   align-items: center;
   display: flex;
-  justify-content: space-between;
-  padding: var(--redesign-space-3) var(--redesign-space-3) 0;
-}
-
-.rehearsal-presenter-shell .animation-flow-navigator-header > div {
-  display: grid;
-}
-
-.rehearsal-presenter-shell .animation-flow-navigator-header h2 {
-  color: var(--redesign-color-on-surface);
-  font-size: var(--redesign-type-title-md-size);
-  margin: 0;
+  min-height: 28px;
+  padding: var(--redesign-space-2) var(--redesign-space-3) 0;
 }
 
 .rehearsal-presenter-shell .animation-flow-navigator-description {
@@ -763,14 +753,14 @@ main.rehearsal-presenter-shell {
   backdrop-filter: blur(16px) saturate(140%);
   background: color-mix(
     in srgb,
-    var(--redesign-color-surface-container-lowest) 88%,
+    var(--redesign-color-surface-container-high) 94%,
     transparent
   );
-  border: 1px solid color-mix(in srgb, var(--redesign-color-outline) 54%, transparent);
+  border: 1px solid color-mix(in srgb, var(--redesign-color-outline) 76%, transparent);
   border-radius: var(--redesign-radius-lg);
   box-shadow: var(--redesign-shadow-overlay);
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: 28px auto minmax(0, 1fr);
   height: min(640px, calc(100dvh - 100px));
   overflow: hidden;
 }
@@ -814,6 +804,33 @@ main.rehearsal-presenter-shell {
 
 .rehearsal-presenter-shell .animation-flow-drawer-toggle:hover {
   background: var(--redesign-color-surface-container-high);
+}
+
+.rehearsal-presenter-shell .animation-flow-drawer-drag-handle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--redesign-radius-full);
+  color: var(--redesign-color-on-surface-variant);
+  cursor: grab;
+  display: inline-flex;
+  font: inherit;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0;
+  touch-action: none;
+  width: 28px;
+}
+
+.rehearsal-presenter-shell .animation-flow-drawer-drag-handle:active {
+  cursor: grabbing;
+}
+
+.rehearsal-presenter-shell .animation-flow-drawer-drag-handle:hover,
+.rehearsal-presenter-shell .animation-flow-drawer-drag-handle:focus-visible {
+  background: color-mix(in srgb, var(--redesign-color-primary) 10%, transparent);
+  color: var(--redesign-color-on-surface);
+  outline: none;
 }
 
 .rehearsal-presenter-shell .animation-flow-navigator-drawer-open .animation-flow-navigator-list {

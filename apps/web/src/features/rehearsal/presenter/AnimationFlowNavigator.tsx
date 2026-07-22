@@ -2,11 +2,12 @@ import type { Deck, Slide } from "@orbit/shared";
 import {
   ChevronDown,
   ChevronRight,
+  GripVertical,
   PanelLeftClose,
   PanelLeftOpen,
-  RotateCcw,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import {
   createSlideshowAnimationPlan,
   type PlannedSlideshowAnimation,
@@ -77,6 +78,12 @@ export function AnimationFlowNavigator(props: {
 }) {
   const placement = props.placement ?? "side";
   const [isOpen, setIsOpen] = useState(placement === "side");
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const drawerDragRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
+  const [drawerPosition, setDrawerPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
   const [expandedSlideIds, setExpandedSlideIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -91,16 +98,67 @@ export function AnimationFlowNavigator(props: {
     });
   }, [currentSlide]);
 
+  useEffect(() => {
+    const stopDragging = () => {
+      drawerDragRef.current = null;
+    };
+    const moveDrawer = (event: PointerEvent) => {
+      const drag = drawerDragRef.current;
+      const drawer = drawerRef.current;
+      if (!drag || !drawer) return;
+
+      const bounds = drawer.getBoundingClientRect();
+      const viewportPadding = 8;
+      setDrawerPosition({
+        left: clamp(
+          event.clientX - drag.offsetX,
+          viewportPadding,
+          Math.max(viewportPadding, window.innerWidth - bounds.width - viewportPadding),
+        ),
+        top: clamp(
+          event.clientY - drag.offsetY,
+          viewportPadding,
+          Math.max(viewportPadding, window.innerHeight - bounds.height - viewportPadding),
+        ),
+      });
+    };
+
+    window.addEventListener("pointermove", moveDrawer);
+    window.addEventListener("pointerup", stopDragging);
+    window.addEventListener("pointercancel", stopDragging);
+    return () => {
+      window.removeEventListener("pointermove", moveDrawer);
+      window.removeEventListener("pointerup", stopDragging);
+      window.removeEventListener("pointercancel", stopDragging);
+    };
+  }, []);
+
+  const startDrawerDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+
+    const bounds = drawer.getBoundingClientRect();
+    drawerDragRef.current = {
+      offsetX: event.clientX - bounds.left,
+      offsetY: event.clientY - bounds.top,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
   if (flowSlides.length === 0) {
     return null;
   }
 
   return (
     <section
+      ref={drawerRef}
       className={`animation-flow-navigator animation-flow-navigator-${placement} ${
         isOpen ? "animation-flow-navigator-open" : ""
-      }`}
+      } ${placement === "drawer" && isOpen ? "animation-flow-navigator-drawer-open" : ""}`}
       aria-label="애니메이션 타임라인"
+      style={placement === "drawer" && drawerPosition ? drawerPosition : undefined}
     >
       {placement === "drawer" ? (
         <button
@@ -111,17 +169,23 @@ export function AnimationFlowNavigator(props: {
           onClick={() => setIsOpen((current) => !current)}
         >
           {isOpen ? <PanelLeftClose size={19} /> : <PanelLeftOpen size={19} />}
-          <span>타임라인</span>
+          <span>애니메이션 타임라인</span>
         </button>
       ) : null}
       {placement === "drawer" && !isOpen ? null : (
         <>
-      <header className="animation-flow-navigator-header">
-        <div>
-          <h2>애니메이션 타임라인</h2>
-        </div>
-        <RotateCcw aria-hidden="true" size={18} />
-      </header>
+      {placement === "drawer" ? (
+        <header className="animation-flow-navigator-header">
+          <button
+            aria-label="애니메이션 타임라인 위치 이동"
+            className="animation-flow-drawer-drag-handle"
+            type="button"
+            onPointerDown={startDrawerDrag}
+          >
+            <GripVertical aria-hidden="true" size={18} />
+          </button>
+        </header>
+      ) : null}
       <p className="animation-flow-navigator-description">
         장표 또는 효과를 선택하면 해당 시점으로 이동합니다.
       </p>
@@ -239,6 +303,10 @@ export function AnimationFlowNavigator(props: {
       )}
     </section>
   );
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function getSlideTitle(slide: Slide) {
