@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR6 Editor 전체 notes page 읽기 전용 preview
-- task branch: `feature/pptx-import-pr6-notes-preview-ui`
-- 상태: imported Deck tab, current slide 상태 UI, target branch `--no-ff` merge와 merge smoke 완료
+- 단계: PR7A 기존 notes part의 speakerNotes source-preserving OOXML sync
+- task branch: `feature/pptx-import-pr7a-notes-body-sync`
+- 상태: capability v3 targeted sync, body-only 보존 갱신, preview 재생성, target branch `--no-ff` merge와 merge smoke 완료
 
 ## 완료된 작업과 Commit
 
@@ -38,6 +38,7 @@
 | Checkpoint A 저장 경계        | `c95d6eea`  | `test/pptx-import-checkpoint-a` | `17a02898` | 실제 8 notes 저장·재조회, preview 유무 경계와 Job/sidecar/log privacy 검증              |
 | PR5 notes preview API         | `5aa651d4`  | `feature/pptx-import-pr5-notes-preview-api` | `9db79677` | owner/editor 권한, project asset 검증, strict 상태 응답과 public/audience 비노출       |
 | PR6 notes preview UI          | `f8652252`  | `feature/pptx-import-pr6-notes-preview-ui` | `facafec4` | imported-only tab, current slide preview, bounded 상태·접근성·비편집 경계              |
+| PR7A notes body sync          | `ae45210b`  | `feature/pptx-import-pr7a-notes-body-sync` | `deddc632` | capability v3 targeted body sync, source-preserving style/관계, preview 재생성          |
 
 ## 실행한 검증
 
@@ -105,6 +106,15 @@
 | PR6 Web lint/build     | TypeScript no-emit과 production Vite build                                            | 통과, 기존 dynamic import·chunk-size warning만 발생 |
 | PR6 Chrome 확인        | 임시 local harness의 accessibility tree, image failure, slide switch, console         | focusable tab, stale 전환, 편집 control 0, error/warn 0 |
 | PR6 merge smoke        | panel과 notes page view 대상 Vitest                                                   | 14 tests passed                                      |
+| PR7A RED                | Python body sync 4개, Shared capability 1개, Worker routing/retry 2개                 | 구현 전 의도한 실패 확인                             |
+| PR7A Python 대상        | generation과 sync API pytest                                                          | 46 passed, 기존 deprecation warning만 발생           |
+| PR7A Python lint/type   | `ruff check`와 `mypy app`                                                             | 모두 통과                                            |
+| PR7A Shared 전체        | `pnpm --filter @orbit/shared test`                                                    | 54 files, 580 tests passed                           |
+| PR7A Worker 대상        | `pptx-ooxml-sync.processor.spec.ts`                                                   | 27 passed                                            |
+| PR7A Worker 전체        | `pnpm --filter @orbit/worker test`                                                    | 386 passed, 15 skipped                               |
+| PR7A Worker lint/build  | TypeScript no-emit과 production Nest build                                            | 모두 통과                                            |
+| PR7A integration        | `bash infra/scripts/test-adaptive-coaching-integration.sh`                            | 8 passed, 보호 기준 파일 1 skipped                   |
+| PR7A merge smoke        | notes body·style·locator·preview Python 대상                                           | 5 passed                                             |
 
 ## PR0 Renderer 측정과 결정
 
@@ -143,6 +153,9 @@
 - PR6 첫 Web lint는 임시 dependency 구성에서 `packages/editor-core/node_modules`가 빠져 `@orbit/shared` 해석 실패와 연쇄 implicit-any 오류가 발생했다. editor-core 의존성 링크 하나를 보완한 뒤 동일 lint가 통과했다.
 - Chrome DevTools MCP가 구성되지 않아 browser-testing skill의 DevTools 경로를 직접 사용할 수 없었다. 제공된 Chrome control 경로와 commit하지 않는 local harness로 동일 component의 DOM, 접근성, slide 전환, image failure, console을 검증했다.
 - PR6 local harness의 Pretendard font는 원본 worktree symlink가 Vite serving allow list 밖이라 server warning이 발생했다. 제품 build와 Web 전체 test에는 영향이 없고 harness DOM geometry와 상태 검증은 통과했다.
+- PR7A integration 첫 실행은 sibling worktree에 `.env.local`이 없어 `docker compose exec` readiness probe가 env file 오류를 숨긴 채 재시도했다. 비밀값을 복사하지 않고 설명 주석만 있는 임시 빈 파일로 재실행했으며 검증 직후 삭제했다.
+- PR7A integration의 첫 완료 실행은 기존 assertion이 sync capability version 2를 기대해 1개 test가 실패했다. version 3 계약에 맞춰 assertion을 갱신한 뒤 동일 script가 8 passed, 1 skipped로 통과했다.
+- PR7A Worker 전체 test의 첫 실행은 integration spec이 참조하는 API package-local workspace link가 없어 `@orbit/shared` 상대 모듈을 찾지 못했다. 원본 설치의 link tree만 임시 복사해 sibling package를 가리키게 한 뒤 통과했고 모든 임시 dependency와 ignored build 산출물을 제거했다.
 
 ## 계획 대비 변경과 근거
 
@@ -153,6 +166,10 @@
 - PR5 asset lookup은 같은 project의 `design-asset`, `uploaded`, image MIME만 허용한다. 누락, 삭제, 다른 project, legacy file ID 누락, 저장소 예외는 raw 오류 없이 `unavailable`로 수렴한다.
 - PR6 preview query는 tab component 안에서 current `projectId`와 `slideId`별 key로 격리한다. tab이 열릴 때만 조회하고 `sync-pending` 동안만 2초 polling하며 다른 상태에서는 불필요한 polling을 하지 않는다.
 - PR6 image는 notes page 고유 비율을 유지하도록 고정 aspect ratio 없이 `object-fit: contain`으로 표시한다. request/image failure에는 raw 오류를 노출하지 않고 bounded 문구와 재시도만 제공한다.
+- PR7A는 `update_speaker_notes`를 capability version 3의 targeted operation으로 승격한다. template slide, notes part, body shape locator가 각각 유일하고 `bodyWritable`일 때만 변경하며 누락·중복·비가용 part는 원본 package를 그대로 반환한다.
+- PR7A body 갱신은 `bodyPr`, `lstStyle`, geometry, paragraph property, 비본문 shape, notes master와 relationship을 보존한다. 동일 paragraph/run은 deep copy하고 새 text는 대응하는 인접 paragraph/run style을 상속한다.
+- PR7A preview asset은 stale `sourceSlideIndex`가 아니라 갱신된 package의 presentation relationship 순서로 page를 매핑한다. renderer 실패는 bounded warning과 `render-unavailable` sidecar로 수렴한다.
+- PR7A의 locator 누락·모호함, non-writable body와 notes part 누락은 PR7B 생성 경로로 회복할 수 있어 retryable이다. malformed XML이나 invalid body update는 자동 재시도로 해결되지 않으므로 retryable로 분류하지 않는다.
 
 ## 알려진 제한 사항
 
@@ -166,14 +183,16 @@
 - Checkpoint A의 실제 기준 파일 검증은 원본을 저장소에 복사하지 않으며 `PPTX_IMPORT_FIDELITY_REFERENCE_PATH`가 명시된 로컬/보호 CI에서만 실행한다. 일반 Worker suite에서는 이 1개 test가 skip된다.
 - PR5 notes preview metadata는 owner/editor에게만 반환하고 audience/public projection에는 route나 URL을 추가하지 않는다. preview bitmap content는 기존 project-auth asset endpoint를 사용한다.
 - PR6 시점에는 per-slide imported provenance UI gate가 없으므로 `deck.metadata.sourceType === "import"`에서 tab을 노출한다. 이후 imported Deck에 새로 추가된 authored slide는 API의 `unavailable` 상태를 표시하며 PR9의 slide render mode 적용 시 per-slide gate를 재검토한다.
+- PR7A는 기존 writable notes part만 갱신한다. notes part 또는 body placeholder가 없는 imported slide의 생성은 PR7B에서 notes master와 package relationship까지 함께 검증한다.
+- PR7A integration의 실제 기준 파일 test는 `PPTX_IMPORT_FIDELITY_REFERENCE_PATH`를 재주입하지 않아 1개가 skip됐다. 실제 8-slide 저장 경계는 Checkpoint A에서 이미 8/8 통과했으며 PR7B 이후 해당 보호 경로로 round-trip을 다시 확인한다.
 
 ## 다음에 시작할 정확한 작업
 
-1. PR6 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. `feature/pptx-import-pr7a-notes-body-sync`를 target branch HEAD에서 생성한다.
-3. `update_speaker_notes`를 package-neutral 목록에서 제거하고 writable notes body locator의 targeted OOXML operation으로 전달한다.
-4. body text만 변경하면서 notes master, image, footer/page number, 비본문 shape와 relationship의 semantic hash를 보존한다.
-5. locator 누락·중복은 package 변경 없이 bounded retryable/unsupported reason으로 실패시키고 Python·Worker 대상 test와 integration을 통과시킨다.
+1. PR7A ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. `feature/pptx-import-pr7b-notes-part-creation`을 target branch HEAD에서 생성한다.
+3. notes part가 없는 imported slide의 `update_speaker_notes`에서 기존 검증된 notes 구조를 template로 선택하고 slide·notes master relationship과 content type을 원자적으로 생성한다.
+4. 안전한 notes master/package 구조를 증명할 수 없으면 원본 package를 유지하고 non-retryable capability reason을 반환한다.
+5. 생성 후 PowerPoint/LibreOffice open과 export→reimport text round-trip을 Python·Worker test로 검증한다.
 
 ## 사용자 결정이 필요한 Blocker
 
