@@ -99,7 +99,6 @@ services:
     build:
       context: .
       dockerfile: infra/docker/worker.Dockerfile
-    command: ["corepack", "pnpm", "--filter", "@orbit/worker", "start"]
     env_file: *env-file
     environment:
       NODE_ENV: production
