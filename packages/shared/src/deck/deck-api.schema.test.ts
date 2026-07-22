@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   appendDeckPatchAckResponseSchema,
   appendDeckPatchRequestSchema,
+  getPptxNotesPreviewResponseSchema,
   getPptxImportQualityResponseSchema,
   getOoxmlSyncStateResponseSchema,
   putDeckResponseSchema,
@@ -44,6 +45,88 @@ describe("PPTX import quality API schema", () => {
     expect(
       getPptxImportQualityResponseSchema.parse({ importQuality: null }),
     ).toEqual({ importQuality: null });
+  });
+});
+
+describe("PPTX notes preview API schema", () => {
+  it("accepts only a protected project asset URL for an available preview", () => {
+    expect(
+      getPptxNotesPreviewResponseSchema.parse({
+        notesPreview: {
+          slideId: "slide_test_1",
+          status: "available",
+          assetUrl:
+            "/api/v1/projects/project_test_1/assets/file_preview_1/content",
+        },
+      }),
+    ).toEqual({
+      notesPreview: {
+        slideId: "slide_test_1",
+        status: "available",
+        assetUrl:
+          "/api/v1/projects/project_test_1/assets/file_preview_1/content",
+      },
+    });
+  });
+
+  it.each([
+    "absent",
+    "sync-pending",
+    "stale",
+    "render-unavailable",
+    "unavailable",
+  ] as const)("accepts %s without an asset URL", (status) => {
+    expect(
+      getPptxNotesPreviewResponseSchema.parse({
+        notesPreview: {
+          slideId: "slide_test_1",
+          status,
+          assetUrl: null,
+        },
+      }),
+    ).toEqual({
+      notesPreview: {
+        slideId: "slide_test_1",
+        status,
+        assetUrl: null,
+      },
+    });
+  });
+
+  it("rejects URL/state mismatches and private notes payload fields", () => {
+    expect(
+      getPptxNotesPreviewResponseSchema.safeParse({
+        notesPreview: {
+          slideId: "slide_test_1",
+          status: "available",
+          assetUrl: null,
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      getPptxNotesPreviewResponseSchema.safeParse({
+        notesPreview: {
+          slideId: "slide_test_1",
+          status: "unavailable",
+          assetUrl:
+            "/api/v1/projects/project_test_1/assets/file_preview_1/content",
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      getPptxNotesPreviewResponseSchema.safeParse({
+        notesPreview: {
+          slideId: "slide_test_1",
+          status: "available",
+          assetUrl:
+            "/api/v1/projects/project_test_1/assets/file_preview_1/content",
+          fileId: "file_preview_1",
+          speakerNotes: "synthetic-private-note",
+          sourceNotesPart: "ppt/notesSlides/notesSlide1.xml",
+          contentBase64: "forbidden-field",
+        },
+      }).success,
+    ).toBe(false);
   });
 });
 
