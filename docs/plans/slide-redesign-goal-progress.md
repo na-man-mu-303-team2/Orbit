@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD after PR15 merge: `b39badbe5979d75b8f784a1a16927c4b25700ccc`
+- integration HEAD after PR16 merge: `728aaf525d662921bf68ff4ae7b7efdb8364e177`
 - worktree: clean
 
 ## Baseline
@@ -23,28 +23,51 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR15
-- PR15 integration merge: `b39badbe5979d75b8f784a1a16927c4b25700ccc`
-- 현재 milestone: PR16 — async progress UI
+- 완료 milestone: PR00~PR16
+- PR16 integration merge: `728aaf525d662921bf68ff4ae7b7efdb8364e177`
+- 현재 milestone: PR17 — M2 final verification
 - 활성 child branch/worktree: 없음
 - integration merge 후 검증:
-  - `pnpm --filter @orbit/shared test` — 589 passed
-  - `pnpm --filter @orbit/worker test` — 401 passed, 14 skipped
-  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 610 passed, 1 skipped
-  - Python slide-redesign focused — 67 passed
+  - `pnpm --filter @orbit/web test` — 1812 passed
+  - API slide-redesign Job·realtime focused — 7 passed
+  - Worker slide-redesign·progress focused — 28 passed
+  - `pnpm typecheck` — 17 tasks 통과
 - child 전체 검증:
-  - `pnpm --filter @orbit/worker test` — 401 passed, 14 skipped
+  - `pnpm --filter @orbit/web test` — 1812 passed
   - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 610 passed, 1 skipped
-  - `ruff check .` — 통과
-  - `mypy app` — 72 source files 통과
-  - `pytest` — 1009 passed, 1 skipped
+  - `pnpm --filter @orbit/worker test` — 401 passed, 14 skipped
   - `pnpm lint` — 17 tasks 통과
   - `pnpm typecheck` — 17 tasks 통과
 - 남은 stop gate: 없음
-- PR15 child 상태: clean, integration merge 완료
-- 다음 milestone: PR16 — async progress UI
+- PR16 child 상태: clean, integration merge 완료
+- 다음 milestone: PR17 — M2 final verification
 
 ## 완료 Milestone 기록
+
+### PR16 — Web progress and two-stage preview
+
+- integration merge: `728aaf525d662921bf68ff4ae7b7efdb8364e177`
+- code commit:
+  - `cd0baa6b` — 전용 slide-redesign Job 생성·조회·polling과 검증된 project-room progress client
+  - `76b21c01` — 6단계 진행 표시, illustrating skip와 read-only preview 안내 컴포넌트
+  - `f3a5a88c` — palette 확정 후 async Job 결선, 중간 읽기 전용과 최종 적용 경계
+  - `1df21a17` — enqueue·terminal stale과 Job 실패 후 최신 Deck으로 재시도하는 lifecycle 회귀
+- child 검증:
+  - `pnpm --filter @orbit/web test` — 1812 passed
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 610 passed, 1 skipped
+  - `pnpm --filter @orbit/worker test` — 401 passed, 14 skipped
+  - `pnpm typecheck` — 17 tasks 통과
+  - `pnpm lint` — 17 tasks 통과
+- integration merge 후 검증:
+  - `pnpm --filter @orbit/web test` — 1812 passed
+  - API slide-redesign Job·realtime focused — 7 passed
+  - Worker slide-redesign·progress focused — 28 passed
+  - `pnpm typecheck` — 17 tasks 통과
+- 필수 조건: `previewProposal`은 별도 read-only lifecycle과 UI를 사용해 inline·modal 모두 적용 버튼을 렌더하지 않는다. 검증된 최종 proposal만 기존 apply endpoint로 보내며 EditorShell의 `appendAppliedDesignProposalHistory`가 적용 전 Deck을 history entry 하나로 보존한다.
+- realtime progress는 shared envelope을 검증하고 project/session/job이 모두 일치할 때만 소비한다. 연결 지연이나 잘못된 event는 전체 Job 실패로 전환하지 않고 인증된 `/api/v1/jobs/:jobId` polling이 terminal result를 결정한다.
+- stale enqueue 또는 terminal result는 적용을 차단하고 실패 request의 palette 선택을 보존한다. 재시도 시 이전 slide snapshot이 아니라 현재 렌더의 최신 Deck context로 새 Job을 만든다.
+- child 의존성 설치에서 offline store에 Playwright tarball이 없어 첫 `pnpm install --offline --frozen-lockfile`은 실행 전 실패했다. 동일 lockfile의 일반 설치는 새 lockfile 변경 없이 성공했다.
+- child 상태: clean, integration merge 완료
 
 ### PR15 — backend optional illustration
 
