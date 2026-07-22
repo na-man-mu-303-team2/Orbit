@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
+from pydantic import TypeAdapter
+
 from app.ai.composition_library import CompiledComposition
+from app.ai.design_agent import DesignAgentOperation
 from app.ai.slide_redesign.composer import (
     CompositionCandidate,
     build_single_slide_program,
+    compile_redesign,
 )
 from app.ai.slide_redesign.diff import (
     analyze_candidate,
@@ -466,3 +471,83 @@ def test_added_element_id_collision_uses_r2_suffix() -> None:
         if operation["type"] == "add_element"
     )
     assert added["elementId"] == "el_collision_r2"
+
+
+def test_real_composition_patch_round_trips_to_compiled_layout() -> None:
+    summary = slide_summary("process", ["첫째 10%", "둘째 20%", "셋째 30%"])
+    candidate = CompositionCandidate("process-horizontal", "light")
+    program = build_single_slide_program(
+        THEME,
+        derive_palette(THEME, "light"),
+        candidate,
+    )
+    compiled = compile_redesign(summary, candidate, program)
+    originals: list[dict[str, Any]] = []
+    provenance: dict[str, str] = {}
+    expected_ids: dict[str, str] = {}
+    for index, element in enumerate(compiled.elements, start=1):
+        if element.get("type") != "text":
+            continue
+        original = deepcopy(element)
+        compiled_id = str(element["elementId"])
+        original_id = f"el_original_{index}"
+        original["elementId"] = original_id
+        original.pop("_contentItemIds", None)
+        original["x"] = 0
+        original["y"] = 0
+        original["width"] = 100
+        original["height"] = 50
+        original["props"]["fontSize"] = 12
+        original["props"]["color"] = "#000000"
+        originals.append(original)
+        expected_ids[compiled_id] = original_id
+        content_item_ids = element.get("_contentItemIds", [])
+        for content_item_id in content_item_ids:
+            provenance[str(content_item_id)] = original_id
+
+    matching = match_elements(originals, compiled.elements, provenance)
+    operations = build_operations("slide-1", originals, compiled, matching)
+
+    operation_adapter = TypeAdapter(DesignAgentOperation)
+    for operation in operations:
+        operation_adapter.validate_python(operation)
+    applied = apply_operations(originals, operations)
+
+    expected: dict[str, dict[str, Any]] = {}
+    for element in compiled.elements:
+        clean = deepcopy(element)
+        clean.pop("_contentItemIds", None)
+        clean["elementId"] = expected_ids.get(
+            str(element["elementId"]),
+            str(element["elementId"]),
+        )
+        expected[str(clean["elementId"])] = clean
+    assert {str(element["elementId"]): element for element in applied} == expected
+
+
+def apply_operations(
+    original_elements: list[dict[str, Any]],
+    operations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    elements = deepcopy(original_elements)
+    for operation in operations:
+        operation_type = operation["type"]
+        if operation_type == "update_slide_style":
+            continue
+        if operation_type == "add_element":
+            elements.append(deepcopy(operation["element"]))
+            continue
+        element_id = operation["elementId"]
+        if operation_type == "delete_element":
+            elements = [
+                element for element in elements if element["elementId"] != element_id
+            ]
+            continue
+        element = next(
+            element for element in elements if element["elementId"] == element_id
+        )
+        if operation_type == "update_element_frame":
+            element.update(deepcopy(operation["frame"]))
+        elif operation_type == "update_element_props":
+            element["props"].update(deepcopy(operation["props"]))
+    return elements
