@@ -4,7 +4,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.ai.design_agent import DesignAgentResponse
+from app.ai.design_agent import DesignAgentRequest, DesignAgentResponse
 
 from .safety import ElementConstraints, RedesignOutcome
 from .slide_extractor import SlideType
@@ -131,3 +131,35 @@ SlideRedesignStageArtifact = Annotated[
     InterpretStageArtifact | ComposeStageArtifact | VerifyStageArtifact,
     Field(discriminator="stage"),
 ]
+
+
+class InterpretStageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: Literal["interpret"]
+    request: DesignAgentRequest
+
+
+class ComposeStageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: Literal["compose"]
+    request: DesignAgentRequest
+    artifact: InterpretStageArtifact
+
+
+class VerifyStageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: Literal["verify"]
+    request: DesignAgentRequest
+    artifact: ComposeStageArtifact
+
+
+SlideRedesignStageRequest = Annotated[
+    InterpretStageRequest | ComposeStageRequest | VerifyStageRequest,
+    Field(discriminator="stage"),
+]
+SlideRedesignStageResponse = (
+    InterpretStageArtifact | ComposeStageArtifact | VerifyStageArtifact
+)
