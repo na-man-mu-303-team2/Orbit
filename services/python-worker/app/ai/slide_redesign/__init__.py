@@ -42,7 +42,8 @@ from .diff import (
     filter_safe_candidates,
     match_elements,
 )
-from .pipeline import MEDIA_ENABLED, RedesignResult, redesign_slide
+from .pipeline import RedesignResult, redesign_slide
+from .stages import MEDIA_ENABLED
 
 __all__ = [
     "MEDIA_ELEMENT_TYPES",

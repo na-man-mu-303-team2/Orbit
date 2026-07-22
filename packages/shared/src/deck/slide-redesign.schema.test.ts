@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { slideRedesignPaletteOptionsSchema } from "./slide-redesign.schema";
+import {
+  slideRedesignInterpretArtifactSchema,
+  slideRedesignPaletteOptionsSchema,
+  slideRedesignStageArtifactSchema,
+} from "./slide-redesign.schema";
 
 const options = [
   {
@@ -60,5 +64,81 @@ describe("slide redesign palette schema", () => {
     ]);
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("slide redesign stage artifact schema", () => {
+  const interpretArtifact = {
+    stage: "interpret",
+    outcome: "applicable",
+    slideTypeSource: "heuristic",
+    summary: {
+      title: "프로젝트 단계",
+      message: "",
+      contentItems: [{ contentItemId: "body::segment::1", text: "준비" }],
+      slideType: "process",
+      visualIntent: {},
+      mediaIntent: { alt: "" },
+    },
+    provenance: { "body::segment::1": "body" },
+    constraints: {
+      referencedElementIds: [],
+      lockedElementIds: [],
+      groupedElementIds: [],
+      ooxmlElementIds: [],
+    },
+  };
+
+  it("parses an applicable interpret artifact", () => {
+    const parsed = slideRedesignStageArtifactSchema.parse(interpretArtifact);
+
+    expect(parsed.stage).toBe("interpret");
+    expect(parsed.outcome).toBe("applicable");
+  });
+
+  it("rejects incomplete or unknown stage artifacts", () => {
+    expect(slideRedesignInterpretArtifactSchema.safeParse({
+      stage: "interpret",
+      outcome: "applicable",
+      provenance: {},
+    }).success).toBe(false);
+    expect(slideRedesignStageArtifactSchema.safeParse({
+      ...interpretArtifact,
+      stage: "illustrate",
+    }).success).toBe(false);
+    expect(slideRedesignInterpretArtifactSchema.safeParse({
+      ...interpretArtifact,
+      rawSlideText: "민감 원문",
+    }).success).toBe(false);
+  });
+
+  it("parses compose and verify response artifacts", () => {
+    const response = {
+      message: "리디자인에 사용할 배색을 골라주세요.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "select-redesign-palette",
+        alignment: null,
+      },
+      operations: [],
+      affectedElementIds: [],
+      warnings: [],
+      paletteOptions: options,
+    };
+
+    expect(slideRedesignStageArtifactSchema.parse({
+      stage: "compose",
+      outcome: "applicable",
+      response,
+      candidateCount: 0,
+      safeCandidateCount: 0,
+      irreversibleCount: 0,
+      ornamentApplied: false,
+    }).stage).toBe("compose");
+    expect(slideRedesignStageArtifactSchema.parse({
+      stage: "verify",
+      outcome: "applicable",
+      response,
+    }).stage).toBe("verify");
   });
 });
