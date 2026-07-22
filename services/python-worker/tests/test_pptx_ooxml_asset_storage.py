@@ -6,7 +6,8 @@ from typing import Any
 import pytest
 
 from app.ai.pptx_design_importer import ImportedDesignAsset
-from app.ai.pptx_ooxml_asset_storage import store_assets
+from app.ai.pptx_ooxml_asset_storage import store_assets, store_sync_assets
+from app.ai.pptx_ooxml_generation import PptxOoxmlSyncResult
 from app.config import PythonWorkerConfig, load_config
 
 
@@ -82,6 +83,53 @@ def test_store_assets_rejects_non_normalized_prefix() -> None:
             storage_prefix="projects/project-1/../project-2/",
             client_factory=lambda _config: FakeStorageClient(),
         )
+
+
+def test_store_sync_assets_omits_optional_nulls_and_preserves_notes_pages() -> None:
+    synced = PptxOoxmlSyncResult(
+        appliedOperations=[{"operationType": "reorder_slides"}],
+        notesPages=[
+            {
+                "slideId": "slide_1",
+                "notesPage": {
+                    "status": "preserved",
+                    "sourceNotesPart": "ppt/notesSlides/notesSlide1.xml",
+                    "sourceNotesMasterPart": "ppt/notesMasters/notesMaster1.xml",
+                    "bodyShapeId": "2",
+                    "bodyWritable": True,
+                    "notesWidthEmu": 9_144_000,
+                    "notesHeightEmu": 6_858_000,
+                    "hasNonBodyContent": False,
+                },
+            }
+        ],
+    )
+
+    result = store_sync_assets(
+        synced,
+        config=build_test_config(),
+        storage_prefix="projects/project-1/jobs/job-1/pptx-ooxml/",
+        client_factory=lambda _config: FakeStorageClient(),
+    ).model_dump(by_alias=True)
+
+    assert result["appliedOperations"] == [
+        {"operationType": "reorder_slides"}
+    ]
+    assert result["notesPages"] == [
+        {
+            "slideId": "slide_1",
+            "notesPage": {
+                "status": "preserved",
+                "sourceNotesPart": "ppt/notesSlides/notesSlide1.xml",
+                "sourceNotesMasterPart": "ppt/notesMasters/notesMaster1.xml",
+                "bodyShapeId": "2",
+                "bodyWritable": True,
+                "notesWidthEmu": 9_144_000,
+                "notesHeightEmu": 6_858_000,
+                "hasNonBodyContent": False,
+            },
+        }
+    ]
 
 
 def imported_asset(asset_id: str, file_name: str, content: bytes) -> ImportedDesignAsset:

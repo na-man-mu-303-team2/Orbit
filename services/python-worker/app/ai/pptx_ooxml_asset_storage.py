@@ -73,6 +73,10 @@ class StoredPptxOoxmlSyncResult(BaseModel):
         default_factory=list,
         alias="unsupportedOperations",
     )
+    notes_pages: list[dict[str, Any]] = Field(
+        default_factory=list,
+        alias="notesPages",
+    )
     applied_slide_motion: list[dict[str, Any]] = Field(
         default_factory=list,
         alias="appliedSlideMotion",
@@ -123,15 +127,25 @@ def store_sync_assets(
     return StoredPptxOoxmlSyncResult(
         assets=stored_assets,
         elementSources=synced.element_sources,
-        appliedOperations=[item.model_dump(by_alias=True) for item in synced.applied_operations],
+        appliedOperations=[
+            item.model_dump(by_alias=True, exclude_none=True)
+            for item in synced.applied_operations
+        ],
         unsupportedOperations=[
-            item.model_dump(by_alias=True) for item in synced.unsupported_operations
+            item.model_dump(by_alias=True, exclude_none=True)
+            for item in synced.unsupported_operations
+        ],
+        notesPages=[
+            item.model_dump(by_alias=True, exclude_none=True)
+            for item in synced.notes_pages
         ],
         appliedSlideMotion=[
-            item.model_dump(by_alias=True) for item in synced.applied_slide_motion
+            item.model_dump(by_alias=True, exclude_none=True)
+            for item in synced.applied_slide_motion
         ],
         unsupportedSlideMotion=[
-            item.model_dump(by_alias=True) for item in synced.unsupported_slide_motion
+            item.model_dump(by_alias=True, exclude_none=True)
+            for item in synced.unsupported_slide_motion
         ],
         warnings=synced.warnings,
     )
