@@ -300,6 +300,15 @@ def test_slide_style_json_schema_exposes_layout_and_background_image() -> None:
     assert "image-right" in schema_text
 
 
+@pytest.mark.parametrize("element_type", ["ellipse", "line", "polygon"])
+def test_design_agent_json_schema_exposes_capability_v2_shapes(
+    element_type: str,
+) -> None:
+    schema_text = json.dumps(DESIGN_AGENT_RESPONSE_FORMAT, ensure_ascii=False)
+
+    assert f'"const": "{element_type}"' in schema_text
+
+
 def test_design_agent_capability_version_one_request_remains_supported() -> None:
     capabilities = request_payload().capabilities
 

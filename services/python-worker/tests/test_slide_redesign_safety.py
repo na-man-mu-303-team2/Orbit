@@ -35,6 +35,23 @@ def test_finds_existing_structural_and_shape_elements_as_unsafe(
     assert find_unsafe_elements(slide) == [f"el-{element_type}"]
 
 
+@pytest.mark.parametrize("element_type", ["ellipse", "line", "polygon"])
+def test_allows_only_owned_unlocked_shape_ornaments(element_type: str) -> None:
+    owned = {
+        **element(f"el_orn_{element_type}", element_type),
+        "role": "decoration",
+        "locked": False,
+    }
+
+    assert find_unsafe_elements({"elements": [owned]}) == []
+    assert find_unsafe_elements(
+        {"elements": [{**owned, "locked": True}]}
+    ) == [f"el_orn_{element_type}"]
+    assert find_unsafe_elements(
+        {"elements": [{**owned, "ooxmlOrigin": "imported"}]}
+    ) == [f"el_orn_{element_type}"]
+
+
 def test_allows_text_and_rect_elements() -> None:
     slide = {"elements": [element("el-text", "text"), element("el-rect", "rect")]}
 
