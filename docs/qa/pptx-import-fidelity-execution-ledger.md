@@ -21,14 +21,15 @@
 
 - 단계: PR0 기준선 fixture와 renderer 위험 검증
 - task branch: `feature/pptx-import-pr0-baseline`
-- 상태: 구현·측정 완료, commit/merge 전 최종 검증 중
+- 상태: 구현·측정·task branch 검증 완료, target branch merge 대기
 
 ## 완료된 작업과 Commit
 
-| 작업                        | 일반 commit | task branch                        | merge commit | 검증                                                                                       |
-| --------------------------- | ----------- | ---------------------------------- | ------------ | ------------------------------------------------------------------------------------------ |
-| 초기 실행 기준 확인         | 미커밋      | `feature/pptx-import-pr0-baseline` | 미병합       | 저장소 규칙, 공통 계약, 구현 계획, commit convention 전체 확인                             |
-| PR0 fixture·renderer 기준선 | 미커밋      | `feature/pptx-import-pr0-baseline` | 미병합       | fixture 회귀 테스트, LibreOffice host/container audit, synthetic/실제 Konva SSIM 측정 완료 |
+| 작업                         | 일반 commit | task branch                        | merge commit | 검증                                                                                   |
+| ---------------------------- | ----------- | ---------------------------------- | ------------ | -------------------------------------------------------------------------------------- |
+| 초기 실행 기준 확인          | `90082d1e`  | `feature/pptx-import-pr0-baseline` | 미병합       | 저장소 규칙, 공통 계약, 구현 계획, commit convention 전체 확인                         |
+| PR0 fixture·renderer harness | `bc8ad700`  | `feature/pptx-import-pr0-baseline` | 미병합       | fixture 회귀 테스트, LibreOffice 위험 측정, synthetic/실제 Konva accuracy harness 추가 |
+| PR0 기준선 결정              | 현재 commit | `feature/pptx-import-pr0-baseline` | 미병합       | LibreOffice 채택, runtime Konva 기각 및 CI-only 결정 문서화                            |
 
 ## 실행한 검증
 
