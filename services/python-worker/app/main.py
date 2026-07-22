@@ -57,6 +57,7 @@ from app.ai.pptx_design_importer import (
     PptxDesignImportResult,
 )
 from app.ai.pptx_ooxml_generation import (
+    PptxImportPreference,
     PptxOoxmlGenerationError,
     PptxOoxmlGenerationResult,
     PptxRenderUnavailableError,
@@ -664,6 +665,7 @@ async def import_pptx_design_endpoint(
 async def generate_pptx_ooxml_endpoint(
     file: UploadFile = File(...),
     file_id: str = Form(...),
+    import_preference: PptxImportPreference = Form("editability-first"),
 ) -> PptxOoxmlGenerationResult:
     from pathlib import Path
     from tempfile import TemporaryDirectory
@@ -676,6 +678,7 @@ async def generate_pptx_ooxml_endpoint(
                 generate_pptx_ooxml,
                 source_path,
                 file_id,
+                import_preference=import_preference,
             )
         except UnsupportedPptxAspectRatioError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error

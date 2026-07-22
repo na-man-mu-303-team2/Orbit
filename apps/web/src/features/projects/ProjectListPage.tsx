@@ -1,4 +1,8 @@
-import type { Project, ProjectListItem } from "@orbit/shared";
+import type {
+  PptxImportPreference,
+  Project,
+  ProjectListItem,
+} from "@orbit/shared";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconArrowsSort,
@@ -44,6 +48,7 @@ import {
   updateProjectPin,
 } from "./ProjectAssetWorkspace";
 import { uploadAndImportPptxTemplate } from "../editor/shell/api/editorJobApi";
+import { PptxImportPreferenceDialog } from "../editor/shell/components/PptxImportPreferenceDialog";
 import {
   getPptxImportValidationMessage,
   pptxImportAccept,
@@ -69,6 +74,8 @@ export function ProjectListPage(props: {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pinningId, setPinningId] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState("");
+  const [pendingPptxImportFile, setPendingPptxImportFile] =
+    useState<File | null>(null);
   const pptxInputRef = useRef<HTMLInputElement>(null);
   const isRehearsal = props.mode === "rehearsal";
   const isImportingPptx = pptxImportPhase !== "idle";
@@ -119,7 +126,10 @@ export function ProjectListPage(props: {
     }
   }
 
-  async function importPptxProject(file: File) {
+  async function importPptxProject(
+    file: File,
+    importPreference: PptxImportPreference,
+  ) {
     const validationMessage = getPptxImportValidationMessage(file);
     if (validationMessage) {
       setMutationError(validationMessage);
@@ -132,6 +142,7 @@ export function ProjectListPage(props: {
     try {
       project = await createProjectWithoutDeck(projectTitleFromFile(file.name));
       await uploadAndImportPptxTemplate(project.projectId, file, {
+        importPreference,
         onPhase: setPptxImportPhase,
       });
       await projects.refetch();
@@ -311,7 +322,14 @@ export function ProjectListPage(props: {
                 onChange={(event) => {
                   const file = event.currentTarget.files?.[0];
                   event.currentTarget.value = "";
-                  if (file) void importPptxProject(file);
+                  if (!file) return;
+                  const validationMessage = getPptxImportValidationMessage(file);
+                  if (validationMessage) {
+                    setMutationError(validationMessage);
+                    return;
+                  }
+                  setMutationError("");
+                  setPendingPptxImportFile(file);
                 }}
                 ref={pptxInputRef}
                 type="file"
@@ -349,6 +367,16 @@ export function ProjectListPage(props: {
           </ProjectState>
         </>
       )}
+      <PptxImportPreferenceDialog
+        fileName={pendingPptxImportFile?.name ?? ""}
+        onCancel={() => setPendingPptxImportFile(null)}
+        onConfirm={(preference) => {
+          const file = pendingPptxImportFile;
+          setPendingPptxImportFile(null);
+          if (file) void importPptxProject(file, preference);
+        }}
+        open={Boolean(pendingPptxImportFile)}
+      />
     </WorkspaceContainer>
   );
 }
