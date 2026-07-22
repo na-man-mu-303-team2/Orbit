@@ -91,6 +91,24 @@ class DesignAgentCapabilities(BaseModel):
     can_modify_locked_elements: bool = Field(alias="canModifyLockedElements")
 
 
+class SlideRedesignPalette(BaseModel):
+    dominant: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    surface: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    text: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    focal: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    secondary: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class SlideRedesignPaletteOption(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    option_id: str = Field(alias="optionId", min_length=1)
+    name: str = Field(min_length=1)
+    is_current_theme: bool = Field(alias="isCurrentTheme")
+    palette: SlideRedesignPalette
+    rationale: str = Field(default="", max_length=500)
+
+
 class AvailableSmartArtLayout(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -128,6 +146,11 @@ class DesignAgentRequest(BaseModel):
         max_length=200,
     )
     capabilities: DesignAgentCapabilities
+    request_palette_options: bool = Field(default=False, alias="requestPaletteOptions")
+    selected_palette_option: SlideRedesignPaletteOption | None = Field(
+        default=None,
+        alias="selectedPaletteOption",
+    )
 
 
 class ElementFramePatch(BaseModel):
@@ -693,6 +716,12 @@ class DesignAgentResponse(BaseModel):
         max_length=200,
     )
     warnings: list[str] = Field(default_factory=list, max_length=20)
+    palette_options: list[SlideRedesignPaletteOption] | None = Field(
+        default=None,
+        alias="paletteOptions",
+        min_length=3,
+        max_length=3,
+    )
     smart_art_request: SmartArtRequest | None = Field(
         default=None, alias="smartArtRequest"
     )

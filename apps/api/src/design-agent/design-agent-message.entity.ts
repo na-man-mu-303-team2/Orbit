@@ -2,6 +2,7 @@ import type {
   DesignAgentContext,
   DesignAgentMessageRole,
   DesignAgentMessageStatus,
+  SlideRedesignPaletteOption,
 } from "@orbit/shared";
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from "typeorm";
 import { ProjectEntity } from "../projects/project.entity";
@@ -36,7 +37,10 @@ export class DesignAgentMessageEntity {
   status!: DesignAgentMessageStatus;
 
   @Column({ name: "context_json", nullable: true, type: "jsonb" })
-  contextJson!: DesignAgentContext | null;
+  contextJson!:
+    | DesignAgentContext
+    | { paletteOptions: SlideRedesignPaletteOption[] }
+    | null;
 
   @Column({ name: "error_code", nullable: true, type: "text" })
   errorCode!: string | null;

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.ai.composition_library import CompiledComposition, CompositionCompileError
-from app.ai.design_program import DeckDesignProgram
+from app.ai.design_program import DeckDesignProgram, PaletteRoles
 
 from .composer import (
     CompositionCandidate,
@@ -122,11 +122,12 @@ def filter_safe_candidates(
     candidates: list[CompositionCandidate],
     theme: dict[str, Any],
     constraints: ElementConstraints,
+    palette_override: PaletteRoles | None = None,
 ) -> list[CandidateAnalysis]:
     """Compile candidates deterministically and retain only safe analyses."""
     safe_analyses: list[CandidateAnalysis] = []
     for candidate in candidates:
-        roles = derive_palette(theme, candidate.background_mode)
+        roles = palette_override or derive_palette(theme, candidate.background_mode)
         program = build_single_slide_program(theme, roles, candidate)
         try:
             analysis = analyze_candidate(

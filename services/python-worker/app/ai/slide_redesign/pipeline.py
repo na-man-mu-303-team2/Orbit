@@ -12,12 +12,13 @@ from app.ai.design_agent import (
     DesignAgentResponse,
     _is_broad_preset_request,
 )
+from app.ai.design_program import PaletteRoles
 
 from .composer import eligible_candidates, select_composition
 from .diff import build_operations, filter_safe_candidates
 from .media import build_media_operations, collect_source_images
 from .ornament import generate_ornaments
-from .palette import derive_palette
+from .palette import build_palette_options, derive_palette
 from .safety import (
     ElementConstraints,
     RedesignOutcome,
@@ -132,6 +133,42 @@ def redesign_slide(
             hierarchy=hierarchy,
         )
         mark_phase("extraction")
+        if request.request_palette_options:
+            palette_options = build_palette_options(
+                request.context.theme,
+                extracted.summary,
+                model=model,
+                api_key=api_key,
+                client=client,
+            )
+            response = DesignAgentResponse.model_validate(
+                {
+                    "message": "리디자인에 사용할 배색을 골라주세요.",
+                    "interpretedIntent": {
+                        "target": "current-slide",
+                        "action": "select-redesign-palette",
+                        "alignment": None,
+                    },
+                    "operations": [],
+                    "affectedElementIds": [],
+                    "warnings": [],
+                    "paletteOptions": [
+                        option.model_dump(by_alias=True)
+                        for option in palette_options
+                    ],
+                    "smartArtRequest": None,
+                    "uiAction": None,
+                }
+            )
+            mark_phase("palette_options")
+            return complete(RedesignResult(outcome="applicable", response=response))
+        palette_override = (
+            PaletteRoles.model_validate(
+                request.selected_palette_option.palette.model_dump()
+            )
+            if request.selected_palette_option is not None
+            else None
+        )
         candidates = eligible_candidates(
             extracted.summary,
             media_enabled=MEDIA_ENABLED,
@@ -146,6 +183,7 @@ def redesign_slide(
             candidates,
             request.context.theme,
             constraints,
+            palette_override,
         )
         safe_candidate_count = len(analyses)
         mark_phase("candidate_analysis")
@@ -194,7 +232,8 @@ def redesign_slide(
         ornaments = generate_ornaments(
             chosen.composition_id,
             analysis.compiled.elements,
-            derive_palette(request.context.theme, chosen.background_mode),
+            palette_override
+            or derive_palette(request.context.theme, chosen.background_mode),
         )
         operations = _insert_supported_ornament_operations(
             operations,

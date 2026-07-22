@@ -7,6 +7,7 @@ import {
   designAgentMessageSchema,
   designAgentCapabilities,
   designAgentProposalSchema,
+  slideRedesignPaletteOptionsSchema,
   type ApplyDesignAgentProposalResponse,
   type CreateDesignAgentMessageRequest,
   type CreateDesignAgentMessageResponse,
@@ -20,6 +21,7 @@ import {
   type Slide,
   type SmartArtItem,
   type SmartArtRequest,
+  type SlideRedesignPaletteOption,
 } from "@orbit/shared";
 import {
   BadRequestException,
@@ -59,7 +61,39 @@ export class DesignAgentService {
     const currentDeck = await this.assertCurrentContext(projectId, input.context);
 
     const sessionId = input.sessionId ?? `design_session_${randomUUID()}`;
-    const history = await this.loadHistory(projectId, actorUserId, sessionId);
+    const sessionMessages = await this.loadSessionMessages(
+      projectId,
+      actorUserId,
+      sessionId,
+    );
+    const history = [...sessionMessages].reverse().map((message) => ({
+      role: message.role,
+      content: message.content,
+    }));
+    const paletteSelectionRequested = input.selectedPaletteOptionId === null;
+    if (
+      input.selectedPaletteOptionId !== undefined &&
+      input.intentPreset !== "redesign-slide"
+    ) {
+      throw new BadRequestException(
+        "Palette selection is only available for redesign-slide requests.",
+      );
+    }
+    const selectedPaletteOption =
+      typeof input.selectedPaletteOptionId === "string"
+        ? findStoredPaletteOption(
+            sessionMessages,
+            input.selectedPaletteOptionId,
+          )
+        : undefined;
+    if (
+      typeof input.selectedPaletteOptionId === "string" &&
+      selectedPaletteOption === undefined
+    ) {
+      throw new BadRequestException(
+        "selectedPaletteOptionId does not match this design agent session.",
+      );
+    }
     const now = new Date();
     const requestMessage = await this.messagesRepository.save(
       this.messagesRepository.create({
@@ -99,7 +133,19 @@ export class DesignAgentService {
         history,
         availableSmartArtLayouts,
         capabilities: designAgentCapabilities,
+        requestPaletteOptions: paletteSelectionRequested,
+        ...(selectedPaletteOption ? { selectedPaletteOption } : {}),
       });
+      if (paletteSelectionRequested && aiResult.paletteOptions === undefined) {
+        throw new BadRequestException(
+          "Design agent did not return palette options for the selection step.",
+        );
+      }
+      if (!paletteSelectionRequested && aiResult.paletteOptions !== undefined) {
+        throw new BadRequestException(
+          "Design agent returned unexpected palette options.",
+        );
+      }
       const responseNow = new Date();
       const responseMessage = await this.messagesRepository.save(
         this.messagesRepository.create({
@@ -112,7 +158,9 @@ export class DesignAgentService {
           role: "assistant",
           content: aiResult.message,
           status: "succeeded",
-          contextJson: null,
+          contextJson: aiResult.paletteOptions
+            ? { paletteOptions: aiResult.paletteOptions }
+            : null,
           errorCode: null,
           errorMessage: null,
           createdAt: responseNow,
@@ -212,6 +260,7 @@ export class DesignAgentService {
           operationCount: operations.length,
           smartArtLayoutType: aiResult.smartArtRequest?.layoutType ?? null,
           warningCount: aiResult.warnings.length,
+          paletteOptionCount: aiResult.paletteOptions?.length ?? 0,
         },
         "Design agent response completed.",
       );
@@ -221,6 +270,9 @@ export class DesignAgentService {
         requestMessage: toMessageDto(requestMessage),
         responseMessage: toMessageDto(responseMessage),
         ...(proposal ? { proposal: toProposalDto(proposal) } : {}),
+        ...(aiResult.paletteOptions
+          ? { paletteOptions: aiResult.paletteOptions }
+          : {}),
         uiAction: aiResult.uiAction,
       });
     } catch (error) {
@@ -332,20 +384,16 @@ export class DesignAgentService {
     return current.deck;
   }
 
-  private async loadHistory(
+  private async loadSessionMessages(
     projectId: string,
     actorUserId: string,
     sessionId: string,
   ) {
-    const messages = await this.messagesRepository.find({
+    return this.messagesRepository.find({
       where: { projectId, actorUserId, sessionId, status: "succeeded" },
       order: { createdAt: "DESC" },
       take: 10,
     });
-    return messages.reverse().map((message) => ({
-      role: message.role,
-      content: message.content,
-    }));
   }
 
   private async expandSmartArtRequest(
@@ -706,6 +754,29 @@ function elementBoundsOverlap(first: ElementBounds, second: ElementBounds) {
   const overlapHeight =
     Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y);
   return overlapWidth > 0 && overlapHeight > 0;
+}
+
+function findStoredPaletteOption(
+  messages: DesignAgentMessageEntity[],
+  optionId: string,
+): SlideRedesignPaletteOption | undefined {
+  for (const message of messages) {
+    const context = message.contextJson;
+    if (
+      context === null ||
+      typeof context !== "object" ||
+      !("paletteOptions" in context)
+    ) {
+      continue;
+    }
+    const parsed = slideRedesignPaletteOptionsSchema.safeParse(
+      context.paletteOptions,
+    );
+    if (!parsed.success) continue;
+    const selected = parsed.data.find((option) => option.optionId === optionId);
+    if (selected) return selected;
+  }
+  return undefined;
 }
 
 function toMessageDto(entity: DesignAgentMessageEntity): DesignAgentMessage {
