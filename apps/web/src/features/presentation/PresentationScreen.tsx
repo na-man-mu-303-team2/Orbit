@@ -125,6 +125,7 @@ export function PresentationScreen(props: {
           nextSlideTitle={nextSlideTitle}
           onNext={props.onNext}
           onPrevious={props.onPrevious}
+          onStageAdvance={props.onNext}
           previousDisabled={props.currentSlideIndex === 0}
           renderStage={
             props.deck && props.currentSlide ? (
@@ -138,6 +139,10 @@ export function PresentationScreen(props: {
             ) : null
           }
           stageIndexLabel={props.stageIndexLabel}
+          stageAdvanceDisabled={
+            props.currentSlide?.kind === "activity" ||
+            props.currentSlide?.kind === "activity-results"
+          }
           stageRef={props.presenterStageRef}
           totalSlides={props.totalSlides}
         />

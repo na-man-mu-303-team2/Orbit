@@ -2,6 +2,7 @@ import type { Deck } from "@orbit/shared";
 import { IconMaximize as Maximize2, IconX as X } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import type { SlideRuntimeHighlight } from "../../slides/rendering";
+import { shouldAdvancePresentationFromClick } from "../../presenter-shell/presentationClickAdvance";
 import { SlideshowRenderer } from "./SlideshowRenderer";
 
 export function SingleScreenPresenter(props: {
@@ -9,6 +10,7 @@ export function SingleScreenPresenter(props: {
   highlights?: SlideRuntimeHighlight[];
   isFullscreen?: boolean;
   onExit: () => void;
+  onNextStep?: () => void;
   slideElapsedLabel: string;
   slideId: string;
   slideTargetLabel: string;
@@ -20,6 +22,7 @@ export function SingleScreenPresenter(props: {
     deck,
     highlights = [],
     onExit,
+    onNextStep,
     slideId,
     stepIndex,
     triggerAnimationIds
@@ -28,6 +31,9 @@ export function SingleScreenPresenter(props: {
   const [fullscreenRequested, setFullscreenRequested] = useState(false);
   const liveIsFullscreen = useSingleScreenFullscreenState();
   const isFullscreen = props.isFullscreen ?? liveIsFullscreen;
+  const currentSlide = deck.slides.find((slide) => slide.slideId === slideId);
+  const canAdvanceStage =
+    currentSlide?.kind !== "activity" && currentSlide?.kind !== "activity-results";
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -52,7 +58,15 @@ export function SingleScreenPresenter(props: {
 
   return (
     <main className="single-screen-presenter" ref={rootRef}>
-      <div className="single-screen-stage" aria-label="단일 화면 슬라이드">
+      <div
+        className="single-screen-stage"
+        aria-label="단일 화면 슬라이드"
+        onClick={(event) => {
+          if (canAdvanceStage && shouldAdvancePresentationFromClick(event.target)) {
+            onNextStep?.();
+          }
+        }}
+      >
         <SlideshowRenderer
           deck={deck}
           highlights={highlights}

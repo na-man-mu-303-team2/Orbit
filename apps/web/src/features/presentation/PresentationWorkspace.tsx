@@ -970,7 +970,7 @@ export function PresentationWorkspace(props: {
         }}
         onElapsedInputFocus={() => setEditingTimeField("elapsed")}
         onExit={requestPresentationExit}
-        onNext={goNext}
+        onNext={handleNextPresenterStep}
         onPrevious={goPrevious}
         onPrimaryAction={handleTimePrimaryAction}
         onReset={() =>

@@ -4974,6 +4974,7 @@ export function RehearsalWorkspace(props: {
       <SingleScreenPresenter
         deck={deck}
         onExit={() => setIsSingleScreenOpen(false)}
+        onNextStep={handleNextPresenterStep}
         slideElapsedLabel={formatClock(slideElapsedSeconds)}
         slideId={currentSlide.slideId}
         slideTargetLabel={formatClock(currentSlideTargetSeconds)}
@@ -5227,8 +5228,9 @@ export function RehearsalWorkspace(props: {
           navigationPending={isSlidePreparationPending}
           nextHint={nextSlideHint}
           nextSlideTitle={nextSlide ? getSlideTitle(nextSlide) : "다음 슬라이드 없음"}
-          onNext={goNext}
+          onNext={handleNextPresenterStep}
           onPrevious={goPrevious}
+          onStageAdvance={handleNextPresenterStep}
           previousDisabled={currentSlideIndex === 0}
           renderStage={
             deck && currentSlide && presenterScale !== null ? (
@@ -5247,6 +5249,10 @@ export function RehearsalWorkspace(props: {
                   deck.slides.length,
                 ).padStart(2, "0")}`
               : undefined
+          }
+          stageAdvanceDisabled={
+            currentSlide?.kind === "activity" ||
+            currentSlide?.kind === "activity-results"
           }
           stageRef={presenterStageRef}
           totalSlides={deck?.slides.length ?? 0}
