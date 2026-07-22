@@ -37,6 +37,25 @@ describe("triggeredActionPlayback", () => {
     expect(resolveKeywordTriggeredActions(slide, "kw_ai")).toEqual([]);
   });
 
+  it("keeps a legacy keyword next-slide action available beside occurrence animations", () => {
+    const baseSlide = createSlide();
+    const slide = {
+      ...baseSlide,
+      actions: [
+        ...baseSlide.actions,
+        {
+          actionId: "act_legacy_advance",
+          trigger: { kind: "keyword" as const, keywordId: "kw_ai" },
+          effect: { kind: "go-to-next-slide" as const }
+        }
+      ]
+    };
+
+    expect(
+      resolveKeywordTriggeredActions(slide, "kw_ai").map((action) => action.actionId)
+    ).toEqual(["act_legacy_advance"]);
+  });
+
   it("consumes an occurrence action when manual progression plays its step", () => {
     const slide = createSlide();
     const slideAnimationPlan = createSlideshowAnimationPlan({

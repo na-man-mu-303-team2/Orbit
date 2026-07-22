@@ -48,12 +48,10 @@ export function resolveKeywordTriggeredActions(slide: Slide, keywordId: string) 
       action.trigger.keywordId === keywordId
   );
 
-  if (hasOccurrenceTriggerForKeyword) {
-    return [];
-  }
-
   return resolveTriggeredActions(slide, { keywordId }).filter(
-    (action) => action.trigger.kind === "keyword"
+    (action) =>
+      action.trigger.kind === "keyword" &&
+      (!hasOccurrenceTriggerForKeyword || action.effect.kind !== "play-animation")
   );
 }
 

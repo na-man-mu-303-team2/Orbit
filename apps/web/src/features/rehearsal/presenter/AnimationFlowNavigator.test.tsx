@@ -62,4 +62,74 @@ describe("AnimationFlowNavigator", () => {
       triggerLabel: expect.stringContaining("발화"),
     });
   });
+
+  it("shows separate timeline rows for relative effects with different occurrence triggers", () => {
+    const firstSlide = p0AnimationDeck.slides[0]!;
+    const deck = {
+      ...p0AnimationDeck,
+      slides: [
+        {
+          ...firstSlide,
+          keywords: [
+            {
+              abbreviations: [],
+              keywordId: "kw_first",
+              required: true,
+              synonyms: [],
+              text: "첫째",
+            },
+            {
+              abbreviations: [],
+              keywordId: "kw_second",
+              required: true,
+              synonyms: [],
+              text: "둘째",
+            },
+          ],
+          animations: [
+            {
+              ...firstSlide.animations[0]!,
+              animationId: "anim_first",
+              order: 1,
+              startMode: "on-click" as const,
+            },
+            {
+              ...firstSlide.animations[1]!,
+              animationId: "anim_second",
+              order: 2,
+              startMode: "with-previous" as const,
+            },
+          ],
+          actions: [
+            {
+              actionId: "act_first",
+              trigger: {
+                kind: "keyword-occurrence" as const,
+                keywordId: "kw_first",
+                occurrenceId: "kwo_slide_p0_1_kw_first_0_2",
+              },
+              effect: { kind: "play-animation" as const, animationId: "anim_first" },
+            },
+            {
+              actionId: "act_second",
+              trigger: {
+                kind: "keyword-occurrence" as const,
+                keywordId: "kw_second",
+                occurrenceId: "kwo_slide_p0_1_kw_second_3_5",
+              },
+              effect: { kind: "play-animation" as const, animationId: "anim_second" },
+            },
+          ],
+        },
+        ...p0AnimationDeck.slides.slice(1),
+      ],
+    };
+
+    const model = createAnimationFlowModel(deck);
+
+    expect(model[0]?.steps).toMatchObject([
+      { triggerLabel: "“첫째” 발화" },
+      { triggerLabel: "“둘째” 발화" },
+    ]);
+  });
 });

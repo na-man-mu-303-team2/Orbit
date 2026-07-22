@@ -132,6 +132,7 @@ export type {
   PlannedAnimationTimelineEffect,
   TimelineAnimationInput
 } from "./playback/animationTimeline";
+export { getAnimationActionTriggerKeys } from "./playback/slidePlayback";
 export { normalizeLegacyAnimationStartModes } from "./patches/legacyAnimationStartModeMigration";
 export {
   createActivityResultsSlide,

@@ -60,10 +60,14 @@ export function matchKeywordOccurrenceTriggers(options: {
   const spanStart = Math.min(previousCharOffset, currentCharOffset);
   const spanEnd = Math.max(previousCharOffset, currentCharOffset);
   const allOccurrences = deriveKeywordOccurrences(options.slide);
+  const keywordHitCounts = countKeywordHitsByKeyword(
+    latestTranscript,
+    options.slide.keywords
+  );
   const matchedOccurrenceIds = getMatchedOccurrenceIdsForTranscriptSpan({
     occurrences: allOccurrences,
-    latestTranscript,
     hasProgressSpan: options.previousTranscript !== undefined,
+    keywordHitCounts,
     slide: options.slide,
     spanEnd,
     spanStart,
@@ -85,7 +89,7 @@ export function matchKeywordOccurrenceTriggers(options: {
     const keyword = options.slide.keywords.find(
       (candidate) => candidate.keywordId === occurrence.keywordId
     );
-    if (!keyword || !doesTranscriptContainKeyword(latestTranscript, keyword)) {
+    if (!keyword || (keywordHitCounts.get(keyword.keywordId) ?? 0) === 0) {
       return [];
     }
 
@@ -104,7 +108,7 @@ export function matchKeywordOccurrenceTriggers(options: {
 function getMatchedOccurrenceIdsForTranscriptSpan(options: {
   occurrences: ReturnType<typeof deriveKeywordOccurrences>;
   hasProgressSpan: boolean;
-  latestTranscript: string;
+  keywordHitCounts: ReadonlyMap<string, number>;
   slide: Pick<Slide, "keywords">;
   spanEnd: number;
   spanStart: number;
@@ -113,7 +117,7 @@ function getMatchedOccurrenceIdsForTranscriptSpan(options: {
   const occurrenceIds = new Set<string>();
 
   for (const keyword of options.slide.keywords) {
-    const hitCount = countKeywordHits(options.latestTranscript, keyword);
+    const hitCount = options.keywordHitCounts.get(keyword.keywordId) ?? 0;
     if (hitCount === 0) {
       continue;
     }
@@ -158,33 +162,49 @@ function getMatchedOccurrenceIdsForTranscriptSpan(options: {
   return occurrenceIds;
 }
 
-function countKeywordHits(
+function countKeywordHitsByKeyword(
   normalizedTranscript: string,
-  keyword: Pick<Slide["keywords"][number], "text" | "synonyms" | "abbreviations">
+  keywords: readonly Pick<
+    Slide["keywords"][number],
+    "abbreviations" | "keywordId" | "synonyms" | "text"
+  >[]
 ) {
-  const terms = Array.from(
-    new Set(
-      [keyword.text, ...keyword.synonyms, ...keyword.abbreviations]
-        .map((term) => normalizeSpeechText(term))
-        .filter(Boolean)
-    )
-  ).sort((left, right) => right.length - left.length);
+  const terms = keywords.flatMap((keyword, keywordIndex) =>
+    Array.from(
+      new Set(
+        [keyword.text, ...keyword.synonyms, ...keyword.abbreviations]
+          .map((term) => normalizeSpeechText(term))
+          .filter(Boolean)
+      )
+    ).map((term) => ({
+      keywordId: keyword.keywordId,
+      keywordIndex,
+      term
+    }))
+  );
+  const hitCounts = new Map<string, number>();
   let cursor = 0;
-  let hitCount = 0;
 
   while (cursor < normalizedTranscript.length) {
-    const term = terms.find((candidate) =>
-      normalizedTranscript.startsWith(candidate, cursor)
-    );
+    const term = terms
+      .filter((candidate) =>
+        normalizedTranscript.startsWith(candidate.term, cursor)
+      )
+      .sort(
+        (left, right) =>
+          right.term.length - left.term.length ||
+          left.keywordIndex - right.keywordIndex ||
+          left.keywordId.localeCompare(right.keywordId)
+      )[0];
     if (term) {
-      hitCount += 1;
-      cursor += term.length;
+      hitCounts.set(term.keywordId, (hitCounts.get(term.keywordId) ?? 0) + 1);
+      cursor += term.term.length;
       continue;
     }
     cursor += 1;
   }
 
-  return hitCount;
+  return hitCounts;
 }
 
 export function estimateScriptProgressOffset(
@@ -238,16 +258,4 @@ function findMatchedSentencePrefixEnd(options: {
   }
 
   return 0;
-}
-
-function doesTranscriptContainKeyword(
-  normalizedTranscript: string,
-  keyword: Pick<Slide["keywords"][number], "text" | "synonyms" | "abbreviations">
-) {
-  return [keyword.text, ...keyword.synonyms, ...keyword.abbreviations].some(
-    (term) => {
-      const normalizedTerm = normalizeSpeechText(term);
-      return normalizedTerm && normalizedTranscript.includes(normalizedTerm);
-    }
-  );
 }
