@@ -50,6 +50,7 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("시작");
     expect(html).toContain("리셋");
     expect(html).toContain("핵심 키워드");
+    expect(html).not.toContain("음성인식 대기");
     expect(html).not.toContain('<header class="presenter-remote-header"');
     expect(html).not.toContain("슬라이드 목표");
     expect(html).not.toContain("현재 큐");

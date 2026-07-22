@@ -471,13 +471,11 @@ export function PresenterRemoteWindow(props: {
           >
             <div className="presenter-remote-section-heading">
               <span>타이머</span>
-              <strong>
-                {timing.isPaused
-                  ? "일시정지됨"
-                  : timing.isLiveSttActive
-                    ? "음성인식 중"
-                    : "음성인식 대기"}
-              </strong>
+              {timing.isPaused ? (
+                <strong>일시정지됨</strong>
+              ) : timing.isLiveSttActive ? (
+                <strong>음성인식 중</strong>
+              ) : null}
             </div>
             <strong
               className="presenter-remote-timer-display"
