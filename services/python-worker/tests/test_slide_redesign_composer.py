@@ -89,6 +89,35 @@ def test_optional_media_compositions_remain_eligible_without_assets() -> None:
     assert "cta-closing" in closing_ids
 
 
+def test_media_enabled_candidates_include_required_and_image_variants() -> None:
+    candidates = eligible_candidates(
+        summary("title", ["핵심", "근거"]),
+        media_enabled=True,
+    )
+
+    by_id = {candidate.composition_id: candidate for candidate in candidates}
+    assert by_id["hero-full-bleed"].background_mode == "image"
+    assert by_id["hero-full-bleed"].asset_role == "atmosphere"
+
+
+def test_optional_media_candidate_uses_slot_when_source_image_exists() -> None:
+    candidates = eligible_candidates(
+        summary("feature-grid", ["기능 A", "기능 B", "기능 C"]),
+        media_enabled=True,
+        source_image_count=1,
+    )
+
+    optional_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.composition_id in {"hero-split", "editorial-split"}
+    ]
+    assert optional_candidates
+    assert all(
+        candidate.asset_role == "atmosphere" for candidate in optional_candidates
+    )
+
+
 def test_unsupported_item_count_raises_compile_error() -> None:
     with pytest.raises(CompositionCompileError, match="No media-free composition"):
         eligible_candidates(summary("feature-grid", [f"항목 {index}" for index in range(10)]))

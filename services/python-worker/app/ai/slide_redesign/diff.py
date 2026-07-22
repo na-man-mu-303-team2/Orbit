@@ -13,6 +13,12 @@ from .composer import (
     build_single_slide_program,
     compile_redesign,
 )
+from .media import (
+    MediaAssignment,
+    assign_media,
+    collect_source_images,
+    find_media_slots,
+)
 from .palette import derive_palette
 from .safety import ElementConstraints, can_replace, normalize_text, text_preserved
 
@@ -30,6 +36,7 @@ class CandidateAnalysis:
     candidate: CompositionCandidate
     compiled: CompiledComposition
     matching: ElementMatching
+    media_assignments: list[MediaAssignment]
     safe: bool
     unsafe_reason: str | None
 
@@ -76,18 +83,33 @@ def analyze_candidate(
     """Compile one candidate and reject replacements that lose references or text."""
     compiled = compile_redesign(summary, candidate, program)
     original_elements = _elements(slide)
-    matching = match_elements(original_elements, compiled.elements, provenance)
-    unsafe_reason = _unsafe_reason(
-        original_elements,
+    media_assignments = assign_media(
+        find_media_slots(compiled),
+        collect_source_images(slide),
+    )
+    matching = match_elements(
+        [
+            element
+            for element in original_elements
+            if element.get("type") not in {"image", "svg"}
+        ],
         compiled.elements,
         provenance,
-        matching,
-        constraints,
     )
+    unsafe_reason = "media-slot-overflow" if media_assignments is None else None
+    if unsafe_reason is None:
+        unsafe_reason = _unsafe_reason(
+            original_elements,
+            compiled.elements,
+            provenance,
+            matching,
+            constraints,
+        )
     return CandidateAnalysis(
         candidate=candidate,
         compiled=compiled,
         matching=matching,
+        media_assignments=media_assignments or [],
         safe=unsafe_reason is None,
         unsafe_reason=unsafe_reason,
     )

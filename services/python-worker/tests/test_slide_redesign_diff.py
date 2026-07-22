@@ -446,6 +446,47 @@ def test_filter_safe_candidates_returns_empty_when_all_are_unsafe() -> None:
     assert safe == []
 
 
+def test_candidate_with_fewer_media_slots_than_sources_is_unsafe() -> None:
+    slide = {
+        "elements": [
+            text_element("el_title", "제목"),
+            text_element("el_body", "핵심 메시지"),
+            {
+                "elementId": "el_image_1",
+                "type": "image",
+                "width": 800,
+                "height": 600,
+            },
+            {
+                "elementId": "el_image_2",
+                "type": "svg",
+                "width": 400,
+                "height": 300,
+            },
+        ]
+    }
+    candidate = CompositionCandidate("hero-full-bleed", "image", "atmosphere")
+    program = build_single_slide_program(
+        THEME,
+        derive_palette(THEME, "image"),
+        candidate,
+    )
+
+    analysis = analyze_candidate(
+        slide_summary("title", ["핵심 메시지"]),
+        {"item-1": "el_body"},
+        slide,
+        candidate,
+        program,
+        constraints(),
+    )
+
+    assert analysis.safe is False
+    assert analysis.unsafe_reason == "media-slot-overflow"
+    assert "el_image_1" not in analysis.matching.deleted
+    assert "el_image_2" not in analysis.matching.deleted
+
+
 def test_build_operations_orders_deletes_last_and_never_updates_text() -> None:
     originals = [
         text_element("el_reused", "원문"),

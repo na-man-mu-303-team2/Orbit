@@ -15,6 +15,7 @@ from app.ai.design_agent import (
 
 from .composer import eligible_candidates, select_composition
 from .diff import build_operations, filter_safe_candidates
+from .media import build_media_operations, collect_source_images
 from .ornament import generate_ornaments
 from .palette import derive_palette
 from .safety import (
@@ -32,7 +33,7 @@ from .slide_extractor import (
 )
 
 
-MEDIA_ENABLED = False
+MEDIA_ENABLED = True
 logger = logging.getLogger(__name__)
 
 
@@ -131,7 +132,11 @@ def redesign_slide(
             hierarchy=hierarchy,
         )
         mark_phase("extraction")
-        candidates = eligible_candidates(extracted.summary)
+        candidates = eligible_candidates(
+            extracted.summary,
+            media_enabled=MEDIA_ENABLED,
+            source_image_count=len(collect_source_images(slide)),
+        )
         candidate_count = len(candidates)
         constraints = collect_element_constraints(slide)
         analyses = filter_safe_candidates(
@@ -181,6 +186,10 @@ def redesign_slide(
             original_elements,
             analysis.compiled,
             analysis.matching,
+        )
+        operations = _insert_operations_before_deletes(
+            operations,
+            build_media_operations(slide_id, analysis.media_assignments),
         )
         ornaments = generate_ornaments(
             chosen.composition_id,
@@ -306,6 +315,13 @@ def _insert_supported_ornament_operations(
             }
         )
 
+    return _insert_operations_before_deletes(operations, additions)
+
+
+def _insert_operations_before_deletes(
+    operations: list[dict[str, Any]],
+    additions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     delete_index = next(
         (
             index

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from app.ai.color_options import accessible_text_color, contrast_ratio
-from app.ai.design_program import PaletteRoles
+from app.ai.design_program import BackgroundMode, PaletteRoles
 
 
 def derive_palette(
-    theme: dict[str, Any], background_mode: Literal["light", "dark"]
+    theme: dict[str, Any], background_mode: BackgroundMode
 ) -> PaletteRoles:
     """Derive a single-slide palette while retaining the deck focal color."""
     palette = theme.get("palette")
@@ -17,7 +17,7 @@ def derive_palette(
     focal = _theme_color(theme, "accentColor", "accent", "#2563EB")
     secondary = _string_color(palette_values.get("secondary"), focal)
 
-    if background_mode == "dark":
+    if background_mode in {"dark", "image"}:
         dominant = "#0F172A"
         surface = "#1E293B"
     else:

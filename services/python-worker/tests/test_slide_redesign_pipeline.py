@@ -42,6 +42,35 @@ def text_element(
     }
 
 
+def image_element(
+    element_id: str,
+    *,
+    width: int = 800,
+    height: int = 600,
+) -> dict[str, Any]:
+    return {
+        "elementId": element_id,
+        "type": "image",
+        "role": "media",
+        "x": 1040,
+        "y": 220,
+        "width": width,
+        "height": height,
+        "rotation": 0,
+        "opacity": 1,
+        "zIndex": 2,
+        "locked": False,
+        "visible": True,
+        "props": {
+            "src": "https://example.com/product.png",
+            "alt": "제품 이미지",
+            "fit": "contain",
+            "focusX": 0.5,
+            "focusY": 0.5,
+        },
+    }
+
+
 def request_for(
     elements: list[dict[str, Any]],
     *,
@@ -313,6 +342,87 @@ def test_capability_v1_pipeline_does_not_emit_v2_shapes() -> None:
         for operation in response.operations
     )
 
+
+def test_image_slide_is_applicable_without_replacing_source_element() -> None:
+    result = redesign_slide(
+        request_for(
+            [
+                text_element("el_title", "제품 출시", role="title", y=100),
+                text_element("el_body", "빠른 시작", y=340),
+                image_element("el_product"),
+            ],
+            capability_version="2",
+            addable_element_types=[
+                "text",
+                "rect",
+                "ellipse",
+                "line",
+                "polygon",
+                "image",
+                "chart",
+                "table",
+            ],
+        ),
+        model="test-model",
+        api_key=None,
+    )
+
+    assert result.outcome == "applicable"
+    assert result.response is not None
+    image_operations = [
+        operation
+        for operation in result.response.operations
+        if getattr(operation, "element_id", None) == "el_product"
+    ]
+    assert [operation.type for operation in image_operations] == [
+        "update_element_frame",
+        "update_element_props",
+    ]
+    assert all(operation.type != "delete_element" for operation in image_operations)
+
+
+def test_animated_image_keeps_element_id_and_reference() -> None:
+    animation = {
+        "animationId": "anim-product",
+        "elementId": "el_product",
+        "type": "fade-in",
+        "order": 1,
+    }
+    request = request_for(
+        [
+            text_element("el_title", "제품 출시", role="title", y=100),
+            text_element("el_body", "빠른 시작", y=340),
+            image_element("el_product"),
+        ],
+        animations=[animation],
+        capability_version="2",
+        addable_element_types=[
+            "text",
+            "rect",
+            "ellipse",
+            "line",
+            "polygon",
+            "image",
+            "chart",
+            "table",
+        ],
+    )
+
+    result = redesign_slide(request, model="test-model", api_key=None)
+
+    assert result.outcome == "applicable"
+    assert result.response is not None
+    assert request.context.slide["animations"] == [animation]
+    assert any(
+        operation.type == "update_element_frame"
+        and operation.element_id == animation["elementId"]
+        for operation in result.response.operations
+    )
+    assert all(
+        operation.type != "delete_element"
+        or operation.element_id != animation["elementId"]
+        for operation in result.response.operations
+    )
 
 def test_refused_pipeline_response_is_valid_with_empty_operations() -> None:
     response = generate_design_proposal(

@@ -95,8 +95,12 @@
   },
   {
     "id": "image-unsafe-m1",
-    "expectedOutcome": "refused-unsafe",
-    "elements": [{"elementId": "el_image", "type": "image"}]
+    "expectedOutcome": "applicable",
+    "elements": [
+      {"elementId": "el_title", "type": "text", "role": "title", "text": "제품 출시"},
+      {"elementId": "el_body", "type": "text", "role": "body", "text": "빠른 시작"},
+      {"elementId": "el_image", "type": "image"}
+    ]
   },
   {
     "id": "locked-element",

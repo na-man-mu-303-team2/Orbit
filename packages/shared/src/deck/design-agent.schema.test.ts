@@ -117,6 +117,7 @@ describe("design agent schema", () => {
         "ellipse",
         "line",
         "polygon",
+        "image",
         "chart",
         "table",
       ],
@@ -255,5 +256,47 @@ describe("design agent schema", () => {
       type: "add_element",
       element: { type, role: "decoration" },
     });
+  });
+
+  it("accepts add_element for a capability v2 image", () => {
+    const result = designAgentWorkerResponseSchema.parse({
+      message: "이미지를 배치했습니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "이미지 배치",
+        alignment: "custom",
+      },
+      operations: [
+        {
+          type: "add_element",
+          slideId: "slide_1",
+          element: {
+            elementId: "el_media_image",
+            type: "image",
+            role: "media",
+            x: 120,
+            y: 120,
+            width: 720,
+            height: 480,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 3,
+            locked: false,
+            visible: true,
+            props: {
+              src: "https://example.com/image.png",
+              alt: "제품 이미지",
+              fit: "cover",
+              focusX: 0.5,
+              focusY: 0.5,
+            },
+          },
+        },
+      ],
+      affectedElementIds: ["el_media_image"],
+      warnings: [],
+    });
+
+    expect(result.operations[0]?.type).toBe("add_element");
   });
 });

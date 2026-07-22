@@ -75,7 +75,16 @@ class DesignAgentCapabilities(BaseModel):
         ]
     ]
     addable_element_types: list[
-        Literal["text", "rect", "ellipse", "line", "polygon", "chart", "table"]
+        Literal[
+            "text",
+            "rect",
+            "ellipse",
+            "line",
+            "polygon",
+            "image",
+            "chart",
+            "table",
+        ]
     ] = Field(alias="addableElementTypes")
     can_edit_text_content: bool = Field(alias="canEditTextContent")
     can_generate_images: bool = Field(alias="canGenerateImages")
@@ -280,6 +289,16 @@ class ShapeElementProps(BaseModel):
         return value
 
 
+class ImageElementProps(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    src: str = Field(min_length=1)
+    alt: str = ""
+    fit: Literal["contain", "cover", "stretch"] = "contain"
+    focus_x: float = Field(default=0.5, alias="focusX", ge=0, le=1)
+    focus_y: float = Field(default=0.5, alias="focusY", ge=0, le=1)
+
+
 class ChartDatum(BaseModel):
     label: str = Field(min_length=1, max_length=120)
     value: float
@@ -438,6 +457,24 @@ class PolygonElement(BaseModel):
         return value
 
 
+class ImageElement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["image"]
+    role: Literal["media"]
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float
+    opacity: float = Field(ge=0, le=1)
+    z_index: int = Field(alias="zIndex", ge=0)
+    locked: bool
+    visible: bool
+    props: ImageElementProps
+
+
 class ChartElement(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -480,6 +517,7 @@ AddableElement = Annotated[
     | EllipseElement
     | LineElement
     | PolygonElement
+    | ImageElement
     | ChartElement
     | TableElement,
     Field(discriminator="type"),
@@ -2201,6 +2239,32 @@ def _shape_element_json_schema(
     }
 
 
+def _image_element_json_schema() -> dict[str, Any]:
+    properties = _element_base_properties("image", ["media"])
+    props_properties = {
+        "src": {"type": "string", "minLength": 1},
+        "alt": {"type": "string"},
+        "fit": {
+            "type": "string",
+            "enum": ["contain", "cover", "stretch"],
+        },
+        "focusX": {"type": "number", "minimum": 0, "maximum": 1},
+        "focusY": {"type": "number", "minimum": 0, "maximum": 1},
+    }
+    properties["props"] = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": props_properties,
+        "required": list(props_properties),
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": list(properties),
+    }
+
+
 def _chart_element_json_schema() -> dict[str, Any]:
     properties = _element_base_properties("chart", ["chart"])
     style_properties = {
@@ -2322,6 +2386,7 @@ def _add_element_operation_json_schema() -> dict[str, Any]:
                     ),
                     _shape_element_json_schema("line", ["decoration"]),
                     _shape_element_json_schema("polygon", ["decoration"]),
+                    _image_element_json_schema(),
                     _chart_element_json_schema(),
                     _table_element_json_schema(),
                 ]

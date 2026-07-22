@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from app.ai.composition_library import (
     COMPOSITION_SPECS,
@@ -11,18 +11,29 @@ from app.ai.composition_library import (
     compile_composition,
     content_supports_composition,
 )
-from app.ai.design_program import CompositionId, DeckDesignProgram, PaletteRoles
+from app.ai.design_program import (
+    AssetRole,
+    BackgroundMode,
+    CompositionId,
+    DeckDesignProgram,
+    PaletteRoles,
+)
 
 
 @dataclass(frozen=True)
 class CompositionCandidate:
     composition_id: CompositionId
-    background_mode: Literal["light", "dark"]
-    asset_role: Literal["none"] = "none"
+    background_mode: BackgroundMode
+    asset_role: AssetRole = "none"
 
 
-def eligible_candidates(summary: dict[str, Any]) -> list[CompositionCandidate]:
-    """Return media-free curated compositions supported by the slide content."""
+def eligible_candidates(
+    summary: dict[str, Any],
+    *,
+    media_enabled: bool = False,
+    source_image_count: int = 0,
+) -> list[CompositionCandidate]:
+    """Return curated compositions supported by the content and media policy."""
     slide_type = str(summary.get("slideType", "summary"))
     content_items = summary.get("contentItems", [])
     item_count = len(content_items) if isinstance(content_items, list) else 0
@@ -32,21 +43,29 @@ def eligible_candidates(summary: dict[str, Any]) -> list[CompositionCandidate]:
             continue
         if not spec.min_items <= item_count <= spec.max_items:
             continue
-        if spec.media_requirement == "required":
+        if spec.media_requirement == "required" and not media_enabled:
             continue
         if not content_supports_composition(composition_id, summary):
             continue
         for mode in spec.variants:
-            if mode == "image":
+            if mode == "image" and not media_enabled:
                 continue
+            uses_media = media_enabled and (
+                spec.media_requirement == "required"
+                or (spec.media_requirement == "optional" and source_image_count > 0)
+            )
             result.append(
                 CompositionCandidate(
                     composition_id=composition_id,
                     background_mode=mode,
+                    asset_role="atmosphere" if uses_media else "none",
                 )
             )
     if not result:
-        raise CompositionCompileError("No media-free composition supports the slide")
+        qualifier = "media-free " if not media_enabled else ""
+        raise CompositionCompileError(
+            f"No {qualifier}composition supports the slide"
+        )
     return result
 
 
@@ -92,8 +111,8 @@ def build_single_slide_program(
                     "variant": candidate.background_mode,
                     "backgroundMode": candidate.background_mode,
                     "focalType": spec.focal_rule,
-                    "assetRole": "none",
-                    "requiredAsset": False,
+                    "assetRole": candidate.asset_role,
+                    "requiredAsset": spec.media_requirement == "required",
                 }
             ],
         }
