@@ -26,8 +26,7 @@
 - 완료 milestone: PR00~PR02
 - PR02 integration merge: `9172954595a5bc37fffcdeda7411499db3890219`
 - 현재 milestone: PR03 — composition 후보와 M1 palette
-- 활성 child branch: `feature/slide-redesign-agent-v2-pr02-extractor`
-- 활성 child worktree: `/private/tmp/orbit-slide-redesign-agent-v2-pr02-extractor`
+- 활성 child branch/worktree: 없음
 - PR02 완료 checkpoint와 code commit:
   - `a3453592` — visible text role/fontSize hierarchy와 y-band 읽기 순서
   - `84c84973` — 불릿 segment 전역 유일 ID와 별도 provenance map
@@ -44,7 +43,7 @@
   - `uv run mypy app` — 64 source files 통과
   - `uv run pytest tests/test_slide_redesign_extractor.py -v` — 19 passed
 - 남은 stop gate: 없음
-- PR02 child 상태: integration merge 완료, progress commit 후 clean worktree 정리 예정
+- PR02 child 상태: clean worktree와 local branch 정리 완료
 - 다음 milestone: PR03 — composition 후보와 M1 palette
 
 ## 완료 Milestone 기록
