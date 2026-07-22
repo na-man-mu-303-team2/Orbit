@@ -66,6 +66,12 @@ from app.ai.pptx_ooxml_generation import (
     generate_pptx_ooxml,
     sync_pptx_ooxml,
 )
+from app.ai.pptx_ooxml_asset_storage import (
+    StoredPptxOoxmlGenerationResult,
+    StoredPptxOoxmlSyncResult,
+    store_generation_assets,
+    store_sync_assets,
+)
 from app.ai.pptx_ooxml_sync_transport import (
     AUTHORED_ELEMENT_FALLBACKS_MAX_BYTES,
     DECK_CANVAS_MAX_BYTES,
@@ -665,12 +671,17 @@ async def import_pptx_design_endpoint(
     )
 
 
-@app.post("/ai/pptx-ooxml-generation", response_model=PptxOoxmlGenerationResult)
+@app.post(
+    "/ai/pptx-ooxml-generation",
+    response_model=PptxOoxmlGenerationResult | StoredPptxOoxmlGenerationResult,
+)
 async def generate_pptx_ooxml_endpoint(
+    request: Request,
     file: UploadFile = File(...),
     file_id: str = Form(...),
     import_preference: PptxImportPreference = Form("editability-first"),
-) -> PptxOoxmlGenerationResult:
+    storage_prefix: str | None = Form(None),
+) -> PptxOoxmlGenerationResult | StoredPptxOoxmlGenerationResult:
     from pathlib import Path
     from tempfile import TemporaryDirectory
 
@@ -678,11 +689,19 @@ async def generate_pptx_ooxml_endpoint(
         source_path = Path(temp_dir) / Path(file.filename or "upload.pptx").name
         source_path.write_bytes(await file.read())
         try:
-            return await run_in_threadpool(
+            generated = await run_in_threadpool(
                 generate_pptx_ooxml,
                 source_path,
                 file_id,
                 import_preference=import_preference,
+            )
+            if storage_prefix is None:
+                return generated
+            return await run_in_threadpool(
+                store_generation_assets,
+                generated,
+                config=_config(request),
+                storage_prefix=storage_prefix,
             )
         except UnsupportedPptxAspectRatioError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -694,10 +713,11 @@ async def generate_pptx_ooxml_endpoint(
 
 @app.post(
     "/ai/pptx-ooxml-sync",
-    response_model=PptxOoxmlSyncResult,
+    response_model=PptxOoxmlSyncResult | StoredPptxOoxmlSyncResult,
     response_model_exclude_none=True,
 )
 async def sync_pptx_ooxml_endpoint(
+    request: Request,
     file: UploadFile = File(...),
     template_blueprint_file: UploadFile | None = File(None),
     operations_file: UploadFile | None = File(None),
@@ -710,7 +730,8 @@ async def sync_pptx_ooxml_endpoint(
     deck_canvas: str | None = Form(None),
     synced_deck_version: int = Form(...),
     render: bool = Form(True),
-) -> PptxOoxmlSyncResult:
+    storage_prefix: str | None = Form(None),
+) -> PptxOoxmlSyncResult | StoredPptxOoxmlSyncResult:
     from pathlib import Path
     from tempfile import TemporaryDirectory
 
@@ -779,7 +800,7 @@ async def sync_pptx_ooxml_endpoint(
         source_path = Path(temp_dir) / Path(file.filename or "current.pptx").name
         source_path.write_bytes(package_bytes)
         try:
-            return await run_in_threadpool(
+            synced = await run_in_threadpool(
                 sync_pptx_ooxml,
                 source_path,
                 template_blueprint=parsed_template_blueprint,
@@ -789,6 +810,14 @@ async def sync_pptx_ooxml_endpoint(
                 authored_element_fallbacks=parsed_authored_element_fallbacks,
                 synced_deck_version=synced_deck_version,
                 render=render,
+            )
+            if storage_prefix is None:
+                return synced
+            return await run_in_threadpool(
+                store_sync_assets,
+                synced,
+                config=_config(request),
+                storage_prefix=storage_prefix,
             )
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
