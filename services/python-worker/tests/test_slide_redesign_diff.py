@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.ai.slide_redesign.diff import match_elements
+from app.ai.slide_redesign.composer import (
+    CompositionCandidate,
+    build_single_slide_program,
+)
+from app.ai.slide_redesign.diff import (
+    analyze_candidate,
+    filter_safe_candidates,
+    match_elements,
+)
+from app.ai.slide_redesign.palette import derive_palette
+from app.ai.slide_redesign.safety import ElementConstraints
 
 
 def text_element(
@@ -21,6 +31,35 @@ def text_element(
     if content_item_ids is not None:
         element["_contentItemIds"] = content_item_ids
     return element
+
+
+def slide_summary(slide_type: str, items: list[str]) -> dict[str, Any]:
+    return {
+        "title": "제목",
+        "message": "핵심 메시지",
+        "slideType": slide_type,
+        "contentItems": [
+            {"contentItemId": f"item-{index}", "text": text}
+            for index, text in enumerate(items, start=1)
+        ],
+    }
+
+
+def constraints(*, referenced: set[str] | None = None) -> ElementConstraints:
+    return ElementConstraints(
+        referenced_element_ids=frozenset(referenced or set()),
+        locked_element_ids=frozenset(),
+        grouped_element_ids=frozenset(),
+        ooxml_element_ids=frozenset(),
+    )
+
+
+THEME = {
+    "fontFamily": "Pretendard",
+    "backgroundColor": "#FFFFFF",
+    "textColor": "#111827",
+    "accentColor": "#2563EB",
+}
 
 
 def test_matches_three_source_elements_one_to_one() -> None:
@@ -124,3 +163,180 @@ def test_locked_elements_are_not_matched_or_deleted() -> None:
     assert matching.added == ["new_text"]
     assert matching.deleted == []
     assert matching.irreversible == []
+
+
+def test_one_to_many_with_animation_reference_is_unsafe() -> None:
+    summary = slide_summary("process", ["첫째", "둘째", "셋째"])
+    candidate = CompositionCandidate("process-horizontal", "light")
+    program = build_single_slide_program(
+        THEME,
+        derive_palette(THEME, "light"),
+        candidate,
+    )
+    slide = {
+        "elements": [
+            text_element("el_body", "첫째 둘째"),
+            text_element("el_other", "셋째"),
+        ]
+    }
+
+    analysis = analyze_candidate(
+        summary,
+        {
+            "item-1": "el_body",
+            "item-2": "el_body",
+            "item-3": "el_other",
+        },
+        slide,
+        candidate,
+        program,
+        constraints(referenced={"el_body"}),
+    )
+
+    assert analysis.safe is False
+    assert analysis.unsafe_reason == "constrained-element:el_body"
+
+
+def test_many_to_one_with_semantic_reference_is_unsafe() -> None:
+    summary = slide_summary("data", ["성장 10%", "유지 20%"])
+    candidate = CompositionCandidate("metric-poster", "light")
+    program = build_single_slide_program(
+        THEME,
+        derive_palette(THEME, "light"),
+        candidate,
+    )
+    slide = {
+        "elements": [
+            text_element("el_a", "성장 10%"),
+            text_element("el_b", "유지 20%"),
+        ]
+    }
+
+    analysis = analyze_candidate(
+        summary,
+        {"item-1": "el_a", "item-2": "el_b"},
+        slide,
+        candidate,
+        program,
+        constraints(referenced={"el_a"}),
+    )
+
+    assert analysis.safe is False
+    assert analysis.unsafe_reason == "constrained-element:el_a"
+
+
+def test_one_to_many_that_shortens_source_text_is_unsafe() -> None:
+    summary = slide_summary("process", ["첫째", "둘째", "넷째"])
+    candidate = CompositionCandidate("process-horizontal", "light")
+    program = build_single_slide_program(
+        THEME,
+        derive_palette(THEME, "light"),
+        candidate,
+    )
+    slide = {
+        "elements": [
+            text_element("el_body", "첫째 둘째 셋째"),
+            text_element("el_other", "넷째"),
+        ]
+    }
+
+    analysis = analyze_candidate(
+        summary,
+        {
+            "item-1": "el_body",
+            "item-2": "el_body",
+            "item-3": "el_other",
+        },
+        slide,
+        candidate,
+        program,
+        constraints(),
+    )
+
+    assert analysis.safe is False
+    assert analysis.unsafe_reason == "text-not-preserved:el_body"
+
+
+def test_group_member_that_requires_replacement_is_unsafe() -> None:
+    summary = slide_summary("process", ["첫째", "둘째", "셋째"])
+    candidate = CompositionCandidate("timeline", "light")
+    program = build_single_slide_program(
+        THEME,
+        derive_palette(THEME, "light"),
+        candidate,
+    )
+    grouped_constraints = ElementConstraints(
+        referenced_element_ids=frozenset(),
+        locked_element_ids=frozenset(),
+        grouped_element_ids=frozenset({"el_body"}),
+        ooxml_element_ids=frozenset(),
+    )
+
+    analysis = analyze_candidate(
+        summary,
+        {
+            "item-1": "el_body",
+            "item-2": "el_body",
+            "item-3": "el_other",
+        },
+        {
+            "elements": [
+                text_element("el_body", "첫째 둘째"),
+                text_element("el_other", "셋째"),
+            ]
+        },
+        candidate,
+        program,
+        grouped_constraints,
+    )
+
+    assert analysis.safe is False
+    assert analysis.unsafe_reason == "constrained-element:el_body"
+
+
+def test_filter_safe_candidates_keeps_safe_alternative() -> None:
+    summary = slide_summary("solution", ["Alpha", "Beta"])
+    slide = {
+        "elements": [
+            text_element("el_a", "Alpha"),
+            text_element("el_b", "Beta"),
+        ]
+    }
+    candidates = [
+        CompositionCandidate("statement-poster", "light"),
+        CompositionCandidate("editorial-split", "light"),
+    ]
+
+    safe = filter_safe_candidates(
+        summary,
+        {"item-1": "el_a", "item-2": "el_b"},
+        slide,
+        candidates,
+        THEME,
+        constraints(referenced={"el_a"}),
+    )
+
+    assert [analysis.candidate.composition_id for analysis in safe] == [
+        "editorial-split"
+    ]
+
+
+def test_filter_safe_candidates_returns_empty_when_all_are_unsafe() -> None:
+    summary = slide_summary("solution", ["Alpha", "Beta"])
+    slide = {
+        "elements": [
+            text_element("el_a", "Alpha"),
+            text_element("el_b", "Beta"),
+        ]
+    }
+
+    safe = filter_safe_candidates(
+        summary,
+        {"item-1": "el_a", "item-2": "el_b"},
+        slide,
+        [CompositionCandidate("statement-poster", "light")],
+        THEME,
+        constraints(referenced={"el_a"}),
+    )
+
+    assert safe == []

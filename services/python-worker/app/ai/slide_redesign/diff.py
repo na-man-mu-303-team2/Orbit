@@ -4,7 +4,16 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from .safety import normalize_text
+from app.ai.composition_library import CompiledComposition, CompositionCompileError
+from app.ai.design_program import DeckDesignProgram
+
+from .composer import (
+    CompositionCandidate,
+    build_single_slide_program,
+    compile_redesign,
+)
+from .palette import derive_palette
+from .safety import ElementConstraints, can_replace, normalize_text, text_preserved
 
 
 @dataclass(frozen=True)
@@ -13,6 +22,72 @@ class ElementMatching:
     added: list[str]
     deleted: list[str]
     irreversible: list[str]
+
+
+@dataclass(frozen=True)
+class CandidateAnalysis:
+    candidate: CompositionCandidate
+    compiled: CompiledComposition
+    matching: ElementMatching
+    safe: bool
+    unsafe_reason: str | None
+
+
+def analyze_candidate(
+    summary: dict[str, Any],
+    provenance: dict[str, str],
+    slide: dict[str, Any],
+    candidate: CompositionCandidate,
+    program: DeckDesignProgram,
+    constraints: ElementConstraints,
+) -> CandidateAnalysis:
+    """Compile one candidate and reject replacements that lose references or text."""
+    compiled = compile_redesign(summary, candidate, program)
+    original_elements = _elements(slide)
+    matching = match_elements(original_elements, compiled.elements, provenance)
+    unsafe_reason = _unsafe_reason(
+        original_elements,
+        compiled.elements,
+        provenance,
+        matching,
+        constraints,
+    )
+    return CandidateAnalysis(
+        candidate=candidate,
+        compiled=compiled,
+        matching=matching,
+        safe=unsafe_reason is None,
+        unsafe_reason=unsafe_reason,
+    )
+
+
+def filter_safe_candidates(
+    summary: dict[str, Any],
+    provenance: dict[str, str],
+    slide: dict[str, Any],
+    candidates: list[CompositionCandidate],
+    theme: dict[str, Any],
+    constraints: ElementConstraints,
+) -> list[CandidateAnalysis]:
+    """Compile candidates deterministically and retain only safe analyses."""
+    safe_analyses: list[CandidateAnalysis] = []
+    for candidate in candidates:
+        roles = derive_palette(theme, candidate.background_mode)
+        program = build_single_slide_program(theme, roles, candidate)
+        try:
+            analysis = analyze_candidate(
+                summary,
+                provenance,
+                slide,
+                candidate,
+                program,
+                constraints,
+            )
+        except CompositionCompileError:
+            continue
+        if analysis.safe:
+            safe_analyses.append(analysis)
+    return safe_analyses
 
 
 def match_elements(
@@ -118,3 +193,52 @@ def _element_text(element: dict[str, Any]) -> str:
         return ""
     text = props.get("text")
     return text if isinstance(text, str) else ""
+
+
+def _elements(slide: dict[str, Any]) -> list[dict[str, Any]]:
+    elements = slide.get("elements")
+    if not isinstance(elements, list):
+        return []
+    return [element for element in elements if isinstance(element, dict)]
+
+
+def _unsafe_reason(
+    original_elements: list[dict[str, Any]],
+    compiled_elements: list[dict[str, Any]],
+    provenance: dict[str, str],
+    matching: ElementMatching,
+    constraints: ElementConstraints,
+) -> str | None:
+    for original_id in matching.deleted:
+        if not can_replace(original_id, constraints):
+            return f"constrained-element:{original_id}"
+
+    originals_by_id = {
+        str(element["elementId"]): element
+        for element in original_elements
+        if isinstance(element.get("elementId"), str) and element["elementId"]
+    }
+    for original_id in matching.irreversible:
+        original = originals_by_id.get(original_id)
+        if original is None or original.get("type") != "text":
+            continue
+        target_texts = [
+            _element_text(element)
+            for element in compiled_elements
+            if original_id in _source_ids(element, provenance)
+        ]
+        if not text_preserved(_element_text(original), target_texts):
+            return f"text-not-preserved:{original_id}"
+    return None
+
+
+def _source_ids(element: dict[str, Any], provenance: dict[str, str]) -> set[str]:
+    content_item_ids = element.get("_contentItemIds")
+    if not isinstance(content_item_ids, list):
+        return set()
+    return {
+        source_id
+        for content_item_id in content_item_ids
+        if isinstance(content_item_id, str)
+        and isinstance((source_id := provenance.get(content_item_id)), str)
+    }
