@@ -287,6 +287,13 @@ def test_slide_style_json_schema_exposes_layout_and_background_image() -> None:
     assert "image-right" in schema_text
 
 
+def test_design_agent_capability_remains_version_one() -> None:
+    capabilities = request_payload().capabilities
+
+    assert capabilities.version == "1"
+    assert capabilities.addable_element_types == ["text", "rect", "chart", "table"]
+
+
 def test_generates_and_validates_design_operations() -> None:
     client = FakeClient(proposal_payload())
     request = request_payload()
