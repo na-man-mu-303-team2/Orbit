@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR13 asset 성능과 package 보안 hardening
-- task branch: `feature/pptx-import-pr13-asset-security-hardening`
-- 상태: media/storage content hash dedupe, renderer 자원 제한, unsafe package 선검사·sanitize·code 진단을 완료하고 target branch에 `--no-ff` merge함
+- 단계: 최종 승인 완료
+- target branch: `feature/pptx-import-fidelity-speaker-notes`
+- 상태: PR0~PR13과 Checkpoint A/B/C를 모두 `--no-ff` merge하고 기능·시각 품질·계약/보안·운영 최종 검증을 통과함
 
 ## 완료된 작업과 Commit
 
@@ -208,6 +208,16 @@
 | PR13 Worker lint/build | TypeScript no-emit, dependency와 Worker production build                                    | 모두 통과                                            |
 | PR13 실제 성능 전      | PR13 직전 21 MiB 기준 파일 full import                                                       | 14.525s, max RSS 525,926,400 B, asset 50             |
 | PR13 실제 성능 후      | PR13 21 MiB 기준 파일 full import                                                            | 14.400s, max RSS 524,173,312 B, asset 45             |
+| 최종 workspace build  | `pnpm build`                                                                                  | 10/10 package build 통과                             |
+| 최종 workspace lint   | `pnpm lint`                                                                                   | 17/17 task 통과                                      |
+| 최종 workspace test   | `pnpm test`                                                                                   | 17/17 task 통과, 기존 opt-in integration만 skip      |
+| 최종 환경 계약        | `node infra/scripts/check-env.mjs`                                                            | 통과                                                 |
+| 최종 Compose 계약     | `docker compose config --quiet`                                                               | 통과                                                 |
+| 최종 Python 전체      | `uv --cache-dir /tmp/orbit-uv-cache run pytest`                                               | 828 passed, 기존 warning 7건                         |
+| 최종 Python lint/type | 전체 `ruff check --no-cache .`, `mypy app`                                                    | 모두 통과, mypy 64 source files                      |
+| 최종 실제 integration | 보호 기준 파일 + PostgreSQL·Worker·Python·storage 왕복                                       | 2 files, 9 tests passed                              |
+| 최종 실제 시각 E2E    | test-mode bundle, 8 slides × 두 preference                                                    | 16/16 capture passed                                 |
+| 최종 실제 시각 gate   | source render SSIM와 explicit fallback floor                                                  | gate 16/16, pixel 11/16, fallback 5, hard failure 0 |
 | PR13 실제 asset 절감   | generated/storage asset와 decoded bytes                                                      | 50→45, 51,831,177→50,424,674 B                       |
 
 ## PR0 Renderer 측정과 결정
@@ -266,6 +276,7 @@
 - Checkpoint C 첫 두 실행은 경량 `/design/import-pptx` 응답에서 production Worker가 저장하는 notes preview 상태를 assertion해 실패했다. 경량 경로는 두 policy의 notes body digest만 비교하고 preview 8/8은 실제 Worker generation·storage 결과에서 확인하도록 계층을 바로잡았다.
 - Checkpoint C Web 대상 test 첫 실행은 package-local `react` link가 없어 collection 단계에서 중단됐다. 원본 설치의 link tree만 임시 복사해 18개 test를 통과시키고 commit 전에 제거했다.
 - PR13 Worker 전체 test 첫 실행은 integration spec이 가져오는 API/realtime package-local link가 없어 `@orbit/shared` 하위 모듈을 찾지 못했다. API/realtime의 기존 link tree만 임시 복사해 396 passed, 15 skipped를 확인하고 commit 전에 제거했다.
+- 최종 시각 gate 첫 실행은 직전의 production build가 내부 전용 `/__deck-render` route를 의도대로 비활성화해 404 UI에서 중단됐다. 계획된 `vite build --mode test` bundle로 교체한 뒤 첫 slide와 16개 전체 캡처를 순서대로 재실행해 모두 통과했다.
 
 ## 계획 대비 변경과 근거
 
@@ -325,14 +336,11 @@
 - PR12 actual gate에서 낮은 editable slide 1·2·3·6은 snapshot을 권장하고 slide 7은 hybrid를 유지한다. runtime selected mode는 CI 측정으로 사후 변경하지 않으며 UI의 runtime report와 CI artifact를 구분한다.
 - Checkpoint C에서 경량 `/design/import-pptx`는 notes preview asset을 생성하지 않으므로 두 policy의 notes body 동일성만 digest로 비교한다. notes preview 8/8과 refresh 8/8은 production과 같은 Worker generation·storage 경로에서 검증한다.
 - PR13 실제 기준의 repeated media reference 5개가 Python response에서 제거되어 저장 asset이 50개에서 45개로 감소했다. 시간과 RSS 변화는 단일 로컬 측정값이며 성능 개선을 과장하지 않고 회귀 기준으로만 사용한다.
+- 최종 실제 기준 시각 측정은 appearance-first 8/8 SSIM 1.0, editability-first pixel 3/8 통과, explicit fallback 5/8로 PR12 승인 기준을 그대로 유지했다. 전체 평균 SSIM 0.9631은 두 정책을 합친 CI-only 지표다.
 
 ## 다음에 시작할 정확한 작업
 
-1. PR13 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. 최종 승인 기준의 기능·시각 품질·계약/보안·운영 항목을 기존 자동화와 실제 기준 파일로 재검증한다.
-3. `pnpm build`, `pnpm lint`, `pnpm test`, `node infra/scripts/check-env.mjs`, `docker compose config`를 실행한다.
-4. Python `ruff check .`, `mypy app`, `pytest`를 최종 실행한다.
-5. 최종 결과와 남은 제한을 ledger에 기록하고 goal을 완료한다.
+- 없음. 계획의 PR0~PR13, Checkpoint A/B/C와 최종 승인 검증을 완료했다.
 
 ## 사용자 결정이 필요한 Blocker
 
