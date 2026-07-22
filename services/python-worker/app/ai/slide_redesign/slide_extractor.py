@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -64,7 +65,11 @@ def collect_text_elements(slide: dict[str, Any]) -> list[ExtractedText]:
         props = element.get("props")
         if not isinstance(element_id, str) or not isinstance(props, dict):
             continue
-        value = " ".join(str(props.get("text", "")).split())
+        value = "\n".join(
+            line
+            for raw_line in str(props.get("text", "")).splitlines()
+            if (line := " ".join(raw_line.split()))
+        )
         if not value:
             continue
         role = element.get("role")
@@ -121,6 +126,52 @@ def infer_hierarchy(texts: list[ExtractedText]) -> SlideHierarchy:
         message=message,
         items=_reading_order(items),
         leftovers=_reading_order(leftovers),
+    )
+
+
+def split_bullets(text: str) -> list[str]:
+    """Split a bullet list while leaving ordinary multiline copy intact."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return []
+    bullet_pattern = re.compile(r"^(?:[•●▪◦‣⁃\-–—]|\d+[.)]|[①-⑳])\s*")
+    if len(lines) > 1 and any(bullet_pattern.match(line) for line in lines):
+        return [
+            cleaned
+            for line in lines
+            if (cleaned := bullet_pattern.sub("", line).strip())
+        ]
+    return [" ".join(text.split())]
+
+
+def extract_slide(
+    slide: dict[str, Any], *, slide_type: SlideType, hierarchy: SlideHierarchy
+) -> ExtractedSlide:
+    """Build a composition summary and an internal-only provenance map."""
+    content_items: list[dict[str, str]] = []
+    provenance: dict[str, str] = {}
+    for item in hierarchy.items:
+        for segment_index, segment in enumerate(split_bullets(item.text), start=1):
+            content_item_id = f"{item.element_id}::segment::{segment_index}"
+            if content_item_id in provenance:
+                raise ValueError(f"duplicate contentItemId: {content_item_id}")
+            content_items.append(
+                {"contentItemId": content_item_id, "text": segment}
+            )
+            provenance[content_item_id] = item.element_id
+
+    summary = {
+        "title": hierarchy.title.text if hierarchy.title is not None else "",
+        "message": hierarchy.message.text if hierarchy.message is not None else "",
+        "contentItems": content_items,
+        "slideType": slide_type,
+        "visualIntent": {},
+        "mediaIntent": {"alt": ""},
+    }
+    return ExtractedSlide(
+        summary=summary,
+        provenance=provenance,
+        hierarchy=hierarchy,
     )
 
 

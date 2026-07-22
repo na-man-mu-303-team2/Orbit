@@ -13,6 +13,16 @@ from .safety import (
     unsafe_element_types,
     unsafe_refusal_message,
 )
+from .slide_extractor import (
+    ExtractedSlide,
+    ExtractedText,
+    SlideHierarchy,
+    SlideType,
+    collect_text_elements,
+    extract_slide,
+    infer_hierarchy,
+    split_bullets,
+)
 
 __all__ = [
     "MEDIA_ELEMENT_TYPES",
@@ -26,4 +36,12 @@ __all__ = [
     "text_preserved",
     "unsafe_element_types",
     "unsafe_refusal_message",
+    "ExtractedSlide",
+    "ExtractedText",
+    "SlideHierarchy",
+    "SlideType",
+    "collect_text_elements",
+    "extract_slide",
+    "infer_hierarchy",
+    "split_bullets",
 ]

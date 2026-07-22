@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from app.ai.slide_redesign.slide_extractor import (
     collect_text_elements,
+    extract_slide,
     infer_hierarchy,
+    split_bullets,
 )
+from app.ai.composition_library import _items
 
 
 def text_element(
@@ -127,3 +130,62 @@ def test_empty_slide_produces_empty_hierarchy() -> None:
     assert hierarchy.message is None
     assert hierarchy.items == []
     assert hierarchy.leftovers == []
+
+
+def test_splits_single_text_element_into_unique_bullet_segments() -> None:
+    slide = {
+        "elements": [
+            text_element("el-body", "• A\n• B\n• C", role="body", y=300)
+        ]
+    }
+    hierarchy = infer_hierarchy(collect_text_elements(slide))
+
+    extracted = extract_slide(slide, slide_type="feature-grid", hierarchy=hierarchy)
+
+    assert extracted.summary["contentItems"] == [
+        {"contentItemId": "el-body::segment::1", "text": "A"},
+        {"contentItemId": "el-body::segment::2", "text": "B"},
+        {"contentItemId": "el-body::segment::3", "text": "C"},
+    ]
+
+
+def test_maps_all_bullet_segments_to_the_source_element() -> None:
+    slide = {
+        "elements": [
+            text_element("el-body", "• A\n• B\n• C", role="body", y=300)
+        ]
+    }
+    hierarchy = infer_hierarchy(collect_text_elements(slide))
+
+    extracted = extract_slide(slide, slide_type="feature-grid", hierarchy=hierarchy)
+
+    assert extracted.provenance == {
+        "el-body::segment::1": "el-body",
+        "el-body::segment::2": "el-body",
+        "el-body::segment::3": "el-body",
+    }
+
+
+def test_content_item_ids_are_globally_unique_and_composition_compatible() -> None:
+    slide = {
+        "elements": [
+            text_element("el-a", "• A1\n• A2", role="body", y=300),
+            text_element("el-b", "B", role="body", y=500),
+        ]
+    }
+    hierarchy = infer_hierarchy(collect_text_elements(slide))
+
+    extracted = extract_slide(slide, slide_type="feature-grid", hierarchy=hierarchy)
+    content_items = extracted.summary["contentItems"]
+    content_item_ids = [item["contentItemId"] for item in content_items]
+
+    assert len(content_item_ids) == len(set(content_item_ids))
+    assert _items(extracted.summary) == [
+        ("el-a::segment::1", "A1"),
+        ("el-a::segment::2", "A2"),
+        ("el-b::segment::1", "B"),
+    ]
+
+
+def test_split_bullets_keeps_plain_multiline_copy_together() -> None:
+    assert split_bullets("첫 문장\n둘째 문장") == ["첫 문장 둘째 문장"]
