@@ -105,6 +105,38 @@ describe("processSlideRedesignJob", () => {
     expect(database.proposals[0]?.status).toBe("stale");
   });
 
+  it("short-circuits a stale Deck before stage or image provider work", async () => {
+    const payload = jobPayload();
+    const database = new FakeSlideRedesignDatabase(payload);
+    database.deck.version += 1;
+    const client = stageClient(payload);
+    const generate = vi.fn();
+
+    const job = await processSlideRedesignJob(
+      database.dataSource,
+      "http://python-worker:8000",
+      payload,
+      {
+        client,
+        now: fixedClock(),
+        imageRuntime: {
+          generated: { generate },
+          maxPerDeck: 1,
+          maxPerUserPerDay: 1,
+        },
+        storage: { putObject: vi.fn() },
+      },
+    );
+
+    expect(client.interpret).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+    expect(database.proposals).toEqual([]);
+    expect(slideRedesignJobResultSchema.parse(job.result)).toMatchObject({
+      outcome: "stale",
+      stale: true,
+    });
+  });
+
   it("runs illustrating only for a generation request and verifies the resolved image patch", async () => {
     const payload = jobPayload();
     const database = new FakeSlideRedesignDatabase(payload);
@@ -373,6 +405,80 @@ describe("processSlideRedesignJob", () => {
     );
   });
 
+  it("contains provider failure details while succeeding with the styled fallback", async () => {
+    const payload = jobPayload();
+    const database = new FakeSlideRedesignDatabase(payload);
+    const client = stageClient(payload);
+    client.compose.mockResolvedValueOnce(imageComposeArtifact(payload));
+    client.verify.mockImplementationOnce(async (_request, artifact) => ({
+      stage: "verify",
+      outcome: "applicable",
+      response: artifact.response,
+    }));
+    const fallbackDiagnostics: unknown[] = [];
+    const imageEvents: unknown[] = [];
+    const putObject = vi.fn();
+
+    const job = await processSlideRedesignJob(
+      database.dataSource,
+      "http://python-worker:8000",
+      payload,
+      {
+        client,
+        now: fixedClock(),
+        imageRuntime: {
+          generated: {
+            generate: vi.fn(async () => {
+              throw new Error("SECRET_PROVIDER_FAILURE_BODY");
+            }),
+          },
+          maxPerDeck: 1,
+          maxPerUserPerDay: 30,
+        },
+        storage: { putObject },
+        onImageFallback: (diagnostic) => {
+          fallbackDiagnostics.push(diagnostic);
+        },
+        imageEventLogger: (event, fields) => {
+          imageEvents.push({ event, fields });
+        },
+      },
+    );
+
+    const result = slideRedesignJobResultSchema.parse(job.result);
+    expect(job.status).toBe("succeeded");
+    expect(result.proposal?.operations).toContainEqual(
+      expect.objectContaining({
+        type: "add_element",
+        element: expect.objectContaining({
+          elementId: "el_redesign_media_placeholder",
+          type: "rect",
+        }),
+      }),
+    );
+    expect(result.proposal?.warnings).toContainEqual(
+      expect.stringContaining("layout operations remain available"),
+    );
+    expect(putObject).not.toHaveBeenCalled();
+    expect(fallbackDiagnostics).toEqual([
+      expect.objectContaining({
+        provider: "openai",
+        reasonCode: "IMAGE_PROVIDER_UNAVAILABLE",
+      }),
+    ]);
+    expect(imageEvents).toEqual([
+      expect.objectContaining({ event: "slide_redesign.image.started" }),
+      expect.objectContaining({ event: "slide_redesign.image.completed" }),
+    ]);
+    expect(
+      JSON.stringify({ job, fallbackDiagnostics, imageEvents }),
+    ).not.toContain("SECRET_PROVIDER_FAILURE_BODY");
+    expect(JSON.stringify(imageEvents)).not.toContain(payload.question);
+    expect(JSON.stringify(imageEvents)).not.toContain(
+      payload.context.slide.speakerNotes,
+    );
+  });
+
   it("maps a full-slide atmosphere asset to backgroundImage", async () => {
     const payload = jobPayload();
     const database = new FakeSlideRedesignDatabase(payload);
@@ -582,6 +688,9 @@ class FakeSlideRedesignDatabase {
       return [
         { deck_json: structuredClone(this.deck), version: this.deck.version },
       ];
+    }
+    if (normalized.startsWith("SELECT count(*) FILTER")) {
+      return [{ user_count: "0" }];
     }
     if (normalized.startsWith("UPDATE jobs")) {
       this.job = {
