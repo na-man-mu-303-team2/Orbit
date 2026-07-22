@@ -51,6 +51,27 @@ def test_openai_model_defaults_are_loaded_from_env() -> None:
     assert config.openai_embedding_model == "text-embedding-3-large"
 
 
+def test_motion_planner_mode_and_snapshot_contract() -> None:
+    config = load_config(VALID_ENV)
+    assert config.openai_motion_planner_model == "gpt-4.1-mini-2025-04-14"
+    assert config.ai_motion_planner_mode == "shadow"
+
+    enabled = load_config({**VALID_ENV, "AI_MOTION_PLANNER_MODE": "on"})
+    assert enabled.ai_motion_planner_mode == "on"
+
+    with pytest.raises(ConfigError, match="AI_MOTION_PLANNER_MODE"):
+        load_config({**VALID_ENV, "AI_MOTION_PLANNER_MODE": "preview"})
+    with pytest.raises(ConfigError, match="OPENAI_MOTION_PLANNER_MODEL"):
+        load_config(
+            {
+                **VALID_ENV,
+                "APP_ENV": "production",
+                "OPENAI_API_KEY": "configured",
+                "OPENAI_MOTION_PLANNER_MODEL": "gpt-4.1-mini",
+            }
+        )
+
+
 def test_visual_qa_model_falls_back_when_not_configured() -> None:
     config = load_config(VALID_ENV)
 
