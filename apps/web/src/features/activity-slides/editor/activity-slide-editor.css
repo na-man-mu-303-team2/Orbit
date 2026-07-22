@@ -65,8 +65,8 @@
 }
 
 .activity-slide-preview {
-  --activity-preview-answer-font-size: clamp(9px, 1.35cqw, 21px);
-  --activity-preview-question-font-size: clamp(10px, 1.8cqw, 28px);
+  --activity-preview-answer-font-size: clamp(10px, 1.55cqw, 24px);
+  --activity-preview-question-font-size: clamp(11px, 2.05cqw, 32px);
   aspect-ratio: 16 / 9;
   background: var(--activity-color-background);
   box-sizing: border-box;
