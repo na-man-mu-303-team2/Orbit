@@ -9,6 +9,8 @@ from app.ai.slide_redesign.safety import (
     can_replace,
     collect_element_constraints,
     find_unsafe_elements,
+    normalize_text,
+    text_preserved,
     unsafe_element_types,
 )
 
@@ -161,3 +163,16 @@ def test_keyword_occurrence_ids_are_not_element_references() -> None:
     )
 
     assert can_replace("el-free", constraints)
+
+
+def test_text_preserved_allows_source_text_to_be_merged() -> None:
+    assert text_preserved("항목 A", ["항목 A · 항목 B"])
+
+
+def test_text_preserved_rejects_shortened_output() -> None:
+    assert not text_preserved("긴 문장입니다", ["긴 문..."])
+
+
+def test_text_preserved_ignores_case_whitespace_and_punctuation() -> None:
+    assert normalize_text(" ORBIT, 항목 A! ") == "orbit항목a"
+    assert text_preserved("ORBIT, 항목 A!", [" orbit · 항목 a "])

@@ -8,6 +8,8 @@ from .safety import (
     can_replace,
     collect_element_constraints,
     find_unsafe_elements,
+    normalize_text,
+    text_preserved,
     unsafe_element_types,
     unsafe_refusal_message,
 )
@@ -20,6 +22,8 @@ __all__ = [
     "can_replace",
     "collect_element_constraints",
     "find_unsafe_elements",
+    "normalize_text",
+    "text_preserved",
     "unsafe_element_types",
     "unsafe_refusal_message",
 ]

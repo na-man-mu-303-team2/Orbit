@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -145,6 +146,19 @@ def can_replace(element_id: str, constraints: ElementConstraints) -> bool:
             constraints.ooxml_element_ids,
         )
     )
+
+
+def normalize_text(value: str) -> str:
+    """Normalize text using the composition library's comparison policy."""
+    return re.sub(r"\W+", "", value.casefold(), flags=re.UNICODE)
+
+
+def text_preserved(source_text: str, compiled_texts: list[str]) -> bool:
+    """Return whether compiled text retains the complete source text."""
+    compiled_text = "".join(compiled_texts)
+    if "..." in compiled_text:
+        return False
+    return normalize_text(source_text) in normalize_text(compiled_text)
 
 
 def _string_values(value: object) -> set[str]:
