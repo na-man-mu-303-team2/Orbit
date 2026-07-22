@@ -10,10 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.ai.motion_planner import (
     MotionImportContext,
     MotionPlanningContext,
+    SemanticMotionResult,
     evaluate_motion_eligibility,
-    extract_motion_context,
     motion_eligibility_message,
-    plan_narrative_motion,
+    plan_and_compile_motion,
 )
 
 DECK_ELEMENT_COORDINATE_LIMIT = 1_000_000
@@ -889,11 +889,36 @@ def generate_design_proposal(
     motion_planner_model: str | None = None,
     motion_planner_mode: Literal["off", "shadow", "on"] = "off",
 ) -> DesignAgentResponse:
-    if (
-        _known_intent_preset(request) == "recommend-animation"
-        and motion_planner_mode != "off"
-        and request.motion_planning_context is not None
-    ):
+    if _known_intent_preset(request) == "recommend-animation" and motion_planner_mode == "on":
+        if "add_animation" not in request.capabilities.operations:
+            return _animation_recommendation_unavailable(
+                request,
+                "현재 편집 환경에서는 애니메이션 추가를 지원하지 않습니다.",
+            )
+        semantic_motion = _run_semantic_motion_planner(
+            request,
+            model=motion_planner_model or model,
+            api_key=api_key,
+            client=client,
+        )
+        semantic_response = DesignAgentResponse.model_validate(
+            {
+                "message": semantic_motion.message,
+                "interpretedIntent": {
+                    "target": "current-slide",
+                    "action": "semantic-motion-plan",
+                    "alignment": None,
+                },
+                "operations": semantic_motion.operations,
+                "affectedElementIds": semantic_motion.affected_element_ids,
+                "warnings": [],
+                "smartArtRequest": None,
+            }
+        )
+        return validate_design_proposal(
+            request, normalize_design_proposal(request, semantic_response)
+        )
+    if _known_intent_preset(request) == "recommend-animation" and motion_planner_mode == "shadow":
         _run_motion_planner_shadow(
             request,
             model=motion_planner_model or model,
@@ -976,31 +1001,34 @@ def _run_motion_planner_shadow(
     api_key: str | None,
     client: Any | None,
 ) -> None:
-    eligibility = evaluate_motion_eligibility(
-        request.context.slide,
-        import_context=request.motion_import_context,
-    )
-    if eligibility.outcome != "applicable":
-        return
-    planning_context = request.motion_planning_context
-    if planning_context is None:
-        return
-    if set(planning_context.allowed_target_element_ids) != set(
-        eligibility.allowed_target_element_ids
-    ):
-        return
     try:
-        extraction = extract_motion_context(request.context.slide, planning_context)
-        if not extraction.context.targets:
-            return
-        plan_narrative_motion(
-            extraction,
+        _run_semantic_motion_planner(
+            request,
             model=model,
             api_key=api_key,
             client=client,
         )
     except Exception:
         return
+
+
+def _run_semantic_motion_planner(
+    request: DesignAgentRequest,
+    *,
+    model: str,
+    api_key: str | None,
+    client: Any | None,
+) -> SemanticMotionResult:
+    return plan_and_compile_motion(
+        deck_id=request.context.deck_id,
+        base_version=request.context.base_version,
+        slide=request.context.slide,
+        planning_context=request.motion_planning_context,
+        import_context=request.motion_import_context,
+        model=model,
+        api_key=api_key,
+        client=client,
+    )
 
 
 def _build_deterministic_preset_proposal(

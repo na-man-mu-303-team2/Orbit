@@ -699,6 +699,88 @@ def test_animation_recommendation_runs_semantic_planner_in_shadow_only() -> None
     assert result.operations[0].animation.type == "zoom-in"
 
 
+def test_animation_recommendation_compiles_semantic_plan_in_on_mode() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.append("add_animation")
+    request.motion_planning_context = MotionPlanningContext.model_validate({
+        "allowedTargetElementIds": ["el_image"],
+        "effectiveTypography": [],
+        "speakerNotes": "",
+        "notesPresent": False,
+        "notesTruncated": False,
+    })
+    plan = {
+        "schemaVersion": 1,
+        "pattern": "hero-then-support",
+        "beats": [
+            {
+                "beatId": "beat_entry",
+                "purpose": "orient",
+                "trigger": "entry",
+                "targetElementIds": ["el_image"],
+                "relation": "together",
+            }
+        ],
+    }
+
+    first = generate_design_proposal(
+        request,
+        model="design-model",
+        motion_planner_model="motion-snapshot",
+        motion_planner_mode="on",
+        api_key=None,
+        client=FakeClient(plan),
+    )
+    second = generate_design_proposal(
+        request,
+        model="design-model",
+        motion_planner_model="motion-snapshot",
+        motion_planner_mode="on",
+        api_key=None,
+        client=FakeClient(plan),
+    )
+
+    assert first.model_dump(by_alias=True) == second.model_dump(by_alias=True)
+    assert [operation.type for operation in first.operations] == ["add_animation"]
+    animation = first.operations[0].animation
+    assert animation.type == "zoom-in"
+    assert animation.duration_ms == 450
+    assert animation.start_mode == "on-slide-enter"
+    assert animation.animation_id.startswith("anim_motion_")
+
+
+def test_animation_recommendation_compiles_deterministic_fallback_on_llm_failure() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.append("add_animation")
+    request.motion_planning_context = MotionPlanningContext.model_validate({
+        "allowedTargetElementIds": ["el_image"],
+        "effectiveTypography": [],
+        "speakerNotes": "",
+        "notesPresent": False,
+        "notesTruncated": False,
+    })
+
+    first = generate_design_proposal(
+        request,
+        model="design-model",
+        motion_planner_model="motion-snapshot",
+        motion_planner_mode="on",
+        api_key=None,
+    )
+    second = generate_design_proposal(
+        request,
+        model="design-model",
+        motion_planner_model="motion-snapshot",
+        motion_planner_mode="on",
+        api_key=None,
+    )
+
+    assert first.model_dump(by_alias=True) == second.model_dump(by_alias=True)
+    assert len(first.operations) == 1
+
+
 def test_unknown_intent_preset_falls_back_to_question_interpretation() -> None:
     request = request_payload()
     request.intent_preset = "future-layout-mode"
