@@ -245,6 +245,35 @@ describe("activity slide editor", () => {
     expect(html).toContain('data-activity-template="poll"');
   });
 
+  it("shows one pre-question at a time with next-question navigation", () => {
+    const preQuestionSlide = createActivitySlide(createDemoDeck(), "pre-question");
+    const firstQuestion = preQuestionSlide.activity.questions[0]!;
+    const html = renderToStaticMarkup(
+      <ActivitySlidePreview
+        role="audience"
+        slide={{
+          ...preQuestionSlide,
+          activity: {
+            ...preQuestionSlide.activity,
+            questions: [
+              firstQuestion,
+              {
+                ...firstQuestion,
+                questionId: `${firstQuestion.questionId}_2`,
+                prompt: "두 번째 사전 질문"
+              }
+            ]
+          }
+        }}
+      />
+    );
+
+    expect(html).toContain(firstQuestion.prompt);
+    expect(html).toContain("다음 질문");
+    expect(html).not.toContain("두 번째 사전 질문");
+    expect(html).not.toContain("이전 질문");
+  });
+
   it.each(["pre-question", "poll", "satisfaction"] as const)("renders the %s template inspector", (template) => {
     const templateSlide = createActivitySlide(createDemoDeck(), template);
     const html = renderToStaticMarkup(<ActivitySlideInspector onChange={vi.fn()} slide={templateSlide} />);

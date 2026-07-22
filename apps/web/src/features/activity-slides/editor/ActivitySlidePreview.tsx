@@ -13,7 +13,7 @@ export function ActivitySlidePreview(props: {
 }) {
   const activity = props.slide.activity;
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
-  const pagedQuestions = activity.template === "satisfaction" && activity.questions.length > 1;
+  const pagedQuestions = activity.template !== "poll" && activity.questions.length > 1;
   const visibleQuestionIndex = pagedQuestions
     ? Math.min(activeQuestionIndex, activity.questions.length - 1)
     : 0;
