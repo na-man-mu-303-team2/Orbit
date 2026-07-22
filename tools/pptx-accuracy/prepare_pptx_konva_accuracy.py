@@ -129,6 +129,7 @@ def main() -> None:
     manifest = {
         "sampleCount": len(rows),
         "threshold": 0.95,
+        "fallbackThreshold": 0.80,
         "route": "/__deck-render",
         "rows": rows,
     }
@@ -213,11 +214,17 @@ def prepare_source_pptx(source: Path, *, preference_pair: bool = False) -> None:
                     "fullSlideFallbackUsed": render_mode == "snapshot",
                     "unresolvedAssets": unresolved_assets,
                     "warnings": result.warnings,
+                    "modeReasons": preference_mode_reasons(
+                        preference,
+                        render_mode,
+                    ),
                     "elementCounts": element_counts(slide.get("elements", [])),
                     **(
                         {
                             "importPreference": preference,
                             "expectedRenderMode": render_mode,
+                            "selectedRenderMode": render_mode,
+                            "recommendedRenderMode": render_mode,
                         }
                         if preference is not None
                         else {}
@@ -227,6 +234,7 @@ def prepare_source_pptx(source: Path, *, preference_pair: bool = False) -> None:
     manifest = {
         "sampleCount": len(rows),
         "threshold": 0.95,
+        "fallbackThreshold": 0.80,
         "route": "/__deck-render",
         "preferencePair": preference_pair,
         "sourceSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
@@ -237,6 +245,19 @@ def prepare_source_pptx(source: Path, *, preference_pair: bool = False) -> None:
         encoding="utf-8",
     )
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
+
+
+def preference_mode_reasons(
+    preference: str | None,
+    render_mode: str | None,
+) -> list[str]:
+    if preference == "appearance-first" and render_mode == "snapshot":
+        return ["PPTX_RENDER_MODE_APPEARANCE_SNAPSHOT_PIXEL_NOT_EVALUATED"]
+    if preference == "editability-first" and render_mode == "hybrid":
+        return ["PPTX_RENDER_MODE_HYBRID_RASTER_FALLBACK"]
+    if preference == "editability-first" and render_mode == "snapshot":
+        return ["PPTX_RENDER_MODE_SNAPSHOT_DATA_LOSS_RISK"]
+    return []
 
 
 def build_deck_payload(
