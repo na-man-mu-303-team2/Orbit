@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD after PR01 merge: `82d9c6370ab50792ac7adafb7e23e3863367b288`
+- integration HEAD before PR02 merge: `5cbe31b2`
 - worktree: clean
 
 ## Baseline
@@ -24,14 +24,33 @@
 ## Milestone 상태
 
 - 완료 milestone: PR00~PR01
-- PR01 integration merge: `82d9c6370ab50792ac7adafb7e23e3863367b288`
-- 현재 milestone: PR02 — 슬라이드 해석기와 provenance
-- 활성 child branch/worktree: 없음
-- PR01 완료 checkpoint와 code commit:
+- 현재 milestone: PR02 — 슬라이드 해석기와 provenance (child 검증 완료, integration merge 대기)
+- 활성 child branch: `feature/slide-redesign-agent-v2-pr02-extractor`
+- 활성 child worktree: `/private/tmp/orbit-slide-redesign-agent-v2-pr02-extractor`
+- PR02 완료 checkpoint와 code commit:
+  - `a3453592` — visible text role/fontSize hierarchy와 y-band 읽기 순서
+  - `84c84973` — 불릿 segment 전역 유일 ID와 별도 provenance map
+  - `00322e26` — provider 분류와 deterministic heuristic fallback
+  - `1d9a4921` — extractor 골든 fixture 5종
+- PR02 검증:
+  - `uv run ruff check app/ai/slide_redesign tests/test_slide_redesign_*.py` — 통과
+  - `uv run mypy app` — 64 source files 통과
+  - `uv run pytest tests/test_slide_redesign_extractor.py -v` — 19 passed
+- PR02 stop gate: T2.1~T2.12 통과, contentItemId 전역 유일성 및 composition `_items()` 호환 통과
+- child worktree: code commit 후 clean
+- 남은 stop gate: integration merge 후 PR02 focused gate 재실행
+- 다음 milestone: PR03 — composition 후보와 M1 palette
+
+## 완료 Milestone 기록
+
+### PR01 — Python design-agent 모델 정합화
+
+- integration merge: `82d9c6370ab50792ac7adafb7e23e3863367b288`
+- code commit:
   - `58fb6cff` — text/rect role과 문자열·정수 fontWeight 및 strict JSON schema 정합화
   - `5ca87260` — shared layout enum과 backgroundImage slide style patch 정합화
   - `765da27e` — capability version 1과 addable type 회귀 고정
-- PR01 검증:
+- 검증:
   - `uv sync --locked --offline` — 통과
   - `uv run ruff check .` — 통과
   - `uv run mypy app` — 63 source files 통과
@@ -39,17 +58,9 @@
   - `pnpm --filter @orbit/shared test` — 54 files, 565 tests passed
   - `pnpm --filter @orbit/api test` — baseline과 동일한 환경변수 미설정 5 suites failed; design-agent 18 tests 포함 122 files/563 tests passed, 1 skipped
   - `pnpm typecheck` — 17 tasks passed
-- PR01 stop gate: T1.1~T1.10 통과, capability version `1` 유지, 기존 baseline API 실패 외 새 실패 없음
-- child worktree: code commit 후 clean
-- integration merge 후 검증:
-  - `uv run ruff check app/ai/design_agent.py tests/test_design_agent.py` — 통과
-  - `uv run mypy app` — 63 source files 통과
-  - `uv run pytest tests/test_design_agent.py -v` — 53 passed
-- 남은 stop gate: 없음
-- PR01 child 상태: clean worktree와 local branch 정리 완료
-- 다음 milestone: PR02 — 슬라이드 해석기와 provenance
-
-## 완료 Milestone 기록
+- stop gate: T1.1~T1.10 통과, capability version `1` 유지, 기존 baseline API 실패 외 새 실패 없음
+- integration merge 후 `ruff`, `mypy app`, design-agent 53 tests 통과
+- child 상태: clean worktree와 local branch 정리 완료
 
 ### PR00 — 요소 보존 정책과 안전성 판정
 
