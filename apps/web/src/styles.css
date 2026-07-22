@@ -5298,11 +5298,11 @@
 
 .rehearsal-report-back-button:hover {
   background: var(--redesign-color-surface-container-lowest);
-  color: var(--redesign-color-secondary);
+  color: var(--redesign-color-on-surface-variant);
 }
 
 .report-project-title {
-  color: var(--redesign-color-secondary);
+  color: var(--redesign-color-on-surface);
   font-size: var(--redesign-type-body-md-size);
   font-weight: 800;
   max-width: min(320px, 28vw);
@@ -5314,7 +5314,7 @@
 .report-run-label {
   background: var(--redesign-color-surface-container-lowest);
   border-radius: var(--redesign-radius-md);
-  color: var(--redesign-color-secondary);
+  color: var(--redesign-color-on-surface);
   font-size: var(--redesign-type-body-sm-size);
   font-weight: 700;
   padding: 2px var(--redesign-space-2);
@@ -5328,9 +5328,9 @@
 
 .report-rehearsal-button {
   align-items: center;
-  background: var(--redesign-color-primary-emphasis);
+  background: var(--redesign-color-primary);
   border: 0;
-  border-radius: var(--redesign-radius-xl);
+  border-radius: var(--redesign-radius);
   color: var(--redesign-color-on-primary);
   cursor: pointer;
   display: inline-flex;
