@@ -156,6 +156,9 @@ class PptxRenderUnavailableError(PptxOoxmlGenerationError):
     pass
 
 
+PptxImportPreference = Literal["appearance-first", "editability-first"]
+
+
 class PptxOoxmlGenerationResult(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -368,8 +371,11 @@ def generate_pptx_ooxml(
     path: Path,
     file_id: str,
     *,
+    import_preference: PptxImportPreference = "editability-first",
     render: bool = True,
 ) -> PptxOoxmlGenerationResult:
+    # PR9 consumes this validated policy when selecting each slide render mode.
+    del import_preference
     canvas = detect_canvas(path)
     imported = import_pptx_design_with_optional_ooxml_vector(
         path,

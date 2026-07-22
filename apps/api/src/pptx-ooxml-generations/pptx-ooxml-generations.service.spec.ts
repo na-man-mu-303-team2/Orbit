@@ -62,7 +62,24 @@ describe("PptxOoxmlGenerationsService", () => {
     Object.assign(process.env, validEnv);
   });
 
-  it("creates a PPTX OOXML generation job and enqueues the worker payload", async () => {
+  it.each([
+    {
+      expectedPreference: "editability-first" as const,
+      label: "legacy default",
+      request: { fileId: "file_template" }
+    },
+    {
+      expectedPreference: "appearance-first" as const,
+      label: "explicit appearance preference",
+      request: {
+        fileId: "file_template",
+        importPreference: "appearance-first" as const
+      }
+    }
+  ])("creates and enqueues a generation job with $label", async ({
+    expectedPreference,
+    request
+  }) => {
     const job = createJob();
     const services = createServices({
       jobsService: {
@@ -85,9 +102,7 @@ describe("PptxOoxmlGenerationsService", () => {
       services.projectsService,
       services.filesService,
       enqueueJob
-    ).createGeneration("project-a", {
-      fileId: "file_template"
-    });
+    ).createGeneration("project-a", request);
 
     expect(result).toEqual({ job });
     expect(services.filesService.getUploadedAsset).toHaveBeenCalledWith(
@@ -101,7 +116,7 @@ describe("PptxOoxmlGenerationsService", () => {
       payload: {
         request: {
           fileId: "file_template",
-          importPreference: "editability-first"
+          importPreference: expectedPreference
         }
       }
     });
@@ -112,7 +127,7 @@ describe("PptxOoxmlGenerationsService", () => {
       projectId: "project-a",
       request: {
         fileId: "file_template",
-        importPreference: "editability-first"
+        importPreference: expectedPreference
       }
     });
   });

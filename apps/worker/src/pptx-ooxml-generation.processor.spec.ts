@@ -84,8 +84,13 @@ describe("processPptxOoxmlGenerationJob", () => {
       }
       if (url.endsWith("/ai/pptx-ooxml-generation")) {
         const form = init?.body as FormData;
-        expect(Array.from(form.keys())).toEqual(["file_id", "file"]);
+        expect(Array.from(form.keys())).toEqual([
+          "file_id",
+          "import_preference",
+          "file"
+        ]);
         expect(form.get("file_id")).toBe("file_template");
+        expect(form.get("import_preference")).toBe("editability-first");
         return new Response(JSON.stringify(workerResponse()));
       }
 
@@ -293,12 +298,14 @@ describe("processPptxOoxmlGenerationJob", () => {
     };
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: string | URL) => {
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
         const url = String(input);
         if (url === "http://storage.local/template.pptx") {
           return new Response("pptx-bytes");
         }
         if (url.endsWith("/ai/pptx-ooxml-generation")) {
+          const form = init?.body as FormData;
+          expect(form.get("import_preference")).toBe("appearance-first");
           return new Response(
             JSON.stringify(
               workerResponse("synthetic-note-line-1\n\nsynthetic-note-line-2")
@@ -313,7 +320,13 @@ describe("processPptxOoxmlGenerationJob", () => {
       createTransactionalDataSource(query),
       storageWithNotesFailure,
       "http://localhost:8000",
-      payload
+      {
+        ...payload,
+        request: {
+          fileId: "file_template",
+          importPreference: "appearance-first"
+        }
+      }
     );
 
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
@@ -676,6 +689,35 @@ describe("processPptxOoxmlGenerationJob", () => {
       expect(fetch).not.toHaveBeenCalled();
     }
   );
+
+  it("rejects an unknown import preference before source loading", async () => {
+    const query = vi.fn(async (_sql: string, params: unknown[]) => [
+      jobRow(
+        params[1] as "running" | "succeeded" | "failed",
+        params[2] as number,
+        params[4] as Record<string, unknown> | null,
+        params[5] as { code: string; message: string } | null
+      )
+    ]);
+    vi.stubGlobal("fetch", vi.fn());
+
+    const job = await processPptxOoxmlGenerationJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      {
+        ...payload,
+        request: {
+          fileId: "file_template",
+          importPreference: "balanced"
+        }
+      }
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("PPTX_OOXML_GENERATION_PAYLOAD_INVALID");
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
 function workerResponse(speakerNotes = "asset:notes_render_1") {

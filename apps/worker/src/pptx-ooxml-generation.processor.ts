@@ -14,6 +14,7 @@ import {
   type DeckCanvas,
   type Job,
   type QualityReport,
+  type PptxImportPreference,
   type TemplateBlueprint,
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
@@ -151,6 +152,7 @@ export async function processPptxOoxmlGenerationJob(
       storage,
       pythonWorkerUrl,
       asset,
+      payload.request.importPreference,
     );
   } catch (error) {
     return failJob(
@@ -282,6 +284,7 @@ async function generatePptxOoxmlWithPython(
   storage: Pick<StoragePort, "getSignedReadUrl">,
   pythonWorkerUrl: string,
   asset: ProjectAssetRow,
+  importPreference: PptxImportPreference,
 ): Promise<PptxOoxmlGenerationWorkerResponse> {
   const readUrl = await storage.getSignedReadUrl(asset.storage_key);
   const sourceResponse = await fetch(readUrl);
@@ -291,6 +294,7 @@ async function generatePptxOoxmlWithPython(
 
   const form = new FormData();
   form.append("file_id", asset.file_id);
+  form.append("import_preference", importPreference);
   form.append(
     "file",
     new Blob([Buffer.from(await sourceResponse.arrayBuffer())], {

@@ -10,6 +10,7 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 import pytest
+from fastapi.testclient import TestClient
 from PIL import Image
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE
@@ -30,6 +31,7 @@ from app.ai.pptx_rendering import (
     PptxNotesRenderErrorCode,
     render_pptx_notes_to_png_assets,
 )
+import app.main as api_module
 from app.main import app
 
 IMPORT_FIDELITY_NOTES_FIXTURE = (
@@ -38,6 +40,83 @@ IMPORT_FIDELITY_NOTES_FIXTURE = (
 PRESENTATION_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 RELATIONSHIP_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+
+
+@pytest.mark.parametrize(
+    ("form_data", "expected_preference"),
+    [
+        ({}, "editability-first"),
+        ({"import_preference": "appearance-first"}, "appearance-first"),
+    ],
+)
+def test_generation_endpoint_validates_and_forwards_import_preference(
+    monkeypatch: pytest.MonkeyPatch,
+    form_data: dict[str, str],
+    expected_preference: str,
+) -> None:
+    captured: dict[str, str] = {}
+
+    def fake_generate(
+        _path: Path,
+        file_id: str,
+        *,
+        import_preference: str,
+    ) -> pptx_ooxml_generation.PptxOoxmlGenerationResult:
+        captured.update(
+            {"file_id": file_id, "import_preference": import_preference}
+        )
+        return pptx_ooxml_generation.PptxOoxmlGenerationResult(
+            canvas={},
+            blueprint={},
+            templateBlueprint={},
+            qualityReport={},
+        )
+
+    monkeypatch.setattr(api_module, "generate_pptx_ooxml", fake_generate)
+    response = TestClient(app).post(
+        "/ai/pptx-ooxml-generation",
+        files={"file": ("template.pptx", b"synthetic", "application/octet-stream")},
+        data={"file_id": "file_template", **form_data},
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "file_id": "file_template",
+        "import_preference": expected_preference,
+    }
+
+
+def test_generation_endpoint_rejects_unknown_import_preference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = False
+
+    def fake_generate(
+        _path: Path,
+        _file_id: str,
+        *,
+        import_preference: str,
+    ) -> pptx_ooxml_generation.PptxOoxmlGenerationResult:
+        nonlocal called
+        called = True
+        del import_preference
+        return pptx_ooxml_generation.PptxOoxmlGenerationResult(
+            canvas={},
+            blueprint={},
+            templateBlueprint={},
+            qualityReport={},
+        )
+
+    monkeypatch.setattr(api_module, "generate_pptx_ooxml", fake_generate)
+
+    response = TestClient(app).post(
+        "/ai/pptx-ooxml-generation",
+        files={"file": ("template.pptx", b"synthetic", "application/octet-stream")},
+        data={"file_id": "file_template", "import_preference": "balanced"},
+    )
+
+    assert response.status_code == 422
+    assert called is False
 
 
 def template_slide_id(generated: object, slide_index: int = 0) -> str:
