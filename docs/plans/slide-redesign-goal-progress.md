@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD before PR05 merge: `f45628fd`
+- integration HEAD after PR05 merge: `b815980e0395f82c13ada843a96977ccbf02170e`
 - worktree: clean
 
 ## Baseline
@@ -23,28 +23,36 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR04
-- PR04 integration merge: `8181370a33008a7530e9404b4a7f9147e2d6d228`
-- 현재 milestone: PR05 — 동기 redesign pipeline 결선
-- 활성 child branch: `feature/slide-redesign-agent-v2-pr05-pipeline`
-- 활성 child worktree: `/private/tmp/orbit-slide-redesign-agent-v2-pr05-pipeline`
-- PR05 완료 checkpoint와 code commit:
+- 완료 milestone: PR00~PR05
+- PR05 integration merge: `b815980e0395f82c13ada843a96977ccbf02170e`
+- 현재 milestone: PR06 — M1 통합 검증과 출시 gate
+- 활성 child branch/worktree: 없음
+- integration merge 후 검증:
+  - `uv run ruff check app/ai/slide_redesign tests/test_slide_redesign_*.py` — 통과
+  - `uv run mypy app` — 68 source files 통과
+  - `uv run pytest tests/test_design_agent.py tests/test_slide_redesign_pipeline.py -q` — 66 passed
+- 남은 stop gate: 없음
+- PR05 child 상태: clean worktree 확인, 정리 예정
+- 다음 milestone: PR06 — M1 통합 검증과 출시 gate
+
+## 완료 Milestone 기록
+
+### PR05 — 동기 redesign pipeline 결선
+
+- integration merge: `b815980e0395f82c13ada843a96977ccbf02170e`
+- code commit:
   - `595bc3a7` — applicable·fallback-allowed·refused-unsafe 3분기 pipeline
   - `ed403dc2` — animation 다음 design agent 전체 리디자인 hook
   - `2f2d3357` — 민감 원문 없는 구조화 진단 로그와 slide type source
   - `f1885842` — chart 전체 거부·국소 편집 허용·SmartArt/animation 우선 회귀
-- PR05 검증:
-  - `uv run ruff check app/ai/slide_redesign tests/test_slide_redesign_*.py` — 통과
+- 검증:
+  - `uv run ruff check .` — 통과
   - `uv run mypy app` — 68 source files 통과
   - `uv run pytest` — 919 passed, 1 skipped
   - `pnpm --filter @orbit/api test` — design-agent 18 tests 포함 122 files/563 tests passed, 1 skipped; baseline과 동일한 필수 환경변수 미설정 5 suites failed
   - `pnpm typecheck` — 17 tasks passed
-- PR05 stop gate: chart 전체 리디자인 거부와 chart 국소 편집 기존 provider 경로 허용이 동시에 통과
-- 남은 stop gate: 없음
-- child worktree: code commit 후 clean 예정
-- 다음 작업: PR05 integration merge와 merge 후 검증
-
-## 완료 Milestone 기록
+- stop gate: chart 전체 리디자인 거부와 chart 국소 편집 기존 provider 경로 허용이 동시에 통과
+- integration merge 후 `ruff`, `mypy app`, design-agent/pipeline 66 tests 통과
 
 ### PR04 — provenance 매칭과 Deck patch 생성
 
