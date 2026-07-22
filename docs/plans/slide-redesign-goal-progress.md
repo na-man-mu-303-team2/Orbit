@@ -32,7 +32,7 @@
   - `uv run mypy app` — 68 source files 통과
   - `uv run pytest tests/test_design_agent.py tests/test_slide_redesign_pipeline.py -q` — 66 passed
 - 남은 stop gate: 없음
-- PR05 child 상태: clean worktree 확인, 정리 예정
+- PR05 child 상태: clean worktree와 local branch 정리 완료
 - 다음 milestone: PR06 — M1 통합 검증과 출시 gate
 
 ## 완료 Milestone 기록
@@ -53,6 +53,7 @@
   - `pnpm typecheck` — 17 tasks passed
 - stop gate: chart 전체 리디자인 거부와 chart 국소 편집 기존 provider 경로 허용이 동시에 통과
 - integration merge 후 `ruff`, `mypy app`, design-agent/pipeline 66 tests 통과
+- child 상태: clean worktree와 local branch 정리 완료
 
 ### PR04 — provenance 매칭과 Deck patch 생성
 
