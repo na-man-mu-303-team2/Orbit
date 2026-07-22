@@ -21,7 +21,7 @@
 
 - 단계: 최종 승인 완료
 - target branch: `feature/pptx-import-fidelity-speaker-notes`
-- 상태: PR0~PR13과 Checkpoint A/B/C를 모두 `--no-ff` merge하고 기능·시각 품질·계약/보안·운영 최종 검증을 통과함
+- 상태: PR0~PR13과 Checkpoint A/B/C를 모두 `--no-ff` merge하고 기능·시각 품질·계약/보안·운영 최종 검증을 통과함. 기존 local SHA 보존을 위해 commit message 형식 예외는 사용자 승인 하에 이력을 재작성하지 않음
 
 ## 완료된 작업과 Commit
 
@@ -337,6 +337,7 @@
 - Checkpoint C에서 경량 `/design/import-pptx`는 notes preview asset을 생성하지 않으므로 두 policy의 notes body 동일성만 digest로 비교한다. notes preview 8/8과 refresh 8/8은 production과 같은 Worker generation·storage 경로에서 검증한다.
 - PR13 실제 기준의 repeated media reference 5개가 Python response에서 제거되어 저장 asset이 50개에서 45개로 감소했다. 시간과 RSS 변화는 단일 로컬 측정값이며 성능 개선을 과장하지 않고 회귀 기준으로만 사용한다.
 - 최종 실제 기준 시각 측정은 appearance-first 8/8 SSIM 1.0, editability-first pixel 3/8 통과, explicit fallback 5/8로 PR12 승인 기준을 그대로 유지했다. 전체 평균 SSIM 0.9631은 두 정책을 합친 CI-only 지표다.
+- 최종 자동 audit에서 base 이후 61개 commit 중 15개 merge 제목이 허용 type 대신 `merge:`를 사용하고, 50개 본문이 목표 문서의 정확한 4개 section 형식을 모두 포함하지 않은 사실을 확인했다. 기능 diff, merge topology와 검증 결과에는 영향이 없으며 사용자는 target SHA와 로컬 이력 보존을 선택했다. 따라서 rebase, commit 재작성과 branch 강제 이동은 수행하지 않고 이 항목을 commit convention 완료 조건의 명시적 예외로 남긴다.
 
 ## 다음에 시작할 정확한 작업
 
