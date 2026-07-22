@@ -736,7 +736,7 @@ main.rehearsal-presenter-shell {
   background: transparent;
   border: 0;
   border-radius: 0;
-  box-shadow: none;
+  box-shadow: var(--redesign-shadow-none);
   display: block;
   height: auto;
   left: max(var(--redesign-space-4), calc((100vw - var(--redesign-layout-content-max-width)) / 2));
@@ -790,7 +790,7 @@ main.rehearsal-presenter-shell {
   background: transparent;
   border: 0;
   border-radius: var(--redesign-radius);
-  box-shadow: none;
+  box-shadow: var(--redesign-shadow-none);
   padding: var(--redesign-space-2);
   position: absolute;
   right: var(--redesign-space-2);
