@@ -198,17 +198,34 @@ def classify_slide_type(
     client: Any | None = None,
 ) -> SlideType:
     """Classify with the provider when available and fail back to heuristics."""
+    slide_type, _ = classify_slide_type_with_source(
+        hierarchy,
+        model=model,
+        api_key=api_key,
+        client=client,
+    )
+    return slide_type
+
+
+def classify_slide_type_with_source(
+    hierarchy: SlideHierarchy,
+    *,
+    model: str,
+    api_key: str | None,
+    client: Any | None = None,
+) -> tuple[SlideType, Literal["llm", "heuristic"]]:
+    """Classify the slide and report whether the provider produced the result."""
     fallback = heuristic_slide_type(hierarchy)
     api_client = client
     if api_client is None:
         if not api_key:
-            return fallback
+            return fallback, "heuristic"
         try:
             from openai import OpenAI
 
             api_client = OpenAI(api_key=api_key)
         except Exception:
-            return fallback
+            return fallback, "heuristic"
 
     try:
         response = api_client.responses.create(
@@ -241,10 +258,10 @@ def classify_slide_type(
         payload = json.loads(output_text)
         candidate = payload.get("slideType") if isinstance(payload, dict) else payload
         if candidate in SLIDE_TYPES:
-            return cast(SlideType, candidate)
+            return cast(SlideType, candidate), "llm"
     except Exception:
         pass
-    return fallback
+    return fallback, "heuristic"
 
 
 def heuristic_slide_type(hierarchy: SlideHierarchy) -> SlideType:

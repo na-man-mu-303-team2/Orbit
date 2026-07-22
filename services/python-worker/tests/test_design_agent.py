@@ -313,7 +313,6 @@ def test_generates_and_validates_design_operations() -> None:
 @pytest.mark.parametrize(
     "intent_preset",
     [
-        "redesign-slide",
         "tidy-layout",
         "emphasize-message",
     ],
@@ -337,6 +336,75 @@ def test_routes_known_intent_preset_separately_from_visible_question(
     assert prompt["question"] == "이미지를 오른쪽으로 옮겨줘"
     assert prompt["intentPreset"] == intent_preset
     assert intent_preset in client.responses.calls[0]["instructions"]
+
+
+def test_refuses_whole_slide_chart_redesign_before_provider_call() -> None:
+    request = request_payload()
+    request.question = "이 슬라이드를 예쁘게 해줘"
+    request.intent_preset = "redesign-slide"
+    request.context.selected_element_ids = []
+    request.context.slide["elements"] = [
+        {
+            "elementId": "el_chart",
+            "type": "chart",
+            "visible": True,
+            "locked": False,
+        }
+    ]
+    client = FakeClient(proposal_payload())
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=client,
+    )
+
+    assert result.operations == []
+    assert result.interpreted_intent.action == "refused"
+    assert client.responses.calls == []
+
+
+def test_allows_local_chart_edit_through_existing_provider_path() -> None:
+    request = request_payload()
+    request.question = "차트 제목 색만 바꿔줘"
+    request.intent_preset = None
+    request.context.selected_element_ids = ["el_chart"]
+    request.context.slide["elements"] = [
+        {
+            "elementId": "el_chart",
+            "type": "chart",
+            "visible": True,
+            "locked": False,
+        }
+    ]
+    payload = proposal_payload()
+    payload["message"] = "차트 제목 색상 변경안을 준비했습니다."
+    payload["interpretedIntent"] = {
+        "target": "selected-elements",
+        "action": "차트 제목 색상 변경",
+        "alignment": None,
+    }
+    payload["operations"] = [
+        {
+            "type": "update_element_props",
+            "slideId": "slide_1",
+            "elementId": "el_chart",
+            "props": {"color": "#2563EB"},
+        }
+    ]
+    payload["affectedElementIds"] = ["el_chart"]
+    client = FakeClient(payload)
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=client,
+    )
+
+    assert result.operations[0].type == "update_element_props"
+    assert client.responses.calls
 
 
 def test_recommends_export_compatible_animation_timeline_without_llm() -> None:
