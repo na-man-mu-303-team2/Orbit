@@ -1,5 +1,8 @@
 import { Module } from "@nestjs/common";
-import { enqueueDesignImageGenerationJob } from "@orbit/job-queue";
+import {
+  enqueueDesignImageGenerationJob,
+  enqueueSlideRedesignJob,
+} from "@orbit/job-queue";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { AuthModule } from "../auth/auth.module";
 import { DecksModule } from "../decks/decks.module";
@@ -16,6 +19,10 @@ import {
   DESIGN_IMAGE_GENERATION_ENQUEUE_JOB,
   DesignImageGenerationService,
 } from "./design-image-generation.service";
+import {
+  SLIDE_REDESIGN_ENQUEUE_JOB,
+  SlideRedesignJobService,
+} from "./slide-redesign-job.service";
 
 @Module({
   imports: [
@@ -35,9 +42,14 @@ import {
     DesignAgentService,
     DesignAgentPythonClient,
     DesignImageGenerationService,
+    SlideRedesignJobService,
     {
       provide: DESIGN_IMAGE_GENERATION_ENQUEUE_JOB,
       useValue: enqueueDesignImageGenerationJob,
+    },
+    {
+      provide: SLIDE_REDESIGN_ENQUEUE_JOB,
+      useValue: enqueueSlideRedesignJob,
     },
   ],
   exports: [DesignAgentService],
