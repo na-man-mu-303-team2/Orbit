@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD after PR09 merge: `613b7e04dcc99f6db4bda361bc6053073d23b14d`
+- integration HEAD after PR10 merge: `19824a0ec58e0fdbd89537763b916b8bfb8e58d7`
 - worktree: clean
 
 ## Baseline
@@ -23,20 +23,42 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR09
-- PR09 integration merge: `613b7e04dcc99f6db4bda361bc6053073d23b14d`
-- 현재 milestone: PR10 — 배색 선택 backend 계약
+- 완료 milestone: PR00~PR10
+- PR10 integration merge: `19824a0ec58e0fdbd89537763b916b8bfb8e58d7`
+- 현재 milestone: PR11 — 배색 선택 UI
 - 활성 child branch/worktree: 없음
 - integration merge 후 검증:
-  - `uv run ruff check app/ai/slide_redesign tests/test_slide_redesign_*.py app/ai/design_agent.py tests/test_design_agent.py` — 통과
-  - `uv run mypy app` — 70 source files 통과
-  - media·composer·diff·pipeline·안전·불변식·design-agent focused — 212 passed
-  - `pnpm --filter @orbit/shared test` — 572 passed
+  - palette·pipeline·design-agent focused — 87 passed
+  - `pnpm --filter @orbit/shared test` — 576 passed
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 603 passed, 1 skipped
 - 남은 stop gate: 없음
-- PR09 child 상태: clean, integration merge 완료
-- 다음 milestone: PR10 — 배색 선택 backend 계약
+- PR10 child 상태: clean, integration merge 완료
+- 다음 milestone: PR11 — 배색 선택 UI
 
 ## 완료 Milestone 기록
+
+### PR10 — 배색 선택 backend 계약
+
+- integration merge: `19824a0ec58e0fdbd89537763b916b8bfb8e58d7`
+- code commit:
+  - `4f537683` — 현재 테마 유지안을 첫 번째로 둔 배색 3안 생성과 텍스트 대비 보정
+  - `768cb778` — shared/API의 palette option 요청·선택·응답 계약
+  - `47e91bea` — 세션에 저장된 option 검증과 선택 palette 기반 proposal 생성
+  - `25b8f8e9` — 현재 테마 유지, 잘못된 option, 세션 경계 회귀
+  - `e5dd4801` — palette option 3상태 계약과 제약 문서화
+- child 검증:
+  - `uv run ruff check .` — 통과
+  - `uv run mypy app` — 70 source files 통과
+  - `uv run pytest -q` — 1003 passed, 1 skipped
+  - `pnpm --filter @orbit/shared test` — 576 passed
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 603 passed, 1 skipped
+  - `pnpm typecheck` — 17/17 tasks 통과
+- integration merge 후 검증:
+  - palette·pipeline·design-agent focused — 87 passed
+  - `pnpm --filter @orbit/shared test` — 576 passed
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 603 passed, 1 skipped
+- stop gate: option은 정확히 3개이고 첫 번째만 현재 테마 유지안이며, 존재하지 않거나 다른 actor/project/session의 option ID는 Python 호출 전에 거부
+- child 상태: clean, integration merge 완료
 
 ### PR09 — 미디어 슬롯과 기존 이미지 재배치
 
@@ -227,6 +249,7 @@
 - shared `keywords[].requiredOccurrenceIds`는 element ID가 아니라 speaker notes에서 파생된 keyword occurrence ID를 가리킨다. element reference로 수집하지 않고 이를 고정하는 회귀 테스트를 추가했다.
 - `slide-redesign-implementation.md`의 과거 PR7 설명은 shape type 추가와 API version `2` 발행을 함께 적지만, Goal의 독립 merge boundary는 PR07을 tolerant reader 전용, PR08을 shape 계약과 v2 발행으로 지정한다. PR07은 Goal 경계를 우선해 reader만 확장했고 발행 상수와 element 목록은 바꾸지 않았다.
 - PR09 계획의 후보 수 `14 → 19`는 과거 composition catalog를 전제로 한 고정값이다. 현재 catalog에서 후보 수는 slide type·item count에 따라 달라지며, 같은 입력 기준 `title` 2개 항목은 4→5, `feature-grid` 3개 항목은 8→10으로 증가한다. 고정 19개를 강제하지 않고 required/image variant 활성화, optional source slot 활성화, source 수 초과 후보 제외를 회귀 테스트로 고정했다.
+- PR10 계획은 `selectedPaletteOptionId` 생략 시 배색 3안을 반환하도록 적지만, Goal의 merge safety는 기존 Web을 즉시 새 흐름으로 강제하지 않도록 요구한다. 호환성을 위해 필드 생략은 기존 동기 proposal, 명시적 `null`은 배색 3안 요청, 문자열은 저장된 option 선택으로 구분했다.
 
 ## 미검증 항목
 
