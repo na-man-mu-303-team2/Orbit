@@ -91,6 +91,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
         sourceBytes,
         projectId,
         sourceFileId,
+        "editability-first",
       );
       const sourceNotes = (importedSource.blueprint.slides ?? []).map(
         (slide) => slide.speakerNotes ?? "",
@@ -98,6 +99,19 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
       expect(sourceNotes.length).toBe(8);
       expect(sourceNotes.filter((note) => note.length > 0).length).toBe(8);
       const expectedNoteDigests = sourceNotes.map(noteDigest);
+
+      const appearanceSource = await importPptxWithPython(
+        pythonWorkerUrl,
+        sourceBytes,
+        projectId,
+        integrationId("file"),
+        "appearance-first",
+      );
+      expect(
+        (appearanceSource.blueprint.slides ?? []).map((slide) =>
+          noteDigest(slide.speakerNotes ?? ""),
+        ),
+      ).toEqual(expectedNoteDigests);
 
       storage.seed(
         sourceStorageKey,
@@ -1361,10 +1375,13 @@ async function importPptxWithPython(
   bytes: Buffer,
   projectId: string,
   fileId: string,
+  importPreference: "appearance-first" | "editability-first" =
+    "editability-first",
 ) {
   const form = new FormData();
   form.append("project_id", projectId);
   form.append("file_ids", fileId);
+  form.append("import_preference", importPreference);
   form.append(
     "files",
     new Blob([bytes], { type: pptxMimeType }),
