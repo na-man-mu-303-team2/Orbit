@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD before PR03 merge: `63c7ec76`
+- integration HEAD after PR03 merge: `9b65efc1c0d4fd2d6d9b7417c8bc77177eba242d`
 - worktree: clean
 
 ## Baseline
@@ -23,26 +23,34 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR02
-- PR02 integration merge: `9172954595a5bc37fffcdeda7411499db3890219`
-- 현재 milestone: PR03 — composition 후보와 M1 palette
-- 활성 child branch: `feature/slide-redesign-agent-v2-pr03-composer`
-- 활성 child worktree: `/private/tmp/orbit-slide-redesign-agent-v2-pr03-composer`
-- PR03 완료 checkpoint와 code commit:
+- 완료 milestone: PR00~PR03
+- PR03 integration merge: `9b65efc1c0d4fd2d6d9b7417c8bc77177eba242d`
+- 현재 milestone: PR04 — replacement draft와 원자적 검증
+- 활성 child branch/worktree: 없음
+- integration merge 후 검증:
+  - `uv run ruff check app/ai/slide_redesign tests/test_slide_redesign_*.py` — 통과
+  - `uv run mypy app` — 66 source files 통과
+  - `uv run pytest tests/test_slide_redesign_composer.py -q` — 59 passed
+- 남은 stop gate: 없음
+- PR03 child 상태: clean worktree 확인, 정리 예정
+- 다음 milestone: PR04 — replacement draft와 원자적 검증
+
+## 완료 Milestone 기록
+
+### PR03 — composition 후보와 M1 palette
+
+- integration merge: `9b65efc1c0d4fd2d6d9b7417c8bc77177eba242d`
+- code commit:
   - `52bd392d` — 현재 theme 기반 palette role 생성, focal 보존, text 대비 보정
   - `5adf7bb4` — media-free composition 후보 필터와 single-slide program compile
   - `72039fcc` — strict enum 기반 composition 선택과 deterministic fallback
   - `755d9c30` — 전체 media-free M1 composition 경계값 compile smoke
-- PR03 검증:
+- 검증:
   - `uv run ruff check app/ai/slide_redesign tests/test_slide_redesign_*.py` — 통과
   - `uv run mypy app` — 66 source files 통과
   - `uv run pytest tests/test_slide_redesign_composer.py -q` — 59 passed
-- PR03 stop gate: T3.1~T3.11 통과, required-media 후보 제외, out-of-list/provider 실패 fallback, 49개 M1 compile 경계 사례 통과
-- child worktree: code commit 후 clean 예정
-- 남은 stop gate: 없음
-- 다음 작업: PR03 integration merge와 merge 후 검증
-
-## 완료 Milestone 기록
+- stop gate: T3.1~T3.11 통과, required-media 후보 제외, out-of-list/provider 실패 fallback, 49개 M1 compile 경계 사례 통과
+- integration merge 후 `ruff`, `mypy app`, composer 59 tests 통과
 
 ### PR02 — current slide extractor와 분류 fallback
 
