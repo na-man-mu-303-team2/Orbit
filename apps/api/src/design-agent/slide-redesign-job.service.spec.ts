@@ -100,6 +100,10 @@ describe("SlideRedesignJobService", () => {
         selectedPaletteOption: expect.objectContaining({
           optionId: "calm-blue",
         }),
+        capabilities: expect.objectContaining({
+          version: "2",
+          canGenerateImages: true,
+        }),
         driver: "bullmq",
         redisUrl: "redis://test",
       }),

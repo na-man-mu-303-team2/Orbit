@@ -468,6 +468,22 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             {
               publishProgress: (event) =>
                 this.slideRedesignProgressPublisher!.publish(event),
+              imageRuntime,
+              storage,
+              onImageFallback: (diagnostic) =>
+                this.logger.warn(
+                  {
+                    event: "slide_redesign.image.fallback",
+                    bullMqJobId: job.id,
+                    ...diagnostic,
+                  },
+                  "Slide redesign image fallback retained.",
+                ),
+              imageEventLogger: (event, fields) =>
+                this.logger.info(
+                  { event, bullMqJobId: job.id, ...fields },
+                  "Slide redesign image event.",
+                ),
             },
           );
         },

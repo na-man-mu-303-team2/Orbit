@@ -296,7 +296,7 @@ describe("WorkerService queue subscriptions", () => {
   });
 
   it("routes slide redesign jobs with the Python stage URL and progress publisher", async () => {
-    const { service } = createService();
+    const { service, logger } = createService();
     service.onModuleInit();
     const handler = requiredHandler(slideRedesignQueueName);
     const payload = { jobId: "job-redesign-1" };
@@ -307,14 +307,42 @@ describe("WorkerService queue subscriptions", () => {
       expect.anything(),
       configState.PYTHON_WORKER_URL,
       payload,
-      { publishProgress: expect.any(Function) },
+      expect.objectContaining({ publishProgress: expect.any(Function) }),
     );
     const options = processors.slideRedesign.mock.calls[0]?.[3] as {
       publishProgress: (event: unknown) => Promise<void>;
+      onImageFallback: (diagnostic: Record<string, unknown>) => void;
+      imageEventLogger: (
+        event: string,
+        fields: Record<string, unknown>,
+      ) => void;
     };
     const event = { payload: { stage: "interpreting" } };
     await options.publishProgress(event);
     expect(slideRedesignProgress.publish).toHaveBeenCalledWith(event);
+    options.onImageFallback({
+      reasonCode: "IMAGE_PROVIDER_UNAVAILABLE",
+      name: "ProviderError",
+      provider: "openai",
+    });
+    options.imageEventLogger("slide_redesign.image.completed", {
+      resolved: false,
+      warningCount: 1,
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "slide_redesign.image.fallback",
+        reasonCode: "IMAGE_PROVIDER_UNAVAILABLE",
+      }),
+      "Slide redesign image fallback retained.",
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "slide_redesign.image.completed",
+        resolved: false,
+      }),
+      "Slide redesign image event.",
+    );
     await expect(
       handler(bullJob("unknown-slide-redesign-job", payload)),
     ).rejects.toThrow("Unsupported BullMQ job name");

@@ -27,13 +27,19 @@ export const slideRedesignPaletteOptionsSchema = z
   .array(slideRedesignPaletteOptionSchema)
   .length(3)
   .superRefine((options, ctx) => {
-    if (!options[0]?.isCurrentTheme || options.slice(1).some((option) => option.isCurrentTheme)) {
+    if (
+      !options[0]?.isCurrentTheme ||
+      options.slice(1).some((option) => option.isCurrentTheme)
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "the first palette option must be the only current-theme option",
+        message:
+          "the first palette option must be the only current-theme option",
       });
     }
-    if (new Set(options.map((option) => option.optionId)).size !== options.length) {
+    if (
+      new Set(options.map((option) => option.optionId)).size !== options.length
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "palette optionId values must be unique",
@@ -125,7 +131,9 @@ export const slideRedesignInterpretArtifactSchema = z
     slideTypeSource: z.enum(["llm", "heuristic"]).nullable().optional(),
     summary: slideRedesignSummarySchema.nullable().optional(),
     provenance: z.record(z.string(), z.string()).default({}),
-    constraints: slideRedesignElementConstraintsArtifactSchema.nullable().optional(),
+    constraints: slideRedesignElementConstraintsArtifactSchema
+      .nullable()
+      .optional(),
   })
   .strict()
   .superRefine((artifact, ctx) => {
@@ -140,6 +148,16 @@ export const slideRedesignInterpretArtifactSchema = z
     }
   });
 
+export const slideRedesignImageRequestSchema = z
+  .object({
+    placeholderElementId: z.string().trim().min(1),
+    assetRole: z.enum(["atmosphere", "evidence", "decoration"]),
+    needsGeneration: z.literal(true),
+    prompt: z.string().trim().min(1).max(2_000),
+    alt: z.string().trim().min(1).max(1_000),
+  })
+  .strict();
+
 export const slideRedesignComposeArtifactSchema = z
   .object({
     stage: z.literal("compose"),
@@ -151,6 +169,7 @@ export const slideRedesignComposeArtifactSchema = z
     chosenCompositionId: z.string().nullable().optional(),
     irreversibleCount: z.number().int().nonnegative().default(0),
     ornamentApplied: z.boolean().default(false),
+    imageRequests: z.array(slideRedesignImageRequestSchema).max(4).default([]),
   })
   .strict()
   .superRefine((artifact, ctx) => {
@@ -196,6 +215,9 @@ export type SlideRedesignInterpretArtifact = z.infer<
 >;
 export type SlideRedesignComposeArtifact = z.infer<
   typeof slideRedesignComposeArtifactSchema
+>;
+export type SlideRedesignImageRequest = z.infer<
+  typeof slideRedesignImageRequestSchema
 >;
 export type SlideRedesignVerifyArtifact = z.infer<
   typeof slideRedesignVerifyArtifactSchema

@@ -32,6 +32,7 @@ def eligible_candidates(
     *,
     media_enabled: bool = False,
     source_image_count: int = 0,
+    has_source_refs: bool = False,
 ) -> list[CompositionCandidate]:
     """Return curated compositions supported by the content and media policy."""
     slide_type = str(summary.get("slideType", "summary"))
@@ -58,7 +59,13 @@ def eligible_candidates(
                 CompositionCandidate(
                     composition_id=composition_id,
                     background_mode=mode,
-                    asset_role="atmosphere" if uses_media else "none",
+                    asset_role=(
+                        "evidence"
+                        if uses_media and has_source_refs
+                        else "atmosphere"
+                        if uses_media
+                        else "none"
+                    ),
                 )
             )
     if not result:

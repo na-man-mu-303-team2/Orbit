@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -15,7 +16,7 @@ from app.ai.slide_redesign.stages import (
     run_interpret_stage,
     run_verify_stage,
 )
-from test_slide_redesign_pipeline import request_for, standard_elements
+from test_slide_redesign_pipeline import request_for, standard_elements, text_element
 
 
 def test_stage_pipeline_matches_synchronous_design_agent_result() -> None:
@@ -87,6 +88,51 @@ def test_non_applicable_interpret_artifact_short_circuits_compose() -> None:
     assert composed.outcome == interpreted.outcome
     assert composed.reason == interpreted.reason
     assert composed.response is None
+
+
+def test_compose_artifact_exposes_unfilled_media_request() -> None:
+    request = request_for(
+        [
+            text_element("el_title", "제품 출시", role="title", y=100),
+            text_element("el_body", "빠른 시작", y=340),
+        ],
+        capability_version="2",
+        addable_element_types=[
+            "text",
+            "rect",
+            "ellipse",
+            "line",
+            "polygon",
+            "image",
+            "chart",
+            "table",
+        ],
+    )
+    interpreted = run_interpret_stage(request, model="test-model", api_key=None)
+    assert interpreted.summary is not None
+    interpreted.summary.slide_type = "title"
+    client = SimpleNamespace(
+        responses=SimpleNamespace(
+            create=lambda **_: SimpleNamespace(
+                output_text=json.dumps({"compositionId": "hero-full-bleed"})
+            )
+        )
+    )
+
+    composed = run_compose_stage(
+        request,
+        interpreted,
+        model="test-model",
+        api_key=None,
+        client=client,
+    )
+
+    assert composed.outcome == "applicable"
+    assert len(composed.image_requests) == 1
+    image_request = composed.image_requests[0]
+    assert image_request.needs_generation is True
+    assert image_request.asset_role == "atmosphere"
+    assert image_request.placeholder_element_id.endswith("_media_placeholder")
 
 
 def test_internal_stage_endpoint_round_trips_all_artifacts() -> None:
