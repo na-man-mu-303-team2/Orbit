@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createDesignAgentMessageRequestSchema,
   designAgentCapabilities,
+  designAgentCapabilitiesSchema,
   designAgentWorkerRequestSchema,
   designAgentWorkerResponseSchema,
 } from "./design-agent.schema";
@@ -88,6 +89,32 @@ describe("design agent schema", () => {
       expect.arrayContaining(["add_animation", "update_animation", "delete_animation"]),
     );
   });
+
+  it.each(["1", "2"] as const)(
+    "accepts and preserves capability version %s",
+    (version) => {
+      const parsed = designAgentCapabilitiesSchema.parse({
+        ...designAgentCapabilities,
+        version,
+      });
+
+      expect(parsed.version).toBe(version);
+    },
+  );
+
+  it("rejects unknown capability versions while continuing to emit version 1", () => {
+    const result = designAgentCapabilitiesSchema.safeParse({
+      ...designAgentCapabilities,
+      version: "3",
+    });
+
+    expect(result.success).toBe(false);
+    expect(designAgentCapabilities).toMatchObject({
+      version: "1",
+      addableElementTypes: ["text", "rect", "chart", "table"],
+    });
+  });
+
   it("accepts patch operations returned by the worker", () => {
     const response = designAgentWorkerResponseSchema.parse({
       message: "변경안을 준비했습니다.",

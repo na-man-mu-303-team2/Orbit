@@ -287,11 +287,32 @@ def test_slide_style_json_schema_exposes_layout_and_background_image() -> None:
     assert "image-right" in schema_text
 
 
-def test_design_agent_capability_remains_version_one() -> None:
+def test_design_agent_capability_default_remains_version_one() -> None:
     capabilities = request_payload().capabilities
 
     assert capabilities.version == "1"
     assert capabilities.addable_element_types == ["text", "rect", "chart", "table"]
+
+
+@pytest.mark.parametrize("version", ["1", "2"])
+def test_design_agent_capability_reads_and_writes_supported_versions(
+    version: str,
+) -> None:
+    payload = request_payload().model_dump(by_alias=True)
+    payload["capabilities"]["version"] = version
+
+    request = DesignAgentRequest.model_validate(payload)
+
+    assert request.capabilities.version == version
+    assert request.model_dump(by_alias=True)["capabilities"]["version"] == version
+
+
+def test_design_agent_capability_rejects_unknown_version() -> None:
+    payload = request_payload().model_dump(by_alias=True)
+    payload["capabilities"]["version"] = "3"
+
+    with pytest.raises(ValidationError):
+        DesignAgentRequest.model_validate(payload)
 
 
 def test_generates_and_validates_design_operations() -> None:

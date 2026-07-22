@@ -262,6 +262,10 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
       expect.objectContaining({
         question: "이 목록을 스마트아트로 만들어줘: 1.기획 2.개발",
         intentPreset: "redesign-slide",
+        capabilities: expect.objectContaining({
+          version: "1",
+          addableElementTypes: ["text", "rect", "chart", "table"],
+        }),
       }),
     );
     const deletedElementIds = (savedProposal?.operations ?? []).flatMap((operation) =>

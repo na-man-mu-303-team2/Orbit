@@ -61,7 +61,7 @@ class DesignAgentContext(BaseModel):
 class DesignAgentCapabilities(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    version: Literal["1"] = "1"
+    version: Literal["1", "2"] = "1"
     operations: list[
         Literal[
             "add_element",
