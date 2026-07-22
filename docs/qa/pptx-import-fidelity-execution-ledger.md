@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR7A 기존 notes part의 speakerNotes source-preserving OOXML sync
-- task branch: `feature/pptx-import-pr7a-notes-body-sync`
-- 상태: capability v3 targeted sync, body-only 보존 갱신, preview 재생성, target branch `--no-ff` merge와 merge smoke 완료
+- 단계: PR7B notes part가 없는 imported slide의 notes page 생성
+- task branch: `feature/pptx-import-pr7b-notes-part-creation`
+- 상태: 안전한 notes master 재사용·생성, bounded locator 저장, 실제 export/reimport 통합, target branch `--no-ff` merge와 merge smoke 완료
 
 ## 완료된 작업과 Commit
 
@@ -39,6 +39,7 @@
 | PR5 notes preview API         | `5aa651d4`  | `feature/pptx-import-pr5-notes-preview-api` | `9db79677` | owner/editor 권한, project asset 검증, strict 상태 응답과 public/audience 비노출       |
 | PR6 notes preview UI          | `f8652252`  | `feature/pptx-import-pr6-notes-preview-ui` | `facafec4` | imported-only tab, current slide preview, bounded 상태·접근성·비편집 경계              |
 | PR7A notes body sync          | `ae45210b`  | `feature/pptx-import-pr7a-notes-body-sync` | `deddc632` | capability v3 targeted body sync, source-preserving style/관계, preview 재생성          |
+| PR7B missing notes page       | `bc2a1599`  | `feature/pptx-import-pr7b-notes-part-creation` | `b36c7bc3` | 검증된 notes master 재사용·최소 구조 생성, bounded locator, export/reimport 왕복       |
 
 ## 실행한 검증
 
@@ -115,6 +116,18 @@
 | PR7A Worker lint/build  | TypeScript no-emit과 production Nest build                                            | 모두 통과                                            |
 | PR7A integration        | `bash infra/scripts/test-adaptive-coaching-integration.sh`                            | 8 passed, 보호 기준 파일 1 skipped                   |
 | PR7A merge smoke        | notes body·style·locator·preview Python 대상                                           | 5 passed                                             |
+| PR7B RED                | Python missing notes/master 3개와 API full-save notes diff 1개                        | 구현 전 의도한 실패 확인                             |
+| PR7B Python 대상        | OOXML generation과 sync API pytest                                                     | 52 passed, 기존 deprecation warning만 발생           |
+| PR7B Python lint/type   | `ruff check`와 `mypy app`                                                              | 모두 통과                                            |
+| PR7B Worker 대상        | `pptx-ooxml-sync.processor.spec.ts`                                                    | 30 passed                                            |
+| PR7B Worker 전체        | `pnpm --filter @orbit/worker test`                                                     | 389 passed, 15 skipped                               |
+| PR7B Worker lint/build  | TypeScript no-emit과 production Nest build                                             | 모두 통과                                            |
+| PR7B API 대상           | `decks.service.spec.ts`                                                                | 65 passed                                            |
+| PR7B API 전체           | `pnpm --filter @orbit/api test`                                                        | 611 passed, 1 skipped                                |
+| PR7B API lint/build     | TypeScript no-emit과 production Nest build                                             | 모두 통과                                            |
+| PR7B integration        | `bash infra/scripts/test-adaptive-coaching-integration.sh`                             | 8 passed, 보호 기준 파일 1 skipped                   |
+| PR7B LibreOffice open   | 생성 notes page를 notes-only renderer로 재개방                                         | 1/1 notes preview 생성                               |
+| PR7B merge smoke        | 생성·master 재사용·unsafe master·LibreOffice Python 대상                               | 4 passed, 36 deselected                              |
 
 ## PR0 Renderer 측정과 결정
 
@@ -156,6 +169,10 @@
 - PR7A integration 첫 실행은 sibling worktree에 `.env.local`이 없어 `docker compose exec` readiness probe가 env file 오류를 숨긴 채 재시도했다. 비밀값을 복사하지 않고 설명 주석만 있는 임시 빈 파일로 재실행했으며 검증 직후 삭제했다.
 - PR7A integration의 첫 완료 실행은 기존 assertion이 sync capability version 2를 기대해 1개 test가 실패했다. version 3 계약에 맞춰 assertion을 갱신한 뒤 동일 script가 8 passed, 1 skipped로 통과했다.
 - PR7A Worker 전체 test의 첫 실행은 integration spec이 참조하는 API package-local workspace link가 없어 `@orbit/shared` 상대 모듈을 찾지 못했다. 원본 설치의 link tree만 임시 복사해 sibling package를 가리키게 한 뒤 통과했고 모든 임시 dependency와 ignored build 산출물을 제거했다.
+- PR7B 첫 PostgreSQL integration은 전체 Deck 저장이 `speakerNotes` 변경을 patch log에 만들지 않아 Python 응답이 신규 locator를 반환하지 않았고 sidecar가 `absent`로 남았다. API full-save diff에 `update_speaker_notes`를 추가하고 회귀 test를 만든 뒤 실제 export/reimport가 통과했다.
+- PR7B DecksService 전체 test는 PR7A에서 올린 current sync capability 3과 다르게 2를 기대하던 5개 assertion이 남아 실패했다. literal을 공통 capability constant로 교체해 현재 계약과 retry 정책을 정합화했다.
+- PR7B API 전체 test 첫 실행은 integration용 임시 빈 `.env.local` 때문에 환경 초기화가 필요한 5개 suite가 시작 전에 실패했다. 실제 credential을 읽거나 복사하지 않고 test-only placeholder 환경을 임시로 제공해 128 suites, 611 tests를 통과시켰다.
+- PR7B Worker 응답은 shared notes page schema보다 좁은 생성 locator schema가 필요했다. Python이 반환할 수 있는 source part·master part·body locator·dimension만 허용하고 임의 preview file ID 같은 추가 필드는 persistence 전에 fail-closed하도록 보강했다.
 
 ## 계획 대비 변경과 근거
 
@@ -170,6 +187,9 @@
 - PR7A body 갱신은 `bodyPr`, `lstStyle`, geometry, paragraph property, 비본문 shape, notes master와 relationship을 보존한다. 동일 paragraph/run은 deep copy하고 새 text는 대응하는 인접 paragraph/run style을 상속한다.
 - PR7A preview asset은 stale `sourceSlideIndex`가 아니라 갱신된 package의 presentation relationship 순서로 page를 매핑한다. renderer 실패는 bounded warning과 `render-unavailable` sidecar로 수렴한다.
 - PR7A의 locator 누락·모호함, non-writable body와 notes part 누락은 PR7B 생성 경로로 회복할 수 있어 retryable이다. malformed XML이나 invalid body update는 자동 재시도로 해결되지 않으므로 retryable로 분류하지 않는다.
+- PR7B는 기존 notes master가 하나일 때 presentation relationship, content type, master XML, internal theme relationship과 theme part를 모두 검증한 뒤에만 재사용한다. master가 없으면 `python-pptx`가 생성한 검증된 최소 notes package template에서 notes master·theme·notes slide를 분리해 충돌 없는 part와 관계를 만든다.
+- PR7B 신규 notes locator는 Python과 Worker 양쪽에서 bounded strict schema로 검증한다. preview file ID는 Python 응답을 신뢰하지 않고 Worker가 실제 저장한 `notes_render_<index>` asset에서만 부여한다.
+- 계획의 예상 파일에는 없던 `DecksService` diff를 함께 변경했다. UI의 전체 Deck 저장이 notes 변경을 patch log에 기록하지 않으면 PR7B 생성 operation 자체가 Worker에 도달하지 않는 실제 integration 결함이 확인됐기 때문이다.
 
 ## 알려진 제한 사항
 
@@ -183,16 +203,17 @@
 - Checkpoint A의 실제 기준 파일 검증은 원본을 저장소에 복사하지 않으며 `PPTX_IMPORT_FIDELITY_REFERENCE_PATH`가 명시된 로컬/보호 CI에서만 실행한다. 일반 Worker suite에서는 이 1개 test가 skip된다.
 - PR5 notes preview metadata는 owner/editor에게만 반환하고 audience/public projection에는 route나 URL을 추가하지 않는다. preview bitmap content는 기존 project-auth asset endpoint를 사용한다.
 - PR6 시점에는 per-slide imported provenance UI gate가 없으므로 `deck.metadata.sourceType === "import"`에서 tab을 노출한다. 이후 imported Deck에 새로 추가된 authored slide는 API의 `unavailable` 상태를 표시하며 PR9의 slide render mode 적용 시 per-slide gate를 재검토한다.
-- PR7A는 기존 writable notes part만 갱신한다. notes part 또는 body placeholder가 없는 imported slide의 생성은 PR7B에서 notes master와 package relationship까지 함께 검증한다.
 - PR7A integration의 실제 기준 파일 test는 `PPTX_IMPORT_FIDELITY_REFERENCE_PATH`를 재주입하지 않아 1개가 skip됐다. 실제 8-slide 저장 경계는 Checkpoint A에서 이미 8/8 통과했으며 PR7B 이후 해당 보호 경로로 round-trip을 다시 확인한다.
+- PR7B는 notes page가 없는 imported slide의 첫 비어 있지 않은 대본 저장만 생성한다. 빈 문자열 저장은 package를 불필요하게 변경하지 않는 no-op이며 안전한 단일 notes master 구조를 증명할 수 없는 package는 `NOTES_MASTER_CAPABILITY_UNSAFE`로 종료한다.
+- PR7B 일반 integration에서는 보호 기준 PPTX 경로를 주입하지 않아 실제 8-slide test 1개가 skip됐다. Checkpoint B에서 hash로 확인한 기준 파일을 명시적으로 주입해 body 8/8, slide 4 문단 경계, 수정 후 reimport와 privacy를 다시 검증한다.
 
 ## 다음에 시작할 정확한 작업
 
-1. PR7A ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. `feature/pptx-import-pr7b-notes-part-creation`을 target branch HEAD에서 생성한다.
-3. notes part가 없는 imported slide의 `update_speaker_notes`에서 기존 검증된 notes 구조를 template로 선택하고 slide·notes master relationship과 content type을 원자적으로 생성한다.
-4. 안전한 notes master/package 구조를 증명할 수 없으면 원본 package를 유지하고 non-retryable capability reason을 반환한다.
-5. 생성 후 PowerPoint/LibreOffice open과 export→reimport text round-trip을 Python·Worker test로 검증한다.
+1. PR7B ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. `test/pptx-import-checkpoint-b`를 target branch HEAD에서 생성한다.
+3. hash로 확인한 기준 PPTX를 보호 경로로만 주입해 notes body 8/8와 preview 8/8을 재검증한다.
+4. slide 4의 빈 줄·문단 경계를 포함한 body를 수정하고 PPTX 재개방·reimport exact match를 검증한다.
+5. audience/public projection과 lifecycle log에 notes 원문·locator·preview URL이 노출되지 않는 negative test를 다시 실행한다.
 
 ## 사용자 결정이 필요한 Blocker
 
