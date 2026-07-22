@@ -9,6 +9,7 @@ export function AnimationExistingEditor(props: {
   deleteNotice?: string | null;
   previousEffectSummary?: string | null;
   startModeChangeDisabledReason?: string | null;
+  triggerSummary?: string | null;
   onDeleteAnimation: (animationId: string) => void;
   onUpdateAnimation: (
     animationId: string,
@@ -20,6 +21,7 @@ export function AnimationExistingEditor(props: {
     deleteNotice = null,
     previousEffectSummary = null,
     startModeChangeDisabledReason = null,
+    triggerSummary = null,
     onDeleteAnimation,
     onUpdateAnimation
   } = props;
@@ -34,6 +36,11 @@ export function AnimationExistingEditor(props: {
       className="animation-panel-form-card"
       title="애니메이션 수정"
     >
+      {triggerSummary ? (
+        <p className="animation-trigger-summary" role="status">
+          {triggerSummary}
+        </p>
+      ) : null}
       <AnimationTimingFields
         delayMs={animation.delayMs}
         durationMs={animation.durationMs}

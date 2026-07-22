@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AnimationInspectorPanel } from "./AnimationInspectorPanel";
 import { toAnimationKeywordTriggerOptions } from "./animation";
+import { AnimationCreateFlow } from "./animation/components/AnimationCreateFlow";
 
 describe("AnimationInspectorPanel", () => {
   it("renders animation summary cards for the selected element", () => {
@@ -57,7 +58,7 @@ describe("AnimationInspectorPanel", () => {
     expect(html).toContain("연결된 애니메이션");
     expect(html).toContain("1번째");
     expect(html).toContain("새 효과 추가");
-    expect(html).toContain("키워드 트리거");
+    expect(html).not.toContain("키워드 트리거");
     expect(html).toContain("애니메이션 수정");
     expect(html).toContain("재생 시간");
     expect(html).toContain("애니메이션 제거");
@@ -143,29 +144,24 @@ describe("AnimationInspectorPanel", () => {
     expect(html).toContain("애니메이션을 편집할 요소를 선택하세요.");
   });
 
-  it("shows the selected keyword in the create section", () => {
+  it("shows the selected keyword only after an effect is selected", () => {
     const deck = createDemoDeck();
     const slide = deck.slides[0]!;
-    const element = slide.elements.find((candidate) => candidate.elementId === "el_1") ?? null;
     const keywordOptions = toAnimationKeywordTriggerOptions(slide.keywords);
     const html = renderToString(
-      <AnimationInspectorPanel
-        animations={[]}
+      <AnimationCreateFlow
         canCreateAnimation
-        element={element}
+        creationType="fade-in"
+        draft={{ delayMs: 0, durationMs: 400, startMode: "on-click" }}
         keywordOptions={keywordOptions}
-        preferredAnimationId={null}
+        linkedTypes={[]}
         selectedKeywordId={slide.keywords[0]?.keywordId ?? null}
         selectedKeywordLabel={slide.keywords[0]?.text ?? null}
         selectedKeywordOccurrenceId="kwo_slide_1_kw_1_0_5"
-        slideAnimations={slide.animations}
-        slideElements={slide.elements}
         onAddAnimation={vi.fn()}
-        onDeleteAnimation={vi.fn()}
+        onDraftChange={vi.fn()}
         onRequestKeywordOccurrence={vi.fn()}
-        onSelectSlideAnimation={vi.fn()}
-        showIds={false}
-        onUpdateAnimation={vi.fn()}
+        onStartCreating={vi.fn()}
       />
     );
 
@@ -204,6 +200,9 @@ describe("AnimationInspectorPanel", () => {
     const html = renderToString(
       <AnimationInspectorPanel
         actionAnimationIds={["anim_action_follower"]}
+        animationTriggerSummaryByAnimationId={{
+          anim_root: '발화 트리거 · 대본 위치 "트리"'
+        }}
         animations={getElementAnimations(slide, element.elementId)}
         canCreateAnimation
         element={element}
@@ -222,8 +221,10 @@ describe("AnimationInspectorPanel", () => {
       />
     );
 
-    expect(html).toContain("action과 연결된 재생 체인");
-    expect(html).toMatch(/<select[^>]*disabled=""/);
+    expect(html).toContain("대본 키워드 action과 연결되어 시작 방식이 고정됩니다.");
+    expect(html).toContain("발화 트리거 · 대본 위치 &quot;트리&quot;");
+    expect(html).toContain("시작 조건");
+    expect(html).toContain("연결된 action이 실행되면 재생");
     expect(html).toContain("연결된 action과 재생 체인이 함께 삭제됩니다.");
     expect(html).toContain('aria-label="페이드 인 애니메이션 삭제"');
     expect(html).toMatch(/<button[^>]*>애니메이션 제거<\/button>/);

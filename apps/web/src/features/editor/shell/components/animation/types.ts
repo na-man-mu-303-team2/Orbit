@@ -22,6 +22,7 @@ export type AnimationTimingDraft = Omit<AnimationDraftInput, "type">;
 
 export type AnimationEditorPanelProps = {
   actionAnimationIds?: Iterable<string>;
+  animationTriggerSummaryByAnimationId?: Readonly<Record<string, string>>;
   legacyKeywordAnimationIds?: Iterable<string>;
   animations: DeckAnimation[];
   canCreateAnimation: boolean;

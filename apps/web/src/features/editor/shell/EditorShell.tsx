@@ -2467,6 +2467,29 @@ export function EditorShell(props: { projectId?: string }) {
                     : []
                 ) ?? []
               }
+              animationTriggerSummaryByAnimationId={
+                currentSlide?.actions.reduce<Record<string, string>>(
+                  (summaries, action) => {
+                    if (action.effect.kind !== "play-animation") {
+                      return summaries;
+                    }
+                    const trigger = action.trigger;
+                    if (trigger.kind === "keyword-occurrence") {
+                      const keyword = currentSlide.keywords.find(
+                        (candidate) => candidate.keywordId === trigger.keywordId
+                      );
+                      summaries[action.effect.animationId] = `발화 트리거 · 대본 위치 "${keyword?.text ?? "키워드"}"`;
+                    } else if (trigger.kind === "keyword") {
+                      const keyword = currentSlide.keywords.find(
+                        (candidate) => candidate.keywordId === trigger.keywordId
+                      );
+                      summaries[action.effect.animationId] = `기존 키워드 트리거 · "${keyword?.text ?? "키워드"}"`;
+                    }
+                    return summaries;
+                  },
+                  {}
+                ) ?? {}
+              }
               legacyKeywordAnimationIds={
                 currentSlide?.actions.flatMap((action) =>
                   action.effect.kind === "play-animation" &&

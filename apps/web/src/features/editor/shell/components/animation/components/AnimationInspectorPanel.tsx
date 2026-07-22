@@ -16,6 +16,7 @@ import {
 export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
   const {
     actionAnimationIds = [],
+    animationTriggerSummaryByAnimationId = {},
     legacyKeywordAnimationIds = [],
     animations,
     canCreateAnimation,
@@ -71,7 +72,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     )
   );
   const actionLinkedStartModeReason = isSelectedRootActionLinked
-    ? "action과 연결된 재생 체인의 시작 방식은 변경할 수 없습니다."
+    ? "대본 키워드 action과 연결되어 시작 방식이 고정됩니다."
     : null;
   const deleteNoticeByAnimationId = Object.fromEntries(
     slideAnimations.flatMap((animation) => {
@@ -180,6 +181,9 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
                 : null
             }
             startModeChangeDisabledReason={actionLinkedStartModeReason}
+            triggerSummary={
+              animationTriggerSummaryByAnimationId[selectedAnimation.animationId]
+            }
             onDeleteAnimation={onDeleteAnimation}
             onUpdateAnimation={onUpdateAnimation}
           />

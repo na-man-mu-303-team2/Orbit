@@ -5075,6 +5075,17 @@
   padding: 0 var(--redesign-space-3);
 }
 
+.animation-start-mode-locked-value {
+  display: flex;
+  align-items: center;
+  min-height: var(--redesign-space-10);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  background: var(--redesign-color-primary-subtle);
+  color: var(--redesign-color-primary-emphasis);
+  padding: 0 var(--redesign-space-3);
+}
+
 .animation-start-mode-field select:focus-visible {
   box-shadow: var(--redesign-focus-ring);
   outline: none;
@@ -5350,6 +5361,17 @@
   color: var(--redesign-color-primary-emphasis);
   font-size: var(--redesign-type-label-sm-size);
   font-weight: 800;
+}
+
+.animation-trigger-summary,
+.animation-start-mode-lock-notice {
+  margin: 0;
+  padding: var(--redesign-space-2) var(--redesign-space-3);
+  border-left: 2px solid var(--redesign-color-primary);
+  background: var(--redesign-color-primary-subtle);
+  color: var(--redesign-color-primary-emphasis);
+  font-size: var(--redesign-type-label-sm-size);
+  line-height: 1.45;
 }
 
 .animation-panel-existing-list {
@@ -10653,8 +10675,8 @@ body.is-resizing-speaker-notes {
   border-right: 1px solid var(--redesign-color-outline-variant);
 }
 
-.orbit-shell.editor-professional .animation-panel-section,
-.orbit-shell.editor-professional .animation-panel-selection-card {
+.orbit-shell.editor-professional .animation-side-pane-body .animation-panel-section,
+.orbit-shell.editor-professional .animation-side-pane-body .animation-panel-selection-card {
   align-content: start;
   height: 100%;
   overflow: auto;

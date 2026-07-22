@@ -56,15 +56,17 @@ export function AnimationCreateFlow(props: {
         onStartCreating={onStartCreating}
       />
 
-      <AnimationKeywordPicker
-        keywordOptions={keywordOptions}
-        keywordTriggerRestrictionMessage={keywordTriggerRestrictionMessage}
-        keywordTriggerWarningMessage={keywordTriggerWarningMessage}
-        selectedKeywordId={selectedKeywordId}
-        selectedKeywordLabel={selectedKeywordLabel}
-        selectedKeywordOccurrenceId={selectedKeywordOccurrenceId}
-        onRequestKeywordOccurrence={onRequestKeywordOccurrence}
-      />
+      {creationType ? (
+        <AnimationKeywordPicker
+          keywordOptions={keywordOptions}
+          keywordTriggerRestrictionMessage={keywordTriggerRestrictionMessage}
+          keywordTriggerWarningMessage={keywordTriggerWarningMessage}
+          selectedKeywordId={selectedKeywordId}
+          selectedKeywordLabel={selectedKeywordLabel}
+          selectedKeywordOccurrenceId={selectedKeywordOccurrenceId}
+          onRequestKeywordOccurrence={onRequestKeywordOccurrence}
+        />
+      ) : null}
 
       {creationType && draft ? (
         <AnimationCreateEditor
