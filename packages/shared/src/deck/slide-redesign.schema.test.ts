@@ -111,4 +111,34 @@ describe("slide redesign stage artifact schema", () => {
       rawSlideText: "민감 원문",
     }).success).toBe(false);
   });
+
+  it("parses compose and verify response artifacts", () => {
+    const response = {
+      message: "리디자인에 사용할 배색을 골라주세요.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "select-redesign-palette",
+        alignment: null,
+      },
+      operations: [],
+      affectedElementIds: [],
+      warnings: [],
+      paletteOptions: options,
+    };
+
+    expect(slideRedesignStageArtifactSchema.parse({
+      stage: "compose",
+      outcome: "applicable",
+      response,
+      candidateCount: 0,
+      safeCandidateCount: 0,
+      irreversibleCount: 0,
+      ornamentApplied: false,
+    }).stage).toBe("compose");
+    expect(slideRedesignStageArtifactSchema.parse({
+      stage: "verify",
+      outcome: "applicable",
+      response,
+    }).stage).toBe("verify");
+  });
 });
