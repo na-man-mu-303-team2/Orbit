@@ -1,14 +1,2361 @@
-[
-  { "slideType": "cover", "expectedPattern": "hero-then-support" },
-  { "slideType": "title", "expectedPattern": "hero-then-support" },
-  { "slideType": "problem", "expectedPattern": "hero-then-support" },
-  { "slideType": "solution", "expectedPattern": "hero-then-support" },
-  { "slideType": "feature-grid", "expectedPattern": "cluster-reveal" },
-  { "slideType": "process", "expectedPattern": "stepwise-process" },
-  { "slideType": "architecture", "expectedPattern": "cluster-reveal" },
-  { "slideType": "data", "expectedPattern": "evidence-then-insight" },
-  { "slideType": "chart", "expectedPattern": "evidence-then-insight" },
-  { "slideType": "comparison", "expectedPattern": "paired-comparison" },
-  { "slideType": "quote", "expectedPattern": "hero-then-support" },
-  { "slideType": "summary", "expectedPattern": "summary-recap" }
-]
+{
+  "fixtureVersion": 1,
+  "plannerSchemaVersion": 1,
+  "compilerVersion": "motion-compiler-v1",
+  "syntheticNotesOnly": true,
+  "cases": [
+    {
+      "fixtureId": "cover-basic",
+      "deckId": "deck_cover",
+      "baseVersion": 7,
+      "slide": {
+        "slideId": "slide_cover",
+        "kind": "content",
+        "order": 1,
+        "title": "Opening",
+        "style": {},
+        "elements": [
+          {
+            "elementId": "el_cover_1",
+            "type": "text",
+            "role": "title",
+            "x": 220,
+            "y": 200,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "cover title 1"
+            }
+          },
+          {
+            "elementId": "el_cover_2",
+            "type": "text",
+            "role": "subtitle",
+            "x": 340,
+            "y": 340,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "cover subtitle 2"
+            }
+          },
+          {
+            "elementId": "el_cover_decoration",
+            "type": "rect",
+            "role": "decoration",
+            "visible": true
+          },
+          {
+            "elementId": "el_cover_footer",
+            "type": "text",
+            "role": "footer",
+            "visible": true,
+            "props": {
+              "text": "footer"
+            }
+          },
+          {
+            "elementId": "el_cover_connector",
+            "type": "arrow",
+            "visible": true
+          }
+        ],
+        "semanticCues": []
+      },
+      "expected": {
+        "slideType": "cover",
+        "narrativeIntent": "orient",
+        "eligibleTargetIds": [
+          "el_cover_1",
+          "el_cover_2"
+        ],
+        "excludedTargetIds": [
+          "el_cover_decoration",
+          "el_cover_footer",
+          "el_cover_connector"
+        ],
+        "plan": {
+          "schemaVersion": 1,
+          "pattern": "hero-then-support",
+          "beats": [
+            {
+              "beatId": "beat_entry",
+              "purpose": "orient",
+              "trigger": "entry",
+              "targetElementIds": [
+                "el_cover_1",
+                "el_cover_2"
+              ],
+              "relation": "together"
+            }
+          ]
+        },
+        "compiled": {
+          "compilerVersion": "motion-compiler-v1",
+          "operations": [
+            {
+              "type": "add_animation",
+              "slideId": "slide_cover",
+              "animation": {
+                "animationId": "anim_motion_0b6e79b916d1a969",
+                "elementId": "el_cover_1",
+                "type": "fade-in",
+                "order": 1,
+                "startMode": "on-slide-enter",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_cover",
+              "animation": {
+                "animationId": "anim_motion_c97c1ee32565e0fa",
+                "elementId": "el_cover_2",
+                "type": "fade-in",
+                "order": 2,
+                "startMode": "with-previous",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            }
+          ],
+          "entryMotionMs": 400,
+          "maxClickStepMotionMs": 0,
+          "totalMotionMs": 400
+        },
+        "candidateGraph": {
+          "animationIds": [
+            "anim_motion_0b6e79b916d1a969",
+            "anim_motion_c97c1ee32565e0fa"
+          ],
+          "actionAnimationIds": []
+        },
+        "timeline": {
+          "entryRoots": [
+            "anim_motion_0b6e79b916d1a969"
+          ],
+          "clickRoots": [],
+          "totalDurationMs": 400
+        },
+        "stableHash": {
+          "compilerVersion": "motion-compiler-v1",
+          "animationIds": [
+            "anim_motion_0b6e79b916d1a969",
+            "anim_motion_c97c1ee32565e0fa"
+          ]
+        }
+      }
+    },
+    {
+      "fixtureId": "title-basic",
+      "deckId": "deck_title",
+      "baseVersion": 7,
+      "slide": {
+        "slideId": "slide_title",
+        "kind": "content",
+        "order": 2,
+        "title": "Section title",
+        "style": {},
+        "elements": [
+          {
+            "elementId": "el_title_1",
+            "type": "text",
+            "role": "title",
+            "x": 220,
+            "y": 200,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "title title 1"
+            }
+          },
+          {
+            "elementId": "el_title_2",
+            "type": "text",
+            "role": "subtitle",
+            "x": 340,
+            "y": 340,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "title subtitle 2"
+            }
+          },
+          {
+            "elementId": "el_title_decoration",
+            "type": "rect",
+            "role": "decoration",
+            "visible": true
+          },
+          {
+            "elementId": "el_title_footer",
+            "type": "text",
+            "role": "footer",
+            "visible": true,
+            "props": {
+              "text": "footer"
+            }
+          },
+          {
+            "elementId": "el_title_connector",
+            "type": "arrow",
+            "visible": true
+          }
+        ],
+        "semanticCues": []
+      },
+      "expected": {
+        "slideType": "title",
+        "narrativeIntent": "orient",
+        "eligibleTargetIds": [
+          "el_title_1",
+          "el_title_2"
+        ],
+        "excludedTargetIds": [
+          "el_title_decoration",
+          "el_title_footer",
+          "el_title_connector"
+        ],
+        "plan": {
+          "schemaVersion": 1,
+          "pattern": "hero-then-support",
+          "beats": [
+            {
+              "beatId": "beat_entry",
+              "purpose": "orient",
+              "trigger": "entry",
+              "targetElementIds": [
+                "el_title_1",
+                "el_title_2"
+              ],
+              "relation": "together"
+            }
+          ]
+        },
+        "compiled": {
+          "compilerVersion": "motion-compiler-v1",
+          "operations": [
+            {
+              "type": "add_animation",
+              "slideId": "slide_title",
+              "animation": {
+                "animationId": "anim_motion_d06017664c668af9",
+                "elementId": "el_title_1",
+                "type": "fade-in",
+                "order": 1,
+                "startMode": "on-slide-enter",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_title",
+              "animation": {
+                "animationId": "anim_motion_23dc323a71279174",
+                "elementId": "el_title_2",
+                "type": "fade-in",
+                "order": 2,
+                "startMode": "with-previous",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            }
+          ],
+          "entryMotionMs": 400,
+          "maxClickStepMotionMs": 0,
+          "totalMotionMs": 400
+        },
+        "candidateGraph": {
+          "animationIds": [
+            "anim_motion_d06017664c668af9",
+            "anim_motion_23dc323a71279174"
+          ],
+          "actionAnimationIds": []
+        },
+        "timeline": {
+          "entryRoots": [
+            "anim_motion_d06017664c668af9"
+          ],
+          "clickRoots": [],
+          "totalDurationMs": 400
+        },
+        "stableHash": {
+          "compilerVersion": "motion-compiler-v1",
+          "animationIds": [
+            "anim_motion_d06017664c668af9",
+            "anim_motion_23dc323a71279174"
+          ]
+        }
+      }
+    },
+    {
+      "fixtureId": "problem-basic",
+      "deckId": "deck_problem",
+      "baseVersion": 7,
+      "slide": {
+        "slideId": "slide_problem",
+        "kind": "content",
+        "order": 2,
+        "title": "Pain point",
+        "style": {},
+        "elements": [
+          {
+            "elementId": "el_problem_1",
+            "type": "text",
+            "role": "title",
+            "x": 220,
+            "y": 200,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "problem title 1"
+            }
+          },
+          {
+            "elementId": "el_problem_2",
+            "type": "text",
+            "role": "body",
+            "x": 340,
+            "y": 340,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "problem body 2"
+            }
+          },
+          {
+            "elementId": "el_problem_3",
+            "type": "text",
+            "role": "highlight",
+            "x": 460,
+            "y": 480,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "problem highlight 3"
+            }
+          },
+          {
+            "elementId": "el_problem_decoration",
+            "type": "rect",
+            "role": "decoration",
+            "visible": true
+          },
+          {
+            "elementId": "el_problem_footer",
+            "type": "text",
+            "role": "footer",
+            "visible": true,
+            "props": {
+              "text": "footer"
+            }
+          },
+          {
+            "elementId": "el_problem_connector",
+            "type": "arrow",
+            "visible": true
+          }
+        ],
+        "semanticCues": [
+          {
+            "reviewStatus": "approved",
+            "freshness": "current",
+            "cueType": "problem",
+            "importance": "core",
+            "targetElementIds": [
+              "el_problem_3"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "slideType": "problem",
+        "narrativeIntent": "emphasize",
+        "eligibleTargetIds": [
+          "el_problem_1",
+          "el_problem_2",
+          "el_problem_3"
+        ],
+        "excludedTargetIds": [
+          "el_problem_decoration",
+          "el_problem_footer",
+          "el_problem_connector"
+        ],
+        "plan": {
+          "schemaVersion": 1,
+          "pattern": "hero-then-support",
+          "beats": [
+            {
+              "beatId": "beat_entry",
+              "purpose": "orient",
+              "trigger": "entry",
+              "targetElementIds": [
+                "el_problem_1"
+              ],
+              "relation": "together"
+            },
+            {
+              "beatId": "beat_click_1",
+              "purpose": "reveal",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_problem_3"
+              ],
+              "relation": "sequence"
+            },
+            {
+              "beatId": "beat_click_2",
+              "purpose": "reveal",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_problem_2"
+              ],
+              "relation": "sequence"
+            }
+          ]
+        },
+        "compiled": {
+          "compilerVersion": "motion-compiler-v1",
+          "operations": [
+            {
+              "type": "add_animation",
+              "slideId": "slide_problem",
+              "animation": {
+                "animationId": "anim_motion_a42bbd8571cd53c1",
+                "elementId": "el_problem_1",
+                "type": "fade-in",
+                "order": 1,
+                "startMode": "on-slide-enter",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_problem",
+              "animation": {
+                "animationId": "anim_motion_ccab454d413dfc43",
+                "elementId": "el_problem_3",
+                "type": "zoom-in",
+                "order": 2,
+                "startMode": "on-click",
+                "durationMs": 450,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_problem",
+              "animation": {
+                "animationId": "anim_motion_96f88a0486f33c9b",
+                "elementId": "el_problem_2",
+                "type": "appear",
+                "order": 3,
+                "startMode": "on-click",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            }
+          ],
+          "entryMotionMs": 400,
+          "maxClickStepMotionMs": 450,
+          "totalMotionMs": 1150
+        },
+        "candidateGraph": {
+          "animationIds": [
+            "anim_motion_a42bbd8571cd53c1",
+            "anim_motion_ccab454d413dfc43",
+            "anim_motion_96f88a0486f33c9b"
+          ],
+          "actionAnimationIds": []
+        },
+        "timeline": {
+          "entryRoots": [
+            "anim_motion_a42bbd8571cd53c1"
+          ],
+          "clickRoots": [
+            "anim_motion_ccab454d413dfc43",
+            "anim_motion_96f88a0486f33c9b"
+          ],
+          "totalDurationMs": 1150
+        },
+        "stableHash": {
+          "compilerVersion": "motion-compiler-v1",
+          "animationIds": [
+            "anim_motion_a42bbd8571cd53c1",
+            "anim_motion_ccab454d413dfc43",
+            "anim_motion_96f88a0486f33c9b"
+          ]
+        }
+      }
+    },
+    {
+      "fixtureId": "solution-basic",
+      "deckId": "deck_solution",
+      "baseVersion": 7,
+      "slide": {
+        "slideId": "slide_solution",
+        "kind": "content",
+        "order": 2,
+        "title": "Answer",
+        "style": {},
+        "elements": [
+          {
+            "elementId": "el_solution_1",
+            "type": "text",
+            "role": "title",
+            "x": 220,
+            "y": 200,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "solution title 1"
+            }
+          },
+          {
+            "elementId": "el_solution_2",
+            "type": "text",
+            "role": "body",
+            "x": 340,
+            "y": 340,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "solution body 2"
+            }
+          },
+          {
+            "elementId": "el_solution_3",
+            "type": "text",
+            "role": "highlight",
+            "x": 460,
+            "y": 480,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "solution highlight 3"
+            }
+          },
+          {
+            "elementId": "el_solution_decoration",
+            "type": "rect",
+            "role": "decoration",
+            "visible": true
+          },
+          {
+            "elementId": "el_solution_footer",
+            "type": "text",
+            "role": "footer",
+            "visible": true,
+            "props": {
+              "text": "footer"
+            }
+          },
+          {
+            "elementId": "el_solution_connector",
+            "type": "arrow",
+            "visible": true
+          }
+        ],
+        "semanticCues": [
+          {
+            "reviewStatus": "approved",
+            "freshness": "current",
+            "cueType": "solution",
+            "importance": "core",
+            "targetElementIds": [
+              "el_solution_3"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "slideType": "solution",
+        "narrativeIntent": "emphasize",
+        "eligibleTargetIds": [
+          "el_solution_1",
+          "el_solution_2",
+          "el_solution_3"
+        ],
+        "excludedTargetIds": [
+          "el_solution_decoration",
+          "el_solution_footer",
+          "el_solution_connector"
+        ],
+        "plan": {
+          "schemaVersion": 1,
+          "pattern": "hero-then-support",
+          "beats": [
+            {
+              "beatId": "beat_entry",
+              "purpose": "orient",
+              "trigger": "entry",
+              "targetElementIds": [
+                "el_solution_1"
+              ],
+              "relation": "together"
+            },
+            {
+              "beatId": "beat_click_1",
+              "purpose": "reveal",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_solution_3"
+              ],
+              "relation": "sequence"
+            },
+            {
+              "beatId": "beat_click_2",
+              "purpose": "reveal",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_solution_2"
+              ],
+              "relation": "sequence"
+            }
+          ]
+        },
+        "compiled": {
+          "compilerVersion": "motion-compiler-v1",
+          "operations": [
+            {
+              "type": "add_animation",
+              "slideId": "slide_solution",
+              "animation": {
+                "animationId": "anim_motion_dc4bbf4aba06da03",
+                "elementId": "el_solution_1",
+                "type": "fade-in",
+                "order": 1,
+                "startMode": "on-slide-enter",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_solution",
+              "animation": {
+                "animationId": "anim_motion_9d96fd7e683a399f",
+                "elementId": "el_solution_3",
+                "type": "zoom-in",
+                "order": 2,
+                "startMode": "on-click",
+                "durationMs": 450,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_solution",
+              "animation": {
+                "animationId": "anim_motion_7ea556b2d9b2a9d3",
+                "elementId": "el_solution_2",
+                "type": "appear",
+                "order": 3,
+                "startMode": "on-click",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            }
+          ],
+          "entryMotionMs": 400,
+          "maxClickStepMotionMs": 450,
+          "totalMotionMs": 1150
+        },
+        "candidateGraph": {
+          "animationIds": [
+            "anim_motion_dc4bbf4aba06da03",
+            "anim_motion_9d96fd7e683a399f",
+            "anim_motion_7ea556b2d9b2a9d3"
+          ],
+          "actionAnimationIds": []
+        },
+        "timeline": {
+          "entryRoots": [
+            "anim_motion_dc4bbf4aba06da03"
+          ],
+          "clickRoots": [
+            "anim_motion_9d96fd7e683a399f",
+            "anim_motion_7ea556b2d9b2a9d3"
+          ],
+          "totalDurationMs": 1150
+        },
+        "stableHash": {
+          "compilerVersion": "motion-compiler-v1",
+          "animationIds": [
+            "anim_motion_dc4bbf4aba06da03",
+            "anim_motion_9d96fd7e683a399f",
+            "anim_motion_7ea556b2d9b2a9d3"
+          ]
+        }
+      }
+    },
+    {
+      "fixtureId": "feature-grid-basic",
+      "deckId": "deck_feature_grid",
+      "baseVersion": 7,
+      "slide": {
+        "slideId": "slide_feature_grid",
+        "kind": "content",
+        "order": 2,
+        "title": "Capabilities",
+        "style": {},
+        "elements": [
+          {
+            "elementId": "el_feature-grid_1",
+            "type": "text",
+            "role": "title",
+            "x": 220,
+            "y": 200,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "feature-grid title 1"
+            }
+          },
+          {
+            "elementId": "el_feature-grid_2",
+            "type": "text",
+            "role": "body",
+            "x": 340,
+            "y": 340,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "feature-grid body 2"
+            }
+          },
+          {
+            "elementId": "el_feature-grid_3",
+            "type": "text",
+            "role": "body",
+            "x": 460,
+            "y": 480,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "feature-grid body 3"
+            }
+          },
+          {
+            "elementId": "el_feature-grid_4",
+            "type": "text",
+            "role": "body",
+            "x": 580,
+            "y": 620,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "feature-grid body 4"
+            }
+          },
+          {
+            "elementId": "el_feature-grid_5",
+            "type": "text",
+            "role": "body",
+            "x": 700,
+            "y": 760,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "feature-grid body 5"
+            }
+          },
+          {
+            "elementId": "el_feature-grid_decoration",
+            "type": "rect",
+            "role": "decoration",
+            "visible": true
+          },
+          {
+            "elementId": "el_feature-grid_footer",
+            "type": "text",
+            "role": "footer",
+            "visible": true,
+            "props": {
+              "text": "footer"
+            }
+          },
+          {
+            "elementId": "el_feature-grid_connector",
+            "type": "arrow",
+            "visible": true
+          }
+        ],
+        "semanticCues": []
+      },
+      "expected": {
+        "slideType": "feature-grid",
+        "narrativeIntent": "sequence",
+        "eligibleTargetIds": [
+          "el_feature-grid_1",
+          "el_feature-grid_2",
+          "el_feature-grid_3",
+          "el_feature-grid_4",
+          "el_feature-grid_5"
+        ],
+        "excludedTargetIds": [
+          "el_feature-grid_decoration",
+          "el_feature-grid_footer",
+          "el_feature-grid_connector"
+        ],
+        "plan": {
+          "schemaVersion": 1,
+          "pattern": "cluster-reveal",
+          "beats": [
+            {
+              "beatId": "beat_entry",
+              "purpose": "orient",
+              "trigger": "entry",
+              "targetElementIds": [
+                "el_feature-grid_1"
+              ],
+              "relation": "together"
+            },
+            {
+              "beatId": "beat_click_1",
+              "purpose": "reveal",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_feature-grid_2",
+                "el_feature-grid_3"
+              ],
+              "relation": "together"
+            },
+            {
+              "beatId": "beat_click_2",
+              "purpose": "reveal",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_feature-grid_4",
+                "el_feature-grid_5"
+              ],
+              "relation": "together"
+            }
+          ]
+        },
+        "compiled": {
+          "compilerVersion": "motion-compiler-v1",
+          "operations": [
+            {
+              "type": "add_animation",
+              "slideId": "slide_feature_grid",
+              "animation": {
+                "animationId": "anim_motion_4c574daa23553f28",
+                "elementId": "el_feature-grid_1",
+                "type": "fade-in",
+                "order": 1,
+                "startMode": "on-slide-enter",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_feature_grid",
+              "animation": {
+                "animationId": "anim_motion_f1811fab70cdb05d",
+                "elementId": "el_feature-grid_2",
+                "type": "appear",
+                "order": 2,
+                "startMode": "on-click",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_feature_grid",
+              "animation": {
+                "animationId": "anim_motion_c17ceb230caa0135",
+                "elementId": "el_feature-grid_3",
+                "type": "appear",
+                "order": 3,
+                "startMode": "with-previous",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_feature_grid",
+              "animation": {
+                "animationId": "anim_motion_a5e68960a30c1917",
+                "elementId": "el_feature-grid_4",
+                "type": "appear",
+                "order": 4,
+                "startMode": "on-click",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_feature_grid",
+              "animation": {
+                "animationId": "anim_motion_15285f6540c32a6e",
+                "elementId": "el_feature-grid_5",
+                "type": "appear",
+                "order": 5,
+                "startMode": "with-previous",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            }
+          ],
+          "entryMotionMs": 400,
+          "maxClickStepMotionMs": 300,
+          "totalMotionMs": 1000
+        },
+        "candidateGraph": {
+          "animationIds": [
+            "anim_motion_4c574daa23553f28",
+            "anim_motion_f1811fab70cdb05d",
+            "anim_motion_c17ceb230caa0135",
+            "anim_motion_a5e68960a30c1917",
+            "anim_motion_15285f6540c32a6e"
+          ],
+          "actionAnimationIds": []
+        },
+        "timeline": {
+          "entryRoots": [
+            "anim_motion_4c574daa23553f28"
+          ],
+          "clickRoots": [
+            "anim_motion_f1811fab70cdb05d",
+            "anim_motion_a5e68960a30c1917"
+          ],
+          "totalDurationMs": 1000
+        },
+        "stableHash": {
+          "compilerVersion": "motion-compiler-v1",
+          "animationIds": [
+            "anim_motion_4c574daa23553f28",
+            "anim_motion_f1811fab70cdb05d",
+            "anim_motion_c17ceb230caa0135",
+            "anim_motion_a5e68960a30c1917",
+            "anim_motion_15285f6540c32a6e"
+          ]
+        }
+      }
+    },
+    {
+      "fixtureId": "process-basic",
+      "deckId": "deck_process",
+      "baseVersion": 7,
+      "slide": {
+        "slideId": "slide_process",
+        "kind": "content",
+        "order": 2,
+        "title": "Process steps",
+        "style": {},
+        "elements": [
+          {
+            "elementId": "el_process_1",
+            "type": "text",
+            "role": "title",
+            "x": 220,
+            "y": 200,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "process title 1"
+            }
+          },
+          {
+            "elementId": "el_process_2",
+            "type": "text",
+            "role": "body",
+            "x": 340,
+            "y": 340,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "process body 2"
+            }
+          },
+          {
+            "elementId": "el_process_3",
+            "type": "text",
+            "role": "body",
+            "x": 460,
+            "y": 480,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "process body 3"
+            }
+          },
+          {
+            "elementId": "el_process_4",
+            "type": "text",
+            "role": "body",
+            "x": 580,
+            "y": 620,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "process body 4"
+            }
+          },
+          {
+            "elementId": "el_process_decoration",
+            "type": "rect",
+            "role": "decoration",
+            "visible": true
+          },
+          {
+            "elementId": "el_process_footer",
+            "type": "text",
+            "role": "footer",
+            "visible": true,
+            "props": {
+              "text": "footer"
+            }
+          },
+          {
+            "elementId": "el_process_connector",
+            "type": "arrow",
+            "visible": true
+          }
+        ],
+        "semanticCues": []
+      },
+      "expected": {
+        "slideType": "process",
+        "narrativeIntent": "sequence",
+        "eligibleTargetIds": [
+          "el_process_1",
+          "el_process_2",
+          "el_process_3",
+          "el_process_4"
+        ],
+        "excludedTargetIds": [
+          "el_process_decoration",
+          "el_process_footer",
+          "el_process_connector"
+        ],
+        "plan": {
+          "schemaVersion": 1,
+          "pattern": "stepwise-process",
+          "beats": [
+            {
+              "beatId": "beat_entry",
+              "purpose": "orient",
+              "trigger": "entry",
+              "targetElementIds": [
+                "el_process_1"
+              ],
+              "relation": "together"
+            },
+            {
+              "beatId": "beat_click_1",
+              "purpose": "reveal",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_process_2"
+              ],
+              "relation": "sequence"
+            },
+            {
+              "beatId": "beat_click_2",
+              "purpose": "reveal",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_process_3"
+              ],
+              "relation": "sequence"
+            },
+            {
+              "beatId": "beat_click_3",
+              "purpose": "reveal",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_process_4"
+              ],
+              "relation": "sequence"
+            }
+          ]
+        },
+        "compiled": {
+          "compilerVersion": "motion-compiler-v1",
+          "operations": [
+            {
+              "type": "add_animation",
+              "slideId": "slide_process",
+              "animation": {
+                "animationId": "anim_motion_624c67f08b01d32b",
+                "elementId": "el_process_1",
+                "type": "fade-in",
+                "order": 1,
+                "startMode": "on-slide-enter",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_process",
+              "animation": {
+                "animationId": "anim_motion_790fbed6d7180b2b",
+                "elementId": "el_process_2",
+                "type": "appear",
+                "order": 2,
+                "startMode": "on-click",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_process",
+              "animation": {
+                "animationId": "anim_motion_196b5a4d096e5ac4",
+                "elementId": "el_process_3",
+                "type": "appear",
+                "order": 3,
+                "startMode": "on-click",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_process",
+              "animation": {
+                "animationId": "anim_motion_c50883db17e39599",
+                "elementId": "el_process_4",
+                "type": "appear",
+                "order": 4,
+                "startMode": "on-click",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            }
+          ],
+          "entryMotionMs": 400,
+          "maxClickStepMotionMs": 300,
+          "totalMotionMs": 1300
+        },
+        "candidateGraph": {
+          "animationIds": [
+            "anim_motion_624c67f08b01d32b",
+            "anim_motion_790fbed6d7180b2b",
+            "anim_motion_196b5a4d096e5ac4",
+            "anim_motion_c50883db17e39599"
+          ],
+          "actionAnimationIds": []
+        },
+        "timeline": {
+          "entryRoots": [
+            "anim_motion_624c67f08b01d32b"
+          ],
+          "clickRoots": [
+            "anim_motion_790fbed6d7180b2b",
+            "anim_motion_196b5a4d096e5ac4",
+            "anim_motion_c50883db17e39599"
+          ],
+          "totalDurationMs": 1300
+        },
+        "stableHash": {
+          "compilerVersion": "motion-compiler-v1",
+          "animationIds": [
+            "anim_motion_624c67f08b01d32b",
+            "anim_motion_790fbed6d7180b2b",
+            "anim_motion_196b5a4d096e5ac4",
+            "anim_motion_c50883db17e39599"
+          ]
+        }
+      }
+    },
+    {
+      "fixtureId": "architecture-basic",
+      "deckId": "deck_architecture",
+      "baseVersion": 7,
+      "slide": {
+        "slideId": "slide_architecture",
+        "kind": "content",
+        "order": 2,
+        "title": "System architecture",
+        "style": {},
+        "elements": [
+          {
+            "elementId": "el_architecture_1",
+            "type": "text",
+            "role": "title",
+            "x": 220,
+            "y": 200,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "architecture title 1"
+            }
+          },
+          {
+            "elementId": "el_architecture_2",
+            "type": "image",
+            "role": "media",
+            "x": 340,
+            "y": 340,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "architecture media 2"
+            }
+          },
+          {
+            "elementId": "el_architecture_3",
+            "type": "text",
+            "role": "body",
+            "x": 460,
+            "y": 480,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "architecture body 3"
+            }
+          },
+          {
+            "elementId": "el_architecture_decoration",
+            "type": "rect",
+            "role": "decoration",
+            "visible": true
+          },
+          {
+            "elementId": "el_architecture_footer",
+            "type": "text",
+            "role": "footer",
+            "visible": true,
+            "props": {
+              "text": "footer"
+            }
+          },
+          {
+            "elementId": "el_architecture_connector",
+            "type": "arrow",
+            "visible": true
+          }
+        ],
+        "semanticCues": []
+      },
+      "expected": {
+        "slideType": "architecture",
+        "narrativeIntent": "sequence",
+        "eligibleTargetIds": [
+          "el_architecture_1",
+          "el_architecture_2",
+          "el_architecture_3"
+        ],
+        "excludedTargetIds": [
+          "el_architecture_decoration",
+          "el_architecture_footer",
+          "el_architecture_connector"
+        ],
+        "plan": {
+          "schemaVersion": 1,
+          "pattern": "cluster-reveal",
+          "beats": [
+            {
+              "beatId": "beat_entry",
+              "purpose": "orient",
+              "trigger": "entry",
+              "targetElementIds": [
+                "el_architecture_1"
+              ],
+              "relation": "together"
+            },
+            {
+              "beatId": "beat_click_1",
+              "purpose": "reveal",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_architecture_3",
+                "el_architecture_2"
+              ],
+              "relation": "sequence"
+            }
+          ]
+        },
+        "compiled": {
+          "compilerVersion": "motion-compiler-v1",
+          "operations": [
+            {
+              "type": "add_animation",
+              "slideId": "slide_architecture",
+              "animation": {
+                "animationId": "anim_motion_415f32799e05e776",
+                "elementId": "el_architecture_1",
+                "type": "fade-in",
+                "order": 1,
+                "startMode": "on-slide-enter",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_architecture",
+              "animation": {
+                "animationId": "anim_motion_8db4ef4a38cd1b0a",
+                "elementId": "el_architecture_3",
+                "type": "appear",
+                "order": 2,
+                "startMode": "on-click",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_architecture",
+              "animation": {
+                "animationId": "anim_motion_f46717a5475d9fdb",
+                "elementId": "el_architecture_2",
+                "type": "zoom-in",
+                "order": 3,
+                "startMode": "after-previous",
+                "durationMs": 450,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            }
+          ],
+          "entryMotionMs": 400,
+          "maxClickStepMotionMs": 750,
+          "totalMotionMs": 1150
+        },
+        "candidateGraph": {
+          "animationIds": [
+            "anim_motion_415f32799e05e776",
+            "anim_motion_8db4ef4a38cd1b0a",
+            "anim_motion_f46717a5475d9fdb"
+          ],
+          "actionAnimationIds": []
+        },
+        "timeline": {
+          "entryRoots": [
+            "anim_motion_415f32799e05e776"
+          ],
+          "clickRoots": [
+            "anim_motion_8db4ef4a38cd1b0a"
+          ],
+          "totalDurationMs": 1150
+        },
+        "stableHash": {
+          "compilerVersion": "motion-compiler-v1",
+          "animationIds": [
+            "anim_motion_415f32799e05e776",
+            "anim_motion_8db4ef4a38cd1b0a",
+            "anim_motion_f46717a5475d9fdb"
+          ]
+        }
+      }
+    },
+    {
+      "fixtureId": "data-basic",
+      "deckId": "deck_data",
+      "baseVersion": 7,
+      "slide": {
+        "slideId": "slide_data",
+        "kind": "content",
+        "order": 2,
+        "title": "Evidence",
+        "style": {},
+        "elements": [
+          {
+            "elementId": "el_data_1",
+            "type": "text",
+            "role": "title",
+            "x": 220,
+            "y": 200,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "data title 1"
+            }
+          },
+          {
+            "elementId": "el_data_2",
+            "type": "table",
+            "role": "table",
+            "x": 340,
+            "y": 340,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "data table 2"
+            }
+          },
+          {
+            "elementId": "el_data_3",
+            "type": "text",
+            "role": "highlight",
+            "x": 460,
+            "y": 480,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "data highlight 3"
+            }
+          },
+          {
+            "elementId": "el_data_decoration",
+            "type": "rect",
+            "role": "decoration",
+            "visible": true
+          },
+          {
+            "elementId": "el_data_footer",
+            "type": "text",
+            "role": "footer",
+            "visible": true,
+            "props": {
+              "text": "footer"
+            }
+          },
+          {
+            "elementId": "el_data_connector",
+            "type": "arrow",
+            "visible": true
+          }
+        ],
+        "semanticCues": []
+      },
+      "expected": {
+        "slideType": "data",
+        "narrativeIntent": "explain-data",
+        "eligibleTargetIds": [
+          "el_data_1",
+          "el_data_2",
+          "el_data_3"
+        ],
+        "excludedTargetIds": [
+          "el_data_decoration",
+          "el_data_footer",
+          "el_data_connector"
+        ],
+        "plan": {
+          "schemaVersion": 1,
+          "pattern": "evidence-then-insight",
+          "beats": [
+            {
+              "beatId": "beat_entry",
+              "purpose": "orient",
+              "trigger": "entry",
+              "targetElementIds": [
+                "el_data_1"
+              ],
+              "relation": "together"
+            },
+            {
+              "beatId": "beat_click_1",
+              "purpose": "reveal",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_data_3"
+              ],
+              "relation": "sequence"
+            },
+            {
+              "beatId": "beat_click_2",
+              "purpose": "emphasize",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_data_2"
+              ],
+              "relation": "sequence"
+            }
+          ]
+        },
+        "compiled": {
+          "compilerVersion": "motion-compiler-v1",
+          "operations": [
+            {
+              "type": "add_animation",
+              "slideId": "slide_data",
+              "animation": {
+                "animationId": "anim_motion_9288f1addb71b0be",
+                "elementId": "el_data_1",
+                "type": "fade-in",
+                "order": 1,
+                "startMode": "on-slide-enter",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_data",
+              "animation": {
+                "animationId": "anim_motion_1147f5c2d8afabd5",
+                "elementId": "el_data_3",
+                "type": "zoom-in",
+                "order": 2,
+                "startMode": "on-click",
+                "durationMs": 450,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_data",
+              "animation": {
+                "animationId": "anim_motion_c64230eb6e0e5dd5",
+                "elementId": "el_data_2",
+                "type": "zoom-in",
+                "order": 3,
+                "startMode": "on-click",
+                "durationMs": 450,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            }
+          ],
+          "entryMotionMs": 400,
+          "maxClickStepMotionMs": 450,
+          "totalMotionMs": 1300
+        },
+        "candidateGraph": {
+          "animationIds": [
+            "anim_motion_9288f1addb71b0be",
+            "anim_motion_1147f5c2d8afabd5",
+            "anim_motion_c64230eb6e0e5dd5"
+          ],
+          "actionAnimationIds": []
+        },
+        "timeline": {
+          "entryRoots": [
+            "anim_motion_9288f1addb71b0be"
+          ],
+          "clickRoots": [
+            "anim_motion_1147f5c2d8afabd5",
+            "anim_motion_c64230eb6e0e5dd5"
+          ],
+          "totalDurationMs": 1300
+        },
+        "stableHash": {
+          "compilerVersion": "motion-compiler-v1",
+          "animationIds": [
+            "anim_motion_9288f1addb71b0be",
+            "anim_motion_1147f5c2d8afabd5",
+            "anim_motion_c64230eb6e0e5dd5"
+          ]
+        }
+      }
+    },
+    {
+      "fixtureId": "chart-basic",
+      "deckId": "deck_chart",
+      "baseVersion": 7,
+      "slide": {
+        "slideId": "slide_chart",
+        "kind": "content",
+        "order": 2,
+        "title": "Growth",
+        "style": {},
+        "elements": [
+          {
+            "elementId": "el_chart_1",
+            "type": "text",
+            "role": "title",
+            "x": 220,
+            "y": 200,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "chart title 1"
+            }
+          },
+          {
+            "elementId": "el_chart_2",
+            "type": "chart",
+            "role": "chart",
+            "x": 340,
+            "y": 340,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "chart chart 2"
+            }
+          },
+          {
+            "elementId": "el_chart_3",
+            "type": "text",
+            "role": "highlight",
+            "x": 460,
+            "y": 480,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "chart highlight 3"
+            }
+          },
+          {
+            "elementId": "el_chart_decoration",
+            "type": "rect",
+            "role": "decoration",
+            "visible": true
+          },
+          {
+            "elementId": "el_chart_footer",
+            "type": "text",
+            "role": "footer",
+            "visible": true,
+            "props": {
+              "text": "footer"
+            }
+          },
+          {
+            "elementId": "el_chart_connector",
+            "type": "arrow",
+            "visible": true
+          }
+        ],
+        "semanticCues": []
+      },
+      "expected": {
+        "slideType": "chart",
+        "narrativeIntent": "explain-data",
+        "eligibleTargetIds": [
+          "el_chart_1",
+          "el_chart_2",
+          "el_chart_3"
+        ],
+        "excludedTargetIds": [
+          "el_chart_decoration",
+          "el_chart_footer",
+          "el_chart_connector"
+        ],
+        "plan": {
+          "schemaVersion": 1,
+          "pattern": "evidence-then-insight",
+          "beats": [
+            {
+              "beatId": "beat_entry",
+              "purpose": "orient",
+              "trigger": "entry",
+              "targetElementIds": [
+                "el_chart_1"
+              ],
+              "relation": "together"
+            },
+            {
+              "beatId": "beat_click_1",
+              "purpose": "reveal",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_chart_3"
+              ],
+              "relation": "sequence"
+            },
+            {
+              "beatId": "beat_click_2",
+              "purpose": "emphasize",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_chart_2"
+              ],
+              "relation": "sequence"
+            }
+          ]
+        },
+        "compiled": {
+          "compilerVersion": "motion-compiler-v1",
+          "operations": [
+            {
+              "type": "add_animation",
+              "slideId": "slide_chart",
+              "animation": {
+                "animationId": "anim_motion_82b58c5b734d8a7d",
+                "elementId": "el_chart_1",
+                "type": "fade-in",
+                "order": 1,
+                "startMode": "on-slide-enter",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_chart",
+              "animation": {
+                "animationId": "anim_motion_ada57510f62950e1",
+                "elementId": "el_chart_3",
+                "type": "zoom-in",
+                "order": 2,
+                "startMode": "on-click",
+                "durationMs": 450,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_chart",
+              "animation": {
+                "animationId": "anim_motion_3328080e96dad930",
+                "elementId": "el_chart_2",
+                "type": "zoom-in",
+                "order": 3,
+                "startMode": "on-click",
+                "durationMs": 450,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            }
+          ],
+          "entryMotionMs": 400,
+          "maxClickStepMotionMs": 450,
+          "totalMotionMs": 1300
+        },
+        "candidateGraph": {
+          "animationIds": [
+            "anim_motion_82b58c5b734d8a7d",
+            "anim_motion_ada57510f62950e1",
+            "anim_motion_3328080e96dad930"
+          ],
+          "actionAnimationIds": []
+        },
+        "timeline": {
+          "entryRoots": [
+            "anim_motion_82b58c5b734d8a7d"
+          ],
+          "clickRoots": [
+            "anim_motion_ada57510f62950e1",
+            "anim_motion_3328080e96dad930"
+          ],
+          "totalDurationMs": 1300
+        },
+        "stableHash": {
+          "compilerVersion": "motion-compiler-v1",
+          "animationIds": [
+            "anim_motion_82b58c5b734d8a7d",
+            "anim_motion_ada57510f62950e1",
+            "anim_motion_3328080e96dad930"
+          ]
+        }
+      }
+    },
+    {
+      "fixtureId": "comparison-basic",
+      "deckId": "deck_comparison",
+      "baseVersion": 7,
+      "slide": {
+        "slideId": "slide_comparison",
+        "kind": "content",
+        "order": 2,
+        "title": "Option A vs Option B",
+        "style": {},
+        "elements": [
+          {
+            "elementId": "el_comparison_1",
+            "type": "text",
+            "role": "title",
+            "x": 220,
+            "y": 200,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "comparison title 1"
+            }
+          },
+          {
+            "elementId": "el_comparison_2",
+            "type": "text",
+            "role": "body",
+            "x": 340,
+            "y": 340,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "comparison body 2"
+            }
+          },
+          {
+            "elementId": "el_comparison_3",
+            "type": "text",
+            "role": "body",
+            "x": 460,
+            "y": 480,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "comparison body 3"
+            }
+          },
+          {
+            "elementId": "el_comparison_decoration",
+            "type": "rect",
+            "role": "decoration",
+            "visible": true
+          },
+          {
+            "elementId": "el_comparison_footer",
+            "type": "text",
+            "role": "footer",
+            "visible": true,
+            "props": {
+              "text": "footer"
+            }
+          },
+          {
+            "elementId": "el_comparison_connector",
+            "type": "arrow",
+            "visible": true
+          }
+        ],
+        "semanticCues": []
+      },
+      "expected": {
+        "slideType": "comparison",
+        "narrativeIntent": "contrast",
+        "eligibleTargetIds": [
+          "el_comparison_1",
+          "el_comparison_2",
+          "el_comparison_3"
+        ],
+        "excludedTargetIds": [
+          "el_comparison_decoration",
+          "el_comparison_footer",
+          "el_comparison_connector"
+        ],
+        "plan": {
+          "schemaVersion": 1,
+          "pattern": "paired-comparison",
+          "beats": [
+            {
+              "beatId": "beat_entry",
+              "purpose": "orient",
+              "trigger": "entry",
+              "targetElementIds": [
+                "el_comparison_1"
+              ],
+              "relation": "together"
+            },
+            {
+              "beatId": "beat_click_1",
+              "purpose": "contrast",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_comparison_2",
+                "el_comparison_3"
+              ],
+              "relation": "together"
+            }
+          ]
+        },
+        "compiled": {
+          "compilerVersion": "motion-compiler-v1",
+          "operations": [
+            {
+              "type": "add_animation",
+              "slideId": "slide_comparison",
+              "animation": {
+                "animationId": "anim_motion_3958de97724e5c88",
+                "elementId": "el_comparison_1",
+                "type": "fade-in",
+                "order": 1,
+                "startMode": "on-slide-enter",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_comparison",
+              "animation": {
+                "animationId": "anim_motion_68c85b069f5b5a4a",
+                "elementId": "el_comparison_2",
+                "type": "appear",
+                "order": 2,
+                "startMode": "on-click",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_comparison",
+              "animation": {
+                "animationId": "anim_motion_9e7e071b219a3cef",
+                "elementId": "el_comparison_3",
+                "type": "appear",
+                "order": 3,
+                "startMode": "with-previous",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            }
+          ],
+          "entryMotionMs": 400,
+          "maxClickStepMotionMs": 300,
+          "totalMotionMs": 700
+        },
+        "candidateGraph": {
+          "animationIds": [
+            "anim_motion_3958de97724e5c88",
+            "anim_motion_68c85b069f5b5a4a",
+            "anim_motion_9e7e071b219a3cef"
+          ],
+          "actionAnimationIds": []
+        },
+        "timeline": {
+          "entryRoots": [
+            "anim_motion_3958de97724e5c88"
+          ],
+          "clickRoots": [
+            "anim_motion_68c85b069f5b5a4a"
+          ],
+          "totalDurationMs": 700
+        },
+        "stableHash": {
+          "compilerVersion": "motion-compiler-v1",
+          "animationIds": [
+            "anim_motion_3958de97724e5c88",
+            "anim_motion_68c85b069f5b5a4a",
+            "anim_motion_9e7e071b219a3cef"
+          ]
+        }
+      }
+    },
+    {
+      "fixtureId": "quote-basic",
+      "deckId": "deck_quote",
+      "baseVersion": 7,
+      "slide": {
+        "slideId": "slide_quote",
+        "kind": "content",
+        "order": 2,
+        "title": "Customer voice",
+        "style": {
+          "layout": "quote"
+        },
+        "elements": [
+          {
+            "elementId": "el_quote_1",
+            "type": "text",
+            "role": "title",
+            "x": 220,
+            "y": 200,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "quote title 1"
+            }
+          },
+          {
+            "elementId": "el_quote_2",
+            "type": "text",
+            "role": "subtitle",
+            "x": 340,
+            "y": 340,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "quote subtitle 2"
+            }
+          },
+          {
+            "elementId": "el_quote_decoration",
+            "type": "rect",
+            "role": "decoration",
+            "visible": true
+          },
+          {
+            "elementId": "el_quote_footer",
+            "type": "text",
+            "role": "footer",
+            "visible": true,
+            "props": {
+              "text": "footer"
+            }
+          },
+          {
+            "elementId": "el_quote_connector",
+            "type": "arrow",
+            "visible": true
+          }
+        ],
+        "semanticCues": []
+      },
+      "expected": {
+        "slideType": "quote",
+        "narrativeIntent": "emphasize",
+        "eligibleTargetIds": [
+          "el_quote_1",
+          "el_quote_2"
+        ],
+        "excludedTargetIds": [
+          "el_quote_decoration",
+          "el_quote_footer",
+          "el_quote_connector"
+        ],
+        "plan": {
+          "schemaVersion": 1,
+          "pattern": "hero-then-support",
+          "beats": [
+            {
+              "beatId": "beat_entry",
+              "purpose": "orient",
+              "trigger": "entry",
+              "targetElementIds": [
+                "el_quote_1",
+                "el_quote_2"
+              ],
+              "relation": "together"
+            }
+          ]
+        },
+        "compiled": {
+          "compilerVersion": "motion-compiler-v1",
+          "operations": [
+            {
+              "type": "add_animation",
+              "slideId": "slide_quote",
+              "animation": {
+                "animationId": "anim_motion_fce65ae2294ccfb8",
+                "elementId": "el_quote_1",
+                "type": "fade-in",
+                "order": 1,
+                "startMode": "on-slide-enter",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_quote",
+              "animation": {
+                "animationId": "anim_motion_f43725c8018e0e92",
+                "elementId": "el_quote_2",
+                "type": "fade-in",
+                "order": 2,
+                "startMode": "with-previous",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            }
+          ],
+          "entryMotionMs": 400,
+          "maxClickStepMotionMs": 0,
+          "totalMotionMs": 400
+        },
+        "candidateGraph": {
+          "animationIds": [
+            "anim_motion_fce65ae2294ccfb8",
+            "anim_motion_f43725c8018e0e92"
+          ],
+          "actionAnimationIds": []
+        },
+        "timeline": {
+          "entryRoots": [
+            "anim_motion_fce65ae2294ccfb8"
+          ],
+          "clickRoots": [],
+          "totalDurationMs": 400
+        },
+        "stableHash": {
+          "compilerVersion": "motion-compiler-v1",
+          "animationIds": [
+            "anim_motion_fce65ae2294ccfb8",
+            "anim_motion_f43725c8018e0e92"
+          ]
+        }
+      }
+    },
+    {
+      "fixtureId": "summary-basic",
+      "deckId": "deck_summary",
+      "baseVersion": 7,
+      "slide": {
+        "slideId": "slide_summary",
+        "kind": "content",
+        "order": 2,
+        "title": "Summary",
+        "style": {
+          "layout": "closing"
+        },
+        "elements": [
+          {
+            "elementId": "el_summary_1",
+            "type": "text",
+            "role": "title",
+            "x": 220,
+            "y": 200,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "summary title 1"
+            }
+          },
+          {
+            "elementId": "el_summary_2",
+            "type": "text",
+            "role": "body",
+            "x": 340,
+            "y": 340,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "summary body 2"
+            }
+          },
+          {
+            "elementId": "el_summary_3",
+            "type": "text",
+            "role": "body",
+            "x": 460,
+            "y": 480,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "summary body 3"
+            }
+          },
+          {
+            "elementId": "el_summary_4",
+            "type": "text",
+            "role": "body",
+            "x": 580,
+            "y": 620,
+            "width": 600,
+            "height": 100,
+            "visible": true,
+            "props": {
+              "text": "summary body 4"
+            }
+          },
+          {
+            "elementId": "el_summary_decoration",
+            "type": "rect",
+            "role": "decoration",
+            "visible": true
+          },
+          {
+            "elementId": "el_summary_footer",
+            "type": "text",
+            "role": "footer",
+            "visible": true,
+            "props": {
+              "text": "footer"
+            }
+          },
+          {
+            "elementId": "el_summary_connector",
+            "type": "arrow",
+            "visible": true
+          }
+        ],
+        "semanticCues": []
+      },
+      "expected": {
+        "slideType": "summary",
+        "narrativeIntent": "summarize",
+        "eligibleTargetIds": [
+          "el_summary_1",
+          "el_summary_2",
+          "el_summary_3",
+          "el_summary_4"
+        ],
+        "excludedTargetIds": [
+          "el_summary_decoration",
+          "el_summary_footer",
+          "el_summary_connector"
+        ],
+        "plan": {
+          "schemaVersion": 1,
+          "pattern": "summary-recap",
+          "beats": [
+            {
+              "beatId": "beat_entry",
+              "purpose": "orient",
+              "trigger": "entry",
+              "targetElementIds": [
+                "el_summary_1"
+              ],
+              "relation": "together"
+            },
+            {
+              "beatId": "beat_click_1",
+              "purpose": "reveal",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_summary_2",
+                "el_summary_3"
+              ],
+              "relation": "sequence"
+            },
+            {
+              "beatId": "beat_click_2",
+              "purpose": "conclude",
+              "trigger": "click",
+              "targetElementIds": [
+                "el_summary_4"
+              ],
+              "relation": "sequence"
+            }
+          ]
+        },
+        "compiled": {
+          "compilerVersion": "motion-compiler-v1",
+          "operations": [
+            {
+              "type": "add_animation",
+              "slideId": "slide_summary",
+              "animation": {
+                "animationId": "anim_motion_1c71b78acb58d2a4",
+                "elementId": "el_summary_1",
+                "type": "fade-in",
+                "order": 1,
+                "startMode": "on-slide-enter",
+                "durationMs": 400,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_summary",
+              "animation": {
+                "animationId": "anim_motion_050b61b51173e905",
+                "elementId": "el_summary_2",
+                "type": "appear",
+                "order": 2,
+                "startMode": "on-click",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_summary",
+              "animation": {
+                "animationId": "anim_motion_f21671812e1650ae",
+                "elementId": "el_summary_3",
+                "type": "appear",
+                "order": 3,
+                "startMode": "after-previous",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            },
+            {
+              "type": "add_animation",
+              "slideId": "slide_summary",
+              "animation": {
+                "animationId": "anim_motion_fccbafcae56b7e37",
+                "elementId": "el_summary_4",
+                "type": "appear",
+                "order": 4,
+                "startMode": "on-click",
+                "durationMs": 300,
+                "delayMs": 0,
+                "easing": "ease-out"
+              }
+            }
+          ],
+          "entryMotionMs": 400,
+          "maxClickStepMotionMs": 600,
+          "totalMotionMs": 1300
+        },
+        "candidateGraph": {
+          "animationIds": [
+            "anim_motion_1c71b78acb58d2a4",
+            "anim_motion_050b61b51173e905",
+            "anim_motion_f21671812e1650ae",
+            "anim_motion_fccbafcae56b7e37"
+          ],
+          "actionAnimationIds": []
+        },
+        "timeline": {
+          "entryRoots": [
+            "anim_motion_1c71b78acb58d2a4"
+          ],
+          "clickRoots": [
+            "anim_motion_050b61b51173e905",
+            "anim_motion_fccbafcae56b7e37"
+          ],
+          "totalDurationMs": 1300
+        },
+        "stableHash": {
+          "compilerVersion": "motion-compiler-v1",
+          "animationIds": [
+            "anim_motion_1c71b78acb58d2a4",
+            "anim_motion_050b61b51173e905",
+            "anim_motion_f21671812e1650ae",
+            "anim_motion_fccbafcae56b7e37"
+          ]
+        }
+      }
+    }
+  ]
+}

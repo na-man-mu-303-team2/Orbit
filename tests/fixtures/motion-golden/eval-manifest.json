@@ -1,0 +1,17 @@
+{
+  "model": "gpt-4.1-mini-2025-04-14",
+  "plannerSchemaVersion": 1,
+  "compilerVersion": "motion-compiler-v1",
+  "fixtureVersion": 1,
+  "runsPerFixture": 5,
+  "safetyInvariants": [
+    "invalidTarget",
+    "unsafeSlideProposal",
+    "excludedTarget",
+    "danglingAction",
+    "unsupportedGeneratedEffect",
+    "capViolation",
+    "speakerNotesArtifact",
+    "compileFailure"
+  ]
+}
