@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR0 기준선 fixture와 renderer 위험 검증
-- task branch: `feature/pptx-import-pr0-baseline`
-- 상태: target branch `--no-ff` merge와 merge 후 smoke test 완료
+- 단계: PR1 공통 import·notes·quality 계약 확장
+- task branch: `feature/pptx-import-pr1-contracts`
+- 상태: schema·문서 구현과 task branch 검증 완료, commit/merge 대기
 
 ## 완료된 작업과 Commit
 
@@ -30,6 +30,8 @@
 | 초기 실행 기준 확인          | `90082d1e`  | `feature/pptx-import-pr0-baseline` | `f3ca2ab3`   | 저장소 규칙, 공통 계약, 구현 계획, commit convention 전체 확인                         |
 | PR0 fixture·renderer harness | `bc8ad700`  | `feature/pptx-import-pr0-baseline` | `f3ca2ab3`   | fixture 회귀 테스트, LibreOffice 위험 측정, synthetic/실제 Konva accuracy harness 추가 |
 | PR0 기준선 결정              | `6f545bf3`  | `feature/pptx-import-pr0-baseline` | `f3ca2ab3`   | LibreOffice 채택, runtime Konva 기각 및 CI-only 결정 문서화                            |
+| PR1 공통 계약                 | `ae837d6f`  | `feature/pptx-import-pr1-contracts` | 미병합       | strict request, optional slide mode, notes sidecar와 bounded diagnostics 검증          |
+| PR1 계약 문서                 | 현재 commit | `feature/pptx-import-pr1-contracts` | 미병합       | `docs/contracts.md`, shared README와 실행 근거 정합화                                  |
 
 ## 실행한 검증
 
@@ -49,6 +51,8 @@
 | 실제 기준 Konva       | 8 slides capture + SSIM                                                              | 8/8 캡처, 평균 0.9156, gate 3/8                      |
 | merge 후 Python smoke | `pytest tests/test_pptx_ooxml_generation.py -k import_fidelity_fixture`              | 2 passed, 21 deselected                              |
 | merge 후 Web smoke    | Playwright wrapper `--grep 16_import_fidelity_notes`                                 | 1 passed                                             |
+| PR1 shared test       | `pnpm --filter @orbit/shared test`                                                    | 54 files, 573 tests passed                           |
+| PR1 shared build      | `pnpm --filter @orbit/shared build`                                                   | TypeScript build 성공                                |
 
 ## PR0 Renderer 측정과 결정
 
@@ -72,11 +76,13 @@
 - payload를 slide별 단일 deck으로 분리해 1.6~6.6MB로 줄였으나 5MB를 넘는 6~8 slide는 같은 한계가 남았다.
 - accuracy E2E 초기화에서 data URL을 동일 바이트 `blob:` URL로 바꿔 localStorage에는 짧은 URL만 저장하도록 보정했다. 이후 8/8 capture가 성공했다.
 - sibling worktree의 `node_modules` symlink를 따라간 Pretendard 파일은 Vite serving allow list 밖이라 차단됐다. 앱 코드가 동일한 원본 workspace에서 Vite만 실행해 정상 font 조건으로 측정했다.
+- PR1 첫 shared build는 sandbox가 sibling worktree의 `packages/shared/dist` 생성을 막아 `TS5033 EPERM`으로 실패했다. 동일 명령을 승인된 worktree 쓰기 권한으로 재실행해 성공했고 생성한 ignored `dist`와 임시 dependency symlink는 제거한다.
 
 ## 계획 대비 변경과 근거
 
 - 기존 synthetic-only accuracy 준비 도구에 실제 multi-slide source mode를 추가했다. 원본은 커밋하지 않고 hash와 bounded count만 manifest에 남긴다.
 - accuracy E2E는 대형 data URL을 `blob:` URL로 치환한다. asset byte와 renderer 동작은 유지하면서 localStorage 운반 한계만 제거한다.
+- PR1 slide fidelity 진단 다섯 필드는 legacy result에서는 모두 생략할 수 있지만 신규 result에서는 함께 존재하도록 묶었다. 부분 진단과 기존 `status`에 모순되는 `pixelEvaluation`을 계약 단계에서 거부하기 위함이다.
 
 ## 알려진 제한 사항
 
@@ -87,10 +93,10 @@
 
 ## 다음에 시작할 정확한 작업
 
-1. target branch의 clean 상태와 PR0 ledger commit을 확인한다.
-2. `feature/pptx-import-pr1-contracts` task branch를 target branch HEAD에서 생성한다.
-3. `packages/shared`의 import preference, render mode, notes locator/preview metadata, bounded quality diagnostics를 optional/default 호환으로 확장한다.
-4. `docs/contracts.md`와 shared schema test를 함께 갱신하고 raw notes/XML/base64 field 거부를 검증한다.
+1. PR1 변경 범위와 임시 산출물 제거 상태를 최종 확인한다.
+2. shared schema/test와 계약 문서를 상세 한국어 commit으로 기록한다.
+3. target branch에 `--no-ff` merge하고 shared smoke test와 merge SHA를 ledger에 기록한다.
+4. `feature/pptx-import-pr2-notes-import` task branch에서 relationship 기반 notes body/provenance import를 시작한다.
 
 ## 사용자 결정이 필요한 Blocker
 
