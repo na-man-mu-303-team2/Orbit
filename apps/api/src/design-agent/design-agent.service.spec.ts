@@ -270,6 +270,7 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
             "ellipse",
             "line",
             "polygon",
+            "image",
             "chart",
             "table",
           ],

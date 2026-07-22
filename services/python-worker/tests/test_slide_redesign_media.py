@@ -8,6 +8,7 @@ from app.ai.slide_redesign.composer import (
 from app.ai.slide_redesign.media import (
     MediaSlot,
     assign_media,
+    build_media_operations,
     collect_source_images,
     find_media_slots,
 )
@@ -144,3 +145,36 @@ def test_collect_source_images_includes_svg_and_sorts_by_area() -> None:
     sources = collect_source_images(slide)
 
     assert [source["elementId"] for source in sources] == ["el_large", "el_small"]
+
+
+def test_media_relocation_uses_frame_and_props_updates_without_delete() -> None:
+    assignments = assign_media(
+        [media_slot()],
+        [source_image("el_image_1")],
+    )
+
+    assert assignments is not None
+    operations = build_media_operations("slide-1", assignments)
+
+    assert [operation["type"] for operation in operations] == [
+        "update_element_frame",
+        "update_element_props",
+    ]
+    assert {operation["elementId"] for operation in operations} == {"el_image_1"}
+    assert operations[0]["frame"] == {
+        "role": "media",
+        "x": 120,
+        "y": 200,
+        "width": 1200,
+        "height": 600,
+        "zIndex": 4,
+    }
+    assert operations[1]["props"] == {"fit": "contain"}
+    assert all(operation["type"] != "delete_element" for operation in operations)
+
+
+def test_unfilled_media_slot_emits_no_element_operation() -> None:
+    assignments = assign_media([media_slot()], [])
+
+    assert assignments is not None
+    assert build_media_operations("slide-1", assignments) == []

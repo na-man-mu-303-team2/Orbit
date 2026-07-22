@@ -134,6 +134,43 @@ def assign_media(
     return assignments
 
 
+def build_media_operations(
+    slide_id: str,
+    assignments: list[MediaAssignment],
+) -> list[dict[str, Any]]:
+    """Move assigned sources into media slots without replacing their IDs."""
+    operations: list[dict[str, Any]] = []
+    for assignment in assignments:
+        element_id = assignment.source_element_id
+        if element_id is None:
+            continue
+        slot = assignment.slot
+        operations.extend(
+            [
+                {
+                    "type": "update_element_frame",
+                    "slideId": slide_id,
+                    "elementId": element_id,
+                    "frame": {
+                        "role": "media",
+                        "x": slot.x,
+                        "y": slot.y,
+                        "width": slot.width,
+                        "height": slot.height,
+                        "zIndex": slot.z_index + 1,
+                    },
+                },
+                {
+                    "type": "update_element_props",
+                    "slideId": slide_id,
+                    "elementId": element_id,
+                    "props": {"fit": assignment.fit},
+                },
+            ]
+        )
+    return operations
+
+
 def _aspect_ratio(width: float, height: float) -> AspectRatio:
     ratio = width / height
     if ratio > 1.2:
