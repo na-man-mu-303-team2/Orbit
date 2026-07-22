@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD before PR01 merge: `047c7ac5`
+- integration HEAD after PR01 merge: `82d9c6370ab50792ac7adafb7e23e3863367b288`
 - worktree: clean
 
 ## Baseline
@@ -23,8 +23,9 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00
-- 현재 milestone: PR01 — Python design-agent 모델 정합화 (child 검증 완료, integration merge 대기)
+- 완료 milestone: PR00~PR01
+- PR01 integration merge: `82d9c6370ab50792ac7adafb7e23e3863367b288`
+- 현재 milestone: PR02 — 슬라이드 해석기와 provenance
 - 활성 child branch: `feature/slide-redesign-agent-v2-pr01-model`
 - 활성 child worktree: `/private/tmp/orbit-slide-redesign-agent-v2-pr01-model`
 - PR01 완료 checkpoint와 code commit:
@@ -41,7 +42,12 @@
   - `pnpm typecheck` — 17 tasks passed
 - PR01 stop gate: T1.1~T1.10 통과, capability version `1` 유지, 기존 baseline API 실패 외 새 실패 없음
 - child worktree: code commit 후 clean
-- 남은 stop gate: integration merge 후 PR01 focused/full 관련 검증 재실행
+- integration merge 후 검증:
+  - `uv run ruff check app/ai/design_agent.py tests/test_design_agent.py` — 통과
+  - `uv run mypy app` — 63 source files 통과
+  - `uv run pytest tests/test_design_agent.py -v` — 53 passed
+- 남은 stop gate: 없음
+- PR01 child 상태: integration merge 완료, progress commit 후 clean worktree 정리 예정
 - 다음 milestone: PR02 — 슬라이드 해석기와 provenance
 
 ## 완료 Milestone 기록
