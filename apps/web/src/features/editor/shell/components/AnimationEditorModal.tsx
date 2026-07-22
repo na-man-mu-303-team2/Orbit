@@ -296,7 +296,7 @@ export function AnimationEditorModal(props: AnimationEditorModalProps) {
             <div className="animation-editor-create-actions">
               <span className="animation-editor-footer-hint">
                 {selectedKeywordLabel && !selectedKeywordOccurrenceKey
-                  ? "반복되는 단어일 수 있습니다. 발표 메모에서 실제로 트리거할 단어 위치를 선택하세요."
+                  ? "발표 메모에서 애니메이션을 시작할 단어를 선택하세요."
                   : selectedKeywordLabel
                   ? "선택한 키워드와 현재 설정으로 새 애니메이션이 추가됩니다."
                   : "1번에서 키워드를 먼저 선택하면 2번 설정과 추가하기가 활성화됩니다."}

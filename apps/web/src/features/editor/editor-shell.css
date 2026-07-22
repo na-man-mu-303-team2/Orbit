@@ -5287,9 +5287,81 @@
   border-top: 0;
 }
 
+.animation-keyword-selection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--redesign-space-3);
+  align-items: center;
+  padding: var(--redesign-space-3);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  background: var(--redesign-color-surface-container-low);
+}
+
+.animation-keyword-selection.selected {
+  border-color: var(--redesign-color-primary-outline);
+  background: var(--redesign-color-primary-subtle);
+}
+
+.animation-keyword-selection > div {
+  min-width: 0;
+  display: grid;
+  gap: var(--redesign-space-1);
+}
+
+.animation-keyword-selection strong {
+  overflow-wrap: anywhere;
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-sm-size);
+}
+
+.animation-keyword-selection span {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  line-height: 1.45;
+}
+
+.animation-keyword-selection-action {
+  min-height: 36px;
+  padding: 0 var(--redesign-space-3);
+  border: 1px solid var(--redesign-color-outline);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.animation-keyword-selection-action:hover,
+.animation-keyword-selection-action:focus-visible {
+  border-color: var(--redesign-color-primary);
+  color: var(--redesign-color-primary);
+}
+
+.animation-trigger-status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 24px;
+  padding: 0 var(--redesign-space-2);
+  border-radius: var(--redesign-radius-full);
+  background: var(--redesign-color-primary-subtle);
+  color: var(--redesign-color-primary-emphasis);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 800;
+}
+
 .animation-panel-existing-list {
   display: grid;
   gap: var(--redesign-space-2);
+}
+
+.animation-panel-existing-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--redesign-space-2);
+  align-items: stretch;
 }
 
 .animation-panel-existing-item {
@@ -5303,6 +5375,30 @@
   border-radius: var(--redesign-radius-xl);
   background: var(--redesign-color-surface-container-low);
   text-align: left;
+}
+
+.animation-panel-existing-delete {
+  width: 34px;
+  min-height: 34px;
+  align-self: center;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--redesign-radius-sm);
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.animation-panel-existing-delete:hover,
+.animation-panel-existing-delete:focus-visible {
+  border-color: var(--redesign-color-error-subtle);
+  background: var(--redesign-color-error-subtle);
+  color: var(--redesign-color-error);
+}
+
+.animation-panel-existing-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .animation-panel-existing-item.selected {
@@ -5354,6 +5450,11 @@
   border: 1px solid var(--redesign-color-outline);
   border-radius: var(--redesign-radius-xl);
   background: var(--redesign-color-surface-container-low);
+}
+
+.animation-panel-delete-notice {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
 }
 
 .animation-panel-timing-fields {
@@ -5412,6 +5513,34 @@
   justify-content: space-between;
   gap: var(--redesign-space-2);
   flex-wrap: wrap;
+}
+
+@media (max-width: 480px) {
+  .orbit-shell.editor-professional .inspector-animation-properties .animation-panel-effect-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .orbit-shell.editor-professional .inspector-animation-properties .animation-keyword-selection {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .orbit-shell.editor-professional .inspector-animation-properties .animation-keyword-selection-action,
+  .orbit-shell.editor-professional .inspector-animation-properties .animation-panel-timing-actions > button {
+    width: 100%;
+  }
+
+  .orbit-shell.editor-professional .inspector-animation-properties .animation-range-field-control {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .orbit-shell.editor-professional .inspector-animation-properties .animation-range-number {
+    text-align: left;
+    padding: 0 var(--redesign-space-3);
+  }
+
+  .orbit-shell.editor-professional .inspector-animation-properties .animation-panel-existing-row {
+    align-items: center;
+  }
 }
 
 .animation-panel-primary-button,
@@ -6992,6 +7121,23 @@
 }
 
 @media (max-width: 860px) {
+  .orbit-shell.editor-professional .ai-pane:not(.collapsed):has(.inspector-animation-properties) {
+    height: min(620px, calc(100dvh - 76px));
+    max-height: min(620px, calc(100dvh - 76px));
+  }
+
+  .orbit-shell.editor-professional .inspector-animation-properties > .animation-inspector-panel {
+    overscroll-behavior: contain;
+  }
+
+  .orbit-shell.editor-professional .inspector-animation-properties .animation-panel-effect-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .orbit-shell.editor-professional .inspector-animation-properties .animation-panel-existing-item {
+    min-width: 0;
+  }
+
   .orbit-shell.editor-app-shell {
     grid-template-rows: 64px minmax(0, 1fr);
     min-height: 620px;

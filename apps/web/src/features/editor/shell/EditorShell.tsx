@@ -723,6 +723,16 @@ export function EditorShell(props: { projectId?: string }) {
   const handleStartSpeakerNotesEdit = speakerNotesEditorActions.startEdit;
   const getSpeakerNotesPanelMaxHeight = speakerNotesPanelActions.getMaxHeight;
   const handleToggleSpeakerNotesPanel = speakerNotesPanelActions.toggle;
+  const handleRequestKeywordOccurrence = useCallback(() => {
+    setRequestedSpeakerNotesTab("script");
+    speakerNotesPanelActions.expand();
+    requestAnimationFrame(() => {
+      speakerNotesContentRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest"
+      });
+    });
+  }, [speakerNotesContentRef, speakerNotesPanelActions]);
   function handleSpeakerNotesTabSelected(tab: SpeakerNotesTab) {
     setRequestedSpeakerNotesTab(null);
     if (tab === "report") {
@@ -2457,6 +2467,14 @@ export function EditorShell(props: { projectId?: string }) {
                     : []
                 ) ?? []
               }
+              legacyKeywordAnimationIds={
+                currentSlide?.actions.flatMap((action) =>
+                  action.effect.kind === "play-animation" &&
+                  action.trigger.kind === "keyword"
+                    ? [action.effect.animationId]
+                    : []
+                ) ?? []
+              }
               animations={selectedElementAnimations}
               canCreateAnimation={Boolean(
                 currentSlide &&
@@ -2496,7 +2514,7 @@ export function EditorShell(props: { projectId?: string }) {
                   handleDeleteAnimation(currentSlide.slideId, animationId);
                 }
               }}
-              onSelectKeyword={handleSelectKeyword}
+              onRequestKeywordOccurrence={handleRequestKeywordOccurrence}
               onSelectSlideAnimation={handleSelectSlideAnimationFromPanel}
               onUpdateAnimation={(animationId, animation) => {
                 if (currentSlide) {

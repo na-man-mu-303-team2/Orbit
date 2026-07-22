@@ -6,7 +6,7 @@ import { AnimationTimingFields } from "./AnimationTimingFields";
 
 export function AnimationExistingEditor(props: {
   animation: DeckAnimation;
-  deleteDisabledReason?: string | null;
+  deleteNotice?: string | null;
   previousEffectSummary?: string | null;
   startModeChangeDisabledReason?: string | null;
   onDeleteAnimation: (animationId: string) => void;
@@ -17,7 +17,7 @@ export function AnimationExistingEditor(props: {
 }) {
   const {
     animation,
-    deleteDisabledReason = null,
+    deleteNotice = null,
     previousEffectSummary = null,
     startModeChangeDisabledReason = null,
     onDeleteAnimation,
@@ -51,10 +51,12 @@ export function AnimationExistingEditor(props: {
         }
       />
       <div className="animation-panel-timing-actions">
+        {deleteNotice ? (
+          <span className="animation-panel-delete-notice">{deleteNotice}</span>
+        ) : null}
         <button
           className="animation-panel-danger-button"
-          disabled={Boolean(deleteDisabledReason)}
-          title={deleteDisabledReason ?? undefined}
+          title={deleteNotice ?? undefined}
           type="button"
           onClick={() => onDeleteAnimation(animation.animationId)}
         >

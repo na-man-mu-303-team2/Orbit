@@ -4,6 +4,7 @@ import {
   createAnimationTimeline,
   createDefaultAnimation,
   createDeleteAnimationPatch,
+  createDeleteAnimationTimelineRootPatch,
   createKeyword,
   createReplaceKeywordsPatch,
   createUpdateAnimationPatch,
@@ -86,6 +87,11 @@ export function useEditorSlideCommands(args: {
   }
 
   function selectKeyword(keywordId: string, occurrenceKey: string | null = null) {
+    if (occurrenceKey) {
+      args.setSelectedKeywordId(keywordId);
+      args.setSelectedKeywordOccurrenceKey(occurrenceKey);
+      return;
+    }
     const shouldClear = args.selectedKeywordId === keywordId && args.selectedKeywordOccurrenceKey === occurrenceKey;
     args.setSelectedKeywordId(shouldClear ? null : keywordId);
     args.setSelectedKeywordOccurrenceKey(shouldClear ? null : occurrenceKey);
@@ -139,7 +145,7 @@ export function useEditorSlideCommands(args: {
       args.currentSlide?.keywords.find((candidate) => candidate.keywordId === keywordId);
     if (!occurrenceKey && !keyword?.required) {
       if (typeof window !== "undefined") window.alert(
-        "반복되는 단어일 수 있습니다. 발표 메모에서 필수 발화로 표시할 단어 위치를 선택하세요."
+        "발표 메모에서 필수 키워드로 표시할 단어를 선택하세요."
       );
       return;
     }
@@ -162,7 +168,7 @@ export function useEditorSlideCommands(args: {
   ) {
     if (enabled && !occurrenceKey) {
       if (typeof window !== "undefined") window.alert(
-        "반복되는 단어일 수 있습니다. 발표 메모에서 실제로 트리거할 단어 위치를 선택하세요."
+        "발표 메모에서 다음 슬라이드를 넘길 단어를 선택하세요."
       );
       return;
     }
@@ -186,6 +192,12 @@ export function useEditorSlideCommands(args: {
     >
   ) {
     if (!allowMotionMutation(slideId, "animation")) return;
+    if (keywordId && !keywordOccurrenceId) {
+      args.setLastPatchLabel(
+        "발표 메모에서 애니메이션을 시작할 단어 위치를 선택하세요."
+      );
+      return;
+    }
     const typeReason = draft?.type
       ? getAnimationTypeMutationDisabledReason(draft.type)
       : null;
@@ -237,8 +249,14 @@ export function useEditorSlideCommands(args: {
       (candidate) => candidate.slideId === slideId
     );
     if (slide && isAnimationInActionLinkedRoot(slide, animationId)) {
-      args.setLastPatchLabel(
-        "action과 연결된 재생 체인은 action을 먼저 제거한 뒤 삭제할 수 있습니다."
+      if (
+        typeof window !== "undefined" &&
+        !window.confirm(
+          "연결된 action과 재생 체인도 함께 삭제됩니다. 계속할까요?"
+        )
+      ) return;
+      args.commitPatch((deck) =>
+        createDeleteAnimationTimelineRootPatch(deck, slideId, animationId)
       );
       return;
     }

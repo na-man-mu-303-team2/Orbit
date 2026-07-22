@@ -47,7 +47,7 @@ describe("AnimationInspectorPanel", () => {
         slideElements={slide.elements}
         onAddAnimation={vi.fn()}
         onDeleteAnimation={vi.fn()}
-        onSelectKeyword={vi.fn()}
+        onRequestKeywordOccurrence={vi.fn()}
         onSelectSlideAnimation={vi.fn()}
         showIds
         onUpdateAnimation={vi.fn()}
@@ -102,7 +102,7 @@ describe("AnimationInspectorPanel", () => {
         slideElements={slide.elements}
         onAddAnimation={vi.fn()}
         onDeleteAnimation={vi.fn()}
-        onSelectKeyword={vi.fn()}
+        onRequestKeywordOccurrence={vi.fn()}
         onSelectSlideAnimation={vi.fn()}
         showIds={false}
         onUpdateAnimation={vi.fn()}
@@ -133,7 +133,7 @@ describe("AnimationInspectorPanel", () => {
         slideElements={slide.elements}
         onAddAnimation={vi.fn()}
         onDeleteAnimation={vi.fn()}
-        onSelectKeyword={vi.fn()}
+        onRequestKeywordOccurrence={vi.fn()}
         onSelectSlideAnimation={vi.fn()}
         showIds={false}
         onUpdateAnimation={vi.fn()}
@@ -162,7 +162,7 @@ describe("AnimationInspectorPanel", () => {
         slideElements={slide.elements}
         onAddAnimation={vi.fn()}
         onDeleteAnimation={vi.fn()}
-        onSelectKeyword={vi.fn()}
+        onRequestKeywordOccurrence={vi.fn()}
         onSelectSlideAnimation={vi.fn()}
         showIds={false}
         onUpdateAnimation={vi.fn()}
@@ -173,7 +173,7 @@ describe("AnimationInspectorPanel", () => {
     expect(html).toContain("ORBIT");
   });
 
-  it("protects the root of an action-linked follower chain from edit and deletion", () => {
+  it("keeps the root of an action-linked follower chain timing-locked but removable", () => {
     const deck = createDemoDeck();
     const slide = {
       ...deck.slides[0]!,
@@ -215,7 +215,7 @@ describe("AnimationInspectorPanel", () => {
         slideElements={slide.elements}
         onAddAnimation={vi.fn()}
         onDeleteAnimation={vi.fn()}
-        onSelectKeyword={vi.fn()}
+        onRequestKeywordOccurrence={vi.fn()}
         onSelectSlideAnimation={vi.fn()}
         showIds={false}
         onUpdateAnimation={vi.fn()}
@@ -224,7 +224,53 @@ describe("AnimationInspectorPanel", () => {
 
     expect(html).toContain("action과 연결된 재생 체인");
     expect(html).toMatch(/<select[^>]*disabled=""/);
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>애니메이션 제거<\/button>/);
+    expect(html).toContain("연결된 action과 재생 체인이 함께 삭제됩니다.");
+    expect(html).toContain('aria-label="페이드 인 애니메이션 삭제"');
+    expect(html).toMatch(/<button[^>]*>애니메이션 제거<\/button>/);
+  });
+
+  it("flags a legacy keyword trigger without changing it automatically", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      animations: [
+        {
+          animationId: "anim_legacy_keyword",
+          elementId: "el_1",
+          type: "fade-in" as const,
+          order: 1,
+          startMode: "on-click" as const,
+          durationMs: 400,
+          delayMs: 0,
+          easing: "ease-out" as const
+        }
+      ]
+    };
+    const element = slide.elements.find(({ elementId }) => elementId === "el_1")!;
+    const html = renderToString(
+      <AnimationInspectorPanel
+        actionAnimationIds={["anim_legacy_keyword"]}
+        legacyKeywordAnimationIds={["anim_legacy_keyword"]}
+        animations={slide.animations}
+        canCreateAnimation
+        element={element}
+        keywordOptions={[]}
+        preferredAnimationId="anim_legacy_keyword"
+        selectedKeywordId={null}
+        selectedKeywordLabel={null}
+        slideAnimations={slide.animations}
+        slideElements={slide.elements}
+        onAddAnimation={vi.fn()}
+        onDeleteAnimation={vi.fn()}
+        onRequestKeywordOccurrence={vi.fn()}
+        onSelectSlideAnimation={vi.fn()}
+        showIds={false}
+        onUpdateAnimation={vi.fn()}
+      />
+    );
+
+    expect(html).toContain("기존 키워드 트리거입니다.");
+    expect(html).toContain("대본 위치를 다시 선택해 연결하세요.");
   });
 
   it("disables effect selection with the slide mutation reason", () => {
@@ -246,7 +292,7 @@ describe("AnimationInspectorPanel", () => {
         slideElements={slide.elements}
         onAddAnimation={vi.fn()}
         onDeleteAnimation={vi.fn()}
-        onSelectKeyword={vi.fn()}
+        onRequestKeywordOccurrence={vi.fn()}
         onSelectSlideAnimation={vi.fn()}
         showIds={false}
         onUpdateAnimation={vi.fn()}

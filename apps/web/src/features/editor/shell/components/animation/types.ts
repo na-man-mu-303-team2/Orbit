@@ -22,6 +22,7 @@ export type AnimationTimingDraft = Omit<AnimationDraftInput, "type">;
 
 export type AnimationEditorPanelProps = {
   actionAnimationIds?: Iterable<string>;
+  legacyKeywordAnimationIds?: Iterable<string>;
   animations: DeckAnimation[];
   canCreateAnimation: boolean;
   element: DeckElement | null;
@@ -41,7 +42,7 @@ export type AnimationEditorPanelProps = {
     keywordOccurrenceId?: string | null
   ) => void;
   onDeleteAnimation: (animationId: string) => void;
-  onSelectKeyword: (keywordId: string) => void;
+  onRequestKeywordOccurrence: () => void;
   onSelectSlideAnimation: (animation: DeckAnimation) => void;
   onUpdateAnimation: (
     animationId: string,

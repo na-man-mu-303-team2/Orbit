@@ -16,6 +16,7 @@ import {
 export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
   const {
     actionAnimationIds = [],
+    legacyKeywordAnimationIds = [],
     animations,
     canCreateAnimation,
     element,
@@ -31,7 +32,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     slideElements,
     onAddAnimation,
     onDeleteAnimation,
-    onSelectKeyword,
+    onRequestKeywordOccurrence,
     onSelectSlideAnimation,
     showIds,
     onUpdateAnimation
@@ -54,6 +55,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     ? getPreviousSlideAnimation(slideAnimations, selectedAnimation.animationId)
     : null;
   const actionAnimationIdSet = new Set(actionAnimationIds);
+  const legacyKeywordAnimationIdSet = new Set(legacyKeywordAnimationIds);
   const selectedTimelineRoot = selectedAnimation
     ? getAnimationTimelineRoot(
         createAnimationTimeline({
@@ -71,19 +73,40 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
   const actionLinkedStartModeReason = isSelectedRootActionLinked
     ? "action과 연결된 재생 체인의 시작 방식은 변경할 수 없습니다."
     : null;
-  const actionLinkedDeleteReason = isSelectedRootActionLinked
-    ? "action을 먼저 제거한 뒤 재생 체인을 삭제할 수 있습니다."
-    : null;
+  const deleteNoticeByAnimationId = Object.fromEntries(
+    slideAnimations.flatMap((animation) => {
+      const timelineRoot = getAnimationTimelineRoot(
+        createAnimationTimeline({
+          animations: slideAnimations,
+          legacyOnClickAnimationIds: actionAnimationIdSet
+        }),
+        animation.animationId
+      );
+      const actionLinked = timelineRoot?.effects.some((candidate) =>
+        actionAnimationIdSet.has(candidate.animationId)
+      );
+      const notices = [
+        actionLinked ? "연결된 action과 재생 체인이 함께 삭제됩니다." : null,
+        legacyKeywordAnimationIdSet.has(animation.animationId)
+          ? "기존 키워드 트리거입니다. 대본 위치를 다시 선택해 연결하세요."
+          : null
+      ].filter((notice): notice is string => Boolean(notice));
+      return notices.length > 0 ? [[animation.animationId, notices.join(" ")]] : [];
+    })
+  );
 
   if (!element) {
     return slideAnimations.length > 0 ? (
       <section className="property-panel animation-inspector-panel">
         <AnimationSlideOverview
           animations={slideAnimations}
+          deleteDisabledReason={mutationDisabledReason}
           elements={slideElements}
           focusedAnimationId={preferredAnimationId}
           ordinalLabelByAnimationId={ordinalLabelByAnimationId}
+          deleteNoticeByAnimationId={deleteNoticeByAnimationId}
           showIds={showIds}
+          onDeleteAnimation={onDeleteAnimation}
           onSelectAnimation={onSelectSlideAnimation}
         />
       </section>
@@ -108,8 +131,11 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
 
       <AnimationExistingList
         animations={animations}
+        deleteDisabledReason={mutationDisabledReason}
+        deleteNoticeByAnimationId={deleteNoticeByAnimationId}
         ordinalLabelByAnimationId={ordinalLabelByAnimationId}
         selectedAnimationId={selectedAnimationId}
+        onDeleteAnimation={onDeleteAnimation}
         onSelectAnimation={selectAnimation}
       />
 
@@ -133,7 +159,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
 
           updateDraft(creationType, patch);
         }}
-        onSelectKeyword={onSelectKeyword}
+        onRequestKeywordOccurrence={onRequestKeywordOccurrence}
         onStartCreating={startCreating}
       />
 
@@ -144,7 +170,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
         >
           <AnimationExistingEditor
             animation={selectedAnimation}
-            deleteDisabledReason={actionLinkedDeleteReason}
+            deleteNotice={deleteNoticeByAnimationId[selectedAnimation.animationId]}
             previousEffectSummary={
               previousSelectedAnimation
                 ? formatPreviousAnimationSummary(

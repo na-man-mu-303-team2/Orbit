@@ -149,6 +149,9 @@ export function KeywordHighlightedNotes(props: {
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
+                if (keyword && occurrenceKey) {
+                  onSelectKeyword(keyword.keywordId, occurrenceKey);
+                }
                 setOpenTokenKey((current) =>
                   current === tokenKey ? null : tokenKey
                 );

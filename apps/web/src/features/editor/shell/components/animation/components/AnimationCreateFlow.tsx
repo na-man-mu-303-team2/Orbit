@@ -26,7 +26,7 @@ export function AnimationCreateFlow(props: {
     keywordOccurrenceId?: string | null
   ) => void;
   onDraftChange: (patch: Partial<AnimationTimingDraft>) => void;
-  onSelectKeyword: (keywordId: string) => void;
+  onRequestKeywordOccurrence: () => void;
   onStartCreating: (type: SupportedAnimationType) => void;
 }) {
   const {
@@ -43,7 +43,7 @@ export function AnimationCreateFlow(props: {
     selectedKeywordOccurrenceId = null,
     onAddAnimation,
     onDraftChange,
-    onSelectKeyword,
+    onRequestKeywordOccurrence,
     onStartCreating
   } = props;
 
@@ -61,7 +61,9 @@ export function AnimationCreateFlow(props: {
         keywordTriggerRestrictionMessage={keywordTriggerRestrictionMessage}
         keywordTriggerWarningMessage={keywordTriggerWarningMessage}
         selectedKeywordId={selectedKeywordId}
-        onSelectKeyword={onSelectKeyword}
+        selectedKeywordLabel={selectedKeywordLabel}
+        selectedKeywordOccurrenceId={selectedKeywordOccurrenceId}
+        onRequestKeywordOccurrence={onRequestKeywordOccurrence}
       />
 
       {creationType && draft ? (
