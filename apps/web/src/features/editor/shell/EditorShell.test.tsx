@@ -450,6 +450,55 @@ describe("editor shell", () => {
     expect(undo?.nextStack).toHaveLength(49);
   });
 
+  it("restores a final design proposal with exactly one undo step", () => {
+    const previousDeck = createDemoDeck();
+    const history = appendAppliedDesignProposalHistory({
+      currentDeck: previousDeck,
+      currentSlideId: previousDeck.slides[0]?.slideId ?? null,
+      undoStack: []
+    });
+    const appliedDeck = {
+      ...previousDeck,
+      title: "AI 디자인 적용 후",
+      version: previousDeck.version + 1,
+      slides: previousDeck.slides.map((slide, index) =>
+        index === 0
+          ? {
+              ...slide,
+              title: "AI 디자인이 적용된 장표",
+              elements: slide.elements.map((element) => ({
+                ...element,
+                x: element.x + 24
+              }))
+            }
+          : slide
+      )
+    };
+
+    expect(history).toEqual([
+      {
+        deck: previousDeck,
+        slideId: previousDeck.slides[0]?.slideId ?? null
+      }
+    ]);
+
+    const undo = resolveHistoryNavigation({
+      currentDeck: appliedDeck,
+      currentSlideId: appliedDeck.slides[0]?.slideId ?? null,
+      stack: history
+    });
+
+    expect(undo?.targetEntry.deck).toBe(previousDeck);
+    expect(undo?.nextStack).toEqual([]);
+    expect(
+      resolveHistoryNavigation({
+        currentDeck: previousDeck,
+        currentSlideId: previousDeck.slides[0]?.slideId ?? null,
+        stack: undo?.nextStack ?? []
+      })
+    ).toBeNull();
+  });
+
   it("prompts before discarding a dirty speaker notes draft", () => {
     expect(
       shouldPromptSpeakerNotesDraftDiscard({

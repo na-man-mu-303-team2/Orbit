@@ -612,10 +612,12 @@ async function finishVerifiedProposal(
         payload.context.baseVersion,
         persistedProposal.title,
         persistedProposal.summary ?? null,
-        persistedProposal.operations,
-        persistedProposal.interpretedIntent ?? null,
-        persistedProposal.affectedElementIds,
-        persistedProposal.warnings,
+        JSON.stringify(persistedProposal.operations),
+        persistedProposal.interpretedIntent
+          ? JSON.stringify(persistedProposal.interpretedIntent)
+          : null,
+        JSON.stringify(persistedProposal.affectedElementIds),
+        JSON.stringify(persistedProposal.warnings),
         persistedProposal.status,
         createdAt,
       ],
