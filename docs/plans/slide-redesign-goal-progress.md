@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD after PR14 merge: `05d20ce4dd57532bb3059fda34a0df72f49b5e42`
+- integration HEAD after PR15 merge: `b39badbe5979d75b8f784a1a16927c4b25700ccc`
 - worktree: clean
 
 ## Baseline
@@ -23,26 +23,56 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR14
-- PR14 integration merge: `05d20ce4dd57532bb3059fda34a0df72f49b5e42`
-- 현재 milestone: PR15 — backend optional illustration
+- 완료 milestone: PR00~PR15
+- PR15 integration merge: `b39badbe5979d75b8f784a1a16927c4b25700ccc`
+- 현재 milestone: PR16 — async progress UI
 - 활성 child branch/worktree: 없음
 - integration merge 후 검증:
   - `pnpm --filter @orbit/shared test` — 589 passed
-  - Worker slide-redesign·queue focused — 28 passed
-  - API realtime focused — 3 passed
-  - Worker/API typecheck — 통과
+  - `pnpm --filter @orbit/worker test` — 401 passed, 14 skipped
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 610 passed, 1 skipped
+  - Python slide-redesign focused — 67 passed
 - child 전체 검증:
-  - `pnpm --filter @orbit/worker test` — 392 passed, 14 skipped
+  - `pnpm --filter @orbit/worker test` — 401 passed, 14 skipped
   - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 610 passed, 1 skipped
   - `ruff check .` — 통과
   - `mypy app` — 72 source files 통과
-  - `pytest` — 1008 collected, 통과
+  - `pytest` — 1009 passed, 1 skipped
+  - `pnpm lint` — 17 tasks 통과
+  - `pnpm typecheck` — 17 tasks 통과
 - 남은 stop gate: 없음
-- PR14 child 상태: clean, integration merge 완료
-- 다음 milestone: PR15 — backend optional illustration
+- PR15 child 상태: clean, integration merge 완료
+- 다음 milestone: PR16 — async progress UI
 
 ## 완료 Milestone 기록
+
+### PR15 — backend optional illustration
+
+- integration merge: `b39badbe5979d75b8f784a1a16927c4b25700ccc`
+- code commit:
+  - `b7ce7e46` — 단일 슬라이드 이미지 역할별 asset 해석과 저장·provenance primitive
+  - `a63a9148` — 이미지 요청이 있을 때만 실행되는 illustrating stage와 최종 patch 연결
+  - `f42b1305` — shared/Python 이미지 요청 artifact와 디자인 에이전트 이미지 생성 capability 활성화
+  - `758b22ed` — 예산 초과·provider 오류·강제 timeout·evidence 검색 폴백 회귀
+  - `cee51ef4` — 이미지 역할, provenance, 예산과 실패 정책 계약 문서화
+- child 검증:
+  - `pnpm --filter @orbit/shared test` — 589 passed
+  - `pnpm --filter @orbit/worker test` — 401 passed, 14 skipped
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 610 passed, 1 skipped
+  - `ruff check .` — 통과
+  - `mypy app` — 72 source files 통과
+  - `pytest` — 1009 passed, 1 skipped
+  - `pnpm lint` — 17 tasks 통과
+  - `pnpm typecheck` — 17 tasks 통과
+- integration merge 후 검증:
+  - `pnpm --filter @orbit/shared test` — 589 passed
+  - `pnpm --filter @orbit/worker test` — 401 passed, 14 skipped
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 610 passed, 1 skipped
+  - Python slide-redesign focused — 67 passed
+- stop gate: 단일 슬라이드에서 생성형 AI 이미지는 최대 1개만 해석하며, 예산 소진·provider 오류·25초 timeout은 안전한 placeholder와 bounded warning으로 폴백해 layout Job을 성공 상태로 유지한다.
+- evidence role은 생성형 AI를 사용하지 않고 공개 검색 asset만 허용하며 실패 시 생성 이미지로 대체하지 않는다. atmosphere 성공 asset은 `design-asset` purpose와 provenance를 저장하고 full-bleed 요청은 `backgroundImage`로 반영한다.
+- integration에서 build 선행 없이 직접 실행한 focused Vitest는 이전 shared `dist`를 읽어 실패했다. workspace dependency build를 포함하는 정식 Worker/API 테스트 스크립트 재실행은 모두 통과했다.
+- child 상태: clean, integration merge 완료
 
 ### PR14 — Worker layout Job orchestration
 
