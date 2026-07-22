@@ -24,9 +24,90 @@ from app.ai.pptx_ooxml_generation import (
 from app.ai.pptx_design_importer import ImportedDesignAsset
 from app.main import app
 
+IMPORT_FIDELITY_NOTES_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "pptx" / "import-fidelity-notes.pptx"
+)
+PRESENTATION_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+RELATIONSHIP_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+
 
 def template_slide_id(generated: object, slide_index: int = 0) -> str:
     return generated.template_blueprint["slides"][slide_index]["slideId"]
+
+
+def test_import_fidelity_fixture_contains_baseline_risks() -> None:
+    with zipfile.ZipFile(IMPORT_FIDELITY_NOTES_FIXTURE, "r") as package:
+        slide_xml = package.read("ppt/slides/slide1.xml")
+        slide_rels = ET.fromstring(package.read("ppt/slides/_rels/slide1.xml.rels"))
+        notes_root = ET.fromstring(package.read("ppt/notesSlides/notesSlide1.xml"))
+        notes_master_xml = package.read("ppt/notesMasters/notesMaster1.xml")
+        master_root = ET.fromstring(package.read("ppt/slideMasters/slideMaster1.xml"))
+
+    assert b'wedgeRoundRectCallout' in slide_xml
+    assert b'spc="120"' in slide_xml
+    assert b"<p:grpSp>" in slide_xml
+    assert b"<p:pic>" in slide_xml
+    assert any(
+        relationship.get("Type", "").endswith("/notesSlide")
+        for relationship in slide_rels.findall(f"{{{RELATIONSHIP_NS}}}Relationship")
+    )
+
+    namespaces = {"a": DRAWING_NS, "p": PRESENTATION_NS}
+    body_shapes = []
+    for shape in notes_root.findall("./p:cSld/p:spTree/p:sp", namespaces):
+        placeholder = shape.find("./p:nvSpPr/p:nvPr/p:ph", namespaces)
+        if placeholder is not None and placeholder.get("type") == "body":
+            body_shapes.append(shape)
+    assert len(body_shapes) == 1
+    paragraphs = body_shapes[0].findall("./p:txBody/a:p", namespaces)
+    assert len(paragraphs) == 3
+    assert paragraphs[1].find(".//a:t", namespaces) is None
+    assert paragraphs[2].find("./a:br", namespaces) is not None
+    assert b"NOTES_NON_BODY_DO_NOT_IMPORT" in ET.tostring(notes_root)
+    assert b"NOTES_MASTER_DECORATION_DO_NOT_IMPORT" in notes_master_xml
+
+    title_style = master_root.find(
+        "./p:txStyles/p:titleStyle/a:lvl1pPr/a:defRPr", namespaces
+    )
+    assert title_style is not None
+    assert title_style.get("sz") == "4400"
+    slide_root = ET.fromstring(slide_xml)
+    title_run_properties = next(
+        run_properties
+        for run_properties in slide_root.findall(".//a:rPr", namespaces)
+        if run_properties.get("spc") == "120"
+    )
+    assert title_run_properties.get("sz") is None
+
+
+def test_import_fidelity_fixture_reproduces_known_import_gaps() -> None:
+    result = generate_pptx_ooxml(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        "file_import_fidelity_notes",
+        render=False,
+    )
+    imported_slide = result.blueprint["slides"][0]
+    template_slide = result.template_blueprint["slides"][0]
+    title = next(
+        element
+        for element in imported_slide["elements"]
+        if element.get("props", {}).get("text") == "Inherited title style"
+    )
+
+    assert "speakerNotes" not in imported_slide
+    assert "notesPage" not in template_slide
+    assert title["props"]["fontFamily"] == "Pretendard SemiBold"
+    assert title["props"]["fontWeight"] == "normal"
+    assert title["props"]["fontSize"] == 24
+    assert any(
+        warning.startswith("PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING")
+        for warning in result.warnings
+    )
+    assert any(
+        "unsupported preset wedgeRoundRectCallout" in warning
+        for warning in result.warnings
+    )
 
 
 def test_pure_generation_preserves_package_entries_and_source_text(
