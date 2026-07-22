@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from app.ai.design_agent import DesignAgentRequest
+from app.ai.design_agent import DesignAgentRequest, generate_design_proposal
 from app.ai.slide_redesign.pipeline import redesign_slide
 
 
@@ -240,3 +240,31 @@ def test_internal_compile_failure_never_propagates(
 
     assert result.outcome == "fallback-allowed"
     assert result.reason == "redesign-unavailable"
+
+
+def test_applicable_pipeline_response_passes_design_agent_validation() -> None:
+    response = generate_design_proposal(
+        request_for(standard_elements()),
+        model="test-model",
+        api_key=None,
+    )
+
+    assert response.operations
+    assert response.interpreted_intent.action == "redesign-slide"
+
+
+def test_refused_pipeline_response_is_valid_with_empty_operations() -> None:
+    response = generate_design_proposal(
+        request_for(
+            [
+                *standard_elements(),
+                {"elementId": "el_chart", "type": "chart", "visible": True},
+            ]
+        ),
+        model="test-model",
+        api_key=None,
+    )
+
+    assert response.operations == []
+    assert response.affected_element_ids == []
+    assert response.interpreted_intent.action == "refused"

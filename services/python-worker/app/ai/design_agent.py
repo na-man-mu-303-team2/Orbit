@@ -716,6 +716,36 @@ def generate_design_proposal(
             request, normalize_design_proposal(request, deterministic_animation)
         )
 
+    from app.ai.slide_redesign.pipeline import redesign_slide
+
+    redesign = redesign_slide(
+        request,
+        model=model,
+        api_key=api_key,
+        client=client,
+    )
+    if redesign.outcome == "applicable":
+        assert redesign.response is not None
+        return validate_design_proposal(
+            request,
+            normalize_design_proposal(request, redesign.response),
+        )
+    if redesign.outcome == "refused-unsafe":
+        return DesignAgentResponse(
+            message=redesign.reason
+            or "현재 요소의 동작과 참조를 안전하게 보존할 수 없어 리디자인하지 않았습니다.",
+            interpretedIntent=DesignAgentIntent(
+                target="current-slide",
+                action="refused",
+                alignment=None,
+            ),
+            operations=[],
+            affectedElementIds=[],
+            warnings=[],
+            smartArtRequest=None,
+            uiAction=None,
+        )
+
     if client is None and not api_key:
         raise DesignAgentGenerationError("OPENAI_API_KEY is not configured.")
 
