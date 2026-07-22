@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 
 from app.ai.slide_redesign.safety import (
+    can_replace,
+    collect_element_constraints,
     find_unsafe_elements,
     unsafe_element_types,
 )
@@ -68,3 +70,94 @@ def test_m1_fail_closed_types_cover_the_shared_element_schema() -> None:
     assert schema_types - {"text", "rect"} == unsafe_element_types(
         media_slots_available=False
     )
+
+
+def test_animation_and_action_references_prevent_replacement() -> None:
+    slide = {
+        "animations": [
+            {"animationId": "anim-1", "elementId": "el-animated"},
+            {"animationId": "anim-2", "elementId": "el-action-target"},
+        ],
+        "actions": [
+            {
+                "effect": {"kind": "play-animation", "animationId": "anim-2"},
+                "trigger": {"kind": "cue", "cue": "next"},
+            }
+        ],
+    }
+
+    constraints = collect_element_constraints(slide)
+
+    assert not can_replace("el-animated", constraints)
+    assert not can_replace("el-action-target", constraints)
+
+
+def test_semantic_cue_target_and_source_references_prevent_replacement() -> None:
+    slide = {
+        "semanticCues": [
+            {
+                "targetElementIds": ["el-target"],
+                "sourceRefs": [
+                    {"kind": "element", "refId": "el-source"},
+                    {"kind": "speaker-notes", "refId": "el-not-an-element"},
+                ],
+            }
+        ]
+    }
+
+    constraints = collect_element_constraints(slide)
+
+    assert not can_replace("el-target", constraints)
+    assert not can_replace("el-source", constraints)
+    assert can_replace("el-not-an-element", constraints)
+
+
+def test_locked_element_cannot_be_replaced() -> None:
+    constraints = collect_element_constraints(
+        {"elements": [{**element("el-locked", "text"), "locked": True}]}
+    )
+
+    assert not can_replace("el-locked", constraints)
+
+
+def test_group_child_cannot_be_replaced() -> None:
+    constraints = collect_element_constraints(
+        {
+            "elements": [
+                {
+                    **element("el-group", "group"),
+                    "props": {"childElementIds": ["el-child"]},
+                }
+            ]
+        }
+    )
+
+    assert not can_replace("el-child", constraints)
+
+
+def test_ooxml_element_cannot_be_replaced() -> None:
+    constraints = collect_element_constraints(
+        {
+            "elements": [
+                {**element("el-imported", "text"), "ooxmlOrigin": "imported"}
+            ]
+        }
+    )
+
+    assert not can_replace("el-imported", constraints)
+
+
+def test_unconstrained_element_can_be_replaced() -> None:
+    constraints = collect_element_constraints(
+        {"elements": [element("el-free", "text")]}
+    )
+
+    assert can_replace("el-free", constraints)
+
+
+def test_keyword_occurrence_ids_are_not_element_references() -> None:
+    constraints = collect_element_constraints(
+        {"keywords": [{"requiredOccurrenceIds": ["el-free"]}]}
+    )
+
+    assert can_replace("el-free", constraints)

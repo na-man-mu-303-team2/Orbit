@@ -3,7 +3,10 @@
 from .safety import (
     MEDIA_ELEMENT_TYPES,
     UNSAFE_ELEMENT_TYPES_BASE,
+    ElementConstraints,
     RedesignOutcome,
+    can_replace,
+    collect_element_constraints,
     find_unsafe_elements,
     unsafe_element_types,
     unsafe_refusal_message,
@@ -12,7 +15,10 @@ from .safety import (
 __all__ = [
     "MEDIA_ELEMENT_TYPES",
     "UNSAFE_ELEMENT_TYPES_BASE",
+    "ElementConstraints",
     "RedesignOutcome",
+    "can_replace",
+    "collect_element_constraints",
     "find_unsafe_elements",
     "unsafe_element_types",
     "unsafe_refusal_message",
