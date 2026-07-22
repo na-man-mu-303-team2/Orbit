@@ -207,6 +207,8 @@ def redesign_slide(
 
 
 def _should_attempt_redesign(request: DesignAgentRequest) -> bool:
+    if _is_explicit_smart_art_request(request.question):
+        return False
     return request.intent_preset == "redesign-slide" or _is_broad_preset_request(
         request.question
     )
@@ -214,6 +216,22 @@ def _should_attempt_redesign(request: DesignAgentRequest) -> bool:
 
 def _fallback(reason: str) -> RedesignResult:
     return RedesignResult(outcome="fallback-allowed", reason=reason)
+
+
+def _is_explicit_smart_art_request(question: str) -> bool:
+    normalized = " ".join(question.casefold().split())
+    return any(
+        token in normalized
+        for token in (
+            "스마트아트",
+            "다이어그램",
+            "smartart",
+            "smart art",
+            "process diagram",
+            "step diagram",
+            "flow diagram",
+        )
+    )
 
 
 def _constrained_ids(constraints: ElementConstraints) -> set[str]:
