@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD after PR07 merge: `cf15d1bc1d35ba3ccf212597e99ec0f2a85fbe8b`
+- integration HEAD after PR08 merge: `50573a5aad0ac9db984c96432b9ee911a206828d`
 - worktree: clean
 
 ## Baseline
@@ -23,21 +23,39 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR07
-- PR07 integration merge: `cf15d1bc1d35ba3ccf212597e99ec0f2a85fbe8b`
-- 현재 milestone: PR08 — 장식 도형과 capability v2 발행
+- 완료 milestone: PR00~PR08
+- PR08 integration merge: `50573a5aad0ac9db984c96432b9ee911a206828d`
+- 현재 milestone: PR09 — 미디어 슬롯과 기존 이미지 재배치
 - 활성 child branch/worktree: 없음
 - integration merge 후 검증:
-  - `uv run ruff check app/ai/design_agent.py tests/test_design_agent.py` — 통과
-  - `uv run mypy app` — 68 source files 통과
-  - `uv run pytest tests/test_design_agent.py -q` — 57 passed
-  - `pnpm --filter @orbit/shared test` — 568 passed
+  - `uv run ruff check app/ai/slide_redesign tests/test_slide_redesign_*.py app/ai/design_agent.py tests/test_design_agent.py` — 통과
+  - `uv run mypy app` — 69 source files 통과
+  - 장식·안전·pipeline·design-agent focused — 126 passed
+  - `pnpm --filter @orbit/shared test` — 571 passed
   - `pnpm --filter @orbit/api test` — 600 passed, 1 skipped
 - 남은 stop gate: 없음
-- PR07 child 상태: clean worktree와 local branch 정리 완료
-- 다음 milestone: PR08 — 장식 도형과 capability v2 발행
+- PR08 child 상태: clean worktree와 local branch 정리 완료
+- 다음 milestone: PR09 — 미디어 슬롯과 기존 이미지 재배치
 
 ## 완료 Milestone 기록
+
+### PR08 — 장식 도형과 capability v2 발행
+
+- integration merge: `50573a5aad0ac9db984c96432b9ee911a206828d`
+- code commit:
+  - `d7aeab20` — process badge/connector, statement accent bar, metric ring 생성과 안전 필터
+  - `803d5f7a` — Python/shared ellipse·line·polygon 계약과 API capability version `2` 발행
+  - `f193d659` — capability별 장식 후처리, delete 후행 유지, 소유 장식 재처리
+  - `a95e3cf0` — T7.1~T7.11 겹침·개수·safe area·zIndex·shape schema 회귀
+- 검증:
+  - `uv run ruff check .` — 통과
+  - `uv run mypy app` — 69 source files 통과
+  - `uv run pytest` — 982 passed, 1 skipped
+  - `pnpm --filter @orbit/shared test` — 571 passed
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 600 passed, 1 skipped
+  - `pnpm typecheck` — 17/17 tasks 통과
+- stop gate: v1 reader 유지, v2 API 발행, shape add-element 검증, 본문 우선 충돌 제거, 최대 12개, safe area와 전 composition smoke 통과
+- child 상태: clean worktree와 local branch 정리 완료
 
 ### PR07 — capability v2 tolerant reader
 
