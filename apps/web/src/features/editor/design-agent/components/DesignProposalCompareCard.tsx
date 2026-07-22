@@ -13,6 +13,7 @@ type DesignProposalCompareCardProps = {
   onApply: () => void;
   onClose: () => void;
   onPreview: () => void;
+  readOnly?: boolean;
   slideId: string;
   summary: string;
   warnings: string[];
@@ -33,7 +34,7 @@ export function DesignProposalCompareCard(props: DesignProposalCompareCardProps)
   const afterScale = Math.min(0.12, 128 / props.afterDeck.canvas.width);
   const isApplying = props.lifecycle === "applying";
   const isStale = props.lifecycle === "stale";
-  const canApply = canApplyDesignProposal(props.lifecycle);
+  const canApply = !props.readOnly && canApplyDesignProposal(props.lifecycle);
 
   return (
     <section className="design-proposal-compare-card" aria-label="디자인 제안 Before/After">
@@ -44,7 +45,9 @@ export function DesignProposalCompareCard(props: DesignProposalCompareCardProps)
               ? "원본이 변경된 제안"
               : props.lifecycle === "failed"
                 ? "제안 적용 실패"
-                : "디자인 제안 준비됨"}
+                : props.readOnly
+                  ? "읽기 전용 중간 미리보기"
+                  : "디자인 제안 준비됨"}
           </strong>
           <span>{props.summary}</span>
         </div>
@@ -100,18 +103,22 @@ export function DesignProposalCompareCard(props: DesignProposalCompareCardProps)
           <IconArrowsMaximize aria-hidden="true" size={16} />
           미리보기
         </button>
-        <button
-          className="primary"
-          disabled={!canApply}
-          type="button"
-          onClick={props.onApply}
-        >
-          {isApplying
-            ? "적용 중..."
-            : props.lifecycle === "failed"
-              ? "다시 적용"
-              : "적용"}
-        </button>
+        {props.readOnly ? (
+          <span className="design-proposal-read-only-label">최종 검토 중</span>
+        ) : (
+          <button
+            className="primary"
+            disabled={!canApply}
+            type="button"
+            onClick={props.onApply}
+          >
+            {isApplying
+              ? "적용 중..."
+              : props.lifecycle === "failed"
+                ? "다시 적용"
+                : "적용"}
+          </button>
+        )}
       </footer>
     </section>
   );

@@ -4,12 +4,14 @@ import type {
   DesignImageGenerationResult,
   DesignImageReferenceAttachment,
   SelectedDesignImageReference,
+  SlideRedesignProgressPayload,
   SpeakerNotesSuggestionMode,
   Slide
 } from "@orbit/shared";
 import { IconArrowUp as ArrowUp, IconPhoto as Photo } from "@tabler/icons-react";
 import {
   useRef,
+  useEffect,
   useState,
   type ChangeEvent,
   type Dispatch,
@@ -18,16 +20,20 @@ import {
 } from "react";
 import {
   applyDesignAgentProposal,
+  connectSlideRedesignProgress,
   createDesignAgentMessage,
   createDesignImageGeneration,
+  createSlideRedesignJob,
   isDesignAgentProposalStaleError,
-  pollDesignImageGeneration
+  pollDesignImageGeneration,
+  pollSlideRedesignJob
 } from "../../design-agent/designAgentApi";
 import {
   DesignAssistantHome,
   type DesignAssistantQuickAction
 } from "../../design-agent/components/DesignAssistantHome";
 import { DesignPaletteOptions } from "../../design-agent/components/DesignPaletteOptions";
+import { DesignRedesignProgress } from "../../design-agent/components/DesignRedesignProgress";
 import { DesignProposalCompareCard } from "../../design-agent/components/DesignProposalCompareCard";
 import { DesignProposalPreviewModal } from "../../design-agent/components/DesignProposalPreviewModal";
 import "../../design-agent/design-assistant.css";
@@ -42,7 +48,9 @@ import {
   type DesignProposalPreview
 } from "../../design-agent/designProposalPreview";
 import {
+  canRetryDesignRequest,
   resolveDesignProposalLifecycle,
+  resolveCompletedSlideRedesignLifecycle,
   type DesignProposalLifecycle,
 } from "../../design-agent/designProposalLifecycle";
 import {
@@ -76,10 +84,17 @@ type SelectedImagePreview = {
   previewUrl: string;
 };
 
-type FailedDesignRequest = {
-  content: string;
-  options: DesignRequestOptions;
-};
+type FailedDesignRequest =
+  | {
+      kind: "message";
+      content: string;
+      options: DesignRequestOptions;
+    }
+  | {
+      kind: "slide-redesign";
+      optionId: string;
+      paletteSelection: PendingPaletteSelection;
+    };
 
 type AiChatPanelProps = {
   projectId: string;
@@ -123,6 +138,12 @@ export function AiChatPanel(props: AiChatPanelProps) {
   >([]);
   const [pendingPreview, setPendingPreview] =
     useState<DesignProposalPreview | null>(null);
+  const [intermediatePreview, setIntermediatePreview] =
+    useState<DesignProposalPreview | null>(null);
+  const [redesignProgress, setRedesignProgress] =
+    useState<SlideRedesignProgressPayload | null>(null);
+  const [redesignConnectionDegraded, setRedesignConnectionDegraded] =
+    useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [failedDesignRequest, setFailedDesignRequest] =
     useState<FailedDesignRequest | null>(null);
@@ -133,6 +154,9 @@ export function AiChatPanel(props: AiChatPanelProps) {
   const [quickActionError, setQuickActionError] = useState<string | null>(null);
   const [mode, setMode] = useState<"design" | "image">("design");
   const referenceImageInputRef = useRef<HTMLInputElement | null>(null);
+  const redesignProgressConnectionRef = useRef<{
+    disconnect: () => void;
+  } | null>(null);
   const maxReferenceImages = 3;
   const selectedImagePreview = getSelectedImagePreview(
     props.projectId,
@@ -142,6 +166,10 @@ export function AiChatPanel(props: AiChatPanelProps) {
   const isFirstSlide = Boolean(
     props.currentSlide && props.deck.slides[0]?.slideId === props.currentSlide.slideId,
   );
+
+  useEffect(() => () => {
+    redesignProgressConnectionRef.current?.disconnect();
+  }, []);
 
   async function handleReferenceImageSelection(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -226,6 +254,9 @@ export function AiChatPanel(props: AiChatPanelProps) {
     const isPaletteSelection = typeof options.selectedPaletteOptionId === "string";
     setProposalLifecycle("generating");
     setPendingPreview(null);
+    setIntermediatePreview(null);
+    setRedesignProgress(null);
+    setRedesignConnectionDegraded(false);
     setIsPreviewOpen(false);
     if (!isPaletteSelection) {
       setPendingPaletteSelection(null);
@@ -294,7 +325,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
       ]);
     } catch (error) {
       setProposalLifecycle("failed");
-      setFailedDesignRequest({ content, options });
+      setFailedDesignRequest({ kind: "message", content, options });
       throw error;
     }
   }
@@ -374,7 +405,9 @@ export function AiChatPanel(props: AiChatPanelProps) {
       );
     } catch (error) {
       setQuickActionError(
-        error instanceof Error
+        isDesignAgentProposalStaleError(error)
+          ? "슬라이드가 변경되어 리디자인을 다시 시작해야 합니다."
+          : error instanceof Error
           ? `디자인 제안을 만들지 못했습니다. ${error.message}`
           : "디자인 제안을 만들지 못했습니다."
       );
@@ -384,15 +417,129 @@ export function AiChatPanel(props: AiChatPanelProps) {
     }
   }
 
+  async function runSlideRedesignJob(
+    paletteSelection: PendingPaletteSelection,
+    optionId: string,
+  ) {
+    if (!props.currentSlide) return;
+    const followUp = buildPaletteFollowUpRequest(paletteSelection, optionId);
+    if (!followUp) return;
+    const baseDeck = props.deck;
+    const baseSlide = props.currentSlide;
+    let acceptingProgress = true;
+    setProposalLifecycle("generating");
+    setPendingPreview(null);
+    setIntermediatePreview(null);
+    setRedesignProgress(null);
+    setRedesignConnectionDegraded(false);
+    setPendingPaletteSelection(null);
+    setSelectedPaletteOptionId(null);
+
+    try {
+      const created = await createSlideRedesignJob(props.projectId, {
+        sessionId: paletteSelection.sessionId,
+        content: followUp.content,
+        selectedPaletteOptionId: optionId,
+        context: {
+          deckId: baseDeck.deckId,
+          baseVersion: baseDeck.version,
+          canvas: baseDeck.canvas,
+          slide: baseSlide,
+          selectedElementIds: props.selectedElementIds,
+          theme: baseDeck.theme,
+        },
+      });
+      redesignProgressConnectionRef.current?.disconnect();
+      redesignProgressConnectionRef.current = connectSlideRedesignProgress({
+        jobId: created.job.jobId,
+        projectId: props.projectId,
+        sessionId: paletteSelection.sessionId,
+        onConnectionError: () => setRedesignConnectionDegraded(true),
+        onProgress: (progress) => {
+          if (!acceptingProgress) return;
+          setRedesignProgress(progress);
+          if (!progress.previewProposal) return;
+          try {
+            setIntermediatePreview(
+              buildDesignProposalPreview(baseDeck, progress.previewProposal),
+            );
+            setProposalLifecycle("preview-read-only");
+          } catch {
+            setRedesignConnectionDegraded(true);
+          }
+        },
+      });
+
+      const result = await pollSlideRedesignJob(created.job.jobId);
+      acceptingProgress = false;
+      setIntermediatePreview(null);
+      const finalPreview = result.proposal
+        ? buildDesignProposalPreview(baseDeck, result.proposal)
+        : null;
+      setPendingPreview(finalPreview);
+      setProposalLifecycle(
+        resolveCompletedSlideRedesignLifecycle(result, baseDeck, finalPreview),
+      );
+      setFailedDesignRequest(result.stale
+        ? {
+            kind: "slide-redesign",
+            optionId,
+            paletteSelection,
+          }
+        : null);
+      setQuickActionError(
+        result.stale
+          ? "슬라이드가 변경되어 리디자인을 다시 시작해야 합니다."
+          : null,
+      );
+      const warnings = result.proposal?.warnings.length
+        ? `\n\n주의: ${result.proposal.warnings.join(" ")}`
+        : "";
+      updateMessages((current) => [
+        ...current,
+        {
+          id: result.responseMessageId,
+          role: "assistant",
+          content: result.proposal
+            ? `리디자인 최종 제안이 준비되었습니다.${warnings}`
+            : "현재 슬라이드에는 안전하게 적용할 수 있는 리디자인 제안이 없습니다.",
+        },
+      ]);
+    } catch (error) {
+      setProposalLifecycle(
+        isDesignAgentProposalStaleError(error) ? "stale" : "failed",
+      );
+      setFailedDesignRequest({
+        kind: "slide-redesign",
+        optionId,
+        paletteSelection,
+      });
+      throw error;
+    } finally {
+      acceptingProgress = false;
+      redesignProgressConnectionRef.current?.disconnect();
+      redesignProgressConnectionRef.current = null;
+      setRedesignProgress(null);
+      setIntermediatePreview(null);
+    }
+  }
+
   async function handleDesignRetry() {
     if (!failedDesignRequest || isSending || !props.currentSlide) return;
     setQuickActionError(null);
     setIsSending(true);
     try {
-      await submitDesignRequest(
-        failedDesignRequest.content,
-        failedDesignRequest.options,
-      );
+      if (failedDesignRequest.kind === "slide-redesign") {
+        await runSlideRedesignJob(
+          failedDesignRequest.paletteSelection,
+          failedDesignRequest.optionId,
+        );
+      } else {
+        await submitDesignRequest(
+          failedDesignRequest.content,
+          failedDesignRequest.options,
+        );
+      }
     } catch (error) {
       setQuickActionError(
         error instanceof Error
@@ -407,7 +554,8 @@ export function AiChatPanel(props: AiChatPanelProps) {
 
   async function handlePaletteConfirm(optionId: string) {
     if (!pendingPaletteSelection || isSending || !props.currentSlide) return;
-    const followUp = buildPaletteFollowUpRequest(pendingPaletteSelection, optionId);
+    const paletteSelection = pendingPaletteSelection;
+    const followUp = buildPaletteFollowUpRequest(paletteSelection, optionId);
     if (!followUp) return;
     setQuickActionError(null);
     setIsSending(true);
@@ -420,10 +568,12 @@ export function AiChatPanel(props: AiChatPanelProps) {
       },
     ]);
     try {
-      await submitDesignRequest(followUp.content, followUp.options);
+      await runSlideRedesignJob(paletteSelection, optionId);
     } catch (error) {
       setQuickActionError(
-        error instanceof Error
+        isDesignAgentProposalStaleError(error)
+          ? "슬라이드가 변경되어 리디자인을 다시 시작해야 합니다."
+          : error instanceof Error
           ? `선택한 배색으로 미리보기를 만들지 못했습니다. ${error.message}`
           : "선택한 배색으로 미리보기를 만들지 못했습니다.",
       );
@@ -532,6 +682,17 @@ export function AiChatPanel(props: AiChatPanelProps) {
     props.deck,
     pendingPreview,
   );
+  const effectiveIntermediateLifecycle = resolveDesignProposalLifecycle(
+    "preview-read-only",
+    props.deck,
+    intermediatePreview,
+  );
+  const modalPreview = pendingPreview ?? intermediatePreview;
+  const modalPreviewIsReadOnly = !pendingPreview && Boolean(intermediatePreview);
+  const canRetryFailedDesignRequest = canRetryDesignRequest(
+    effectiveProposalLifecycle,
+    Boolean(failedDesignRequest),
+  );
 
   return (
     <section
@@ -550,7 +711,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
           errorMessage={quickActionError ?? undefined}
           isGenerating={mode === "design" && isSending}
           onAction={(action) => void handleQuickAction(action)}
-          onRetry={failedDesignRequest
+          onRetry={canRetryFailedDesignRequest
             ? () => void handleDesignRetry()
             : undefined}
         />
@@ -562,6 +723,29 @@ export function AiChatPanel(props: AiChatPanelProps) {
           selectedOptionId={selectedPaletteOptionId ?? undefined}
           onConfirm={(optionId) => void handlePaletteConfirm(optionId)}
           onSelectionChange={setSelectedPaletteOptionId}
+        />
+      ) : null}
+      {redesignProgress ? (
+        <DesignRedesignProgress
+          connectionDegraded={redesignConnectionDegraded}
+          progress={redesignProgress}
+        />
+      ) : null}
+      {intermediatePreview ? (
+        <DesignProposalCompareCard
+          afterDeck={intermediatePreview.candidateDeck}
+          beforeDeck={intermediatePreview.baseDeck}
+          lifecycle={effectiveIntermediateLifecycle}
+          readOnly
+          slideId={intermediatePreview.proposal.slideId}
+          summary={intermediatePreview.proposal.summary ?? intermediatePreview.proposal.title}
+          warnings={intermediatePreview.proposal.warnings}
+          onApply={() => undefined}
+          onClose={() => {
+            setIntermediatePreview(null);
+            setIsPreviewOpen(false);
+          }}
+          onPreview={() => setIsPreviewOpen(true)}
         />
       ) : null}
       {pendingPreview ? (
@@ -760,14 +944,17 @@ export function AiChatPanel(props: AiChatPanelProps) {
         </div>
       </form>
 
-      {pendingPreview && isPreviewOpen ? (
+      {modalPreview && isPreviewOpen ? (
         <DesignProposalPreviewModal
-          afterDeck={pendingPreview.candidateDeck}
-          beforeDeck={pendingPreview.baseDeck}
-          lifecycle={effectiveProposalLifecycle}
-          slideId={pendingPreview.proposal.slideId}
-          summary={pendingPreview.proposal.summary ?? pendingPreview.proposal.title}
-          warnings={pendingPreview.proposal.warnings}
+          afterDeck={modalPreview.candidateDeck}
+          beforeDeck={modalPreview.baseDeck}
+          lifecycle={modalPreviewIsReadOnly
+            ? effectiveIntermediateLifecycle
+            : effectiveProposalLifecycle}
+          readOnly={modalPreviewIsReadOnly}
+          slideId={modalPreview.proposal.slideId}
+          summary={modalPreview.proposal.summary ?? modalPreview.proposal.title}
+          warnings={modalPreview.proposal.warnings}
           onApply={() => void handleApplyPreview()}
           onClose={() => setIsPreviewOpen(false)}
         />
