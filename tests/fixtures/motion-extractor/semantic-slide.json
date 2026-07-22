@@ -1,0 +1,93 @@
+{
+  "slide": {
+    "slideId": "slide_motion_1",
+    "order": 2,
+    "title": "핵심 해결 구조",
+    "speakerNotes": "",
+    "elements": [
+      {
+        "elementId": "el_title",
+        "type": "text",
+        "role": "title",
+        "x": 80,
+        "y": 60,
+        "width": 900,
+        "height": 100,
+        "visible": true,
+        "props": { "text": "작아도 명시적 제목" }
+      },
+      {
+        "elementId": "el_body",
+        "type": "text",
+        "role": "body",
+        "x": 100,
+        "y": 300,
+        "width": 700,
+        "height": 300,
+        "visible": true,
+        "props": { "text": "승인된 핵심 의미" }
+      },
+      {
+        "elementId": "el_focal",
+        "type": "image",
+        "role": "media",
+        "x": 1100,
+        "y": 260,
+        "width": 600,
+        "height": 500,
+        "visible": true,
+        "props": { "alt": "제품 흐름" }
+      }
+    ],
+    "semanticCues": [
+      {
+        "reviewStatus": "suggested",
+        "freshness": "current",
+        "importance": "core",
+        "targetElementIds": ["el_focal"]
+      },
+      {
+        "reviewStatus": "approved",
+        "freshness": "stale",
+        "importance": "core",
+        "targetElementIds": ["el_title"]
+      },
+      {
+        "reviewStatus": "approved",
+        "freshness": "current",
+        "importance": "core",
+        "cueType": "solution",
+        "targetElementIds": ["el_body"]
+      }
+    ],
+    "aiNotes": {
+      "compositionPlan": { "primaryFocalElementId": "el_focal" }
+    }
+  },
+  "planningContext": {
+    "allowedTargetElementIds": ["el_title", "el_body", "el_focal"],
+    "effectiveTypography": [
+      {
+        "elementId": "el_title",
+        "characterCount": 8,
+        "dominantFontSize": 14,
+        "effectiveFontSize": 14,
+        "effectiveLetterSpacing": 0,
+        "effectiveLineHeight": 1.2,
+        "resolvedFontScale": 0.5
+      },
+      {
+        "elementId": "el_body",
+        "characterCount": 9,
+        "dominantFontSize": 32,
+        "effectiveFontSize": 32,
+        "effectiveLetterSpacing": 0,
+        "effectiveLineHeight": 0.9,
+        "resolvedFontScale": 0.75
+      }
+    ],
+    "speakerNotes": "핵심 의미를 먼저 설명하고 제품 흐름으로 연결합니다.",
+    "notesPresent": true,
+    "notesTruncated": false
+  }
+}

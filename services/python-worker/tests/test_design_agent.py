@@ -16,7 +16,7 @@ from app.ai.design_agent import (
     design_agent_system_prompt,
     generate_design_proposal,
 )
-from app.ai.motion_planner import MotionImportContext
+from app.ai.motion_planner import MotionImportContext, MotionPlanningContext
 
 
 class FakeResponses:
@@ -656,6 +656,47 @@ def test_animation_recommendation_allows_safe_imported_slide() -> None:
     assert len(result.operations) == 1
     assert result.operations[0].animation.type == "zoom-in"
     assert result.operations[0].animation.start_mode == "on-click"
+
+
+def test_animation_recommendation_runs_semantic_planner_in_shadow_only() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.append("add_animation")
+    request.motion_planning_context = MotionPlanningContext.model_validate({
+        "allowedTargetElementIds": ["el_image"],
+        "effectiveTypography": [],
+        "speakerNotes": "MOTION_TRANSIENT_NOTE",
+        "notesPresent": True,
+        "notesTruncated": False,
+    })
+    client = FakeClient({
+        "schemaVersion": 1,
+        "pattern": "hero-then-support",
+        "beats": [
+            {
+                "beatId": "beat_entry",
+                "purpose": "orient",
+                "trigger": "entry",
+                "targetElementIds": ["el_image"],
+                "relation": "together",
+            }
+        ],
+    })
+
+    result = generate_design_proposal(
+        request,
+        model="design-model",
+        motion_planner_model="motion-snapshot",
+        motion_planner_mode="shadow",
+        api_key=None,
+        client=client,
+    )
+
+    assert len(client.responses.calls) == 1
+    assert client.responses.calls[0]["model"] == "motion-snapshot"
+    assert "MOTION_TRANSIENT_NOTE" in client.responses.calls[0]["input"]
+    assert len(result.operations) == 1
+    assert result.operations[0].animation.type == "zoom-in"
 
 
 def test_unknown_intent_preset_falls_back_to_question_interpretation() -> None:
