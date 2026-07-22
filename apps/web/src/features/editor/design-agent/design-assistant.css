@@ -353,6 +353,11 @@
   gap: var(--redesign-space-2);
 }
 
+.design-proposal-read-only-label {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
 .design-proposal-inline-actions button {
   align-items: center;
   display: inline-flex;

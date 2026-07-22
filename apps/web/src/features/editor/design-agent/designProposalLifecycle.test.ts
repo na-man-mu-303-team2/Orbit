@@ -8,10 +8,11 @@ import {
 import type { DesignProposalPreview } from "./designProposalPreview";
 
 describe("design proposal lifecycle", () => {
-  it("keeps the seven public lifecycle states explicit", () => {
+  it("keeps the eight public lifecycle states explicit", () => {
     expect(designProposalLifecycles).toEqual([
       "idle",
       "generating",
+      "preview-read-only",
       "proposal-ready",
       "stale",
       "applying",

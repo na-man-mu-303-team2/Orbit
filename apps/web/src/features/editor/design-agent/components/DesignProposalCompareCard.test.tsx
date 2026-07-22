@@ -82,4 +82,26 @@ describe("DesignProposalCompareCard", () => {
     expect(failedHtml).toContain("제안 적용 실패");
     expect(failedHtml).toContain("다시 적용");
   });
+
+  it("keeps an intermediate preview read-only", () => {
+    const deck = createDemoDeck();
+    const html = renderToStaticMarkup(
+      <DesignProposalCompareCard
+        afterDeck={{ ...deck, version: deck.version + 1 }}
+        beforeDeck={deck}
+        lifecycle="preview-read-only"
+        readOnly
+        slideId={deck.slides[0]!.slideId}
+        summary="이미지 생성 전 레이아웃"
+        warnings={[]}
+        onApply={() => undefined}
+        onClose={() => undefined}
+        onPreview={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("읽기 전용 중간 미리보기");
+    expect(html).toContain("최종 검토 중");
+    expect(html).not.toMatch(/<button[^>]*>적용<\/button>/);
+  });
 });

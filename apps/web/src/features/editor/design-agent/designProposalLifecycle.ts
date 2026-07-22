@@ -5,6 +5,7 @@ import { isDesignProposalStale } from "./designProposalPreview";
 export const designProposalLifecycles = [
   "idle",
   "generating",
+  "preview-read-only",
   "proposal-ready",
   "stale",
   "applying",

@@ -13,6 +13,7 @@ type DesignProposalPreviewModalProps = {
   lifecycle: DesignProposalLifecycle;
   onApply: () => void;
   onClose: () => void;
+  readOnly?: boolean;
   slideId: string;
   summary: string;
   warnings: string[];
@@ -30,7 +31,7 @@ export function DesignProposalPreviewModal(
   if (!beforeSlide || !afterSlide) return null;
 
   const isApplying = props.lifecycle === "applying";
-  const canApply = canApplyDesignProposal(props.lifecycle);
+  const canApply = !props.readOnly && canApplyDesignProposal(props.lifecycle);
   const beforeScale = Math.min(0.3, 420 / props.beforeDeck.canvas.width);
   const afterScale = Math.min(0.3, 420 / props.afterDeck.canvas.width);
   const dialog = (
@@ -47,18 +48,24 @@ export function DesignProposalPreviewModal(
           >
             취소
           </OrbitButton>
-          <OrbitButton
-            disabled={!canApply}
-            loading={isApplying}
-            onClick={props.onApply}
-          >
-            {props.lifecycle === "failed" ? "다시 적용" : "적용"}
-          </OrbitButton>
+          {props.readOnly ? (
+            <span className="design-proposal-read-only-label">
+              최종 검토 후 적용할 수 있습니다.
+            </span>
+          ) : (
+            <OrbitButton
+              disabled={!canApply}
+              loading={isApplying}
+              onClick={props.onApply}
+            >
+              {props.lifecycle === "failed" ? "다시 적용" : "적용"}
+            </OrbitButton>
+          )}
         </>
       )}
       onClose={props.onClose}
       open
-      title="AI 디자인 제안 비교"
+      title={props.readOnly ? "AI 디자인 중간 미리보기" : "AI 디자인 제안 비교"}
     >
       <div className="design-proposal-modal-comparison">
         <figure>
