@@ -263,7 +263,7 @@
 }
 
 .activity-slide-preview[data-activity-template="poll"] .activity-choice-preview {
-  gap: clamp(6px, 0.8cqw, var(--redesign-space-3));
+  gap: clamp(var(--redesign-space-2), 0.8cqw, var(--redesign-space-3));
   grid-template-columns: minmax(0, 1fr);
   margin-top: clamp(var(--redesign-space-2), 1.2cqw, var(--redesign-space-4));
 }
