@@ -31,6 +31,7 @@ from .composer import (
     build_single_slide_program,
     compile_redesign,
     eligible_candidates,
+    select_composition,
 )
 
 __all__ = [
@@ -61,4 +62,5 @@ __all__ = [
     "build_single_slide_program",
     "compile_redesign",
     "eligible_candidates",
+    "select_composition",
 ]

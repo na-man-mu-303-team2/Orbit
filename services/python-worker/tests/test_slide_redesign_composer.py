@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+from typing import Any
+
 import pytest
 
 from app.ai.color_options import contrast_ratio
@@ -7,6 +11,7 @@ from app.ai.composition_library import CompositionCompileError
 from app.ai.slide_redesign.composer import (
     build_single_slide_program,
     eligible_candidates,
+    select_composition,
 )
 from app.ai.slide_redesign.palette import derive_palette
 
@@ -110,3 +115,53 @@ def test_build_single_slide_program_passes_program_validator() -> None:
     assert program.version == "program-v2"
     assert program.slides[0].composition_id == candidate.composition_id
     assert program.slides[0].asset_role == "none"
+
+
+class FakeResponses:
+    def __init__(self, output: object = None, *, error: Exception | None = None) -> None:
+        self.output = output
+        self.error = error
+
+    def create(self, **_: Any) -> SimpleNamespace:
+        if self.error is not None:
+            raise self.error
+        return SimpleNamespace(output_text=json.dumps(self.output, ensure_ascii=False))
+
+
+class FakeClient:
+    def __init__(self, output: object = None, *, error: Exception | None = None) -> None:
+        self.responses = FakeResponses(output, error=error)
+
+
+def test_select_composition_falls_back_for_out_of_list_id() -> None:
+    slide_summary = summary("process", ["1. 준비", "2. 실행", "3. 확인"])
+    candidates = eligible_candidates(slide_summary)
+
+    selected = select_composition(
+        slide_summary,
+        candidates,
+        "더 명확하게 재배치해줘",
+        model="test-model",
+        api_key=None,
+        client=FakeClient(
+            {"compositionId": "invented-layout", "rationale": "outside enum"}
+        ),
+    )
+
+    assert selected == candidates[0]
+
+
+def test_select_composition_falls_back_when_provider_raises() -> None:
+    slide_summary = summary("process", ["1. 준비", "2. 실행", "3. 확인"])
+    candidates = eligible_candidates(slide_summary)
+
+    selected = select_composition(
+        slide_summary,
+        candidates,
+        "더 명확하게 재배치해줘",
+        model="test-model",
+        api_key=None,
+        client=FakeClient(error=RuntimeError("provider unavailable")),
+    )
+
+    assert selected == candidates[0]
