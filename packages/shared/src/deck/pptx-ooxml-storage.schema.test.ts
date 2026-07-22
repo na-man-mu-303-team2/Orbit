@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   PPTX_OOXML_ASSET_TRANSPORT_VERSION,
   pptxOoxmlAssetTransportVersionSchema,
+  pptxOoxmlReadLocatorSchema,
   pptxOoxmlStoredAssetSchema,
 } from "./pptx-ooxml-storage.schema";
 
@@ -52,6 +53,24 @@ describe("PPTX OOXML storage manifest schema", () => {
       pptxOoxmlStoredAssetSchema.safeParse({
         ...validAsset,
         sha256: "not-a-digest",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("validates storage read locators without accepting unknown fields", () => {
+    const locator = {
+      locatorId: "source-package",
+      readUrl: "http://minio:9000/orbit-local/source.pptx?signature=test",
+      fileName: "source.pptx",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 4_096,
+    };
+    expect(pptxOoxmlReadLocatorSchema.parse(locator)).toEqual(locator);
+    expect(
+      pptxOoxmlReadLocatorSchema.safeParse({
+        ...locator,
+        contentBase64: "UEsDBA==",
       }).success,
     ).toBe(false);
   });

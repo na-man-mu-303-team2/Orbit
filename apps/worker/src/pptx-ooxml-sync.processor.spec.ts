@@ -13,9 +13,6 @@ const pptxMimeType =
 const pngSignature = new Uint8Array([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 ]);
-const pngSignatureDataUrl = `data:image/png;base64,${Buffer.from(
-  pngSignature,
-).toString("base64")}`;
 const currentPackageDigest = createHash("sha256")
   .update("pptx")
   .digest("hex");
@@ -103,9 +100,30 @@ describe("processPptxOoxmlSyncJob", () => {
           }),
           expect.objectContaining({
             type: "update_element_props",
-            props: { src: pngSignatureDataUrl },
+            props: { src: "orbit-storage:image-1" },
           }),
         ]);
+        expect(
+          JSON.parse(
+            await (form.get("source_locator_file") as Blob).text(),
+          ),
+        ).toMatchObject({
+          locatorId: "source-package",
+          readUrl: "http://storage.local/current.pptx",
+          mimeType: pptxMimeType,
+        });
+        expect(
+          JSON.parse(
+            await (form.get("asset_locators_file") as Blob).text(),
+          ),
+        ).toEqual([
+          expect.objectContaining({
+            locatorId: "image-1",
+            readUrl: "http://storage.local/image.png",
+            mimeType: "image/png",
+          }),
+        ]);
+        expect(form.get("file")).toBeNull();
         return new Response(
           JSON.stringify(
             workerResponse([
@@ -523,7 +541,7 @@ describe("processPptxOoxmlSyncJob", () => {
     });
   });
 
-  it("uses the detected image MIME when legacy asset metadata is wrong", async () => {
+  it("passes project image metadata through a bounded storage locator", async () => {
     const { dataSource } = createDataSource({
       deckVersion: 2,
       syncedVersion: 1,
@@ -554,7 +572,7 @@ describe("processPptxOoxmlSyncJob", () => {
             expect.objectContaining({
               type: "update_element_props",
               props: {
-                src: "data:image/jpeg;base64,/9j/4A==",
+                src: "orbit-storage:image-1",
               },
             }),
           ]);
@@ -1855,7 +1873,7 @@ describe("processPptxOoxmlSyncJob", () => {
             sourceSlidePart: "ppt/slides/slide2.xml",
             element: expect.objectContaining({
               props: expect.objectContaining({
-                src: pngSignatureDataUrl,
+                src: "orbit-storage:image-1",
               }),
             }),
           }),
@@ -2157,7 +2175,9 @@ function createDataSource(input: {
           file_id: "file_image",
           project_id: "project-a",
           storage_key: "projects/project-a/assets/image.png",
+          original_name: "image.png",
           mime_type: "image/png",
+          size: pngSignature.byteLength,
           status: "uploaded",
         },
       ];

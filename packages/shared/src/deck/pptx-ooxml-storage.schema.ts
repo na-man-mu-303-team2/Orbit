@@ -35,6 +35,17 @@ export const pptxOoxmlStoredAssetSchema = z
   })
   .strict();
 
+export const pptxOoxmlReadLocatorSchema = z
+  .object({
+    locatorId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/u),
+    readUrl: z.string().url().max(8_192),
+    fileName: z.string().min(1).max(512),
+    mimeType: z.string().min(1).max(255),
+    size: z.number().int().positive().max(536_870_912),
+  })
+  .strict();
+
 export type PptxOoxmlStoredAsset = z.infer<
   typeof pptxOoxmlStoredAssetSchema
 >;
+export type PptxOoxmlReadLocator = z.infer<typeof pptxOoxmlReadLocatorSchema>;
