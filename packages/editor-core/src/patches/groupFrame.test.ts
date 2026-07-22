@@ -70,6 +70,7 @@ describe("group frame helpers", () => {
     const deck = createDemoDeck();
     const firstSlide = deck.slides[0];
 
+    firstSlide.animations = [];
     firstSlide.elements = [
       {
         elementId: "el_child_1",

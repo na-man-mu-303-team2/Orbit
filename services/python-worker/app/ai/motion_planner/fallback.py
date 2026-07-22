@@ -44,8 +44,8 @@ def deterministic_fallback_plan(
             relation="together",
         )
     ]
-    grouped = _fallback_groups(slide_type, remaining)
-    for index, group in enumerate(grouped[:4], start=1):
+    grouped = _bounded_fallback_groups(_fallback_groups(slide_type, remaining))
+    for index, group in enumerate(grouped, start=1):
         beats.append(
             NarrativeBeat(
                 beatId=f"beat_click_{index}",
@@ -72,6 +72,15 @@ def _fallback_groups(slide_type: SlideType, targets: list[Any]) -> list[list[Any
     if slide_type in {"comparison", "feature-grid", "architecture", "summary"}:
         return [targets[index : index + 2] for index in range(0, len(targets), 2)]
     return [[target] for target in targets]
+
+
+def _bounded_fallback_groups(groups: list[list[Any]]) -> list[list[Any]]:
+    if len(groups) <= 4:
+        return groups
+    tail = [target for group in groups[3:] for target in group]
+    if len(tail) > 4:
+        raise ValueError("Motion fallback cannot preserve targets within beat caps")
+    return [*groups[:3], tail]
 
 
 def _click_purpose(

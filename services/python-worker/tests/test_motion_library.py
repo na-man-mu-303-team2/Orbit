@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from app.ai.motion_planner.library import (
     effect_spec_for_target,
     narrative_pattern_for_slide_type,
@@ -39,13 +41,13 @@ def target(role: str) -> MotionTarget:
 
 
 def test_all_twelve_slide_types_use_the_bounded_pattern_library() -> None:
-    fixtures = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    fixtures = json.loads(FIXTURE.read_text(encoding="utf-8"))["cases"]
 
     assert len(fixtures) == 12
     for fixture in fixtures:
         assert (
-            narrative_pattern_for_slide_type(fixture["slideType"])
-            == fixture["expectedPattern"]
+            narrative_pattern_for_slide_type(fixture["expected"]["slideType"])
+            == fixture["expected"]["plan"]["pattern"]
         )
 
 
@@ -67,12 +69,13 @@ def test_effect_library_only_emits_serializer_safe_entrance_effects() -> None:
 
 
 def test_all_twelve_golden_types_exclude_decoration_footer_background_and_connectors() -> None:
-    fixtures = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    fixtures = json.loads(FIXTURE.read_text(encoding="utf-8"))["cases"]
     for index, fixture in enumerate(fixtures, start=1):
+        slide_type = fixture["expected"]["slideType"]
         slide = {
             "slideId": f"slide_{index}",
             "order": index + 1,
-            "title": fixture["slideType"],
+            "title": slide_type,
             "elements": [
                 {
                     "elementId": f"el_title_{index}",
@@ -83,7 +86,7 @@ def test_all_twelve_golden_types_exclude_decoration_footer_background_and_connec
                     "width": 800,
                     "height": 100,
                     "visible": True,
-                    "props": {"text": fixture["slideType"]},
+                    "props": {"text": slide_type},
                 },
                 {
                     "elementId": f"el_decoration_{index}",
@@ -164,6 +167,32 @@ def test_data_fallback_keeps_whole_evidence_and_insight_in_separate_beats() -> N
         ["el_chart"],
         ["el_insight"],
     ]
+
+
+@pytest.mark.parametrize("step_count", [3, 4, 6])
+def test_process_preserves_every_target_within_four_click_beats(
+    step_count: int,
+) -> None:
+    plan = deterministic_fallback_plan(
+        fallback_input(
+            "process",
+            [
+                ("el_title", "title"),
+                *[
+                    (f"el_step_{index}", "body")
+                    for index in range(1, step_count + 1)
+                ],
+            ],
+        )
+    )
+
+    click_beats = [beat for beat in plan.beats if beat.trigger == "click"]
+    assert len(click_beats) <= 4
+    assert [
+        element_id
+        for beat in click_beats
+        for element_id in beat.target_element_ids
+    ] == [f"el_step_{index}" for index in range(1, step_count + 1)]
 
 
 def fallback_input(slide_type: str, targets: list[tuple[str, str]]) -> MotionPromptInput:
