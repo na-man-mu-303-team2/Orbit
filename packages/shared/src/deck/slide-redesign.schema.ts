@@ -111,7 +111,8 @@ const slideRedesignStageResponseSchema = z
             "canvas-bottom",
             "custom",
           ])
-          .nullable(),
+          .nullable()
+          .default(null),
       })
       .strict(),
     operations: z.array(deckPatchOperationSchema).max(200),

@@ -74,6 +74,15 @@ describe("processSlideRedesignJob", () => {
     expect(database.proposals[0]?.status).toBe("pending");
     expect(database.requestStatus).toBe("succeeded");
     expect(database.responseMessages).toHaveLength(1);
+    const proposalParameters = database.persistedParameters.find(
+      (parameters) => parameters[13] === "pending",
+    );
+    for (const parameterIndex of [9, 10, 11, 12]) {
+      expect(typeof proposalParameters?.[parameterIndex]).toBe("string");
+      expect(() =>
+        JSON.parse(String(proposalParameters?.[parameterIndex])),
+      ).not.toThrow();
+    }
     expect(JSON.stringify(database.persistedParameters)).not.toContain(
       '"stage":"interpret"',
     );

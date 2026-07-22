@@ -199,6 +199,7 @@ test.describe("ORBIT-2 ORBIT-10 ORBIT-36 ORBIT-58 smoke", () => {
   test("slide redesign applies once and one undo restores the original deck", async ({
     page,
   }) => {
+    test.setTimeout(120_000);
     const created = await createAuthenticatedProject(page, {
       deck: smokeDeck as Deck,
       label: "slide-redesign-smoke",

@@ -124,7 +124,6 @@ describe("slide redesign stage artifact schema", () => {
       interpretedIntent: {
         target: "current-slide",
         action: "select-redesign-palette",
-        alignment: null,
       },
       operations: [],
       affectedElementIds: [],
@@ -154,6 +153,11 @@ describe("slide redesign stage artifact schema", () => {
     expect(
       composed.stage === "compose" ? composed.imageRequests : [],
     ).toHaveLength(1);
+    expect(
+      composed.stage === "compose"
+        ? composed.response?.interpretedIntent.alignment
+        : undefined,
+    ).toBeNull();
     expect(
       slideRedesignStageArtifactSchema.parse({
         stage: "verify",
