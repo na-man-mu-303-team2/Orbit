@@ -122,6 +122,14 @@ export {
   createAnimationTimeline,
   getAnimationTimelineRoot
 } from "./playback/animationTimeline";
+export {
+  evaluateMotionEligibility,
+  getMotionEligibilityReasonMessage,
+  motionReasonCodes,
+  type MotionEligibility,
+  type MotionEligibilityOptions,
+  type MotionReasonCode,
+} from "./policies/motionEligibility";
 export type {
   AnimationStartMode,
   AnimationTimelineBaseReference,
