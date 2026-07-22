@@ -1,8 +1,10 @@
 import {
   createDesignAgentMessageRequestSchema,
   createDesignImageGenerationRequestSchema,
+  createSlideRedesignJobRequestSchema,
   type CreateDesignImageGenerationRequest,
   type CreateDesignAgentMessageRequest,
+  type CreateSlideRedesignJobRequest,
 } from "@orbit/shared";
 import { Body, Controller, Param, Post, Req } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
@@ -11,6 +13,7 @@ import { parseRequest } from "../common/zod-request";
 import { ProjectsService } from "../projects/projects.service";
 import { DesignAgentService } from "./design-agent.service";
 import { DesignImageGenerationService } from "./design-image-generation.service";
+import { SlideRedesignJobService } from "./slide-redesign-job.service";
 
 @Controller("api/v1/projects/:projectId/design-agent")
 export class DesignAgentController {
@@ -19,6 +22,7 @@ export class DesignAgentController {
     private readonly projectsService: ProjectsService,
     private readonly designAgentService: DesignAgentService,
     private readonly designImageGenerationService: DesignImageGenerationService,
+    private readonly slideRedesignJobService: SlideRedesignJobService,
   ) {}
 
   @Post("messages")
@@ -34,6 +38,21 @@ export class DesignAgentController {
       body,
     );
     return this.designAgentService.createMessage(projectId, user.userId, input);
+  }
+
+  @Post("slide-redesign-jobs")
+  async createSlideRedesignJob(
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    const input = parseRequest<CreateSlideRedesignJobRequest>(
+      createSlideRedesignJobRequestSchema,
+      body,
+    );
+    return this.slideRedesignJobService.create(projectId, user.userId, input);
   }
 
   @Post("image-generations")

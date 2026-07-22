@@ -19,6 +19,7 @@ export const historicalJobTypeSchema = z.enum([
   "semantic-cue-extraction",
   "speaker-notes-suggestion",
   "design-image-generation",
+  "slide-redesign",
   "pptx-ooxml-generation",
   "pptx-ooxml-sync",
   "worker-health-check",
@@ -90,6 +91,10 @@ export type Job = z.infer<typeof jobSchema>;
 export type JobStatus = z.infer<typeof jobStatusSchema>;
 export type JobType = z.infer<typeof jobTypeSchema>;
 export type ActiveJobType = z.infer<typeof activeJobTypeSchema>;
-export type InternalCoachingJobType = z.infer<typeof internalCoachingJobTypeSchema>;
-export type PublicCreatableJobType = z.infer<typeof publicCreatableJobTypeSchema>;
+export type InternalCoachingJobType = z.infer<
+  typeof internalCoachingJobTypeSchema
+>;
+export type PublicCreatableJobType = z.infer<
+  typeof publicCreatableJobTypeSchema
+>;
 export type JobError = z.infer<typeof jobErrorSchema>;

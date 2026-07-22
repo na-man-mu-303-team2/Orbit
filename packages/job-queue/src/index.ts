@@ -19,6 +19,7 @@ import {
   challengeQnaAnswerAnalysisJobPayloadSchema,
   slideQuestionGuideJobPayloadSchema,
   designImageGenerationJobPayloadSchema,
+  slideRedesignJobPayloadSchema,
   activityResponseRetentionJobPayloadSchema,
   nowIso,
   type Deck,
@@ -32,6 +33,7 @@ import {
   presentationAnalysisJobPayloadSchema,
   type PresentationAnalysisJobPayload,
   type DesignImageGenerationJobPayload,
+  type SlideRedesignJobPayload,
   type ActivityResponseRetentionJobPayload,
 } from "@orbit/shared";
 import { Queue } from "bullmq";
@@ -92,6 +94,8 @@ export const speakerNotesSuggestionQueueName = "speaker-notes-suggestion";
 export const speakerNotesSuggestionJobName = "speaker-notes-suggestion";
 export const designImageGenerationQueueName = "design-image-generation";
 export const designImageGenerationJobName = "design-image-generation";
+export const slideRedesignQueueName = "slide-redesign";
+export const slideRedesignJobName = "slide-redesign";
 export const pptxOoxmlGenerationQueueName = "pptx-ooxml-generation";
 export const pptxOoxmlGenerationJobName = "pptx-ooxml-generation";
 export const pptxOoxmlSyncQueueName = "pptx-ooxml-sync";
@@ -273,6 +277,13 @@ export type EnqueueDesignImageGenerationJobInput =
     driver: "bullmq" | "sqs";
     redisUrl: string;
   };
+
+export type SlideRedesignBullMqPayload = SlideRedesignJobPayload;
+
+export type EnqueueSlideRedesignJobInput = SlideRedesignBullMqPayload & {
+  driver: "bullmq" | "sqs";
+  redisUrl: string;
+};
 
 export interface PptxOoxmlGenerationBullMqPayload {
   jobId: string;
@@ -748,6 +759,29 @@ export async function enqueueDesignImageGenerationJob(
     await queue.add(
       designImageGenerationJobName,
       designImageGenerationJobPayloadSchema.parse(input),
+      canonicalJobOptions(input.jobId),
+    );
+  } finally {
+    await queue.close();
+  }
+}
+
+export async function enqueueSlideRedesignJob(
+  input: EnqueueSlideRedesignJobInput,
+): Promise<void> {
+  if (input.driver === "sqs") {
+    throw new Error("SqsJobQueue adapter is not implemented yet.");
+  }
+
+  const queue = new Queue(slideRedesignQueueName, {
+    connection: redisConnectionOptions(input.redisUrl),
+  });
+
+  try {
+    const { driver: _driver, redisUrl: _redisUrl, ...payload } = input;
+    await queue.add(
+      slideRedesignJobName,
+      slideRedesignJobPayloadSchema.parse(payload),
       canonicalJobOptions(input.jobId),
     );
   } finally {
