@@ -1,0 +1,14 @@
+[
+  { "slideType": "cover", "expectedPattern": "hero-then-support" },
+  { "slideType": "title", "expectedPattern": "hero-then-support" },
+  { "slideType": "problem", "expectedPattern": "hero-then-support" },
+  { "slideType": "solution", "expectedPattern": "hero-then-support" },
+  { "slideType": "feature-grid", "expectedPattern": "cluster-reveal" },
+  { "slideType": "process", "expectedPattern": "stepwise-process" },
+  { "slideType": "architecture", "expectedPattern": "cluster-reveal" },
+  { "slideType": "data", "expectedPattern": "evidence-then-insight" },
+  { "slideType": "chart", "expectedPattern": "evidence-then-insight" },
+  { "slideType": "comparison", "expectedPattern": "paired-comparison" },
+  { "slideType": "quote", "expectedPattern": "hero-then-support" },
+  { "slideType": "summary", "expectedPattern": "summary-recap" }
+]

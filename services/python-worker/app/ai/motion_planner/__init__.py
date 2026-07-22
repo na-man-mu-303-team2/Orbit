@@ -7,9 +7,15 @@ from app.ai.motion_planner.eligibility import (
 from app.ai.motion_planner.extractor import MotionPromptInput, extract_motion_context
 from app.ai.motion_planner.llm import (
     MotionPlannerResult,
-    deterministic_fallback_plan,
     plan_narrative_motion,
 )
+from app.ai.motion_planner.fallback import deterministic_fallback_plan
+from app.ai.motion_planner.compiler import (
+    CompiledMotion,
+    MotionCompileError,
+    compile_narrative_motion,
+)
+from app.ai.motion_planner.service import SemanticMotionResult, plan_and_compile_motion
 from app.ai.motion_planner.models import (
     ExtractedMotionContext,
     MotionEffectiveTypography,
@@ -35,4 +41,9 @@ __all__ = [
     "deterministic_fallback_plan",
     "extract_motion_context",
     "plan_narrative_motion",
+    "CompiledMotion",
+    "MotionCompileError",
+    "SemanticMotionResult",
+    "compile_narrative_motion",
+    "plan_and_compile_motion",
 ]
