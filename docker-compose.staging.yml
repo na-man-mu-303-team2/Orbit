@@ -132,6 +132,7 @@ services:
     restart: unless-stopped
 
   web:
+    image: ghcr.io/na-man-mu-303-team2/orbit-web:${IMAGE_TAG:-latest}
     build:
       args:
         APP_ENV: ${APP_ENV:?}
