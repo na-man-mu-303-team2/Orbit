@@ -25,6 +25,7 @@ from .slide_extractor import (
     heuristic_slide_type,
     split_bullets,
 )
+from .palette import derive_palette, ensure_palette_contrast
 
 __all__ = [
     "MEDIA_ELEMENT_TYPES",
@@ -48,4 +49,6 @@ __all__ = [
     "infer_hierarchy",
     "heuristic_slide_type",
     "split_bullets",
+    "derive_palette",
+    "ensure_palette_contrast",
 ]
