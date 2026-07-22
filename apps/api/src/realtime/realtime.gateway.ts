@@ -1,5 +1,10 @@
 import { createRealtimeEvent } from "@orbit/realtime";
-import { demoIds, slideChangedPayloadSchema } from "@orbit/shared";
+import {
+  demoIds,
+  slideChangedPayloadSchema,
+  slideRedesignProgressEventSchema,
+  type SlideRedesignProgressEvent,
+} from "@orbit/shared";
 import { loadOrbitConfig } from "@orbit/config";
 import {
   ConnectedSocket,
@@ -8,7 +13,7 @@ import {
   OnGatewayDisconnect,
   SubscribeMessage,
   WebSocketGateway,
-  WebSocketServer
+  WebSocketServer,
 } from "@nestjs/websockets";
 import cookieParser from "cookie-parser";
 import { Server, Socket } from "socket.io";
@@ -22,28 +27,26 @@ import {
   getCanvasRoom,
   getCanvasState,
   updateCanvasShape,
-  verifyCanvasRoomPassword
+  verifyCanvasRoomPassword,
 } from "./canvas-room.store";
 import { resolveAllowedWebOrigins } from "../common/web-origin";
 
 const connectedUsers = new Map<string, ConnectedRealtimeUser>();
 const orbitConfig = loadOrbitConfig(process.env, { service: "api" });
-const realtimeCorsOrigins = resolveAllowedWebOrigins(
-  orbitConfig.WEB_ORIGIN
-);
+const realtimeCorsOrigins = resolveAllowedWebOrigins(orbitConfig.WEB_ORIGIN);
 
 @WebSocketGateway({
   cors: {
     credentials: true,
-    origin: realtimeCorsOrigins
-  }
+    origin: realtimeCorsOrigins,
+  },
 })
 export class RealtimeGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
   constructor(
     private readonly authService: AuthService,
-    private readonly projectsService: ProjectsService
+    private readonly projectsService: ProjectsService,
   ) {}
 
   @WebSocketServer()
@@ -53,7 +56,7 @@ export class RealtimeGateway
     connectedUsers.set(client.id, buildConnectedUser(client));
     client.emit("server:hello", {
       message: "connected",
-      socketId: client.id
+      socketId: client.id,
     });
     this.emitUsers();
   }
@@ -72,10 +75,20 @@ export class RealtimeGateway
     }
   }
 
+  publishSlideRedesignProgress(
+    input: SlideRedesignProgressEvent,
+  ): SlideRedesignProgressEvent {
+    const event = slideRedesignProgressEventSchema.parse(input);
+    this.server
+      .to(projectSocketRoomName(event.roomId))
+      .emit("job-progressed", event);
+    return event;
+  }
+
   @SubscribeMessage("project:join")
   async handleProjectJoin(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { projectId?: string }
+    @MessageBody() body: { projectId?: string },
   ) {
     const projectId = readProjectId(body);
     if (!projectId) {
@@ -91,7 +104,7 @@ export class RealtimeGateway
       const { user } = await this.authService.me(sessionId);
       const project = await this.projectsService.assertCanReadProject(
         projectId,
-        user.userId
+        user.userId,
       );
       const roomName = projectSocketRoomName(project.projectId);
 
@@ -110,7 +123,7 @@ export class RealtimeGateway
         type: "project-joined",
         roomId: project.projectId,
         userId: user.userId,
-        payload: { projectId: project.projectId }
+        payload: { projectId: project.projectId },
       });
 
       this.server.to(roomName).emit("project-joined", event);
@@ -128,7 +141,7 @@ export class RealtimeGateway
       type: "slide-changed",
       roomId: demoIds.projectId,
       sessionId: demoIds.sessionId,
-      payload
+      payload,
     });
 
     this.server
@@ -143,7 +156,7 @@ export class RealtimeGateway
     if (!password) {
       return {
         event: "room:error",
-        data: { message: "Room password is required." }
+        data: { message: "Room password is required." },
       };
     }
 
@@ -152,21 +165,21 @@ export class RealtimeGateway
       event: "room:created",
       data: {
         roomId: room.roomId,
-        createdAt: room.createdAt
-      }
+        createdAt: room.createdAt,
+      },
     };
   }
 
   @SubscribeMessage("room:join")
   handleRoomJoin(
     @MessageBody() body: unknown,
-    @ConnectedSocket() client: Socket
+    @ConnectedSocket() client: Socket,
   ) {
     const payload = readRoomPasswordPayload(body);
     if (!payload) {
       return {
         event: "room:error",
-        data: { message: "Room ID and password are required." }
+        data: { message: "Room ID and password are required." },
       };
     }
 
@@ -174,14 +187,14 @@ export class RealtimeGateway
     if (!room) {
       return {
         event: "room:error",
-        data: { message: "Room does not exist." }
+        data: { message: "Room does not exist." },
       };
     }
 
     if (!verifyCanvasRoomPassword(payload.roomId, payload.password)) {
       return {
         event: "room:error",
-        data: { message: "Password does not match." }
+        data: { message: "Password does not match." },
       };
     }
 
@@ -199,8 +212,8 @@ export class RealtimeGateway
       event: "room:joined",
       data: {
         roomId: room.roomId,
-        joinedAt: new Date().toISOString()
-      }
+        joinedAt: new Date().toISOString(),
+      },
     };
   }
 
@@ -208,33 +221,33 @@ export class RealtimeGateway
   handleUsersList() {
     return {
       event: "users:list",
-      data: this.users()
+      data: this.users(),
     };
   }
 
   @SubscribeMessage("room:users")
   handleRoomUsers(
     @MessageBody() body: unknown,
-    @ConnectedSocket() client: Socket
+    @ConnectedSocket() client: Socket,
   ) {
     const roomId = readRoomId(body) || readSocketRoomId(client);
     if (!roomId || readSocketRoomId(client) !== roomId) {
       return {
         event: "room:error",
-        data: { message: "Join the room before reading room users." }
+        data: { message: "Join the room before reading room users." },
       };
     }
 
     return {
       event: "room:users",
-      data: this.roomUsers(roomId)
+      data: this.roomUsers(roomId),
     };
   }
 
   @SubscribeMessage("canvas:state")
   handleCanvasState(
     @MessageBody() body: unknown,
-    @ConnectedSocket() client: Socket
+    @ConnectedSocket() client: Socket,
   ) {
     const roomId = readRoomId(body) || readSocketRoomId(client);
     const room = roomId ? getCanvasRoom(roomId) : null;
@@ -242,20 +255,20 @@ export class RealtimeGateway
     if (!room || readSocketRoomId(client) !== room.roomId) {
       return {
         event: "room:error",
-        data: { message: "Join the room before reading canvas state." }
+        data: { message: "Join the room before reading canvas state." },
       };
     }
 
     return {
       event: "canvas:state",
-      data: getCanvasState(room.roomId)
+      data: getCanvasState(room.roomId),
     };
   }
 
   @SubscribeMessage("canvas:update")
   handleCanvasUpdate(
     @MessageBody() body: unknown,
-    @ConnectedSocket() client: Socket
+    @ConnectedSocket() client: Socket,
   ) {
     const shape = normalizeCanvasShape(body);
     if (!shape) {
@@ -266,14 +279,14 @@ export class RealtimeGateway
     if (joinedRoomId !== shape.roomId) {
       return {
         event: "room:error",
-        data: { message: "You can only update the room you joined." }
+        data: { message: "You can only update the room you joined." },
       };
     }
 
     if (!updateCanvasShape(shape)) {
       return {
         event: "room:error",
-        data: { message: "Room does not exist." }
+        data: { message: "Room does not exist." },
       };
     }
 
@@ -283,7 +296,7 @@ export class RealtimeGateway
 
     return {
       event: "canvas:update",
-      data: shape
+      data: shape,
     };
   }
 
@@ -304,8 +317,8 @@ export class RealtimeGateway
       userId: demoIds.userId,
       payload: {
         projectId,
-        users: this.projectUsers(projectId)
-      }
+        users: this.projectUsers(projectId),
+      },
     });
 
     this.server
@@ -315,13 +328,13 @@ export class RealtimeGateway
 
   private users() {
     return [...connectedUsers.values()].sort((a, b) =>
-      a.connectedAt.localeCompare(b.connectedAt)
+      a.connectedAt.localeCompare(b.connectedAt),
     );
   }
 
   private roomUsers(roomId: string) {
     const socketIds = this.server.sockets.adapter.rooms.get(
-      canvasSocketRoomName(roomId)
+      canvasSocketRoomName(roomId),
     );
     if (!socketIds) {
       return [];
@@ -335,7 +348,7 @@ export class RealtimeGateway
 
   private projectUsers(projectId: string) {
     const socketIds = this.server.sockets.adapter.rooms.get(
-      projectSocketRoomName(projectId)
+      projectSocketRoomName(projectId),
     );
     if (!socketIds) {
       return [];
@@ -351,20 +364,24 @@ export class RealtimeGateway
 
         return {
           connectedAt: user.connectedAt,
-          email: typeof socket.data.userEmail === "string" ? socket.data.userEmail : "",
+          email:
+            typeof socket.data.userEmail === "string"
+              ? socket.data.userEmail
+              : "",
           id: user.id,
-          userId: typeof socket.data.userId === "string" ? socket.data.userId : ""
+          userId:
+            typeof socket.data.userId === "string" ? socket.data.userId : "",
         };
       })
       .filter(
         (
-          user
+          user,
         ): user is {
           connectedAt: string;
           email: string;
           id: string;
           userId: string;
-        } => Boolean(user)
+        } => Boolean(user),
       )
       .sort((a, b) => a.connectedAt.localeCompare(b.connectedAt));
   }
@@ -379,8 +396,8 @@ function buildConnectedUser(client: Socket): ConnectedRealtimeUser {
     connectedAt: new Date().toISOString(),
     transport: client.conn.transport.name,
     environment: {
-      browserLabel: parseBrowserLabel(userAgent)
-    }
+      browserLabel: parseBrowserLabel(userAgent),
+    },
   };
 }
 
@@ -405,7 +422,7 @@ function normalizeCanvasShape(value: unknown): CanvasShape | null {
     id,
     kind,
     x,
-    y
+    y,
   };
 
   const width = normalizeNumber(value.width);
@@ -446,7 +463,7 @@ function readRoomPasswordPayload(value: unknown) {
 
   return {
     roomId: value.roomId.trim(),
-    password: value.password.trim()
+    password: value.password.trim(),
   };
 }
 
@@ -471,9 +488,7 @@ function readSocketRoomId(client: Socket) {
 }
 
 function readSocketProjectId(client: Socket) {
-  return typeof client.data.projectId === "string"
-    ? client.data.projectId
-    : "";
+  return typeof client.data.projectId === "string" ? client.data.projectId : "";
 }
 
 function readSocketSessionId(client: Socket): string | null {
@@ -485,7 +500,7 @@ function readSocketSessionId(client: Socket): string | null {
 
   const unsigned = cookieParser.signedCookie(
     signedValue,
-    orbitConfig.COOKIE_SECRET
+    orbitConfig.COOKIE_SECRET,
   );
   return typeof unsigned === "string" && unsigned.length > 0 ? unsigned : null;
 }
@@ -520,7 +535,7 @@ function projectSocketRoomName(projectId: string) {
 function emitProjectError(client: Socket, message: string) {
   const payload = {
     event: "project:error",
-    data: { message }
+    data: { message },
   };
   client.emit("project:error", payload.data);
   return payload;

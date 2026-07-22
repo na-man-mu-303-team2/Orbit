@@ -85,6 +85,7 @@ import { processDesignImageGenerationJob } from "./design-image-generation.proce
 import { dispatchDueActivityRetentionJobs } from "./activity-retention.dispatcher";
 import { processActivityResponseRetentionJob } from "./activity-retention.processor";
 import { processSlideRedesignJob } from "./slide-redesign.processor";
+import { SlideRedesignProgressRedisPublisher } from "./slide-redesign-progress.publisher";
 
 @Injectable()
 export class WorkerService implements OnModuleInit, OnModuleDestroy {
@@ -124,6 +125,8 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private aiDeckMaintenanceTimer: ReturnType<typeof setInterval> | null = null;
   private aiDeckMaintenanceInFlight: Promise<void> | null = null;
   private aiDeckPostgresRunner: AiDeckPostgresStageRunner | null = null;
+  private slideRedesignProgressPublisher: SlideRedesignProgressRedisPublisher | null =
+    null;
   private aiDeckFailedCoordinatorScanCursor: FailedCoordinatorScanCursor = {
     redisCursor: "0",
     pendingJobIds: [],
@@ -179,6 +182,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.queueNames = this.aiDeckQueueNames();
+    if (this.queueNames.includes(slideRedesignQueueName)) {
+      this.slideRedesignProgressPublisher =
+        new SlideRedesignProgressRedisPublisher(this.config.REDIS_URL);
+    }
     const storage = workerStorage();
     const imageRuntime = createImageAssetRuntime(this.config);
     const reconcileDeletions = () => {
@@ -458,6 +465,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             this.dataSource,
             this.config.PYTHON_WORKER_URL,
             job.data,
+            {
+              publishProgress: (event) =>
+                this.slideRedesignProgressPublisher!.publish(event),
+            },
           );
         },
       },
@@ -704,6 +715,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     await this.aiDeckMaintenanceInFlight;
     await this.transcriptCache?.close();
     await this.challengeQnaEvidenceCache?.close();
+    await this.slideRedesignProgressPublisher?.close();
     this.logger.info(
       {
         event: "worker.stopped",
