@@ -44,6 +44,10 @@ import { SmartArtLayoutsService } from "../smart-art-layouts/smart-art-layouts.s
 import { DesignAgentMessageEntity } from "./design-agent-message.entity";
 import { DesignAgentProposalEntity } from "./design-agent-proposal.entity";
 import { DesignAgentPythonClient } from "./design-agent-python.client";
+import {
+  buildMotionPlanningContext,
+  sanitizeSlideForMotionWorker,
+} from "./motion-context.builder";
 
 @Injectable()
 export class DesignAgentService {
@@ -86,6 +90,13 @@ export class DesignAgentService {
             : [],
         )
       : input.context;
+    const motionPlanningContext =
+      motionGate?.eligibility.outcome === "applicable"
+        ? buildMotionPlanningContext(
+            currentSlide,
+            motionGate.eligibility.allowedTargetElementIds,
+          )
+        : null;
 
     const sessionId = input.sessionId ?? `design_session_${randomUUID()}`;
     const sessionMessages = await this.loadSessionMessages(
@@ -214,6 +225,7 @@ export class DesignAgentService {
         ...(motionGate?.importContext
           ? { motionImportContext: motionGate.importContext }
           : {}),
+        ...(motionPlanningContext ? { motionPlanningContext } : {}),
         history,
         availableSmartArtLayouts,
         capabilities: designAgentCapabilities,
@@ -633,7 +645,7 @@ function buildAuthoritativeMotionContext(
     deckId: deck.deckId,
     baseVersion: deck.version,
     canvas: deck.canvas,
-    slide,
+    slide: sanitizeSlideForMotionWorker(slide),
     selectedElementIds: clientContext.selectedElementIds.filter(
       (elementId) =>
         currentElementIds.has(elementId) && allowedTargetIds.has(elementId),

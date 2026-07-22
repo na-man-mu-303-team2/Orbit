@@ -1072,10 +1072,18 @@ describe("DesignAgentService motion eligibility", () => {
     expect(harness.propose).toHaveBeenCalledWith(
       expect.objectContaining({
         context: expect.objectContaining({
-          slide,
+          slide: expect.objectContaining({
+            ...slide,
+            speakerNotes: "",
+          }),
           selectedElementIds: [stableElementId],
         }),
         motionImportContext: importContext,
+        motionPlanningContext: expect.objectContaining({
+          allowedTargetElementIds: [stableElementId],
+          speakerNotes: slide.speakerNotes,
+          notesPresent: true,
+        }),
       }),
     );
   });

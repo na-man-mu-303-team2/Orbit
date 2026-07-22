@@ -134,6 +134,28 @@ export const motionImportContextSchema = z
   })
   .strict();
 
+export const motionEffectiveTypographySchema = z
+  .object({
+    elementId: deckElementIdSchema,
+    characterCount: z.number().int().nonnegative(),
+    dominantFontSize: z.number().finite().nonnegative(),
+    effectiveFontSize: z.number().finite().nonnegative(),
+    effectiveLetterSpacing: z.number().finite(),
+    effectiveLineHeight: z.number().finite().nonnegative(),
+    resolvedFontScale: z.number().finite().positive().max(1),
+  })
+  .strict();
+
+export const motionPlanningContextSchema = z
+  .object({
+    allowedTargetElementIds: z.array(deckElementIdSchema).max(200),
+    effectiveTypography: z.array(motionEffectiveTypographySchema).max(200),
+    speakerNotes: z.string().max(4_000),
+    notesPresent: z.boolean(),
+    notesTruncated: z.boolean(),
+  })
+  .strict();
+
 export const createDesignAgentMessageRequestSchema = z.object({
   sessionId: z.string().trim().min(1).max(200).optional(),
   content: z.string().trim().min(1).max(2_000),
@@ -165,6 +187,7 @@ export const designAgentWorkerRequestSchema = z.object({
   intentPreset: designAgentIntentPresetSchema.optional(),
   context: designAgentContextSchema,
   motionImportContext: motionImportContextSchema.optional(),
+  motionPlanningContext: motionPlanningContextSchema.optional(),
   history: z.array(designAgentHistoryItemSchema).max(10).default([]),
   availableSmartArtLayouts: z
     .array(availableSmartArtLayoutSchema)
@@ -272,6 +295,12 @@ export type DesignAgentProposalStatus = z.infer<
 >;
 export type DesignAgentContext = z.infer<typeof designAgentContextSchema>;
 export type MotionImportContext = z.infer<typeof motionImportContextSchema>;
+export type MotionEffectiveTypography = z.infer<
+  typeof motionEffectiveTypographySchema
+>;
+export type MotionPlanningContext = z.infer<
+  typeof motionPlanningContextSchema
+>;
 export type CreateDesignAgentMessageRequest = z.infer<
   typeof createDesignAgentMessageRequestSchema
 >;
