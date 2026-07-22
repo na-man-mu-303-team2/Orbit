@@ -1,0 +1,124 @@
+[
+  {
+    "name": "explicit-roles",
+    "slideType": "summary",
+    "slide": {
+      "elements": [
+        {"elementId": "el-title", "type": "text", "role": "title", "y": 80, "props": {"text": "분기 요약", "fontSize": 48}},
+        {"elementId": "el-message", "type": "text", "role": "highlight", "y": 200, "props": {"text": "성장세 유지", "fontSize": 30}},
+        {"elementId": "el-body", "type": "text", "role": "body", "y": 360, "props": {"text": "신규 고객 증가", "fontSize": 24}},
+        {"elementId": "el-footer", "type": "text", "role": "footer", "y": 1010, "props": {"text": "7", "fontSize": 14}}
+      ]
+    },
+    "expected": {
+      "summary": {
+        "title": "분기 요약",
+        "message": "성장세 유지",
+        "contentItems": [{"contentItemId": "el-body::segment::1", "text": "신규 고객 증가"}],
+        "slideType": "summary",
+        "visualIntent": {},
+        "mediaIntent": {"alt": ""}
+      },
+      "provenance": {"el-body::segment::1": "el-body"}
+    }
+  },
+  {
+    "name": "unroled-font-hierarchy",
+    "slideType": "summary",
+    "slide": {
+      "elements": [
+        {"elementId": "el-body", "type": "text", "y": 420, "props": {"text": "실행 근거", "fontSize": 20}},
+        {"elementId": "el-title", "type": "text", "y": 80, "props": {"text": "실행 계획", "fontSize": 50}},
+        {"elementId": "el-message", "type": "text", "y": 230, "props": {"text": "우선순위 집중", "fontSize": 28}}
+      ]
+    },
+    "expected": {
+      "summary": {
+        "title": "실행 계획",
+        "message": "우선순위 집중",
+        "contentItems": [{"contentItemId": "el-body::segment::1", "text": "실행 근거"}],
+        "slideType": "summary",
+        "visualIntent": {},
+        "mediaIntent": {"alt": ""}
+      },
+      "provenance": {"el-body::segment::1": "el-body"}
+    }
+  },
+  {
+    "name": "grid-reading-order",
+    "slideType": "feature-grid",
+    "slide": {
+      "elements": [
+        {"elementId": "el-4", "type": "text", "role": "body", "x": 900, "y": 600, "props": {"text": "넷", "fontSize": 24}},
+        {"elementId": "el-2", "type": "text", "role": "body", "x": 900, "y": 300, "props": {"text": "둘", "fontSize": 24}},
+        {"elementId": "el-3", "type": "text", "role": "body", "x": 120, "y": 600, "props": {"text": "셋", "fontSize": 24}},
+        {"elementId": "el-1", "type": "text", "role": "body", "x": 120, "y": 300, "props": {"text": "하나", "fontSize": 24}}
+      ]
+    },
+    "expected": {
+      "summary": {
+        "title": "",
+        "message": "",
+        "contentItems": [
+          {"contentItemId": "el-1::segment::1", "text": "하나"},
+          {"contentItemId": "el-2::segment::1", "text": "둘"},
+          {"contentItemId": "el-3::segment::1", "text": "셋"},
+          {"contentItemId": "el-4::segment::1", "text": "넷"}
+        ],
+        "slideType": "feature-grid",
+        "visualIntent": {},
+        "mediaIntent": {"alt": ""}
+      },
+      "provenance": {
+        "el-1::segment::1": "el-1",
+        "el-2::segment::1": "el-2",
+        "el-3::segment::1": "el-3",
+        "el-4::segment::1": "el-4"
+      }
+    }
+  },
+  {
+    "name": "bullet-segments",
+    "slideType": "process",
+    "slide": {
+      "elements": [
+        {"elementId": "el-steps", "type": "text", "role": "body", "y": 300, "props": {"text": "• 준비\n• 실행\n• 확인", "fontSize": 24}}
+      ]
+    },
+    "expected": {
+      "summary": {
+        "title": "",
+        "message": "",
+        "contentItems": [
+          {"contentItemId": "el-steps::segment::1", "text": "준비"},
+          {"contentItemId": "el-steps::segment::2", "text": "실행"},
+          {"contentItemId": "el-steps::segment::3", "text": "확인"}
+        ],
+        "slideType": "process",
+        "visualIntent": {},
+        "mediaIntent": {"alt": ""}
+      },
+      "provenance": {
+        "el-steps::segment::1": "el-steps",
+        "el-steps::segment::2": "el-steps",
+        "el-steps::segment::3": "el-steps"
+      }
+    }
+  },
+  {
+    "name": "empty-slide",
+    "slideType": "summary",
+    "slide": {"elements": []},
+    "expected": {
+      "summary": {
+        "title": "",
+        "message": "",
+        "contentItems": [],
+        "slideType": "summary",
+        "visualIntent": {},
+        "mediaIntent": {"alt": ""}
+      },
+      "provenance": {}
+    }
+  }
+]
