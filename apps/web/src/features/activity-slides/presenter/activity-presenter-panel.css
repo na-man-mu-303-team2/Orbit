@@ -2,7 +2,8 @@
   background: var(--redesign-color-surface-container-lowest);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-xl);
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: var(--redesign-space-3);
   padding: var(--redesign-space-3);
 }
@@ -37,18 +38,31 @@
 .activity-presenter-metrics span { color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-label-sm-size); font-weight: 850; }
 .activity-presenter-metrics strong { color: var(--redesign-color-on-surface); font-size: var(--redesign-type-title-lg-size); }
 
-.activity-presenter-panel > a { align-items: center; color: var(--redesign-color-primary); display: inline-flex; font-size: var(--redesign-type-label-sm-size); font-weight: 850; gap: var(--redesign-space-1); overflow-wrap: anywhere; }
+.activity-presenter-panel > a { align-items: center; color: var(--redesign-color-primary); display: inline-flex; font-size: var(--redesign-type-label-sm-size); font-weight: 850; gap: var(--redesign-space-1); justify-content: center; margin-top: auto; order: 2; overflow-wrap: anywhere; }
 .activity-presenter-error { color: var(--redesign-color-warning); font-size: var(--redesign-type-label-sm-size); font-weight: 750; line-height: 1.4; margin: 0; }
 
 .activity-presenter-primary-command.redesign-button-primary {
   background: var(--redesign-color-primary);
+  order: 3;
   width: 100%;
+}
+
+.activity-presenter-panel:not(:has(> a)) > .activity-presenter-primary-command {
+  margin-top: auto;
+}
+
+.activity-presenter-panel .redesign-button:disabled {
+  background: var(--redesign-color-surface-container-low);
+  border-color: var(--redesign-color-outline-variant);
+  color: var(--redesign-color-on-surface-variant);
 }
 
 .activity-presenter-command-row {
   display: grid;
   gap: var(--redesign-space-2);
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  order: 3;
+  position: relative;
 }
 
 .activity-presenter-command-row > .redesign-button {
@@ -60,10 +74,26 @@
 }
 
 .activity-presenter-reopen-help {
-  color: var(--redesign-color-on-surface-variant);
+  background: var(--redesign-color-inverse-surface);
+  border-radius: var(--redesign-radius);
+  bottom: calc(100% + var(--redesign-space-2));
+  color: var(--redesign-color-inverse-on-surface);
   font-size: var(--redesign-type-label-sm-size);
+  left: 0;
   line-height: 1.4;
-  margin: calc(var(--redesign-space-1) * -1) 0 0;
+  margin: 0;
+  max-width: 260px;
+  opacity: 0;
+  padding: var(--redesign-space-2) var(--redesign-space-3);
+  pointer-events: none;
+  position: absolute;
+  transition: opacity var(--redesign-duration-fast) var(--redesign-ease-standard);
+  z-index: 1;
+}
+
+.activity-presenter-secondary-command:hover ~ .activity-presenter-reopen-help,
+.activity-presenter-secondary-command:focus-visible ~ .activity-presenter-reopen-help {
+  opacity: 1;
 }
 
 .activity-presenter-result-detail,
