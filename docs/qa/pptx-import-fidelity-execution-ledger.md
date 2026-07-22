@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR8 import preference API 전달과 선택 dialog
-- task branch: `feature/pptx-import-pr8-preference-dialog`
-- 상태: 모든 Web import 진입점의 명시적 선택 gate, API·Job Queue·Worker·Python 전달과 validation, target branch `--no-ff` merge 완료
+- 단계: PR9 slide render mode 조립과 Editor 적용
+- task branch: `feature/pptx-import-pr9-render-mode`
+- 상태: Worker의 preference/capability 기반 mode 결정, snapshot tree 보존, Web 공통 렌더·선택·thumbnail·PNG 정책, 두 preference Playwright 비교와 target branch `--no-ff` merge 완료
 
 ## 완료된 작업과 Commit
 
@@ -42,6 +42,7 @@
 | PR7B missing notes page       | `bc2a1599`  | `feature/pptx-import-pr7b-notes-part-creation` | `b36c7bc3` | 검증된 notes master 재사용·최소 구조 생성, bounded locator, export/reimport 왕복       |
 | Checkpoint B notes E2E        | `17965f7d`  | `test/pptx-import-checkpoint-b` | `25355090` | 실제 8/8 notes·preview, slide 4 문단 경계, 수정 후 digest exact match와 privacy         |
 | PR8 import preference         | `42cfc53d`  | `feature/pptx-import-pr8-preference-dialog` | `182f941b` | 선택 전 무동작, 두 정책 전달, legacy default와 unknown enum 거부                     |
+| PR9 slide render mode         | `c39868ee`  | `feature/pptx-import-pr9-render-mode` | `f3decd83` | preference·pixel·capability로 mode 결정, snapshot tree 보존과 전체 renderer 일치       |
 
 ## 실행한 검증
 
@@ -148,6 +149,16 @@
 | PR8 Worker lint        | TypeScript no-emit                                                                    | 통과                                                 |
 | PR8 Python 대상        | `pytest tests/test_pptx_ooxml_generation.py`                                          | 43 passed, 기존 deprecation warning만 발생           |
 | PR8 Python lint/type   | 변경 파일 `ruff check`와 `mypy app`                                                   | 모두 통과                                            |
+| PR9 RED                | Worker mode/tree 4개와 Web snapshot/cache/edit policy 3개                              | 구현 전 의도한 7개 실패 확인                         |
+| PR9 Worker 대상        | `pptx-ooxml-generation.processor.spec.ts` 직접 Vitest                                  | 15 tests passed                                      |
+| PR9 Worker 전체        | `pnpm --filter @orbit/worker test -- pptx-ooxml-generation.processor.spec.ts`          | 394 passed, 15 skipped                               |
+| PR9 Web 대상           | read-only, cache, editing policy, rail 직접 Vitest                                     | 5 files, 44 tests passed                             |
+| PR9 Web 전체           | `pnpm --filter @orbit/web test -- ReadOnlySlideCanvas.test.tsx slideImageCache.test.ts` | 290 files, 1,817 tests passed                        |
+| PR9 lint/build         | Worker/Web TypeScript lint와 production build                                          | 통과, 기존 dynamic import·chunk-size warning만 발생 |
+| PR9 accuracy 도구      | preference-pair preparer/scorer `ruff check`                                           | 통과                                                 |
+| PR9 preference E2E     | 실제 기준 8 slides × 두 preference Playwright screenshot                              | 16/16 capture passed                                 |
+| PR9 appearance 비교    | source render 대비 snapshot SSIM `>= 0.99`                                             | 8/8, slide별 SSIM 모두 1.0                           |
+| PR9 editability 비교   | source render 대비 editable/hybrid SSIM `>= 0.95`                                      | 4/8, 기존 CI-only vector fidelity 한계 재확인        |
 
 ## PR0 Renderer 측정과 결정
 
@@ -195,6 +206,11 @@
 - PR7B Worker 응답은 shared notes page schema보다 좁은 생성 locator schema가 필요했다. Python이 반환할 수 있는 source part·master part·body locator·dimension만 허용하고 임의 preview file ID 같은 추가 필드는 persistence 전에 fail-closed하도록 보강했다.
 - PR8 첫 Worker 실행은 package-local symlink가 원본 worktree의 오래된 `@orbit/shared` build를 가리켜 legacy schema와 sync capability 2가 로드됐다. 원본 설치의 link tree만 상대 경로를 보존해 복사하여 sibling package build를 가리키게 한 뒤 전체 390개 test가 통과했다.
 - PR8의 package script에 파일 인자를 전달한 API 실행은 대상 11개가 통과했지만 전체 suite도 함께 실행되어 test 환경변수가 필요한 기존 5개 suite가 시작 전에 실패했다. test-only placeholder 환경과 직접 Vitest 경로로 대상 suite를 격리해 11/11 통과를 확인했으며 실제 secret은 읽거나 복사하지 않았다.
+- PR9 첫 Web RED 실행은 필수 `APP_ENV`, `API_BASE_URL`, `WEB_PORT`가 없어 Vite config 단계에서 중단됐다. 비밀값 없는 test/local 값만 명시해 다시 실행했고 의도한 snapshot 관련 3개 실패를 확인했다.
+- PR9 첫 Worker 전체 실행은 integration spec이 가져오는 API package-local link가 없어 `@orbit/shared` 상대 모듈을 찾지 못했다. 원본 설치의 API/realtime link tree만 임시 복사해 현재 sibling package를 가리키게 한 뒤 394 passed, 15 skipped를 확인하고 모두 제거했다.
+- PR9 첫 Worker production build는 export한 정책 함수가 거대한 Zod 추론 타입을 declaration에 직렬화하면서 `TS7056`으로 실패했다. 외부 signature를 작은 명시적 render-mode input 타입으로 제한한 뒤 lint와 build가 통과했다.
+- PR9 기준 PPTX preference-pair 생성 중 MuPDF structure tree bounded warning이 발생했지만 8 source render와 16 payload 생성, 16/16 browser capture에는 영향이 없었다.
+- PR9 sibling worktree의 임시 root dependency link 때문에 Vite가 원본 Pretendard 경로를 serving allow list 밖으로 경고했다. appearance-first는 bitmap source render를 사용해 8/8 SSIM 1.0이었고, editability-first 결과는 runtime 선택에 쓰지 않는 기존 CI-only 한계로 기록했다.
 
 ## 계획 대비 변경과 근거
 
@@ -216,6 +232,10 @@
 - Checkpoint B는 기존 기준 파일 integration을 import-only에서 full-save notes 편집, OOXML sync, preview refresh, PPTX export와 Python reimport까지 확장했다. 별도 fixture 복사 없이 보호 경로 opt-in 조건을 유지한다.
 - PR8 dialog는 Editor뿐 아니라 workspace home과 project list의 PPTX 진입점에도 공통 적용했다. 선택 전에는 기존 프로젝트의 upload뿐 아니라 신규 project 생성도 시작하지 않아 “매 import 명시 선택” 계약을 UI 경로 전체에서 유지한다.
 - PR8 Python generation 함수는 validated preference를 받되 render mode 결정에는 아직 사용하지 않는다. 전달 경계를 먼저 고정하고 PR9에서 capability inventory와 결합해 slide별 `importRenderMode`를 결정하기 위함이다.
+- PR9 Worker는 runtime candidate renderer가 기각된 현재 조건에서 appearance-first의 `not-evaluated`/`failed` slide를 source snapshot으로 선택한다. editability-first는 resolved fallback을 `hybrid`, 안전한 vector tree를 `editable`로 선택하고 unresolved asset, 누락 relationship/fallback, 빈 tree, 미계상 unsupported object를 data-loss risk로 취급한다.
+- PR9 snapshot은 element와 animation tree를 Deck에 보존하되 공통 renderable element와 highlight 경계에서 제외한다. canvas editing policy도 snapshot을 거부해 selection과 keyboard mutation이 저장 tree에 도달하지 않도록 한다.
+- 계획의 예상 파일 외에 `editorLayout.ts`, highlight helper, rail test와 accuracy harness를 함께 변경했다. main canvas background, rail cache 우선순위, 실제 기준 두 preference screenshot과 source SSIM을 동일 mode 정책으로 증명하기 위해 필요했다.
+- 기존 accuracy scorer는 모든 full-slide fallback을 실패로 보았으나 preference-pair의 의도된 appearance-first snapshot은 source SSIM `>= 0.99`를 성공 기준으로 분리했다. 일반 vector candidate와 editability-first의 `0.95` 기준은 유지한다.
 
 ## 알려진 제한 사항
 
@@ -231,15 +251,16 @@
 - PR6 시점에는 per-slide imported provenance UI gate가 없으므로 `deck.metadata.sourceType === "import"`에서 tab을 노출한다. 이후 imported Deck에 새로 추가된 authored slide는 API의 `unavailable` 상태를 표시하며 PR9의 slide render mode 적용 시 per-slide gate를 재검토한다.
 - PR7B는 notes page가 없는 imported slide의 첫 비어 있지 않은 대본 저장만 생성한다. 빈 문자열 저장은 package를 불필요하게 변경하지 않는 no-op이며 안전한 단일 notes master 구조를 증명할 수 없는 package는 `NOTES_MASTER_CAPABILITY_UNSAFE`로 종료한다.
 - 실제 8-slide Checkpoint B test는 기준 파일을 저장소에 포함하지 않으므로 `PPTX_IMPORT_FIDELITY_REFERENCE_PATH`가 없는 일반 suite에서 계속 skip된다. hash가 일치하는 보호 로컬/CI 경로에서는 9/9 integration으로 실행된다.
-- PR8의 선택 정책은 Job과 Python multipart까지 보존되지만 현재 visual rendering 결과는 기존 editability 경로와 같다. `appearance-first`의 snapshot 적용과 `editability-first`의 hybrid/vector 조립은 PR9 범위다.
+- PR9의 신규 mode는 새 PPTX import slide에 저장된다. `importRenderMode`가 없는 legacy Deck은 기존 thumbnail/canvas/editing 동작을 그대로 유지한다.
+- PR9 실제 기준의 appearance-first는 8/8 source snapshot SSIM 1.0이다. editability-first는 4/8만 기존 `0.95` CI gate를 통과했으며 이 값은 runtime report에 측정값처럼 기록하지 않고 PR10~PR12의 font/style/quality gate 개선 근거로만 사용한다.
 
 ## 다음에 시작할 정확한 작업
 
-1. PR8 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. `feature/pptx-import-pr9-render-mode`를 target branch HEAD에서 생성한다.
-3. preference와 capability inventory를 조합해 slide별 `importRenderMode`를 fail-closed로 결정한다.
-4. appearance-first는 source snapshot을 사용하고 editability-first는 editable element tree와 필요한 fallback을 유지한다.
-5. Editor canvas, selection, thumbnail이 같은 mode를 사용하도록 연결하고 두 preference의 기준 screenshot을 비교한다.
+1. PR9 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. `feature/pptx-import-pr10-font-normalization`을 target branch HEAD에서 생성한다.
+3. 명시적 alias table로 Pretendard 4개 variant를 canonical family와 200/500/600/800 numeric weight로 정규화한다.
+4. unknown font의 원래 이름을 보존하고 browser fallback과 영향 slide 수만 bounded 진단한다.
+5. Shared font catalog, Web CSS 실제 weight 제공과 Chromium `document.fonts.check()` 통합 테스트를 검증한다.
 
 ## 사용자 결정이 필요한 Blocker
 
