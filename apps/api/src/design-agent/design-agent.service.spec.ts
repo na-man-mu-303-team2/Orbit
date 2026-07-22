@@ -1036,6 +1036,7 @@ describe("DesignAgentService motion eligibility", () => {
     deck.metadata.sourceType = "import";
     const slide = deck.slides[0]!;
     const stableElementId = slide.elements[0]!.elementId;
+    slide.speakerNotes = "MOTION_PRIVATE_SENTINEL";
     slide.importRenderMode = "editable";
     slide.ooxmlSourceSlidePart = "ppt/slides/slide1.xml";
     slide.ooxmlMotionCapabilities = {
@@ -1081,10 +1082,16 @@ describe("DesignAgentService motion eligibility", () => {
         motionImportContext: importContext,
         motionPlanningContext: expect.objectContaining({
           allowedTargetElementIds: [stableElementId],
-          speakerNotes: slide.speakerNotes,
+          speakerNotes: "MOTION_PRIVATE_SENTINEL",
           notesPresent: true,
         }),
       }),
+    );
+    expect(JSON.stringify([...harness.savedMessages.values()])).not.toContain(
+      "MOTION_PRIVATE_SENTINEL",
+    );
+    expect(JSON.stringify(harness.logger.info.mock.calls)).not.toContain(
+      "MOTION_PRIVATE_SENTINEL",
     );
   });
 
@@ -1214,6 +1221,7 @@ function createMotionMessageHarness(
     smartArtRequest: null,
     uiAction: null,
   }));
+  const logger = { info: vi.fn(), warn: vi.fn() };
   const service = new DesignAgentService(
     messagesRepository,
     proposalsRepository,
@@ -1222,9 +1230,9 @@ function createMotionMessageHarness(
     {
       listActiveCatalog: vi.fn(async () => []),
     } as unknown as SmartArtLayoutsService,
-    { info: vi.fn(), warn: vi.fn() } as never,
+    logger as never,
   );
-  return { service, propose, savedMessages };
+  return { service, propose, savedMessages, logger };
 }
 
 function createRedesignMessageHarness(
