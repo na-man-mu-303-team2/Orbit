@@ -41,6 +41,7 @@ from .diff import (
     filter_safe_candidates,
     match_elements,
 )
+from .pipeline import MEDIA_ENABLED, RedesignResult, redesign_slide
 
 __all__ = [
     "MEDIA_ELEMENT_TYPES",
@@ -77,4 +78,7 @@ __all__ = [
     "build_operations",
     "filter_safe_candidates",
     "match_elements",
+    "MEDIA_ENABLED",
+    "RedesignResult",
+    "redesign_slide",
 ]
