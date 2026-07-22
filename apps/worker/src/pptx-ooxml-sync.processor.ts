@@ -8,6 +8,8 @@ import {
   deckPatchOperationTypeSchema,
   deckSchema,
   ooxmlMotionCapabilitiesSchema,
+  pptxOoxmlAssetTransportVersionSchema,
+  pptxOoxmlStoredAssetSchema,
   pptxOoxmlSyncJobResultSchema,
   recoverTemplateBlueprintSlideIds,
   slideTransitionSchema,
@@ -21,9 +23,14 @@ import {
   type TemplateBlueprint,
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
-import { randomUUID } from "crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
+import {
+  createPptxOoxmlStoragePrefix,
+  pptxOoxmlAssetFileId,
+  registerPptxOoxmlStoredAssets,
+  verifyPptxOoxmlStoredAssets,
+} from "./pptx-ooxml-stored-assets";
 
 const pptxOoxmlSyncPayloadSchema = z.object({
   jobId: z.string().min(1),
@@ -32,13 +39,6 @@ const pptxOoxmlSyncPayloadSchema = z.object({
   changeId: z.string().min(1),
   targetDeckVersion: z.number().int().positive(),
   syncCapabilityVersion: z.number().int().positive().default(1),
-});
-
-const syncAssetSchema = z.object({
-  assetId: z.string().min(1),
-  fileName: z.string().min(1),
-  mimeType: z.string().min(1),
-  contentBase64: z.string().min(1),
 });
 
 const ooxmlSyncOperationTypeSchema = z.enum([
@@ -149,7 +149,8 @@ const unsupportedSlideMotionSchema = z
   .strict();
 
 const pptxOoxmlSyncWorkerResponseSchema = z.object({
-  assets: z.array(syncAssetSchema).default([]),
+  assetTransport: pptxOoxmlAssetTransportVersionSchema,
+  assets: z.array(pptxOoxmlStoredAssetSchema).default([]),
   elementSources: z.array(templateElementSourceSchema).max(500).default([]),
   appliedOperations: z.array(ooxmlAppliedOperationSchema).max(500).default([]),
   unsupportedOperations: z
@@ -334,7 +335,7 @@ class RetryableOoxmlSyncError extends Error {
 
 export async function processPptxOoxmlSyncJob(
   dataSource: DataSource,
-  storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
+  storage: Pick<StoragePort, "getSignedReadUrl" | "headObject">,
   pythonWorkerUrl: string,
   rawPayload: unknown,
 ): Promise<Job> {
@@ -499,10 +500,15 @@ export async function processPptxOoxmlSyncJob(
         storedDeck,
         syncPlan.operations,
         authoredElementFallbacks,
+        createPptxOoxmlStoragePrefix(payload.projectId, payload.jobId),
+      );
+      await verifyPptxOoxmlStoredAssets(
+        storage,
+        createPptxOoxmlStoragePrefix(payload.projectId, payload.jobId),
+        synced.assets,
       );
       const savedAssets = await saveSyncAssets(
         manager,
-        storage,
         payload.projectId,
         synced,
       );
@@ -1085,6 +1091,7 @@ async function syncPptxOoxmlWithPython(
   deck: Deck,
   operations: DeckPatchOperation[],
   authoredElementFallbacks: AuthoredElementFallbacks,
+  storagePrefix: string,
 ): Promise<PptxOoxmlSyncWorkerResponse> {
   const slideMotion = buildSlideMotionSyncInput(
     deck,
@@ -1132,6 +1139,7 @@ async function syncPptxOoxmlWithPython(
   );
   form.append("synced_deck_version", String(targetDeckVersion));
   form.append("render", "true");
+  form.append("storage_prefix", storagePrefix);
 
   const readUrl = await storage.getSignedReadUrl(asset.storage_key);
   const sourceResponse = await fetch(readUrl);
@@ -1712,7 +1720,6 @@ function operationIdentity(operation: DeckPatchOperation) {
 
 async function saveSyncAssets(
   dataSource: QueryExecutor,
-  storage: Pick<StoragePort, "putObject">,
   projectId: string,
   synced: PptxOoxmlSyncWorkerResponse,
 ): Promise<SavedSyncAssets> {
@@ -1720,37 +1727,10 @@ async function saveSyncAssets(
   const renderAssetFileIdsByAssetId = new Map<string, string>();
   let currentPackageFileId = "";
 
-  for (const asset of synced.assets) {
-    const fileId = `file_${randomUUID()}`;
-    const originalName = safeStorageName(asset.fileName);
-    const storageKey = `projects/${projectId}/assets/${fileId}-${originalName}`;
-    const body = Buffer.from(asset.contentBase64, "base64");
-    const url = createAssetContentUrl(projectId, fileId);
+  await registerPptxOoxmlStoredAssets(dataSource, projectId, synced.assets);
 
-    await storage.putObject({
-      key: storageKey,
-      body,
-      contentType: asset.mimeType,
-      purpose: "design-asset",
-    });
-    await dataSource.query(
-      `
-        INSERT INTO project_assets (
-          file_id, project_id, storage_key, original_name, mime_type, size, url,
-          purpose, status, created_at, uploaded_at, deleted_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'design-asset', 'uploaded', now(), now(), null)
-      `,
-      [
-        fileId,
-        projectId,
-        storageKey,
-        originalName,
-        asset.mimeType,
-        body.byteLength,
-        url,
-      ],
-    );
+  for (const asset of synced.assets) {
+    const fileId = pptxOoxmlAssetFileId(projectId, asset.storageKey);
 
     if (asset.assetId === "current_package") {
       currentPackageFileId = fileId;
@@ -2173,16 +2153,6 @@ function workerUrl(baseUrl: string, path: string): string {
     path,
     baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`,
   ).toString();
-}
-
-function createAssetContentUrl(projectId: string, fileId: string): string {
-  return `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(
-    fileId,
-  )}/content`;
-}
-
-function safeStorageName(fileName: string): string {
-  return (fileName || "design-asset").replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
