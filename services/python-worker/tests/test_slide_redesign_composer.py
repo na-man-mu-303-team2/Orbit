@@ -7,9 +7,11 @@ from typing import Any
 import pytest
 
 from app.ai.color_options import contrast_ratio
-from app.ai.composition_library import CompositionCompileError
+from app.ai.composition_library import COMPOSITION_SPECS, CompositionCompileError
+from app.ai.design_program import BackgroundMode, CompositionId
 from app.ai.slide_redesign.composer import (
     build_single_slide_program,
+    compile_redesign,
     eligible_candidates,
     select_composition,
 )
@@ -165,3 +167,58 @@ def test_select_composition_falls_back_when_provider_raises() -> None:
     )
 
     assert selected == candidates[0]
+
+
+def m1_compile_cases() -> list[tuple[CompositionId, BackgroundMode, int]]:
+    cases: list[tuple[CompositionId, BackgroundMode, int]] = []
+    for composition_id, spec in COMPOSITION_SPECS.items():
+        if spec.media_requirement == "required":
+            continue
+        for mode in spec.variants:
+            if mode == "image":
+                continue
+            for item_count in sorted({spec.min_items, spec.max_items}):
+                cases.append((composition_id, mode, item_count))
+    return cases
+
+
+@pytest.mark.parametrize(
+    ("composition_id", "background_mode", "item_count"),
+    m1_compile_cases(),
+)
+def test_all_media_free_m1_compositions_compile_within_canvas(
+    composition_id: CompositionId,
+    background_mode: BackgroundMode,
+    item_count: int,
+) -> None:
+    spec = COMPOSITION_SPECS[composition_id]
+    slide_summary = summary(
+        spec.purposes[0],
+        [f"항목 {index}: {index * 10}%" for index in range(1, item_count + 1)],
+    )
+    candidate = next(
+        candidate
+        for candidate in eligible_candidates(slide_summary)
+        if candidate.composition_id == composition_id
+        and candidate.background_mode == background_mode
+    )
+    theme = {
+        "fontFamily": "Pretendard",
+        "backgroundColor": "#FFFFFF",
+        "textColor": "#111827",
+        "accentColor": "#2563EB",
+    }
+    program = build_single_slide_program(
+        theme,
+        derive_palette(theme, background_mode),
+        candidate,
+    )
+
+    compiled = compile_redesign(slide_summary, candidate, program)
+
+    assert compiled.primary_focal_element_id
+    for element in compiled.elements:
+        assert element["x"] >= 0
+        assert element["y"] >= 0
+        assert element["x"] + element["width"] <= 1920
+        assert element["y"] + element["height"] <= 1080
