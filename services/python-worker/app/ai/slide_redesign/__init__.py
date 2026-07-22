@@ -26,6 +26,12 @@ from .slide_extractor import (
     split_bullets,
 )
 from .palette import derive_palette, ensure_palette_contrast
+from .composer import (
+    CompositionCandidate,
+    build_single_slide_program,
+    compile_redesign,
+    eligible_candidates,
+)
 
 __all__ = [
     "MEDIA_ELEMENT_TYPES",
@@ -51,4 +57,8 @@ __all__ = [
     "split_bullets",
     "derive_palette",
     "ensure_palette_contrast",
+    "CompositionCandidate",
+    "build_single_slide_program",
+    "compile_redesign",
+    "eligible_candidates",
 ]
