@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR2 OOXML notes body와 provenance import
-- task branch: `feature/pptx-import-pr2-notes-import`
-- 상태: target branch `--no-ff` merge와 merge 후 notes smoke test 완료
+- 단계: PR3 전체 notes page render asset 생성
+- task branch: `feature/pptx-import-pr3-notes-render`
+- 상태: target branch `--no-ff` merge와 merge 후 notes renderer smoke test 완료
 
 ## 완료된 작업과 Commit
 
@@ -33,6 +33,7 @@
 | PR1 공통 계약                 | `ae837d6f`  | `feature/pptx-import-pr1-contracts` | `38f0eb3e`   | strict request, optional slide mode, notes sidecar와 bounded diagnostics 검증          |
 | PR1 계약 문서                 | `57cbd3e1`  | `feature/pptx-import-pr1-contracts` | `38f0eb3e`   | `docs/contracts.md`, shared README와 실행 근거 정합화                                  |
 | PR2 notes body import         | `fa9cd147`  | `feature/pptx-import-pr2-notes-import` | `4d6a3b5f` | slide→notesSlide→notesMaster relationship 추적, body-only text와 locator 추출          |
+| PR3 notes page renderer       | `3870eccc`  | `feature/pptx-import-pr3-notes-render` | `3da81176` | notes-only PDF, notesSz bounded PNG, count/order proof와 fail-closed diagnostic         |
 
 ## 실행한 검증
 
@@ -62,6 +63,15 @@
 | PR2 lint/type         | 변경 Python 파일 `ruff check --no-cache`, importer 2개 `mypy`                        | 모두 통과                                            |
 | PR2 실제 notes 비교   | SHA로 식별한 기준 PPTX의 relationship 기반 독립 추출과 importer 결과 비교            | 8/8 exact match, writable 8, warning 0               |
 | PR2 merge smoke       | notes 관련 importer·generation test                                                  | 7 passed, 51 deselected                              |
+| PR3 RED               | notes rendering 모듈 import와 preview mapping test                                   | 구현 전 collection error 확인                       |
+| PR3 generation test   | `pytest tests/test_pptx_ooxml_generation.py`                                         | 29 passed, 1 skipped                                 |
+| PR3 generation·sync   | generation과 `test_pptx_ooxml_sync_api.py`                                           | 41 passed                                            |
+| PR3 Python 전체       | Python worker 전체 `pytest`                                                          | 797 passed                                           |
+| PR3 lint/type         | renderer·generation·test `ruff`, renderer·generation `mypy`                          | 모두 통과                                            |
+| PR3 fixture 실렌더    | LibreOffice notes-only export                                                        | 1/1 preview asset 생성                               |
+| PR3 실제 실렌더       | 기준 PPTX full generation                                                           | 8/8 rendered, 8/8 asset mapping, package asset 1     |
+| PR3 수동 preview      | 기준 파일 notes page 1·4·8                                                          | slide image, body, master 장식, page number 확인     |
+| PR3 merge smoke       | generation notes 관련 test                                                          | 8 passed, 22 deselected                              |
 
 ## PR0 Renderer 측정과 결정
 
@@ -87,6 +97,8 @@
 - sibling worktree의 `node_modules` symlink를 따라간 Pretendard 파일은 Vite serving allow list 밖이라 차단됐다. 앱 코드가 동일한 원본 workspace에서 Vite만 실행해 정상 font 조건으로 측정했다.
 - PR1 첫 shared build는 sandbox가 sibling worktree의 `packages/shared/dist` 생성을 막아 `TS5033 EPERM`으로 실패했다. 동일 명령을 승인된 worktree 쓰기 권한으로 재실행해 성공했고 생성한 ignored `dist`와 임시 dependency symlink는 제거한다.
 - Target이 없는 notes relationship fixture는 `python-pptx`가 package 로드 단계에서 `InvalidXmlError`로 중단되므로, raw OOXML vector importer 경로에서 fail-closed diagnostic을 검증했다.
+- 기준 파일 full generation 첫 실행은 기존 slide renderer가 공유 LibreOffice profile을 사용해 exit 1로 실패했다. slide renderer에도 task별 격리 profile을 적용한 뒤 동일 호출에서 slide와 notes preview가 모두 생성됐다.
+- 실제 full generation 중 MuPDF가 PDF structure tree 관련 bounded 경고를 stderr에 냈지만 8 slide·8 notes asset 생성과 package 보존 검증은 통과했다.
 
 ## 계획 대비 변경과 근거
 
@@ -101,13 +113,14 @@
 - LibreOffice notes page preview는 source app과의 pixel identity가 아니라 page completeness와 순서가 확인된 bounded preview다.
 - Runtime Konva SSIM은 CI 결과이며 production import report에서 측정값처럼 가장하지 않는다.
 - PR2는 notes body와 provenance만 가져오며 전체 notes page preview asset은 PR3에서 추가한다.
+- PR3 preview는 `notesSz` 비율의 최대 1280 px bitmap이며 page count가 전체 slide 수와 일치하고 source slide index가 순차적일 때만 매핑한다.
 
 ## 다음에 시작할 정확한 작업
 
-1. target branch의 clean 상태와 PR2 ledger commit을 확인한다.
-2. `feature/pptx-import-pr3-notes-render` task branch를 target branch HEAD에서 생성한다.
-3. current package를 bounded LibreOffice notes-only PDF로 변환하고 notes page별 preview bitmap을 생성한다.
-4. renderer 미설치·timeout·page-count mismatch를 `render-unavailable` 진단으로 고정하고 기준 파일 1·4·8 page를 재검증한다.
+1. target branch의 clean 상태와 PR3 ledger commit을 확인한다.
+2. `feature/pptx-import-pr4-worker-notes-assets` task branch를 target branch HEAD에서 생성한다.
+3. Worker Deck 조립의 `speakerNotes: ""` 하드코딩을 Python 결과 연결로 바꾸고 notes preview asset을 `purpose=design-asset`으로 저장한다.
+4. notes asset 저장 실패가 note text import를 롤백하지 않는 bounded warning 경계와 기준 파일 8 body/8 asset 연결을 검증한다.
 
 ## 사용자 결정이 필요한 Blocker
 
