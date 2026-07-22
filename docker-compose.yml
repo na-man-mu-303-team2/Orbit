@@ -148,6 +148,7 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    restart: unless-stopped
 
   python-worker:
     build:
