@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR10 PPTX font family/weight 정규화
-- task branch: `feature/pptx-import-pr10-font-normalization`
-- 상태: 명시적 Pretendard alias, unknown font fallback 진단, shared weight catalog, Web FontFaceSet 진단과 Chromium 검증을 완료하고 target branch에 `--no-ff` merge함
+- 단계: PR11 slide/layout/master/theme effective text style
+- task branch: `feature/pptx-import-pr11-effective-text-style`
+- 상태: placeholder text cascade, direct run 우선순위, paragraph/body/autofit/letter spacing 계약과 Web rendering을 완료하고 target branch에 `--no-ff` merge함
 
 ## 완료된 작업과 Commit
 
@@ -44,6 +44,7 @@
 | PR8 import preference         | `42cfc53d`  | `feature/pptx-import-pr8-preference-dialog` | `182f941b` | 선택 전 무동작, 두 정책 전달, legacy default와 unknown enum 거부                     |
 | PR9 slide render mode         | `c39868ee`  | `feature/pptx-import-pr9-render-mode` | `f3decd83` | preference·pixel·capability로 mode 결정, snapshot tree 보존과 전체 renderer 일치       |
 | PR10 font normalization       | `49142df4`  | `feature/pptx-import-pr10-font-normalization` | `fe51afae` | 명시적 Pretendard alias, unknown 보존·fallback 진단, 실제 browser weight 검증          |
+| PR11 effective text style     | `6eba286b`, `411c22e4` | `feature/pptx-import-pr11-effective-text-style` | `526c145d` | slide/layout/master/theme cascade, direct run 보존, spacing·inset·autofit 왕복         |
 
 ## 실행한 검증
 
@@ -168,6 +169,17 @@
 | PR10 Chromium          | `document.fonts.load/check` Pretendard 200/500/600/800                                   | 1 passed                                             |
 | PR10 실제 기준 font    | 8-slide importer 결과의 family/weight bounded 집계                                      | Pretendard 600 106건, legacy SemiBold alias 0건      |
 | PR10 merge smoke       | 명시적 4개 alias와 unknown font 회귀 test                                               | 1 passed                                             |
+| PR11 RED               | layout/master style, direct color, autofit과 Web scale·spacing 대상 test                 | 구현 전 의도한 Python 2개, Web 1개 실패 확인        |
+| PR11 Shared 전체       | `pnpm --filter @orbit/shared test`와 build                                               | 54 files, 583 tests passed, build 통과               |
+| PR11 Python 회귀       | importer, generation, rich text sync, table, motion 7개 모듈                            | 162 passed                                           |
+| PR11 Python lint/type  | 변경 Python 파일 `ruff check`, source 3개 `mypy`                                        | 모두 통과                                            |
+| PR11 Web 대상          | rich text layout, plain layout, inline overlay, read-only canvas                        | 4 files, 33 tests passed                             |
+| PR11 Web 전체          | `pnpm --filter @orbit/web test -- ...`                                                  | 291 files, 1,819 tests passed                        |
+| PR11 Web lint/build    | TypeScript no-emit, production build, test-mode screenshot bundle                       | 통과, 기존 dynamic import·chunk-size warning만 발생 |
+| PR11 실제 기준 E2E     | 실제 8 slides × 두 preference, bundled Pretendard Chromium screenshot                   | 16/16 capture passed                                 |
+| PR11 요청 slide 비교  | slides 1·2·3·6·7 appearance/editability SSIM                                            | appearance 5/5 = 1.0, editable 0.8822~0.9036        |
+| PR11 actual style audit | OOXML generation의 원문 없는 bounded metadata                                           | slide 1 title Pretendard bold, size 120, source color, shrink-text |
+| PR11 merge smoke       | layout cascade와 direct color 우선순위 targeted test                                    | 1 passed                                             |
 
 ## PR0 Renderer 측정과 결정
 
@@ -249,6 +261,9 @@
 - 기존 accuracy scorer는 모든 full-slide fallback을 실패로 보았으나 preference-pair의 의도된 appearance-first snapshot은 source SSIM `>= 0.99`를 성공 기준으로 분리했다. 일반 vector candidate와 editability-first의 `0.95` 기준은 유지한다.
 - PR10 importer는 이름 유사도 추론 없이 4개 명시적 Pretendard alias만 canonical family와 numeric weight로 바꾼다. unknown family는 원래 이름을 Deck에 유지하고 slide별 중복 없는 bounded fallback diagnostic만 추가한다.
 - 계획 예상 파일 외에 Web font availability helper와 Chromium E2E를 추가했다. Python package 진단만으로 실제 browser FontFaceSet 상태를 단정하지 않고, PR12 quality panel이 선언된 font와 `document.fonts.check()` 결과를 함께 표시할 수 있게 하기 위함이다.
+- PR11 importer는 master `txStyles`, master/layout placeholder `lstStyle`, slide shape style, paragraph/run direct formatting을 낮은 우선순위부터 합성한다. Deck의 top-level/paragraph에는 effective style을 materialize하고 run에는 direct property만 남겨, 상속값이 source-preserving sync에서 불필요한 direct formatting으로 기록되지 않게 했다.
+- `normAutofit`의 `fontScale`과 `lnSpcReduction`, run `spc`를 bounded Deck contract로 추가하고 Web canvas·inline editor 및 targeted/generic export에 연결했다. `fontScale`과 `lineSpaceReduction`은 `autoFit=shrink-text`에서만 허용한다.
+- 실제 screenshot은 symlink된 외부 font가 Vite dev allow-list에 막히는 환경 오염을 배제하기 위해 `vite build --mode test`의 bundled Pretendard와 production preview를 사용했다. appearance-first 8/8은 SSIM 1.0을 유지했다.
 
 ## 알려진 제한 사항
 
@@ -268,14 +283,15 @@
 - PR9 실제 기준의 appearance-first는 8/8 source snapshot SSIM 1.0이다. editability-first는 4/8만 기존 `0.95` CI gate를 통과했으며 이 값은 runtime report에 측정값처럼 기록하지 않고 PR10~PR12의 font/style/quality gate 개선 근거로만 사용한다.
 - PR10 Python fallback 진단은 현재 slide part의 explicit run property를 대상으로 하며 layout/master/theme에서 상속되는 effective family는 PR11 cascade에서 계산한다. Web helper는 실제 Deck에 materialized된 text/table family를 다시 진단한다.
 - Web font availability helper는 PR10에서 계산 경계와 테스트만 제공하며 사용자 노출은 PR12 quality panel에서 연결한다.
+- PR11 실제 기준 slides 1·2·3·6·7의 editability-first SSIM은 0.8822~0.9036이며 slide 7만 현재 hybrid reason을 가진다. 이 값을 성공으로 가장하지 않고 PR12에서 slide별 CI measurement와 explicit fallback/recommendation reason으로 노출·gate한다.
 
 ## 다음에 시작할 정확한 작업
 
-1. PR10 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. `feature/pptx-import-pr11-effective-text-style`을 target branch HEAD에서 생성한다.
-3. slide placeholder의 direct formatting이 없을 때 layout, master, theme 순서로 effective size, color, family, weight를 계산한다.
-4. run direct color 우선순위와 paragraph spacing, body inset, autofit, letter spacing의 Deck contract 변환을 회귀 test로 고정한다.
-5. 기준 파일 slides 1, 2, 3, 6, 7 screenshot과 기존 rich text/table/motion fixture 회귀를 검증한다.
+1. PR11 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. `feature/pptx-import-pr12-quality-regression-gate`를 target branch HEAD에서 생성한다.
+3. quality panel에 slide별 selected/recommended mode, pixel 평가 여부, fallback object, font 대체, notes import/render/sync 상태와 모든 bounded warning을 연결한다.
+4. `editabilityCoverage=100%`와 pixel/text fidelity를 분리하고 미평가·실패를 성공 점수로 표시하지 않는 회귀 test를 추가한다.
+5. 실제 8-slide appearance/editability 기준을 CI scorer와 Playwright gate로 자동화한다.
 
 ## 사용자 결정이 필요한 Blocker
 
