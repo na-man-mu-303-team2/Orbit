@@ -65,8 +65,8 @@
 }
 
 .activity-slide-preview {
-  --activity-preview-answer-font-size: clamp(10px, 1.55cqw, 24px);
-  --activity-preview-question-font-size: clamp(11px, 2.05cqw, 32px);
+  --activity-preview-answer-font-size: clamp(13px, 2.05cqw, 32px);
+  --activity-preview-question-font-size: clamp(15px, 2.7cqw, 42px);
   aspect-ratio: 16 / 9;
   background: var(--activity-color-background);
   box-sizing: border-box;
@@ -122,6 +122,46 @@
   align-content: start;
   display: grid;
   gap: clamp(var(--redesign-space-1), 1.2cqw, var(--redesign-space-4));
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 52%;
+}
+
+.activity-slide-preview-questions[data-paged="true"] {
+  align-items: center;
+  grid-template-columns: minmax(72px, 10cqw) minmax(0, 1fr) minmax(72px, 10cqw);
+  width: 72%;
+}
+
+.activity-slide-preview-questions[data-paged="true"] article {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.activity-question-navigation {
+  background: color-mix(in srgb, var(--activity-color-accent) 16%, var(--activity-color-surface));
+  border: 1px solid var(--activity-color-border);
+  border-radius: var(--redesign-radius-full);
+  color: var(--activity-color-on-surface);
+  cursor: pointer;
+  font-size: clamp(10px, 1.2cqw, 18px);
+  font-weight: 800;
+  padding: clamp(var(--redesign-space-2), 0.8cqw, var(--redesign-space-3));
+  pointer-events: auto;
+}
+
+.activity-question-navigation-previous {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+}
+
+.activity-question-navigation-next {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
 }
 
 .activity-slide-preview-questions article {
@@ -153,10 +193,10 @@
   border-radius: var(--redesign-radius-full);
   display: inline-flex;
   font-weight: 800;
-  height: clamp(14px, 2.3cqw, 34px);
+  height: clamp(20px, 3cqw, 44px);
   justify-content: center;
   color: var(--activity-color-on-accent);
-  width: clamp(14px, 2.3cqw, 34px);
+  width: clamp(20px, 3cqw, 44px);
 }
 
 .activity-rating-preview-shell {
@@ -203,9 +243,9 @@
   border-radius: clamp(var(--redesign-radius), 0.55cqw, var(--redesign-radius-xl));
   color: color-mix(in srgb, var(--activity-color-on-surface) 52%, transparent);
   display: flex;
-  height: clamp(14px, 3.2cqw, 48px);
+  height: clamp(28px, 5cqw, 72px);
   margin-top: clamp(var(--redesign-space-1), 0.9cqw, var(--redesign-space-3));
-  padding: 0 clamp(var(--redesign-space-1), 0.65cqw, var(--redesign-space-2));
+  padding: 0 clamp(var(--redesign-space-2), 1cqw, var(--redesign-space-4));
 }
 
 .activity-text-preview span {
@@ -235,9 +275,9 @@
 .activity-slide-preview[data-activity-template="poll"] .activity-choice-preview i {
   align-items: center;
   display: flex;
-  min-height: clamp(28px, 4cqw, 60px);
-  padding: clamp(var(--redesign-space-1), 0.65cqw, var(--redesign-space-2))
-    clamp(var(--redesign-space-2), 1cqw, var(--redesign-space-4));
+  min-height: clamp(36px, 5cqw, 76px);
+  padding: clamp(var(--redesign-space-2), 0.85cqw, var(--redesign-space-3))
+    clamp(var(--redesign-space-3), 1.25cqw, var(--redesign-space-5));
 }
 
 .activity-slide-preview-compact .activity-slide-preview-questions,
@@ -261,13 +301,14 @@
   border-radius: clamp(var(--redesign-radius), 0.55cqw, var(--redesign-radius-xl));
   font-size: var(--activity-preview-answer-font-size);
   font-style: normal;
+  min-height: clamp(28px, 4cqw, 60px);
   overflow: hidden;
-  padding: clamp(2px, 0.35cqw, var(--redesign-space-1)) clamp(var(--redesign-space-1), 0.65cqw, var(--redesign-space-2));
+  padding: clamp(var(--redesign-space-1), 0.55cqw, var(--redesign-space-2))
+    clamp(var(--redesign-space-2), 0.9cqw, var(--redesign-space-3));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.activity-slide-preview > button,
 .activity-presenter-preview-status {
   align-self: end;
   border: 0;
@@ -279,12 +320,6 @@
     clamp(var(--redesign-space-2), 1.8cqw, var(--redesign-space-7));
   position: absolute;
   right: clamp(10px, 4.5cqw, 72px);
-}
-
-.activity-slide-preview > button {
-  background: var(--activity-color-accent);
-  color: var(--activity-color-on-accent);
-  opacity: 1;
 }
 
 .activity-presenter-preview-status {
