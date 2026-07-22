@@ -66,6 +66,17 @@ from app.ai.pptx_ooxml_generation import (
     generate_pptx_ooxml,
     sync_pptx_ooxml,
 )
+from app.ai.pptx_ooxml_asset_storage import (
+    StoredPptxOoxmlGenerationResult,
+    StoredPptxOoxmlSyncResult,
+    store_generation_assets,
+    store_sync_assets,
+)
+from app.ai.pptx_ooxml_read_locators import (
+    PptxOoxmlReadLocator,
+    load_pptx_package_locator,
+    materialize_asset_locators,
+)
 from app.ai.pptx_ooxml_sync_transport import (
     AUTHORED_ELEMENT_FALLBACKS_MAX_BYTES,
     DECK_CANVAS_MAX_BYTES,
@@ -665,12 +676,17 @@ async def import_pptx_design_endpoint(
     )
 
 
-@app.post("/ai/pptx-ooxml-generation", response_model=PptxOoxmlGenerationResult)
+@app.post(
+    "/ai/pptx-ooxml-generation",
+    response_model=PptxOoxmlGenerationResult | StoredPptxOoxmlGenerationResult,
+)
 async def generate_pptx_ooxml_endpoint(
+    request: Request,
     file: UploadFile = File(...),
     file_id: str = Form(...),
     import_preference: PptxImportPreference = Form("editability-first"),
-) -> PptxOoxmlGenerationResult:
+    storage_prefix: str | None = Form(None),
+) -> PptxOoxmlGenerationResult | StoredPptxOoxmlGenerationResult:
     from pathlib import Path
     from tempfile import TemporaryDirectory
 
@@ -678,11 +694,19 @@ async def generate_pptx_ooxml_endpoint(
         source_path = Path(temp_dir) / Path(file.filename or "upload.pptx").name
         source_path.write_bytes(await file.read())
         try:
-            return await run_in_threadpool(
+            generated = await run_in_threadpool(
                 generate_pptx_ooxml,
                 source_path,
                 file_id,
                 import_preference=import_preference,
+            )
+            if storage_prefix is None:
+                return generated
+            return await run_in_threadpool(
+                store_generation_assets,
+                generated,
+                config=_config(request),
+                storage_prefix=storage_prefix,
             )
         except UnsupportedPptxAspectRatioError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -694,11 +718,14 @@ async def generate_pptx_ooxml_endpoint(
 
 @app.post(
     "/ai/pptx-ooxml-sync",
-    response_model=PptxOoxmlSyncResult,
+    response_model=PptxOoxmlSyncResult | StoredPptxOoxmlSyncResult,
     response_model_exclude_none=True,
 )
 async def sync_pptx_ooxml_endpoint(
-    file: UploadFile = File(...),
+    request: Request,
+    file: UploadFile | None = File(None),
+    source_locator_file: UploadFile | None = File(None),
+    asset_locators_file: UploadFile | None = File(None),
     template_blueprint_file: UploadFile | None = File(None),
     operations_file: UploadFile | None = File(None),
     slide_motion_file: UploadFile | None = File(None),
@@ -710,12 +737,37 @@ async def sync_pptx_ooxml_endpoint(
     deck_canvas: str | None = Form(None),
     synced_deck_version: int = Form(...),
     render: bool = Form(True),
-) -> PptxOoxmlSyncResult:
+    storage_prefix: str | None = Form(None),
+) -> PptxOoxmlSyncResult | StoredPptxOoxmlSyncResult:
     from pathlib import Path
     from tempfile import TemporaryDirectory
 
+    source_locator: PptxOoxmlReadLocator | None = None
     try:
-        package_bytes = await read_pptx_package(file)
+        if (file is None) == (source_locator_file is None):
+            raise ValueError("exactly one OOXML package source is required")
+        source_locator = (
+            PptxOoxmlReadLocator.model_validate(
+                await parse_json_part(
+                    field="source_locator",
+                    upload=source_locator_file,
+                    legacy_text=None,
+                    max_bytes=16 * 1024,
+                    expected="object",
+                )
+            )
+            if source_locator_file is not None
+            else None
+        )
+        package_bytes = (
+            await run_in_threadpool(
+                load_pptx_package_locator,
+                source_locator,
+                config=_config(request),
+            )
+            if source_locator is not None
+            else await read_pptx_package(cast(UploadFile, file))
+        )
         parsed_template_blueprint = cast(
             dict[str, Any],
             await parse_json_part(
@@ -769,17 +821,63 @@ async def sync_pptx_ooxml_endpoint(
             if authored_element_fallbacks_file is not None
             else {"theme": {}, "elements": []}
         )
+        asset_locators = (
+            [
+                PptxOoxmlReadLocator.model_validate(item)
+                for item in cast(
+                    list[dict[str, Any]],
+                    await parse_json_part(
+                        field="asset_locators",
+                        upload=asset_locators_file,
+                        legacy_text=None,
+                        max_bytes=1024 * 1024,
+                        expected="operations",
+                    ),
+                )
+            ]
+            if asset_locators_file is not None
+            else []
+        )
+        if asset_locators:
+            materialized = cast(
+                dict[str, Any],
+                await run_in_threadpool(
+                    materialize_asset_locators,
+                    {
+                        "operations": parsed_operations,
+                        "authoredElementFallbacks": parsed_authored_element_fallbacks,
+                    },
+                    asset_locators,
+                    config=_config(request),
+                ),
+            )
+            parsed_operations = cast(
+                list[dict[str, Any]],
+                materialized["operations"],
+            )
+            parsed_authored_element_fallbacks = (
+                validate_authored_element_fallbacks(
+                    materialized["authoredElementFallbacks"]
+                )
+            )
     except PptxOoxmlSyncTransportError as error:
         raise HTTPException(
             status_code=error.status_code,
             detail=error.detail(),
         ) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
     with TemporaryDirectory(prefix="orbit-ooxml-sync-") as temp_dir:
-        source_path = Path(temp_dir) / Path(file.filename or "current.pptx").name
+        source_name = (
+            source_locator.file_name
+            if source_locator
+            else cast(UploadFile, file).filename
+        )
+        source_path = Path(temp_dir) / Path(source_name or "current.pptx").name
         source_path.write_bytes(package_bytes)
         try:
-            return await run_in_threadpool(
+            synced = await run_in_threadpool(
                 sync_pptx_ooxml,
                 source_path,
                 template_blueprint=parsed_template_blueprint,
@@ -789,6 +887,14 @@ async def sync_pptx_ooxml_endpoint(
                 authored_element_fallbacks=parsed_authored_element_fallbacks,
                 synced_deck_version=synced_deck_version,
                 render=render,
+            )
+            if storage_prefix is None:
+                return synced
+            return await run_in_threadpool(
+                store_sync_assets,
+                synced,
+                config=_config(request),
+                storage_prefix=storage_prefix,
             )
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error

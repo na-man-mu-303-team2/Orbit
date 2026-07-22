@@ -59,6 +59,7 @@ type UserLookupRow = {
 type ActiveGenerationRow = {
   job_id: string;
   project_id: string;
+  type: "ai-deck-generation" | "pptx-ooxml-generation";
   status: "queued" | "running";
   progress: number;
   message: string;
@@ -297,10 +298,10 @@ export class ProjectsService {
     const rows = await this.dataSource.query<ActiveGenerationRow[]>(
       `
         SELECT DISTINCT ON (project_id)
-          job_id, project_id, status, progress, message
+          job_id, project_id, type, status, progress, message
         FROM jobs
         WHERE project_id = ANY($1::text[])
-          AND type = 'ai-deck-generation'
+          AND type IN ('ai-deck-generation', 'pptx-ooxml-generation')
           AND status IN ('queued', 'running')
         ORDER BY project_id, created_at DESC
       `,
@@ -312,6 +313,7 @@ export class ProjectsService {
         row.project_id,
         {
           jobId: row.job_id,
+          type: row.type,
           status: row.status,
           progress: row.progress,
           message: row.message,
