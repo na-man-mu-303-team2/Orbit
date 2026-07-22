@@ -75,6 +75,8 @@ export {
   getRichTextSemanticText,
   normalizeRichTextProps
 } from "./text/richTextOperations";
+export { resolveEffectiveTypography } from "./text/effectiveTypography";
+export type { EffectiveTypography } from "./text/effectiveTypography";
 export type {
   RichTextCharacterStylePatch,
   RichTextParagraphStylePatch,
