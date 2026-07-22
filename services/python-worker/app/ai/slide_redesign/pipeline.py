@@ -2,39 +2,17 @@ from __future__ import annotations
 
 import logging
 import time
-from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
 from app.ai.composition_library import CompositionCompileError
-from app.ai.design_agent import (
-    DesignAgentRequest,
-    DesignAgentResponse,
-    _is_broad_preset_request,
-)
-from app.ai.design_program import PaletteRoles
+from app.ai.design_agent import DesignAgentRequest, DesignAgentResponse
 
-from .composer import eligible_candidates, select_composition
-from .diff import build_operations, filter_safe_candidates
-from .media import build_media_operations, collect_source_images
-from .ornament import generate_ornaments
-from .palette import build_palette_options, derive_palette
-from .safety import (
-    ElementConstraints,
-    RedesignOutcome,
-    collect_element_constraints,
-    find_unsafe_elements,
-    unsafe_refusal_message,
-)
-from .slide_extractor import (
-    classify_slide_type_with_source,
-    collect_text_elements,
-    extract_slide,
-    infer_hierarchy,
-)
+from .diff import filter_safe_candidates
+from .safety import RedesignOutcome
+from .stages import run_compose_stage, run_interpret_stage, run_verify_stage
 
 
-MEDIA_ENABLED = True
 logger = logging.getLogger(__name__)
 
 
@@ -90,179 +68,58 @@ def redesign_slide(
         )
         return result
 
-    if not _should_attempt_redesign(request):
-        mark_phase("routing")
-        return complete(_fallback("request-not-broad"))
-    if request.context.canvas.width != 1920 or request.context.canvas.height != 1080:
-        mark_phase("routing")
-        return complete(_fallback("unsupported-canvas"))
-    mark_phase("routing")
-
-    slide = request.context.slide
-    unsafe_ids = find_unsafe_elements(
-        slide,
-        media_slots_available=MEDIA_ENABLED,
-    )
-    if unsafe_ids:
-        mark_phase("safety")
-        return complete(
-            RedesignResult(
-                outcome="refused-unsafe",
-                reason=unsafe_refusal_message(unsafe_ids, slide),
-            ),
-            unsafe_reason="unsupported-element",
-        )
-
-    texts = collect_text_elements(slide)
-    if not texts:
-        mark_phase("safety")
-        return complete(_fallback("no-visible-text"))
-    mark_phase("safety")
-
     try:
-        hierarchy = infer_hierarchy(texts)
-        slide_type, slide_type_source = classify_slide_type_with_source(
-            hierarchy,
+        interpreted = run_interpret_stage(
+            request,
             model=model,
             api_key=api_key,
             client=client,
         )
-        extracted = extract_slide(
-            slide,
-            slide_type=slide_type,
-            hierarchy=hierarchy,
-        )
-        mark_phase("extraction")
-        if request.request_palette_options:
-            palette_options = build_palette_options(
-                request.context.theme,
-                extracted.summary,
-                model=model,
-                api_key=api_key,
-                client=client,
+        slide_type_source = interpreted.slide_type_source
+        mark_phase("interpret")
+        if interpreted.outcome != "applicable":
+            return complete(
+                RedesignResult(
+                    outcome=interpreted.outcome,
+                    reason=interpreted.reason,
+                ),
+                unsafe_reason=(
+                    "unsupported-element"
+                    if interpreted.outcome == "refused-unsafe"
+                    else None
+                ),
             )
-            response = DesignAgentResponse.model_validate(
-                {
-                    "message": "리디자인에 사용할 배색을 골라주세요.",
-                    "interpretedIntent": {
-                        "target": "current-slide",
-                        "action": "select-redesign-palette",
-                        "alignment": None,
-                    },
-                    "operations": [],
-                    "affectedElementIds": [],
-                    "warnings": [],
-                    "paletteOptions": [
-                        option.model_dump(by_alias=True)
-                        for option in palette_options
-                    ],
-                    "smartArtRequest": None,
-                    "uiAction": None,
-                }
-            )
-            mark_phase("palette_options")
-            return complete(RedesignResult(outcome="applicable", response=response))
-        palette_override = (
-            PaletteRoles.model_validate(
-                request.selected_palette_option.palette.model_dump()
-            )
-            if request.selected_palette_option is not None
-            else None
-        )
-        candidates = eligible_candidates(
-            extracted.summary,
-            media_enabled=MEDIA_ENABLED,
-            source_image_count=len(collect_source_images(slide)),
-        )
-        candidate_count = len(candidates)
-        constraints = collect_element_constraints(slide)
-        analyses = filter_safe_candidates(
-            extracted.summary,
-            extracted.provenance,
-            slide,
-            candidates,
-            request.context.theme,
-            constraints,
-            palette_override,
-        )
-        safe_candidate_count = len(analyses)
-        mark_phase("candidate_analysis")
-        if not analyses:
-            constrained_ids = _constrained_ids(constraints)
-            if constrained_ids:
-                return complete(
-                    RedesignResult(
-                        outcome="refused-unsafe",
-                        reason=unsafe_refusal_message(sorted(constrained_ids), slide),
-                    ),
-                    unsafe_reason="constraints-eliminated-candidates",
-                )
-            return complete(_fallback("no-safe-candidate"))
 
-        chosen = select_composition(
-            extracted.summary,
-            [analysis.candidate for analysis in analyses],
-            request.question,
+        composed = run_compose_stage(
+            request,
+            interpreted,
             model=model,
             api_key=api_key,
             client=client,
+            filter_candidates=filter_safe_candidates,
         )
-        chosen_composition_id = chosen.composition_id
-        analysis = next(
-            item for item in analyses if item.candidate == chosen
+        candidate_count = composed.candidate_count
+        safe_candidate_count = composed.safe_candidate_count
+        chosen_composition_id = composed.chosen_composition_id
+        irreversible_count = composed.irreversible_count
+        mark_phase("compose")
+        if composed.outcome != "applicable":
+            return complete(
+                RedesignResult(outcome=composed.outcome, reason=composed.reason),
+                unsafe_reason=(
+                    "constraints-eliminated-candidates"
+                    if composed.outcome == "refused-unsafe"
+                    else None
+                ),
+            )
+
+        verified = run_verify_stage(request, composed)
+        mark_phase("verify")
+        assert verified.response is not None
+        operation_count = len(verified.response.operations)
+        return complete(
+            RedesignResult(outcome="applicable", response=verified.response)
         )
-        irreversible_count = len(analysis.matching.irreversible)
-        mark_phase("selection")
-        slide_id = str(slide.get("slideId", ""))
-        original_elements = [
-            element
-            for element in slide.get("elements", [])
-            if isinstance(element, dict)
-        ]
-        operations = build_operations(
-            slide_id,
-            original_elements,
-            analysis.compiled,
-            analysis.matching,
-        )
-        operations = _insert_operations_before_deletes(
-            operations,
-            build_media_operations(slide_id, analysis.media_assignments),
-        )
-        ornaments = generate_ornaments(
-            chosen.composition_id,
-            analysis.compiled.elements,
-            palette_override
-            or derive_palette(request.context.theme, chosen.background_mode),
-        )
-        operations = _insert_supported_ornament_operations(
-            operations,
-            ornaments,
-            slide_id=slide_id,
-            original_elements=original_elements,
-            addable_element_types=set(
-                request.capabilities.addable_element_types
-            ),
-        )
-        operation_count = len(operations)
-        affected_element_ids = _affected_element_ids(operations)
-        response = DesignAgentResponse.model_validate(
-            {
-                "message": "현재 문구를 유지한 전체 슬라이드 리디자인안을 준비했습니다.",
-                "interpretedIntent": {
-                    "target": "current-slide",
-                    "action": "redesign-slide",
-                    "alignment": None,
-                },
-                "operations": operations,
-                "affectedElementIds": affected_element_ids,
-                "warnings": [],
-                "smartArtRequest": None,
-                "uiAction": None,
-            }
-        )
-        mark_phase("operations")
-        return complete(RedesignResult(outcome="applicable", response=response))
     except (CompositionCompileError, StopIteration, ValueError, TypeError, KeyError):
         mark_phase("failure")
         return complete(_fallback("redesign-compile-failed"))
@@ -271,114 +128,8 @@ def redesign_slide(
         return complete(_fallback("redesign-unavailable"))
 
 
-def _should_attempt_redesign(request: DesignAgentRequest) -> bool:
-    if _is_explicit_smart_art_request(request.question):
-        return False
-    return request.intent_preset == "redesign-slide" or _is_broad_preset_request(
-        request.question
-    )
-
-
 def _fallback(reason: str) -> RedesignResult:
     return RedesignResult(outcome="fallback-allowed", reason=reason)
-
-
-def _is_explicit_smart_art_request(question: str) -> bool:
-    normalized = " ".join(question.casefold().split())
-    return any(
-        token in normalized
-        for token in (
-            "스마트아트",
-            "다이어그램",
-            "smartart",
-            "smart art",
-            "process diagram",
-            "step diagram",
-            "flow diagram",
-        )
-    )
-
-
-def _constrained_ids(constraints: ElementConstraints) -> set[str]:
-    return set().union(
-        constraints.referenced_element_ids,
-        constraints.locked_element_ids,
-        constraints.grouped_element_ids,
-        constraints.ooxml_element_ids,
-    )
-
-
-def _affected_element_ids(operations: list[dict[str, Any]]) -> list[str]:
-    affected: list[str] = []
-    for operation in operations:
-        element_id = operation.get("elementId")
-        if not isinstance(element_id, str):
-            element = operation.get("element")
-            element_id = element.get("elementId") if isinstance(element, dict) else None
-        if isinstance(element_id, str) and element_id not in affected:
-            affected.append(element_id)
-    return affected
-
-
-def _insert_supported_ornament_operations(
-    operations: list[dict[str, Any]],
-    ornaments: list[dict[str, Any]],
-    *,
-    slide_id: str,
-    original_elements: list[dict[str, Any]],
-    addable_element_types: set[str],
-) -> list[dict[str, Any]]:
-    reserved_ids = {
-        str(element["elementId"])
-        for element in original_elements
-        if isinstance(element.get("elementId"), str) and element["elementId"]
-    }
-    for operation in operations:
-        element = operation.get("element")
-        if isinstance(element, dict) and isinstance(element.get("elementId"), str):
-            reserved_ids.add(str(element["elementId"]))
-
-    additions: list[dict[str, Any]] = []
-    for ornament in ornaments:
-        if ornament.get("type") not in addable_element_types:
-            continue
-        element = deepcopy(ornament)
-        element_id = str(element["elementId"])
-        element["elementId"] = _unique_element_id(element_id, reserved_ids)
-        reserved_ids.add(str(element["elementId"]))
-        additions.append(
-            {
-                "type": "add_element",
-                "slideId": slide_id,
-                "element": element,
-            }
-        )
-
-    return _insert_operations_before_deletes(operations, additions)
-
-
-def _insert_operations_before_deletes(
-    operations: list[dict[str, Any]],
-    additions: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    delete_index = next(
-        (
-            index
-            for index, operation in enumerate(operations)
-            if operation.get("type") == "delete_element"
-        ),
-        len(operations),
-    )
-    return [*operations[:delete_index], *additions, *operations[delete_index:]]
-
-
-def _unique_element_id(element_id: str, reserved_ids: set[str]) -> str:
-    if element_id not in reserved_ids:
-        return element_id
-    suffix = 2
-    while f"{element_id}_r{suffix}" in reserved_ids:
-        suffix += 1
-    return f"{element_id}_r{suffix}"
 
 
 def _log_result(
