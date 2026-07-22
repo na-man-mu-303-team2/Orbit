@@ -442,6 +442,80 @@
   line-height: var(--redesign-type-body-sm-line-height);
 }
 
+.design-redesign-progress {
+  display: grid;
+  gap: var(--redesign-space-3);
+  margin: 0 var(--redesign-space-4) var(--redesign-space-3);
+  padding: var(--redesign-space-3);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface-container);
+}
+
+.design-redesign-progress header {
+  display: grid;
+  gap: var(--redesign-space-1);
+  color: var(--redesign-color-on-surface);
+}
+
+.design-redesign-progress header span,
+.design-redesign-progress li,
+.design-redesign-connection-note {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+}
+
+.design-redesign-progress ol {
+  display: grid;
+  gap: var(--redesign-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.design-redesign-progress li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--redesign-space-2);
+}
+
+.design-redesign-progress li[data-stage-state="active"] {
+  color: var(--redesign-color-primary);
+  font-weight: 700;
+}
+
+.design-redesign-progress-dot {
+  width: 8px;
+  height: 8px;
+  border: var(--redesign-border-subtle);
+  border-radius: 50%;
+  background: var(--redesign-color-surface-container-highest);
+}
+
+[data-stage-state="completed"] .design-redesign-progress-dot,
+[data-stage-state="active"] .design-redesign-progress-dot {
+  border-color: var(--redesign-color-primary);
+  background: var(--redesign-color-primary);
+}
+
+.design-redesign-progress small {
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.design-redesign-preview-ready,
+.design-redesign-connection-note {
+  margin: 0;
+  padding: var(--redesign-space-2);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-primary-subtle);
+}
+
+.design-redesign-preview-ready {
+  color: var(--redesign-color-on-primary-container);
+  font-size: var(--redesign-type-body-sm-size);
+}
+
 .design-proposal-preview-dialog {
   max-width: min(1040px, calc(100vw - var(--redesign-space-8)));
 }
