@@ -17,6 +17,10 @@ import {
   smartArtRequestSchema
 } from "./smart-art-layout.schema";
 import { speakerNotesSuggestionModeSchema } from "./speaker-notes-assistant.schema";
+import {
+  slideRedesignPaletteOptionSchema,
+  slideRedesignPaletteOptionsSchema,
+} from "./slide-redesign.schema";
 import { themeSchema } from "./theme.schema";
 
 export const designAgentMessageRoleSchema = z.enum(["user", "assistant"]);
@@ -115,6 +119,7 @@ export const createDesignAgentMessageRequestSchema = z.object({
   sessionId: z.string().trim().min(1).max(200).optional(),
   content: z.string().trim().min(1).max(2_000),
   intentPreset: designAgentIntentPresetSchema.optional(),
+  selectedPaletteOptionId: z.string().trim().min(1).nullable().optional(),
   context: designAgentContextSchema,
 });
 
@@ -143,6 +148,8 @@ export const designAgentWorkerRequestSchema = z.object({
   history: z.array(designAgentHistoryItemSchema).max(10).default([]),
   availableSmartArtLayouts: z.array(availableSmartArtLayoutSchema).max(200).default([]),
   capabilities: designAgentCapabilitiesSchema.default(designAgentCapabilities),
+  requestPaletteOptions: z.boolean().default(false),
+  selectedPaletteOption: slideRedesignPaletteOptionSchema.optional(),
 });
 
 export const designAgentWorkerResponseSchema = z.object({
@@ -151,6 +158,7 @@ export const designAgentWorkerResponseSchema = z.object({
   operations: z.array(deckPatchOperationSchema).max(200).default([]),
   affectedElementIds: z.array(deckElementIdSchema).max(200).default([]),
   warnings: z.array(z.string().trim().min(1).max(1_000)).max(20).default([]),
+  paletteOptions: slideRedesignPaletteOptionsSchema.optional(),
   smartArtRequest: smartArtRequestSchema.nullable().default(null),
   uiAction: z
     .object({
@@ -202,6 +210,7 @@ export const createDesignAgentMessageResponseSchema = z.object({
   requestMessage: designAgentMessageSchema,
   responseMessage: designAgentMessageSchema,
   proposal: designAgentProposalSchema.optional(),
+  paletteOptions: slideRedesignPaletteOptionsSchema.optional(),
   uiAction: designAgentWorkerResponseSchema.shape.uiAction,
 });
 
