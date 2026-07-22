@@ -1,11 +1,15 @@
+import base64
 import json
 from collections import Counter
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pptx import Presentation
 
+import app.ai.deck_generation.design_planning as design_planning_module
 from app.ai.composition_library import (
     COMPOSITION_SPECS,
     compile_composition,
@@ -19,6 +23,7 @@ from app.ai.design_program import (
     create_design_program,
     design_program_response_format,
 )
+from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
 from app.ai.deck_generation.design_planning import (
     apply_program_v2_design_tokens,
     eligible_cover_compositions,
@@ -910,10 +915,11 @@ def test_program_v2_golden_pipeline_contract() -> None:
     assert [slide["slideId"] for slide in deck["slides"]] == [
         f"slide_{order}" for order in range(1, 11)
     ]
-    assert [
+    actual_element_ids = [
         [element["elementId"] for element in slide["elements"]]
         for slide in deck["slides"]
-    ] == golden_element_ids()
+    ]
+    assert actual_element_ids == golden_element_ids()
     title_element = next(
         element
         for element in deck["slides"][0]["elements"]
@@ -933,6 +939,11 @@ def test_program_v2_golden_pipeline_contract() -> None:
     }
     assert title_element["props"]["text"] == "미지의 군도로"
     assert all(slide["animations"] == [] for slide in deck["slides"])
+    pptx_response = export_deck_pptx(DeckPptxExportRequest(deck=deck))
+    presentation = Presentation(
+        BytesIO(base64.b64decode(pptx_response.content_base64))
+    )
+    assert len(presentation.slides) == len(deck["slides"])
 
     assert response.validation.model_dump(by_alias=True) == {
         "passed": True,
@@ -957,7 +968,7 @@ def test_program_v2_golden_pipeline_contract() -> None:
         "researchFactCoverageSatisfied": False,
         "repairAttempted": True,
         "repairReasons": ["CONTENT_DUPLICATED", "SPEAKER_NOTES_SHORT"],
-        "uniqueCoreLayoutCount": 6,
+        "uniqueCoreLayoutCount": 8,
         "validationIssueCount": 0,
         "visualQaStatus": "not-run",
         "visualReviewAttempts": 0,
@@ -1052,6 +1063,136 @@ def test_splatoon_product_launch_golden_composition_contract() -> None:
     assert quality_issues == [], [
         (issue.code, issue.path, issue.message) for issue in quality_issues
     ]
+
+
+@pytest.mark.parametrize(
+    ("topic", "prompt", "expected_style_pack_id"),
+    [
+        ("Team alignment", "Create a concise strategy narrative.", "modern-editorial"),
+        ("Product launch", "Show the new product features.", "product-showcase"),
+        ("Quarterly KPI", "Create an executive metrics report.", "data-report"),
+        ("Cloud architecture", "Explain the API security system.", "technical-system"),
+    ],
+)
+def test_effective_style_pack_is_inferred_from_existing_request_fields(
+    topic: str,
+    prompt: str,
+    expected_style_pack_id: str,
+) -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic=topic,
+            prompt=prompt,
+            design={"visualRhythm": "auto"},
+        )
+    )
+
+    assert (
+        design_planning_module.effective_style_pack_id(raw_input)
+        == expected_style_pack_id
+    )
+    assert (
+        design_planning_module.select_style_pack(raw_input, [])["id"]
+        == expected_style_pack_id
+    )
+    assert design_planning_module.effective_style_pack_prompt(raw_input)
+
+
+def test_explicit_style_pack_stays_ahead_of_automatic_inference() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Cloud architecture",
+            prompt="Explain the API security system.",
+            design={
+                "stylePackId": "brandlogy-modern",
+                "visualRhythm": "auto",
+            },
+        )
+    )
+
+    assert (
+        design_planning_module.effective_style_pack_id(raw_input)
+        == "brandlogy-modern"
+    )
+    context = design_planning_module.art_director_context(
+        raw_input,
+        design_planning_module.direct_design(raw_input, []),
+        style_pack_id="brandlogy-modern",
+        style_prompt=design_planning_module.effective_style_pack_prompt(raw_input),
+    )
+    assert "Effective style pack: brandlogy-modern." in context.design_direction
+    assert "Brandlogy Modern Design Pack" in context.design_direction
+
+
+def test_effective_style_pack_uses_generated_slide_types() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Business update",
+            prompt="Summarize the latest operating results.",
+            design={"visualRhythm": "auto"},
+        )
+    )
+    slide_plans = [
+        SlidePlan(
+            order=index,
+            slide_type="data",
+            title=f"Operating signal {index}",
+            message="Evidence and interpretation",
+            speaker_notes="Explain the evidence.",
+            keywords=[],
+            evidence=[],
+        )
+        for index in (1, 2)
+    ]
+
+    assert (
+        design_planning_module.effective_style_pack_id(raw_input, slide_plans)
+        == "data-report"
+    )
+
+
+def test_automatic_style_pack_preserves_palette_and_font_overrides() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Product launch",
+            prompt="Show the new product features.",
+            design={
+                "visualRhythm": "auto",
+                "paletteOverride": {
+                    "primary": "#123456",
+                    "background": "#F7F7F2",
+                    "text": "#111111",
+                },
+                "fontOverride": {
+                    "fontId": "custom-sans",
+                    "name": "Custom Sans",
+                    "headingFontFamily": "Custom Sans",
+                    "bodyFontFamily": "Custom Sans",
+                    "recommendedTitleSize": 44,
+                    "recommendedBodySize": 20,
+                    "lineHeight": 1.24,
+                },
+            },
+        )
+    )
+
+    theme = design_planning_module.direct_design(raw_input, [])
+    theme = design_planning_module.apply_font_override(
+        theme,
+        raw_input.design.font_override,
+    )
+
+    assert theme["name"] == "product-showcase"
+    assert theme["backgroundColor"] == "#F7F7F2"
+    assert theme["textColor"] == "#111111"
+    assert theme["palette"]["primary"] == "#123456"
+    assert theme["fontFamily"] == "Custom Sans"
+    assert theme["typography"]["headingFontFamily"] == "Custom Sans"
+    assert theme["typography"]["bodyFontFamily"] == "Custom Sans"
 
 
 def golden_slide_definitions() -> list[tuple[str, str, str, list[str]]]:
@@ -1184,32 +1325,26 @@ def golden_element_ids() -> list[list[str]]:
         ],
         [
             "el_2_program_v2_title",
-            "el_2_program_v2_hub_field",
-            "el_2_program_v2_hub",
-            "el_2_program_v2_connector_left",
-            "el_2_program_v2_connector_right",
-            "el_2_program_v2_connector_bottom",
-            "el_2_program_v2_node_1_field",
-            "el_2_program_v2_node_1_index",
-            "el_2_program_v2_node_1",
-            "el_2_program_v2_node_2_field",
-            "el_2_program_v2_node_2_index",
-            "el_2_program_v2_node_2",
-            "el_2_program_v2_node_3_field",
-            "el_2_program_v2_node_3_index",
-            "el_2_program_v2_node_3",
+            "el_2_program_v2_media_placeholder",
+            "el_2_program_v2_media_caption",
+            "el_2_program_v2_editorial_band_rule_1",
+            "el_2_program_v2_editorial_band_item_1",
+            "el_2_program_v2_editorial_band_rule_2",
+            "el_2_program_v2_editorial_band_item_2",
+            "el_2_program_v2_editorial_band_rule_3",
+            "el_2_program_v2_editorial_band_item_3",
         ],
         [
             "el_3_program_v2_title",
-            "el_3_program_v2_comparison_1_field",
-            "el_3_program_v2_comparison_1_index",
-            "el_3_program_v2_comparison_1",
-            "el_3_program_v2_comparison_2_field",
-            "el_3_program_v2_comparison_2_index",
-            "el_3_program_v2_comparison_2",
-            "el_3_program_v2_comparison_3_field",
-            "el_3_program_v2_comparison_3_index",
-            "el_3_program_v2_comparison_3",
+            "el_3_program_v2_bento_1_field",
+            "el_3_program_v2_bento_1_index",
+            "el_3_program_v2_bento_1",
+            "el_3_program_v2_bento_2_field",
+            "el_3_program_v2_bento_2_index",
+            "el_3_program_v2_bento_2",
+            "el_3_program_v2_bento_3_field",
+            "el_3_program_v2_bento_3_index",
+            "el_3_program_v2_bento_3",
         ],
         [
             "el_4_program_v2_title",
@@ -1222,65 +1357,59 @@ def golden_element_ids() -> list[list[str]]:
         ],
         [
             "el_5_program_v2_title",
-            "el_5_program_v2_step_1_field",
-            "el_5_program_v2_step_number_1",
-            "el_5_program_v2_step_1",
-            "el_5_program_v2_step_connector_1",
-            "el_5_program_v2_step_2_field",
-            "el_5_program_v2_step_number_2",
-            "el_5_program_v2_step_2",
-            "el_5_program_v2_step_connector_2",
-            "el_5_program_v2_step_3_field",
-            "el_5_program_v2_step_number_3",
-            "el_5_program_v2_step_3",
-            "el_5_program_v2_step_connector_3",
-            "el_5_program_v2_step_4_field",
-            "el_5_program_v2_step_number_4",
-            "el_5_program_v2_step_4",
+            "el_5_program_v2_orbit_connector_1",
+            "el_5_program_v2_orbit_connector_2",
+            "el_5_program_v2_orbit_connector_3",
+            "el_5_program_v2_orbit_connector_4",
+            "el_5_program_v2_orbit_hub_field",
+            "el_5_program_v2_orbit_hub",
+            "el_5_program_v2_orbit_node_1_field",
+            "el_5_program_v2_orbit_node_1",
+            "el_5_program_v2_orbit_node_2_field",
+            "el_5_program_v2_orbit_node_2",
+            "el_5_program_v2_orbit_node_3_field",
+            "el_5_program_v2_orbit_node_3",
+            "el_5_program_v2_orbit_node_4_field",
+            "el_5_program_v2_orbit_node_4",
         ],
         [
             "el_6_program_v2_title",
-            "el_6_program_v2_item_1_field",
-            "el_6_program_v2_item_1_index",
-            "el_6_program_v2_item_1",
-            "el_6_program_v2_item_2_index",
-            "el_6_program_v2_item_2",
-            "el_6_program_v2_item_2_divider",
-            "el_6_program_v2_item_3_index",
-            "el_6_program_v2_item_3",
+            "el_6_program_v2_comparison_1_field",
+            "el_6_program_v2_comparison_1_index",
+            "el_6_program_v2_comparison_1",
+            "el_6_program_v2_comparison_2_field",
+            "el_6_program_v2_comparison_2_index",
+            "el_6_program_v2_comparison_2",
+            "el_6_program_v2_comparison_3_field",
+            "el_6_program_v2_comparison_3_index",
+            "el_6_program_v2_comparison_3",
         ],
         [
             "el_7_program_v2_title",
-            "el_7_program_v2_timeline_line",
-            "el_7_program_v2_timeline_1_index",
-            "el_7_program_v2_timeline_1",
-            "el_7_program_v2_timeline_stem_1",
-            "el_7_program_v2_timeline_marker_1",
-            "el_7_program_v2_timeline_marker_label_1",
-            "el_7_program_v2_timeline_2_index",
-            "el_7_program_v2_timeline_2",
-            "el_7_program_v2_timeline_stem_2",
-            "el_7_program_v2_timeline_marker_2",
-            "el_7_program_v2_timeline_marker_label_2",
-            "el_7_program_v2_timeline_3_index",
-            "el_7_program_v2_timeline_3",
-            "el_7_program_v2_timeline_stem_3",
-            "el_7_program_v2_timeline_marker_3",
-            "el_7_program_v2_timeline_marker_label_3",
-            "el_7_program_v2_timeline_4_index",
-            "el_7_program_v2_timeline_4",
-            "el_7_program_v2_timeline_stem_4",
-            "el_7_program_v2_timeline_marker_4",
-            "el_7_program_v2_timeline_marker_label_4",
+            "el_7_program_v2_vertical_rail",
+            "el_7_program_v2_rail_marker_1",
+            "el_7_program_v2_rail_marker_label_1",
+            "el_7_program_v2_rail_rule_1",
+            "el_7_program_v2_rail_step_1",
+            "el_7_program_v2_rail_marker_2",
+            "el_7_program_v2_rail_marker_label_2",
+            "el_7_program_v2_rail_rule_2",
+            "el_7_program_v2_rail_step_2",
+            "el_7_program_v2_rail_marker_3",
+            "el_7_program_v2_rail_marker_label_3",
+            "el_7_program_v2_rail_rule_3",
+            "el_7_program_v2_rail_step_3",
+            "el_7_program_v2_rail_marker_4",
+            "el_7_program_v2_rail_marker_label_4",
+            "el_7_program_v2_rail_rule_4",
+            "el_7_program_v2_rail_step_4",
         ],
         [
             "el_8_program_v2_title",
-            "el_8_program_v2_item_1_field",
-            "el_8_program_v2_item_1_index",
-            "el_8_program_v2_item_1",
-            "el_8_program_v2_item_2_field",
-            "el_8_program_v2_item_2_index",
-            "el_8_program_v2_item_2",
+            "el_8_program_v2_editorial_band_rule_1",
+            "el_8_program_v2_editorial_band_item_1",
+            "el_8_program_v2_editorial_band_rule_2",
+            "el_8_program_v2_editorial_band_item_2",
         ],
         [
             "el_9_program_v2_title",

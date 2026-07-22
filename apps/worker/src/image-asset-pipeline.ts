@@ -294,6 +294,7 @@ export async function resolveDeckImageAssets(
               : policy === "ai-generated"
               ? await (provider as GeneratedImageProvider).generate({
                   prompt,
+                  aspectRatio: imageAspectRatio(slide),
                   abortSignal: AbortSignal.timeout(60_000)
                 })
               : policy === "official-assets"
@@ -624,6 +625,8 @@ function replaceSlideImagePlaceholder(
         /_media_placeholder$/,
         "_media_asset"
       );
+      const fit = imageFit(asset);
+      const framing = imageFramingPreset(slide, placeholder);
       return {
         ...slide,
         animations: slide.animations.map((animation) =>
@@ -644,9 +647,9 @@ function replaceSlideImagePlaceholder(
             props: {
               src: url,
               alt: plan?.imageAlt ?? plan?.reason ?? slide.title,
-              fit: imageFit(asset),
-              focusX: 0.5,
-              focusY: 0.5
+              fit,
+              focusX: fit === "contain" ? 0.5 : framing.focusX,
+              focusY: fit === "contain" ? 0.5 : framing.focusY
             }
           }
         ],
@@ -698,12 +701,82 @@ function imagePrompt(deck: Deck, slide: Slide) {
   const aspectRatio = media
     ? Math.round((media.width / media.height) * 100) / 100
     : 1.5;
-  const framing = `Designed for a ${aspectRatio}:1 frame. Single dominant subject fills 70-80% of the frame. Keep the complete subject inside the central 70% crop-safe area. No text, logo, watermark, or large empty margins.`;
+  const preset = imageFramingPreset(slide, media);
+  const framing = `Designed for a ${aspectRatio}:1 frame. ${preset.prompt} No text, logo, watermark, or embedded typography.`;
   if (plan?.imagePrompt?.trim()) {
     return `${plan.imagePrompt.trim()}. ${framing}`;
   }
   const reason = plan?.reason ?? "support the key message";
   return `${deck.title}. ${slide.title}. ${reason}. ${framing}`;
+}
+
+function imageAspectRatio(
+  slide: Slide
+): "landscape" | "portrait" | "square" {
+  const media = slide.elements.find((element) => element.role === "media");
+  if (!media || media.height <= 0) return "landscape";
+  const ratio = media.width / media.height;
+  if (ratio >= 1.2) return "landscape";
+  if (ratio <= 0.8) return "portrait";
+  return "square";
+}
+
+function imageFramingPreset(
+  slide: Slide,
+  media: Slide["elements"][number] | undefined
+) {
+  const compositionId = slide.aiNotes?.compositionPlan?.compositionId;
+  const assetRole = slide.aiNotes?.compositionPlan?.assetRole;
+  if (
+    compositionId === "hero-full-bleed" ||
+    compositionId === "cover-immersive-background"
+  ) {
+    return {
+      prompt:
+        "Compose a wide environmental scene with layered depth and room for presentation cropping; avoid a centered cutout subject.",
+      focusX: 0.5,
+      focusY: 0.5
+    };
+  }
+  if (compositionId === "editorial-media-band") {
+    return {
+      prompt:
+        "Compose a wide horizontal scene with layered context; keep important details away from the top and bottom crop edges.",
+      focusX: 0.5,
+      focusY: 0.46
+    };
+  }
+  if (assetRole === "evidence" || compositionId === "image-evidence") {
+    return {
+      prompt:
+        "Show factual product, place, or real-world evidence in context; avoid infographics, diagrams, posters, UI mockups, or decorative text.",
+      focusX: 0.5,
+      focusY: 0.5
+    };
+  }
+  if (
+    compositionId === "hero-split" ||
+    compositionId === "cover-visual-impact" ||
+    compositionId === "cover-research-author" ||
+    compositionId === "editorial-split"
+  ) {
+    const mediaOnRight = media
+      ? media.x + media.width / 2 >= 1920 / 2
+      : true;
+    return {
+      prompt: mediaOnRight
+        ? "Place the primary person, product, or object on the right third, oriented toward the left-side text area; retain contextual depth."
+        : "Place the primary person, product, or object on the left third, oriented toward the right-side text area; retain contextual depth.",
+      focusX: mediaOnRight ? 0.68 : 0.32,
+      focusY: 0.5
+    };
+  }
+  return {
+    prompt:
+      "Compose a presentation-ready editorial scene with contextual depth and a clear focal hierarchy; avoid an isolated sticker-like illustration.",
+    focusX: 0.5,
+    focusY: 0.5
+  };
 }
 
 function imageFit(asset: ImageAssetCandidate): "contain" | "cover" {

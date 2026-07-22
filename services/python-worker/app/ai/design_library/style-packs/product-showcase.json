@@ -1,0 +1,33 @@
+{
+  "id": "product-showcase",
+  "theme": {
+    "name": "product-showcase",
+    "headingFontFamily": "Pretendard",
+    "bodyFontFamily": "Pretendard",
+    "background": "#F7F9FC",
+    "surface": "#FFFFFF",
+    "text": "#101828",
+    "accent": "#7C3AED",
+    "secondary": "#06B6D4",
+    "muted": "#EEF2FF",
+    "border": "#D8DEEA",
+    "titleSize": 66,
+    "headingSize": 44,
+    "bodySize": 26,
+    "captionSize": 17
+  },
+  "effects": {
+    "borderRadius": 12,
+    "shadow": {
+      "color": "#111827",
+      "blur": 18,
+      "offsetX": 0,
+      "offsetY": 6,
+      "opacity": 0.08
+    }
+  },
+  "layout": {
+    "rhythm": "showcase-bento",
+    "imageTreatment": "product-editorial"
+  }
+}

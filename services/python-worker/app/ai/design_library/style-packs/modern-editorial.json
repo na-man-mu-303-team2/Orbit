@@ -1,0 +1,26 @@
+{
+  "id": "modern-editorial",
+  "theme": {
+    "name": "modern-editorial",
+    "headingFontFamily": "Pretendard",
+    "bodyFontFamily": "Pretendard",
+    "background": "#F7F5F2",
+    "surface": "#FFFFFF",
+    "text": "#171717",
+    "accent": "#E85D3F",
+    "secondary": "#2447A8",
+    "muted": "#ECE8E1",
+    "border": "#D8D2C8",
+    "titleSize": 68,
+    "headingSize": 44,
+    "bodySize": 26,
+    "captionSize": 17
+  },
+  "effects": {
+    "borderRadius": 4
+  },
+  "layout": {
+    "rhythm": "asymmetric-editorial",
+    "imageTreatment": "documentary-or-art-directed"
+  }
+}

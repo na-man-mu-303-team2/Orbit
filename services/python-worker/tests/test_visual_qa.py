@@ -544,6 +544,49 @@ def test_visual_review_contract_accepts_large_declared_focal_and_media_split() -
     assert normalized.repair_actions == []
 
 
+def test_visual_review_contract_accepts_editorial_media_band() -> None:
+    candidate = deck()
+    slide = candidate["slides"][0]
+    slide["aiNotes"]["compositionPlan"]["compositionId"] = "editorial-media-band"
+    slide["elements"].append(
+        {
+            "elementId": "el_1_program_v2_media_asset",
+            "type": "image",
+            "role": "media",
+            "x": 120,
+            "y": 248,
+            "width": 1680,
+            "height": 340,
+            "props": {"src": "data:image/png;base64,AA=="},
+        }
+    )
+    review = VisualQaReview.model_validate(
+        {
+            "passed": False,
+            "issues": [
+                {
+                    "code": "BALANCE_WEAK",
+                    "slideOrder": 1,
+                    "message": "The horizontal media band is unbalanced.",
+                }
+            ],
+            "repairActions": [
+                {
+                    "action": "moveSupportingContent",
+                    "slideId": "slide_1",
+                    "reason": "Rebalance the band.",
+                }
+            ],
+        }
+    )
+
+    normalized = visual_qa_module.enforce_visual_review_contract(review, candidate)
+
+    assert normalized.passed is True
+    assert normalized.issues == []
+    assert normalized.repair_actions == []
+
+
 def test_visual_review_contract_retains_small_focal_and_media_split() -> None:
     candidate = deck()
     slide = candidate["slides"][0]
