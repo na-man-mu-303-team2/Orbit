@@ -47,11 +47,12 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("현재 슬라이드");
     expect(html).toContain("다음 슬라이드");
     expect(html).toContain("타이머");
-    expect(html).toContain("슬라이드 목표");
     expect(html).toContain("시작");
     expect(html).toContain("리셋");
     expect(html).toContain("핵심 키워드");
-    expect(html).toContain("현재 큐");
+    expect(html).not.toContain("presenter-remote-header");
+    expect(html).not.toContain("슬라이드 목표");
+    expect(html).not.toContain("현재 큐");
     expect(html).toContain("첫 문장입니다");
     expect(html).toContain("이전");
     expect(html).toContain("다음");
@@ -60,6 +61,24 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("발표 종료");
     expect(html).not.toContain("Partial transcript");
     expect(html).not.toContain("rawAudio");
+  });
+
+  it("마지막 슬라이드에서는 다음 슬라이드 번호 대신 없음을 표시한다", () => {
+    const lastSlideIndex = p0AnimationDeck.slides.length - 1;
+    const html = renderToStaticMarkup(
+      <PresenterRemoteWindow
+        deck={p0AnimationDeck}
+        identity={identity}
+        initialState={{
+          ...createPresenterSlideshowState(p0AnimationDeck),
+          slideId: p0AnimationDeck.slides[lastSlideIndex]!.slideId,
+          slideIndex: lastSlideIndex,
+        }}
+      />,
+    );
+
+    expect(html).toContain("<span>다음 슬라이드</span><strong>없음</strong>");
+    expect(html).not.toContain("다음 슬라이드 없음");
   });
 
   it("현재 대본 행을 스크롤 영역 중앙으로 이동한다", () => {
@@ -172,8 +191,10 @@ describe("PresenterRemoteWindow", () => {
       isRunning: true,
     });
     expect(html).toContain("4:35");
-    expect(html).toContain("0:25");
-    expect(html).toContain("1:00");
+    expect(html).not.toContain("슬라이드 경과");
+    expect(html).not.toContain("슬라이드 목표");
+    expect(html).not.toContain("현재 큐");
+    expect(html).not.toContain("발표 시간 상태");
     expect(html).toContain("음성인식 중");
     expect(html).toContain("일시정지");
   });
