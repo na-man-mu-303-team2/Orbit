@@ -243,6 +243,37 @@ def test_one_to_many_with_animation_reference_is_unsafe() -> None:
     assert analysis.unsafe_reason == "constrained-element:el_body"
 
 
+def test_one_to_many_without_references_is_safe_when_text_is_preserved() -> None:
+    summary = slide_summary("process", ["첫째", "둘째", "셋째"])
+    candidate = CompositionCandidate("process-horizontal", "light")
+    program = build_single_slide_program(
+        THEME,
+        derive_palette(THEME, "light"),
+        candidate,
+    )
+
+    analysis = analyze_candidate(
+        summary,
+        {
+            "item-1": "el_body",
+            "item-2": "el_body",
+            "item-3": "el_other",
+        },
+        {
+            "elements": [
+                text_element("el_body", "첫째 둘째"),
+                text_element("el_other", "셋째"),
+            ]
+        },
+        candidate,
+        program,
+        constraints(),
+    )
+
+    assert analysis.safe is True
+    assert analysis.unsafe_reason is None
+
+
 def test_many_to_one_with_semantic_reference_is_unsafe() -> None:
     summary = slide_summary("data", ["성장 10%", "유지 20%"])
     candidate = CompositionCandidate("metric-poster", "light")
@@ -269,6 +300,33 @@ def test_many_to_one_with_semantic_reference_is_unsafe() -> None:
 
     assert analysis.safe is False
     assert analysis.unsafe_reason == "constrained-element:el_a"
+
+
+def test_many_to_one_without_references_is_safe_when_text_is_preserved() -> None:
+    summary = slide_summary("data", ["성장 10%", "유지 20%"])
+    candidate = CompositionCandidate("metric-poster", "light")
+    program = build_single_slide_program(
+        THEME,
+        derive_palette(THEME, "light"),
+        candidate,
+    )
+
+    analysis = analyze_candidate(
+        summary,
+        {"item-1": "el_a", "item-2": "el_b"},
+        {
+            "elements": [
+                text_element("el_a", "성장 10%"),
+                text_element("el_b", "유지 20%"),
+            ]
+        },
+        candidate,
+        program,
+        constraints(),
+    )
+
+    assert analysis.safe is True
+    assert analysis.unsafe_reason is None
 
 
 def test_one_to_many_that_shortens_source_text_is_unsafe() -> None:
