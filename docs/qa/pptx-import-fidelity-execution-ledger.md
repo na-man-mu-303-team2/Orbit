@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: Checkpoint A notes import 저장 경계
-- task branch: `test/pptx-import-checkpoint-a`
-- 상태: 실제 기준 PPTX PostgreSQL 검증, target branch `--no-ff` merge와 merge smoke 완료
+- 단계: PR5 권한이 적용된 notes preview 조회 API
+- task branch: `feature/pptx-import-pr5-notes-preview-api`
+- 상태: owner/editor 전용 조회, fail-closed asset 경계, target branch `--no-ff` merge와 merge smoke 완료
 
 ## 완료된 작업과 Commit
 
@@ -36,6 +36,7 @@
 | PR3 notes page renderer       | `3870eccc`  | `feature/pptx-import-pr3-notes-render` | `3da81176` | notes-only PDF, notesSz bounded PNG, count/order proof와 fail-closed diagnostic         |
 | PR4 Worker notes 저장         | `8a3b6b84`  | `feature/pptx-import-pr4-worker-notes-assets` | `926d3721` | Deck speakerNotes 보존, preview file ID sidecar 연결과 저장 실패 bounded warning       |
 | Checkpoint A 저장 경계        | `c95d6eea`  | `test/pptx-import-checkpoint-a` | `17a02898` | 실제 8 notes 저장·재조회, preview 유무 경계와 Job/sidecar/log privacy 검증              |
+| PR5 notes preview API         | `5aa651d4`  | `feature/pptx-import-pr5-notes-preview-api` | `9db79677` | owner/editor 권한, project asset 검증, strict 상태 응답과 public/audience 비노출       |
 
 ## 실행한 검증
 
@@ -90,6 +91,13 @@
 | Checkpoint A 전체     | Worker 전체 test                                                                     | 384 passed, 15 skipped                               |
 | Checkpoint A lint/build | Worker TypeScript lint와 build                                                     | 모두 통과                                            |
 | Checkpoint A merge smoke | processor와 Worker lifecycle logger spec                                          | 27 passed                                            |
+| PR5 RED                | Shared schema 7개, API service 7개, controller 2개, Web client 2개 대상 test          | 구현 전 의도한 실패 확인                             |
+| PR5 Shared 전체        | `pnpm --filter @orbit/shared test`                                                    | 54 files, 580 tests passed                           |
+| PR5 API 대상           | controller와 service 직접 Vitest                                                     | 2 files, 66 tests passed                             |
+| PR5 public/audience    | community template service와 audience controller 회귀                                | 3 files, 13 tests passed                             |
+| PR5 Web 대상           | `deckPersistenceApi.test.ts` 직접 Vitest                                              | 2 tests passed                                       |
+| PR5 lint/build         | Shared, API, Web TypeScript lint와 production build                                  | 모두 통과, 기존 Web chunk-size warning만 발생       |
+| PR5 merge smoke        | Shared schema, API controller/service, Web API client                                 | 19 + 66 + 2 tests passed                             |
 
 ## PR0 Renderer 측정과 결정
 
@@ -121,12 +129,18 @@
 - Checkpoint A Python worker 첫 기동은 필수 ORBIT 환경변수 부재로, 두 번째 기동은 `minio` credential 요구로 startup validation에서 종료됐다. secret을 읽거나 주입하지 않고 공개 example의 비밀 없는 값과 사용하지 않는 `s3` adapter 설정으로 다시 시작해 검증했다.
 - Checkpoint A의 첫 PostgreSQL integration은 sandbox가 `127.0.0.1:5432` 연결을 `EPERM`으로 막아 중단됐다. 동일 단일 test를 승인된 로컬 연결 권한으로 재실행해 통과했다.
 - Checkpoint A의 첫 Worker 전체 test는 별도 worktree `dist` 쓰기 `EPERM`으로 중단됐다. 동일 명령을 승인된 쓰기 권한으로 재실행해 384 passed, 15 skipped를 확인했다.
+- PR5 기존 파일에 실수로 Prettier가 광범위하게 적용됐으나 commit 전 `git diff` hunk를 기준으로 의미 없는 formatting 변경을 모두 되돌리고 기능 변경만 남겼다.
+- PR5 API test의 workspace 선행 build는 sibling worktree `dist` 쓰기 `EPERM`으로 처음 중단됐다. 승인된 쓰기 권한으로 재실행해 신규 API test가 통과함을 확인했다.
+- 저장소의 `test -- <file>` 스크립트가 file filter를 전달하지 않아 API/Web 전체 suite가 실행됐다. API는 test 전용 필수 환경변수 미설정 5개 suite, Web은 Vite cache unlink `EPERM` 3개 test에서 중단됐지만 신규 대상과 public/audience suite는 직접 Vitest 실행으로 모두 통과시켰다.
+- PR5 첫 API lint는 legacy `rendered` sidecar의 `renderAssetFileId`가 optional임을 발견했다. file ID 누락도 `unavailable`로 수렴하는 회귀 test와 guard를 추가한 뒤 lint와 build가 통과했다.
 
 ## 계획 대비 변경과 근거
 
 - 기존 synthetic-only accuracy 준비 도구에 실제 multi-slide source mode를 추가했다. 원본은 커밋하지 않고 hash와 bounded count만 manifest에 남긴다.
 - accuracy E2E는 대형 data URL을 `blob:` URL로 치환한다. asset byte와 renderer 동작은 유지하면서 localStorage 운반 한계만 제거한다.
 - PR1 slide fidelity 진단 다섯 필드는 legacy result에서는 모두 생략할 수 있지만 신규 result에서는 함께 존재하도록 묶었다. 부분 진단과 기존 `status`에 모순되는 `pixelEvaluation`을 계약 단계에서 거부하기 위함이다.
+- PR5는 Deck 자체가 아니라 보호 sidecar read model이므로 `deck-api.schema.ts`에 strict notes preview 응답을 추가했다. `available`만 project asset content URL을 허용하고 나머지 상태는 `assetUrl: null`을 강제한다.
+- PR5 asset lookup은 같은 project의 `design-asset`, `uploaded`, image MIME만 허용한다. 누락, 삭제, 다른 project, legacy file ID 누락, 저장소 예외는 raw 오류 없이 `unavailable`로 수렴한다.
 
 ## 알려진 제한 사항
 
@@ -138,14 +152,15 @@
 - PR3 preview는 `notesSz` 비율의 최대 1280 px bitmap이며 page count가 전체 slide 수와 일치하고 source slide index가 순차적일 때만 매핑한다.
 - PR4는 `notes_render_<index>` asset 저장 실패만 선택적으로 허용한다. 이 경우 note text는 Deck에 남고 sidecar는 `render-unavailable`, quality report는 `PPTX_NOTES_PREVIEW_ASSET_FAILED` count로 수렴한다.
 - Checkpoint A의 실제 기준 파일 검증은 원본을 저장소에 복사하지 않으며 `PPTX_IMPORT_FIDELITY_REFERENCE_PATH`가 명시된 로컬/보호 CI에서만 실행한다. 일반 Worker suite에서는 이 1개 test가 skip된다.
+- PR5 notes preview metadata는 owner/editor에게만 반환하고 audience/public projection에는 route나 URL을 추가하지 않는다. preview bitmap content는 기존 project-auth asset endpoint를 사용한다.
 
 ## 다음에 시작할 정확한 작업
 
-1. Checkpoint A ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. `feature/pptx-import-pr5-notes-preview-api`를 target branch HEAD에서 생성한다.
-3. owner/editor 전용 slideId별 notes preview metadata와 보호된 asset URL read model을 추가한다.
-4. 다른 project, audience/public route, stale/missing asset의 negative test와 response privacy를 검증한다.
-5. API 대상 test와 build를 통과시킨 뒤 상세 한국어 commit과 `--no-ff` merge를 수행한다.
+1. PR5 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. `feature/pptx-import-pr6-notes-preview-ui`를 target branch HEAD에서 생성한다.
+3. Speaker Notes panel에 imported slide 전용 `대본`/`노트 페이지` tab과 읽기 전용 preview를 추가한다.
+4. slide 전환, loading/absent/sync-pending/stale/render-unavailable/unavailable 상태와 image load 실패를 text로 구분한다.
+5. keyboard/focus 접근성과 preview 비편집 경계를 test한 뒤 Web lint/build, 상세 한국어 commit과 `--no-ff` merge를 수행한다.
 
 ## 사용자 결정이 필요한 Blocker
 
