@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD after PR12 merge: `40680088fac924b04f76410e925af55624c872d1`
+- integration HEAD after PR13 merge: `1e459837962fa9eec31b8928150f3a150adb7978`
 - worktree: clean
 
 ## Baseline
@@ -23,18 +23,42 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR12
-- PR12 integration merge: `40680088fac924b04f76410e925af55624c872d1`
-- 현재 milestone: PR13 — slide-redesign Job 계약과 enqueue
+- 완료 milestone: PR00~PR13
+- PR13 integration merge: `1e459837962fa9eec31b8928150f3a150adb7978`
+- 현재 milestone: PR14 — Worker layout Job orchestration
 - 활성 child branch/worktree: 없음
 - integration merge 후 검증:
-  - stage·pipeline·design-agent focused — 88 passed
-  - `pnpm --filter @orbit/shared test` — 579 passed
+  - `pnpm --filter @orbit/shared test` — 586 passed
+  - `pnpm --filter @orbit/job-queue test` — 30 passed
+  - slide-redesign Job service·public Jobs controller focused — 10 passed
+  - `pnpm --filter @orbit/api typecheck` — 통과
 - 남은 stop gate: 없음
-- PR12 child 상태: clean, integration merge 완료
-- 다음 milestone: PR13 — slide-redesign Job 계약과 enqueue
+- PR13 child 상태: clean, integration merge 완료
+- 다음 milestone: PR14 — Worker layout Job orchestration
 
 ## 완료 Milestone 기록
+
+### PR13 — slide-redesign Job 계약과 enqueue
+
+- integration merge: `1e459837962fa9eec31b8928150f3a150adb7978`
+- code commit:
+  - `d38ba4ce` — internal Job type, 생성·BullMQ payload, 6단계 progress와 realtime envelope 계약
+  - `41d1f949` — scoped palette 선택, pending request message, identifier-only DB payload와 전용 enqueue endpoint
+  - `13598390` — public Job 차단, stale 선검증, scope·enqueue 실패·로그 비노출 회귀
+  - `5728bcac` — Job, progress, realtime, 로그·payload 보안 경계 문서화
+- child 검증:
+  - `pnpm --filter @orbit/shared test` — 586 passed
+  - `pnpm --filter @orbit/job-queue test` — 30 passed
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 608 passed, 1 skipped
+  - shared/job-queue/API typecheck — 통과
+- integration merge 후 검증:
+  - `pnpm --filter @orbit/shared test` — 586 passed
+  - `pnpm --filter @orbit/job-queue test` — 30 passed
+  - slide-redesign Job service·public Jobs controller focused — 10 passed
+  - `pnpm --filter @orbit/api typecheck` — 통과
+- 병합 직후 첫 queue/API focused 실행은 integration의 과거 shared build 산출물에 새 export가 없어 실패했다. API typecheck가 workspace dependency를 fresh build한 뒤 동일 테스트를 재실행해 통과했으며 source 변경은 필요하지 않았다.
+- 필수 조건: `slide-redesign`은 generic public Job 생성에서 차단되고, stale version과 다른 actor/project/session palette는 Job 생성 전에 거부된다. 로그와 generic Job DB payload에는 질문 원문, slide JSON, speaker notes를 남기지 않는다.
+- child 상태: clean, integration merge 완료
 
 ### PR12 — Python 내부 stage façade
 
@@ -289,6 +313,7 @@
 - `slide-redesign-implementation.md`의 과거 PR7 설명은 shape type 추가와 API version `2` 발행을 함께 적지만, Goal의 독립 merge boundary는 PR07을 tolerant reader 전용, PR08을 shape 계약과 v2 발행으로 지정한다. PR07은 Goal 경계를 우선해 reader만 확장했고 발행 상수와 element 목록은 바꾸지 않았다.
 - PR09 계획의 후보 수 `14 → 19`는 과거 composition catalog를 전제로 한 고정값이다. 현재 catalog에서 후보 수는 slide type·item count에 따라 달라지며, 같은 입력 기준 `title` 2개 항목은 4→5, `feature-grid` 3개 항목은 8→10으로 증가한다. 고정 19개를 강제하지 않고 required/image variant 활성화, optional source slot 활성화, source 수 초과 후보 제외를 회귀 테스트로 고정했다.
 - PR10 계획은 `selectedPaletteOptionId` 생략 시 배색 3안을 반환하도록 적지만, Goal의 merge safety는 기존 Web을 즉시 새 흐름으로 강제하지 않도록 요구한다. 호환성을 위해 필드 생략은 기존 동기 proposal, 명시적 `null`은 배색 3안 요청, 문자열은 저장된 option 선택으로 구분했다.
+- PR13 계획은 `packages/shared/src/realtime/`의 기존 Job event 계약 확장을 전제하지만 현재 저장소에는 공통 WebSocket envelope과 운영 로그 `job.progressed`만 있고 Job 전용 socket event schema는 없다. “새 이벤트 타입을 만들지 않는다”는 구현 문서 조건을 지키기 위해 `websocketEventTypeSchema`를 확장하지 않고, system-authored 공통 envelope의 `slideRedesignProgressEventSchema`와 typed payload만 추가했다. 실제 transport 발행은 PR14가 이 계약을 사용한다.
 
 ## 미검증 항목
 
