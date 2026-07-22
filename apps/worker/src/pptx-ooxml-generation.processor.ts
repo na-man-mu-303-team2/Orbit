@@ -16,6 +16,9 @@ import {
   type DeckCanvas,
   type Job,
   type QualityReport,
+  type QualityReportSlide,
+  type PptxImportPreference,
+  type SlideImportRenderMode,
   type TemplateBlueprint,
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
@@ -37,6 +40,7 @@ const pptxOoxmlGenerationPayloadSchema = z.object({
 const ooxmlGenerationBlueprintSlideSchema = z
   .object({
     sourceSlideIndex: z.number().int().positive().optional(),
+    speakerNotes: z.string().default(""),
     style: slideStyleSchema,
     elements: z.array(deckElementSchema).default([]),
     transition: slideTransitionSchema.optional(),
@@ -68,6 +72,34 @@ type OoxmlGenerationBlueprint = PptxOoxmlGenerationWorkerResponse["blueprint"];
 type OoxmlTemplateBlueprint =
   PptxOoxmlGenerationWorkerResponse["templateBlueprint"];
 
+type SlideRenderModeDecision = {
+  fontSubstitutionCount: number;
+  pixelEvaluation: "passed" | "failed" | "not-evaluated";
+  reasons: string[];
+  recommendedRenderMode: SlideImportRenderMode;
+  selectedRenderMode: SlideImportRenderMode;
+  slideIndex: number;
+  unsupportedObjectCount: number;
+};
+
+type SlideRenderModeElement = {
+  elementId: string;
+  props?: unknown;
+};
+
+type SlideRenderModeElementSource = {
+  elementId: string;
+  fallbackReason?: string;
+  relationshipId?: string;
+};
+
+type SlideRenderModeSelectionInput = {
+  importPreference: PptxImportPreference;
+  qualityReportSlide?: QualityReportSlide;
+  slideIndex: number;
+  sourceElementSources: SlideRenderModeElementSource[];
+  visualElements: SlideRenderModeElement[];
+};
 type JobRow = {
   job_id: string;
   project_id: string;
@@ -146,6 +178,7 @@ export async function processPptxOoxmlGenerationJob(
       pythonWorkerUrl,
       asset,
       createPptxOoxmlStoragePrefix(payload.projectId, payload.jobId),
+      payload.request.importPreference,
     );
   } catch (error) {
     return failJob(
@@ -171,21 +204,37 @@ export async function processPptxOoxmlGenerationJob(
       payload.projectId,
       generated.assets,
     );
+    const failedNotesPreviewRefs = collectMissingNotesPreviewRefs(
+      generated.templateBlueprint,
+      assetRefs.fileIds,
+    );
+    const reconciledNotes = reconcileFailedNotesPreviewAssets(
+      generated.templateBlueprint,
+      generated.qualityReport,
+      failedNotesPreviewRefs,
+    );
     const templateBlueprint =
       pptxOoxmlGenerationWorkerResponseSchema.shape.templateBlueprint.parse(
-        replaceAssetRefs(generated.templateBlueprint, assetRefs.fileIds),
+        replaceAssetRefs(reconciledNotes.templateBlueprint, assetRefs.fileIds),
       );
     const deckBlueprint =
       pptxOoxmlGenerationWorkerResponseSchema.shape.blueprint.parse(
         replaceAssetRefs(generated.blueprint, assetRefs.urls),
       );
-    const deck = buildOoxmlDeck(
+    const builtDeck = buildOoxmlDeck(
       payload.projectId,
       asset,
       generated.canvas,
       deckBlueprint,
       templateBlueprint,
       assetRefs.urls,
+      reconciledNotes.qualityReport,
+      payload.request.importPreference,
+    );
+    const deck = builtDeck.deck;
+    const qualityReport = reconcileSlideRenderModeDiagnostics(
+      reconciledNotes.qualityReport,
+      builtDeck.decisions,
     );
     const mappedTemplateBlueprint = reconcileMotionCapabilitiesWithDeck(
       templateBlueprintSchema.parse({
@@ -210,7 +259,7 @@ export async function processPptxOoxmlGenerationJob(
         payload.projectId,
         deck.deckId,
         mappedTemplateBlueprint,
-        generated.qualityReport,
+        qualityReport,
       );
       await updateProjectTitle(manager, payload.projectId, deck.title);
     });
@@ -220,7 +269,7 @@ export async function processPptxOoxmlGenerationJob(
       templateId: templateBlueprint.templateId,
       sourceFileId: payload.request.fileId,
       currentPackageFileId: templateBlueprint.currentPackageFileId,
-      qualityReport: generated.qualityReport,
+      qualityReport,
       warnings: generated.warnings,
     });
 
@@ -285,6 +334,7 @@ async function generatePptxOoxmlWithPython(
   pythonWorkerUrl: string,
   asset: ProjectAssetRow,
   storagePrefix: string,
+  importPreference: PptxImportPreference,
 ): Promise<PptxOoxmlGenerationWorkerResponse> {
   const readUrl = await storage.getSignedReadUrl(asset.storage_key);
   const sourceResponse = await fetch(readUrl);
@@ -295,6 +345,7 @@ async function generatePptxOoxmlWithPython(
   const form = new FormData();
   form.append("file_id", asset.file_id);
   form.append("storage_prefix", storagePrefix);
+  form.append("import_preference", importPreference);
   form.append(
     "file",
     new Blob([Buffer.from(await sourceResponse.arrayBuffer())], {
@@ -328,7 +379,9 @@ function buildOoxmlDeck(
   blueprint: OoxmlGenerationBlueprint,
   templateBlueprint: OoxmlTemplateBlueprint,
   assetUrls: Map<string, string>,
-): Deck {
+  qualityReport: QualityReport,
+  importPreference: PptxImportPreference,
+): { deck: Deck; decisions: SlideRenderModeDecision[] } {
   const title = titleFromFileName(asset.original_name);
   const blueprintSlides = new Map(
     blueprint.slides.map((slide, index) => [
@@ -337,7 +390,11 @@ function buildOoxmlDeck(
     ]),
   );
 
-  return deckSchema.parse({
+  const slideReports = new Map(
+    qualityReport.slideReports.map((report) => [report.slideIndex, report]),
+  );
+  const decisions: SlideRenderModeDecision[] = [];
+  const deck = deckSchema.parse({
     deckId: `deck_ooxml_${safeId(asset.file_id)}`,
     projectId,
     title,
@@ -356,39 +413,40 @@ function buildOoxmlDeck(
       const blueprintSlide =
         blueprintSlides.get(slide.sourceSlideIndex) ?? blueprint.slides[index];
       const visualElements = blueprintSlide?.elements ?? [];
-      const useSnapshotFallback =
-        visualElements.length === 0 ||
-        visualElements.some(elementHasUnresolvedAssetRef);
       if (!renderUrl) {
         throw new Error(`Rendered slide asset missing: ${renderAssetRef}`);
       }
+      const decision = selectSlideImportRenderMode({
+        importPreference,
+        qualityReportSlide: slideReports.get(slide.sourceSlideIndex),
+        slideIndex: slide.sourceSlideIndex,
+        sourceElementSources: slide.elementSources,
+        visualElements,
+      });
+      decisions.push(decision);
       const elementSources = new Map(
         slide.elementSources.map((source) => [source.elementId, source]),
       );
-      const elements = useSnapshotFallback
-        ? []
-        : visualElements.map((element) =>
-            deckElementSchema.parse({
-              ...element,
-              ooxmlOrigin: "imported",
-              ooxmlEditCapabilities: elementSources.get(element.elementId)
-                ?.ooxmlEditCapabilities ?? {
-                richText: "none",
-                crop: "none",
-                tableCellText: false,
-                frame: false,
-                delete: false,
-                imageSource: false,
-              },
-            }),
-          );
+      const elements = visualElements.map((element) =>
+        deckElementSchema.parse({
+          ...element,
+          ooxmlOrigin: "imported",
+          ooxmlEditCapabilities: elementSources.get(element.elementId)
+            ?.ooxmlEditCapabilities ?? {
+            richText: "none",
+            crop: "none",
+            tableCellText: false,
+            frame: false,
+            delete: false,
+            imageSource: false,
+          },
+        }),
+      );
       const elementIds = new Set(elements.map((element) => element.elementId));
       const sourceAnimations = blueprintSlide?.animations ?? [];
-      const animations = useSnapshotFallback
-        ? []
-        : sourceAnimations.filter((animation) =>
-            elementIds.has(animation.elementId),
-          );
+      const animations = sourceAnimations.filter((animation) =>
+        elementIds.has(animation.elementId),
+      );
       const sourceMotionCapabilities = slide.ooxmlMotionCapabilities ?? {
         transitionWritable: false,
         importedMainSequenceCoverage: "unknown" as const,
@@ -405,6 +463,7 @@ function buildOoxmlDeck(
       return {
         slideId: `slide_ooxml_${safeId(asset.file_id)}_${index + 1}`,
         ooxmlOrigin: "imported",
+        importRenderMode: decision.selectedRenderMode,
         ...(slide.sourceSlidePart
           ? { ooxmlSourceSlidePart: slide.sourceSlidePart }
           : {}),
@@ -418,7 +477,7 @@ function buildOoxmlDeck(
         style: {
           ...(blueprintSlide?.style ?? {}),
           layout: "title-content",
-          ...(useSnapshotFallback
+          ...(decision.selectedRenderMode === "snapshot"
             ? {
                 backgroundImage: {
                   src: renderUrl,
@@ -429,7 +488,7 @@ function buildOoxmlDeck(
               }
             : {}),
         },
-        speakerNotes: "",
+        speakerNotes: blueprintSlide?.speakerNotes ?? "",
         elements,
         keywords: [],
         animations,
@@ -440,6 +499,234 @@ function buildOoxmlDeck(
       };
     }),
   });
+
+  return { deck, decisions };
+}
+
+export function selectSlideImportRenderMode(
+  args: SlideRenderModeSelectionInput,
+): SlideRenderModeDecision {
+  const {
+    importPreference,
+    qualityReportSlide,
+    slideIndex,
+    sourceElementSources,
+    visualElements,
+  } = args;
+  const pixelEvaluation =
+    qualityReportSlide?.pixelEvaluation ??
+    {
+      passed: "passed" as const,
+      vectorization_failed: "failed" as const,
+      not_evaluated: "not-evaluated" as const,
+    }[qualityReportSlide?.status ?? "not_evaluated"];
+  const fallbackSources = sourceElementSources.filter(
+    (source) => Boolean(source.fallbackReason),
+  );
+  const visualElementIds = new Set(
+    visualElements.map((element) => element.elementId),
+  );
+  const hasUnresolvedAsset = visualElements.some(elementHasUnresolvedAssetRef);
+  const hasMissingFallbackElement = fallbackSources.some(
+    (source) => !visualElementIds.has(source.elementId),
+  );
+  const hasMissingRelationshipElement = sourceElementSources.some(
+    (source) =>
+      Boolean(source.relationshipId) && !visualElementIds.has(source.elementId),
+  );
+  const reportedUnsupportedObjectCount =
+    qualityReportSlide?.unsupportedObjectCount ?? 0;
+  const hasUnaccountedUnsupportedObject =
+    reportedUnsupportedObjectCount > fallbackSources.length;
+  const hasDataLossRisk =
+    visualElements.length === 0 ||
+    hasUnresolvedAsset ||
+    hasMissingFallbackElement ||
+    hasMissingRelationshipElement ||
+    hasUnaccountedUnsupportedObject;
+  const capabilityMode: SlideImportRenderMode = hasDataLossRisk
+    ? "snapshot"
+    : fallbackSources.length > 0
+      ? "hybrid"
+      : "editable";
+  const selectedRenderMode: SlideImportRenderMode = hasDataLossRisk
+    ? "snapshot"
+    : importPreference === "appearance-first" && pixelEvaluation !== "passed"
+      ? "snapshot"
+      : capabilityMode;
+  const reasons: string[] = [];
+
+  if (visualElements.length === 0) {
+    reasons.push("PPTX_RENDER_MODE_SNAPSHOT_VISUAL_TREE_EMPTY");
+  }
+  if (hasUnresolvedAsset) {
+    reasons.push("PPTX_RENDER_MODE_SNAPSHOT_UNRESOLVED_ASSET");
+  }
+  if (hasMissingFallbackElement) {
+    reasons.push("PPTX_RENDER_MODE_SNAPSHOT_FALLBACK_ELEMENT_MISSING");
+  }
+  if (hasMissingRelationshipElement) {
+    reasons.push("PPTX_RENDER_MODE_SNAPSHOT_RELATIONSHIP_ELEMENT_MISSING");
+  }
+  if (hasUnaccountedUnsupportedObject) {
+    reasons.push("PPTX_RENDER_MODE_SNAPSHOT_UNACCOUNTED_UNSUPPORTED_OBJECT");
+  }
+  if (fallbackSources.length > 0 && !hasDataLossRisk) {
+    reasons.push("PPTX_RENDER_MODE_HYBRID_RASTER_FALLBACK");
+  }
+  if (
+    importPreference === "appearance-first" &&
+    pixelEvaluation === "not-evaluated" &&
+    !hasDataLossRisk
+  ) {
+    reasons.push("PPTX_RENDER_MODE_APPEARANCE_SNAPSHOT_PIXEL_NOT_EVALUATED");
+  }
+  if (
+    importPreference === "appearance-first" &&
+    pixelEvaluation === "failed" &&
+    !hasDataLossRisk
+  ) {
+    reasons.push("PPTX_RENDER_MODE_APPEARANCE_SNAPSHOT_PIXEL_FAILED");
+  }
+  if (
+    importPreference === "editability-first" &&
+    pixelEvaluation === "not-evaluated" &&
+    !hasDataLossRisk
+  ) {
+    reasons.push("PPTX_RENDER_MODE_EDITABILITY_PIXEL_NOT_EVALUATED");
+  }
+
+  return {
+    fontSubstitutionCount: qualityReportSlide?.fontSubstitutionCount ?? 0,
+    pixelEvaluation,
+    reasons,
+    recommendedRenderMode: selectedRenderMode,
+    selectedRenderMode,
+    slideIndex,
+    unsupportedObjectCount: Math.max(
+      fallbackSources.length,
+      reportedUnsupportedObjectCount,
+    ),
+  };
+}
+
+function reconcileSlideRenderModeDiagnostics(
+  qualityReport: QualityReport,
+  decisions: SlideRenderModeDecision[],
+): QualityReport {
+  const existingReports = new Map(
+    qualityReport.slideReports.map((report) => [report.slideIndex, report]),
+  );
+
+  return qualityReportSchema.parse({
+    ...qualityReport,
+    slideReports: decisions.map((decision) => {
+      const existing = existingReports.get(decision.slideIndex) ?? {
+        slideIndex: decision.slideIndex,
+        status: "not_evaluated" as const,
+        ssim: null,
+        reasons: [],
+        fallback: "none" as const,
+      };
+      return {
+        ...existing,
+        ...decision,
+        reasons: [...new Set([...existing.reasons, ...decision.reasons])],
+        fallback:
+          decision.selectedRenderMode === "snapshot"
+            ? "rendered-background"
+            : "none",
+      };
+    }),
+  });
+}
+
+function reconcileFailedNotesPreviewAssets(
+  templateBlueprint: OoxmlTemplateBlueprint,
+  qualityReport: QualityReport,
+  failedRefs: ReadonlySet<string>,
+): {
+  templateBlueprint: OoxmlTemplateBlueprint;
+  qualityReport: QualityReport;
+} {
+  if (failedRefs.size === 0) {
+    return { templateBlueprint, qualityReport };
+  }
+
+  let affectedCount = 0;
+  const slides = templateBlueprint.slides.map((slide) => {
+    const notesPage = slide.notesPage;
+    if (
+      !notesPage?.renderAssetFileId ||
+      !failedRefs.has(notesPage.renderAssetFileId)
+    ) {
+      return slide;
+    }
+
+    affectedCount += 1;
+    const downgradedNotesPage = { ...notesPage };
+    delete downgradedNotesPage.renderAssetFileId;
+    return {
+      ...slide,
+      notesPage: {
+        ...downgradedNotesPage,
+        status: "render-unavailable" as const,
+      },
+    };
+  });
+
+  if (affectedCount === 0) {
+    return { templateBlueprint, qualityReport };
+  }
+
+  const diagnostics = qualityReport.notesDiagnostics ?? {
+    total: slides.length,
+    imported: slides.filter((slide) => slide.notesPage?.sourceNotesPart).length,
+    rendered: 0,
+    writable: slides.filter((slide) => slide.notesPage?.bodyWritable).length,
+    warnings: [],
+  };
+  const warningCounts = new Map(
+    diagnostics.warnings.map((warning) => [warning.code, warning.count]),
+  );
+  warningCounts.set(
+    "PPTX_NOTES_PREVIEW_ASSET_FAILED",
+    (warningCounts.get("PPTX_NOTES_PREVIEW_ASSET_FAILED") ?? 0) +
+      affectedCount,
+  );
+
+  return {
+    templateBlueprint: templateBlueprintSchema.parse({
+      ...templateBlueprint,
+      slides,
+    }),
+    qualityReport: qualityReportSchema.parse({
+      ...qualityReport,
+      notesDiagnostics: {
+        ...diagnostics,
+        rendered: Math.max(0, diagnostics.rendered - affectedCount),
+        warnings: [...warningCounts.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([code, count]) => ({ code, count })),
+      },
+    }),
+  };
+}
+
+function collectMissingNotesPreviewRefs(
+  templateBlueprint: OoxmlTemplateBlueprint,
+  assetFileIds: ReadonlyMap<string, string>,
+): Set<string> {
+  return new Set(
+    templateBlueprint.slides
+      .map((slide) => slide.notesPage?.renderAssetFileId)
+      .filter(
+        (assetRef): assetRef is string =>
+          typeof assetRef === "string" &&
+          assetRef.startsWith("asset:") &&
+          !assetFileIds.has(assetRef),
+      ),
+  );
 }
 
 function reconcileMotionCapabilitiesWithDeck(
@@ -543,7 +830,7 @@ function replaceAssetRefs(value: unknown, refs: Map<string, string>): unknown {
     return Object.fromEntries(
       Object.entries(value).map(([key, item]) => [
         key,
-        replaceAssetRefs(item, refs),
+        key === "speakerNotes" ? item : replaceAssetRefs(item, refs),
       ]),
     );
   }

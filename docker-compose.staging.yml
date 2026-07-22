@@ -136,6 +136,7 @@ services:
     mem_limit: ${PYTHON_WORKER_MEMORY_LIMIT:-1024m}
 
   web:
+    image: ghcr.io/na-man-mu-303-team2/orbit-web:${WEB_IMAGE_TAG:-${IMAGE_TAG:-latest}}
     build:
       args:
         APP_ENV: ${APP_ENV:?}

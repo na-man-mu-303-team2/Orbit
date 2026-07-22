@@ -665,7 +665,7 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("다음 슬라이드");
     expect(html).toContain("핵심 키워드");
     expect(html).toContain("타이머");
-    expect(html).toContain("슬라이드 목표");
+    expect(html).not.toContain("슬라이드 목표");
     expect(html).toContain("첫 문장입니다");
     expect(html).not.toContain("Live STT 시작");
     expect(html).not.toContain("Report AI");
@@ -915,10 +915,10 @@ describe("RehearsalWorkspace", () => {
     expect(slideReceiverRenderBody).not.toContain("speakerNotes");
   });
 
-  it("keeps single-screen entry and safe Live STT recovery controls", () => {
+  it("removes single-screen entry and keeps safe Live STT recovery controls", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
 
-    expect(source).toContain("onClick={() => setIsSingleScreenOpen(true)}");
+    expect(source).not.toContain("onClick={() => setIsSingleScreenOpen(true)}");
     expect(source).toContain("sanitizeLiveSttErrorMessage(liveError)");
     expect(source).toContain("retryInitialRecordingLiveStt()");
     expect(source).toContain("음성 인식 다시 연결");

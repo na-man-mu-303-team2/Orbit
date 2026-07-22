@@ -1,6 +1,7 @@
 import {
   demoIds,
   type CommunityTemplateCard,
+  type PptxImportPreference,
   type Project,
   type ProjectListItem,
   type ProjectListSort,
@@ -50,12 +51,14 @@ import {
   OrbitInput,
 } from "../../components/ui";
 import "../../styles/tokens.css";
+import { PptxImportPreferenceDialog } from "../editor/shell/components/PptxImportPreferenceDialog";
 import {
   createProjectTagDefinition,
   fetchProjectTagDefinitions,
   projectTagDefinitionsQueryKey,
 } from "../auth/auth-session";
 import {
+  getPptxImportValidationMessage,
   pptxImportAccept,
 } from "../editor/shell/utils/editorFileValidation";
 import {
@@ -133,6 +136,7 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
   const [newTagColor, setNewTagColor] = useState<ProjectTagColor>("yellow");
   const [tagError, setTagError] = useState("");
   const [tagSaving, setTagSaving] = useState(false);
+  const [pendingPptxImportFile, setPendingPptxImportFile] = useState<File | null>(null);
   const [actionError, setActionError] = useState("");
   const pptxImport = usePptxImport();
   const isImportingPptx = pptxImport.isImporting;
@@ -255,10 +259,19 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
     }
   }
 
-  async function importPptxProject(file: File) {
+  async function importPptxProject(
+    file: File,
+    importPreference: PptxImportPreference,
+  ) {
+    const validationMessage = getPptxImportValidationMessage(file);
+    if (validationMessage) {
+      setActionError(validationMessage);
+      return;
+    }
+
     setActionError("");
     try {
-      await pptxImport.startImport(file);
+      await pptxImport.startImport(file, importPreference);
       await projects.refetch();
     } catch (cause) {
       setActionError(cause instanceof Error ? cause.message : "PPTX를 가져오지 못했습니다.");
@@ -351,7 +364,14 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
   function handlePptxChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (file) void importPptxProject(file);
+    if (!file) return;
+    const validationMessage = getPptxImportValidationMessage(file);
+    if (validationMessage) {
+      setActionError(validationMessage);
+      return;
+    }
+    setActionError("");
+    setPendingPptxImportFile(file);
   }
 
   function scrollCommunity(direction: -1 | 1) {
@@ -656,6 +676,16 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
         />
       ) : null}
 
+      <PptxImportPreferenceDialog
+        fileName={pendingPptxImportFile?.name ?? ""}
+        onCancel={() => setPendingPptxImportFile(null)}
+        onConfirm={(preference) => {
+          const file = pendingPptxImportFile;
+          setPendingPptxImportFile(null);
+          if (file) void importPptxProject(file, preference);
+        }}
+        open={Boolean(pendingPptxImportFile)}
+      />
       {isTagEditorOpen ? (
         <div className="workspace-tag-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !tagSaving) setIsTagEditorOpen(false); }}>
           <section aria-labelledby="workspace-tag-modal-title" aria-modal="true" className="workspace-tag-modal" role="dialog">

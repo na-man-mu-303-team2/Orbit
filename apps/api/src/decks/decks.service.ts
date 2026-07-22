@@ -29,6 +29,7 @@ import {
   deckSnapshotReasonSchema,
   deckSnapshotSchema,
   getDeckResponseSchema,
+  getPptxNotesPreviewResponseSchema,
   getPptxImportQualityResponseSchema,
   getOoxmlSyncStateResponseSchema,
   jobSchema,
@@ -64,6 +65,7 @@ import type {
   DeckSnapshotDetail,
   DeckSnapshotReason,
   GetDeckResponse,
+  GetPptxNotesPreviewResponse,
   GetPptxImportQualityResponse,
   Job,
   OoxmlSyncState,
@@ -81,6 +83,7 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  NotFoundException,
   Optional,
 } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
@@ -127,6 +130,14 @@ type TemplateBlueprintRow = {
 
 type PptxImportQualityRow = {
   quality_report_json: unknown;
+};
+
+type PptxNotesPreviewAssetRow = {
+  file_id: string;
+  project_id: string;
+  purpose: string;
+  status: string;
+  mime_type: string;
 };
 
 type OoxmlTemplateBlueprint = TemplateBlueprintRow & {
@@ -289,6 +300,92 @@ export class DecksService {
         ? { qualityReport: qualityReport.data }
         : null,
     });
+  }
+
+  async getPptxNotesPreview(
+    projectId: string,
+    slideId: string,
+  ): Promise<GetPptxNotesPreviewResponse> {
+    const { deck } = await this.getDeck(projectId);
+    const slide = deck.slides.find(
+      (candidate) => candidate.slideId === slideId,
+    );
+    if (!slide) {
+      throw new NotFoundException(`Deck slide not found: ${slideId}`);
+    }
+
+    const response = (
+      status: GetPptxNotesPreviewResponse["notesPreview"]["status"],
+      assetUrl: string | null = null,
+    ) =>
+      getPptxNotesPreviewResponseSchema.parse({
+        notesPreview: { slideId, status, assetUrl },
+      });
+    const imported = await this.findOoxmlTemplateBlueprint(
+      this.dataSource,
+      projectId,
+      deck.deckId,
+      deck,
+    );
+    if (!imported) {
+      return response(
+        deck.metadata.sourceType === "import" ? "unavailable" : "absent",
+      );
+    }
+
+    const blueprintSlide = imported.blueprint.slides.find(
+      (candidate) => candidate.slideId === slideId,
+    );
+    if (!blueprintSlide) return response("unavailable");
+
+    const syncState = await this.readOoxmlSyncState(projectId, deck);
+    if (syncState.status === "pending") return response("sync-pending");
+    if (syncState.status === "stale" || syncState.status === "failed") {
+      return response("stale");
+    }
+
+    const notesPage = blueprintSlide.notesPage;
+    if (!notesPage || notesPage.status === "absent") {
+      return response("absent");
+    }
+    if (notesPage.status !== "rendered") {
+      return response("render-unavailable");
+    }
+
+    const previewFileId = notesPage.renderAssetFileId;
+    if (!previewFileId) return response("unavailable");
+
+    let rows: PptxNotesPreviewAssetRow[];
+    try {
+      rows = await this.dataSource.query<PptxNotesPreviewAssetRow[]>(
+        `
+          SELECT file_id, project_id, purpose, status, mime_type
+          FROM project_assets
+          WHERE project_id = $1 AND file_id = $2
+          LIMIT 1
+        `,
+        [projectId, previewFileId],
+      );
+    } catch {
+      return response("unavailable");
+    }
+    const asset = rows[0];
+    if (
+      !asset ||
+      asset.project_id !== projectId ||
+      asset.purpose !== "design-asset" ||
+      asset.status !== "uploaded" ||
+      !asset.mime_type.startsWith("image/")
+    ) {
+      return response("unavailable");
+    }
+
+    return response(
+      "available",
+      `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(
+        previewFileId,
+      )}/content`,
+    );
   }
 
   async createExportJob(projectId: string, body: unknown) {
@@ -1674,6 +1771,7 @@ function createOoxmlReplacement(
   const slideOperations = createOoxmlSlideDiff(currentDeck, deck);
   const operations = [
     ...slideOperations,
+    ...createOoxmlSpeakerNotesDiff(currentDeck, deck),
     ...createOoxmlElementDiff(currentDeck, deck),
   ];
 
@@ -1760,6 +1858,26 @@ function validateAndSortSlides(deck: Deck): Deck["slides"] {
     );
   }
   return [...deck.slides].sort((left, right) => left.order - right.order);
+}
+
+function createOoxmlSpeakerNotesDiff(
+  currentDeck: Deck,
+  nextDeck: Deck,
+): DeckPatchOperation[] {
+  const currentSlides = new Map(
+    currentDeck.slides.map((slide) => [slide.slideId, slide]),
+  );
+  return nextDeck.slides.flatMap((slide) => {
+    const current = currentSlides.get(slide.slideId);
+    if (!current || current.speakerNotes === slide.speakerNotes) return [];
+    return [
+      {
+        type: "update_speaker_notes" as const,
+        slideId: slide.slideId,
+        speakerNotes: slide.speakerNotes,
+      },
+    ];
+  });
 }
 
 function createOoxmlElementDiff(

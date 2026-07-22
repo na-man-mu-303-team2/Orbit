@@ -17,8 +17,13 @@ export {
 export { getActiveHighlightElementIds, HighlightOverlay } from "./highlightOverlay";
 export { getHighlightOverlayElements } from "./highlightOverlayElements";
 export {
+  diagnoseImportedDeckFonts,
+  type ImportedFontAvailabilityDiagnostic
+} from "./fontAvailability";
+export {
   getRenderableSlideElements,
-  normalizeRenderableElement
+  normalizeRenderableElement,
+  usesSourceSlideSnapshot
 } from "./elementNormalization";
 export {
   clearProjectSlideImageCache,

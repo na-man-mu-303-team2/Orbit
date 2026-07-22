@@ -1,4 +1,9 @@
-import type { Job, Project, ProjectListItem } from "@orbit/shared";
+import type {
+  Job,
+  PptxImportPreference,
+  Project,
+  ProjectListItem,
+} from "@orbit/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   IconBell,
@@ -39,7 +44,10 @@ type PptxImportContextValue = {
   dismiss: () => void;
   isImporting: boolean;
   operation: PptxImportOperation | null;
-  startImport: (file: File) => Promise<Project>;
+  startImport: (
+    file: File,
+    importPreference: PptxImportPreference,
+  ) => Promise<Project>;
 };
 
 const missingPptxImportContext: PptxImportContextValue = {
@@ -64,7 +72,10 @@ export function PptxImportProvider(props: { children: ReactNode }) {
     await queryClient.invalidateQueries({ queryKey: ["projects"] });
   }
 
-  async function startImport(file: File) {
+  async function startImport(
+    file: File,
+    importPreference: PptxImportPreference,
+  ) {
     const validationMessage = getPptxImportValidationMessage(file);
     if (validationMessage) throw new Error(validationMessage);
     if (inFlightRef.current) {
@@ -86,6 +97,7 @@ export function PptxImportProvider(props: { children: ReactNode }) {
       await refreshProjects();
 
       await uploadAndImportPptxTemplate(project.projectId, file, {
+        importPreference,
         onJob: (job) => {
           setOperation({
             fileName: file.name,

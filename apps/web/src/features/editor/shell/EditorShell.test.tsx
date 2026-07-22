@@ -878,7 +878,10 @@ describe("editor shell", () => {
 
       if (url.endsWith("/pptx-ooxml-generations")) {
         expect(init?.method).toBe("POST");
-        expect(JSON.parse(String(init?.body))).toEqual({ fileId: "file_template" });
+        expect(JSON.parse(String(init?.body))).toEqual({
+          fileId: "file_template",
+          importPreference: "appearance-first"
+        });
         return new Response(
           JSON.stringify({
             job: jobPayload("queued", null, "pptx-ooxml-generation")
@@ -913,6 +916,7 @@ describe("editor shell", () => {
       importPptxIntoEditor("project-a", file, {
         fetcher,
         onJob: (job) => jobStatuses.push(job.status),
+        importPreference: "appearance-first",
         onPhase: (phase) => phases.push(phase),
         pollIntervalMs: 0,
         refetchDeck

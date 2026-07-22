@@ -5923,6 +5923,78 @@
   border-color: var(--redesign-color-error-subtle);
 }
 
+.pptx-import-quality-heading,
+.pptx-import-quality-summary,
+.pptx-import-quality-details > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--redesign-space-2);
+}
+
+.pptx-import-quality-heading {
+  align-items: baseline;
+}
+
+.pptx-import-quality-heading > span,
+.pptx-import-quality-details small,
+.pptx-import-quality-detail-body,
+.pptx-import-quality-diagnostics {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.pptx-import-quality-summary {
+  align-items: stretch;
+}
+
+.pptx-import-quality-summary > div {
+  min-width: 0;
+  flex: 1 1 0;
+  padding: var(--redesign-space-2);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-surface-container);
+}
+
+.pptx-import-quality-summary span,
+.pptx-import-quality-summary strong {
+  display: block;
+}
+
+.suggestion-card .pptx-import-quality-disclaimer,
+.suggestion-card .pptx-import-quality-pixel {
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.pptx-import-quality-group,
+.pptx-import-quality-detail-body {
+  display: grid;
+  gap: var(--redesign-space-1);
+}
+
+.pptx-import-quality-details {
+  border-top: 1px solid var(--redesign-color-outline-variant);
+  padding-top: var(--redesign-space-2);
+}
+
+.pptx-import-quality-details > summary {
+  align-items: flex-start;
+  cursor: pointer;
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 800;
+}
+
+.pptx-import-quality-detail-body {
+  padding: var(--redesign-space-2) 0 0 var(--redesign-space-3);
+}
+
+.pptx-import-quality-diagnostics {
+  display: grid;
+  gap: var(--redesign-space-1);
+  margin: 0;
+  padding-left: var(--redesign-space-4);
+  overflow-wrap: anywhere;
+}
+
 .source-ledger-card {
   border: 1px solid var(--redesign-color-outline-variant);
   background: var(--redesign-color-surface-container-low);
@@ -12018,6 +12090,77 @@ body.is-resizing-speaker-notes {
   place-content: center;
   color: var(--redesign-color-on-surface-variant);
   text-align: center;
+}
+
+.orbit-shell.editor-professional .speaker-notes-page-panel {
+  display: grid;
+  min-height: 180px;
+}
+
+.orbit-shell.editor-professional .speaker-notes-page-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--redesign-space-3);
+  padding: var(--redesign-space-2) 0;
+  color: var(--redesign-color-on-surface);
+}
+
+.orbit-shell.editor-professional .speaker-notes-page-heading span {
+  padding: 2px var(--redesign-space-2);
+  border-radius: var(--redesign-radius-full);
+  background: var(--redesign-color-surface-container-high);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 650;
+}
+
+.orbit-shell.editor-professional .speaker-notes-page-preview {
+  display: grid;
+  min-height: 0;
+  margin: 0;
+  place-items: center;
+  overflow: auto;
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface-container-low);
+}
+
+.orbit-shell.editor-professional .speaker-notes-page-preview img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 52vh;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.orbit-shell.editor-professional .speaker-notes-page-status {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  min-height: 160px;
+  padding: var(--redesign-space-6);
+  color: var(--redesign-color-on-surface-variant);
+  text-align: center;
+}
+
+.orbit-shell.editor-professional .speaker-notes-page-status strong {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-sm-size);
+}
+
+.orbit-shell.editor-professional .speaker-notes-page-status p {
+  max-width: 420px;
+  margin: var(--redesign-space-1) 0 0;
+  font-size: var(--redesign-type-label-sm-size);
+  line-height: 1.55;
+}
+
+.orbit-shell.editor-professional .speaker-notes-page-status .script-panel-action {
+  margin-top: var(--redesign-space-3);
 }
 
 .orbit-shell.editor-professional .speaker-notes-report-panel {

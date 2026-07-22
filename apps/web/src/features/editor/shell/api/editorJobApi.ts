@@ -8,6 +8,7 @@ import {
   type DeckExportRequest,
   type DeckExportJobResult,
   type OoxmlSyncState,
+  type PptxImportPreference,
   type PptxOoxmlGenerationJobResult
 } from "@orbit/shared";
 import { jobSchema, type Job } from "../../../../../../../packages/shared/src/jobs/job.schema";
@@ -18,6 +19,7 @@ import { getPptxImportValidationMessage } from "../utils/editorFileValidation";
 export async function createPptxOoxmlGenerationJob(
   projectId: string,
   fileId: string,
+  importPreference: PptxImportPreference = "editability-first",
   fetcher: typeof fetch = fetch
 ): Promise<Job> {
   const response = await fetcher(
@@ -25,7 +27,7 @@ export async function createPptxOoxmlGenerationJob(
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ fileId })
+      body: JSON.stringify({ fileId, importPreference })
     }
   );
 
@@ -281,6 +283,7 @@ export async function uploadAndImportPptxTemplate(
   options: {
     fetcher?: typeof fetch;
     onJob?: (job: Job) => void;
+    importPreference?: PptxImportPreference;
     onPhase?: (phase: "uploading" | "importing") => void;
     pollIntervalMs?: number;
     timeoutMs?: number;
@@ -298,6 +301,7 @@ export async function uploadAndImportPptxTemplate(
   const queuedJob = await createPptxOoxmlGenerationJob(
     projectId,
     uploaded.fileId,
+    options.importPreference,
     fetcher
   );
   options.onJob?.(queuedJob);
@@ -335,6 +339,7 @@ export async function importPptxIntoEditor(
   options: {
     fetcher?: typeof fetch;
     onJob?: (job: Job) => void;
+    importPreference?: PptxImportPreference;
     onPhase?: (phase: "uploading" | "importing") => void;
     pollIntervalMs?: number;
     timeoutMs?: number;

@@ -2,6 +2,7 @@ import { createDemoDeck } from "@orbit/editor-core";
 import { describe, expect, it } from "vitest";
 
 import { canAddActivitySlide, isSlideDeleteKey } from "./SlideNavigatorPane";
+import { buildSlideThumbBackground } from "../utils/editorLayout";
 
 describe("activity slide add guard", () => {
   it("allows activity slides only for a wide 16:9 deck", () => {
@@ -27,4 +28,41 @@ describe("slide keyboard deletion", () => {
   it("ignores unrelated keys", () => {
     expect(isSlideDeleteKey("Enter")).toBe(false);
   });
+});
+
+describe("slide render mode thumbnail", () => {
+  it("keeps snapshot rails on the source render even when a canvas cache exists", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      importRenderMode: "snapshot" as const,
+      thumbnailUrl: "/source-slide.png"
+    };
+
+    const background = buildSlideThumbBackground(slide, deck, "blob:canvas-cache");
+
+    expect(background).toContain("/source-slide.png");
+    expect(background).not.toContain("blob:canvas-cache");
+  });
+
+  it.each(["editable", "hybrid"] as const)(
+    "uses the current canvas cache for %s rails",
+    (importRenderMode) => {
+      const deck = createDemoDeck();
+      const slide = {
+        ...deck.slides[0]!,
+        importRenderMode,
+        thumbnailUrl: "/source-slide.png"
+      };
+
+      const background = buildSlideThumbBackground(
+        slide,
+        deck,
+        "blob:canvas-cache"
+      );
+
+      expect(background).toContain("blob:canvas-cache");
+      expect(background).not.toContain("/source-slide.png");
+    }
+  );
 });

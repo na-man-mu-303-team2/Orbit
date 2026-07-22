@@ -2,7 +2,10 @@ import type { StoragePort } from "@orbit/storage";
 import { createHash } from "node:crypto";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
+import {
+  processPptxOoxmlGenerationJob,
+  selectSlideImportRenderMode
+} from "./pptx-ooxml-generation.processor";
 
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -49,6 +52,7 @@ describe("processPptxOoxmlGenerationJob", () => {
   it("stores editable visual elements, render thumbnails, current package, template blueprint, and job result", async () => {
     const insertedDecks: unknown[] = [];
     const insertedBlueprints: unknown[] = [];
+    const insertedQualityReports: unknown[] = [];
     const query = vi.fn(async (sql: string, params: unknown[]) => {
       if (sql.includes("UPDATE jobs")) {
         return [
@@ -82,6 +86,7 @@ describe("processPptxOoxmlGenerationJob", () => {
       }
       if (sql.includes("INSERT INTO template_blueprints")) {
         insertedBlueprints.push(params[4]);
+        insertedQualityReports.push(params[5]);
       }
       return [];
     });
@@ -95,12 +100,14 @@ describe("processPptxOoxmlGenerationJob", () => {
         expect(Array.from(form.keys())).toEqual([
           "file_id",
           "storage_prefix",
+          "import_preference",
           "file"
         ]);
         expect(form.get("file_id")).toBe("file_template");
         expect(form.get("storage_prefix")).toBe(
           "projects/project-a/jobs/job-ooxml/pptx-ooxml/"
         );
+        expect(form.get("import_preference")).toBe("editability-first");
         return new Response(JSON.stringify(workerResponse()));
       }
 
@@ -116,18 +123,20 @@ describe("processPptxOoxmlGenerationJob", () => {
     );
 
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
-    expect(storage.headObject).toHaveBeenCalledTimes(3);
+    expect(storage.headObject).toHaveBeenCalledTimes(4);
 
     const deck = insertedDecks[0] as {
       metadata: {
         thumbnailSource?: string;
       };
       slides: Array<{
+        importRenderMode?: string;
         elements: Array<Record<string, unknown>>;
         transition?: { type: string; durationMs: number };
         animations: Array<Record<string, unknown>>;
         ooxmlMotionCapabilities?: Record<string, unknown>;
         thumbnailUrl: string;
+        speakerNotes: string;
         style: { backgroundImage?: { src?: string; fit?: string; opacity?: number } };
       }>;
     };
@@ -139,6 +148,8 @@ describe("processPptxOoxmlGenerationJob", () => {
     expect(deck.slides[0].thumbnailUrl).toMatch(
       /\/api\/v1\/projects\/project-a\/assets\/file_.*\/content/
     );
+    expect(deck.slides[0].importRenderMode).toBe("editable");
+    expect(deck.slides[0].speakerNotes).toBe("asset:notes_render_1");
     expect(deck.slides[0].style.backgroundImage).toBeUndefined();
     expect(deck.slides[0].transition).toEqual({
       type: "fade",
@@ -206,7 +217,11 @@ describe("processPptxOoxmlGenerationJob", () => {
       sourceFileId: string;
       sourcePackageFileId: string;
       currentPackageFileId: string;
-      slides: Array<{ slideId: string; renderAssetFileId: string }>;
+      slides: Array<{
+        slideId: string;
+        renderAssetFileId: string;
+        notesPage: { status: string; renderAssetFileId?: string };
+      }>;
     };
     expect(blueprint.sourceFileId).toBe("file_template");
     expect(blueprint.sourcePackageFileId).toBe("file_template");
@@ -218,12 +233,310 @@ describe("processPptxOoxmlGenerationJob", () => {
       "slide_ooxml_file_template_1"
     );
     expect(blueprint.slides[0].renderAssetFileId).toMatch(/^file_/);
+    expect(blueprint.slides[0].notesPage).toMatchObject({
+      status: "rendered",
+      renderAssetFileId: expect.stringMatching(/^file_/)
+    });
     expect(job.result).toMatchObject({
       deckId: "deck_ooxml_file_template",
       templateId: "template_file_template",
       sourceFileId: "file_template",
       currentPackageFileId: blueprint.currentPackageFileId
     });
+    expect(JSON.stringify(job.result)).not.toContain("asset:notes_render_1");
+    expect(insertedQualityReports[0]).toMatchObject({
+      slideReports: [
+        expect.objectContaining({
+          selectedRenderMode: "editable",
+          recommendedRenderMode: "editable",
+          pixelEvaluation: "not-evaluated",
+          unsupportedObjectCount: 0,
+          fontSubstitutionCount: 0
+        })
+      ]
+    });
+  });
+
+  it("registers slide and notes preview manifest entries without base64 transport", async () => {
+    const insertedBlueprints: unknown[] = [];
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("INSERT INTO project_assets")) {
+        return [{ file_id: params[0] as string }];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return [
+          {
+            file_id: "file_template",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_template-template.pptx",
+            mime_type: pptxMimeType,
+            original_name: "template.pptx",
+            size: 12,
+            purpose: "pptx-import",
+            status: "uploaded"
+          }
+        ];
+      }
+      if (sql.includes("INSERT INTO template_blueprints")) {
+        insertedBlueprints.push(params[4]);
+      }
+      return [];
+    });
+    const generated = workerResponse();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        if (String(input) === "http://storage.local/template.pptx") {
+          return new Response("pptx-bytes");
+        }
+        if (String(input).endsWith("/ai/pptx-ooxml-generation")) {
+          return new Response(JSON.stringify(generated));
+        }
+        return new Response("unexpected", { status: 500 });
+      })
+    );
+
+    const job = await processPptxOoxmlGenerationJob(
+      createTransactionalDataSource(query),
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(storage.headObject).toHaveBeenCalledTimes(4);
+    expect(
+      query.mock.calls.filter(([sql]) =>
+        String(sql).includes("INSERT INTO project_assets")
+      )
+    ).toHaveLength(4);
+    const blueprint = insertedBlueprints[0] as {
+      slides: Array<{
+        notesPage: { renderAssetFileId: string };
+        renderAssetFileId: string;
+      }>;
+    };
+    expect(blueprint.slides[0]!.notesPage.renderAssetFileId).not.toBe(
+      blueprint.slides[0]!.renderAssetFileId
+    );
+  });
+
+  it("keeps imported speaker notes when a notes preview asset cannot be saved", async () => {
+    const insertedDecks: unknown[] = [];
+    const insertedBlueprints: unknown[] = [];
+    const insertedQualityReports: unknown[] = [];
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("INSERT INTO project_assets")) {
+        return [{ file_id: params[0] as string }];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return [
+          {
+            file_id: "file_template",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_template-template.pptx",
+            mime_type: pptxMimeType,
+            original_name: "template.pptx",
+            size: 12,
+            purpose: "pptx-import",
+            status: "uploaded"
+          }
+        ];
+      }
+      if (sql.includes("INSERT INTO decks")) insertedDecks.push(params[2]);
+      if (sql.includes("INSERT INTO template_blueprints")) {
+        insertedBlueprints.push(params[4]);
+        insertedQualityReports.push(params[5]);
+      }
+      return [];
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "http://storage.local/template.pptx") {
+          return new Response("pptx-bytes");
+        }
+        if (url.endsWith("/ai/pptx-ooxml-generation")) {
+          const form = init?.body as FormData;
+          expect(form.get("import_preference")).toBe("appearance-first");
+          const generated = workerResponse(
+            "synthetic-note-line-1\n\nsynthetic-note-line-2"
+          );
+          generated.assets = generated.assets.filter(
+            (asset) => asset.assetId !== "notes_render_1"
+          );
+          return new Response(
+            JSON.stringify(generated)
+          );
+        }
+        return new Response("unexpected", { status: 500 });
+      })
+    );
+
+    const job = await processPptxOoxmlGenerationJob(
+      createTransactionalDataSource(query),
+      storage,
+      "http://localhost:8000",
+      {
+        ...payload,
+        request: {
+          fileId: "file_template",
+          importPreference: "appearance-first"
+        }
+      }
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect((insertedDecks[0] as {
+      slides: Array<{
+        speakerNotes: string;
+        importRenderMode?: string;
+        elements: Array<Record<string, unknown>>;
+      }>;
+    }).slides[0])
+      .toMatchObject({
+        speakerNotes: "synthetic-note-line-1\n\nsynthetic-note-line-2",
+        importRenderMode: "snapshot"
+      });
+    expect(
+      (insertedDecks[0] as { slides: Array<{ elements: unknown[] }> }).slides[0]
+        .elements
+    ).not.toHaveLength(0);
+    expect(
+      (insertedBlueprints[0] as {
+        slides: Array<{
+          notesPage: { status: string; renderAssetFileId?: string };
+        }>;
+      }).slides[0].notesPage
+    ).toEqual(
+      expect.objectContaining({ status: "render-unavailable" })
+    );
+    expect(
+      (insertedBlueprints[0] as {
+        slides: Array<{ notesPage: { renderAssetFileId?: string } }>;
+      }).slides[0].notesPage.renderAssetFileId
+    ).toBeUndefined();
+    expect(insertedQualityReports[0]).toMatchObject({
+      slideReports: [
+        expect.objectContaining({
+          selectedRenderMode: "snapshot",
+          recommendedRenderMode: "snapshot",
+          pixelEvaluation: "not-evaluated"
+        })
+      ],
+      notesDiagnostics: {
+        rendered: 0,
+        warnings: [
+          { code: "PPTX_NOTES_PREVIEW_ASSET_FAILED", count: 1 }
+        ]
+      }
+    });
+    expect(JSON.stringify(job.result)).not.toContain("synthetic-note-line-1");
+  });
+
+  it("maps eight imported notes bodies and preview assets by slide", async () => {
+    const insertedDecks: unknown[] = [];
+    const insertedBlueprints: unknown[] = [];
+    const query = vi.fn(async (sql: string, params: unknown[]) => {
+      if (sql.includes("UPDATE jobs")) {
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("INSERT INTO project_assets")) {
+        return [{ file_id: params[0] as string }];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return [
+          {
+            file_id: "file_template",
+            project_id: "project-a",
+            storage_key: "projects/project-a/assets/file_template-template.pptx",
+            mime_type: pptxMimeType,
+            original_name: "template.pptx",
+            size: 12,
+            purpose: "pptx-import",
+            status: "uploaded"
+          }
+        ];
+      }
+      if (sql.includes("INSERT INTO decks")) insertedDecks.push(params[2]);
+      if (sql.includes("INSERT INTO template_blueprints")) {
+        insertedBlueprints.push(params[4]);
+      }
+      return [];
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const url = String(input);
+        if (url === "http://storage.local/template.pptx") {
+          return new Response("pptx-bytes");
+        }
+        if (url.endsWith("/ai/pptx-ooxml-generation")) {
+          return new Response(JSON.stringify(workerResponseWithEightNotes()));
+        }
+        return new Response("unexpected", { status: 500 });
+      })
+    );
+
+    const job = await processPptxOoxmlGenerationJob(
+      createTransactionalDataSource(query),
+      storage,
+      "http://localhost:8000",
+      payload
+    );
+
+    expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    const deck = insertedDecks[0] as {
+      slides: Array<{ speakerNotes: string }>;
+    };
+    const blueprint = insertedBlueprints[0] as {
+      slides: Array<{
+        sourceSlideIndex: number;
+        notesPage: { status: string; renderAssetFileId: string };
+      }>;
+    };
+    expect(deck.slides).toHaveLength(8);
+    expect(deck.slides.map((slide) => slide.speakerNotes)).toEqual(
+      Array.from({ length: 8 }, (_value, index) => `speaker-note-${index + 1}`)
+    );
+    expect(blueprint.slides).toHaveLength(8);
+    expect(
+      blueprint.slides.every(
+        (slide, index) =>
+          slide.sourceSlideIndex === index + 1 &&
+          slide.notesPage.status === "rendered" &&
+          /^file_/.test(slide.notesPage.renderAssetFileId)
+      )
+    ).toBe(true);
+    expect(JSON.stringify(job.result)).not.toContain("speaker-note-");
   });
 
   it("uses the rendered slide background when fallback image assets are unresolved", async () => {
@@ -287,6 +600,7 @@ describe("processPptxOoxmlGenerationJob", () => {
 
     const deck = insertedDecks[0] as {
       slides: Array<{
+        importRenderMode?: string;
         elements: Array<Record<string, unknown>>;
         animations: Array<Record<string, unknown>>;
         ooxmlMotionCapabilities: {
@@ -303,14 +617,14 @@ describe("processPptxOoxmlGenerationJob", () => {
       fit: "stretch",
       opacity: 1
     });
-    expect(deck.slides[0].elements).not.toEqual(
+    expect(deck.slides[0].importRenderMode).toBe("snapshot");
+    expect(deck.slides[0].elements).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           elementId: "el_ooxml_1_slide_99_fallback_image"
         })
       ])
     );
-    expect(deck.slides[0].elements).toEqual([]);
     expect(deck.slides[0].animations).toEqual([]);
     expect(
       deck.slides[0].ooxmlMotionCapabilities.importedMainSequenceCoverage
@@ -390,11 +704,13 @@ describe("processPptxOoxmlGenerationJob", () => {
 
     const deck = insertedDecks[0] as {
       slides: Array<{
+        importRenderMode?: string;
         elements: Array<{ elementId: string; props?: { src?: string } }>;
         style: { backgroundImage?: { src?: string } };
       }>;
     };
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
+    expect(deck.slides[0].importRenderMode).toBe("hybrid");
     expect(deck.slides[0].style.backgroundImage).toBeUndefined();
     expect(deck.slides[0].elements).toEqual(
       expect.arrayContaining([
@@ -481,9 +797,107 @@ describe("processPptxOoxmlGenerationJob", () => {
       expect(fetch).not.toHaveBeenCalled();
     }
   );
+
+  it("rejects an unknown import preference before source loading", async () => {
+    const query = vi.fn(async (_sql: string, params: unknown[]) => [
+      jobRow(
+        params[1] as "running" | "succeeded" | "failed",
+        params[2] as number,
+        params[4] as Record<string, unknown> | null,
+        params[5] as { code: string; message: string } | null
+      )
+    ]);
+    vi.stubGlobal("fetch", vi.fn());
+
+    const job = await processPptxOoxmlGenerationJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      {
+        ...payload,
+        request: {
+          fileId: "file_template",
+          importPreference: "balanced"
+        }
+      }
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("PPTX_OOXML_GENERATION_PAYLOAD_INVALID");
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
-function workerResponse() {
+describe("selectSlideImportRenderMode", () => {
+  const visualElements = [
+    {
+      elementId: "el_safe_vector",
+      type: "rect" as const,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      locked: false,
+      visible: true,
+      props: {
+        fill: "#ffffff",
+        stroke: "transparent",
+        strokeWidth: 0,
+        borderRadius: 0
+      }
+    }
+  ];
+
+  it.each([
+    ["appearance-first", "not_evaluated", "not-evaluated", "snapshot"],
+    ["appearance-first", "vectorization_failed", "failed", "snapshot"],
+    ["appearance-first", "passed", "passed", "editable"],
+    ["editability-first", "not_evaluated", "not-evaluated", "editable"]
+  ] as const)(
+    "selects %s / %s as %s diagnostics and %s rendering",
+    (importPreference, status, pixelEvaluation, selectedRenderMode) => {
+      expect(
+        selectSlideImportRenderMode({
+          importPreference,
+          qualityReportSlide: {
+            slideIndex: 1,
+            status,
+            ssim: status === "passed" ? 0.99 : null,
+            reasons: [],
+            fallback: "none"
+          },
+          slideIndex: 1,
+          sourceElementSources: [],
+          visualElements
+        })
+      ).toMatchObject({ pixelEvaluation, selectedRenderMode });
+    }
+  );
+
+  it("fails closed when a relationship-backed source is missing from the visual tree", () => {
+    expect(
+      selectSlideImportRenderMode({
+        importPreference: "editability-first",
+        slideIndex: 1,
+        sourceElementSources: [
+          {
+            elementId: "el_missing_media",
+            relationshipId: "rId5"
+          }
+        ],
+        visualElements
+      })
+    ).toMatchObject({
+      selectedRenderMode: "snapshot",
+      reasons: ["PPTX_RENDER_MODE_SNAPSHOT_RELATIONSHIP_ELEMENT_MISSING"]
+    });
+  });
+});
+
+function workerResponse(speakerNotes = "asset:notes_render_1") {
   return {
     canvas: {
       preset: "wide-16-9",
@@ -505,6 +919,17 @@ function workerResponse() {
           ooxmlMotionCapabilities: {
             transitionWritable: true,
             importedMainSequenceCoverage: "complete"
+          },
+          notesPage: {
+            status: "rendered",
+            sourceNotesPart: "ppt/notesSlides/notesSlide1.xml",
+            sourceNotesMasterPart: "ppt/notesMasters/notesMaster1.xml",
+            bodyShapeId: "3",
+            bodyWritable: true,
+            notesWidthEmu: 6858000,
+            notesHeightEmu: 9144000,
+            renderAssetFileId: "asset:notes_render_1",
+            hasNonBodyContent: true
           },
           renderAssetFileId: "asset:slide_render_1",
           slots: [
@@ -567,6 +992,7 @@ function workerResponse() {
       slides: [
         {
           sourceSlideIndex: 1,
+          speakerNotes,
           transition: { type: "fade", durationMs: 700 },
           animations: [
             {
@@ -661,6 +1087,7 @@ function workerResponse() {
     assetTransport: "storage-manifest-v1" as const,
     assets: [
       storedAsset("slide_render_1", "slide-01.png", "image/png", "png"),
+      storedAsset("notes_render_1", "notes-01.png", "image/png", "notes"),
       storedAsset("current_package", "template.pptx", pptxMimeType, "pptx"),
       storedAsset("image_1", "image-01.png", "image/png", "image")
     ],
@@ -696,6 +1123,18 @@ function workerResponseWithUnresolvedFallback() {
       }
     }
   ];
+  (response.templateBlueprint.slides[0] as typeof response.templateBlueprint.slides[0] & {
+    elementSources: Array<Record<string, unknown>>;
+  }).elementSources = [
+    {
+      elementId: "el_ooxml_1_slide_99_fallback_image",
+      slidePart: "ppt/slides/slide1.xml",
+      shapeId: "99",
+      sourceType: "shape",
+      writable: false,
+      fallbackReason: "unsupported-preset"
+    }
+  ];
   response.assets = response.assets.filter((asset) => asset.assetId !== "image_1");
   return response;
 }
@@ -716,6 +1155,7 @@ function workerResponseWithResolvedFallback() {
 const storedContentByDigest = new Map(
   [
     ["png", "image/png"],
+    ["notes", "image/png"],
     ["pptx", pptxMimeType],
     ["image", "image/png"],
     ["shape", "image/png"]
@@ -736,6 +1176,7 @@ function storedAsset(
 ) {
   const body = Buffer.from(content);
   const sha256 = createHash("sha256").update(body).digest("hex");
+  storedContentByDigest.set(sha256, { content: body, mimeType });
   return {
     assetId,
     fileName,
@@ -744,6 +1185,75 @@ function storedAsset(
     size: body.byteLength,
     sha256
   };
+}
+
+function workerResponseWithEightNotes() {
+  const response = workerResponse();
+  const templateSlide = response.templateBlueprint.slides[0];
+  const blueprintSlide = response.blueprint.slides[0];
+  const currentPackage = response.assets.find(
+    (asset) => asset.assetId === "current_package"
+  );
+  if (!templateSlide || !blueprintSlide || !currentPackage) {
+    throw new Error("worker response fixture is incomplete");
+  }
+
+  response.templateBlueprint.slides = Array.from(
+    { length: 8 },
+    (_value, index) => {
+      const slideNumber = index + 1;
+      return {
+        ...structuredClone(templateSlide),
+        slideIndex: slideNumber,
+        sourceSlideIndex: slideNumber,
+        sourceSlidePart: `ppt/slides/slide${slideNumber}.xml`,
+        renderAssetFileId: `asset:slide_render_${slideNumber}`,
+        notesPage: {
+          ...structuredClone(templateSlide.notesPage),
+          sourceNotesPart: `ppt/notesSlides/notesSlide${slideNumber}.xml`,
+          renderAssetFileId: `asset:notes_render_${slideNumber}`
+        },
+        slots: []
+      };
+    }
+  );
+  response.blueprint.slides = Array.from(
+    { length: 8 },
+    (_value, index) => ({
+      ...structuredClone(blueprintSlide),
+      sourceSlideIndex: index + 1,
+      speakerNotes: `speaker-note-${index + 1}`,
+      animations: [],
+      elements: []
+    })
+  );
+  response.qualityReport.notesDiagnostics = {
+    total: 8,
+    imported: 8,
+    rendered: 8,
+    writable: 8,
+    warnings: []
+  };
+  response.assets = [
+    currentPackage,
+    ...Array.from({ length: 8 }, (_value, index) =>
+      storedAsset(
+        `slide_render_${index + 1}`,
+        `slide-${index + 1}.png`,
+        "image/png",
+        `slide-${index + 1}`,
+      )
+    ),
+    ...Array.from({ length: 8 }, (_value, index) =>
+      storedAsset(
+        `notes_render_${index + 1}`,
+        `notes-${index + 1}.png`,
+        "image/png",
+        `notes-${index + 1}`,
+      )
+    )
+  ];
+  return response;
 }
 
 function jobRow(
@@ -787,6 +1297,22 @@ function qualityReport() {
     },
     editabilityCoverage: 0.6,
     appliedCap: null,
+    notesDiagnostics: {
+      total: 1,
+      imported: 1,
+      rendered: 1,
+      writable: 1,
+      warnings: []
+    },
+    slideReports: [
+      {
+        slideIndex: 1,
+        status: "not_evaluated",
+        ssim: null,
+        reasons: [],
+        fallback: "none"
+      }
+    ],
     notes: ["OOXML package rendered to slide PNG"]
   };
 }

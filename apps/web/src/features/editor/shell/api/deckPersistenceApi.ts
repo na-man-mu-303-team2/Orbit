@@ -5,6 +5,7 @@ import {
   appendDeckPatchResponseSchema,
   deckApiErrorSchema,
   getDeckResponseSchema,
+  getPptxNotesPreviewResponseSchema,
   getPptxImportQualityResponseSchema,
   putDeckResponseSchema,
   type AppendDeckPatchAckResponse,
@@ -12,7 +13,8 @@ import {
   type DeckApiErrorCode,
   type DeckPatch,
   type Job,
-  type PptxImportQuality
+  type PptxImportQuality,
+  type PptxNotesPreview
 } from "@orbit/shared";
 
 import type {
@@ -130,6 +132,22 @@ export async function fetchPptxImportQuality(
     throw await readResponseError(response, "PPTX import quality fetch failed");
   }
   return getPptxImportQualityResponseSchema.parse(await response.json()).importQuality;
+}
+
+export async function fetchPptxNotesPreview(
+  projectId: string,
+  slideId: string,
+): Promise<PptxNotesPreview> {
+  const response = await fetch(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/deck/slides/${encodeURIComponent(
+      slideId,
+    )}/notes-preview`,
+  );
+  if (!response.ok) {
+    throw await readResponseError(response, "PPTX notes preview fetch failed");
+  }
+  return getPptxNotesPreviewResponseSchema.parse(await response.json())
+    .notesPreview;
 }
 
 export function hasPendingEditorChanges(args: {
