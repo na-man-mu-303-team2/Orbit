@@ -63,12 +63,31 @@ describe("JobsController", () => {
     expect(jobsService.create).not.toHaveBeenCalled();
   });
 
+  it("rejects slide redesign jobs on the public endpoint", async () => {
+    const { controller, jobsService } = createController();
+
+    await expect(
+      controller.createJob(
+        {
+          projectId: "project-a",
+          type: "slide-redesign",
+          payload: { requestMessageId: "message-1" },
+        },
+        signedRequest(),
+      ),
+    ).rejects.toThrow();
+    expect(jobsService.create).not.toHaveBeenCalled();
+  });
+
   it("rejects legacy job types on the public endpoint", async () => {
-    for (const type of ["pptx-import", "ai-template-deck-generation"] as const) {
+    for (const type of [
+      "pptx-import",
+      "ai-template-deck-generation",
+    ] as const) {
       const { controller, jobsService } = createController();
 
       await expect(
-        controller.createJob({ projectId: "project-a", type }, signedRequest())
+        controller.createJob({ projectId: "project-a", type }, signedRequest()),
       ).rejects.toThrow();
       expect(jobsService.create).not.toHaveBeenCalled();
     }
@@ -84,9 +103,9 @@ describe("JobsController", () => {
       "project-a",
       "user-1",
     );
-    expect(
-      jobsService.get.mock.invocationCallOrder[0],
-    ).toBeLessThan(projectsService.assertCanReadProject.mock.invocationCallOrder[0]);
+    expect(jobsService.get.mock.invocationCallOrder[0]).toBeLessThan(
+      projectsService.assertCanReadProject.mock.invocationCallOrder[0],
+    );
   });
 });
 
