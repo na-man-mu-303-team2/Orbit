@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD after PR06 merge: `931e42959e9c0cda7372a73c99508f5a6e432df7`
+- integration HEAD after PR07 merge: `cf15d1bc1d35ba3ccf212597e99ec0f2a85fbe8b`
 - worktree: clean
 
 ## Baseline
@@ -23,24 +23,38 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR06
-- PR06 integration merge: `931e42959e9c0cda7372a73c99508f5a6e432df7`
-- 현재 milestone: PR07 — M2 리디자인 범위 착수
+- 완료 milestone: PR00~PR07
+- PR07 integration merge: `cf15d1bc1d35ba3ccf212597e99ec0f2a85fbe8b`
+- 현재 milestone: PR08 — 장식 도형과 capability v2 발행
 - 활성 child branch/worktree: 없음
 - integration merge 후 검증:
-  - `uv run ruff check .` — 통과
+  - `uv run ruff check app/ai/design_agent.py tests/test_design_agent.py` — 통과
   - `uv run mypy app` — 68 source files 통과
-  - `uv run pytest` — 941 passed, 1 skipped
+  - `uv run pytest tests/test_design_agent.py -q` — 57 passed
+  - `pnpm --filter @orbit/shared test` — 568 passed
   - `pnpm --filter @orbit/api test` — 600 passed, 1 skipped
-  - `pnpm --filter @orbit/web test` — 1,796 passed
-  - `pnpm lint`, `pnpm typecheck` — 각각 17/17 tasks 통과
-  - `pnpm test:smoke --grep "slide redesign"` — Chromium 1 passed
 - 남은 stop gate: 없음
-- `origin/develop` 최신 확인: `b0f7cc8d`, integration 대비 신규 commit 0개
-- PR06 child 상태: Compose 종료(볼륨 보존), clean worktree와 local branch 정리 완료
-- 다음 milestone: PR07 — M2 리디자인 범위 착수
+- PR07 child 상태: clean worktree와 local branch 정리 완료
+- 다음 milestone: PR08 — 장식 도형과 capability v2 발행
 
 ## 완료 Milestone 기록
+
+### PR07 — capability v2 tolerant reader
+
+- integration merge: `cf15d1bc1d35ba3ccf212597e99ec0f2a85fbe8b`
+- code commit:
+  - `3dfb8480` — Python/shared capability reader를 version `1 | 2`로 확장하고 기본값 유지
+  - `4f597c10` — v1/v2 왕복·미지원 version 거부·API v1 발행 회귀
+  - `c631e4da` — reader-first rolling deployment 순서와 v1 제거 범위 기록
+- 검증:
+  - `uv run ruff check .` — 통과
+  - `uv run mypy app` — 68 source files 통과
+  - `uv run pytest` — 944 passed, 1 skipped
+  - `pnpm --filter @orbit/shared test` — 568 passed
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 600 passed, 1 skipped
+  - `pnpm typecheck` — 17/17 tasks 통과
+- 배포 gate: version `1`, `2` reader 통과; API 발행값 `1`과 기존 addable type/canGenerateImages 유지
+- child 상태: clean worktree와 local branch 정리 완료
 
 ### PR06 — M1 통합 검증과 출시 gate
 
@@ -172,6 +186,7 @@
 
 - shared `deckElementTypeSchema`에는 계획의 상수 목록에 없던 `activity-qr`가 존재한다. 완료 조건의 `text`·`rect` 외 전 타입 fail-closed coverage에 따라 PR00에서 unsafe로 포함했다.
 - shared `keywords[].requiredOccurrenceIds`는 element ID가 아니라 speaker notes에서 파생된 keyword occurrence ID를 가리킨다. element reference로 수집하지 않고 이를 고정하는 회귀 테스트를 추가했다.
+- `slide-redesign-implementation.md`의 과거 PR7 설명은 shape type 추가와 API version `2` 발행을 함께 적지만, Goal의 독립 merge boundary는 PR07을 tolerant reader 전용, PR08을 shape 계약과 v2 발행으로 지정한다. PR07은 Goal 경계를 우선해 reader만 확장했고 발행 상수와 element 목록은 바꾸지 않았다.
 
 ## 미검증 항목
 
