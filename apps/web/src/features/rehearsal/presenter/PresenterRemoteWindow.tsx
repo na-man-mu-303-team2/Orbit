@@ -7,12 +7,11 @@ import {
   Circle,
   ListChecks,
   Maximize2,
-  Monitor,
   PauseCircle,
   PlayCircle,
   Power,
   RotateCcw,
-  Timer,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -97,6 +96,9 @@ export function PresenterRemoteWindow(props: {
   } = props;
   const [state, setState] = useState(initialState);
   const [channelError, setChannelError] = useState("");
+  const [dismissedCapabilityKey, setDismissedCapabilityKey] = useState<
+    string | null
+  >(null);
   const [isOwnerConnected, setOwnerConnected] = useState(false);
   const channelRef = useRef<ChannelLike | null>(null);
   const commandRetryTimersRef = useRef<number[]>([]);
@@ -265,16 +267,9 @@ export function PresenterRemoteWindow(props: {
     state,
     currentSentenceIndex,
   );
-  const currentCueText =
-    currentSentenceIndex >= 0
-      ? noteSentences[currentSentenceIndex]
-      : "현재 큐가 없습니다.";
   const keywordRows = useMemo(
     () => getPresenterRemoteKeywordRows(slide, state.stepIndex),
     [slide, state.stepIndex],
-  );
-  const remainingTime = formatPresenterRemoteDuration(
-    getEstimatedRemainingSeconds(slide, noteSentences.length, state.stepIndex),
   );
   const timing = getPresenterRemoteTimingState(deck, slide, state);
   const isTimerActive = timing.isRunning || timing.isLiveSttActive;
@@ -312,33 +307,48 @@ export function PresenterRemoteWindow(props: {
 
   return (
     <main className="presenter-remote-shell" aria-label="발표자 제어 창">
-      <header className="presenter-remote-header">
-        <span>
-          <Monitor size={16} />
-          발표자 제어
-        </span>
-        <strong>{deck.title}</strong>
-        <span className="presenter-remote-connection">
-          {channelError
-            ? "채널 오류"
-            : isOwnerConnected
-              ? "팝업 연결됨"
-              : "팝업 연결 대기"}
-        </span>
-      </header>
-      {visibleCapabilityItems.map((item) => (
-        <section
-          aria-label="발표자 시스템 상태"
-          className={`presenter-semantic-status presenter-semantic-status--${item.severity}`}
-          key={item.key}
-          tabIndex={0}
+      <header className="presenter-remote-topbar">
+        <button
+          className="presenter-remote-header-action"
+          type="button"
+          onClick={requestRemoteFullscreen}
         >
-          <AlertCircle aria-hidden="true" size={15} />
-          <strong>{item.shortLabel}</strong>
-          {hiddenCapabilityCount > 0 ? <span>+{hiddenCapabilityCount}</span> : null}
-          <p>{item.detail}</p>
-        </section>
-      ))}
+          <Maximize2 size={16} />
+          전체 화면
+        </button>
+        <button
+          className="presenter-remote-header-action presenter-remote-header-action--danger"
+          type="button"
+          onClick={() => window.close()}
+        >
+          <Power size={16} />
+          발표 종료
+        </button>
+      </header>
+      {visibleCapabilityItems.map((item) =>
+        item.key === dismissedCapabilityKey ? null : (
+          <section
+            aria-label="발표자 시스템 상태"
+            className="presenter-display-message presenter-remote-capability-warning"
+            key={item.key}
+            role="status"
+          >
+            <AlertCircle aria-hidden="true" size={18} />
+            <span>
+              <strong>{item.shortLabel}:</strong> {item.detail}
+              {hiddenCapabilityCount > 0 ? ` +${hiddenCapabilityCount}` : ""}
+            </span>
+            <button
+              aria-label="음성 체크 알림 닫기"
+              title="음성 체크 알림 닫기"
+              type="button"
+              onClick={() => setDismissedCapabilityKey(item.key)}
+            >
+              <X aria-hidden="true" size={14} />
+            </button>
+          </section>
+        ),
+      )}
       {channelError ? (
         <section className="presenter-remote-status" role="status">
           {channelError}
@@ -461,13 +471,11 @@ export function PresenterRemoteWindow(props: {
           >
             <div className="presenter-remote-section-heading">
               <span>타이머</span>
-              <strong>
-                {timing.isPaused
-                  ? "일시정지됨"
-                  : timing.isLiveSttActive
-                    ? "음성인식 중"
-                    : "음성인식 대기"}
-              </strong>
+              {timing.isPaused ? (
+                <strong>일시정지됨</strong>
+              ) : timing.isLiveSttActive ? (
+                <strong>음성인식 중</strong>
+              ) : null}
             </div>
             <strong
               className="presenter-remote-timer-display"
@@ -477,24 +485,6 @@ export function PresenterRemoteWindow(props: {
             </strong>
             <div className="presenter-remote-timer-progress" aria-hidden="true">
               <span style={{ width: `${timerProgressPercent}%` }} />
-            </div>
-            <div className="presenter-remote-timer-meta">
-              <span>
-                슬라이드 경과
-                <strong>
-                  {formatPresenterRemoteDuration(
-                    timing.currentSlideElapsedSeconds,
-                  )}
-                </strong>
-              </span>
-              <span>
-                슬라이드 목표
-                <strong>
-                  {formatPresenterRemoteDuration(
-                    timing.currentSlideTargetSeconds,
-                  )}
-                </strong>
-              </span>
             </div>
             <div className="presenter-remote-timer-actions">
               <button
@@ -551,36 +541,6 @@ export function PresenterRemoteWindow(props: {
             </ul>
           </section>
 
-          <section className="presenter-remote-cue-panel" aria-label="현재 큐">
-            <div className="presenter-remote-section-heading">
-              <span>현재 큐</span>
-              <strong>
-                Step {Math.max(0, state.stepIndex) + 1} / {cueProgressTotal}
-              </strong>
-            </div>
-            <div className="presenter-remote-current-cue">
-              <ChevronRight size={20} />
-              <p>{currentCueText}</p>
-            </div>
-          </section>
-
-          <section
-            className="presenter-remote-timing"
-            aria-label="발표 시간 상태"
-          >
-            <div>
-              <Timer size={16} />
-              <span>남은 시간</span>
-              <strong>{remainingTime}</strong>
-            </div>
-            <div>
-              <Monitor size={16} />
-              <span>현재 슬라이드</span>
-              <strong>
-                {slideNumber} / {deck.slides.length}
-              </strong>
-            </div>
-          </section>
         </aside>
       </section>
 
@@ -611,22 +571,6 @@ export function PresenterRemoteWindow(props: {
         >
           다음
           <ChevronRight size={17} />
-        </button>
-        <button
-          className="presenter-remote-command"
-          type="button"
-          onClick={requestRemoteFullscreen}
-        >
-          <Maximize2 size={17} />
-          전체 화면
-        </button>
-        <button
-          className="presenter-remote-command presenter-remote-command--danger"
-          type="button"
-          onClick={() => window.close()}
-        >
-          <Power size={17} />
-          발표 종료
         </button>
       </div>
       {state.speech && shouldShowSemanticDebugPanel ? (
@@ -754,7 +698,7 @@ function PresenterSlidePreview(props: {
       <div className="presenter-remote-preview-title">
         <span>{label}</span>
         <strong>
-          {slideNumber ? `${slideNumber}`.padStart(2, "0") : "--"}
+          {slideNumber ? `${slideNumber}`.padStart(2, "0") : "없음"}
         </strong>
       </div>
       <div className="presenter-remote-preview-frame">
@@ -779,7 +723,7 @@ function PresenterSlidePreview(props: {
           <div className="presenter-remote-preview-empty">마지막 슬라이드</div>
         )}
       </div>
-      <p>{slide?.title || (slide ? slide.slideId : "다음 슬라이드 없음")}</p>
+      {slide ? <p>{slide.title || slide.slideId}</p> : null}
     </section>
   );
 }
@@ -1023,18 +967,6 @@ function getPresenterRemoteVisibleSlides(
 function getPresenterRemotePreviewScale(deck: Deck) {
   const maxPreviewWidth = 220;
   return Math.min(0.22, maxPreviewWidth / deck.canvas.width);
-}
-
-function getEstimatedRemainingSeconds(
-  slide: PresenterRemoteSlide | undefined,
-  sentenceCount: number,
-  stepIndex: number,
-) {
-  const estimatedSeconds = slide?.estimatedSeconds ?? 60;
-  const totalSteps = Math.max(sentenceCount, 1);
-  const completedRatio =
-    Math.min(Math.max(stepIndex, 0), totalSteps) / totalSteps;
-  return Math.max(0, Math.round(estimatedSeconds * (1 - completedRatio)));
 }
 
 function formatPresenterRemoteDuration(seconds: number) {
