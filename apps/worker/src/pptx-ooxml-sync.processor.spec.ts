@@ -1,4 +1,5 @@
 import type { StoragePort } from "@orbit/storage";
+import { createHash } from "node:crypto";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -15,6 +16,9 @@ const pngSignature = new Uint8Array([
 const pngSignatureDataUrl = `data:image/png;base64,${Buffer.from(
   pngSignature,
 ).toString("base64")}`;
+const currentPackageDigest = createHash("sha256")
+  .update("pptx")
+  .digest("hex");
 
 const payload = {
   jobId: "job-sync",
@@ -24,19 +28,22 @@ const payload = {
   targetDeckVersion: 2,
 };
 
-const storage: Pick<StoragePort, "getSignedReadUrl" | "putObject"> = {
+const storage: Pick<StoragePort, "getSignedReadUrl" | "headObject"> = {
   getSignedReadUrl: vi.fn(async (key: string) =>
     key.endsWith("image.png")
       ? "http://storage.local/image.png"
       : "http://storage.local/current.pptx",
   ),
-  putObject: vi.fn(async (input: { key: string; contentType: string }) => ({
-    key: input.key,
-    url: "http://storage.local/design-asset",
-    contentType: input.contentType,
-    purpose: "design-asset" as const,
-    size: 3,
-  })),
+  headObject: vi.fn(async (key: string) => {
+    const digest = key.match(/\/([a-f0-9]{64})-/)?.[1];
+    return digest === currentPackageDigest
+      ? {
+          contentLength: Buffer.byteLength("pptx"),
+          contentType: pptxMimeType,
+          metadata: { "orbit-sha256": digest }
+        }
+      : null;
+  }),
 };
 
 describe("processPptxOoxmlSyncJob", () => {
@@ -80,6 +87,9 @@ describe("processPptxOoxmlSyncJob", () => {
       if (url.endsWith("/ai/pptx-ooxml-sync")) {
         const form = init?.body as FormData;
         expect(form.get("synced_deck_version")).toBe("3");
+        expect(form.get("storage_prefix")).toBe(
+          "projects/project-a/jobs/job-sync/pptx-ooxml/",
+        );
         expect(form.get("template_blueprint")).toBeNull();
         expect(form.get("operations")).toBeNull();
         expect(form.get("deck_canvas")).toBeNull();
@@ -997,7 +1007,7 @@ describe("processPptxOoxmlSyncJob", () => {
       expect(job.error).toMatchObject({
         code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
       });
-      expect(storage.putObject).not.toHaveBeenCalled();
+      expect(storage.headObject).not.toHaveBeenCalled();
       expect(
         query.mock.calls.some(([sql]) =>
           String(sql).includes("UPDATE template_blueprints"),
@@ -1341,7 +1351,7 @@ describe("processPptxOoxmlSyncJob", () => {
       warnings: [expect.stringContaining("line 1")],
     });
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("UPDATE template_blueprints"),
@@ -1444,7 +1454,7 @@ describe("processPptxOoxmlSyncJob", () => {
       code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
       retryable: false,
     });
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("INSERT INTO project_assets"),
@@ -1506,7 +1516,7 @@ describe("processPptxOoxmlSyncJob", () => {
       syncCapabilityVersion: 3,
     });
     expect(JSON.stringify(job.error)).not.toContain("private deck text");
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("INSERT INTO project_assets"),
@@ -1616,7 +1626,7 @@ describe("processPptxOoxmlSyncJob", () => {
         syncCapabilityVersion: 3,
       });
       expect(JSON.stringify(job.error)).not.toContain(privateCellText);
-      expect(storage.putObject).not.toHaveBeenCalled();
+      expect(storage.headObject).not.toHaveBeenCalled();
       expect(
         query.mock.calls.some(([sql]) =>
           String(sql).includes("UPDATE template_blueprints"),
@@ -1663,7 +1673,7 @@ describe("processPptxOoxmlSyncJob", () => {
       code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
       retryable: false,
     });
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("UPDATE template_blueprints"),
@@ -1724,7 +1734,7 @@ describe("processPptxOoxmlSyncJob", () => {
       code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
       retryable: false,
     });
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("UPDATE template_blueprints"),
@@ -1769,7 +1779,7 @@ describe("processPptxOoxmlSyncJob", () => {
       syncCapabilityVersion: 3,
     });
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("UPDATE template_blueprints"),
@@ -2169,7 +2179,9 @@ function createDataSource(input: {
     if (sql.includes("FROM deck_patches")) {
       return [{ operations: input.operations }];
     }
-    if (sql.includes("INSERT INTO project_assets")) return [];
+    if (sql.includes("INSERT INTO project_assets")) {
+      return [{ file_id: params[0] as string }];
+    }
     if (sql.includes("UPDATE template_blueprints")) {
       const accepted =
         input.onBlueprintUpdate?.(params[3] as Record<string, unknown>) ?? true;
@@ -2377,12 +2389,15 @@ function workerResponse(
   }> = [],
 ) {
   return {
+    assetTransport: "storage-manifest-v1" as const,
     assets: [
       {
         assetId: "current_package",
         fileName: "current.pptx",
         mimeType: pptxMimeType,
-        contentBase64: Buffer.from("pptx").toString("base64"),
+        storageKey: `projects/project-a/jobs/job-sync/pptx-ooxml/${currentPackageDigest}-current.pptx`,
+        size: Buffer.byteLength("pptx"),
+        sha256: currentPackageDigest,
       },
     ],
     elementSources: [],
