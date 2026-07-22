@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD after PR13 merge: `1e459837962fa9eec31b8928150f3a150adb7978`
+- integration HEAD after PR14 merge: `05d20ce4dd57532bb3059fda34a0df72f49b5e42`
 - worktree: clean
 
 ## Baseline
@@ -23,20 +23,52 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR13
-- PR13 integration merge: `1e459837962fa9eec31b8928150f3a150adb7978`
-- 현재 milestone: PR14 — Worker layout Job orchestration
+- 완료 milestone: PR00~PR14
+- PR14 integration merge: `05d20ce4dd57532bb3059fda34a0df72f49b5e42`
+- 현재 milestone: PR15 — backend optional illustration
 - 활성 child branch/worktree: 없음
 - integration merge 후 검증:
-  - `pnpm --filter @orbit/shared test` — 586 passed
-  - `pnpm --filter @orbit/job-queue test` — 30 passed
-  - slide-redesign Job service·public Jobs controller focused — 10 passed
-  - `pnpm --filter @orbit/api typecheck` — 통과
+  - `pnpm --filter @orbit/shared test` — 589 passed
+  - Worker slide-redesign·queue focused — 28 passed
+  - API realtime focused — 3 passed
+  - Worker/API typecheck — 통과
+- child 전체 검증:
+  - `pnpm --filter @orbit/worker test` — 392 passed, 14 skipped
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 610 passed, 1 skipped
+  - `ruff check .` — 통과
+  - `mypy app` — 72 source files 통과
+  - `pytest` — 1008 collected, 통과
 - 남은 stop gate: 없음
-- PR13 child 상태: clean, integration merge 완료
-- 다음 milestone: PR14 — Worker layout Job orchestration
+- PR14 child 상태: clean, integration merge 완료
+- 다음 milestone: PR15 — backend optional illustration
 
 ## 완료 Milestone 기록
+
+### PR14 — Worker layout Job orchestration
+
+- integration merge: `05d20ce4dd57532bb3059fda34a0df72f49b5e42`
+- code commit:
+  - `068a8a25` — Worker의 typed Python interpret·compose·verify stage client와 bounded upstream error
+  - `c0e6485c` — slide-redesign queue processor, stale 선·후검증, terminal transaction과 Job lifecycle
+  - `d21e9fb3` — Redis private channel을 통한 typed progress envelope와 project room 전달
+  - `2d618229` — stage 순서·illustrating skip·preview·실패 원자성·routing 회귀와 polling용 self-contained result
+- child 검증:
+  - `pnpm --filter @orbit/worker test` — 392 passed, 14 skipped
+  - feature flag 기본값을 명시한 `pnpm --filter @orbit/api test` — 610 passed, 1 skipped
+  - Worker/API typecheck — 통과
+  - `ruff check .` — 통과
+  - `mypy app` — 72 source files 통과
+  - `pytest` — 1008 collected, 통과
+- integration merge 후 검증:
+  - `pnpm --filter @orbit/shared test` — 589 passed
+  - Worker slide-redesign·queue focused — 28 passed
+  - API realtime focused — 3 passed
+  - Worker/API typecheck — 통과
+- 필수 조건: stage는 interpreting→composing→coloring→ornamenting→verifying 순서이고 illustrating은 건너뛴다. preview는 transient read-only proposal이며 최종 verified proposal만 message·request status·proposal·Job result와 같은 transaction에 저장한다.
+- failure gate: stage·검증·terminal persistence 실패 시 partial proposal을 남기지 않고 요청과 Job을 failed로 종료한다. terminal Promise rejection도 processor catch가 처리하도록 명시적으로 await한다.
+- progress transport는 새 `websocketEventTypeSchema` 값을 추가하지 않고 system-authored 공통 envelope를 Redis private channel에서 기존 Socket.IO transport event `job-progressed`로 전달한다.
+- 첫 Python gate는 sandbox가 사용자 홈 `uv` cache를 차단해 실행 전 실패했다. `/private/tmp/orbit-pr14-uv-cache`로 cache를 옮긴 동일 lock 기반 실행은 통과했다.
+- child 상태: clean, integration merge 완료
 
 ### PR13 — slide-redesign Job 계약과 enqueue
 
