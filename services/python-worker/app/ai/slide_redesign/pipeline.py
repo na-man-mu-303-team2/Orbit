@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +15,8 @@ from app.ai.design_agent import (
 
 from .composer import eligible_candidates, select_composition
 from .diff import build_operations, filter_safe_candidates
+from .ornament import generate_ornaments
+from .palette import derive_palette
 from .safety import (
     ElementConstraints,
     RedesignOutcome,
@@ -179,6 +182,20 @@ def redesign_slide(
             analysis.compiled,
             analysis.matching,
         )
+        ornaments = generate_ornaments(
+            chosen.composition_id,
+            analysis.compiled.elements,
+            derive_palette(request.context.theme, chosen.background_mode),
+        )
+        operations = _insert_supported_ornament_operations(
+            operations,
+            ornaments,
+            slide_id=slide_id,
+            original_elements=original_elements,
+            addable_element_types=set(
+                request.capabilities.addable_element_types
+            ),
+        )
         operation_count = len(operations)
         affected_element_ids = _affected_element_ids(operations)
         response = DesignAgentResponse.model_validate(
@@ -253,6 +270,60 @@ def _affected_element_ids(operations: list[dict[str, Any]]) -> list[str]:
         if isinstance(element_id, str) and element_id not in affected:
             affected.append(element_id)
     return affected
+
+
+def _insert_supported_ornament_operations(
+    operations: list[dict[str, Any]],
+    ornaments: list[dict[str, Any]],
+    *,
+    slide_id: str,
+    original_elements: list[dict[str, Any]],
+    addable_element_types: set[str],
+) -> list[dict[str, Any]]:
+    reserved_ids = {
+        str(element["elementId"])
+        for element in original_elements
+        if isinstance(element.get("elementId"), str) and element["elementId"]
+    }
+    for operation in operations:
+        element = operation.get("element")
+        if isinstance(element, dict) and isinstance(element.get("elementId"), str):
+            reserved_ids.add(str(element["elementId"]))
+
+    additions: list[dict[str, Any]] = []
+    for ornament in ornaments:
+        if ornament.get("type") not in addable_element_types:
+            continue
+        element = deepcopy(ornament)
+        element_id = str(element["elementId"])
+        element["elementId"] = _unique_element_id(element_id, reserved_ids)
+        reserved_ids.add(str(element["elementId"]))
+        additions.append(
+            {
+                "type": "add_element",
+                "slideId": slide_id,
+                "element": element,
+            }
+        )
+
+    delete_index = next(
+        (
+            index
+            for index, operation in enumerate(operations)
+            if operation.get("type") == "delete_element"
+        ),
+        len(operations),
+    )
+    return [*operations[:delete_index], *additions, *operations[delete_index:]]
+
+
+def _unique_element_id(element_id: str, reserved_ids: set[str]) -> str:
+    if element_id not in reserved_ids:
+        return element_id
+    suffix = 2
+    while f"{element_id}_r{suffix}" in reserved_ids:
+        suffix += 1
+    return f"{element_id}_r{suffix}"
 
 
 def _log_result(

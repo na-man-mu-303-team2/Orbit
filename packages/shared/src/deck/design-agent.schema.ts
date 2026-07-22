@@ -58,14 +58,16 @@ export const designAgentCapabilityOperationSchema = z.enum([
 export const designAgentCapabilitiesSchema = z.object({
   version: z.enum(["1", "2"]),
   operations: z.array(designAgentCapabilityOperationSchema).min(1),
-  addableElementTypes: z.array(z.enum(["text", "rect", "chart", "table"])),
+  addableElementTypes: z.array(
+    z.enum(["text", "rect", "ellipse", "line", "polygon", "chart", "table"]),
+  ),
   canEditTextContent: z.boolean(),
   canGenerateImages: z.boolean(),
   canModifyLockedElements: z.boolean(),
 });
 
 export const designAgentCapabilities = designAgentCapabilitiesSchema.parse({
-  version: "1",
+  version: "2",
   operations: [
     "add_element",
     "update_element_frame",
@@ -76,7 +78,15 @@ export const designAgentCapabilities = designAgentCapabilitiesSchema.parse({
     "update_animation",
     "delete_animation",
   ],
-  addableElementTypes: ["text", "rect", "chart", "table"],
+  addableElementTypes: [
+    "text",
+    "rect",
+    "ellipse",
+    "line",
+    "polygon",
+    "chart",
+    "table",
+  ],
   canEditTextContent: true,
   canGenerateImages: false,
   canModifyLockedElements: true,

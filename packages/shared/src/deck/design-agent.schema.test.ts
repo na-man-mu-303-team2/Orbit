@@ -102,7 +102,7 @@ describe("design agent schema", () => {
     },
   );
 
-  it("rejects unknown capability versions while continuing to emit version 1", () => {
+  it("rejects unknown capability versions while emitting the v2 shape contract", () => {
     const result = designAgentCapabilitiesSchema.safeParse({
       ...designAgentCapabilities,
       version: "3",
@@ -110,8 +110,16 @@ describe("design agent schema", () => {
 
     expect(result.success).toBe(false);
     expect(designAgentCapabilities).toMatchObject({
-      version: "1",
-      addableElementTypes: ["text", "rect", "chart", "table"],
+      version: "2",
+      addableElementTypes: [
+        "text",
+        "rect",
+        "ellipse",
+        "line",
+        "polygon",
+        "chart",
+        "table",
+      ],
     });
   });
 
@@ -198,5 +206,54 @@ describe("design agent schema", () => {
     });
 
     expect(result.operations[0]?.type).toBe("add_element");
+  });
+
+  it.each([
+    { type: "ellipse" as const, props: {} },
+    { type: "line" as const, props: { lineCap: "round" as const } },
+    { type: "polygon" as const, props: { sides: 5 } },
+  ])("accepts add_element for capability v2 $type shapes", ({ type, props }) => {
+    const result = designAgentWorkerResponseSchema.parse({
+      message: "장식 도형을 추가했습니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "장식 추가",
+        alignment: "custom",
+      },
+      operations: [
+        {
+          type: "add_element",
+          slideId: "slide_1",
+          element: {
+            elementId: `el_orn_${type}`,
+            type,
+            role: "decoration",
+            x: 120,
+            y: 120,
+            width: 120,
+            height: 120,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 10,
+            locked: false,
+            visible: true,
+            props: {
+              fill: "transparent",
+              stroke: "#2563EB",
+              strokeWidth: 2,
+              borderRadius: 0,
+              ...props,
+            },
+          },
+        },
+      ],
+      affectedElementIds: [`el_orn_${type}`],
+      warnings: [],
+    });
+
+    expect(result.operations[0]).toMatchObject({
+      type: "add_element",
+      element: { type, role: "decoration" },
+    });
   });
 });

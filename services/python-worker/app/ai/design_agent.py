@@ -61,7 +61,7 @@ class DesignAgentContext(BaseModel):
 class DesignAgentCapabilities(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    version: Literal["1", "2"] = "1"
+    version: Literal["1", "2"] = "2"
     operations: list[
         Literal[
             "add_element",
@@ -74,9 +74,9 @@ class DesignAgentCapabilities(BaseModel):
             "delete_animation",
         ]
     ]
-    addable_element_types: list[Literal["text", "rect", "chart", "table"]] = Field(
-        alias="addableElementTypes"
-    )
+    addable_element_types: list[
+        Literal["text", "rect", "ellipse", "line", "polygon", "chart", "table"]
+    ] = Field(alias="addableElementTypes")
     can_edit_text_content: bool = Field(alias="canEditTextContent")
     can_generate_images: bool = Field(alias="canGenerateImages")
     can_modify_locked_elements: bool = Field(alias="canModifyLockedElements")
@@ -245,13 +245,39 @@ class TextElementProps(BaseModel):
         return validated
 
 
-class RectElementProps(BaseModel):
+class ShapeElementShadow(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    fill: str
-    stroke: str
+    color: str
+    blur: float = Field(ge=0)
+    offset_x: float = Field(alias="offsetX")
+    offset_y: float = Field(alias="offsetY")
+    opacity: float = Field(ge=0, le=1)
+
+
+class ShapeElementProps(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    fill: str | dict[str, Any]
+    stroke: str | dict[str, Any]
     stroke_width: float = Field(alias="strokeWidth", ge=0)
     border_radius: float = Field(alias="borderRadius", ge=0)
+    sides: int | None = Field(default=None, ge=3, le=12)
+    dash: list[float] | None = None
+    line_cap: Literal["butt", "round", "square"] | None = Field(
+        default=None, alias="lineCap"
+    )
+    line_join: Literal["miter", "round", "bevel"] | None = Field(
+        default=None, alias="lineJoin"
+    )
+    shadow: ShapeElementShadow | None = None
+
+    @field_validator("dash")
+    @classmethod
+    def validate_dash(cls, value: list[float] | None) -> list[float] | None:
+        if value is not None and any(item <= 0 for item in value):
+            raise ValueError("dash values must be positive")
+        return value
 
 
 class ChartDatum(BaseModel):
@@ -348,7 +374,68 @@ class RectElement(BaseModel):
     z_index: int = Field(alias="zIndex", ge=0)
     locked: bool
     visible: bool
-    props: RectElementProps
+    props: ShapeElementProps
+
+
+class EllipseElement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["ellipse"]
+    role: Literal["background", "decoration", "highlight"]
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float
+    opacity: float = Field(ge=0, le=1)
+    z_index: int = Field(alias="zIndex", ge=0)
+    locked: bool
+    visible: bool
+    props: ShapeElementProps
+
+
+class LineElement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["line"]
+    role: Literal["decoration"]
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float
+    opacity: float = Field(ge=0, le=1)
+    z_index: int = Field(alias="zIndex", ge=0)
+    locked: bool
+    visible: bool
+    props: ShapeElementProps
+
+
+class PolygonElement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["polygon"]
+    role: Literal["decoration"]
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float
+    opacity: float = Field(ge=0, le=1)
+    z_index: int = Field(alias="zIndex", ge=0)
+    locked: bool
+    visible: bool
+    props: ShapeElementProps
+
+    @field_validator("props")
+    @classmethod
+    def require_sides(cls, value: ShapeElementProps) -> ShapeElementProps:
+        if value.sides is None:
+            raise ValueError("polygon props.sides is required")
+        return value
 
 
 class ChartElement(BaseModel):
@@ -388,7 +475,13 @@ class TableElement(BaseModel):
 
 
 AddableElement = Annotated[
-    TextElement | RectElement | ChartElement | TableElement,
+    TextElement
+    | RectElement
+    | EllipseElement
+    | LineElement
+    | PolygonElement
+    | ChartElement
+    | TableElement,
     Field(discriminator="type"),
 ]
 
@@ -2072,19 +2165,33 @@ def _text_element_json_schema() -> dict[str, Any]:
 
 
 def _rect_element_json_schema() -> dict[str, Any]:
-    properties = _element_base_properties(
+    return _shape_element_json_schema(
         "rect", ["background", "decoration", "highlight", "media"]
     )
+
+
+def _shape_element_json_schema(
+    element_type: Literal["rect", "ellipse", "line", "polygon"],
+    roles: list[str],
+) -> dict[str, Any]:
+    properties = _element_base_properties(element_type, roles)
+    props_properties: dict[str, Any] = {
+        "fill": {"type": "string"},
+        "stroke": {"type": "string"},
+        "strokeWidth": {"type": "number", "minimum": 0},
+        "borderRadius": {"type": "number", "minimum": 0},
+    }
+    if element_type == "polygon":
+        props_properties["sides"] = {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 12,
+        }
     properties["props"] = {
         "type": "object",
         "additionalProperties": False,
-        "properties": {
-            "fill": {"type": "string"},
-            "stroke": {"type": "string"},
-            "strokeWidth": {"type": "number", "minimum": 0},
-            "borderRadius": {"type": "number", "minimum": 0},
-        },
-        "required": ["fill", "stroke", "strokeWidth", "borderRadius"],
+        "properties": props_properties,
+        "required": list(props_properties),
     }
     return {
         "type": "object",
@@ -2210,6 +2317,11 @@ def _add_element_operation_json_schema() -> dict[str, Any]:
                 "anyOf": [
                     _text_element_json_schema(),
                     _rect_element_json_schema(),
+                    _shape_element_json_schema(
+                        "ellipse", ["background", "decoration", "highlight"]
+                    ),
+                    _shape_element_json_schema("line", ["decoration"]),
+                    _shape_element_json_schema("polygon", ["decoration"]),
                     _chart_element_json_schema(),
                     _table_element_json_schema(),
                 ]
