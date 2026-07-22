@@ -206,6 +206,35 @@ describe("slide redesign Job API", () => {
     expect(fetcher).toHaveBeenCalledWith("/api/v1/jobs/job_redesign_1");
   });
 
+  it("maps a stale enqueue conflict and a terminal Job failure to retryable errors", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ message: "Slide redesign baseVersion is stale." }),
+      { status: 409, headers: { "content-type": "application/json" } },
+    )));
+    const deck = createDemoDeck();
+    await expect(createSlideRedesignJob(deck.projectId, {
+      sessionId: "design_session_1",
+      content: "리디자인",
+      selectedPaletteOptionId: "current-theme",
+      context: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        canvas: deck.canvas,
+        slide: deck.slides[0]!,
+        selectedElementIds: [],
+        theme: deck.theme,
+      },
+    })).rejects.toSatisfy(isDesignAgentProposalStaleError);
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify(slideRedesignJob("failed", null)),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )));
+    await expect(
+      pollSlideRedesignJob("job_redesign_1", { intervalMs: 0 }),
+    ).rejects.toThrow("다시 시도해 주세요");
+  });
+
   it("joins the project room and accepts only matching validated progress", () => {
     const handlers = new Map<string, (payload?: unknown) => void>();
     const socket = {
@@ -338,7 +367,7 @@ function job(
 }
 
 function slideRedesignJob(
-  status: "queued" | "succeeded",
+  status: "queued" | "succeeded" | "failed",
   result: Record<string, unknown> | null,
 ) {
   return {
@@ -349,7 +378,9 @@ function slideRedesignJob(
     progress: status === "succeeded" ? 100 : 0,
     message: status,
     result,
-    error: null,
+    error: status === "failed"
+      ? { code: "SLIDE_REDESIGN_FAILED", message: "bounded" }
+      : null,
     createdAt: "2026-07-22T00:00:00.000Z",
     updatedAt: "2026-07-22T00:00:00.000Z",
   };

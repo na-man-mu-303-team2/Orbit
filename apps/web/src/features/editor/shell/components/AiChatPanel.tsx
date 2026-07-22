@@ -48,7 +48,9 @@ import {
   type DesignProposalPreview
 } from "../../design-agent/designProposalPreview";
 import {
+  canRetryDesignRequest,
   resolveDesignProposalLifecycle,
+  resolveCompletedSlideRedesignLifecycle,
   type DesignProposalLifecycle,
 } from "../../design-agent/designProposalLifecycle";
 import {
@@ -403,7 +405,9 @@ export function AiChatPanel(props: AiChatPanelProps) {
       );
     } catch (error) {
       setQuickActionError(
-        error instanceof Error
+        isDesignAgentProposalStaleError(error)
+          ? "슬라이드가 변경되어 리디자인을 다시 시작해야 합니다."
+          : error instanceof Error
           ? `디자인 제안을 만들지 못했습니다. ${error.message}`
           : "디자인 제안을 만들지 못했습니다."
       );
@@ -469,13 +473,20 @@ export function AiChatPanel(props: AiChatPanelProps) {
       const result = await pollSlideRedesignJob(created.job.jobId);
       acceptingProgress = false;
       setIntermediatePreview(null);
-      if (result.proposal) {
-        setPendingPreview(buildDesignProposalPreview(baseDeck, result.proposal));
-        setProposalLifecycle(result.stale ? "stale" : "proposal-ready");
-      } else {
-        setProposalLifecycle("idle");
-      }
-      setFailedDesignRequest(null);
+      const finalPreview = result.proposal
+        ? buildDesignProposalPreview(baseDeck, result.proposal)
+        : null;
+      setPendingPreview(finalPreview);
+      setProposalLifecycle(
+        resolveCompletedSlideRedesignLifecycle(result, baseDeck, finalPreview),
+      );
+      setFailedDesignRequest(result.stale
+        ? {
+            kind: "slide-redesign",
+            optionId,
+            paletteSelection,
+          }
+        : null);
       setQuickActionError(
         result.stale
           ? "슬라이드가 변경되어 리디자인을 다시 시작해야 합니다."
@@ -495,7 +506,9 @@ export function AiChatPanel(props: AiChatPanelProps) {
         },
       ]);
     } catch (error) {
-      setProposalLifecycle("failed");
+      setProposalLifecycle(
+        isDesignAgentProposalStaleError(error) ? "stale" : "failed",
+      );
       setFailedDesignRequest({
         kind: "slide-redesign",
         optionId,
@@ -558,7 +571,9 @@ export function AiChatPanel(props: AiChatPanelProps) {
       await runSlideRedesignJob(paletteSelection, optionId);
     } catch (error) {
       setQuickActionError(
-        error instanceof Error
+        isDesignAgentProposalStaleError(error)
+          ? "슬라이드가 변경되어 리디자인을 다시 시작해야 합니다."
+          : error instanceof Error
           ? `선택한 배색으로 미리보기를 만들지 못했습니다. ${error.message}`
           : "선택한 배색으로 미리보기를 만들지 못했습니다.",
       );
@@ -674,6 +689,10 @@ export function AiChatPanel(props: AiChatPanelProps) {
   );
   const modalPreview = pendingPreview ?? intermediatePreview;
   const modalPreviewIsReadOnly = !pendingPreview && Boolean(intermediatePreview);
+  const canRetryFailedDesignRequest = canRetryDesignRequest(
+    effectiveProposalLifecycle,
+    Boolean(failedDesignRequest),
+  );
 
   return (
     <section
@@ -692,7 +711,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
           errorMessage={quickActionError ?? undefined}
           isGenerating={mode === "design" && isSending}
           onAction={(action) => void handleQuickAction(action)}
-          onRetry={failedDesignRequest
+          onRetry={canRetryFailedDesignRequest
             ? () => void handleDesignRetry()
             : undefined}
         />

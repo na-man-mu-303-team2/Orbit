@@ -78,9 +78,14 @@ export async function createSlideRedesignJob(
     },
   );
   if (!response.ok) {
-    throw new Error(
-      await readApiError(response, "슬라이드 리디자인을 시작하지 못했습니다."),
+    const message = await readApiError(
+      response,
+      "슬라이드 리디자인을 시작하지 못했습니다.",
     );
+    if (response.status === 409) {
+      throw new DesignAgentProposalStaleError(message);
+    }
+    throw new Error(message);
   }
   return createSlideRedesignJobResponseSchema.parse(await response.json());
 }
