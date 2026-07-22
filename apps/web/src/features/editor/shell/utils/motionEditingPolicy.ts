@@ -1,4 +1,8 @@
 import type { Deck, DeckAnimation, Slide } from "@orbit/shared";
+import {
+  evaluateMotionEligibility,
+  getMotionEligibilityReasonMessage,
+} from "@orbit/editor-core";
 
 const genericExportAnimationTypes = new Set<DeckAnimation["type"]>([
   "appear",
@@ -24,16 +28,10 @@ export function getAnimationMutationDisabledReason(
   deck: Deck,
   slide: Slide
 ): string | null {
-  if (deck.metadata.sourceType !== "import") return null;
-  if (!slide.ooxmlSourceSlidePart) {
-    return "가져온 슬라이드의 안정적인 OOXML 위치 정보가 없어 애니메이션을 편집할 수 없습니다.";
-  }
-  const coverage =
-    slide.ooxmlMotionCapabilities?.importedMainSequenceCoverage;
-  if (coverage !== "absent" && coverage !== "complete") {
-    return "이 슬라이드의 애니메이션 구조를 완전하게 보존할 수 없어 편집할 수 없습니다.";
-  }
-  return null;
+  const eligibility = evaluateMotionEligibility(deck, slide);
+  return eligibility.outcome === "applicable"
+    ? null
+    : getMotionEligibilityReasonMessage(eligibility.reasonCode);
 }
 
 export function getAnimationTypeMutationDisabledReason(

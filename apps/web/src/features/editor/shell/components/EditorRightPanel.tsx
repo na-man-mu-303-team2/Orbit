@@ -16,6 +16,10 @@ import {
   IconPlayerPlay as Play,
   IconX,
 } from "@tabler/icons-react";
+import {
+  evaluateMotionEligibility,
+  getMotionEligibilityReasonMessage,
+} from "@orbit/editor-core";
 import { useEffect, useState } from "react";
 import type {
   Dispatch,
@@ -99,6 +103,13 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
   const hasElementSelection = props.selectedElementIds.length > 0;
   const designPanelLabel = getDesignPanelLabel(props.currentSlide);
   const isSpecialSlide = designPanelLabel === "장표 설정";
+  const motionEligibility = props.currentSlide
+    ? evaluateMotionEligibility(props.deck, props.currentSlide)
+    : null;
+  const motionRecommendationDisabledReason =
+    motionEligibility && motionEligibility.outcome !== "applicable"
+      ? getMotionEligibilityReasonMessage(motionEligibility.reasonCode)
+      : null;
   const [activePanelMode, setActivePanelMode] =
     useState<EditorRightPanelMode>(() =>
       getInitialEditorRightPanelMode({
@@ -403,6 +414,9 @@ export function EditorRightPanel(props: EditorRightPanelProps) {
                         deck={props.deck}
                         currentSlide={props.currentSlide}
                         designEditingEnabled={!isSpecialSlide}
+                        motionRecommendationDisabledReason={
+                          motionRecommendationDisabledReason
+                        }
                         selectedElementIds={props.selectedElementIds}
                         chatState={props.aiChatState}
                         onChatStateChange={props.onAiChatStateChange}

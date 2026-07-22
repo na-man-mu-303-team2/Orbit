@@ -76,6 +76,8 @@ import type {
   CreateSemanticCueExtractionJobResponse,
   CreateSpeakerNotesSuggestionJobResponse,
   TemplateBlueprint,
+  MotionImportContext,
+  Slide,
 } from "@orbit/shared";
 import {
   ConflictException,
@@ -221,6 +223,57 @@ export class DecksService {
       deck: deck.deck,
       updatedAt: deck.updatedAt,
     });
+  }
+
+  async getMotionImportContext(
+    projectId: string,
+    deck: Deck,
+    slide: Slide,
+  ): Promise<MotionImportContext | null> {
+    const imported =
+      deck.metadata.sourceType === "import" ||
+      slide.importRenderMode !== undefined ||
+      slide.ooxmlOrigin === "imported" ||
+      slide.elements.some((element) => element.ooxmlOrigin === "imported");
+    if (!imported || slide.importRenderMode === undefined) {
+      return null;
+    }
+
+    const stored = await this.findOoxmlTemplateBlueprint(
+      this.dataSource,
+      projectId,
+      deck.deckId,
+      deck,
+    );
+    const blueprintSlide = stored?.blueprint.slides.find(
+      (candidate) => candidate.slideId === slide.slideId,
+    );
+    const sourceMatches = Boolean(
+      slide.ooxmlSourceSlidePart &&
+        blueprintSlide?.sourceSlidePart === slide.ooxmlSourceSlidePart,
+    );
+    const slideCoverage =
+      slide.ooxmlMotionCapabilities?.importedMainSequenceCoverage ?? "unknown";
+    const blueprintCoverage =
+      blueprintSlide?.ooxmlMotionCapabilities?.importedMainSequenceCoverage;
+    const importedMainSequenceCoverage =
+      sourceMatches && blueprintCoverage === slideCoverage
+        ? slideCoverage
+        : "unknown";
+
+    return {
+      renderMode: slide.importRenderMode,
+      sourceSlidePartPresent: sourceMatches,
+      importedMainSequenceCoverage,
+      stableTargetElementIds:
+        sourceMatches && blueprintSlide
+          ? deriveStableMotionTargetElementIds(
+              slide,
+              blueprintSlide,
+              stored!.blueprint.logicalGroupElementIds,
+            )
+          : [],
+    };
   }
 
   async getDeckForUpdate(
@@ -1732,6 +1785,53 @@ export class DecksService {
       return failedJob;
     }
   }
+}
+
+function deriveStableMotionTargetElementIds(
+  slide: Slide,
+  blueprintSlide: TemplateBlueprint["slides"][number],
+  logicalGroupElementIds: readonly string[] = [],
+): string[] {
+  const sourcesByElementId = new Map<
+    string,
+    typeof blueprintSlide.elementSources
+  >();
+  const locatorCounts = new Map<string, number>();
+  for (const source of blueprintSlide.elementSources) {
+    const sources = sourcesByElementId.get(source.elementId) ?? [];
+    sources.push(source);
+    sourcesByElementId.set(source.elementId, sources);
+    const locator = `${source.slidePart}\u0000${source.shapeId}`;
+    locatorCounts.set(locator, (locatorCounts.get(locator) ?? 0) + 1);
+  }
+
+  const groupedElementIds = new Set(logicalGroupElementIds);
+  for (const element of slide.elements) {
+    if (element.type !== "group") continue;
+    groupedElementIds.add(element.elementId);
+    element.props.childElementIds.forEach((elementId) =>
+      groupedElementIds.add(elementId),
+    );
+  }
+
+  return slide.elements.flatMap((element) => {
+    const sources = sourcesByElementId.get(element.elementId) ?? [];
+    if (sources.length !== 1 || groupedElementIds.has(element.elementId)) {
+      return [];
+    }
+    const source = sources[0]!;
+    const locator = `${source.slidePart}\u0000${source.shapeId}`;
+    const stable =
+      source.slidePart === slide.ooxmlSourceSlidePart &&
+      locatorCounts.get(locator) === 1 &&
+      source.writable &&
+      source.elementType === element.type &&
+      source.ooxmlEditCapabilities?.frame === true &&
+      element.ooxmlEditCapabilities?.frame === true &&
+      source.fallbackMode === undefined &&
+      source.fallbackReason === undefined;
+    return stable ? [element.elementId] : [];
+  });
 }
 
 function readSyncCapabilityVersion(job: Job | null | undefined): number {

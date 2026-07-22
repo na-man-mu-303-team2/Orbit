@@ -120,6 +120,20 @@ export const designAgentContextSchema = z.object({
   theme: themeSchema,
 });
 
+export const motionImportContextSchema = z
+  .object({
+    renderMode: z.enum(["editable", "hybrid", "snapshot"]),
+    sourceSlidePartPresent: z.boolean(),
+    importedMainSequenceCoverage: z.enum([
+      "absent",
+      "complete",
+      "partial",
+      "unknown",
+    ]),
+    stableTargetElementIds: z.array(deckElementIdSchema).max(200),
+  })
+  .strict();
+
 export const createDesignAgentMessageRequestSchema = z.object({
   sessionId: z.string().trim().min(1).max(200).optional(),
   content: z.string().trim().min(1).max(2_000),
@@ -150,6 +164,7 @@ export const designAgentWorkerRequestSchema = z.object({
   question: z.string().trim().min(1).max(2_000),
   intentPreset: designAgentIntentPresetSchema.optional(),
   context: designAgentContextSchema,
+  motionImportContext: motionImportContextSchema.optional(),
   history: z.array(designAgentHistoryItemSchema).max(10).default([]),
   availableSmartArtLayouts: z
     .array(availableSmartArtLayoutSchema)
@@ -256,6 +271,7 @@ export type DesignAgentProposalStatus = z.infer<
   typeof designAgentProposalStatusSchema
 >;
 export type DesignAgentContext = z.infer<typeof designAgentContextSchema>;
+export type MotionImportContext = z.infer<typeof motionImportContextSchema>;
 export type CreateDesignAgentMessageRequest = z.infer<
   typeof createDesignAgentMessageRequestSchema
 >;

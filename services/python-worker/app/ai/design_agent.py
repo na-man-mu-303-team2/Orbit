@@ -7,6 +7,12 @@ from typing import Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.ai.motion_planner import (
+    MotionImportContext,
+    evaluate_motion_eligibility,
+    motion_eligibility_message,
+)
+
 DECK_ELEMENT_COORDINATE_LIMIT = 1_000_000
 FontWeight = int | Literal["normal", "medium", "semibold", "bold"]
 
@@ -139,6 +145,10 @@ class DesignAgentRequest(BaseModel):
         max_length=100,
     )
     context: DesignAgentContext
+    motion_import_context: MotionImportContext | None = Field(
+        default=None,
+        alias="motionImportContext",
+    )
     history: list[DesignAgentHistoryItem] = Field(default_factory=list, max_length=10)
     available_smart_art_layouts: list[AvailableSmartArtLayout] = Field(
         default_factory=list,
@@ -1351,23 +1361,17 @@ def _build_animation_recommendation(
     request: DesignAgentRequest,
 ) -> DesignAgentResponse:
     slide = request.context.slide
-    if slide.get("ooxmlOrigin") == "imported":
-        if not slide.get("ooxmlSourceSlidePart"):
-            return _animation_recommendation_unavailable(
-                request,
-                "가져온 슬라이드의 안정적인 OOXML 위치 정보가 없어 애니메이션을 추천할 수 없습니다.",
-            )
-        motion_capabilities = slide.get("ooxmlMotionCapabilities")
-        coverage = (
-            motion_capabilities.get("importedMainSequenceCoverage")
-            if isinstance(motion_capabilities, dict)
-            else None
+    eligibility = evaluate_motion_eligibility(
+        slide,
+        import_context=request.motion_import_context,
+    )
+    if eligibility.outcome != "applicable":
+        assert eligibility.reason_code is not None
+        return _animation_recommendation_unavailable(
+            request,
+            motion_eligibility_message(eligibility.reason_code),
         )
-        if coverage not in {"absent", "complete"}:
-            return _animation_recommendation_unavailable(
-                request,
-                "가져온 슬라이드의 애니메이션 구조를 완전하게 보존할 수 없어 추천을 적용할 수 없습니다.",
-            )
+    allowed_target_ids = set(eligibility.allowed_target_element_ids)
 
     if "add_animation" not in request.capabilities.operations:
         return _animation_recommendation_unavailable(
@@ -1395,6 +1399,7 @@ def _build_animation_recommendation(
             and element.get("visible") is not False
             and element.get("role") not in excluded_roles
             and element.get("type") != "group"
+            and str(element.get("elementId")) in allowed_target_ids
             and str(element.get("elementId")) not in animated_element_ids
         ),
         key=lambda element: (
