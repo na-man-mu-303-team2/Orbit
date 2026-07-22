@@ -32,7 +32,7 @@
   - `uv run mypy app` — 67 source files 통과
   - `uv run pytest tests/test_slide_redesign_diff.py -q` — 17 passed
 - 남은 stop gate: 없음
-- PR04 child 상태: clean worktree 확인, 정리 예정
+- PR04 child 상태: clean worktree와 local branch 정리 완료
 - 다음 milestone: PR05 — 동기 redesign pipeline 결선
 
 ## 완료 Milestone 기록
@@ -52,6 +52,7 @@
   - `uv run pytest tests/test_slide_redesign_diff.py -q` — 17 passed
 - stop gate: T4.1~T4.17 통과, T4.16 실제 patch 라운드트립과 T4.17 sourceElementId cardinality 통과
 - integration merge 후 `ruff`, `mypy app`, diff 17 tests 통과
+- child 상태: clean worktree와 local branch 정리 완료
 
 ### PR03 — composition 후보와 M1 palette
 
