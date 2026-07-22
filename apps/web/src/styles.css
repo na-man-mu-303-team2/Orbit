@@ -3291,6 +3291,10 @@
   border-color: var(--redesign-color-on-surface);
 }
 
+:fullscreen .presenter-remote-header-action:first-child {
+  display: none;
+}
+
 .presenter-remote-header-action--danger {
   color: var(--redesign-color-error);
 }
