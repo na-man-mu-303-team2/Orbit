@@ -8,7 +8,10 @@ import {
   designAgentMessageSchema,
   designAgentProposalSchema,
 } from "./design-agent.schema";
-import { slideRedesignPaletteOptionSchema } from "./slide-redesign.schema";
+import {
+  slideRedesignOutcomeSchema,
+  slideRedesignPaletteOptionSchema,
+} from "./slide-redesign.schema";
 
 export const slideRedesignStageSchema = z.enum([
   "interpreting",
@@ -100,6 +103,72 @@ export const createSlideRedesignJobResponseSchema = z
   })
   .strict();
 
+export const slideRedesignJobResultSchema = z
+  .object({
+    outcome: z.union([slideRedesignOutcomeSchema, z.literal("stale")]),
+    sessionId: z.string().trim().min(1).max(200),
+    requestMessageId: z.string().trim().min(1),
+    responseMessageId: z.string().trim().min(1),
+    proposal: designAgentProposalSchema.optional(),
+    stale: z.boolean(),
+  })
+  .strict()
+  .superRefine((result, ctx) => {
+    if (result.outcome === "applicable" && !result.proposal) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["proposal"],
+        message: "applicable slide redesign result requires a proposal",
+      });
+    }
+    if (result.outcome === "stale" && !result.stale) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["stale"],
+        message: "stale slide redesign result must set stale=true",
+      });
+    }
+    if (
+      result.outcome !== "stale" &&
+      result.outcome !== "applicable" &&
+      result.stale
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["stale"],
+        message: "only stale or applicable results may set stale=true",
+      });
+    }
+    if (result.outcome !== "applicable" && result.proposal) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["proposal"],
+        message:
+          "only applicable slide redesign results may contain a proposal",
+      });
+    }
+    if (
+      result.proposal &&
+      !["pending", "stale"].includes(result.proposal.status)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["proposal", "status"],
+        message: "slide redesign result proposal must be pending or stale",
+      });
+    }
+    if (
+      result.proposal &&
+      (result.proposal.status === "stale") !== result.stale
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["proposal", "status"],
+        message: "proposal status must match the result stale flag",
+      });
+    }
+  });
+
 export type SlideRedesignStage = z.infer<typeof slideRedesignStageSchema>;
 export type SlideRedesignProgressPayload = z.infer<
   typeof slideRedesignProgressPayloadSchema
@@ -112,4 +181,7 @@ export type SlideRedesignJobPayload = z.infer<
 >;
 export type CreateSlideRedesignJobResponse = z.infer<
   typeof createSlideRedesignJobResponseSchema
+>;
+export type SlideRedesignJobResult = z.infer<
+  typeof slideRedesignJobResultSchema
 >;

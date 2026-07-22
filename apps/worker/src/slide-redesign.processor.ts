@@ -6,6 +6,7 @@ import {
   designAgentWorkerRequestSchema,
   jobSchema,
   slideRedesignJobPayloadSchema,
+  slideRedesignJobResultSchema,
   slideRedesignProgressEventSchema,
   type Deck,
   type DesignAgentProposal,
@@ -65,11 +66,12 @@ export async function processSlideRedesignJob(
   try {
     const sourceDeck = await loadDeck(dataSource, payload);
     if (sourceDeck.version !== payload.context.baseVersion) {
-      return finishWithoutProposal(dataSource, payload, {
+      const staleJob = await finishWithoutProposal(dataSource, payload, {
         outcome: "stale",
         message: "슬라이드가 변경되어 다시 시도해야 합니다.",
         now,
       });
+      return staleJob;
     }
 
     const request = buildWorkerRequest(payload);
@@ -78,11 +80,12 @@ export async function processSlideRedesignJob(
     await publishStage(publishProgress, payload, "interpreting", [], now);
     const interpreted = await client.interpret(request);
     if (interpreted.outcome !== "applicable") {
-      return finishWithoutProposal(dataSource, payload, {
+      const completedJob = await finishWithoutProposal(dataSource, payload, {
         outcome: interpreted.outcome,
         message: outcomeMessage(interpreted.outcome),
         now,
       });
+      return completedJob;
     }
 
     failureProgress = 25;
@@ -96,11 +99,12 @@ export async function processSlideRedesignJob(
     );
     const composed = await client.compose(request, interpreted);
     if (composed.outcome !== "applicable" || !composed.response) {
-      return finishWithoutProposal(dataSource, payload, {
+      const completedJob = await finishWithoutProposal(dataSource, payload, {
         outcome: composed.outcome,
         message: outcomeMessage(composed.outcome),
         now,
       });
+      return completedJob;
     }
 
     failureProgress = 45;
@@ -139,13 +143,14 @@ export async function processSlideRedesignJob(
       now,
     );
     const verified = await client.verify(request, composed);
-    return finishVerifiedProposal(
+    const completedJob = await finishVerifiedProposal(
       dataSource,
       payload,
       sourceDeck,
       verified,
       now,
     );
+    return completedJob;
   } catch (error) {
     const failure = classifyFailure(error, failureProgress);
     return failJob(
@@ -312,6 +317,12 @@ async function finishVerifiedProposal(
   const stale = latestDeck.version !== payload.context.baseVersion;
   const responseMessageId = `design_message_${randomUUID()}`;
   const proposalId = `design_proposal_${randomUUID()}`;
+  const persistedProposal = designAgentProposalSchema.parse({
+    ...proposal,
+    proposalId,
+    responseMessageId,
+    status: stale ? "stale" : "pending",
+  });
 
   return dataSource.transaction(async (manager) => {
     await insertResponseMessage(manager, payload, {
@@ -342,13 +353,13 @@ async function finishVerifiedProposal(
         payload.requestMessageId,
         responseMessageId,
         payload.context.baseVersion,
-        proposal.title,
-        proposal.summary ?? null,
-        proposal.operations,
-        proposal.interpretedIntent ?? null,
-        proposal.affectedElementIds,
-        proposal.warnings,
-        stale ? "stale" : "pending",
+        persistedProposal.title,
+        persistedProposal.summary ?? null,
+        persistedProposal.operations,
+        persistedProposal.interpretedIntent ?? null,
+        persistedProposal.affectedElementIds,
+        persistedProposal.warnings,
+        persistedProposal.status,
         createdAt,
       ],
     );
@@ -358,14 +369,14 @@ async function finishVerifiedProposal(
       message: stale
         ? "Slide redesign completed but is stale."
         : "Slide redesign completed.",
-      result: {
+      result: slideRedesignJobResultSchema.parse({
         outcome: "applicable",
         sessionId: payload.sessionId,
         requestMessageId: payload.requestMessageId,
         responseMessageId,
-        proposalId,
+        proposal: persistedProposal,
         stale,
-      },
+      }),
       error: null,
     });
   });
@@ -400,13 +411,13 @@ async function finishWithoutProposal(
         input.outcome === "stale"
           ? "Slide redesign request is stale."
           : "Slide redesign completed without a proposal.",
-      result: {
+      result: slideRedesignJobResultSchema.parse({
         outcome: input.outcome,
         sessionId: payload.sessionId,
         requestMessageId: payload.requestMessageId,
         responseMessageId,
         stale: input.outcome === "stale",
-      },
+      }),
       error: null,
     });
   });
