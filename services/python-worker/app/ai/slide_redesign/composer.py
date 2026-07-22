@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from app.ai.composition_library import (
     COMPOSITION_SPECS,
@@ -11,14 +11,20 @@ from app.ai.composition_library import (
     compile_composition,
     content_supports_composition,
 )
-from app.ai.design_program import CompositionId, DeckDesignProgram, PaletteRoles
+from app.ai.design_program import (
+    AssetRole,
+    BackgroundMode,
+    CompositionId,
+    DeckDesignProgram,
+    PaletteRoles,
+)
 
 
 @dataclass(frozen=True)
 class CompositionCandidate:
     composition_id: CompositionId
-    background_mode: Literal["light", "dark"]
-    asset_role: Literal["none"] = "none"
+    background_mode: BackgroundMode
+    asset_role: AssetRole = "none"
 
 
 def eligible_candidates(summary: dict[str, Any]) -> list[CompositionCandidate]:
@@ -92,8 +98,8 @@ def build_single_slide_program(
                     "variant": candidate.background_mode,
                     "backgroundMode": candidate.background_mode,
                     "focalType": spec.focal_rule,
-                    "assetRole": "none",
-                    "requiredAsset": False,
+                    "assetRole": candidate.asset_role,
+                    "requiredAsset": spec.media_requirement == "required",
                 }
             ],
         }
