@@ -22,6 +22,7 @@ from app.ai.pptx_design_importer import (
     import_pptx_design,
 )
 from app.ai.pptx_ooxml_vector_importer import (
+    PPTX_FONT_BROWSER_FALLBACK,
     VECTOR_IMPORT_FLAG,
     import_pptx_design_with_optional_ooxml_vector,
     import_pptx_ooxml_visual_tree,
@@ -321,6 +322,56 @@ def test_import_pptx_design_extracts_editable_elements(tmp_path: Path) -> None:
     assert result.quality_report["slideReports"][0]["status"] == "not_evaluated"
     assert result.quality_report["compositeScore"] <= 100
     assert result.assets[0].mime_type == "image/png"
+
+
+def test_ooxml_visual_tree_normalizes_explicit_pretendard_variants(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "pretendard-variants.pptx"
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    textbox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(2))
+    paragraph = textbox.text_frame.paragraphs[0]
+    variants = [
+        ("Pretendard ExtraLight", 200),
+        ("Pretendard Medium", 500),
+        ("Pretendard SemiBold", 600),
+        ("Pretendard ExtraBold", 800),
+    ]
+    for index, (family, _weight) in enumerate(variants):
+        run = paragraph.add_run()
+        run.text = f"variant-{index} "
+        run.font.name = family
+    for index in range(2):
+        run = paragraph.add_run()
+        run.text = f"unknown-{index} "
+        run.font.name = "Unlisted Presentation Font"
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_fonts")
+    text = next(
+        element
+        for element in result.blueprint["slides"][0]["elements"]
+        if element["type"] == "text"
+    )
+    runs = [run for run in text["props"]["runs"] if run["text"].strip()]
+
+    assert [
+        (run["fontFamily"], run["fontWeight"])
+        for run in runs[: len(variants)]
+    ] == [("Pretendard", weight) for _family, weight in variants]
+    assert [run["fontFamily"] for run in runs[len(variants) :]] == [
+        "Unlisted Presentation Font",
+        "Unlisted Presentation Font",
+    ]
+    assert [
+        warning
+        for warning in result.warnings
+        if warning.startswith(PPTX_FONT_BROWSER_FALLBACK)
+    ] == [
+        "PPTX_FONT_BROWSER_FALLBACK: slide=1; "
+        "family=Unlisted Presentation Font; fallback=Arial"
+    ]
 
 
 def test_import_pptx_design_marks_placeholders_as_replaceable_slots(

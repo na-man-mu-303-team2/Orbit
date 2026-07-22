@@ -63,6 +63,17 @@ VECTOR_IMPORT_FLAG = "ORBIT_PPTX_OOXML_VECTOR_IMPORT"
 DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU = 91440
 DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU = 45720
 DEFAULT_PPTX_FONT_FAMILY = "Aptos, Calibri, Arial, sans-serif"
+PPTX_FONT_BROWSER_FALLBACK = "PPTX_FONT_BROWSER_FALLBACK"
+PPTX_FONT_FAMILY_ALIASES = {
+    "pretendard": ("Pretendard", None),
+    "pretendard extralight": ("Pretendard", 200),
+    "pretendard medium": ("Pretendard", 500),
+    "pretendard semibold": ("Pretendard", 600),
+    "pretendard extrabold": ("Pretendard", 800),
+}
+PPTX_BROWSER_AVAILABLE_FONT_FAMILIES = frozenset(
+    {"Pretendard", "Arial", "sans-serif", "serif", "monospace"}
+)
 RICH_TEXT_UNSUPPORTED_HYPERLINK = "PPTX_RICH_TEXT_UNSUPPORTED_HYPERLINK"
 RICH_TEXT_UNSUPPORTED_LETTER_SPACING = (
     "PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING"
@@ -272,6 +283,11 @@ def import_pptx_ooxml_visual_tree(
             if slide is None:
                 state.warnings.append(f"OOXML slide part missing: {slide_part}")
                 continue
+            append_font_availability_diagnostics(
+                slide,
+                state.warnings,
+                slide_index=slide_index,
+            )
             slide_rels = relationships_for_part(package, slide_part)
             layout_part = relationship_target_by_type(
                 slide_part,
@@ -2379,13 +2395,17 @@ def run_properties_value(
     if r_pr is None:
         return props
     typeface = run_typeface(r_pr)
+    alias_weight: int | None = None
     if typeface:
-        props["fontFamily"] = typeface
+        font_family, alias_weight = normalize_pptx_font_family(typeface)
+        props["fontFamily"] = font_family
+        if alias_weight is not None:
+            props["fontWeight"] = alias_weight
     size = int_attr(r_pr, "sz", 0)
     if size > 0:
         props["fontSize"] = font_size_to_canvas_px(size / 100, scale)
     bold = r_pr.get("b")
-    if bold is not None:
+    if bold is not None and alias_weight is None:
         props["fontWeight"] = "bold" if bold in {"1", "true"} else "normal"
     italic = r_pr.get("i")
     if italic is not None:
@@ -2414,6 +2434,44 @@ def run_typeface(r_pr: ET.Element[Any]) -> str | None:
         if child is not None and child.get("typeface"):
             return str(child.get("typeface"))
     return None
+
+
+def normalize_pptx_font_family(typeface: str) -> tuple[str, int | None]:
+    original = typeface.strip()
+    alias = PPTX_FONT_FAMILY_ALIASES.get(original.casefold())
+    return alias if alias is not None else (original, None)
+
+
+def append_font_availability_diagnostics(
+    root: ET.Element[Any],
+    warnings: list[str],
+    *,
+    slide_index: int,
+) -> None:
+    unavailable_families: set[str] = set()
+    available_families = {
+        family.casefold() for family in PPTX_BROWSER_AVAILABLE_FONT_FAMILIES
+    }
+    for node in root.iter():
+        if local_name(node) != "rPr":
+            continue
+        typeface = run_typeface(node)
+        if not typeface or typeface.startswith("+"):
+            continue
+        family, _weight = normalize_pptx_font_family(typeface)
+        if family.casefold() not in available_families:
+            unavailable_families.add(bounded_font_family_label(family))
+
+    warnings.extend(
+        f"{PPTX_FONT_BROWSER_FALLBACK}: slide={slide_index}; "
+        f"family={family}; fallback=Arial"
+        for family in sorted(unavailable_families, key=str.casefold)
+    )
+
+
+def bounded_font_family_label(family: str) -> str:
+    normalized = " ".join(family.replace(";", " ").split())
+    return normalized[:128] or "unknown"
 
 
 def paragraph_align(body: ET.Element[Any]) -> str:
