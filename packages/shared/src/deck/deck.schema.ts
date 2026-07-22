@@ -481,9 +481,7 @@ export const slideSchema: z.ZodType<Slide, z.ZodTypeDef, unknown> = z
         occurrence
       ])
     );
-    const animationIds = new Set(
-      slide.animations.map((animation) => animation.animationId)
-    );
+    const animationIds = new Set<string>();
     const focalElementId = slide.aiNotes?.compositionPlan?.primaryFocalElementId;
 
     if (
@@ -496,6 +494,25 @@ export const slideSchema: z.ZodType<Slide, z.ZodTypeDef, unknown> = z
         message: "primary focal element must exist in the same slide"
       });
     }
+
+    slide.animations.forEach((animation, animationIndex) => {
+      if (animationIds.has(animation.animationId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["animations", animationIndex, "animationId"],
+          message: "animation IDs must be unique within the same slide"
+        });
+      } else {
+        animationIds.add(animation.animationId);
+      }
+      if (!elementIds.has(animation.elementId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["animations", animationIndex, "elementId"],
+          message: "animation target element must exist in the same slide"
+        });
+      }
+    });
 
     slide.keywords.forEach((keyword, keywordIndex) => {
       keyword.requiredOccurrenceIds?.forEach((occurrenceId, occurrenceIndex) => {

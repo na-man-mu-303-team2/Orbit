@@ -132,6 +132,11 @@ export {
   type MotionEligibilityOptions,
   type MotionReasonCode,
 } from "./policies/motionEligibility";
+export { validateMotionProposal } from "./policies/motionProposalValidation";
+export type {
+  MotionProposalValidationReason,
+  MotionProposalValidationResult
+} from "./policies/motionProposalValidation";
 export type {
   AnimationStartMode,
   AnimationTimelineBaseReference,
