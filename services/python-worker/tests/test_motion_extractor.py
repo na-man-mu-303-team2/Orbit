@@ -42,3 +42,37 @@ def test_extracted_context_never_contains_text_or_notes() -> None:
     assert "핵심 의미를 먼저" not in serialized
     assert "작아도 명시적 제목" not in serialized
     assert len(extraction.speaker_notes) <= 4_000
+
+
+def test_quote_layout_is_classified_before_generic_title_shape() -> None:
+    slide = {
+        "slideId": "slide_quote",
+        "order": 2,
+        "title": "Customer voice",
+        "style": {"layout": "quote"},
+        "elements": [
+            {
+                "elementId": "el_quote",
+                "type": "text",
+                "role": "title",
+                "visible": True,
+                "props": {"text": "A concise quotation"},
+            }
+        ],
+        "semanticCues": [],
+    }
+    extraction = extract_motion_context(
+        slide,
+        MotionPlanningContext.model_validate(
+            {
+                "allowedTargetElementIds": ["el_quote"],
+                "effectiveTypography": [],
+                "speakerNotes": "",
+                "notesPresent": False,
+                "notesTruncated": False,
+            }
+        ),
+    )
+
+    assert extraction.context.slide_type == "quote"
+    assert extraction.context.narrative_intent == "emphasize"

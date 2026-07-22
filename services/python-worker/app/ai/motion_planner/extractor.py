@@ -164,6 +164,8 @@ def _slide_type(
     }
     roles = {target.semantic_role for target in targets}
     title = str(slide.get("title", "")).lower()
+    style = slide.get("style")
+    layout = str(style.get("layout", "")) if isinstance(style, dict) else ""
     if slide.get("order") == 1 and len(targets) <= 3:
         return "cover"
     if "closing" in cue_types or any(token in title for token in ("summary", "요약")):
@@ -172,6 +174,8 @@ def _slide_type(
         return "problem"
     if "solution" in cue_types:
         return "solution"
+    if layout == "quote" or any(token in title for token in ("quote", "인용")):
+        return "quote"
     if "chart" in element_types:
         return "chart"
     if "table" in element_types:
