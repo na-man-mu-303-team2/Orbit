@@ -81,6 +81,8 @@ def request_for(
     animations: list[dict[str, Any]] | None = None,
     capability_version: str = "1",
     addable_element_types: list[str] | None = None,
+    request_palette_options: bool = False,
+    selected_palette_option: dict[str, Any] | None = None,
 ) -> DesignAgentRequest:
     return DesignAgentRequest.model_validate(
         {
@@ -122,6 +124,12 @@ def request_for(
                 "canGenerateImages": False,
                 "canModifyLockedElements": True,
             },
+            "requestPaletteOptions": request_palette_options,
+            **(
+                {"selectedPaletteOption": selected_palette_option}
+                if selected_palette_option is not None
+                else {}
+            ),
         }
     )
 
@@ -145,6 +153,81 @@ def test_normal_text_slide_is_applicable() -> None:
     assert result.outcome == "applicable"
     assert result.response is not None
     assert result.response.operations
+
+
+def test_palette_option_request_returns_three_options_without_operations() -> None:
+    response = generate_design_proposal(
+        request_for(standard_elements(), request_palette_options=True),
+        model="test-model",
+        api_key=None,
+    )
+
+    assert response.operations == []
+    assert response.palette_options is not None
+    assert len(response.palette_options) == 3
+    assert response.palette_options[0].is_current_theme is True
+    assert all(
+        option.is_current_theme is False for option in response.palette_options[1:]
+    )
+
+
+def test_selected_palette_is_used_for_final_proposal() -> None:
+    selected = {
+        "optionId": "selected-coral",
+        "name": "선명한 코럴",
+        "isCurrentTheme": False,
+        "palette": {
+            "dominant": "#FFF7ED",
+            "surface": "#FFFFFF",
+            "text": "#431407",
+            "focal": "#EA580C",
+            "secondary": "#DB2777",
+        },
+        "rationale": "강한 인상을 줍니다.",
+    }
+
+    response = generate_design_proposal(
+        request_for(standard_elements(), selected_palette_option=selected),
+        model="test-model",
+        api_key=None,
+    )
+
+    style_operation = next(
+        operation
+        for operation in response.operations
+        if operation.type == "update_slide_style"
+    )
+    assert style_operation.style.background_color == "#FFF7ED"
+    assert response.palette_options is None
+
+
+def test_current_theme_selection_keeps_theme_focal_color() -> None:
+    selected = {
+        "optionId": "current-theme",
+        "name": "현재 테마 유지",
+        "isCurrentTheme": True,
+        "palette": {
+            "dominant": "#FFFFFF",
+            "surface": "#F8FAFC",
+            "text": "#111827",
+            "focal": "#2563EB",
+            "secondary": "#2563EB",
+        },
+        "rationale": "현재 테마를 유지합니다.",
+    }
+
+    response = generate_design_proposal(
+        request_for(standard_elements(), selected_palette_option=selected),
+        model="test-model",
+        api_key=None,
+    )
+    operations = response.model_dump(by_alias=True, exclude_none=True)["operations"]
+
+    assert any(
+        operation["type"] == "add_element"
+        and operation["element"].get("props", {}).get("fill") == "#2563EB"
+        for operation in operations
+    )
 
 
 def test_non_wide_canvas_allows_fallback() -> None:

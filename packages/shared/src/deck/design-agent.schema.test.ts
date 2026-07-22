@@ -1,11 +1,30 @@
 import { describe, expect, it } from "vitest";
 import {
   createDesignAgentMessageRequestSchema,
+  createDesignAgentMessageResponseSchema,
   designAgentCapabilities,
   designAgentCapabilitiesSchema,
   designAgentWorkerRequestSchema,
   designAgentWorkerResponseSchema,
 } from "./design-agent.schema";
+
+const paletteOptions = [
+  ["current-theme", true, "#2563EB"],
+  ["calm-blue", false, "#0F766E"],
+  ["vivid-coral", false, "#EA580C"],
+].map(([optionId, isCurrentTheme, focal], index) => ({
+  optionId: optionId as string,
+  name: `배색 ${index + 1}`,
+  isCurrentTheme: isCurrentTheme as boolean,
+  palette: {
+    dominant: "#FFFFFF",
+    surface: "#F8FAFC",
+    text: "#111827",
+    focal: focal as string,
+    secondary: "#7C3AED",
+  },
+  rationale: "검증용 배색입니다.",
+}));
 
 const designAgentContext = {
   deckId: "deck_1",
@@ -72,6 +91,75 @@ describe("design agent schema", () => {
     });
 
     expect(request.intentPreset).toBeUndefined();
+    expect(request.selectedPaletteOptionId).toBeUndefined();
+  });
+
+  it("distinguishes a palette option request from legacy requests", () => {
+    const request = createDesignAgentMessageRequestSchema.parse({
+      content: "이 슬라이드를 재디자인해 주세요.",
+      intentPreset: "redesign-slide",
+      selectedPaletteOptionId: null,
+      context: designAgentContext,
+    });
+    const workerRequest = designAgentWorkerRequestSchema.parse({
+      projectId: "project_1",
+      sessionId: "session_1",
+      question: request.content,
+      intentPreset: request.intentPreset,
+      context: request.context,
+      capabilities: designAgentCapabilities,
+      requestPaletteOptions: true,
+    });
+
+    expect(request.selectedPaletteOptionId).toBeNull();
+    expect(workerRequest.requestPaletteOptions).toBe(true);
+  });
+
+  it("carries palette options through worker and public responses", () => {
+    const workerResponse = designAgentWorkerResponseSchema.parse({
+      message: "배색을 골라주세요.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "select-redesign-palette",
+        alignment: null,
+      },
+      operations: [],
+      affectedElementIds: [],
+      warnings: [],
+      paletteOptions,
+    });
+    const publicResponse = createDesignAgentMessageResponseSchema.parse({
+      sessionId: "session_1",
+      requestMessage: {
+        messageId: "message_1",
+        sessionId: "session_1",
+        projectId: "project_1",
+        deckId: "deck_1",
+        slideId: "slide_1",
+        role: "user",
+        content: "재디자인",
+        status: "succeeded",
+        createdAt: "2026-07-22T00:00:00.000Z",
+        updatedAt: "2026-07-22T00:00:00.000Z",
+      },
+      responseMessage: {
+        messageId: "message_2",
+        sessionId: "session_1",
+        projectId: "project_1",
+        deckId: "deck_1",
+        slideId: "slide_1",
+        role: "assistant",
+        content: workerResponse.message,
+        status: "succeeded",
+        createdAt: "2026-07-22T00:00:01.000Z",
+        updatedAt: "2026-07-22T00:00:01.000Z",
+      },
+      paletteOptions: workerResponse.paletteOptions,
+      uiAction: null,
+    });
+
+    expect(publicResponse.proposal).toBeUndefined();
+    expect(publicResponse.paletteOptions).toHaveLength(3);
   });
 
   it("rejects an unknown intent preset", () => {

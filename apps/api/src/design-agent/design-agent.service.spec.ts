@@ -13,6 +13,48 @@ import {
   DesignAgentService,
 } from "./design-agent.service";
 
+const redesignPaletteOptions = [
+  {
+    optionId: "current-theme",
+    name: "현재 테마 유지",
+    isCurrentTheme: true,
+    palette: {
+      dominant: "#FFFFFF",
+      surface: "#F8FAFC",
+      text: "#111827",
+      focal: "#3B82F6",
+      secondary: "#7C3AED",
+    },
+    rationale: "현재 테마를 유지합니다.",
+  },
+  {
+    optionId: "calm-blue",
+    name: "차분한 블루",
+    isCurrentTheme: false,
+    palette: {
+      dominant: "#EFF6FF",
+      surface: "#FFFFFF",
+      text: "#172554",
+      focal: "#2563EB",
+      secondary: "#0F766E",
+    },
+    rationale: "차분한 인상을 줍니다.",
+  },
+  {
+    optionId: "vivid-coral",
+    name: "선명한 코럴",
+    isCurrentTheme: false,
+    palette: {
+      dominant: "#FFF7ED",
+      surface: "#FFFFFF",
+      text: "#431407",
+      focal: "#EA580C",
+      secondary: "#DB2777",
+    },
+    rationale: "강한 인상을 줍니다.",
+  },
+] as const;
+
 describe("allowsUnselectedSmartArtSources", () => {
   it("allows reconfigure wording to use visible slide elements", () => {
     expect(allowsUnselectedSmartArtSources("현재 디자인 재구성좀 해줘")).toBe(true);
@@ -687,18 +729,193 @@ describe("DesignAgentService.createMessage slide redesign boundary", () => {
     expect(result.proposal).toBeUndefined();
     expect(harness.proposalsRepository.save).not.toHaveBeenCalled();
   });
+
+  it("returns palette options without creating a proposal", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const harness = createRedesignMessageHarness(deck, {
+      message: "리디자인에 사용할 배색을 골라주세요.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "select-redesign-palette",
+        alignment: null,
+      },
+      operations: [],
+      affectedElementIds: [],
+      warnings: [],
+      paletteOptions: [...redesignPaletteOptions],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    const result = await harness.service.createMessage(deck.projectId, "user_demo_1", {
+      content: "이 슬라이드를 재디자인해줘",
+      intentPreset: "redesign-slide",
+      selectedPaletteOptionId: null,
+      context: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        canvas: deck.canvas,
+        slide,
+        selectedElementIds: [],
+        theme: deck.theme,
+      },
+    });
+
+    expect(result.paletteOptions).toEqual(redesignPaletteOptions);
+    expect(result.proposal).toBeUndefined();
+    expect(harness.proposalsRepository.save).not.toHaveBeenCalled();
+    expect(harness.propose).toHaveBeenCalledWith(
+      expect.objectContaining({ requestPaletteOptions: true }),
+    );
+  });
+
+  it("uses a palette option stored in the same session for the final proposal", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const harness = createRedesignMessageHarness(deck, {
+      message: "리디자인에 사용할 배색을 골라주세요.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "select-redesign-palette",
+        alignment: null,
+      },
+      operations: [],
+      affectedElementIds: [],
+      warnings: [],
+      paletteOptions: [...redesignPaletteOptions],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+    const first = await harness.service.createMessage(deck.projectId, "user_demo_1", {
+      content: "이 슬라이드를 재디자인해줘",
+      intentPreset: "redesign-slide",
+      selectedPaletteOptionId: null,
+      context: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        canvas: deck.canvas,
+        slide,
+        selectedElementIds: [],
+        theme: deck.theme,
+      },
+    });
+    harness.propose.mockResolvedValue({
+      message: "선택한 배색으로 리디자인안을 준비했습니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "redesign-slide",
+        alignment: null,
+      },
+      operations: [
+        {
+          type: "update_slide_style",
+          slideId: slide.slideId,
+          style: { backgroundColor: "#EFF6FF" },
+        },
+      ],
+      affectedElementIds: [],
+      warnings: [],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    const result = await harness.service.createMessage(deck.projectId, "user_demo_1", {
+      sessionId: first.sessionId,
+      content: "차분한 블루로 적용해줘",
+      intentPreset: "redesign-slide",
+      selectedPaletteOptionId: "calm-blue",
+      context: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        canvas: deck.canvas,
+        slide,
+        selectedElementIds: [],
+        theme: deck.theme,
+      },
+    });
+
+    expect(result.proposal).toBeDefined();
+    expect(harness.propose).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        requestPaletteOptions: false,
+        selectedPaletteOption: redesignPaletteOptions[1],
+      }),
+    );
+  });
+
+  it("rejects an option ID that was not stored in the session", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const harness = createRedesignMessageHarness(deck, {
+      message: "리디자인에 사용할 배색을 골라주세요.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "select-redesign-palette",
+        alignment: null,
+      },
+      operations: [],
+      affectedElementIds: [],
+      warnings: [],
+      paletteOptions: [...redesignPaletteOptions],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+    const first = await harness.service.createMessage(deck.projectId, "user_demo_1", {
+      content: "이 슬라이드를 재디자인해줘",
+      intentPreset: "redesign-slide",
+      selectedPaletteOptionId: null,
+      context: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        canvas: deck.canvas,
+        slide,
+        selectedElementIds: [],
+        theme: deck.theme,
+      },
+    });
+
+    await expect(
+      harness.service.createMessage(deck.projectId, "user_demo_1", {
+        sessionId: first.sessionId,
+        content: "없는 배색을 적용해줘",
+        intentPreset: "redesign-slide",
+        selectedPaletteOptionId: "missing-option",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      }),
+    ).rejects.toThrow(
+      "selectedPaletteOptionId does not match this design agent session.",
+    );
+    expect(harness.propose).toHaveBeenCalledTimes(1);
+  });
 });
 
 function createRedesignMessageHarness(
   deck: ReturnType<typeof createDemoDeck>,
   aiResult: Awaited<ReturnType<DesignAgentPythonClient["propose"]>>,
 ) {
+  const savedMessages = new Map<string, DesignAgentMessageEntity>();
   const messagesRepository = {
     create: vi.fn(
       (value: Partial<DesignAgentMessageEntity>) => value as DesignAgentMessageEntity,
     ),
-    save: vi.fn(async (value: DesignAgentMessageEntity) => value),
-    find: vi.fn(async () => []),
+    save: vi.fn(async (value: DesignAgentMessageEntity) => {
+      savedMessages.set(value.messageId, value);
+      return value;
+    }),
+    find: vi.fn(async () =>
+      [...savedMessages.values()]
+        .filter((message) => message.status === "succeeded")
+        .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+        .slice(0, 10),
+    ),
   } as unknown as Repository<DesignAgentMessageEntity>;
   const proposalsRepository = {
     create: vi.fn(
@@ -715,8 +932,9 @@ function createRedesignMessageHarness(
       updatedAt: "2026-07-22T00:00:00.000Z",
     })),
   } as unknown as DecksService;
+  const propose = vi.fn(async () => aiResult);
   const pythonClient = {
-    propose: vi.fn(async () => aiResult),
+    propose,
   } as unknown as DesignAgentPythonClient;
   const smartArtLayoutsService = {
     listActiveCatalog: vi.fn(async () => []),
@@ -731,5 +949,6 @@ function createRedesignMessageHarness(
       { info: vi.fn(), warn: vi.fn() } as never,
     ),
     proposalsRepository,
+    propose,
   };
 }
