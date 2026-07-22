@@ -15,6 +15,7 @@ export interface StoragePutInput {
   body: Uint8Array | string;
   contentType: string;
   purpose: FilePurpose;
+  metadata?: Record<string, string>;
 }
 
 export interface StorageUploadUrlInput {
@@ -42,6 +43,7 @@ export interface StorageObject {
 export interface StorageHeadResult {
   contentLength: number;
   contentType: string;
+  metadata?: Record<string, string>;
 }
 
 export interface StorageReadResult {
@@ -106,6 +108,7 @@ export class S3CompatibleStorage implements StoragePort {
         Key: input.key,
         Body: input.body,
         ContentType: input.contentType,
+        Metadata: input.metadata,
       }),
     );
 
@@ -196,6 +199,7 @@ export class S3CompatibleStorage implements StoragePort {
       return {
         contentLength: result.ContentLength ?? 0,
         contentType: result.ContentType ?? "",
+        metadata: result.Metadata ?? {},
       };
     } catch (error) {
       if (
