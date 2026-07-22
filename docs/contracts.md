@@ -1143,6 +1143,8 @@ PPTX import preference와 slide render mode:
 - Worker는 imported image asset을 기존 `design-asset` 저장 흐름으로 저장하고 asset ref를 API asset content URL로 교체한 뒤 `DeckSchema`로 검증해 `decks`에 저장한다.
 - `templateBlueprint`와 `qualityReport`는 `template_blueprints` 테이블에 저장한다.
 - 편집기 재접속 시 `GET /api/v1/projects/:projectId/deck/import-quality`가 현재 Deck과 연결된 최신 `quality_report_json`을 `{ importQuality: { qualityReport } | null }`로 반환한다. 이 read-only sidecar는 Deck JSON이나 Deck version을 변경하지 않으며, 누락되었거나 schema가 유효하지 않으면 `null`을 반환한다.
+- 현재 slide의 notes page preview는 `GET /api/v1/projects/:projectId/deck/slides/:slideId/notes-preview`로 조회한다. owner/editor 권한만 허용하며 응답은 strict `{ notesPreview: { slideId, status, assetUrl } }`다. `status`는 `available | absent | sync-pending | stale | render-unavailable | unavailable`이고 `available`일 때만 같은 project의 보호된 `/assets/:fileId/content` URL을 반환한다. 다른 project, 누락·비업로드·비이미지 asset은 `unavailable`과 `assetUrl: null`로 수렴한다.
+- notes preview API는 `fileId`를 별도 field로 노출하지 않고 speaker notes 원문, notes XML locator/content, image base64, TemplateBlueprint 전체를 반환하지 않는다. audience/public projection에는 이 endpoint나 URL을 추가하지 않는다.
 - placeholder `p:ph`에서 온 텍스트/미디어는 `content-slot` 또는 `media-slot`과 `replace`로 분류한다.
 - master/layout 유래 요소, 반복 텍스트, 직접 그린 애매한 텍스트 박스는 기본적으로 `decoration` 또는 `fixed-text`이며 `preserve`/`ignore`와 낮은 confidence를 사용한다.
 - Quality composite score는 geometry 25, text 15, color 10, layer 10, editability 10, pixel similarity 30 가중치를 사용한다.
@@ -1152,8 +1154,11 @@ PPTX import preference와 slide render mode:
 구현 위치:
 
 - `packages/shared/src/deck/template-blueprint.schema.ts`
+- `packages/shared/src/deck/deck-api.schema.ts`
 - `services/python-worker/app/ai/pptx_design_importer.py`
 - `apps/worker/src/pptx-ooxml-generation.processor.ts`
+- `apps/api/src/decks/decks.service.ts`
+- `apps/web/src/features/editor/shell/api/deckPersistenceApi.ts`
 
 ## PPTX OOXML generation contract
 
