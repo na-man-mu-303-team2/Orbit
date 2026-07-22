@@ -158,12 +158,25 @@ function createService(args?: {
   projects?: ProjectEntity[];
   members?: ProjectMemberEntity[];
   users?: Array<{ user_id: string; email: string }>;
+  activeGenerations?: Array<{
+    job_id: string;
+    project_id: string;
+    type: "ai-deck-generation" | "pptx-ooxml-generation";
+    status: "queued" | "running";
+    progress: number;
+    message: string;
+  }>;
 }) {
   const projects = args?.projects ?? [];
   const members = args?.members ?? [];
   const users = args?.users ?? [];
+  const activeGenerations = args?.activeGenerations ?? [];
   const dataSource = {
     async query(query: string, params: unknown[]) {
+      if (query.includes("FROM jobs")) {
+        const projectIds = params[0] as string[];
+        return activeGenerations.filter((job) => projectIds.includes(job.project_id));
+      }
       if (query.includes("FROM users") && query.includes("WHERE lower(email) = lower($1)")) {
         const email = String(params[0]).toLowerCase();
         return users.filter((user) => user.email.toLowerCase() === email);
@@ -417,6 +430,45 @@ describe("ProjectsService", () => {
     await expect(service.list(demoIds.workspaceId, "user_1")).resolves.toMatchObject([
       { projectId: "project_new" },
       { projectId: "project_old" },
+    ]);
+  });
+
+  it("includes active PPTX conversion progress in project lists", async () => {
+    const project = new ProjectEntity();
+    project.projectId = "project_pptx";
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "2026 하반기 제품 전략";
+    project.createdBy = "user_1";
+    project.createdAt = new Date("2026-07-22T00:00:00.000Z");
+    const owner = new ProjectMemberEntity();
+    owner.projectId = project.projectId;
+    owner.userId = "user_1";
+    owner.role = "owner";
+    owner.status = "accepted";
+    owner.createdAt = project.createdAt;
+    const service = createService({
+      projects: [project],
+      members: [owner],
+      activeGenerations: [
+        {
+          job_id: "job_pptx",
+          project_id: project.projectId,
+          type: "pptx-ooxml-generation",
+          status: "running",
+          progress: 78,
+          message: "발표자 노트와 레이아웃을 정리하고 있습니다.",
+        },
+      ],
+    });
+
+    await expect(service.list(demoIds.workspaceId, "user_1")).resolves.toEqual([
+      expect.objectContaining({
+        generation: expect.objectContaining({
+          jobId: "job_pptx",
+          type: "pptx-ooxml-generation",
+          progress: 78,
+        }),
+      }),
     ]);
   });
 

@@ -233,6 +233,16 @@
   transform: translateY(-2px);
 }
 
+.orbit-project-gallery-preview:disabled {
+  cursor: progress;
+}
+
+.orbit-project-gallery-preview:disabled:hover {
+  border-color: var(--redesign-color-outline-variant);
+  box-shadow: var(--redesign-shadow-none);
+  transform: none;
+}
+
 .orbit-project-gallery-fallback {
   position: absolute;
   inset: 0;
@@ -254,8 +264,101 @@
   pointer-events: none;
 }
 
+.orbit-project-gallery-pptx-placeholder {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.orbit-project-gallery-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  display: grid;
+  gap: var(--redesign-space-2);
+  padding: var(--redesign-space-3) var(--redesign-space-4);
+  background: color-mix(in srgb, var(--redesign-color-inverse-surface) 91%, transparent);
+  color: var(--redesign-color-inverse-on-surface);
+  text-align: left;
+}
+
+.orbit-project-gallery-progress > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--redesign-space-3);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.orbit-project-gallery-progress > span > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orbit-project-gallery-progress > span > strong {
+  flex: 0 0 auto;
+}
+
+.orbit-project-gallery-progress progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--redesign-radius-full);
+  background: color-mix(in srgb, var(--redesign-color-light-surface) 20%, transparent);
+}
+
+.orbit-project-gallery-progress progress::-webkit-progress-bar {
+  background: color-mix(in srgb, var(--redesign-color-light-surface) 20%, transparent);
+}
+
+.orbit-project-gallery-progress progress::-webkit-progress-value {
+  background: var(--redesign-color-primary);
+}
+
+.orbit-project-gallery-progress progress::-moz-progress-bar {
+  background: var(--redesign-color-primary);
+}
+
 .orbit-project-gallery-meta {
   min-width: 0;
+}
+
+.orbit-project-gallery-status {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: var(--redesign-space-2);
+  padding: 2px var(--redesign-space-2);
+  border-radius: var(--redesign-radius-full);
+  background: var(--redesign-color-primary-subtle);
+  color: var(--redesign-color-primary-emphasis);
+  font-size: var(--redesign-type-label-xs-size);
+  font-weight: 750;
+}
+
+.orbit-project-gallery-status.is-complete {
+  background: var(--redesign-color-success-subtle);
+  color: var(--redesign-color-success);
+}
+
+.orbit-project-gallery-status.is-failed {
+  background: var(--redesign-color-error-subtle);
+  color: var(--redesign-color-error);
+}
+
+.orbit-project-gallery-message {
+  margin: var(--redesign-space-2) 0 0;
+  overflow: hidden;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .orbit-project-gallery-title {

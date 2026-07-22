@@ -33,6 +33,33 @@ describe("project pin contracts", () => {
     ]);
   });
 
+  it("identifies active PPTX conversion progress in project list items", () => {
+    const [project] = projectListResponseSchema.parse([
+      {
+        projectId: "project_pptx",
+        workspaceId: "workspace_1",
+        title: "2026 하반기 제품 전략",
+        createdBy: "user_1",
+        createdAt: "2026-07-22T00:00:00.000Z",
+        generation: {
+          jobId: "job_pptx",
+          type: "pptx-ooxml-generation",
+          status: "running",
+          progress: 78,
+          message: "발표자 노트와 레이아웃을 정리하고 있습니다.",
+        },
+        isPinned: false,
+        pinnedAt: null,
+        tags: [],
+      },
+    ]);
+
+    expect(project?.generation).toMatchObject({
+      type: "pptx-ooxml-generation",
+      progress: 78,
+    });
+  });
+
   it("rejects non-boolean project pin updates", () => {
     expect(updateProjectPinRequestSchema.safeParse({ isPinned: "true" }).success).toBe(
       false,
