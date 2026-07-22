@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+
+import pytest
 
 from app.ai.slide_redesign.slide_extractor import (
     SlideHierarchy,
@@ -283,3 +286,34 @@ def test_heuristic_slide_type_covers_structural_signals() -> None:
     assert heuristic_slide_type(cover) == "cover"
     assert heuristic_slide_type(process) == "process"
     assert heuristic_slide_type(data) == "data"
+
+
+GOLDEN_FIXTURES = json.loads(
+    (
+        Path(__file__).parent
+        / "fixtures/slide_redesign/extractor-golden.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    GOLDEN_FIXTURES,
+    ids=[fixture["name"] for fixture in GOLDEN_FIXTURES],
+)
+def test_extractor_golden_fixtures(fixture: dict[str, Any]) -> None:
+    slide = fixture["slide"]
+    hierarchy = infer_hierarchy(collect_text_elements(slide))
+
+    extracted = extract_slide(
+        slide,
+        slide_type=fixture["slideType"],
+        hierarchy=hierarchy,
+    )
+
+    assert extracted.summary == fixture["expected"]["summary"]
+    assert extracted.provenance == fixture["expected"]["provenance"]
+
+
+def test_extractor_golden_fixture_set_has_five_scenarios() -> None:
+    assert len(GOLDEN_FIXTURES) == 5
