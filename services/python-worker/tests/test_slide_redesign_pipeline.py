@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pytest
@@ -268,3 +269,30 @@ def test_refused_pipeline_response_is_valid_with_empty_operations() -> None:
     assert response.operations == []
     assert response.affected_element_ids == []
     assert response.interpreted_intent.action == "refused"
+
+
+def test_pipeline_logs_only_structured_diagnostics(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.ai.slide_redesign.pipeline")
+    sensitive_question = "이 슬라이드를 예쁘게 해줘 DO_NOT_LOG_THIS_TEXT"
+
+    result = redesign_slide(
+        request_for(standard_elements(), question=sensitive_question),
+        model="test-model",
+        api_key=None,
+    )
+
+    assert result.outcome == "applicable"
+    record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "slide-redesign.completed"
+    )
+    assert record.outcome == "applicable"
+    assert record.slide_type_source == "heuristic"
+    assert record.candidate_count >= record.safe_candidate_count > 0
+    assert record.chosen_composition_id
+    assert record.operation_count > 0
+    assert record.duration_ms["total"] >= 0
+    assert sensitive_question not in caplog.text

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,7 +22,7 @@ from .safety import (
     unsafe_refusal_message,
 )
 from .slide_extractor import (
-    classify_slide_type,
+    classify_slide_type_with_source,
     collect_text_elements,
     extract_slide,
     infer_hierarchy,
@@ -28,6 +30,7 @@ from .slide_extractor import (
 
 
 MEDIA_ENABLED = False
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -45,10 +48,50 @@ def redesign_slide(
     client: Any | None = None,
 ) -> RedesignResult:
     """Attempt one safe whole-slide redesign and never propagate exceptions."""
+    started_at = time.perf_counter()
+    phase_started_at = started_at
+    durations: dict[str, int] = {}
+    slide_type_source: str | None = None
+    candidate_count = 0
+    safe_candidate_count = 0
+    chosen_composition_id: str | None = None
+    operation_count = 0
+    irreversible_count = 0
+
+    def mark_phase(name: str) -> None:
+        nonlocal phase_started_at
+        now = time.perf_counter()
+        durations[name] = round((now - phase_started_at) * 1000)
+        phase_started_at = now
+
+    def complete(
+        result: RedesignResult,
+        *,
+        unsafe_reason: str | None = None,
+    ) -> RedesignResult:
+        _log_result(
+            result,
+            slide_type_source=slide_type_source,
+            candidate_count=candidate_count,
+            safe_candidate_count=safe_candidate_count,
+            chosen_composition_id=chosen_composition_id,
+            operation_count=operation_count,
+            irreversible_count=irreversible_count,
+            unsafe_reason=unsafe_reason,
+            durations={
+                **durations,
+                "total": round((time.perf_counter() - started_at) * 1000),
+            },
+        )
+        return result
+
     if not _should_attempt_redesign(request):
-        return _fallback("request-not-broad")
+        mark_phase("routing")
+        return complete(_fallback("request-not-broad"))
     if request.context.canvas.width != 1920 or request.context.canvas.height != 1080:
-        return _fallback("unsupported-canvas")
+        mark_phase("routing")
+        return complete(_fallback("unsupported-canvas"))
+    mark_phase("routing")
 
     slide = request.context.slide
     unsafe_ids = find_unsafe_elements(
@@ -56,18 +99,24 @@ def redesign_slide(
         media_slots_available=MEDIA_ENABLED,
     )
     if unsafe_ids:
-        return RedesignResult(
-            outcome="refused-unsafe",
-            reason=unsafe_refusal_message(unsafe_ids, slide),
+        mark_phase("safety")
+        return complete(
+            RedesignResult(
+                outcome="refused-unsafe",
+                reason=unsafe_refusal_message(unsafe_ids, slide),
+            ),
+            unsafe_reason="unsupported-element",
         )
 
     texts = collect_text_elements(slide)
     if not texts:
-        return _fallback("no-visible-text")
+        mark_phase("safety")
+        return complete(_fallback("no-visible-text"))
+    mark_phase("safety")
 
     try:
         hierarchy = infer_hierarchy(texts)
-        slide_type = classify_slide_type(
+        slide_type, slide_type_source = classify_slide_type_with_source(
             hierarchy,
             model=model,
             api_key=api_key,
@@ -78,7 +127,9 @@ def redesign_slide(
             slide_type=slide_type,
             hierarchy=hierarchy,
         )
+        mark_phase("extraction")
         candidates = eligible_candidates(extracted.summary)
+        candidate_count = len(candidates)
         constraints = collect_element_constraints(slide)
         analyses = filter_safe_candidates(
             extracted.summary,
@@ -88,14 +139,19 @@ def redesign_slide(
             request.context.theme,
             constraints,
         )
+        safe_candidate_count = len(analyses)
+        mark_phase("candidate_analysis")
         if not analyses:
             constrained_ids = _constrained_ids(constraints)
             if constrained_ids:
-                return RedesignResult(
-                    outcome="refused-unsafe",
-                    reason=unsafe_refusal_message(sorted(constrained_ids), slide),
+                return complete(
+                    RedesignResult(
+                        outcome="refused-unsafe",
+                        reason=unsafe_refusal_message(sorted(constrained_ids), slide),
+                    ),
+                    unsafe_reason="constraints-eliminated-candidates",
                 )
-            return _fallback("no-safe-candidate")
+            return complete(_fallback("no-safe-candidate"))
 
         chosen = select_composition(
             extracted.summary,
@@ -105,9 +161,12 @@ def redesign_slide(
             api_key=api_key,
             client=client,
         )
+        chosen_composition_id = chosen.composition_id
         analysis = next(
             item for item in analyses if item.candidate == chosen
         )
+        irreversible_count = len(analysis.matching.irreversible)
+        mark_phase("selection")
         slide_id = str(slide.get("slideId", ""))
         original_elements = [
             element
@@ -120,6 +179,7 @@ def redesign_slide(
             analysis.compiled,
             analysis.matching,
         )
+        operation_count = len(operations)
         affected_element_ids = _affected_element_ids(operations)
         response = DesignAgentResponse.model_validate(
             {
@@ -136,11 +196,14 @@ def redesign_slide(
                 "uiAction": None,
             }
         )
-        return RedesignResult(outcome="applicable", response=response)
+        mark_phase("operations")
+        return complete(RedesignResult(outcome="applicable", response=response))
     except (CompositionCompileError, StopIteration, ValueError, TypeError, KeyError):
-        return _fallback("redesign-compile-failed")
+        mark_phase("failure")
+        return complete(_fallback("redesign-compile-failed"))
     except Exception:
-        return _fallback("redesign-unavailable")
+        mark_phase("failure")
+        return complete(_fallback("redesign-unavailable"))
 
 
 def _should_attempt_redesign(request: DesignAgentRequest) -> bool:
@@ -172,3 +235,33 @@ def _affected_element_ids(operations: list[dict[str, Any]]) -> list[str]:
         if isinstance(element_id, str) and element_id not in affected:
             affected.append(element_id)
     return affected
+
+
+def _log_result(
+    result: RedesignResult,
+    *,
+    slide_type_source: str | None,
+    candidate_count: int,
+    safe_candidate_count: int,
+    chosen_composition_id: str | None,
+    operation_count: int,
+    irreversible_count: int,
+    unsafe_reason: str | None,
+    durations: dict[str, int],
+) -> None:
+    fields: dict[str, Any] = {
+        "event": "slide-redesign.completed",
+        "outcome": result.outcome,
+        "slide_type_source": slide_type_source,
+        "candidate_count": candidate_count,
+        "safe_candidate_count": safe_candidate_count,
+        "chosen_composition_id": chosen_composition_id,
+        "operation_count": operation_count,
+        "irreversible_count": irreversible_count,
+        "duration_ms": durations,
+        "durationMs": durations["total"],
+    }
+    if result.outcome == "refused-unsafe" and unsafe_reason is not None:
+        fields["unsafe_reason"] = unsafe_reason
+    log = logger.warning if result.outcome == "refused-unsafe" else logger.info
+    log("slide-redesign.completed", extra=fields)
