@@ -1,11 +1,9 @@
 import type {
   ApplyDesignAgentProposalResponse,
   Deck,
-  DesignAgentIntentPreset,
   DesignImageGenerationResult,
   DesignImageReferenceAttachment,
   SelectedDesignImageReference,
-  SlideRedesignPaletteOption,
   SpeakerNotesSuggestionMode,
   Slide
 } from "@orbit/shared";
@@ -33,6 +31,12 @@ import { DesignPaletteOptions } from "../../design-agent/components/DesignPalett
 import { DesignProposalCompareCard } from "../../design-agent/components/DesignProposalCompareCard";
 import { DesignProposalPreviewModal } from "../../design-agent/components/DesignProposalPreviewModal";
 import "../../design-agent/design-assistant.css";
+import {
+  buildPaletteFollowUpRequest,
+  buildQuickActionDesignRequestOptions,
+  type DesignRequestOptions,
+  type PendingPaletteSelection,
+} from "../../design-agent/designPaletteSelection";
 import {
   buildDesignProposalPreview,
   type DesignProposalPreview
@@ -72,21 +76,9 @@ type SelectedImagePreview = {
   previewUrl: string;
 };
 
-type DesignRequestOptions = {
-  intentPreset?: DesignAgentIntentPreset;
-  selectedPaletteOptionId?: string | null;
-  sessionId?: string;
-};
-
 type FailedDesignRequest = {
   content: string;
   options: DesignRequestOptions;
-};
-
-type PendingPaletteSelection = {
-  content: string;
-  options: SlideRedesignPaletteOption[];
-  sessionId: string;
 };
 
 type AiChatPanelProps = {
@@ -376,12 +368,10 @@ export function AiChatPanel(props: AiChatPanelProps) {
     setIsSending(true);
 
     try {
-      await submitDesignRequest(action.content, {
-        intentPreset: action.intentPreset,
-        ...(action.intentPreset === "redesign-slide"
-          ? { selectedPaletteOptionId: null }
-          : {}),
-      });
+      await submitDesignRequest(
+        action.content,
+        buildQuickActionDesignRequestOptions(action.intentPreset),
+      );
     } catch (error) {
       setQuickActionError(
         error instanceof Error
@@ -417,10 +407,8 @@ export function AiChatPanel(props: AiChatPanelProps) {
 
   async function handlePaletteConfirm(optionId: string) {
     if (!pendingPaletteSelection || isSending || !props.currentSlide) return;
-    const selectedOption = pendingPaletteSelection.options.find(
-      (option) => option.optionId === optionId,
-    );
-    if (!selectedOption) return;
+    const followUp = buildPaletteFollowUpRequest(pendingPaletteSelection, optionId);
+    if (!followUp) return;
     setQuickActionError(null);
     setIsSending(true);
     updateMessages((current) => [
@@ -428,15 +416,11 @@ export function AiChatPanel(props: AiChatPanelProps) {
       {
         id: `user-palette-${crypto.randomUUID()}`,
         role: "user",
-        content: `배색 선택: ${selectedOption.name}`,
+        content: `배색 선택: ${followUp.optionName}`,
       },
     ]);
     try {
-      await submitDesignRequest(pendingPaletteSelection.content, {
-        intentPreset: "redesign-slide",
-        selectedPaletteOptionId: optionId,
-        sessionId: pendingPaletteSelection.sessionId,
-      });
+      await submitDesignRequest(followUp.content, followUp.options);
     } catch (error) {
       setQuickActionError(
         error instanceof Error
