@@ -88,8 +88,17 @@ else
     ghcr_user="${GHCR_USERNAME:-$(doppler secrets get GHCR_USERNAME --plain 2>/dev/null || echo orbit-deploy)}"
     printf '%s' "$ghcr_token" | docker login "$IMAGE_REGISTRY" -u "$ghcr_user" --password-stdin
     doppler run -- "${COMPOSE[@]}" pull api worker python-worker
+    # Pin the web image to the exact deployed commit rather than the branch tag.
+    # The web bundle bakes in the frontend, so a stale bundle against a newer API
+    # can break the UI. The automatic develop-push deploy does not wait for
+    # build-images, so the branch tag may still point at the previous build when
+    # a web-changing commit deploys. Pull the per-SHA tag and fall back to an
+    # on-box build when it is missing (build not finished, or a commit that did
+    # not trigger build-web).
+    WEB_IMAGE_TAG="$(git rev-parse HEAD)"
+    export WEB_IMAGE_TAG
     if ! doppler run -- "${COMPOSE[@]}" pull web; then
-      echo "web image pull failed; building web on-box as a fallback."
+      echo "web image ${WEB_IMAGE_TAG} not available; building web on-box as a fallback."
       doppler run -- "${COMPOSE[@]}" build web
     fi
   else
