@@ -20,6 +20,7 @@ export type RichTextFragmentStyle = {
   fontStyle: RichTextFontStyle;
   fontWeight: TextElementProps["fontWeight"];
   italic: boolean;
+  letterSpacing: number;
   underline: boolean;
 };
 
@@ -71,7 +72,9 @@ type RichTextBaseStyle = {
   fontFamily: string;
   fontSize: number;
   fontWeight: TextElementProps["fontWeight"];
+  fontScale?: number;
   italic?: boolean;
+  letterSpacing?: number;
   underline?: boolean;
 };
 
@@ -154,14 +157,16 @@ export function measureRichTextFragment(
   style: RichTextFragmentStyle
 ) {
   const context = getMeasurementContext();
+  const spacingWidth =
+    Math.max(0, Array.from(text).length - 1) * style.letterSpacing;
   if (!context) {
-    return Array.from(text).length * style.fontSize * 0.55;
+    return Array.from(text).length * style.fontSize * 0.55 + spacingWidth;
   }
 
   context.font = `${style.italic ? "italic " : ""}${getNumericFontWeight(
     style.fontWeight
   )} ${style.fontSize}px ${style.fontFamily}`;
-  return context.measureText(text).width;
+  return context.measureText(text).width + spacingWidth;
 }
 
 export function richTextLayout(args: {
@@ -170,8 +175,14 @@ export function richTextLayout(args: {
   measureText?: RichTextMeasure;
   props: TextElementProps;
 }): RichTextLayoutResult {
-  const { baseStyle, frame, props } = args;
+  const { frame, props } = args;
   const measureText = args.measureText ?? measureRichTextFragment;
+  const baseStyle: RichTextBaseStyle = {
+    ...args.baseStyle,
+    fontScale:
+      props.autoFit === "shrink-text" ? (props.fontScale ?? 1) : 1,
+    letterSpacing: props.letterSpacing ?? args.baseStyle.letterSpacing ?? 0
+  };
   const insets = resolveTextBodyInset(props);
   const innerX = insets.left;
   const innerY = insets.top;
@@ -261,12 +272,19 @@ export function richTextLayout(args: {
 }
 
 function getLayoutParagraphs(props: TextElementProps): LayoutParagraph[] {
+  const lineSpaceScale =
+    props.autoFit === "shrink-text"
+      ? 1 - (props.lineSpaceReduction ?? 0)
+      : 1;
   if (props.paragraphs !== undefined) {
     return props.paragraphs.map((paragraph) => ({
       align: paragraph.align ?? props.align,
       bullet: paragraph.bullet,
       indent: paragraph.indent ?? 0,
-      lineHeight: paragraph.lineHeight ?? props.lineHeight,
+      lineHeight: Math.max(
+        0.5,
+        (paragraph.lineHeight ?? props.lineHeight) * lineSpaceScale
+      ),
       paragraph,
       runs: paragraph.runs ?? [],
       spaceAfter: paragraph.spaceAfter ?? 0,
@@ -282,7 +300,7 @@ function getLayoutParagraphs(props: TextElementProps): LayoutParagraph[] {
       align: props.align,
       bullet: props.bullet,
       indent: 0,
-      lineHeight: props.lineHeight,
+      lineHeight: Math.max(0.5, props.lineHeight * lineSpaceScale),
       paragraph: null,
       runs: props.runs ?? [],
       spaceAfter: 0,
@@ -551,10 +569,13 @@ function resolveParagraphStyle(
     baseline: "normal",
     color: paragraph?.color ?? baseStyle.color,
     fontFamily: paragraph?.fontFamily ?? baseStyle.fontFamily,
-    fontSize: paragraph?.fontSize ?? baseStyle.fontSize,
+    fontSize:
+      (paragraph?.fontSize ?? baseStyle.fontSize) * (baseStyle.fontScale ?? 1),
     fontStyle: getRichTextFontStyle(fontWeight, italic),
     fontWeight,
     italic,
+    letterSpacing:
+      paragraph?.letterSpacing ?? baseStyle.letterSpacing ?? 0,
     underline: paragraph?.underline ?? baseStyle.underline ?? false
   };
 }
@@ -571,10 +592,14 @@ function resolveRunStyle(
     baseline: run.baseline ?? "normal",
     color: run.color ?? paragraphStyle.color,
     fontFamily: run.fontFamily ?? paragraphStyle.fontFamily,
-    fontSize: run.fontSize ?? paragraphStyle.fontSize,
+    fontSize:
+      run.fontSize === undefined
+        ? paragraphStyle.fontSize
+        : run.fontSize * (baseStyle.fontScale ?? 1),
     fontStyle: getRichTextFontStyle(fontWeight, italic),
     fontWeight,
     italic,
+    letterSpacing: run.letterSpacing ?? paragraphStyle.letterSpacing,
     underline: run.underline ?? paragraphStyle.underline
   };
 }
@@ -610,6 +635,7 @@ function sameStyle(left: RichTextFragmentStyle, right: RichTextFragmentStyle) {
     left.fontStyle === right.fontStyle &&
     left.fontWeight === right.fontWeight &&
     left.italic === right.italic &&
+    left.letterSpacing === right.letterSpacing &&
     left.underline === right.underline
   );
 }

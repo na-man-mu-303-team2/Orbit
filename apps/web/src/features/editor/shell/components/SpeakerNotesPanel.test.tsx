@@ -8,8 +8,13 @@ import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
 import { SpeakerNotesQnaTab } from "./SpeakerNotesQnaTab";
 import { SpeakerNotesReportTab } from "./SpeakerNotesReportTab";
 
-function renderPanel(isExpanded: boolean, isEditing = false) {
+function renderPanel(
+  isExpanded: boolean,
+  isEditing = false,
+  imported = false,
+) {
   const deck = createDemoDeck();
+  if (imported) deck.metadata.sourceType = "import";
   const currentSlide = deck.slides[0] ?? null;
 
   return renderToStaticMarkup(
@@ -92,6 +97,27 @@ describe("SpeakerNotesPanel", () => {
     expect(html).not.toContain('aria-label="메모 편집"');
     expect(html).toContain("더블클릭하거나 Enter 키를 눌러 편집");
     expect(html).not.toContain("speaker-notes-length-meter");
+  });
+
+  it("imported Deck에서만 읽기 전용 노트 페이지 탭을 노출한다", () => {
+    const importedHtml = renderPanel(true, false, true);
+    const regularHtml = renderPanel(true);
+
+    expect(importedHtml).toContain(">노트 페이지</button>");
+    expect(importedHtml).toContain('id="speaker-notes-notes-page-tab"');
+    expect(importedHtml).toContain(
+      'aria-controls="speaker-notes-notes-page-panel"',
+    );
+    expect(regularHtml).not.toContain(">노트 페이지</button>");
+  });
+
+  it("대본 편집 중에는 노트 페이지 탭으로 이동할 수 없다", () => {
+    const html = renderPanel(true, true, true);
+    const notesPageTab = html.match(
+      /<button[^>]*id="speaker-notes-notes-page-tab"[^>]*>/,
+    )?.[0];
+
+    expect(notesPageTab).toContain('disabled=""');
   });
 
   it("편집 상태에서는 대본 안에 취소와 저장 액션을 표시한다", () => {

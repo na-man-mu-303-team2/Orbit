@@ -18,6 +18,7 @@ from app.ai.pptx_design_importer import (
     ImportedDesignBlueprint,
     PptxDesignImportResult,
     apply_repeated_text_roles,
+    attach_pptx_speaker_notes,
     assign_text_roles,
     average_image_color,
     build_quality_report,
@@ -32,6 +33,7 @@ from app.ai.pptx_motion import (
     parse_slide_motion,
     supported_main_sequence_shape_ids,
 )
+from app.ai.pptx_package_security import inspect_pptx_package
 
 PML_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 DML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -62,10 +64,18 @@ VECTOR_IMPORT_FLAG = "ORBIT_PPTX_OOXML_VECTOR_IMPORT"
 DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU = 91440
 DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU = 45720
 DEFAULT_PPTX_FONT_FAMILY = "Aptos, Calibri, Arial, sans-serif"
-RICH_TEXT_UNSUPPORTED_HYPERLINK = "PPTX_RICH_TEXT_UNSUPPORTED_HYPERLINK"
-RICH_TEXT_UNSUPPORTED_LETTER_SPACING = (
-    "PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING"
+PPTX_FONT_BROWSER_FALLBACK = "PPTX_FONT_BROWSER_FALLBACK"
+PPTX_FONT_FAMILY_ALIASES = {
+    "pretendard": ("Pretendard", None),
+    "pretendard extralight": ("Pretendard", 200),
+    "pretendard medium": ("Pretendard", 500),
+    "pretendard semibold": ("Pretendard", 600),
+    "pretendard extrabold": ("Pretendard", 800),
+}
+PPTX_BROWSER_AVAILABLE_FONT_FAMILIES = frozenset(
+    {"Pretendard", "Arial", "sans-serif", "serif", "monospace"}
 )
+RICH_TEXT_UNSUPPORTED_HYPERLINK = "PPTX_RICH_TEXT_UNSUPPORTED_HYPERLINK"
 TABLE_STRUCTURE_UNSUPPORTED = "PPTX_TABLE_STRUCTURE_UNSUPPORTED"
 TABLE_TRACK_MISMATCH = "PPTX_TABLE_TRACK_MISMATCH"
 MAX_TABLE_CELL_LOCATORS = 10_000
@@ -101,6 +111,7 @@ def import_pptx_design_with_optional_ooxml_vector(
     canvas_width: int = CANVAS_WIDTH,
     canvas_height: int = CANVAS_HEIGHT,
 ) -> PptxDesignImportResult:
+    inspect_pptx_package(path.read_bytes())
     if ooxml_vector_import_disabled():
         return import_pptx_design(
             path,
@@ -217,10 +228,13 @@ class OoxmlTransform:
 @dataclass
 class OoxmlImportState:
     assets: list[ImportedDesignAsset]
+    asset_ids_by_content_hash: dict[str, str]
     asset_colors: dict[str, str]
     theme_colors: dict[str, str]
+    theme_fonts: OoxmlThemeFonts
     theme_styles: OoxmlThemeStyles
     warnings: list[str]
+    text_style_context: OoxmlTextStyleContext | None = None
     z_cursor: int = 1
 
     def next_z(self) -> int:
@@ -233,6 +247,31 @@ class OoxmlImportState:
 class OoxmlThemeStyles:
     line_styles: tuple[ET.Element[Any], ...] = ()
     effect_styles: tuple[ET.Element[Any], ...] = ()
+
+
+@dataclass(frozen=True)
+class OoxmlThemeFonts:
+    major_latin: str = "Calibri"
+    major_east_asian: str = "Calibri"
+    major_complex_script: str = "Calibri"
+    minor_latin: str = "Calibri"
+    minor_east_asian: str = "Calibri"
+    minor_complex_script: str = "Calibri"
+
+
+@dataclass(frozen=True)
+class OoxmlTextStyleContext:
+    layout: ET.Element[Any] | None
+    master: ET.Element[Any] | None
+    theme_fonts: OoxmlThemeFonts
+
+
+@dataclass(frozen=True)
+class OoxmlTextCascade:
+    layout_shape: ET.Element[Any] | None
+    master_shape: ET.Element[Any] | None
+    master_text_style: ET.Element[Any] | None
+    theme_fonts: OoxmlThemeFonts
 
 
 def import_pptx_ooxml_visual_tree(
@@ -257,8 +296,10 @@ def import_pptx_ooxml_visual_tree(
         content_types = content_type_map(package)
         state = OoxmlImportState(
             assets=[],
+            asset_ids_by_content_hash={},
             asset_colors={},
             theme_colors=theme_color_map(package),
+            theme_fonts=theme_font_scheme(package),
             theme_styles=theme_style_matrix(package),
             warnings=[],
         )
@@ -271,6 +312,11 @@ def import_pptx_ooxml_visual_tree(
             if slide is None:
                 state.warnings.append(f"OOXML slide part missing: {slide_part}")
                 continue
+            append_font_availability_diagnostics(
+                slide,
+                state.warnings,
+                slide_index=slide_index,
+            )
             slide_rels = relationships_for_part(package, slide_part)
             layout_part = relationship_target_by_type(
                 slide_part,
@@ -291,6 +337,11 @@ def import_pptx_ooxml_visual_tree(
                 else None
             )
             master = read_xml(package, master_part) if master_part else None
+            state.text_style_context = OoxmlTextStyleContext(
+                layout=layout,
+                master=master,
+                theme_fonts=state.theme_fonts,
+            )
             placeholder_frames = placeholder_frame_map(layout, scale)
             elements: list[dict[str, Any]] = [
                 background_element(slide_index, canvas_width, canvas_height)
@@ -413,6 +464,12 @@ def import_pptx_ooxml_visual_tree(
         quality_report = build_quality_report(slides, state.warnings)
         quality_report["motionDiagnostics"] = motion_diagnostic_summary(
             motion_diagnostics
+        )
+        attach_pptx_speaker_notes(
+            path,
+            blueprint_payload,
+            template_blueprint,
+            quality_report,
         )
         return PptxDesignImportResult(
             blueprint=blueprint_payload,
@@ -790,7 +847,7 @@ def chart_element(
     if not relationship_id:
         return None
     rel = relationships_for_part(package, part_path).get(relationship_id)
-    if not rel:
+    if not rel or relationship_is_external(rel):
         return None
     chart_part = resolve_part_path(part_path, rel.get("Target", ""))
     chart = read_xml(package, chart_part)
@@ -1408,6 +1465,7 @@ def append_shape_text_only(
         z_index=state.next_z(),
         locked=locked,
         theme_colors=state.theme_colors,
+        text_style_context=state.text_style_context,
         warnings=state.warnings,
     )
     if text_element_payload:
@@ -1588,6 +1646,7 @@ def append_shape(
             z_index=state.next_z(),
             locked=locked,
             theme_colors=state.theme_colors,
+            text_style_context=state.text_style_context,
             warnings=state.warnings,
         )
         if text_element_payload:
@@ -1686,6 +1745,7 @@ def append_shape(
         z_index=state.next_z(),
         locked=locked,
         theme_colors=state.theme_colors,
+        text_style_context=state.text_style_context,
         warnings=state.warnings,
     )
     if text_element_payload:
@@ -1835,6 +1895,10 @@ def image_asset_from_relationship(
             f"OOXML image relationship missing on slide {slide_index}: {relationship_id}"
         )
         return None
+    if relationship_is_external(rel):
+        if "PPTX_EXTERNAL_RELATIONSHIP_BLOCKED" not in state.warnings:
+            state.warnings.append("PPTX_EXTERNAL_RELATIONSHIP_BLOCKED")
+        return None
     image_part = resolve_part_path(part_path, rel.get("Target", ""))
     if image_part not in package.namelist():
         state.warnings.append(
@@ -1842,8 +1906,12 @@ def image_asset_from_relationship(
         )
         return None
     blob = package.read(image_part)
-    asset_id = f"image_{len(state.assets) + 1}"
+    content_hash = hashlib.sha256(blob).hexdigest()
+    existing_asset_id = state.asset_ids_by_content_hash.get(content_hash)
     mime_type = mime_type_for_part(content_types, image_part)
+    if existing_asset_id is not None:
+        return existing_asset_id, mime_type
+    asset_id = f"image_{len(state.assets) + 1}"
     state.assets.append(
         ImportedDesignAsset(
             assetId=asset_id,
@@ -1852,6 +1920,7 @@ def image_asset_from_relationship(
             contentBase64=base64.b64encode(blob).decode("ascii"),
         )
     )
+    state.asset_ids_by_content_hash[content_hash] = asset_id
     color = average_image_color(blob)
     if color:
         state.asset_colors[asset_id] = color
@@ -2177,6 +2246,7 @@ def text_element(
     z_index: int,
     locked: bool,
     theme_colors: dict[str, str],
+    text_style_context: OoxmlTextStyleContext | None,
     warnings: list[str],
 ) -> dict[str, Any] | None:
     body = first_local_child(shape, "txBody")
@@ -2188,30 +2258,39 @@ def text_element(
         slide_index=slide_index,
         shape_id=shape_id,
     )
-    paragraphs = text_paragraphs(body, scale, theme_colors)
+    cascade = text_cascade_for_shape(shape, source_name, text_style_context)
+    paragraphs = text_paragraphs(body, scale, theme_colors, cascade)
     runs = flatten_paragraph_runs(paragraphs)
     text = "\n".join(str(paragraph.get("text", "")) for paragraph in paragraphs)
     if not text.strip():
         return None
-    first_run = next((run for run in runs if str(run.get("text", "")).strip()), runs[0])
+    first_style = next(
+        (
+            paragraph
+            for paragraph in paragraphs
+            if str(paragraph.get("text", "")).strip()
+        ),
+        paragraphs[0],
+    )
     props: dict[str, Any] = {
         "text": text,
         "runs": runs,
         "paragraphs": paragraphs,
-        "bodyInset": text_body_inset(body, scale),
-        "fontFamily": first_run.get("fontFamily", DEFAULT_PPTX_FONT_FAMILY),
-        "fontSize": first_run.get("fontSize", 24),
-        "fontWeight": first_run.get("fontWeight", "normal"),
-        "color": first_run.get("color", "#111827"),
-        "align": paragraph_align(body),
-        "verticalAlign": text_vertical_align(body),
-        "writingMode": text_writing_mode(body),
-        "lineHeight": paragraph_line_height(body),
+        "bodyInset": text_body_inset(body, scale, cascade),
+        "fontFamily": first_style.get("fontFamily", DEFAULT_PPTX_FONT_FAMILY),
+        "fontSize": first_style.get("fontSize", 24),
+        "fontWeight": first_style.get("fontWeight", "normal"),
+        "color": first_style.get("color", "#111827"),
+        "align": paragraphs[0].get("align", "left"),
+        "verticalAlign": text_vertical_align(body, cascade),
+        "writingMode": text_writing_mode(body, cascade),
+        "lineHeight": paragraphs[0].get("lineHeight", 1.15),
     }
-    for key in ("italic", "underline"):
-        if key in first_run:
-            props[key] = first_run[key]
-    bullet = paragraph_bullet(body, scale)
+    for key in ("italic", "letterSpacing", "underline"):
+        if key in first_style:
+            props[key] = first_style[key]
+    props.update(text_autofit_properties(body, cascade))
+    bullet = paragraphs[0].get("bullet")
     if bullet:
         props["bullet"] = bullet
     return {
@@ -2231,33 +2310,61 @@ def text_paragraphs(
     body: ET.Element[Any],
     scale: OoxmlScale,
     theme_colors: dict[str, str],
+    cascade: OoxmlTextCascade,
 ) -> list[dict[str, Any]]:
     paragraphs: list[dict[str, Any]] = []
     for paragraph in direct_local_children(body, "p"):
-        runs = paragraph_runs(paragraph, scale, theme_colors)
+        level = paragraph_level(paragraph)
+        paragraph_layers = paragraph_property_layers(
+            body,
+            paragraph,
+            cascade,
+            level=level,
+        )
+        default_run_layers: list[ET.Element[Any]] = []
+        for layer in paragraph_layers:
+            run_defaults = default_run_properties(layer)
+            if run_defaults is not None:
+                default_run_layers.append(run_defaults)
+        runs, effective_runs = paragraph_runs(
+            paragraph,
+            scale,
+            theme_colors,
+            cascade.theme_fonts,
+            default_run_layers,
+        )
         text = "".join(str(run.get("text", "")) for run in runs)
         props: dict[str, Any] = {
             "text": text,
             "runs": runs,
-            "align": paragraph_align_value(paragraph),
-            "lineHeight": paragraph_line_height_value(paragraph),
-            "spaceBefore": paragraph_spacing_px(paragraph, "spcBef", scale),
-            "spaceAfter": paragraph_spacing_px(paragraph, "spcAft", scale),
-            "indent": paragraph_indent_px(paragraph, scale),
+            "align": paragraph_align_from_layers(paragraph_layers),
+            "lineHeight": paragraph_line_height_from_layers(paragraph_layers),
+            "spaceBefore": paragraph_spacing_from_layers(
+                paragraph_layers,
+                "spcBef",
+                scale,
+            ),
+            "spaceAfter": paragraph_spacing_from_layers(
+                paragraph_layers,
+                "spcAft",
+                scale,
+            ),
+            "indent": paragraph_indent_from_layers(paragraph_layers, scale),
         }
-        bullet = paragraph_bullet_value(paragraph, scale)
+        bullet = paragraph_bullet_from_layers(paragraph_layers, scale)
         if bullet:
             props["bullet"] = bullet
-        if runs:
+        if effective_runs:
             first_run = next(
-                (run for run in runs if str(run.get("text", "")).strip()),
-                runs[0],
+                (run for run in effective_runs if str(run.get("text", "")).strip()),
+                effective_runs[0],
             )
             for key in (
                 "fontFamily",
                 "fontSize",
                 "fontWeight",
                 "italic",
+                "letterSpacing",
                 "underline",
                 "color",
             ):
@@ -2275,17 +2382,40 @@ def paragraph_runs(
     paragraph: ET.Element[Any],
     scale: OoxmlScale,
     theme_colors: dict[str, str],
-) -> list[dict[str, Any]]:
+    theme_fonts: OoxmlThemeFonts | None = None,
+    default_run_layers: list[ET.Element[Any]] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     runs: list[dict[str, Any]] = []
+    effective_runs: list[dict[str, Any]] = []
     for child in list(paragraph):
         name = local_name(child)
         if name == "r":
             text = "".join(node.text or "" for node in child.iter() if local_name(node) == "t")
             if text:
-                runs.append({"text": text, **run_props(child, scale, theme_colors)})
+                resolved_theme_fonts = theme_fonts or OoxmlThemeFonts()
+                direct_properties = run_properties_value(
+                    first_local_child(child, "rPr"),
+                    scale,
+                    theme_colors,
+                    resolved_theme_fonts,
+                )
+                runs.append({"text": text, **direct_properties})
+                effective_runs.append(
+                    {
+                        "text": text,
+                        **effective_run_properties(
+                            child,
+                            scale,
+                            theme_colors,
+                            resolved_theme_fonts,
+                            default_run_layers or [],
+                        ),
+                    }
+                )
         elif name == "br":
             runs.append({"text": "\n", "baseline": "normal"})
-    return runs
+            effective_runs.append({"text": "\n", "baseline": "normal"})
+    return runs, effective_runs
 
 
 def append_rich_text_diagnostics(
@@ -2313,10 +2443,6 @@ def append_rich_text_diagnostics(
                 or first_local_descendant(r_pr, "hlinkMouseOver") is not None
             ):
                 warnings.append(f"{RICH_TEXT_UNSUPPORTED_HYPERLINK}: {location}")
-            if "spc" in r_pr.attrib:
-                warnings.append(
-                    f"{RICH_TEXT_UNSUPPORTED_LETTER_SPACING}: {location}"
-                )
             run_index += 1
 
 
@@ -2363,22 +2489,67 @@ def run_props(
     return run_properties_value(r_pr, scale, theme_colors)
 
 
+def effective_run_properties(
+    run: ET.Element[Any],
+    scale: OoxmlScale,
+    theme_colors: dict[str, str],
+    theme_fonts: OoxmlThemeFonts,
+    default_run_layers: list[ET.Element[Any]],
+) -> dict[str, Any]:
+    props: dict[str, Any] = {"baseline": "normal"}
+    for layer in default_run_layers:
+        props.update(
+            run_property_overrides(layer, scale, theme_colors, theme_fonts)
+        )
+    direct = first_local_child(run, "rPr")
+    if direct is not None:
+        props.update(
+            run_property_overrides(direct, scale, theme_colors, theme_fonts)
+        )
+    return props
+
+
 def run_properties_value(
     r_pr: ET.Element[Any] | None,
     scale: OoxmlScale,
     theme_colors: dict[str, str],
+    theme_fonts: OoxmlThemeFonts | None = None,
 ) -> dict[str, Any]:
     props: dict[str, Any] = {"baseline": "normal"}
     if r_pr is None:
         return props
+    props.update(
+        run_property_overrides(
+            r_pr,
+            scale,
+            theme_colors,
+            theme_fonts or OoxmlThemeFonts(),
+        )
+    )
+    return props
+
+
+def run_property_overrides(
+    r_pr: ET.Element[Any],
+    scale: OoxmlScale,
+    theme_colors: dict[str, str],
+    theme_fonts: OoxmlThemeFonts,
+) -> dict[str, Any]:
+    props: dict[str, Any] = {}
     typeface = run_typeface(r_pr)
+    alias_weight: int | None = None
     if typeface:
-        props["fontFamily"] = typeface
+        typeface = resolve_theme_typeface(typeface, theme_fonts)
+        font_family, alias_weight = normalize_pptx_font_family(typeface)
+        if font_family:
+            props["fontFamily"] = font_family
+        if alias_weight is not None:
+            props["fontWeight"] = alias_weight
     size = int_attr(r_pr, "sz", 0)
     if size > 0:
         props["fontSize"] = font_size_to_canvas_px(size / 100, scale)
     bold = r_pr.get("b")
-    if bold is not None:
+    if bold is not None and alias_weight is None:
         props["fontWeight"] = "bold" if bold in {"1", "true"} else "normal"
     italic = r_pr.get("i")
     if italic is not None:
@@ -2386,6 +2557,12 @@ def run_properties_value(
     underline = r_pr.get("u")
     if underline is not None:
         props["underline"] = underline not in {"0", "false", "none"}
+    spacing = r_pr.get("spc")
+    if spacing is not None:
+        props["letterSpacing"] = text_point_value_to_canvas_px(
+            int_value(spacing, 0),
+            scale,
+        )
     color = solid_color(first_local_child(r_pr, "solidFill"), theme_colors)
     if color:
         props["color"] = color
@@ -2401,12 +2578,290 @@ def font_size_to_canvas_px(size_pt: float, scale: OoxmlScale) -> int:
     return max(8, round(size_pt * 12700 * scale.average_scale))
 
 
+def text_point_value_to_canvas_px(value: int, scale: OoxmlScale) -> float:
+    return round(value / 100 * 12700 * scale.average_scale, 3)
+
+
 def run_typeface(r_pr: ET.Element[Any]) -> str | None:
     for child_name in ("latin", "ea", "cs"):
         child = first_local_child(r_pr, child_name)
         if child is not None and child.get("typeface"):
             return str(child.get("typeface"))
     return None
+
+
+def resolve_theme_typeface(typeface: str, theme_fonts: OoxmlThemeFonts) -> str:
+    mapping = {
+        "+mj-lt": theme_fonts.major_latin,
+        "+mj-ea": theme_fonts.major_east_asian,
+        "+mj-cs": theme_fonts.major_complex_script,
+        "+mn-lt": theme_fonts.minor_latin,
+        "+mn-ea": theme_fonts.minor_east_asian,
+        "+mn-cs": theme_fonts.minor_complex_script,
+    }
+    return mapping.get(typeface.casefold(), typeface)
+
+
+def normalize_pptx_font_family(typeface: str) -> tuple[str, int | None]:
+    original = typeface.strip()
+    alias = PPTX_FONT_FAMILY_ALIASES.get(original.casefold())
+    return alias if alias is not None else (original, None)
+
+
+def append_font_availability_diagnostics(
+    root: ET.Element[Any],
+    warnings: list[str],
+    *,
+    slide_index: int,
+) -> None:
+    unavailable_families: set[str] = set()
+    available_families = {
+        family.casefold() for family in PPTX_BROWSER_AVAILABLE_FONT_FAMILIES
+    }
+    for node in root.iter():
+        if local_name(node) != "rPr":
+            continue
+        typeface = run_typeface(node)
+        if not typeface or typeface.startswith("+"):
+            continue
+        family, _weight = normalize_pptx_font_family(typeface)
+        if family.casefold() not in available_families:
+            unavailable_families.add(bounded_font_family_label(family))
+
+    warnings.extend(
+        f"{PPTX_FONT_BROWSER_FALLBACK}: slide={slide_index}; "
+        f"family={family}; fallback=Arial"
+        for family in sorted(unavailable_families, key=str.casefold)
+    )
+
+
+def bounded_font_family_label(family: str) -> str:
+    normalized = " ".join(family.replace(";", " ").split())
+    return normalized[:128] or "unknown"
+
+
+def text_cascade_for_shape(
+    shape: ET.Element[Any],
+    source_name: str,
+    context: OoxmlTextStyleContext | None,
+) -> OoxmlTextCascade:
+    theme_fonts = context.theme_fonts if context is not None else OoxmlThemeFonts()
+    if context is None or source_name != "slide":
+        return OoxmlTextCascade(None, None, None, theme_fonts)
+    key = placeholder_key(shape)
+    layout_shape = matching_placeholder_shape(context.layout, key)
+    master_key = placeholder_key(layout_shape) if layout_shape is not None else key
+    master_shape = matching_placeholder_shape(context.master, master_key)
+    return OoxmlTextCascade(
+        layout_shape=layout_shape,
+        master_shape=master_shape,
+        master_text_style=master_text_style(context.master, key),
+        theme_fonts=theme_fonts,
+    )
+
+
+def matching_placeholder_shape(
+    root: ET.Element[Any] | None,
+    key: tuple[str, str] | None,
+) -> ET.Element[Any] | None:
+    if root is None or key is None:
+        return None
+    candidates = [
+        node
+        for node in root.iter()
+        if local_name(node) in {"sp", "graphicFrame"}
+        and placeholder_key(node) is not None
+    ]
+    exact = next((node for node in candidates if placeholder_key(node) == key), None)
+    if exact is not None:
+        return exact
+    placeholder_type, placeholder_index = key
+    if placeholder_index:
+        for node in candidates:
+            candidate_key = placeholder_key(node)
+            if candidate_key is not None and candidate_key[1] == placeholder_index:
+                return node
+    normalized_type = normalized_placeholder_type(placeholder_type)
+    for node in candidates:
+        candidate_key = placeholder_key(node)
+        if (
+            candidate_key is not None
+            and normalized_placeholder_type(candidate_key[0]) == normalized_type
+        ):
+            return node
+    return None
+
+
+def normalized_placeholder_type(placeholder_type: str) -> str:
+    if placeholder_type in {"ctrTitle", "title"}:
+        return "title"
+    if placeholder_type in {"body", "obj", "subTitle"}:
+        return "body"
+    return placeholder_type
+
+
+def master_text_style(
+    master: ET.Element[Any] | None,
+    key: tuple[str, str] | None,
+) -> ET.Element[Any] | None:
+    text_styles = first_local_descendant(master, "txStyles")
+    if text_styles is None:
+        return None
+    placeholder_type = normalized_placeholder_type(key[0]) if key is not None else ""
+    style_name = (
+        "titleStyle"
+        if placeholder_type == "title"
+        else "bodyStyle"
+        if placeholder_type == "body"
+        else "otherStyle"
+    )
+    return first_local_child(text_styles, style_name)
+
+
+def paragraph_level(paragraph: ET.Element[Any]) -> int:
+    properties = first_local_child(paragraph, "pPr")
+    return max(0, min(8, int_attr(properties, "lvl", 0)))
+
+
+def paragraph_property_layers(
+    body: ET.Element[Any],
+    paragraph: ET.Element[Any],
+    cascade: OoxmlTextCascade,
+    *,
+    level: int,
+) -> list[ET.Element[Any]]:
+    layers: list[ET.Element[Any]] = []
+    for container in (
+        cascade.master_text_style,
+        text_body(cascade.master_shape),
+        text_body(cascade.layout_shape),
+        body,
+    ):
+        properties = level_paragraph_properties(container, level)
+        if properties is not None:
+            layers.append(properties)
+    direct = first_local_child(paragraph, "pPr")
+    if direct is not None:
+        layers.append(direct)
+    return layers
+
+
+def text_body(shape: ET.Element[Any] | None) -> ET.Element[Any] | None:
+    return first_local_child(shape, "txBody") if shape is not None else None
+
+
+def level_paragraph_properties(
+    container: ET.Element[Any] | None,
+    level: int,
+) -> ET.Element[Any] | None:
+    if container is None:
+        return None
+    style = (
+        first_local_child(container, "lstStyle")
+        if local_name(container) == "txBody"
+        else container
+    )
+    properties = first_local_child(style, f"lvl{level + 1}pPr")
+    return properties if properties is not None else first_local_child(style, "lvl1pPr")
+
+
+def default_run_properties(
+    paragraph_properties: ET.Element[Any],
+) -> ET.Element[Any] | None:
+    return first_local_child(paragraph_properties, "defRPr")
+
+
+def paragraph_align_from_layers(layers: list[ET.Element[Any]]) -> str:
+    value = next(
+        (str(layer.get("algn")) for layer in reversed(layers) if layer.get("algn")),
+        "left",
+    )
+    return {"ctr": "center", "r": "right", "just": "justify"}.get(value, "left")
+
+
+def paragraph_line_height_from_layers(layers: list[ET.Element[Any]]) -> float:
+    for layer in reversed(layers):
+        line_spacing = first_local_child(layer, "lnSpc")
+        spacing_pct = first_local_child(line_spacing, "spcPct")
+        if spacing_pct is not None:
+            return max(
+                0.5,
+                min(4, int_attr(spacing_pct, "val", 115000) / 100000),
+            )
+    return 1.15
+
+
+def paragraph_spacing_from_layers(
+    layers: list[ET.Element[Any]],
+    tag_name: str,
+    scale: OoxmlScale,
+) -> int:
+    for layer in reversed(layers):
+        spacing = first_local_child(layer, tag_name)
+        if spacing is None:
+            continue
+        points = first_local_child(spacing, "spcPts")
+        if points is not None:
+            return round(
+                int_attr(points, "val", 0) / 100 * 12700 * scale.average_scale
+            )
+        return 0
+    return 0
+
+
+def paragraph_indent_from_layers(
+    layers: list[ET.Element[Any]],
+    scale: OoxmlScale,
+) -> int:
+    value = next(
+        (int_attr(layer, "marL", 0) for layer in reversed(layers) if layer.get("marL") is not None),
+        0,
+    )
+    return round(value * scale.scale_x)
+
+
+def paragraph_bullet_from_layers(
+    layers: list[ET.Element[Any]],
+    scale: OoxmlScale,
+) -> dict[str, Any] | None:
+    for layer in reversed(layers):
+        if first_local_child(layer, "buNone") is not None:
+            return None
+        bullet = first_local_child(layer, "buChar")
+        if bullet is not None:
+            return {
+                "enabled": True,
+                "character": str(bullet.get("char", "\u2022")),
+                "indent": max(0, round(int_attr(layer, "marL", 0) * scale.scale_x)),
+            }
+    return None
+
+
+def body_property_layers(
+    body: ET.Element[Any],
+    cascade: OoxmlTextCascade | None,
+) -> list[ET.Element[Any]]:
+    layers: list[ET.Element[Any]] = []
+    for source_body in (
+        text_body(cascade.master_shape) if cascade is not None else None,
+        text_body(cascade.layout_shape) if cascade is not None else None,
+        body,
+    ):
+        body_properties = first_local_child(source_body, "bodyPr")
+        if body_properties is not None:
+            layers.append(body_properties)
+    return layers
+
+
+def body_attribute(
+    layers: list[ET.Element[Any]],
+    name: str,
+    fallback: str,
+) -> str:
+    return next(
+        (str(layer.get(name)) for layer in reversed(layers) if layer.get(name) is not None),
+        fallback,
+    )
 
 
 def paragraph_align(body: ET.Element[Any]) -> str:
@@ -2424,9 +2879,11 @@ def paragraph_align_value(paragraph: ET.Element[Any]) -> str:
     }.get(align, "left")
 
 
-def text_vertical_align(body: ET.Element[Any]) -> str:
-    body_pr = first_local_child(body, "bodyPr")
-    anchor = str(body_pr.get("anchor", "t")) if body_pr is not None else "t"
+def text_vertical_align(
+    body: ET.Element[Any],
+    cascade: OoxmlTextCascade | None = None,
+) -> str:
+    anchor = body_attribute(body_property_layers(body, cascade), "anchor", "t")
     return {
         "ctr": "middle",
         "mid": "middle",
@@ -2434,9 +2891,11 @@ def text_vertical_align(body: ET.Element[Any]) -> str:
     }.get(anchor, "top")
 
 
-def text_writing_mode(body: ET.Element[Any]) -> str:
-    body_pr = first_local_child(body, "bodyPr")
-    vertical = str(body_pr.get("vert", "horz")) if body_pr is not None else "horz"
+def text_writing_mode(
+    body: ET.Element[Any],
+    cascade: OoxmlTextCascade | None = None,
+) -> str:
+    vertical = body_attribute(body_property_layers(body, cascade), "vert", "horz")
     return "vertical-270" if vertical == "vert270" else "horizontal"
 
 
@@ -2458,40 +2917,96 @@ def paragraph_line_height_value(paragraph: ET.Element[Any]) -> float:
     return max(0.5, min(4, int_attr(spacing_pct, "val", 115000) / 100000))
 
 
-def text_body_inset(body: ET.Element[Any], scale: OoxmlScale) -> dict[str, int]:
-    body_pr = first_local_child(body, "bodyPr")
-    if body_pr is None:
-        return {"left": 0, "right": 0, "top": 0, "bottom": 0}
+def text_body_inset(
+    body: ET.Element[Any],
+    scale: OoxmlScale,
+    cascade: OoxmlTextCascade | None = None,
+) -> dict[str, int]:
+    layers = body_property_layers(body, cascade)
     return {
         "left": max(
             0,
             round(
-                int_attr(body_pr, "lIns", DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU)
+                int_value(
+                    body_attribute(
+                        layers,
+                        "lIns",
+                        str(DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU),
+                    ),
+                    DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU,
+                )
                 * scale.scale_x
             ),
         ),
         "right": max(
             0,
             round(
-                int_attr(body_pr, "rIns", DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU)
+                int_value(
+                    body_attribute(
+                        layers,
+                        "rIns",
+                        str(DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU),
+                    ),
+                    DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU,
+                )
                 * scale.scale_x
             ),
         ),
         "top": max(
             0,
             round(
-                int_attr(body_pr, "tIns", DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU)
+                int_value(
+                    body_attribute(
+                        layers,
+                        "tIns",
+                        str(DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU),
+                    ),
+                    DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU,
+                )
                 * scale.scale_y
             ),
         ),
         "bottom": max(
             0,
             round(
-                int_attr(body_pr, "bIns", DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU)
+                int_value(
+                    body_attribute(
+                        layers,
+                        "bIns",
+                        str(DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU),
+                    ),
+                    DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU,
+                )
                 * scale.scale_y
             ),
         ),
     }
+
+
+def text_autofit_properties(
+    body: ET.Element[Any],
+    cascade: OoxmlTextCascade,
+) -> dict[str, Any]:
+    for body_properties in reversed(body_property_layers(body, cascade)):
+        if first_local_child(body_properties, "noAutofit") is not None:
+            return {"autoFit": "none"}
+        if first_local_child(body_properties, "spAutoFit") is not None:
+            return {"autoFit": "resize-shape"}
+        normal = first_local_child(body_properties, "normAutofit")
+        if normal is None:
+            continue
+        return {
+            "autoFit": "shrink-text",
+            "fontScale": max(
+                0.01,
+                min(1, int_attr(normal, "fontScale", 100000) / 100000),
+            ),
+            "lineSpaceReduction": max(
+                0,
+                min(1, int_attr(normal, "lnSpcReduction", 0) / 100000),
+            ),
+        }
+    return {}
 
 
 def paragraph_bullet(
@@ -2990,8 +3505,17 @@ def presentation_slide_parts(package: zipfile.ZipFile) -> list[str]:
         if not rel_id:
             continue
         rel = rels.get(rel_id)
-        if rel and rel.get("Type") == SLIDE_REL_TYPE:
-            slide_parts.append(resolve_part_path("ppt/presentation.xml", rel.get("Target", "")))
+        if (
+            rel
+            and rel.get("Type") == SLIDE_REL_TYPE
+            and not relationship_is_external(rel)
+        ):
+            slide_parts.append(
+                resolve_part_path(
+                    "ppt/presentation.xml",
+                    rel.get("Target", ""),
+                )
+            )
     return slide_parts
 
 
@@ -3026,6 +3550,34 @@ def theme_color_map(package: zipfile.ZipFile) -> dict[str, str]:
         if target in colors:
             colors[alias] = colors[target]
     return {**FALLBACK_SCHEME_COLORS, **colors}
+
+
+def theme_font_scheme(package: zipfile.ZipFile) -> OoxmlThemeFonts:
+    theme_part = presentation_theme_part(package) or first_theme_part(package)
+    theme = read_xml(package, theme_part)
+    font_scheme = first_local_descendant(theme, "fontScheme") if theme is not None else None
+    major = first_local_child(font_scheme, "majorFont")
+    minor = first_local_child(font_scheme, "minorFont")
+    major_latin = theme_font_value(major, "latin", "Calibri")
+    minor_latin = theme_font_value(minor, "latin", "Calibri")
+    return OoxmlThemeFonts(
+        major_latin=major_latin,
+        major_east_asian=theme_font_value(major, "ea", major_latin),
+        major_complex_script=theme_font_value(major, "cs", major_latin),
+        minor_latin=minor_latin,
+        minor_east_asian=theme_font_value(minor, "ea", minor_latin),
+        minor_complex_script=theme_font_value(minor, "cs", minor_latin),
+    )
+
+
+def theme_font_value(
+    font_group: ET.Element[Any] | None,
+    script: str,
+    fallback: str,
+) -> str:
+    font = first_local_child(font_group, script)
+    typeface = str(font.get("typeface", "")).strip() if font is not None else ""
+    return typeface or fallback
 
 
 def theme_style_matrix(package: zipfile.ZipFile) -> OoxmlThemeStyles:
@@ -3158,9 +3710,17 @@ def relationship_target_by_type(
     if not part_path:
         return None
     for rel in rels.values():
-        if rel.get("Type") == rel_type and rel.get("Target"):
+        if (
+            rel.get("Type") == rel_type
+            and rel.get("Target")
+            and not relationship_is_external(rel)
+        ):
             return resolve_part_path(part_path, rel["Target"])
     return None
+
+
+def relationship_is_external(relationship: dict[str, str]) -> bool:
+    return relationship.get("TargetMode", "").lower() == "external"
 
 
 def rels_path_for_part(part_path: str) -> str:
@@ -3273,6 +3833,13 @@ def int_attr(element: ET.Element[Any] | None, name: str, fallback: int) -> int:
         return fallback
     try:
         return int(str(element.get(name)))
+    except Exception:
+        return fallback
+
+
+def int_value(value: object, fallback: int) -> int:
+    try:
+        return int(str(value))
     except Exception:
         return fallback
 

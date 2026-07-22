@@ -67,6 +67,7 @@ type DeckValidationInput = {
       durationMs: number;
     };
     ooxmlSourceSlidePart?: string;
+    importRenderMode?: "editable" | "hybrid" | "snapshot";
     style: Record<string, unknown>;
     speakerNotes: string;
     aiNotes?: {
@@ -311,6 +312,31 @@ const expectInvalidDeck = (deck: unknown) => {
 describe("deckSchema validation", () => {
   it("accepts a 1920x1080 wide-16-9 deck", () => {
     expectValidDeck(createValidDeck());
+  });
+
+  it("keeps legacy slides compatible and validates imported render modes", () => {
+    const legacyDeck = createValidDeck();
+    expect(deckSchema.parse(legacyDeck).slides[0].importRenderMode).toBeUndefined();
+
+    for (const importRenderMode of ["editable", "hybrid", "snapshot"] as const) {
+      const importedDeck = createValidDeck();
+      importedDeck.slides[0].importRenderMode = importRenderMode;
+      expect(deckSchema.parse(importedDeck).slides[0].importRenderMode).toBe(
+        importRenderMode
+      );
+    }
+
+    expect(
+      deckSchema.safeParse({
+        ...legacyDeck,
+        slides: [
+          {
+            ...legacyDeck.slides[0],
+            importRenderMode: "rendered-background"
+          }
+        ]
+      }).success
+    ).toBe(false);
   });
 
   it("accepts finite element coordinates outside the canvas", () => {
@@ -1109,6 +1135,65 @@ describe("deckSchema validation", () => {
     });
     expect(element.props).not.toHaveProperty("italic");
     expect(element.props).not.toHaveProperty("underline");
+  });
+
+  it("preserves imported text spacing and autofit metadata", () => {
+    const deck = createValidDeck();
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      props: {
+        text: "Autofit",
+        letterSpacing: 1.2,
+        autoFit: "shrink-text",
+        fontScale: 0.84,
+        lineSpaceReduction: 0.12,
+        runs: [{ text: "Autofit", letterSpacing: 1.2 }],
+        paragraphs: [
+          {
+            text: "Autofit",
+            letterSpacing: 1.2,
+            runs: [{ text: "Autofit", letterSpacing: 1.2 }]
+          }
+        ]
+      }
+    };
+
+    const parsed = deckSchema.parse(deck);
+    const element = parsed.slides[0]?.elements[0];
+
+    expect(element?.type).toBe("text");
+    if (!element || element.type !== "text") {
+      throw new Error("expected a text element");
+    }
+    expect(element.props).toMatchObject({
+      autoFit: "shrink-text",
+      fontScale: 0.84,
+      letterSpacing: 1.2,
+      lineSpaceReduction: 0.12,
+      paragraphs: [
+        {
+          letterSpacing: 1.2,
+          runs: [{ letterSpacing: 1.2 }]
+        }
+      ],
+      runs: [{ letterSpacing: 1.2 }]
+    });
+  });
+
+  it("rejects autofit scale metadata without shrink-text mode", () => {
+    const deck = createValidDeck();
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      props: {
+        text: "Invalid autofit",
+        autoFit: "resize-shape",
+        fontScale: 0.84
+      }
+    };
+
+    expect(() => deckSchema.parse(deck)).toThrow(
+      "fontScale and lineSpaceReduction require autoFit=shrink-text"
+    );
   });
 
   it("preserves mixed italic and underline styles through Deck serialization", () => {

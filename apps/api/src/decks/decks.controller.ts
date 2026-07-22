@@ -57,6 +57,17 @@ export class DecksController {
     return this.decksService.getPptxImportQuality(projectId);
   }
 
+  @Get("deck/slides/:slideId/notes-preview")
+  async getPptxNotesPreview(
+    @Param("projectId") projectId: string,
+    @Param("slideId") slideId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.decksService.getPptxNotesPreview(projectId, slideId);
+  }
+
   @Post("deck/patches")
   async appendPatch(
     @Param("projectId") projectId: string,

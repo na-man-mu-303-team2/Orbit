@@ -151,6 +151,7 @@ export const textElementRunSchema = z.object({
   fontFamily: z.string().min(1).optional(),
   fontSize: z.number().finite().positive().optional(),
   fontWeight: textFontWeightSchema.optional(),
+  letterSpacing: z.number().finite().optional(),
   italic: z.boolean().optional(),
   underline: z.boolean().optional(),
   color: themeColorSchema.optional(),
@@ -169,6 +170,7 @@ export const textElementParagraphSchema = z.object({
   fontFamily: z.string().min(1).optional(),
   fontSize: z.number().finite().positive().optional(),
   fontWeight: textFontWeightSchema.optional(),
+  letterSpacing: z.number().finite().optional(),
   italic: z.boolean().optional(),
   underline: z.boolean().optional(),
   color: themeColorSchema.optional(),
@@ -196,14 +198,30 @@ export const textElementPropsSchema = z
     fontFamily: z.string().min(1).optional(),
     fontSize: z.number().finite().positive().default(24),
     fontWeight: textFontWeightSchema.default("normal"),
+    letterSpacing: z.number().finite().optional(),
     italic: z.boolean().optional(),
     underline: z.boolean().optional(),
     color: themeColorSchema.optional(),
     align: textAlignSchema.default("left"),
     verticalAlign: textVerticalAlignSchema.default("top"),
     writingMode: textWritingModeSchema.optional(),
+    autoFit: z.enum(["none", "shrink-text", "resize-shape"]).optional(),
+    fontScale: z.number().finite().positive().max(1).optional(),
+    lineSpaceReduction: z.number().finite().min(0).max(1).optional(),
     lineHeight: z.number().finite().positive().default(1.2),
     bullet: textElementBulletSchema.optional()
+  })
+  .superRefine((props, ctx) => {
+    if (
+      props.autoFit !== "shrink-text" &&
+      (props.fontScale !== undefined || props.lineSpaceReduction !== undefined)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "fontScale and lineSpaceReduction require autoFit=shrink-text"
+      });
+    }
   })
   .default({});
 

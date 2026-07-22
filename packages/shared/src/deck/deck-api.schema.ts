@@ -3,7 +3,7 @@ import { z } from "zod";
 import { isoDateTimeSchema } from "../common/time.schema";
 import { jobSchema } from "../jobs/job.schema";
 import { deckSchema } from "./deck.schema";
-import { deckIdSchema } from "./id.schema";
+import { deckIdSchema, deckSlideIdSchema } from "./id.schema";
 import { deckChangeRecordSchema, deckPatchSchema } from "./patch.schema";
 import { qualityReportSchema } from "./template-blueprint.schema";
 
@@ -140,6 +140,49 @@ export const pptxImportQualitySchema = z.object({
 export const getPptxImportQualityResponseSchema = z.object({
   importQuality: pptxImportQualitySchema.nullable(),
 });
+
+export const pptxNotesPreviewStatusSchema = z.enum([
+  "available",
+  "absent",
+  "sync-pending",
+  "stale",
+  "render-unavailable",
+  "unavailable",
+]);
+
+const protectedProjectAssetUrlSchema = z
+  .string()
+  .regex(/^\/api\/v1\/projects\/[^/]+\/assets\/[^/]+\/content$/);
+
+export const pptxNotesPreviewSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    status: pptxNotesPreviewStatusSchema,
+    assetUrl: protectedProjectAssetUrlSchema.nullable(),
+  })
+  .strict()
+  .superRefine((preview, ctx) => {
+    if (preview.status === "available" && preview.assetUrl === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["assetUrl"],
+        message: "available notes preview requires an assetUrl",
+      });
+    }
+    if (preview.status !== "available" && preview.assetUrl !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["assetUrl"],
+        message: "unavailable notes preview must not expose an assetUrl",
+      });
+    }
+  });
+
+export const getPptxNotesPreviewResponseSchema = z
+  .object({
+    notesPreview: pptxNotesPreviewSchema,
+  })
+  .strict();
 
 export const ooxmlSyncStatusSchema = z.enum([
   "not-applicable",
@@ -359,6 +402,13 @@ export type GetDeckResponse = z.infer<typeof getDeckResponseSchema>;
 export type PptxImportQuality = z.infer<typeof pptxImportQualitySchema>;
 export type GetPptxImportQualityResponse = z.infer<
   typeof getPptxImportQualityResponseSchema
+>;
+export type PptxNotesPreviewStatus = z.infer<
+  typeof pptxNotesPreviewStatusSchema
+>;
+export type PptxNotesPreview = z.infer<typeof pptxNotesPreviewSchema>;
+export type GetPptxNotesPreviewResponse = z.infer<
+  typeof getPptxNotesPreviewResponseSchema
 >;
 export type OoxmlSyncStatus = z.infer<typeof ooxmlSyncStatusSchema>;
 export type OoxmlSyncState = z.infer<typeof ooxmlSyncStateSchema>;
