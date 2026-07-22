@@ -8,9 +8,10 @@ import type {
 import {
   IconChartBar,
   IconExternalLink,
-  IconPlayerPause,
+  IconPlayerPauseFilled,
   IconPlayerPlay,
   IconPresentationAnalytics,
+  IconSquareFilled,
   IconUsers
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -203,6 +204,7 @@ export function ActivityPresenterPanel(props: {
         <>
           <div className="activity-presenter-command-row">
             <OrbitButton
+              aria-describedby="activity-presenter-reopen-help"
               className="activity-presenter-secondary-command"
               disabled={!runtime || pending}
               icon={<IconPlayerPlay aria-hidden="true" size={18} stroke={1.8} />}
@@ -214,25 +216,31 @@ export function ActivityPresenterPanel(props: {
             <OrbitButton
               className="activity-presenter-primary-command"
               disabled={!runtime || pending}
-              icon={<IconPlayerPause aria-hidden="true" size={18} stroke={1.8} />}
+              icon={<IconSquareFilled aria-hidden="true" size={18} />}
               onClick={() => void updateStatus(primary.nextStatus)}
             >
               {pending ? "상태 변경 중" : primary.label}
             </OrbitButton>
+            <p
+              className="activity-presenter-reopen-help"
+              id="activity-presenter-reopen-help"
+              role="tooltip"
+            >
+              기존 응답과 집계를 유지한 채 다시 받습니다.
+            </p>
           </div>
-          <p className="activity-presenter-reopen-help">
-            기존 응답과 집계를 유지한 채 다시 받습니다.
-          </p>
         </>
       ) : (
         <OrbitButton
           className="activity-presenter-primary-command"
           disabled={!runtime || pending}
-          icon={primary.nextStatus === "open" ? (
-            <IconPlayerPlay aria-hidden="true" size={18} stroke={1.8} />
-          ) : (
-            <IconPlayerPause aria-hidden="true" size={18} stroke={1.8} />
-          )}
+          icon={
+            runtime?.run.status === "results"
+              ? undefined
+              : primary.nextStatus === "open"
+                ? <IconPlayerPlay aria-hidden="true" size={18} stroke={1.8} />
+                : <IconPlayerPauseFilled aria-hidden="true" size={18} />
+          }
           onClick={() => void updateStatus(primary.nextStatus)}
         >
           {pending ? "상태 변경 중" : primary.label}

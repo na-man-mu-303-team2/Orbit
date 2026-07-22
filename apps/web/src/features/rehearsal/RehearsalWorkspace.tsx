@@ -48,7 +48,6 @@ import {
   Gauge,
   LoaderCircle,
   Mic,
-  Monitor,
   MoreHorizontal,
   PlayCircle,
   Presentation,
@@ -5250,14 +5249,6 @@ export function RehearsalWorkspace(props: {
                 onRequestDisplayScreens={requestDisplayScreens}
                 onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}
               />
-              <button
-                className="presenter-single-screen-button"
-                type="button"
-                onClick={() => setIsSingleScreenOpen(true)}
-              >
-                <Monitor size={16} />
-                단일 화면
-              </button>
             </div>
           ) : null
         }

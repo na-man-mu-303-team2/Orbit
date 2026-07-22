@@ -1,4 +1,7 @@
 name: Personal Staging deploy
+run-name: >-
+  Deploy ${{ inputs.expected_sha || 'latest develop' }}
+  (${{ inputs.deployment_mode }}) by @${{ github.actor }}
 
 on:
   workflow_dispatch:
@@ -32,6 +35,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  show-target:
+    # Manual (workflow_dispatch) runs do not carry a push commit, so the Actions
+    # list only shows "Manually run by X". Resolve the deployed commit to the PR
+    # and branch that produced it and surface them in the run summary, restoring
+    # the branch/PR visibility that push-triggered deploys used to show.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Resolve deployed PR and branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ inputs.expected_sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          message="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${SHA}" \
+            --jq '.commit.message' || true)"
+          subject="${message%%$'\n'*}"
+
+          pr="$(gh pr list --repo "${GITHUB_REPOSITORY}" --state merged \
+            --search "${SHA}" \
+            --json number,title,headRefName,mergedBy \
+            --jq '.[0] | "PR #\(.number) — \(.title)\n- 브랜치: `\(.headRefName)`\n- 머지: @\(.mergedBy.login)"' \
+            2>/dev/null || true)"
+
+          {
+            echo "### 🚀 Personal Staging 배포 대상"
+            echo ""
+            echo "- **Commit**: \`${SHA}\`"
+            echo "- **Message**: ${subject}"
+            if [ -n "${pr}" ]; then
+              echo "- ${pr}"
+            else
+              echo "- PR 없음 (직접 push 또는 검색 결과 없음)"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   sync-personal-staging-env:
     if: >-
       inputs.deployment_mode == 'full' &&
