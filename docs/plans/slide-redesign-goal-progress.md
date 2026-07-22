@@ -32,7 +32,7 @@
   - `uv run mypy app` — 66 source files 통과
   - `uv run pytest tests/test_slide_redesign_composer.py -q` — 59 passed
 - 남은 stop gate: 없음
-- PR03 child 상태: clean worktree 확인, 정리 예정
+- PR03 child 상태: clean worktree와 local branch 정리 완료
 - 다음 milestone: PR04 — replacement draft와 원자적 검증
 
 ## 완료 Milestone 기록
@@ -51,6 +51,7 @@
   - `uv run pytest tests/test_slide_redesign_composer.py -q` — 59 passed
 - stop gate: T3.1~T3.11 통과, required-media 후보 제외, out-of-list/provider 실패 fallback, 49개 M1 compile 경계 사례 통과
 - integration merge 후 `ruff`, `mypy app`, composer 59 tests 통과
+- child 상태: clean worktree와 local branch 정리 완료
 
 ### PR02 — current slide extractor와 분류 fallback
 
