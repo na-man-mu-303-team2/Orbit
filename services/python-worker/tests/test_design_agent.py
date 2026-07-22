@@ -16,6 +16,7 @@ from app.ai.design_agent import (
     design_agent_system_prompt,
     generate_design_proposal,
 )
+from app.ai.motion_planner import MotionImportContext
 
 
 class FakeResponses:
@@ -584,10 +585,17 @@ def test_recommends_export_compatible_animation_timeline_without_llm() -> None:
 @pytest.mark.parametrize(
     ("slide_patch", "expected_message"),
     [
-        ({"ooxmlOrigin": "imported"}, "위치 정보"),
         (
             {
                 "ooxmlOrigin": "imported",
+                "importRenderMode": "editable",
+            },
+            "위치 정보",
+        ),
+        (
+            {
+                "ooxmlOrigin": "imported",
+                "importRenderMode": "editable",
                 "ooxmlSourceSlidePart": "ppt/slides/slide1.xml",
                 "ooxmlMotionCapabilities": {
                     "importedMainSequenceCoverage": "partial",
@@ -625,10 +633,17 @@ def test_animation_recommendation_allows_safe_imported_slide() -> None:
     request.capabilities.operations.append("add_animation")
     request.context.slide.update({
         "ooxmlOrigin": "imported",
+        "importRenderMode": "editable",
         "ooxmlSourceSlidePart": "ppt/slides/slide1.xml",
         "ooxmlMotionCapabilities": {
             "importedMainSequenceCoverage": "complete",
         },
+    })
+    request.motion_import_context = MotionImportContext.model_validate({
+        "renderMode": "editable",
+        "sourceSlidePartPresent": True,
+        "importedMainSequenceCoverage": "complete",
+        "stableTargetElementIds": ["el_image"],
     })
 
     result = generate_design_proposal(

@@ -2,6 +2,7 @@ import type {
   DesignAgentContext,
   DesignAgentMessageRole,
   DesignAgentMessageStatus,
+  MotionImportContext,
   SlideRedesignPaletteOption,
 } from "@orbit/shared";
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from "typeorm";
@@ -39,6 +40,16 @@ export class DesignAgentMessageEntity {
   @Column({ name: "context_json", nullable: true, type: "jsonb" })
   contextJson!:
     | DesignAgentContext
+    | {
+        motion: Pick<
+          DesignAgentContext,
+          "baseVersion" | "deckId" | "selectedElementIds"
+        > & {
+          slideId: string;
+          speakerNotesPresent: boolean;
+          importContext: MotionImportContext | null;
+        };
+      }
     | { paletteOptions: SlideRedesignPaletteOption[] }
     | null;
 

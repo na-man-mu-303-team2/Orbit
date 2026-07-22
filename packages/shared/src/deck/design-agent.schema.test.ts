@@ -395,4 +395,34 @@ describe("design agent schema", () => {
 
     expect(result.operations[0]?.type).toBe("add_element");
   });
+
+  it("accepts only the bounded internal motion import context", () => {
+    const request = designAgentWorkerRequestSchema.parse({
+      projectId: "project_1",
+      sessionId: "session_1",
+      question: "애니메이션을 추천해 주세요.",
+      intentPreset: "recommend-animation",
+      context: designAgentContext,
+      capabilities: designAgentCapabilities,
+      motionImportContext: {
+        renderMode: "hybrid",
+        sourceSlidePartPresent: true,
+        importedMainSequenceCoverage: "complete",
+        stableTargetElementIds: ["el_stable"],
+      },
+    });
+
+    expect(request.motionImportContext?.stableTargetElementIds).toEqual([
+      "el_stable",
+    ]);
+    expect(
+      designAgentWorkerRequestSchema.safeParse({
+        ...request,
+        motionImportContext: {
+          ...request.motionImportContext,
+          notesXml: "forbidden",
+        },
+      }).success,
+    ).toBe(false);
+  });
 });

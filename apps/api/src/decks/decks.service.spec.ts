@@ -3073,6 +3073,127 @@ describe("DecksService", () => {
   });
 });
 
+describe("DecksService motion import context", () => {
+  it("derives only unique writable non-group stable targets", async () => {
+    const { dataSource, service } = createService();
+    const base = createDeck();
+    const frameCapability = {
+      richText: "full" as const,
+      crop: "none" as const,
+      tableCellText: false,
+      frame: true,
+    };
+    const deck = deckSchema.parse({
+      ...base,
+      metadata: { ...base.metadata, sourceType: "import" },
+      slides: [
+        {
+          ...base.slides[0]!,
+          importRenderMode: "hybrid",
+          ooxmlOrigin: "imported",
+          ooxmlSourceSlidePart: "ppt/slides/slide1.xml",
+          ooxmlMotionCapabilities: {
+            transitionWritable: true,
+            importedMainSequenceCoverage: "complete",
+          },
+          elements: [
+            {
+              ...createTextElement("el_stable", "stable"),
+              ooxmlOrigin: "imported",
+              ooxmlEditCapabilities: frameCapability,
+            },
+            {
+              ...createTextElement("el_grouped", "grouped"),
+              ooxmlOrigin: "imported",
+              ooxmlEditCapabilities: frameCapability,
+            },
+            {
+              ...createTextElement("el_ambiguous", "ambiguous"),
+              ooxmlOrigin: "imported",
+              ooxmlEditCapabilities: frameCapability,
+            },
+          ],
+        },
+      ],
+    });
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_motion_1",
+      project_id: deck.projectId,
+      deck_id: deck.deckId,
+      blueprint_json: {
+        templateId: "template_motion_1",
+        sourceFileId: "file_source_1",
+        currentPackageFileId: "file_current_1",
+        logicalGroupElementIds: ["el_grouped"],
+        slides: [
+          {
+            slideId: deck.slides[0]!.slideId,
+            slideIndex: 1,
+            sourceSlideIndex: 1,
+            sourceSlidePart: "ppt/slides/slide1.xml",
+            ooxmlMotionCapabilities: {
+              transitionWritable: true,
+              importedMainSequenceCoverage: "complete",
+            },
+            elementSources: [
+              {
+                elementId: "el_stable",
+                elementType: "text",
+                ooxmlOrigin: "imported",
+                ooxmlEditCapabilities: frameCapability,
+                slidePart: "ppt/slides/slide1.xml",
+                shapeId: "2",
+                sourceType: "shape",
+                writable: true,
+              },
+              {
+                elementId: "el_grouped",
+                elementType: "text",
+                ooxmlOrigin: "imported",
+                ooxmlEditCapabilities: frameCapability,
+                slidePart: "ppt/slides/slide1.xml",
+                shapeId: "3",
+                sourceType: "shape",
+                writable: true,
+              },
+              {
+                elementId: "el_ambiguous",
+                elementType: "text",
+                ooxmlOrigin: "imported",
+                ooxmlEditCapabilities: frameCapability,
+                slidePart: "ppt/slides/slide1.xml",
+                shapeId: "4",
+                sourceType: "shape",
+                writable: true,
+              },
+              {
+                elementId: "el_ambiguous",
+                elementType: "text",
+                ooxmlOrigin: "imported",
+                ooxmlEditCapabilities: frameCapability,
+                slidePart: "ppt/slides/slide1.xml",
+                shapeId: "5",
+                sourceType: "shape",
+                writable: true,
+              },
+            ],
+            slots: [],
+          },
+        ],
+      },
+    });
+
+    await expect(
+      service.getMotionImportContext(deck.projectId, deck, deck.slides[0]!),
+    ).resolves.toEqual({
+      renderMode: "hybrid",
+      sourceSlidePartPresent: true,
+      importedMainSequenceCoverage: "complete",
+      stableTargetElementIds: ["el_stable"],
+    });
+  });
+});
+
 function createFailedOoxmlSyncService(error: {
   code: string;
   message: string;

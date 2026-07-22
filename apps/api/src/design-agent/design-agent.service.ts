@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { applyDeckPatch } from "@orbit/editor-core";
+import {
+  applyDeckPatch,
+  evaluateMotionEligibility,
+  getMotionEligibilityReasonMessage,
+  type MotionEligibility,
+} from "@orbit/editor-core";
 import {
   applyDesignAgentProposalResponseSchema,
   createDesignAgentMessageResponseSchema,
@@ -17,6 +22,7 @@ import {
   type DeckPatchOperation,
   type DesignAgentContext,
   type DesignAgentMessage,
+  type MotionImportContext,
   type DesignAgentProposal,
   type Slide,
   type SmartArtItem,
@@ -59,6 +65,27 @@ export class DesignAgentService {
     input: CreateDesignAgentMessageRequest,
   ): Promise<CreateDesignAgentMessageResponse> {
     const currentDeck = await this.assertCurrentContext(projectId, input.context);
+    const currentSlide = currentDeck.slides.find(
+      (slide) => slide.slideId === input.context.slide.slideId,
+    )!;
+    const motionGate =
+      input.intentPreset === "recommend-animation"
+        ? await this.getAuthoritativeMotionEligibility(
+            projectId,
+            currentDeck,
+            currentSlide,
+          )
+        : null;
+    const workerContext = motionGate
+      ? buildAuthoritativeMotionContext(
+          input.context,
+          currentDeck,
+          currentSlide,
+          motionGate.eligibility.outcome === "applicable"
+            ? motionGate.eligibility.allowedTargetElementIds
+            : [],
+        )
+      : input.context;
 
     const sessionId = input.sessionId ?? `design_session_${randomUUID()}`;
     const sessionMessages = await this.loadSessionMessages(
@@ -106,7 +133,18 @@ export class DesignAgentService {
         role: "user",
         content: input.content,
         status: "pending",
-        contextJson: input.context,
+        contextJson: motionGate
+          ? {
+              motion: {
+                deckId: workerContext.deckId,
+                baseVersion: workerContext.baseVersion,
+                slideId: workerContext.slide.slideId,
+                selectedElementIds: workerContext.selectedElementIds,
+                speakerNotesPresent: Boolean(currentSlide.speakerNotes.trim()),
+                importContext: motionGate.importContext,
+              },
+            }
+          : input.context,
         errorCode: null,
         errorMessage: null,
         createdAt: now,
@@ -115,6 +153,49 @@ export class DesignAgentService {
     );
 
     try {
+      if (motionGate && motionGate.eligibility.outcome !== "applicable") {
+        const responseNow = new Date();
+        const reasonCode = motionGate.eligibility.reasonCode;
+        const responseMessage = await this.messagesRepository.save(
+          this.messagesRepository.create({
+            messageId: `design_message_${randomUUID()}`,
+            sessionId,
+            projectId,
+            actorUserId,
+            deckId: currentDeck.deckId,
+            slideId: currentSlide.slideId,
+            role: "assistant",
+            content: getMotionEligibilityReasonMessage(reasonCode),
+            status: "succeeded",
+            contextJson: null,
+            errorCode: null,
+            errorMessage: null,
+            createdAt: responseNow,
+            updatedAt: responseNow,
+          }),
+        );
+        requestMessage.status = "succeeded";
+        requestMessage.updatedAt = responseNow;
+        await this.messagesRepository.save(requestMessage);
+        this.logger.info(
+          {
+            event: "design_agent.motion.refused",
+            projectId,
+            deckId: currentDeck.deckId,
+            slideId: currentSlide.slideId,
+            sessionId,
+            reasonCode,
+          },
+          "Motion recommendation refused by eligibility policy.",
+        );
+        return createDesignAgentMessageResponseSchema.parse({
+          sessionId,
+          requestMessage: toMessageDto(requestMessage),
+          responseMessage: toMessageDto(responseMessage),
+          uiAction: null,
+        });
+      }
+
       const availableSmartArtLayouts = (
         await this.smartArtLayoutsService.listActiveCatalog()
       ).map((layout) => ({
@@ -129,7 +210,10 @@ export class DesignAgentService {
         sessionId,
         question: input.content,
         ...(input.intentPreset ? { intentPreset: input.intentPreset } : {}),
-        context: input.context,
+        context: workerContext,
+        ...(motionGate?.importContext
+          ? { motionImportContext: motionGate.importContext }
+          : {}),
         history,
         availableSmartArtLayouts,
         capabilities: designAgentCapabilities,
@@ -329,6 +413,42 @@ export class DesignAgentService {
       throw new ConflictException("Design agent proposal slide no longer exists.");
     }
 
+    const motionOperations = proposal.operations.filter(isAnimationOperation);
+    if (motionOperations.length > 0) {
+      const currentSlide = current.deck.slides.find(
+        (slide) => slide.slideId === proposal.slideId,
+      )!;
+      const motionGate = await this.getAuthoritativeMotionEligibility(
+        projectId,
+        current.deck,
+        currentSlide,
+      );
+      const allowedTargetIds =
+        motionGate.eligibility.outcome === "applicable"
+          ? new Set(motionGate.eligibility.allowedTargetElementIds)
+          : null;
+      const operationTargetIds = resolveAnimationOperationTargetIds(
+        currentSlide,
+        motionOperations,
+      );
+      if (
+        allowedTargetIds === null ||
+        operationTargetIds === null ||
+        operationTargetIds.some((elementId) => !allowedTargetIds.has(elementId))
+      ) {
+        proposal.status = "stale";
+        proposal.rejectedReason =
+          motionGate.eligibility.outcome === "applicable"
+            ? "MOTION_TARGET_UNSAFE"
+            : `MOTION_${motionGate.eligibility.reasonCode}`;
+        proposal.updatedAt = new Date();
+        await this.proposalsRepository.save(proposal);
+        throw new ConflictException(
+          "Design agent motion proposal is no longer safe to apply.",
+        );
+      }
+    }
+
     const applied = await this.decksService.appendPatch(projectId, {
       patch: {
         deckId: proposal.deckId,
@@ -396,6 +516,47 @@ export class DesignAgentService {
     });
   }
 
+  private async getAuthoritativeMotionEligibility(
+    projectId: string,
+    deck: Deck,
+    slide: Slide,
+  ): Promise<{
+    eligibility: MotionEligibility;
+    importContext: MotionImportContext | null;
+  }> {
+    const importContext = await this.decksService.getMotionImportContext(
+      projectId,
+      deck,
+      slide,
+    );
+    const authoritativeSlide = importContext
+      ? {
+          ...slide,
+          ooxmlSourceSlidePart: importContext.sourceSlidePartPresent
+            ? slide.ooxmlSourceSlidePart
+            : undefined,
+          ooxmlMotionCapabilities: {
+            transitionWritable:
+              slide.ooxmlMotionCapabilities?.transitionWritable ?? false,
+            importedMainSequenceCoverage:
+              importContext.importedMainSequenceCoverage,
+          },
+        }
+      : slide;
+    return {
+      eligibility: evaluateMotionEligibility(deck, authoritativeSlide, {
+        ...(importContext
+          ? {
+              stableTargetElementIds:
+                importContext.stableTargetElementIds,
+            }
+          : {}),
+        requireAuthoritativeImportedTargets: true,
+      }),
+      importContext,
+    };
+  }
+
   private async expandSmartArtRequest(
     smartArtRequest: SmartArtRequest,
     context: DesignAgentContext,
@@ -449,6 +610,69 @@ export class DesignAgentService {
       operations,
     );
   }
+}
+
+type AnimationOperation = Extract<
+  DeckPatchOperation,
+  {
+    type: "add_animation" | "delete_animation" | "update_animation";
+  }
+>;
+
+function buildAuthoritativeMotionContext(
+  clientContext: DesignAgentContext,
+  deck: Deck,
+  slide: Slide,
+  allowedTargetElementIds: readonly string[],
+): DesignAgentContext {
+  const currentElementIds = new Set(
+    slide.elements.map((element) => element.elementId),
+  );
+  const allowedTargetIds = new Set(allowedTargetElementIds);
+  return {
+    deckId: deck.deckId,
+    baseVersion: deck.version,
+    canvas: deck.canvas,
+    slide,
+    selectedElementIds: clientContext.selectedElementIds.filter(
+      (elementId) =>
+        currentElementIds.has(elementId) && allowedTargetIds.has(elementId),
+    ),
+    theme: deck.theme,
+  };
+}
+
+function isAnimationOperation(
+  operation: DeckPatchOperation,
+): operation is AnimationOperation {
+  return (
+    operation.type === "add_animation" ||
+    operation.type === "update_animation" ||
+    operation.type === "delete_animation"
+  );
+}
+
+function resolveAnimationOperationTargetIds(
+  slide: Slide,
+  operations: AnimationOperation[],
+): string[] | null {
+  const animationTargets = new Map(
+    slide.animations.map((animation) => [
+      animation.animationId,
+      animation.elementId,
+    ]),
+  );
+  const targetIds: string[] = [];
+  for (const operation of operations) {
+    if (operation.type === "add_animation") {
+      targetIds.push(operation.animation.elementId);
+      continue;
+    }
+    const elementId = animationTargets.get(operation.animationId);
+    if (!elementId) return null;
+    targetIds.push(elementId);
+  }
+  return targetIds;
 }
 
 export function allowsUnselectedSmartArtSources(question: string) {
