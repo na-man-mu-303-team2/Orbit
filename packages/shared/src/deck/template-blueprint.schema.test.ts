@@ -881,6 +881,44 @@ describe("qualityReportSchema", () => {
     ).toBe(false);
   });
 
+  it("rejects pixel measurements that contradict evaluated and unevaluated states", () => {
+    const fidelityDiagnostics = {
+      selectedRenderMode: "editable" as const,
+      recommendedRenderMode: "editable" as const,
+      unsupportedObjectCount: 0,
+      fontSubstitutionCount: 0,
+    };
+
+    expect(
+      qualityReportSchema.safeParse({
+        ...qualityReport,
+        slideReports: [
+          {
+            slideIndex: 1,
+            status: "not_evaluated",
+            ssim: 0.99,
+            pixelEvaluation: "not-evaluated",
+            ...fidelityDiagnostics,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      qualityReportSchema.safeParse({
+        ...qualityReport,
+        slideReports: [
+          {
+            slideIndex: 1,
+            status: "passed",
+            ssim: null,
+            pixelEvaluation: "passed",
+            ...fidelityDiagnostics,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts slide-level vectorization failure reports", () => {
     const parsed = qualityReportSchema.parse({
       ...qualityReport,

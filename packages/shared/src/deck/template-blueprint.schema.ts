@@ -469,6 +469,20 @@ export const qualityReportSlideSchema = z
         path: ["pixelEvaluation"],
       });
     }
+    if (report.pixelEvaluation === "not-evaluated" && report.ssim !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "unevaluated pixel fidelity must not include an SSIM value",
+        path: ["ssim"],
+      });
+    }
+    if (report.pixelEvaluation === "passed" && report.ssim === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "passed pixel fidelity requires an SSIM value",
+        path: ["ssim"],
+      });
+    }
   });
 
 export const qualityReportNotesWarningCodeSchema = z.enum([
