@@ -30,10 +30,12 @@ describe("activity slide editor", () => {
     const presenter = renderToStaticMarkup(<ActivitySlidePreview role="presenter" slide={slide} />);
 
     expect(audience).toContain("청중 참여 장표 미리보기");
-    expect(audience).toContain("응답 제출");
-    expect(audience).toContain("답변을 입력해 주세요");
+    expect(audience).not.toContain("응답 제출");
     expect(audience).toContain("전혀 아니요");
     expect(audience).toContain("매우 그래요");
+    expect(audience).toContain("다음 질문");
+    expect(audience).not.toContain("답변을 입력해 주세요");
+    expect(audience).not.toContain("이전 질문");
     expect(audience).not.toContain("redesign-orbit-brand");
     expect(audience).not.toContain("AUDIENCE");
     expect(presenter).toContain("발표자 참여 장표 미리보기");
@@ -241,6 +243,35 @@ describe("activity slide editor", () => {
 
     expect(html).toContain("선택지 8");
     expect(html).toContain('data-activity-template="poll"');
+  });
+
+  it("shows one pre-question at a time with next-question navigation", () => {
+    const preQuestionSlide = createActivitySlide(createDemoDeck(), "pre-question");
+    const firstQuestion = preQuestionSlide.activity.questions[0]!;
+    const html = renderToStaticMarkup(
+      <ActivitySlidePreview
+        role="audience"
+        slide={{
+          ...preQuestionSlide,
+          activity: {
+            ...preQuestionSlide.activity,
+            questions: [
+              firstQuestion,
+              {
+                ...firstQuestion,
+                questionId: `${firstQuestion.questionId}_2`,
+                prompt: "두 번째 사전 질문"
+              }
+            ]
+          }
+        }}
+      />
+    );
+
+    expect(html).toContain(firstQuestion.prompt);
+    expect(html).toContain("다음 질문");
+    expect(html).not.toContain("두 번째 사전 질문");
+    expect(html).not.toContain("이전 질문");
   });
 
   it.each(["pre-question", "poll", "satisfaction"] as const)("renders the %s template inspector", (template) => {
