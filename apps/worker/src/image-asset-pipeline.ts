@@ -305,11 +305,18 @@ export async function resolveSlideImageAssets(
         return { deck, warnings, diagnostics };
       }
       const prompt = buildSlideRedesignImagePrompt(deck, slide, request);
-      asset = await runtime.generated.generate({
-        prompt,
-        aspectRatio: frameAspectRatio(placeholder.width, placeholder.height),
-        abortSignal: AbortSignal.timeout(25_000),
-      });
+      asset = await withAbortTimeout(
+        (abortSignal) =>
+          runtime.generated!.generate({
+            prompt,
+            aspectRatio: frameAspectRatio(
+              placeholder.width,
+              placeholder.height,
+            ),
+            abortSignal,
+          }),
+        25_000,
+      );
       asset = { ...asset, generationPrompt: prompt };
     }
     assertCandidate(asset, policy);
@@ -341,9 +348,29 @@ export async function resolveSlideImageAssets(
     diagnostics.push(diagnostic);
     emitImageFallback(onFallback, diagnostic);
     warnings.push(
-      `Image asset fallback retained for slide ${slide.order}: ${safeErrorMessage(error)}`,
+      `Image asset fallback retained for slide ${slide.order}; layout operations remain available.`,
     );
     return { deck, warnings, diagnostics };
+  }
+}
+
+async function withAbortTimeout<T>(
+  operation: (abortSignal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  const controller = new AbortController();
+  let rejectTimeout!: (error: Error) => void;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    rejectTimeout = reject;
+  });
+  const timer = setTimeout(() => {
+    controller.abort();
+    rejectTimeout(new Error("Image generation timed out."));
+  }, timeoutMs);
+  try {
+    return await Promise.race([operation(controller.signal), timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 

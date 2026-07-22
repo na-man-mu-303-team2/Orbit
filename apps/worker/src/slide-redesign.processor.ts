@@ -46,6 +46,7 @@ export interface SlideRedesignProcessorOptions {
   storage?: Pick<StoragePort, "putObject">;
   resolveImageAssets?: typeof resolveSlideImageAssets;
   onImageFallback?: (diagnostic: ImageAssetFallbackDiagnostic) => void;
+  imageEventLogger?: (event: string, fields: Record<string, unknown>) => void;
 }
 
 export async function processSlideRedesignJob(
@@ -347,7 +348,20 @@ async function resolveComposedImage(
 ) {
   const request = composed.imageRequests[0];
   if (!request || !composed.response) return composed;
+  emitImageEvent(options, "slide_redesign.image.started", {
+    jobId: payload.jobId,
+    projectId: payload.projectId,
+    assetRole: request.assetRole,
+    requestCount: composed.imageRequests.length,
+  });
   if (!options.imageRuntime || !options.storage) {
+    emitImageEvent(options, "slide_redesign.image.completed", {
+      jobId: payload.jobId,
+      projectId: payload.projectId,
+      assetRole: request.assetRole,
+      resolved: false,
+      warningCount: 1,
+    });
     return slideRedesignComposeArtifactSchema.parse({
       ...composed,
       response: {
@@ -374,6 +388,18 @@ async function resolveComposedImage(
     { userId: payload.userId },
     options.onImageFallback,
   );
+  const resolved = !resolution.deck.slides.some((slide) =>
+    slide.elements.some(
+      (element) => element.elementId === request.placeholderElementId,
+    ),
+  );
+  emitImageEvent(options, "slide_redesign.image.completed", {
+    jobId: payload.jobId,
+    projectId: payload.projectId,
+    assetRole: request.assetRole,
+    resolved,
+    warningCount: resolution.warnings.length,
+  });
   return slideRedesignComposeArtifactSchema.parse({
     ...composed,
     response: mergeResolvedImageResponse(
@@ -385,6 +411,18 @@ async function resolveComposedImage(
       resolution.warnings,
     ),
   });
+}
+
+function emitImageEvent(
+  options: SlideRedesignProcessorOptions,
+  event: string,
+  fields: Record<string, unknown>,
+): void {
+  try {
+    options.imageEventLogger?.(event, fields);
+  } catch {
+    // Business-event logging must not change image fallback behavior.
+  }
 }
 
 function mergeResolvedImageResponse(
