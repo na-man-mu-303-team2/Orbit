@@ -37,6 +37,7 @@ export const designAssistantQuickActions: readonly DesignAssistantQuickAction[] 
 
 type DesignAssistantHomeProps = {
   disabled: boolean;
+  disabledActionReasons?: Partial<Record<DesignAgentIntentPreset, string>>;
   errorMessage?: string;
   isGenerating: boolean;
   onAction: (action: DesignAssistantQuickAction) => void;
@@ -73,10 +74,17 @@ export function DesignAssistantHome(props: DesignAssistantHomeProps) {
       <div className="design-assistant-secondary-actions" aria-label="빠른 디자인 동작">
         {secondaryActions.map((action, index) => {
           const ActionIcon = secondaryIcons[index];
+          const disabledReason =
+            props.disabledActionReasons?.[action.intentPreset];
+          const reasonId = `design-assistant-action-reason-${action.intentPreset}`;
           return (
             <button
+              aria-describedby={disabledReason ? reasonId : undefined}
               key={action.intentPreset}
-              disabled={props.disabled || props.isGenerating}
+              disabled={
+                props.disabled || props.isGenerating || Boolean(disabledReason)
+              }
+              title={disabledReason}
               type="button"
               onClick={() => props.onAction(action)}
             >
@@ -86,6 +94,20 @@ export function DesignAssistantHome(props: DesignAssistantHomeProps) {
           );
         })}
       </div>
+
+      {Object.entries(props.disabledActionReasons ?? {}).map(
+        ([intentPreset, reason]) =>
+          reason ? (
+            <p
+              className="design-assistant-action-disabled-reason"
+              id={`design-assistant-action-reason-${intentPreset}`}
+              key={intentPreset}
+              role="status"
+            >
+              {reason}
+            </p>
+          ) : null,
+      )}
 
       {props.errorMessage ? (
         <div className="design-assistant-action-error" role="alert">

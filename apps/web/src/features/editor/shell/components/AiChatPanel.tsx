@@ -110,6 +110,7 @@ type AiChatPanelProps = {
   ) => boolean;
   onSpeakerNotesAssistantRequest: (mode: SpeakerNotesSuggestionMode) => void;
   designEditingEnabled?: boolean;
+  motionRecommendationDisabledReason?: string | null;
 };
 
 export function createInitialAiChatState(projectId: string): AiChatState {
@@ -386,6 +387,13 @@ export function AiChatPanel(props: AiChatPanelProps) {
 
   async function handleQuickAction(action: DesignAssistantQuickAction) {
     if (!props.currentSlide || !designEditingEnabled || isSending) return;
+    if (
+      action.intentPreset === "recommend-animation" &&
+      props.motionRecommendationDisabledReason
+    ) {
+      setQuickActionError(props.motionRecommendationDisabledReason);
+      return;
+    }
     setMode("design");
     setQuickActionError(null);
     updateMessages((current) => [
@@ -708,6 +716,14 @@ export function AiChatPanel(props: AiChatPanelProps) {
       {designEditingEnabled && props.currentSlide && !pendingPaletteSelection ? (
         <DesignAssistantHome
           disabled={isSending || isUploadingReferenceImage}
+          disabledActionReasons={
+            props.motionRecommendationDisabledReason
+              ? {
+                  "recommend-animation":
+                    props.motionRecommendationDisabledReason,
+                }
+              : undefined
+          }
           errorMessage={quickActionError ?? undefined}
           isGenerating={mode === "design" && isSending}
           onAction={(action) => void handleQuickAction(action)}

@@ -43,4 +43,25 @@ describe("DesignAssistantHome", () => {
     expect(failedHtml).toContain("디자인 제안을 만들지 못했습니다.");
     expect(failedHtml).toContain("다시 시도");
   });
+
+  it("disables only the unsafe motion action and shows its reason", () => {
+    const html = renderToStaticMarkup(
+      <DesignAssistantHome
+        disabled={false}
+        disabledActionReasons={{
+          "recommend-animation": "이미지로 가져온 슬라이드에는 적용할 수 없습니다.",
+        }}
+        isGenerating={false}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(html).toContain(
+      'id="design-assistant-action-reason-recommend-animation"',
+    );
+    expect(html).toContain("이미지로 가져온 슬라이드에는 적용할 수 없습니다.");
+    expect(html).toContain(
+      'aria-describedby="design-assistant-action-reason-recommend-animation"',
+    );
+  });
 });
