@@ -27,8 +27,13 @@ class CompositionCandidate:
     asset_role: AssetRole = "none"
 
 
-def eligible_candidates(summary: dict[str, Any]) -> list[CompositionCandidate]:
-    """Return media-free curated compositions supported by the slide content."""
+def eligible_candidates(
+    summary: dict[str, Any],
+    *,
+    media_enabled: bool = False,
+    source_image_count: int = 0,
+) -> list[CompositionCandidate]:
+    """Return curated compositions supported by the content and media policy."""
     slide_type = str(summary.get("slideType", "summary"))
     content_items = summary.get("contentItems", [])
     item_count = len(content_items) if isinstance(content_items, list) else 0
@@ -38,21 +43,29 @@ def eligible_candidates(summary: dict[str, Any]) -> list[CompositionCandidate]:
             continue
         if not spec.min_items <= item_count <= spec.max_items:
             continue
-        if spec.media_requirement == "required":
+        if spec.media_requirement == "required" and not media_enabled:
             continue
         if not content_supports_composition(composition_id, summary):
             continue
         for mode in spec.variants:
-            if mode == "image":
+            if mode == "image" and not media_enabled:
                 continue
+            uses_media = media_enabled and (
+                spec.media_requirement == "required"
+                or (spec.media_requirement == "optional" and source_image_count > 0)
+            )
             result.append(
                 CompositionCandidate(
                     composition_id=composition_id,
                     background_mode=mode,
+                    asset_role="atmosphere" if uses_media else "none",
                 )
             )
     if not result:
-        raise CompositionCompileError("No media-free composition supports the slide")
+        qualifier = "media-free " if not media_enabled else ""
+        raise CompositionCompileError(
+            f"No {qualifier}composition supports the slide"
+        )
     return result
 
 

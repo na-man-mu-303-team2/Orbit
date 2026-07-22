@@ -2239,6 +2239,32 @@ def _shape_element_json_schema(
     }
 
 
+def _image_element_json_schema() -> dict[str, Any]:
+    properties = _element_base_properties("image", ["media"])
+    props_properties = {
+        "src": {"type": "string", "minLength": 1},
+        "alt": {"type": "string"},
+        "fit": {
+            "type": "string",
+            "enum": ["contain", "cover", "stretch"],
+        },
+        "focusX": {"type": "number", "minimum": 0, "maximum": 1},
+        "focusY": {"type": "number", "minimum": 0, "maximum": 1},
+    }
+    properties["props"] = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": props_properties,
+        "required": list(props_properties),
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": list(properties),
+    }
+
+
 def _chart_element_json_schema() -> dict[str, Any]:
     properties = _element_base_properties("chart", ["chart"])
     style_properties = {
@@ -2360,6 +2386,7 @@ def _add_element_operation_json_schema() -> dict[str, Any]:
                     ),
                     _shape_element_json_schema("line", ["decoration"]),
                     _shape_element_json_schema("polygon", ["decoration"]),
+                    _image_element_json_schema(),
                     _chart_element_json_schema(),
                     _table_element_json_schema(),
                 ]

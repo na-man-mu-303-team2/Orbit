@@ -83,6 +83,28 @@ def deck_element(spec: dict[str, Any], index: int) -> dict[str, Any]:
                 "borderRadius": 0,
             },
         }
+    if element_type == "image":
+        return {
+            "elementId": spec["elementId"],
+            "type": "image",
+            "role": "media",
+            "x": 1040,
+            "y": 220,
+            "width": 720,
+            "height": 540,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": index + 1,
+            "locked": bool(spec.get("locked", False)),
+            "visible": True,
+            "props": {
+                "src": "https://example.com/product.png",
+                "alt": "제품 이미지",
+                "fit": "contain",
+                "focusX": 0.5,
+                "focusY": 0.5,
+            },
+        }
     return {
         "elementId": spec["elementId"],
         "type": element_type,
@@ -193,6 +215,13 @@ def test_m1_golden_fixture_outcomes_and_preservation(
     if fixture["id"] == "locked-element":
         assert all(operation.get("elementId") != "el_locked" for operation in operations)
         assert any(element["elementId"] == "el_locked" for element in final_elements)
+    if fixture["id"] == "image-unsafe-m1":
+        assert all(
+            operation.get("elementId") != "el_image"
+            or operation["type"] != "delete_element"
+            for operation in operations
+        )
+        assert any(element["elementId"] == "el_image" for element in final_elements)
 
 
 def test_fixture_set_covers_exactly_fourteen_m1_scenarios() -> None:

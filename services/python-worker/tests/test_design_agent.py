@@ -147,6 +147,14 @@ def add_element_proposal(
             "verticalAlign": "middle",
             "lineHeight": 1.2,
         }
+    elif element_type == "image":
+        props = {
+            "src": "https://example.com/image.png",
+            "alt": "제품 이미지",
+            "fit": "cover",
+            "focusX": 0.5,
+            "focusY": 0.5,
+        }
     else:
         props = {
             "fill": "#E5E7EB",
@@ -195,6 +203,17 @@ def test_accepts_media_rect_role() -> None:
     )
 
     assert result.operations[0].element.role == "media"
+
+
+def test_accepts_capability_v2_image_element() -> None:
+    result = DesignAgentResponse.model_validate(
+        add_element_proposal(element_type="image", role="media")
+    )
+
+    operation = result.operations[0]
+    assert operation.type == "add_element"
+    assert operation.element.type == "image"
+    assert operation.element.props.fit == "cover"
 
 
 @pytest.mark.parametrize("element_type", ["ellipse", "line", "polygon"])
@@ -307,6 +326,12 @@ def test_design_agent_json_schema_exposes_capability_v2_shapes(
     schema_text = json.dumps(DESIGN_AGENT_RESPONSE_FORMAT, ensure_ascii=False)
 
     assert f'"const": "{element_type}"' in schema_text
+
+
+def test_design_agent_json_schema_exposes_capability_v2_image() -> None:
+    schema_text = json.dumps(DESIGN_AGENT_RESPONSE_FORMAT, ensure_ascii=False)
+
+    assert '"const": "image"' in schema_text
 
 
 def test_design_agent_capability_version_one_request_remains_supported() -> None:
