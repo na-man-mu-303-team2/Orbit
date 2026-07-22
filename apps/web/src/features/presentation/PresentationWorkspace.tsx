@@ -49,6 +49,8 @@ import { createSlideshowAnimationPlan } from "../rehearsal/presenter/slideshowSt
 import { usePresenterKeyboard } from "../rehearsal/presenter/usePresenterKeyboard";
 import {
   getTriggerAnimationIdsForSlide,
+  getKeywordOccurrenceTriggerIdsForSlide,
+  resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions,
   resolveTriggeredActionPlaybackUpdate,
 } from "../rehearsal/playback/triggeredActionPlayback";
@@ -65,6 +67,7 @@ import {
   type AdvanceControllerState,
 } from "../rehearsal/advance/advanceController";
 import { createDefaultPhraseExtractor } from "../rehearsal/speech/phraseExtractor";
+import { matchKeywordOccurrenceTriggers } from "../rehearsal/speech/keywordOccurrenceRuntime";
 import type { SpeechTrackerSnapshot } from "../rehearsal/speech/speechTrackingEvents";
 import {
   PresenterStatusShell,
@@ -73,6 +76,10 @@ import {
 } from "../presenter-shell/PresenterScaffold";
 
 type PresentationPhase = "loading" | "ready" | "failed";
+type PresentationKeywordOccurrenceState = {
+  slideId: string;
+  confirmedOccurrenceIds: string[];
+};
 export function PresentationWorkspace(props: {
   fallbackDeck?: Deck;
   initialDeck?: Deck;
@@ -141,6 +148,8 @@ export function PresentationWorkspace(props: {
     createSlidePlaybackState(),
   );
   const previousHitKeywordIdsRef = useRef<Set<string>>(new Set());
+  const keywordOccurrenceStateRef =
+    useRef<PresentationKeywordOccurrenceState | null>(null);
   const advanceControllerStateRef = useRef<AdvanceControllerState>(
     createInitialAdvanceControllerState(),
   );
@@ -413,6 +422,9 @@ export function PresentationWorkspace(props: {
 
   useEffect(() => {
     previousHitKeywordIdsRef.current = new Set();
+    keywordOccurrenceStateRef.current = currentSlide
+      ? { slideId: currentSlide.slideId, confirmedOccurrenceIds: [] }
+      : null;
     playbackStateRef.current = createSlidePlaybackState();
     finalSentenceCommittedAtMsRef.current = null;
     finalSentenceSpokenAtMsRef.current = null;
@@ -514,6 +526,79 @@ export function PresentationWorkspace(props: {
     runtimePhase,
     slideshowAnimationPlan,
     speech.state.lastTranscriptActivityAtMs,
+    speech.state.status,
+  ]);
+
+  useEffect(() => {
+    if (
+      !currentSlide ||
+      !slideshowAnimationPlan ||
+      runtimePhase !== "active" ||
+      speech.state.status !== "listening" ||
+      !speech.state.latestTranscript.trim()
+    ) {
+      return;
+    }
+
+    const currentState =
+      keywordOccurrenceStateRef.current?.slideId === currentSlide.slideId
+        ? keywordOccurrenceStateRef.current
+        : { slideId: currentSlide.slideId, confirmedOccurrenceIds: [] };
+    const matches = matchKeywordOccurrenceTriggers({
+      slide: currentSlide,
+      targetOccurrenceIds: getKeywordOccurrenceTriggerIdsForSlide(currentSlide),
+      transcript: speech.getSlideTranscript(),
+      latestTranscript: speech.state.latestTranscript,
+      confidence: speech.state.latestTranscriptConfidence,
+      confirmedOccurrenceIds: currentState.confirmedOccurrenceIds,
+    });
+    if (matches.length === 0) {
+      return;
+    }
+
+    const confirmedOccurrenceIds = new Set(currentState.confirmedOccurrenceIds);
+    let nextPresenterStepIndex = presenterStepIndex;
+
+    for (const match of matches) {
+      confirmedOccurrenceIds.add(match.occurrenceId);
+      const update = resolveTriggeredActionPlaybackUpdate({
+        actions: resolveKeywordOccurrenceTriggeredActions(
+          currentSlide,
+          match.keywordId,
+          match.occurrenceId,
+        ),
+        playbackState: playbackStateRef.current,
+        presenterStepIndex: nextPresenterStepIndex,
+        slide: currentSlide,
+        slideAnimationPlan: slideshowAnimationPlan,
+      });
+      playbackStateRef.current = update.playbackState;
+      nextPresenterStepIndex = update.presenterStepIndex;
+      if (update.shouldAdvanceSlide) {
+        keywordOccurrenceStateRef.current = {
+          slideId: currentSlide.slideId,
+          confirmedOccurrenceIds: [...confirmedOccurrenceIds],
+        };
+        goNext();
+        return;
+      }
+    }
+
+    keywordOccurrenceStateRef.current = {
+      slideId: currentSlide.slideId,
+      confirmedOccurrenceIds: [...confirmedOccurrenceIds],
+    };
+    if (nextPresenterStepIndex !== presenterStepIndex) {
+      setPresenterStepIndex(nextPresenterStepIndex);
+    }
+  }, [
+    currentSlide,
+    goNext,
+    presenterStepIndex,
+    runtimePhase,
+    slideshowAnimationPlan,
+    speech.state.latestTranscript,
+    speech.state.latestTranscriptConfidence,
     speech.state.status,
   ]);
 

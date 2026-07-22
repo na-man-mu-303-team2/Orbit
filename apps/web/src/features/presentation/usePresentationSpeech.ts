@@ -14,6 +14,8 @@ import { fetchLiveSttRuntimeConfig } from "../rehearsal/stt/liveSttRuntimeConfig
 type PresentationSpeechState = {
   error: string | null;
   lastTranscriptActivityAtMs: number | null;
+  latestTranscript: string;
+  latestTranscriptConfidence: number | null;
   snapshot: SpeechTrackerSnapshot | null;
   status: "idle" | "starting" | "listening" | "paused" | "stopped" | "error";
   transcript: string;
@@ -23,6 +25,8 @@ type PresentationSpeechState = {
 const initialState: PresentationSpeechState = {
   error: null,
   lastTranscriptActivityAtMs: null,
+  latestTranscript: "",
+  latestTranscriptConfidence: null,
   snapshot: null,
   status: "idle",
   transcript: "",
@@ -38,10 +42,12 @@ export function usePresentationSpeech(projectId?: string) {
   const accumulatedListeningMsRef = useRef(0);
   const finalWordCountRef = useRef(0);
   const transcriptRef = useRef("");
+  const slideTranscriptRef = useRef("");
   const unsubscribersRef = useRef<Array<() => void>>([]);
 
   const enterSlide = useCallback((slide: Slide) => {
     slideRef.current = slide;
+    slideTranscriptRef.current = "";
     trackerRef.current = createSpeechTracker({
       keywords: slide.keywords,
       slideId: slide.slideId,
@@ -49,6 +55,8 @@ export function usePresentationSpeech(projectId?: string) {
     });
     setState((current) => ({
       ...current,
+      latestTranscript: "",
+      latestTranscriptConfidence: null,
       snapshot: trackerRef.current?.snapshot() ?? null,
     }));
     void Promise.resolve(
@@ -98,6 +106,12 @@ export function usePresentationSpeech(projectId?: string) {
               transcriptRef.current = [transcriptRef.current, finalText]
                 .filter(Boolean)
                 .join(" ");
+              slideTranscriptRef.current = [
+                slideTranscriptRef.current,
+                finalText,
+              ]
+                .filter(Boolean)
+                .join(" ");
               finalWordCountRef.current += finalText
                 .split(/\s+/)
                 .filter(Boolean).length;
@@ -110,6 +124,8 @@ export function usePresentationSpeech(projectId?: string) {
           setState((current) => ({
             ...current,
             lastTranscriptActivityAtMs: transcriptActivityAtMs,
+            latestTranscript: result.text,
+            latestTranscriptConfidence: result.confidence ?? null,
             snapshot: tracker.snapshot(),
             transcript: transcriptRef.current,
             wordsPerMinute: Math.round(
@@ -145,6 +161,8 @@ export function usePresentationSpeech(projectId?: string) {
       setState((current) => ({
         ...current,
         error: null,
+        latestTranscript: "",
+        latestTranscriptConfidence: null,
         status: "starting",
         transcript: "",
         wordsPerMinute: 0,
@@ -206,6 +224,7 @@ export function usePresentationSpeech(projectId?: string) {
 
   return {
     enterSlide,
+    getSlideTranscript: () => slideTranscriptRef.current,
     getTranscript: () => transcriptRef.current,
     pause,
     resume,
