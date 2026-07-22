@@ -54,9 +54,11 @@ export async function createSlideRenderFile(args: {
   context.fillRect(0, 0, canvas.width, canvas.height);
   if (
     args.slide.thumbnailUrl &&
-    getRenderableSlideElements(args.slide, args.deck.canvas).length === 0 &&
-    (args.deck.metadata.sourceType === "import" ||
-      args.deck.metadata.thumbnailSource === "import-render")
+    (args.slide.importRenderMode === "snapshot" ||
+      (getRenderableSlideElements(args.slide, args.deck.canvas).length === 0 &&
+        (args.deck.metadata.sourceType === "import" ||
+          args.deck.metadata.thumbnailSource === "import-render"))
+    )
   ) {
     await drawSlideRenderFallbackImage(context, args.slide.thumbnailUrl, canvas);
   } else {
@@ -175,6 +177,10 @@ async function loadImageAsset(url: string) {
 
 function collectSlideAssetUrls(slide: Slide) {
   const urls = new Set<string>();
+
+  if (slide.importRenderMode === "snapshot" && slide.thumbnailUrl) {
+    return [slide.thumbnailUrl];
+  }
 
   if (slide.style.backgroundImage?.src) {
     urls.add(slide.style.backgroundImage.src);

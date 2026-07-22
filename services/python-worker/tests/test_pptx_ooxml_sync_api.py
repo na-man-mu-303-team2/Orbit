@@ -164,6 +164,53 @@ def test_reorder_acknowledgment_omits_element_locator_nulls(
     ]
 
 
+def test_created_notes_page_locator_uses_bounded_response_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_sync(*args: Any, **kwargs: Any) -> PptxOoxmlSyncResult:
+        del args, kwargs
+        return PptxOoxmlSyncResult(
+            notesPages=[
+                {
+                    "slideId": "slide_1",
+                    "notesPage": {
+                        "status": "preserved",
+                        "sourceNotesPart": "ppt/notesSlides/notesSlide1.xml",
+                        "sourceNotesMasterPart": (
+                            "ppt/notesMasters/notesMaster1.xml"
+                        ),
+                        "bodyShapeId": "3",
+                        "bodyWritable": True,
+                        "notesWidthEmu": 6_858_000,
+                        "notesHeightEmu": 9_144_000,
+                        "hasNonBodyContent": False,
+                    },
+                }
+            ],
+        )
+
+    monkeypatch.setattr(api_module, "sync_pptx_ooxml", fake_sync)
+
+    response = post_sync()
+
+    assert response.status_code == 200
+    assert response.json()["notesPages"] == [
+        {
+            "slideId": "slide_1",
+            "notesPage": {
+                "status": "preserved",
+                "sourceNotesPart": "ppt/notesSlides/notesSlide1.xml",
+                "sourceNotesMasterPart": "ppt/notesMasters/notesMaster1.xml",
+                "bodyShapeId": "3",
+                "bodyWritable": True,
+                "notesWidthEmu": 6_858_000,
+                "notesHeightEmu": 9_144_000,
+                "hasNonBodyContent": False,
+            },
+        }
+    ]
+
+
 def test_json_file_part_over_explicit_limit_is_bounded(
     monkeypatch: pytest.MonkeyPatch,
     captured_sync: dict[str, Any],

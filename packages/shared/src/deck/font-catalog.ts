@@ -21,7 +21,7 @@ export const generateDeckFontCatalog: GenerateDeckFontOverride[] = [
     headingFontFamily: "Pretendard",
     bodyFontFamily: "Pretendard",
     fallbackFamily: "Arial",
-    weights: [400, 500, 600, 700],
+    weights: [200, 400, 500, 600, 700, 800],
     supportsKorean: true,
     pptxEmbeddable: true,
     moodTags: ["professional", "modern", "clear", "tech"],

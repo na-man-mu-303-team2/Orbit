@@ -1,6 +1,7 @@
 import type { TextElementProps } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
+  measureRichTextFragment,
   richTextLayout,
   type RichTextFragmentStyle,
   type RichTextMeasure
@@ -250,5 +251,58 @@ describe("richTextLayout", () => {
     expect(result.contentY).toBe(90);
     expect(superscript?.y).toBeLessThan(normal?.y ?? 0);
     expect(subscript?.y).toBeGreaterThan(normal?.y ?? Number.POSITIVE_INFINITY);
+  });
+
+  it("applies imported letter spacing and normal autofit scale", () => {
+    const result = richTextLayout({
+      baseStyle,
+      frame: { height: 120, width: 300 },
+      measureText: fixedMeasure,
+      props: props({
+        autoFit: "shrink-text",
+        fontScale: 0.8,
+        letterSpacing: 1.2,
+        lineSpaceReduction: 0.1,
+        paragraphs: [
+          {
+            align: "left",
+            indent: 0,
+            letterSpacing: 1.5,
+            lineHeight: 1.25,
+            runs: [
+              {
+                baseline: "normal",
+                fontSize: 30,
+                letterSpacing: 2.4,
+                text: "AB"
+              }
+            ],
+            spaceAfter: 0,
+            spaceBefore: 0,
+            text: "AB"
+          }
+        ],
+        text: "AB"
+      })
+    });
+
+    expect(result.fragments[0]?.style).toMatchObject({
+      fontSize: 24,
+      letterSpacing: 2.4
+    });
+    expect(result.lineBoxes[0]?.height).toBe(27);
+    expect(
+      measureRichTextFragment("AB", {
+        baseline: "normal",
+        color: "#111827",
+        fontFamily: "Pretendard",
+        fontSize: 20,
+        fontStyle: "normal",
+        fontWeight: "normal",
+        italic: false,
+        letterSpacing: 2.4,
+        underline: false
+      })
+    ).toBeCloseTo(24.4);
   });
 });

@@ -13,6 +13,7 @@ import {
   getImageBatchStatusMessage,
   getImageInsertCapability,
   getPlacedImageInsertFrame,
+  confirmPendingPptxImport,
   performImageFileInsert,
   selectFirstEditorImageFile
 } from "./useEditorFileTransfer";
@@ -22,6 +23,33 @@ vi.mock("../utils/slideRenderUtils", () => ({
 }));
 
 describe("useEditorFileTransfer image insert action", () => {
+  it("does not start PPTX import until a preference is explicitly selected", async () => {
+    const file = mockFile("template.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", 32);
+    const importFile = vi.fn(async () => undefined);
+
+    await expect(
+      confirmPendingPptxImport({ file, importFile, preference: null })
+    ).resolves.toBe(false);
+    expect(importFile).not.toHaveBeenCalled();
+
+    await expect(
+      confirmPendingPptxImport({
+        file,
+        importFile,
+        preference: "appearance-first"
+      })
+    ).resolves.toBe(true);
+    await expect(
+      confirmPendingPptxImport({
+        file,
+        importFile,
+        preference: "editability-first"
+      })
+    ).resolves.toBe(true);
+    expect(importFile).toHaveBeenNthCalledWith(1, file, "appearance-first");
+    expect(importFile).toHaveBeenNthCalledWith(2, file, "editability-first");
+  });
+
   it("rehydrates a persisted PPTX quality report after reload", () => {
     const qualityReport = {
       compositeScore: 82,

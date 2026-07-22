@@ -3,7 +3,7 @@ import type { Slide } from "@orbit/shared";
 export function canEditSlideCanvas(
   slide: Slide | null | undefined
 ): slide is Extract<Slide, { kind: "content" }> {
-  return slide?.kind === "content";
+  return slide?.kind === "content" && slide.importRenderMode !== "snapshot";
 }
 
 export function getDesignPanelLabel(

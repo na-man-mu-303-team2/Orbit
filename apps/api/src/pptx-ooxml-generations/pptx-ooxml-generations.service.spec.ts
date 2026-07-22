@@ -62,7 +62,24 @@ describe("PptxOoxmlGenerationsService", () => {
     Object.assign(process.env, validEnv);
   });
 
-  it("creates a PPTX OOXML generation job and enqueues the worker payload", async () => {
+  it.each([
+    {
+      expectedPreference: "editability-first" as const,
+      label: "legacy default",
+      request: { fileId: "file_template" }
+    },
+    {
+      expectedPreference: "appearance-first" as const,
+      label: "explicit appearance preference",
+      request: {
+        fileId: "file_template",
+        importPreference: "appearance-first" as const
+      }
+    }
+  ])("creates and enqueues a generation job with $label", async ({
+    expectedPreference,
+    request
+  }) => {
     const job = createJob();
     const services = createServices({
       jobsService: {
@@ -85,9 +102,7 @@ describe("PptxOoxmlGenerationsService", () => {
       services.projectsService,
       services.filesService,
       enqueueJob
-    ).createGeneration("project-a", {
-      fileId: "file_template"
-    });
+    ).createGeneration("project-a", request);
 
     expect(result).toEqual({ job });
     expect(services.filesService.getUploadedAsset).toHaveBeenCalledWith(
@@ -100,7 +115,8 @@ describe("PptxOoxmlGenerationsService", () => {
       type: "pptx-ooxml-generation",
       payload: {
         request: {
-          fileId: "file_template"
+          fileId: "file_template",
+          importPreference: expectedPreference
         }
       }
     });
@@ -110,9 +126,30 @@ describe("PptxOoxmlGenerationsService", () => {
       jobId: "job-ooxml",
       projectId: "project-a",
       request: {
-        fileId: "file_template"
+        fileId: "file_template",
+        importPreference: expectedPreference
       }
     });
+  });
+
+  it("rejects unsupported import preferences before job creation", async () => {
+    const services = createServices({});
+    const enqueueJob = vi.fn(async () => undefined);
+
+    await expect(
+      new PptxOoxmlGenerationsService(
+        services.jobsService,
+        services.projectsService,
+        services.filesService,
+        enqueueJob
+      ).createGeneration("project-a", {
+        fileId: "file_template",
+        importPreference: "balanced"
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(services.filesService.getUploadedAsset).not.toHaveBeenCalled();
+    expect(services.jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueJob).not.toHaveBeenCalled();
   });
 
   it.each(["topic", "prompt", "extraField"])(

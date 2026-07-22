@@ -71,6 +71,7 @@ from app.ai.pptx_design_importer import (
     PptxDesignImportResult,
 )
 from app.ai.pptx_ooxml_generation import (
+    PptxImportPreference,
     PptxOoxmlGenerationError,
     PptxOoxmlGenerationResult,
     PptxRenderUnavailableError,
@@ -93,6 +94,7 @@ from app.ai.pptx_ooxml_sync_transport import (
 from app.ai.pptx_ooxml_vector_importer import (
     import_pptx_design_with_optional_ooxml_vector,
 )
+from app.ai.pptx_package_security import PptxPackageSecurityError
 from app.ai.pptx_png_zip_export import (
     PptxPngZipExportError,
     PptxPngZipExportRequest,
@@ -641,11 +643,14 @@ async def import_pptx_design_endpoint(
                 if file_ids and index < len(file_ids) and file_ids[index].strip()
                 else f"file_{uuid4()}"
             )
-            result = await run_in_threadpool(
-                import_pptx_design_with_optional_ooxml_vector,
-                source_path,
-                file_id,
-            )
+            try:
+                result = await run_in_threadpool(
+                    import_pptx_design_with_optional_ooxml_vector,
+                    source_path,
+                    file_id,
+                )
+            except PptxPackageSecurityError as error:
+                raise HTTPException(status_code=400, detail=error.code) from error
             remapped = _remap_import_asset_ids(result, len(assets))
             slides.extend(
                 cast(list[dict[str, Any]], remapped.blueprint.get("slides", []))
@@ -678,6 +683,7 @@ async def import_pptx_design_endpoint(
 async def generate_pptx_ooxml_endpoint(
     file: UploadFile = File(...),
     file_id: str = Form(...),
+    import_preference: PptxImportPreference = Form("editability-first"),
 ) -> PptxOoxmlGenerationResult:
     from pathlib import Path
     from tempfile import TemporaryDirectory
@@ -690,9 +696,12 @@ async def generate_pptx_ooxml_endpoint(
                 generate_pptx_ooxml,
                 source_path,
                 file_id,
+                import_preference=import_preference,
             )
         except UnsupportedPptxAspectRatioError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        except PptxPackageSecurityError as error:
+            raise HTTPException(status_code=400, detail=error.code) from error
         except PptxOoxmlGenerationError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 
@@ -797,6 +806,8 @@ async def sync_pptx_ooxml_endpoint(
             )
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        except PptxPackageSecurityError as error:
+            raise HTTPException(status_code=400, detail=error.code) from error
         except PptxOoxmlGenerationError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 

@@ -7,9 +7,17 @@ import {
 import { normalizeElementFrameDraft } from "@orbit/editor-core";
 
 export function getRenderableSlideElements(slide: Slide, canvas: DeckCanvas) {
+  if (usesSourceSlideSnapshot(slide)) {
+    return [];
+  }
+
   return [...slide.elements]
     .map((element) => normalizeRenderableElement(canvas, element))
     .sort((left, right) => left.zIndex - right.zIndex);
+}
+
+export function usesSourceSlideSnapshot(slide: Slide) {
+  return slide.importRenderMode === "snapshot";
 }
 
 export function normalizeRenderableElement(

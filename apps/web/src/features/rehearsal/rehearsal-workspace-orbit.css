@@ -814,6 +814,7 @@ main.rehearsal-presenter-shell {
   color: var(--redesign-color-on-surface-variant);
   display: flex;
   gap: var(--redesign-space-4);
+  justify-content: center;
   margin-top: var(--redesign-space-7);
   min-height: 96px;
   padding: var(--redesign-space-5) var(--redesign-space-6) 0;
@@ -827,6 +828,7 @@ main.rehearsal-presenter-shell {
 .rehearsal-completion-report > div {
   display: grid;
   gap: var(--redesign-space-1);
+  text-align: center;
 }
 
 .rehearsal-completion-report strong {
@@ -986,13 +988,11 @@ main.rehearsal-presenter-shell {
 .presenter-display-options-actions button:last-child { align-items: center; background: var(--redesign-color-on-surface); border-radius: var(--redesign-radius-lg); color: var(--redesign-color-light-surface); display: flex; font-size: var(--redesign-type-body-sm-size); font-weight: 700; gap: var(--redesign-space-2); justify-content: center; }
 
 .presenter-remote-shell { background: var(--redesign-color-dark-surface); color: var(--redesign-color-light-surface); min-height: 100vh; }
-.presenter-remote-header { background: var(--redesign-color-dark-surface); border-bottom-color: color-mix(in srgb, var(--redesign-color-light-surface) 14%, transparent); grid-template-columns: auto auto 1fr auto; }
-.presenter-remote-header > img { display: block; height: 28px; object-fit: contain; width: auto; }
 .presenter-remote-stage { background: var(--redesign-color-dark-surface); }
 .presenter-remote-preview-rail, .presenter-remote-script, .presenter-remote-control-panel { background: var(--redesign-color-dark-surface); border-color: color-mix(in srgb, var(--redesign-color-light-surface) 13%, transparent); }
 .presenter-remote-slide-list button, .presenter-remote-control-panel button { background: var(--redesign-color-dark-surface-high); border-color: color-mix(in srgb, var(--redesign-color-light-surface) 12%, transparent); color: var(--redesign-color-light-surface); }
 .presenter-remote-slide-list button[aria-current="true"] { border-color: var(--redesign-color-secondary-fixed-dim); color: var(--redesign-color-secondary-fixed-dim); }
-.presenter-remote-section-heading, .presenter-remote-connection { color: color-mix(in srgb, var(--redesign-color-light-surface) 70%, transparent); }
+.presenter-remote-section-heading { color: color-mix(in srgb, var(--redesign-color-light-surface) 70%, transparent); }
 .presenter-remote-script .presenter-script-row { border-color: color-mix(in srgb, var(--redesign-color-light-surface) 10%, transparent); color: var(--redesign-color-on-light-variant); }
 .presenter-remote-script .presenter-script-row--current { color: var(--redesign-color-on-light); }
 .single-screen-presenter { background: var(--redesign-color-dark-surface); }

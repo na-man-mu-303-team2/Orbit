@@ -68,6 +68,9 @@ const processors = vi.hoisted(() => ({
   slideRedesign: vi.fn<(...args: unknown[]) => Promise<Job>>(async () =>
     orbitJob("succeeded", "slide-redesign"),
   ),
+  pptxOoxmlGeneration: vi.fn(async () =>
+    orbitJob("succeeded", "pptx-ooxml-generation"),
+  ),
 }));
 
 const slideRedesignProgress = vi.hoisted(() => ({
@@ -194,6 +197,9 @@ vi.mock("./slide-redesign-progress.publisher", () => ({
     publish = slideRedesignProgress.publish;
     close = slideRedesignProgress.close;
   },
+}));
+vi.mock("./pptx-ooxml-generation.processor", () => ({
+  processPptxOoxmlGenerationJob: processors.pptxOoxmlGeneration,
 }));
 vi.mock("./image-providers", () => ({
   createImageAssetRuntime: vi.fn(() => undefined),
@@ -346,6 +352,41 @@ describe("WorkerService queue subscriptions", () => {
     await expect(
       handler(bullJob("unknown-slide-redesign-job", payload)),
     ).rejects.toThrow("Unsupported BullMQ job name");
+    await service.onModuleDestroy();
+  });
+
+  it("keeps PPTX speaker notes out of queue lifecycle logs", async () => {
+    const privateNoteMarker = "synthetic-private-speaker-note";
+    const { service, logger } = createService();
+    processors.pptxOoxmlGeneration.mockResolvedValueOnce({
+      ...orbitJob("succeeded", "pptx-ooxml-generation"),
+      result: {
+        speakerNotes: privateNoteMarker,
+        diagnostics: { speakerNotes: privateNoteMarker },
+      },
+    });
+    service.onModuleInit();
+
+    await requiredHandler(pptxOoxmlGenerationQueueName)(
+      bullJob("pptx-ooxml-generation", {
+        jobId: "job-pptx-private-notes",
+        projectId: "project-a",
+        request: {
+          fileId: "file-pptx",
+          speakerNotes: privateNoteMarker,
+        },
+      }),
+    );
+
+    expect(processors.pptxOoxmlGeneration).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.stringify([
+        ...logger.info.mock.calls,
+        ...logger.warn.mock.calls,
+        ...logger.error.mock.calls,
+      ]),
+    ).not.toContain(privateNoteMarker);
+
     await service.onModuleDestroy();
   });
 
