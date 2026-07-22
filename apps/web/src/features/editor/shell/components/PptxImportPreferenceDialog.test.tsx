@@ -14,8 +14,8 @@ describe("PptxImportPreferenceDialog", () => {
       />
     );
 
-    expect(html).toContain("원본 모양 우선");
-    expect(html).toContain("편집 가능성 우선");
+    expect(html).toContain("원본 그대로 보기");
+    expect(html).toContain("내용 편집하기");
     expect(html).toContain("이번 파일에만 적용");
     expect(html).not.toContain("checked=\"\"");
     expect(html).toContain("disabled=\"\"");

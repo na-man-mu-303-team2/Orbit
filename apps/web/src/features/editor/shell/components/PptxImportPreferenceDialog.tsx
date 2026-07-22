@@ -12,13 +12,13 @@ const options: Array<{
 }> = [
   {
     description: "원본 장표의 배치와 시각적 인상을 최대한 그대로 유지합니다.",
-    label: "원본 모양 우선",
+    label: "원본 그대로 보기",
     preference: "appearance-first",
     tradeoff: "복잡한 개체는 이미지처럼 보여 편집 범위가 줄어들 수 있습니다."
   },
   {
     description: "텍스트와 도형을 가능한 한 개별 개체로 가져옵니다.",
-    label: "편집 가능성 우선",
+    label: "내용 편집하기",
     preference: "editability-first",
     tradeoff: "지원되지 않는 효과는 단순화되어 원본과 다르게 보일 수 있습니다."
   }
