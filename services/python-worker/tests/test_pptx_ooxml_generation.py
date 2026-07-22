@@ -81,7 +81,7 @@ def test_import_fidelity_fixture_contains_baseline_risks() -> None:
     assert title_run_properties.get("sz") is None
 
 
-def test_import_fidelity_fixture_reproduces_known_import_gaps() -> None:
+def test_import_fidelity_fixture_imports_notes_and_reproduces_remaining_gaps() -> None:
     result = generate_pptx_ooxml(
         IMPORT_FIDELITY_NOTES_FIXTURE,
         "file_import_fidelity_notes",
@@ -95,8 +95,17 @@ def test_import_fidelity_fixture_reproduces_known_import_gaps() -> None:
         if element.get("props", {}).get("text") == "Inherited title style"
     )
 
-    assert "speakerNotes" not in imported_slide
-    assert "notesPage" not in template_slide
+    assert imported_slide["speakerNotes"] == "첫 번째 문단\n\n수동\n줄바꿈"
+    assert template_slide["notesPage"] == {
+        "status": "preserved",
+        "sourceNotesPart": "ppt/notesSlides/notesSlide1.xml",
+        "sourceNotesMasterPart": "ppt/notesMasters/notesMaster1.xml",
+        "bodyShapeId": "3",
+        "bodyWritable": True,
+        "notesWidthEmu": 6_858_000,
+        "notesHeightEmu": 9_144_000,
+        "hasNonBodyContent": True,
+    }
     assert title["props"]["fontFamily"] == "Pretendard SemiBold"
     assert title["props"]["fontWeight"] == "normal"
     assert title["props"]["fontSize"] == 24
