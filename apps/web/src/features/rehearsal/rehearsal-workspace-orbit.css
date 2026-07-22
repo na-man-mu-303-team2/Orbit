@@ -548,6 +548,278 @@ main.rehearsal-presenter-shell {
   overflow: auto;
 }
 
+.rehearsal-presenter-shell .rehearsal-presenter-side {
+  grid-template-rows: auto minmax(148px, 0.72fr) minmax(0, 1fr);
+}
+
+.rehearsal-presenter-shell .animation-flow-navigator {
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rehearsal-presenter-shell .animation-flow-navigator-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: var(--redesign-space-3) var(--redesign-space-3) 0;
+}
+
+.rehearsal-presenter-shell .animation-flow-navigator-header > div {
+  display: grid;
+}
+
+.rehearsal-presenter-shell .animation-flow-navigator-header h2 {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-title-md-size);
+  margin: 0;
+}
+
+.rehearsal-presenter-shell .animation-flow-navigator-description {
+  color: color-mix(in srgb, var(--redesign-color-on-surface) 72%, transparent);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 0;
+  padding: var(--redesign-space-2) var(--redesign-space-3);
+}
+
+.rehearsal-presenter-shell .animation-flow-navigator-list {
+  display: grid;
+  gap: var(--redesign-space-2);
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--redesign-space-2) var(--redesign-space-3);
+}
+
+.rehearsal-presenter-shell .animation-flow-slide {
+  background: var(--redesign-color-surface-container-low);
+  border: 1px solid transparent;
+  border-radius: var(--redesign-radius);
+  overflow: hidden;
+}
+
+.rehearsal-presenter-shell .animation-flow-slide-current {
+  border-color: color-mix(in srgb, var(--redesign-color-primary) 45%, transparent);
+}
+
+.rehearsal-presenter-shell .animation-flow-slide-header {
+  align-items: stretch;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.rehearsal-presenter-shell .animation-flow-slide-target,
+.rehearsal-presenter-shell .animation-flow-slide-toggle,
+.rehearsal-presenter-shell .animation-flow-step {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.rehearsal-presenter-shell .animation-flow-slide-target {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--redesign-space-2) var(--redesign-space-3);
+}
+
+.rehearsal-presenter-shell .animation-flow-slide-target span,
+.rehearsal-presenter-shell .animation-flow-step small {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.rehearsal-presenter-shell .animation-flow-slide-target strong {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-sm-size);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rehearsal-presenter-shell .animation-flow-slide-toggle {
+  display: grid;
+  padding: var(--redesign-space-2);
+  place-items: center;
+}
+
+.rehearsal-presenter-shell .animation-flow-slide-target:hover,
+.rehearsal-presenter-shell .animation-flow-slide-toggle:hover,
+.rehearsal-presenter-shell .animation-flow-step:hover {
+  background: color-mix(in srgb, var(--redesign-color-primary) 8%, transparent);
+}
+
+.rehearsal-presenter-shell .animation-flow-slide-target:focus-visible,
+.rehearsal-presenter-shell .animation-flow-slide-toggle:focus-visible,
+.rehearsal-presenter-shell .animation-flow-step:focus-visible {
+  outline: 2px solid var(--redesign-color-primary);
+  outline-offset: -2px;
+}
+
+.rehearsal-presenter-shell .animation-flow-steps {
+  border-top: 1px solid var(--redesign-color-outline-variant);
+  display: grid;
+}
+
+.rehearsal-presenter-shell .animation-flow-entry,
+.rehearsal-presenter-shell .animation-flow-step {
+  align-items: center;
+  display: grid;
+  gap: var(--redesign-space-2);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: var(--redesign-space-2) var(--redesign-space-3);
+}
+
+.rehearsal-presenter-shell .animation-flow-entry {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.rehearsal-presenter-shell .animation-flow-entry span,
+.rehearsal-presenter-shell .animation-flow-empty {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.rehearsal-presenter-shell .animation-flow-entry strong,
+.rehearsal-presenter-shell .animation-flow-step strong {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-sm-size);
+}
+
+.rehearsal-presenter-shell .animation-flow-step > span:nth-child(2) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rehearsal-presenter-shell .animation-flow-step-index {
+  align-items: center;
+  background: var(--redesign-color-surface-container-high);
+  border-radius: var(--redesign-radius-full);
+  color: var(--redesign-color-on-surface-variant);
+  display: inline-flex;
+  font-size: var(--redesign-type-label-sm-size);
+  height: 20px;
+  justify-content: center;
+  width: 20px;
+}
+
+.rehearsal-presenter-shell .animation-flow-step em {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-style: normal;
+  font-weight: 700;
+}
+
+.rehearsal-presenter-shell .animation-flow-step-current {
+  background: color-mix(in srgb, var(--redesign-color-primary) 12%, transparent);
+}
+
+.rehearsal-presenter-shell .animation-flow-step-current em {
+  color: var(--redesign-color-primary);
+}
+
+.rehearsal-presenter-shell .animation-flow-step-completed .animation-flow-step-index {
+  background: var(--redesign-color-success-container);
+  color: var(--redesign-color-success);
+}
+
+.rehearsal-presenter-shell .animation-flow-empty {
+  margin: 0;
+  padding: var(--redesign-space-3);
+}
+
+/* The recovery navigator must not compete with the fixed presenter sidebar. */
+.rehearsal-presenter-shell .rehearsal-presenter-side {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.rehearsal-presenter-shell .animation-flow-navigator-drawer {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  display: block;
+  height: auto;
+  left: max(var(--redesign-space-4), calc((100vw - var(--redesign-layout-content-max-width)) / 2));
+  min-height: 0;
+  overflow: visible;
+  padding: 0;
+  position: fixed;
+  top: 76px;
+  width: min(360px, calc(100vw - var(--redesign-space-8)));
+  z-index: 30;
+}
+
+.rehearsal-presenter-shell .animation-flow-navigator-drawer-open {
+  backdrop-filter: blur(16px) saturate(140%);
+  background: color-mix(
+    in srgb,
+    var(--redesign-color-surface-container-lowest) 88%,
+    transparent
+  );
+  border: 1px solid color-mix(in srgb, var(--redesign-color-outline) 54%, transparent);
+  border-radius: var(--redesign-radius-lg);
+  box-shadow: var(--redesign-shadow-overlay);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: min(640px, calc(100dvh - 100px));
+  overflow: hidden;
+}
+
+.rehearsal-presenter-shell .animation-flow-drawer-toggle {
+  align-items: center;
+  backdrop-filter: blur(10px);
+  background: color-mix(
+    in srgb,
+    var(--redesign-color-surface-container-lowest) 88%,
+    transparent
+  );
+  border: 1px solid color-mix(in srgb, var(--redesign-color-outline) 54%, transparent);
+  border-radius: var(--redesign-radius-full);
+  box-shadow: var(--redesign-shadow-raised);
+  color: var(--redesign-color-on-surface);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: var(--redesign-type-label-md-size);
+  font-weight: 700;
+  gap: var(--redesign-space-2);
+  padding: var(--redesign-space-2) var(--redesign-space-3);
+}
+
+.rehearsal-presenter-shell .animation-flow-navigator-drawer-open .animation-flow-drawer-toggle {
+  background: transparent;
+  border: 0;
+  border-radius: var(--redesign-radius);
+  box-shadow: none;
+  padding: var(--redesign-space-2);
+  position: absolute;
+  right: var(--redesign-space-2);
+  top: var(--redesign-space-2);
+  z-index: 1;
+}
+
+.rehearsal-presenter-shell .animation-flow-navigator-drawer-open .animation-flow-drawer-toggle span {
+  display: none;
+}
+
+.rehearsal-presenter-shell .animation-flow-drawer-toggle:hover {
+  background: var(--redesign-color-surface-container-high);
+}
+
+.rehearsal-presenter-shell .animation-flow-navigator-drawer-open .animation-flow-navigator-list {
+  padding-bottom: var(--redesign-space-3);
+}
+
 .rehearsal-presenter-shell .semantic-capability-status {
   background: var(--redesign-color-info-container);
   border: 1px solid color-mix(in srgb, var(--redesign-color-info) 18%, transparent);
@@ -940,6 +1212,7 @@ main.rehearsal-presenter-shell {
     grid-row: 3;
     height: auto;
     overflow: visible;
+    grid-template-rows: auto auto auto;
   }
 }
 
@@ -972,6 +1245,18 @@ main.rehearsal-presenter-shell {
   .rehearsal-completion-card > header h1 { font-size: var(--redesign-type-headline-lg-size); }
   .rehearsal-completion-body { grid-template-columns: 1fr; }
   .rehearsal-completion-card > footer { align-items: stretch; flex-direction: column-reverse; }
+}
+
+@media (max-width: 760px) {
+  .rehearsal-presenter-shell .animation-flow-navigator-drawer {
+    left: var(--redesign-space-2);
+    top: 68px;
+    width: min(360px, calc(100vw - var(--redesign-space-4)));
+  }
+
+  .rehearsal-presenter-shell .animation-flow-navigator-drawer-open {
+    height: min(600px, calc(100dvh - 84px));
+  }
 }
 
 .rehearsal-presenter-shell .presenter-display-primary { background: var(--redesign-color-on-surface); border-color: var(--redesign-color-on-surface); border-radius: var(--redesign-radius-lg) 0 0 var(--redesign-radius-lg); color: var(--redesign-color-light-surface); font-size: var(--redesign-type-body-sm-size); font-weight: 700; min-height: var(--redesign-size-control-md); }

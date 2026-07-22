@@ -5,6 +5,7 @@ import type { Slide } from "@orbit/shared";
 import {
   getTriggerAnimationIdsForSlide,
   getKeywordOccurrenceTriggerIdsForSlide,
+  restoreSlidePlaybackAtStep,
   resolveManualAnimationPlaybackUpdate,
   resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions
@@ -90,6 +91,39 @@ describe("triggeredActionPlayback", () => {
     expect(firstUpdate.playbackState.playedAnimationIds).toEqual(["anim_manual"]);
     expect(firstUpdate.shouldAdvanceSlide).toBe(false);
     expect(finalUpdate.shouldAdvanceSlide).toBe(true);
+  });
+
+  it("reconstructs played animations and consumed occurrences for a recovery step", () => {
+    const slide = createSlide();
+    const slideAnimationPlan = createSlideshowAnimationPlan({
+      slide,
+      triggerAnimationIds: getTriggerAnimationIdsForSlide(slide),
+    });
+
+    expect(
+      restoreSlidePlaybackAtStep({
+        slide,
+        slideAnimationPlan,
+        stepIndex: 1,
+      }),
+    ).toEqual({
+      consumedOccurrenceIds: [],
+      playbackState: { playedAnimationIds: ["anim_legacy"] },
+      presenterStepIndex: 1,
+    });
+    expect(
+      restoreSlidePlaybackAtStep({
+        slide,
+        slideAnimationPlan,
+        stepIndex: 99,
+      }),
+    ).toEqual({
+      consumedOccurrenceIds: ["kwo_slide_1_kw_ai_47_49"],
+      playbackState: {
+        playedAnimationIds: ["anim_legacy", "anim_occurrence"],
+      },
+      presenterStepIndex: 2,
+    });
   });
 });
 

@@ -6,6 +6,10 @@ import { RehearsalPanel } from "../rehearsal/panel/RehearsalPanel";
 import { createRehearsalScriptPrompterRows } from "../rehearsal/panel/rehearsalScriptPrompter";
 import type { RehearsalTimingSnapshot, TimingAdviceState } from "../rehearsal/panel/rehearsalTiming";
 import { RehearsalScriptTeleprompter } from "../rehearsal/presenter/RehearsalScriptTeleprompter";
+import {
+  AnimationFlowNavigator,
+  type AnimationFlowNavigation,
+} from "../rehearsal/presenter/AnimationFlowNavigator";
 import { SlideshowRenderer } from "../rehearsal/presenter/SlideshowRenderer";
 import type { SpeechTrackerSnapshot } from "../rehearsal/speech/speechTrackingEvents";
 import {
@@ -34,6 +38,7 @@ export function PresentationScreen(props: {
   onDurationInputBlur: (value: string) => void;
   onDurationInputChange: (value: string) => void;
   onDurationInputFocus: () => void;
+  onAnimationFlowNavigate: (navigation: AnimationFlowNavigation) => void;
   onElapsedInputBlur: (value: string) => void;
   onElapsedInputChange: (value: string) => void;
   onElapsedInputFocus: () => void;
@@ -110,6 +115,15 @@ export function PresentationScreen(props: {
         <PresenterStageSection
           currentIndex={props.currentSlideIndex}
           emptyStageLabel={props.stageEmptyLabel}
+          leftPanel={
+            <AnimationFlowNavigator
+              currentSlideIndex={props.currentSlideIndex}
+              currentStepIndex={props.presenterStepIndex}
+              deck={props.deck}
+              onNavigate={props.onAnimationFlowNavigate}
+              placement="drawer"
+            />
+          }
           nextHint={props.nextHint}
           nextSlideContent={
             props.deck && props.nextSlide ? (

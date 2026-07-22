@@ -149,8 +149,13 @@ import {
   resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions,
   getTriggerAnimationIdsForSlide,
+  restoreSlidePlaybackAtStep,
   resolveTriggeredActionPlaybackUpdate,
 } from "./playback/triggeredActionPlayback";
+import {
+  AnimationFlowNavigator,
+  type AnimationFlowNavigation,
+} from "./presenter/AnimationFlowNavigator";
 import {
   DisplayControls,
   type RequestDisplayScreensResult,
@@ -2125,6 +2130,10 @@ export function RehearsalWorkspace(props: {
   const slidePlaybackStateRef = useRef<SlidePlaybackState>(
     createSlidePlaybackState(),
   );
+  const pendingFlowRestoreRef = useRef<{
+    slideId: string;
+    stepIndex: number;
+  } | null>(null);
   const advanceControllerStateRef = useRef<AdvanceControllerState>(
     createInitialAdvanceControllerState(),
   );
@@ -2865,7 +2874,16 @@ export function RehearsalWorkspace(props: {
 
   useEffect(() => {
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
-    resetLivePlaybackForSlide(currentSlide);
+    const pendingFlowRestore = pendingFlowRestoreRef.current;
+    if (
+      currentSlide &&
+      pendingFlowRestore?.slideId === currentSlide.slideId
+    ) {
+      pendingFlowRestoreRef.current = null;
+      restoreLivePlaybackAtStep(currentSlide, pendingFlowRestore.stepIndex);
+    } else {
+      resetLivePlaybackForSlide(currentSlide);
+    }
     const nextBiasContext =
       deck && currentSlide
         ? buildLiveSttBiasContext(currentSlide, {
@@ -4174,6 +4192,25 @@ export function RehearsalWorkspace(props: {
     setLiveSlideAdvance(null);
   }
 
+  function restoreLivePlaybackAtStep(slide: Slide, stepIndex: number) {
+    resetLiveTranscriptForSlide(slide);
+    const restored = restoreSlidePlaybackAtStep({
+      slide,
+      slideAnimationPlan: createSlideshowAnimationPlan({
+        slide,
+        triggerAnimationIds: getTriggerAnimationIdsForSlide(slide),
+      }),
+      stepIndex,
+    });
+    slidePlaybackStateRef.current = restored.playbackState;
+    setSlidePlaybackState(restored.playbackState);
+    liveKeywordOccurrenceStateRef.current = {
+      confirmedOccurrenceIds: restored.consumedOccurrenceIds,
+      slideId: slide.slideId,
+    };
+    setLiveSlideAdvance(null);
+  }
+
   function getCurrentLiveBiasContext(deckSnapshot: Deck, slideIndex: number) {
     const slide = deckSnapshot.slides[slideIndex];
     if (!slide) {
@@ -4327,6 +4364,31 @@ export function RehearsalWorkspace(props: {
       source: "manual",
       stepIndex: 0,
       targetSlideIndex: currentSlideIndexRef.current - 1,
+    });
+  };
+  const handleAnimationFlowNavigation = (navigation: AnimationFlowNavigation) => {
+    if (!deck) return;
+    cancelAutoAdvanceForManualCommand();
+    const targetSlide = deck.slides[navigation.targetSlideIndex];
+    if (!targetSlide) return;
+    const stepIndex =
+      targetSlide.kind === "activity" || targetSlide.kind === "activity-results"
+        ? 0
+        : navigation.stepIndex;
+
+    if (navigation.targetSlideIndex === currentSlideIndexRef.current) {
+      pendingFlowRestoreRef.current = null;
+      restoreLivePlaybackAtStep(targetSlide, stepIndex);
+    } else {
+      pendingFlowRestoreRef.current = {
+        slideId: targetSlide.slideId,
+        stepIndex,
+      };
+    }
+    void requestPreparedSlideChange({
+      source: "flow-navigator",
+      stepIndex,
+      targetSlideIndex: navigation.targetSlideIndex,
     });
   };
   const goNext = () => {
@@ -5232,6 +5294,16 @@ export function RehearsalWorkspace(props: {
         <PresenterStageSection
           currentIndex={currentSlideIndex}
           emptyStageLabel={"\ubc1c\ud45c\uc790\ub8cc \ub85c\ub529 \uc911"}
+          leftPanel={
+            <AnimationFlowNavigator
+              currentSlideIndex={currentSlideIndex}
+              currentStepIndex={presenterStepIndex}
+              deck={deck}
+              navigationPending={isSlidePreparationPending}
+              onNavigate={handleAnimationFlowNavigation}
+              placement="drawer"
+            />
+          }
           navigationPending={isSlidePreparationPending}
           nextHint={nextSlideHint}
           nextSlideTitle={nextSlide ? getSlideTitle(nextSlide) : "다음 슬라이드 없음"}

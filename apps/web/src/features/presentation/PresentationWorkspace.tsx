@@ -49,11 +49,13 @@ import { usePresenterKeyboard } from "../rehearsal/presenter/usePresenterKeyboar
 import {
   getTriggerAnimationIdsForSlide,
   getKeywordOccurrenceTriggerIdsForSlide,
+  restoreSlidePlaybackAtStep,
   resolveManualAnimationPlaybackUpdate,
   resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions,
   resolveTriggeredActionPlaybackUpdate,
 } from "../rehearsal/playback/triggeredActionPlayback";
+import type { AnimationFlowNavigation } from "../rehearsal/presenter/AnimationFlowNavigator";
 import { AutoAdvanceStatus } from "../rehearsal/advance/AutoAdvanceStatus";
 import {
   defaultAutoAdvanceConfig,
@@ -153,6 +155,10 @@ export function PresentationWorkspace(props: {
   const previousHitKeywordIdsRef = useRef<Set<string>>(new Set());
   const keywordOccurrenceStateRef =
     useRef<PresentationKeywordOccurrenceState | null>(null);
+  const pendingFlowRestoreRef = useRef<{
+    slideId: string;
+    stepIndex: number;
+  } | null>(null);
   const advanceControllerStateRef = useRef<AdvanceControllerState>(
     createInitialAdvanceControllerState(),
   );
@@ -530,6 +536,66 @@ export function PresentationWorkspace(props: {
     });
   }, [applyPlaybackUpdate, currentSlide, presenterStepIndex, slideshowAnimationPlan]);
 
+  const restorePresentationPlaybackAtStep = useCallback(
+    (slide: Slide, stepIndex: number) => {
+      const restored = restoreSlidePlaybackAtStep({
+        slide,
+        slideAnimationPlan: createSlideshowAnimationPlan({
+          slide,
+          triggerAnimationIds: getTriggerAnimationIdsForSlide(slide),
+        }),
+        stepIndex,
+      });
+      previousHitKeywordIdsRef.current = new Set();
+      playbackStateRef.current = restored.playbackState;
+      keywordOccurrenceStateRef.current = {
+        confirmedOccurrenceIds: restored.consumedOccurrenceIds,
+        slideId: slide.slideId,
+      };
+      finalSentenceCommittedAtMsRef.current = null;
+      finalSentenceSpokenAtMsRef.current = null;
+      const nextAdvanceState = resetAdvanceControllerForSlide(slide.slideId);
+      advanceControllerStateRef.current = nextAdvanceState;
+      setAdvanceControllerState(nextAdvanceState);
+      setPresenterStepIndex(restored.presenterStepIndex);
+      if (speech.state.status === "listening") {
+        speech.enterSlide(slide);
+      }
+    },
+    [speech.enterSlide, speech.state.status],
+  );
+
+  const handleAnimationFlowNavigation = useCallback(
+    (navigation: AnimationFlowNavigation) => {
+      if (!deck) return;
+      const targetSlide = deck.slides[navigation.targetSlideIndex];
+      if (!targetSlide) return;
+      cancelAutoAdvanceForManualCommand();
+      const stepIndex =
+        targetSlide.kind === "activity" || targetSlide.kind === "activity-results"
+          ? 0
+          : navigation.stepIndex;
+
+      if (navigation.targetSlideIndex === currentSlideIndex) {
+        restorePresentationPlaybackAtStep(targetSlide, stepIndex);
+        return;
+      }
+
+      pendingFlowRestoreRef.current = {
+        slideId: targetSlide.slideId,
+        stepIndex,
+      };
+      setPresenterStepIndex(stepIndex);
+      setCurrentSlideIndex(navigation.targetSlideIndex);
+    },
+    [
+      cancelAutoAdvanceForManualCommand,
+      currentSlideIndex,
+      deck,
+      restorePresentationPlaybackAtStep,
+    ],
+  );
+
   usePresenterKeyboard({
     enabled: Boolean(deck) && runtimePhase === "active",
     onNextStep: handleNextPresenterStep,
@@ -537,6 +603,15 @@ export function PresentationWorkspace(props: {
   });
 
   useEffect(() => {
+    const pendingFlowRestore = pendingFlowRestoreRef.current;
+    if (
+      currentSlide &&
+      pendingFlowRestore?.slideId === currentSlide.slideId
+    ) {
+      pendingFlowRestoreRef.current = null;
+      restorePresentationPlaybackAtStep(currentSlide, pendingFlowRestore.stepIndex);
+      return;
+    }
     previousHitKeywordIdsRef.current = new Set();
     keywordOccurrenceStateRef.current = currentSlide
       ? { slideId: currentSlide.slideId, confirmedOccurrenceIds: [] }
@@ -552,7 +627,7 @@ export function PresentationWorkspace(props: {
     if (currentSlide && speech.state.status === "listening") {
       speech.enterSlide(currentSlide);
     }
-  }, [currentSlide, speech.enterSlide, speech.state.status]);
+  }, [currentSlide, restorePresentationPlaybackAtStep, speech.enterSlide, speech.state.status]);
 
   useEffect(() => {
     if (runtimePhase !== "active" || speech.state.status !== "listening") {
@@ -1158,6 +1233,7 @@ export function PresentationWorkspace(props: {
         onElapsedInputFocus={() => setEditingTimeField("elapsed")}
         onExit={requestPresentationExit}
         onNext={handleNextPresenterStep}
+        onAnimationFlowNavigate={handleAnimationFlowNavigation}
         onPrevious={goPrevious}
         onPrimaryAction={handleTimePrimaryAction}
         onReset={() =>

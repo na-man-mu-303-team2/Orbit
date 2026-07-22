@@ -138,6 +138,7 @@ export function PresenterStageSection(props: {
   currentIndex: number;
   currentSlideTitle?: string;
   emptyStageLabel: string;
+  leftPanel?: ReactNode;
   navigationPending?: boolean;
   nextHint: string;
   nextSlideContent?: ReactNode;
@@ -229,6 +230,7 @@ export function PresenterStageSection(props: {
           <p>{props.nextHint}</p>
         </div>
       </section>
+      {props.leftPanel}
     </section>
   );
 }

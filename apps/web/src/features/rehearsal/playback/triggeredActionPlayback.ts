@@ -17,6 +17,12 @@ export type ManualAnimationPlaybackUpdate = TriggeredActionPlaybackUpdate & {
   consumedOccurrenceIds: string[];
 };
 
+export type RestoredSlidePlayback = {
+  consumedOccurrenceIds: string[];
+  playbackState: SlidePlaybackState;
+  presenterStepIndex: number;
+};
+
 export function getTriggerAnimationIdsForSlide(slide: Slide) {
   const validAnimationIds = new Set(
     slide.animations.map((animation) => animation.animationId)
@@ -136,6 +142,53 @@ export function resolveManualAnimationPlaybackUpdate(args: {
       actionUpdate.presenterStepIndex
     ),
     shouldAdvanceSlide: false
+  };
+}
+
+/**
+ * Rebuilds the action runtime state for a settled slideshow step. This is used
+ * by presenter recovery controls, where setting only the visual step would
+ * otherwise leave keyword occurrences and playback bookkeeping out of sync.
+ */
+export function restoreSlidePlaybackAtStep(args: {
+  slide: Slide;
+  slideAnimationPlan: SlideshowAnimationPlan;
+  stepIndex: number;
+}): RestoredSlidePlayback {
+  const presenterStepIndex = Math.min(
+    Math.max(0, Math.trunc(args.stepIndex)),
+    args.slideAnimationPlan.maxStepIndex,
+  );
+  const playedAnimationIds = new Set<string>();
+  const consumedOccurrenceIds = new Set<string>();
+
+  for (const triggerStep of args.slideAnimationPlan.triggerSteps.slice(
+    0,
+    presenterStepIndex,
+  )) {
+    const animationIds = new Set(
+      triggerStep.animations.map((animation) => animation.animationId),
+    );
+
+    for (const animationId of animationIds) {
+      playedAnimationIds.add(animationId);
+    }
+
+    for (const action of args.slide.actions) {
+      if (
+        action.trigger.kind === "keyword-occurrence" &&
+        action.effect.kind === "play-animation" &&
+        animationIds.has(action.effect.animationId)
+      ) {
+        consumedOccurrenceIds.add(action.trigger.occurrenceId);
+      }
+    }
+  }
+
+  return {
+    consumedOccurrenceIds: [...consumedOccurrenceIds],
+    playbackState: { playedAnimationIds: [...playedAnimationIds] },
+    presenterStepIndex,
   };
 }
 

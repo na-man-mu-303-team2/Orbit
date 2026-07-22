@@ -84,6 +84,34 @@
   color: var(--redesign-color-success-container);
 }
 
+.orbit-live-presenter-shell .animation-flow-navigator,
+.orbit-live-presenter-shell .animation-flow-slide {
+  background: var(--redesign-color-dark-surface);
+  border-color: color-mix(in srgb, var(--redesign-color-on-dark) 13%, transparent);
+}
+
+.orbit-live-presenter-shell .animation-flow-navigator-header h2,
+.orbit-live-presenter-shell .animation-flow-slide-target strong,
+.orbit-live-presenter-shell .animation-flow-entry strong,
+.orbit-live-presenter-shell .animation-flow-step strong {
+  color: var(--redesign-color-on-dark);
+}
+
+.orbit-live-presenter-shell .animation-flow-navigator-description,
+.orbit-live-presenter-shell .animation-flow-slide-target span,
+.orbit-live-presenter-shell .animation-flow-step small,
+.orbit-live-presenter-shell .animation-flow-entry span,
+.orbit-live-presenter-shell .animation-flow-empty {
+  color: color-mix(in srgb, var(--redesign-color-light-surface) 70%, transparent);
+}
+
+.orbit-live-presenter-shell .animation-flow-navigator-drawer-open,
+.orbit-live-presenter-shell .animation-flow-drawer-toggle {
+  background: color-mix(in srgb, var(--redesign-color-dark-surface) 88%, transparent);
+  border-color: color-mix(in srgb, var(--redesign-color-on-dark) 13%, transparent);
+  color: var(--redesign-color-on-dark);
+}
+
 @media (max-width: 900px) {
   .orbit-live-presenter-shell .rehearsal-presenter-topbar {
     grid-template-columns: auto 1fr auto;
