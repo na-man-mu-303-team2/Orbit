@@ -1,12 +1,15 @@
 import "reflect-metadata";
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import {
   PPTX_OOXML_SYNC_CAPABILITY_VERSION,
   deckSchema,
+  jobSchema,
+  pptxOoxmlGenerationJobResultSchema,
   templateBlueprintSchema,
   type Deck,
   type DeckElement,
@@ -35,6 +38,9 @@ const databaseUrl =
   "postgresql://orbit:orbit@127.0.0.1:5432/orbit";
 const pythonWorkerUrl =
   process.env.ORBIT_PYTHON_WORKER_URL ?? process.env.PYTHON_WORKER_URL ?? "";
+const importFidelityReferencePath =
+  process.env.PPTX_IMPORT_FIDELITY_REFERENCE_PATH ?? "";
+const itWithImportFidelityReference = importFidelityReferencePath ? it : it.skip;
 
 describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
   let dataSource: DataSource;
@@ -68,6 +74,183 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
   afterAll(async () => {
     if (dataSource?.isInitialized) await dataSource.destroy();
   });
+
+  itWithImportFidelityReference(
+    "persists and reloads reference speaker notes with protected preview file ids",
+    async () => {
+      const projectId = integrationId("project");
+      const sourceFileId = integrationId("file");
+      const sourceStorageKey = `integration/${projectId}/reference.pptx`;
+      const storage = new MemoryStorage();
+      projectIds.add(projectId);
+
+      await expectPythonWorkerHealthy(pythonWorkerUrl);
+      const sourceBytes = await readFile(importFidelityReferencePath);
+      const importedSource = await importPptxWithPython(
+        pythonWorkerUrl,
+        sourceBytes,
+        projectId,
+        sourceFileId,
+      );
+      const sourceNotes = (importedSource.blueprint.slides ?? []).map(
+        (slide) => slide.speakerNotes ?? "",
+      );
+      expect(sourceNotes.length).toBe(8);
+      expect(sourceNotes.filter((note) => note.length > 0).length).toBe(8);
+      const expectedNoteDigests = sourceNotes.map(noteDigest);
+
+      storage.seed(
+        sourceStorageKey,
+        sourceBytes,
+        pptxMimeType,
+        "pptx-import",
+      );
+      await seedProject(dataSource, projectId);
+      await seedAsset(dataSource, {
+        projectId,
+        fileId: sourceFileId,
+        storageKey: sourceStorageKey,
+        purpose: "pptx-import",
+        body: sourceBytes,
+      });
+
+      const harness = createServiceHarness(dataSource);
+      const importJob = await harness.jobs.create({
+        projectId,
+        type: "pptx-ooxml-generation",
+        payload: { request: { fileId: sourceFileId } },
+      });
+      const completedJob = await processPptxOoxmlGenerationJob(
+        dataSource,
+        storage,
+        pythonWorkerUrl,
+        {
+          jobId: importJob.jobId,
+          projectId,
+          request: { fileId: sourceFileId },
+        },
+      );
+      expect(completedJob.status, JSON.stringify(completedJob.error)).toBe(
+        "succeeded",
+      );
+
+      const persistedDeck = deckSchema.parse(
+        (await harness.decks.getDeck(projectId)).deck,
+      );
+      expect(persistedDeck.slides).toHaveLength(8);
+      expect(persistedDeck.slides.map((slide) => noteDigest(slide.speakerNotes)))
+        .toEqual(expectedNoteDigests);
+
+      const templateBlueprint = await loadTemplateBlueprint(
+        dataSource,
+        projectId,
+        persistedDeck.deckId,
+      );
+      const previewFileIds = templateBlueprint.slides.flatMap((slide) =>
+        slide.notesPage?.status === "rendered" &&
+        slide.notesPage.renderAssetFileId
+          ? [slide.notesPage.renderAssetFileId]
+          : [],
+      );
+      expect(previewFileIds).toHaveLength(8);
+      expect(new Set(previewFileIds).size).toBe(8);
+      const previewAssets = await dataSource.query<
+        Array<{ file_id: string; purpose: string }>
+      >(
+        `SELECT file_id, purpose FROM project_assets
+         WHERE project_id = $1 AND file_id = ANY($2::text[])`,
+        [projectId, previewFileIds],
+      );
+      expect(previewAssets).toHaveLength(8);
+      expect(
+        previewAssets.every((asset) => asset.purpose === "design-asset"),
+      ).toBe(true);
+
+      jobSchema.parse(completedJob);
+      pptxOoxmlGenerationJobResultSchema.parse(completedJob.result);
+      const sidecarPayload = JSON.stringify(templateBlueprint);
+      const jobPayload = JSON.stringify(completedJob.result);
+      expect(sidecarPayload).not.toContain("/content");
+      expect(sidecarPayload).not.toContain("contentBase64");
+      for (const note of sourceNotes) {
+        expect(sidecarPayload.includes(note)).toBe(false);
+        expect(jobPayload.includes(note)).toBe(false);
+      }
+
+      const fallbackProjectId = integrationId("project");
+      const fallbackSourceFileId = integrationId("file");
+      const fallbackStorageKey =
+        `integration/${fallbackProjectId}/reference.pptx`;
+      const previewFailingStorage = new NotesPreviewFailingStorage();
+      projectIds.add(fallbackProjectId);
+      previewFailingStorage.seed(
+        fallbackStorageKey,
+        sourceBytes,
+        pptxMimeType,
+        "pptx-import",
+      );
+      await seedProject(dataSource, fallbackProjectId);
+      await seedAsset(dataSource, {
+        projectId: fallbackProjectId,
+        fileId: fallbackSourceFileId,
+        storageKey: fallbackStorageKey,
+        purpose: "pptx-import",
+        body: sourceBytes,
+      });
+
+      const fallbackHarness = createServiceHarness(dataSource);
+      const fallbackImportJob = await fallbackHarness.jobs.create({
+        projectId: fallbackProjectId,
+        type: "pptx-ooxml-generation",
+        payload: { request: { fileId: fallbackSourceFileId } },
+      });
+      const fallbackJob = await processPptxOoxmlGenerationJob(
+        dataSource,
+        previewFailingStorage,
+        pythonWorkerUrl,
+        {
+          jobId: fallbackImportJob.jobId,
+          projectId: fallbackProjectId,
+          request: { fileId: fallbackSourceFileId },
+        },
+      );
+      expect(fallbackJob.status, JSON.stringify(fallbackJob.error)).toBe(
+        "succeeded",
+      );
+
+      const fallbackDeck = deckSchema.parse(
+        (await fallbackHarness.decks.getDeck(fallbackProjectId)).deck,
+      );
+      expect(fallbackDeck.slides.map((slide) => noteDigest(slide.speakerNotes)))
+        .toEqual(expectedNoteDigests);
+      const fallbackBlueprint = await loadTemplateBlueprint(
+        dataSource,
+        fallbackProjectId,
+        fallbackDeck.deckId,
+      );
+      expect(
+        fallbackBlueprint.slides.every(
+          (slide) =>
+            slide.notesPage?.status === "render-unavailable" &&
+            slide.notesPage.renderAssetFileId === undefined,
+        ),
+      ).toBe(true);
+      const fallbackResult = pptxOoxmlGenerationJobResultSchema.parse(
+        fallbackJob.result,
+      );
+      expect(fallbackResult.qualityReport.notesDiagnostics).toMatchObject({
+        rendered: 0,
+        warnings: expect.arrayContaining([
+          { code: "PPTX_NOTES_PREVIEW_ASSET_FAILED", count: 8 },
+        ]),
+      });
+      const fallbackJobPayload = JSON.stringify(fallbackResult);
+      for (const note of sourceNotes) {
+        expect(fallbackJobPayload.includes(note)).toBe(false);
+      }
+    },
+    180_000,
+  );
 
   it("imports, saves, syncs, exports, and re-imports edited text and frame", async () => {
     const projectId = integrationId("project");
@@ -813,6 +996,15 @@ class MemoryStorage implements Pick<
   }
 }
 
+class NotesPreviewFailingStorage extends MemoryStorage {
+  override async putObject(input: StoragePutInput): Promise<StorageObject> {
+    if (input.key.includes("notes-")) {
+      throw new Error("Synthetic notes preview storage failure.");
+    }
+    return super.putObject(input);
+  }
+}
+
 function createServiceHarness(dataSource: DataSource) {
   const logger = { info: () => undefined, error: () => undefined };
   const jobs = new JobsService(
@@ -1087,9 +1279,16 @@ async function importPptxWithPython(
   if (!response.ok) throw new Error(await response.text());
   return (await response.json()) as {
     blueprint: {
-      slides?: Array<{ elements?: Array<Record<string, unknown>> }>;
+      slides?: Array<{
+        elements?: Array<Record<string, unknown>>;
+        speakerNotes?: string;
+      }>;
     };
   };
+}
+
+function noteDigest(note: string): string {
+  return createHash("sha256").update(note).digest("hex");
 }
 
 function findImportedText(
