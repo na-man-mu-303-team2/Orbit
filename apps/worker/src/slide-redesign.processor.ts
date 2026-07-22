@@ -5,6 +5,7 @@ import {
   designAgentProposalSchema,
   designAgentWorkerRequestSchema,
   jobSchema,
+  slideRedesignComposeArtifactSchema,
   slideRedesignJobPayloadSchema,
   slideRedesignJobResultSchema,
   slideRedesignProgressEventSchema,
@@ -18,12 +19,18 @@ import {
   type SlideRedesignInterpretArtifact,
   type SlideRedesignVerifyArtifact,
 } from "@orbit/shared";
+import type { StoragePort } from "@orbit/storage";
 import type { DataSource, EntityManager } from "typeorm";
 import {
   SlideRedesignPythonClient,
   SlideRedesignStageClientError,
   type SlideRedesignStageClient,
 } from "./slide-redesign-python.client";
+import {
+  resolveSlideImageAssets,
+  type ImageAssetFallbackDiagnostic,
+  type ImageAssetRuntime,
+} from "./image-asset-pipeline";
 
 type QueryExecutor = DataSource | EntityManager;
 
@@ -35,6 +42,10 @@ export interface SlideRedesignProcessorOptions {
   client?: SlideRedesignStageClient;
   publishProgress?: SlideRedesignProgressPublisher;
   now?: () => Date;
+  imageRuntime?: ImageAssetRuntime;
+  storage?: Pick<StoragePort, "putObject">;
+  resolveImageAssets?: typeof resolveSlideImageAssets;
+  onImageFallback?: (diagnostic: ImageAssetFallbackDiagnostic) => void;
 }
 
 export async function processSlideRedesignJob(
@@ -121,7 +132,7 @@ export async function processSlideRedesignJob(
       composed.response,
       now(),
     );
-    assertProposalApplies(sourceDeck, previewProposal);
+    const previewDeck = assertProposalApplies(sourceDeck, previewProposal);
     failureProgress = 65;
     await setRunningStage(dataSource, payload, "ornamenting", failureProgress);
     await publishStage(
@@ -133,16 +144,51 @@ export async function processSlideRedesignJob(
       previewProposal,
     );
 
+    let finalComposed = composed;
+    const imageRequests = composed.imageRequests ?? [];
+    if (imageRequests.length > 0) {
+      failureProgress = 72;
+      await setRunningStage(
+        dataSource,
+        payload,
+        "illustrating",
+        failureProgress,
+      );
+      await publishStage(
+        publishProgress,
+        payload,
+        "illustrating",
+        ["interpreting", "composing", "coloring", "ornamenting"],
+        now,
+        previewProposal,
+      );
+      finalComposed = await resolveComposedImage(
+        dataSource,
+        payload,
+        previewDeck,
+        composed,
+        options,
+      );
+    }
+
     failureProgress = 80;
     await setRunningStage(dataSource, payload, "verifying", failureProgress);
     await publishStage(
       publishProgress,
       payload,
       "verifying",
-      ["interpreting", "composing", "coloring", "ornamenting"],
+      imageRequests.length > 0
+        ? [
+            "interpreting",
+            "composing",
+            "coloring",
+            "ornamenting",
+            "illustrating",
+          ]
+        : ["interpreting", "composing", "coloring", "ornamenting"],
       now,
     );
-    const verified = await client.verify(request, composed);
+    const verified = await client.verify(request, finalComposed);
     const completedJob = await finishVerifiedProposal(
       dataSource,
       payload,
@@ -276,7 +322,7 @@ function buildTransientProposal(
 function assertProposalApplies(
   deck: Deck,
   proposal: DesignAgentProposal,
-): void {
+): Deck {
   const preview = applyDeckPatch(deck, {
     deckId: proposal.deckId,
     baseVersion: proposal.baseVersion,
@@ -289,6 +335,179 @@ function assertProposalApplies(
       65,
     );
   }
+  return preview.deck;
+}
+
+async function resolveComposedImage(
+  dataSource: DataSource,
+  payload: SlideRedesignJobPayload,
+  previewDeck: Deck,
+  composed: ReturnType<typeof slideRedesignComposeArtifactSchema.parse>,
+  options: SlideRedesignProcessorOptions,
+) {
+  const request = composed.imageRequests[0];
+  if (!request || !composed.response) return composed;
+  if (!options.imageRuntime || !options.storage) {
+    return slideRedesignComposeArtifactSchema.parse({
+      ...composed,
+      response: {
+        ...composed.response,
+        warnings: uniqueWarnings([
+          ...composed.response.warnings,
+          "Image runtime was unavailable; styled media fallback retained.",
+        ]),
+      },
+    });
+  }
+  const resolution = await (
+    options.resolveImageAssets ?? resolveSlideImageAssets
+  )(
+    dataSource,
+    options.storage,
+    previewDeck,
+    {
+      ...request,
+      slideId: payload.context.slide.slideId,
+      palette: payload.selectedPaletteOption.palette,
+    },
+    options.imageRuntime,
+    { userId: payload.userId },
+    options.onImageFallback,
+  );
+  return slideRedesignComposeArtifactSchema.parse({
+    ...composed,
+    response: mergeResolvedImageResponse(
+      composed.response,
+      resolution.deck,
+      request.placeholderElementId,
+      request.assetRole,
+      payload.context.canvas,
+      resolution.warnings,
+    ),
+  });
+}
+
+function mergeResolvedImageResponse(
+  response: NonNullable<
+    ReturnType<typeof slideRedesignComposeArtifactSchema.parse>["response"]
+  >,
+  resolvedDeck: Deck,
+  placeholderElementId: string,
+  assetRole: "atmosphere" | "evidence" | "decoration",
+  canvas: SlideRedesignJobPayload["context"]["canvas"],
+  warnings: string[],
+) {
+  const slide =
+    resolvedDeck.slides.find((item) =>
+      item.elements.some(
+        (element) => element.elementId === placeholderElementId,
+      ),
+    ) ??
+    resolvedDeck.slides.find((item) =>
+      item.elements.some(
+        (element) =>
+          element.elementId ===
+          placeholderElementId.replace(/_media_placeholder$/, "_media_asset"),
+      ),
+    );
+  const assetElementId = placeholderElementId.replace(
+    /_media_placeholder$/,
+    "_media_asset",
+  );
+  const imageElement = slide?.elements.find(
+    (element) =>
+      element.elementId === assetElementId && element.type === "image",
+  );
+  if (!imageElement) {
+    return {
+      ...response,
+      warnings: uniqueWarnings([...response.warnings, ...warnings]),
+    };
+  }
+
+  const placeholderOperation = response.operations.find(
+    (operation) =>
+      operation.type === "add_element" &&
+      operation.element.elementId === placeholderElementId,
+  );
+  const placeholder =
+    placeholderOperation?.type === "add_element"
+      ? placeholderOperation.element
+      : undefined;
+  const isBackground =
+    assetRole === "atmosphere" &&
+    placeholder !== undefined &&
+    placeholder.x <= canvas.width * 0.05 &&
+    placeholder.y <= canvas.height * 0.05 &&
+    placeholder.width >= canvas.width * 0.9 &&
+    placeholder.height >= canvas.height * 0.9;
+  const captionElementId = placeholderElementId.replace(
+    /_media_placeholder$/,
+    "_media_caption",
+  );
+  let operations = response.operations.filter(
+    (operation) =>
+      operation.type !== "add_element" ||
+      operation.element.elementId !== captionElementId,
+  );
+  if (isBackground && imageElement.type === "image") {
+    operations = operations
+      .filter(
+        (operation) =>
+          operation.type !== "add_element" ||
+          operation.element.elementId !== placeholderElementId,
+      )
+      .map((operation) =>
+        operation.type === "update_slide_style"
+          ? {
+              ...operation,
+              style: {
+                ...operation.style,
+                backgroundImage: {
+                  src: imageElement.props.src,
+                  alt: imageElement.props.alt,
+                  fit: imageElement.props.fit,
+                  opacity: 1,
+                },
+              },
+            }
+          : operation,
+      );
+  } else {
+    operations = operations.map((operation) =>
+      operation.type === "add_element" &&
+      operation.element.elementId === placeholderElementId
+        ? { ...operation, element: imageElement }
+        : operation,
+    );
+  }
+  return {
+    ...response,
+    operations,
+    affectedElementIds: affectedElementIds(operations),
+    warnings: uniqueWarnings([...response.warnings, ...warnings]),
+  };
+}
+
+function affectedElementIds(
+  operations: NonNullable<
+    ReturnType<typeof slideRedesignComposeArtifactSchema.parse>["response"]
+  >["operations"],
+): string[] {
+  return [
+    ...new Set(
+      operations.flatMap((operation) => {
+        if ("elementId" in operation) return [operation.elementId];
+        if (operation.type === "add_element")
+          return [operation.element.elementId];
+        return [];
+      }),
+    ),
+  ];
+}
+
+function uniqueWarnings(warnings: string[]): string[] {
+  return [...new Set(warnings)].slice(0, 20);
 }
 
 async function finishVerifiedProposal(

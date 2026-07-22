@@ -170,6 +170,7 @@ function composeArtifact(slideId: string) {
     chosenCompositionId: "title-statement",
     irreversibleCount: 0,
     ornamentApplied: true,
+    imageRequests: [],
   };
 }
 

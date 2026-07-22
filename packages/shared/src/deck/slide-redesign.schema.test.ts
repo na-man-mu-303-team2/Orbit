@@ -97,19 +97,25 @@ describe("slide redesign stage artifact schema", () => {
   });
 
   it("rejects incomplete or unknown stage artifacts", () => {
-    expect(slideRedesignInterpretArtifactSchema.safeParse({
-      stage: "interpret",
-      outcome: "applicable",
-      provenance: {},
-    }).success).toBe(false);
-    expect(slideRedesignStageArtifactSchema.safeParse({
-      ...interpretArtifact,
-      stage: "illustrate",
-    }).success).toBe(false);
-    expect(slideRedesignInterpretArtifactSchema.safeParse({
-      ...interpretArtifact,
-      rawSlideText: "민감 원문",
-    }).success).toBe(false);
+    expect(
+      slideRedesignInterpretArtifactSchema.safeParse({
+        stage: "interpret",
+        outcome: "applicable",
+        provenance: {},
+      }).success,
+    ).toBe(false);
+    expect(
+      slideRedesignStageArtifactSchema.safeParse({
+        ...interpretArtifact,
+        stage: "illustrate",
+      }).success,
+    ).toBe(false);
+    expect(
+      slideRedesignInterpretArtifactSchema.safeParse({
+        ...interpretArtifact,
+        rawSlideText: "민감 원문",
+      }).success,
+    ).toBe(false);
   });
 
   it("parses compose and verify response artifacts", () => {
@@ -126,7 +132,7 @@ describe("slide redesign stage artifact schema", () => {
       paletteOptions: options,
     };
 
-    expect(slideRedesignStageArtifactSchema.parse({
+    const composed = slideRedesignStageArtifactSchema.parse({
       stage: "compose",
       outcome: "applicable",
       response,
@@ -134,11 +140,26 @@ describe("slide redesign stage artifact schema", () => {
       safeCandidateCount: 0,
       irreversibleCount: 0,
       ornamentApplied: false,
-    }).stage).toBe("compose");
-    expect(slideRedesignStageArtifactSchema.parse({
-      stage: "verify",
-      outcome: "applicable",
-      response,
-    }).stage).toBe("verify");
+      imageRequests: [
+        {
+          placeholderElementId: "el_media_placeholder",
+          assetRole: "atmosphere",
+          needsGeneration: true,
+          prompt: "Calm abstract collaboration",
+          alt: "Abstract collaboration visual",
+        },
+      ],
+    });
+    expect(composed.stage).toBe("compose");
+    expect(
+      composed.stage === "compose" ? composed.imageRequests : [],
+    ).toHaveLength(1);
+    expect(
+      slideRedesignStageArtifactSchema.parse({
+        stage: "verify",
+        outcome: "applicable",
+        response,
+      }).stage,
+    ).toBe("verify");
   });
 });

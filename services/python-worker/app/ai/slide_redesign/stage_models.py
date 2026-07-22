@@ -87,6 +87,18 @@ class InterpretStageArtifact(BaseModel):
         return self
 
 
+class ImageRequestArtifact(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    placeholder_element_id: str = Field(alias="placeholderElementId", min_length=1)
+    asset_role: Literal["atmosphere", "evidence", "decoration"] = Field(
+        alias="assetRole"
+    )
+    needs_generation: Literal[True] = Field(alias="needsGeneration")
+    prompt: str = Field(min_length=1, max_length=2_000)
+    alt: str = Field(min_length=1, max_length=1_000)
+
+
 class ComposeStageArtifact(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -102,6 +114,11 @@ class ComposeStageArtifact(BaseModel):
     )
     irreversible_count: int = Field(default=0, alias="irreversibleCount", ge=0)
     ornament_applied: bool = Field(default=False, alias="ornamentApplied")
+    image_requests: list[ImageRequestArtifact] = Field(
+        default_factory=list,
+        alias="imageRequests",
+        max_length=4,
+    )
 
     @model_validator(mode="after")
     def validate_applicable_artifact(self) -> ComposeStageArtifact:

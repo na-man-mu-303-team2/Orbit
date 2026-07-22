@@ -307,7 +307,7 @@ describe("WorkerService queue subscriptions", () => {
       expect.anything(),
       configState.PYTHON_WORKER_URL,
       payload,
-      { publishProgress: expect.any(Function) },
+      expect.objectContaining({ publishProgress: expect.any(Function) }),
     );
     const options = processors.slideRedesign.mock.calls[0]?.[3] as {
       publishProgress: (event: unknown) => Promise<void>;

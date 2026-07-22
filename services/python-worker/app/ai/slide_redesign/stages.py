@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from copy import deepcopy
-from typing import Any
+from typing import Any, Literal, cast
 
 from app.ai.design_agent import (
     DesignAgentRequest,
@@ -15,7 +15,7 @@ from app.ai.design_program import PaletteRoles
 
 from .composer import eligible_candidates, select_composition
 from .diff import CandidateAnalysis, build_operations, filter_safe_candidates
-from .media import build_media_operations, collect_source_images
+from .media import MediaAssignment, build_media_operations, collect_source_images
 from .ornament import generate_ornaments
 from .palette import build_palette_options, derive_palette
 from .safety import (
@@ -33,6 +33,7 @@ from .slide_extractor import (
 from .stage_models import (
     ComposeStageArtifact,
     ElementConstraintsArtifact,
+    ImageRequestArtifact,
     InterpretStageArtifact,
     SlideRedesignSummary,
     VerifyStageArtifact,
@@ -151,6 +152,7 @@ def run_compose_stage(
         summary,
         media_enabled=MEDIA_ENABLED,
         source_image_count=len(collect_source_images(slide)),
+        has_source_refs=_has_source_refs(slide),
     )
     constraints = artifact.constraints.to_constraints()
     analyses = filter_candidates(
@@ -236,6 +238,12 @@ def run_compose_stage(
         chosenCompositionId=chosen.composition_id,
         irreversibleCount=len(analysis.matching.irreversible),
         ornamentApplied=len(operations) > operation_count_without_ornaments,
+        imageRequests=_build_image_requests(
+            operations,
+            analysis.media_assignments,
+            chosen.asset_role,
+            artifact.summary,
+        ),
     )
 
 
@@ -296,6 +304,70 @@ def _affected_element_ids(operations: list[dict[str, Any]]) -> list[str]:
         if isinstance(element_id, str) and element_id not in affected:
             affected.append(element_id)
     return affected
+
+
+def _has_source_refs(slide: dict[str, Any]) -> bool:
+    cues = slide.get("semanticCues")
+    if not isinstance(cues, list):
+        return False
+    return any(
+        isinstance(cue, dict)
+        and isinstance(cue.get("sourceRefs"), list)
+        and bool(cue["sourceRefs"])
+        for cue in cues
+    )
+
+
+def _build_image_requests(
+    operations: list[dict[str, Any]],
+    assignments: list[MediaAssignment],
+    asset_role: str,
+    summary: SlideRedesignSummary,
+) -> list[ImageRequestArtifact]:
+    if asset_role not in {"atmosphere", "evidence", "decoration"}:
+        return []
+    request_asset_role = cast(
+        Literal["atmosphere", "evidence", "decoration"], asset_role
+    )
+    added_media_ids = [
+        str(element["elementId"])
+        for operation in operations
+        if operation.get("type") == "add_element"
+        and isinstance((element := operation.get("element")), dict)
+        and element.get("role") == "media"
+        and isinstance(element.get("elementId"), str)
+    ]
+    prompt = " ".join(
+        part.strip()
+        for part in (summary.title, summary.message, summary.media_intent.alt)
+        if part.strip()
+    )
+    alt = summary.media_intent.alt.strip() or summary.title.strip() or summary.message.strip()
+    requests: list[ImageRequestArtifact] = []
+    for assignment in assignments:
+        if not assignment.needs_generation:
+            continue
+        base_id = assignment.slot.placeholder_element_id
+        placeholder_id = next(
+            (
+                element_id
+                for element_id in added_media_ids
+                if element_id == base_id or element_id.startswith(f"{base_id}_r")
+            ),
+            None,
+        )
+        if placeholder_id is None:
+            continue
+        requests.append(
+            ImageRequestArtifact(
+                placeholderElementId=placeholder_id,
+                assetRole=request_asset_role,
+                needsGeneration=True,
+                prompt=prompt or "Presentation visual",
+                alt=alt or "Presentation visual",
+            )
+        )
+    return requests
 
 
 def _insert_supported_ornament_operations(

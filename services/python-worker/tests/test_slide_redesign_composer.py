@@ -100,6 +100,17 @@ def test_media_enabled_candidates_include_required_and_image_variants() -> None:
     assert by_id["hero-full-bleed"].asset_role == "atmosphere"
 
 
+def test_media_candidates_with_source_references_use_evidence_role() -> None:
+    candidates = eligible_candidates(
+        summary("title", ["핵심", "근거"]),
+        media_enabled=True,
+        has_source_refs=True,
+    )
+
+    by_id = {candidate.composition_id: candidate for candidate in candidates}
+    assert by_id["hero-full-bleed"].asset_role == "evidence"
+
+
 def test_optional_media_candidate_uses_slot_when_source_image_exists() -> None:
     candidates = eligible_candidates(
         summary("feature-grid", ["기능 A", "기능 B", "기능 C"]),

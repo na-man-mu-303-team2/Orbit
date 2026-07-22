@@ -468,6 +468,8 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             {
               publishProgress: (event) =>
                 this.slideRedesignProgressPublisher!.publish(event),
+              imageRuntime,
+              storage,
             },
           );
         },

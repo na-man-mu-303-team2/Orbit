@@ -1,5 +1,6 @@
 import { createDemoDeck } from "@orbit/editor-core";
 import {
+  deckSchema,
   designAgentCapabilities,
   slideRedesignJobPayloadSchema,
   slideRedesignJobResultSchema,
@@ -102,6 +103,70 @@ describe("processSlideRedesignJob", () => {
     expect(result.stale).toBe(true);
     expect(result.proposal?.status).toBe("stale");
     expect(database.proposals[0]?.status).toBe("stale");
+  });
+
+  it("runs illustrating only for a generation request and verifies the resolved image patch", async () => {
+    const payload = jobPayload();
+    const database = new FakeSlideRedesignDatabase(payload);
+    const client = stageClient(payload);
+    client.compose.mockResolvedValueOnce(imageComposeArtifact(payload));
+    client.verify.mockImplementationOnce(async (_request, artifact) => {
+      if (!artifact.response) throw new Error("compose response is missing");
+      return {
+        stage: "verify",
+        outcome: "applicable",
+        response: artifact.response,
+      };
+    });
+    const resolveImageAssets = vi.fn(async (...args: unknown[]) => {
+      const previewDeck = args[2] as Deck;
+      return {
+        deck: resolvedPreviewDeck(previewDeck),
+        warnings: [],
+        diagnostics: [],
+      };
+    });
+    const progressEvents: Array<{ payload: { stage: string } }> = [];
+
+    const job = await processSlideRedesignJob(
+      database.dataSource,
+      "http://python-worker:8000",
+      payload,
+      {
+        client,
+        now: fixedClock(),
+        publishProgress: async (event) => {
+          progressEvents.push(event);
+        },
+        imageRuntime: { maxPerDeck: 1, maxPerUserPerDay: 1 },
+        storage: { putObject: vi.fn() },
+        resolveImageAssets,
+      },
+    );
+
+    expect(progressEvents.map((event) => event.payload.stage)).toEqual([
+      "interpreting",
+      "composing",
+      "coloring",
+      "ornamenting",
+      "illustrating",
+      "verifying",
+    ]);
+    expect(resolveImageAssets).toHaveBeenCalledTimes(1);
+    const verifiedArtifact = client.verify.mock.calls[0]?.[1];
+    expect(verifiedArtifact?.response?.operations).toContainEqual(
+      expect.objectContaining({
+        type: "add_element",
+        element: expect.objectContaining({
+          elementId: "el_redesign_media_asset",
+          type: "image",
+        }),
+      }),
+    );
+    const result = slideRedesignJobResultSchema.parse(job.result);
+    expect(result.proposal?.operations).toEqual(
+      verifiedArtifact?.response?.operations,
+    );
   });
 
   it("short-circuits an unsafe interpretation without compose or a proposal", async () => {
@@ -384,7 +449,72 @@ function composeArtifact(payload: SlideRedesignJobPayload) {
     chosenCompositionId: "title-statement",
     irreversibleCount: 0,
     ornamentApplied: true,
+    imageRequests: [],
   };
+}
+
+function imageComposeArtifact(payload: SlideRedesignJobPayload) {
+  const template = payload.context.slide.elements.find(
+    (element) => element.type === "rect",
+  );
+  if (!template || template.type !== "rect") {
+    throw new Error("rect fixture is missing");
+  }
+  return {
+    ...composeArtifact(payload),
+    response: {
+      ...stageResponse(payload),
+      operations: [
+        ...stageResponse(payload).operations,
+        {
+          type: "add_element" as const,
+          slideId: payload.context.slide.slideId,
+          element: {
+            ...template,
+            elementId: "el_redesign_media_placeholder",
+            role: "media" as const,
+            x: 960,
+            y: 120,
+            width: 840,
+            height: 720,
+            props: { ...template.props, fill: "#DBEAFE" },
+          },
+        },
+      ],
+      affectedElementIds: ["el_redesign_media_placeholder"],
+    },
+    imageRequests: [
+      {
+        placeholderElementId: "el_redesign_media_placeholder",
+        assetRole: "atmosphere" as const,
+        needsGeneration: true as const,
+        prompt: "Calm abstract collaboration",
+        alt: "Calm abstract collaboration",
+      },
+    ],
+  };
+}
+
+function resolvedPreviewDeck(previewDeck: Deck): Deck {
+  const raw = structuredClone(previewDeck);
+  const slide = raw.slides[0]!;
+  slide.elements = slide.elements.map((element) =>
+    element.elementId === "el_redesign_media_placeholder"
+      ? ({
+          ...element,
+          elementId: "el_redesign_media_asset",
+          type: "image",
+          props: {
+            src: "/api/v1/projects/project-1/assets/file-1/content",
+            alt: "Calm abstract collaboration",
+            fit: "cover",
+            focusX: 0.5,
+            focusY: 0.5,
+          },
+        } as never)
+      : element,
+  );
+  return deckSchema.parse(raw);
 }
 
 function verifyArtifact(payload: SlideRedesignJobPayload) {
