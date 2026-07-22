@@ -67,6 +67,7 @@ type DeckValidationInput = {
       durationMs: number;
     };
     ooxmlSourceSlidePart?: string;
+    importRenderMode?: "editable" | "hybrid" | "snapshot";
     style: Record<string, unknown>;
     speakerNotes: string;
     aiNotes?: {
@@ -311,6 +312,31 @@ const expectInvalidDeck = (deck: unknown) => {
 describe("deckSchema validation", () => {
   it("accepts a 1920x1080 wide-16-9 deck", () => {
     expectValidDeck(createValidDeck());
+  });
+
+  it("keeps legacy slides compatible and validates imported render modes", () => {
+    const legacyDeck = createValidDeck();
+    expect(deckSchema.parse(legacyDeck).slides[0].importRenderMode).toBeUndefined();
+
+    for (const importRenderMode of ["editable", "hybrid", "snapshot"] as const) {
+      const importedDeck = createValidDeck();
+      importedDeck.slides[0].importRenderMode = importRenderMode;
+      expect(deckSchema.parse(importedDeck).slides[0].importRenderMode).toBe(
+        importRenderMode
+      );
+    }
+
+    expect(
+      deckSchema.safeParse({
+        ...legacyDeck,
+        slides: [
+          {
+            ...legacyDeck.slides[0],
+            importRenderMode: "rendered-background"
+          }
+        ]
+      }).success
+    ).toBe(false);
   });
 
   it("accepts finite element coordinates outside the canvas", () => {

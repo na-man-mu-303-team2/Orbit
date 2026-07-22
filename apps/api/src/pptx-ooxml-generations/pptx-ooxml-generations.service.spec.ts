@@ -100,7 +100,8 @@ describe("PptxOoxmlGenerationsService", () => {
       type: "pptx-ooxml-generation",
       payload: {
         request: {
-          fileId: "file_template"
+          fileId: "file_template",
+          importPreference: "editability-first"
         }
       }
     });
@@ -110,9 +111,30 @@ describe("PptxOoxmlGenerationsService", () => {
       jobId: "job-ooxml",
       projectId: "project-a",
       request: {
-        fileId: "file_template"
+        fileId: "file_template",
+        importPreference: "editability-first"
       }
     });
+  });
+
+  it("rejects unsupported import preferences before job creation", async () => {
+    const services = createServices({});
+    const enqueueJob = vi.fn(async () => undefined);
+
+    await expect(
+      new PptxOoxmlGenerationsService(
+        services.jobsService,
+        services.projectsService,
+        services.filesService,
+        enqueueJob
+      ).createGeneration("project-a", {
+        fileId: "file_template",
+        importPreference: "balanced"
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(services.filesService.getUploadedAsset).not.toHaveBeenCalled();
+    expect(services.jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueJob).not.toHaveBeenCalled();
   });
 
   it.each(["topic", "prompt", "extraField"])(

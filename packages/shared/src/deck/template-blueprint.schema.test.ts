@@ -81,6 +81,147 @@ describe("templateBlueprintSchema", () => {
     expect(blueprint.slides[0].slideRole).toBe("cover");
   });
 
+  it("validates bounded notes page locator and preview metadata", () => {
+    const blueprint = templateBlueprintSchema.parse({
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          notesPage: {
+            status: "rendered",
+            sourceNotesPart: "ppt/notesSlides/notesSlide1.xml",
+            sourceNotesMasterPart: "ppt/notesMasters/notesMaster1.xml",
+            bodyShapeId: "2",
+            bodyWritable: true,
+            notesWidthEmu: 6_858_000,
+            notesHeightEmu: 9_144_000,
+            renderAssetFileId: "file_notes_preview_1",
+            hasNonBodyContent: true,
+          },
+          slots: [],
+        },
+      ],
+    });
+
+    expect(blueprint.slides[0].notesPage).toMatchObject({
+      status: "rendered",
+      bodyWritable: true,
+      renderAssetFileId: "file_notes_preview_1",
+    });
+  });
+
+  it.each(["speakerNotes", "notesXml", "previewImageBase64"])(
+    "rejects %s from notes page sidecars",
+    (field) => {
+      const result = templateBlueprintSchema.safeParse({
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        slides: [
+          {
+            slideIndex: 1,
+            sourceSlideIndex: 1,
+            notesPage: {
+              status: "preserved",
+              sourceNotesPart: "ppt/notesSlides/notesSlide1.xml",
+              bodyShapeId: "2",
+              bodyWritable: true,
+              hasNonBodyContent: false,
+              [field]: "private content must not be stored here",
+            },
+            slots: [],
+          },
+        ],
+      });
+
+      expect(result.success).toBe(false);
+    },
+  );
+
+  it("rejects inconsistent notes page status, locator, and dimensions", () => {
+    const base = {
+      templateId: "template_file_1",
+      sourceFileId: "file_1",
+      slides: [
+        {
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          notesPage: {
+            status: "rendered",
+            sourceNotesPart: "ppt/notesSlides/notesSlide1.xml",
+            bodyShapeId: "2",
+            bodyWritable: true,
+            notesWidthEmu: 6_858_000,
+            notesHeightEmu: 9_144_000,
+            renderAssetFileId: "file_notes_preview_1",
+            hasNonBodyContent: false,
+          },
+          slots: [],
+        },
+      ],
+    };
+
+    expect(
+      templateBlueprintSchema.safeParse({
+        ...base,
+        slides: [
+          {
+            ...base.slides[0],
+            notesPage: {
+              ...base.slides[0].notesPage,
+              renderAssetFileId: undefined,
+            },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      templateBlueprintSchema.safeParse({
+        ...base,
+        slides: [
+          {
+            ...base.slides[0],
+            notesPage: {
+              status: "absent",
+              bodyShapeId: "2",
+              bodyWritable: true,
+              hasNonBodyContent: true,
+            },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      templateBlueprintSchema.safeParse({
+        ...base,
+        slides: [
+          {
+            ...base.slides[0],
+            notesPage: {
+              ...base.slides[0].notesPage,
+              bodyShapeId: undefined,
+            },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      templateBlueprintSchema.safeParse({
+        ...base,
+        slides: [
+          {
+            ...base.slides[0],
+            notesPage: {
+              ...base.slides[0].notesPage,
+              notesHeightEmu: undefined,
+            },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts OOXML package tracking fields", () => {
     const blueprint = templateBlueprintSchema.parse({
       templateId: "template_file_1",
@@ -588,6 +729,156 @@ describe("qualityReportSchema", () => {
 
     expect(parsed.metrics.pixelSimilarity).toBeNull();
     expect(parsed.slideReports).toEqual([]);
+    expect(parsed.notesDiagnostics).toBeUndefined();
+  });
+
+  it("accepts bounded render policy and notes diagnostics", () => {
+    const parsed = qualityReportSchema.parse({
+      ...qualityReport,
+      slideReports: [
+        {
+          slideIndex: 1,
+          status: "not_evaluated",
+          ssim: null,
+          selectedRenderMode: "snapshot",
+          recommendedRenderMode: "snapshot",
+          pixelEvaluation: "not-evaluated",
+          unsupportedObjectCount: 2,
+          fontSubstitutionCount: 1,
+        },
+      ],
+      notesDiagnostics: {
+        total: 8,
+        imported: 8,
+        rendered: 7,
+        writable: 8,
+        warnings: [
+          {
+            code: "PPTX_NOTES_RENDER_FAILED",
+            count: 1,
+          },
+        ],
+      },
+    });
+
+    expect(parsed.slideReports[0]).toMatchObject({
+      selectedRenderMode: "snapshot",
+      pixelEvaluation: "not-evaluated",
+      unsupportedObjectCount: 2,
+    });
+    expect(parsed.notesDiagnostics).toMatchObject({
+      total: 8,
+      imported: 8,
+      rendered: 7,
+    });
+  });
+
+  it("rejects unbounded counts, duplicate warning codes, and raw notes fields", () => {
+    const baseDiagnostics = {
+      total: 1,
+      imported: 1,
+      rendered: 0,
+      writable: 1,
+      warnings: [
+        {
+          code: "PPTX_NOTES_RENDERER_UNAVAILABLE",
+          count: 1,
+        },
+      ],
+    } as const;
+
+    expect(
+      qualityReportSchema.safeParse({
+        ...qualityReport,
+        notesDiagnostics: { ...baseDiagnostics, imported: 2 },
+      }).success,
+    ).toBe(false);
+    expect(
+      qualityReportSchema.safeParse({
+        ...qualityReport,
+        notesDiagnostics: {
+          ...baseDiagnostics,
+          warnings: [baseDiagnostics.warnings[0], baseDiagnostics.warnings[0]],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      qualityReportSchema.safeParse({
+        ...qualityReport,
+        notesDiagnostics: {
+          ...baseDiagnostics,
+          warnings: Array.from({ length: 101 }, (_, index) => ({
+            code: "PPTX_NOTES_RENDER_FAILED",
+            count: index + 1,
+          })),
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      qualityReportSchema.safeParse({
+        ...qualityReport,
+        notesDiagnostics: {
+          ...baseDiagnostics,
+          warnings: [{ code: "PPTX_NOTES_PRIVATE_TEXT", count: 1 }],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      qualityReportSchema.safeParse({
+        ...qualityReport,
+        notesDiagnostics: {
+          ...baseDiagnostics,
+          speakerNotes: "private content must not be stored here",
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      qualityReportSchema.safeParse({
+        ...qualityReport,
+        slideReports: [
+          {
+            slideIndex: 1,
+            status: "not_evaluated",
+            ssim: null,
+            selectedRenderMode: "snapshot",
+            recommendedRenderMode: "snapshot",
+            pixelEvaluation: "not-evaluated",
+            unsupportedObjectCount: 10_001,
+            fontSubstitutionCount: 0,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      qualityReportSchema.safeParse({
+        ...qualityReport,
+        slideReports: [
+          {
+            slideIndex: 1,
+            status: "not_evaluated",
+            ssim: null,
+            selectedRenderMode: "snapshot",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      qualityReportSchema.safeParse({
+        ...qualityReport,
+        slideReports: [
+          {
+            slideIndex: 1,
+            status: "not_evaluated",
+            ssim: null,
+            selectedRenderMode: "snapshot",
+            recommendedRenderMode: "snapshot",
+            pixelEvaluation: "passed",
+            unsupportedObjectCount: 0,
+            fontSubstitutionCount: 0,
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 
   it("accepts slide-level vectorization failure reports", () => {
@@ -760,7 +1051,26 @@ describe("pptxOoxmlGeneration schemas", () => {
       pptxOoxmlGenerationRequestSchema.parse({
         fileId: "file_1",
       }),
-    ).toEqual({ fileId: "file_1" });
+    ).toEqual({ fileId: "file_1", importPreference: "editability-first" });
+
+    for (const importPreference of [
+      "appearance-first",
+      "editability-first",
+    ] as const) {
+      expect(
+        pptxOoxmlGenerationRequestSchema.parse({
+          fileId: "file_1",
+          importPreference,
+        }).importPreference,
+      ).toBe(importPreference);
+    }
+
+    expect(
+      pptxOoxmlGenerationRequestSchema.safeParse({
+        fileId: "file_1",
+        importPreference: "balanced",
+      }).success,
+    ).toBe(false);
 
     for (const field of ["topic", "prompt", "extraField"]) {
       expect(
