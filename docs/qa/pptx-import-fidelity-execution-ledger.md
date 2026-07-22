@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: Checkpoint B notes end-to-end
-- task branch: `test/pptx-import-checkpoint-b`
-- 상태: 실제 8-slide notes import·preview·slide 4 편집·export/reimport·privacy 검증, target branch `--no-ff` merge와 merge smoke 완료
+- 단계: PR8 import preference API 전달과 선택 dialog
+- task branch: `feature/pptx-import-pr8-preference-dialog`
+- 상태: 모든 Web import 진입점의 명시적 선택 gate, API·Job Queue·Worker·Python 전달과 validation, target branch `--no-ff` merge 완료
 
 ## 완료된 작업과 Commit
 
@@ -41,6 +41,7 @@
 | PR7A notes body sync          | `ae45210b`  | `feature/pptx-import-pr7a-notes-body-sync` | `deddc632` | capability v3 targeted body sync, source-preserving style/관계, preview 재생성          |
 | PR7B missing notes page       | `bc2a1599`  | `feature/pptx-import-pr7b-notes-part-creation` | `b36c7bc3` | 검증된 notes master 재사용·최소 구조 생성, bounded locator, export/reimport 왕복       |
 | Checkpoint B notes E2E        | `17965f7d`  | `test/pptx-import-checkpoint-b` | `25355090` | 실제 8/8 notes·preview, slide 4 문단 경계, 수정 후 digest exact match와 privacy         |
+| PR8 import preference         | `42cfc53d`  | `feature/pptx-import-pr8-preference-dialog` | `182f941b` | 선택 전 무동작, 두 정책 전달, legacy default와 unknown enum 거부                     |
 
 ## 실행한 검증
 
@@ -136,6 +137,17 @@
 | Checkpoint B privacy    | Worker audience/log, API·Shared public template 대상                                    | 24 + 10 + 16 = 50 passed                             |
 | Checkpoint B lint       | `pnpm --filter @orbit/worker lint`                                                      | TypeScript no-emit 검사 통과                         |
 | Checkpoint B merge smoke | import fidelity fixture Python 대상                                                    | 2 passed, 38 deselected                              |
+| PR8 RED                | Web 선택 전 무동작과 request body, Worker multipart expectation                      | 구현 전 의도한 2개 실패 확인                        |
+| PR8 Web 대상           | hook, dialog, EditorShell, ProjectHub 직접 Vitest                                     | 4 files, 85 tests passed                             |
+| PR8 Web 전체           | `pnpm --filter @orbit/web test -- ...`                                                | 290 files, 1,810 tests passed                        |
+| PR8 Web lint/build     | TypeScript no-emit과 production Vite build                                            | 통과, 기존 dynamic import·chunk-size warning만 발생 |
+| PR8 API 대상           | `pptx-ooxml-generations.service.spec.ts` 직접 Vitest                                  | 11 tests passed                                      |
+| PR8 API lint           | TypeScript no-emit                                                                    | 통과                                                 |
+| PR8 Job Queue          | `pnpm --filter @orbit/job-queue test`와 build                                         | 29 tests passed, build 통과                          |
+| PR8 Worker 전체        | `pnpm --filter @orbit/worker test -- pptx-ooxml-generation.processor.spec.ts`         | 390 passed, 15 skipped                               |
+| PR8 Worker lint        | TypeScript no-emit                                                                    | 통과                                                 |
+| PR8 Python 대상        | `pytest tests/test_pptx_ooxml_generation.py`                                          | 43 passed, 기존 deprecation warning만 발생           |
+| PR8 Python lint/type   | 변경 파일 `ruff check`와 `mypy app`                                                   | 모두 통과                                            |
 
 ## PR0 Renderer 측정과 결정
 
@@ -181,6 +193,8 @@
 - PR7B DecksService 전체 test는 PR7A에서 올린 current sync capability 3과 다르게 2를 기대하던 5개 assertion이 남아 실패했다. literal을 공통 capability constant로 교체해 현재 계약과 retry 정책을 정합화했다.
 - PR7B API 전체 test 첫 실행은 integration용 임시 빈 `.env.local` 때문에 환경 초기화가 필요한 5개 suite가 시작 전에 실패했다. 실제 credential을 읽거나 복사하지 않고 test-only placeholder 환경을 임시로 제공해 128 suites, 611 tests를 통과시켰다.
 - PR7B Worker 응답은 shared notes page schema보다 좁은 생성 locator schema가 필요했다. Python이 반환할 수 있는 source part·master part·body locator·dimension만 허용하고 임의 preview file ID 같은 추가 필드는 persistence 전에 fail-closed하도록 보강했다.
+- PR8 첫 Worker 실행은 package-local symlink가 원본 worktree의 오래된 `@orbit/shared` build를 가리켜 legacy schema와 sync capability 2가 로드됐다. 원본 설치의 link tree만 상대 경로를 보존해 복사하여 sibling package build를 가리키게 한 뒤 전체 390개 test가 통과했다.
+- PR8의 package script에 파일 인자를 전달한 API 실행은 대상 11개가 통과했지만 전체 suite도 함께 실행되어 test 환경변수가 필요한 기존 5개 suite가 시작 전에 실패했다. test-only placeholder 환경과 직접 Vitest 경로로 대상 suite를 격리해 11/11 통과를 확인했으며 실제 secret은 읽거나 복사하지 않았다.
 
 ## 계획 대비 변경과 근거
 
@@ -200,6 +214,8 @@
 - 계획의 예상 파일에는 없던 `DecksService` diff를 함께 변경했다. UI의 전체 Deck 저장이 notes 변경을 patch log에 기록하지 않으면 PR7B 생성 operation 자체가 Worker에 도달하지 않는 실제 integration 결함이 확인됐기 때문이다.
 - Checkpoint B는 실제 notes 원문 비교 assertion 대신 프로세스 내부 SHA-256 digest 배열을 사용한다. exact match와 slide 4 문단 경계를 증명하면서 실패 output과 Git diff에 보호 원문이 나타나지 않게 하기 위함이다.
 - Checkpoint B는 기존 기준 파일 integration을 import-only에서 full-save notes 편집, OOXML sync, preview refresh, PPTX export와 Python reimport까지 확장했다. 별도 fixture 복사 없이 보호 경로 opt-in 조건을 유지한다.
+- PR8 dialog는 Editor뿐 아니라 workspace home과 project list의 PPTX 진입점에도 공통 적용했다. 선택 전에는 기존 프로젝트의 upload뿐 아니라 신규 project 생성도 시작하지 않아 “매 import 명시 선택” 계약을 UI 경로 전체에서 유지한다.
+- PR8 Python generation 함수는 validated preference를 받되 render mode 결정에는 아직 사용하지 않는다. 전달 경계를 먼저 고정하고 PR9에서 capability inventory와 결합해 slide별 `importRenderMode`를 결정하기 위함이다.
 
 ## 알려진 제한 사항
 
@@ -215,14 +231,15 @@
 - PR6 시점에는 per-slide imported provenance UI gate가 없으므로 `deck.metadata.sourceType === "import"`에서 tab을 노출한다. 이후 imported Deck에 새로 추가된 authored slide는 API의 `unavailable` 상태를 표시하며 PR9의 slide render mode 적용 시 per-slide gate를 재검토한다.
 - PR7B는 notes page가 없는 imported slide의 첫 비어 있지 않은 대본 저장만 생성한다. 빈 문자열 저장은 package를 불필요하게 변경하지 않는 no-op이며 안전한 단일 notes master 구조를 증명할 수 없는 package는 `NOTES_MASTER_CAPABILITY_UNSAFE`로 종료한다.
 - 실제 8-slide Checkpoint B test는 기준 파일을 저장소에 포함하지 않으므로 `PPTX_IMPORT_FIDELITY_REFERENCE_PATH`가 없는 일반 suite에서 계속 skip된다. hash가 일치하는 보호 로컬/CI 경로에서는 9/9 integration으로 실행된다.
+- PR8의 선택 정책은 Job과 Python multipart까지 보존되지만 현재 visual rendering 결과는 기존 editability 경로와 같다. `appearance-first`의 snapshot 적용과 `editability-first`의 hybrid/vector 조립은 PR9 범위다.
 
 ## 다음에 시작할 정확한 작업
 
-1. Checkpoint B ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. `feature/pptx-import-pr8-preference-dialog`를 target branch HEAD에서 생성한다.
-3. PR1의 `appearance-first`·`editability-first` enum을 Web 선택 dialog에서 매 import마다 명시적으로 고르게 한다.
-4. 선택값을 strict Web request, API Job payload, Worker와 Python multipart 경계까지 동일하게 전달하고 unknown enum을 거부한다.
-5. legacy request default와 선택 전 import 미시작을 Web·API·Worker 회귀 test로 검증한다.
+1. PR8 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. `feature/pptx-import-pr9-render-mode`를 target branch HEAD에서 생성한다.
+3. preference와 capability inventory를 조합해 slide별 `importRenderMode`를 fail-closed로 결정한다.
+4. appearance-first는 source snapshot을 사용하고 editability-first는 editable element tree와 필요한 fallback을 유지한다.
+5. Editor canvas, selection, thumbnail이 같은 mode를 사용하도록 연결하고 두 preference의 기준 screenshot을 비교한다.
 
 ## 사용자 결정이 필요한 Blocker
 
