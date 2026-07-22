@@ -52,6 +52,7 @@ export {
   createAnimationId,
   createDefaultAnimation,
   createDeleteAnimationPatch,
+  createDeleteAnimationTimelineRootPatch,
   createUpdateAnimationPatch,
   getElementAnimations,
   getNextAnimationOrder,
