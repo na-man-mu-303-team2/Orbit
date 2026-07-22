@@ -11,6 +11,7 @@ import {
   PlayCircle,
   Power,
   RotateCcw,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -95,6 +96,9 @@ export function PresenterRemoteWindow(props: {
   } = props;
   const [state, setState] = useState(initialState);
   const [channelError, setChannelError] = useState("");
+  const [dismissedCapabilityKey, setDismissedCapabilityKey] = useState<
+    string | null
+  >(null);
   const [isOwnerConnected, setOwnerConnected] = useState(false);
   const channelRef = useRef<ChannelLike | null>(null);
   const commandRetryTimersRef = useRef<number[]>([]);
@@ -303,19 +307,48 @@ export function PresenterRemoteWindow(props: {
 
   return (
     <main className="presenter-remote-shell" aria-label="발표자 제어 창">
-      {visibleCapabilityItems.map((item) => (
-        <section
-          aria-label="발표자 시스템 상태"
-          className={`presenter-semantic-status presenter-semantic-status--${item.severity}`}
-          key={item.key}
-          tabIndex={0}
+      <header className="presenter-remote-topbar">
+        <button
+          className="presenter-remote-header-action"
+          type="button"
+          onClick={requestRemoteFullscreen}
         >
-          <AlertCircle aria-hidden="true" size={15} />
-          <strong>{item.shortLabel}</strong>
-          {hiddenCapabilityCount > 0 ? <span>+{hiddenCapabilityCount}</span> : null}
-          <p>{item.detail}</p>
-        </section>
-      ))}
+          <Maximize2 size={16} />
+          전체 화면
+        </button>
+        <button
+          className="presenter-remote-header-action presenter-remote-header-action--danger"
+          type="button"
+          onClick={() => window.close()}
+        >
+          <Power size={16} />
+          발표 종료
+        </button>
+      </header>
+      {visibleCapabilityItems.map((item) =>
+        item.key === dismissedCapabilityKey ? null : (
+          <section
+            aria-label="발표자 시스템 상태"
+            className="presenter-display-message presenter-remote-capability-warning"
+            key={item.key}
+            role="status"
+          >
+            <AlertCircle aria-hidden="true" size={18} />
+            <span>
+              <strong>{item.shortLabel}:</strong> {item.detail}
+              {hiddenCapabilityCount > 0 ? ` +${hiddenCapabilityCount}` : ""}
+            </span>
+            <button
+              aria-label="음성 체크 알림 닫기"
+              title="음성 체크 알림 닫기"
+              type="button"
+              onClick={() => setDismissedCapabilityKey(item.key)}
+            >
+              <X aria-hidden="true" size={14} />
+            </button>
+          </section>
+        ),
+      )}
       {channelError ? (
         <section className="presenter-remote-status" role="status">
           {channelError}
@@ -540,22 +573,6 @@ export function PresenterRemoteWindow(props: {
         >
           다음
           <ChevronRight size={17} />
-        </button>
-        <button
-          className="presenter-remote-command"
-          type="button"
-          onClick={requestRemoteFullscreen}
-        >
-          <Maximize2 size={17} />
-          전체 화면
-        </button>
-        <button
-          className="presenter-remote-command presenter-remote-command--danger"
-          type="button"
-          onClick={() => window.close()}
-        >
-          <Power size={17} />
-          발표 종료
         </button>
       </div>
       {state.speech && shouldShowSemanticDebugPanel ? (

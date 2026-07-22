@@ -3257,6 +3257,55 @@
   width: min(100%, var(--redesign-layout-content-max-width));
 }
 
+.presenter-remote-topbar {
+  align-items: center;
+  background: var(--redesign-color-surface-container-lowest);
+  border-bottom: 1px solid var(--redesign-color-outline-variant);
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--redesign-space-2);
+  justify-content: flex-end;
+  margin-block-start: calc(var(--redesign-space-6) * -1);
+  margin-inline: calc(var(--redesign-layout-workspace-margin) * -1);
+  min-height: 68px;
+  padding: var(--redesign-space-2) var(--redesign-space-6);
+}
+
+.presenter-remote-header-action {
+  align-items: center;
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline);
+  border-radius: var(--redesign-radius-lg);
+  color: var(--redesign-color-on-surface);
+  display: inline-flex;
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 700;
+  gap: var(--redesign-space-2);
+  justify-content: center;
+  min-height: var(--redesign-size-control-md);
+  padding: 0 var(--redesign-space-3);
+}
+
+.presenter-remote-header-action:hover {
+  background: var(--redesign-color-surface-container-low);
+  border-color: var(--redesign-color-on-surface);
+}
+
+.presenter-remote-header-action--danger {
+  color: var(--redesign-color-error);
+}
+
+.presenter-display-message.presenter-remote-capability-warning {
+  align-self: stretch;
+  position: static;
+  white-space: normal;
+  width: auto;
+}
+
+.presenter-remote-capability-warning > button {
+  margin-left: auto;
+}
+
 .presenter-remote-status {
   background: var(--redesign-color-surface-container-lowest);
   border: 1px solid var(--redesign-color-outline-variant);
@@ -3653,7 +3702,7 @@
   border-radius: var(--redesign-radius-xl);
   display: grid;
   gap: var(--redesign-space-2);
-  grid-template-columns: 0.9fr 1.3fr 0.9fr 0.9fr;
+  grid-template-columns: 0.9fr 1.3fr;
   padding: var(--redesign-space-2);
 }
 
@@ -3686,10 +3735,6 @@
   background: var(--redesign-color-primary-emphasis);
 }
 
-.presenter-remote-command--danger {
-  color: var(--redesign-color-error);
-}
-
 .presenter-remote-command[aria-pressed="true"] {
   background: var(--redesign-color-dark-surface);
   border-color: var(--redesign-color-on-surface);
@@ -3710,6 +3755,12 @@
 @media (max-width: 760px) {
   .presenter-remote-shell {
     padding-block: var(--redesign-space-3);
+    padding-inline: var(--redesign-space-4);
+  }
+
+  .presenter-remote-topbar {
+    margin-block-start: calc(var(--redesign-space-3) * -1);
+    margin-inline: calc(var(--redesign-space-4) * -1);
     padding-inline: var(--redesign-space-4);
   }
 

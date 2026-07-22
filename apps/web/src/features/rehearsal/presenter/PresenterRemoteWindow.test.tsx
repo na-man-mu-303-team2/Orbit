@@ -50,7 +50,7 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("시작");
     expect(html).toContain("리셋");
     expect(html).toContain("핵심 키워드");
-    expect(html).not.toContain("presenter-remote-header");
+    expect(html).not.toContain('<header class="presenter-remote-header"');
     expect(html).not.toContain("슬라이드 목표");
     expect(html).not.toContain("현재 큐");
     expect(html).toContain("첫 문장입니다");
@@ -59,6 +59,8 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("웹·실습 보여주기");
     expect(html).toContain("청중 화면 가리기");
     expect(html).toContain("발표 종료");
+    expect(html).toContain('class="presenter-remote-topbar"');
+    expect(html).toContain('class="presenter-remote-header-action"');
     expect(html).not.toContain("Partial transcript");
     expect(html).not.toContain("rawAudio");
   });
@@ -293,7 +295,9 @@ describe("PresenterRemoteWindow", () => {
     );
 
     expect(html).toContain('aria-label="발표자 시스템 상태"');
-    expect(html).toContain("정밀 판정 비활성");
+    expect(html).toContain("presenter-remote-capability-warning");
+    expect(html).toContain('aria-label="음성 체크 알림 닫기"');
+    expect(html).toContain("정밀 판정 비활성:</strong>");
     expect(html).toContain("+1");
     expect(html).toContain("기본 의미 체크로 계속합니다.");
     expect(html).not.toContain("의미 체크 오프라인");
