@@ -99,7 +99,7 @@ export async function waitForPptxOoxmlGenerationJob(
   options: { pollIntervalMs?: number; timeoutMs?: number } = {}
 ): Promise<Job> {
   const pollIntervalMs = options.pollIntervalMs ?? 1200;
-  const timeoutMs = options.timeoutMs ?? 120_000;
+  const timeoutMs = options.timeoutMs ?? 600_000;
   const startedAt = Date.now();
 
   for (;;) {
