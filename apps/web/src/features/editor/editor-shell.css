@@ -5772,6 +5772,78 @@
   border-color: var(--redesign-color-error-subtle);
 }
 
+.pptx-import-quality-heading,
+.pptx-import-quality-summary,
+.pptx-import-quality-details > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--redesign-space-2);
+}
+
+.pptx-import-quality-heading {
+  align-items: baseline;
+}
+
+.pptx-import-quality-heading > span,
+.pptx-import-quality-details small,
+.pptx-import-quality-detail-body,
+.pptx-import-quality-diagnostics {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.pptx-import-quality-summary {
+  align-items: stretch;
+}
+
+.pptx-import-quality-summary > div {
+  min-width: 0;
+  flex: 1 1 0;
+  padding: var(--redesign-space-2);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-surface-container);
+}
+
+.pptx-import-quality-summary span,
+.pptx-import-quality-summary strong {
+  display: block;
+}
+
+.suggestion-card .pptx-import-quality-disclaimer,
+.suggestion-card .pptx-import-quality-pixel {
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.pptx-import-quality-group,
+.pptx-import-quality-detail-body {
+  display: grid;
+  gap: var(--redesign-space-1);
+}
+
+.pptx-import-quality-details {
+  border-top: 1px solid var(--redesign-color-outline-variant);
+  padding-top: var(--redesign-space-2);
+}
+
+.pptx-import-quality-details > summary {
+  align-items: flex-start;
+  cursor: pointer;
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 800;
+}
+
+.pptx-import-quality-detail-body {
+  padding: var(--redesign-space-2) 0 0 var(--redesign-space-3);
+}
+
+.pptx-import-quality-diagnostics {
+  display: grid;
+  gap: var(--redesign-space-1);
+  margin: 0;
+  padding-left: var(--redesign-space-4);
+  overflow-wrap: anywhere;
+}
+
 .source-ledger-card {
   border: 1px solid var(--redesign-color-outline-variant);
   background: var(--redesign-color-surface-container-low);

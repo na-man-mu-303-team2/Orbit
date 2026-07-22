@@ -1132,7 +1132,7 @@ PPTX import preference와 slide render mode:
 ```
 
 - render mode는 `editable | hybrid | snapshot`, pixel 평가는 `passed | failed | not-evaluated`만 허용한다.
-- object/font count는 각각 `0..10,000`이다. 다섯 policy 진단은 함께 존재하거나 모두 생략되어야 하고 `pixelEvaluation`은 기존 `status`와 일치해야 한다. 신규 field가 없는 legacy quality result도 그대로 parse한다.
+- object/font count는 각각 `0..10,000`이다. 다섯 policy 진단은 함께 존재하거나 모두 생략되어야 하고 `pixelEvaluation`은 기존 `status`와 일치해야 한다. `not-evaluated`는 `ssim: null`만, `passed`는 실제 `ssim` 값만 허용한다. renderer 실행 실패를 뜻하는 `failed`는 측정값이 없을 수 있다. 신규 field가 없는 legacy quality result도 그대로 parse한다.
 - `qualityReport.notesDiagnostics`는 `total`, `imported`, `rendered`, `writable`의 `0..10,000` count와 최대 100개의 enum warning code/count만 저장한다. 각 subset count는 `total` 이하여야 하고 warning code는 중복될 수 없다.
 - notes diagnostics와 slide report에는 speaker notes 원문, notes XML, image base64를 저장하지 않는다.
 
@@ -1149,6 +1149,8 @@ PPTX import preference와 slide render mode:
 - master/layout 유래 요소, 반복 텍스트, 직접 그린 애매한 텍스트 박스는 기본적으로 `decoration` 또는 `fixed-text`이며 `preserve`/`ignore`와 낮은 confidence를 사용한다.
 - Quality composite score는 geometry 25, text 15, color 10, layer 10, editability 10, pixel similarity 30 가중치를 사용한다.
 - pixel renderer가 없으면 `pixelSimilarity: null`로 두고 나머지 항목을 재가중한다. slide별 평가는 `qualityReport.slideReports[]`에 `passed`, `vectorization_failed`, `not_evaluated`와 `ssim`, 실패 사유, fallback 후보를 남긴다.
+- 품질 UI는 `editabilityCoverage`를 “편집 가능한 객체 비율”로 표시하고 pixel/text fidelity와 분리한다. slide별 selected/recommended mode, pixel 평가 여부, unsupported/font count, notes import/render/writable 상태와 모든 bounded warning을 접을 수 있는 상세 항목으로 제공한다.
+- CI accuracy gate는 appearance-first source snapshot에 SSIM `>= 0.99`, editability candidate에 `>= 0.95`를 요구한다. editability가 `0.80..0.95`이면 pixel 통과로 기록하지 않고 `fallback_required`와 explicit `hybrid`/`snapshot` recommendation을 남긴다. `0.80` 미만은 fallback으로도 통과시키지 않는다. runtime quality report에 CI SSIM을 복사하지 않는다.
 - `editabilityCoverage < 0.5`면 총점 cap 70, `< 0.2`면 cap 50을 적용해 whole-slide image 변환이 높은 점수를 받지 못하게 한다.
 
 구현 위치:

@@ -19,6 +19,8 @@ type AccuracyManifest = {
   };
   rows: Array<{
     candidatePath: string;
+    expectedRenderMode?: "editable" | "hybrid" | "snapshot";
+    modeReasons?: string[];
     name: string;
     payloadPath: string;
   }>;
@@ -70,6 +72,31 @@ test.describe("PPTX Konva accuracy render", () => {
       const payload = fs.readFileSync(rootPath(row.payloadPath), "utf8");
       const candidatePath = rootPath(row.candidatePath);
       fs.mkdirSync(path.dirname(candidatePath), { recursive: true });
+      const parsedPayload = JSON.parse(payload) as {
+        deck?: {
+          slides?: Array<{
+            elements?: unknown[];
+            importRenderMode?: string;
+            thumbnailUrl?: unknown;
+          }>;
+        };
+      };
+      const selectedSlide = parsedPayload.deck?.slides?.[0];
+      if (row.expectedRenderMode) {
+        expect(selectedSlide?.importRenderMode).toBe(row.expectedRenderMode);
+        expect(selectedSlide?.elements?.length ?? 0).toBeGreaterThan(0);
+      }
+      if (row.expectedRenderMode === "snapshot") {
+        expect(selectedSlide?.thumbnailUrl).toEqual(
+          expect.stringMatching(/^data:image\//),
+        );
+        expect(row.modeReasons?.length ?? 0).toBeGreaterThan(0);
+      }
+      if (row.expectedRenderMode === "hybrid") {
+        expect(row.modeReasons).toContain(
+          "PPTX_RENDER_MODE_HYBRID_RASTER_FALLBACK",
+        );
+      }
 
       await page.addInitScript(
         ({ key, value }) => {
