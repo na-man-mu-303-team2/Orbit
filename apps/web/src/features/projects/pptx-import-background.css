@@ -1,0 +1,162 @@
+.pptx-background-tray {
+  position: fixed;
+  right: var(--redesign-space-6);
+  bottom: var(--redesign-space-6);
+  z-index: var(--redesign-z-toast);
+  width: min(360px, calc(100vw - var(--redesign-space-8)));
+  overflow: hidden;
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-xl);
+  background: var(--redesign-color-light-surface);
+  box-shadow: var(--redesign-shadow-overlay);
+  color: var(--redesign-color-on-light);
+}
+
+.pptx-background-tray > header {
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--redesign-space-3);
+  padding: 0 var(--redesign-space-3) 0 var(--redesign-space-4);
+  border-bottom: var(--redesign-border-subtle);
+  background: var(--redesign-color-surface-container-low);
+}
+
+.pptx-background-tray > header > div,
+.pptx-background-tray-controls {
+  display: flex;
+  align-items: center;
+}
+
+.pptx-background-tray > header > div:first-child {
+  gap: var(--redesign-space-2);
+}
+
+.pptx-background-tray > header strong {
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 700;
+}
+
+.pptx-background-tray-controls button {
+  display: grid;
+  width: var(--redesign-size-control-sm);
+  height: var(--redesign-size-control-sm);
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--redesign-radius-md);
+  background: transparent;
+  color: var(--redesign-color-on-surface-variant);
+  cursor: pointer;
+}
+
+.pptx-background-tray-controls button:hover,
+.pptx-background-tray-controls button:focus-visible {
+  background: var(--redesign-color-surface-container);
+  color: var(--redesign-color-on-surface);
+}
+
+.pptx-background-tray-body {
+  display: grid;
+  gap: var(--redesign-space-3);
+  padding: var(--redesign-space-4);
+}
+
+.pptx-background-tray-file {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--redesign-space-3);
+}
+
+.pptx-background-tray-file > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-primary-subtle);
+  color: var(--redesign-color-primary-emphasis);
+}
+
+.pptx-background-tray-file > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.pptx-background-tray-file strong,
+.pptx-background-tray-file small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pptx-background-tray-file strong {
+  font-size: var(--redesign-type-body-sm-size);
+}
+
+.pptx-background-tray-file small,
+.pptx-background-tray-body p {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.pptx-background-tray-body progress {
+  display: block;
+  width: 100%;
+  height: 5px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--redesign-radius-full);
+  background: var(--redesign-color-surface-container-high);
+}
+
+.pptx-background-tray-body progress::-webkit-progress-bar {
+  background: var(--redesign-color-surface-container-high);
+}
+
+.pptx-background-tray-body progress::-webkit-progress-value {
+  background: var(--redesign-color-primary);
+}
+
+.pptx-background-tray-body progress::-moz-progress-bar {
+  background: var(--redesign-color-primary);
+}
+
+.pptx-background-tray-body p {
+  display: flex;
+  align-items: center;
+  gap: var(--redesign-space-2);
+  margin: 0;
+}
+
+.pptx-background-tray.is-minimized > header {
+  border-bottom: 0;
+}
+
+.pptx-tray-spinner {
+  animation: pptx-tray-spin var(--redesign-duration-loop) linear infinite;
+}
+
+@keyframes pptx-tray-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pptx-tray-spinner {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .pptx-background-tray {
+    right: var(--redesign-space-4);
+    bottom: var(--redesign-space-4);
+    width: calc(100vw - var(--redesign-space-8));
+  }
+}

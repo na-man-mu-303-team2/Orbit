@@ -38,17 +38,16 @@ import {
 } from "../../components/ui";
 import {
   createProject,
-  createProjectWithoutDeck,
   deleteProject,
   fetchProjects,
   updateProjectPin,
 } from "./ProjectAssetWorkspace";
-import { uploadAndImportPptxTemplate } from "../editor/shell/api/editorJobApi";
-import {
-  getPptxImportValidationMessage,
-  pptxImportAccept,
-} from "../editor/shell/utils/editorFileValidation";
+import { pptxImportAccept } from "../editor/shell/utils/editorFileValidation";
 import { ProjectGalleryCard } from "./ProjectGalleryCard";
+import {
+  mergePptxImportProject,
+  usePptxImport,
+} from "./PptxImportProvider";
 import "./orbit-project-hub.css";
 
 const ProjectRowSlidePreview = lazy(() => import("./ProjectSlidePreview"));
@@ -63,25 +62,27 @@ export function ProjectListPage(props: {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"newest" | "oldest" | "title">("newest");
   const [isCreating, setIsCreating] = useState(false);
-  const [pptxImportPhase, setPptxImportPhase] = useState<
-    "idle" | "uploading" | "importing"
-  >("idle");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pinningId, setPinningId] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState("");
   const pptxInputRef = useRef<HTMLInputElement>(null);
   const isRehearsal = props.mode === "rehearsal";
-  const isImportingPptx = pptxImportPhase !== "idle";
+  const pptxImport = usePptxImport();
+  const isImportingPptx = pptxImport.isImporting;
+  const projectItems = useMemo(
+    () => mergePptxImportProject(projects.data ?? [], pptxImport.operation),
+    [pptxImport.operation, projects.data],
+  );
   const filteredProjects = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ko-KR");
-    const matches = (projects.data ?? []).filter((project) =>
+    const matches = projectItems.filter((project) =>
       project.title.toLocaleLowerCase("ko-KR").includes(normalized),
     );
     const sorted = sortProjects(matches, sort);
     const pinned = sorted.filter((project) => project.isPinned);
     const unpinned = sorted.filter((project) => !project.isPinned);
     return [...pinned, ...unpinned];
-  }, [projects.data, query, sort]);
+  }, [projectItems, query, sort]);
   const [rehearsalPage, setRehearsalPage] = useState(1);
   const rehearsalPageSize = 6;
   const rehearsalPageCount = Math.max(
@@ -120,36 +121,14 @@ export function ProjectListPage(props: {
   }
 
   async function importPptxProject(file: File) {
-    const validationMessage = getPptxImportValidationMessage(file);
-    if (validationMessage) {
-      setMutationError(validationMessage);
-      return;
-    }
-
-    let project: Project | null = null;
     setMutationError("");
-    setPptxImportPhase("uploading");
     try {
-      project = await createProjectWithoutDeck(projectTitleFromFile(file.name));
-      await uploadAndImportPptxTemplate(project.projectId, file, {
-        onPhase: setPptxImportPhase,
-      });
+      await pptxImport.startImport(file);
       await projects.refetch();
-      props.onNavigate(projectPath(project));
     } catch (cause) {
-      if (project) {
-        try {
-          await deleteProject(project.projectId);
-          await projects.refetch();
-        } catch {
-          // The original import error is more actionable than cleanup failure.
-        }
-      }
       setMutationError(
         cause instanceof Error ? cause.message : "PPTX를 가져오지 못했습니다.",
       );
-    } finally {
-      setPptxImportPhase("idle");
     }
   }
 
@@ -300,7 +279,7 @@ export function ProjectListPage(props: {
                 loading={isImportingPptx}
                 onClick={() => pptxInputRef.current?.click()}
               >
-                {pptxImportPhase === "importing"
+                {pptxImport.operation?.stage !== "uploading" && isImportingPptx
                   ? "PPTX 변환 중"
                   : "PPTX 업로드"}
               </ProjectCommandbarAction>
@@ -345,6 +324,7 @@ export function ProjectListPage(props: {
               onTogglePinned={togglePinnedProject}
               pinningId={pinningId}
               projects={filteredProjects}
+              pptxImport={pptxImport.operation}
             />
           </ProjectState>
         </>
@@ -504,6 +484,7 @@ function ProjectGallery(props: {
   onTogglePinned: (project: ProjectListItem) => void;
   pinningId: string | null;
   projects: ProjectListItem[];
+  pptxImport: ReturnType<typeof usePptxImport>["operation"];
 }) {
   return (
     <div
@@ -527,6 +508,11 @@ function ProjectGallery(props: {
           onTogglePinned={() => props.onTogglePinned(project)}
           pinning={props.pinningId === project.projectId}
           project={project}
+          pptxImport={
+            props.pptxImport?.project.projectId === project.projectId
+              ? props.pptxImport
+              : null
+          }
         />
       ))}
     </div>
@@ -537,6 +523,8 @@ function useProjectList() {
   return useQuery({
     queryFn: () => fetchProjects(),
     queryKey: ["projects"],
+    refetchInterval: (query) =>
+      query.state.data?.some((project) => project.generation) ? 2500 : false,
     retry: false,
   });
 }
@@ -715,9 +703,4 @@ function formatProjectDate(project: Project) {
 
 function projectPath(project: Project) {
   return `/project/${encodeURIComponent(project.projectId)}`;
-}
-
-function projectTitleFromFile(fileName: string) {
-  const title = fileName.replace(/\.pptx$/i, "").trim();
-  return title || "가져온 프레젠테이션";
 }
