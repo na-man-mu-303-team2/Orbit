@@ -1,4 +1,4 @@
-import type { Deck } from "@orbit/shared";
+import type { Deck, DeckPatchOperation } from "@orbit/shared";
 import { createPortal } from "react-dom";
 import { OrbitButton, OrbitDialog } from "../../../../components/ui";
 import { ReadOnlySlideCanvas } from "../../../slides/rendering";
@@ -6,6 +6,8 @@ import {
   canApplyDesignProposal,
   type DesignProposalLifecycle,
 } from "../designProposalLifecycle";
+import { MotionProposalPreview } from "./MotionProposalPreview";
+import { isMotionOnlyProposal } from "./motionProposalPreviewModel";
 
 type DesignProposalPreviewModalProps = {
   afterDeck: Deck;
@@ -13,6 +15,7 @@ type DesignProposalPreviewModalProps = {
   lifecycle: DesignProposalLifecycle;
   onApply: () => void;
   onClose: () => void;
+  operations: DeckPatchOperation[];
   readOnly?: boolean;
   slideId: string;
   summary: string;
@@ -32,6 +35,7 @@ export function DesignProposalPreviewModal(
 
   const isApplying = props.lifecycle === "applying";
   const canApply = !props.readOnly && canApplyDesignProposal(props.lifecycle);
+  const motionOnly = isMotionOnlyProposal(props.operations);
   const beforeScale = Math.min(0.3, 420 / props.beforeDeck.canvas.width);
   const afterScale = Math.min(0.3, 420 / props.afterDeck.canvas.width);
   const dialog = (
@@ -65,30 +69,40 @@ export function DesignProposalPreviewModal(
       )}
       onClose={props.onClose}
       open
-      title={props.readOnly ? "AI 디자인 중간 미리보기" : "AI 디자인 제안 비교"}
+      title={
+        props.readOnly
+          ? "AI 디자인 중간 미리보기"
+          : motionOnly
+            ? "AI Motion 제안 미리보기"
+            : "AI 디자인 제안 비교"
+      }
     >
-      <div className="design-proposal-modal-comparison">
-        <figure>
-          <figcaption>Before</figcaption>
-          <div className="design-proposal-modal-slide">
-            <ReadOnlySlideCanvas
-              deck={props.beforeDeck}
-              scale={beforeScale}
-              slide={beforeSlide}
-            />
-          </div>
-        </figure>
-        <figure>
-          <figcaption>After</figcaption>
-          <div className="design-proposal-modal-slide after">
-            <ReadOnlySlideCanvas
-              deck={props.afterDeck}
-              scale={afterScale}
-              slide={afterSlide}
-            />
-          </div>
-        </figure>
-      </div>
+      {motionOnly ? (
+        <MotionProposalPreview deck={props.afterDeck} slide={afterSlide} />
+      ) : (
+        <div className="design-proposal-modal-comparison">
+          <figure>
+            <figcaption>Before</figcaption>
+            <div className="design-proposal-modal-slide">
+              <ReadOnlySlideCanvas
+                deck={props.beforeDeck}
+                scale={beforeScale}
+                slide={beforeSlide}
+              />
+            </div>
+          </figure>
+          <figure>
+            <figcaption>After</figcaption>
+            <div className="design-proposal-modal-slide after">
+              <ReadOnlySlideCanvas
+                deck={props.afterDeck}
+                scale={afterScale}
+                slide={afterSlide}
+              />
+            </div>
+          </figure>
+        </div>
+      )}
 
       {props.lifecycle === "stale" ? (
         <p className="design-proposal-modal-state" role="status">

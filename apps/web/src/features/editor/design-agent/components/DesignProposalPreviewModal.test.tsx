@@ -20,6 +20,7 @@ describe("DesignProposalPreviewModal", () => {
         afterDeck={afterDeck}
         beforeDeck={beforeDeck}
         lifecycle="proposal-ready"
+        operations={[]}
         slideId={beforeDeck.slides[0]!.slideId}
         summary="레이아웃을 정리했습니다."
         warnings={[]}
@@ -47,6 +48,7 @@ describe("DesignProposalPreviewModal", () => {
         afterDeck={{ ...deck, version: deck.version + 1 }}
         beforeDeck={deck}
         lifecycle="stale"
+        operations={[]}
         slideId={deck.slides[0]!.slideId}
         summary="오래된 제안"
         warnings={["일부 요소는 변경하지 않았습니다."]}
@@ -69,6 +71,7 @@ describe("DesignProposalPreviewModal", () => {
         afterDeck={{ ...deck, version: deck.version + 1 }}
         beforeDeck={deck}
         lifecycle="preview-read-only"
+        operations={[]}
         readOnly
         slideId={deck.slides[0]!.slideId}
         summary="이미지를 준비하는 동안 확인할 수 있는 중간 미리보기"
@@ -85,6 +88,36 @@ describe("DesignProposalPreviewModal", () => {
     expect(html).toContain("After");
   });
 
+  it("routes an animation-only proposal to the canonical motion preview", () => {
+    const deck = createDemoDeck();
+    const animation = deck.slides[0]!.animations[0]!;
+    const html = renderToStaticMarkup(
+      <DesignProposalPreviewModal
+        afterDeck={{ ...deck, version: deck.version + 1 }}
+        beforeDeck={deck}
+        lifecycle="proposal-ready"
+        operations={[
+          {
+            type: "update_animation",
+            slideId: deck.slides[0]!.slideId,
+            animationId: animation.animationId,
+            animation: { durationMs: animation.durationMs },
+          },
+        ]}
+        slideId={deck.slides[0]!.slideId}
+        summary="등장 흐름을 정리했습니다."
+        warnings={[]}
+        onApply={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("AI Motion 제안 미리보기");
+    expect(html).toContain("Motion 흐름 미리보기");
+    expect(html).not.toContain("Before");
+    expect(html).not.toContain("After");
+  });
+
   it("stacks the simultaneous comparison at a narrow viewport", () => {
     const css = fs.readFileSync(
       path.join(
@@ -99,6 +132,9 @@ describe("DesignProposalPreviewModal", () => {
     );
     expect(css).toMatch(
       /@media \(max-width: 720px\)[\s\S]*?\.design-proposal-modal-comparison\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*?\.motion-proposal-preview-header\s*\{[^}]*flex-direction:\s*column;/,
     );
   });
 });

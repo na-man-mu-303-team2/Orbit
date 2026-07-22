@@ -1,10 +1,12 @@
-import type { Deck } from "@orbit/shared";
+import type { Deck, DeckPatchOperation } from "@orbit/shared";
 import { IconArrowRight, IconArrowsMaximize, IconX } from "@tabler/icons-react";
 import { ReadOnlySlideCanvas } from "../../../slides/rendering";
 import {
   canApplyDesignProposal,
   type DesignProposalLifecycle,
 } from "../designProposalLifecycle";
+import { MotionProposalSummary } from "./MotionProposalSummary";
+import { isMotionOnlyProposal } from "./motionProposalPreviewModel";
 
 type DesignProposalCompareCardProps = {
   afterDeck: Deck;
@@ -13,6 +15,7 @@ type DesignProposalCompareCardProps = {
   onApply: () => void;
   onClose: () => void;
   onPreview: () => void;
+  operations: DeckPatchOperation[];
   readOnly?: boolean;
   slideId: string;
   summary: string;
@@ -35,9 +38,13 @@ export function DesignProposalCompareCard(props: DesignProposalCompareCardProps)
   const isApplying = props.lifecycle === "applying";
   const isStale = props.lifecycle === "stale";
   const canApply = !props.readOnly && canApplyDesignProposal(props.lifecycle);
+  const motionOnly = isMotionOnlyProposal(props.operations);
 
   return (
-    <section className="design-proposal-compare-card" aria-label="디자인 제안 Before/After">
+    <section
+      className="design-proposal-compare-card"
+      aria-label={motionOnly ? "Motion 제안" : "디자인 제안 Before/After"}
+    >
       <header className="design-proposal-compare-header">
         <div>
           <strong>
@@ -47,7 +54,9 @@ export function DesignProposalCompareCard(props: DesignProposalCompareCardProps)
                 ? "제안 적용 실패"
                 : props.readOnly
                   ? "읽기 전용 중간 미리보기"
-                  : "디자인 제안 준비됨"}
+                  : motionOnly
+                    ? "Motion 제안 준비됨"
+                    : "디자인 제안 준비됨"}
           </strong>
           <span>{props.summary}</span>
         </div>
@@ -56,33 +65,37 @@ export function DesignProposalCompareCard(props: DesignProposalCompareCardProps)
         </button>
       </header>
 
-      <div className="design-proposal-inline-comparison">
-        <figure>
-          <figcaption>Before</figcaption>
-          <div className="design-proposal-inline-slide">
-            <ReadOnlySlideCanvas
-              deck={props.beforeDeck}
-              scale={beforeScale}
-              slide={beforeSlide}
-            />
-          </div>
-        </figure>
-        <IconArrowRight
-          aria-hidden="true"
-          className="design-proposal-compare-arrow"
-          size={18}
-        />
-        <figure>
-          <figcaption>After</figcaption>
-          <div className="design-proposal-inline-slide after">
-            <ReadOnlySlideCanvas
-              deck={props.afterDeck}
-              scale={afterScale}
-              slide={afterSlide}
-            />
-          </div>
-        </figure>
-      </div>
+      {motionOnly ? (
+        <MotionProposalSummary slide={afterSlide} />
+      ) : (
+        <div className="design-proposal-inline-comparison">
+          <figure>
+            <figcaption>Before</figcaption>
+            <div className="design-proposal-inline-slide">
+              <ReadOnlySlideCanvas
+                deck={props.beforeDeck}
+                scale={beforeScale}
+                slide={beforeSlide}
+              />
+            </div>
+          </figure>
+          <IconArrowRight
+            aria-hidden="true"
+            className="design-proposal-compare-arrow"
+            size={18}
+          />
+          <figure>
+            <figcaption>After</figcaption>
+            <div className="design-proposal-inline-slide after">
+              <ReadOnlySlideCanvas
+                deck={props.afterDeck}
+                scale={afterScale}
+                slide={afterSlide}
+              />
+            </div>
+          </figure>
+        </div>
+      )}
 
       {isStale ? (
         <p className="design-proposal-stale-message" role="status">

@@ -18,6 +18,7 @@ describe("DesignProposalCompareCard", () => {
         afterDeck={afterDeck}
         beforeDeck={beforeDeck}
         lifecycle="proposal-ready"
+        operations={[]}
         slideId={beforeDeck.slides[0]!.slideId}
         summary="레이아웃을 정리했습니다."
         warnings={[]}
@@ -41,6 +42,7 @@ describe("DesignProposalCompareCard", () => {
         afterDeck={{ ...deck, version: deck.version + 1 }}
         beforeDeck={deck}
         lifecycle="stale"
+        operations={[]}
         slideId={deck.slides[0]!.slideId}
         summary="오래된 제안"
         warnings={[]}
@@ -64,6 +66,7 @@ describe("DesignProposalCompareCard", () => {
           afterDeck={{ ...deck, version: deck.version + 1 }}
           beforeDeck={deck}
           lifecycle={lifecycle}
+          operations={[]}
           slideId={deck.slides[0]!.slideId}
           summary="적용 상태"
           warnings={[]}
@@ -90,6 +93,7 @@ describe("DesignProposalCompareCard", () => {
         afterDeck={{ ...deck, version: deck.version + 1 }}
         beforeDeck={deck}
         lifecycle="preview-read-only"
+        operations={[]}
         readOnly
         slideId={deck.slides[0]!.slideId}
         summary="이미지 생성 전 레이아웃"
@@ -103,5 +107,37 @@ describe("DesignProposalCompareCard", () => {
     expect(html).toContain("읽기 전용 중간 미리보기");
     expect(html).toContain("최종 검토 중");
     expect(html).not.toMatch(/<button[^>]*>적용<\/button>/);
+  });
+
+  it("shows canonical motion summary instead of a static comparison", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const animation = slide.animations[0]!;
+    const html = renderToStaticMarkup(
+      <DesignProposalCompareCard
+        afterDeck={{ ...deck, version: deck.version + 1 }}
+        beforeDeck={deck}
+        lifecycle="proposal-ready"
+        operations={[
+          {
+            type: "update_animation",
+            slideId: slide.slideId,
+            animationId: animation.animationId,
+            animation: { durationMs: animation.durationMs },
+          },
+        ]}
+        slideId={slide.slideId}
+        summary="등장 흐름을 정리했습니다."
+        warnings={[]}
+        onApply={() => undefined}
+        onClose={() => undefined}
+        onPreview={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Motion 흐름");
+    expect(html).toContain("자동 진입");
+    expect(html).not.toContain("Before");
+    expect(html).not.toContain("After");
   });
 });

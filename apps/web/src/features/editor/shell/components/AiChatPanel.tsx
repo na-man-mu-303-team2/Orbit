@@ -752,6 +752,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
           afterDeck={intermediatePreview.candidateDeck}
           beforeDeck={intermediatePreview.baseDeck}
           lifecycle={effectiveIntermediateLifecycle}
+          operations={intermediatePreview.proposal.operations}
           readOnly
           slideId={intermediatePreview.proposal.slideId}
           summary={intermediatePreview.proposal.summary ?? intermediatePreview.proposal.title}
@@ -769,6 +770,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
           afterDeck={pendingPreview.candidateDeck}
           beforeDeck={pendingPreview.baseDeck}
           lifecycle={effectiveProposalLifecycle}
+          operations={pendingPreview.proposal.operations}
           slideId={pendingPreview.proposal.slideId}
           summary={pendingPreview.proposal.summary ?? pendingPreview.proposal.title}
           warnings={pendingPreview.proposal.warnings}
@@ -967,6 +969,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
           lifecycle={modalPreviewIsReadOnly
             ? effectiveIntermediateLifecycle
             : effectiveProposalLifecycle}
+          operations={modalPreview.proposal.operations}
           readOnly={modalPreviewIsReadOnly}
           slideId={modalPreview.proposal.slideId}
           summary={modalPreview.proposal.summary ?? modalPreview.proposal.title}
