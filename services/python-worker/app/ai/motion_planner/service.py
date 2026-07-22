@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from app.ai.motion_planner.compiler import MotionCompileError, compile_narrative_motion
+from app.ai.motion_planner.compiler import MotionCompileError
 from app.ai.motion_planner.eligibility import (
     MotionImportContext,
     evaluate_motion_eligibility,
@@ -11,6 +11,7 @@ from app.ai.motion_planner.eligibility import (
 )
 from app.ai.motion_planner.extractor import extract_motion_context
 from app.ai.motion_planner.llm import plan_narrative_motion
+from app.ai.motion_planner.merge import merge_narrative_motion
 from app.ai.motion_planner.models import MotionPlanningContext
 
 
@@ -80,22 +81,29 @@ def plan_and_compile_motion(
         for animation in slide.get("animations", [])
         if isinstance(animation, dict)
     ]
+    animations_by_id = {
+        str(animation.get("animationId")): animation for animation in animations
+    }
     try:
-        compiled = compile_narrative_motion(
+        compiled = merge_narrative_motion(
             deck_id=deck_id,
-            slide_id=slide_id,
+            slide=slide,
             base_version=base_version,
             plan=planner.plan,
             context=extraction.context,
-            existing_animations=animations,
         )
     except (MotionCompileError, ValueError):
         return _unsafe("MOTION_COMPILE_UNSAFE", fallback_used=planner.fallback_used)
     operations = [
-        operation.model_dump(by_alias=True) for operation in compiled.operations
+        operation for operation in compiled.operations
     ]
     affected_element_ids = [
-        operation.animation.element_id for operation in compiled.operations
+        (
+            str(operation["animation"]["elementId"])
+            if operation["type"] == "add_animation"
+            else str(animations_by_id[operation["animationId"]]["elementId"])
+        )
+        for operation in compiled.operations
     ]
     return SemanticMotionResult(
         outcome="applicable",

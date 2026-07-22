@@ -16,6 +16,11 @@ from app.ai.motion_planner.compiler import (
     compile_narrative_motion,
 )
 from app.ai.motion_planner.service import SemanticMotionResult, plan_and_compile_motion
+from app.ai.motion_planner.merge import MergedMotion, merge_narrative_motion
+from app.ai.motion_planner.validation import (
+    MotionMergeValidationError,
+    validate_existing_motion_graph,
+)
 from app.ai.motion_planner.models import (
     ExtractedMotionContext,
     MotionEffectiveTypography,
@@ -46,4 +51,8 @@ __all__ = [
     "SemanticMotionResult",
     "compile_narrative_motion",
     "plan_and_compile_motion",
+    "MergedMotion",
+    "MotionMergeValidationError",
+    "merge_narrative_motion",
+    "validate_existing_motion_graph",
 ]

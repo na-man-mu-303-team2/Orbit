@@ -1,5 +1,9 @@
 import { applyDeckPatch, createDemoDeck } from "@orbit/editor-core";
-import { deckElementSchema, type DeckPatch } from "@orbit/shared";
+import {
+  deckElementSchema,
+  type DeckPatch,
+  type DesignAgentWorkerResponse,
+} from "@orbit/shared";
 import type { Repository } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 import type { DecksService } from "../decks/decks.service";
@@ -11,6 +15,7 @@ import type { DesignAgentPythonClient } from "./design-agent-python.client";
 import {
   allowsUnselectedSmartArtSources,
   DesignAgentService,
+  isExplicitMotionReplaceRequest,
 } from "./design-agent.service";
 
 const redesignPaletteOptions = [
@@ -93,6 +98,24 @@ describe("allowsUnselectedSmartArtSources", () => {
     expect(allowsUnselectedSmartArtSources("글자 색상만 바꿔서 꾸며줘")).toBe(
       false,
     );
+  });
+});
+
+describe("isExplicitMotionReplaceRequest", () => {
+  it.each([
+    "기존 애니메이션을 교체해줘",
+    "애니메이션을 초기화하고 다시 구성해줘",
+    "replace existing animations",
+  ])("accepts explicit replacement wording: %s", (question) => {
+    expect(isExplicitMotionReplaceRequest(question)).toBe(true);
+  });
+
+  it.each([
+    "애니메이션을 추천해줘",
+    "이 요소를 페이드해줘",
+    "기존 디자인을 교체해줘",
+  ])("does not infer replacement from ordinary wording: %s", (question) => {
+    expect(isExplicitMotionReplaceRequest(question)).toBe(false);
   });
 });
 
@@ -183,6 +206,69 @@ describe("DesignAgentService.applyProposal", () => {
       },
       snapshotReason: "patch-applied",
     });
+  });
+
+  it("marks a proposal stale when apply-time validation finds a duplicate animation id", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const proposal = {
+      proposalId: "design_proposal_duplicate_motion",
+      projectId: deck.projectId,
+      deckId: deck.deckId,
+      slideId: slide.slideId,
+      requestMessageId: "design_message_duplicate_motion",
+      responseMessageId: "design_message_duplicate_motion_response",
+      baseVersion: deck.version,
+      title: "Motion proposal",
+      summary: "Add motion.",
+      operations: [
+        {
+          type: "add_animation",
+          slideId: slide.slideId,
+          animation: {
+            ...slide.animations[0]!,
+            elementId: slide.elements.at(-1)!.elementId,
+          },
+        },
+      ],
+      interpretedIntent: null,
+      affectedElementIds: [slide.elements.at(-1)!.elementId],
+      warnings: [],
+      status: "pending",
+      appliedChangeId: null,
+      rejectedReason: null,
+      createdAt: new Date("2026-07-23T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-23T00:00:00.000Z"),
+    } as unknown as DesignAgentProposalEntity;
+    const proposalsRepository = {
+      findOne: vi.fn(async () => proposal),
+      save: vi.fn(async (value: DesignAgentProposalEntity) => value),
+    } as unknown as Repository<DesignAgentProposalEntity>;
+    const appendPatch = vi.fn();
+    const decksService = {
+      getDeck: vi.fn(async () => ({
+        projectId: deck.projectId,
+        deck,
+        updatedAt: "2026-07-23T00:00:00.000Z",
+      })),
+      getMotionImportContext: vi.fn(async () => null),
+      appendPatch,
+    } as unknown as DecksService;
+    const service = new DesignAgentService(
+      {} as Repository<DesignAgentMessageEntity>,
+      proposalsRepository,
+      decksService,
+      {} as DesignAgentPythonClient,
+      {} as SmartArtLayoutsService,
+      { info: vi.fn(), warn: vi.fn() } as never,
+    );
+
+    await expect(
+      service.applyProposal(deck.projectId, proposal.proposalId, "user_demo_1"),
+    ).rejects.toThrow("no longer safe");
+    expect(proposal.status).toBe("stale");
+    expect(proposal.rejectedReason).toBe("MOTION_DUPLICATE_ANIMATION_ID");
+    expect(appendPatch).not.toHaveBeenCalled();
   });
 });
 
@@ -1173,6 +1259,106 @@ describe("DesignAgentService motion eligibility", () => {
     expect(proposal.rejectedReason).toBe("MOTION_SNAPSHOT_SLIDE");
     expect(appendPatch).not.toHaveBeenCalled();
   });
+
+  it("rejects non-explicit animation deletes before proposal persistence", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const harness = createMotionMessageHarness(deck, null);
+    harness.propose.mockResolvedValueOnce({
+      message: "기존 애니메이션을 삭제합니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "delete animation",
+        alignment: null,
+      },
+      operations: [
+        {
+          type: "delete_animation",
+          slideId: slide.slideId,
+          animationId: slide.animations[0]!.animationId,
+        },
+      ],
+      affectedElementIds: [slide.animations[0]!.elementId],
+      warnings: [],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    await expect(
+      harness.service.createMessage(deck.projectId, "user_demo_1", {
+        content: "애니메이션을 추천해 주세요.",
+        intentPreset: "recommend-animation",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      }),
+    ).rejects.toThrow("DELETE_NOT_EXPLICIT");
+  });
+
+  it("accepts a dry-run validated animation add proposal", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const target = slide.elements.find(
+      (element) =>
+        !slide.animations.some(
+          (animation) => animation.elementId === element.elementId,
+        ),
+    )!;
+    const nextOrder = Math.max(...slide.animations.map(({ order }) => order)) + 1;
+    const harness = createMotionMessageHarness(deck, null);
+    harness.propose.mockResolvedValueOnce({
+      message: "발표 흐름을 준비했습니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "semantic-motion-plan",
+        alignment: null,
+      },
+      operations: [
+        {
+          type: "add_animation",
+          slideId: slide.slideId,
+          animation: {
+            animationId: "anim_motion_api_safe",
+            elementId: target.elementId,
+            type: "fade-in",
+            order: nextOrder,
+            startMode: "on-click",
+            durationMs: 400,
+            delayMs: 0,
+            easing: "ease-out",
+          },
+        },
+      ],
+      affectedElementIds: [target.elementId],
+      warnings: [],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    const response = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "애니메이션을 추천해 주세요.",
+        intentPreset: "recommend-animation",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      },
+    );
+
+    expect(response.proposal?.operations).toHaveLength(1);
+  });
 });
 
 function createMotionMessageHarness(
@@ -1208,7 +1394,7 @@ function createMotionMessageHarness(
     })),
     getMotionImportContext: vi.fn(async () => importContext),
   } as unknown as DecksService;
-  const propose = vi.fn(async () => ({
+  const propose = vi.fn(async (): Promise<DesignAgentWorkerResponse> => ({
     message: "추천할 애니메이션이 없습니다.",
     interpretedIntent: {
       target: "current-slide" as const,

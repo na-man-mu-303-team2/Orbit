@@ -3,6 +3,7 @@ import {
   applyDeckPatch,
   evaluateMotionEligibility,
   getMotionEligibilityReasonMessage,
+  validateMotionProposal,
   type MotionEligibility,
 } from "@orbit/editor-core";
 import {
@@ -293,6 +294,34 @@ export class DesignAgentService {
       }
 
       const operations = [...aiResult.operations, ...smartArtOperations];
+      const motionOperations = operations.filter(isAnimationOperation);
+      if (motionOperations.length > 0) {
+        const validationGate =
+          motionGate ??
+          (await this.getAuthoritativeMotionEligibility(
+            projectId,
+            currentDeck,
+            currentSlide,
+          ));
+        if (validationGate.eligibility.outcome !== "applicable") {
+          throw new BadRequestException(
+            `Design agent motion proposal is unsafe: ${validationGate.eligibility.reasonCode}`,
+          );
+        }
+        const validation = validateMotionProposal({
+          deck: currentDeck,
+          slideId: currentSlide.slideId,
+          operations,
+          allowedTargetElementIds:
+            validationGate.eligibility.allowedTargetElementIds,
+          explicitReplace: isExplicitMotionReplaceRequest(input.content),
+        });
+        if (!validation.ok) {
+          throw new BadRequestException(
+            `Design agent motion proposal is unsafe: ${validation.reasonCode}`,
+          );
+        }
+      }
       if (operations.length > 0) {
         const preview = applyDeckPatch(currentDeck, {
           deckId: input.context.deckId,
@@ -435,24 +464,37 @@ export class DesignAgentService {
         current.deck,
         currentSlide,
       );
-      const allowedTargetIds =
-        motionGate.eligibility.outcome === "applicable"
-          ? new Set(motionGate.eligibility.allowedTargetElementIds)
-          : null;
-      const operationTargetIds = resolveAnimationOperationTargetIds(
-        currentSlide,
-        motionOperations,
+      const hasDelete = motionOperations.some(
+        (operation) => operation.type === "delete_animation",
       );
-      if (
-        allowedTargetIds === null ||
-        operationTargetIds === null ||
-        operationTargetIds.some((elementId) => !allowedTargetIds.has(elementId))
-      ) {
+      const requestMessage = hasDelete
+        ? await this.messagesRepository.findOne({
+            where: {
+              projectId,
+              messageId: proposal.requestMessageId,
+            },
+          })
+        : null;
+      const validation =
+        motionGate.eligibility.outcome === "applicable"
+          ? validateMotionProposal({
+              deck: current.deck,
+              slideId: currentSlide.slideId,
+              operations: proposal.operations,
+              allowedTargetElementIds:
+                motionGate.eligibility.allowedTargetElementIds,
+              explicitReplace: requestMessage
+                ? isExplicitMotionReplaceRequest(requestMessage.content)
+                : false,
+            })
+          : null;
+      if (validation === null || !validation.ok) {
         proposal.status = "stale";
-        proposal.rejectedReason =
-          motionGate.eligibility.outcome === "applicable"
-            ? "MOTION_TARGET_UNSAFE"
-            : `MOTION_${motionGate.eligibility.reasonCode}`;
+        proposal.rejectedReason = validation
+          ? `MOTION_${validation.reasonCode}`
+          : motionGate.eligibility.outcome !== "applicable"
+            ? `MOTION_${motionGate.eligibility.reasonCode}`
+            : "MOTION_VALIDATION_UNAVAILABLE";
         proposal.updatedAt = new Date();
         await this.proposalsRepository.save(proposal);
         throw new ConflictException(
@@ -664,27 +706,17 @@ function isAnimationOperation(
   );
 }
 
-function resolveAnimationOperationTargetIds(
-  slide: Slide,
-  operations: AnimationOperation[],
-): string[] | null {
-  const animationTargets = new Map(
-    slide.animations.map((animation) => [
-      animation.animationId,
-      animation.elementId,
-    ]),
-  );
-  const targetIds: string[] = [];
-  for (const operation of operations) {
-    if (operation.type === "add_animation") {
-      targetIds.push(operation.animation.elementId);
-      continue;
-    }
-    const elementId = animationTargets.get(operation.animationId);
-    if (!elementId) return null;
-    targetIds.push(elementId);
-  }
-  return targetIds;
+export function isExplicitMotionReplaceRequest(question: string): boolean {
+  const normalized = question.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  const mentionsMotion = /애니메이션|모션|animation|motion/.test(normalized);
+  const explicitReplace =
+    /(?:기존.*)?(?:애니메이션|모션).*(?:교체|초기화|모두 지우|전부 지우|삭제.*다시)/.test(
+      normalized,
+    ) ||
+    /(?:replace|reset|clear|remove all).*(?:existing )?(?:animations?|motion)/.test(
+      normalized,
+    );
+  return mentionsMotion && explicitReplace;
 }
 
 export function allowsUnselectedSmartArtSources(question: string) {

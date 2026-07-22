@@ -61,6 +61,7 @@ def compile_narrative_motion(
     plan: NarrativeMotionPlan,
     context: ExtractedMotionContext,
     existing_animations: list[dict[str, object]] | None = None,
+    allow_existing_targets: bool = False,
 ) -> CompiledMotion:
     targets = {target.element_id: target for target in context.targets}
     plan.validate_allowlist(set(targets))
@@ -78,7 +79,7 @@ def compile_narrative_motion(
     plan_target_ids = {
         element_id for beat in plan.beats for element_id in beat.target_element_ids
     }
-    if plan_target_ids & existing_target_ids:
+    if not allow_existing_targets and plan_target_ids & existing_target_ids:
         raise MotionCompileError(
             "existing animation targets require the merge-and-safety stage"
         )
