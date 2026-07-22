@@ -57,6 +57,7 @@ import { recoverAiDeckBullMqFinalFailure } from "./generate-deck/transport-failu
 import { createImageAssetRuntime } from "./image-providers";
 import { serializeLogError } from "./logging";
 import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
+import { recoverPptxOoxmlFinalFailure } from "./pptx-ooxml-failure-recovery";
 import { processPptxOoxmlSyncJob } from "./pptx-ooxml-sync.processor";
 import { processReferenceExtractJob } from "./reference-extract.processor";
 import { RedisRehearsalTranscriptCache } from "./rehearsal-transcript-cache";
@@ -702,6 +703,11 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       (job) => this.processJob(queueName, job, () => handler(job)),
       {
         connection: redisConnectionOptions(this.config.REDIS_URL),
+        ...([pptxOoxmlGenerationQueueName, pptxOoxmlSyncQueueName].includes(
+          queueName,
+        )
+          ? { maxStalledCount: 4 }
+          : {}),
         ...(queueName === slideQuestionGuideGenerationQueueName
           ? { concurrency: 2 }
           : {}),
@@ -721,6 +727,9 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           "BullMQ job retry scheduled.",
         );
         return;
+      }
+      if (job && isTerminalPptxOoxmlFailure(queueName, job, error)) {
+        void this.recoverPptxOoxmlTransportFailure(queueName, job);
       }
       this.logger.error(
         {
@@ -755,6 +764,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
       {
         event: "job.started",
         ...baseFields,
+        ...processMemoryFields(),
       },
       "Job started.",
     );
@@ -776,6 +786,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             projectId: result?.projectId,
             status: result?.status,
             durationMs,
+            ...processMemoryFields(),
           },
           "Job progressed.",
         );
@@ -793,6 +804,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
           projectId: result.projectId,
           status: result.status,
           durationMs,
+          ...processMemoryFields(),
           ...jobDiagnosticFields(result.result),
           error: result.error ?? undefined,
         },
@@ -831,16 +843,54 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       if (isAiDeckStageRetrySignal(error)) throw error;
       await this.recoverAiDeckTransportFailure(queueName, job);
+      await this.recoverPptxOoxmlTransportFailure(queueName, job);
       this.logger.error(
         {
           event: "job.failed",
           ...baseFields,
           durationMs: Date.now() - startedAt,
+          ...processMemoryFields(),
           error: serializeLogError(error),
         },
         "Job failed.",
       );
       throw error;
+    }
+  }
+
+  private async recoverPptxOoxmlTransportFailure(
+    queueName: string,
+    job: BullMqJob,
+  ): Promise<void> {
+    if (!isTerminalPptxOoxmlFailure(queueName, job)) return;
+    try {
+      const result = await recoverPptxOoxmlFinalFailure(this.dataSource, {
+        queueName,
+        data: job.data,
+      });
+      if (result.outcome !== "recovered") return;
+      this.logger.warn(
+        {
+          event: "pptx_ooxml.transport_failure.recovered",
+          queueName,
+          bullJobId: job.id,
+          attemptsMade: job.attemptsMade,
+          ...jobPayloadFields(job.data),
+        },
+        "PPTX OOXML terminal transport failure recovered.",
+      );
+    } catch (error) {
+      this.logger.error(
+        {
+          event: "pptx_ooxml.transport_failure.recovery_failed",
+          queueName,
+          bullJobId: job.id,
+          attemptsMade: job.attemptsMade,
+          ...jobPayloadFields(job.data),
+          error: serializeLogError(error),
+        },
+        "PPTX OOXML transport failure recovery failed.",
+      );
     }
   }
 
@@ -1113,6 +1163,23 @@ function isFinalBullMqAttempt(job: BullMqJob): boolean {
   return job.attemptsMade + 1 >= Math.max(1, configuredAttempts);
 }
 
+function isTerminalPptxOoxmlFailure(
+  queueName: string,
+  job: BullMqJob,
+  error?: Error,
+): boolean {
+  if (
+    queueName !== pptxOoxmlGenerationQueueName &&
+    queueName !== pptxOoxmlSyncQueueName
+  ) {
+    return false;
+  }
+  return (
+    isFinalBullMqAttempt(job) ||
+    error?.message.toLowerCase().includes("stalled more than allowable") === true
+  );
+}
+
 function isAiDeckStageRetrySignal(error: unknown): boolean {
   return (
     error instanceof Error &&
@@ -1169,6 +1236,17 @@ function jobDiagnosticFields(result: unknown) {
       "visualRepairAttempts",
     ),
     visualIssueCodes: readStringArray(diagnostics, "visualIssueCodes"),
+  };
+}
+
+function processMemoryFields() {
+  const memory = process.memoryUsage();
+  return {
+    memoryRssBytes: memory.rss,
+    memoryHeapUsedBytes: memory.heapUsed,
+    memoryExternalBytes: memory.external,
+    memoryArrayBuffersBytes: memory.arrayBuffers,
+    memoryMaxRssBytes: process.resourceUsage().maxRSS * 1024,
   };
 }
 

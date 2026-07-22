@@ -774,7 +774,7 @@ export async function enqueuePptxOoxmlGenerationJob(
         projectId: input.projectId,
         request: input.request,
       } satisfies PptxOoxmlGenerationBullMqPayload,
-      canonicalJobOptions(input.jobId),
+      pptxOoxmlJobOptions(input.jobId),
     );
   } finally {
     await queue.close();
@@ -803,7 +803,7 @@ export async function enqueuePptxOoxmlSyncJob(
         targetDeckVersion: input.targetDeckVersion,
         syncCapabilityVersion: input.syncCapabilityVersion,
       } satisfies PptxOoxmlSyncBullMqPayload,
-      canonicalJobOptions(input.jobId),
+      pptxOoxmlJobOptions(input.jobId),
     );
   } finally {
     await queue.close();
@@ -889,6 +889,14 @@ export function redisConnectionOptions(redisUrl: string) {
 
 function canonicalJobOptions(jobId: string) {
   return { jobId, attempts: 5, removeOnComplete: 1000, removeOnFail: 1000 };
+}
+
+function pptxOoxmlJobOptions(jobId: string) {
+  return {
+    ...canonicalJobOptions(jobId),
+    backoff: { type: "exponential" as const, delay: 2_000 },
+    removeOnFail: false,
+  };
 }
 
 export function aiDeckGenerationStageQueueName(
