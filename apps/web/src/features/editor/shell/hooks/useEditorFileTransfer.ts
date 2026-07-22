@@ -9,6 +9,7 @@ import type {
   DeckExportRequest,
   DeckPatch,
   DesignImageGenerationResult,
+  PptxImportPreference,
   PptxImportQuality
 } from "@orbit/shared";
 import type { ChangeEvent, MutableRefObject } from "react";
@@ -57,6 +58,19 @@ export type CanvasImageDropGate = {
   isUploadPending: boolean;
   speakerNotesEditing: boolean;
 };
+
+export async function confirmPendingPptxImport(input: {
+  file: File | null;
+  importFile: (
+    file: File,
+    preference: PptxImportPreference
+  ) => Promise<void>;
+  preference: PptxImportPreference | null;
+}) {
+  if (!input.file || !input.preference) return false;
+  await input.importFile(input.file, input.preference);
+  return true;
+}
 
 export function createRehydratedPptxImportState(
   importQuality?: PptxImportQuality | null
@@ -366,11 +380,14 @@ export function useEditorFileTransfer(args: {
   const [isPptxExporting, setIsPptxExporting] = useState(false);
   const [pptxExportStatus, setPptxExportStatus] = useState("");
   const [pptxExportError, setPptxExportError] = useState("");
+  const [pendingPptxImportFile, setPendingPptxImportFile] =
+    useState<File | null>(null);
   const [pptxImportState, setPptxImportState] = useState<PptxImportState>(() =>
     createRehydratedPptxImportState(args.rehydratedPptxImportQuality)
   );
 
   useEffect(() => {
+    setPendingPptxImportFile(null);
     setPptxImportState(createRehydratedPptxImportState());
   }, [args.projectId]);
 
@@ -413,7 +430,11 @@ export function useEditorFileTransfer(args: {
   }
 
   function openPptxFilePicker() {
-    if (pptxImportState.status === "uploading" || pptxImportState.status === "importing") {
+    if (
+      pendingPptxImportFile ||
+      pptxImportState.status === "uploading" ||
+      pptxImportState.status === "importing"
+    ) {
       return;
     }
     pptxFileInputRef.current?.click();
@@ -533,12 +554,19 @@ export function useEditorFileTransfer(args: {
     return true;
   }
 
-  async function handlePptxFileSelection(file: File) {
+  function handlePptxFileSelection(file: File) {
     const validationMessage = getPptxImportValidationMessage(file);
     if (validationMessage) {
       setPptxImportState({ status: "error", warnings: [], qualityReport: null, message: validationMessage });
       return;
     }
+    setPendingPptxImportFile(file);
+  }
+
+  async function importPendingPptx(
+    file: File,
+    importPreference: PptxImportPreference
+  ) {
     setPptxImportState({ status: "uploading", warnings: [], qualityReport: null, message: "PPTX 업로드 중..." });
     try {
       await args.prepareForImport();
@@ -546,6 +574,7 @@ export function useEditorFileTransfer(args: {
         args.workingDeckRef.current.projectId || args.projectId
       );
       const { importResult, importedDeck } = await importPptxIntoEditor(activeProjectId, file, {
+        importPreference,
         onPhase: (phase) => setPptxImportState({
           status: phase,
           warnings: [],
@@ -570,6 +599,20 @@ export function useEditorFileTransfer(args: {
         message: toEditorErrorMessage(error)
       });
     }
+  }
+
+  async function confirmPptxImport(preference: PptxImportPreference) {
+    const file = pendingPptxImportFile;
+    setPendingPptxImportFile(null);
+    return confirmPendingPptxImport({
+      file,
+      importFile: importPendingPptx,
+      preference
+    });
+  }
+
+  function cancelPptxImport() {
+    setPendingPptxImportFile(null);
   }
 
   async function exportDeck(
@@ -620,13 +663,15 @@ export function useEditorFileTransfer(args: {
   function handlePptxFileInputChange(event: ChangeEvent<HTMLInputElement>) {
     const [file] = Array.from(event.target.files ?? []);
     event.target.value = "";
-    if (file) void handlePptxFileSelection(file);
+    if (file) handlePptxFileSelection(file);
   }
 
   return {
     actions: {
       handleImageFileInputChange,
       handlePptxFileInputChange,
+      cancelPptxImport,
+      confirmPptxImport,
       exportDeck,
       getImageInsertCapability: (slideId: string) =>
         getImageInsertCapability(args.workingDeckRef.current, slideId),
@@ -643,6 +688,7 @@ export function useEditorFileTransfer(args: {
       isPptxExporting,
       pptxExportError,
       pptxExportStatus,
+      pendingPptxImportFile,
       pptxImportState
     }
   };

@@ -1,6 +1,7 @@
 import { HttpException, HttpStatus } from "@nestjs/common";
 import { createActivitySlide, createAddSlidePatch } from "@orbit/editor-core";
 import {
+  PPTX_OOXML_SYNC_CAPABILITY_VERSION,
   deckApiErrorSchema,
   deckSchema,
   createKeywordOccurrenceId,
@@ -54,14 +55,24 @@ type StoredTemplateBlueprintRow = {
   quality_report_json?: unknown;
 };
 
+type StoredProjectAssetRow = {
+  file_id: string;
+  project_id: string;
+  purpose: string;
+  status: string;
+  mime_type: string;
+};
+
 class InMemoryDeckDataSource {
   readonly decks = new Map<string, StoredDeckRow>();
   readonly projectTitles = new Map<string, string>();
   readonly patchRows: StoredPatchRow[] = [];
   readonly snapshotRows: StoredSnapshotRow[] = [];
   readonly templateBlueprintRows: StoredTemplateBlueprintRow[] = [];
+  readonly projectAssetRows: StoredProjectAssetRow[] = [];
   readonly executedQueries: string[] = [];
   readonly exportSessionIds = new Set<string>();
+  failProjectAssetLookup = false;
 
   async transaction<T>(
     run: (manager: InMemoryDeckDataSource) => Promise<T>,
@@ -343,6 +354,21 @@ class InMemoryDeckDataSource {
     }
 
     if (
+      query.startsWith(
+        "SELECT file_id, project_id, purpose, status, mime_type",
+      ) &&
+      query.includes("FROM project_assets")
+    ) {
+      if (this.failProjectAssetLookup) {
+        throw new Error("synthetic private storage failure");
+      }
+      const [projectId, fileId] = params as [string, string];
+      return this.projectAssetRows
+        .filter((row) => row.project_id === projectId && row.file_id === fileId)
+        .map((row) => ({ ...row })) as T;
+    }
+
+    if (
       query.startsWith("SELECT snapshot_id, project_id, deck_id") &&
       query.includes("WHERE snapshot_id = $1")
     ) {
@@ -362,6 +388,56 @@ function createService() {
   const service = new DecksService(dataSource as unknown as DataSource);
 
   return { dataSource, service };
+}
+
+function seedImportedNotesPreview(
+  dataSource: InMemoryDeckDataSource,
+  deckVersion = 1,
+  notesStatus: "rendered" | "render-unavailable" = "rendered",
+  includeRenderAssetId = true,
+): Deck {
+  const base = createDeck();
+  const deck = deckSchema.parse({
+    ...base,
+    version: deckVersion,
+    metadata: {
+      ...base.metadata,
+      sourceType: "import",
+    },
+  });
+  seedStoredDeck(dataSource, deck, deck);
+  dataSource.templateBlueprintRows.push({
+    template_id: "template_file_1",
+    project_id: deck.projectId,
+    deck_id: deck.deckId,
+    blueprint_json: {
+      templateId: "template_file_1",
+      sourceFileId: "file_source_1",
+      sourcePackageFileId: "file_source_1",
+      currentPackageFileId: "file_current_1",
+      ooxmlSyncedDeckVersion: 1,
+      slides: [
+        {
+          slideId: deck.slides[0]!.slideId,
+          slideIndex: 1,
+          sourceSlideIndex: 1,
+          sourceSlidePart: "ppt/slides/slide1.xml",
+          notesPage: {
+            status: notesStatus,
+            sourceNotesPart: "ppt/notesSlides/notesSlide1.xml",
+            bodyWritable: false,
+            hasNonBodyContent: false,
+            ...(notesStatus === "rendered" && includeRenderAssetId
+              ? { renderAssetFileId: "file_notes_preview_1" }
+              : {}),
+          },
+          elementSources: [],
+          slots: [],
+        },
+      ],
+    },
+  });
+  return deck;
 }
 
 function createJob(
@@ -896,6 +972,184 @@ describe("DecksService", () => {
     });
   });
 
+  it("returns a protected URL for the current project's rendered notes preview", async () => {
+    const { dataSource, service } = createService();
+    const deck = seedImportedNotesPreview(dataSource);
+    dataSource.projectAssetRows.push({
+      file_id: "file_notes_preview_1",
+      project_id: deck.projectId,
+      purpose: "design-asset",
+      status: "uploaded",
+      mime_type: "image/png",
+    });
+
+    await expect(
+      service.getPptxNotesPreview(deck.projectId, deck.slides[0]!.slideId),
+    ).resolves.toEqual({
+      notesPreview: {
+        slideId: deck.slides[0]!.slideId,
+        status: "available",
+        assetUrl:
+          "/api/v1/projects/project_demo_1/assets/file_notes_preview_1/content",
+      },
+    });
+  });
+
+  it.each([
+    {
+      name: "missing",
+      asset: null,
+    },
+    {
+      name: "another project",
+      asset: {
+        file_id: "file_notes_preview_1",
+        project_id: "project_other",
+        purpose: "design-asset",
+        status: "uploaded",
+        mime_type: "image/png",
+      },
+    },
+    {
+      name: "stale metadata",
+      asset: {
+        file_id: "file_notes_preview_1",
+        project_id: "project_demo_1",
+        purpose: "design-asset",
+        status: "deleted",
+        mime_type: "image/png",
+      },
+    },
+  ])("returns unavailable for a $name preview asset", async ({ asset }) => {
+    const { dataSource, service } = createService();
+    const deck = seedImportedNotesPreview(dataSource);
+    if (asset) dataSource.projectAssetRows.push(asset);
+
+    const response = await service.getPptxNotesPreview(
+      deck.projectId,
+      deck.slides[0]!.slideId,
+    );
+
+    expect(response).toEqual({
+      notesPreview: {
+        slideId: deck.slides[0]!.slideId,
+        status: "unavailable",
+        assetUrl: null,
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain("file_notes_preview_1");
+  });
+
+  it("reports sync pending and stale without exposing the previous preview URL", async () => {
+    const pendingDataSource = new InMemoryDeckDataSource();
+    const pendingDeck = seedImportedNotesPreview(pendingDataSource, 2);
+    pendingDataSource.projectAssetRows.push({
+      file_id: "file_notes_preview_1",
+      project_id: pendingDeck.projectId,
+      purpose: "design-asset",
+      status: "uploaded",
+      mime_type: "image/png",
+    });
+    const pendingService = new DecksService(
+      pendingDataSource as unknown as DataSource,
+      {
+        getLatestPptxOoxmlSync: vi.fn(async () =>
+          createJob("job_sync_pending"),
+        ),
+      } as never,
+    );
+    await expect(
+      pendingService.getPptxNotesPreview(
+        pendingDeck.projectId,
+        pendingDeck.slides[0]!.slideId,
+      ),
+    ).resolves.toEqual({
+      notesPreview: {
+        slideId: pendingDeck.slides[0]!.slideId,
+        status: "sync-pending",
+        assetUrl: null,
+      },
+    });
+
+    const staleDataSource = new InMemoryDeckDataSource();
+    const staleDeck = seedImportedNotesPreview(staleDataSource, 2);
+    const staleService = new DecksService(
+      staleDataSource as unknown as DataSource,
+    );
+    await expect(
+      staleService.getPptxNotesPreview(
+        staleDeck.projectId,
+        staleDeck.slides[0]!.slideId,
+      ),
+    ).resolves.toEqual({
+      notesPreview: {
+        slideId: staleDeck.slides[0]!.slideId,
+        status: "stale",
+        assetUrl: null,
+      },
+    });
+  });
+
+  it("returns renderer state without exposing sidecar details", async () => {
+    const { dataSource, service } = createService();
+    const deck = seedImportedNotesPreview(dataSource, 1, "render-unavailable");
+
+    await expect(
+      service.getPptxNotesPreview(deck.projectId, deck.slides[0]!.slideId),
+    ).resolves.toEqual({
+      notesPreview: {
+        slideId: deck.slides[0]!.slideId,
+        status: "render-unavailable",
+        assetUrl: null,
+      },
+    });
+  });
+
+  it("returns unavailable when rendered metadata has no asset ID", async () => {
+    const { dataSource, service } = createService();
+    const deck = seedImportedNotesPreview(dataSource, 1, "rendered", false);
+
+    await expect(
+      service.getPptxNotesPreview(deck.projectId, deck.slides[0]!.slideId),
+    ).resolves.toEqual({
+      notesPreview: {
+        slideId: deck.slides[0]!.slideId,
+        status: "unavailable",
+        assetUrl: null,
+      },
+    });
+  });
+
+  it("degrades asset lookup failures without exposing storage errors", async () => {
+    const { dataSource, service } = createService();
+    const deck = seedImportedNotesPreview(dataSource);
+    dataSource.failProjectAssetLookup = true;
+
+    await expect(
+      service.getPptxNotesPreview(deck.projectId, deck.slides[0]!.slideId),
+    ).resolves.toEqual({
+      notesPreview: {
+        slideId: deck.slides[0]!.slideId,
+        status: "unavailable",
+        assetUrl: null,
+      },
+    });
+  });
+
+  it("rejects a slide outside the current Deck before reading preview metadata", async () => {
+    const { dataSource, service } = createService();
+    const deck = seedImportedNotesPreview(dataSource);
+
+    await expect(
+      service.getPptxNotesPreview(deck.projectId, "slide_other"),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(
+      dataSource.executedQueries.some((query) =>
+        query.includes("FROM project_assets"),
+      ),
+    ).toBe(false);
+  });
+
   it("normalizes legacy keyword terms when reading stored deck JSON", async () => {
     const { dataSource, service } = createService();
     const deck = createDeck();
@@ -1154,7 +1408,7 @@ describe("DecksService", () => {
         deckId: deck.deckId,
         changeId: response.changeRecord.changeId,
         targetDeckVersion: 2,
-        syncCapabilityVersion: 2,
+        syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
       },
     });
     expect(enqueueSyncJob).toHaveBeenCalledWith(
@@ -1272,7 +1526,7 @@ describe("DecksService", () => {
         deckId: current.deckId,
         changeId: "change_deck_demo_1_3_put",
         targetDeckVersion: 3,
-        syncCapabilityVersion: 2,
+        syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
       },
     });
     expect(enqueueSyncJob).toHaveBeenCalledWith(
@@ -1282,6 +1536,59 @@ describe("DecksService", () => {
         targetDeckVersion: 3,
       }),
     );
+  });
+
+  it("records an imported full-save speaker notes change for OOXML sync", async () => {
+    const { dataSource, service } = createService();
+    const base = createDeck();
+    const current = deckSchema.parse({
+      ...base,
+      version: 2,
+      slides: [{ ...base.slides[0], speakerNotes: "" }],
+    });
+    await service.putDeck(current.projectId, { deck: current });
+    dataSource.templateBlueprintRows.push({
+      template_id: "template_file_1",
+      project_id: current.projectId,
+      deck_id: current.deckId,
+      blueprint_json: {
+        templateId: "template_file_1",
+        sourceFileId: "file_1",
+        currentPackageFileId: "file_current",
+        ooxmlSyncedDeckVersion: 2,
+        slides: [
+          {
+            slideIndex: 1,
+            sourceSlideIndex: 1,
+            sourceSlidePart: "ppt/slides/slide1.xml",
+            slots: [],
+          },
+        ],
+      },
+    });
+    const requested = deckSchema.parse({
+      ...current,
+      slides: [
+        {
+          ...current.slides[0],
+          speakerNotes: "Synthetic OOXML notes update",
+        },
+      ],
+    });
+
+    await service.putDeck(current.projectId, {
+      baseVersion: current.version,
+      deck: requested,
+    });
+
+    expect(dataSource.patchRows).toHaveLength(1);
+    expect(dataSource.patchRows[0]?.operations).toEqual([
+      {
+        type: "update_speaker_notes",
+        slideId: current.slides[0]!.slideId,
+        speakerNotes: "Synthetic OOXML notes update",
+      },
+    ]);
   });
 
   it("records an imported full-save slide reorder as one exact permutation", async () => {
@@ -1809,7 +2116,7 @@ describe("DecksService", () => {
         deckId: deck.deckId,
         changeId: response.changeRecord.changeId,
         targetDeckVersion: 2,
-        syncCapabilityVersion: 2,
+        syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
       },
     });
     expect(enqueueSyncJob).toHaveBeenCalledWith(
@@ -2131,7 +2438,7 @@ describe("DecksService", () => {
         deckId: currentDeck.deckId,
         changeId: "change_deck_demo_1_4_put",
         targetDeckVersion: 4,
-        syncCapabilityVersion: 2,
+        syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
       },
     });
     expect(enqueueSyncJob).toHaveBeenCalledWith(
@@ -2681,7 +2988,7 @@ describe("DecksService", () => {
       code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
       message: "unsupported authored element",
       retryable: false,
-      syncCapabilityVersion: 2,
+      syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
     });
 
     const response = await service.getOoxmlSyncState(deck.projectId);
@@ -2702,7 +3009,7 @@ describe("DecksService", () => {
       code: "PPTX_OOXML_SYNC_FAILED",
       message: "worker temporarily unavailable",
       retryable: true,
-      syncCapabilityVersion: 2,
+      syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
     });
 
     const response = await service.getOoxmlSyncState(deck.projectId);

@@ -70,8 +70,9 @@ else
   # before the token is configured. Set the GHCR_TOKEN (and optional
   # GHCR_USERNAME) secrets in Doppler to make the registry path the default for
   # personal staging. Set DEPLOY_USE_REGISTRY=false to force the on-box build.
-  # The env-specific web image is always built locally. See
-  # docs/runbooks/deploy-image-registry-migration.md.
+  # The web image is staging-specific but prebuilt in CI (build-images.yml,
+  # develop only); pull it too and fall back to an on-box build if the tag is
+  # missing. See docs/runbooks/deploy-image-registry-migration.md.
   ghcr_token="${GHCR_TOKEN:-${GITHUB_TOKEN:-}}"
   if [ -z "$ghcr_token" ]; then
     ghcr_token="$(doppler secrets get GHCR_TOKEN --plain 2>/dev/null || true)"
@@ -87,7 +88,19 @@ else
     ghcr_user="${GHCR_USERNAME:-$(doppler secrets get GHCR_USERNAME --plain 2>/dev/null || echo orbit-deploy)}"
     printf '%s' "$ghcr_token" | docker login "$IMAGE_REGISTRY" -u "$ghcr_user" --password-stdin
     doppler run -- "${COMPOSE[@]}" pull api worker python-worker
-    doppler run -- "${COMPOSE[@]}" build web
+    # Pin the web image to the exact deployed commit rather than the branch tag.
+    # The web bundle bakes in the frontend, so a stale bundle against a newer API
+    # can break the UI. The automatic develop-push deploy does not wait for
+    # build-images, so the branch tag may still point at the previous build when
+    # a web-changing commit deploys. Pull the per-SHA tag and fall back to an
+    # on-box build when it is missing (build not finished, or a commit that did
+    # not trigger build-web).
+    WEB_IMAGE_TAG="$(git rev-parse HEAD)"
+    export WEB_IMAGE_TAG
+    if ! doppler run -- "${COMPOSE[@]}" pull web; then
+      echo "web image ${WEB_IMAGE_TAG} not available; building web on-box as a fallback."
+      doppler run -- "${COMPOSE[@]}" build web
+    fi
   else
     doppler run -- "${COMPOSE[@]}" build
   fi

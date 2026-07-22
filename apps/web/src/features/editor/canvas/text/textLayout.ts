@@ -99,8 +99,19 @@ export function getTextElementLayout(args: {
     slide.style.fontFamily ??
     theme.typography.bodyFontFamily;
   const color = primaryRun?.color ?? props.color ?? slide.style.textColor ?? theme.textColor;
-  const fontSize = primaryRun?.fontSize ?? props.fontSize;
+  const sourceFontSize = primaryRun?.fontSize ?? props.fontSize;
+  const fontScale =
+    props.autoFit === "shrink-text" ? (props.fontScale ?? 1) : 1;
+  const fontSize = sourceFontSize * fontScale;
   const fontWeight = primaryRun?.fontWeight ?? props.fontWeight;
+  const letterSpacing = primaryRun?.letterSpacing ?? props.letterSpacing ?? 0;
+  const lineHeight = Math.max(
+    0.5,
+    props.lineHeight *
+      (props.autoFit === "shrink-text"
+        ? 1 - (props.lineSpaceReduction ?? 0)
+        : 1)
+  );
   const italic = primaryRun?.italic ?? props.italic ?? false;
   const underline = primaryRun?.underline ?? props.underline ?? false;
   const fontStyle = getRichTextFontStyle(fontWeight, italic);
@@ -117,9 +128,10 @@ export function getTextElementLayout(args: {
       baseStyle: {
         color,
         fontFamily,
-        fontSize,
+        fontSize: sourceFontSize,
         fontWeight,
         italic,
+        letterSpacing,
         underline
       },
       frame,
@@ -135,6 +147,8 @@ export function getTextElementLayout(args: {
       fontFamily,
       fontSize,
       fontStyle,
+      letterSpacing,
+      lineHeight,
       richText,
       text,
       textDecoration: underline ? ("underline" as const) : undefined,
@@ -150,7 +164,8 @@ export function getTextElementLayout(args: {
     fontFamily,
     fontSize,
     fontStyle,
-    lineHeight: props.lineHeight,
+    letterSpacing,
+    lineHeight,
     text,
     width
   });
@@ -184,6 +199,8 @@ export function getTextElementLayout(args: {
     fontFamily,
     fontSize,
     fontStyle,
+    letterSpacing,
+    lineHeight,
     richText: null,
     text,
     textDecoration: underline ? ("underline" as const) : undefined,
@@ -217,7 +234,8 @@ export function isTextElementOverflowing(args: {
     fontFamily: layout.fontFamily,
     fontSize: layout.fontSize,
     fontStyle: layout.fontStyle,
-    lineHeight: args.props.lineHeight,
+    letterSpacing: layout.letterSpacing,
+    lineHeight: layout.lineHeight,
     text: layout.text,
     width: Math.max(1, args.frame.height)
   });
@@ -229,10 +247,15 @@ export function estimateTextContentBounds(args: {
   text: string;
   width: number;
   fontSize: number;
+  letterSpacing?: number;
   lineHeight: number;
 }) {
   const { text, width, fontSize, lineHeight } = args;
-  const charsPerLine = Math.max(1, Math.floor(width / Math.max(fontSize * 0.55, 1)));
+  const characterWidth = Math.max(
+    fontSize * 0.55 + (args.letterSpacing ?? 0),
+    1
+  );
+  const charsPerLine = Math.max(1, Math.floor(width / characterWidth));
   const paragraphs = text.replace(/\r\n/g, "\n").split("\n");
   const estimatedLineLengths: number[] = [];
 
@@ -253,7 +276,7 @@ export function estimateTextContentBounds(args: {
   return {
     height: lineCount * fontSize * lineHeight,
     lineCount,
-    width: Math.min(width, maxCharsInLine * fontSize * 0.55)
+    width: Math.min(width, maxCharsInLine * characterWidth)
   };
 }
 
@@ -262,6 +285,7 @@ export function measureTextContentBounds(args: {
   fontFamily: string;
   fontSize: number;
   fontStyle: RichTextFontStyle;
+  letterSpacing?: number;
   lineHeight: number;
   text: string;
   width: number;
@@ -271,6 +295,7 @@ export function measureTextContentBounds(args: {
       text: args.text,
       width: args.width,
       fontSize: args.fontSize,
+      letterSpacing: args.letterSpacing,
       lineHeight: args.lineHeight
     });
   }
@@ -280,6 +305,7 @@ export function measureTextContentBounds(args: {
     fontFamily: args.fontFamily,
     fontSize: args.fontSize,
     fontStyle: args.fontStyle,
+    letterSpacing: args.letterSpacing ?? 0,
     lineHeight: args.lineHeight,
     padding: 0,
     text: args.text,

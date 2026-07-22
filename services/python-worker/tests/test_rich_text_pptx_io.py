@@ -70,10 +70,12 @@ def test_vector_importer_records_rich_text_styles_and_stable_diagnostics(
         "fontFamily": "Aptos",
         "fontSize": 40,
         "fontWeight": "bold",
+        "letterSpacing": 2.4,
         "italic": True,
         "underline": True,
         "baseline": "normal",
     }
+    assert imported_paragraph["color"] == "#000000"
     assert imported_paragraph["align"] == "center"
     assert imported_paragraph["indent"] == 36
     assert imported_paragraph["spaceBefore"] == 4
@@ -88,7 +90,7 @@ def test_vector_importer_records_rich_text_styles_and_stable_diagnostics(
         warning.startswith("PPTX_RICH_TEXT_UNSUPPORTED_HYPERLINK:")
         for warning in result.warnings
     )
-    assert any(
+    assert not any(
         warning.startswith("PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING:")
         for warning in result.warnings
     )
@@ -362,8 +364,6 @@ def test_generic_export_reports_unsupported_run_properties_with_stable_codes() -
 
     assert response.warnings == [
         "PPTX_RICH_TEXT_UNSUPPORTED_HYPERLINK: "
-        "element=el_rich_text; paragraph=0; run=0",
-        "PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING: "
         "element=el_rich_text; paragraph=0; run=0",
         "PPTX_RICH_TEXT_UNSUPPORTED_RUN_PROPERTY: "
         "property=textShadow; element=el_rich_text; paragraph=0; run=0",
