@@ -10,6 +10,7 @@ describe("ORBIT web fonts", () => {
     const fontCss = fs.readFileSync(path.join(webRoot, "src/fonts.css"), "utf8");
     expect(fontCss).toContain('font-family: "Pretendard"');
     expect(fontCss).toContain("PretendardVariable.woff2");
+    expect(fontCss).toMatch(/font-weight:\s*45 920/);
     expect(fontCss).not.toContain("local(");
     expect(fs.existsSync(path.join(webRoot, "node_modules/pretendard/dist/web/variable/woff2/PretendardVariable.woff2"))).toBe(true);
   });

@@ -200,8 +200,8 @@ def test_import_fidelity_fixture_imports_notes_and_reproduces_remaining_gaps() -
         "writable": 1,
         "warnings": [],
     }
-    assert title["props"]["fontFamily"] == "Pretendard SemiBold"
-    assert title["props"]["fontWeight"] == "normal"
+    assert title["props"]["fontFamily"] == "Pretendard"
+    assert title["props"]["fontWeight"] == 600
     assert title["props"]["fontSize"] == 24
     assert any(
         warning.startswith("PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING")
