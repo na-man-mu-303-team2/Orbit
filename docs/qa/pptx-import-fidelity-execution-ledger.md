@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR9 slide render mode 조립과 Editor 적용
-- task branch: `feature/pptx-import-pr9-render-mode`
-- 상태: Worker의 preference/capability 기반 mode 결정, snapshot tree 보존, Web 공통 렌더·선택·thumbnail·PNG 정책, 두 preference Playwright 비교와 target branch `--no-ff` merge 완료
+- 단계: PR10 PPTX font family/weight 정규화
+- task branch: `feature/pptx-import-pr10-font-normalization`
+- 상태: 명시적 Pretendard alias, unknown font fallback 진단, shared weight catalog, Web FontFaceSet 진단과 Chromium 검증을 완료하고 target branch에 `--no-ff` merge함
 
 ## 완료된 작업과 Commit
 
@@ -43,6 +43,7 @@
 | Checkpoint B notes E2E        | `17965f7d`  | `test/pptx-import-checkpoint-b` | `25355090` | 실제 8/8 notes·preview, slide 4 문단 경계, 수정 후 digest exact match와 privacy         |
 | PR8 import preference         | `42cfc53d`  | `feature/pptx-import-pr8-preference-dialog` | `182f941b` | 선택 전 무동작, 두 정책 전달, legacy default와 unknown enum 거부                     |
 | PR9 slide render mode         | `c39868ee`  | `feature/pptx-import-pr9-render-mode` | `f3decd83` | preference·pixel·capability로 mode 결정, snapshot tree 보존과 전체 renderer 일치       |
+| PR10 font normalization       | `49142df4`  | `feature/pptx-import-pr10-font-normalization` | `fe51afae` | 명시적 Pretendard alias, unknown 보존·fallback 진단, 실제 browser weight 검증          |
 
 ## 실행한 검증
 
@@ -159,6 +160,14 @@
 | PR9 preference E2E     | 실제 기준 8 slides × 두 preference Playwright screenshot                              | 16/16 capture passed                                 |
 | PR9 appearance 비교    | source render 대비 snapshot SSIM `>= 0.99`                                             | 8/8, slide별 SSIM 모두 1.0                           |
 | PR9 editability 비교   | source render 대비 editable/hybrid SSIM `>= 0.95`                                      | 4/8, 기존 CI-only vector fidelity 한계 재확인        |
+| PR10 Python 대상       | importer 전체와 import fidelity generation 회귀                                        | 37 passed                                            |
+| PR10 Python lint/type  | 변경 Python 파일 `ruff check`, importer `mypy`                                          | 모두 통과                                            |
+| PR10 Shared 전체       | `pnpm --filter @orbit/shared test`                                                       | 54 files, 581 tests passed                           |
+| PR10 Web 전체          | `pnpm --filter @orbit/web test -- fontAvailability.test.ts fonts.test.ts`               | 291 files, 1,818 tests passed                        |
+| PR10 Web lint/build    | TypeScript no-emit과 production Vite build                                              | 통과, 기존 dynamic import·chunk-size warning만 발생 |
+| PR10 Chromium          | `document.fonts.load/check` Pretendard 200/500/600/800                                   | 1 passed                                             |
+| PR10 실제 기준 font    | 8-slide importer 결과의 family/weight bounded 집계                                      | Pretendard 600 106건, legacy SemiBold alias 0건      |
+| PR10 merge smoke       | 명시적 4개 alias와 unknown font 회귀 test                                               | 1 passed                                             |
 
 ## PR0 Renderer 측정과 결정
 
@@ -211,6 +220,8 @@
 - PR9 첫 Worker production build는 export한 정책 함수가 거대한 Zod 추론 타입을 declaration에 직렬화하면서 `TS7056`으로 실패했다. 외부 signature를 작은 명시적 render-mode input 타입으로 제한한 뒤 lint와 build가 통과했다.
 - PR9 기준 PPTX preference-pair 생성 중 MuPDF structure tree bounded warning이 발생했지만 8 source render와 16 payload 생성, 16/16 browser capture에는 영향이 없었다.
 - PR9 sibling worktree의 임시 root dependency link 때문에 Vite가 원본 Pretendard 경로를 serving allow list 밖으로 경고했다. appearance-first는 bitmap source render를 사용해 8/8 SSIM 1.0이었고, editability-first 결과는 runtime 선택에 쓰지 않는 기존 CI-only 한계로 기록했다.
+- PR10 첫 Python 검증은 기본 `uv` cache가 sandbox 밖 사용자 cache를 열지 못해 중단됐고, 쓰기 가능한 `/tmp/orbit-uv-cache`를 명시해 동일 lock 환경에서 재실행했다. 첫 `ruff` 실행도 sibling worktree cache 쓰기 제한으로 중단되어 승인된 worktree 쓰기 권한으로 다시 실행한 뒤 통과했다.
+- PR10 첫 Web test는 필수 `APP_ENV`, `API_BASE_URL`, `WEB_PORT`가 없어 Vite config 단계에서 중단됐다. 비밀값 없는 test/local 값만 명시해 전체 1,818개 test를 통과시켰다.
 
 ## 계획 대비 변경과 근거
 
@@ -236,6 +247,8 @@
 - PR9 snapshot은 element와 animation tree를 Deck에 보존하되 공통 renderable element와 highlight 경계에서 제외한다. canvas editing policy도 snapshot을 거부해 selection과 keyboard mutation이 저장 tree에 도달하지 않도록 한다.
 - 계획의 예상 파일 외에 `editorLayout.ts`, highlight helper, rail test와 accuracy harness를 함께 변경했다. main canvas background, rail cache 우선순위, 실제 기준 두 preference screenshot과 source SSIM을 동일 mode 정책으로 증명하기 위해 필요했다.
 - 기존 accuracy scorer는 모든 full-slide fallback을 실패로 보았으나 preference-pair의 의도된 appearance-first snapshot은 source SSIM `>= 0.99`를 성공 기준으로 분리했다. 일반 vector candidate와 editability-first의 `0.95` 기준은 유지한다.
+- PR10 importer는 이름 유사도 추론 없이 4개 명시적 Pretendard alias만 canonical family와 numeric weight로 바꾼다. unknown family는 원래 이름을 Deck에 유지하고 slide별 중복 없는 bounded fallback diagnostic만 추가한다.
+- 계획 예상 파일 외에 Web font availability helper와 Chromium E2E를 추가했다. Python package 진단만으로 실제 browser FontFaceSet 상태를 단정하지 않고, PR12 quality panel이 선언된 font와 `document.fonts.check()` 결과를 함께 표시할 수 있게 하기 위함이다.
 
 ## 알려진 제한 사항
 
@@ -253,14 +266,16 @@
 - 실제 8-slide Checkpoint B test는 기준 파일을 저장소에 포함하지 않으므로 `PPTX_IMPORT_FIDELITY_REFERENCE_PATH`가 없는 일반 suite에서 계속 skip된다. hash가 일치하는 보호 로컬/CI 경로에서는 9/9 integration으로 실행된다.
 - PR9의 신규 mode는 새 PPTX import slide에 저장된다. `importRenderMode`가 없는 legacy Deck은 기존 thumbnail/canvas/editing 동작을 그대로 유지한다.
 - PR9 실제 기준의 appearance-first는 8/8 source snapshot SSIM 1.0이다. editability-first는 4/8만 기존 `0.95` CI gate를 통과했으며 이 값은 runtime report에 측정값처럼 기록하지 않고 PR10~PR12의 font/style/quality gate 개선 근거로만 사용한다.
+- PR10 Python fallback 진단은 현재 slide part의 explicit run property를 대상으로 하며 layout/master/theme에서 상속되는 effective family는 PR11 cascade에서 계산한다. Web helper는 실제 Deck에 materialized된 text/table family를 다시 진단한다.
+- Web font availability helper는 PR10에서 계산 경계와 테스트만 제공하며 사용자 노출은 PR12 quality panel에서 연결한다.
 
 ## 다음에 시작할 정확한 작업
 
-1. PR9 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. `feature/pptx-import-pr10-font-normalization`을 target branch HEAD에서 생성한다.
-3. 명시적 alias table로 Pretendard 4개 variant를 canonical family와 200/500/600/800 numeric weight로 정규화한다.
-4. unknown font의 원래 이름을 보존하고 browser fallback과 영향 slide 수만 bounded 진단한다.
-5. Shared font catalog, Web CSS 실제 weight 제공과 Chromium `document.fonts.check()` 통합 테스트를 검증한다.
+1. PR10 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. `feature/pptx-import-pr11-effective-text-style`을 target branch HEAD에서 생성한다.
+3. slide placeholder의 direct formatting이 없을 때 layout, master, theme 순서로 effective size, color, family, weight를 계산한다.
+4. run direct color 우선순위와 paragraph spacing, body inset, autofit, letter spacing의 Deck contract 변환을 회귀 test로 고정한다.
+5. 기준 파일 slides 1, 2, 3, 6, 7 screenshot과 기존 rich text/table/motion fixture 회귀를 검증한다.
 
 ## 사용자 결정이 필요한 Blocker
 
