@@ -10,9 +10,15 @@ export type E2eActor = {
 };
 
 export async function authenticateE2ePage(page: Page, label: string) {
-  const email = `orbit-e2e-${label}-${Date.now()}-${Math.random().toString(36).slice(2)}@example.test`;
+  const timestamp = Date.now();
+  const randomSuffix = Math.random().toString(36).slice(2, 8);
+  const email = `orbit-e2e-${label}-${timestamp}-${randomSuffix}@example.test`;
   const response = await page.request.post("/api/v1/auth/register", {
-    data: { email, password: e2ePassword },
+    data: {
+      email,
+      password: e2ePassword,
+      displayName: `Orbit ${timestamp.toString(36).slice(-6)}${randomSuffix}`,
+    },
   });
 
   expect(response.ok(), await response.text()).toBe(true);

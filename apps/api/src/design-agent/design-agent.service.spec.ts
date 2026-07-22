@@ -582,3 +582,141 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     }
   });
 });
+
+describe("DesignAgentService.createMessage slide redesign boundary", () => {
+  it("validates a redesign proposal through applyDeckPatch before saving", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const target = slide.elements.find((element) => element.visible);
+    expect(target).toBeTruthy();
+    const operations = [
+      {
+        type: "update_slide_style" as const,
+        slideId: slide.slideId,
+        style: { backgroundColor: "#F8FAFC" },
+      },
+      {
+        type: "update_element_frame" as const,
+        slideId: slide.slideId,
+        elementId: target!.elementId,
+        frame: { x: 160, y: 160, width: 960, height: 240 },
+      },
+    ];
+    const harness = createRedesignMessageHarness(deck, {
+      message: "현재 문구를 유지한 리디자인안을 준비했습니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "redesign-slide",
+        alignment: null,
+      },
+      operations,
+      affectedElementIds: [target!.elementId],
+      warnings: [],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    const result = await harness.service.createMessage(deck.projectId, "user_demo_1", {
+      content: "이 슬라이드를 재디자인해줘",
+      intentPreset: "redesign-slide",
+      context: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        canvas: deck.canvas,
+        slide,
+        selectedElementIds: [],
+        theme: deck.theme,
+      },
+    });
+
+    expect(result.proposal?.operations).toEqual(operations);
+    expect(harness.proposalsRepository.save).toHaveBeenCalledTimes(1);
+    expect(
+      applyDeckPatch(deck, {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "ai",
+        operations: result.proposal!.operations,
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("does not create a proposal for a refused response with empty operations", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const harness = createRedesignMessageHarness(deck, {
+      message: "현재 요소를 안전하게 보존할 수 없어 리디자인하지 않았습니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "refused",
+        alignment: null,
+      },
+      operations: [],
+      affectedElementIds: [],
+      warnings: [],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    const result = await harness.service.createMessage(deck.projectId, "user_demo_1", {
+      content: "이 슬라이드를 재디자인해줘",
+      intentPreset: "redesign-slide",
+      context: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        canvas: deck.canvas,
+        slide,
+        selectedElementIds: [],
+        theme: deck.theme,
+      },
+    });
+
+    expect(result.proposal).toBeUndefined();
+    expect(harness.proposalsRepository.save).not.toHaveBeenCalled();
+  });
+});
+
+function createRedesignMessageHarness(
+  deck: ReturnType<typeof createDemoDeck>,
+  aiResult: Awaited<ReturnType<DesignAgentPythonClient["propose"]>>,
+) {
+  const messagesRepository = {
+    create: vi.fn(
+      (value: Partial<DesignAgentMessageEntity>) => value as DesignAgentMessageEntity,
+    ),
+    save: vi.fn(async (value: DesignAgentMessageEntity) => value),
+    find: vi.fn(async () => []),
+  } as unknown as Repository<DesignAgentMessageEntity>;
+  const proposalsRepository = {
+    create: vi.fn(
+      (value: Partial<DesignAgentProposalEntity>) => value as DesignAgentProposalEntity,
+    ),
+    save: vi.fn(async (value: DesignAgentProposalEntity) => value),
+  } as unknown as Repository<DesignAgentProposalEntity> & {
+    save: ReturnType<typeof vi.fn>;
+  };
+  const decksService = {
+    getDeck: vi.fn(async () => ({
+      projectId: deck.projectId,
+      deck,
+      updatedAt: "2026-07-22T00:00:00.000Z",
+    })),
+  } as unknown as DecksService;
+  const pythonClient = {
+    propose: vi.fn(async () => aiResult),
+  } as unknown as DesignAgentPythonClient;
+  const smartArtLayoutsService = {
+    listActiveCatalog: vi.fn(async () => []),
+  } as unknown as SmartArtLayoutsService;
+  return {
+    service: new DesignAgentService(
+      messagesRepository,
+      proposalsRepository,
+      decksService,
+      pythonClient,
+      smartArtLayoutsService,
+      { info: vi.fn(), warn: vi.fn() } as never,
+    ),
+    proposalsRepository,
+  };
+}

@@ -195,4 +195,54 @@ test.describe("ORBIT-2 ORBIT-10 ORBIT-36 ORBIT-58 smoke", () => {
     await expect(page.getByRole("heading", { name: "응답 결과" })).toBeVisible();
     await expect(page.getByText("수집된 청중 결과가 없습니다.")).toBeVisible();
   });
+
+  test("slide redesign applies once and one undo restores the original deck", async ({
+    page,
+  }) => {
+    const created = await createAuthenticatedProject(page, {
+      deck: smokeDeck as Deck,
+      label: "slide-redesign-smoke",
+    });
+    const projectId = created.project.projectId;
+    await page.goto(`/project/${projectId}`);
+    await expect(page.getByLabel("Presentation editor")).toBeVisible();
+
+    const elementsDebug = page.getByTestId("editor-elements-debug");
+    const originalElements = await elementsDebug.textContent();
+    expect(originalElements).toBeTruthy();
+
+    await page.getByRole("tab", { name: "AI 어시스턴트 탭" }).click();
+    await page
+      .getByRole("button", { name: "슬라이드 다시 디자인", exact: true })
+      .click();
+    const proposalCard = page.getByRole("region", {
+      name: "디자인 제안 Before/After",
+    });
+    await expect(proposalCard).toBeVisible();
+    await proposalCard
+      .getByRole("button", { name: "적용", exact: true })
+      .click();
+
+    await expect(
+      page.getByText(
+        "디자인 제안을 적용했습니다. 실행 취소 한 번으로 전체 변경을 되돌릴 수 있습니다.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect
+      .poll(async () => elementsDebug.textContent())
+      .not.toBe(originalElements);
+
+    const undoButton = page.getByRole("button", {
+      name: "실행 취소",
+      exact: true,
+    });
+    await expect(undoButton).toBeEnabled();
+    await undoButton.click();
+
+    await expect
+      .poll(async () => elementsDebug.textContent())
+      .toBe(originalElements);
+    await expect(undoButton).toBeDisabled();
+  });
 });
