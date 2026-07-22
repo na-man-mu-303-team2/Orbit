@@ -1,6 +1,7 @@
 import zipfile
 from io import BytesIO
 from pathlib import Path
+from typing import Callable
 from xml.etree import ElementTree as ET
 
 from PIL import Image
@@ -25,6 +26,201 @@ from app.ai.pptx_ooxml_vector_importer import (
     import_pptx_design_with_optional_ooxml_vector,
     import_pptx_ooxml_visual_tree,
 )
+
+
+IMPORT_FIDELITY_NOTES_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "pptx" / "import-fidelity-notes.pptx"
+)
+PRESENTATION_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+
+
+def test_import_pptx_design_imports_only_the_related_notes_body() -> None:
+    result = import_pptx_design(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        "file_notes",
+    )
+
+    assert result.blueprint["slides"][0]["speakerNotes"] == (
+        "첫 번째 문단\n\n수동\n줄바꿈"
+    )
+    assert result.template_blueprint["slides"][0]["notesPage"] == {
+        "status": "preserved",
+        "sourceNotesPart": "ppt/notesSlides/notesSlide1.xml",
+        "sourceNotesMasterPart": "ppt/notesMasters/notesMaster1.xml",
+        "bodyShapeId": "3",
+        "bodyWritable": True,
+        "notesWidthEmu": 6_858_000,
+        "notesHeightEmu": 9_144_000,
+        "hasNonBodyContent": True,
+    }
+    assert result.quality_report["notesDiagnostics"] == {
+        "total": 1,
+        "imported": 1,
+        "rendered": 0,
+        "writable": 1,
+        "warnings": [],
+    }
+    assert "NOTES_NON_BODY_DO_NOT_IMPORT" not in result.blueprint["slides"][0][
+        "speakerNotes"
+    ]
+    assert "NOTES_MASTER_DECORATION_DO_NOT_IMPORT" not in result.blueprint["slides"][
+        0
+    ]["speakerNotes"]
+
+
+def test_ooxml_visual_tree_imports_notes_with_the_same_relationship_contract() -> None:
+    result = import_pptx_ooxml_visual_tree(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        "file_notes",
+    )
+
+    assert result.blueprint["slides"][0]["speakerNotes"] == (
+        "첫 번째 문단\n\n수동\n줄바꿈"
+    )
+    assert result.template_blueprint["slides"][0]["notesPage"]["bodyShapeId"] == "3"
+    assert result.quality_report["notesDiagnostics"]["imported"] == 1
+
+
+def test_import_pptx_design_rejects_external_notes_relationship(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "external-notes.pptx"
+
+    def make_external(xml: bytes) -> bytes:
+        root = ET.fromstring(xml)
+        relationship = next(
+            child
+            for child in root
+            if str(child.get("Type", "")).endswith("/notesSlide")
+        )
+        relationship.set("Target", "https://invalid.example/notes.xml")
+        relationship.set("TargetMode", "External")
+        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    rewrite_pptx_entry(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        pptx_path,
+        "ppt/slides/_rels/slide1.xml.rels",
+        make_external,
+    )
+
+    result = import_pptx_design(pptx_path, "file_notes")
+
+    assert "speakerNotes" not in result.blueprint["slides"][0]
+    assert result.template_blueprint["slides"][0]["notesPage"] == {
+        "status": "absent",
+        "bodyWritable": False,
+        "notesWidthEmu": 6_858_000,
+        "notesHeightEmu": 9_144_000,
+        "hasNonBodyContent": False,
+    }
+    assert result.quality_report["notesDiagnostics"]["warnings"] == [
+        {"code": "PPTX_NOTES_RELATIONSHIP_INVALID", "count": 1}
+    ]
+
+
+def test_import_pptx_design_reports_notes_relationship_without_target(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "missing-notes-target.pptx"
+
+    def remove_target(xml: bytes) -> bytes:
+        root = ET.fromstring(xml)
+        relationship = next(
+            child
+            for child in root
+            if str(child.get("Type", "")).endswith("/notesSlide")
+        )
+        relationship.attrib.pop("Target", None)
+        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    rewrite_pptx_entry(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        pptx_path,
+        "ppt/slides/_rels/slide1.xml.rels",
+        remove_target,
+    )
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_notes")
+
+    assert "speakerNotes" not in result.blueprint["slides"][0]
+    assert result.quality_report["notesDiagnostics"]["warnings"] == [
+        {"code": "PPTX_NOTES_RELATIONSHIP_MISSING", "count": 1}
+    ]
+
+
+def test_import_pptx_design_fails_closed_for_multiple_notes_body_placeholders(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "ambiguous-notes-body.pptx"
+
+    def duplicate_body(xml: bytes) -> bytes:
+        root = ET.fromstring(xml)
+        namespaces = {"p": PRESENTATION_NS}
+        shape_tree = root.find("./p:cSld/p:spTree", namespaces)
+        assert shape_tree is not None
+        body = next(
+            shape
+            for shape in shape_tree.findall("./p:sp", namespaces)
+            if (
+                placeholder := shape.find("./p:nvSpPr/p:nvPr/p:ph", namespaces)
+            )
+            is not None
+            and placeholder.get("type") == "body"
+        )
+        shape_tree.append(ET.fromstring(ET.tostring(body)))
+        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    rewrite_pptx_entry(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        pptx_path,
+        "ppt/notesSlides/notesSlide1.xml",
+        duplicate_body,
+    )
+
+    result = import_pptx_design(pptx_path, "file_notes")
+
+    assert "speakerNotes" not in result.blueprint["slides"][0]
+    assert result.template_blueprint["slides"][0]["notesPage"]["bodyWritable"] is False
+    assert "bodyShapeId" not in result.template_blueprint["slides"][0]["notesPage"]
+    assert result.quality_report["notesDiagnostics"]["warnings"] == [
+        {"code": "PPTX_NOTES_BODY_AMBIGUOUS", "count": 1}
+    ]
+
+
+def test_import_pptx_design_fails_closed_without_notes_body_placeholder(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "missing-notes-body.pptx"
+
+    def remove_body_type(xml: bytes) -> bytes:
+        root = ET.fromstring(xml)
+        namespaces = {"p": PRESENTATION_NS}
+        placeholder = next(
+            item
+            for item in root.findall(
+                "./p:cSld/p:spTree/p:sp/p:nvSpPr/p:nvPr/p:ph",
+                namespaces,
+            )
+            if item.get("type") == "body"
+        )
+        placeholder.set("type", "ftr")
+        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    rewrite_pptx_entry(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        pptx_path,
+        "ppt/notesSlides/notesSlide1.xml",
+        remove_body_type,
+    )
+
+    result = import_pptx_design(pptx_path, "file_notes")
+
+    assert "speakerNotes" not in result.blueprint["slides"][0]
+    assert result.template_blueprint["slides"][0]["notesPage"]["bodyWritable"] is False
+    assert result.quality_report["notesDiagnostics"]["warnings"] == [
+        {"code": "PPTX_NOTES_BODY_MISSING", "count": 1}
+    ]
 
 
 def test_import_pptx_design_extracts_editable_elements(tmp_path: Path) -> None:
@@ -1638,6 +1834,23 @@ def replace_first_picture_with_svg(pptx_path: Path) -> None:
         for filename, content in entries.items():
             package.writestr(filename, content)
     rewritten_path.replace(pptx_path)
+
+
+def rewrite_pptx_entry(
+    source_path: Path,
+    target_path: Path,
+    entry_name: str,
+    transform: Callable[[bytes], bytes],
+) -> None:
+    with zipfile.ZipFile(source_path, "r") as source:
+        entries = {
+            info.filename: source.read(info.filename)
+            for info in source.infolist()
+        }
+    entries[entry_name] = transform(entries[entry_name])
+    with zipfile.ZipFile(target_path, "w", zipfile.ZIP_DEFLATED) as target:
+        for filename, content in entries.items():
+            target.writestr(filename, content)
 
 
 def editable_element(element_id: str, element_type: str) -> dict[str, object]:

@@ -18,6 +18,7 @@ from app.ai.pptx_design_importer import (
     ImportedDesignBlueprint,
     PptxDesignImportResult,
     apply_repeated_text_roles,
+    attach_pptx_speaker_notes,
     assign_text_roles,
     average_image_color,
     build_quality_report,
@@ -413,6 +414,12 @@ def import_pptx_ooxml_visual_tree(
         quality_report = build_quality_report(slides, state.warnings)
         quality_report["motionDiagnostics"] = motion_diagnostic_summary(
             motion_diagnostics
+        )
+        attach_pptx_speaker_notes(
+            path,
+            blueprint_payload,
+            template_blueprint,
+            quality_report,
         )
         return PptxDesignImportResult(
             blueprint=blueprint_payload,
