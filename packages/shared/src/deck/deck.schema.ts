@@ -320,6 +320,12 @@ export const slideKindSchema = z.enum([
   "activity-results"
 ]);
 
+export const slideImportRenderModeSchema = z.enum([
+  "editable",
+  "hybrid",
+  "snapshot"
+]);
+
 const slideBaseSchema = z.object({
     slideId: deckSlideIdSchema,
     ooxmlOrigin: ooxmlOriginSchema.optional(),
@@ -335,6 +341,7 @@ const slideBaseSchema = z.object({
     transition: slideTransitionSchema.optional(),
     style: slideStyleSchema,
     speakerNotes: z.string().default(""),
+    importRenderMode: slideImportRenderModeSchema.optional(),
     elements: z.array(deckElementSchema).default([]),
     keywords: slideKeywordsSchema.default([]),
     semanticCues: z.array(semanticCueSchema).default([]),
@@ -369,6 +376,9 @@ const normalizedSlideSchema = z.discriminatedUnion("kind", [
 
 export type Slide = z.infer<typeof normalizedSlideSchema>;
 export type SlideTransition = z.infer<typeof slideTransitionSchema>;
+export type SlideImportRenderMode = z.infer<
+  typeof slideImportRenderModeSchema
+>;
 export type ImportedMainSequenceCoverage = z.infer<
   typeof importedMainSequenceCoverageSchema
 >;

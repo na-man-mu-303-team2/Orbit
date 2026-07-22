@@ -49,6 +49,7 @@ const ooxmlSyncOperationTypeSchema = z.enum([
   "update_element_props",
   "delete_element",
   "reorder_slides",
+  "update_speaker_notes",
 ]);
 
 const ooxmlUnsupportedReasonCodeSchema = z.enum([
@@ -66,6 +67,11 @@ const ooxmlUnsupportedReasonCodeSchema = z.enum([
   "FRAME_FIELDS_UNSUPPORTED",
   "GROUPED_FRAME_UNSUPPORTED",
   "MOTION_REFERENCE_COVERAGE_UNSAFE",
+  "NOTES_BODY_LOCATOR_UNSAFE",
+  "NOTES_BODY_NOT_WRITABLE",
+  "NOTES_BODY_UPDATE_FAILED",
+  "NOTES_MASTER_CAPABILITY_UNSAFE",
+  "NOTES_PART_MISSING",
   "OPERATION_TYPE_UNSUPPORTED",
   "PROPS_FIELDS_UNSUPPORTED",
   "PROPS_UPDATE_FAILED",
@@ -100,6 +106,37 @@ const ooxmlUnsupportedOperationSchema = z
     reasonCode: ooxmlUnsupportedReasonCodeSchema,
   })
   .strict();
+
+const ooxmlNotesPageUpdateSchema = z
+  .object({
+    slideId: z.string().min(1).max(128),
+    notesPage: z
+      .object({
+        status: z.literal("preserved"),
+        sourceNotesPart: z
+          .string()
+          .regex(/^ppt\/notesSlides\/notesSlide[1-9][0-9]*\.xml$/),
+        sourceNotesMasterPart: z
+          .string()
+          .regex(/^ppt\/notesMasters\/notesMaster[1-9][0-9]*\.xml$/),
+        bodyShapeId: z.string().min(1).max(64),
+        bodyWritable: z.literal(true),
+        notesWidthEmu: z.number().int().positive().max(10_000_000_000),
+        notesHeightEmu: z.number().int().positive().max(10_000_000_000),
+        hasNonBodyContent: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const ooxmlNotesPageUpdatesSchema = z
+  .array(ooxmlNotesPageUpdateSchema)
+  .max(500)
+  .refine(
+    (updates) =>
+      new Set(updates.map((update) => update.slideId)).size === updates.length,
+    "notes page updates must have unique slide ids",
+  );
 
 const slideMotionTouchedSchema = z
   .object({
@@ -156,6 +193,7 @@ const pptxOoxmlSyncWorkerResponseSchema = z.object({
     .array(ooxmlUnsupportedOperationSchema)
     .max(500)
     .default([]),
+  notesPages: ooxmlNotesPageUpdatesSchema.default([]),
   appliedSlideMotion: z.array(appliedSlideMotionSchema).max(500).default([]),
   unsupportedSlideMotion: z
     .array(unsupportedSlideMotionSchema)
@@ -177,7 +215,8 @@ type OoxmlSyncOperation = Extract<
       | "update_element_frame"
       | "update_element_props"
       | "delete_element"
-      | "reorder_slides";
+      | "reorder_slides"
+      | "update_speaker_notes";
   }
 >;
 type OoxmlMotionOperation = Extract<
@@ -240,6 +279,7 @@ type SavedSyncAssets = {
   currentPackageFileId: string;
   renderAssetFileIds: string[];
   renderAssetFileIdsByAssetId: Map<string, string>;
+  notesRenderAssetFileIdsByAssetId: Map<string, string>;
 };
 
 type QueryExecutor = Pick<DataSource, "query">;
@@ -560,7 +600,8 @@ export async function processPptxOoxmlSyncJob(
         50,
         "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
         error.message,
-        false,
+        error instanceof UnsupportedOoxmlOperationsError &&
+          isRetryableNotesSyncReason(error.operation.reasonCode),
       );
     }
     if (error instanceof OoxmlSyncTransportError) {
@@ -582,6 +623,16 @@ export async function processPptxOoxmlSyncJob(
       isRetryableOoxmlSyncError(error),
     );
   }
+}
+
+function isRetryableNotesSyncReason(
+  reasonCode: z.infer<typeof ooxmlUnsupportedReasonCodeSchema>,
+): boolean {
+  return [
+    "NOTES_BODY_LOCATOR_UNSAFE",
+    "NOTES_BODY_NOT_WRITABLE",
+    "NOTES_PART_MISSING",
+  ].includes(reasonCode);
 }
 
 async function loadTemplateBlueprintRow(
@@ -1422,6 +1473,7 @@ function isOoxmlSyncOperation(
     "add_element",
     "delete_element",
     "reorder_slides",
+    "update_speaker_notes",
   ].includes(operation.type);
 }
 
@@ -1442,7 +1494,6 @@ function isOoxmlPackageNeutralOperation(
   return [
     "update_deck",
     "update_slide",
-    "update_speaker_notes",
     "replace_keywords",
     "replace_semantic_cues",
     "add_slide_action",
@@ -1718,6 +1769,7 @@ async function saveSyncAssets(
 ): Promise<SavedSyncAssets> {
   const renderAssetFileIds: string[] = [];
   const renderAssetFileIdsByAssetId = new Map<string, string>();
+  const notesRenderAssetFileIdsByAssetId = new Map<string, string>();
   let currentPackageFileId = "";
 
   for (const asset of synced.assets) {
@@ -1757,6 +1809,8 @@ async function saveSyncAssets(
     } else if (asset.assetId.startsWith("slide_render_")) {
       renderAssetFileIds.push(fileId);
       renderAssetFileIdsByAssetId.set(asset.assetId, fileId);
+    } else if (asset.assetId.startsWith("notes_render_")) {
+      notesRenderAssetFileIdsByAssetId.set(asset.assetId, fileId);
     }
   }
 
@@ -1768,6 +1822,7 @@ async function saveSyncAssets(
     currentPackageFileId,
     renderAssetFileIds,
     renderAssetFileIdsByAssetId,
+    notesRenderAssetFileIdsByAssetId,
   };
 }
 
@@ -1794,28 +1849,56 @@ function withSyncResult(
         deckOrderBySlideId.get(left.slideId!)! -
         deckOrderBySlideId.get(right.slideId!)!,
     );
+  const notesPreviewUnavailable = synced.warnings.some((warning) =>
+    warning.startsWith("PPTX_NOTES_PREVIEW_REFRESH_FAILED:"),
+  );
+  const syncedNotesPages = new Map(
+    synced.notesPages.map((update) => [update.slideId, update.notesPage]),
+  );
   return templateBlueprintSchema.parse({
     ...templateBlueprint,
     currentPackageFileId: assets.currentPackageFileId,
     ooxmlSyncedDeckVersion: syncedDeckVersion,
-    slides: currentSlides.map((slide, index) => ({
-      ...slide,
-      slideIndex: index + 1,
-      renderAssetFileId:
-        assets.renderAssetFileIdsByAssetId.get(
-          `slide_render_${slide.sourceSlideIndex}`,
-        ) ??
-        assets.renderAssetFileIds[index] ??
-        slide.renderAssetFileId,
-      elementSources: mergeElementSources(
-        slide.elementSources,
-        synced.elementSources.filter(
-          (source) => source.slidePart === slide.sourceSlidePart,
+    slides: currentSlides.map((slide, index) => {
+      const notesRenderAssetFileId = assets.notesRenderAssetFileIdsByAssetId.get(
+        `notes_render_${index + 1}`,
+      );
+      const notesPage = syncedNotesPages.get(slide.slideId!) ?? slide.notesPage;
+      return {
+        ...slide,
+        slideIndex: index + 1,
+        renderAssetFileId:
+          assets.renderAssetFileIdsByAssetId.get(
+            `slide_render_${slide.sourceSlideIndex}`,
+          ) ??
+          assets.renderAssetFileIds[index] ??
+          slide.renderAssetFileId,
+        notesPage: notesPage
+          ? {
+              ...notesPage,
+              ...(notesRenderAssetFileId
+                ? {
+                    status: "rendered" as const,
+                    renderAssetFileId: notesRenderAssetFileId,
+                  }
+                : notesPreviewUnavailable
+                  ? {
+                      status: "render-unavailable" as const,
+                      renderAssetFileId: undefined,
+                    }
+                  : {}),
+            }
+          : undefined,
+        elementSources: mergeElementSources(
+          slide.elementSources,
+          synced.elementSources.filter(
+            (source) => source.slidePart === slide.sourceSlidePart,
+          ),
+        ).filter((source) =>
+          deckElementIdsBySlideId.get(slide.slideId!)?.has(source.elementId),
         ),
-      ).filter((source) =>
-        deckElementIdsBySlideId.get(slide.slideId!)?.has(source.elementId),
-      ),
-    })),
+      };
+    }),
   });
 }
 
