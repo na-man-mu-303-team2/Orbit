@@ -57,7 +57,9 @@ const redesignPaletteOptions = [
 
 describe("allowsUnselectedSmartArtSources", () => {
   it("allows reconfigure wording to use visible slide elements", () => {
-    expect(allowsUnselectedSmartArtSources("현재 디자인 재구성좀 해줘")).toBe(true);
+    expect(allowsUnselectedSmartArtSources("현재 디자인 재구성좀 해줘")).toBe(
+      true,
+    );
   });
 
   it.each([
@@ -70,7 +72,9 @@ describe("allowsUnselectedSmartArtSources", () => {
   });
 
   it("keeps selection-only requests restricted", () => {
-    expect(allowsUnselectedSmartArtSources("선택한 항목을 스마트아트로 바꿔줘")).toBe(false);
+    expect(
+      allowsUnselectedSmartArtSources("선택한 항목을 스마트아트로 바꿔줘"),
+    ).toBe(false);
   });
 
   it.each([
@@ -78,12 +82,17 @@ describe("allowsUnselectedSmartArtSources", () => {
     "도형도 넣어서 디자인해줘",
     "좀 다른 디자인 없어?",
     "Beautify this content",
-  ])("allows visible slide sources for broad preset requests: %s", (question) => {
-    expect(allowsUnselectedSmartArtSources(question)).toBe(true);
-  });
+  ])(
+    "allows visible slide sources for broad preset requests: %s",
+    (question) => {
+      expect(allowsUnselectedSmartArtSources(question)).toBe(true);
+    },
+  );
 
   it("keeps explicit small edits on the direct edit path", () => {
-    expect(allowsUnselectedSmartArtSources("글자 색상만 바꿔서 꾸며줘")).toBe(false);
+    expect(allowsUnselectedSmartArtSources("글자 색상만 바꿔서 꾸며줘")).toBe(
+      false,
+    );
   });
 });
 
@@ -101,11 +110,13 @@ describe("DesignAgentService.applyProposal", () => {
       baseVersion: deck.version,
       title: "AI design proposal",
       summary: "Move the element.",
-      operations: [{
-        type: "update_slide_style",
-        slideId: slide.slideId,
-        style: { layout: "title-content" },
-      }],
+      operations: [
+        {
+          type: "update_slide_style",
+          slideId: slide.slideId,
+          style: { layout: "title-content" },
+        },
+      ],
       interpretedIntent: null,
       affectedElementIds: [],
       warnings: [],
@@ -121,22 +132,28 @@ describe("DesignAgentService.applyProposal", () => {
     } as unknown as Repository<DesignAgentProposalEntity>;
     const nextDeck = { ...deck, version: deck.version + 1 };
     const decksService = {
-      getDeck: vi.fn(async () => ({ projectId: deck.projectId, deck, updatedAt: "2026-07-11T00:00:00.000Z" })),
-      appendPatch: vi.fn(async (_projectId: string, body: { patch: DeckPatch }) => ({
-        deck: nextDeck,
-        changeRecord: {
-          changeId: "change_design_1",
-          deckId: deck.deckId,
-          beforeVersion: deck.version,
-          afterVersion: nextDeck.version,
-          source: "ai",
-          actorUserId: body.patch.actorUserId,
-          createdAt: "2026-07-11T00:00:01.000Z",
-          operations: body.patch.operations,
-        },
-        snapshot: null,
-        updatedAt: "2026-07-11T00:00:01.000Z",
+      getDeck: vi.fn(async () => ({
+        projectId: deck.projectId,
+        deck,
+        updatedAt: "2026-07-11T00:00:00.000Z",
       })),
+      appendPatch: vi.fn(
+        async (_projectId: string, body: { patch: DeckPatch }) => ({
+          deck: nextDeck,
+          changeRecord: {
+            changeId: "change_design_1",
+            deckId: deck.deckId,
+            beforeVersion: deck.version,
+            afterVersion: nextDeck.version,
+            source: "ai",
+            actorUserId: body.patch.actorUserId,
+            createdAt: "2026-07-11T00:00:01.000Z",
+            operations: body.patch.operations,
+          },
+          snapshot: null,
+          updatedAt: "2026-07-11T00:00:01.000Z",
+        }),
+      ),
     } as unknown as DecksService;
     const service = new DesignAgentService(
       {} as Repository<DesignAgentMessageEntity>,
@@ -147,7 +164,11 @@ describe("DesignAgentService.applyProposal", () => {
       { info: vi.fn(), warn: vi.fn() } as never,
     );
 
-    const result = await service.applyProposal(deck.projectId, proposal.proposalId, "user_demo_1");
+    const result = await service.applyProposal(
+      deck.projectId,
+      proposal.proposalId,
+      "user_demo_1",
+    );
 
     expect(result.deck.version).toBe(deck.version + 1);
     expect(result.proposal.status).toBe("applied");
@@ -170,12 +191,17 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     const deck = createDemoDeck();
     const slide = deck.slides[0]!;
     const canvas = deck.canvas;
-    const sourceElementId = slide.elements.find((element) => element.visible)?.elementId;
+    const sourceElementId = slide.elements.find(
+      (element) => element.visible,
+    )?.elementId;
     expect(sourceElementId).toBeTruthy();
 
     const savedMessages: DesignAgentMessageEntity[] = [];
     const messagesRepository = {
-      create: vi.fn((value: Partial<DesignAgentMessageEntity>) => value as DesignAgentMessageEntity),
+      create: vi.fn(
+        (value: Partial<DesignAgentMessageEntity>) =>
+          value as DesignAgentMessageEntity,
+      ),
       save: vi.fn(async (value: DesignAgentMessageEntity) => {
         savedMessages.push(value);
         return value;
@@ -186,7 +212,8 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     let savedProposal: DesignAgentProposalEntity | undefined;
     const proposalsRepository = {
       create: vi.fn(
-        (value: Partial<DesignAgentProposalEntity>) => value as DesignAgentProposalEntity,
+        (value: Partial<DesignAgentProposalEntity>) =>
+          value as DesignAgentProposalEntity,
       ),
       save: vi.fn(async (value: DesignAgentProposalEntity) => {
         savedProposal = value;
@@ -221,7 +248,12 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
           heightFrac: 0.1,
           rotation: 0,
           zIndex: 100,
-          props: { fill: "#F1F1F1", stroke: "#C8C8C6", strokeWidth: 1, borderRadius: 4 },
+          props: {
+            fill: "#F1F1F1",
+            stroke: "#C8C8C6",
+            strokeWidth: 1,
+            borderRadius: 4,
+          },
         },
         {
           elementIdSuffix: "text_0",
@@ -235,7 +267,14 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
           rotation: 0,
           zIndex: 101,
           textField: "title",
-          props: { fontSize: 26, fontWeight: "normal", color: "#222222", align: "left", verticalAlign: "middle", lineHeight: 1.15 },
+          props: {
+            fontSize: 26,
+            fontWeight: "normal",
+            color: "#222222",
+            align: "left",
+            verticalAlign: "middle",
+            lineHeight: 1.15,
+          },
         },
         {
           elementIdSuffix: "text_1",
@@ -249,7 +288,14 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
           rotation: 0,
           zIndex: 102,
           textField: "title",
-          props: { fontSize: 26, fontWeight: "normal", color: "#222222", align: "left", verticalAlign: "middle", lineHeight: 1.15 },
+          props: {
+            fontSize: 26,
+            fontWeight: "normal",
+            color: "#222222",
+            align: "left",
+            verticalAlign: "middle",
+            lineHeight: 1.15,
+          },
         },
       ],
     } as unknown as SmartArtLayoutEntity;
@@ -316,22 +362,31 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
             "chart",
             "table",
           ],
+          canGenerateImages: true,
         }),
       }),
     );
-    const deletedElementIds = (savedProposal?.operations ?? []).flatMap((operation) =>
-      operation.type === "delete_element" ? [operation.elementId] : [],
+    const deletedElementIds = (savedProposal?.operations ?? []).flatMap(
+      (operation) =>
+        operation.type === "delete_element" ? [operation.elementId] : [],
     );
     expect(deletedElementIds).toContain(sourceElementId);
     expect(
-      (savedProposal?.operations ?? []).filter((operation) => operation.type === "add_element"),
+      (savedProposal?.operations ?? []).filter(
+        (operation) => operation.type === "add_element",
+      ),
     ).toHaveLength(4);
     const texts = savedProposal?.operations
       .filter((op) => op.type === "add_element" && op.element.type === "text")
-      .map((op) => (op.type === "add_element" ? (op.element.props as { text?: string }).text : undefined));
+      .map((op) =>
+        op.type === "add_element"
+          ? (op.element.props as { text?: string }).text
+          : undefined,
+      );
     expect(texts).toEqual(["기획", "개발"]);
     const groupOperation = savedProposal?.operations.find(
-      (operation) => operation.type === "add_element" && operation.element.type === "group",
+      (operation) =>
+        operation.type === "add_element" && operation.element.type === "group",
     );
     expect(groupOperation).toMatchObject({
       type: "add_element",
@@ -341,7 +396,10 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
         props: { childElementIds: expect.arrayContaining([]) },
       },
     });
-    if (groupOperation?.type === "add_element" && groupOperation.element.type === "group") {
+    if (
+      groupOperation?.type === "add_element" &&
+      groupOperation.element.type === "group"
+    ) {
       expect(groupOperation.element.props.childElementIds).toHaveLength(3);
     }
   });
@@ -458,7 +516,10 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     ];
 
     const messagesRepository = {
-      create: vi.fn((value: Partial<DesignAgentMessageEntity>) => value as DesignAgentMessageEntity),
+      create: vi.fn(
+        (value: Partial<DesignAgentMessageEntity>) =>
+          value as DesignAgentMessageEntity,
+      ),
       save: vi.fn(async (value: DesignAgentMessageEntity) => value),
       find: vi.fn(async () => []),
     } as unknown as Repository<DesignAgentMessageEntity>;
@@ -466,7 +527,8 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     let savedProposal: DesignAgentProposalEntity | undefined;
     const proposalsRepository = {
       create: vi.fn(
-        (value: Partial<DesignAgentProposalEntity>) => value as DesignAgentProposalEntity,
+        (value: Partial<DesignAgentProposalEntity>) =>
+          value as DesignAgentProposalEntity,
       ),
       save: vi.fn(async (value: DesignAgentProposalEntity) => {
         savedProposal = value;
@@ -597,7 +659,8 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     expect(deletedElementIds).not.toContain("el_footer");
 
     const groupOperation = operations.find(
-      (operation) => operation.type === "add_element" && operation.element.type === "group",
+      (operation) =>
+        operation.type === "add_element" && operation.element.type === "group",
     );
     expect(groupOperation).toMatchObject({
       type: "add_element",
@@ -606,7 +669,10 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
         props: { childElementIds: expect.any(Array) },
       },
     });
-    if (groupOperation?.type === "add_element" && groupOperation.element.type === "group") {
+    if (
+      groupOperation?.type === "add_element" &&
+      groupOperation.element.type === "group"
+    ) {
       expect(groupOperation.element.props.childElementIds).toHaveLength(8);
     }
 
@@ -671,18 +737,22 @@ describe("DesignAgentService.createMessage slide redesign boundary", () => {
       uiAction: null,
     });
 
-    const result = await harness.service.createMessage(deck.projectId, "user_demo_1", {
-      content: "이 슬라이드를 재디자인해줘",
-      intentPreset: "redesign-slide",
-      context: {
-        deckId: deck.deckId,
-        baseVersion: deck.version,
-        canvas: deck.canvas,
-        slide,
-        selectedElementIds: [],
-        theme: deck.theme,
+    const result = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "이 슬라이드를 재디자인해줘",
+        intentPreset: "redesign-slide",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
       },
-    });
+    );
 
     expect(result.proposal?.operations).toEqual(operations);
     expect(harness.proposalsRepository.save).toHaveBeenCalledTimes(1);
@@ -713,18 +783,22 @@ describe("DesignAgentService.createMessage slide redesign boundary", () => {
       uiAction: null,
     });
 
-    const result = await harness.service.createMessage(deck.projectId, "user_demo_1", {
-      content: "이 슬라이드를 재디자인해줘",
-      intentPreset: "redesign-slide",
-      context: {
-        deckId: deck.deckId,
-        baseVersion: deck.version,
-        canvas: deck.canvas,
-        slide,
-        selectedElementIds: [],
-        theme: deck.theme,
+    const result = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "이 슬라이드를 재디자인해줘",
+        intentPreset: "redesign-slide",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
       },
-    });
+    );
 
     expect(result.proposal).toBeUndefined();
     expect(harness.proposalsRepository.save).not.toHaveBeenCalled();
@@ -748,19 +822,23 @@ describe("DesignAgentService.createMessage slide redesign boundary", () => {
       uiAction: null,
     });
 
-    const result = await harness.service.createMessage(deck.projectId, "user_demo_1", {
-      content: "이 슬라이드를 재디자인해줘",
-      intentPreset: "redesign-slide",
-      selectedPaletteOptionId: null,
-      context: {
-        deckId: deck.deckId,
-        baseVersion: deck.version,
-        canvas: deck.canvas,
-        slide,
-        selectedElementIds: [],
-        theme: deck.theme,
+    const result = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "이 슬라이드를 재디자인해줘",
+        intentPreset: "redesign-slide",
+        selectedPaletteOptionId: null,
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
       },
-    });
+    );
 
     expect(result.paletteOptions).toEqual(redesignPaletteOptions);
     expect(result.proposal).toBeUndefined();
@@ -787,19 +865,23 @@ describe("DesignAgentService.createMessage slide redesign boundary", () => {
       smartArtRequest: null,
       uiAction: null,
     });
-    const first = await harness.service.createMessage(deck.projectId, "user_demo_1", {
-      content: "이 슬라이드를 재디자인해줘",
-      intentPreset: "redesign-slide",
-      selectedPaletteOptionId: null,
-      context: {
-        deckId: deck.deckId,
-        baseVersion: deck.version,
-        canvas: deck.canvas,
-        slide,
-        selectedElementIds: [],
-        theme: deck.theme,
+    const first = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "이 슬라이드를 재디자인해줘",
+        intentPreset: "redesign-slide",
+        selectedPaletteOptionId: null,
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
       },
-    });
+    );
     harness.propose.mockResolvedValue({
       message: "선택한 배색으로 리디자인안을 준비했습니다.",
       interpretedIntent: {
@@ -820,20 +902,24 @@ describe("DesignAgentService.createMessage slide redesign boundary", () => {
       uiAction: null,
     });
 
-    const result = await harness.service.createMessage(deck.projectId, "user_demo_1", {
-      sessionId: first.sessionId,
-      content: "차분한 블루로 적용해줘",
-      intentPreset: "redesign-slide",
-      selectedPaletteOptionId: "calm-blue",
-      context: {
-        deckId: deck.deckId,
-        baseVersion: deck.version,
-        canvas: deck.canvas,
-        slide,
-        selectedElementIds: [],
-        theme: deck.theme,
+    const result = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        sessionId: first.sessionId,
+        content: "차분한 블루로 적용해줘",
+        intentPreset: "redesign-slide",
+        selectedPaletteOptionId: "calm-blue",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
       },
-    });
+    );
 
     expect(result.proposal).toBeDefined();
     expect(harness.propose).toHaveBeenLastCalledWith(
@@ -861,19 +947,23 @@ describe("DesignAgentService.createMessage slide redesign boundary", () => {
       smartArtRequest: null,
       uiAction: null,
     });
-    const first = await harness.service.createMessage(deck.projectId, "user_demo_1", {
-      content: "이 슬라이드를 재디자인해줘",
-      intentPreset: "redesign-slide",
-      selectedPaletteOptionId: null,
-      context: {
-        deckId: deck.deckId,
-        baseVersion: deck.version,
-        canvas: deck.canvas,
-        slide,
-        selectedElementIds: [],
-        theme: deck.theme,
+    const first = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "이 슬라이드를 재디자인해줘",
+        intentPreset: "redesign-slide",
+        selectedPaletteOptionId: null,
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
       },
-    });
+    );
 
     await expect(
       harness.service.createMessage(deck.projectId, "user_demo_1", {
@@ -904,7 +994,8 @@ function createRedesignMessageHarness(
   const savedMessages = new Map<string, DesignAgentMessageEntity>();
   const messagesRepository = {
     create: vi.fn(
-      (value: Partial<DesignAgentMessageEntity>) => value as DesignAgentMessageEntity,
+      (value: Partial<DesignAgentMessageEntity>) =>
+        value as DesignAgentMessageEntity,
     ),
     save: vi.fn(async (value: DesignAgentMessageEntity) => {
       savedMessages.set(value.messageId, value);
@@ -913,13 +1004,16 @@ function createRedesignMessageHarness(
     find: vi.fn(async () =>
       [...savedMessages.values()]
         .filter((message) => message.status === "succeeded")
-        .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+        .sort(
+          (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
+        )
         .slice(0, 10),
     ),
   } as unknown as Repository<DesignAgentMessageEntity>;
   const proposalsRepository = {
     create: vi.fn(
-      (value: Partial<DesignAgentProposalEntity>) => value as DesignAgentProposalEntity,
+      (value: Partial<DesignAgentProposalEntity>) =>
+        value as DesignAgentProposalEntity,
     ),
     save: vi.fn(async (value: DesignAgentProposalEntity) => value),
   } as unknown as Repository<DesignAgentProposalEntity> & {

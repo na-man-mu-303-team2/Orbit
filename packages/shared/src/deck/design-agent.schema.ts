@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 import { deckSnapshotSchema, type DeckSnapshot } from "./deck-api.schema";
-import { deckCanvasSchema, deckSchema, slideSchema, type Deck } from "./deck.schema";
+import {
+  deckCanvasSchema,
+  deckSchema,
+  slideSchema,
+  type Deck,
+} from "./deck.schema";
 import {
   deckElementIdSchema,
   deckIdSchema,
@@ -14,7 +19,7 @@ import {
 } from "./patch.schema";
 import {
   availableSmartArtLayoutSchema,
-  smartArtRequestSchema
+  smartArtRequestSchema,
 } from "./smart-art-layout.schema";
 import { speakerNotesSuggestionModeSchema } from "./speaker-notes-assistant.schema";
 import {
@@ -102,7 +107,7 @@ export const designAgentCapabilities = designAgentCapabilitiesSchema.parse({
     "table",
   ],
   canEditTextContent: true,
-  canGenerateImages: false,
+  canGenerateImages: true,
   canModifyLockedElements: true,
 });
 
@@ -146,7 +151,10 @@ export const designAgentWorkerRequestSchema = z.object({
   intentPreset: designAgentIntentPresetSchema.optional(),
   context: designAgentContextSchema,
   history: z.array(designAgentHistoryItemSchema).max(10).default([]),
-  availableSmartArtLayouts: z.array(availableSmartArtLayoutSchema).max(200).default([]),
+  availableSmartArtLayouts: z
+    .array(availableSmartArtLayoutSchema)
+    .max(200)
+    .default([]),
   capabilities: designAgentCapabilitiesSchema.default(designAgentCapabilities),
   requestPaletteOptions: z.boolean().default(false),
   selectedPaletteOption: slideRedesignPaletteOptionSchema.optional(),
@@ -163,7 +171,7 @@ export const designAgentWorkerResponseSchema = z.object({
   uiAction: z
     .object({
       type: z.literal("open-speaker-notes-assistant"),
-      mode: speakerNotesSuggestionModeSchema
+      mode: speakerNotesSuggestionModeSchema,
     })
     .nullable()
     .default(null),
@@ -214,13 +222,17 @@ export const createDesignAgentMessageResponseSchema = z.object({
   uiAction: designAgentWorkerResponseSchema.shape.uiAction,
 });
 
-export const applyDesignAgentProposalResponseSchema: z.ZodType<{
-  proposal: z.infer<typeof designAgentProposalSchema>;
-  deck: Deck;
-  changeRecord: DeckChangeRecord;
-  snapshot: DeckSnapshot | null;
-  updatedAt: string;
-}, z.ZodTypeDef, unknown> = z.object({
+export const applyDesignAgentProposalResponseSchema: z.ZodType<
+  {
+    proposal: z.infer<typeof designAgentProposalSchema>;
+    deck: Deck;
+    changeRecord: DeckChangeRecord;
+    snapshot: DeckSnapshot | null;
+    updatedAt: string;
+  },
+  z.ZodTypeDef,
+  unknown
+> = z.object({
   proposal: designAgentProposalSchema,
   deck: deckSchema,
   changeRecord: deckChangeRecordSchema,

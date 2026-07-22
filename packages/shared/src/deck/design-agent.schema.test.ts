@@ -174,7 +174,11 @@ describe("design agent schema", () => {
 
   it("enables supported animation patch operations", () => {
     expect(designAgentCapabilities.operations).toEqual(
-      expect.arrayContaining(["add_animation", "update_animation", "delete_animation"]),
+      expect.arrayContaining([
+        "add_animation",
+        "update_animation",
+        "delete_animation",
+      ]),
     );
   });
 
@@ -209,6 +213,7 @@ describe("design agent schema", () => {
         "chart",
         "table",
       ],
+      canGenerateImages: true,
     });
   });
 
@@ -301,50 +306,53 @@ describe("design agent schema", () => {
     { type: "ellipse" as const, props: {} },
     { type: "line" as const, props: { lineCap: "round" as const } },
     { type: "polygon" as const, props: { sides: 5 } },
-  ])("accepts add_element for capability v2 $type shapes", ({ type, props }) => {
-    const result = designAgentWorkerResponseSchema.parse({
-      message: "장식 도형을 추가했습니다.",
-      interpretedIntent: {
-        target: "current-slide",
-        action: "장식 추가",
-        alignment: "custom",
-      },
-      operations: [
-        {
-          type: "add_element",
-          slideId: "slide_1",
-          element: {
-            elementId: `el_orn_${type}`,
-            type,
-            role: "decoration",
-            x: 120,
-            y: 120,
-            width: 120,
-            height: 120,
-            rotation: 0,
-            opacity: 1,
-            zIndex: 10,
-            locked: false,
-            visible: true,
-            props: {
-              fill: "transparent",
-              stroke: "#2563EB",
-              strokeWidth: 2,
-              borderRadius: 0,
-              ...props,
+  ])(
+    "accepts add_element for capability v2 $type shapes",
+    ({ type, props }) => {
+      const result = designAgentWorkerResponseSchema.parse({
+        message: "장식 도형을 추가했습니다.",
+        interpretedIntent: {
+          target: "current-slide",
+          action: "장식 추가",
+          alignment: "custom",
+        },
+        operations: [
+          {
+            type: "add_element",
+            slideId: "slide_1",
+            element: {
+              elementId: `el_orn_${type}`,
+              type,
+              role: "decoration",
+              x: 120,
+              y: 120,
+              width: 120,
+              height: 120,
+              rotation: 0,
+              opacity: 1,
+              zIndex: 10,
+              locked: false,
+              visible: true,
+              props: {
+                fill: "transparent",
+                stroke: "#2563EB",
+                strokeWidth: 2,
+                borderRadius: 0,
+                ...props,
+              },
             },
           },
-        },
-      ],
-      affectedElementIds: [`el_orn_${type}`],
-      warnings: [],
-    });
+        ],
+        affectedElementIds: [`el_orn_${type}`],
+        warnings: [],
+      });
 
-    expect(result.operations[0]).toMatchObject({
-      type: "add_element",
-      element: { type, role: "decoration" },
-    });
-  });
+      expect(result.operations[0]).toMatchObject({
+        type: "add_element",
+        element: { type, role: "decoration" },
+      });
+    },
+  );
 
   it("accepts add_element for a capability v2 image", () => {
     const result = designAgentWorkerResponseSchema.parse({
