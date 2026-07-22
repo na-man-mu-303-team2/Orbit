@@ -1114,7 +1114,7 @@ describe("pptxOoxmlGeneration schemas", () => {
 
     expect(result.syncedDeckVersion).toBe(2);
     expect(result.rasterizedElements).toHaveLength(1);
-    expect(result.syncCapabilityVersion).toBe(2);
+    expect(result.syncCapabilityVersion).toBe(3);
   });
 
   it("keeps authored raster fallback source metadata authoritative", () => {

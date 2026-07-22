@@ -24,7 +24,7 @@ export const pptxOoxmlGenerationRequestSchema = z
   })
   .strict();
 
-export const PPTX_OOXML_SYNC_CAPABILITY_VERSION = 2 as const;
+export const PPTX_OOXML_SYNC_CAPABILITY_VERSION = 3 as const;
 
 export const authoredOoxmlRasterElementTypeSchema = z.enum([
   "ellipse",

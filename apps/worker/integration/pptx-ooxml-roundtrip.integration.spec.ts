@@ -490,7 +490,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     expect(firstSync.status, JSON.stringify(firstSync.error)).toBe("succeeded");
     expect(firstSync.result).toMatchObject({
       syncedDeckVersion: accumulated.deck.version,
-      syncCapabilityVersion: 2,
+      syncCapabilityVersion: 3,
       rasterizedElements: [
         expect.objectContaining({ elementId: line.elementId, elementType: "line" }),
         expect.objectContaining({ elementId: arrow.elementId, elementType: "arrow" }),
