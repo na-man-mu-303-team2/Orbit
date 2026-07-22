@@ -21,7 +21,7 @@
 
 - 단계: PR1 공통 import·notes·quality 계약 확장
 - task branch: `feature/pptx-import-pr1-contracts`
-- 상태: schema·문서 구현과 task branch 검증 완료, commit/merge 대기
+- 상태: target branch `--no-ff` merge와 merge 후 shared smoke test 완료
 
 ## 완료된 작업과 Commit
 
@@ -30,8 +30,8 @@
 | 초기 실행 기준 확인          | `90082d1e`  | `feature/pptx-import-pr0-baseline` | `f3ca2ab3`   | 저장소 규칙, 공통 계약, 구현 계획, commit convention 전체 확인                         |
 | PR0 fixture·renderer harness | `bc8ad700`  | `feature/pptx-import-pr0-baseline` | `f3ca2ab3`   | fixture 회귀 테스트, LibreOffice 위험 측정, synthetic/실제 Konva accuracy harness 추가 |
 | PR0 기준선 결정              | `6f545bf3`  | `feature/pptx-import-pr0-baseline` | `f3ca2ab3`   | LibreOffice 채택, runtime Konva 기각 및 CI-only 결정 문서화                            |
-| PR1 공통 계약                 | `ae837d6f`  | `feature/pptx-import-pr1-contracts` | 미병합       | strict request, optional slide mode, notes sidecar와 bounded diagnostics 검증          |
-| PR1 계약 문서                 | 현재 commit | `feature/pptx-import-pr1-contracts` | 미병합       | `docs/contracts.md`, shared README와 실행 근거 정합화                                  |
+| PR1 공통 계약                 | `ae837d6f`  | `feature/pptx-import-pr1-contracts` | `38f0eb3e`   | strict request, optional slide mode, notes sidecar와 bounded diagnostics 검증          |
+| PR1 계약 문서                 | `57cbd3e1`  | `feature/pptx-import-pr1-contracts` | `38f0eb3e`   | `docs/contracts.md`, shared README와 실행 근거 정합화                                  |
 
 ## 실행한 검증
 
@@ -53,6 +53,7 @@
 | merge 후 Web smoke    | Playwright wrapper `--grep 16_import_fidelity_notes`                                 | 1 passed                                             |
 | PR1 shared test       | `pnpm --filter @orbit/shared test`                                                    | 54 files, 573 tests passed                           |
 | PR1 shared build      | `pnpm --filter @orbit/shared build`                                                   | TypeScript build 성공                                |
+| PR1 merge smoke       | `pnpm --filter @orbit/shared test`                                                    | 54 files, 573 tests passed                           |
 
 ## PR0 Renderer 측정과 결정
 
@@ -93,10 +94,10 @@
 
 ## 다음에 시작할 정확한 작업
 
-1. PR1 변경 범위와 임시 산출물 제거 상태를 최종 확인한다.
-2. shared schema/test와 계약 문서를 상세 한국어 commit으로 기록한다.
-3. target branch에 `--no-ff` merge하고 shared smoke test와 merge SHA를 ledger에 기록한다.
-4. `feature/pptx-import-pr2-notes-import` task branch에서 relationship 기반 notes body/provenance import를 시작한다.
+1. target branch의 clean 상태와 PR1 ledger commit을 확인한다.
+2. `feature/pptx-import-pr2-notes-import` task branch를 target branch HEAD에서 생성한다.
+3. slide relationship을 따라 notes slide/master와 유일한 body placeholder를 찾고 paragraph/line break/blank line을 보존한다.
+4. raw notes를 로그·quality sidecar에 복제하지 않고 fixture와 기준 PPTX의 8/8 body import를 검증한다.
 
 ## 사용자 결정이 필요한 Blocker
 
