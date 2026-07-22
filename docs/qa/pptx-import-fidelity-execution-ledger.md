@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR5 권한이 적용된 notes preview 조회 API
-- task branch: `feature/pptx-import-pr5-notes-preview-api`
-- 상태: owner/editor 전용 조회, fail-closed asset 경계, target branch `--no-ff` merge와 merge smoke 완료
+- 단계: PR6 Editor 전체 notes page 읽기 전용 preview
+- task branch: `feature/pptx-import-pr6-notes-preview-ui`
+- 상태: imported Deck tab, current slide 상태 UI, target branch `--no-ff` merge와 merge smoke 완료
 
 ## 완료된 작업과 Commit
 
@@ -37,6 +37,7 @@
 | PR4 Worker notes 저장         | `8a3b6b84`  | `feature/pptx-import-pr4-worker-notes-assets` | `926d3721` | Deck speakerNotes 보존, preview file ID sidecar 연결과 저장 실패 bounded warning       |
 | Checkpoint A 저장 경계        | `c95d6eea`  | `test/pptx-import-checkpoint-a` | `17a02898` | 실제 8 notes 저장·재조회, preview 유무 경계와 Job/sidecar/log privacy 검증              |
 | PR5 notes preview API         | `5aa651d4`  | `feature/pptx-import-pr5-notes-preview-api` | `9db79677` | owner/editor 권한, project asset 검증, strict 상태 응답과 public/audience 비노출       |
+| PR6 notes preview UI          | `f8652252`  | `feature/pptx-import-pr6-notes-preview-ui` | `facafec4` | imported-only tab, current slide preview, bounded 상태·접근성·비편집 경계              |
 
 ## 실행한 검증
 
@@ -98,6 +99,12 @@
 | PR5 Web 대상           | `deckPersistenceApi.test.ts` 직접 Vitest                                              | 2 tests passed                                       |
 | PR5 lint/build         | Shared, API, Web TypeScript lint와 production build                                  | 모두 통과, 기존 Web chunk-size warning만 발생       |
 | PR5 merge smoke        | Shared schema, API controller/service, Web API client                                 | 19 + 66 + 2 tests passed                             |
+| PR6 RED                | imported tab 2개 실패와 `SpeakerNotesPageTab` 미존재 collection error                 | 구현 전 의도한 실패 확인                             |
+| PR6 UI 대상            | `SpeakerNotesPanel`과 `SpeakerNotesPageTab` 직접 Vitest                               | 2 files, 14 tests passed                             |
+| PR6 Web 전체           | `pnpm --filter @orbit/web test`                                                       | 289 files, 1,808 tests passed                        |
+| PR6 Web lint/build     | TypeScript no-emit과 production Vite build                                            | 통과, 기존 dynamic import·chunk-size warning만 발생 |
+| PR6 Chrome 확인        | 임시 local harness의 accessibility tree, image failure, slide switch, console         | focusable tab, stale 전환, 편집 control 0, error/warn 0 |
+| PR6 merge smoke        | panel과 notes page view 대상 Vitest                                                   | 14 tests passed                                      |
 
 ## PR0 Renderer 측정과 결정
 
@@ -133,6 +140,9 @@
 - PR5 API test의 workspace 선행 build는 sibling worktree `dist` 쓰기 `EPERM`으로 처음 중단됐다. 승인된 쓰기 권한으로 재실행해 신규 API test가 통과함을 확인했다.
 - 저장소의 `test -- <file>` 스크립트가 file filter를 전달하지 않아 API/Web 전체 suite가 실행됐다. API는 test 전용 필수 환경변수 미설정 5개 suite, Web은 Vite cache unlink `EPERM` 3개 test에서 중단됐지만 신규 대상과 public/audience suite는 직접 Vitest 실행으로 모두 통과시켰다.
 - PR5 첫 API lint는 legacy `rendered` sidecar의 `renderAssetFileId`가 optional임을 발견했다. file ID 누락도 `unavailable`로 수렴하는 회귀 test와 guard를 추가한 뒤 lint와 build가 통과했다.
+- PR6 첫 Web lint는 임시 dependency 구성에서 `packages/editor-core/node_modules`가 빠져 `@orbit/shared` 해석 실패와 연쇄 implicit-any 오류가 발생했다. editor-core 의존성 링크 하나를 보완한 뒤 동일 lint가 통과했다.
+- Chrome DevTools MCP가 구성되지 않아 browser-testing skill의 DevTools 경로를 직접 사용할 수 없었다. 제공된 Chrome control 경로와 commit하지 않는 local harness로 동일 component의 DOM, 접근성, slide 전환, image failure, console을 검증했다.
+- PR6 local harness의 Pretendard font는 원본 worktree symlink가 Vite serving allow list 밖이라 server warning이 발생했다. 제품 build와 Web 전체 test에는 영향이 없고 harness DOM geometry와 상태 검증은 통과했다.
 
 ## 계획 대비 변경과 근거
 
@@ -141,6 +151,8 @@
 - PR1 slide fidelity 진단 다섯 필드는 legacy result에서는 모두 생략할 수 있지만 신규 result에서는 함께 존재하도록 묶었다. 부분 진단과 기존 `status`에 모순되는 `pixelEvaluation`을 계약 단계에서 거부하기 위함이다.
 - PR5는 Deck 자체가 아니라 보호 sidecar read model이므로 `deck-api.schema.ts`에 strict notes preview 응답을 추가했다. `available`만 project asset content URL을 허용하고 나머지 상태는 `assetUrl: null`을 강제한다.
 - PR5 asset lookup은 같은 project의 `design-asset`, `uploaded`, image MIME만 허용한다. 누락, 삭제, 다른 project, legacy file ID 누락, 저장소 예외는 raw 오류 없이 `unavailable`로 수렴한다.
+- PR6 preview query는 tab component 안에서 current `projectId`와 `slideId`별 key로 격리한다. tab이 열릴 때만 조회하고 `sync-pending` 동안만 2초 polling하며 다른 상태에서는 불필요한 polling을 하지 않는다.
+- PR6 image는 notes page 고유 비율을 유지하도록 고정 aspect ratio 없이 `object-fit: contain`으로 표시한다. request/image failure에는 raw 오류를 노출하지 않고 bounded 문구와 재시도만 제공한다.
 
 ## 알려진 제한 사항
 
@@ -153,14 +165,15 @@
 - PR4는 `notes_render_<index>` asset 저장 실패만 선택적으로 허용한다. 이 경우 note text는 Deck에 남고 sidecar는 `render-unavailable`, quality report는 `PPTX_NOTES_PREVIEW_ASSET_FAILED` count로 수렴한다.
 - Checkpoint A의 실제 기준 파일 검증은 원본을 저장소에 복사하지 않으며 `PPTX_IMPORT_FIDELITY_REFERENCE_PATH`가 명시된 로컬/보호 CI에서만 실행한다. 일반 Worker suite에서는 이 1개 test가 skip된다.
 - PR5 notes preview metadata는 owner/editor에게만 반환하고 audience/public projection에는 route나 URL을 추가하지 않는다. preview bitmap content는 기존 project-auth asset endpoint를 사용한다.
+- PR6 시점에는 per-slide imported provenance UI gate가 없으므로 `deck.metadata.sourceType === "import"`에서 tab을 노출한다. 이후 imported Deck에 새로 추가된 authored slide는 API의 `unavailable` 상태를 표시하며 PR9의 slide render mode 적용 시 per-slide gate를 재검토한다.
 
 ## 다음에 시작할 정확한 작업
 
-1. PR5 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
-2. `feature/pptx-import-pr6-notes-preview-ui`를 target branch HEAD에서 생성한다.
-3. Speaker Notes panel에 imported slide 전용 `대본`/`노트 페이지` tab과 읽기 전용 preview를 추가한다.
-4. slide 전환, loading/absent/sync-pending/stale/render-unavailable/unavailable 상태와 image load 실패를 text로 구분한다.
-5. keyboard/focus 접근성과 preview 비편집 경계를 test한 뒤 Web lint/build, 상세 한국어 commit과 `--no-ff` merge를 수행한다.
+1. PR6 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. `feature/pptx-import-pr7a-notes-body-sync`를 target branch HEAD에서 생성한다.
+3. `update_speaker_notes`를 package-neutral 목록에서 제거하고 writable notes body locator의 targeted OOXML operation으로 전달한다.
+4. body text만 변경하면서 notes master, image, footer/page number, 비본문 shape와 relationship의 semantic hash를 보존한다.
+5. locator 누락·중복은 package 변경 없이 bounded retryable/unsupported reason으로 실패시키고 Python·Worker 대상 test와 integration을 통과시킨다.
 
 ## 사용자 결정이 필요한 Blocker
 
