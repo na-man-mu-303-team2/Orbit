@@ -43,11 +43,17 @@ export function usePresentationSpeech(projectId?: string) {
   const finalWordCountRef = useRef(0);
   const transcriptRef = useRef("");
   const slideTranscriptRef = useRef("");
+  const inFlightSlideTranscriptRef = useRef("");
+  const latestSlideTranscriptBeforeRef = useRef("");
+  const latestSlideTranscriptAfterRef = useRef("");
   const unsubscribersRef = useRef<Array<() => void>>([]);
 
   const enterSlide = useCallback((slide: Slide) => {
     slideRef.current = slide;
     slideTranscriptRef.current = "";
+    inFlightSlideTranscriptRef.current = "";
+    latestSlideTranscriptBeforeRef.current = "";
+    latestSlideTranscriptAfterRef.current = "";
     trackerRef.current = createSpeechTracker({
       keywords: slide.keywords,
       slideId: slide.slideId,
@@ -99,9 +105,14 @@ export function usePresentationSpeech(projectId?: string) {
           const tracker = trackerRef.current;
           if (!tracker) return;
           const transcriptActivityAtMs = Date.now();
+          latestSlideTranscriptBeforeRef.current = getSlideTranscriptText({
+            committedTranscript: slideTranscriptRef.current,
+            draftTranscript: inFlightSlideTranscriptRef.current,
+          });
           tracker.acceptResult(result);
           if (result.isFinal) {
             const finalText = result.text.trim();
+            inFlightSlideTranscriptRef.current = "";
             if (finalText) {
               transcriptRef.current = [transcriptRef.current, finalText]
                 .filter(Boolean)
@@ -116,7 +127,13 @@ export function usePresentationSpeech(projectId?: string) {
                 .split(/\s+/)
                 .filter(Boolean).length;
             }
+          } else {
+            inFlightSlideTranscriptRef.current = result.text.trim();
           }
+          latestSlideTranscriptAfterRef.current = getSlideTranscriptText({
+            committedTranscript: slideTranscriptRef.current,
+            draftTranscript: inFlightSlideTranscriptRef.current,
+          });
           const activeListeningMs =
             accumulatedListeningMsRef.current +
             Math.max(transcriptActivityAtMs - startedAtRef.current, 0);
@@ -224,7 +241,11 @@ export function usePresentationSpeech(projectId?: string) {
 
   return {
     enterSlide,
-    getSlideTranscript: () => slideTranscriptRef.current,
+    getSlideTranscript: () => latestSlideTranscriptAfterRef.current,
+    getSlideTranscriptSpan: () => ({
+      previousTranscript: latestSlideTranscriptBeforeRef.current,
+      transcript: latestSlideTranscriptAfterRef.current,
+    }),
     getTranscript: () => transcriptRef.current,
     pause,
     resume,
@@ -232,6 +253,15 @@ export function usePresentationSpeech(projectId?: string) {
     state,
     stop,
   };
+}
+
+function getSlideTranscriptText(input: {
+  committedTranscript: string;
+  draftTranscript: string;
+}) {
+  return [input.committedTranscript, input.draftTranscript]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function buildPresentationBiasPhrases(slide: Slide) {

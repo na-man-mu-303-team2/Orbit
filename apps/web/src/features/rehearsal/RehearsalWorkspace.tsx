@@ -3922,6 +3922,9 @@ export function RehearsalWorkspace(props: {
       return;
     }
 
+    const previousTranscript = renderLiveTranscriptBuffer(
+      liveTranscriptBufferRef.current,
+    );
     const nextBuffer = applyLiveTranscriptEvent(
       liveTranscriptBufferRef.current,
       event,
@@ -3941,6 +3944,9 @@ export function RehearsalWorkspace(props: {
     const matchingTranscript = shouldUseLiveSttPostprocessBias(biasMode)
       ? applyLiveTranscriptBias(transcript, biasContext)
       : transcript;
+    const previousMatchingTranscript = shouldUseLiveSttPostprocessBias(biasMode)
+      ? applyLiveTranscriptBias(previousTranscript, biasContext)
+      : previousTranscript;
     const analysis = evaluateLiveTranscript(
       slide,
       matchingTranscript,
@@ -3963,6 +3969,7 @@ export function RehearsalWorkspace(props: {
     const occurrenceMatches = matchKeywordOccurrenceTriggers({
       slide,
       targetOccurrenceIds,
+      previousTranscript: previousMatchingTranscript,
       transcript: matchingTranscript,
       latestTranscript: event.transcript,
       confidence: event.confidence,

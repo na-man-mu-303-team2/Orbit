@@ -7,6 +7,7 @@ import {
 } from "./phraseExtractor";
 
 export type KeywordOccurrenceRuntimeMatch = {
+  matchedScriptOffset: number;
   keywordId: string;
   occurrenceId: string;
   text: string;
@@ -28,6 +29,7 @@ const defaultProgressConfidenceThreshold = 0.7;
 export function matchKeywordOccurrenceTriggers(options: {
   slide: Pick<Slide, "slideId" | "speakerNotes" | "keywords">;
   targetOccurrenceIds: readonly string[];
+  previousTranscript?: string;
   transcript: string;
   latestTranscript: string;
   confidence?: number | null;
@@ -45,14 +47,30 @@ export function matchKeywordOccurrenceTriggers(options: {
   }
 
   const confirmedOccurrenceIds = new Set(options.confirmedOccurrenceIds ?? []);
+  const previousCharOffset = estimateScriptProgressOffset(
+    options.slide.speakerNotes,
+    options.previousTranscript ?? options.transcript
+  );
   const currentCharOffset = estimateScriptProgressOffset(
     options.slide.speakerNotes,
     options.transcript
   );
   const window = options.window ?? defaultOccurrenceTriggerWindow;
   const latestTranscript = normalizeSpeechText(options.latestTranscript);
+  const spanStart = Math.min(previousCharOffset, currentCharOffset);
+  const spanEnd = Math.max(previousCharOffset, currentCharOffset);
+  const allOccurrences = deriveKeywordOccurrences(options.slide);
+  const matchedOccurrenceIds = getMatchedOccurrenceIdsForTranscriptSpan({
+    occurrences: allOccurrences,
+    latestTranscript,
+    hasProgressSpan: options.previousTranscript !== undefined,
+    slide: options.slide,
+    spanEnd,
+    spanStart,
+    window
+  });
 
-  return deriveKeywordOccurrences(options.slide).flatMap((occurrence) => {
+  return allOccurrences.flatMap((occurrence) => {
     if (
       !targetOccurrenceIds.has(occurrence.occurrenceId) ||
       confirmedOccurrenceIds.has(occurrence.occurrenceId)
@@ -60,10 +78,7 @@ export function matchKeywordOccurrenceTriggers(options: {
       return [];
     }
 
-    if (
-      currentCharOffset < occurrence.start ||
-      currentCharOffset > occurrence.end + window.afterChars
-    ) {
+    if (!matchedOccurrenceIds.has(occurrence.occurrenceId)) {
       return [];
     }
 
@@ -79,10 +94,97 @@ export function matchKeywordOccurrenceTriggers(options: {
         keywordId: occurrence.keywordId,
         occurrenceId: occurrence.occurrenceId,
         text: occurrence.text,
+        matchedScriptOffset: occurrence.start,
         currentCharOffset
       }
     ];
   });
+}
+
+function getMatchedOccurrenceIdsForTranscriptSpan(options: {
+  occurrences: ReturnType<typeof deriveKeywordOccurrences>;
+  hasProgressSpan: boolean;
+  latestTranscript: string;
+  slide: Pick<Slide, "keywords">;
+  spanEnd: number;
+  spanStart: number;
+  window: KeywordOccurrenceRuntimeWindow;
+}) {
+  const occurrenceIds = new Set<string>();
+
+  for (const keyword of options.slide.keywords) {
+    const hitCount = countKeywordHits(options.latestTranscript, keyword);
+    if (hitCount === 0) {
+      continue;
+    }
+
+    const candidates = options.occurrences.filter(
+      (occurrence) => {
+        if (occurrence.keywordId !== keyword.keywordId) {
+          return false;
+        }
+
+        if (!options.hasProgressSpan) {
+          return (
+            occurrence.start <= options.spanEnd &&
+            occurrence.end + options.window.afterChars >= options.spanEnd
+          );
+        }
+
+        return (
+          occurrence.end >= options.spanStart - options.window.beforeChars &&
+          occurrence.start <= options.spanEnd
+        );
+      }
+    );
+
+    const orderedCandidates = options.hasProgressSpan
+      ? candidates.sort(
+          (left, right) =>
+            Math.abs(left.start - options.spanStart) -
+            Math.abs(right.start - options.spanStart)
+        )
+      : candidates;
+
+    const selectedCandidates = options.hasProgressSpan
+      ? orderedCandidates.slice(0, hitCount)
+      : orderedCandidates;
+
+    for (const occurrence of selectedCandidates) {
+      occurrenceIds.add(occurrence.occurrenceId);
+    }
+  }
+
+  return occurrenceIds;
+}
+
+function countKeywordHits(
+  normalizedTranscript: string,
+  keyword: Pick<Slide["keywords"][number], "text" | "synonyms" | "abbreviations">
+) {
+  const terms = Array.from(
+    new Set(
+      [keyword.text, ...keyword.synonyms, ...keyword.abbreviations]
+        .map((term) => normalizeSpeechText(term))
+        .filter(Boolean)
+    )
+  ).sort((left, right) => right.length - left.length);
+  let cursor = 0;
+  let hitCount = 0;
+
+  while (cursor < normalizedTranscript.length) {
+    const term = terms.find((candidate) =>
+      normalizedTranscript.startsWith(candidate, cursor)
+    );
+    if (term) {
+      hitCount += 1;
+      cursor += term.length;
+      continue;
+    }
+    cursor += 1;
+  }
+
+  return hitCount;
 }
 
 export function estimateScriptProgressOffset(
