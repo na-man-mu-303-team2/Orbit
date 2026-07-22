@@ -914,10 +914,10 @@ describe("RehearsalWorkspace", () => {
     expect(slideReceiverRenderBody).not.toContain("speakerNotes");
   });
 
-  it("keeps single-screen entry and safe Live STT recovery controls", () => {
+  it("removes single-screen entry and keeps safe Live STT recovery controls", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
 
-    expect(source).toContain("onClick={() => setIsSingleScreenOpen(true)}");
+    expect(source).not.toContain("onClick={() => setIsSingleScreenOpen(true)}");
     expect(source).toContain("sanitizeLiveSttErrorMessage(liveError)");
     expect(source).toContain("retryInitialRecordingLiveStt()");
     expect(source).toContain("음성 인식 다시 연결");
