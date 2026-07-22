@@ -12,9 +12,15 @@ import {
   templateBlueprintIdSchema,
 } from "./template-blueprint.schema";
 
+export const pptxImportPreferenceSchema = z.enum([
+  "appearance-first",
+  "editability-first",
+]);
+
 export const pptxOoxmlGenerationRequestSchema = z
   .object({
     fileId: z.string().min(1),
+    importPreference: pptxImportPreferenceSchema.default("editability-first"),
   })
   .strict();
 
@@ -89,6 +95,7 @@ export const pptxOoxmlSyncJobResultSchema = z.object({
 export type PptxOoxmlGenerationRequest = z.infer<
   typeof pptxOoxmlGenerationRequestSchema
 >;
+export type PptxImportPreference = z.infer<typeof pptxImportPreferenceSchema>;
 export type PptxOoxmlGenerationJobResult = z.infer<
   typeof pptxOoxmlGenerationJobResultSchema
 >;
