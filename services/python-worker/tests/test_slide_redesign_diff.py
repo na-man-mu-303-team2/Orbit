@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.ai.composition_library import CompiledComposition
 from app.ai.slide_redesign.composer import (
     CompositionCandidate,
     build_single_slide_program,
 )
 from app.ai.slide_redesign.diff import (
     analyze_candidate,
+    build_operations,
     filter_safe_candidates,
     match_elements,
 )
@@ -30,6 +32,45 @@ def text_element(
     }
     if content_item_ids is not None:
         element["_contentItemIds"] = content_item_ids
+    return element
+
+
+def compiled_text_element(
+    element_id: str,
+    text: str,
+    *,
+    content_item_ids: list[str] | None = None,
+    x: int = 120,
+) -> dict[str, Any]:
+    element = text_element(
+        element_id,
+        text,
+        content_item_ids=content_item_ids,
+    )
+    element.update(
+        {
+            "role": "body",
+            "x": x,
+            "y": 200,
+            "width": 600,
+            "height": 120,
+            "rotation": 0,
+            "opacity": 1,
+            "zIndex": 3,
+            "visible": True,
+        }
+    )
+    element["props"].update(
+        {
+            "fontFamily": "Pretendard",
+            "fontSize": 32,
+            "fontWeight": "normal",
+            "color": "#111827",
+            "align": "left",
+            "verticalAlign": "top",
+            "lineHeight": 1.2,
+        }
+    )
     return element
 
 
@@ -340,3 +381,88 @@ def test_filter_safe_candidates_returns_empty_when_all_are_unsafe() -> None:
     )
 
     assert safe == []
+
+
+def test_build_operations_orders_deletes_last_and_never_updates_text() -> None:
+    originals = [
+        text_element("el_reused", "원문"),
+        text_element("el_deleted", "삭제 가능"),
+    ]
+    compiled_element = compiled_text_element("new_reused", "원문")
+    compiled = CompiledComposition(
+        elements=[compiled_element],
+        primary_focal_element_id="new_reused",
+        layout="title-content",
+        background_color="#FFFFFF",
+    )
+    matching = match_elements(originals, [compiled_element], {})
+
+    operations = build_operations("slide-1", originals, compiled, matching)
+
+    operation_types = [operation["type"] for operation in operations]
+    assert operation_types == [
+        "update_slide_style",
+        "update_element_frame",
+        "update_element_props",
+        "delete_element",
+    ]
+    delete_index = operation_types.index("delete_element")
+    assert all(
+        operation["type"] == "delete_element"
+        for operation in operations[delete_index:]
+    )
+    props_operation = next(
+        operation
+        for operation in operations
+        if operation["type"] == "update_element_props"
+    )
+    assert "text" not in props_operation["props"]
+
+
+def test_added_elements_remove_internal_provenance() -> None:
+    compiled_element = compiled_text_element(
+        "new_added",
+        "새 요소",
+        content_item_ids=["item-1"],
+    )
+    compiled = CompiledComposition(
+        elements=[compiled_element],
+        primary_focal_element_id="new_added",
+        layout="title-content",
+        background_color="#FFFFFF",
+    )
+
+    operations = build_operations(
+        "slide-1",
+        [],
+        compiled,
+        match_elements([], [compiled_element], {"item-1": "missing"}),
+    )
+
+    added = next(
+        operation["element"]
+        for operation in operations
+        if operation["type"] == "add_element"
+    )
+    assert "_contentItemIds" not in added
+
+
+def test_added_element_id_collision_uses_r2_suffix() -> None:
+    originals = [text_element("el_collision", "기존 요소")]
+    compiled_element = compiled_text_element("el_collision", "새 요소")
+    compiled = CompiledComposition(
+        elements=[compiled_element],
+        primary_focal_element_id="el_collision",
+        layout="title-content",
+        background_color="#FFFFFF",
+    )
+    matching = match_elements(originals, [compiled_element], {})
+
+    operations = build_operations("slide-1", originals, compiled, matching)
+
+    added = next(
+        operation["element"]
+        for operation in operations
+        if operation["type"] == "add_element"
+    )
+    assert added["elementId"] == "el_collision_r2"

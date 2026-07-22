@@ -37,6 +37,7 @@ from .diff import (
     CandidateAnalysis,
     ElementMatching,
     analyze_candidate,
+    build_operations,
     filter_safe_candidates,
     match_elements,
 )
@@ -73,6 +74,7 @@ __all__ = [
     "ElementMatching",
     "CandidateAnalysis",
     "analyze_candidate",
+    "build_operations",
     "filter_safe_candidates",
     "match_elements",
 ]

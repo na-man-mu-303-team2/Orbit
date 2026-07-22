@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
@@ -31,6 +32,37 @@ class CandidateAnalysis:
     matching: ElementMatching
     safe: bool
     unsafe_reason: str | None
+
+
+_FRAME_KEYS = (
+    "role",
+    "x",
+    "y",
+    "width",
+    "height",
+    "rotation",
+    "opacity",
+    "zIndex",
+    "locked",
+    "visible",
+)
+_PATCHABLE_PROP_KEYS = frozenset(
+    {
+        "align",
+        "verticalAlign",
+        "fontSize",
+        "fontWeight",
+        "fontFamily",
+        "fill",
+        "color",
+        "stroke",
+        "strokeWidth",
+        "borderRadius",
+        "lineHeight",
+        "cornerRadius",
+        "fit",
+    }
+)
 
 
 def analyze_candidate(
@@ -88,6 +120,83 @@ def filter_safe_candidates(
         if analysis.safe:
             safe_analyses.append(analysis)
     return safe_analyses
+
+
+def build_operations(
+    slide_id: str,
+    original_elements: list[dict[str, Any]],
+    compiled: CompiledComposition,
+    matching: ElementMatching,
+) -> list[dict[str, Any]]:
+    """Build ordered Deck patch operations without changing reused text."""
+    compiled_by_id = {
+        str(element["elementId"]): element
+        for element in compiled.elements
+        if isinstance(element.get("elementId"), str) and element["elementId"]
+    }
+    operations: list[dict[str, Any]] = [
+        {
+            "type": "update_slide_style",
+            "slideId": slide_id,
+            "style": {"backgroundColor": compiled.background_color},
+        }
+    ]
+    for compiled_id, original_id in matching.reused.items():
+        element = compiled_by_id[compiled_id]
+        frame = {key: element[key] for key in _FRAME_KEYS if key in element}
+        operations.append(
+            {
+                "type": "update_element_frame",
+                "slideId": slide_id,
+                "elementId": original_id,
+                "frame": frame,
+            }
+        )
+    for compiled_id, original_id in matching.reused.items():
+        element = compiled_by_id[compiled_id]
+        raw_props = element.get("props")
+        props = raw_props if isinstance(raw_props, dict) else {}
+        patch = {
+            key: deepcopy(value)
+            for key, value in props.items()
+            if key in _PATCHABLE_PROP_KEYS
+        }
+        if patch:
+            operations.append(
+                {
+                    "type": "update_element_props",
+                    "slideId": slide_id,
+                    "elementId": original_id,
+                    "props": patch,
+                }
+            )
+
+    reserved_ids = {
+        str(element["elementId"])
+        for element in original_elements
+        if isinstance(element.get("elementId"), str) and element["elementId"]
+    }
+    for compiled_id in matching.added:
+        element = deepcopy(compiled_by_id[compiled_id])
+        element.pop("_contentItemIds", None)
+        element["elementId"] = _unique_element_id(compiled_id, reserved_ids)
+        reserved_ids.add(str(element["elementId"]))
+        operations.append(
+            {
+                "type": "add_element",
+                "slideId": slide_id,
+                "element": element,
+            }
+        )
+    operations.extend(
+        {
+            "type": "delete_element",
+            "slideId": slide_id,
+            "elementId": original_id,
+        }
+        for original_id in matching.deleted
+    )
+    return operations
 
 
 def match_elements(
@@ -242,3 +351,12 @@ def _source_ids(element: dict[str, Any], provenance: dict[str, str]) -> set[str]
         if isinstance(content_item_id, str)
         and isinstance((source_id := provenance.get(content_item_id)), str)
     }
+
+
+def _unique_element_id(element_id: str, reserved_ids: set[str]) -> str:
+    if element_id not in reserved_ids:
+        return element_id
+    suffix = 2
+    while f"{element_id}_r{suffix}" in reserved_ids:
+        suffix += 1
+    return f"{element_id}_r{suffix}"
