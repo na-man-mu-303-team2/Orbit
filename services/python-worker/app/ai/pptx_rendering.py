@@ -8,9 +8,14 @@ import shutil
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from app.ai.pptx_design_importer import ImportedDesignAsset
+from app.ai.pptx_render_resource_limits import (
+    PptxRenderResourceLimitError,
+    run_bitmap_decode_with_timeout,
+    validate_rendered_bitmap,
+)
 
 
 PptxNotesRenderErrorCode = Literal[
@@ -19,6 +24,9 @@ PptxNotesRenderErrorCode = Literal[
     "PPTX_NOTES_RENDER_FAILED",
     "PPTX_NOTES_PAGE_COUNT_MISMATCH",
     "PPTX_NOTES_PREVIEW_ASSET_FAILED",
+    "PPTX_NOTES_PREVIEW_BYTE_LIMIT",
+    "PPTX_NOTES_PREVIEW_DECODE_TIMEOUT",
+    "PPTX_NOTES_PREVIEW_DIMENSION_LIMIT",
 ]
 
 NOTES_EXPORT_OPTIONS = {
@@ -26,7 +34,10 @@ NOTES_EXPORT_OPTIONS = {
     "ExportOnlyNotesPages": {"type": "boolean", "value": "true"},
 }
 NOTES_PREVIEW_MAX_DIMENSION = 1280
-MAX_NOTES_PREVIEW_PAGES = 10_000
+NOTES_PREVIEW_MAX_BYTES = 8 * 1024 * 1024
+NOTES_PREVIEW_MAX_TOTAL_BYTES = 128 * 1024 * 1024
+NOTES_PREVIEW_DECODE_TIMEOUT_SECONDS = 10.0
+MAX_NOTES_PREVIEW_PAGES = 1_000
 DEFAULT_NOTES_RENDER_TIMEOUT_SECONDS = 120.0
 
 
@@ -149,14 +160,39 @@ def render_notes_pdf_to_png_assets(
             notes_height_emu,
         )
         assets: list[ImportedDesignAsset] = []
+        total_bytes = 0
         for page_index in range(document.page_count):
             page = document.load_page(page_index)
             matrix = fitz.Matrix(
                 target_width / float(page.rect.width),
                 target_height / float(page.rect.height),
             )
-            pixmap = page.get_pixmap(matrix=matrix, alpha=False)
-            png_bytes = pixmap.tobytes("png")
+            try:
+                png_bytes, pixel_width, pixel_height = (
+                    run_bitmap_decode_with_timeout(
+                        lambda: render_pdf_page_png(page, matrix),
+                        timeout_seconds=NOTES_PREVIEW_DECODE_TIMEOUT_SECONDS,
+                        timeout_code="PPTX_NOTES_PREVIEW_DECODE_TIMEOUT",
+                    )
+                )
+                validate_rendered_bitmap(
+                    png_bytes,
+                    width=pixel_width,
+                    height=pixel_height,
+                    max_dimension=NOTES_PREVIEW_MAX_DIMENSION,
+                    max_bytes=NOTES_PREVIEW_MAX_BYTES,
+                    dimension_code="PPTX_NOTES_PREVIEW_DIMENSION_LIMIT",
+                    byte_code="PPTX_NOTES_PREVIEW_BYTE_LIMIT",
+                )
+                total_bytes += len(png_bytes)
+                if total_bytes > NOTES_PREVIEW_MAX_TOTAL_BYTES:
+                    raise PptxRenderResourceLimitError(
+                        "PPTX_NOTES_PREVIEW_BYTE_LIMIT"
+                    )
+            except PptxRenderResourceLimitError as error:
+                raise PptxNotesRenderError(
+                    cast(PptxNotesRenderErrorCode, error.code)
+                ) from error
             assets.append(
                 ImportedDesignAsset(
                     assetId=f"notes_render_{page_index + 1}",
@@ -174,6 +210,11 @@ def render_notes_pdf_to_png_assets(
         ) from error
     finally:
         document.close()
+
+
+def render_pdf_page_png(page: Any, matrix: Any) -> tuple[bytes, int, int]:
+    pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+    return pixmap.tobytes("png"), int(pixmap.width), int(pixmap.height)
 
 
 def notes_preview_dimensions(

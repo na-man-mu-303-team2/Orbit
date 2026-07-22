@@ -20,7 +20,7 @@ import {
   type TemplateBlueprint,
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import type { DataSource, EntityManager } from "typeorm";
 import { z } from "zod";
 
@@ -370,13 +370,24 @@ async function saveGeneratedDesignAssets(
     urls: new Map(),
     failedNotesPreviewRefs: new Set(),
   };
+  const persistedByContentHash = new Map<
+    string,
+    { fileId: string; url: string }
+  >();
 
   for (const asset of generated.assets) {
     const assetRef = `asset:${asset.assetId}`;
+    const body = Buffer.from(asset.contentBase64, "base64");
+    const contentHash = createHash("sha256").update(body).digest("hex");
+    const persisted = persistedByContentHash.get(contentHash);
+    if (persisted) {
+      refs.fileIds.set(assetRef, persisted.fileId);
+      refs.urls.set(assetRef, persisted.url);
+      continue;
+    }
     const fileId = `file_${randomUUID()}`;
     const originalName = safeStorageName(asset.fileName);
     const storageKey = `projects/${projectId}/assets/${fileId}-${originalName}`;
-    const body = Buffer.from(asset.contentBase64, "base64");
     const url = createAssetContentUrl(projectId, fileId);
 
     try {
@@ -414,6 +425,7 @@ async function saveGeneratedDesignAssets(
 
     refs.fileIds.set(assetRef, fileId);
     refs.urls.set(assetRef, url);
+    persistedByContentHash.set(contentHash, { fileId, url });
   }
 
   return refs;

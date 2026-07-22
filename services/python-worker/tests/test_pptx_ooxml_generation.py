@@ -17,20 +17,27 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.util import Inches
 
 from app.ai.pptx_ooxml_generation import (
+    CanvasSpec,
     PptxRenderUnavailableError,
     generate_pptx_ooxml,
+    render_pdf_to_png_assets,
     render_pptx_to_png_assets,
     shape_fallback_assets,
     strip_text_from_pptx_package,
     sync_pptx_ooxml,
 )
 from app.ai.pptx_design_importer import ImportedDesignAsset
-from app.ai import pptx_ooxml_generation
+from app.ai import pptx_ooxml_generation, pptx_rendering
 from app.ai.pptx_rendering import (
     PptxNotesRenderError,
     PptxNotesRenderErrorCode,
     render_pptx_notes_to_png_assets,
 )
+from app.ai.pptx_package_security import (
+    PPTX_ACTIVE_CONTENT_BLOCKED,
+    PPTX_EXTERNAL_RELATIONSHIP_BLOCKED,
+)
+from app.ai.pptx_render_resource_limits import PptxRenderResourceLimitError
 import app.main as api_module
 from app.main import app
 
@@ -117,6 +124,27 @@ def test_generation_endpoint_rejects_unknown_import_preference(
 
     assert response.status_code == 422
     assert called is False
+
+
+def test_generation_endpoint_returns_bounded_package_security_code() -> None:
+    unsafe_package = BytesIO()
+    with zipfile.ZipFile(unsafe_package, "w") as package:
+        package.writestr("../payload.xml", b"unsafe")
+
+    response = TestClient(app).post(
+        "/ai/pptx-ooxml-generation",
+        files={
+            "file": (
+                "unsafe.pptx",
+                unsafe_package.getvalue(),
+                "application/octet-stream",
+            )
+        },
+        data={"file_id": "file_unsafe"},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "PPTX_PACKAGE_PATH_TRAVERSAL"}
 
 
 def template_slide_id(generated: object, slide_index: int = 0) -> str:
@@ -312,6 +340,54 @@ def test_notes_renderer_rejects_page_count_mismatch(
     assert error.value.code == "PPTX_NOTES_PAGE_COUNT_MISMATCH"
 
 
+def test_notes_and_source_bitmap_decode_timeouts_use_bounded_codes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "app.ai.pptx_rendering.find_libreoffice_executable",
+        lambda: "/test/soffice",
+    )
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        output = Path(command[command.index("--outdir") + 1])
+        write_test_pdf(output / "source.pdf", page_count=1)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    def decode_timeout(*_args: object, **_kwargs: object) -> object:
+        timeout_code = str(_kwargs["timeout_code"])
+        raise PptxRenderResourceLimitError(timeout_code)
+
+    monkeypatch.setattr("app.ai.pptx_rendering.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        pptx_rendering,
+        "run_bitmap_decode_with_timeout",
+        decode_timeout,
+    )
+    with pytest.raises(PptxNotesRenderError) as notes_error:
+        render_pptx_notes_to_png_assets(
+            IMPORT_FIDELITY_NOTES_FIXTURE.read_bytes(),
+            notes_width_emu=6_858_000,
+            notes_height_emu=9_144_000,
+            expected_page_count=1,
+        )
+    assert notes_error.value.code == "PPTX_NOTES_PREVIEW_DECODE_TIMEOUT"
+
+    pdf_path = tmp_path / "source.pdf"
+    write_test_pdf(pdf_path, page_count=1)
+    monkeypatch.setattr(
+        pptx_ooxml_generation,
+        "run_bitmap_decode_with_timeout",
+        decode_timeout,
+    )
+    with pytest.raises(PptxRenderUnavailableError) as source_error:
+        render_pdf_to_png_assets(
+            pdf_path,
+            CanvasSpec("wide-16-9", 1920, 1080, "16:9"),
+        )
+    assert str(source_error.value) == "PPTX_SOURCE_RENDER_DECODE_TIMEOUT"
+
+
 def test_generate_pptx_ooxml_maps_notes_preview_only_after_proven_render(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -338,6 +414,49 @@ def test_generate_pptx_ooxml_maps_notes_preview_only_after_proven_render(
     assert notes_page["renderAssetFileId"] == "asset:notes_render_1"
     assert result.quality_report["notesDiagnostics"]["rendered"] == 1
     assert any(asset.asset_id == "notes_render_1" for asset in result.assets)
+
+
+def test_generation_preserves_unsafe_source_but_sanitizes_renderer_input(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_bytes = package_with_external_relationship_and_macro(
+        IMPORT_FIDELITY_NOTES_FIXTURE.read_bytes()
+    )
+    source_path = tmp_path / "unsafe-content.pptx"
+    source_path.write_bytes(source_bytes)
+    rendered_packages: list[bytes] = []
+
+    def capture_render(package_bytes: bytes, _canvas: object) -> list[ImportedDesignAsset]:
+        rendered_packages.append(package_bytes)
+        return [make_test_png_asset("slide_render_1", "slide-01.png")]
+
+    monkeypatch.setattr(
+        pptx_ooxml_generation,
+        "render_pptx_to_png_assets",
+        capture_render,
+    )
+    monkeypatch.setattr(
+        pptx_ooxml_generation,
+        "render_pptx_notes_to_png_assets",
+        lambda *_args, **_kwargs: [
+            make_test_png_asset("notes_render_1", "notes-01.png")
+        ],
+    )
+
+    result = generate_pptx_ooxml(source_path, "file_unsafe", render=True)
+
+    assert result.warnings[:2] == [
+        PPTX_EXTERNAL_RELATIONSHIP_BLOCKED,
+        PPTX_ACTIVE_CONTENT_BLOCKED,
+    ]
+    assert "example.invalid" not in " ".join(result.warnings)
+    assert current_package_bytes(result.assets) == source_bytes
+    assert rendered_packages
+    with zipfile.ZipFile(BytesIO(rendered_packages[0]), "r") as package:
+        assert "ppt/vbaProject.bin" not in package.namelist()
+        relationships = package.read("ppt/slides/_rels/slide1.xml.rels")
+    assert b"rIdExternalBlocked" not in relationships
 
 
 @pytest.mark.parametrize(
@@ -458,6 +577,34 @@ def test_generation_includes_imported_image_assets(tmp_path: Path) -> None:
 
     assert image_asset.mime_type == "image/png"
     assert base64.b64decode(image_asset.content_base64).startswith(b"\x89PNG")
+
+
+def test_generation_deduplicates_repeated_media_bytes_by_content_hash(
+    tmp_path: Path,
+) -> None:
+    pptx_path = sample_pptx(tmp_path)
+    presentation = Presentation(pptx_path)
+    presentation.slides[0].shapes.add_picture(
+        str(tmp_path / "image.png"),
+        Inches(9),
+        Inches(2),
+        Inches(2),
+        Inches(2),
+    )
+    presentation.save(pptx_path)
+
+    result = generate_pptx_ooxml(pptx_path, "file_template", render=False)
+    image_assets = [
+        asset for asset in result.assets if asset.asset_id.startswith("image_")
+    ]
+    image_sources = {
+        element["props"]["src"]
+        for element in result.blueprint["slides"][0]["elements"]
+        if element.get("type") == "image"
+    }
+
+    assert len(image_assets) == 1
+    assert image_sources == {f"asset:{image_assets[0].asset_id}"}
 
 
 def test_sync_pptx_ooxml_applies_text_and_frame_patch(tmp_path: Path) -> None:
@@ -2324,6 +2471,56 @@ def replace_package_entry(package_bytes: bytes, name: str, content: bytes) -> by
                     info,
                     content if info.filename == name else source.read(info),
                 )
+    return output.getvalue()
+
+
+def package_with_external_relationship_and_macro(package_bytes: bytes) -> bytes:
+    relationships_part = "ppt/slides/_rels/slide1.xml.rels"
+    relationships_root = ET.fromstring(
+        package_entry(package_bytes, relationships_part)
+    )
+    ET.SubElement(
+        relationships_root,
+        f"{{{RELATIONSHIP_NS}}}Relationship",
+        {
+            "Id": "rIdExternalBlocked",
+            "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
+            "Target": "https://example.invalid/image.png",
+            "TargetMode": "External",
+        },
+    )
+    content_types_root = ET.fromstring(
+        package_entry(package_bytes, "[Content_Types].xml")
+    )
+    ET.SubElement(
+        content_types_root,
+        "{http://schemas.openxmlformats.org/package/2006/content-types}Override",
+        {
+            "PartName": "/ppt/vbaProject.bin",
+            "ContentType": "application/vnd.ms-office.vbaProject",
+        },
+    )
+    replacements = {
+        relationships_part: ET.tostring(
+            relationships_root,
+            encoding="utf-8",
+            xml_declaration=True,
+        ),
+        "[Content_Types].xml": ET.tostring(
+            content_types_root,
+            encoding="utf-8",
+            xml_declaration=True,
+        ),
+    }
+    output = BytesIO()
+    with zipfile.ZipFile(BytesIO(package_bytes), "r") as source:
+        with zipfile.ZipFile(output, "w") as destination:
+            for info in source.infolist():
+                destination.writestr(
+                    info,
+                    replacements.get(info.filename, source.read(info)),
+                )
+            destination.writestr("ppt/vbaProject.bin", b"synthetic macro")
     return output.getvalue()
 
 

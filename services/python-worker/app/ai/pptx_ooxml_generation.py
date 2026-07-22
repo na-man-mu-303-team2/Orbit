@@ -51,10 +51,19 @@ from app.ai.pptx_motion import (
     replace_main_sequence,
     replace_slide_transition,
 )
+from app.ai.pptx_package_security import (
+    inspect_pptx_package,
+    sanitize_pptx_package_for_render,
+)
 from app.ai.pptx_rendering import (
     PptxNotesRenderError,
     PptxNotesRenderErrorCode,
     render_pptx_notes_to_png_assets,
+)
+from app.ai.pptx_render_resource_limits import (
+    PptxRenderResourceLimitError,
+    run_bitmap_decode_with_timeout,
+    validate_rendered_bitmap,
 )
 
 PML_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -139,6 +148,11 @@ SUPPORTED_TEXT_STYLE_PROPS = {
     "underline", "color", "baseline",
 }
 MAX_TEXT_DIFF_MATRIX_CELLS = 250_000
+SOURCE_RENDER_MAX_DIMENSION = 1920
+SOURCE_RENDER_MAX_BYTES = 16 * 1024 * 1024
+SOURCE_RENDER_MAX_TOTAL_BYTES = 256 * 1024 * 1024
+SOURCE_RENDER_MAX_PAGES = 1_000
+SOURCE_RENDER_DECODE_TIMEOUT_SECONDS = 10.0
 
 ET.register_namespace("p", PML_NS)
 ET.register_namespace("a", DML_NS)
@@ -377,6 +391,12 @@ def generate_pptx_ooxml(
 ) -> PptxOoxmlGenerationResult:
     # PR9 consumes this validated policy when selecting each slide render mode.
     del import_preference
+    package_bytes = path.read_bytes()
+    security_report = inspect_pptx_package(package_bytes)
+    render_package_bytes = sanitize_pptx_package_for_render(
+        package_bytes,
+        security_report,
+    )
     canvas = detect_canvas(path)
     imported = import_pptx_design_with_optional_ooxml_vector(
         path,
@@ -403,8 +423,9 @@ def generate_pptx_ooxml(
             and isinstance(imported_slide.get("slideId"), str)
         ):
             slide["slideId"] = imported_slide["slideId"]
-    warnings = list(imported.warnings)
-    package_bytes = path.read_bytes()
+    warnings = list(
+        dict.fromkeys([*security_report.diagnostic_codes, *imported.warnings])
+    )
     add_imported_ooxml_capabilities(
         imported.blueprint,
         template_blueprint,
@@ -416,12 +437,12 @@ def generate_pptx_ooxml(
     ]
     assets.extend(imported.assets)
     if render:
-        slide_render_assets = render_pptx_to_png_assets(package_bytes, canvas)
+        slide_render_assets = render_pptx_to_png_assets(render_package_bytes, canvas)
         assets.extend(slide_render_assets)
         fallback_render_assets = slide_render_assets
         if blueprint_has_shape_fallbacks(imported.blueprint):
             fallback_render_assets = render_pptx_to_png_assets(
-                strip_text_from_pptx_package(package_bytes),
+                strip_text_from_pptx_package(render_package_bytes),
                 canvas,
             )
         assets.extend(
@@ -452,7 +473,7 @@ def generate_pptx_ooxml(
 
     if render:
         attach_notes_preview_assets(
-            package_bytes,
+            render_package_bytes,
             template_blueprint,
             quality_report,
             assets,
@@ -690,6 +711,8 @@ def sync_pptx_ooxml(
     render: bool = True,
 ) -> PptxOoxmlSyncResult:
     del synced_deck_version
+    source_package_bytes = path.read_bytes()
+    source_security_report = inspect_pptx_package(source_package_bytes)
 
     absent_notes_slide_ids = {
         str(slide.get("slideId", ""))
@@ -716,7 +739,7 @@ def sync_pptx_ooxml(
         applied_slide_motion,
         unsupported_slide_motion,
     ) = apply_patch_operations_to_package(
-        path.read_bytes(),
+        source_package_bytes,
         template_blueprint,
         operations,
         scale,
@@ -726,11 +749,20 @@ def sync_pptx_ooxml(
     assets = [
         package_asset("current_package", package_bytes, f"{safe_file_stem(path)}.pptx")
     ]
-    warnings: list[str] = patch_warnings
+    warnings: list[str] = [
+        *source_security_report.diagnostic_codes,
+        *patch_warnings,
+    ]
 
     if render:
+        render_package_bytes = sanitize_pptx_package_for_render(
+            package_bytes,
+            inspect_pptx_package(package_bytes),
+        )
         try:
-            assets.extend(render_pptx_to_png_assets(package_bytes, detect_canvas(path)))
+            assets.extend(
+                render_pptx_to_png_assets(render_package_bytes, detect_canvas(path))
+            )
         except PptxRenderUnavailableError as error:
             warnings.append(str(error))
         if any(
@@ -739,7 +771,7 @@ def sync_pptx_ooxml(
         ):
             assets.extend(
                 render_notes_preview_assets_for_sync(
-                    package_bytes,
+                    render_package_bytes,
                     template_blueprint,
                     warnings,
                 )
@@ -6818,21 +6850,47 @@ def render_pdf_to_png_assets(
     assets: list[ImportedDesignAsset] = []
     document = fitz.open(str(pdf_path))
     try:
+        if document.page_count <= 0 or document.page_count > SOURCE_RENDER_MAX_PAGES:
+            raise PptxRenderUnavailableError(
+                "PPTX_SOURCE_RENDER_PAGE_COUNT_LIMIT"
+            )
+        total_bytes = 0
         for page_index in range(document.page_count):
             page = document.load_page(page_index)
             matrix = fitz.Matrix(
                 canvas.width / float(page.rect.width),
                 canvas.height / float(page.rect.height),
             )
-            pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+            try:
+                png_bytes, pixel_width, pixel_height = (
+                    run_bitmap_decode_with_timeout(
+                        lambda: render_source_pdf_page_png(page, matrix),
+                        timeout_seconds=SOURCE_RENDER_DECODE_TIMEOUT_SECONDS,
+                        timeout_code="PPTX_SOURCE_RENDER_DECODE_TIMEOUT",
+                    )
+                )
+                validate_rendered_bitmap(
+                    png_bytes,
+                    width=pixel_width,
+                    height=pixel_height,
+                    max_dimension=SOURCE_RENDER_MAX_DIMENSION,
+                    max_bytes=SOURCE_RENDER_MAX_BYTES,
+                    dimension_code="PPTX_SOURCE_RENDER_DIMENSION_LIMIT",
+                    byte_code="PPTX_SOURCE_RENDER_BYTE_LIMIT",
+                )
+                total_bytes += len(png_bytes)
+                if total_bytes > SOURCE_RENDER_MAX_TOTAL_BYTES:
+                    raise PptxRenderResourceLimitError(
+                        "PPTX_SOURCE_RENDER_BYTE_LIMIT"
+                    )
+            except PptxRenderResourceLimitError as error:
+                raise PptxRenderUnavailableError(error.code) from error
             assets.append(
                 ImportedDesignAsset(
                     assetId=f"slide_render_{page_index + 1}",
                     fileName=f"slide-{page_index + 1:02d}.png",
                     mimeType="image/png",
-                    contentBase64=base64.b64encode(pixmap.tobytes("png")).decode(
-                        "ascii"
-                    ),
+                    contentBase64=base64.b64encode(png_bytes).decode("ascii"),
                 )
             )
     finally:
@@ -6840,6 +6898,11 @@ def render_pdf_to_png_assets(
     if not assets:
         raise PptxRenderUnavailableError("Rendered PDF has no pages.")
     return assets
+
+
+def render_source_pdf_page_png(page: Any, matrix: Any) -> tuple[bytes, int, int]:
+    pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+    return pixmap.tobytes("png"), int(pixmap.width), int(pixmap.height)
 
 
 def shape_fallback_assets(
@@ -6876,8 +6939,10 @@ def shape_fallback_assets(
 
         try:
             image_bytes = base64.b64decode(render_asset.content_base64)
-            with Image.open(BytesIO(image_bytes)) as source_image:
-                rendered = source_image.convert("RGBA")
+            rendered = decode_source_render_image(image_bytes)
+        except PptxRenderResourceLimitError as error:
+            warnings.append(error.code)
+            continue
         except Exception:
             warnings.append(
                 f"Shape image fallback skipped; slide render unreadable: {slide_index}"
@@ -6908,6 +6973,32 @@ def shape_fallback_assets(
             seen_asset_ids.add(asset_id)
 
     return assets
+
+
+def decode_source_render_image(image_bytes: bytes) -> Image.Image:
+    if not image_bytes or len(image_bytes) > SOURCE_RENDER_MAX_BYTES:
+        raise PptxRenderResourceLimitError("PPTX_SOURCE_RENDER_BYTE_LIMIT")
+
+    def decode() -> Image.Image:
+        with Image.open(BytesIO(image_bytes)) as source_image:
+            source_image.load()
+            return cast(Image.Image, source_image.convert("RGBA"))
+
+    rendered = run_bitmap_decode_with_timeout(
+        decode,
+        timeout_seconds=SOURCE_RENDER_DECODE_TIMEOUT_SECONDS,
+        timeout_code="PPTX_SOURCE_RENDER_DECODE_TIMEOUT",
+    )
+    validate_rendered_bitmap(
+        image_bytes,
+        width=rendered.width,
+        height=rendered.height,
+        max_dimension=SOURCE_RENDER_MAX_DIMENSION,
+        max_bytes=SOURCE_RENDER_MAX_BYTES,
+        dimension_code="PPTX_SOURCE_RENDER_DIMENSION_LIMIT",
+        byte_code="PPTX_SOURCE_RENDER_BYTE_LIMIT",
+    )
+    return rendered
 
 
 def blueprint_has_shape_fallbacks(blueprint: dict[str, Any]) -> bool:
