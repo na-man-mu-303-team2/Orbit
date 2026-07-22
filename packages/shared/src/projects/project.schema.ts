@@ -59,6 +59,7 @@ export const projectTagsSchema = z
 
 export const projectGenerationSummarySchema = z.object({
   jobId: z.string().min(1),
+  type: z.enum(["ai-deck-generation", "pptx-ooxml-generation"]),
   status: z.enum(["queued", "running"]),
   progress: z.number().int().min(0).max(100),
   message: z.string(),

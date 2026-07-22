@@ -96,7 +96,11 @@ export async function waitForSemanticCueExtractionJob(
 export async function waitForPptxOoxmlGenerationJob(
   jobId: string,
   fetcher: typeof fetch = fetch,
-  options: { pollIntervalMs?: number; timeoutMs?: number } = {}
+  options: {
+    onJob?: (job: Job) => void;
+    pollIntervalMs?: number;
+    timeoutMs?: number;
+  } = {}
 ): Promise<Job> {
   const pollIntervalMs = options.pollIntervalMs ?? 1200;
   const timeoutMs = options.timeoutMs ?? 120_000;
@@ -112,6 +116,7 @@ export async function waitForPptxOoxmlGenerationJob(
     }
 
     const job = jobSchema.parse(await response.json());
+    options.onJob?.(job);
     if (job.status === "succeeded" || job.status === "failed") {
       return job;
     }
@@ -278,6 +283,7 @@ export async function uploadAndImportPptxTemplate(
   options: {
     fetcher?: typeof fetch;
     importPreference?: PptxImportPreference;
+    onJob?: (job: Job) => void;
     onPhase?: (phase: "uploading" | "importing") => void;
     pollIntervalMs?: number;
     timeoutMs?: number;
@@ -298,7 +304,9 @@ export async function uploadAndImportPptxTemplate(
     options.importPreference,
     fetcher
   );
+  options.onJob?.(queuedJob);
   const job = await waitForPptxOoxmlGenerationJob(queuedJob.jobId, fetcher, {
+    onJob: options.onJob,
     pollIntervalMs: options.pollIntervalMs,
     timeoutMs: options.timeoutMs
   });
@@ -331,6 +339,7 @@ export async function importPptxIntoEditor(
   options: {
     fetcher?: typeof fetch;
     importPreference?: PptxImportPreference;
+    onJob?: (job: Job) => void;
     onPhase?: (phase: "uploading" | "importing") => void;
     pollIntervalMs?: number;
     timeoutMs?: number;
