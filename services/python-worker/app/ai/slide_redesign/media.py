@@ -67,6 +67,73 @@ def find_media_slots(compiled: CompiledComposition) -> list[MediaSlot]:
     return slots
 
 
+def collect_source_images(slide: dict[str, Any]) -> list[dict[str, Any]]:
+    """Collect existing image/svg elements from largest frame to smallest."""
+    elements = slide.get("elements")
+    if not isinstance(elements, list):
+        return []
+    sources = [
+        element
+        for element in elements
+        if isinstance(element, dict) and element.get("type") in {"image", "svg"}
+    ]
+    return sorted(
+        sources,
+        key=lambda element: _frame(element)[2] * _frame(element)[3],
+        reverse=True,
+    )
+
+
+def assign_media(
+    slots: list[MediaSlot],
+    sources: list[dict[str, Any]],
+) -> list[MediaAssignment] | None:
+    """Assign largest sources to largest slots without dropping any source."""
+    if len(sources) > len(slots):
+        return None
+    sorted_slots = sorted(
+        slots,
+        key=lambda slot: slot.width * slot.height,
+        reverse=True,
+    )
+    sorted_sources = sorted(
+        sources,
+        key=lambda element: _frame(element)[2] * _frame(element)[3],
+        reverse=True,
+    )
+    assignments: list[MediaAssignment] = []
+    for index, slot in enumerate(sorted_slots):
+        if index >= len(sorted_sources):
+            assignments.append(
+                MediaAssignment(
+                    slot=slot,
+                    source_element_id=None,
+                    needs_generation=True,
+                    fit="cover",
+                )
+            )
+            continue
+        source = sorted_sources[index]
+        source_id = source.get("elementId")
+        if not isinstance(source_id, str) or not source_id:
+            return None
+        _, _, width, height = _frame(source)
+        source_ratio = _aspect_ratio(width, height) if width > 0 and height > 0 else None
+        assignments.append(
+            MediaAssignment(
+                slot=slot,
+                source_element_id=source_id,
+                needs_generation=False,
+                fit=(
+                    "contain"
+                    if source_ratio == slot.aspect_ratio
+                    else "cover"
+                ),
+            )
+        )
+    return assignments
+
+
 def _aspect_ratio(width: float, height: float) -> AspectRatio:
     ratio = width / height
     if ratio > 1.2:
