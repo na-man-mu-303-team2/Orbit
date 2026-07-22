@@ -19,9 +19,9 @@
 
 ## 현재 작업 단계
 
-- 단계: PR3 전체 notes page render asset 생성
-- task branch: `feature/pptx-import-pr3-notes-render`
-- 상태: target branch `--no-ff` merge와 merge 후 notes renderer smoke test 완료
+- 단계: PR4 Worker Deck 조립과 notes asset 저장
+- task branch: `feature/pptx-import-pr4-worker-notes-assets`
+- 상태: target branch `--no-ff` merge와 merge 후 Worker notes mapping smoke test 완료, Checkpoint A 검증 대기
 
 ## 완료된 작업과 Commit
 
@@ -34,6 +34,7 @@
 | PR1 계약 문서                 | `57cbd3e1`  | `feature/pptx-import-pr1-contracts` | `38f0eb3e`   | `docs/contracts.md`, shared README와 실행 근거 정합화                                  |
 | PR2 notes body import         | `fa9cd147`  | `feature/pptx-import-pr2-notes-import` | `4d6a3b5f` | slide→notesSlide→notesMaster relationship 추적, body-only text와 locator 추출          |
 | PR3 notes page renderer       | `3870eccc`  | `feature/pptx-import-pr3-notes-render` | `3da81176` | notes-only PDF, notesSz bounded PNG, count/order proof와 fail-closed diagnostic         |
+| PR4 Worker notes 저장         | `8a3b6b84`  | `feature/pptx-import-pr4-worker-notes-assets` | `926d3721` | Deck speakerNotes 보존, preview file ID sidecar 연결과 저장 실패 bounded warning       |
 
 ## 실행한 검증
 
@@ -72,6 +73,13 @@
 | PR3 실제 실렌더       | 기준 PPTX full generation                                                           | 8/8 rendered, 8/8 asset mapping, package asset 1     |
 | PR3 수동 preview      | 기준 파일 notes page 1·4·8                                                          | slide image, body, master 장식, page number 확인     |
 | PR3 merge smoke       | generation notes 관련 test                                                          | 8 passed, 22 deselected                              |
+| PR4 RED               | Worker notes text 저장과 preview asset 실패 경계 대상 테스트                        | 구현 전 note 공백·Job 실패 확인                     |
+| PR4 processor test    | `pnpm exec vitest run src/pptx-ooxml-generation.processor.spec.ts`                  | 9 passed                                             |
+| PR4 Worker 전체       | `pnpm --filter @orbit/worker test -- pptx-ooxml-generation.processor.spec.ts`       | 383 passed, 14 skipped                               |
+| PR4 Worker lint       | `pnpm --filter @orbit/worker lint`                                                   | TypeScript no-emit 검사 통과                         |
+| PR4 Worker build      | `pnpm --filter @orbit/worker... build`                                               | workspace 의존 package와 Worker build 성공          |
+| PR4 8-slide mapping   | 8개 synthetic slide의 Deck note와 notes preview file ID 연결                        | body 8/8, preview 8/8, Job result note 원문 0        |
+| PR4 merge smoke       | 대상 processor spec                                                                 | 9 passed                                             |
 
 ## PR0 Renderer 측정과 결정
 
@@ -99,6 +107,7 @@
 - Target이 없는 notes relationship fixture는 `python-pptx`가 package 로드 단계에서 `InvalidXmlError`로 중단되므로, raw OOXML vector importer 경로에서 fail-closed diagnostic을 검증했다.
 - 기준 파일 full generation 첫 실행은 기존 slide renderer가 공유 LibreOffice profile을 사용해 exit 1로 실패했다. slide renderer에도 task별 격리 profile을 적용한 뒤 동일 호출에서 slide와 notes preview가 모두 생성됐다.
 - 실제 full generation 중 MuPDF가 PDF structure tree 관련 bounded 경고를 stderr에 냈지만 8 slide·8 notes asset 생성과 package 보존 검증은 통과했다.
+- PR4 별도 worktree의 첫 Worker lint는 workspace package의 `dist`가 없어 `Cannot find module '@orbit/shared'` 등으로 실패했다. 원본 worktree 의존성을 임시 연결하고 `pnpm --filter @orbit/worker... build`로 공통 package를 먼저 빌드한 뒤 같은 lint가 통과했다. 임시 링크·복사본·build 산출물은 검증 후 모두 제거했다.
 
 ## 계획 대비 변경과 근거
 
@@ -114,13 +123,15 @@
 - Runtime Konva SSIM은 CI 결과이며 production import report에서 측정값처럼 가장하지 않는다.
 - PR2는 notes body와 provenance만 가져오며 전체 notes page preview asset은 PR3에서 추가한다.
 - PR3 preview는 `notesSz` 비율의 최대 1280 px bitmap이며 page count가 전체 slide 수와 일치하고 source slide index가 순차적일 때만 매핑한다.
+- PR4는 `notes_render_<index>` asset 저장 실패만 선택적으로 허용한다. 이 경우 note text는 Deck에 남고 sidecar는 `render-unavailable`, quality report는 `PPTX_NOTES_PREVIEW_ASSET_FAILED` count로 수렴한다.
 
 ## 다음에 시작할 정확한 작업
 
-1. target branch의 clean 상태와 PR3 ledger commit을 확인한다.
-2. `feature/pptx-import-pr4-worker-notes-assets` task branch를 target branch HEAD에서 생성한다.
-3. Worker Deck 조립의 `speakerNotes: ""` 하드코딩을 Python 결과 연결로 바꾸고 notes preview asset을 `purpose=design-asset`으로 저장한다.
-4. notes asset 저장 실패가 note text import를 롤백하지 않는 bounded warning 경계와 기준 파일 8 body/8 asset 연결을 검증한다.
+1. PR4 ledger 갱신 커밋 후 target branch clean 상태를 확인한다.
+2. Checkpoint A에서 기준 파일 import 결과의 8개 speakerNotes 저장·재조회와 8개 preview file ID 연결을 검증한다.
+3. preview 미존재 경계에서도 Deck 저장과 기존 Editor contract가 유지되는지 검사한다.
+4. Deck/Job/TemplateBlueprint schema와 Job result·로그의 notes 원문 비노출을 증명한다.
+5. Checkpoint A를 통과하면 `feature/pptx-import-pr5-notes-preview-api`를 target branch HEAD에서 생성한다.
 
 ## 사용자 결정이 필요한 Blocker
 
