@@ -5,6 +5,8 @@ import {
   deckSchema,
   pptxOoxmlGenerationJobResultSchema,
   pptxOoxmlGenerationRequestSchema,
+  pptxOoxmlAssetTransportVersionSchema,
+  pptxOoxmlStoredAssetSchema,
   qualityReportSchema,
   slideTransitionSchema,
   slideStyleSchema,
@@ -17,21 +19,19 @@ import {
   type TemplateBlueprint,
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
-import { randomUUID } from "crypto";
 import type { DataSource, EntityManager } from "typeorm";
 import { z } from "zod";
+import {
+  createPptxOoxmlAssetRefs,
+  createPptxOoxmlStoragePrefix,
+  registerPptxOoxmlStoredAssets,
+  verifyPptxOoxmlStoredAssets,
+} from "./pptx-ooxml-stored-assets";
 
 const pptxOoxmlGenerationPayloadSchema = z.object({
   jobId: z.string().min(1),
   projectId: z.string().min(1),
   request: pptxOoxmlGenerationRequestSchema,
-});
-
-const generatedDesignAssetSchema = z.object({
-  assetId: z.string().min(1),
-  fileName: z.string().min(1),
-  mimeType: z.string().min(1),
-  contentBase64: z.string().min(1),
 });
 
 const ooxmlGenerationBlueprintSlideSchema = z
@@ -56,7 +56,8 @@ const pptxOoxmlGenerationWorkerResponseSchema = z.object({
   blueprint: ooxmlGenerationBlueprintSchema,
   templateBlueprint: templateBlueprintSchema,
   qualityReport: qualityReportSchema,
-  assets: z.array(generatedDesignAssetSchema).default([]),
+  assetTransport: pptxOoxmlAssetTransportVersionSchema,
+  assets: z.array(pptxOoxmlStoredAssetSchema).default([]),
   warnings: z.array(z.string()).default([]),
 });
 
@@ -66,11 +67,6 @@ type PptxOoxmlGenerationWorkerResponse = z.infer<
 type OoxmlGenerationBlueprint = PptxOoxmlGenerationWorkerResponse["blueprint"];
 type OoxmlTemplateBlueprint =
   PptxOoxmlGenerationWorkerResponse["templateBlueprint"];
-
-type SavedAssetRefs = {
-  fileIds: Map<string, string>;
-  urls: Map<string, string>;
-};
 
 type JobRow = {
   job_id: string;
@@ -101,7 +97,7 @@ const pptxMimeType =
 
 export async function processPptxOoxmlGenerationJob(
   dataSource: DataSource,
-  storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
+  storage: Pick<StoragePort, "getSignedReadUrl" | "headObject">,
   pythonWorkerUrl: string,
   rawPayload: unknown,
 ): Promise<Job> {
@@ -149,6 +145,7 @@ export async function processPptxOoxmlGenerationJob(
       storage,
       pythonWorkerUrl,
       asset,
+      createPptxOoxmlStoragePrefix(payload.projectId, payload.jobId),
     );
   } catch (error) {
     return failJob(
@@ -161,11 +158,18 @@ export async function processPptxOoxmlGenerationJob(
   }
 
   try {
-    const assetRefs = await saveGeneratedDesignAssets(
-      dataSource,
-      storage,
+    const storagePrefix = createPptxOoxmlStoragePrefix(
       payload.projectId,
-      generated,
+      payload.jobId,
+    );
+    await verifyPptxOoxmlStoredAssets(
+      storage,
+      storagePrefix,
+      generated.assets,
+    );
+    const assetRefs = createPptxOoxmlAssetRefs(
+      payload.projectId,
+      generated.assets,
     );
     const templateBlueprint =
       pptxOoxmlGenerationWorkerResponseSchema.shape.templateBlueprint.parse(
@@ -195,6 +199,11 @@ export async function processPptxOoxmlGenerationJob(
     );
 
     await dataSource.transaction(async (manager) => {
+      await registerPptxOoxmlStoredAssets(
+        manager,
+        payload.projectId,
+        generated.assets,
+      );
       await saveDeck(manager, deck);
       await saveTemplateBlueprint(
         manager,
@@ -275,6 +284,7 @@ async function generatePptxOoxmlWithPython(
   storage: Pick<StoragePort, "getSignedReadUrl">,
   pythonWorkerUrl: string,
   asset: ProjectAssetRow,
+  storagePrefix: string,
 ): Promise<PptxOoxmlGenerationWorkerResponse> {
   const readUrl = await storage.getSignedReadUrl(asset.storage_key);
   const sourceResponse = await fetch(readUrl);
@@ -284,6 +294,7 @@ async function generatePptxOoxmlWithPython(
 
   const form = new FormData();
   form.append("file_id", asset.file_id);
+  form.append("storage_prefix", storagePrefix);
   form.append(
     "file",
     new Blob([Buffer.from(await sourceResponse.arrayBuffer())], {
@@ -308,56 +319,6 @@ async function generatePptxOoxmlWithPython(
   }
 
   return pptxOoxmlGenerationWorkerResponseSchema.parse(await response.json());
-}
-
-async function saveGeneratedDesignAssets(
-  dataSource: DataSource,
-  storage: Pick<StoragePort, "putObject">,
-  projectId: string,
-  generated: PptxOoxmlGenerationWorkerResponse,
-): Promise<SavedAssetRefs> {
-  const refs: SavedAssetRefs = {
-    fileIds: new Map(),
-    urls: new Map(),
-  };
-
-  for (const asset of generated.assets) {
-    const fileId = `file_${randomUUID()}`;
-    const originalName = safeStorageName(asset.fileName);
-    const storageKey = `projects/${projectId}/assets/${fileId}-${originalName}`;
-    const body = Buffer.from(asset.contentBase64, "base64");
-    const url = createAssetContentUrl(projectId, fileId);
-
-    await storage.putObject({
-      key: storageKey,
-      body,
-      contentType: asset.mimeType,
-      purpose: "design-asset",
-    });
-    await dataSource.query(
-      `
-        INSERT INTO project_assets (
-          file_id, project_id, storage_key, original_name, mime_type, size, url,
-          purpose, status, created_at, uploaded_at, deleted_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'design-asset', 'uploaded', now(), now(), null)
-      `,
-      [
-        fileId,
-        projectId,
-        storageKey,
-        originalName,
-        asset.mimeType,
-        body.byteLength,
-        url,
-      ],
-    );
-
-    refs.fileIds.set(`asset:${asset.assetId}`, fileId);
-    refs.urls.set(`asset:${asset.assetId}`, url);
-  }
-
-  return refs;
 }
 
 function buildOoxmlDeck(
@@ -698,16 +659,6 @@ function workerUrl(baseUrl: string, path: string): string {
     path,
     baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`,
   ).toString();
-}
-
-function createAssetContentUrl(projectId: string, fileId: string): string {
-  return `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(
-    fileId,
-  )}/content`;
-}
-
-function safeStorageName(fileName: string): string {
-  return (fileName || "design-asset").replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 function safeId(value: string): string {

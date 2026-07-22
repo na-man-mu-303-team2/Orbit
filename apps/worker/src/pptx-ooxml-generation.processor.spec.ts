@@ -1,4 +1,5 @@
 import type { StoragePort } from "@orbit/storage";
+import { createHash } from "node:crypto";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { processPptxOoxmlGenerationJob } from "./pptx-ooxml-generation.processor";
@@ -14,15 +15,19 @@ const payload = {
   }
 };
 
-const storage: Pick<StoragePort, "getSignedReadUrl" | "putObject"> = {
+const storage: Pick<StoragePort, "getSignedReadUrl" | "headObject"> = {
   getSignedReadUrl: vi.fn(async () => "http://storage.local/template.pptx"),
-  putObject: vi.fn(async (input: { key: string; contentType: string }) => ({
-    key: input.key,
-    url: "http://storage.local/design-asset",
-    contentType: input.contentType,
-    purpose: "design-asset" as const,
-    size: 3
-  }))
+  headObject: vi.fn(async (key: string) => {
+    const digest = key.match(/\/([a-f0-9]{64})-/)?.[1];
+    const stored = digest ? storedContentByDigest.get(digest) : undefined;
+    return stored
+      ? {
+          contentLength: stored.content.byteLength,
+          contentType: stored.mimeType,
+          metadata: { "orbit-sha256": digest ?? "" }
+        }
+      : null;
+  })
 };
 
 function createTransactionalDataSource(query: ReturnType<typeof vi.fn>) {
@@ -55,6 +60,9 @@ describe("processPptxOoxmlGenerationJob", () => {
           )
         ];
       }
+      if (sql.includes("INSERT INTO project_assets")) {
+        return [{ file_id: params[0] as string }];
+      }
       if (sql.includes("FROM project_assets")) {
         return [
           {
@@ -84,8 +92,15 @@ describe("processPptxOoxmlGenerationJob", () => {
       }
       if (url.endsWith("/ai/pptx-ooxml-generation")) {
         const form = init?.body as FormData;
-        expect(Array.from(form.keys())).toEqual(["file_id", "file"]);
+        expect(Array.from(form.keys())).toEqual([
+          "file_id",
+          "storage_prefix",
+          "file"
+        ]);
         expect(form.get("file_id")).toBe("file_template");
+        expect(form.get("storage_prefix")).toBe(
+          "projects/project-a/jobs/job-ooxml/pptx-ooxml/"
+        );
         return new Response(JSON.stringify(workerResponse()));
       }
 
@@ -101,13 +116,7 @@ describe("processPptxOoxmlGenerationJob", () => {
     );
 
     expect(job.status, JSON.stringify(job.error)).toBe("succeeded");
-    expect(storage.putObject).toHaveBeenCalledTimes(3);
-    expect(storage.putObject).toHaveBeenCalledWith(
-      expect.objectContaining({ contentType: "image/png", purpose: "design-asset" })
-    );
-    expect(storage.putObject).toHaveBeenCalledWith(
-      expect.objectContaining({ contentType: pptxMimeType, purpose: "design-asset" })
-    );
+    expect(storage.headObject).toHaveBeenCalledTimes(3);
 
     const deck = insertedDecks[0] as {
       metadata: {
@@ -231,6 +240,9 @@ describe("processPptxOoxmlGenerationJob", () => {
           )
         ];
       }
+      if (sql.includes("INSERT INTO project_assets")) {
+        return [{ file_id: params[0] as string }];
+      }
       if (sql.includes("FROM project_assets")) {
         return [
           {
@@ -333,6 +345,9 @@ describe("processPptxOoxmlGenerationJob", () => {
             params[5] as { code: string; message: string } | null
           )
         ];
+      }
+      if (sql.includes("INSERT INTO project_assets")) {
+        return [{ file_id: params[0] as string }];
       }
       if (sql.includes("FROM project_assets")) {
         return [
@@ -643,25 +658,11 @@ function workerResponse() {
       ]
     },
     qualityReport: qualityReport(),
+    assetTransport: "storage-manifest-v1" as const,
     assets: [
-      {
-        assetId: "slide_render_1",
-        fileName: "slide-01.png",
-        mimeType: "image/png",
-        contentBase64: Buffer.from("png").toString("base64")
-      },
-      {
-        assetId: "current_package",
-        fileName: "template.pptx",
-        mimeType: pptxMimeType,
-        contentBase64: Buffer.from("pptx").toString("base64")
-      },
-      {
-        assetId: "image_1",
-        fileName: "image-01.png",
-        mimeType: "image/png",
-        contentBase64: Buffer.from("image").toString("base64")
-      }
+      storedAsset("slide_render_1", "slide-01.png", "image/png", "png"),
+      storedAsset("current_package", "template.pptx", pptxMimeType, "pptx"),
+      storedAsset("image_1", "image-01.png", "image/png", "image")
     ],
     warnings: ["media slot preserved"]
   };
@@ -702,12 +703,47 @@ function workerResponseWithUnresolvedFallback() {
 function workerResponseWithResolvedFallback() {
   const response = workerResponseWithUnresolvedFallback();
   response.assets.push({
-    assetId: "shape_render_1_slide_99",
-    fileName: "shape-render.png",
-    mimeType: "image/png",
-    contentBase64: Buffer.from("shape").toString("base64")
+    ...storedAsset(
+      "shape_render_1_slide_99",
+      "shape-render.png",
+      "image/png",
+      "shape"
+    )
   });
   return response;
+}
+
+const storedContentByDigest = new Map(
+  [
+    ["png", "image/png"],
+    ["pptx", pptxMimeType],
+    ["image", "image/png"],
+    ["shape", "image/png"]
+  ].map(([content, mimeType]) => {
+    const body = Buffer.from(content);
+    return [
+      createHash("sha256").update(body).digest("hex"),
+      { content: body, mimeType }
+    ] as const;
+  })
+);
+
+function storedAsset(
+  assetId: string,
+  fileName: string,
+  mimeType: string,
+  content: string
+) {
+  const body = Buffer.from(content);
+  const sha256 = createHash("sha256").update(body).digest("hex");
+  return {
+    assetId,
+    fileName,
+    mimeType,
+    storageKey: `projects/project-a/jobs/job-ooxml/pptx-ooxml/${sha256}-${fileName}`,
+    size: body.byteLength,
+    sha256
+  };
 }
 
 function jobRow(
