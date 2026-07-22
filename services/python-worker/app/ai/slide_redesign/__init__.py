@@ -33,6 +33,14 @@ from .composer import (
     eligible_candidates,
     select_composition,
 )
+from .diff import (
+    CandidateAnalysis,
+    ElementMatching,
+    analyze_candidate,
+    build_operations,
+    filter_safe_candidates,
+    match_elements,
+)
 
 __all__ = [
     "MEDIA_ELEMENT_TYPES",
@@ -63,4 +71,10 @@ __all__ = [
     "compile_redesign",
     "eligible_candidates",
     "select_composition",
+    "ElementMatching",
+    "CandidateAnalysis",
+    "analyze_candidate",
+    "build_operations",
+    "filter_safe_candidates",
+    "match_elements",
 ]

@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD after PR03 merge: `9b65efc1c0d4fd2d6d9b7417c8bc77177eba242d`
+- integration HEAD before PR04 merge: `61b3263d`
 - worktree: clean
 
 ## Baseline
@@ -26,14 +26,22 @@
 - 완료 milestone: PR00~PR03
 - PR03 integration merge: `9b65efc1c0d4fd2d6d9b7417c8bc77177eba242d`
 - 현재 milestone: PR04 — replacement draft와 원자적 검증
-- 활성 child branch/worktree: 없음
-- integration merge 후 검증:
+- 활성 child branch: `feature/slide-redesign-agent-v2-pr04-diff`
+- 활성 child worktree: `/private/tmp/orbit-slide-redesign-agent-v2-pr04-diff`
+- PR04 완료 checkpoint와 code commit:
+  - `3b10ee9b` — sourceElementId 기준 1:1·1:N·N:1 cardinality와 중복 문구 매칭
+  - `385500cb` — 제약·텍스트 보존 기반 후보별 안전성 필터
+  - `9a1deb55` — 순서·텍스트 불변·provenance 제거 Deck patch 생성
+  - `29189613` — 실제 M1 composition patch 라운드트립
+  - `08a97545` — 참조 없는 비가역 매핑 허용 회귀 보강
+- PR04 검증:
   - `uv run ruff check app/ai/slide_redesign tests/test_slide_redesign_*.py` — 통과
-  - `uv run mypy app` — 66 source files 통과
-  - `uv run pytest tests/test_slide_redesign_composer.py -q` — 59 passed
+  - `uv run mypy app` — 67 source files 통과
+  - `uv run pytest tests/test_slide_redesign_diff.py -q` — 17 passed
+- PR04 stop gate: T4.1~T4.17 통과, T4.16 실제 patch 라운드트립과 T4.17 sourceElementId cardinality 통과
 - 남은 stop gate: 없음
-- PR03 child 상태: clean worktree와 local branch 정리 완료
-- 다음 milestone: PR04 — replacement draft와 원자적 검증
+- child worktree: code commit 후 clean 예정
+- 다음 작업: PR04 integration merge와 merge 후 검증
 
 ## 완료 Milestone 기록
 
