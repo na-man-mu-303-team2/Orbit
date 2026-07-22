@@ -1002,6 +1002,9 @@ def effective_style_pack_id(
     if document_style:
         return document_style
 
+    if raw_input.design.visual_rhythm != "auto":
+        return ""
+
     plans = slide_plans or []
     text = " ".join(
         [
@@ -1014,6 +1017,7 @@ def effective_style_pack_id(
             raw_input.metadata.tone,
             *[slide_plan.title for slide_plan in plans],
             *[slide_plan.message for slide_plan in plans],
+            *[slide_plan.visual_intent.palette_hint for slide_plan in plans],
         ]
     ).casefold()
     slide_types = [slide_plan.slide_type for slide_plan in plans]
@@ -1029,6 +1033,15 @@ def effective_style_pack_id(
                 "cloud",
                 "database",
                 "api",
+                "speech",
+                "stt",
+                "audio",
+                "voice",
+                "language",
+                "언어",
+                "음성",
+                "오디오",
+                "방언",
                 "아키텍처",
                 "인프라",
                 "보안",
@@ -1070,6 +1083,14 @@ def effective_style_pack_id(
                 "feature",
                 "startup",
                 "saas",
+                "game",
+                "campaign",
+                "neon",
+                "ink",
+                "게임",
+                "캠페인",
+                "네온",
+                "잉크",
                 "제품",
                 "출시",
                 "기능",

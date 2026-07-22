@@ -2310,6 +2310,12 @@ def _diagram_orbit(
 ) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
+    duplicates_items = _message_duplicates_items(slide, items)
+    hub_text = (
+        str(slide.get("title", ""))
+        if duplicates_items
+        else str(slide.get("message", ""))
+    )
     hub_x, hub_y, hub_width, hub_height = 760, 424, 400, 272
     node_width = 400
     node_height = 160 if len(items) < 6 else 144
@@ -2361,7 +2367,7 @@ def _diagram_orbit(
                 order,
                 "orbit_hub",
                 "highlight",
-                textwrap.shorten(str(slide.get("message", "")), width=70, placeholder="..."),
+                textwrap.shorten(hub_text, width=70, placeholder="..."),
                 hub_x + 44,
                 hub_y + 44,
                 hub_width - 88,
@@ -2425,6 +2431,7 @@ def _editorial_media_band(
 ) -> tuple[list[Element], str]:
     order = direction.order
     items = _items(slide)
+    duplicates_items = _message_duplicates_items(slide, items)
     has_media = direction.asset_role != "none"
     elements = [_background(order, style), _title(order, slide, style)]
     if has_media:
@@ -2441,48 +2448,50 @@ def _editorial_media_band(
             )
         )
         message_y = 624
-        items_y = 752
-        item_height = 160
+        items_y = 624 if duplicates_items else 752
+        item_height = 288 if duplicates_items else 160
     else:
-        elements.append(
-            _rect(
-                order,
-                "editorial_band_field",
-                "decoration",
-                SAFE_X,
-                272,
-                SAFE_WIDTH,
-                288,
-                3,
-                style.focal,
-                radius=8,
+        if not duplicates_items:
+            elements.append(
+                _rect(
+                    order,
+                    "editorial_band_field",
+                    "decoration",
+                    SAFE_X,
+                    272,
+                    SAFE_WIDTH,
+                    288,
+                    3,
+                    style.focal,
+                    radius=8,
+                )
             )
-        )
         message_y = 320
-        items_y = 624
-        item_height = 256
+        items_y = 320 if duplicates_items else 624
+        item_height = 560 if duplicates_items else 256
     message_color = (
         style.text if has_media else _contrasting_text_color(style.focal, style.text)
     )
-    elements.append(
-        _text(
-            order,
-            "editorial_band_message",
-            "highlight",
-            str(slide.get("message", "")),
-            SAFE_X + (0 if has_media else 48),
-            message_y,
-            SAFE_WIDTH - (0 if has_media else 96),
-            96 if has_media else 192,
-            5,
-            message_color,
-            max(40, style.body_size + 8),
-            "bold",
-            style.heading_font,
-            align="center" if not has_media else "left",
-            vertical="middle",
+    if not duplicates_items:
+        elements.append(
+            _text(
+                order,
+                "editorial_band_message",
+                "highlight",
+                str(slide.get("message", "")),
+                SAFE_X + (0 if has_media else 48),
+                message_y,
+                SAFE_WIDTH - (0 if has_media else 96),
+                96 if has_media else 192,
+                5,
+                message_color,
+                max(40, style.body_size + 8),
+                "bold",
+                style.heading_font,
+                align="center" if not has_media else "left",
+                vertical="middle",
+            )
         )
-    )
     gap = 24
     item_width = (SAFE_WIDTH - gap * (len(items) - 1)) // len(items)
     for index, (identifier, value) in enumerate(items):
@@ -2520,7 +2529,13 @@ def _editorial_media_band(
                 ),
             ]
         )
-    focal = "media_placeholder" if has_media else "editorial_band_message"
+    focal = (
+        "media_placeholder"
+        if has_media
+        else "editorial_band_item_1"
+        if duplicates_items
+        else "editorial_band_message"
+    )
     return elements, _id(order, focal)
 
 

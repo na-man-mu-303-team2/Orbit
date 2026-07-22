@@ -1327,7 +1327,6 @@ def golden_element_ids() -> list[list[str]]:
             "el_2_program_v2_title",
             "el_2_program_v2_media_placeholder",
             "el_2_program_v2_media_caption",
-            "el_2_program_v2_editorial_band_message",
             "el_2_program_v2_editorial_band_rule_1",
             "el_2_program_v2_editorial_band_item_1",
             "el_2_program_v2_editorial_band_rule_2",
@@ -1407,8 +1406,6 @@ def golden_element_ids() -> list[list[str]]:
         ],
         [
             "el_8_program_v2_title",
-            "el_8_program_v2_editorial_band_field",
-            "el_8_program_v2_editorial_band_message",
             "el_8_program_v2_editorial_band_rule_1",
             "el_8_program_v2_editorial_band_item_1",
             "el_8_program_v2_editorial_band_rule_2",

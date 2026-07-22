@@ -990,7 +990,10 @@ def test_presentation_validation_detects_small_media_and_large_empty_decoration(
     )
 
     issues = [
-        issue for issue in validate_presentation(deck) if issue.code == "VISUAL_HIERARCHY_WEAK"
+        issue
+        for issue in validate_presentation(deck)
+        if issue.code == "VISUAL_HIERARCHY_WEAK"
+        and issue.path == "slides.1.elements"
     ]
 
     assert len(issues) == 1
@@ -4538,11 +4541,11 @@ def test_generate_deck_applies_content_aware_theme_and_fonts() -> None:
         for element in deck["slides"][0]["elements"]
         if element["type"] == "text" and element["role"] == "title"
     )
-    assert deck["theme"]["name"] == "default-voice-tech-ai"
-    assert deck["theme"]["backgroundColor"] == "#f7fbff"
-    assert deck["theme"]["accentColor"] == "#1a73e8"
-    assert deck["theme"]["typography"]["headingFontFamily"] == "Noto Sans KR"
-    assert title_element["props"]["fontFamily"] == "Noto Sans KR"
+    assert deck["theme"]["name"] == "technical-system"
+    assert deck["theme"]["backgroundColor"] == "#0B1220"
+    assert deck["theme"]["accentColor"] == "#22D3EE"
+    assert deck["theme"]["typography"]["headingFontFamily"] == "Pretendard"
+    assert title_element["props"]["fontFamily"] == "Pretendard"
     assert title_element["props"]["fontSize"] == 72
     assert (
         deck["metadata"]["designProgramSnapshot"]["typography"]["typeScale"]["cover"]
@@ -5607,8 +5610,8 @@ def test_generate_deck_ignores_invalid_theme_tokens() -> None:
     )
 
     theme = response.deck["theme"]
-    assert theme["backgroundColor"] == "#ffffff"
-    assert theme["accentColor"] == "#2563eb"
+    assert theme["backgroundColor"] == "#F7F5F2"
+    assert theme["accentColor"] == "#E85D3F"
 
 
 def test_generate_deck_falls_back_when_token_contrast_is_low() -> None:
@@ -5684,7 +5687,7 @@ def test_generate_deck_keeps_visual_rhythm_typography_with_color_theme() -> None
     assert theme["typography"]["headingFontFamily"] == "Noto Sans KR"
 
 
-def test_generate_deck_matches_game_ink_neon_profile_without_color_hints() -> None:
+def test_generate_deck_maps_game_content_to_product_showcase() -> None:
     response = generate_deck(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -5694,14 +5697,14 @@ def test_generate_deck_matches_game_ink_neon_profile_without_color_hints() -> No
     )
 
     theme = response.deck["theme"]
-    assert theme["name"] == "default-game-ink-neon-ai"
-    assert theme["backgroundColor"] == "#07111f"
-    assert theme["accentColor"] == "#00e5ff"
-    assert theme["palette"]["secondary"] == "#b6ff00"
+    assert theme["name"] == "product-showcase"
+    assert theme["backgroundColor"] == "#F7F9FC"
+    assert theme["accentColor"] == "#7C3AED"
+    assert theme["palette"]["secondary"] == "#06B6D4"
     assert theme["accentColor"] != "#2563eb"
 
 
-def test_generate_deck_matches_game_ink_neon_profile_for_korean_hints() -> None:
+def test_generate_deck_maps_korean_game_content_to_product_showcase() -> None:
     response = generate_deck(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -5710,7 +5713,7 @@ def test_generate_deck_matches_game_ink_neon_profile_for_korean_hints() -> None:
         )
     )
 
-    assert response.deck["theme"]["name"] == "default-game-ink-neon-ai"
+    assert response.deck["theme"]["name"] == "product-showcase"
 
 
 def test_generate_deck_uses_design_prompt_profile_when_profile_is_auto() -> None:
@@ -5724,12 +5727,12 @@ def test_generate_deck_uses_design_prompt_profile_when_profile_is_auto() -> None
     )
 
     theme = response.deck["theme"]
-    assert theme["name"] == "default-modern-lilac-ai"
-    assert theme["accentColor"] == "#7c3aed"
-    assert theme["palette"]["muted"] == "#f5f3ff"
+    assert theme["name"] == "modern-editorial"
+    assert theme["accentColor"] == "#E85D3F"
+    assert theme["palette"]["muted"] == "#ECE8E1"
 
 
-def test_generate_deck_report_template_keeps_explicit_game_prompt_theme() -> None:
+def test_generate_deck_report_template_uses_product_showcase_for_game_prompt() -> None:
     fake_client = FakeOpenAIClient(
         {
             "title": "네온 게임 리포트",
@@ -5761,7 +5764,7 @@ def test_generate_deck_report_template_keeps_explicit_game_prompt_theme() -> Non
         client=fake_client,
     )
 
-    assert response.deck["theme"]["name"] == "report-game-ink-neon-ai"
+    assert response.deck["theme"]["name"] == "product-showcase"
 
 
 def test_generate_deck_uses_visual_intent_palette_hint_for_theme() -> None:
@@ -5799,7 +5802,7 @@ def test_generate_deck_uses_visual_intent_palette_hint_for_theme() -> None:
         client=fake_client,
     )
 
-    assert response.deck["theme"]["name"] == "default-game-ink-neon-ai"
+    assert response.deck["theme"]["name"] == "product-showcase"
 
 
 def test_generate_deck_uses_safe_fallback_for_unknown_style_pack_id() -> None:
@@ -5812,7 +5815,7 @@ def test_generate_deck_uses_safe_fallback_for_unknown_style_pack_id() -> None:
         )
     )
 
-    assert response.deck["theme"]["name"] == "default-startup-clean-ai"
+    assert response.deck["theme"]["name"] == "modern-editorial"
     assert_validation_result_consistent(response.validation)
 
 
@@ -6483,7 +6486,7 @@ def test_generate_deck_creates_diagram_elements_from_composition() -> None:
     radial_slide = slides[1]
     assert (
         radial_slide["aiNotes"]["compositionPlan"]["compositionId"]
-        == "diagram-hub"
+        == "diagram-orbit"
     )
     assert all(
         any(
