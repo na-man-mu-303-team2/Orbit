@@ -8,7 +8,7 @@
 - worktree: `/private/tmp/orbit-slide-redesign-agent-v2`
 - base: `origin/develop` (`b0f7cc8d`)
 - bootstrap commit: `c01b32fd`
-- integration HEAD before PR02 merge: `5cbe31b2`
+- integration HEAD after PR02 merge: `9172954595a5bc37fffcdeda7411499db3890219`
 - worktree: clean
 
 ## Baseline
@@ -23,8 +23,9 @@
 
 ## Milestone 상태
 
-- 완료 milestone: PR00~PR01
-- 현재 milestone: PR02 — 슬라이드 해석기와 provenance (child 검증 완료, integration merge 대기)
+- 완료 milestone: PR00~PR02
+- PR02 integration merge: `9172954595a5bc37fffcdeda7411499db3890219`
+- 현재 milestone: PR03 — composition 후보와 M1 palette
 - 활성 child branch: `feature/slide-redesign-agent-v2-pr02-extractor`
 - 활성 child worktree: `/private/tmp/orbit-slide-redesign-agent-v2-pr02-extractor`
 - PR02 완료 checkpoint와 code commit:
@@ -38,7 +39,12 @@
   - `uv run pytest tests/test_slide_redesign_extractor.py -v` — 19 passed
 - PR02 stop gate: T2.1~T2.12 통과, contentItemId 전역 유일성 및 composition `_items()` 호환 통과
 - child worktree: code commit 후 clean
-- 남은 stop gate: integration merge 후 PR02 focused gate 재실행
+- integration merge 후 검증:
+  - `uv run ruff check app/ai/slide_redesign tests/test_slide_redesign_*.py` — 통과
+  - `uv run mypy app` — 64 source files 통과
+  - `uv run pytest tests/test_slide_redesign_extractor.py -v` — 19 passed
+- 남은 stop gate: 없음
+- PR02 child 상태: integration merge 완료, progress commit 후 clean worktree 정리 예정
 - 다음 milestone: PR03 — composition 후보와 M1 palette
 
 ## 완료 Milestone 기록
