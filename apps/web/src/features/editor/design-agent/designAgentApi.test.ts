@@ -44,6 +44,51 @@ describe("design agent message API", () => {
       intentPreset: "tidy-layout",
     });
   });
+
+  it("preserves the explicit palette request and selected option in JSON", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const createdAt = "2026-07-18T00:00:00.000Z";
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(JSON.stringify({
+        sessionId: "design_session_1",
+        requestMessage: designMessage("request_palette", "user", "리디자인", createdAt),
+        responseMessage: designMessage("response_palette", "assistant", "확인했습니다.", createdAt),
+        uiAction: null,
+      }), { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const context = {
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      canvas: deck.canvas,
+      slide,
+      selectedElementIds: [],
+      theme: deck.theme,
+    };
+
+    await createDesignAgentMessage(deck.projectId, {
+      content: "리디자인",
+      intentPreset: "redesign-slide",
+      selectedPaletteOptionId: null,
+      context,
+    });
+    await createDesignAgentMessage(deck.projectId, {
+      sessionId: "design_session_1",
+      content: "리디자인",
+      intentPreset: "redesign-slide",
+      selectedPaletteOptionId: "current-theme",
+      context,
+    });
+
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({
+      selectedPaletteOptionId: null,
+    });
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({
+      sessionId: "design_session_1",
+      selectedPaletteOptionId: "current-theme",
+    });
+  });
 });
 
 describe("design proposal apply API", () => {

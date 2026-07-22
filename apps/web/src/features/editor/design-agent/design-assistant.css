@@ -83,6 +83,158 @@
   background: var(--redesign-color-surface-container);
 }
 
+.design-palette-options {
+  display: grid;
+  gap: var(--redesign-space-3);
+  margin: 0 var(--redesign-space-4) var(--redesign-space-3);
+  padding: var(--redesign-space-3);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface-container);
+}
+
+.design-palette-options-heading {
+  display: grid;
+  gap: var(--redesign-space-1);
+}
+
+.design-palette-options-heading h2,
+.design-palette-options-heading p {
+  margin: 0;
+}
+
+.design-palette-options-heading h2 {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-title-md-size);
+  line-height: var(--redesign-type-title-md-line-height);
+}
+
+.design-palette-options-heading p,
+.design-palette-option-rationale {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: var(--redesign-type-body-sm-line-height);
+}
+
+.design-palette-options fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.design-palette-options-legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.design-palette-options-list {
+  display: grid;
+  gap: var(--redesign-space-2);
+}
+
+.design-palette-option {
+  align-items: center;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--redesign-space-3);
+  min-height: var(--redesign-size-control-lg);
+  padding: var(--redesign-space-2) var(--redesign-space-3);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-surface-container-high);
+  cursor: pointer;
+  transition: var(--redesign-transition-color);
+}
+
+.design-palette-option:hover,
+.design-palette-option.selected {
+  border-color: var(--redesign-color-primary-outline);
+  background: var(--redesign-color-primary-subtle);
+}
+
+.design-palette-option:focus-within {
+  outline: var(--redesign-border-active);
+  outline-offset: var(--redesign-space-1);
+}
+
+.design-palette-option input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--redesign-color-primary);
+}
+
+.design-palette-option-copy {
+  display: grid;
+  gap: var(--redesign-space-1);
+  min-width: 0;
+}
+
+.design-palette-option-title {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--redesign-space-1);
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-md-size);
+}
+
+.design-palette-option-title > span {
+  padding: 0 var(--redesign-space-1);
+  border-radius: var(--redesign-radius-sm);
+  background: var(--redesign-color-surface-container-highest);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 600;
+}
+
+.design-palette-option-title > .design-palette-option-selected {
+  background: var(--redesign-color-primary-container);
+  color: var(--redesign-color-on-primary-container);
+}
+
+.design-palette-swatches {
+  display: grid;
+  grid-template-columns: repeat(3, 20px);
+  overflow: hidden;
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-sm);
+}
+
+.design-palette-swatches > span {
+  width: 20px;
+  height: 32px;
+}
+
+.design-palette-options-confirm {
+  min-height: var(--redesign-size-control-md);
+  padding: 0 var(--redesign-space-3);
+  border: 1px solid var(--redesign-color-primary);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 700;
+}
+
+.design-palette-options-confirm:focus-visible {
+  outline: var(--redesign-border-active);
+  outline-offset: var(--redesign-space-1);
+}
+
+.design-palette-options-confirm:disabled,
+.design-palette-options fieldset:disabled .design-palette-option {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
 .design-proposal-compare-card {
   display: grid;
   gap: var(--redesign-space-3);
