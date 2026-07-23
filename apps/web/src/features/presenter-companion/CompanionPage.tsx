@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { PresentationCompanionBootstrap } from "@orbit/shared";
 import {
+  IconAlertCircle,
+  IconDeviceIpadHorizontal,
+  IconLoader2,
+} from "@tabler/icons-react";
+import {
   exchangePresenterCompanionPairing,
   fetchPresenterCompanionBootstrap,
 } from "./presenterCompanionApi";
@@ -83,7 +88,9 @@ export function CompanionShell(props: {
   if (props.error) {
     return (
       <main className="presenter-companion-page">
-        <section role="alert">
+        <CompanionHeader state="error" statusLabel="연결 확인 필요" />
+        <section className="presenter-companion-shell-message" role="alert">
+          <IconAlertCircle aria-hidden="true" size={34} />
           <h1>iPad 연결을 확인해주세요</h1>
           <p>{props.error}</p>
         </section>
@@ -93,7 +100,13 @@ export function CompanionShell(props: {
   if (!props.bootstrap) {
     return (
       <main className="presenter-companion-page">
-        <section role="status">
+        <CompanionHeader state="loading" statusLabel="연결 중" />
+        <section className="presenter-companion-shell-message" role="status">
+          <IconLoader2
+            aria-hidden="true"
+            className="presenter-companion-spinner"
+            size={34}
+          />
           <h1>iPad 발표 도우미 연결 중</h1>
           <p>안전한 발표 화면을 준비하고 있습니다.</p>
         </section>
@@ -124,19 +137,26 @@ function ConnectedCompanionShell(props: {
 
   return (
     <main className="presenter-companion-page">
-      <header>
-        <span>{getPurposeLabel(props.bootstrap.sessionPurpose)}</span>
-        <strong>iPad 발표 도우미</strong>
-        <span role="status">
-          {companion.annotationRecovering
+      <CompanionHeader
+        purposeLabel={getPurposeLabel(props.bootstrap.sessionPurpose)}
+        state={
+          companion.annotationRecovering
+            ? "recovering"
+            : companion.status === "connected"
+              ? "connected"
+              : "loading"
+        }
+        statusLabel={
+          companion.annotationRecovering
             ? "다시 동기화 중"
             : companion.status === "connected"
               ? "연결됨"
-              : "연결 확인 중"}
-        </span>
-      </header>
+              : "연결 확인 중"
+        }
+      />
       {companion.error ? (
-        <section role="alert">
+        <section className="presenter-companion-shell-message" role="alert">
+          <IconAlertCircle aria-hidden="true" size={34} />
           <h1>iPad 연결을 확인해주세요</h1>
           <p>{companion.error}</p>
         </section>
@@ -177,5 +197,31 @@ function ConnectedCompanionShell(props: {
         </div>
       )}
     </main>
+  );
+}
+
+function CompanionHeader(props: {
+  purposeLabel?: string;
+  state: "connected" | "error" | "loading" | "recovering";
+  statusLabel: string;
+}) {
+  return (
+    <header className="presenter-companion-shell-header">
+      <span className="presenter-companion-shell-brand">
+        <IconDeviceIpadHorizontal aria-hidden="true" size={22} />
+        <strong>iPad 발표 도우미</strong>
+      </span>
+      <span className="presenter-companion-shell-context">
+        {props.purposeLabel ?? "발표 화면"}
+      </span>
+      <span
+        className="presenter-companion-shell-status"
+        data-state={props.state}
+        role="status"
+      >
+        <span aria-hidden="true" />
+        {props.statusLabel}
+      </span>
+    </header>
   );
 }

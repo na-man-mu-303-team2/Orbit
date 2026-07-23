@@ -20,6 +20,7 @@ import {
   type ActiveCompanionPointer,
 } from "./companionPointerInput";
 import {
+  companionStrokeWidthOptions,
   CompanionToolbar,
   type CompanionDrawingTool,
   type CompanionInkColor,
@@ -35,6 +36,37 @@ type ActiveStroke = {
   startedAt: number;
   strokeId: string;
 };
+
+export function createCompanionStrokeStart(input: {
+  clientOperationId: string;
+  color: CompanionInkColor;
+  point: PresentationCompanionPoint;
+  strokeId: string;
+  tool: "highlighter" | "pen";
+  width: number;
+}): {
+  command: CompanionAnnotationCommandInput;
+  localStroke: PresentationCompanionStroke;
+} {
+  return {
+    command: {
+      kind: "stroke-begin",
+      clientOperationId: input.clientOperationId,
+      strokeId: input.strokeId,
+      tool: input.tool,
+      color: input.color,
+      width: input.width,
+      point: input.point,
+    },
+    localStroke: {
+      strokeId: input.strokeId,
+      tool: input.tool,
+      color: input.color,
+      width: input.width,
+      points: [input.point],
+    },
+  };
+}
 
 export function CompanionAnnotationCanvas(props: {
   annotation: PresentationCompanionAnnotationSnapshot | null;
@@ -54,6 +86,10 @@ export function CompanionAnnotationCanvas(props: {
   const activeStrokeRef = useRef<ActiveStroke | null>(null);
   const [tool, setTool] = useState<CompanionDrawingTool>("pen");
   const [color, setColor] = useState<CompanionInkColor>("ink-blue");
+  const [widths, setWidths] = useState({
+    highlighter: 0.025,
+    pen: 0.008,
+  });
   const [localStrokes, setLocalStrokes] = useState<
     PresentationCompanionStroke[]
   >([]);
@@ -71,6 +107,12 @@ export function CompanionAnnotationCanvas(props: {
     !props.canWrite ||
     !props.connected ||
     props.output.outputMode === "black";
+  const selectedWidth =
+    tool === "highlighter" ? widths.highlighter : widths.pen;
+  const widthOptions =
+    tool === "highlighter"
+      ? companionStrokeWidthOptions.highlighter
+      : companionStrokeWidthOptions.pen;
   const acceptedStrokes = props.annotation?.strokes ?? [];
   const visibleStrokes = useMemo(() => {
     const accepted = clearOptimistic
@@ -237,17 +279,15 @@ export function CompanionAnnotationCanvas(props: {
     }
 
     const strokeId = createOpaqueId("stroke");
-    if (
-      !send({
-        kind: "stroke-begin",
-        clientOperationId: createOpaqueId("op"),
-        strokeId,
-        tool,
-        color,
-        width: tool === "highlighter" ? 0.025 : 0.008,
-        point: first,
-      })
-    ) {
+    const strokeStart = createCompanionStrokeStart({
+      clientOperationId: createOpaqueId("op"),
+      color,
+      point: first,
+      strokeId,
+      tool,
+      width: selectedWidth,
+    });
+    if (!send(strokeStart.command)) {
       return;
     }
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -264,13 +304,7 @@ export function CompanionAnnotationCanvas(props: {
     };
     setLocalStrokes((current) => [
       ...current,
-      {
-        strokeId,
-        tool,
-        color,
-        width: tool === "highlighter" ? 0.025 : 0.008,
-        points: [first],
-      },
+      strokeStart.localStroke,
     ]);
   };
   const handlePointerMove = (
@@ -429,7 +463,13 @@ export function CompanionAnnotationCanvas(props: {
         onColorChange={setColor}
         onToolChange={setTool}
         onUndo={handleUndo}
+        onWidthChange={(width) => {
+          if (tool !== "pen" && tool !== "highlighter") return;
+          setWidths((current) => ({ ...current, [tool]: width }));
+        }}
         tool={tool}
+        width={selectedWidth}
+        widthOptions={widthOptions}
       />
     </>
   );

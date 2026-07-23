@@ -5140,6 +5140,7 @@ export function RehearsalWorkspace(props: {
               projectId={deck.projectId}
               sessionId={companionSession.sessionId}
               sessionPurpose={companionSession.sessionPurpose}
+              variant="preflight"
             />
           ) : undefined
         }

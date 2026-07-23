@@ -31,5 +31,6 @@ describe("PresentationMicCheckModal", () => {
     );
 
     expect(html).toContain("비공개 iPad 입력 테스트");
+    expect(html).toContain("rehearsal-mic-modal-with-companion");
   });
 });

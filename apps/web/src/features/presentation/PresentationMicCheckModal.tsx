@@ -171,7 +171,11 @@ export function PresentationMicCheckModal(props: {
       <section
         aria-labelledby="presentation-mic-title"
         aria-modal="true"
-        className="rehearsal-mic-modal"
+        className={`rehearsal-mic-modal${
+          props.companionSetup
+            ? " rehearsal-mic-modal-with-companion"
+            : ""
+        }`}
         role="dialog"
       >
         <div className="rehearsal-mic-modal-scroll">

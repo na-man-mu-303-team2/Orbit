@@ -1,49 +1,32 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  IconDeviceTablet,
+  IconLink,
+  IconLinkOff,
+} from "@tabler/icons-react";
+import { useState } from "react";
 import type {
   PresentationCompanionStatus as CompanionStatus,
   PresentationSessionPurpose,
 } from "@orbit/shared";
+import { disconnectPresenterCompanion } from "./presenterCompanionApi";
 import {
-  disconnectPresenterCompanion,
-  fetchPresenterCompanionStatus,
-} from "./presenterCompanionApi";
-import { PresenterCompanionSetup, getPurposeLabel } from "./PresenterCompanionSetup";
-
-const statusPollIntervalMs = 3_000;
+  PresenterCompanionSetup,
+  getPurposeLabel,
+} from "./PresenterCompanionSetup";
+import { usePresenterCompanionStatus } from "./usePresenterCompanionStatus";
 
 export function PresenterCompanionStatus(props: {
   projectId: string;
   sessionId: string;
   sessionPurpose: PresentationSessionPurpose;
 }) {
-  const [status, setStatus] = useState<CompanionStatus | null>(null);
-  const [statusUnavailable, setStatusUnavailable] = useState(false);
+  const statusController = usePresenterCompanionStatus(props);
   const [showPairing, setShowPairing] = useState(false);
-
-  const refresh = useCallback(async () => {
-    try {
-      setStatus(
-        await fetchPresenterCompanionStatus({
-          projectId: props.projectId,
-          sessionId: props.sessionId,
-        }),
-      );
-      setStatusUnavailable(false);
-    } catch {
-      setStatusUnavailable(true);
-    }
-  }, [props.projectId, props.sessionId]);
-
-  useEffect(() => {
-    void refresh();
-    const interval = window.setInterval(() => void refresh(), statusPollIntervalMs);
-    return () => window.clearInterval(interval);
-  }, [refresh]);
 
   async function disconnect() {
     try {
       await disconnectPresenterCompanion(props);
-      setStatus({
+      statusController.setStatus({
         connected: false,
         connectedAt: null,
         pairingGeneration: null,
@@ -51,28 +34,60 @@ export function PresenterCompanionStatus(props: {
       });
       setShowPairing(false);
     } catch {
-      setStatusUnavailable(true);
+      void statusController.refresh();
     }
   }
+
+  const connected = statusController.status?.connected === true;
+  const state = statusController.statusUnavailable
+    ? "unavailable"
+    : connected
+      ? "connected"
+      : "waiting";
 
   return (
     <section
       aria-label="iPad 발표 도우미 상태"
       className="presenter-companion-status"
+      data-state={state}
     >
+      <span
+        aria-hidden="true"
+        className="presenter-companion-status-dot"
+      />
       <div>
-        <strong>{getPurposeLabel(props.sessionPurpose)} · iPad</strong>
-        <span>{getStatusLabel(status, statusUnavailable)}</span>
+        <strong>
+          <IconDeviceTablet aria-hidden="true" size={17} />
+          {getPurposeLabel(props.sessionPurpose)} · iPad
+        </strong>
+        <span>
+          {getStatusLabel(
+            statusController.status,
+            statusController.statusUnavailable,
+          )}
+        </span>
       </div>
-      <button type="button" onClick={() => setShowPairing((value) => !value)}>
-        {status?.connected ? "다른 iPad 연결" : "iPad 연결"}
+      <button
+        aria-expanded={showPairing}
+        type="button"
+        onClick={() => setShowPairing((value) => !value)}
+      >
+        <IconLink aria-hidden="true" size={16} />
+        {connected ? "기기 교체" : "iPad 연결"}
       </button>
-      {status?.connected ? (
+      {connected ? (
         <button type="button" onClick={() => void disconnect()}>
+          <IconLinkOff aria-hidden="true" size={16} />
           연결 해제
         </button>
       ) : null}
-      {showPairing ? <PresenterCompanionSetup {...props} /> : null}
+      {showPairing ? (
+        <PresenterCompanionSetup
+          {...props}
+          statusController={statusController}
+          variant="popover"
+        />
+      ) : null}
     </section>
   );
 }

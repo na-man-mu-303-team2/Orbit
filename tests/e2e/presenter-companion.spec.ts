@@ -38,6 +38,10 @@ test.describe("iPad presenter companion pairing", () => {
 
     await expect(page.getByRole("heading", { name: "발표 자료" })).toBeVisible();
     await expect(page.getByText("발표자 화면 연결을 기다리고 있습니다.")).toBeVisible();
+    await expect(page.getByText("iPad 발표 도우미")).toBeVisible();
+    await expect(
+      page.locator(".presenter-companion-shell-status"),
+    ).toBeVisible();
     await expect(page).toHaveURL(/\/companion\/session_companion_1$/);
     expect(page.url()).not.toContain("one-time-private-code");
     expect(exchangeCount).toBe(1);
@@ -61,6 +65,8 @@ test.describe("iPad presenter companion pairing", () => {
     await expect(page.getByRole("alert")).toContainText(
       "연결 코드가 만료되었거나 이미 사용되었습니다.",
     );
+    await expect(page.getByText("iPad 발표 도우미")).toBeVisible();
+    await expect(page.getByText("연결 확인 필요")).toBeVisible();
     expect(page.url()).not.toContain("expired-private-code");
   });
 
@@ -112,6 +118,7 @@ test.describe("iPad presenter companion pairing", () => {
     await page.goto("/companion/session_rehearsal");
 
     await expect(page.getByText("리허설")).toBeVisible();
+    await expect(page.getByText("iPad 발표 도우미")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("speakerNotes");
     await expect(page.locator("body")).not.toContainText("transcript");
   });

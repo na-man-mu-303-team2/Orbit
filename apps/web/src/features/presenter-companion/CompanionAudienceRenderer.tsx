@@ -11,6 +11,7 @@ import {
   type SurfaceRect,
   type SurfaceSize,
 } from "./surfaceGeometry";
+import { calculateCompanionRendererScale } from "./companionRendererScale";
 
 export function CompanionAudienceRenderer(props: {
   deck: CompanionDeckSnapshot;
@@ -115,9 +116,10 @@ function useCompanionRendererScale(canvas: {
 }) {
   const getScale = () => {
     if (typeof window === "undefined") return 1;
-    const width = Math.max(1, window.innerWidth);
-    const height = Math.max(1, window.innerHeight - 72);
-    return Math.min(width / canvas.width, height / canvas.height);
+    return calculateCompanionRendererScale(canvas, {
+      height: window.innerHeight,
+      width: window.innerWidth,
+    });
   };
   const [scale, setScale] = useState(getScale);
 

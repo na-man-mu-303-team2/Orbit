@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   PresenterCompanionSetup,
   PrivateDeviceCheckPad,
@@ -31,6 +31,54 @@ describe("PresenterCompanionSetup", () => {
     );
     expect(getPurposeLabel("presentation")).toBe("실전 발표");
     expect(getPurposeLabel("rehearsal")).toBe("리허설");
+  });
+
+  it("shows the three readiness states from the shared status controller", () => {
+    const html = renderToStaticMarkup(
+      <PresenterCompanionSetup
+        projectId="project_1"
+        sessionId="session_1"
+        sessionPurpose="rehearsal"
+        statusController={{
+          refresh: vi.fn().mockResolvedValue(undefined),
+          setStatus: vi.fn(),
+          status: {
+            connected: true,
+            connectedAt: "2026-07-23T00:00:00.000Z",
+            pairingGeneration: 1,
+            rttBucket: "fast",
+          },
+          statusUnavailable: false,
+        }}
+      />,
+    );
+
+    expect(html).toContain("iPad 기기 확인 진행 단계");
+    expect(html).toContain("연결됨");
+    expect(html).toContain("수신 준비됨");
+    expect(html).toContain("입력 대기");
+  });
+
+  it("keeps the runtime pairing popover focused on QR and connection state", () => {
+    const html = renderToStaticMarkup(
+      <PresenterCompanionSetup
+        projectId="project_1"
+        sessionId="session_1"
+        sessionPurpose="presentation"
+        statusController={{
+          refresh: vi.fn().mockResolvedValue(undefined),
+          setStatus: vi.fn(),
+          status: null,
+          statusUnavailable: false,
+        }}
+        variant="popover"
+      />,
+    );
+
+    expect(html).toContain('data-variant="popover"');
+    expect(html).not.toContain("iPad 입력 테스트 패드");
+    expect(html).not.toContain("나중에 연결");
+    expect(html).not.toContain("iPad 기기 확인 진행 단계");
   });
 
   it("keeps health failures informational instead of blocking presentation", () => {

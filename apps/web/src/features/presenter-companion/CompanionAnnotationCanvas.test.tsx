@@ -1,6 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { CompanionAnnotationCanvas } from "./CompanionAnnotationCanvas";
+import {
+  CompanionAnnotationCanvas,
+  createCompanionStrokeStart,
+} from "./CompanionAnnotationCanvas";
 
 const output = {
   sessionId: "session_1",
@@ -81,5 +84,25 @@ describe("CompanionAnnotationCanvas", () => {
     expect(html).toContain("left:200px");
     expect(html).toContain("width:1200px");
     expect(html).toContain("height:900px");
+  });
+
+  it("uses the selected width for both the command and local echo", () => {
+    const start = createCompanionStrokeStart({
+      clientOperationId: "operation_1",
+      color: "ink-yellow",
+      point: { x: 0.25, y: 0.5, pressure: 0.8, t: 10 },
+      strokeId: "stroke_1",
+      tool: "highlighter",
+      width: 0.05,
+    });
+
+    expect(start.command).toMatchObject({
+      kind: "stroke-begin",
+      width: 0.05,
+    });
+    expect(start.localStroke.width).toBe(0.05);
+    expect(start.localStroke.points).toEqual([
+      { x: 0.25, y: 0.5, pressure: 0.8, t: 10 },
+    ]);
   });
 });

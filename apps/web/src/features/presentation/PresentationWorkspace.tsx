@@ -1839,6 +1839,7 @@ export function PresentationWorkspace(props: {
                 projectId={deck.projectId}
                 sessionId={presenterSession.sessionId}
                 sessionPurpose={presenterSession.sessionPurpose}
+                variant="preflight"
               />
             ) : undefined
           }
