@@ -21,6 +21,8 @@ export const redactedPaths = [
   "speakerNotes",
   "sdp",
   "candidate",
+  "usernameFragment",
+  "token",
   "points",
   "currentNotes",
   "suggestedNotes",
@@ -30,6 +32,8 @@ export const redactedPaths = [
   "*.speakerNotes",
   "*.sdp",
   "*.candidate",
+  "*.usernameFragment",
+  "*.token",
   "*.points",
   "*.currentNotes",
   "*.suggestedNotes",
@@ -103,11 +107,29 @@ function createApiPinoHttpOptions(
       event: "http.request.completed",
       requestId: String(request.id ?? "")
     }),
+    serializers: {
+      req: (request) => ({
+        id: request.id,
+        method: request.method,
+        url: sanitizeLogRequestUrl(request.url),
+      }),
+      res: (response) => ({
+        statusCode: response.statusCode,
+      }),
+    },
     customSuccessMessage: (request, response, responseTime) =>
-      `${request.method ?? "HTTP"} ${request.url ?? ""} ${response.statusCode} ${Math.round(responseTime)}ms`,
+      `${request.method ?? "HTTP"} ${sanitizeLogRequestUrl(request.url)} ${response.statusCode} ${Math.round(responseTime)}ms`,
     customErrorMessage: (request, response, error) =>
-      `${request.method ?? "HTTP"} ${request.url ?? ""} ${response.statusCode} ${error.message}`
+      `${request.method ?? "HTTP"} ${sanitizeLogRequestUrl(request.url)} ${response.statusCode} ${error.message}`
   };
+}
+
+export function sanitizeLogRequestUrl(url: unknown): string {
+  const value = typeof url === "string" ? url : "";
+  return value.replace(
+    /\/api\/v1\/presentation-companion\/pairings\/[^/?#]+\/exchange/g,
+    "/api/v1/presentation-companion/pairings/[Redacted]/exchange",
+  );
 }
 
 function createPrettyTransport(config: OrbitConfig) {
