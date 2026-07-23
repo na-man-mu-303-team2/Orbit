@@ -1264,6 +1264,10 @@ def _slide_type_for_composition(slide: dict[str, Any]) -> str:
     )
     if slide.get("order") == 1:
         return "cover"
+    if str(composition).startswith("agenda-"):
+        return "agenda"
+    if str(composition).startswith("closing-"):
+        return "closing"
     if composition == "cta-closing":
         return "summary"
     return {

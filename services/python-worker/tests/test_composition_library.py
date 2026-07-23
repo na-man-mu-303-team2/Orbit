@@ -230,7 +230,7 @@ def test_normalizer_enforces_composition_and_background_rhythm() -> None:
     ]
     usage = Counter(slide.composition_id for slide in normalized.slides)
 
-    assert normalized.slides[-1].composition_id == "cta-closing"
+    assert normalized.slides[-1].composition_id == "closing-centered-minimal"
     assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
     assert max(usage.values()) <= 2
     assert len(set(normalized.background_sequence)) >= 2
@@ -1512,6 +1512,7 @@ def test_four_item_comparison_uses_one_focal_band_and_three_columns() -> None:
 def test_process_and_comparison_do_not_repeat_segmented_silhouette() -> None:
     slides = [
         slide_payload("cover", 1),
+        slide_payload("agenda", 2),
         slide_payload("process", 3),
         slide_payload("comparison", 3),
         slide_payload("summary", 1),
@@ -1529,6 +1530,15 @@ def test_process_and_comparison_do_not_repeat_segmented_silhouette() -> None:
             },
             {
                 "order": 2,
+                "compositionId": "agenda-numbered-list",
+                "variant": "light",
+                "backgroundMode": "light",
+                "focalType": "agenda",
+                "assetRole": "none",
+                "requiredAsset": False,
+            },
+            {
+                "order": 3,
                 "compositionId": "process-horizontal",
                 "variant": "light",
                 "backgroundMode": "light",
@@ -1537,7 +1547,7 @@ def test_process_and_comparison_do_not_repeat_segmented_silhouette() -> None:
                 "requiredAsset": False,
             },
             {
-                "order": 3,
+                "order": 4,
                 "compositionId": "feature-comparison",
                 "variant": "light",
                 "backgroundMode": "light",
@@ -1546,7 +1556,7 @@ def test_process_and_comparison_do_not_repeat_segmented_silhouette() -> None:
                 "requiredAsset": False,
             },
             {
-                "order": 4,
+                "order": 5,
                 "compositionId": "cta-closing",
                 "variant": "dark",
                 "backgroundMode": "dark",
@@ -1568,13 +1578,14 @@ def test_process_and_comparison_do_not_repeat_segmented_silhouette() -> None:
     ]
 
     assert all(left != right for left, right in zip(silhouettes, silhouettes[1:]))
-    assert normalized.slides[1].composition_id == "process-vertical-rail"
-    assert normalized.slides[2].composition_id == "feature-comparison"
+    assert normalized.slides[2].composition_id == "process-vertical-rail"
+    assert normalized.slides[3].composition_id == "feature-comparison"
 
 
 def test_sequence_allows_third_use_when_five_process_slides_require_it() -> None:
     slides = [
         slide_payload("cover", 1),
+        slide_payload("agenda", 2),
         *[slide_payload("process", 3) for _ in range(5)],
         slide_payload("summary", 1),
     ]
@@ -1600,7 +1611,7 @@ def test_sequence_allows_third_use_when_five_process_slides_require_it() -> None
     )
 
     normalized = normalize_design_program(candidate, slides, media_policy="minimal")
-    body = [direction.composition_id for direction in normalized.slides[1:-1]]
+    body = [direction.composition_id for direction in normalized.slides[2:-1]]
     silhouettes = [COMPOSITION_SPECS[value].silhouette for value in body]
 
     assert set(body) == {"process-horizontal", "process-vertical-rail"}
@@ -1611,6 +1622,7 @@ def test_sequence_allows_third_use_when_five_process_slides_require_it() -> None
 def test_new_media_band_avoids_repeating_problem_silhouettes() -> None:
     slides = [
         slide_payload("cover", 1),
+        slide_payload("agenda", 2),
         slide_payload("problem", 1),
         slide_payload("problem", 1),
         slide_payload("solution", 2),
@@ -1641,13 +1653,14 @@ def test_new_media_band_avoids_repeating_problem_silhouettes() -> None:
     normalized = normalize_design_program(candidate, slides, media_policy="minimal")
 
     assert len(normalized.slides) == len(slides)
-    assert normalized.slides[1].composition_id == "statement-poster"
-    assert normalized.slides[2].composition_id == "editorial-media-band"
+    assert normalized.slides[2].composition_id == "statement-poster"
+    assert normalized.slides[3].composition_id == "editorial-media-band"
 
 
 def test_semantic_selector_maps_phase_one_compositions() -> None:
     slides = [
         slide_payload("cover", 1),
+        slide_payload("agenda", 2),
         {
             **slide_payload("process", 3),
             "title": "Delivery workflow",
@@ -1680,7 +1693,7 @@ def test_semantic_selector_maps_phase_one_compositions() -> None:
         slide_payload("summary", 1),
     ]
     candidate = repeated_program(len(slides))
-    candidate.slides[5].asset_role = "atmosphere"
+    candidate.slides[6].asset_role = "atmosphere"
 
     normalized = normalize_design_program(
         candidate,
@@ -1688,7 +1701,7 @@ def test_semantic_selector_maps_phase_one_compositions() -> None:
         media_policy="minimal",
     )
 
-    assert [direction.composition_id for direction in normalized.slides[1:-1]] == [
+    assert [direction.composition_id for direction in normalized.slides[2:-1]] == [
         "process-vertical-rail",
         "timeline",
         "bento-focus",
