@@ -372,7 +372,9 @@ PresentationSession은 `deckId`, server가 읽은 `deckVersion`,
 시각을 명시한다. 기존 row와 하위 호환 payload는
 `sessionPurpose=presentation`, `audienceAccessEnabled=true`로 해석한다. 신규
 session 생성 request는 `audienceAccessEnabled`가 없으면 fail-closed인
-`false`로 정규화하며 `deckVersion`이나 Activity 정의를 받지 않는다.
+`false`로 정규화하되, 기존 `accessMode`가 있는 하위 호환 payload는 청중 접근
+의 명시적 신호로 보고 `true`로 정규화한다. request는 `deckVersion`이나
+Activity 정의를 받지 않는다.
 
 - `audienceAccessEnabled=false`이면 `audienceUrl=null`이며 passcode hash 없이
   생성할 수 있다. `accessMode`는 저장되더라도 audience 접근 권한을 만들지

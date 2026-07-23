@@ -110,7 +110,7 @@ const publicPresentationSessionRequestSchema = z
   .strict();
 
 export const createPresentationSessionRequestSchema = z.preprocess(
-  withDisabledAudienceAccessDefault,
+  withAudienceAccessCompatibilityDefault,
   z.union([
     disabledPresentationSessionRequestSchema,
     passcodePresentationSessionRequestSchema,
@@ -332,7 +332,7 @@ export const getCurrentPresentationSessionResponseSchema = z
   .strict()
   .superRefine(assertAudienceUrlMatchesSession);
 
-function withDisabledAudienceAccessDefault(value: unknown): unknown {
+function withAudienceAccessCompatibilityDefault(value: unknown): unknown {
   if (
     typeof value !== "object" ||
     value === null ||
@@ -341,7 +341,10 @@ function withDisabledAudienceAccessDefault(value: unknown): unknown {
   ) {
     return value;
   }
-  return { ...value, audienceAccessEnabled: false };
+  return {
+    ...value,
+    audienceAccessEnabled: "accessMode" in value,
+  };
 }
 
 function assertAudienceUrlMatchesSession(

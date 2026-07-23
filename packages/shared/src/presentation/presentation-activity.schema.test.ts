@@ -110,6 +110,33 @@ describe("PresentationSession Activity contract", () => {
     });
   });
 
+  it("normalizes legacy accessMode requests to audience-enabled sessions", () => {
+    expect(
+      createPresentationSessionRequestSchema.parse({
+        deckId: "deck_1",
+        accessMode: "public",
+      }),
+    ).toEqual({
+      deckId: "deck_1",
+      sessionPurpose: "presentation",
+      audienceAccessEnabled: true,
+      accessMode: "public",
+    });
+    expect(
+      createPresentationSessionRequestSchema.parse({
+        deckId: "deck_1",
+        accessMode: "passcode",
+        passcode: "1234",
+      }),
+    ).toEqual({
+      deckId: "deck_1",
+      sessionPurpose: "presentation",
+      audienceAccessEnabled: true,
+      accessMode: "passcode",
+      passcode: "1234",
+    });
+  });
+
   it("keeps rehearsal sessions companion-only", () => {
     expect(
       presentationSessionSchema.safeParse({
