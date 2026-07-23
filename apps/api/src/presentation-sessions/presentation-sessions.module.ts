@@ -23,6 +23,11 @@ import {
 } from "./presentation-runs.service";
 import { PresentationCompanionSpikeGateway } from "./presentation-companion-spike.gateway";
 import { PresentationCompanionProjectionService } from "./presentation-companion-projection.service";
+import { PresentationCompanionService } from "./presentation-companion.service";
+import {
+  createRedisPresentationCompanionStore,
+  PresentationCompanionStore,
+} from "./presentation-companion.store";
 
 @Module({
   imports: [
@@ -47,6 +52,11 @@ import { PresentationCompanionProjectionService } from "./presentation-companion
     PresentationRunsService,
     PresentationCompanionSpikeGateway,
     PresentationCompanionProjectionService,
+    PresentationCompanionService,
+    {
+      provide: PresentationCompanionStore,
+      useFactory: createRedisPresentationCompanionStore,
+    },
     {
       provide: PRESENTATION_ANALYSIS_ENQUEUE_JOB,
       useValue: enqueuePresentationAnalysisJob,
@@ -57,6 +67,8 @@ import { PresentationCompanionProjectionService } from "./presentation-companion
     PresentationSessionsService,
     PresentationRunsService,
     PresentationCompanionProjectionService,
+    PresentationCompanionService,
+    PresentationCompanionStore,
   ],
 })
 export class PresentationSessionsModule {}

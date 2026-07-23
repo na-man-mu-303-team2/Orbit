@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DecksService } from "../decks/decks.service";
 import type { PresentationSessionRepository } from "./presentation-session.repository";
 import { PresentationSessionsService } from "./presentation-sessions.service";
+import type { PresentationCompanionStore } from "./presentation-companion.store";
 
 const sessionRow = {
   session_id: "session_existing",
@@ -32,7 +33,8 @@ const sessionRow = {
 function createService(
   overrides: Partial<PresentationSessionRepository> = {},
   audienceRateLimit?: { consumeJoin: ReturnType<typeof vi.fn> },
-  deckOverrides: Partial<DecksService> = {}
+  deckOverrides: Partial<DecksService> = {},
+  companionStore?: Partial<PresentationCompanionStore>,
 ) {
   const manager = {} as never;
   const repository = {
@@ -71,7 +73,8 @@ function createService(
       repository,
       decksService,
       logger,
-      audienceRateLimit as never
+      audienceRateLimit as never,
+      companionStore as PresentationCompanionStore,
     )
   };
 }
@@ -94,9 +97,15 @@ describe("PresentationSessionsService", () => {
   });
 
   it("closes an active session and reads deckVersion from the materialized Deck", async () => {
-    const { decksService, repository, service } = createService({
-      closeActive: vi.fn().mockResolvedValue(["session_previous"])
-    });
+    const companionStore = { revokeSession: vi.fn() };
+    const { decksService, repository, service } = createService(
+      {
+        closeActive: vi.fn().mockResolvedValue(["session_previous"]),
+      },
+      undefined,
+      {},
+      companionStore,
+    );
 
     await expect(
       service.create("project_1", "user_1", {
@@ -117,6 +126,9 @@ describe("PresentationSessionsService", () => {
       "project_1",
       "presentation",
       expect.any(Date),
+    );
+    expect(companionStore.revokeSession).toHaveBeenCalledWith(
+      "session_previous",
     );
     expect(repository.insert).toHaveBeenCalledWith(
       expect.anything(),
@@ -283,7 +295,13 @@ describe("PresentationSessionsService", () => {
   });
 
   it("closes a session idempotently through the repository transaction", async () => {
-    const { repository, service } = createService();
+    const companionStore = { revokeSession: vi.fn() };
+    const { repository, service } = createService(
+      {},
+      undefined,
+      {},
+      companionStore,
+    );
 
     await expect(service.close("project_1", "session_existing")).resolves.toMatchObject({
       session: { status: "ended", activeActivityRunId: null }
@@ -293,6 +311,9 @@ describe("PresentationSessionsService", () => {
       "project_1",
       "session_existing",
       expect.any(Date)
+    );
+    expect(companionStore.revokeSession).toHaveBeenCalledWith(
+      "session_existing",
     );
   });
 

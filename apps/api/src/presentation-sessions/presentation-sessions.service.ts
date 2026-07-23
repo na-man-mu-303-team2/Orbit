@@ -32,6 +32,7 @@ import {
   type PresentationSessionRow
 } from "./presentation-session.repository";
 import { AudienceRateLimitService } from "./audience-rate-limit.service";
+import { PresentationCompanionStore } from "./presentation-companion.store";
 
 const defaultAccessDays = 14;
 const companionSessionHours = 4;
@@ -43,7 +44,8 @@ export class PresentationSessionsService {
     private readonly decksService: DecksService,
     @InjectPinoLogger(PresentationSessionsService.name)
     private readonly logger: PinoLogger,
-    @Optional() private readonly audienceRateLimit?: AudienceRateLimitService
+    @Optional() private readonly audienceRateLimit?: AudienceRateLimitService,
+    @Optional() private readonly companionStore?: PresentationCompanionStore,
   ) {}
 
   async create(
@@ -119,6 +121,11 @@ export class PresentationSessionsService {
       return { closedSessionIds, reused: false, row };
     });
 
+    await Promise.all(
+      result.closedSessionIds.map((closedSessionId) =>
+        this.companionStore?.revokeSession(closedSessionId),
+      ),
+    );
     result.closedSessionIds.forEach((closedSessionId) => {
       this.logger.info(
         { event: "presentation_session.closed", projectId, presentationSessionId: closedSessionId },
@@ -224,6 +231,7 @@ export class PresentationSessionsService {
       this.repository.close(manager, projectId, sessionId, new Date())
     );
     if (!row) throw new NotFoundException("Presentation session not found");
+    await this.companionStore?.revokeSession(sessionId);
     this.logger.info(
       { event: "presentation_session.closed", projectId, presentationSessionId: sessionId },
       "presentation session closed"
