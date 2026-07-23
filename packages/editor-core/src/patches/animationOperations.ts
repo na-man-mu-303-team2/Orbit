@@ -1,5 +1,10 @@
 import type { Deck, DeckAnimation, DeckPatch, Slide } from "@orbit/shared";
 
+import {
+  createAnimationTimeline,
+  getAnimationTimelineRoot
+} from "../playback/animationTimeline";
+
 export type SlideAnimationOrderDiagnostic = {
   animationIds: string[];
   order: number;
@@ -74,6 +79,58 @@ export function createDeleteAnimationPatch(
         slideId,
         animationId
       }
+    ]
+  };
+}
+
+export function createDeleteAnimationTimelineRootPatch(
+  deck: Deck,
+  slideId: string,
+  animationId: string
+): DeckPatch {
+  const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
+  if (!slide) {
+    return createDeleteAnimationPatch(deck, slideId, animationId);
+  }
+
+  const actionAnimationIds = slide.actions.flatMap((action) =>
+    action.effect.kind === "play-animation"
+      ? [action.effect.animationId]
+      : []
+  );
+  const timelineRoot = getAnimationTimelineRoot(
+    createAnimationTimeline({
+      animations: slide.animations,
+      legacyOnClickAnimationIds: actionAnimationIds
+    }),
+    animationId
+  );
+  const animationIds = timelineRoot
+    ? timelineRoot.effects.map((effect) => effect.animationId)
+    : [animationId];
+  const animationIdSet = new Set(animationIds);
+  const actionIds = slide.actions.flatMap((action) =>
+    action.effect.kind === "play-animation" &&
+    animationIdSet.has(action.effect.animationId)
+      ? [action.actionId]
+      : []
+  );
+
+  return {
+    deckId: deck.deckId,
+    baseVersion: deck.version,
+    source: "user",
+    operations: [
+      ...actionIds.map((actionId) => ({
+        type: "delete_slide_action" as const,
+        slideId,
+        actionId
+      })),
+      ...animationIds.map((candidateAnimationId) => ({
+        type: "delete_animation" as const,
+        slideId,
+        animationId: candidateAnimationId
+      }))
     ]
   };
 }

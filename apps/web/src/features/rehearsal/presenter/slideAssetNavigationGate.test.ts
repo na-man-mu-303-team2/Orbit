@@ -98,6 +98,41 @@ describe("slideAssetNavigationGate", () => {
     });
   });
 
+  it("lets the latest flow navigator recovery supersede a pending recovery", async () => {
+    const first = deferred();
+    const second = deferred();
+    const commit = vi.fn();
+    const gate = createSlideAssetNavigationGate({
+      commit,
+      onPendingChange: vi.fn(),
+      prepare: vi
+        .fn()
+        .mockImplementationOnce(async () => first.promise)
+        .mockImplementationOnce(async () => second.promise)
+    });
+
+    const initialRecovery = gate.request({
+      source: "flow-navigator",
+      stepIndex: 1,
+      targetSlideIndex: 1
+    });
+    const latestRecovery = gate.request({
+      source: "flow-navigator",
+      stepIndex: 2,
+      targetSlideIndex: 3
+    });
+
+    first.resolve();
+    await expect(initialRecovery).resolves.toBe("superseded");
+    second.resolve();
+    await expect(latestRecovery).resolves.toBe("committed");
+    expect(commit).toHaveBeenCalledWith({
+      source: "flow-navigator",
+      stepIndex: 2,
+      targetSlideIndex: 3
+    });
+  });
+
   it("continues with the placeholder and clears pending when preparation rejects", async () => {
     const commit = vi.fn();
     const pending = vi.fn();

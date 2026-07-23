@@ -87,6 +87,19 @@ describe("PresentationWorkspace", () => {
     expect(source).toContain("rehearsal: false");
   });
 
+  it("resolves exact speaker-note keyword occurrences during live presentation", () => {
+    const source = fs.readFileSync(presentationWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("matchKeywordOccurrenceTriggers");
+    expect(source).toContain("resolveKeywordOccurrenceTriggeredActions");
+    expect(source).toContain("getKeywordOccurrenceTriggerIdsForSlide");
+    expect(source).toContain("resolveManualAnimationPlaybackUpdate");
+    expect(source).toContain("applyPlaybackUpdate");
+    expect(source).toContain("confirmedOccurrenceIds");
+    expect(source).toContain("getSlideTranscriptSpan");
+    expect(source).toContain("previousTranscript: transcriptSpan.previousTranscript");
+  });
+
   it("renders the auto-start presenter controls for an Activity slide", () => {
     const deck = createDemoDeck();
     const activitySlide = createActivitySlide(deck, "pre-question");

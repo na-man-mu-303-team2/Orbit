@@ -724,6 +724,16 @@ export function EditorShell(props: { projectId?: string }) {
   const handleStartSpeakerNotesEdit = speakerNotesEditorActions.startEdit;
   const getSpeakerNotesPanelMaxHeight = speakerNotesPanelActions.getMaxHeight;
   const handleToggleSpeakerNotesPanel = speakerNotesPanelActions.toggle;
+  const handleRequestKeywordOccurrence = useCallback(() => {
+    setRequestedSpeakerNotesTab("script");
+    speakerNotesPanelActions.expand();
+    requestAnimationFrame(() => {
+      speakerNotesContentRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest"
+      });
+    });
+  }, [speakerNotesContentRef, speakerNotesPanelActions]);
   function handleSpeakerNotesTabSelected(tab: SpeakerNotesTab) {
     setRequestedSpeakerNotesTab(null);
     if (tab === "report") {
@@ -2468,6 +2478,37 @@ export function EditorShell(props: { projectId?: string }) {
                     : []
                 ) ?? []
               }
+              animationTriggerSummaryByAnimationId={
+                currentSlide?.actions.reduce<Record<string, string>>(
+                  (summaries, action) => {
+                    if (action.effect.kind !== "play-animation") {
+                      return summaries;
+                    }
+                    const trigger = action.trigger;
+                    if (trigger.kind === "keyword-occurrence") {
+                      const keyword = currentSlide.keywords.find(
+                        (candidate) => candidate.keywordId === trigger.keywordId
+                      );
+                      summaries[action.effect.animationId] = `발화 트리거 · 대본 위치 "${keyword?.text ?? "키워드"}"`;
+                    } else if (trigger.kind === "keyword") {
+                      const keyword = currentSlide.keywords.find(
+                        (candidate) => candidate.keywordId === trigger.keywordId
+                      );
+                      summaries[action.effect.animationId] = `기존 키워드 트리거 · "${keyword?.text ?? "키워드"}"`;
+                    }
+                    return summaries;
+                  },
+                  {}
+                ) ?? {}
+              }
+              legacyKeywordAnimationIds={
+                currentSlide?.actions.flatMap((action) =>
+                  action.effect.kind === "play-animation" &&
+                  action.trigger.kind === "keyword"
+                    ? [action.effect.animationId]
+                    : []
+                ) ?? []
+              }
               animations={selectedElementAnimations}
               canCreateAnimation={Boolean(
                 currentSlide &&
@@ -2507,7 +2548,7 @@ export function EditorShell(props: { projectId?: string }) {
                   handleDeleteAnimation(currentSlide.slideId, animationId);
                 }
               }}
-              onSelectKeyword={handleSelectKeyword}
+              onRequestKeywordOccurrence={handleRequestKeywordOccurrence}
               onSelectSlideAnimation={handleSelectSlideAnimationFromPanel}
               onUpdateAnimation={(animationId, animation) => {
                 if (currentSlide) {
