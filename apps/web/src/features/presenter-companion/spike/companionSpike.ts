@@ -11,6 +11,7 @@ export const companionSpikeEvents = {
   ping: `${companionSpikeEventPrefix}:ping`,
   presence: `${companionSpikeEventPrefix}:presence`,
   revoked: `${companionSpikeEventPrefix}:revoked`,
+  resume: `${companionSpikeEventPrefix}:resume`,
   signal: `${companionSpikeEventPrefix}:signal`,
 } as const;
 
