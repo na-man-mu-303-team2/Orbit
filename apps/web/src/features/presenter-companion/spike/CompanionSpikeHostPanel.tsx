@@ -75,6 +75,7 @@ export function CompanionSpikeHostPanel({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audienceWindowRef = useRef<Window | null>(null);
+  const audienceReadyRef = useRef(false);
   const pointByStrokeRef = useRef(new Map<string, CompanionSpikePoint>());
 
   const sendSignal = useCallback(
@@ -250,7 +251,11 @@ export function CompanionSpikeHostPanel({
       if (next) pointByStrokeRef.current.set(value.strokeId, next);
       else pointByStrokeRef.current.delete(value.strokeId);
       channel.postMessage({ ink: value, type: "ink" });
-      if (!audienceWindowRef.current || audienceWindowRef.current.closed) {
+      if (
+        !audienceWindowRef.current ||
+        audienceWindowRef.current.closed ||
+        !audienceReadyRef.current
+      ) {
         socket?.emit(companionSpikeEvents.inkApplied, {
           appliedAtMs: performance.now(),
           sequence: value.sequence,
@@ -261,6 +266,10 @@ export function CompanionSpikeHostPanel({
     };
     const handleApplied = (event: MessageEvent<unknown>) => {
       const value = event.data;
+      if (isRecord(value) && value.type === "audience-ready") {
+        audienceReadyRef.current = true;
+        return;
+      }
       if (
         !isRecord(value) ||
         value.type !== "ink-applied" ||
@@ -318,6 +327,7 @@ export function CompanionSpikeHostPanel({
       "popup,width=1280,height=800",
     );
     audienceWindowRef.current = target;
+    audienceReadyRef.current = false;
     return target;
   };
 

@@ -366,6 +366,7 @@ export function CompanionSpikeAudiencePage({ spikeId }: { spikeId: string }) {
       });
     };
     channel.addEventListener("message", handleMessage);
+    channel.postMessage({ type: "audience-ready" });
     return () => {
       channel.removeEventListener("message", handleMessage);
       channel.close();
