@@ -28,6 +28,8 @@ type PresenterCompanionSocket = Pick<
 
 type AuthorityStatus = "disabled" | "claiming" | "active" | "standby";
 
+export const presenterAuthorityHeartbeatIntervalMs = 3_000;
+
 export function usePresenterCompanionAuthority(input: {
   enabled: boolean;
   sessionId: string | null | undefined;
@@ -147,43 +149,48 @@ export function usePresenterCompanionAuthority(input: {
       authorityEpochIdRef.current,
     );
 
-    const claim = () => {
-      setStatus("claiming");
-      socket.emit(
-        "presentation:companion:authority-claim",
-        {
-          sessionId,
-          authorityEpochId: authorityEpochIdRef.current,
-        },
-        (response: unknown) => {
-          if (
-            typeof response === "object" &&
-            response !== null &&
-            "claimed" in response &&
-            response.claimed === true
-          ) {
-            setStatus("active");
-          }
-        },
-      );
-    };
+    const lease = createPresenterAuthorityLeaseController({
+      claim: (callback) => {
+        socket.emit(
+          "presentation:companion:authority-claim",
+          {
+            sessionId,
+            authorityEpochId: authorityEpochIdRef.current,
+          },
+          callback,
+        );
+      },
+      heartbeat: (callback) => {
+        socket.emit(
+          "presentation:companion:authority-heartbeat",
+          {
+            sessionId,
+            authorityEpochId: authorityEpochIdRef.current,
+          },
+          callback,
+        );
+      },
+      isConnected: () => socket.connected,
+      onStatusChange: setStatus,
+      ownAuthorityEpochId: authorityEpochIdRef.current,
+    });
+    const claim = () => lease.claim();
     const handleDisconnect = () => {
+      lease.handleDisconnect();
       pairingGenerationRef.current = null;
       setPairingGeneration(null);
-      setStatus("standby");
     };
     const handleAuthorityChanged = (value: unknown) => {
       const parsed =
         presentationCompanionAuthorityChangedEventSchema.safeParse(value);
       if (!parsed.success || parsed.data.sessionId !== sessionId) return;
-      const ownsAuthority =
-        parsed.data.payload.authorityEpochId ===
-        authorityEpochIdRef.current;
+      const ownsAuthority = lease.handleAuthorityChanged(
+        parsed.data.payload.authorityEpochId,
+      );
       if (!ownsAuthority) {
         pairingGenerationRef.current = null;
         setPairingGeneration(null);
       }
-      setStatus(ownsAuthority ? "active" : "standby");
     };
     const handlePresence = (value: unknown) => {
       const parsed =
@@ -304,14 +311,12 @@ export function usePresenterCompanionAuthority(input: {
     );
     if (socket.connected) claim();
     const heartbeatId = window.setInterval(() => {
-      socket.emit("presentation:companion:authority-heartbeat", {
-        sessionId,
-        authorityEpochId: authorityEpochIdRef.current,
-      });
-    }, 5_000);
+      lease.tick();
+    }, presenterAuthorityHeartbeatIntervalMs);
 
     return () => {
       window.clearInterval(heartbeatId);
+      lease.dispose();
       socket.off("connect", claim);
       socket.off("disconnect", handleDisconnect);
       socket.off(
@@ -423,6 +428,98 @@ export function usePresenterCompanionAuthority(input: {
     status,
     subscribeSignal,
   };
+}
+
+export function createPresenterAuthorityLeaseController(input: {
+  claim: (callback: (response: unknown) => void) => void;
+  heartbeat: (callback: (response: unknown) => void) => void;
+  isConnected: () => boolean;
+  onStatusChange: (status: AuthorityStatus) => void;
+  ownAuthorityEpochId: string;
+}) {
+  let claimPending = false;
+  let disposed = false;
+  let heartbeatPending = false;
+  let lifecycleRevision = 0;
+  let ownsAuthority = false;
+
+  const claim = () => {
+    if (disposed || claimPending || ownsAuthority || !input.isConnected()) {
+      return;
+    }
+    claimPending = true;
+    const revision = lifecycleRevision;
+    input.onStatusChange("claiming");
+    input.claim((response) => {
+      if (disposed || revision !== lifecycleRevision) return;
+      claimPending = false;
+      ownsAuthority = hasBooleanResult(response, "claimed");
+      input.onStatusChange(ownsAuthority ? "active" : "standby");
+    });
+  };
+
+  const heartbeat = () => {
+    if (
+      disposed ||
+      heartbeatPending ||
+      !ownsAuthority ||
+      !input.isConnected()
+    ) {
+      return;
+    }
+    heartbeatPending = true;
+    const revision = lifecycleRevision;
+    input.heartbeat((response) => {
+      if (disposed || revision !== lifecycleRevision) return;
+      heartbeatPending = false;
+      if (hasBooleanResult(response, "renewed")) return;
+      ownsAuthority = false;
+      input.onStatusChange("standby");
+      claim();
+    });
+  };
+
+  return {
+    claim,
+    dispose: () => {
+      disposed = true;
+      lifecycleRevision += 1;
+      claimPending = false;
+      heartbeatPending = false;
+      ownsAuthority = false;
+    },
+    handleAuthorityChanged: (authorityEpochId: string | null) => {
+      if (disposed) return false;
+      ownsAuthority = authorityEpochId === input.ownAuthorityEpochId;
+      input.onStatusChange(ownsAuthority ? "active" : "standby");
+      if (authorityEpochId === null) claim();
+      return ownsAuthority;
+    },
+    handleDisconnect: () => {
+      if (disposed) return;
+      lifecycleRevision += 1;
+      claimPending = false;
+      heartbeatPending = false;
+      ownsAuthority = false;
+      input.onStatusChange("standby");
+    },
+    tick: () => {
+      if (ownsAuthority) heartbeat();
+      else claim();
+    },
+  };
+}
+
+function hasBooleanResult(
+  response: unknown,
+  field: "claimed" | "renewed",
+): boolean {
+  return (
+    typeof response === "object" &&
+    response !== null &&
+    field in response &&
+    (response as Record<string, unknown>)[field] === true
+  );
 }
 
 export function createCompanionSurfaceId(slideId: string): string {
