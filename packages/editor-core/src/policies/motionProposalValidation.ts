@@ -58,8 +58,6 @@ export function validateMotionProposal(input: {
   }
   const originalGraphReason = validateGraph(slide);
   if (originalGraphReason) return refused(originalGraphReason);
-  const originalTimelineReason = validateTimeline(slide);
-  if (originalTimelineReason) return refused(originalTimelineReason);
 
   const allowedTargets = new Set(input.allowedTargetElementIds);
   const animationsById = new Map(
@@ -107,6 +105,8 @@ export function validateMotionProposal(input: {
     }
   }
   if (operations.length === 0) {
+    const originalTimelineReason = validateTimeline(slide);
+    if (originalTimelineReason) return refused(originalTimelineReason);
     return { ok: true, candidateDeck: input.deck, candidateSlide: slide, operations };
   }
 

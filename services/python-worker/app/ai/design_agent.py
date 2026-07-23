@@ -2037,17 +2037,31 @@ def _validate_intent_preset_policy(
                 )
     if intent_preset == "recommend-animation":
         for operation in response.operations:
-            if not isinstance(operation, AddAnimationOperation):
+            if not isinstance(
+                operation, (AddAnimationOperation, UpdateAnimationOperation)
+            ):
                 raise DesignAgentGenerationError(
-                    "recommend-animation may only add animations."
+                    "recommend-animation may only add or update animations."
                 )
-            if operation.animation.type not in {"appear", "fade-in", "zoom-in"}:
+            if (
+                operation.animation.type is not None
+                and operation.animation.type not in {"appear", "fade-in", "zoom-in"}
+            ):
                 raise DesignAgentGenerationError(
                     "recommend-animation uses only export-compatible effects."
                 )
-            if operation.animation.start_mode is None:
+            if isinstance(operation, AddAnimationOperation):
+                if operation.animation.start_mode is None:
+                    raise DesignAgentGenerationError(
+                        "recommend-animation requires an explicit startMode."
+                    )
+                continue
+            if (
+                operation.animation.order is not None
+                or operation.animation.start_mode is not None
+            ):
                 raise DesignAgentGenerationError(
-                    "recommend-animation requires an explicit startMode."
+                    "recommend-animation must preserve existing order and startMode."
                 )
 
 

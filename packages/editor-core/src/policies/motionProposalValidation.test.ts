@@ -98,6 +98,68 @@ describe("validateMotionProposal", () => {
     });
   });
 
+  it("allows updates that repair an existing over-budget click step", () => {
+    const { deck, slide, first, second } = fixture();
+    const third = slide.elements[2]!;
+    slide.actions = [];
+    slide.animations = [
+      {
+        animationId: "anim_click_root",
+        elementId: first.elementId,
+        type: "fade-in",
+        order: 1,
+        startMode: "on-click",
+        durationMs: 500,
+        delayMs: 0,
+        easing: "ease-out",
+      },
+      {
+        animationId: "anim_click_second",
+        elementId: second.elementId,
+        type: "appear",
+        order: 2,
+        startMode: "after-previous",
+        durationMs: 500,
+        delayMs: 0,
+        easing: "ease-out",
+      },
+      {
+        animationId: "anim_click_third",
+        elementId: third.elementId,
+        type: "appear",
+        order: 3,
+        startMode: "after-previous",
+        durationMs: 500,
+        delayMs: 0,
+        easing: "ease-out",
+      },
+    ];
+
+    const result = validateMotionProposal({
+      deck,
+      slideId: slide.slideId,
+      operations: slide.animations.map((animation) => ({
+        type: "update_animation" as const,
+        slideId: slide.slideId,
+        animationId: animation.animationId,
+        animation: { durationMs: 300 },
+      })),
+      allowedTargetElementIds: [
+        first.elementId,
+        second.elementId,
+        third.elementId,
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.candidateSlide.animations.map(({ durationMs }) => durationMs)).toEqual([
+      300,
+      300,
+      300,
+    ]);
+  });
+
   it("rejects referenced delete even for explicit replace", () => {
     const { deck, slide, first } = fixture();
     const result = validateMotionProposal({

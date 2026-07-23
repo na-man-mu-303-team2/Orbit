@@ -750,6 +750,45 @@ def test_animation_recommendation_compiles_semantic_plan_in_on_mode() -> None:
     assert animation.animation_id.startswith("anim_motion_")
 
 
+def test_animation_recommendation_fallback_allows_safe_existing_animation_update() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.extend(["add_animation", "update_animation"])
+    request.context.slide["animations"] = [
+        {
+            "animationId": "anim_existing",
+            "elementId": "el_image",
+            "type": "fade-in",
+            "order": 1,
+            "startMode": "on-slide-enter",
+            "durationMs": 300,
+            "delayMs": 0,
+            "easing": "ease-out",
+        }
+    ]
+    request.motion_planning_context = MotionPlanningContext.model_validate({
+        "allowedTargetElementIds": ["el_image"],
+        "effectiveTypography": [],
+        "speakerNotes": "",
+        "notesPresent": False,
+        "notesTruncated": False,
+    })
+    result = generate_design_proposal(
+        request,
+        model="design-model",
+        motion_planner_model="motion-snapshot",
+        motion_planner_mode="on",
+        api_key=None,
+    )
+
+    assert len(result.operations) == 1
+    update = result.operations[0]
+    assert update.type == "update_animation"
+    assert update.animation_id == "anim_existing"
+    assert update.animation.type == "zoom-in"
+    assert update.animation.duration_ms == 450
+
+
 def test_animation_recommendation_compiles_deterministic_fallback_on_llm_failure() -> None:
     request = request_payload()
     request.intent_preset = "recommend-animation"
