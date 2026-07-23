@@ -4,6 +4,7 @@
 
 - golden manifest: `tests/fixtures/motion-golden/slide-types.json`
 - pinned eval manifest: `tests/fixtures/motion-golden/eval-manifest.json`
+- v3 복합 process fixture: `tests/fixtures/motion-golden/semantic-process-v3.json`
 - 사람 평가 입력 template: `tests/fixtures/motion-golden/human-eval-scorecard.csv`
 - 자동 검증: `services/python-worker/tests/test_motion_golden.py`
 - bounded eval runner: `services/python-worker/scripts/run_motion_planner_eval.py`
@@ -32,6 +33,9 @@ uv run pytest tests/test_motion_golden.py tests/test_motion_merge.py tests/test_
 - `capViolation`
 - `speakerNotesArtifact`
 - `compileFailure`
+- `partialCompositeTarget`
+- `skippedSequentialUnit`
+- `patternMismatch`
 
 live 평가는 승인된 test credential과 예산이 있는 격리 환경에서만 실행한다. runner는 `gpt-4.1-mini-2025-04-14` snapshot을 fixture당 5회 호출하고 같은 bounded aggregate만 stdout에 기록한다.
 
@@ -51,7 +55,7 @@ credential 값, raw plan, notes와 provider response는 QA 문서나 shell outpu
 - `on-slide-enter | on-click | with-previous | after-previous`
 - duration과 delay
 
-binary byte equality는 요구하지 않는다. presenter preview는 Web의 `createAnimationTimeline()`과 `createSlideshowAnimationPlan()` root 순서 parity test를 사용한다. apply→undo→redo의 animation/action deep equality는 editor-core Motion proposal validator 회귀 test를 사용한다.
+binary byte equality는 요구하지 않는다. presenter preview는 Web의 `createAnimationTimeline()`과 `createSlideshowAnimationPlan()` root 순서 parity test를 사용한다. 명시적 group은 generic PPTX export에서 child shape로 flatten하되 첫 shape의 semantic tuple을 보존하고 나머지는 `with-previous`로 동기화한다. apply→undo→redo의 animation/action deep equality는 editor-core Motion proposal validator 회귀 test를 사용한다.
 
 ## 사람 blind 평가
 
