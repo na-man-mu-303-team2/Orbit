@@ -18,6 +18,12 @@ import type {
   ApplyDeckPatchOptions,
   ApplyDeckPatchResult,
 } from "./deckPatch";
+import { getRichTextSemanticText } from "../text/richTextOperations";
+import {
+  createAnimationTimeline,
+  getAnimationTimelineRoot
+} from "../playback/animationTimeline";
+import { normalizeLegacyAnimationStartModes } from "./legacyAnimationStartModeMigration";
 
 type OperationResult = { ok: true } | ApplyDeckPatchFailure;
 
@@ -30,7 +36,9 @@ export function applyDeckPatch(
   patchInput: unknown,
   options: ApplyDeckPatchOptions = {},
 ): ApplyDeckPatchResult {
-  const deckResult = deckSchema.safeParse(deckInput);
+  const deckResult = deckSchema.safeParse(
+    normalizeLegacyAnimationStartModes(deckInput)
+  );
 
   if (!deckResult.success) {
     return failure("DECK_VALIDATION_FAILED", "Deck input is invalid", {
@@ -84,7 +92,9 @@ export function applyDeckPatch(
 
   nextDeck.version = deck.version + 1;
 
-  const nextDeckResult = deckSchema.safeParse(nextDeck);
+  const nextDeckResult = deckSchema.safeParse(
+    normalizeLegacyAnimationStartModes(nextDeck)
+  );
 
   if (!nextDeckResult.success) {
     return failure("DECK_VALIDATION_FAILED", "Patched deck is invalid", {
@@ -136,6 +146,10 @@ function applyOperation(
         deck.title = operation.title;
       }
 
+      if (operation.targetDurationMinutes !== undefined) {
+        deck.targetDurationMinutes = operation.targetDurationMinutes;
+      }
+
       if (operation.metadata !== undefined) {
         mergeRecordPatch(
           deck.metadata as unknown as Record<string, unknown>,
@@ -171,6 +185,27 @@ function applyOperation(
         slide.thumbnailUrl = operation.thumbnailUrl;
       }
 
+      if (operation.estimatedSeconds === null) {
+        delete slide.estimatedSeconds;
+      } else if (operation.estimatedSeconds !== undefined) {
+        slide.estimatedSeconds = operation.estimatedSeconds;
+      }
+
+      return { ok: true };
+    }
+
+    case "update_slide_transition": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      if (operation.transition === null) {
+        delete slide.transition;
+      } else {
+        slide.transition = cloneJson(operation.transition);
+      }
       return { ok: true };
     }
 
@@ -183,23 +218,39 @@ function applyOperation(
         return slideNotFound(operation.type, operation.slideId);
       }
 
-      deck.slides.splice(slideIndex, 1);
+      if (deck.slides.length === 1) {
+        return failure(
+          "LAST_SLIDE_DELETE_FORBIDDEN",
+          "A deck must retain at least one slide",
+          {
+            operationType: operation.type,
+            details: [`slideId=${operation.slideId}`],
+          },
+        );
+      }
+
+      const [deletedSlide] = deck.slides.splice(slideIndex, 1);
+      if (deletedSlide.kind === "activity") {
+        removeActivityQrElements(deck, deletedSlide.activity.activityId);
+      }
+      normalizeSlideOrders(deck);
       return { ok: true };
     }
 
-    case "reorder_slides":
+    case "reorder_slides": {
+      const validationFailure = validateSlideReorder(deck, operation.slideOrders);
+      if (validationFailure) {
+        return validationFailure;
+      }
+
       for (const slideOrder of operation.slideOrders) {
-        const slide = findSlide(deck, slideOrder.slideId);
-
-        if (!slide) {
-          return slideNotFound(operation.type, slideOrder.slideId);
-        }
-
-        slide.order = slideOrder.order;
+        findSlide(deck, slideOrder.slideId)!.order = slideOrder.order;
       }
 
       sortSlides(deck);
+      normalizeSlideOrders(deck);
       return { ok: true };
+    }
 
     case "update_theme":
       mergeRecordPatch(
@@ -304,6 +355,12 @@ function applyOperation(
       const removedElement = slide.elements[elementIndex];
 
       slide.elements.splice(elementIndex, 1);
+      if (
+        slide.aiNotes?.compositionPlan?.primaryFocalElementId ===
+        operation.elementId
+      ) {
+        delete slide.aiNotes.compositionPlan.primaryFocalElementId;
+      }
       slide.animations = slide.animations.filter(
         (animation) => animation.elementId !== operation.elementId,
       );
@@ -376,8 +433,16 @@ function applyOperation(
         });
       }
 
-      slide.animations.push(cloneJson(operation.animation));
+      slide.animations.push({
+        ...cloneJson(operation.animation),
+        startMode: operation.animation.startMode ?? "on-click"
+      });
       sortAnimations(slide);
+      const timingFailure = validateSlideActionAnimationTimings(
+        slide,
+        operation.type
+      );
+      if (timingFailure) return timingFailure;
       return { ok: true };
     }
 
@@ -409,6 +474,11 @@ function applyOperation(
         operation.animation as Record<string, unknown>,
       );
       sortAnimations(slide);
+      const timingFailure = validateSlideActionAnimationTimings(
+        slide,
+        operation.type
+      );
+      if (timingFailure) return timingFailure;
       return { ok: true };
     }
 
@@ -432,6 +502,11 @@ function applyOperation(
         slide,
         removeActionsForAnimations(slide, [operation.animationId]),
       );
+      const timingFailure = validateSlideActionAnimationTimings(
+        slide,
+        operation.type
+      );
+      if (timingFailure) return timingFailure;
       return { ok: true };
     }
 
@@ -472,6 +547,13 @@ function applyOperation(
           operation.action.effect.animationId,
         );
       }
+
+      const timingFailure = validateSlideActionAnimationTiming(
+        slide,
+        operation.action.effect,
+        operation.type
+      );
+      if (timingFailure) return timingFailure;
 
       slide.actions.push(cloneJson(operation.action));
       return { ok: true };
@@ -515,6 +597,13 @@ function applyOperation(
           );
         }
 
+        const timingFailure = validateSlideActionAnimationTiming(
+          slide,
+          operation.action.effect,
+          operation.type
+        );
+        if (timingFailure) return timingFailure;
+
         action.effect = cloneJson(operation.action.effect);
       }
 
@@ -541,8 +630,90 @@ function applyOperation(
       return { ok: true };
     }
 
+    case "update_activity_definition": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      if (slide.kind !== "activity") {
+        return failure(
+          "SLIDE_KIND_MISMATCH",
+          "Activity definition can only be updated on an Activity slide",
+          {
+            operationType: operation.type,
+            details: [`slideId=${operation.slideId}`, `kind=${slide.kind}`],
+          },
+        );
+      }
+
+      slide.activity = cloneJson(operation.activity);
+      return { ok: true };
+    }
+
+    case "update_activity_result_definition": {
+      const slide = findSlide(deck, operation.slideId);
+
+      if (!slide) {
+        return slideNotFound(operation.type, operation.slideId);
+      }
+
+      if (slide.kind !== "activity-results") {
+        return failure(
+          "SLIDE_KIND_MISMATCH",
+          "Activity result definition can only be updated on an Activity result slide",
+          {
+            operationType: operation.type,
+            details: [`slideId=${operation.slideId}`, `kind=${slide.kind}`],
+          },
+        );
+      }
+
+      slide.activityResult = cloneJson(operation.activityResult);
+      return { ok: true };
+    }
+
     default:
       return unsupportedOperation(operation);
+  }
+}
+
+function removeActivityQrElements(deck: Deck, activityId: string) {
+  for (const slide of deck.slides) {
+    const removedElementIds = slide.elements
+      .filter(
+        (element) =>
+          element.type === "activity-qr" &&
+          element.props.activityId === activityId,
+      )
+      .map((element) => element.elementId);
+    if (removedElementIds.length === 0) {
+      continue;
+    }
+
+    const removedElementIdSet = new Set(removedElementIds);
+    const removedAnimationIds = slide.animations
+      .filter((animation) => removedElementIdSet.has(animation.elementId))
+      .map((animation) => animation.animationId);
+    if (
+      slide.aiNotes?.compositionPlan?.primaryFocalElementId &&
+      removedElementIdSet.has(slide.aiNotes.compositionPlan.primaryFocalElementId)
+    ) {
+      delete slide.aiNotes.compositionPlan.primaryFocalElementId;
+    }
+    slide.elements = slide.elements.filter(
+      (element) => !removedElementIdSet.has(element.elementId),
+    );
+    slide.animations = slide.animations.filter(
+      (animation) => !removedElementIdSet.has(animation.elementId),
+    );
+    const removedActionIds = removeActionsForAnimations(slide, removedAnimationIds);
+    for (const elementId of removedElementIds) {
+      removeElementFromGroups(slide, elementId);
+      removeElementReferences(slide, elementId);
+    }
+    removeActionReferences(slide, removedActionIds);
   }
 }
 
@@ -590,6 +761,44 @@ function findSlideAction(
   actionId: string,
 ): DeckSlideAction | undefined {
   return slide.actions.find((action) => action.actionId === actionId);
+}
+
+function validateSlideActionAnimationTiming(
+  slide: Slide,
+  effect: DeckSlideAction["effect"],
+  operationType: string
+): ApplyDeckPatchFailure | null {
+  if (effect.kind !== "play-animation") return null;
+  const timeline = createAnimationTimeline({
+    animations: slide.animations,
+    legacyOnClickAnimationIds: [effect.animationId]
+  });
+  const root = getAnimationTimelineRoot(timeline, effect.animationId);
+  if (root?.kind === "click") return null;
+
+  return failure(
+    "SLIDE_ACTION_ANIMATION_TIMING_INCOMPATIBLE",
+    "Slide action can only target an on-click animation chain",
+    {
+      operationType,
+      details: [`animationId=${effect.animationId}`]
+    }
+  );
+}
+
+function validateSlideActionAnimationTimings(
+  slide: Slide,
+  operationType: string
+): ApplyDeckPatchFailure | null {
+  for (const action of slide.actions) {
+    const timingFailure = validateSlideActionAnimationTiming(
+      slide,
+      action.effect,
+      operationType
+    );
+    if (timingFailure) return timingFailure;
+  }
+  return null;
 }
 
 function findKeyword(slide: Slide, keywordId: string) {
@@ -713,14 +922,7 @@ function isElementSourceRefKind(
 function getSemanticElementContent(element: DeckElement): string | null {
   switch (element.type) {
     case "text":
-      return JSON.stringify({
-        text: element.props.text,
-        runs: element.props.runs?.map((run) => run.text),
-        paragraphs: element.props.paragraphs?.map((paragraph) => ({
-          text: paragraph.text,
-          runs: paragraph.runs?.map((run) => run.text),
-        })),
-      });
+      return getRichTextSemanticText(element.props);
     case "table":
       return JSON.stringify(
         element.props.rows.map((row) => row.map((cell) => cell.text)),
@@ -750,6 +952,52 @@ function isKeywordBasedTrigger(
 
 function sortSlides(deck: Deck): void {
   deck.slides.sort((a, b) => a.order - b.order);
+}
+
+function normalizeSlideOrders(deck: Deck): void {
+  sortSlides(deck);
+  deck.slides.forEach((slide, index) => {
+    slide.order = index + 1;
+  });
+}
+
+function validateSlideReorder(
+  deck: Deck,
+  slideOrders: Array<{ slideId: string; order: number }>,
+): ApplyDeckPatchFailure | null {
+  const currentSlideIds = deck.slides.map((slide) => slide.slideId);
+  const requestedSlideIds = slideOrders.map((slideOrder) => slideOrder.slideId);
+  const requestedOrders = slideOrders.map((slideOrder) => slideOrder.order);
+  const currentSlideIdSet = new Set(currentSlideIds);
+  const requestedSlideIdSet = new Set(requestedSlideIds);
+  const requestedOrderSet = new Set(requestedOrders);
+  const expectedOrders = new Set(deck.slides.map((_, index) => index + 1));
+  const hasExactSlidePermutation =
+    currentSlideIdSet.size === currentSlideIds.length &&
+    requestedSlideIds.length === currentSlideIds.length &&
+    requestedSlideIdSet.size === requestedSlideIds.length &&
+    requestedSlideIds.every((slideId) => currentSlideIdSet.has(slideId));
+  const hasExactOrderPermutation =
+    requestedOrders.length === deck.slides.length &&
+    requestedOrderSet.size === requestedOrders.length &&
+    requestedOrders.every((order) => expectedOrders.has(order));
+
+  if (hasExactSlidePermutation && hasExactOrderPermutation) {
+    return null;
+  }
+
+  return failure(
+    "INVALID_SLIDE_REORDER",
+    "Slide reorder must contain exact slide ID and order permutations",
+    {
+      operationType: "reorder_slides",
+      details: [
+        `expectedSlideIds=${currentSlideIds.join(",")}`,
+        `requestedSlideIds=${requestedSlideIds.join(",")}`,
+        `requestedOrders=${requestedOrders.join(",")}`,
+      ],
+    },
+  );
 }
 
 function sortElements(slide: Slide): void {

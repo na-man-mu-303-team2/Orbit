@@ -1,5 +1,9 @@
 import type { Job } from "@orbit/shared";
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException
+} from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FilesService } from "../files/files.service";
 import type { JobsService } from "../jobs/jobs.service";
@@ -58,7 +62,24 @@ describe("PptxOoxmlGenerationsService", () => {
     Object.assign(process.env, validEnv);
   });
 
-  it("creates a PPTX OOXML generation job and enqueues the worker payload", async () => {
+  it.each([
+    {
+      expectedPreference: "editability-first" as const,
+      label: "legacy default",
+      request: { fileId: "file_template" }
+    },
+    {
+      expectedPreference: "appearance-first" as const,
+      label: "explicit appearance preference",
+      request: {
+        fileId: "file_template",
+        importPreference: "appearance-first" as const
+      }
+    }
+  ])("creates and enqueues a generation job with $label", async ({
+    expectedPreference,
+    request
+  }) => {
     const job = createJob();
     const services = createServices({
       jobsService: {
@@ -81,11 +102,7 @@ describe("PptxOoxmlGenerationsService", () => {
       services.projectsService,
       services.filesService,
       enqueueJob
-    ).createGeneration("project-a", {
-      fileId: "file_template",
-      topic: "ORBIT",
-      prompt: "Keep the original template"
-    });
+    ).createGeneration("project-a", request);
 
     expect(result).toEqual({ job });
     expect(services.filesService.getUploadedAsset).toHaveBeenCalledWith(
@@ -99,8 +116,7 @@ describe("PptxOoxmlGenerationsService", () => {
       payload: {
         request: {
           fileId: "file_template",
-          topic: "ORBIT",
-          prompt: "Keep the original template"
+          importPreference: expectedPreference
         }
       }
     });
@@ -111,11 +127,53 @@ describe("PptxOoxmlGenerationsService", () => {
       projectId: "project-a",
       request: {
         fileId: "file_template",
-        topic: "ORBIT",
-        prompt: "Keep the original template"
+        importPreference: expectedPreference
       }
     });
   });
+
+  it("rejects unsupported import preferences before job creation", async () => {
+    const services = createServices({});
+    const enqueueJob = vi.fn(async () => undefined);
+
+    await expect(
+      new PptxOoxmlGenerationsService(
+        services.jobsService,
+        services.projectsService,
+        services.filesService,
+        enqueueJob
+      ).createGeneration("project-a", {
+        fileId: "file_template",
+        importPreference: "balanced"
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(services.filesService.getUploadedAsset).not.toHaveBeenCalled();
+    expect(services.jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueJob).not.toHaveBeenCalled();
+  });
+
+  it.each(["topic", "prompt", "extraField"])(
+    "rejects unsupported request field %s before job creation",
+    async (field) => {
+      const services = createServices({});
+      const enqueueJob = vi.fn(async () => undefined);
+
+      await expect(
+        new PptxOoxmlGenerationsService(
+          services.jobsService,
+          services.projectsService,
+          services.filesService,
+          enqueueJob
+        ).createGeneration("project-a", {
+          fileId: "file_template",
+          [field]: "legacy value"
+        })
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(services.filesService.getUploadedAsset).not.toHaveBeenCalled();
+      expect(services.jobsService.create).not.toHaveBeenCalled();
+      expect(enqueueJob).not.toHaveBeenCalled();
+    }
+  );
 
   it("rejects non-PPTX uploaded files", async () => {
     const services = createServices({
@@ -127,16 +185,18 @@ describe("PptxOoxmlGenerationsService", () => {
         }))
       } as unknown as FilesService
     });
+    const enqueueJob = vi.fn(async () => undefined);
 
     await expect(
       new PptxOoxmlGenerationsService(
         services.jobsService,
         services.projectsService,
         services.filesService,
-        vi.fn(async () => undefined)
+        enqueueJob
       ).createGeneration("project-a", { fileId: "file_pdf" })
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(services.jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueJob).not.toHaveBeenCalled();
   });
 
   it("rejects missing file ids before enqueue", async () => {
@@ -147,16 +207,44 @@ describe("PptxOoxmlGenerationsService", () => {
         })
       } as unknown as FilesService
     });
+    const enqueueJob = vi.fn(async () => undefined);
 
     await expect(
       new PptxOoxmlGenerationsService(
         services.jobsService,
         services.projectsService,
         services.filesService,
-        vi.fn(async () => undefined)
+        enqueueJob
       ).createGeneration("project-a", { fileId: "file_missing" })
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(services.jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueJob).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["project mismatch", new ForbiddenException("Project asset access denied")],
+    ["pending status", new NotFoundException("Asset is not uploaded")],
+    ["purpose mismatch", new ForbiddenException("Asset purpose must be pptx-import")]
+  ])("propagates %s asset validation before job creation", async (_case, error) => {
+    const services = createServices({
+      filesService: {
+        getUploadedAsset: vi.fn(async () => {
+          throw error;
+        })
+      } as unknown as FilesService
+    });
+    const enqueueJob = vi.fn(async () => undefined);
+
+    await expect(
+      new PptxOoxmlGenerationsService(
+        services.jobsService,
+        services.projectsService,
+        services.filesService,
+        enqueueJob
+      ).createGeneration("project-a", { fileId: "file_template" })
+    ).rejects.toBe(error);
+    expect(services.jobsService.create).not.toHaveBeenCalled();
+    expect(enqueueJob).not.toHaveBeenCalled();
   });
 });
 

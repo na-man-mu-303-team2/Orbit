@@ -19,14 +19,14 @@ from app.ai.composition_library import (
     content_supports_composition,
 )
 from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
-from app.ai.design_program import CompositionId, DeckDesignProgram
-from app.ai.generate_deck import (
-    ValidationResult,
+from app.ai.design_program import COVER_COMPOSITION_IDS, CompositionId, DeckDesignProgram
+from app.ai.deck_generation.layout_compiler import without_canvas_background_elements
+from app.ai.deck_generation.models import ValidationResult
+from app.ai.deck_generation.quality import (
     validate_content,
     validate_design,
     validate_layout,
     validate_presentation,
-    without_canvas_background_elements,
 )
 from app.ai.pptx_design_importer import ImportedDesignAsset
 from app.ai.pptx_ooxml_generation import CanvasSpec, render_pptx_to_png_assets
@@ -173,6 +173,10 @@ class VisualRepairRequest(BaseModel):
         default_factory=list,
         alias="dropOptionalMediaSlideIds",
     )
+    drop_failed_cover_media_slide_ids: list[str] = Field(
+        default_factory=list,
+        alias="dropFailedCoverMediaSlideIds",
+    )
 
 
 class VisualRepairResponse(BaseModel):
@@ -189,7 +193,7 @@ class VisualQaUnavailableError(RuntimeError):
 
 
 def visual_review_response_format(
-    slide_count: int,
+    slide_orders: list[int],
     *,
     slide_ids: list[str] | None = None,
     element_ids: list[str] | None = None,
@@ -235,8 +239,7 @@ def visual_review_response_format(
                                 "code": {"type": "string", "enum": issue_codes},
                                 "slideOrder": {
                                     "type": "integer",
-                                    "minimum": 1,
-                                    "maximum": slide_count,
+                                    "enum": slide_orders,
                                 },
                                 "message": {"type": "string"},
                             },
@@ -334,7 +337,10 @@ def review_deck_visuals(
                 }
             ],
             text=visual_review_response_format(
-                len(assets),
+                [
+                    int(slide.get("order", index + 1))
+                    for index, slide in enumerate(deck.get("slides", []))
+                ],
                 slide_ids=[
                     str(slide.get("slideId", f"slide_{index + 1}"))
                     for index, slide in enumerate(deck.get("slides", []))
@@ -597,6 +603,7 @@ def _has_balanced_media_split(slide: dict[str, Any]) -> bool:
         "hero-split",
         "cta-closing",
         "editorial-split",
+        "editorial-media-band",
         "image-evidence",
     }:
         return False
@@ -618,6 +625,13 @@ def _has_balanced_media_split(slide: dict[str, Any]) -> bool:
     )
     if media is None or title is None:
         return False
+    if composition_id == "editorial-media-band":
+        return (
+            float(media.get("width", 0)) >= 1344
+            and float(media.get("height", 0)) >= 272
+            and float(title.get("width", 0)) >= 672
+            and float(title.get("props", {}).get("fontSize", 0)) >= 44
+        )
     return (
         float(media.get("width", 0)) >= 768
         and float(media.get("height", 0)) >= 540
@@ -807,6 +821,22 @@ def repair_deck_visuals(request: VisualRepairRequest) -> VisualRepairResponse:
             drop_optional_media(deck, slide)
         except Exception as error:
             warnings.append(f"Optional media fallback skipped: {error}")
+    for slide_id in request.drop_failed_cover_media_slide_ids:
+        slide = next(
+            (
+                candidate
+                for candidate in deck.get("slides", [])
+                if candidate.get("slideId") == slide_id
+            ),
+            None,
+        )
+        if slide is None:
+            warnings.append(f"Cover media fallback skipped missing slide: {slide_id}")
+            continue
+        try:
+            drop_failed_cover_media(deck, slide)
+        except Exception as error:
+            warnings.append(f"Cover media fallback skipped: {error}")
     validation = validate_repaired_deck(deck)
     for action in request.actions:
         candidate_deck = deepcopy(deck)
@@ -950,11 +980,19 @@ def recompile_slide(
     composition_id = action.composition_id
     if composition_id is None:
         slide_type = str(summary.get("slideType", "summary"))
-        item_count = len(summary.get("contentItems", []))
+        item_count = (
+            0
+            if slide_type == "cover"
+            and direction.composition_id in COVER_COMPOSITION_IDS
+            else len(summary.get("contentItems", []))
+        )
         composition_id = next(
             (
                 candidate
-                for candidate in FALLBACK_COMPOSITIONS.get(slide_type, ())
+                for candidate in repair_fallback_compositions(
+                    slide_type,
+                    direction.composition_id,
+                )
                 if candidate != direction.composition_id
                 and slide_type in COMPOSITION_SPECS[candidate].purposes
                 and COMPOSITION_SPECS[candidate].min_items
@@ -1041,18 +1079,44 @@ def recompile_slide(
 
 
 def drop_optional_media(deck: dict[str, Any], slide: dict[str, Any]) -> None:
+    drop_media(deck, slide, allow_required_cover=False)
+
+
+def drop_failed_cover_media(deck: dict[str, Any], slide: dict[str, Any]) -> None:
     plan = slide.get("aiNotes", {}).get("compositionPlan", {})
-    if plan.get("requiredAsset") is True:
+    composition_id = plan.get("compositionId")
+    if (
+        slide.get("order") != 1
+        or composition_id not in COVER_COMPOSITION_IDS
+        or COMPOSITION_SPECS[composition_id].media_requirement == "none"
+    ):
+        raise ValueError("slide is not an image-based generated cover")
+    drop_media(deck, slide, allow_required_cover=True)
+
+
+def drop_media(
+    deck: dict[str, Any],
+    slide: dict[str, Any],
+    *,
+    allow_required_cover: bool,
+) -> None:
+    plan = slide.get("aiNotes", {}).get("compositionPlan", {})
+    if plan.get("requiredAsset") is True and not allow_required_cover:
         raise ValueError("required media cannot use optional fallback")
     program = design_program_from_deck(deck)
     slide_index = deck.get("slides", []).index(slide)
     direction = program.slides[slide_index]
     summary = slide_summary_from_deck(slide)
     slide_type = str(summary.get("slideType", "summary"))
-    item_count = len(summary.get("contentItems", []))
+    item_count = (
+        0
+        if slide_type == "cover"
+        and direction.composition_id in COVER_COMPOSITION_IDS
+        else len(summary.get("contentItems", []))
+    )
     candidates = (
         direction.composition_id,
-        *FALLBACK_COMPOSITIONS.get(slide_type, ()),
+        *repair_fallback_compositions(slide_type, direction.composition_id),
     )
     selected: CompositionId | None = None
     for candidate in dict.fromkeys(candidates):
@@ -1113,6 +1177,15 @@ def drop_optional_media(deck: dict[str, Any], slide: dict[str, Any]) -> None:
     update_snapshot_composition(deck, slide_index, selected)
     if slide.get("animations"):
         slide["animations"][0]["elementId"] = compiled.primary_focal_element_id
+
+
+def repair_fallback_compositions(
+    slide_type: str,
+    current_composition_id: CompositionId,
+) -> tuple[CompositionId, ...]:
+    if slide_type == "cover" and current_composition_id not in COVER_COMPOSITION_IDS:
+        return ("hero-split", "minimal-cover", "hero-full-bleed")
+    return FALLBACK_COMPOSITIONS.get(slide_type, ())
 
 
 def update_snapshot_composition(
@@ -1191,6 +1264,10 @@ def _slide_type_for_composition(slide: dict[str, Any]) -> str:
     )
     if slide.get("order") == 1:
         return "cover"
+    if str(composition).startswith("agenda-"):
+        return "agenda"
+    if str(composition).startswith("closing-"):
+        return "closing"
     if composition == "cta-closing":
         return "summary"
     return {

@@ -46,7 +46,7 @@ const validEnv = {
   DEMO_WORKSPACE_ID: "workspace_demo_1",
   DEMO_PROJECT_ID: "project_demo_1",
   DEMO_DECK_ID: "deck_demo_1",
-  DEMO_SESSION_ID: "session_demo_1"
+  DEMO_SESSION_ID: "session_demo_1",
 };
 
 const queuedRow = {
@@ -60,7 +60,7 @@ const queuedRow = {
   result: null,
   error: null,
   created_at: "2026-06-27T00:00:00.000Z",
-  updated_at: "2026-06-27T00:00:00.000Z"
+  updated_at: "2026-06-27T00:00:00.000Z",
 };
 
 describe("JobsService", () => {
@@ -74,12 +74,12 @@ describe("JobsService", () => {
     const service = new JobsService(
       { query } as unknown as DataSource,
       enqueue,
-      createLogger()
+      createLogger(),
     );
 
     const job = await service.create({
       projectId: "project-a",
-      type: "worker-health-check"
+      type: "worker-health-check",
     });
 
     expect(job).toEqual(jobFromRow(queuedRow));
@@ -87,7 +87,7 @@ describe("JobsService", () => {
       driver: "bullmq",
       redisUrl: "redis://localhost:6379",
       jobId: "job-1",
-      projectId: "project-a"
+      projectId: "project-a",
     });
   });
 
@@ -102,9 +102,9 @@ describe("JobsService", () => {
           message: "Worker health check enqueue failed.",
           error: {
             code: "WORKER_HEALTH_CHECK_ENQUEUE_FAILED",
-            message: "redis down"
-          }
-        }
+            message: "redis down",
+          },
+        },
       ]);
     const enqueue = vi.fn(async () => {
       throw new Error("redis down");
@@ -112,14 +112,14 @@ describe("JobsService", () => {
     const service = new JobsService(
       { query } as unknown as DataSource,
       enqueue,
-      createLogger()
+      createLogger(),
     );
 
     await expect(
       service.create({
         projectId: "project-a",
-        type: "worker-health-check"
-      })
+        type: "worker-health-check",
+      }),
     ).rejects.toThrow("redis down");
 
     expect(query).toHaveBeenCalledTimes(2);
@@ -131,10 +131,156 @@ describe("JobsService", () => {
         "Worker health check enqueue failed.",
         {
           code: "WORKER_HEALTH_CHECK_ENQUEUE_FAILED",
-          message: "redis down"
-        }
-      ])
+          message: "redis down",
+        },
+      ]),
     );
+  });
+
+  it("loads the latest OOXML sync job for the requested Deck version", async () => {
+    const syncRow = {
+      ...queuedRow,
+      job_id: "job-sync-145",
+      type: "pptx-ooxml-sync",
+      payload: { deckId: "deck-a", targetDeckVersion: 145 },
+    };
+    const query = vi.fn().mockResolvedValueOnce([syncRow]);
+    const service = new JobsService(
+      { query } as unknown as DataSource,
+      vi.fn(async () => undefined),
+      createLogger(),
+    );
+
+    await expect(
+      service.getLatestPptxOoxmlSync("project-a", "deck-a", 145),
+    ).resolves.toMatchObject({
+      jobId: "job-sync-145",
+      type: "pptx-ooxml-sync",
+      status: "queued",
+    });
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("payload ->> 'targetDeckVersion'"),
+      ["project-a", "deck-a", 145],
+    );
+  });
+
+  it("retries only failed image shards and invalidates downstream checkpoints", async () => {
+    const failedRow = {
+      ...queuedRow,
+      type: "ai-deck-generation",
+      status: "failed",
+      progress: 70,
+      error: {
+        code: "AI_DECK_EXECUTION_INTERNAL_ERROR",
+        message: "AI deck execution stage could not be completed.",
+        failedStage: "image-slide",
+        retryable: true,
+      },
+    };
+    const runningRow = {
+      ...failedRow,
+      status: "running",
+      progress: 60,
+      message: "AI deck generation retry queued.",
+      result: null,
+      error: null,
+    };
+    const query = vi.fn(async (sql: string, _parameters?: unknown[]) => {
+      const compact = sql.replace(/\s+/g, " ");
+      if (compact.includes("SELECT * FROM jobs")) return [failedRow];
+      if (compact.includes("DELETE FROM ai_deck_generation_stages")) return [];
+      if (compact.includes("DELETE FROM ai_deck_execution_artifacts"))
+        return [];
+      if (compact.includes("UPDATE ai_deck_generation_stages")) {
+        return [{ pipeline_job_id: "job-1" }];
+      }
+      if (compact.includes("UPDATE jobs")) return [runningRow];
+      throw new Error(`Unexpected SQL: ${compact}`);
+    });
+    const dataSource = {
+      query,
+      transaction: vi.fn(
+        async (run: (manager: { query: typeof query }) => unknown) =>
+          run({ query }),
+      ),
+    } as unknown as DataSource;
+    const logger = createLogger();
+    const service = new JobsService(dataSource, vi.fn(), logger);
+
+    await expect(
+      service.retryAiDeckGeneration("project-a", "job-1"),
+    ).resolves.toMatchObject({
+      job: { status: "running", progress: 60, error: null },
+      failedStage: "image-slide",
+      restartCoordinator: false,
+    });
+
+    const downstreamDelete = query.mock.calls.find(([sql]) =>
+      String(sql).includes("DELETE FROM ai_deck_generation_stages"),
+    );
+    expect(downstreamDelete?.[1]).toEqual([
+      "job-1",
+      ["semantic-quality", "rendered-visual-quality", "publication"],
+    ]);
+    const shardReset = query.mock.calls.find(([sql]) =>
+      String(sql).includes("UPDATE ai_deck_generation_stages"),
+    );
+    expect(shardReset?.[1]).toEqual(["job-1", "image-slide"]);
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "ai_deck.retry_queued",
+        failedStage: "image-slide",
+      }),
+      "AI deck generation retry queued.",
+    );
+  });
+
+  it("restarts the coordinator only when no failed reference checkpoint exists", async () => {
+    const failedRow = {
+      ...queuedRow,
+      type: "ai-deck-generation",
+      status: "failed",
+      error: {
+        code: "AI_DECK_COORDINATOR_FAILED",
+        message: "AI deck staged coordinator failed.",
+        failedStage: "reference-extract-file",
+        retryable: true,
+      },
+    };
+    const runningRow = {
+      ...failedRow,
+      status: "running",
+      progress: 5,
+      message: "AI deck generation retry queued.",
+      result: null,
+      error: null,
+    };
+    const query = vi.fn(async (sql: string) => {
+      const compact = sql.replace(/\s+/g, " ");
+      if (compact.includes("SELECT * FROM jobs")) return [failedRow];
+      if (compact.includes("DELETE FROM ai_deck_generation_stages")) return [];
+      if (compact.includes("DELETE FROM ai_deck_execution_artifacts"))
+        return [];
+      if (compact.includes("UPDATE ai_deck_generation_stages")) return [];
+      if (compact.includes("UPDATE jobs")) return [runningRow];
+      throw new Error(`Unexpected SQL: ${compact}`);
+    });
+    const dataSource = {
+      query,
+      transaction: vi.fn(
+        async (run: (manager: { query: typeof query }) => unknown) =>
+          run({ query }),
+      ),
+    } as unknown as DataSource;
+    const service = new JobsService(dataSource, vi.fn(), createLogger());
+
+    await expect(
+      service.retryAiDeckGeneration("project-a", "job-1"),
+    ).resolves.toMatchObject({
+      job: { status: "running", progress: 5 },
+      failedStage: "reference-extract-file",
+      restartCoordinator: true,
+    });
   });
 });
 
@@ -149,13 +295,13 @@ function jobFromRow(row: typeof queuedRow): Job {
     result: row.result,
     error: row.error,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
   } as Job;
 }
 
 function createLogger() {
   return {
     info: vi.fn(),
-    error: vi.fn()
+    error: vi.fn(),
   } as unknown as PinoLogger;
 }

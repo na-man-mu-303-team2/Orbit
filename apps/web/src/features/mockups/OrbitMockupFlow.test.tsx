@@ -132,7 +132,7 @@ describe("Orbit mockup flow", () => {
     const html = renderToStaticMarkup(<OrbitMockupFlow onNavigate={vi.fn()} screen="catalog" />);
     expect(html).toContain("화면 밖에 있던 기능");
     expect(html).toContain("발표 브리프 · 평가 관점");
-    expect(html).toContain("AI PPT 상세 위저드");
+    expect(html).not.toContain("AI PPT 상세 위저드");
   });
 
   it("renders the presentation brief and evaluator lens mockup", () => {

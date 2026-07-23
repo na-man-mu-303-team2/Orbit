@@ -39,7 +39,7 @@ export const evaluatorLensRegistryResponseSchema = z
   })
   .strict();
 
-export const rehearsalEvaluationPlanSchema = z
+const rehearsalEvaluationPlanObjectSchema = z
   .object({
     planVersion: z.literal(1),
     briefRef: frozenBriefRefSchema,
@@ -50,7 +50,7 @@ export const rehearsalEvaluationPlanSchema = z
       .object({
         timing: z.literal(1),
         filler: z.literal(1),
-        pause: z.literal(1),
+        silence: z.union([z.literal(1), z.literal(2)]),
         semantic: z.literal(1),
       })
       .strict(),
@@ -64,6 +64,47 @@ export const rehearsalEvaluationPlanSchema = z
       .nullable(),
   })
   .strict();
+
+export const rehearsalEvaluationPlanSchema = z.preprocess(
+  normalizeLegacyEvaluationPlan,
+  rehearsalEvaluationPlanObjectSchema,
+);
+
+function normalizeLegacyEvaluationPlan(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const plan = { ...(value as Record<string, unknown>) };
+  if (Array.isArray(plan.criteria)) {
+    plan.criteria = plan.criteria.filter((criterion) => {
+      if (
+        !criterion ||
+        typeof criterion !== "object" ||
+        Array.isArray(criterion)
+      ) {
+        return true;
+      }
+      const measurement = (criterion as Record<string, unknown>).measurement;
+      return !(
+        measurement &&
+        typeof measurement === "object" &&
+        !Array.isArray(measurement) &&
+        (measurement as Record<string, unknown>).metric === "pause-count"
+      );
+    });
+  }
+  if (
+    plan.metricDefinitionVersions &&
+    typeof plan.metricDefinitionVersions === "object" &&
+    !Array.isArray(plan.metricDefinitionVersions)
+  ) {
+    const versions = {
+      ...(plan.metricDefinitionVersions as Record<string, unknown>),
+    };
+    delete versions.pause;
+    versions.silence ??= 1;
+    plan.metricDefinitionVersions = versions;
+  }
+  return plan;
+}
 
 export type EvaluatorLensDefinition = z.infer<
   typeof evaluatorLensDefinitionSchema

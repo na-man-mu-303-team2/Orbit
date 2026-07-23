@@ -2,6 +2,7 @@ import type { StoragePort } from "@orbit/storage";
 import {
   challengeQnaAnswerAnalysisJobPayloadSchema,
   challengeQnaAnswerAnalysisJobResultSchema,
+  coachingErrorCodeSchema,
   jobSchema,
   type Job,
 } from "@orbit/shared";
@@ -55,12 +56,20 @@ export async function processChallengeQnaAnswerJob(dataSource: DataSource, stora
     const jobResult=challengeQnaAnswerAnalysisJobResultSchema.parse({answerAttemptId:payload.answerAttemptId,measuredConceptCount:result.conceptOutcomes.filter((item)=>item.outcome!=="unmeasured").length});
     return updateJob(dataSource,payload.jobId,"succeeded",100,"답변 분석 완료",jobResult,null);
   } catch (error) {
-    const code=error instanceof Error?error.message:"QNA_ANSWER_ANALYSIS_FAILED";
+    const code=challengeQnaAnswerFailureCode(error);
     const deletedAt=await cleanupVoice(dataSource,storage,row);
     await evidenceCache.delete(payload.answerAttemptId);
     await dataSource.query(`UPDATE challenge_qna_answer_attempts SET status='failed',error_code=$2,cleanup_state=$3,raw_audio_deleted_at=$4,evidence_expires_at=NULL,completed_at=now() WHERE answer_attempt_id=$1 AND status IN ('queued','processing')`,[payload.answerAttemptId,code,row.input_mode==="voice"?(deletedAt?"deleted":"pending"):"not-required",deletedAt]);
     return updateJob(dataSource,payload.jobId,"failed",100,"답변 분석 실패",null,{code,message:"Challenge Q&A answer analysis failed."});
   } finally { answerText=null; }
+}
+
+function challengeQnaAnswerFailureCode(error:unknown) {
+  return coachingErrorCodeSchema.parse(
+    error instanceof Error&&error.message==="TRANSCRIPTION_FAILED"
+      ? "TRANSCRIPTION_FAILED"
+      : "ANALYSIS_FAILED"
+  );
 }
 
 async function cleanupVoice(dataSource:DataSource,storage:Pick<StoragePort,"removeObject">,row:z.infer<typeof rowSchema>) {

@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { isoDateTimeSchema } from "../common/time.schema";
-import { allowedRehearsalAudioMimeTypes } from "../files/file.schema";
+import {
+  allowedRehearsalAudioMimeTypes,
+  maxRehearsalAudioUploadSizeBytes,
+} from "../files/file.schema";
 import {
   boundedObservationSchema,
   boundedThresholdSchema,
@@ -247,6 +250,12 @@ export const practiceVerificationSummarySchema = z
 export const focusedPracticeSnapshotSchema = z
   .object({
     deckVersion: z.number().int().positive(),
+    goalSetRef: z
+      .object({
+        goalSetId: coachingIdSchema,
+        revision: z.number().int().positive(),
+      })
+      .strict(),
     briefRef: frozenBriefRefSchema,
     evaluatorLensRef: evaluatorLensRefSchema,
     criterionRefs: z.array(criterionRefSchema).min(1).max(3),
@@ -277,6 +286,13 @@ export const focusedPracticeSessionSchema = z
         code: z.ZodIssueCode.custom,
         message: "focused practice goals must be unique.",
         path: ["goalIds"],
+      });
+    }
+    if (session.sourceGoalSetId !== session.snapshot.goalSetRef.goalSetId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "focused practice source goal set must match its frozen snapshot reference.",
+        path: ["snapshot", "goalSetRef", "goalSetId"],
       });
     }
   });
@@ -347,6 +363,22 @@ export const focusedPracticeAttemptSchema = z
   })
   .strict();
 
+export const focusedPracticeAttemptSummarySchema = z
+  .object({
+    sourceFullRunId: coachingIdSchema,
+    goals: z
+      .array(
+        z
+          .object({
+            goalId: coachingIdSchema,
+            passedCount: z.number().int().nonnegative(),
+          })
+          .strict(),
+      )
+      .max(3),
+  })
+  .strict();
+
 export const createFocusedPracticeSessionRequestSchema = z
   .object({
     clientRequestId: clientRequestIdSchema,
@@ -361,7 +393,7 @@ export const createFocusedPracticeAttemptRequestSchema = z
   .object({
     clientRequestId: clientRequestIdSchema,
     mimeType: z.enum(allowedRehearsalAudioMimeTypes),
-    size: z.number().int().positive(),
+    size: z.number().int().positive().max(maxRehearsalAudioUploadSizeBytes),
   })
   .strict();
 
@@ -387,6 +419,9 @@ export type PracticeVerificationSummary = z.infer<
 >;
 export type FocusedPracticeSession = z.infer<typeof focusedPracticeSessionSchema>;
 export type FocusedPracticeAttempt = z.infer<typeof focusedPracticeAttemptSchema>;
+export type FocusedPracticeAttemptSummary = z.infer<
+  typeof focusedPracticeAttemptSummarySchema
+>;
 export type CreateFocusedPracticeSessionRequest = z.infer<
   typeof createFocusedPracticeSessionRequestSchema
 >;

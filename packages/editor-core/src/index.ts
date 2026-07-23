@@ -52,6 +52,7 @@ export {
   createAnimationId,
   createDefaultAnimation,
   createDeleteAnimationPatch,
+  createDeleteAnimationTimelineRootPatch,
   createUpdateAnimationPatch,
   getElementAnimations,
   getNextAnimationOrder,
@@ -68,6 +69,37 @@ export {
 } from "./patches/elementFrame";
 export type { ElementFrameDraft } from "./patches/elementFrame";
 export {
+  applyRichTextCharacterStyle,
+  applyRichTextParagraphStyle,
+  getRichTextSelectionCharacterStyle,
+  getRichTextSelectionParagraphStyle,
+  getRichTextSemanticText,
+  normalizeRichTextProps
+} from "./text/richTextOperations";
+export type {
+  RichTextCharacterStylePatch,
+  RichTextParagraphStylePatch,
+  RichTextRange,
+  RichTextSelectionCharacterStyle,
+  RichTextSelectionParagraphStyle,
+  RichTextSelectionValue
+} from "./text/richTextOperations";
+export {
+  createTableOperationPatch,
+  getTableOperationCapability,
+  getTableStructureCapability,
+  normalizeTableCellRange
+} from "./table/tableOperations";
+export type {
+  TableCellRange,
+  TableOperation,
+  TableOperationCapability,
+  TableOperationDisabledReason,
+  TableOperationPatchResult,
+  TableStructureCapability,
+  TableStructureDisabledReason
+} from "./table/tableOperations";
+export {
   buildGroupedFrameOperations,
   createGroupedElementFramePatch,
   getGroupChildElements,
@@ -80,7 +112,37 @@ export {
   createElementId,
   createUpdateElementPropsPatch
 } from "./patches/elementOperations";
-export { createAddSlidePatch, createSlideId } from "./patches/slideOperations";
+export {
+  createAddSlidePatch,
+  createDuplicateSlidePatch,
+  createSlideId,
+  createUpdateSlideTransitionPatch,
+} from "./patches/slideOperations";
+export {
+  animationTimelineDiagnosticLimit,
+  createAnimationTimeline,
+  getAnimationTimelineRoot
+} from "./playback/animationTimeline";
+export type {
+  AnimationStartMode,
+  AnimationTimelineBaseReference,
+  AnimationTimelineDiagnostic,
+  AnimationTimelinePlan,
+  AnimationTimelineRoot,
+  PlannedAnimationTimelineEffect,
+  TimelineAnimationInput
+} from "./playback/animationTimeline";
+export { getAnimationActionTriggerKeys } from "./playback/slidePlayback";
+export { normalizeLegacyAnimationStartModes } from "./patches/legacyAnimationStartModeMigration";
+export {
+  createActivityResultsSlide,
+  createActivitySlide,
+  createUpdateActivityDefinitionPatch,
+  createUpdateActivityResultDefinitionPatch,
+  duplicateActivityResultsSlide,
+  duplicateActivitySlide,
+  remapActivityDefinitionsForDeckDuplicate
+} from "./patches/activitySlideOperations";
 export {
   createSlidePlaybackState,
   executeSlideAction,
@@ -94,6 +156,13 @@ export type {
   SlideActionExecutionResult,
   SlidePlaybackState
 } from "./playback/slidePlayback";
+export {
+  CommunityTemplateSanitizationError,
+  sanitizeCommunityTemplate
+} from "./community-templates/sanitizeCommunityTemplate";
+export type { CommunityTemplateSanitizationErrorCode } from "./community-templates/sanitizeCommunityTemplate";
+export { materializeCommunityTemplate } from "./community-templates/materializeCommunityTemplate";
+export type { MaterializeCommunityTemplateInput } from "./community-templates/materializeCommunityTemplate";
 
 export function createDemoDeck(): Deck {
   return deckSchema.parse({

@@ -1,9 +1,11 @@
-import {
-  referenceExtractionResultSchema,
-  type Job
-} from "@orbit/shared";
+import type { Job } from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
+
+import {
+  isReferenceExtractPythonClientError,
+  parseReferenceFilesWithPython
+} from "./reference-extract-python-client";
 
 const referenceExtractPayloadSchema = z.object({
   jobId: z.string().min(1),
@@ -68,59 +70,15 @@ export async function processReferenceExtractJob(
     error: null
   });
 
-  const form = new FormData();
-  form.append("project_id", payload.projectId);
-
-  for (const file of payload.files) {
-    form.append("file_ids", file.fileId);
-    form.append(
-      "files",
-      new Blob([Buffer.from(file.contentBase64, "base64")], {
-        type: file.mimeType
-      }),
-      file.originalName
-    );
-  }
-
-  let response: Response;
   try {
-    response = await fetch(workerUrl(pythonWorkerUrl, "/documents/parse"), {
-      method: "POST",
-      body: form,
-      signal: AbortSignal.timeout(120_000)
-    });
-  } catch (error) {
-    return failJob(
-      dataSource,
-      payload.jobId,
-      10,
-      "PYTHON_WORKER_EXTRACT_UNAVAILABLE",
-      error instanceof Error ? error.message : "Python worker unavailable."
-    );
-  }
-
-  if (!response.ok) {
-    const message = (await response.text()) || "Python worker extraction failed.";
-    return failJob(
-      dataSource,
-      payload.jobId,
-      10,
-      "PYTHON_WORKER_EXTRACT_FAILED",
-      message
-    );
-  }
-
-  try {
-    const workerPayload = referenceExtractionResultSchema.parse(
-      await response.json()
-    );
-    const mimeTypes = new Map(
-      payload.files.map((file) => [file.fileId, file.mimeType])
-    );
-    const result = referenceExtractionResultSchema.parse({
-      files: workerPayload.files.map((file) => ({
-        ...file,
-        mimeType: file.mimeType ?? mimeTypes.get(file.fileId)
+    const result = await parseReferenceFilesWithPython({
+      pythonWorkerUrl,
+      projectId: payload.projectId,
+      files: payload.files.map((file) => ({
+        fileId: file.fileId,
+        originalName: file.originalName,
+        mimeType: file.mimeType,
+        body: Buffer.from(file.contentBase64, "base64")
       }))
     });
     return updateJob(dataSource, payload.jobId, {
@@ -131,14 +89,18 @@ export async function processReferenceExtractJob(
       error: null
     });
   } catch (error) {
+    const clientError = isReferenceExtractPythonClientError(error)
+      ? error
+      : {
+          code: "PYTHON_WORKER_EXTRACT_INVALID_RESPONSE",
+          message: "Python worker returned an invalid extraction response."
+        };
     return failJob(
       dataSource,
       payload.jobId,
       10,
-      "PYTHON_WORKER_EXTRACT_INVALID_RESPONSE",
-      error instanceof Error
-        ? error.message
-        : "Python worker returned invalid extraction response."
+      clientError.code,
+      clientError.message
     );
   }
 }
@@ -228,11 +190,4 @@ function toIso(value: Date | string): string {
   }
 
   return date.toISOString();
-}
-
-function workerUrl(baseUrl: string, path: string): string {
-  return new URL(
-    path,
-    baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`
-  ).toString();
 }

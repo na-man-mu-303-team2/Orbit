@@ -1,6 +1,7 @@
 import zipfile
 from io import BytesIO
 from pathlib import Path
+from typing import Callable
 from xml.etree import ElementTree as ET
 
 from PIL import Image
@@ -21,10 +22,207 @@ from app.ai.pptx_design_importer import (
     import_pptx_design,
 )
 from app.ai.pptx_ooxml_vector_importer import (
+    PPTX_FONT_BROWSER_FALLBACK,
     VECTOR_IMPORT_FLAG,
     import_pptx_design_with_optional_ooxml_vector,
     import_pptx_ooxml_visual_tree,
 )
+
+
+IMPORT_FIDELITY_NOTES_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "pptx" / "import-fidelity-notes.pptx"
+)
+PRESENTATION_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+
+def test_import_pptx_design_imports_only_the_related_notes_body() -> None:
+    result = import_pptx_design(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        "file_notes",
+    )
+
+    assert result.blueprint["slides"][0]["speakerNotes"] == (
+        "첫 번째 문단\n\n수동\n줄바꿈"
+    )
+    assert result.template_blueprint["slides"][0]["notesPage"] == {
+        "status": "preserved",
+        "sourceNotesPart": "ppt/notesSlides/notesSlide1.xml",
+        "sourceNotesMasterPart": "ppt/notesMasters/notesMaster1.xml",
+        "bodyShapeId": "3",
+        "bodyWritable": True,
+        "notesWidthEmu": 6_858_000,
+        "notesHeightEmu": 9_144_000,
+        "hasNonBodyContent": True,
+    }
+    assert result.quality_report["notesDiagnostics"] == {
+        "total": 1,
+        "imported": 1,
+        "rendered": 0,
+        "writable": 1,
+        "warnings": [],
+    }
+    assert "NOTES_NON_BODY_DO_NOT_IMPORT" not in result.blueprint["slides"][0][
+        "speakerNotes"
+    ]
+    assert "NOTES_MASTER_DECORATION_DO_NOT_IMPORT" not in result.blueprint["slides"][
+        0
+    ]["speakerNotes"]
+
+
+def test_ooxml_visual_tree_imports_notes_with_the_same_relationship_contract() -> None:
+    result = import_pptx_ooxml_visual_tree(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        "file_notes",
+    )
+
+    assert result.blueprint["slides"][0]["speakerNotes"] == (
+        "첫 번째 문단\n\n수동\n줄바꿈"
+    )
+    assert result.template_blueprint["slides"][0]["notesPage"]["bodyShapeId"] == "3"
+    assert result.quality_report["notesDiagnostics"]["imported"] == 1
+
+
+def test_import_pptx_design_rejects_external_notes_relationship(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "external-notes.pptx"
+
+    def make_external(xml: bytes) -> bytes:
+        root = ET.fromstring(xml)
+        relationship = next(
+            child
+            for child in root
+            if str(child.get("Type", "")).endswith("/notesSlide")
+        )
+        relationship.set("Target", "https://invalid.example/notes.xml")
+        relationship.set("TargetMode", "External")
+        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    rewrite_pptx_entry(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        pptx_path,
+        "ppt/slides/_rels/slide1.xml.rels",
+        make_external,
+    )
+
+    result = import_pptx_design(pptx_path, "file_notes")
+
+    assert "speakerNotes" not in result.blueprint["slides"][0]
+    assert result.template_blueprint["slides"][0]["notesPage"] == {
+        "status": "absent",
+        "bodyWritable": False,
+        "notesWidthEmu": 6_858_000,
+        "notesHeightEmu": 9_144_000,
+        "hasNonBodyContent": False,
+    }
+    assert result.quality_report["notesDiagnostics"]["warnings"] == [
+        {"code": "PPTX_NOTES_RELATIONSHIP_INVALID", "count": 1}
+    ]
+
+
+def test_import_pptx_design_reports_notes_relationship_without_target(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "missing-notes-target.pptx"
+
+    def remove_target(xml: bytes) -> bytes:
+        root = ET.fromstring(xml)
+        relationship = next(
+            child
+            for child in root
+            if str(child.get("Type", "")).endswith("/notesSlide")
+        )
+        relationship.attrib.pop("Target", None)
+        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    rewrite_pptx_entry(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        pptx_path,
+        "ppt/slides/_rels/slide1.xml.rels",
+        remove_target,
+    )
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_notes")
+
+    assert "speakerNotes" not in result.blueprint["slides"][0]
+    assert result.quality_report["notesDiagnostics"]["warnings"] == [
+        {"code": "PPTX_NOTES_RELATIONSHIP_MISSING", "count": 1}
+    ]
+
+
+def test_import_pptx_design_fails_closed_for_multiple_notes_body_placeholders(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "ambiguous-notes-body.pptx"
+
+    def duplicate_body(xml: bytes) -> bytes:
+        root = ET.fromstring(xml)
+        namespaces = {"p": PRESENTATION_NS}
+        shape_tree = root.find("./p:cSld/p:spTree", namespaces)
+        assert shape_tree is not None
+        body = next(
+            shape
+            for shape in shape_tree.findall("./p:sp", namespaces)
+            if (
+                placeholder := shape.find("./p:nvSpPr/p:nvPr/p:ph", namespaces)
+            )
+            is not None
+            and placeholder.get("type") == "body"
+        )
+        shape_tree.append(ET.fromstring(ET.tostring(body)))
+        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    rewrite_pptx_entry(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        pptx_path,
+        "ppt/notesSlides/notesSlide1.xml",
+        duplicate_body,
+    )
+
+    result = import_pptx_design(pptx_path, "file_notes")
+
+    assert "speakerNotes" not in result.blueprint["slides"][0]
+    assert result.template_blueprint["slides"][0]["notesPage"]["bodyWritable"] is False
+    assert "bodyShapeId" not in result.template_blueprint["slides"][0]["notesPage"]
+    assert result.quality_report["notesDiagnostics"]["warnings"] == [
+        {"code": "PPTX_NOTES_BODY_AMBIGUOUS", "count": 1}
+    ]
+
+
+def test_import_pptx_design_fails_closed_without_notes_body_placeholder(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "missing-notes-body.pptx"
+
+    def remove_body_type(xml: bytes) -> bytes:
+        root = ET.fromstring(xml)
+        namespaces = {"p": PRESENTATION_NS}
+        placeholder = next(
+            item
+            for item in root.findall(
+                "./p:cSld/p:spTree/p:sp/p:nvSpPr/p:nvPr/p:ph",
+                namespaces,
+            )
+            if item.get("type") == "body"
+        )
+        placeholder.set("type", "ftr")
+        return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    rewrite_pptx_entry(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        pptx_path,
+        "ppt/notesSlides/notesSlide1.xml",
+        remove_body_type,
+    )
+
+    result = import_pptx_design(pptx_path, "file_notes")
+
+    assert "speakerNotes" not in result.blueprint["slides"][0]
+    assert result.template_blueprint["slides"][0]["notesPage"]["bodyWritable"] is False
+    assert result.quality_report["notesDiagnostics"]["warnings"] == [
+        {"code": "PPTX_NOTES_BODY_MISSING", "count": 1}
+    ]
 
 
 def test_import_pptx_design_extracts_editable_elements(tmp_path: Path) -> None:
@@ -125,6 +323,123 @@ def test_import_pptx_design_extracts_editable_elements(tmp_path: Path) -> None:
     assert result.quality_report["slideReports"][0]["status"] == "not_evaluated"
     assert result.quality_report["compositeScore"] <= 100
     assert result.assets[0].mime_type == "image/png"
+
+
+def test_ooxml_visual_tree_normalizes_explicit_pretendard_variants(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "pretendard-variants.pptx"
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    textbox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(2))
+    paragraph = textbox.text_frame.paragraphs[0]
+    variants = [
+        ("Pretendard ExtraLight", 200),
+        ("Pretendard Medium", 500),
+        ("Pretendard SemiBold", 600),
+        ("Pretendard ExtraBold", 800),
+    ]
+    for index, (family, _weight) in enumerate(variants):
+        run = paragraph.add_run()
+        run.text = f"variant-{index} "
+        run.font.name = family
+    for index in range(2):
+        run = paragraph.add_run()
+        run.text = f"unknown-{index} "
+        run.font.name = "Unlisted Presentation Font"
+    presentation.save(pptx_path)
+
+    result = import_pptx_ooxml_visual_tree(pptx_path, "file_fonts")
+    text = next(
+        element
+        for element in result.blueprint["slides"][0]["elements"]
+        if element["type"] == "text"
+    )
+    runs = [run for run in text["props"]["runs"] if run["text"].strip()]
+
+    assert [
+        (run["fontFamily"], run["fontWeight"])
+        for run in runs[: len(variants)]
+    ] == [("Pretendard", weight) for _family, weight in variants]
+    assert [run["fontFamily"] for run in runs[len(variants) :]] == [
+        "Unlisted Presentation Font",
+        "Unlisted Presentation Font",
+    ]
+    assert [
+        warning
+        for warning in result.warnings
+        if warning.startswith(PPTX_FONT_BROWSER_FALLBACK)
+    ] == [
+        "PPTX_FONT_BROWSER_FALLBACK: slide=1; "
+        "family=Unlisted Presentation Font; fallback=Arial"
+    ]
+
+
+def test_ooxml_visual_tree_cascades_layout_text_style_and_preserves_direct_color(
+    tmp_path: Path,
+) -> None:
+    layout_styled_path = tmp_path / "layout-styled.pptx"
+    styled_path = tmp_path / "effective-text-style.pptx"
+    rewrite_pptx_entry(
+        IMPORT_FIDELITY_NOTES_FIXTURE,
+        layout_styled_path,
+        "ppt/slideLayouts/slideLayout1.xml",
+        configure_title_layout_text_style,
+    )
+    rewrite_pptx_entry(
+        layout_styled_path,
+        styled_path,
+        "ppt/slides/slide1.xml",
+        configure_title_slide_text_overrides,
+    )
+
+    result = import_pptx_ooxml_visual_tree(styled_path, "file_effective_style")
+    title = next(
+        element
+        for element in result.blueprint["slides"][0]["elements"]
+        if element.get("props", {}).get("text") == "Inherited title style"
+    )
+    paragraph = title["props"]["paragraphs"][0]
+    run = paragraph["runs"][0]
+
+    expected_title_props = {
+        "autoFit": "shrink-text",
+        "bodyInset": {
+            "left": 20,
+            "right": 30,
+            "top": 10,
+            "bottom": 7,
+        },
+        "color": "#EF4444",
+        "fontFamily": "Pretendard",
+        "fontScale": 0.8,
+        "fontSize": 72,
+        "fontWeight": 600,
+        "letterSpacing": 2.4,
+        "lineSpaceReduction": 0.1,
+    }
+    assert {
+        key: title["props"][key] for key in expected_title_props
+    } == expected_title_props
+    expected_paragraph_props = {
+        "align": "right",
+        "color": "#EF4444",
+        "fontSize": 72,
+        "letterSpacing": 2.4,
+        "lineHeight": 1.25,
+        "spaceBefore": 12,
+        "spaceAfter": 6,
+    }
+    assert {
+        key: paragraph[key] for key in expected_paragraph_props
+    } == expected_paragraph_props
+    assert run["color"] == "#EF4444"
+    assert "fontSize" not in run
+    assert run["letterSpacing"] == 2.4
+    assert not any(
+        warning.startswith("PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING")
+        for warning in result.warnings
+    )
 
 
 def test_import_pptx_design_marks_placeholders_as_replaceable_slots(
@@ -1092,7 +1407,7 @@ def test_ooxml_visual_tree_importer_honors_hidden_master_shapes(
     assert "#223344" not in fills
 
 
-def test_ooxml_visual_tree_importer_preserves_text_box_geometry(
+def test_ooxml_visual_tree_importer_preserves_text_box_frame_and_body_inset(
     tmp_path: Path,
 ) -> None:
     pptx_path = tmp_path / "text-geometry.pptx"
@@ -1140,10 +1455,10 @@ def test_ooxml_visual_tree_importer_preserves_text_box_geometry(
         if element["type"] == "rect" and element["props"]["fill"] == "#EE4444"
     )
 
-    assert text["x"] == 216
-    assert text["y"] == 180
-    assert text["width"] == 468
-    assert text["height"] == 216
+    assert text["x"] == 144
+    assert text["y"] == 144
+    assert text["width"] == 576
+    assert text["height"] == 288
     assert text["props"]["verticalAlign"] == "middle"
     assert text["props"]["lineHeight"] == 1.3
     assert text["props"]["paragraphs"][0]["lineHeight"] == 1.3
@@ -1349,6 +1664,51 @@ def test_ooxml_visual_tree_importer_is_default(
     )
 
 
+def test_ooxml_visual_tree_failure_uses_python_pptx_fallback(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    pptx_path = tmp_path / "vector-failure.pptx"
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    slide.shapes.add_textbox(
+        Inches(1),
+        Inches(1),
+        Inches(3),
+        Inches(1),
+    ).text_frame.text = "Fallback title"
+    presentation.save(pptx_path)
+
+    def fail_vector_import(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("malformed visual tree")
+
+    monkeypatch.delenv(VECTOR_IMPORT_FLAG, raising=False)
+    monkeypatch.setattr(
+        "app.ai.pptx_ooxml_vector_importer.import_pptx_ooxml_visual_tree",
+        fail_vector_import,
+    )
+
+    result = import_pptx_design_with_optional_ooxml_vector(
+        pptx_path,
+        "file_design",
+    )
+
+    warning = (
+        "OOXML visual tree importer failed; python-pptx fallback used: "
+        "malformed visual tree"
+    )
+    assert result.warnings == [warning]
+    assert result.blueprint["warnings"] == [warning]
+    assert result.template_blueprint["sourcePackageFileId"] == "file_design"
+    assert result.template_blueprint["currentPackageFileId"] == "file_design"
+    assert any(
+        element["type"] == "text"
+        and element["props"]["text"] == "Fallback title"
+        and str(element["elementId"]).startswith("el_imported_")
+        for element in result.blueprint["slides"][0]["elements"]
+    )
+
+
 def replace_shape_fill_with_scheme(
     shape: object,
     scheme: str,
@@ -1457,6 +1817,99 @@ def set_first_text_paragraph_line_spacing(
     with zipfile.ZipFile(pptx_path, "w") as package:
         for name, content in entries.items():
             package.writestr(name, content)
+
+
+def configure_title_layout_text_style(xml: bytes) -> bytes:
+    root = ET.fromstring(xml)
+    shape = placeholder_shape(root, "ctrTitle")
+    text_body = next(
+        child for child in list(shape) if child.tag.rsplit("}", 1)[-1] == "txBody"
+    )
+    body_properties = next(
+        child
+        for child in list(text_body)
+        if child.tag.rsplit("}", 1)[-1] == "bodyPr"
+    )
+    body_properties.set("lIns", "127000")
+    body_properties.set("tIns", "63500")
+    for child in list(body_properties):
+        if child.tag.rsplit("}", 1)[-1] in {
+            "noAutofit",
+            "normAutofit",
+            "spAutoFit",
+        }:
+            body_properties.remove(child)
+    ET.SubElement(
+        body_properties,
+        f"{{{DRAWING_NS}}}normAutofit",
+        {"fontScale": "80000", "lnSpcReduction": "10000"},
+    )
+
+    list_style = next(
+        child
+        for child in list(text_body)
+        if child.tag.rsplit("}", 1)[-1] == "lstStyle"
+    )
+    level_properties = ET.SubElement(
+        list_style,
+        f"{{{DRAWING_NS}}}lvl1pPr",
+        {"algn": "r"},
+    )
+    line_spacing = ET.SubElement(level_properties, f"{{{DRAWING_NS}}}lnSpc")
+    ET.SubElement(line_spacing, f"{{{DRAWING_NS}}}spcPct", {"val": "125000"})
+    space_before = ET.SubElement(level_properties, f"{{{DRAWING_NS}}}spcBef")
+    ET.SubElement(space_before, f"{{{DRAWING_NS}}}spcPts", {"val": "600"})
+    space_after = ET.SubElement(level_properties, f"{{{DRAWING_NS}}}spcAft")
+    ET.SubElement(space_after, f"{{{DRAWING_NS}}}spcPts", {"val": "300"})
+    default_run = ET.SubElement(
+        level_properties,
+        f"{{{DRAWING_NS}}}defRPr",
+        {"sz": "3600"},
+    )
+    fill = ET.SubElement(default_run, f"{{{DRAWING_NS}}}solidFill")
+    ET.SubElement(fill, f"{{{DRAWING_NS}}}srgbClr", {"val": "22C55E"})
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def configure_title_slide_text_overrides(xml: bytes) -> bytes:
+    root = ET.fromstring(xml)
+    shape = placeholder_shape(root, "ctrTitle")
+    text_body = next(
+        child for child in list(shape) if child.tag.rsplit("}", 1)[-1] == "txBody"
+    )
+    body_properties = next(
+        child
+        for child in list(text_body)
+        if child.tag.rsplit("}", 1)[-1] == "bodyPr"
+    )
+    body_properties.set("rIns", "190500")
+    run_properties = next(
+        node for node in text_body.iter() if node.tag.rsplit("}", 1)[-1] == "rPr"
+    )
+    for child in list(run_properties):
+        if child.tag.rsplit("}", 1)[-1] in {
+            "solidFill",
+            "gradFill",
+            "noFill",
+            "pattFill",
+        }:
+            run_properties.remove(child)
+    fill = ET.SubElement(run_properties, f"{{{DRAWING_NS}}}solidFill")
+    ET.SubElement(fill, f"{{{DRAWING_NS}}}srgbClr", {"val": "EF4444"})
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def placeholder_shape(root: ET.Element, placeholder_type: str) -> ET.Element:
+    return next(
+        shape
+        for shape in root.iter()
+        if shape.tag.rsplit("}", 1)[-1] == "sp"
+        and any(
+            node.tag.rsplit("}", 1)[-1] == "ph"
+            and node.get("type") == placeholder_type
+            for node in shape.iter()
+        )
+    )
 
 
 def replace_shape_fill_with_gradient(shape: object) -> None:
@@ -1593,6 +2046,23 @@ def replace_first_picture_with_svg(pptx_path: Path) -> None:
         for filename, content in entries.items():
             package.writestr(filename, content)
     rewritten_path.replace(pptx_path)
+
+
+def rewrite_pptx_entry(
+    source_path: Path,
+    target_path: Path,
+    entry_name: str,
+    transform: Callable[[bytes], bytes],
+) -> None:
+    with zipfile.ZipFile(source_path, "r") as source:
+        entries = {
+            info.filename: source.read(info.filename)
+            for info in source.infolist()
+        }
+    entries[entry_name] = transform(entries[entry_name])
+    with zipfile.ZipFile(target_path, "w", zipfile.ZIP_DEFLATED) as target:
+        for filename, content in entries.items():
+            target.writestr(filename, content)
 
 
 def editable_element(element_id: str, element_type: str) -> dict[str, object]:

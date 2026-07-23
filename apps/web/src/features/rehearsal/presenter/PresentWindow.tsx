@@ -6,10 +6,15 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import type { ReactNode, Ref } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { shouldAdvancePresentationFromClick } from "../../presenter-shell/presentationClickAdvance";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import orbitLogoWhite from "../../../assets/orbit-logo-white.png";
 import "../../presentation/orbit-live-presentation.css";
-import { SlideshowRenderer } from "./SlideshowRenderer";
+import { AudienceOutputRenderer } from "./AudienceOutputRenderer";
+import {
+  registerAudienceStreamBridge,
+  type AudienceStreamBridgeRegistration,
+} from "./audienceStreamBridge";
 import {
   slideWindowFullscreenRequestType,
   type SlideWindowFullscreenRequestMessage,
@@ -18,11 +23,13 @@ import type { PresenterSlideshowState } from "./presenterStateStore";
 import {
   createSlideWindowHeartbeatMessage,
   createSlideWindowReadyMessage,
+  createScreenShareEndedMessage,
   getPresentationChannelName,
-  isPresentationChannelMessage,
   matchesPresentationChannelIdentity,
+  parsePresentationChannelMessage,
   type PresentationChannelIdentity,
   type PresentationChannelMessage,
+  type ScreenShareEndedReason,
 } from "./presentationChannel";
 
 export type PresentWindowSnapshot = {
@@ -101,6 +108,11 @@ export function PresentWindowReceiver(props: {
   );
   const [channelError, setChannelError] = useState("");
   const [isPresenterStale, setIsPresenterStale] = useState(false);
+  const [audienceStream, setAudienceStream] = useState<MediaStream | null>(null);
+  const channelRef = useRef<ChannelLike | null>(null);
+  const streamBridgeRef = useRef<AudienceStreamBridgeRegistration | null>(null);
+  const snapshotRef = useRef<PresentWindowSnapshot | null>(initialSnapshot);
+  const screenShareFailureHandledRef = useRef(false);
   const hasSnapshotRef = useRef(Boolean(initialSnapshot));
   const lastPresenterSeenAtRef = useRef<number | null>(
     initialSnapshot ? Date.now() : null,
@@ -108,10 +120,28 @@ export function PresentWindowReceiver(props: {
 
   useEffect(() => {
     setSnapshot(initialSnapshot);
+    snapshotRef.current = initialSnapshot;
     hasSnapshotRef.current = Boolean(initialSnapshot);
     lastPresenterSeenAtRef.current = initialSnapshot ? Date.now() : null;
     setIsPresenterStale(false);
   }, [identity.deckId, identity.sessionId, initialSnapshot]);
+
+  useEffect(() => {
+    const registration = registerAudienceStreamBridge({
+      identity,
+      onAttach: setAudienceStream,
+      onDetach: () => setAudienceStream(null),
+    });
+    if (!registration.ok) return;
+    streamBridgeRef.current = registration;
+
+    return () => {
+      registration.unregister();
+      if (streamBridgeRef.current === registration) {
+        streamBridgeRef.current = null;
+      }
+    };
+  }, [identity]);
 
   useEffect(() => {
     let channel: ChannelLike;
@@ -122,9 +152,11 @@ export function PresentWindowReceiver(props: {
       return;
     }
 
+    channelRef.current = channel;
+
     channel.onmessage = (event) => {
-      const message = event.data;
-      if (!isPresentationChannelMessage(message)) {
+      const message = parsePresentationChannelMessage(event.data);
+      if (!message) {
         return;
       }
       if (!matchesPresentationChannelIdentity(message, identity)) {
@@ -133,6 +165,7 @@ export function PresentWindowReceiver(props: {
 
       setSnapshot((current) => {
         const next = applyPresentWindowMessage(current, message);
+        snapshotRef.current = next;
         hasSnapshotRef.current = Boolean(next);
         return next;
       });
@@ -165,8 +198,44 @@ export function PresentWindowReceiver(props: {
       window.clearInterval(heartbeatTimer);
       window.clearInterval(staleTimer);
       channel.close();
+      if (channelRef.current === channel) channelRef.current = null;
     };
   }, [channelFactory, identity]);
+
+  useEffect(() => {
+    if (snapshot?.state.audienceOutputMode === "screen-share") return;
+    streamBridgeRef.current?.detach();
+    setAudienceStream(null);
+  }, [snapshot?.state.audienceOutputMode]);
+
+  useEffect(() => {
+    if (snapshot?.state.audienceOutputMode === "screen-share") {
+      screenShareFailureHandledRef.current = false;
+    }
+  }, [audienceStream, snapshot?.state.audienceOutputMode]);
+
+  const handleScreenShareFailure = useCallback(
+    (reason: ScreenShareEndedReason) => {
+      if (screenShareFailureHandledRef.current) return;
+      const recovered = applyPresentWindowScreenShareFailure(
+        snapshotRef.current,
+      );
+      if (!recovered) return;
+
+      screenShareFailureHandledRef.current = true;
+      snapshotRef.current = recovered;
+      setSnapshot(recovered);
+      streamBridgeRef.current?.detach();
+      setAudienceStream(null);
+      channelRef.current?.postMessage(
+        createScreenShareEndedMessage({
+          identity,
+          reason,
+        }),
+      );
+    },
+    [identity.deckId, identity.sessionId],
+  );
 
   if (channelError) {
     return (
@@ -183,8 +252,7 @@ export function PresentWindowReceiver(props: {
     return (
       <PresentWindowShell>
         <PresentWindowStatus
-          title="발표자 화면을 기다리는 중"
-          message="발표자 화면에서 현재 슬라이드 상태를 보내면 이 창에 표시됩니다."
+          title="발표자 화면을 기다리는 중..."
         />
       </PresentWindowShell>
     );
@@ -201,7 +269,9 @@ export function PresentWindowReceiver(props: {
       onNextStep={onNextStep}
       onPreviousSlide={onPreviousSlide}
       onReconnectPresenter={onReconnectPresenter}
+      onScreenShareFailure={handleScreenShareFailure}
       snapshot={snapshot}
+      stream={audienceStream}
     />
   );
 }
@@ -216,7 +286,9 @@ export function PresentWindowContent(props: {
   onNextStep?: () => void;
   onPreviousSlide?: () => void;
   onReconnectPresenter?: (snapshot: PresentWindowSnapshot) => void;
+  onScreenShareFailure?: (reason: ScreenShareEndedReason) => void;
   snapshot: PresentWindowSnapshot;
+  stream?: MediaStream | null;
   viewport?: ViewportSize;
 }) {
   const {
@@ -228,7 +300,9 @@ export function PresentWindowContent(props: {
     onNextStep,
     onPreviousSlide,
     onReconnectPresenter,
+    onScreenShareFailure,
     snapshot,
+    stream = null,
   } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const liveViewport = usePresentWindowViewport();
@@ -252,6 +326,15 @@ export function PresentWindowContent(props: {
     (actionMessages.length > 0 || isPresenterStale);
   const shouldShowPresenterControls =
     controlOverlayMode === "always" || shouldShowFallbackControls;
+  const isBlackOutput = snapshot.state.audienceOutputMode === "black";
+  const currentSlide = snapshot.deck.slides.find(
+    (slide) => slide.slideId === snapshot.state.slideId,
+  );
+  const canAdvanceStage =
+    Boolean(onNextStep) &&
+    !isBlackOutput &&
+    currentSlide?.kind !== "activity" &&
+    currentSlide?.kind !== "activity-results";
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -277,22 +360,27 @@ export function PresentWindowContent(props: {
         data-deck-id={identity.deckId}
         data-scale={scale}
         data-session-id={identity.sessionId}
+        onClick={(event) => {
+          if (canAdvanceStage && shouldAdvancePresentationFromClick(event.target)) {
+            onNextStep?.();
+          }
+        }}
       >
-        <SlideshowRenderer
+        <AudienceOutputRenderer
           deck={snapshot.deck}
-          highlights={snapshot.state.highlights}
-          renderMode="slide-window"
+          onScreenShareFailure={onScreenShareFailure}
           scale={scale}
-          slideId={snapshot.state.slideId}
-          stepIndex={snapshot.state.stepIndex}
+          state={snapshot.state}
+          stream={stream}
           triggerAnimationIds={snapshot.triggerAnimationIds}
         />
       </div>
-      {!isFullscreen ||
-      actionMessages.length > 0 ||
-      shouldShowReconnect ||
-      (shouldShowPresenterControls &&
-        (onPreviousSlide || onNextStep || onExit)) ? (
+      {!isBlackOutput &&
+      (!isFullscreen ||
+        actionMessages.length > 0 ||
+        shouldShowReconnect ||
+        (shouldShowPresenterControls &&
+          (onPreviousSlide || onNextStep || onExit))) ? (
         <div className="present-window-actions">
           {actionMessages.map((message) => (
             <span className="present-window-action-message" key={message}>
@@ -390,6 +478,19 @@ export function applyPresentWindowMessage(
   return current;
 }
 
+export function applyPresentWindowScreenShareFailure(
+  current: PresentWindowSnapshot | null,
+): PresentWindowSnapshot | null {
+  if (current?.state.audienceOutputMode !== "screen-share") {
+    return null;
+  }
+
+  return {
+    ...current,
+    state: { ...current.state, audienceOutputMode: "slide" },
+  };
+}
+
 export function getSlideWindowScale(deck: Deck, viewport = readViewportSize()) {
   if (viewport.width <= 0 || viewport.height <= 0) {
     return 1;
@@ -401,13 +502,16 @@ export function getSlideWindowScale(deck: Deck, viewport = readViewportSize()) {
   );
 }
 
-function PresentWindowStatus(props: { message: string; title: string }) {
+function PresentWindowStatus(props: { message?: string; title: string }) {
   return (
-    <section className="present-window-status" role="status">
+    <section
+      className={`present-window-status${props.message ? "" : " present-window-status-waiting"}`}
+      role="status"
+    >
       <img src={orbitLogoWhite} alt="ORBIT" />
-      <span>SLIDE DISPLAY</span>
+      {props.message ? <span>SLIDE DISPLAY</span> : null}
       <h1>{props.title}</h1>
-      <p>{props.message}</p>
+      {props.message ? <p>{props.message}</p> : null}
     </section>
   );
 }

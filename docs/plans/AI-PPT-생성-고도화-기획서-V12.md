@@ -6,6 +6,9 @@
 > 상태: 1차 완료, 2차 완료, 3차 기능 및 생성 품질 최종 승인 완료
 >
 
+> [!IMPORTANT]
+> 이 문서는 2026-07-12의 생성 품질 승인 근거를 보존하는 이력 문서다. 구현 목표는 후속 확정 계획인 #341 → #339 → #338을 따른다. 이 문서의 legacy/template 생성 유지 결정은 #339 PR6의 GenerateDeck `program-v2` 전용 계약이, Python 물리 모듈 배치는 #339 PR7A의 `deck_generation/` stage 구조가, web research·Visual QA 실패 정책은 #338이 대체한다. PR7A도 단일 동기식 `pipeline.py` orchestrator 원칙은 유지한다. 품질 기준과 승인 fixture는 후속 작업의 회귀 기준으로 계속 사용한다.
+
 ---
 
 ## V12 품질 승인 보강 기준
@@ -1077,7 +1080,7 @@ LLM 담당:
 코드 담당:
 
 - Deck JSON schema validation
-- Design Pack recipe와 좌표 계산
+- Design Program `compositionId` 선택과 composition compiler 좌표 계산
 - overflow와 contrast 검사
 - repair pass
 - source ledger 및 품질 게이트

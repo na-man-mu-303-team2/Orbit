@@ -3,20 +3,16 @@ import type {
   EvaluationCriterion,
   PresentationBrief,
   RehearsalEvaluationPlan,
+  RehearsalEvaluationSnapshot,
+  RehearsalFocusProfile,
+  RehearsalFocusProfileSnapshot,
 } from "@orbit/shared";
-import { rehearsalEvaluationPlanSchema } from "@orbit/shared";
+import {
+  canonicalJson,
+  rehearsalEvaluationPlanSchema,
+  rehearsalFocusProfileSnapshotSchema,
+} from "@orbit/shared";
 import { createHash } from "node:crypto";
-
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
 
 export function sha256Canonical(value: unknown): string {
   return createHash("sha256").update(canonicalJson(value)).digest("hex");
@@ -45,16 +41,80 @@ export function buildRehearsalEvaluationPlan(input: {
   return rehearsalEvaluationPlanSchema.parse({
     planVersion: 1,
     briefRef: input.brief
-      ? { mode: "briefed", briefId: input.brief.briefId, revision: input.brief.revision }
+      ? {
+          mode: "briefed",
+          briefId: input.brief.briefId,
+          revision: input.brief.revision,
+        }
       : { mode: "generic" },
     evaluatorLensRef,
     targetDurationSeconds:
-      (input.brief?.targetDurationMinutes ?? input.deck.targetDurationMinutes) * 60,
+      (input.brief?.targetDurationMinutes ?? input.deck.targetDurationMinutes) *
+      60,
     criteria,
-    metricDefinitionVersions: { timing: 1, filler: 1, pause: 1, semantic: 1 },
+    metricDefinitionVersions: { timing: 1, filler: 1, silence: 2, semantic: 1 },
     approvedReferences: input.brief?.approvedReferences ?? [],
     practiceGoalSetRef: input.sourceGoalSetRef,
   });
+}
+
+export function createRehearsalFocusProfileSnapshot(
+  profile: RehearsalFocusProfile | null,
+): RehearsalFocusProfileSnapshot | null {
+  if (!profile) return null;
+
+  return rehearsalFocusProfileSnapshotSchema.parse({
+    profileRef: {
+      profileId: profile.profileId,
+      revision: profile.revision,
+    },
+    items: profile.items,
+  });
+}
+
+export function assertFrozenRehearsalEvaluationSources(input: {
+  snapshot: RehearsalEvaluationSnapshot;
+  brief: PresentationBrief | null;
+  focusProfile: RehearsalFocusProfile | null;
+}): void {
+  const plan = input.snapshot.evaluationPlan;
+  if (!plan) {
+    throw new Error("Rehearsal evaluation plan is missing from the snapshot.");
+  }
+
+  const expectedBriefRef = input.brief
+    ? {
+        mode: "briefed" as const,
+        briefId: input.brief.briefId,
+        revision: input.brief.revision,
+      }
+    : { mode: "generic" as const };
+  const expectedLensRef = input.brief?.evaluatorLensRef ?? {
+    lensId: "general-novice" as const,
+    revision: 1 as const,
+  };
+  const expectedBriefCriteria = briefCriteria(input.brief);
+  const actualBriefCriteria = plan.criteria.filter(
+    (criterion) => criterion.source === "brief",
+  );
+  const expectedProfileSnapshot = createRehearsalFocusProfileSnapshot(
+    input.focusProfile,
+  );
+
+  if (
+    canonicalJson(plan.briefRef) !== canonicalJson(expectedBriefRef) ||
+    canonicalJson(plan.evaluatorLensRef) !== canonicalJson(expectedLensRef) ||
+    canonicalJson(plan.approvedReferences) !==
+      canonicalJson(input.brief?.approvedReferences ?? []) ||
+    canonicalJson(actualBriefCriteria) !==
+      canonicalJson(expectedBriefCriteria) ||
+    canonicalJson(input.snapshot.focusProfileSnapshot) !==
+      canonicalJson(expectedProfileSnapshot)
+  ) {
+    throw new Error(
+      "Rehearsal evaluation sources do not match the frozen snapshot.",
+    );
+  }
 }
 
 function briefCriteria(brief: PresentationBrief | null): EvaluationCriterion[] {
@@ -62,7 +122,11 @@ function briefCriteria(brief: PresentationBrief | null): EvaluationCriterion[] {
   return brief.requirements
     .filter((requirement) => requirement.reviewStatus === "approved")
     .map((requirement) => ({
-      criterionId: `criterion_brief_${requirement.requirementId}_r${requirement.revision}`.slice(0, 128),
+      criterionId:
+        `criterion_brief_${requirement.requirementId}_r${requirement.revision}`.slice(
+          0,
+          128,
+        ),
       revision: requirement.revision,
       category: requirement.kind === "must-cover" ? "semantic" : "structure",
       source: "brief",
@@ -86,7 +150,10 @@ function cueCriteria(deck: Deck): EvaluationCriterion[] {
     slide.semanticCues
       .filter((cue) => cue.reviewStatus === "approved")
       .map((cue) => ({
-        criterionId: `criterion_cue_${cue.cueId}_r${cue.revision}`.slice(0, 128),
+        criterionId: `criterion_cue_${cue.cueId}_r${cue.revision}`.slice(
+          0,
+          128,
+        ),
         revision: cue.revision,
         category: "semantic" as const,
         source: "deck-cue" as const,
@@ -131,16 +198,24 @@ function deliveryCriteria(): EvaluationCriterion[] {
       source: "system",
       scope: { type: "run" },
       label: "반복 말버릇",
-      measurement: { type: "max-count", metric: "filler-word-count", maximum: 1 },
+      measurement: {
+        type: "max-count",
+        metric: "filler-word-count",
+        maximum: 1,
+      },
     },
     {
-      criterionId: "criterion_system_pause_v1",
-      revision: 1,
+      criterionId: "criterion_system_long_silence_v2",
+      revision: 2,
       category: "delivery",
       source: "system",
       scope: { type: "run" },
-      label: "긴 멈춤",
-      measurement: { type: "max-count", metric: "pause-count", maximum: 0 },
+      label: "긴 침묵",
+      measurement: {
+        type: "max-count",
+        metric: "long-silence-count",
+        maximum: 0,
+      },
     },
   ] as EvaluationCriterion[];
 }

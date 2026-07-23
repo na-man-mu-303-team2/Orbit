@@ -1,8 +1,9 @@
-import type { PracticePlanResponse } from "@orbit/shared";
-import { ArrowRight, CheckCircle2, Clock3, MessageCircle, RefreshCw } from "lucide-react";
+import type { FocusedPracticeAttemptSummary, PracticePlanResponse } from "@orbit/shared";
+import { ArrowRight, Check, CheckCircle2, Clock3, MessageCircle, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { OrbitStatus } from "../../design-system";
+import { OrbitStatus } from "../../components/ui";
+import { getFocusedPracticeSummary } from "./focusedPracticeApi";
 import { fetchPracticePlan } from "./practicePlanApi";
 import { practiceGoalCategoryLabel, practiceHistoryLabel } from "./practicePlanViewModel";
 
@@ -12,6 +13,7 @@ type PracticeGoalSummaryState =
   | { status: "failed" };
 
 export function PracticeGoalSummary(props: {
+  initialAttemptSummary?: FocusedPracticeAttemptSummary;
   initialPlan?: PracticePlanResponse;
   projectId: string;
   sourceFullRunId: string;
@@ -20,6 +22,9 @@ export function PracticeGoalSummary(props: {
     props.initialPlan
       ? { status: "loaded", plan: props.initialPlan }
       : { status: "loading" },
+  );
+  const [passedCounts, setPassedCounts] = useState<Record<string, number>>(() =>
+    Object.fromEntries((props.initialAttemptSummary?.goals ?? []).map((goal) => [goal.goalId, goal.passedCount])),
   );
   useEffect(() => {
     if (props.initialPlan) {
@@ -32,6 +37,23 @@ export function PracticeGoalSummary(props: {
       .catch(() => { if (active) setState({ status: "failed" }); });
     return () => { active = false; };
   }, [props.initialPlan, props.projectId, props.sourceFullRunId]);
+  useEffect(() => {
+    if (props.initialAttemptSummary) {
+      setPassedCounts(Object.fromEntries(
+        props.initialAttemptSummary.goals.map((goal) => [goal.goalId, goal.passedCount]),
+      ));
+      return;
+    }
+    let active = true;
+    void getFocusedPracticeSummary(props.projectId, props.sourceFullRunId)
+      .then((summary) => {
+        if (active) {
+          setPassedCounts(Object.fromEntries(summary.goals.map((goal) => [goal.goalId, goal.passedCount])));
+        }
+      })
+      .catch(() => { if (active) setPassedCounts({}); });
+    return () => { active = false; };
+  }, [props.initialAttemptSummary, props.projectId, props.sourceFullRunId]);
 
   const planHref = `/rehearsal/${encodeURIComponent(props.projectId)}/plan/${encodeURIComponent(props.sourceFullRunId)}`;
   if (state.status !== "loaded") {
@@ -55,11 +77,11 @@ export function PracticeGoalSummary(props: {
     <section className="practice-report-summary" aria-labelledby="practice-report-summary-title">
       <header>
         <div>
-          <p className="orbit-ds-eyebrow">우선 연습 목표</p>
+          <p className="redesign-eyebrow">우선 연습 목표</p>
           <h2 id="practice-report-summary-title">다음 연습에서 먼저 바꿀 것</h2>
         </div>
         <a href={planHref}>
-          연습 계획 열기 <ArrowRight aria-hidden="true" size={17} />
+          연습하기 <ArrowRight aria-hidden="true" size={17} />
         </a>
       </header>
       <ol>
@@ -71,14 +93,30 @@ export function PracticeGoalSummary(props: {
               <strong>{goal.problemLabel}</strong>
               <p>{goal.nextAction}</p>
             </div>
-            <OrbitStatus tone={goal.history.label === "persistent" ? "warning" : "neutral"}>
-              {goal.category === "semantic" ? <MessageCircle aria-hidden="true" size={13} /> : goal.category === "timing" ? <Clock3 aria-hidden="true" size={13} /> : <CheckCircle2 aria-hidden="true" size={13} />}
-              {practiceHistoryLabel(goal.history.label)}
-            </OrbitStatus>
+            <div className="practice-goal-result">
+              <OrbitStatus tone={goal.history.label === "persistent" ? "warning" : "neutral"}>
+                {goal.category === "semantic" ? <MessageCircle aria-hidden="true" size={13} /> : goal.category === "timing" ? <Clock3 aria-hidden="true" size={13} /> : <CheckCircle2 aria-hidden="true" size={13} />}
+                {practiceHistoryLabel(goal.history.label)}
+              </OrbitStatus>
+              <PracticePassMarks passedCount={passedCounts[goal.goalId] ?? 0} />
+            </div>
           </li>
         ))}
       </ol>
     </section>
+  );
+}
+
+export function PracticePassMarks({ passedCount }: { passedCount: number }) {
+  const visiblePasses = Math.min(passedCount, 3);
+  return (
+    <div className="practice-pass-marks" aria-label={`${passedCount}회 통과`}>
+      {[0, 1, 2].map((index) => (
+        <span className={index < visiblePasses ? "is-passed" : undefined} key={index}>
+          {index < visiblePasses ? <Check aria-hidden="true" size={20} strokeWidth={3} /> : null}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -87,11 +125,11 @@ function PracticeGoalSummaryStateCard(props: { copy: string; href: string; title
     <section className="practice-report-summary practice-report-summary-state" aria-labelledby="practice-report-summary-title">
       <header>
         <div>
-          <p className="orbit-ds-eyebrow">우선 연습 목표</p>
+          <p className="redesign-eyebrow">우선 연습 목표</p>
           <h2 id="practice-report-summary-title">{props.title}</h2>
         </div>
         <a href={props.href}>
-          연습 계획 열기 <ArrowRight aria-hidden="true" size={17} />
+          연습하기 <ArrowRight aria-hidden="true" size={17} />
         </a>
       </header>
       <p>

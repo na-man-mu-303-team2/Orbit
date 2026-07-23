@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createDemoDeck } from "@orbit/editor-core";
+import { createActivitySlide, createDemoDeck } from "@orbit/editor-core";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -48,6 +48,8 @@ describe("PresentationWorkspace", () => {
     expect(html).toContain("발표 시간");
     expect(html).toContain("키워드");
     expect(html).toContain("대본");
+    expect(html).toContain('aria-label="발표 대본 프롬프터"');
+    expect(html).toContain('aria-label="원문 기준 실시간 진행률"');
     expect(html).not.toContain("Live STT");
     expect(html).not.toContain("Report AI");
   });
@@ -58,5 +60,54 @@ describe("PresentationWorkspace", () => {
     expect(source).toContain("<PresentationScreen");
     expect(source).not.toContain('<header className="rehearsal-presenter-topbar">');
     expect(source).not.toContain('<section className="rehearsal-presenter-layout">');
+  });
+
+  it("keeps the live presentation lifecycle separate from rehearsal persistence", () => {
+    const source = fs.readFileSync(presentationWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("createPresentationRuntime");
+    expect(source).toContain("uploadPresentationRecording");
+    expect(source).toContain("recordedFileRef.current.size > 0");
+    expect(source).toContain('setRuntimePhase("completed")');
+    expect(source).toContain("<PresentationCompletionDialog");
+    expect(source).toContain('startPresentation("none")');
+    expect(source).toContain("runtimeRef.current = null");
+    expect(source).toContain("마이크 없이 시작");
+    expect(source).not.toContain("/rehearsals/runs");
+    expect(source).not.toContain("createRehearsalRun");
+    expect(source).not.toContain("completeRehearsalAudioUpload");
+  });
+
+  it("uses the shared auto-advance controller in live mode only", () => {
+    const source = fs.readFileSync(presentationWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("evaluateAdvanceController");
+    expect(source).toContain('mode: "live"');
+    expect(source).toContain("live: true");
+    expect(source).toContain("rehearsal: false");
+  });
+
+  it("resolves exact speaker-note keyword occurrences during live presentation", () => {
+    const source = fs.readFileSync(presentationWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("matchKeywordOccurrenceTriggers");
+    expect(source).toContain("resolveKeywordOccurrenceTriggeredActions");
+    expect(source).toContain("getKeywordOccurrenceTriggerIdsForSlide");
+    expect(source).toContain("resolveManualAnimationPlaybackUpdate");
+    expect(source).toContain("applyPlaybackUpdate");
+    expect(source).toContain("confirmedOccurrenceIds");
+    expect(source).toContain("getSlideTranscriptSpan");
+    expect(source).toContain("previousTranscript: transcriptSpan.previousTranscript");
+  });
+
+  it("renders the auto-start presenter controls for an Activity slide", () => {
+    const deck = createDemoDeck();
+    const activitySlide = createActivitySlide(deck, "pre-question");
+    const html = renderToStaticMarkup(
+      <PresentationWorkspace initialDeck={{ ...deck, slides: [activitySlide] }} />,
+    );
+
+    expect(html).toContain('aria-label="참여 장표 운영"');
+    expect(html).toContain("응답 열기");
   });
 });

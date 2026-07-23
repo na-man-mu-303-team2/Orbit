@@ -7,7 +7,11 @@ import {
 } from "react-konva";
 import type { ComponentType } from "react";
 import { ElementNodeContent } from "./elementRendering";
-import { getRenderableSlideElements } from "./elementNormalization";
+import {
+  getRenderableSlideElements,
+  usesSourceSlideSnapshot
+} from "./elementNormalization";
+import { resolveGroupedElementPresentationStates } from "./groupPresentationState";
 import { getHighlightOverlayElements } from "./highlightOverlayElements";
 import { SlideBackground } from "./SlideBackground";
 import { getActiveHighlightElementIds, HighlightOverlay } from "./highlightOverlay";
@@ -46,13 +50,32 @@ export function ReadOnlySlideCanvas(props: {
 }) {
   const { deck, elementStates = {}, highlights = [], scale = 1, slide, stageRef } = props;
   const elements = getRenderableSlideElements(slide, deck.canvas);
+  const resolvedElementStates = resolveGroupedElementPresentationStates({
+    elementStates,
+    slide
+  });
   const activeHighlightElementIds = getActiveHighlightElementIds(highlights);
   const highlightElements = getHighlightOverlayElements({
     activeHighlightElementIds,
     deck,
-    elementStates,
+    elementStates: resolvedElementStates,
     slide
   });
+  const backgroundSlide =
+    usesSourceSlideSnapshot(slide) && slide.thumbnailUrl
+      ? {
+          ...slide,
+          style: {
+            ...slide.style,
+            backgroundImage: {
+              src: slide.thumbnailUrl,
+              alt: slide.title,
+              fit: "stretch" as const,
+              opacity: 1
+            }
+          }
+        }
+      : slide;
 
   return (
     <div
@@ -65,7 +88,7 @@ export function ReadOnlySlideCanvas(props: {
     >
       <SlideBackground
         deck={deck}
-        slide={slide}
+        slide={backgroundSlide}
         style={{
           transform: scale === 1 ? undefined : `scale(${scale})`,
           transformOrigin: "top left"
@@ -85,9 +108,9 @@ export function ReadOnlySlideCanvas(props: {
                 accentColor={slide.style.accentColor ?? deck.theme.accentColor}
                 deck={deck}
                 element={element}
-                elementStates={elementStates}
+                elementStates={resolvedElementStates}
                 activeHighlightElementIds={activeHighlightElementIds}
-                presentationState={elementStates[element.elementId]}
+                presentationState={resolvedElementStates[element.elementId]}
                 slide={slide}
               />
             ))}
@@ -95,7 +118,7 @@ export function ReadOnlySlideCanvas(props: {
               <HighlightOverlay
                 element={element}
                 key={`highlight-${element.elementId}`}
-                state={elementStates[element.elementId]}
+                state={resolvedElementStates[element.elementId]}
               />
             ))}
           </Layer>

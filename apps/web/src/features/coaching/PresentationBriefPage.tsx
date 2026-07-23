@@ -20,7 +20,7 @@ import {
   OrbitInput,
   OrbitStatus,
   OrbitTextarea,
-} from "../../design-system";
+} from "../../components/ui";
 import {
   fetchEvaluatorLenses,
   fetchPresentationBrief,
@@ -153,7 +153,7 @@ export function PresentationBriefPage(props: { projectId: string }) {
   }
 
   return (
-    <div className="orbit-ds-page presentation-brief-page">
+    <div className="redesign-page presentation-brief-page">
       <div className="presentation-brief-breadcrumb">
         <a href={`/project/${encodeURIComponent(props.projectId)}`}>
           <IconArrowLeft aria-hidden="true" size={17} /> 에디터
@@ -164,7 +164,7 @@ export function PresentationBriefPage(props: { projectId: string }) {
 
       <section className="presentation-brief-heading">
         <div>
-          <p className="orbit-ds-eyebrow">Presentation brief</p>
+          <p className="redesign-eyebrow">Presentation brief</p>
           <h1>누구에게, 무엇을 얻기 위해<br />발표하는지 먼저 정리해요.</h1>
           <p>브리프가 생성 결과와 리허설 평가 기준을 같은 방향으로 맞춥니다.</p>
         </div>
@@ -272,7 +272,7 @@ function ChoiceGroup(props: {
 
 function BriefState(props: { error?: boolean; title: string }) {
   return (
-    <div className="orbit-ds-page presentation-brief-page">
+    <div className="redesign-page presentation-brief-page">
       <section className="presentation-brief-state" role={props.error ? "alert" : "status"}>
         <IconSparkles aria-hidden="true" size={30} />
         <h1>{props.title}</h1>

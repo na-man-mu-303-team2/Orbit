@@ -71,12 +71,20 @@ describe("image asset pipeline", () => {
     expect(generate).toHaveBeenCalledTimes(2);
     expect(generate).toHaveBeenLastCalledWith(
       expect.objectContaining({
+        aspectRatio: "landscape",
         prompt:
-          "A focused hybrid workspace with calm editorial lighting. Designed for a 1.32:1 frame. Single dominant subject fills 70-80% of the frame. Keep the complete subject inside the central 70% crop-safe area. No text, logo, watermark, or large empty margins."
+          "A focused hybrid workspace with calm editorial lighting. Designed for a 1.32:1 frame. Place the primary person, product, or object on the right third, oriented toward the left-side text area; retain contextual depth. No text, logo, watermark, or embedded typography."
       })
     );
     expect(putObject).toHaveBeenCalledOnce();
-    expect(query.mock.calls[1]?.[0]).toContain("INSERT INTO project_assets");
+    const insertSql = String(query.mock.calls[1]?.[0]);
+    expect(insertSql).toContain("INSERT INTO project_assets");
+    expect(insertSql.indexOf("VALUES")).toBeLessThan(
+      insertSql.indexOf("ON CONFLICT")
+    );
+    expect(insertSql).toContain(
+      "WHERE project_assets.project_id = EXCLUDED.project_id"
+    );
     expect(result.warnings).toEqual([]);
     const image = result.deck.slides[0].elements.find(
       (element) => element.type === "image"
@@ -100,10 +108,116 @@ describe("image asset pipeline", () => {
     expect(image?.type === "image" ? image.props.alt : "").toBe(
       "A hybrid team working in a focused workspace"
     );
+    expect(image?.type === "image" ? image.props.focusX : 0).toBe(0.68);
+    expect(image?.type === "image" ? image.props.focusY : 0).toBe(0.5);
     expect(result.deck.slides[0].aiNotes?.visualPlan?.asset).toMatchObject({
       provider: "openai"
     });
   });
+
+  it.each([
+    {
+      compositionId: "hero-full-bleed" as const,
+      assetRole: "atmosphere" as const,
+      width: 1600,
+      height: 800,
+      aspectRatio: "landscape" as const,
+      promptFragment: "wide environmental scene",
+      focusX: 0.5,
+      focusY: 0.5
+    },
+    {
+      compositionId: "editorial-media-band" as const,
+      assetRole: "atmosphere" as const,
+      width: 1600,
+      height: 320,
+      aspectRatio: "landscape" as const,
+      promptFragment: "wide horizontal scene",
+      focusX: 0.5,
+      focusY: 0.46
+    },
+    {
+      compositionId: "image-evidence" as const,
+      assetRole: "evidence" as const,
+      width: 400,
+      height: 600,
+      aspectRatio: "portrait" as const,
+      promptFragment: "factual product, place, or real-world evidence",
+      focusX: 0.5,
+      focusY: 0.5
+    },
+    {
+      compositionId: "cta-closing" as const,
+      assetRole: "atmosphere" as const,
+      width: 500,
+      height: 500,
+      aspectRatio: "square" as const,
+      promptFragment: "presentation-ready editorial scene",
+      focusX: 0.5,
+      focusY: 0.5
+    }
+  ])(
+    "uses $compositionId framing and $aspectRatio provider aspect",
+    async (testCase) => {
+      const generate = vi.fn<GeneratedImageProvider["generate"]>(async () => ({
+        body: pngHeader(800, 800),
+        mimeType: "image/png",
+        fileName: "generated.png",
+        provider: "openai"
+      }));
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce([{ user_count: "0" }])
+        .mockResolvedValueOnce([]);
+      const candidate = imageDeck("ai-generated");
+      const slide = candidate.slides[0];
+      const media = slide.elements.find((element) => element.role === "media");
+      if (!media || !slide.aiNotes?.compositionPlan) {
+        throw new Error("test image placeholder is unavailable");
+      }
+      media.width = testCase.width;
+      media.height = testCase.height;
+      slide.aiNotes.compositionPlan.compositionId = testCase.compositionId;
+      slide.aiNotes.compositionPlan.assetRole = testCase.assetRole;
+
+      const result = await resolveDeckImageAssets(
+        { query } as unknown as DataSource,
+        {
+          putObject: vi.fn(async () => ({
+            key: "key",
+            url: "url",
+            contentType: "image/png",
+            purpose: "design-asset" as const,
+            size: 24
+          }))
+        } as Pick<StoragePort, "putObject">,
+        candidate,
+        {
+          generated: { generate },
+          maxPerDeck: 4,
+          maxPerUserPerDay: 30
+        },
+        { userId: "user_1" }
+      );
+
+      expect(generate).toHaveBeenCalledOnce();
+      expect(generate).toHaveBeenCalledWith(
+        expect.objectContaining({ aspectRatio: testCase.aspectRatio })
+      );
+      expect(generate.mock.calls[0]?.[0].prompt).toContain(
+        testCase.promptFragment
+      );
+      const image = result.deck.slides[0].elements.find(
+        (element) => element.type === "image"
+      );
+      expect(image?.type === "image" ? image.props.focusX : -1).toBe(
+        testCase.focusX
+      );
+      expect(image?.type === "image" ? image.props.focusY : -1).toBe(
+        testCase.focusY
+      );
+    }
+  );
 
   it("retains a public image placeholder when license metadata is missing", async () => {
     const search = vi.fn<PublicImageSearchProvider["search"]>(async () => ({
@@ -477,6 +591,95 @@ describe("image asset pipeline", () => {
     )).toBe(true);
   });
 
+  it("keeps resolving later slides when one image provider call is exhausted", async () => {
+    const onFallback = vi.fn();
+    const generate = vi
+      .fn<GeneratedImageProvider["generate"]>()
+      .mockRejectedValueOnce(
+        new Error("OpenAI image generation failed with status 429")
+      )
+      .mockRejectedValueOnce(
+        new Error("OpenAI image generation failed with status 429")
+      )
+      .mockResolvedValueOnce({
+        body: pngHeader(1280, 720),
+        mimeType: "image/png",
+        fileName: "generated.png",
+        provider: "openai"
+      });
+    const query = vi.fn(async (sql: string) =>
+      sql.includes("count(*) FILTER") ? [{ user_count: "0" }] : []
+    );
+    const putObject = vi.fn(async () => ({
+      key: "key",
+      url: "url",
+      contentType: "image/png",
+      purpose: "design-asset" as const,
+      size: 24
+    }));
+    const first = imageDeck("ai-generated");
+    const second = {
+      ...first.slides[0],
+      slideId: "slide_2",
+      order: 2,
+      title: "Unresolved provider slide",
+      aiNotes: {
+        ...first.slides[0].aiNotes,
+        compositionPlan: first.slides[0].aiNotes?.compositionPlan
+          ? {
+              ...first.slides[0].aiNotes.compositionPlan,
+              primaryFocalElementId: "el_2_media_placeholder"
+            }
+          : undefined
+      },
+      elements: first.slides[0].elements.map((element) => ({
+        ...element,
+        elementId: element.elementId.replace("el_", "el_2_")
+      }))
+    };
+    const candidate = deckSchema.parse({
+      ...first,
+      slides: [first.slides[0], second]
+    });
+
+    const result = await resolveDeckImageAssets(
+      { query } as unknown as DataSource,
+      { putObject } as Pick<StoragePort, "putObject">,
+      candidate,
+      {
+        generated: { generate },
+        maxPerDeck: 4,
+        maxPerUserPerDay: 30
+      },
+      { userId: "user_1" },
+      undefined,
+      [],
+      undefined,
+      onFallback
+    );
+
+    expect(generate).toHaveBeenCalledTimes(3);
+    expect(
+      result.deck.slides[0].elements.some((element) =>
+        element.elementId.endsWith("_media_placeholder")
+      )
+    ).toBe(true);
+    expect(
+      result.deck.slides[1].elements.some((element) =>
+        element.elementId.endsWith("_media_asset")
+      )
+    ).toBe(true);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("status 429");
+    expect(onFallback).toHaveBeenCalledWith({
+      reasonCode: "OPENAI_IMAGE_HTTP_ERROR",
+      name: "Error",
+      provider: "openai",
+      providerHttpStatus: 429,
+      providerRequestId: undefined
+    });
+  });
+
   it("re-resolves only the visual repair slide set", async () => {
     const generate = vi.fn<GeneratedImageProvider["generate"]>(async () => ({
       body: pngHeader(1280, 720),
@@ -543,6 +746,63 @@ describe("image asset pipeline", () => {
         element.elementId.endsWith("_media_asset")
       )
     ).toBe(true);
+  });
+
+  it("treats zero deck and daily limits as unlimited", async () => {
+    const generate = vi.fn<GeneratedImageProvider["generate"]>(async () => ({
+      body: pngHeader(1280, 720),
+      mimeType: "image/png",
+      fileName: "generated.png",
+      provider: "openai"
+    }));
+    const query = vi.fn(async (sql: string) =>
+      sql.includes("count(*) FILTER") ? [{ user_count: "999" }] : []
+    );
+    const putObject = vi.fn(async () => ({
+      key: "key",
+      url: "url",
+      contentType: "image/png",
+      purpose: "design-asset" as const,
+      size: 24
+    }));
+    const first = imageDeck("ai-generated");
+    const second = {
+      ...first.slides[0],
+      slideId: "slide_2",
+      order: 2,
+      aiNotes: {
+        ...first.slides[0].aiNotes,
+        compositionPlan: first.slides[0].aiNotes?.compositionPlan
+          ? {
+              ...first.slides[0].aiNotes.compositionPlan,
+              primaryFocalElementId: "el_2_media_placeholder"
+            }
+          : undefined
+      },
+      elements: first.slides[0].elements.map((element) => ({
+        ...element,
+        elementId: element.elementId.replace("el_", "el_2_")
+      }))
+    };
+    const candidate = deckSchema.parse({
+      ...first,
+      slides: [first.slides[0], second]
+    });
+
+    const result = await resolveDeckImageAssets(
+      { query } as unknown as DataSource,
+      { putObject } as Pick<StoragePort, "putObject">,
+      candidate,
+      {
+        generated: { generate },
+        maxPerDeck: 0,
+        maxPerUserPerDay: 0
+      },
+      { userId: "user_1" }
+    );
+
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.warnings).toEqual([]);
   });
 });
 

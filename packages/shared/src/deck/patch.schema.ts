@@ -1,9 +1,14 @@
 import { z } from "zod";
 
+import {
+  activityDefinitionSchema,
+  activityResultDefinitionSchema
+} from "../activity/activity-definition.schema";
 import { isoDateTimeSchema } from "../common/time.schema";
 import {
   animationEasingSchema,
   animationSchema,
+  animationStartModeSchema,
   animationTypeSchema
 } from "./animation.schema";
 import {
@@ -12,7 +17,8 @@ import {
   slideKeywordsSchema,
   slideLayoutSchema,
   slideOrderSchema,
-  slideSchema
+  slideSchema,
+  slideTransitionSchema
 } from "./deck.schema";
 import {
   deckAnimationIdSchema,
@@ -43,6 +49,7 @@ export const deckPatchOperationTypeSchema = z.enum([
   "update_deck",
   "add_slide",
   "update_slide",
+  "update_slide_transition",
   "delete_slide",
   "reorder_slides",
   "update_theme",
@@ -59,7 +66,9 @@ export const deckPatchOperationTypeSchema = z.enum([
   "delete_animation",
   "add_slide_action",
   "update_slide_action",
-  "delete_slide_action"
+  "delete_slide_action",
+  "update_activity_definition",
+  "update_activity_result_definition"
 ]);
 
 export const themePalettePatchSchema = z.object({
@@ -144,6 +153,7 @@ export const animationPatchSchema = z.object({
   elementId: deckElementIdSchema.optional(),
   type: animationTypeSchema.optional(),
   order: z.number().int().positive().optional(),
+  startMode: animationStartModeSchema.optional(),
   durationMs: z.number().int().positive().optional(),
   delayMs: z.number().int().nonnegative().optional(),
   easing: animationEasingSchema.optional()
@@ -152,6 +162,7 @@ export const animationPatchSchema = z.object({
 export const updateDeckOperationSchema = z.object({
   type: z.literal("update_deck"),
   title: z.string().min(1).optional(),
+  targetDurationMinutes: z.number().int().min(1).max(120).optional(),
   metadata: deckMetadataPatchSchema.optional()
 });
 
@@ -164,7 +175,14 @@ export const updateSlideOperationSchema = z.object({
   type: z.literal("update_slide"),
   slideId: deckSlideIdSchema,
   title: z.string().optional(),
-  thumbnailUrl: z.string().optional()
+  thumbnailUrl: z.string().optional(),
+  estimatedSeconds: z.number().int().positive().nullable().optional()
+});
+
+export const updateSlideTransitionOperationSchema = z.object({
+  type: z.literal("update_slide_transition"),
+  slideId: deckSlideIdSchema,
+  transition: slideTransitionSchema.nullable()
 });
 
 export const deleteSlideOperationSchema = z.object({
@@ -277,10 +295,27 @@ export const deleteSlideActionOperationSchema = z.object({
   actionId: deckActionIdSchema
 });
 
-export const deckPatchOperationSchema = z.discriminatedUnion("type", [
+export const updateActivityDefinitionOperationSchema = z
+  .object({
+    type: z.literal("update_activity_definition"),
+    slideId: deckSlideIdSchema,
+    activity: activityDefinitionSchema
+  })
+  .strict();
+
+export const updateActivityResultDefinitionOperationSchema = z
+  .object({
+    type: z.literal("update_activity_result_definition"),
+    slideId: deckSlideIdSchema,
+    activityResult: activityResultDefinitionSchema
+  })
+  .strict();
+
+const deckPatchOperationSchemaInternal = z.discriminatedUnion("type", [
   updateDeckOperationSchema,
   addSlideOperationSchema,
   updateSlideOperationSchema,
+  updateSlideTransitionOperationSchema,
   deleteSlideOperationSchema,
   reorderSlidesOperationSchema,
   updateThemeOperationSchema,
@@ -297,8 +332,20 @@ export const deckPatchOperationSchema = z.discriminatedUnion("type", [
   deleteAnimationOperationSchema,
   addSlideActionOperationSchema,
   updateSlideActionOperationSchema,
-  deleteSlideActionOperationSchema
+  deleteSlideActionOperationSchema,
+  updateActivityDefinitionOperationSchema,
+  updateActivityResultDefinitionOperationSchema
 ]);
+
+export type DeckPatchOperation = z.infer<
+  typeof deckPatchOperationSchemaInternal
+>;
+
+export const deckPatchOperationSchema: z.ZodType<
+  DeckPatchOperation,
+  z.ZodTypeDef,
+  unknown
+> = deckPatchOperationSchemaInternal;
 
 export const deckPatchSchema = z.object({
   deckId: deckIdSchema,
@@ -308,7 +355,7 @@ export const deckPatchSchema = z.object({
   operations: z.array(deckPatchOperationSchema).min(1)
 });
 
-export const deckChangeRecordSchema = z
+const deckChangeRecordSchemaInternal = z
   .object({
     changeId: deckChangeIdSchema,
     deckId: deckIdSchema,
@@ -323,6 +370,14 @@ export const deckChangeRecordSchema = z
     message: "afterVersion must be greater than beforeVersion",
     path: ["afterVersion"]
   });
+
+export type DeckChangeRecord = z.infer<typeof deckChangeRecordSchemaInternal>;
+
+export const deckChangeRecordSchema: z.ZodType<
+  DeckChangeRecord,
+  z.ZodTypeDef,
+  unknown
+> = deckChangeRecordSchemaInternal;
 
 export type DeckPatchSource = z.infer<typeof deckPatchSourceSchema>;
 export type DeckPatchOperationType = z.infer<
@@ -340,6 +395,4 @@ export type SlideBackgroundImagePatch = z.infer<
 export type SlideStylePatch = z.infer<typeof slideStylePatchSchema>;
 export type ElementFramePatch = z.infer<typeof elementFramePatchSchema>;
 export type AnimationPatch = z.infer<typeof animationPatchSchema>;
-export type DeckPatchOperation = z.infer<typeof deckPatchOperationSchema>;
 export type DeckPatch = z.infer<typeof deckPatchSchema>;
-export type DeckChangeRecord = z.infer<typeof deckChangeRecordSchema>;

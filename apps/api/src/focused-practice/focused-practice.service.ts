@@ -1,31 +1,52 @@
 import {
+  coachingIdSchema,
   completeFocusedPracticeAudioRequestSchema,
+  createAssetUploadUrlRequestSchema,
   createFocusedPracticeAttemptRequestSchema,
   createFocusedPracticeSessionRequestSchema,
+  deckSchema,
   focusedPracticeAttemptSchema,
+  focusedPracticeAttemptSummarySchema,
   focusedPracticeSessionSchema,
+  rehearsalEvaluationSnapshotSchema,
+  type Deck,
   type FocusedPracticeAttempt,
   type FocusedPracticeSession,
+  type RehearsalEvaluationSnapshot,
 } from "@orbit/shared";
 import { enqueueFocusedPracticeAnalysisJob } from "@orbit/job-queue";
 import { isAdaptiveCoachingProjectAllowed, loadOrbitConfig } from "@orbit/config";
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { randomUUID } from "node:crypto";
 import { DataSource } from "typeorm";
 
 import { FilesService } from "../files/files.service";
 import { JobsService } from "../jobs/jobs.service";
 import { ProjectsService } from "../projects/projects.service";
+import {
+  assertFocusedPracticeTimeline,
+  FocusedPracticeTargetValidationError,
+  resolveFocusedPracticeTarget,
+  type FocusedPracticeTargetResolution,
+} from "./focused-practice-target";
 
 @Injectable()
 export class FocusedPracticeService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
+  private readonly focusedPracticeAudioUploadRequestSchema = createAssetUploadUrlRequestSchema({
+    maxRehearsalAudioUploadSizeBytes: this.config.REHEARSAL_AUDIO_MAX_BYTES,
+    allowedPrivatePurpose: "focused-practice-audio"
+  });
 
   constructor(
     private readonly dataSource: DataSource,
     private readonly projects: ProjectsService,
     private readonly files: FilesService,
     private readonly jobs: JobsService,
+    @Optional()
+    @InjectPinoLogger(FocusedPracticeService.name)
+    private readonly logger?: PinoLogger,
   ) {}
 
   async createSession(projectId: string, actorUserId: string, body: unknown) {
@@ -40,17 +61,31 @@ export class FocusedPracticeService {
         [projectId, request.clientRequestId],
       ));
       if (existing) return { session: toSession(existing) };
+      const resumeLockKey = [
+        projectId,
+        actorUserId,
+        request.sourceFullRunId,
+        request.sourceGoalSetId,
+        [...request.goalIds].sort().join(","),
+        canonical(request.targetScope),
+      ].join(":");
+      await manager.query(
+        `SELECT pg_advisory_xact_lock(hashtext($1))`,
+        [resumeLockKey],
+      );
       const rows = await manager.query(
         `
           SELECT runs.deck_id, runs.evaluation_snapshot_json, sets.analysis_state,
-                 sets.goal_set_id, json_agg(goals ORDER BY goals.priority) AS goals
+                 sets.goal_set_id, sets.revision AS goal_set_revision,
+                 json_agg(goals ORDER BY goals.priority) AS goals
           FROM rehearsal_runs runs
           JOIN practice_goal_sets sets ON sets.project_id = runs.project_id
             AND sets.goal_set_id = $3 AND sets.source_full_run_id = runs.run_id
           JOIN practice_goals goals ON goals.project_id = sets.project_id
             AND goals.goal_set_id = sets.goal_set_id AND goals.goal_id = ANY($4::text[])
           WHERE runs.project_id = $1 AND runs.run_id = $2 AND runs.status = 'succeeded'
-          GROUP BY runs.deck_id, runs.evaluation_snapshot_json, sets.analysis_state, sets.goal_set_id
+          GROUP BY runs.deck_id, runs.evaluation_snapshot_json, sets.analysis_state,
+                   sets.goal_set_id, sets.revision
         `,
         [projectId, request.sourceFullRunId, request.sourceGoalSetId, request.goalIds],
       );
@@ -64,9 +99,42 @@ export class FocusedPracticeService {
           throw new BadRequestException("Focused practice goals must share the requested measured target scope.");
         }
       }
-      const snapshot = source.evaluation_snapshot_json as Record<string, any>;
-      const plan = snapshot?.evaluationPlan;
+      const snapshotResult = rehearsalEvaluationSnapshotSchema.safeParse(source.evaluation_snapshot_json);
+      if (!snapshotResult.success) {
+        throw new ConflictException({ code: "SOURCE_INCOMPATIBLE", message: "Evaluation snapshot is unavailable." });
+      }
+      const snapshot = snapshotResult.data;
+      const plan = snapshot.evaluationPlan;
       if (!plan) throw new ConflictException({ code: "SOURCE_INCOMPATIBLE", message: "Evaluation plan is unavailable." });
+      const deckRow = first(await manager.query(
+        `SELECT deck_json FROM decks WHERE project_id = $1 AND deck_id = $2`,
+        [projectId, source.deck_id],
+      ));
+      const deckResult = deckSchema.safeParse(deckRow?.deck_json);
+      const targetResolution = resolveTargetOrBadRequest(
+        request.targetScope,
+        snapshot,
+        deckResult.success ? deckResult.data : null,
+      );
+      if (targetResolution.compatibilityState === "current") {
+        const resumable = first(await manager.query(
+          `SELECT * FROM focused_practice_sessions
+           WHERE project_id = $1
+             AND created_by = $2
+             AND source_full_run_id = $3
+             AND source_goal_set_id = $4
+             AND goal_ids_json @> $5::jsonb
+             AND goal_ids_json <@ $5::jsonb
+             AND target_scope_json = $6::jsonb
+             AND status = 'active'
+             AND compatibility_state = 'current'
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [projectId, actorUserId, request.sourceFullRunId, request.sourceGoalSetId,
+            JSON.stringify(request.goalIds), JSON.stringify(request.targetScope)],
+        ));
+        if (resumable) return { session: toSession(resumable) };
+      }
       const now = new Date().toISOString();
       const session = focusedPracticeSessionSchema.parse({
         practiceSessionId: `practice_${randomUUID()}`,
@@ -78,11 +146,15 @@ export class FocusedPracticeService {
         targetScope: request.targetScope,
         snapshot: {
           deckVersion: snapshot.deckVersion,
+          goalSetRef: {
+            goalSetId: source.goal_set_id,
+            revision: source.goal_set_revision,
+          },
           briefRef: plan.briefRef,
           evaluatorLensRef: plan.evaluatorLensRef,
           criterionRefs: goals.map((goal) => goal.criterion_ref_json),
         },
-        compatibilityState: "current",
+        compatibilityState: targetResolution.compatibilityState,
         status: "active",
         dataOrigin: "live",
         createdBy: actorUserId,
@@ -113,8 +185,9 @@ export class FocusedPracticeService {
   }
 
   async getSession(sessionId: string, actorUserId: string) {
-    const row = await this.getSessionRow(sessionId);
-    await this.projects.assertCanReadProject(String(row.project_id), actorUserId);
+    const storedRow = await this.getSessionRow(sessionId);
+    await this.projects.assertCanReadProject(String(storedRow.project_id), actorUserId);
+    const { row } = await this.refreshSessionCompatibility(storedRow);
     const attempts = (await this.dataSource.query(
       `SELECT * FROM focused_practice_attempts WHERE practice_session_id = $1 ORDER BY attempt_number ASC`,
       [sessionId],
@@ -122,11 +195,57 @@ export class FocusedPracticeService {
     return { session: toSession(row), attempts, stabilization: deriveStabilization(attempts) };
   }
 
+  async getAttemptSummary(projectId: string, sourceFullRunId: string, actorUserId: string) {
+    const validatedRunId = coachingIdSchema.parse(sourceFullRunId);
+    await this.projects.assertCanReadProject(projectId, actorUserId);
+    const rows = await this.dataSource.query(
+      `SELECT goals.goal_id,
+              COUNT(attempts.attempt_id) FILTER (
+                WHERE attempts.status = 'succeeded'
+                  AND EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(COALESCE(attempts.goal_outcomes_json, '[]'::jsonb)) outcome
+                    WHERE outcome->>'goalId' = goals.goal_id
+                      AND outcome->>'outcome' = 'passed'
+                  )
+              )::int AS passed_count
+       FROM practice_goal_heads heads
+       JOIN practice_goal_sets sets
+         ON sets.project_id = heads.project_id
+        AND sets.goal_set_id = heads.current_goal_set_id
+       JOIN practice_goals goals
+         ON goals.project_id = sets.project_id
+        AND goals.goal_set_id = sets.goal_set_id
+       LEFT JOIN focused_practice_sessions sessions
+         ON sessions.project_id = goals.project_id
+        AND sessions.source_full_run_id = sets.source_full_run_id
+        AND sessions.source_goal_set_id = sets.goal_set_id
+        AND sessions.created_by = $3
+        AND sessions.goal_ids_json @> jsonb_build_array(goals.goal_id)
+       LEFT JOIN focused_practice_attempts attempts
+         ON attempts.project_id = sessions.project_id
+        AND attempts.practice_session_id = sessions.practice_session_id
+       WHERE heads.project_id = $1
+         AND heads.source_full_run_id = $2
+       GROUP BY goals.goal_id, goals.priority
+       ORDER BY goals.priority ASC`,
+      [projectId, validatedRunId, actorUserId],
+    );
+    return focusedPracticeAttemptSummarySchema.parse({
+      sourceFullRunId: validatedRunId,
+      goals: (Array.isArray(rows) ? rows : []).map((row) => ({
+        goalId: row.goal_id,
+        passedCount: Number(row.passed_count),
+      })),
+    });
+  }
+
   async createAttempt(sessionId: string, actorUserId: string, body: unknown) {
     const request = createFocusedPracticeAttemptRequestSchema.parse(body);
-    const sessionRow = await this.getSessionRow(sessionId);
-    const projectId = String(sessionRow.project_id);
+    const storedRow = await this.getSessionRow(sessionId);
+    const projectId = String(storedRow.project_id);
     await this.projects.assertCanWriteProject(projectId, actorUserId);
+    const { row: sessionRow } = await this.refreshSessionCompatibility(storedRow);
     if (sessionRow.status !== "active" || sessionRow.compatibility_state !== "current") {
       throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Focused practice session is not active." });
     }
@@ -135,12 +254,12 @@ export class FocusedPracticeService {
       [sessionId, request.clientRequestId],
     ));
     if (existing) return { attempt: toAttempt(existing), upload: null };
-    const upload = await this.files.createUploadUrl(projectId, {
-      originalName: "focused-practice-audio",
+    const upload = await this.files.createUploadUrl(projectId, this.focusedPracticeAudioUploadRequestSchema.parse({
+      originalName: focusedPracticeAudioFileName(request.mimeType),
       mimeType: request.mimeType,
       size: request.size,
       purpose: "focused-practice-audio",
-    });
+    }));
     const now = new Date();
     const rows = await this.dataSource.query(
       `INSERT INTO focused_practice_attempts (
@@ -167,8 +286,26 @@ export class FocusedPracticeService {
     if (attempt.status !== "uploading" || attempt.audio_file_id !== request.fileId) {
       throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Attempt is not awaiting this audio file." });
     }
-    await this.files.completeUpload(String(attempt.project_id), { fileId: request.fileId }, "focused-practice-audio");
+    const refreshed = await this.refreshSessionCompatibility(
+      await this.getSessionRow(String(attempt.practice_session_id)),
+    );
+    if (refreshed.row.compatibility_state !== "current" || !refreshed.resolution) {
+      throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Focused practice target is stale." });
+    }
     validateTimeline(request.slideTimeline, request.durationMs);
+    try {
+      assertFocusedPracticeTimeline(
+        toSession(refreshed.row).targetScope,
+        refreshed.resolution,
+        request.slideTimeline,
+      );
+    } catch (error) {
+      if (error instanceof FocusedPracticeTargetValidationError) {
+        throw new BadRequestException(error.message);
+      }
+      throw error;
+    }
+    await this.files.completeUpload(String(attempt.project_id), { fileId: request.fileId }, "focused-practice-audio");
     const job = await this.jobs.create({
       projectId: String(attempt.project_id),
       type: "focused-practice-analysis",
@@ -179,15 +316,39 @@ export class FocusedPracticeService {
         duration_ms = $3, slide_timeline_json = $4 WHERE attempt_id = $1 AND status = 'uploading' RETURNING *`,
       [attemptId, job.jobId, request.durationMs, JSON.stringify(request.slideTimeline)],
     );
-    await enqueueFocusedPracticeAnalysisJob({
-      driver: this.config.JOB_QUEUE_DRIVER,
-      redisUrl: this.config.REDIS_URL,
-      jobId: job.jobId,
-      projectId: String(attempt.project_id),
-      practiceSessionId: String(attempt.practice_session_id),
-      attemptId,
-      audioFileId: request.fileId,
-    });
+    try {
+      await enqueueFocusedPracticeAnalysisJob({
+        driver: this.config.JOB_QUEUE_DRIVER,
+        redisUrl: this.config.REDIS_URL,
+        jobId: job.jobId,
+        projectId: String(attempt.project_id),
+        practiceSessionId: String(attempt.practice_session_id),
+        attemptId,
+        audioFileId: request.fileId,
+      });
+      this.logger?.info({ event: "job.enqueued", jobId: job.jobId, jobType: job.type, projectId: String(attempt.project_id) }, "Focused practice analysis job enqueued.");
+    } catch (error) {
+      let rawAudioDeletedAt: string | null = null;
+      let cleanupState: "deleted" | "pending" = "pending";
+      let cleanupError: unknown;
+      try {
+        rawAudioDeletedAt = await this.files.deleteUploadedAsset(String(attempt.project_id), request.fileId, "focused-practice-audio");
+        cleanupState = "deleted";
+      } catch (caughtCleanupError) {
+        cleanupError = caughtCleanupError;
+      }
+      await Promise.all([
+        this.jobs.update(job.jobId, {
+          status: "failed", progress: 0, message: "Focused practice analysis enqueue failed.",
+          error: { code: "FOCUSED_PRACTICE_ANALYSIS_ENQUEUE_FAILED", message: "Focused practice analysis enqueue failed." },
+        }),
+        this.dataSource.query(`UPDATE focused_practice_attempts SET status='failed',error_code='PROVIDER_UNAVAILABLE',
+          cleanup_state=$2,raw_audio_deleted_at=$3,raw_audio_delete_deadline_at=CASE WHEN $2='deleted' THEN NULL ELSE raw_audio_delete_deadline_at END,completed_at=now()
+          WHERE attempt_id=$1 AND analysis_job_id=$4 AND status='queued'`, [attemptId, cleanupState, rawAudioDeletedAt, job.jobId]),
+      ]);
+      this.logger?.error({ event: "job.enqueue_failed", jobId: job.jobId, jobType: job.type, projectId: String(attempt.project_id), errorName: error instanceof Error ? error.name : "UnknownError", cleanupErrorName: cleanupError instanceof Error ? cleanupError.name : cleanupError ? "UnknownError" : undefined }, "Focused practice analysis enqueue failed.");
+      throw error;
+    }
     return { attempt: toAttempt(first(rows)!), job };
   }
 
@@ -210,10 +371,80 @@ export class FocusedPracticeService {
     return row;
   }
 
+  private async refreshSessionCompatibility(
+    row: Record<string, any>,
+    executor: QueryExecutor = this.dataSource,
+  ): Promise<{ row: Record<string, any>; resolution: FocusedPracticeTargetResolution | null }> {
+    if (row.compatibility_state !== "current") return { row, resolution: null };
+
+    const source = first(await executor.query(
+      `SELECT runs.evaluation_snapshot_json, decks.deck_json
+       FROM rehearsal_runs runs
+       LEFT JOIN decks ON decks.project_id = runs.project_id AND decks.deck_id = runs.deck_id
+       WHERE runs.project_id = $1 AND runs.run_id = $2`,
+      [row.project_id, row.source_full_run_id],
+    ));
+    const snapshotResult = rehearsalEvaluationSnapshotSchema.safeParse(source?.evaluation_snapshot_json);
+    const deckResult = deckSchema.safeParse(source?.deck_json);
+    if (!snapshotResult.success) return { row: await this.markSessionStale(executor, row), resolution: null };
+
+    let resolution: FocusedPracticeTargetResolution;
+    try {
+      resolution = resolveFocusedPracticeTarget({
+        currentDeck: deckResult.success ? deckResult.data : null,
+        sourceSnapshot: snapshotResult.data,
+        targetScope: toSession(row).targetScope,
+      });
+    } catch (error) {
+      if (error instanceof FocusedPracticeTargetValidationError) {
+        return { row: await this.markSessionStale(executor, row), resolution: null };
+      }
+      throw error;
+    }
+    if (resolution.compatibilityState === "stale") {
+      return { row: await this.markSessionStale(executor, row), resolution };
+    }
+    return { row, resolution };
+  }
+
+  private async markSessionStale(executor: QueryExecutor, row: Record<string, any>) {
+    await executor.query(
+      `UPDATE focused_practice_sessions SET compatibility_state = 'stale'
+       WHERE practice_session_id = $1 AND compatibility_state = 'current'`,
+      [row.practice_session_id],
+    );
+    this.logger?.warn({
+      event: "focused_practice.target_stale",
+      projectId: row.project_id,
+      runId: row.source_full_run_id,
+      sessionId: row.practice_session_id,
+    }, "Focused practice target became stale.");
+    return { ...row, compatibility_state: "stale" };
+  }
+
   private async getAttemptRow(attemptId: string) {
     const row = first(await this.dataSource.query(`SELECT * FROM focused_practice_attempts WHERE attempt_id = $1`, [attemptId]));
     if (!row) throw new NotFoundException("Focused practice attempt not found.");
     return row;
+  }
+}
+
+type QueryExecutor = {
+  query: (sql: string, parameters?: unknown[]) => Promise<unknown>;
+};
+
+function resolveTargetOrBadRequest(
+  targetScope: FocusedPracticeSession["targetScope"],
+  sourceSnapshot: RehearsalEvaluationSnapshot,
+  currentDeck: Deck | null,
+) {
+  try {
+    return resolveFocusedPracticeTarget({ targetScope, sourceSnapshot, currentDeck });
+  } catch (error) {
+    if (error instanceof FocusedPracticeTargetValidationError) {
+      throw new BadRequestException(error.message);
+    }
+    throw error;
   }
 }
 
@@ -253,6 +484,24 @@ export function deriveStabilization(attempts: FocusedPracticeAttempt[]) {
       previous?.goalOutcomes.find((item) => item.goalId === goalId)?.outcome === "passed"
     ),
   }));
+}
+
+export function focusedPracticeAudioFileName(mimeType: string) {
+  const extension = {
+    "audio/mp3": "mp3",
+    "audio/mpeg": "mp3",
+    "audio/mpga": "mp3",
+    "audio/m4a": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/mp4": "mp4",
+    "video/mp4": "mp4",
+    "audio/flac": "flac",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/webm": "webm",
+  }[mimeType] ?? "webm";
+
+  return `focused-practice-audio.${extension}`;
 }
 
 function validateTimeline(timeline: Array<{ enteredAtMs: number; exitedAtMs: number | null }>, durationMs: number) {

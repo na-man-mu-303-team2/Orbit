@@ -1,6 +1,9 @@
 import type { Deck, GroupElementProps, Slide } from "@orbit/shared";
 import type { ElementPresentationState } from "./ReadOnlySlideCanvas";
-import { normalizeRenderableElement } from "./elementNormalization";
+import {
+  normalizeRenderableElement,
+  usesSourceSlideSnapshot
+} from "./elementNormalization";
 
 export function getHighlightOverlayElements(args: {
   activeHighlightElementIds: Set<string>;
@@ -8,6 +11,10 @@ export function getHighlightOverlayElements(args: {
   elementStates?: Record<string, ElementPresentationState>;
   slide: Slide;
 }) {
+  if (usesSourceSlideSnapshot(args.slide)) {
+    return [];
+  }
+
   const parentGroupByChildId = getParentGroupByChildId(args.slide);
 
   return args.slide.elements

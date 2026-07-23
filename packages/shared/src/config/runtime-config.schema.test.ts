@@ -3,21 +3,29 @@ import { describe, expect, it } from "vitest";
 import { runtimeConfigResponseSchema } from "./runtime-config.schema";
 
 describe("runtimeConfigResponseSchema", () => {
+  const flags = {
+    adaptiveRehearsalCoachEnabled: false,
+    focusedPracticeEnabled: false,
+    challengeQnaEnabled: false,
+    slidePracticeEnabled: true,
+    slideQuestionGuidesEnabled: true,
+  };
+
   it("accepts browser live STT engines exposed by runtime config", () => {
     expect(
-      runtimeConfigResponseSchema.parse({ liveSttEngine: "openai-realtime", adaptiveRehearsalCoachEnabled: false, focusedPracticeEnabled: false, challengeQnaEnabled: false })
-    ).toEqual({ liveSttEngine: "openai-realtime", adaptiveRehearsalCoachEnabled: false, focusedPracticeEnabled: false, challengeQnaEnabled: false });
+      runtimeConfigResponseSchema.parse({ liveSttEngine: "openai-realtime", ...flags })
+    ).toEqual({ liveSttEngine: "openai-realtime", ...flags });
     expect(
-      runtimeConfigResponseSchema.parse({ liveSttEngine: "web-speech", adaptiveRehearsalCoachEnabled: false, focusedPracticeEnabled: false, challengeQnaEnabled: false })
-    ).toEqual({ liveSttEngine: "web-speech", adaptiveRehearsalCoachEnabled: false, focusedPracticeEnabled: false, challengeQnaEnabled: false });
+      runtimeConfigResponseSchema.parse({ liveSttEngine: "web-speech", ...flags })
+    ).toEqual({ liveSttEngine: "web-speech", ...flags });
   });
 
   it("rejects local model engines that are not env-switch targets", () => {
     expect(
-      runtimeConfigResponseSchema.safeParse({ liveSttEngine: "sherpa", adaptiveRehearsalCoachEnabled: false, focusedPracticeEnabled: false, challengeQnaEnabled: false }).success
+      runtimeConfigResponseSchema.safeParse({ liveSttEngine: "sherpa", ...flags }).success
     ).toBe(false);
     expect(
-      runtimeConfigResponseSchema.safeParse({ liveSttEngine: "moonshine", adaptiveRehearsalCoachEnabled: false, focusedPracticeEnabled: false, challengeQnaEnabled: false }).success
+      runtimeConfigResponseSchema.safeParse({ liveSttEngine: "moonshine", ...flags }).success
     ).toBe(false);
   });
 });

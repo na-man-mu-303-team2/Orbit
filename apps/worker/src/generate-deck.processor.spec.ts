@@ -1,8 +1,17 @@
 import type { StoragePort } from "@orbit/storage";
-import { deckSchema, type Deck, type GenerateDeckJobResult } from "@orbit/shared";
+import {
+  deckSchema,
+  generateDeckResponseSchema,
+  type Deck,
+  type GenerateDeckJobResult
+} from "@orbit/shared";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { processGenerateDeckJob } from "./generate-deck.processor";
+import { resolveGenerateDeckAssets } from "./generate-deck/asset-resolution";
+import { publishGenerateDeckResult } from "./generate-deck/publication";
+import { runRenderedVisualQuality } from "./generate-deck/rendered-visual-quality";
+import { runInitialSemanticQuality } from "./generate-deck/semantic-quality";
 
 const payload = {
   jobId: "job-1",
@@ -68,25 +77,12 @@ describe("processGenerateDeckJob", () => {
         }
       ]
     });
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        jobRow(
-          "succeeded",
-          100,
-          {
-            deckId: deck.deckId,
-            deck,
-            warnings,
-            validation: deckValidation
-          },
-          null
-        )
-      ]);
+    const query = dynamicJobQuery();
     let pythonRequestBody = "";
-    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+    const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
+      if (String(input).endsWith("/ai/review-deck-visuals")) {
+        return visualPassResponse();
+      }
       pythonRequestBody = String(init?.body ?? "");
       return new Response(
         JSON.stringify({
@@ -111,7 +107,7 @@ describe("processGenerateDeckJob", () => {
       "http://localhost:8000/ai/generate-deck",
       expect.objectContaining({ method: "POST" })
     );
-    expect(timeoutSpy).toHaveBeenCalledWith(120_000);
+    expect(timeoutSpy).toHaveBeenCalledWith(300_000);
     expect(JSON.parse(pythonRequestBody)).toEqual(
       expect.objectContaining({
         designPrompt: "retro pixel palette",
@@ -131,12 +127,11 @@ describe("processGenerateDeckJob", () => {
       })
     );
     expect(JSON.parse(pythonRequestBody)).not.toHaveProperty("imageReviewMode");
-    expect(query).toHaveBeenCalledTimes(3);
-    expect(query.mock.calls[1][0]).toContain("INSERT INTO decks");
-    const savedDeck = (query.mock.calls[1][1] as unknown[])[2] as Deck;
-    const jobResult = (query.mock.calls[2][1] as unknown[])[4] as {
-      deck: Deck;
-    };
+    const saveCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("INSERT INTO decks")
+    );
+    const savedDeck = saveCall?.[1]?.[2] as Deck;
+    const jobResult = job.result as GenerateDeckJobResult;
     expect(savedDeck.metadata.thumbnailSource).toBe("import-render");
     expect(savedDeck.slides[0].thumbnailUrl).toBe(
       "asset:generated_slide_render_slide_1"
@@ -179,16 +174,19 @@ describe("processGenerateDeckJob", () => {
     const query = dynamicJobQuery();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(
+      vi.fn(async (input: unknown) => {
+        if (String(input).endsWith("/ai/review-deck-visuals")) {
+          return visualPassResponse();
+        }
+        return new Response(
           JSON.stringify({
             deck,
             warnings: [],
             validation: validation(),
             diagnostics: diagnostics()
           })
-        )
-      )
+        );
+      })
     );
 
     const job = await processGenerateDeckJob(
@@ -199,7 +197,7 @@ describe("processGenerateDeckJob", () => {
     );
 
     expect(job.status).toBe("succeeded");
-    const result = (query.mock.calls[2][1] as unknown[])[4] as GenerateDeckJobResult;
+    const result = job.result as GenerateDeckJobResult;
     expect(result.warnings).toContain(
       "Semantic QA bounded repair applied once."
     );
@@ -219,7 +217,7 @@ describe("processGenerateDeckJob", () => {
       id: "design_pack_1",
       name: "Personal report",
       version: 2,
-      baseStylePackId: "brandlogy-modern",
+      baseStylePackId: "technical-system",
       preferences: {
         palette: { primary: "#2563EB" },
         typography: {},
@@ -261,10 +259,8 @@ describe("processGenerateDeckJob", () => {
         ...payload,
         request: {
           ...payload.request,
-          generationMode: "design-pack",
           design: {
-            ...payload.request.design,
-            engineVersion: "program-v2"
+            paletteOverride: payload.request.design.paletteOverride
           },
           savedDesignPack: { id: snapshot.id, version: snapshot.version }
         },
@@ -284,31 +280,118 @@ describe("processGenerateDeckJob", () => {
     expect(designProgramContext.savedDesignPreferences).toMatchObject(
       snapshot.preferences
     );
+    expect(JSON.parse(pythonRequestBody).design.stylePackId).toBe(
+      "technical-system"
+    );
   });
 
   it("publishes a program-v2 deck only after rendered visual QA passes", async () => {
-    const deck = programV2Deck();
-    const query = dynamicJobQuery();
-    const events: string[] = [];
+    const deck = programV2DeckWithOptionalMedia();
+    const trace: string[] = [];
+    const events: Array<{ event: string; fields: Record<string, unknown> }> = [];
+    let generatedAsset:
+      | { file_id: string; storage_key: string; mime_type: string }
+      | undefined;
+    const query = vi.fn(async (sql: string, params: unknown[] = []) => {
+      if (sql.includes("UPDATE jobs")) {
+        trace.push(`job:${String(params[1])}:${String(params[2])}`);
+        return [
+          jobRow(
+            params[1] as "running" | "succeeded" | "failed",
+            params[2] as number,
+            params[4] as Record<string, unknown> | null,
+            params[5] as { code: string; message: string } | null
+          )
+        ];
+      }
+      if (sql.includes("count(*) FILTER")) {
+        return [{ user_count: "0" }];
+      }
+      if (sql.includes("INSERT INTO project_assets")) {
+        generatedAsset = {
+          file_id: String(params[0]),
+          storage_key: String(params[2]),
+          mime_type: String(params[4])
+        };
+        trace.push("image.persist");
+        return [];
+      }
+      if (sql.includes("FROM project_assets")) {
+        return generatedAsset ? [generatedAsset] : [];
+      }
+      if (sql.includes("INSERT INTO decks")) {
+        trace.push("deck.insert");
+      }
+      return [];
+    });
+    const image = pngHeader(1280, 720);
     const fetchMock = vi.fn(async (input: unknown) => {
       const url = String(input);
       if (url.endsWith("/ai/generate-deck")) {
-        return generateDeckResponse(deck);
+        trace.push("python.generate");
+        return generateDeckResponse(deck, {
+          referencePolicy: "research-first",
+          researchQuality: "partial",
+          researchIssueCodes: ["independent-missing"],
+          researchAttempts: 3,
+          relevantWebSourceCount: 1,
+          officialWebSourceCount: 1,
+          independentWebSourceCount: 0,
+          researchFactCoverageSatisfied: true
+        });
+      }
+      if (url === "http://storage.local/generated.png") {
+        return new Response(image);
       }
       if (url.endsWith("/ai/review-deck-visuals")) {
+        trace.push("visual.review");
         return visualPassResponse();
       }
       throw new Error(`Unexpected URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
+    const tracedStorage = {
+      getSignedReadUrl: vi.fn(async () => "http://storage.local/generated.png"),
+      putObject: vi.fn(async (input: { key: string; contentType: string }) => {
+        trace.push("image.store");
+        return {
+          key: input.key,
+          url: "http://storage.local/generated.png",
+          contentType: input.contentType,
+          purpose: "design-asset" as const,
+          size: image.byteLength
+        };
+      })
+    };
+    const generate = vi.fn(async () => {
+      trace.push("image.generate");
+      return {
+        body: image,
+        mimeType: "image/png" as const,
+        fileName: "generated.png",
+        provider: "openai",
+        checkedAt: "2026-07-14T00:00:00.000Z",
+        generationPrompt: "Editorial product visual"
+      };
+    });
 
     const job = await processGenerateDeckJob(
       { query } as unknown as DataSource,
-      storage,
+      tracedStorage,
       "http://localhost:8000",
-      programV2Payload(),
-      undefined,
-      (event) => events.push(event)
+      {
+        ...programV2Payload(),
+        imageAssetScope: { userId: "user-1" }
+      },
+      {
+        generated: { generate },
+        maxPerDeck: 4,
+        maxPerUserPerDay: 20
+      },
+      (event, fields) => {
+        trace.push(`event:${event}`);
+        events.push({ event, fields });
+      }
     );
 
     expect(job.status).toBe("succeeded");
@@ -318,18 +401,50 @@ describe("processGenerateDeckJob", () => {
       visualRepairAttempts: 0,
       visualIssueCodes: []
     });
-    expect(
-      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
-    ).toBe(true);
-    expect(events).toEqual(
-      expect.arrayContaining([
-        "ai-ppt.design-program.created",
-        "ai-ppt.composition.completed",
-        "ai-ppt.asset.resolved",
-        "ai-ppt.visual-review.completed",
-        "ai-ppt.deck.published"
-      ])
+    const deckInsertCalls = query.mock.calls.filter(([sql]) =>
+      String(sql).includes("INSERT INTO decks")
     );
+    expect(deckInsertCalls).toHaveLength(1);
+    const savedDeck = deckInsertCalls[0]?.[1]?.[2] as Deck;
+    expect(savedDeck.metadata.designProgramSnapshot?.backgroundSequence).toEqual(
+      savedDeck.slides.map(
+        (slide) => slide.aiNotes?.compositionPlan?.backgroundMode
+      )
+    );
+    expect(trace).toEqual([
+      "job:running:15",
+      "python.generate",
+      "event:ai-ppt.web-research.completed",
+      "event:ai-ppt.design-program.created",
+      "event:ai-ppt.composition.completed",
+      "job:running:45",
+      "image.generate",
+      "image.store",
+      "image.persist",
+      "event:ai-ppt.asset.resolved",
+      "job:running:65",
+      "job:running:75",
+      "visual.review",
+      "event:ai-ppt.visual-review.completed",
+      "job:running:95",
+      "deck.insert",
+      "event:ai-ppt.deck.published",
+      "job:succeeded:100"
+    ]);
+    expect(events).toContainEqual({
+      event: "ai-ppt.web-research.completed",
+      fields: {
+        jobId: "job-1",
+        projectId: "project-a",
+        quality: "partial",
+        issueCodes: ["independent-missing"],
+        attempts: 3,
+        relevantSourceCount: 1,
+        officialSourceCount: 1,
+        independentSourceCount: 0,
+        factCoverageSatisfied: true
+      }
+    });
   });
 
   it("embeds stored image assets only in the visual review request", async () => {
@@ -451,8 +566,8 @@ describe("processGenerateDeckJob", () => {
     ]);
   });
 
-  it("publishes after bounded repair when only one advisory slide remains", async () => {
-    const deck = programV2Deck();
+  it("publishes a four-slide deck when advisory issues remain on three slides", async () => {
+    const deck = programV2DeckWithSlideCount(4);
     const query = dynamicJobQuery();
     let repairCount = 0;
     vi.stubGlobal(
@@ -463,7 +578,7 @@ describe("processGenerateDeckJob", () => {
           return generateDeckResponse(deck);
         }
         if (url.endsWith("/ai/review-deck-visuals")) {
-          return visualFailureResponse("BALANCE_WEAK");
+          return visualFailureResponse("BALANCE_WEAK", [1, 2, 3]);
         }
         if (url.endsWith("/ai/repair-deck-visuals")) {
           repairCount += 1;
@@ -484,14 +599,22 @@ describe("processGenerateDeckJob", () => {
     expect(repairCount).toBe(2);
     expect(job.result).toMatchObject({
       validation: {
-        passed: true,
-        designIssues: []
+        passed: false,
+        designIssues: [1, 2, 3].map((order) =>
+          expect.objectContaining({
+            code: "BALANCE_WEAK",
+            path: `slides.${order - 1}`,
+            blocking: false,
+          }),
+        ),
       },
       diagnostics: {
-        visualQaStatus: "passed",
+        visualQaStatus: "advisory",
         visualReviewAttempts: 3,
         visualRepairAttempts: 2,
-        visualIssueCodes: ["BALANCE_WEAK"]
+        visualIssueCodes: ["BALANCE_WEAK", "BALANCE_WEAK", "BALANCE_WEAK"],
+        visualIssueSlideOrders: [1, 2, 3],
+        warningCodes: ["GENERATE_DECK_VISUAL_ADVISORY"]
       },
       warnings: [expect.stringContaining("advisory issue")]
     });
@@ -500,7 +623,7 @@ describe("processGenerateDeckJob", () => {
     ).toBe(true);
   });
 
-  it("retains a twice-repaired blocking visual failure without publishing", async () => {
+  it("publishes a twice-repaired visual issue as an advisory", async () => {
     const deck = programV2Deck();
     const query = dynamicJobQuery();
     let repairCount = 0;
@@ -529,10 +652,9 @@ describe("processGenerateDeckJob", () => {
       programV2Payload()
     );
 
-    expect(job.status).toBe("failed");
-    expect(job.error?.code).toBe(
-      "GENERATE_DECK_VISUAL_QUALITY_GATE_FAILED"
-    );
+    expect(job.status).toBe("succeeded");
+    expect(job.error).toBeNull();
+    expect(job.progress).toBe(100);
     expect(repairCount).toBe(2);
     expect(job.result).toMatchObject({
       validation: {
@@ -542,7 +664,7 @@ describe("processGenerateDeckJob", () => {
         ]
       },
       diagnostics: {
-        visualQaStatus: "failed",
+        visualQaStatus: "advisory",
         visualReviewAttempts: 3,
         visualRepairAttempts: 2,
         visualIssueCodes: ["IMAGE_CONTENT_MISMATCH"]
@@ -550,7 +672,7 @@ describe("processGenerateDeckJob", () => {
     });
     expect(
       query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("converts an unresolved optional image to a no-media composition", async () => {
@@ -623,6 +745,166 @@ describe("processGenerateDeckJob", () => {
         (element) => element.elementId.endsWith("_media_placeholder")
       )
     ).toBe(false);
+  });
+
+  it("fails without publishing when optional no-media fallback is unavailable", async () => {
+    const deck = programV2DeckWithOptionalMedia();
+    const query = dynamicJobQuery();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) {
+          return generateDeckResponse(deck);
+        }
+        if (url.endsWith("/ai/repair-deck-visuals")) {
+          return new Response("optional no-media fallback unavailable", {
+            status: 503
+          });
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      programV2Payload()
+    );
+
+    expect(job.status).toBe("failed");
+    expect(job.error).toMatchObject({
+      code: "GENERATE_DECK_OPTIONAL_IMAGE_FALLBACK_FAILED",
+      message: "optional no-media fallback unavailable"
+    });
+    expect(job.result).toMatchObject({
+      deck: { deckId: deck.deckId },
+      diagnostics: {
+        validationIssueCount: expect.any(Number)
+      }
+    });
+    expect(
+      (job.result as GenerateDeckJobResult).deck.slides[0].elements.some(
+        (element) => element.elementId.endsWith("_media_placeholder")
+      )
+    ).toBe(true);
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
+    ).toBe(false);
+  });
+
+  it("publishes later images when one provider request needs optional fallback", async () => {
+    const deck = programV2DeckWithTwoOptionalMedia();
+    const query = dynamicJobQuery();
+    const generate = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("provider exhausted"))
+      .mockRejectedValueOnce(new Error("provider exhausted"))
+      .mockResolvedValueOnce({
+        body: pngHeader(1280, 720),
+        mimeType: "image/png",
+        fileName: "generated.png",
+        provider: "openai"
+      });
+    let fallbackBody: {
+      deck: Deck;
+      dropOptionalMediaSlideIds: string[];
+    } | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/ai/generate-deck")) {
+          return generateDeckResponse(deck);
+        }
+        if (url.endsWith("/ai/repair-deck-visuals")) {
+          fallbackBody = JSON.parse(String(init?.body));
+          const candidate = deckSchema.parse(fallbackBody?.deck);
+          const fallbackDeck = deckSchema.parse({
+            ...candidate,
+            metadata: {
+              ...candidate.metadata,
+              designProgramSnapshot: {
+                ...candidate.metadata.designProgramSnapshot,
+                compositionIds: ["minimal-cover", "hero-split"]
+              }
+            },
+            slides: candidate.slides.map((slide, index) =>
+              index === 0
+                ? {
+                    ...slide,
+                    elements: slide.elements.filter(
+                      (element) =>
+                        !element.elementId.endsWith("_media_placeholder")
+                    ),
+                    aiNotes: {
+                      ...slide.aiNotes,
+                      visualPlan: {
+                        ...slide.aiNotes?.visualPlan,
+                        visualType: "minimal-cover",
+                        imageNeeded: false,
+                        imageSourcePolicy: "minimal",
+                        reason: "Optional image unavailable"
+                      },
+                      compositionPlan: {
+                        ...slide.aiNotes?.compositionPlan,
+                        compositionId: "minimal-cover",
+                        focalType: "title",
+                        assetRole: "none",
+                        requiredAsset: false
+                      }
+                    }
+                  }
+                : slide
+            )
+          });
+          return visualRepairResponse(fallbackDeck);
+        }
+        if (url.endsWith("/ai/review-deck-visuals")) {
+          return visualPassResponse();
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      })
+    );
+
+    const job = await processGenerateDeckJob(
+      { query } as unknown as DataSource,
+      storage,
+      "http://localhost:8000",
+      {
+        ...programV2Payload(),
+        imageAssetScope: { userId: "user_1" }
+      },
+      {
+        generated: { generate },
+        maxPerDeck: 4,
+        maxPerUserPerDay: 30
+      }
+    );
+
+    const result = job.result as GenerateDeckJobResult;
+    expect(job.status).toBe("succeeded");
+    expect(generate).toHaveBeenCalledTimes(3);
+    expect(fallbackBody?.dropOptionalMediaSlideIds).toEqual(["slide_1"]);
+    expect(
+      result.deck.slides[0].elements.some((element) =>
+        element.elementId.endsWith("_media_placeholder")
+      )
+    ).toBe(false);
+    expect(
+      result.deck.slides[1].elements.some(
+        (element) =>
+          element.type === "image" &&
+          element.elementId.endsWith("_media_asset")
+      )
+    ).toBe(true);
+    expect(result.deck.slides[1].aiNotes?.visualPlan?.asset?.provider).toBe(
+      "openai"
+    );
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining("provider exhausted")])
+    );
   });
 
   it("publishes a hybrid program-v2 deck below the resolved media floor with a warning", async () => {
@@ -851,7 +1133,7 @@ describe("processGenerateDeckJob", () => {
     ).toBe(true);
   });
 
-  it("fails program-v2 explicitly when rendered visual QA is unavailable", async () => {
+  it("publishes with a warning when rendered visual QA is unavailable", async () => {
     const deck = programV2Deck();
     const query = dynamicJobQuery();
     vi.stubGlobal(
@@ -870,22 +1152,26 @@ describe("processGenerateDeckJob", () => {
       programV2Payload()
     );
 
-    expect(job.status).toBe("failed");
-    expect(job.error?.code).toBe("GENERATE_DECK_VISUAL_QA_UNAVAILABLE");
+    expect(job.status).toBe("succeeded");
+    expect(job.error).toBeNull();
+    expect(job.progress).toBe(100);
     expect(job.result).toMatchObject({
       deck: { deckId: deck.deckId },
       diagnostics: {
-        visualQaStatus: "failed",
+        warningCodes: expect.arrayContaining([
+          "GENERATE_DECK_VISUAL_QA_UNAVAILABLE"
+        ]),
+        visualQaStatus: "unavailable",
         visualReviewAttempts: 1,
         visualRepairAttempts: 0
       }
     });
     expect(
       query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("retains the latest repaired candidate when a later visual review is unavailable", async () => {
+  it("publishes the latest repaired candidate when a later visual review is unavailable", async () => {
     const deck = programV2Deck();
     const repairedDeck = deckSchema.parse({
       ...deck,
@@ -920,18 +1206,19 @@ describe("processGenerateDeckJob", () => {
       programV2Payload()
     );
 
-    expect(job.status).toBe("failed");
-    expect(job.error?.code).toBe("GENERATE_DECK_VISUAL_QA_UNAVAILABLE");
+    expect(job.status).toBe("succeeded");
+    expect(job.error).toBeNull();
     expect(job.result).toMatchObject({
       deck: { title: "Latest repaired candidate" },
       diagnostics: {
+        visualQaStatus: "unavailable",
         visualReviewAttempts: 2,
         visualRepairAttempts: 1
       }
     });
     expect(
       query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("fails before saving a deck when blocking validation issues remain", async () => {
@@ -978,6 +1265,7 @@ describe("processGenerateDeckJob", () => {
 
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("GENERATE_DECK_VALIDATION_BLOCKING");
+    expect(query.mock.calls[1]?.[1]?.[2]).toBe(75);
     expect(query).toHaveBeenCalledTimes(2);
     expect(
       query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO decks"))
@@ -988,7 +1276,7 @@ describe("processGenerateDeckJob", () => {
     });
   });
 
-  it("publishes a design-pack deck with non-blocking quality warnings", async () => {
+  it("publishes a program-v2 deck with non-blocking quality warnings", async () => {
     const deck = createDeck();
     const deckValidation = validation({
       passed: false,
@@ -1024,16 +1312,19 @@ describe("processGenerateDeckJob", () => {
     const query = dynamicJobQuery();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(
+      vi.fn(async (input: unknown) => {
+        if (String(input).endsWith("/ai/review-deck-visuals")) {
+          return visualPassResponse();
+        }
+        return new Response(
           JSON.stringify({
             deck,
             warnings: [],
             validation: deckValidation,
             diagnostics: diagnostics({ validationIssueCount: 1 })
           })
-        )
-      )
+        );
+      })
     );
     const generate = vi.fn();
 
@@ -1043,7 +1334,6 @@ describe("processGenerateDeckJob", () => {
       "http://localhost:8000",
       {
         ...payload,
-        request: { ...payload.request, generationMode: "design-pack" },
         imageAssetScope: { userId: "user-1" }
       },
       {
@@ -1116,17 +1406,7 @@ describe("processGenerateDeckJob", () => {
         ]
       })
     );
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
-      .mockImplementationOnce(async (_sql: string, params: unknown[]) => [
-        jobRow(
-          "failed",
-          90,
-          params[4] as Record<string, unknown>,
-          params[5] as { code: string; message: string }
-        )
-      ]);
+    const query = dynamicJobQuery();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -1145,14 +1425,12 @@ describe("processGenerateDeckJob", () => {
       { query } as unknown as DataSource,
       storage,
       "http://localhost:8000",
-      {
-        ...payload,
-        request: { ...payload.request, generationMode: "design-pack" }
-      }
+      payload
     );
 
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("GENERATE_DECK_QUALITY_GATE_FAILED");
+    expect(job.progress).toBe(90);
     expect(job.result).toMatchObject({
       validation: {
         passed: false,
@@ -1167,18 +1445,21 @@ describe("processGenerateDeckJob", () => {
   });
 
   it("marks the DB job failed when Python generation fails", async () => {
+    const safeMessage =
+      "Art Director could not create a valid design plan. Please retry deck generation.";
+    const responseBody = JSON.stringify({ detail: safeMessage });
     const query = vi
       .fn()
       .mockResolvedValueOnce([jobRow("running", 15, null, null)])
       .mockResolvedValueOnce([
         jobRow("failed", 15, null, {
           code: "PYTHON_WORKER_GENERATE_DECK_FAILED",
-          message: "bad generation"
+          message: responseBody
         })
       ]);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response("bad generation", { status: 500 }))
+      vi.fn(async () => new Response(responseBody, { status: 503 }))
     );
 
     const job = await processGenerateDeckJob(
@@ -1189,11 +1470,19 @@ describe("processGenerateDeckJob", () => {
     );
 
     expect(job.status).toBe("failed");
-    expect(job.error?.message).toBe("bad generation");
+    expect(job.progress).toBe(15);
+    expect(job.error?.message).toBe(responseBody);
+    expect(job.error?.message).toContain(safeMessage);
+    expect(job.error?.message).not.toContain("validation error");
+    expect(job.error?.message).not.toContain("input_value");
+    expect(query.mock.calls[1]?.[1]?.[5]).toEqual({
+      code: "PYTHON_WORKER_GENERATE_DECK_FAILED",
+      message: responseBody
+    });
     expect(query).toHaveBeenCalledTimes(2);
   });
 
-  it("passes explicit design-pack generation mode to Python deck generation", async () => {
+  it("passes a program-v2 request without deprecated selectors", async () => {
     const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     const deck = createDeck({
       slides: [
@@ -1225,27 +1514,14 @@ describe("processGenerateDeckJob", () => {
       ]
     });
     const deckValidation = validation();
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce([jobRow("running", 15, null, null)])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        jobRow(
-          "succeeded",
-          100,
-          {
-            deckId: deck.deckId,
-            deck,
-            warnings: [],
-            validation: deckValidation
-          },
-          null
-        )
-      ]);
+    const query = dynamicJobQuery();
     let pythonRequestBody = "";
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: unknown, init?: RequestInit) => {
+      vi.fn(async (input: unknown, init?: RequestInit) => {
+        if (String(input).endsWith("/ai/review-deck-visuals")) {
+          return visualPassResponse();
+        }
         pythonRequestBody = String(init?.body ?? "");
         return new Response(
           JSON.stringify({ deck, warnings: [], validation: deckValidation })
@@ -1261,234 +1537,33 @@ describe("processGenerateDeckJob", () => {
         ...payload,
         request: {
           ...payload.request,
-          generationMode: "design-pack",
           slideCountRange: { min: 4, max: 4 }
         }
       }
     );
 
     expect(job.status).toBe("succeeded");
-    expect(JSON.parse(pythonRequestBody)).toEqual(
+    const pythonRequest = JSON.parse(pythonRequestBody);
+    expect(pythonRequest).toEqual(
       expect.objectContaining({
         projectId: "project-a",
-        generationMode: "design-pack",
         slideCountRange: { min: 4, max: 4 }
       })
     );
+    expect(pythonRequest).not.toHaveProperty("generationMode");
+    expect(pythonRequest.design).not.toHaveProperty("engineVersion");
+    expect(pythonRequest.design).not.toHaveProperty("slidePresetId");
+    expect(pythonRequest).not.toHaveProperty("designReferences");
+    expect(pythonRequest).not.toHaveProperty("templateBlueprintId");
     expect(timeoutSpy).toHaveBeenCalledWith(300_000);
   });
 
-  it("imports PPTX design references and stores derived images before generation", async () => {
-    const deck = createDeck({
-      metadata: {
-        language: "ko",
-        locale: "ko-KR",
-        sourceType: "ai",
-        generatedBy: "ai",
-        createdFrom: {
-          topic: "AI ???앹꽦",
-          references: [{ fileId: "file_1" }],
-          designReferences: [{ fileId: "file_design" }]
-        }
-      },
-      slides: [
-        {
-          slideId: "slide_1",
-          order: 1,
-          title: "AI ???앹꽦",
-          thumbnailUrl: "",
-          style: {},
-          speakerNotes: "notes",
-          elements: [
-            {
-              elementId: "el_1_imported_image_1",
-              type: "image",
-              role: "media",
-              x: 100,
-              y: 100,
-              width: 320,
-              height: 180,
-              rotation: 0,
-              opacity: 1,
-              zIndex: 1,
-              locked: false,
-              visible: true,
-              props: {
-                src: "/api/v1/projects/project-a/assets/file_design_asset/content",
-                alt: "Imported image",
-                fit: "contain"
-              }
-            }
-          ],
-          keywords: [],
-          aiNotes: {
-            emphasisPoints: ["message"],
-            sourceEvidence: [{ fileId: "file_1" }]
-          }
-        }
-      ]
-    });
-    const deckValidation = validation();
-    const query = vi.fn(async (sql: string, params: unknown[]) => {
+  it("keeps publication write errors on the existing invalid-response failure", async () => {
+    const deck = programV2Deck();
+    const progress: number[] = [];
+    const query = vi.fn(async (sql: string, params: unknown[] = []) => {
       if (sql.includes("UPDATE jobs")) {
-        return [jobRow(params[1] as "running" | "succeeded" | "failed", params[2] as number, params[4] as Record<string, unknown> | null, params[5] as { code: string; message: string } | null)];
-      }
-      if (sql.includes("FROM project_assets")) {
-        return [
-          {
-            file_id: "file_design",
-            project_id: "project-a",
-            storage_key: "projects/project-a/assets/file_design-template.pptx",
-            mime_type:
-              "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            original_name: "template.pptx",
-            size: 12,
-            purpose: "pptx-import",
-            status: "uploaded"
-          }
-        ];
-      }
-      return [];
-    });
-    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url === "http://storage.local/design.pptx") {
-        return new Response("pptx-bytes");
-      }
-      if (url.endsWith("/design/import-pptx")) {
-        return new Response(
-          JSON.stringify({
-            blueprint: {
-              slides: [
-                {
-                  elements: [
-                    {
-                      type: "image",
-                      props: { src: "asset:image_1" }
-                    }
-                  ]
-                }
-              ]
-            },
-            templateBlueprint: templateBlueprint(),
-            qualityReport: qualityReport(),
-            assets: [
-              {
-                assetId: "image_1",
-                fileName: "image.png",
-                mimeType: "image/png",
-                contentBase64: Buffer.from("img").toString("base64")
-              }
-            ],
-            warnings: []
-          })
-        );
-      }
-
-      expect(url).toBe("http://localhost:8000/ai/generate-deck");
-      expect(JSON.parse(String(init?.body))).toMatchObject({
-        designReferences: [{ fileId: "file_design" }],
-        templateBlueprint: expect.objectContaining({
-          templateId: "template_file_design"
-        }),
-        designBlueprint: {
-          slides: [
-            {
-              elements: [
-                {
-                  props: {
-                    src: expect.stringMatching(
-                      /^\/api\/v1\/projects\/project-a\/assets\/file_/
-                    )
-                  }
-                }
-              ]
-            }
-          ]
-        }
-      });
-      return new Response(JSON.stringify({ deck, warnings: [], validation: deckValidation }));
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const job = await processGenerateDeckJob(
-      { query } as unknown as DataSource,
-      storage,
-      "http://localhost:8000",
-      {
-        ...payload,
-        request: {
-          ...payload.request,
-          designReferences: [{ fileId: "file_design" }]
-        }
-      }
-    );
-
-    expect(job.status).toBe("succeeded");
-    expect(storage.getSignedReadUrl).toHaveBeenCalledWith(
-      "projects/project-a/assets/file_design-template.pptx"
-    );
-    expect(storage.putObject).toHaveBeenCalledWith(
-      expect.objectContaining({
-        contentType: "image/png",
-        purpose: "design-asset"
-      })
-    );
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8000/design/import-pptx",
-      expect.objectContaining({ method: "POST" })
-    );
-    expect(
-      query.mock.calls.some(([sql]) => String(sql).includes("template_blueprints"))
-    ).toBe(true);
-  });
-
-  it("fails when a design reference is not an uploaded PPTX asset", async () => {
-    const query = vi.fn(async (sql: string, params: unknown[]) => {
-      if (sql.includes("UPDATE jobs")) {
-        return [jobRow(params[1] as "running" | "succeeded" | "failed", params[2] as number, params[4] as Record<string, unknown> | null, params[5] as { code: string; message: string } | null)];
-      }
-      if (sql.includes("FROM project_assets")) {
-        return [
-          {
-            file_id: "file_design",
-            project_id: "project-a",
-            storage_key: "projects/project-a/assets/file_design.pdf",
-            mime_type: "application/pdf",
-            original_name: "template.pdf",
-            size: 12,
-            purpose: "reference-material",
-            status: "uploaded"
-          }
-        ];
-      }
-      return [];
-    });
-    vi.stubGlobal("fetch", vi.fn());
-
-    const job = await processGenerateDeckJob(
-      { query } as unknown as DataSource,
-      storage,
-      "http://localhost:8000",
-      {
-        ...payload,
-        request: {
-          ...payload.request,
-          designReferences: [{ fileId: "file_design" }]
-        }
-      }
-    );
-
-    expect(job.status).toBe("failed");
-    expect(job.error?.code).toBe("GENERATE_DECK_DESIGN_REFERENCE_FAILED");
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it("loads a stored template blueprint when templateBlueprintId is provided", async () => {
-    const deck = createDeck();
-    const deckValidation = validation();
-    const query = vi.fn(async (sql: string, params: unknown[]) => {
-      if (sql.includes("UPDATE jobs")) {
+        progress.push(params[2] as number);
         return [
           jobRow(
             params[1] as "running" | "succeeded" | "failed",
@@ -1498,94 +1573,355 @@ describe("processGenerateDeckJob", () => {
           )
         ];
       }
-      if (sql.includes("FROM template_blueprints")) {
-        return [
-          {
-            template_id: "template_file_design",
-            project_id: "project-a",
-            deck_id: "deck_import_file_design",
-            source_file_id: "file_design",
-            blueprint_json: templateBlueprint(),
-            quality_report_json: qualityReport(),
-            deck_json: createDeck({
-              deckId: "deck_import_file_design",
-              metadata: { language: "ko", locale: "ko-KR", sourceType: "import" },
-              slides: [
-                {
-                  slideId: "slide_import_file_design_1",
-                  order: 1,
-                  title: "Template",
-                  thumbnailUrl: "",
-                  style: {},
-                  speakerNotes: "",
-                  elements: [
-                    {
-                      elementId: "el_imported_1_title",
-                      type: "text",
-                      role: "title",
-                      x: 120,
-                      y: 96,
-                      width: 1200,
-                      height: 120,
-                      rotation: 0,
-                      opacity: 1,
-                      zIndex: 2,
-                      locked: false,
-                      visible: true,
-                      props: {
-                        text: "Template title",
-                        fontSize: 52,
-                        fontWeight: "bold"
-                      }
-                    }
-                  ]
-                }
-              ]
-            })
-          }
-        ];
+      if (sql.includes("INSERT INTO decks")) {
+        throw new Error("deck write failed");
       }
       return [];
     });
-    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
-      expect(String(input)).toBe("http://localhost:8000/ai/generate-deck");
-      expect(JSON.parse(String(init?.body))).toMatchObject({
-        templateBlueprintId: "template_file_design",
-        templateBlueprint: expect.objectContaining({
-          templateId: "template_file_design"
-        }),
-        designBlueprint: {
-          slides: [
-            {
-              elements: [
-                expect.objectContaining({
-                  elementId: "el_imported_1_title"
-                })
-              ]
-            }
-          ]
-        }
-      });
-      return new Response(JSON.stringify({ deck, warnings: [], validation: deckValidation }));
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) =>
+        String(input).endsWith("/ai/generate-deck")
+          ? generateDeckResponse(deck)
+          : visualPassResponse()
+      )
+    );
 
     const job = await processGenerateDeckJob(
       { query } as unknown as DataSource,
       storage,
       "http://localhost:8000",
-      {
-        ...payload,
-        request: {
-          ...payload.request,
-          designReferences: [],
-          templateBlueprintId: "template_file_design"
-        }
-      }
+      programV2Payload()
     );
 
-    expect(job.status).toBe("succeeded");
-    expect(storage.getSignedReadUrl).not.toHaveBeenCalled();
+    expect(job.status).toBe("failed");
+    expect(job.progress).toBe(75);
+    expect(job.error).toEqual({
+      code: "PYTHON_WORKER_GENERATE_DECK_INVALID_RESPONSE",
+      message: "deck write failed"
+    });
+    expect(progress).toEqual([15, 45, 65, 75, 95, 75]);
+  });
+
+  describe("queue-ready stage boundaries", () => {
+    it("resolves optional assets without mutating the input deck", async () => {
+      const deck = programV2DeckWithOptionalMedia();
+      const originalDeck = structuredClone(deck);
+      const fallbackDeck = programV2Deck();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => visualRepairResponse(fallbackDeck))
+      );
+
+      const outcome = await resolveGenerateDeckAssets({
+        dataSource: { query: dynamicJobQuery() } as unknown as DataSource,
+        storage,
+        pythonWorkerUrl: "http://localhost:8000",
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation,
+        officialAssetFileIds: []
+      });
+
+      expect(deck).toEqual(originalDeck);
+      expect(outcome.deck).toEqual(fallbackDeck);
+      expect(outcome.warnings).toEqual([]);
+      expect(fetch).toHaveBeenCalledWith(
+        "http://localhost:8000/ai/repair-deck-visuals",
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+
+    it("requests a no-image fallback for an unresolved generated cover", async () => {
+      const base = programV2DeckWithOptionalMedia();
+      const deck = deckSchema.parse({
+        ...base,
+        metadata: {
+          ...base.metadata,
+          designProgramSnapshot: {
+            ...base.metadata.designProgramSnapshot,
+            compositionIds: ["cover-visual-impact"]
+          }
+        },
+        slides: [
+          {
+            ...base.slides[0],
+            aiNotes: {
+              ...base.slides[0].aiNotes,
+              compositionPlan: {
+                ...base.slides[0].aiNotes?.compositionPlan,
+                compositionId: "cover-visual-impact",
+                requiredAsset: true
+              }
+            }
+          }
+        ]
+      });
+      const fallbackDeck = programV2Deck();
+      let fallbackBody: Record<string, unknown> | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_input: unknown, init?: RequestInit) => {
+          fallbackBody = JSON.parse(String(init?.body));
+          return visualRepairResponse(fallbackDeck);
+        })
+      );
+
+      const outcome = await resolveGenerateDeckAssets({
+        dataSource: { query: dynamicJobQuery() } as unknown as DataSource,
+        storage,
+        pythonWorkerUrl: "http://localhost:8000",
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation,
+        officialAssetFileIds: []
+      });
+
+      expect(fallbackBody).toMatchObject({
+        dropOptionalMediaSlideIds: [],
+        dropFailedCoverMediaSlideIds: ["slide_1"]
+      });
+      expect(outcome.deck).toEqual(fallbackDeck);
+    });
+
+    it("runs the bounded semantic repair without mutating the input deck", () => {
+      const deck = deckSchema.parse(
+        createDeck({
+          metadata: {
+            ...createDeck().metadata,
+            presentationProfile: "proposal"
+          }
+        })
+      );
+      const firstSlide = deck.slides[0];
+      if (!firstSlide.aiNotes) throw new Error("semantic fixture notes missing");
+      firstSlide.aiNotes.emphasisPoints = [
+        "고객 전환율을 높입니다",
+        "구매 여정을 단축합니다"
+      ];
+      firstSlide.aiNotes.sourceLedger = [
+        {
+          claim: "서버 지연 시간은 20ms입니다",
+          source: "report",
+          sourceType: "uploaded",
+          confidence: 0.9,
+          usedInSlideId: firstSlide.slideId
+        }
+      ];
+      const originalDeck = structuredClone(deck);
+
+      const outcome = runInitialSemanticQuality({
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation
+      });
+
+      expect(deck).toEqual(originalDeck);
+      expect(outcome.warnings).toEqual([
+        "Semantic QA bounded repair applied once."
+      ]);
+      expect(outcome.deck.slides[0].aiNotes?.emphasisPoints).toEqual([
+        "고객 전환율을 높입니다"
+      ]);
+    });
+
+    it("runs one rendered visual repair through explicit callbacks", async () => {
+      const deck = programV2Deck();
+      const originalDeck = structuredClone(deck);
+      const repairedDeck = deckSchema.parse({
+        ...deck,
+        title: "Repaired stage candidate"
+      });
+      let reviewCount = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: unknown) => {
+          const url = String(input);
+          if (url.endsWith("/ai/review-deck-visuals")) {
+            reviewCount += 1;
+            return reviewCount === 1
+              ? visualFailureResponse("FOCAL_POINT_WEAK")
+              : visualPassResponse();
+          }
+          if (url.endsWith("/ai/repair-deck-visuals")) {
+            return visualRepairResponse(repairedDeck);
+          }
+          throw new Error(`Unexpected URL: ${url}`);
+        })
+      );
+      const onRepairProgress = vi.fn(async () => undefined);
+      const emitEvent = vi.fn();
+
+      const outcome = await runRenderedVisualQuality({
+        dataSource: { query: dynamicJobQuery() } as unknown as DataSource,
+        storage,
+        pythonWorkerUrl: "http://localhost:8000",
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation,
+        officialAssetFileIds: [],
+        enforcesHybridMediaBudget: false,
+        jobId: "job-1",
+        projectId: "project-a",
+        onRepairProgress,
+        emitEvent
+      });
+
+      expect(deck).toEqual(originalDeck);
+      expect(outcome).toMatchObject({
+        passed: true,
+        reviewAttempts: 2,
+        repairAttempts: 1,
+        deck: { title: "Repaired stage candidate" }
+      });
+      expect(onRepairProgress).toHaveBeenCalledWith(1, 2);
+      expect(emitEvent).toHaveBeenCalledWith(
+        "ai-ppt.visual-repair.applied",
+        expect.objectContaining({ attempt: 1 })
+      );
+    });
+
+    it("repairs a single-slide shard using its actual deck order", async () => {
+      const base = programV2Deck();
+      const deck = deckSchema.parse({
+        ...base,
+        slides: [{ ...base.slides[0], slideId: "slide_5", order: 5 }]
+      });
+      const repairedDeck = deckSchema.parse({
+        ...deck,
+        title: "Repaired fifth slide"
+      });
+      const repairBodies: Array<Record<string, unknown>> = [];
+      let reviewCount = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: unknown, init?: RequestInit) => {
+          const url = String(input);
+          if (url.endsWith("/ai/review-deck-visuals")) {
+            reviewCount += 1;
+            return reviewCount === 1
+              ? visualFailureResponse("FOCAL_POINT_WEAK", [5], "slide_5")
+              : visualPassResponse();
+          }
+          if (url.endsWith("/ai/repair-deck-visuals")) {
+            repairBodies.push(JSON.parse(String(init?.body)));
+            return visualRepairResponse(repairedDeck);
+          }
+          throw new Error(`Unexpected URL: ${url}`);
+        })
+      );
+
+      const outcome = await runRenderedVisualQuality({
+        dataSource: { query: dynamicJobQuery() } as unknown as DataSource,
+        storage,
+        pythonWorkerUrl: "http://localhost:8000",
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation,
+        officialAssetFileIds: [],
+        enforcesHybridMediaBudget: false,
+        jobId: "job-1",
+        projectId: "project-a",
+        onRepairProgress: async () => undefined,
+        emitEvent: () => undefined
+      });
+
+      expect(outcome).toMatchObject({
+        passed: true,
+        reviewAttempts: 2,
+        repairAttempts: 1,
+        deck: { title: "Repaired fifth slide" }
+      });
+      expect(repairBodies[0]?.actions).toEqual([
+        expect.objectContaining({
+          action: "increaseFocalScale",
+          slideId: "slide_5"
+        })
+      ]);
+    });
+
+    it("keeps a visual issue without repair actions as an advisory", async () => {
+      const deck = programV2Deck();
+      const repairRequest = vi.fn();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: unknown) => {
+          const url = String(input);
+          if (url.endsWith("/ai/review-deck-visuals")) {
+            return new Response(
+              JSON.stringify({
+                review: {
+                  passed: false,
+                  issues: [
+                    {
+                      code: "FOCAL_POINT_WEAK",
+                      slideOrder: 1,
+                      message: "Visual hierarchy is weak."
+                    }
+                  ],
+                  repairActions: []
+                },
+                warnings: []
+              })
+            );
+          }
+          if (url.endsWith("/ai/repair-deck-visuals")) {
+            repairRequest();
+          }
+          throw new Error(`Unexpected URL: ${url}`);
+        })
+      );
+
+      const outcome = await runRenderedVisualQuality({
+        dataSource: { query: dynamicJobQuery() } as unknown as DataSource,
+        storage,
+        pythonWorkerUrl: "http://localhost:8000",
+        deck,
+        validation: parsedGenerateDeckResponse(deck).validation,
+        officialAssetFileIds: [],
+        enforcesHybridMediaBudget: false,
+        jobId: "job-1",
+        projectId: "project-a",
+        onRepairProgress: async () => undefined,
+        emitEvent: () => undefined
+      });
+
+      expect(outcome).toMatchObject({
+        passed: true,
+        reviewAttempts: 1,
+        repairAttempts: 0
+      });
+      expect(repairRequest).not.toHaveBeenCalled();
+    });
+
+    it("reapplies the current publication upsert and Job result on recall", async () => {
+      const deck = programV2Deck();
+      const workerPayload = parsedGenerateDeckResponse(deck);
+      const query = dynamicJobQuery();
+      const emitEvent = vi.fn();
+      const publicationInput = {
+        dataSource: { query } as unknown as DataSource,
+        jobId: "job-1",
+        projectId: "project-a",
+        workerPayload,
+        deck,
+        warnings: workerPayload.warnings,
+        validation: workerPayload.validation,
+        diagnostics: workerPayload.diagnostics,
+        emitEvent
+      };
+
+      const first = await publishGenerateDeckResult(publicationInput);
+      const second = await publishGenerateDeckResult(publicationInput);
+
+      expect(first.status).toBe("succeeded");
+      expect(second.status).toBe("succeeded");
+      const deckWrites = query.mock.calls.filter(([sql]) =>
+        String(sql).includes("INSERT INTO decks")
+      );
+      expect(deckWrites).toHaveLength(2);
+      expect(deckWrites[0]?.[0]).toContain("ON CONFLICT (project_id)");
+      expect(
+        query.mock.calls.filter(([sql]) => String(sql).includes("UPDATE jobs"))
+      ).toHaveLength(2);
+      expect(emitEvent).toHaveBeenCalledTimes(2);
+      expect(first.result).toEqual(second.result);
+    });
   });
 });
 
@@ -1593,12 +1929,7 @@ function programV2Payload() {
   return {
     ...payload,
     request: {
-      ...payload.request,
-      generationMode: "design-pack" as const,
-      design: {
-        ...payload.request.design,
-        engineVersion: "program-v2" as const
-      }
+      ...payload.request
     }
   };
 }
@@ -1674,6 +2005,33 @@ function programV2Deck() {
   });
 }
 
+function programV2DeckWithSlideCount(slideCount: number) {
+  const base = programV2Deck();
+  const source = base.slides[0];
+  return deckSchema.parse({
+    ...base,
+    slides: Array.from({ length: slideCount }, (_, index) => {
+      const elementId = `el_${index + 1}_program_v2_title`;
+      return {
+        ...source,
+        slideId: `slide_${index + 1}`,
+        order: index + 1,
+        elements: source.elements.map((element) => ({
+          ...element,
+          elementId
+        })),
+        aiNotes: {
+          ...source.aiNotes,
+          compositionPlan: {
+            ...source.aiNotes?.compositionPlan,
+            primaryFocalElementId: elementId
+          }
+        }
+      };
+    })
+  });
+}
+
 function programV2DeckWithOptionalMedia() {
   const base = programV2Deck();
   return deckSchema.parse({
@@ -1731,6 +2089,46 @@ function programV2DeckWithOptionalMedia() {
         }
       }
     ]
+  });
+}
+
+function programV2DeckWithTwoOptionalMedia() {
+  const base = programV2DeckWithOptionalMedia();
+  const source = base.slides[0];
+  const second = {
+    ...source,
+    slideId: "slide_2",
+    order: 2,
+    title: "Second visual deck",
+    elements: source.elements.map((element) => ({
+      ...element,
+      elementId: element.elementId.replace("el_1_", "el_2_")
+    })),
+    aiNotes: {
+      ...source.aiNotes,
+      compositionPlan: source.aiNotes?.compositionPlan
+        ? {
+            ...source.aiNotes.compositionPlan,
+            primaryFocalElementId:
+              source.aiNotes.compositionPlan.primaryFocalElementId?.replace(
+                "el_1_",
+                "el_2_"
+              )
+          }
+        : undefined
+    }
+  };
+  return deckSchema.parse({
+    ...base,
+    metadata: {
+      ...base.metadata,
+      designProgramSnapshot: {
+        ...base.metadata.designProgramSnapshot,
+        backgroundSequence: ["light", "light"],
+        compositionIds: ["hero-split", "hero-split"]
+      }
+    },
+    slides: [source, second]
   });
 }
 
@@ -1873,15 +2271,27 @@ function designProgramSnapshot() {
   };
 }
 
-function generateDeckResponse(deck: Deck) {
+function generateDeckResponse(
+  deck: Deck,
+  diagnosticOverrides: Record<string, unknown> = {}
+) {
   return new Response(
     JSON.stringify({
       deck,
       warnings: [],
       validation: validation(),
-      diagnostics: diagnostics()
+      diagnostics: diagnostics(diagnosticOverrides)
     })
   );
+}
+
+function parsedGenerateDeckResponse(deck: Deck) {
+  return generateDeckResponseSchema.parse({
+    deck,
+    warnings: [],
+    validation: validation(),
+    diagnostics: diagnostics()
+  });
 }
 
 function visualPassResponse() {
@@ -1894,17 +2304,23 @@ function visualPassResponse() {
 }
 
 function visualFailureResponse(
-  code: "FOCAL_POINT_WEAK" | "BALANCE_WEAK" | "IMAGE_CONTENT_MISMATCH"
+  code: "FOCAL_POINT_WEAK" | "BALANCE_WEAK" | "IMAGE_CONTENT_MISMATCH",
+  slideOrders = [1],
+  slideId = "slide_1"
 ) {
   return new Response(
     JSON.stringify({
       review: {
         passed: false,
-        issues: [{ code, slideOrder: 1, message: "Visual hierarchy is weak." }],
+        issues: slideOrders.map((slideOrder) => ({
+          code,
+          slideOrder,
+          message: "Visual hierarchy is weak."
+        })),
         repairActions: [
           {
             action: "increaseFocalScale",
-            slideId: "slide_1",
+            slideId,
             targetElementId: "el_1_program_v2_title",
             compositionId: null,
             backgroundMode: null,
@@ -2020,55 +2436,6 @@ function diagnostics(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function templateBlueprint() {
-  return {
-    templateId: "template_file_design",
-    sourceFileId: "file_design",
-    slides: [
-      {
-        slideIndex: 1,
-        sourceSlideIndex: 1,
-        slots: [
-          {
-            elementId: "el_imported_1_title",
-            usage: "content-slot",
-            slotRole: "title",
-            replaceMode: "replace",
-            confidence: 0.95,
-            bounds: { x: 120, y: 96, width: 1200, height: 120 },
-            source: { type: "placeholder", name: "Title 1" }
-          }
-        ]
-      }
-    ]
-  };
-}
-
-function qualityReport() {
-  return {
-    compositeScore: 84,
-    weights: {
-      geometry: 25,
-      text: 15,
-      color: 10,
-      layer: 10,
-      editability: 10,
-      pixelSimilarity: 30
-    },
-    metrics: {
-      geometry: 0.9,
-      text: 0.8,
-      color: 0.8,
-      layer: 0.9,
-      editability: 0.8,
-      pixelSimilarity: null
-    },
-    editabilityCoverage: 0.8,
-    capsApplied: [],
-    warnings: []
-  };
-}
-
 function jobRow(
   status: "running" | "succeeded" | "failed",
   progress: number,
@@ -2087,4 +2454,13 @@ function jobRow(
     created_at: "2026-06-27T00:00:00.000Z",
     updated_at: "2026-06-27T00:00:01.000Z"
   };
+}
+
+function pngHeader(width: number, height: number) {
+  const bytes = new Uint8Array(24);
+  bytes.set([137, 80, 78, 71, 13, 10, 26, 10]);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return bytes;
 }

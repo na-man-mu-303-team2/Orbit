@@ -82,6 +82,7 @@ services:
       - .env.local
     environment:
       APP_ENV: ${APP_ENV:-local}
+      API_TRUST_PROXY_HOPS: ${API_TRUST_PROXY_HOPS:-0}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
       API_BASE_URL: ${API_BASE_URL:-http://localhost:3000}
       DATABASE_URL: postgres://orbit:orbit@postgres:5432/orbit
@@ -89,16 +90,21 @@ services:
       PRIVATE_EVIDENCE_REDIS_URL: redis://private-evidence-redis:6379
       S3_ENDPOINT: http://minio:9000
       PYTHON_WORKER_URL: http://python-worker:8000
-      ADAPTIVE_REHEARSAL_COACH_ENABLED: ${ADAPTIVE_REHEARSAL_COACH_ENABLED:-false}
-      FOCUSED_PRACTICE_ENABLED: ${FOCUSED_PRACTICE_ENABLED:-false}
+      ADAPTIVE_REHEARSAL_COACH_ENABLED: "${ADAPTIVE_REHEARSAL_COACH_ENABLED:-true}"
+      FOCUSED_PRACTICE_ENABLED: "${FOCUSED_PRACTICE_ENABLED:-true}"
       CHALLENGE_QNA_ENABLED: ${CHALLENGE_QNA_ENABLED:-false}
+      SLIDE_PRACTICE_ENABLED: ${SLIDE_PRACTICE_ENABLED:-true}
+      SLIDE_QUESTION_GUIDES_ENABLED: ${SLIDE_QUESTION_GUIDES_ENABLED:-true}
       DEMO_COACHING_FIXTURE_ENABLED: ${DEMO_COACHING_FIXTURE_ENABLED:-false}
+      DEMO_AI_DECK_CACHE_ENABLED: ${DEMO_AI_DECK_CACHE_ENABLED:-false}
+      DEMO_AI_DECK_SOURCE_PROJECT_ID: ${DEMO_AI_DECK_SOURCE_PROJECT_ID:-}
+      DEMO_AI_DECK_TRIGGER_TOPIC: ${DEMO_AI_DECK_TRIGGER_TOPIC:-}
       DEMO_FIXTURE_ENV_ALLOWLIST: ${DEMO_FIXTURE_ENV_ALLOWLIST:-}
-      ADAPTIVE_COACHING_PROJECT_ALLOWLIST: ${ADAPTIVE_COACHING_PROJECT_ALLOWLIST:-}
+      ADAPTIVE_COACHING_PROJECT_ALLOWLIST: "${ADAPTIVE_COACHING_PROJECT_ALLOWLIST:-*}"
     ports:
       - "${API_PORT:-3000}:3000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health/readiness >/dev/null"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -128,6 +134,8 @@ services:
       ADAPTIVE_REHEARSAL_COACH_ENABLED: ${ADAPTIVE_REHEARSAL_COACH_ENABLED:-false}
       FOCUSED_PRACTICE_ENABLED: ${FOCUSED_PRACTICE_ENABLED:-false}
       CHALLENGE_QNA_ENABLED: ${CHALLENGE_QNA_ENABLED:-false}
+      SLIDE_PRACTICE_ENABLED: ${SLIDE_PRACTICE_ENABLED:-true}
+      SLIDE_QUESTION_GUIDES_ENABLED: ${SLIDE_QUESTION_GUIDES_ENABLED:-true}
       DEMO_COACHING_FIXTURE_ENABLED: ${DEMO_COACHING_FIXTURE_ENABLED:-false}
       DEMO_FIXTURE_ENV_ALLOWLIST: ${DEMO_FIXTURE_ENV_ALLOWLIST:-}
       ADAPTIVE_COACHING_PROJECT_ALLOWLIST: ${ADAPTIVE_COACHING_PROJECT_ALLOWLIST:-}
@@ -140,6 +148,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    restart: unless-stopped
+    mem_limit: ${WORKER_MEMORY_LIMIT:-768m}
 
   python-worker:
     build:
@@ -164,6 +174,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    restart: unless-stopped
+    mem_limit: ${PYTHON_WORKER_MEMORY_LIMIT:-1024m}
 
   web:
     build:

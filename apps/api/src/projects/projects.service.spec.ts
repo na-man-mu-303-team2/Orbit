@@ -1,9 +1,14 @@
-import { ForbiddenException, NotFoundException } from "@nestjs/common";
+import {
+  ForbiddenException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { demoIds } from "@orbit/shared";
-import { DataSource, Repository } from "typeorm";
-import { describe, expect, it } from "vitest";
+import { DataSource, EntityManager, QueryFailedError, Repository } from "typeorm";
+import { describe, expect, it, vi } from "vitest";
 import { ProjectEntity } from "./project.entity";
 import { ProjectMemberEntity } from "./project-member.entity";
+import { kdhHomeProjectIds } from "./kdh-home-project-ids";
 import { ProjectsService } from "./projects.service";
 
 type ProjectFindOptions = {
@@ -153,12 +158,25 @@ function createService(args?: {
   projects?: ProjectEntity[];
   members?: ProjectMemberEntity[];
   users?: Array<{ user_id: string; email: string }>;
+  activeGenerations?: Array<{
+    job_id: string;
+    project_id: string;
+    type: "ai-deck-generation" | "pptx-ooxml-generation";
+    status: "queued" | "running";
+    progress: number;
+    message: string;
+  }>;
 }) {
   const projects = args?.projects ?? [];
   const members = args?.members ?? [];
   const users = args?.users ?? [];
+  const activeGenerations = args?.activeGenerations ?? [];
   const dataSource = {
     async query(query: string, params: unknown[]) {
+      if (query.includes("FROM jobs")) {
+        const projectIds = params[0] as string[];
+        return activeGenerations.filter((job) => projectIds.includes(job.project_id));
+      }
       if (query.includes("FROM users") && query.includes("WHERE lower(email) = lower($1)")) {
         const email = String(params[0]).toLowerCase();
         return users.filter((user) => user.email.toLowerCase() === email);
@@ -237,6 +255,114 @@ function createService(args?: {
 }
 
 describe("ProjectsService", () => {
+  it("creates a project and accepted owner membership with a caller transaction manager", async () => {
+    const saved: Array<Record<string, unknown>> = [];
+    const manager = {
+      async query(query: string) {
+        return query.includes("to_regclass") ? [] : [];
+      },
+      create(_entity: unknown, input: Record<string, unknown>) {
+        return input;
+      },
+      async save(entity: Record<string, unknown>) {
+        saved.push(entity);
+        return entity;
+      },
+    } as unknown as EntityManager;
+    const service = new ProjectsService(
+      {} as DataSource,
+      createProjectRepository(),
+      createProjectMemberRepository(),
+    );
+
+    const project = await service.createInTransaction(
+      manager,
+      demoIds.workspaceId,
+      { title: "Template project" },
+      "user_template",
+      new Date("2026-07-21T00:00:00.000Z"),
+    );
+
+    expect(project).toMatchObject({
+      workspaceId: demoIds.workspaceId,
+      title: "Template project",
+      createdBy: "user_template",
+      createdAt: "2026-07-21T00:00:00.000Z",
+    });
+    expect(saved).toHaveLength(2);
+    expect(saved[1]).toMatchObject({
+      projectId: project.projectId,
+      userId: "user_template",
+      role: "owner",
+      status: "accepted",
+      createdAt: new Date("2026-07-21T00:00:00.000Z"),
+    });
+  });
+
+  it("returns a structured service unavailable error when access membership lookup fails", async () => {
+    const project = new ProjectEntity();
+    project.projectId = "project_schema_drift";
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "Schema drift";
+    project.createdBy = "user_owner";
+    project.createdAt = new Date("2026-07-18T00:00:00.000Z");
+    const memberRepository = createProjectMemberRepository();
+    vi.spyOn(memberRepository, "findOne").mockRejectedValue(
+      new QueryFailedError("SELECT", [], new Error("missing column")),
+    );
+    const service = new ProjectsService(
+      { query: vi.fn() } as unknown as DataSource,
+      createProjectRepository([project]),
+      memberRepository,
+    );
+
+    const failure = await service
+      .getProjectAccess(project.projectId, "user_owner")
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ServiceUnavailableException);
+    expect(failure).toMatchObject({
+      response: {
+        code: "PROJECT_ACCESS_UNAVAILABLE",
+        message: "프로젝트 권한 정보를 불러오지 못했습니다.",
+        details: [],
+      },
+      status: 503,
+    });
+  });
+
+  it("returns a structured service unavailable error when member listing fails", async () => {
+    const project = new ProjectEntity();
+    project.projectId = "project_members_schema_drift";
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "Members schema drift";
+    project.createdBy = "user_owner";
+    project.createdAt = new Date("2026-07-18T00:00:00.000Z");
+    const memberRepository = createProjectMemberRepository();
+    vi.spyOn(memberRepository, "findOne").mockRejectedValue(
+      new QueryFailedError("SELECT", [], new Error("missing column")),
+    );
+    const service = new ProjectsService(
+      { query: vi.fn() } as unknown as DataSource,
+      createProjectRepository([project]),
+      memberRepository,
+    );
+
+    const failure = await service
+      .listMembers(demoIds.workspaceId, project.projectId, "user_owner")
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ServiceUnavailableException);
+    expect(failure).toMatchObject({
+      response: {
+        code: "PROJECT_MEMBERS_UNAVAILABLE",
+        message: "프로젝트 구성원 정보를 불러오지 못했습니다.",
+        details: [],
+      },
+      status: 503,
+    });
+  });
+
   it("creates and lists projects inside the demo workspace", async () => {
     const service = createService();
 
@@ -249,7 +375,15 @@ describe("ProjectsService", () => {
     expect(project.workspaceId).toBe(demoIds.workspaceId);
     expect(project.createdBy).toBe("user_1");
     expect(project.title).toBe("Quarterly Review");
-    expect(projects).toEqual([project]);
+    expect(projects).toEqual([
+      {
+        ...project,
+        generation: null,
+        isPinned: false,
+        pinnedAt: null,
+        tags: [],
+      },
+    ]);
   });
 
   it("rejects workspace access outside the demo boundary", async () => {
@@ -299,6 +433,45 @@ describe("ProjectsService", () => {
     ]);
   });
 
+  it("includes active PPTX conversion progress in project lists", async () => {
+    const project = new ProjectEntity();
+    project.projectId = "project_pptx";
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "2026 하반기 제품 전략";
+    project.createdBy = "user_1";
+    project.createdAt = new Date("2026-07-22T00:00:00.000Z");
+    const owner = new ProjectMemberEntity();
+    owner.projectId = project.projectId;
+    owner.userId = "user_1";
+    owner.role = "owner";
+    owner.status = "accepted";
+    owner.createdAt = project.createdAt;
+    const service = createService({
+      projects: [project],
+      members: [owner],
+      activeGenerations: [
+        {
+          job_id: "job_pptx",
+          project_id: project.projectId,
+          type: "pptx-ooxml-generation",
+          status: "running",
+          progress: 78,
+          message: "발표자 노트와 레이아웃을 정리하고 있습니다.",
+        },
+      ],
+    });
+
+    await expect(service.list(demoIds.workspaceId, "user_1")).resolves.toEqual([
+      expect.objectContaining({
+        generation: expect.objectContaining({
+          jobId: "job_pptx",
+          type: "pptx-ooxml-generation",
+          progress: 78,
+        }),
+      }),
+    ]);
+  });
+
   it("lists only accepted member projects for the current user", async () => {
     const accepted = new ProjectEntity();
     accepted.projectId = "project_accepted";
@@ -345,6 +518,87 @@ describe("ProjectsService", () => {
 
     await expect(service.list(demoIds.workspaceId, "user_1")).resolves.toEqual([
       expect.objectContaining({ projectId: "project_accepted" }),
+    ]);
+  });
+
+  it("hides leftover kdh fixture projects from non-members, even with a known project ID", async () => {
+    // The fixture rows outlive the seeder until the cleanup script is run by
+    // hand, and their IDs are guessable.
+    const project = new ProjectEntity();
+    project.projectId = kdhHomeProjectIds[0];
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "브랜드 리뉴얼 제안";
+    project.createdBy = "user_kdh";
+    project.createdAt = new Date("2026-07-18T00:00:00.000Z");
+    const owner = new ProjectMemberEntity();
+    owner.projectId = project.projectId;
+    owner.userId = "user_kdh";
+    owner.role = "owner";
+    owner.status = "accepted";
+    owner.createdAt = project.createdAt;
+    const service = createService({ projects: [project], members: [owner] });
+
+    await expect(
+      service.getProjectAccess(project.projectId, "user_other"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.requestAccess(project.projectId, "user_other", "viewer"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("stores project pins independently for each accepted member", async () => {
+    const project = new ProjectEntity();
+    project.projectId = "project_shared_pin";
+    project.workspaceId = demoIds.workspaceId;
+    project.title = "Shared pin";
+    project.createdBy = "user_owner";
+    project.createdAt = new Date("2026-07-18T00:00:00.000Z");
+
+    const owner = new ProjectMemberEntity();
+    owner.projectId = project.projectId;
+    owner.userId = "user_owner";
+    owner.role = "owner";
+    owner.status = "accepted";
+    owner.isPinned = false;
+    owner.createdAt = project.createdAt;
+
+    const viewer = new ProjectMemberEntity();
+    viewer.projectId = project.projectId;
+    viewer.userId = "user_viewer";
+    viewer.role = "viewer";
+    viewer.status = "accepted";
+    viewer.isPinned = false;
+    viewer.createdAt = project.createdAt;
+
+    const service = createService({
+      projects: [project],
+      members: [owner, viewer],
+    });
+
+    const pin = await service.updatePin(
+      demoIds.workspaceId,
+      project.projectId,
+      owner.userId,
+      true,
+    );
+    expect(pin).toEqual({
+      projectId: project.projectId,
+      isPinned: true,
+      pinnedAt: expect.any(String),
+    });
+    await expect(service.list(demoIds.workspaceId, owner.userId)).resolves.toEqual([
+      expect.objectContaining({
+        projectId: project.projectId,
+        isPinned: true,
+        pinnedAt: pin.pinnedAt,
+      }),
+    ]);
+    await expect(service.list(demoIds.workspaceId, viewer.userId)).resolves.toEqual([
+      expect.objectContaining({
+        projectId: project.projectId,
+        isPinned: false,
+        pinnedAt: null,
+      }),
     ]);
   });
 

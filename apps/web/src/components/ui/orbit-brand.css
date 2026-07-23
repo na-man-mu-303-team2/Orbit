@@ -1,0 +1,15 @@
+.redesign-orbit-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--redesign-space-2);
+  color: inherit;
+  line-height: 1;
+}
+
+.redesign-orbit-brand img {
+  display: block;
+  width: auto;
+  height: 32px;
+  object-fit: contain;
+  transform: none;
+}

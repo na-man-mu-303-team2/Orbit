@@ -1,5 +1,8 @@
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { Sparkles, X } from "lucide-react";
+import {
+  IconSparkles as Sparkles,
+  IconX as X
+} from "@tabler/icons-react";
 
 type AnimationSidePanelFrameProps = {
   children: ReactNode;
@@ -25,6 +28,7 @@ export function AnimationSidePanelFrame(props: AnimationSidePanelFrameProps) {
             <Sparkles size={16} />
             <div>
               <strong>애니메이션</strong>
+              <span>MOTION TIMELINE</span>
             </div>
           </div>
           <button

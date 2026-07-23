@@ -1,6 +1,9 @@
 import type { Deck } from "@orbit/shared";
 import { describe, expect, it } from "vitest";
-import { getEditorValidationItems } from "./editorValidation";
+import {
+  getEditorValidationItems,
+  getMinimumPresentationFontSize
+} from "./editorValidation";
 
 const designPackDeck: Deck = {
   deckId: "deck_design_pack_quality",
@@ -55,6 +58,7 @@ const designPackDeck: Deck = {
   },
   slides: [
     {
+      kind: "content",
       slideId: "slide_1",
       order: 1,
       title: "Visual Plan",
@@ -194,6 +198,128 @@ const designPackDeck: Deck = {
 };
 
 describe("editor design-pack validation", () => {
+  it("shows persisted generation QA advisories in the AI coach inspection panel", () => {
+    const deck: Deck = structuredClone(designPackDeck);
+    deck.metadata.generationQuality = {
+      status: "advisory",
+      issues: [
+        {
+          code: "IMAGE_CROP_WEAK",
+          message: "핵심 피사체가 잘려 보입니다.",
+          severity: "warning",
+          slideId: "slide_1",
+          slideOrder: 1,
+        },
+      ],
+    };
+
+    expect(getEditorValidationItems(deck, deck.slides[0])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issue: "IMAGE_CROP_WEAK",
+          message: "핵심 피사체가 잘려 보입니다.",
+          slideId: "slide_1",
+        }),
+      ]),
+    );
+  });
+
+  it("shows only QA warnings assigned to the current slide", () => {
+    const deck: Deck = structuredClone(designPackDeck);
+    deck.metadata.generationQuality = {
+      status: "advisory",
+      issues: [
+        {
+          code: "FOCAL_POINT_WEAK",
+          message: "현재 슬라이드의 초점이 약합니다.",
+          severity: "warning",
+          slideId: "slide_1",
+          slideOrder: 1,
+        },
+        {
+          code: "FOCAL_POINT_WEAK",
+          message: "다른 슬라이드의 초점이 약합니다.",
+          severity: "warning",
+          slideId: "slide_2",
+          slideOrder: 2,
+        },
+        {
+          code: "FOCAL_POINT_WEAK",
+          message: "전체 발표의 초점이 약합니다.",
+          severity: "warning",
+        },
+      ],
+    };
+
+    const messages = getEditorValidationItems(deck, deck.slides[0]).map(
+      (item) => item.message,
+    );
+    expect(messages).toContain("현재 슬라이드의 초점이 약합니다.");
+    expect(messages).not.toContain("다른 슬라이드의 초점이 약합니다.");
+    expect(messages).not.toContain("전체 발표의 초점이 약합니다.");
+  });
+
+  it("shows Content/Fact advisories only on their assigned slide", () => {
+    const deck: Deck = structuredClone(designPackDeck);
+    deck.metadata.generationQuality = {
+      status: "advisory",
+      issues: [
+        {
+          code: "FACT_AMOUNT_MISMATCH",
+          message: "현재 슬라이드의 금액이 원문과 다릅니다.",
+          severity: "warning",
+          slideId: "slide_1",
+          slideOrder: 1,
+        },
+        {
+          code: "FACT_APPROVAL_RELATION_MISMATCH",
+          message: "다른 슬라이드의 승인 주체가 원문과 다릅니다.",
+          severity: "warning",
+          slideId: "slide_2",
+          slideOrder: 2,
+        },
+      ],
+    };
+
+    const items = getEditorValidationItems(deck, deck.slides[0]);
+
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ issue: "FACT_AMOUNT_MISMATCH" }),
+      ]),
+    );
+    expect(items).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issue: "FACT_APPROVAL_RELATION_MISMATCH",
+        }),
+      ]),
+    );
+  });
+
+  it("recomputes character warnings for the current slide instead of using stored copies", () => {
+    const deck: Deck = structuredClone(designPackDeck);
+    deck.metadata.generationQuality = {
+      status: "advisory",
+      issues: [
+        {
+          code: "SPEAKER_NOTES_DENSE",
+          message: "다른 슬라이드에서 저장된 글자 수 경고입니다.",
+          severity: "warning",
+          slideId: "slide_1",
+          slideOrder: 1,
+        },
+      ],
+    };
+
+    const messages = getEditorValidationItems(deck, deck.slides[0]).map(
+      (item) => item.message,
+    );
+    expect(messages).not.toContain(
+      "다른 슬라이드에서 저장된 글자 수 경고입니다.",
+    );
+  });
+
   it("accepts generated text fitting and expected media placeholders", () => {
     const items = getEditorValidationItems(designPackDeck);
 
@@ -680,5 +806,84 @@ describe("editor design-pack validation", () => {
     expect(
       getEditorValidationItems(deck, slide).filter((item) => item.issue === "labelWrap")
     ).toEqual([]);
+  });
+
+  it("attaches a slide reference to every element-target validation item", () => {
+    const deck = structuredClone(designPackDeck);
+    const slide = deck.slides[0];
+    const body = slide.elements.find(
+      (element) => element.type === "text" && element.role === "body"
+    );
+    if (!body || body.type !== "text") throw new Error("body fixture missing");
+    body.height = 12;
+
+    const elementItems = getEditorValidationItems(deck, slide).filter(
+      (item) => item.elementId || item.elementIds?.length
+    );
+
+    expect(elementItems.length).toBeGreaterThan(0);
+    expect(elementItems.every((item) => item.slideId === slide.slideId)).toBe(true);
+  });
+
+  it("identifies overlap as a first-class validation issue with every target", () => {
+    const deck = structuredClone(designPackDeck);
+    const slide = deck.slides[0];
+    const title = slide.elements.find(
+      (element) => element.type === "text" && element.role === "title"
+    );
+    const body = slide.elements.find(
+      (element) => element.type === "text" && element.role === "body"
+    );
+    if (!title || title.type !== "text" || !body || body.type !== "text") {
+      throw new Error("text fixtures missing");
+    }
+    Object.assign(body, {
+      x: title.x,
+      y: title.y,
+      width: title.width,
+      height: title.height
+    });
+
+    expect(getEditorValidationItems(deck, slide)).toContainEqual(
+      expect.objectContaining({
+        issue: "textOverlap",
+        elementIds: expect.arrayContaining([title.elementId, body.elementId]),
+        slideId: slide.slideId
+      })
+    );
+  });
+
+  it("keeps identical messages for distinct element targets", () => {
+    const deck = structuredClone(designPackDeck);
+    const slide = deck.slides[0];
+    const textElements = slide.elements.filter(
+      (element) => element.type === "text"
+    );
+    const first = textElements[0];
+    const second = textElements[1];
+    if (!first || !second || first.type !== "text" || second.type !== "text") {
+      throw new Error("text fixtures missing");
+    }
+    first.height = 1;
+    second.height = 1;
+
+    const overflowIds = getEditorValidationItems(deck, slide)
+      .filter((item) => item.issue === "textOverflow")
+      .map((item) => item.elementId);
+
+    expect(overflowIds).toEqual(
+      expect.arrayContaining([first.elementId, second.elementId])
+    );
+  });
+
+  it("shares the role-specific minimum font policy with repair callers", () => {
+    expect(getMinimumPresentationFontSize(0, "title")).toBe(44);
+    expect(getMinimumPresentationFontSize(2, "title")).toBe(32);
+    expect(getMinimumPresentationFontSize(1, "body")).toBe(18);
+    expect(getMinimumPresentationFontSize(1, "highlight")).toBe(18);
+    expect(getMinimumPresentationFontSize(1, "subtitle")).toBe(18);
+    expect(getMinimumPresentationFontSize(1, "caption")).toBe(14);
+    expect(getMinimumPresentationFontSize(1, "footer")).toBe(12);
+    expect(getMinimumPresentationFontSize(1, undefined)).toBe(12);
   });
 });

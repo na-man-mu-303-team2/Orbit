@@ -1,21 +1,78 @@
-import type { Deck, DeckElement, Slide } from "@orbit/shared";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { PresentationScreen } from "./PresentationScreen";
 import {
-  fetchOrCreateRehearsalDeck,
-  getHighlightedKeywordOccurrencesForSlide,
-} from "../rehearsal/RehearsalWorkspace";
+  createSlidePlaybackState,
+  type SlidePlaybackState,
+} from "@orbit/editor-core";
+import type {
+  Deck,
+  DeckElement,
+  PresentationRecordingMode,
+  Slide,
+  SlideTranscriptSnapshot,
+} from "@orbit/shared";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { OrbitButton, OrbitFailureState } from "../../components/ui";
+import { PresentationScreen } from "./PresentationScreen";
+import { PresentationCompletionDialog } from "./PresentationCompletionDialog";
+import { PresentationMicCheckModal } from "./PresentationMicCheckModal";
+import {
+  completePresentationWithoutAudio,
+  createPresentationRuntime,
+  fetchOrCreatePresentationDeck,
+  uploadPresentationRecording,
+  type PresentationRuntimeIdentity,
+} from "./presentationApi";
+import {
+  createPresentationRecordingSession,
+  type PresentationRecordingSession,
+} from "./presentationRecording";
+import { usePresentationSpeech } from "./usePresentationSpeech";
+import { getPresentationHighlightedKeywordOccurrences } from "./presentationKeywordOccurrences";
+import { getPresentationFailureCopy } from "./presentationFailureCopy";
+import {
+  shouldWarnBeforePresentationUnload,
+  type PresentationRuntimePhase,
+} from "./presentationLifecycle";
+import { activityApi } from "../activity-slides/api/activityApi";
+import { prepareActivityQrRuns } from "../activity-slides/model/activityQrElements";
+import {
+  getRehearsalMicrophoneAudioConstraints,
+  readRehearsalMicrophoneDeviceId,
+} from "../presenter-shell/microphoneSettings";
 import {
   getDeckTargetSeconds,
   getSlideTargetSeconds,
   type RehearsalTimingSnapshot,
   type TimingAdviceState,
 } from "../rehearsal/panel/rehearsalTiming";
-import { getNextPresenterStepState } from "../rehearsal/presenter/presenterStepNavigation";
 import { createSlideshowAnimationPlan } from "../rehearsal/presenter/slideshowStepModel";
 import { usePresenterKeyboard } from "../rehearsal/presenter/usePresenterKeyboard";
-import { getTriggerAnimationIdsForSlide } from "../rehearsal/playback/triggeredActionPlayback";
+import {
+  getTriggerAnimationIdsForSlide,
+  getKeywordOccurrenceTriggerIdsForSlide,
+  restoreSlidePlaybackAtStep,
+  resolveManualAnimationPlaybackUpdate,
+  resolveKeywordOccurrenceTriggeredActions,
+  resolveKeywordTriggeredActions,
+  resolveTriggeredActionPlaybackUpdate,
+} from "../rehearsal/playback/triggeredActionPlayback";
+import type { AnimationFlowNavigation } from "../rehearsal/presenter/AnimationFlowNavigator";
+import { AutoAdvanceStatus } from "../rehearsal/advance/AutoAdvanceStatus";
+import {
+  defaultAutoAdvanceConfig,
+  defaultAutoAdvancePolicy,
+} from "../rehearsal/advance/autoAdvanceConfig";
+import {
+  cancelAdvanceCountdown,
+  createInitialAdvanceControllerState,
+  evaluateAdvanceController,
+  resetAdvanceControllerForSlide,
+  type AdvanceControllerState,
+} from "../rehearsal/advance/advanceController";
 import { createDefaultPhraseExtractor } from "../rehearsal/speech/phraseExtractor";
+import {
+  estimateScriptProgressOffset,
+  matchKeywordOccurrenceTriggers,
+} from "../rehearsal/speech/keywordOccurrenceRuntime";
 import type { SpeechTrackerSnapshot } from "../rehearsal/speech/speechTrackingEvents";
 import {
   PresenterStatusShell,
@@ -24,7 +81,10 @@ import {
 } from "../presenter-shell/PresenterScaffold";
 
 type PresentationPhase = "loading" | "ready" | "failed";
-
+type PresentationKeywordOccurrenceState = {
+  slideId: string;
+  confirmedOccurrenceIds: string[];
+};
 export function PresentationWorkspace(props: {
   fallbackDeck?: Deck;
   initialDeck?: Deck;
@@ -52,12 +112,64 @@ export function PresentationWorkspace(props: {
   );
   const [elapsedTimeInput, setElapsedTimeInput] = useState("00:00");
   const [timerDurationInput, setTimerDurationInput] = useState(() =>
-    formatClock(props.initialDeck ? getDeckTargetSeconds(props.initialDeck) : 5 * 60),
+    formatClock(
+      props.initialDeck ? getDeckTargetSeconds(props.initialDeck) : 5 * 60,
+    ),
   );
   const [editingTimeField, setEditingTimeField] = useState<
     "elapsed" | "duration" | null
   >(null);
   const [hasManualTimerDuration, setHasManualTimerDuration] = useState(false);
+  const requiresPresentationRuntime = Boolean(
+    props.projectId && !props.initialDeck,
+  );
+  const [runtimePhase, setRuntimePhase] = useState<PresentationRuntimePhase>(
+    requiresPresentationRuntime ? "preflight" : "active",
+  );
+  const [runtimeError, setRuntimeError] = useState("");
+  const [runtimeFailureOperation, setRuntimeFailureOperation] = useState<
+    "start" | "finish" | null
+  >(null);
+  const [requestedRecordingMode, setRequestedRecordingMode] =
+    useState<PresentationRecordingMode>("microphone");
+  const runtimeRef = useRef<PresentationRuntimeIdentity | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recordingRef = useRef<PresentationRecordingSession | null>(null);
+  const recordedFileRef = useRef<File | null>(null);
+  const startPromiseRef = useRef<Promise<void> | null>(null);
+  const finishPromiseRef = useRef<Promise<void> | null>(null);
+  const slideTranscriptSnapshotsRef = useRef<SlideTranscriptSnapshot[]>([]);
+  const slideTranscriptVisitVersionsRef = useRef<Map<string, number>>(
+    new Map(),
+  );
+  const activeSlideTranscriptVisitRef = useRef<{
+    slideId: string;
+    slideNum: number;
+    visitedAt: string;
+    visitedVer: number;
+  } | null>(null);
+  const previousSlideIndexRef = useRef(currentSlideIndex);
+  const playbackStateRef = useRef<SlidePlaybackState>(
+    createSlidePlaybackState(),
+  );
+  const previousHitKeywordIdsRef = useRef<Set<string>>(new Set());
+  const keywordOccurrenceStateRef =
+    useRef<PresentationKeywordOccurrenceState | null>(null);
+  const pendingFlowRestoreRef = useRef<{
+    slideId: string;
+    stepIndex: number;
+  } | null>(null);
+  const advanceControllerStateRef = useRef<AdvanceControllerState>(
+    createInitialAdvanceControllerState(),
+  );
+  const finalSentenceCommittedAtMsRef = useRef<number | null>(null);
+  const finalSentenceSpokenAtMsRef = useRef<number | null>(null);
+  const [advanceControllerState, setAdvanceControllerState] =
+    useState<AdvanceControllerState>(() =>
+      createInitialAdvanceControllerState(),
+    );
+  const [autoAdvanceNowMs, setAutoAdvanceNowMs] = useState(0);
+  const speech = usePresentationSpeech(props.projectId);
 
   useEffect(() => {
     if (props.initialDeck) {
@@ -66,7 +178,7 @@ export function PresentationWorkspace(props: {
 
     let isCancelled = false;
     setPhase("loading");
-    void fetchOrCreateRehearsalDeck({
+    void fetchOrCreatePresentationDeck({
       fallbackDeck: props.fallbackDeck,
       projectId: props.projectId,
     })
@@ -83,7 +195,11 @@ export function PresentationWorkspace(props: {
           return;
         }
 
-        setError(cause instanceof Error ? cause.message : "발표 자료를 불러오지 못했습니다.");
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "발표 자료를 불러오지 못했습니다.",
+        );
         setPhase("failed");
       });
 
@@ -146,6 +262,17 @@ export function PresentationWorkspace(props: {
 
   const currentSlide = deck?.slides[currentSlideIndex] ?? null;
   const nextSlide = deck?.slides[currentSlideIndex + 1] ?? null;
+  useEffect(() => {
+    if (runtimePhase !== "active" || !currentSlide) {
+      previousSlideIndexRef.current = currentSlideIndex;
+      return;
+    }
+    if (previousSlideIndexRef.current !== currentSlideIndex) {
+      captureSlideTranscriptSnapshot("slide-change");
+      beginSlideTranscriptVisit(currentSlide, currentSlideIndex);
+      previousSlideIndexRef.current = currentSlideIndex;
+    }
+  }, [currentSlide, currentSlideIndex, runtimePhase]);
   const triggerAnimationIds = useMemo(
     () => (currentSlide ? getTriggerAnimationIdsForSlide(currentSlide) : []),
     [currentSlide],
@@ -160,27 +287,104 @@ export function PresentationWorkspace(props: {
         : null,
     [currentSlide, triggerAnimationIds],
   );
+  const animationTriggerDebugEnabled =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("animationDebug") === "1";
+  const animationTriggerDebug = useMemo(() => {
+    if (!currentSlide) {
+      return null;
+    }
+
+    const targetOccurrenceIds = getKeywordOccurrenceTriggerIdsForSlide(
+      currentSlide,
+    );
+    const confirmedOccurrenceIds =
+      keywordOccurrenceStateRef.current?.slideId === currentSlide.slideId
+        ? keywordOccurrenceStateRef.current.confirmedOccurrenceIds
+        : [];
+    const transcriptSpan = speech.getSlideTranscriptSpan();
+    const transcript = transcriptSpan.transcript;
+    const confidence = speech.state.latestTranscriptConfidence;
+    const matches = matchKeywordOccurrenceTriggers({
+      slide: currentSlide,
+      targetOccurrenceIds,
+      previousTranscript: transcriptSpan.previousTranscript,
+      transcript,
+      latestTranscript: speech.state.latestTranscript,
+      confidence,
+      confirmedOccurrenceIds,
+    });
+    const occurrenceActions = currentSlide.actions.flatMap((action) => {
+      if (action.trigger.kind !== "keyword-occurrence") {
+        return [];
+      }
+      return [
+        {
+          animationId:
+            action.effect.kind === "play-animation"
+              ? action.effect.animationId
+              : "(play-animation 아님)",
+          occurrenceId: action.trigger.occurrenceId,
+        },
+      ];
+    });
+    const currentTriggerStep =
+      slideshowAnimationPlan?.triggerSteps[presenterStepIndex] ?? null;
+
+    return {
+      confidence,
+      confirmedOccurrenceIds,
+      currentCharOffset: estimateScriptProgressOffset(
+        currentSlide.speakerNotes,
+        transcript,
+      ),
+      previousCharOffset: estimateScriptProgressOffset(
+        currentSlide.speakerNotes,
+        transcriptSpan.previousTranscript,
+      ),
+      currentStepAnimationIds:
+        currentTriggerStep?.animations.map((animation) => animation.animationId) ??
+        [],
+      currentStepIndex: presenterStepIndex,
+      latestTranscript: speech.state.latestTranscript,
+      matches,
+      occurrenceActions,
+      playedAnimationIds: playbackStateRef.current.playedAnimationIds,
+      speechStatus: speech.state.status,
+      targetOccurrenceIds,
+      transcript,
+    };
+  }, [
+    currentSlide,
+    presenterStepIndex,
+    slideshowAnimationPlan,
+    speech,
+    speech.state.latestTranscript,
+    speech.state.latestTranscriptConfidence,
+    speech.state.status,
+  ]);
   const currentSlideTargetSeconds =
     deck && currentSlide ? getSlideTargetSeconds(deck, currentSlide) : 0;
-  const timing: RehearsalTimingSnapshot = deck && currentSlide
-    ? {
-        currentSlideElapsedSeconds: slideElapsedSeconds,
-        currentSlideOvertime:
-          currentSlideTargetSeconds > 0 &&
-          slideElapsedSeconds > currentSlideTargetSeconds,
-        currentSlideTargetSeconds,
-        deckTargetSeconds: timerDurationSeconds,
-        elapsedSeconds,
-        remainingSeconds: timerDurationSeconds - elapsedSeconds,
-      }
-    : {
-        currentSlideElapsedSeconds: 0,
-        currentSlideOvertime: false,
-        currentSlideTargetSeconds: 0,
-        deckTargetSeconds: timerDurationSeconds,
-        elapsedSeconds,
-        remainingSeconds: timerDurationSeconds - elapsedSeconds,
-      };
+  const timing: RehearsalTimingSnapshot =
+    deck && currentSlide
+      ? {
+          currentSlideElapsedSeconds: slideElapsedSeconds,
+          currentSlideOvertime:
+            currentSlideTargetSeconds > 0 &&
+            slideElapsedSeconds > currentSlideTargetSeconds,
+          currentSlideTargetSeconds,
+          deckTargetSeconds: timerDurationSeconds,
+          elapsedSeconds,
+          remainingSeconds: timerDurationSeconds - elapsedSeconds,
+        }
+      : {
+          currentSlideElapsedSeconds: 0,
+          currentSlideOvertime: false,
+          currentSlideTargetSeconds: 0,
+          deckTargetSeconds: timerDurationSeconds,
+          elapsedSeconds,
+          remainingSeconds: timerDurationSeconds - elapsedSeconds,
+        };
   const adviceState: TimingAdviceState = {
     pace: "normal",
     slideOvertime: timing.currentSlideOvertime,
@@ -199,24 +403,39 @@ export function PresentationWorkspace(props: {
         : [],
     [currentSlide],
   );
-  const panelSnapshot = useMemo(
-    () =>
-      createEmptySpeechTrackerSnapshot({
-        matchableSentenceCount: sentences.filter((sentence) => sentence.matchable).length,
-        slideId: currentSlide?.slideId ?? "presentation-empty",
-      }),
-    [currentSlide?.slideId, sentences],
-  );
+  const panelSnapshot = useMemo(() => {
+    if (
+      speech.state.snapshot &&
+      speech.state.snapshot.slideId === currentSlide?.slideId
+    ) {
+      return speech.state.snapshot;
+    }
+    return createEmptySpeechTrackerSnapshot({
+      matchableSentenceCount: sentences.filter((sentence) => sentence.matchable)
+        .length,
+      slideId: currentSlide?.slideId ?? "presentation-empty",
+    });
+  }, [currentSlide?.slideId, sentences, speech.state.snapshot]);
   const checklistKeywords = currentSlide?.keywords ?? [];
   const highlightedKeywordOccurrences = useMemo(
-    () => getHighlightedKeywordOccurrencesForSlide(currentSlide),
+    () => getPresentationHighlightedKeywordOccurrences(currentSlide),
     [currentSlide],
   );
   const rehearsalProgressPercent =
     timerDurationSeconds > 0
-      ? Math.min(100, Math.max(0, (elapsedSeconds / timerDurationSeconds) * 100))
+      ? Math.min(
+          100,
+          Math.max(0, (elapsedSeconds / timerDurationSeconds) * 100),
+        )
       : 0;
-  const presentationStatusLabel = isTimerRunning ? "발표 진행 중" : "발표 준비";
+  const presentationStatusLabel =
+    runtimePhase === "finishing"
+      ? "발표 저장 중"
+      : speech.state.status === "paused"
+        ? "발표 일시정지"
+        : isTimerRunning
+          ? "발표 진행 중"
+          : "발표 준비";
   const miniSlideScale = deck ? getMiniSlideScale(deck) : 0.14;
   const { presenterScale, presenterStageRef } = usePresenterStageScale(deck);
   const infoCards: PresenterInfoCardItem[] = [
@@ -238,44 +457,548 @@ export function PresentationWorkspace(props: {
     ? `다음 키워드 "${nextSlide.keywords[0].text}"를 확인하세요`
     : "마지막 슬라이드를 마무리할 흐름을 점검하세요";
 
+  const cancelAutoAdvanceForManualCommand = useCallback(() => {
+    const result = cancelAdvanceCountdown(
+      advanceControllerStateRef.current,
+      "manual",
+    );
+    advanceControllerStateRef.current = result.state;
+    setAdvanceControllerState(result.state);
+  }, []);
+
   const goPrevious = useCallback(() => {
+    cancelAutoAdvanceForManualCommand();
     setPresenterStepIndex(0);
     setCurrentSlideIndex((current) => Math.max(0, current - 1));
-  }, []);
+  }, [cancelAutoAdvanceForManualCommand]);
 
   const goNext = useCallback(() => {
     if (!deck) {
       return;
     }
 
+    cancelAutoAdvanceForManualCommand();
     setPresenterStepIndex(0);
-    setCurrentSlideIndex((current) => Math.min(deck.slides.length - 1, current + 1));
-  }, [deck]);
+    setCurrentSlideIndex((current) =>
+      Math.min(deck.slides.length - 1, current + 1),
+    );
+  }, [cancelAutoAdvanceForManualCommand, deck]);
+
+  const applyPlaybackUpdate = useCallback(
+    (args: {
+      consumedOccurrenceIds?: readonly string[];
+      slide: Slide;
+      update: ReturnType<typeof resolveTriggeredActionPlaybackUpdate>;
+    }) => {
+      playbackStateRef.current = args.update.playbackState;
+
+      if (args.consumedOccurrenceIds?.length) {
+        const currentOccurrenceState =
+          keywordOccurrenceStateRef.current?.slideId === args.slide.slideId
+            ? keywordOccurrenceStateRef.current
+            : { slideId: args.slide.slideId, confirmedOccurrenceIds: [] };
+        keywordOccurrenceStateRef.current = {
+          slideId: args.slide.slideId,
+          confirmedOccurrenceIds: [
+            ...new Set([
+              ...currentOccurrenceState.confirmedOccurrenceIds,
+              ...args.consumedOccurrenceIds,
+            ]),
+          ],
+        };
+      }
+
+      if (args.update.shouldAdvanceSlide) {
+        goNext();
+        return;
+      }
+
+      setPresenterStepIndex(args.update.presenterStepIndex);
+    },
+    [goNext],
+  );
 
   const handleNextPresenterStep = useCallback(() => {
-    if (!deck || !slideshowAnimationPlan) {
+    if (!currentSlide || !slideshowAnimationPlan) {
       return;
     }
 
-    const nextState = getNextPresenterStepState({
-      currentSlideIndex,
-      currentStepIndex: presenterStepIndex,
-      maxStepIndex: slideshowAnimationPlan.maxStepIndex,
-      slideCount: deck.slides.length,
+    const update = resolveManualAnimationPlaybackUpdate({
+      playbackState: playbackStateRef.current,
+      presenterStepIndex,
+      slide: currentSlide,
+      slideAnimationPlan: slideshowAnimationPlan,
     });
-    setPresenterStepIndex(nextState.stepIndex);
-    setCurrentSlideIndex(nextState.slideIndex);
-  }, [currentSlideIndex, deck, presenterStepIndex, slideshowAnimationPlan]);
+    applyPlaybackUpdate({
+      consumedOccurrenceIds: update.consumedOccurrenceIds,
+      slide: currentSlide,
+      update,
+    });
+  }, [applyPlaybackUpdate, currentSlide, presenterStepIndex, slideshowAnimationPlan]);
+
+  const restorePresentationPlaybackAtStep = useCallback(
+    (slide: Slide, stepIndex: number) => {
+      const restored = restoreSlidePlaybackAtStep({
+        slide,
+        slideAnimationPlan: createSlideshowAnimationPlan({
+          slide,
+          triggerAnimationIds: getTriggerAnimationIdsForSlide(slide),
+        }),
+        stepIndex,
+      });
+      previousHitKeywordIdsRef.current = new Set();
+      playbackStateRef.current = restored.playbackState;
+      keywordOccurrenceStateRef.current = {
+        confirmedOccurrenceIds: restored.consumedOccurrenceIds,
+        slideId: slide.slideId,
+      };
+      finalSentenceCommittedAtMsRef.current = null;
+      finalSentenceSpokenAtMsRef.current = null;
+      const nextAdvanceState = resetAdvanceControllerForSlide(slide.slideId);
+      advanceControllerStateRef.current = nextAdvanceState;
+      setAdvanceControllerState(nextAdvanceState);
+      setPresenterStepIndex(restored.presenterStepIndex);
+      if (speech.state.status === "listening") {
+        speech.enterSlide(slide);
+      }
+    },
+    [speech.enterSlide, speech.state.status],
+  );
+
+  const handleAnimationFlowNavigation = useCallback(
+    (navigation: AnimationFlowNavigation) => {
+      if (!deck) return;
+      const targetSlide = deck.slides[navigation.targetSlideIndex];
+      if (!targetSlide) return;
+      cancelAutoAdvanceForManualCommand();
+      const stepIndex =
+        targetSlide.kind === "activity" || targetSlide.kind === "activity-results"
+          ? 0
+          : navigation.stepIndex;
+
+      if (navigation.targetSlideIndex === currentSlideIndex) {
+        restorePresentationPlaybackAtStep(targetSlide, stepIndex);
+        return;
+      }
+
+      pendingFlowRestoreRef.current = {
+        slideId: targetSlide.slideId,
+        stepIndex,
+      };
+      setPresenterStepIndex(stepIndex);
+      setCurrentSlideIndex(navigation.targetSlideIndex);
+    },
+    [
+      cancelAutoAdvanceForManualCommand,
+      currentSlideIndex,
+      deck,
+      restorePresentationPlaybackAtStep,
+    ],
+  );
 
   usePresenterKeyboard({
-    enabled: Boolean(deck),
+    enabled: Boolean(deck) && runtimePhase === "active",
     onNextStep: handleNextPresenterStep,
     onPreviousSlide: goPrevious,
   });
 
-  function handleTimePrimaryAction() {
+  useEffect(() => {
+    const pendingFlowRestore = pendingFlowRestoreRef.current;
+    if (
+      currentSlide &&
+      pendingFlowRestore?.slideId === currentSlide.slideId
+    ) {
+      pendingFlowRestoreRef.current = null;
+      restorePresentationPlaybackAtStep(currentSlide, pendingFlowRestore.stepIndex);
+      return;
+    }
+    previousHitKeywordIdsRef.current = new Set();
+    keywordOccurrenceStateRef.current = currentSlide
+      ? { slideId: currentSlide.slideId, confirmedOccurrenceIds: [] }
+      : null;
+    playbackStateRef.current = createSlidePlaybackState();
+    finalSentenceCommittedAtMsRef.current = null;
+    finalSentenceSpokenAtMsRef.current = null;
+    const nextAdvanceState = currentSlide
+      ? resetAdvanceControllerForSlide(currentSlide.slideId)
+      : createInitialAdvanceControllerState();
+    advanceControllerStateRef.current = nextAdvanceState;
+    setAdvanceControllerState(nextAdvanceState);
+    if (currentSlide && speech.state.status === "listening") {
+      speech.enterSlide(currentSlide);
+    }
+  }, [currentSlide, restorePresentationPlaybackAtStep, speech.enterSlide, speech.state.status]);
+
+  useEffect(() => {
+    if (runtimePhase !== "active" || speech.state.status !== "listening") {
+      return;
+    }
+
+    const timer = window.setInterval(
+      () => setAutoAdvanceNowMs(Date.now()),
+      250,
+    );
+    return () => window.clearInterval(timer);
+  }, [runtimePhase, speech.state.status]);
+
+  useEffect(() => {
+    if (
+      !deck ||
+      !currentSlide ||
+      !slideshowAnimationPlan ||
+      runtimePhase !== "active" ||
+      speech.state.status !== "listening"
+    ) {
+      return;
+    }
+
+    const nowMs = autoAdvanceNowMs || Date.now();
+    if (panelSnapshot.finalSentenceCommitted === true) {
+      finalSentenceCommittedAtMsRef.current ??= nowMs;
+    } else {
+      finalSentenceCommittedAtMsRef.current = null;
+    }
+    if (panelSnapshot.finalSentenceSpoken) {
+      finalSentenceSpokenAtMsRef.current ??=
+        speech.state.lastTranscriptActivityAtMs ?? nowMs;
+    } else {
+      finalSentenceSpokenAtMsRef.current = null;
+    }
+
+    const lastActivityAtMs = speech.state.lastTranscriptActivityAtMs;
+    const silenceDurationMs = lastActivityAtMs
+      ? Math.max(0, nowMs - lastActivityAtMs)
+      : 0;
+    const result = evaluateAdvanceController(
+      advanceControllerStateRef.current,
+      {
+        effectiveCoverage: panelSnapshot.effectiveCoverage,
+        finalSentenceCommitted: panelSnapshot.finalSentenceCommitted === true,
+        finalSentenceCommittedAtMs: finalSentenceCommittedAtMsRef.current,
+        finalSentenceSpoken: panelSnapshot.finalSentenceSpoken,
+        finalSentenceSpokenAtMs: finalSentenceSpokenAtMsRef.current,
+        isLastSlide: currentSlideIndex >= deck.slides.length - 1,
+        mode: "live",
+        nowMs,
+        pause: {
+          isPaused:
+            lastActivityAtMs !== null &&
+            silenceDurationMs >= presentationAutoAdvancePolicy.pauseMs,
+          silenceDurationMs,
+        },
+        policy: presentationAutoAdvancePolicy,
+        remainingTriggerSteps: Math.max(
+          0,
+          slideshowAnimationPlan.maxStepIndex - presenterStepIndex,
+        ),
+        semanticAutoActionAllowed: true,
+        slideId: currentSlide.slideId,
+      },
+      defaultAutoAdvanceConfig,
+    );
+    advanceControllerStateRef.current = result.state;
+    setAdvanceControllerState(result.state);
+
+    if (result.commands.some((command) => command.type === "advance-slide")) {
+      setPresenterStepIndex(0);
+      setCurrentSlideIndex((current) =>
+        Math.min(deck.slides.length - 1, current + 1),
+      );
+    }
+  }, [
+    autoAdvanceNowMs,
+    currentSlide,
+    currentSlideIndex,
+    deck,
+    panelSnapshot.effectiveCoverage,
+    panelSnapshot.finalSentenceCommitted,
+    panelSnapshot.finalSentenceSpoken,
+    presenterStepIndex,
+    runtimePhase,
+    slideshowAnimationPlan,
+    speech.state.lastTranscriptActivityAtMs,
+    speech.state.status,
+  ]);
+
+  useEffect(() => {
+    if (
+      !currentSlide ||
+      !slideshowAnimationPlan ||
+      runtimePhase !== "active" ||
+      speech.state.status !== "listening" ||
+      !speech.state.latestTranscript.trim()
+    ) {
+      return;
+    }
+
+    const currentState =
+      keywordOccurrenceStateRef.current?.slideId === currentSlide.slideId
+        ? keywordOccurrenceStateRef.current
+        : { slideId: currentSlide.slideId, confirmedOccurrenceIds: [] };
+    const transcriptSpan = speech.getSlideTranscriptSpan();
+    const matches = matchKeywordOccurrenceTriggers({
+      slide: currentSlide,
+      targetOccurrenceIds: getKeywordOccurrenceTriggerIdsForSlide(currentSlide),
+      previousTranscript: transcriptSpan.previousTranscript,
+      transcript: transcriptSpan.transcript,
+      latestTranscript: speech.state.latestTranscript,
+      confidence: speech.state.latestTranscriptConfidence,
+      confirmedOccurrenceIds: currentState.confirmedOccurrenceIds,
+    });
+    if (matches.length === 0) {
+      return;
+    }
+
+    const update = resolveTriggeredActionPlaybackUpdate({
+      actions: matches.flatMap((match) =>
+        resolveKeywordOccurrenceTriggeredActions(
+          currentSlide,
+          match.keywordId,
+          match.occurrenceId,
+        ),
+      ),
+      playbackState: playbackStateRef.current,
+      presenterStepIndex,
+      slide: currentSlide,
+      slideAnimationPlan: slideshowAnimationPlan,
+    });
+    applyPlaybackUpdate({
+      consumedOccurrenceIds: matches.map((match) => match.occurrenceId),
+      slide: currentSlide,
+      update,
+    });
+  }, [
+    applyPlaybackUpdate,
+    currentSlide,
+    presenterStepIndex,
+    runtimePhase,
+    slideshowAnimationPlan,
+    speech.state.latestTranscript,
+    speech.state.latestTranscriptConfidence,
+    speech.state.status,
+  ]);
+
+  useEffect(() => {
+    if (!currentSlide || !slideshowAnimationPlan || runtimePhase !== "active") {
+      return;
+    }
+
+    const nextHitIds = new Set(panelSnapshot.hitKeywordIds);
+    const newlyHitIds = panelSnapshot.hitKeywordIds.filter(
+      (keywordId) => !previousHitKeywordIdsRef.current.has(keywordId),
+    );
+    previousHitKeywordIdsRef.current = nextHitIds;
+
+    for (const keywordId of newlyHitIds) {
+      const actions = resolveKeywordTriggeredActions(currentSlide, keywordId);
+      if (actions.length === 0) {
+        continue;
+      }
+      const update = resolveTriggeredActionPlaybackUpdate({
+        actions,
+        playbackState: playbackStateRef.current,
+        presenterStepIndex,
+        slide: currentSlide,
+        slideAnimationPlan: slideshowAnimationPlan,
+      });
+      applyPlaybackUpdate({ slide: currentSlide, update });
+      if (update.shouldAdvanceSlide) {
+        return;
+      }
+    }
+  }, [
+    applyPlaybackUpdate,
+    currentSlide,
+    panelSnapshot.hitKeywordIds,
+    presenterStepIndex,
+    runtimePhase,
+    slideshowAnimationPlan,
+  ]);
+
+  useEffect(() => {
+    if (!shouldWarnBeforePresentationUnload(runtimePhase)) {
+      return;
+    }
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [runtimePhase]);
+
+  useEffect(
+    () => () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    },
+    [],
+  );
+
+  function startPresentation(recordingMode: PresentationRecordingMode) {
+    if (startPromiseRef.current) {
+      return startPromiseRef.current;
+    }
+
+    const promise = (async () => {
+      if (!deck || !currentSlide || !props.projectId) {
+        throw new Error("발표 자료가 준비되지 않았습니다.");
+      }
+      setRuntimePhase("starting");
+      setRuntimeError("");
+      setRuntimeFailureOperation(null);
+      setRequestedRecordingMode(recordingMode);
+
+      const runtime =
+        runtimeRef.current ??
+        (await createPresentationRuntime({
+          deckId: deck.deckId,
+          deckVersion: deck.version,
+          projectId: props.projectId,
+          recordingMode,
+        }));
+      runtimeRef.current = runtime;
+
+      if (runtime.status !== "created") {
+        navigateToPresentationReport({
+          projectId: props.projectId,
+          runId: runtime.runId,
+          sessionId: runtime.sessionId,
+        });
+        return;
+      }
+
+      await prepareActivityQrRuns({
+        deck,
+        projectId: props.projectId,
+        sessionId: runtime.sessionId,
+      });
+
+      setRequestedRecordingMode(runtime.recordingMode);
+
+      if (runtime.recordingMode === "microphone") {
+        const deviceId = readRehearsalMicrophoneDeviceId();
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            ...getRehearsalMicrophoneAudioConstraints(),
+            ...(deviceId ? { deviceId: { ideal: deviceId } } : {}),
+          },
+          video: false,
+        });
+        streamRef.current = stream;
+        recordingRef.current = createPresentationRecordingSession(stream);
+        await speech.start(stream, currentSlide);
+      }
+
+      resetSlideTranscriptSnapshots(deck, currentSlideIndex);
+
+      setElapsedSeconds(0);
+      setSlideElapsedSeconds(0);
+      setIsTimerRunning(true);
+      setRuntimePhase("active");
+    })()
+      .catch(async (cause) => {
+        await speech.stop().catch(() => undefined);
+        if (recordingRef.current) {
+          await recordingRef.current.stop().catch(() => undefined);
+        }
+        streamRef.current?.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        recordingRef.current = null;
+        runtimeRef.current = null;
+        setRuntimeError(
+          cause instanceof Error
+            ? cause.message
+            : "실전 발표를 시작하지 못했습니다.",
+        );
+        setRuntimeFailureOperation("start");
+        setRuntimePhase("failed");
+      })
+      .finally(() => {
+        startPromiseRef.current = null;
+      });
+    startPromiseRef.current = promise;
+    return promise;
+  }
+
+  function finishPresentation() {
+    if (finishPromiseRef.current) {
+      return finishPromiseRef.current;
+    }
+
+    const promise = (async () => {
+      const runtime = runtimeRef.current;
+      if (!runtime || !props.projectId) {
+        navigateToProject(deck?.projectId ?? props.projectId);
+        return;
+      }
+      setRuntimePhase("finishing");
+      setRuntimeError("");
+      setRuntimeFailureOperation(null);
+      setIsTimerRunning(false);
+      captureSlideTranscriptSnapshot("rehearsal-end");
+      const liveTranscript = speech.getTranscript();
+      await speech.stop();
+
+      if (recordingRef.current && !recordedFileRef.current) {
+        recordedFileRef.current = await recordingRef.current.stop();
+        recordingRef.current = null;
+      }
+      if (recordedFileRef.current && recordedFileRef.current.size > 0) {
+        await uploadPresentationRecording({
+          file: recordedFileRef.current,
+          liveTranscript,
+          projectId: props.projectId,
+          runId: runtime.runId,
+          sessionId: runtime.sessionId,
+          slideTranscriptSnapshots: slideTranscriptSnapshotsRef.current,
+        });
+      } else {
+        await completePresentationWithoutAudio({
+          projectId: props.projectId,
+          runId: runtime.runId,
+          sessionId: runtime.sessionId,
+        });
+      }
+      await activityApi.closeSession(props.projectId, runtime.sessionId);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setRuntimePhase("completed");
+    })()
+      .catch((cause) => {
+        setRuntimeError(
+          cause instanceof Error
+            ? cause.message
+            : "발표 기록을 저장하지 못했습니다.",
+        );
+        setRuntimeFailureOperation("finish");
+        setRuntimePhase("failed");
+      })
+      .finally(() => {
+        finishPromiseRef.current = null;
+      });
+    finishPromiseRef.current = promise;
+    return promise;
+  }
+
+  function requestPresentationExit() {
+    if (!requiresPresentationRuntime) {
+      navigateToProject(deck?.projectId ?? props.projectId);
+      return;
+    }
+    if (!window.confirm("발표를 종료하고 결과를 저장할까요?")) {
+      return;
+    }
+    void finishPresentation();
+  }
+
+  async function handleTimePrimaryAction() {
     if (isTimerRunning) {
       setIsTimerRunning(false);
+      recordingRef.current?.pause();
+      streamRef.current?.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+      });
+      await speech.pause().catch(() => undefined);
       return;
     }
 
@@ -287,7 +1010,64 @@ export function PresentationWorkspace(props: {
       });
     }
 
+    streamRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = true;
+    });
+    recordingRef.current?.resume();
+    if (
+      requestedRecordingMode === "microphone" &&
+      streamRef.current &&
+      currentSlide
+    ) {
+      await speech
+        .resume(streamRef.current, currentSlide)
+        .catch(() => undefined);
+    }
     setIsTimerRunning(true);
+  }
+
+  function beginSlideTranscriptVisit(
+    slide: Slide,
+    slideIndex: number,
+    visitedAt = new Date().toISOString(),
+  ) {
+    const visitedVer =
+      (slideTranscriptVisitVersionsRef.current.get(slide.slideId) ?? 0) + 1;
+    slideTranscriptVisitVersionsRef.current.set(slide.slideId, visitedVer);
+    activeSlideTranscriptVisitRef.current = {
+      slideId: slide.slideId,
+      slideNum: slideIndex + 1,
+      visitedAt,
+      visitedVer,
+    };
+  }
+
+  function captureSlideTranscriptSnapshot(
+    reason: SlideTranscriptSnapshot["reason"],
+    capturedAt = new Date().toISOString(),
+  ) {
+    const activeVisit = activeSlideTranscriptVisitRef.current;
+    if (!activeVisit) {
+      return;
+    }
+    slideTranscriptSnapshotsRef.current.push({
+      ...activeVisit,
+      capturedAt,
+      reason,
+      transcript: speech.getTranscript(),
+    });
+    activeSlideTranscriptVisitRef.current = null;
+  }
+
+  function resetSlideTranscriptSnapshots(activeDeck: Deck, slideIndex: number) {
+    slideTranscriptSnapshotsRef.current = [];
+    slideTranscriptVisitVersionsRef.current = new Map();
+    activeSlideTranscriptVisitRef.current = null;
+    previousSlideIndexRef.current = slideIndex;
+    const slide = activeDeck.slides[slideIndex];
+    if (slide) {
+      beginSlideTranscriptVisit(slide, slideIndex);
+    }
   }
 
   function commitElapsedTimeInput(value: string) {
@@ -322,21 +1102,29 @@ export function PresentationWorkspace(props: {
   }
 
   if (phase === "failed") {
+    const failureCopy = getPresentationFailureCopy("load", error);
+
     return (
-      <PresenterStatusShell
-        action={
-          <button
-            className="rehearsal-exit-button"
-            type="button"
-            onClick={() => navigateToProject(deck?.projectId ?? props.projectId)}
-          >
-            프로젝트로 돌아가기
-          </button>
-        }
-        title="발표 화면을 열지 못했습니다."
-      >
-        {error || "발표 자료를 불러오지 못했습니다."}
-      </PresenterStatusShell>
+      <main className="rehearsal-presenter-shell">
+        <OrbitFailureState
+          description={failureCopy.description}
+          onRetry={() => window.location.reload()}
+          recommendedAction={failureCopy.recommendedAction}
+          retryLabel="다시 불러오기"
+          secondaryAction={
+            <OrbitButton
+              onClick={() =>
+                navigateToProject(deck?.projectId ?? props.projectId)
+              }
+              size="prominent"
+              variant="secondary"
+            >
+              프로젝트로 돌아가기
+            </OrbitButton>
+          }
+          title={failureCopy.title}
+        />
+      </main>
     );
   }
 
@@ -348,81 +1136,188 @@ export function PresentationWorkspace(props: {
     );
   }
 
+  if (runtimePhase === "starting") {
+    return (
+      <PresenterStatusShell title="실전 발표를 준비하는 중입니다.">
+        발표 세션과 음성 인식을 연결하고 있습니다.
+      </PresenterStatusShell>
+    );
+  }
+
+  if (runtimePhase === "failed") {
+    const failureOperation =
+      runtimeFailureOperation === "finish" ? "finish" : "start";
+    const failureCopy = getPresentationFailureCopy(
+      failureOperation,
+      runtimeError,
+    );
+
+    return (
+      <main className="rehearsal-presenter-shell">
+        <OrbitFailureState
+          description={failureCopy.description}
+          onRetry={() =>
+            runtimeFailureOperation === "finish"
+              ? void finishPresentation()
+              : void startPresentation(requestedRecordingMode)
+          }
+          recommendedAction={failureCopy.recommendedAction}
+          secondaryAction={
+            <>
+              {runtimeFailureOperation === "start" &&
+              requestedRecordingMode === "microphone" ? (
+                <OrbitButton
+                  onClick={() => void startPresentation("none")}
+                  size="prominent"
+                  variant="secondary"
+                >
+                  마이크 없이 시작
+                </OrbitButton>
+              ) : null}
+              <OrbitButton
+                onClick={() =>
+                  navigateToProject(deck?.projectId ?? props.projectId)
+                }
+                size="prominent"
+                variant="secondary"
+              >
+                프로젝트로 돌아가기
+              </OrbitButton>
+            </>
+          }
+          title={failureCopy.title}
+        />
+      </main>
+    );
+  }
+
   return (
-    <PresentationScreen
-      adviceState={adviceState}
-      currentSlide={currentSlide}
-      currentSlideIndex={currentSlideIndex}
-      deck={deck}
-      elapsedTimeInput={elapsedTimeInput}
-      highlightedKeywordOccurrences={highlightedKeywordOccurrences}
-      infoCards={infoCards}
-      isTimerRunning={isTimerRunning}
-      keywords={checklistKeywords}
-      miniSlideScale={miniSlideScale}
-      nextHint={nextHint}
-      nextSlide={nextSlide}
-      onDurationInputBlur={commitTimerDurationInput}
-      onDurationInputChange={(value) => {
-        setEditingTimeField("duration");
-        setTimerDurationInput(value);
-      }}
-      onDurationInputFocus={() => setEditingTimeField("duration")}
-      onElapsedInputBlur={commitElapsedTimeInput}
-      onElapsedInputChange={(value) => {
-        setEditingTimeField("elapsed");
-        setElapsedTimeInput(value);
-      }}
-      onElapsedInputFocus={() => setEditingTimeField("elapsed")}
-      onExit={() => navigateToProject(deck?.projectId ?? props.projectId)}
-      onNext={goNext}
-      onPrevious={goPrevious}
-      onPrimaryAction={handleTimePrimaryAction}
-      onReset={() =>
-        resetPresentationTimerState({
-          setElapsedSeconds,
-          setIsTimerRunning,
-          setSlideElapsedSeconds,
-        })
-      }
-      onTimeModeChange={(value) => {
-        setTimeMode(value);
-        resetPresentationTimerState({
-          setElapsedSeconds,
-          setIsTimerRunning,
-          setSlideElapsedSeconds,
-        });
-      }}
-      panelSnapshot={panelSnapshot}
-      presenterScale={presenterScale}
-      presenterStageRef={presenterStageRef}
-      presenterStepIndex={presenterStepIndex}
-      progressPercent={rehearsalProgressPercent}
-      sentences={sentences}
-      stageEmptyLabel="발표 자료를 불러오는 중입니다."
-      stageIndexLabel={
-        deck
-          ? `${String(currentSlideIndex + 1).padStart(2, "0")} / ${String(
-              deck.slides.length,
-            ).padStart(2, "0")}`
-          : undefined
-      }
-      statusLabel={presentationStatusLabel}
-      timeInputValue={
-        editingTimeField === "duration"
-          ? timerDurationInput
-          : formatClock(displayedTimeSeconds)
-      }
-      timeMetaLeft={`현재 ${formatClock(timing.currentSlideElapsedSeconds)}`}
-      timeMetaRight={`예상 ${formatClock(timing.currentSlideTargetSeconds)}`}
-      timeMode={timeMode}
-      timing={timing}
-      timerDurationInput={timerDurationInput}
-      totalSlides={deck?.slides.length ?? 0}
-      triggerAnimationIds={triggerAnimationIds}
-    />
+    <>
+      <PresentationScreen
+        adviceState={adviceState}
+        animationTriggerDebug={
+          animationTriggerDebugEnabled && animationTriggerDebug ? (
+            <PresentationAnimationTriggerDebug data={animationTriggerDebug} />
+          ) : undefined
+        }
+        autoAdvanceStatus={
+          <AutoAdvanceStatus
+            countdownMs={presentationAutoAdvancePolicy.countdownMs}
+            nowMs={autoAdvanceNowMs}
+            onFinish={requestPresentationExit}
+            state={advanceControllerState}
+          />
+        }
+        currentSlide={currentSlide}
+        currentSlideIndex={currentSlideIndex}
+        deck={deck}
+        elapsedTimeInput={elapsedTimeInput}
+        highlightedKeywordOccurrences={highlightedKeywordOccurrences}
+        infoCards={infoCards}
+        isTimerRunning={isTimerRunning}
+        keywords={checklistKeywords}
+        miniSlideScale={miniSlideScale}
+        nextHint={nextHint}
+        nextSlide={nextSlide}
+        onDurationInputBlur={commitTimerDurationInput}
+        onDurationInputChange={(value) => {
+          setEditingTimeField("duration");
+          setTimerDurationInput(value);
+        }}
+        onDurationInputFocus={() => setEditingTimeField("duration")}
+        onElapsedInputBlur={commitElapsedTimeInput}
+        onElapsedInputChange={(value) => {
+          setEditingTimeField("elapsed");
+          setElapsedTimeInput(value);
+        }}
+        onElapsedInputFocus={() => setEditingTimeField("elapsed")}
+        onExit={requestPresentationExit}
+        onNext={handleNextPresenterStep}
+        onAnimationFlowNavigate={handleAnimationFlowNavigation}
+        onPrevious={goPrevious}
+        onPrimaryAction={handleTimePrimaryAction}
+        onReset={() =>
+          resetPresentationTimerState({
+            setElapsedSeconds,
+            setIsTimerRunning,
+            setSlideElapsedSeconds,
+          })
+        }
+        onTimeModeChange={(value) => {
+          setTimeMode(value);
+          resetPresentationTimerState({
+            setElapsedSeconds,
+            setIsTimerRunning,
+            setSlideElapsedSeconds,
+          });
+        }}
+        panelSnapshot={panelSnapshot}
+        presentationSession={runtimeRef.current ?? undefined}
+        presenterScale={presenterScale}
+        presenterStageRef={presenterStageRef}
+        presenterStepIndex={presenterStepIndex}
+        progressPercent={rehearsalProgressPercent}
+        sentences={sentences}
+        stageEmptyLabel="발표 자료를 불러오는 중입니다."
+        stageIndexLabel={
+          deck
+            ? `${String(currentSlideIndex + 1).padStart(2, "0")} / ${String(
+                deck.slides.length,
+              ).padStart(2, "0")}`
+            : undefined
+        }
+        statusLabel={presentationStatusLabel}
+        timeInputValue={
+          editingTimeField === "duration"
+            ? timerDurationInput
+            : formatClock(displayedTimeSeconds)
+        }
+        timeMetaLeft={`현재 ${formatClock(timing.currentSlideElapsedSeconds)}`}
+        timeMetaRight={`예상 ${formatClock(timing.currentSlideTargetSeconds)}`}
+        timeMode={timeMode}
+        timing={timing}
+        timerDurationInput={timerDurationInput}
+        totalSlides={deck?.slides.length ?? 0}
+        triggerAnimationIds={triggerAnimationIds}
+        wordsPerMinute={speech.state.wordsPerMinute}
+      />
+      {runtimePhase === "preflight" ? (
+        <PresentationMicCheckModal
+          onClose={() => navigateToProject(deck?.projectId ?? props.projectId)}
+          onStart={() => void startPresentation("microphone")}
+          onStartWithoutMicrophone={() => void startPresentation("none")}
+        />
+      ) : null}
+      {runtimePhase === "finishing" || runtimePhase === "completed" ? (
+        <PresentationCompletionDialog
+          isSaving={runtimePhase === "finishing"}
+          onClose={() => navigateToProject(deck?.projectId ?? props.projectId)}
+          onGoHome={navigateToHome}
+          onOpenProject={() =>
+            navigateToProject(deck?.projectId ?? props.projectId)
+          }
+          onOpenReport={() => {
+            const runtime = runtimeRef.current;
+            if (!runtime || !props.projectId) {
+              return;
+            }
+            navigateToPresentationReport({
+              projectId: props.projectId,
+              runId: runtime.runId,
+              sessionId: runtime.sessionId,
+            });
+          }}
+        />
+      ) : null}
+    </>
   );
 }
+
+const presentationAutoAdvancePolicy = Object.freeze({
+  ...defaultAutoAdvancePolicy,
+  live: true,
+  rehearsal: false,
+});
 
 function navigateToProject(projectId?: string) {
   if (!projectId || typeof window === "undefined") {
@@ -430,6 +1325,34 @@ function navigateToProject(projectId?: string) {
   }
 
   window.history.pushState({}, "", `/project/${encodeURIComponent(projectId)}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function navigateToHome() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.history.pushState({}, "", "/");
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function navigateToPresentationReport(input: {
+  projectId: string;
+  runId: string;
+  sessionId: string;
+}) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const search = new URLSearchParams({ runId: input.runId });
+  window.history.pushState(
+    {},
+    "",
+    `/presentation/${encodeURIComponent(input.projectId)}/report/${encodeURIComponent(
+      input.sessionId,
+    )}?${search.toString()}`,
+  );
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
@@ -449,6 +1372,133 @@ function createEmptySpeechTrackerSnapshot(options: {
     slideId: options.slideId,
     wordCoverage: 0,
   };
+}
+
+function PresentationAnimationTriggerDebug(props: {
+  data: {
+    confidence: number | null;
+    confirmedOccurrenceIds: string[];
+    currentCharOffset: number;
+    previousCharOffset: number;
+    currentStepAnimationIds: string[];
+    currentStepIndex: number;
+    latestTranscript: string;
+    matches: Array<{ occurrenceId: string }>;
+    occurrenceActions: Array<{ animationId: string; occurrenceId: string }>;
+    playedAnimationIds: string[];
+    speechStatus: string;
+    targetOccurrenceIds: string[];
+    transcript: string;
+  };
+}) {
+  const { data } = props;
+  const blocker = getAnimationTriggerBlocker(data);
+
+  return (
+    <aside
+      aria-label="애니메이션 트리거 디버그"
+      className="presentation-animation-trigger-debug"
+    >
+      <header>
+        <strong>애니메이션 트리거 디버그</strong>
+        <span>URL의 <code>animationDebug=1</code>에서만 표시</span>
+      </header>
+      <dl>
+        <div>
+          <dt>STT 상태</dt>
+          <dd>{data.speechStatus}</dd>
+        </div>
+        <div>
+          <dt>최근 인식</dt>
+          <dd>{data.latestTranscript || "-"}</dd>
+        </div>
+        <div>
+          <dt>confidence</dt>
+          <dd>{data.confidence?.toFixed(2) ?? "브라우저 미제공"}</dd>
+        </div>
+        <div>
+          <dt>대본 위치</dt>
+          <dd>{data.previousCharOffset} → {data.currentCharOffset}</dd>
+        </div>
+        <div>
+          <dt>매칭 occurrence</dt>
+          <dd>{formatDebugValues(data.matches.map((match) => match.occurrenceId))}</dd>
+        </div>
+        <div>
+          <dt>소비된 occurrence</dt>
+          <dd>{formatDebugValues(data.confirmedOccurrenceIds)}</dd>
+        </div>
+        <div>
+          <dt>실행된 animation</dt>
+          <dd>{formatDebugValues(data.playedAnimationIds)}</dd>
+        </div>
+        <div>
+          <dt>현재 step</dt>
+          <dd>
+            {data.currentStepIndex} · {formatDebugValues(data.currentStepAnimationIds)}
+          </dd>
+        </div>
+      </dl>
+      <p className="presentation-animation-trigger-debug-blocker">
+        판정: {blocker}
+      </p>
+      <details>
+        <summary>연결 데이터 보기</summary>
+        <p>트리거 occurrence: {formatDebugValues(data.targetOccurrenceIds)}</p>
+        <p>
+          action 연결: {" "}
+          {formatDebugValues(
+            data.occurrenceActions.map(
+              (action) => `${action.occurrenceId} → ${action.animationId}`,
+            ),
+          )}
+        </p>
+        <p>위치 계산 대본: {data.transcript || "-"}</p>
+      </details>
+    </aside>
+  );
+}
+
+function getAnimationTriggerBlocker(data: {
+  confidence: number | null;
+  confirmedOccurrenceIds: string[];
+  latestTranscript: string;
+  matches: Array<{ occurrenceId: string }>;
+  occurrenceActions: Array<{ animationId: string; occurrenceId: string }>;
+  speechStatus: string;
+  targetOccurrenceIds: string[];
+}) {
+  if (data.speechStatus !== "listening") {
+    return "음성 인식이 listening 상태가 아닙니다.";
+  }
+  if (!data.latestTranscript.trim()) {
+    return "아직 STT 결과가 없습니다.";
+  }
+  if (data.confidence !== null && data.confidence < 0.7) {
+    return "confidence가 0.70 미만이라 자동 실행을 막았습니다.";
+  }
+  if (data.targetOccurrenceIds.length === 0) {
+    return "현재 슬라이드에 keyword-occurrence action이 없습니다.";
+  }
+  if (data.occurrenceActions.length === 0) {
+    return "occurrence action 연결을 찾지 못했습니다.";
+  }
+  if (
+    data.targetOccurrenceIds.length > 0 &&
+    data.targetOccurrenceIds.every((occurrenceId) =>
+      data.confirmedOccurrenceIds.includes(occurrenceId),
+    )
+  ) {
+    return "해당 occurrence는 이미 처리되어 중복 실행하지 않습니다.";
+  }
+  if (data.matches.length === 0) {
+    return "대본 위치·키워드·미소비 조건 중 하나가 일치하지 않습니다.";
+  }
+  return "매칭 성공: 다음 렌더에서 action 실행·step 전진을 확인하세요.";
+}
+
+function formatDebugValues(values: readonly string[]) {
+  return values.length > 0 ? values.join(", ") : "-";
 }
 
 function getMiniSlideScale(deck: Deck) {
@@ -526,9 +1576,11 @@ function usePresenterStageScale(deck: Deck | null) {
       const bounds = stage.getBoundingClientRect();
       const style = window.getComputedStyle(stage);
       const horizontalPadding =
-        Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+        Number.parseFloat(style.paddingLeft) +
+        Number.parseFloat(style.paddingRight);
       const verticalPadding =
-        Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+        Number.parseFloat(style.paddingTop) +
+        Number.parseFloat(style.paddingBottom);
       const availableWidth = Math.max(0, bounds.width - horizontalPadding);
       const availableHeight = Math.max(0, bounds.height - verticalPadding);
       const nextScale = Math.min(

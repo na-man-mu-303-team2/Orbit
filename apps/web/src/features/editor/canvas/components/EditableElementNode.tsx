@@ -22,6 +22,8 @@ import {
   getCustomShapeOverlayViewBox,
 } from "./CustomShapeOverlays";
 import { ElementNodeContent } from "./ElementNodeContent";
+import { useEditorShellUiStore } from "../../shell/editorShellUiStore";
+import { TableCellHitTargets } from "../table/TableCellHitTargets";
 import { getTextElementLayout } from "../text/textLayout";
 import {
   CANVAS_ID_BADGE_FONT_SIZE,
@@ -32,6 +34,12 @@ import {
   getDisplayIdLabel,
   getGroupedChildPreviewFrame,
 } from "../utils/canvasElementUtils";
+import {
+  canDragCanvasElement,
+  getSnappedElementPosition,
+  type CanvasSnapGuide
+} from "../utils/canvasInteractionUtils";
+import { resolveTransformedElementFrame } from "../utils/selectionTransformer";
 
 type KonvaComponent = ComponentType<any>;
 
@@ -52,11 +60,16 @@ export function EditableElementNode(props: {
   deck: Deck;
   disablePointerEvents: boolean;
   element: DeckElement;
+  hideContent?: boolean;
+  editorPrimaryColor: string;
+  editorPrimaryMediumColor: string;
+  editorPrimarySoftColor: string;
   isSelected: boolean;
   presentationState?: ElementPresentationState;
   selectedCount: number;
   showIds: boolean;
   slide: Slide;
+  stageScale: number;
   onChangeCustomShapeEditDraft: (draft: CustomShapeEditDraft | null) => void;
   onDoubleClick: () => void;
   onCommitCustomShapeEditDraft: (draft: CustomShapeEditDraft) => void;
@@ -70,6 +83,8 @@ export function EditableElementNode(props: {
   onMountNode: (node: Konva.Group | null) => void;
   onOpenContextMenu: (clientX: number, clientY: number) => void;
   onSelect: (append: boolean) => void;
+  onSnapGuidesChange: (guides: CanvasSnapGuide[]) => void;
+  snapThreshold: number;
 }) {
   const {
     accentColor,
@@ -77,11 +92,16 @@ export function EditableElementNode(props: {
     deck,
     disablePointerEvents,
     element,
+    hideContent = false,
+    editorPrimaryColor,
+    editorPrimaryMediumColor,
+    editorPrimarySoftColor,
     isSelected,
     presentationState,
     selectedCount,
     showIds,
     slide,
+    stageScale,
     onChangeCustomShapeEditDraft,
     onDoubleClick,
     onCommitCustomShapeEditDraft,
@@ -89,7 +109,12 @@ export function EditableElementNode(props: {
     onMountNode,
     onOpenContextMenu,
     onSelect,
+    onSnapGuidesChange,
+    snapThreshold,
   } = props;
+  const editingElementId = useEditorShellUiStore(
+    (state) => state.editingElementId
+  );
   const [previewFrame, setPreviewFrame] = useState<{
     x: number;
     y: number;
@@ -105,12 +130,7 @@ export function EditableElementNode(props: {
     rotation: presentationState?.rotation ?? element.rotation
   };
   const isMultiSelected = isSelected && selectedCount > 1;
-  const selectionHitFill = isSelected
-    ? isMultiSelected
-      ? "rgba(37, 99, 235, 0.16)"
-      : "rgba(37, 99, 235, 0.08)"
-    : "rgba(15, 23, 42, 0.001)";
-  const selectionStroke = isSelected ? "#2563eb" : "transparent";
+  const selectionStroke = isSelected ? editorPrimaryColor : "transparent";
   const selectionStrokeWidth = isSelected ? (isMultiSelected ? 3 : 2) : 0;
   const selectionDash = isMultiSelected ? [12, 6] : undefined;
   const elementIdLabel = getDisplayIdLabel(element.elementId);
@@ -143,7 +163,14 @@ export function EditableElementNode(props: {
   return (
     <Group
       draggable={
-        !disablePointerEvents && !customShapeEditDraft
+        canDragCanvasElement({
+          interactionDisabled: disablePointerEvents,
+          isCustomShapeEditing:
+            Boolean(customShapeEditDraft) ||
+            (element.type === "table" && editingElementId === element.elementId),
+          isSelected,
+          locked: element.locked
+        })
       }
       listening={!disablePointerEvents}
       opacity={
@@ -157,32 +184,60 @@ export function EditableElementNode(props: {
       scaleY={presentationState?.scaleY ?? 1}
       x={frame.x}
       y={frame.y}
-      onClick={(event: Konva.KonvaEventObject<MouseEvent>) =>
-        handlePointerSelect(Boolean(event.evt.shiftKey))
-      }
+      onClick={(event: Konva.KonvaEventObject<MouseEvent>) => {
+        if (event.evt.button !== 0) return;
+        handlePointerSelect(Boolean(event.evt.shiftKey));
+      }}
+      onMouseDown={(event: Konva.KonvaEventObject<MouseEvent>) => {
+        if (event.evt.button !== 0 || isSelected) return;
+        onSelect(Boolean(event.evt.shiftKey));
+      }}
       onContextMenu={(event: Konva.KonvaEventObject<PointerEvent>) => {
         const shouldKeepSelection = isSelected && selectedCount > 1;
 
         if (
           element.type !== "image" &&
           element.type !== "group" &&
+          element.type !== "table" &&
           !shouldKeepSelection
         ) {
           return;
         }
 
         event.evt.preventDefault();
+        event.cancelBubble = true;
         if (!shouldKeepSelection) {
           onSelect(false);
         }
         onOpenContextMenu(event.evt.clientX, event.evt.clientY);
       }}
       onDblClick={() => {
-        if (element.type === "text") {
+        if (element.type === "text" || element.type === "chart") {
           onDoubleClick();
         }
       }}
+      onDragMove={(event: Konva.KonvaEventObject<DragEvent>) => {
+        if (event.evt.altKey) {
+          onSnapGuidesChange([]);
+          return;
+        }
+        const snapped = getSnappedElementPosition({
+          canvas: deck.canvas,
+          elementId: element.elementId,
+          elements: slide.elements,
+          frame: {
+            x: event.target.x(),
+            y: event.target.y(),
+            width: frame.width,
+            height: frame.height
+          },
+          threshold: snapThreshold
+        });
+        event.target.position({ x: snapped.x, y: snapped.y });
+        onSnapGuidesChange(snapped.guides);
+      }}
       onDragEnd={(event: Konva.KonvaEventObject<DragEvent>) => {
+        onSnapGuidesChange([]);
         setPreviewFrame(null);
         onCommitFrame({
           x: event.target.x(),
@@ -199,13 +254,16 @@ export function EditableElementNode(props: {
         }
 
         const node = event.target;
-        const nextFrame = {
-          x: node.x(),
-          y: node.y(),
-          width: Math.max(1, frame.width * node.scaleX()),
-          height: Math.max(1, frame.height * node.scaleY()),
-          rotation: node.rotation(),
-        };
+        const nextFrame = resolveTransformedElementFrame({
+          frame,
+          transform: {
+            x: node.x(),
+            y: node.y(),
+            scaleX: node.scaleX(),
+            scaleY: node.scaleY(),
+            rotation: node.rotation(),
+          },
+        });
 
         node.scaleX(1);
         node.scaleY(1);
@@ -213,50 +271,72 @@ export function EditableElementNode(props: {
       }}
       onTransformEnd={(event: Konva.KonvaEventObject<Event>) => {
         const node = event.target;
-        const nextWidth = Math.max(1, frame.width * node.scaleX());
-        const nextHeight = Math.max(1, frame.height * node.scaleY());
+        const nextFrame = resolveTransformedElementFrame({
+          frame,
+          transform: {
+            x: node.x(),
+            y: node.y(),
+            scaleX: node.scaleX(),
+            scaleY: node.scaleY(),
+            rotation: node.rotation(),
+          },
+        });
 
         node.scaleX(1);
         node.scaleY(1);
 
         setPreviewFrame(null);
-        onCommitFrame({
-          x: node.x(),
-          y: node.y(),
-          width: nextWidth,
-          height: nextHeight,
-          rotation: node.rotation(),
-        });
+        onCommitFrame(nextFrame);
       }}
     >
-      <ElementInteractionHitTargets
-        deck={deck}
-        element={element}
-        frame={frame}
-        slide={slide}
-      />
       <Rect
         cornerRadius={10}
         dash={selectionDash}
-        fill={selectionHitFill}
+        fill="transparent"
         listening={false}
         stroke={selectionStroke}
         strokeWidth={selectionStrokeWidth}
         width={frame.width}
         height={frame.height}
       />
-      <ElementNodeContent
-        accentColor={accentColor}
-        customShapePreview={customShapeEditDraft}
-        deck={deck}
-        element={element}
-        frame={frame}
-        slide={slide}
-      />
+      {hideContent ? null : (
+        <ElementNodeContent
+          accentColor={accentColor}
+          customShapePreview={customShapeEditDraft}
+          deck={deck}
+          element={element}
+          frame={frame}
+          slide={slide}
+        />
+      )}
+      {element.type === "table" ? (
+        <TableCellHitTargets
+          deck={deck}
+          disabled={disablePointerEvents}
+          element={element}
+          frame={frame}
+          isSelected={isSelected}
+          selectionColor={editorPrimaryColor}
+          slide={slide}
+          stageScale={stageScale}
+          onOpenContextMenu={onOpenContextMenu}
+          onSelect={onSelect}
+        />
+      ) : (
+        <ElementInteractionHitTargets
+          deck={deck}
+          element={element}
+          frame={frame}
+          slide={slide}
+        />
+      )}
       {customShapeEditDraft && element.type === "customShape" ? (
         <CustomShapeEditOverlay
           draft={customShapeEditDraft}
           frame={frame}
+          primaryColor={editorPrimaryColor}
+          primaryMediumColor={editorPrimaryMediumColor}
+          primarySoftColor={editorPrimarySoftColor}
           onChangeDraft={onChangeCustomShapeEditDraft}
           onCommitDraft={onCommitCustomShapeEditDraft}
           {...getCustomShapeOverlayViewBox({
@@ -279,7 +359,7 @@ export function EditableElementNode(props: {
             shadowBlur={14}
             shadowColor="rgba(15, 23, 42, 0.18)"
             shadowOpacity={0.28}
-            stroke="#2563eb"
+            stroke={editorPrimaryColor}
             strokeWidth={1.5}
             width={canvasIdBadgeWidth}
           />

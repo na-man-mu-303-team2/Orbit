@@ -12,9 +12,20 @@ import {
   deckPatchOperationSchema,
   type DeckChangeRecord,
 } from "./patch.schema";
+import {
+  availableSmartArtLayoutSchema,
+  smartArtRequestSchema
+} from "./smart-art-layout.schema";
+import { speakerNotesSuggestionModeSchema } from "./speaker-notes-assistant.schema";
 import { themeSchema } from "./theme.schema";
 
 export const designAgentMessageRoleSchema = z.enum(["user", "assistant"]);
+export const designAgentIntentPresetSchema = z.enum([
+  "redesign-slide",
+  "tidy-layout",
+  "emphasize-message",
+  "recommend-animation",
+]);
 export const designAgentMessageStatusSchema = z.enum([
   "pending",
   "succeeded",
@@ -39,12 +50,15 @@ export const designAgentCapabilityOperationSchema = z.enum([
   "update_element_props",
   "delete_element",
   "update_slide_style",
+  "add_animation",
+  "update_animation",
+  "delete_animation",
 ]);
 
 export const designAgentCapabilitiesSchema = z.object({
   version: z.literal("1"),
   operations: z.array(designAgentCapabilityOperationSchema).min(1),
-  addableElementTypes: z.array(z.enum(["text", "rect"])),
+  addableElementTypes: z.array(z.enum(["text", "rect", "chart", "table"])),
   canEditTextContent: z.boolean(),
   canGenerateImages: z.boolean(),
   canModifyLockedElements: z.boolean(),
@@ -58,8 +72,11 @@ export const designAgentCapabilities = designAgentCapabilitiesSchema.parse({
     "update_element_props",
     "delete_element",
     "update_slide_style",
+    "add_animation",
+    "update_animation",
+    "delete_animation",
   ],
-  addableElementTypes: ["text", "rect"],
+  addableElementTypes: ["text", "rect", "chart", "table"],
   canEditTextContent: true,
   canGenerateImages: false,
   canModifyLockedElements: true,
@@ -77,6 +94,7 @@ export const designAgentContextSchema = z.object({
 export const createDesignAgentMessageRequestSchema = z.object({
   sessionId: z.string().trim().min(1).max(200).optional(),
   content: z.string().trim().min(1).max(2_000),
+  intentPreset: designAgentIntentPresetSchema.optional(),
   context: designAgentContextSchema,
 });
 
@@ -100,8 +118,10 @@ export const designAgentWorkerRequestSchema = z.object({
   projectId: z.string().trim().min(1),
   sessionId: z.string().trim().min(1).max(200),
   question: z.string().trim().min(1).max(2_000),
+  intentPreset: designAgentIntentPresetSchema.optional(),
   context: designAgentContextSchema,
   history: z.array(designAgentHistoryItemSchema).max(10).default([]),
+  availableSmartArtLayouts: z.array(availableSmartArtLayoutSchema).max(200).default([]),
   capabilities: designAgentCapabilitiesSchema.default(designAgentCapabilities),
 });
 
@@ -111,6 +131,14 @@ export const designAgentWorkerResponseSchema = z.object({
   operations: z.array(deckPatchOperationSchema).max(200).default([]),
   affectedElementIds: z.array(deckElementIdSchema).max(200).default([]),
   warnings: z.array(z.string().trim().min(1).max(1_000)).max(20).default([]),
+  smartArtRequest: smartArtRequestSchema.nullable().default(null),
+  uiAction: z
+    .object({
+      type: z.literal("open-speaker-notes-assistant"),
+      mode: speakerNotesSuggestionModeSchema
+    })
+    .nullable()
+    .default(null),
 });
 
 export const designAgentMessageSchema = z.object({
@@ -154,6 +182,7 @@ export const createDesignAgentMessageResponseSchema = z.object({
   requestMessage: designAgentMessageSchema,
   responseMessage: designAgentMessageSchema,
   proposal: designAgentProposalSchema.optional(),
+  uiAction: designAgentWorkerResponseSchema.shape.uiAction,
 });
 
 export const applyDesignAgentProposalResponseSchema: z.ZodType<{
@@ -172,6 +201,9 @@ export const applyDesignAgentProposalResponseSchema: z.ZodType<{
 
 export type DesignAgentMessageRole = z.infer<
   typeof designAgentMessageRoleSchema
+>;
+export type DesignAgentIntentPreset = z.infer<
+  typeof designAgentIntentPresetSchema
 >;
 export type DesignAgentCapabilities = z.infer<
   typeof designAgentCapabilitiesSchema

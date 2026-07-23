@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
 import { getCurrentUser, type SignedCookieRequest } from "../auth/current-user";
 import { FocusedPracticeService } from "./focused-practice.service";
@@ -11,6 +11,15 @@ export class FocusedPracticeController {
   async create(@Param("projectId") projectId: string, @Body() body: unknown, @Req() req: SignedCookieRequest) {
     const user = await getCurrentUser(this.auth, req);
     return this.focused.createSession(projectId, user.userId, body);
+  }
+  @Get("api/v1/projects/:projectId/focused-practice-summary")
+  async summary(
+    @Param("projectId") projectId: string,
+    @Query("sourceFullRunId") sourceFullRunId: string,
+    @Req() req: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.auth, req);
+    return this.focused.getAttemptSummary(projectId, sourceFullRunId, user.userId);
   }
   @Get("api/v1/focused-practice-sessions/:sessionId")
   async get(@Param("sessionId") id: string, @Req() req: SignedCookieRequest) {

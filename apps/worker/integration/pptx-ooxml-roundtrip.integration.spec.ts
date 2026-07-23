@@ -1,0 +1,1707 @@
+import "reflect-metadata";
+
+import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+
+import {
+  PPTX_OOXML_SYNC_CAPABILITY_VERSION,
+  deckSchema,
+  jobSchema,
+  pptxOoxmlGenerationJobResultSchema,
+  templateBlueprintSchema,
+  type Deck,
+  type DeckElement,
+  type Job,
+} from "@orbit/shared";
+import type {
+  StorageObject,
+  StoragePort,
+  StoragePutInput,
+} from "@orbit/storage";
+import { LocalMinioStorage } from "@orbit/storage";
+import { DataSource } from "typeorm";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+
+import { DecksService } from "../../api/src/decks/decks.service";
+import { JobsService } from "../../api/src/jobs/jobs.service";
+import { processDeckExportJob } from "../src/deck-export.processor";
+import { processPptxOoxmlGenerationJob } from "../src/pptx-ooxml-generation.processor";
+import { processPptxOoxmlSyncJob } from "../src/pptx-ooxml-sync.processor";
+
+const enabled = process.env.ORBIT_DB_INTEGRATION === "1";
+const describeIntegration = enabled ? describe : describe.skip;
+const pptxMimeType =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const databaseUrl =
+  process.env.PPTX_INTEGRATION_DATABASE_URL ??
+  "postgresql://orbit:orbit@127.0.0.1:5432/orbit";
+const pythonWorkerUrl =
+  process.env.ORBIT_PYTHON_WORKER_URL ?? process.env.PYTHON_WORKER_URL ?? "";
+const importFidelityReferencePath =
+  process.env.PPTX_IMPORT_FIDELITY_REFERENCE_PATH ?? "";
+const itWithImportFidelityReference = importFidelityReferencePath ? it : it.skip;
+
+describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
+  let dataSource: DataSource;
+  const projectIds = new Set<string>();
+  const fakeWorkers = new Set<Server>();
+
+  beforeAll(async () => {
+    if (!pythonWorkerUrl) {
+      throw new Error(
+        "ORBIT_PYTHON_WORKER_URL is required when ORBIT_DB_INTEGRATION=1.",
+      );
+    }
+    dataSource = new DataSource({
+      type: "postgres",
+      url: databaseUrl,
+      entities: [],
+      synchronize: false,
+    });
+    await dataSource.initialize();
+  });
+
+  afterEach(async () => {
+    await Promise.all([...fakeWorkers].map(closeServer));
+    fakeWorkers.clear();
+    for (const projectId of projectIds) {
+      await cleanupProject(dataSource, projectId);
+    }
+    projectIds.clear();
+  });
+
+  afterAll(async () => {
+    if (dataSource?.isInitialized) await dataSource.destroy();
+  });
+
+  itWithImportFidelityReference(
+    "persists and reloads reference speaker notes with protected preview file ids",
+    async () => {
+      const projectId = integrationId("project");
+      const sourceFileId = integrationId("file");
+      const sourceStorageKey = `integration/${projectId}/reference.pptx`;
+      const storage = new IntegrationStorage();
+      projectIds.add(projectId);
+
+      await expectPythonWorkerHealthy(pythonWorkerUrl);
+      const sourceBytes = await readFile(importFidelityReferencePath);
+      const importedSource = await importPptxWithPython(
+        pythonWorkerUrl,
+        sourceBytes,
+        projectId,
+        sourceFileId,
+        "editability-first",
+      );
+      const sourceNotes = (importedSource.blueprint.slides ?? []).map(
+        (slide) => slide.speakerNotes ?? "",
+      );
+      expect(sourceNotes.length).toBe(8);
+      expect(sourceNotes.filter((note) => note.length > 0).length).toBe(8);
+      const expectedNoteDigests = sourceNotes.map(noteDigest);
+
+      const appearanceSource = await importPptxWithPython(
+        pythonWorkerUrl,
+        sourceBytes,
+        projectId,
+        integrationId("file"),
+        "appearance-first",
+      );
+      expect(
+        (appearanceSource.blueprint.slides ?? []).map((slide) =>
+          noteDigest(slide.speakerNotes ?? ""),
+        ),
+      ).toEqual(expectedNoteDigests);
+
+      await storage.seed(
+        sourceStorageKey,
+        sourceBytes,
+        pptxMimeType,
+        "pptx-import",
+      );
+      await seedProject(dataSource, projectId);
+      await seedAsset(dataSource, {
+        projectId,
+        fileId: sourceFileId,
+        storageKey: sourceStorageKey,
+        purpose: "pptx-import",
+        body: sourceBytes,
+      });
+
+      const harness = createServiceHarness(dataSource);
+      const importJob = await harness.jobs.create({
+        projectId,
+        type: "pptx-ooxml-generation",
+        payload: { request: { fileId: sourceFileId } },
+      });
+      const completedJob = await processPptxOoxmlGenerationJob(
+        dataSource,
+        storage,
+        pythonWorkerUrl,
+        {
+          jobId: importJob.jobId,
+          projectId,
+          request: { fileId: sourceFileId },
+        },
+      );
+      expect(completedJob.status, JSON.stringify(completedJob.error)).toBe(
+        "succeeded",
+      );
+
+      const persistedDeck = deckSchema.parse(
+        (await harness.decks.getDeck(projectId)).deck,
+      );
+      expect(persistedDeck.slides).toHaveLength(8);
+      expect(persistedDeck.slides.map((slide) => noteDigest(slide.speakerNotes)))
+        .toEqual(expectedNoteDigests);
+
+      const templateBlueprint = await loadTemplateBlueprint(
+        dataSource,
+        projectId,
+        persistedDeck.deckId,
+      );
+      const previewFileIds = templateBlueprint.slides.flatMap((slide) =>
+        slide.notesPage?.status === "rendered" &&
+        slide.notesPage.renderAssetFileId
+          ? [slide.notesPage.renderAssetFileId]
+          : [],
+      );
+      expect(previewFileIds).toHaveLength(8);
+      expect(new Set(previewFileIds).size).toBe(8);
+      const previewAssets = await dataSource.query<
+        Array<{ file_id: string; purpose: string }>
+      >(
+        `SELECT file_id, purpose FROM project_assets
+         WHERE project_id = $1 AND file_id = ANY($2::text[])`,
+        [projectId, previewFileIds],
+      );
+      expect(previewAssets).toHaveLength(8);
+      expect(
+        previewAssets.every((asset) => asset.purpose === "design-asset"),
+      ).toBe(true);
+
+      jobSchema.parse(completedJob);
+      pptxOoxmlGenerationJobResultSchema.parse(completedJob.result);
+      const sidecarPayload = JSON.stringify(templateBlueprint);
+      const jobPayload = JSON.stringify(completedJob.result);
+      expect(sidecarPayload).not.toContain("/content");
+      expect(sidecarPayload).not.toContain("contentBase64");
+      for (const note of sourceNotes) {
+        expect(sidecarPayload.includes(note)).toBe(false);
+        expect(jobPayload.includes(note)).toBe(false);
+      }
+
+      const sourceSlideFourNotes = sourceNotes[3]!;
+      expect(sourceSlideFourNotes.includes("\n\n")).toBe(true);
+      const editedSlideFourNotes =
+        `${sourceSlideFourNotes}\n\nSynthetic checkpoint B edit`;
+      const editedDeck = deckSchema.parse(structuredClone(persistedDeck));
+      editedDeck.slides[3]!.speakerNotes = editedSlideFourNotes;
+      const saved = await harness.decks.putDeck(projectId, {
+        baseVersion: persistedDeck.version,
+        deck: editedDeck,
+      });
+      const syncPayload = await enqueueSync(harness, projectId, {
+        deckId: saved.deck.deckId,
+        changeId: await latestChangeId(
+          dataSource,
+          projectId,
+          saved.deck.version,
+        ),
+        targetDeckVersion: saved.deck.version,
+      });
+      const syncJob = await processPptxOoxmlSyncJob(
+        dataSource,
+        storage,
+        pythonWorkerUrl,
+        syncPayload,
+      );
+      expect(syncJob.status, JSON.stringify(syncJob.error)).toBe("succeeded");
+
+      const syncedBlueprint = await loadTemplateBlueprint(
+        dataSource,
+        projectId,
+        saved.deck.deckId,
+      );
+      const refreshedPreviewFileIds = syncedBlueprint.slides.flatMap((slide) =>
+        slide.notesPage?.status === "rendered" &&
+        slide.notesPage.renderAssetFileId
+          ? [slide.notesPage.renderAssetFileId]
+          : [],
+      );
+      expect(refreshedPreviewFileIds).toHaveLength(8);
+      expect(new Set(refreshedPreviewFileIds).size).toBe(8);
+
+      const exportPayload = await enqueueExport(harness, projectId);
+      const exportedJob = await processDeckExportJob(
+        dataSource,
+        storage,
+        pythonWorkerUrl,
+        exportPayload,
+        { ooxmlReadyAttempts: 2, ooxmlReadyDelayMs: 0 },
+      );
+      expect(exportedJob.status, JSON.stringify(exportedJob.error)).toBe(
+        "succeeded",
+      );
+      const reimported = await importPptxWithPython(
+        pythonWorkerUrl,
+        await jobAssetBytes(dataSource, storage, exportedJob),
+        projectId,
+        integrationId("file"),
+      );
+      const expectedEditedDigests = sourceNotes.map((note, index) =>
+        noteDigest(index === 3 ? editedSlideFourNotes : note),
+      );
+      expect(reimported.blueprint.slides).toHaveLength(8);
+      expect(
+        (reimported.blueprint.slides ?? []).map((slide) =>
+          noteDigest(slide.speakerNotes ?? ""),
+        ),
+      ).toEqual(expectedEditedDigests);
+      expect(editedSlideFourNotes.startsWith(`${sourceSlideFourNotes}\n\n`)).toBe(
+        true,
+      );
+
+      const syncedSidecarPayload = JSON.stringify(syncedBlueprint);
+      const syncJobPayload = JSON.stringify(syncJob.result);
+      for (const note of [...sourceNotes, editedSlideFourNotes]) {
+        expect(syncedSidecarPayload.includes(note)).toBe(false);
+        expect(syncJobPayload.includes(note)).toBe(false);
+      }
+
+      const fallbackProjectId = integrationId("project");
+      const fallbackSourceFileId = integrationId("file");
+      const fallbackStorageKey =
+        `integration/${fallbackProjectId}/reference.pptx`;
+      const previewFailingStorage = new NotesPreviewFailingStorage();
+      projectIds.add(fallbackProjectId);
+      await previewFailingStorage.seed(
+        fallbackStorageKey,
+        sourceBytes,
+        pptxMimeType,
+        "pptx-import",
+      );
+      await seedProject(dataSource, fallbackProjectId);
+      await seedAsset(dataSource, {
+        projectId: fallbackProjectId,
+        fileId: fallbackSourceFileId,
+        storageKey: fallbackStorageKey,
+        purpose: "pptx-import",
+        body: sourceBytes,
+      });
+
+      const fallbackHarness = createServiceHarness(dataSource);
+      const fallbackImportJob = await fallbackHarness.jobs.create({
+        projectId: fallbackProjectId,
+        type: "pptx-ooxml-generation",
+        payload: { request: { fileId: fallbackSourceFileId } },
+      });
+      const fallbackJob = await processPptxOoxmlGenerationJob(
+        dataSource,
+        previewFailingStorage,
+        pythonWorkerUrl,
+        {
+          jobId: fallbackImportJob.jobId,
+          projectId: fallbackProjectId,
+          request: { fileId: fallbackSourceFileId },
+        },
+      );
+      expect(fallbackJob.status, JSON.stringify(fallbackJob.error)).toBe(
+        "succeeded",
+      );
+
+      const fallbackDeck = deckSchema.parse(
+        (await fallbackHarness.decks.getDeck(fallbackProjectId)).deck,
+      );
+      expect(fallbackDeck.slides.map((slide) => noteDigest(slide.speakerNotes)))
+        .toEqual(expectedNoteDigests);
+      const fallbackBlueprint = await loadTemplateBlueprint(
+        dataSource,
+        fallbackProjectId,
+        fallbackDeck.deckId,
+      );
+      expect(
+        fallbackBlueprint.slides.every(
+          (slide) =>
+            slide.notesPage?.status === "render-unavailable" &&
+            slide.notesPage.renderAssetFileId === undefined,
+        ),
+      ).toBe(true);
+      const fallbackResult = pptxOoxmlGenerationJobResultSchema.parse(
+        fallbackJob.result,
+      );
+      expect(fallbackResult.qualityReport.notesDiagnostics).toMatchObject({
+        rendered: 0,
+        warnings: expect.arrayContaining([
+          { code: "PPTX_NOTES_PREVIEW_ASSET_FAILED", count: 8 },
+        ]),
+      });
+      const fallbackJobPayload = JSON.stringify(fallbackResult);
+      for (const note of sourceNotes) {
+        expect(fallbackJobPayload.includes(note)).toBe(false);
+      }
+    },
+    180_000,
+  );
+
+  it("imports, saves, syncs, exports, and re-imports edited text and frame", async () => {
+    const projectId = integrationId("project");
+    const sourceFileId = integrationId("file");
+    const sourceStorageKey = `integration/${projectId}/source.pptx`;
+    const storage = new IntegrationStorage();
+    projectIds.add(projectId);
+
+    await expectPythonWorkerHealthy(pythonWorkerUrl);
+    const sourceDeck = createDeck(projectId, integrationId("deck"), 1);
+    const sourceBytes = await exportDeckWithPython(pythonWorkerUrl, sourceDeck);
+    await storage.seed(
+      sourceStorageKey,
+      sourceBytes,
+      pptxMimeType,
+      "pptx-import",
+    );
+    await seedProject(dataSource, projectId);
+    await seedAsset(dataSource, {
+      projectId,
+      fileId: sourceFileId,
+      storageKey: sourceStorageKey,
+      purpose: "pptx-import",
+      body: sourceBytes,
+    });
+
+    const harness = createServiceHarness(dataSource);
+    const importJob = await harness.jobs.create({
+      projectId,
+      type: "pptx-ooxml-generation",
+      payload: { request: { fileId: sourceFileId } },
+    });
+    const importedJob = await processPptxOoxmlGenerationJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      {
+        jobId: importJob.jobId,
+        projectId,
+        request: { fileId: sourceFileId },
+      },
+    );
+    expect(importedJob.status, JSON.stringify(importedJob.error)).toBe(
+      "succeeded",
+    );
+
+    const imported = (await harness.decks.getDeck(projectId)).deck;
+    const importedBlueprint = await loadTemplateBlueprint(
+      dataSource,
+      projectId,
+      imported.deckId,
+    );
+    expect(importedBlueprint.slides[0]?.notesPage?.status).toBe("absent");
+    const initialExportPayload = await enqueueExport(harness, projectId);
+    const initialExport = await processDeckExportJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      initialExportPayload,
+      { ooxmlReadyAttempts: 1, ooxmlReadyDelayMs: 0 },
+    );
+    expect(initialExport.status, JSON.stringify(initialExport.error)).toBe(
+      "succeeded",
+    );
+    expect(await jobAssetBytes(dataSource, storage, initialExport)).toEqual(
+      sourceBytes,
+    );
+
+    const sourceText = findTextElement(imported, "Initial integration text");
+    const expectedFrame = {
+      x: sourceText.x + 137,
+      y: sourceText.y + 83,
+      width: sourceText.width + 211,
+      height: sourceText.height + 47,
+    };
+    const editedText = "Edited through PostgreSQL OOXML round-trip";
+    const editedNotes = "Created through PostgreSQL OOXML notes round-trip";
+    const requested = deckSchema.parse(structuredClone(imported));
+    const requestedText = findElement(requested, sourceText.elementId);
+    Object.assign(requestedText, expectedFrame);
+    if (requestedText.type !== "text")
+      throw new Error("Expected text element.");
+    requestedText.props.text = editedText;
+    requested.slides[0]!.speakerNotes = editedNotes;
+
+    const saved = await harness.decks.putDeck(projectId, {
+      baseVersion: imported.version,
+      deck: requested,
+    });
+    expect(saved.deck.version).toBe(2);
+    const syncPayload = await enqueueSync(harness, projectId, {
+      deckId: saved.deck.deckId,
+      changeId: await latestChangeId(dataSource, projectId, saved.deck.version),
+      targetDeckVersion: saved.deck.version,
+    });
+    const syncJob = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      syncPayload,
+    );
+    expect(syncJob.status, JSON.stringify(syncJob.error)).toBe("succeeded");
+    expect(syncJob.result).toMatchObject({ syncedDeckVersion: 2 });
+    const syncedBlueprint = await loadTemplateBlueprint(
+      dataSource,
+      projectId,
+      saved.deck.deckId,
+    );
+    expect(syncedBlueprint.slides[0]?.notesPage).toMatchObject({
+      status: "rendered",
+      bodyWritable: true,
+      sourceNotesPart: "ppt/notesSlides/notesSlide1.xml",
+      sourceNotesMasterPart: "ppt/notesMasters/notesMaster1.xml",
+      renderAssetFileId: expect.stringMatching(/^file_/),
+    });
+
+    const exportPayload = await enqueueExport(harness, projectId);
+    const exportedJob = await processDeckExportJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      exportPayload,
+      { ooxmlReadyAttempts: 2, ooxmlReadyDelayMs: 0 },
+    );
+    expect(exportedJob.status, JSON.stringify(exportedJob.error)).toBe(
+      "succeeded",
+    );
+
+    const exportedBytes = await jobAssetBytes(dataSource, storage, exportedJob);
+    const reimported = await importPptxWithPython(
+      pythonWorkerUrl,
+      exportedBytes,
+      projectId,
+      integrationId("file"),
+    );
+    const reimportedText = findImportedText(reimported, editedText);
+    expect(reimportedText.x).toBeCloseTo(expectedFrame.x, 0);
+    expect(reimportedText.y).toBeCloseTo(expectedFrame.y, 0);
+    expect(reimportedText.width).toBeCloseTo(expectedFrame.width, 0);
+    expect(reimportedText.height).toBeCloseTo(expectedFrame.height, 0);
+    expect(reimported.blueprint.slides?.[0]?.speakerNotes).toBe(editedNotes);
+  }, 120_000);
+
+  it("coalesces cumulative reorder and authored line, arrow, and chart fallbacks", async () => {
+    const projectId = integrationId("project");
+    const sourceFileId = integrationId("file");
+    const sourceStorageKey = `integration/${projectId}/source.pptx`;
+    const storage = new IntegrationStorage();
+    projectIds.add(projectId);
+
+    await expectPythonWorkerHealthy(pythonWorkerUrl);
+    const baseDeck = createDeck(projectId, integrationId("deck"), 1);
+    const sourceDeck = deckSchema.parse({
+      ...baseDeck,
+      slides: [
+        {
+          ...baseDeck.slides[0],
+          slideId: "slide_source_1",
+          order: 1,
+          elements: [createTextElement("Slide 1", "el_source_1")],
+        },
+        {
+          ...baseDeck.slides[0],
+          slideId: "slide_source_2",
+          order: 2,
+          title: "Slide 2",
+          elements: [createTextElement("Slide 2", "el_source_2")],
+        },
+      ],
+    });
+    const sourceBytes = await exportDeckWithPython(pythonWorkerUrl, sourceDeck);
+    await storage.seed(
+      sourceStorageKey,
+      sourceBytes,
+      pptxMimeType,
+      "pptx-import",
+    );
+    await seedProject(dataSource, projectId);
+    await seedAsset(dataSource, {
+      projectId,
+      fileId: sourceFileId,
+      storageKey: sourceStorageKey,
+      purpose: "pptx-import",
+      body: sourceBytes,
+    });
+
+    const harness = createServiceHarness(dataSource);
+    const importJob = await harness.jobs.create({
+      projectId,
+      type: "pptx-ooxml-generation",
+      payload: { request: { fileId: sourceFileId } },
+    });
+    const importedJob = await processPptxOoxmlGenerationJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      {
+        jobId: importJob.jobId,
+        projectId,
+        request: { fileId: sourceFileId },
+      },
+    );
+    expect(importedJob.status, JSON.stringify(importedJob.error)).toBe(
+      "succeeded",
+    );
+
+    const imported = (await harness.decks.getDeck(projectId)).deck;
+    const targetSlideId = imported.slides[0]!.slideId;
+    const line = createAuthoredLineOrArrow("line", "el_authored_line", 120);
+    const arrow = createAuthoredLineOrArrow(
+      "arrow",
+      "el_authored_arrow",
+      280,
+    );
+    const chart = createAuthoredChart();
+    const afterLine = await harness.decks.appendPatch(projectId, {
+      patch: {
+        deckId: imported.deckId,
+        baseVersion: imported.version,
+        source: "user",
+        operations: [
+          { type: "add_element", slideId: targetSlideId, element: line },
+        ],
+      },
+    });
+    const afterArrow = await harness.decks.appendPatch(projectId, {
+      patch: {
+        deckId: imported.deckId,
+        baseVersion: afterLine.deck.version,
+        source: "user",
+        operations: [
+          { type: "add_element", slideId: targetSlideId, element: arrow },
+        ],
+      },
+    });
+    const finalSlideIds = [...imported.slides]
+      .reverse()
+      .map((slide) => slide.slideId);
+    const accumulated = await harness.decks.appendPatch(projectId, {
+      patch: {
+        deckId: imported.deckId,
+        baseVersion: afterArrow.deck.version,
+        source: "user",
+        operations: [
+          { type: "add_element", slideId: targetSlideId, element: chart },
+          {
+            type: "reorder_slides",
+            slideOrders: finalSlideIds.map((slideId, index) => ({
+              slideId,
+              order: index + 1,
+            })),
+          },
+        ],
+      },
+    });
+
+    const firstSyncPayload = await enqueueSync(harness, projectId, {
+      deckId: imported.deckId,
+      changeId: accumulated.changeRecord.changeId,
+      targetDeckVersion: accumulated.deck.version,
+    });
+    const firstSync = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      firstSyncPayload,
+    );
+    expect(firstSync.status, JSON.stringify(firstSync.error)).toBe("succeeded");
+    expect(firstSync.result).toMatchObject({
+      syncedDeckVersion: accumulated.deck.version,
+      syncCapabilityVersion: 3,
+      rasterizedElements: [
+        expect.objectContaining({ elementId: line.elementId, elementType: "line" }),
+        expect.objectContaining({ elementId: arrow.elementId, elementType: "arrow" }),
+        expect.objectContaining({ elementId: chart.elementId, elementType: "chart" }),
+      ],
+      warnings: [expect.stringContaining("arrow 1, chart 1, line 1")],
+    });
+    const firstBlueprint = await loadTemplateBlueprint(
+      dataSource,
+      projectId,
+      imported.deckId,
+    );
+    expect(firstBlueprint.ooxmlSyncedDeckVersion).toBe(accumulated.deck.version);
+    expect(
+      firstBlueprint.slides.flatMap((slide) => slide.elementSources).filter(
+        (source) => source.fallbackMode === "rasterized",
+      ),
+    ).toHaveLength(3);
+    const firstPackageBytes = await currentPackageBytes(
+      dataSource,
+      storage,
+      projectId,
+      firstBlueprint.currentPackageFileId!,
+    );
+
+    const updated = await harness.decks.appendPatch(projectId, {
+      patch: {
+        deckId: imported.deckId,
+        baseVersion: accumulated.deck.version,
+        source: "user",
+        operations: [
+          {
+            type: "update_element_props",
+            slideId: targetSlideId,
+            elementId: line.elementId,
+            props: { stroke: "#DC2626", strokeWidth: 10 },
+          },
+          {
+            type: "delete_element",
+            slideId: targetSlideId,
+            elementId: arrow.elementId,
+          },
+        ],
+      },
+    });
+    const secondSyncPayload = await enqueueSync(harness, projectId, {
+      deckId: imported.deckId,
+      changeId: updated.changeRecord.changeId,
+      targetDeckVersion: updated.deck.version,
+    });
+    const secondSync = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      secondSyncPayload,
+    );
+    expect(secondSync.status, JSON.stringify(secondSync.error)).toBe(
+      "succeeded",
+    );
+    expect(secondSync.result).toMatchObject({
+      syncedDeckVersion: updated.deck.version,
+      rasterizedElements: [
+        expect.objectContaining({ elementId: line.elementId }),
+        expect.objectContaining({ elementId: chart.elementId }),
+      ],
+    });
+    expect(
+      (secondSync.result?.rasterizedElements as Array<{ elementId: string }>).map(
+        (element) => element.elementId,
+      ),
+    ).not.toContain(arrow.elementId);
+
+    const finalBlueprint = await loadTemplateBlueprint(
+      dataSource,
+      projectId,
+      imported.deckId,
+    );
+    const finalFallbackSources = finalBlueprint.slides
+      .flatMap((slide) => slide.elementSources)
+      .filter((source) => source.fallbackMode === "rasterized");
+    expect(finalFallbackSources.map((source) => source.elementId).sort()).toEqual(
+      [chart.elementId, line.elementId].sort(),
+    );
+    const finalPackageBytes = await currentPackageBytes(
+      dataSource,
+      storage,
+      projectId,
+      finalBlueprint.currentPackageFileId!,
+    );
+    expect(finalPackageBytes).not.toEqual(firstPackageBytes);
+    expect(finalPackageBytes.subarray(0, 2).toString()).toBe("PK");
+    const patchRows = await dataSource.query<Array<{ count: string }>>(
+      `SELECT count(*)::text AS count FROM deck_patches
+       WHERE project_id = $1 AND deck_id = $2`,
+      [projectId, imported.deckId],
+    );
+    expect(patchRows[0]?.count).toBe("0");
+
+    const exportPayload = await enqueueExport(harness, projectId);
+    const exportedJob = await processDeckExportJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      exportPayload,
+      { ooxmlReadyAttempts: 2, ooxmlReadyDelayMs: 0 },
+    );
+    expect(exportedJob.status, JSON.stringify(exportedJob.error)).toBe(
+      "succeeded",
+    );
+    const reimported = await importPptxWithPython(
+      pythonWorkerUrl,
+      await jobAssetBytes(dataSource, storage, exportedJob),
+      projectId,
+      integrationId("file"),
+    );
+    expect(importedSlideTextOrder(reimported)).toEqual(["Slide 2", "Slide 1"]);
+    expect(
+      (reimported.blueprint.slides ?? [])
+        .flatMap((slide) => slide.elements ?? [])
+        .filter((element) => element.type === "image"),
+    ).toHaveLength(2);
+  }, 120_000);
+
+  it("replays add, duplicate, delete, reorder, and undo before export and re-import", async () => {
+    const projectId = integrationId("project");
+    const sourceFileId = integrationId("file");
+    const sourceStorageKey = `integration/${projectId}/source.pptx`;
+    const storage = new IntegrationStorage();
+    projectIds.add(projectId);
+
+    await expectPythonWorkerHealthy(pythonWorkerUrl);
+    const baseDeck = createDeck(projectId, integrationId("deck"), 1);
+    const sourceDeck = deckSchema.parse({
+      ...baseDeck,
+      slides: ["Slide 1", "Slide 2", "Slide 3"].map((text, index) => ({
+        ...baseDeck.slides[0],
+        slideId: `slide_source_${index + 1}`,
+        order: index + 1,
+        title: text,
+        elements: [createTextElement(text, `el_source_${index + 1}`)],
+      })),
+    });
+    const sourceBytes = await exportDeckWithPython(pythonWorkerUrl, sourceDeck);
+    await storage.seed(
+      sourceStorageKey,
+      sourceBytes,
+      pptxMimeType,
+      "pptx-import",
+    );
+    await seedProject(dataSource, projectId);
+    await seedAsset(dataSource, {
+      projectId,
+      fileId: sourceFileId,
+      storageKey: sourceStorageKey,
+      purpose: "pptx-import",
+      body: sourceBytes,
+    });
+
+    const harness = createServiceHarness(dataSource);
+    const importJob = await harness.jobs.create({
+      projectId,
+      type: "pptx-ooxml-generation",
+      payload: { request: { fileId: sourceFileId } },
+    });
+    const importedJob = await processPptxOoxmlGenerationJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      {
+        jobId: importJob.jobId,
+        projectId,
+        request: { fileId: sourceFileId },
+      },
+    );
+    expect(importedJob.status, JSON.stringify(importedJob.error)).toBe(
+      "succeeded",
+    );
+
+    const imported = (await harness.decks.getDeck(projectId)).deck;
+    const largeBlueprint = await loadTemplateBlueprint(
+      dataSource,
+      projectId,
+      imported.deckId,
+    );
+    largeBlueprint.slides[0]!.elementSources.push(
+      ...Array.from({ length: 9_000 }, (_, index) => ({
+        elementId: `el_large_${index}`,
+        slidePart: largeBlueprint.slides[0]!.sourceSlidePart!,
+        shapeId: String(index + 10_000),
+        sourceType: "slide" as const,
+        writable: false,
+      })),
+    );
+    expect(Buffer.byteLength(JSON.stringify(largeBlueprint))).toBeGreaterThan(
+      1024 * 1024,
+    );
+    await dataSource.query(
+      `UPDATE template_blueprints
+       SET blueprint_json = $3
+       WHERE project_id = $1 AND deck_id = $2`,
+      [projectId, imported.deckId, largeBlueprint],
+    );
+
+    const desiredSlideIds = [
+      imported.slides[2]!.slideId,
+      imported.slides[0]!.slideId,
+      imported.slides[1]!.slideId,
+    ];
+    const duplicateSlideId = integrationId("slide");
+    const duplicateSlide = deckSchema.parse({
+      ...imported,
+      slides: [
+        {
+          ...imported.slides[1]!,
+          slideId: duplicateSlideId,
+          order: 3,
+          title: "Duplicate",
+          elements: [],
+          ooxmlOrigin: "authored",
+        },
+      ],
+    }).slides[0]!;
+    const afterDuplicate = await harness.decks.appendPatch(projectId, {
+      patch: {
+        deckId: imported.deckId,
+        baseVersion: imported.version,
+        source: "user",
+        operations: [
+          { type: "add_slide", slide: duplicateSlide },
+          {
+            type: "reorder_slides",
+            slideOrders: [
+              imported.slides[0]!.slideId,
+              imported.slides[1]!.slideId,
+              duplicateSlideId,
+              imported.slides[2]!.slideId,
+            ].map((slideId, index) => ({ slideId, order: index + 1 })),
+          },
+        ],
+      },
+    });
+    const afterDelete = await harness.decks.appendPatch(projectId, {
+      patch: {
+        deckId: imported.deckId,
+        baseVersion: afterDuplicate.deck.version,
+        source: "user",
+        operations: [
+          { type: "delete_slide", slideId: imported.slides[1]!.slideId },
+          {
+            type: "reorder_slides",
+            slideOrders: [
+              imported.slides[0]!.slideId,
+              duplicateSlideId,
+              imported.slides[2]!.slideId,
+            ].map((slideId, index) => ({ slideId, order: index + 1 })),
+          },
+        ],
+      },
+    });
+    const afterDeleteUndo = await harness.decks.appendPatch(projectId, {
+      patch: {
+        deckId: imported.deckId,
+        baseVersion: afterDelete.deck.version,
+        source: "user",
+        operations: [
+          { type: "add_slide", slide: imported.slides[1]! },
+          {
+            type: "reorder_slides",
+            slideOrders: [...desiredSlideIds, duplicateSlideId].map(
+              (slideId, index) => ({ slideId, order: index + 1 }),
+            ),
+          },
+        ],
+      },
+    });
+    const saved = await harness.decks.appendPatch(projectId, {
+      patch: {
+        deckId: imported.deckId,
+        baseVersion: afterDeleteUndo.deck.version,
+        source: "user",
+        operations: [
+          { type: "delete_slide", slideId: duplicateSlideId },
+          {
+            type: "reorder_slides",
+            slideOrders: desiredSlideIds.map((slideId, index) => ({
+              slideId,
+              order: index + 1,
+            })),
+          },
+        ],
+      },
+    });
+    expect(saved.deck.version).toBe(imported.version + 4);
+    const syncPayload = await enqueueSync(harness, projectId, {
+      deckId: imported.deckId,
+      changeId: saved.changeRecord.changeId,
+      targetDeckVersion: saved.deck.version,
+    });
+    const syncJob = await processPptxOoxmlSyncJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      syncPayload,
+    );
+    expect(syncJob.status, JSON.stringify(syncJob.error)).toBe("succeeded");
+
+    const exportPayload = await enqueueExport(harness, projectId);
+    const exportedJob = await processDeckExportJob(
+      dataSource,
+      storage,
+      pythonWorkerUrl,
+      exportPayload,
+      { ooxmlReadyAttempts: 2, ooxmlReadyDelayMs: 0 },
+    );
+    expect(exportedJob.status, JSON.stringify(exportedJob.error)).toBe(
+      "succeeded",
+    );
+    const exportedBytes = await jobAssetBytes(dataSource, storage, exportedJob);
+    const reimported = await importPptxWithPython(
+      pythonWorkerUrl,
+      exportedBytes,
+      projectId,
+      integrationId("file"),
+    );
+
+    expect(importedSlideTextOrder(reimported)).toEqual([
+      "Slide 3",
+      "Slide 1",
+      "Slide 2",
+    ]);
+    const reloaded = (await harness.decks.getDeck(projectId)).deck;
+    expect(reloaded.slides.map((slide) => slide.slideId)).toEqual(
+      desiredSlideIds,
+    );
+  }, 120_000);
+
+  it("serializes inverted v2/v3 sync jobs and coalesces them to v3", async () => {
+    const fixture = await seedFakeImportedFixture(dataSource, projectIds);
+    const fake = await startFakePythonWorker(fixture.storage);
+    fakeWorkers.add(fake.server);
+
+    await patchText(fixture.harness, fixture.deck, "version 2");
+    const version2 = (await fixture.harness.decks.getDeck(fixture.projectId))
+      .deck;
+    await patchText(fixture.harness, version2, "version 3");
+    expect(fixture.harness.syncPayloads).toHaveLength(2);
+
+    const jobs = await Promise.all(
+      [...fixture.harness.syncPayloads]
+        .reverse()
+        .map((payload) =>
+          processPptxOoxmlSyncJob(
+            dataSource,
+            fixture.storage,
+            fake.url,
+            payload,
+          ),
+        ),
+    );
+
+    expect(jobs.every((job) => job.status === "succeeded")).toBe(true);
+    expect(jobs.map((job) => job.result)).toEqual([
+      expect.objectContaining({ syncedDeckVersion: 3 }),
+      expect.objectContaining({ syncedDeckVersion: 3 }),
+    ]);
+    expect(fake.syncedVersions).toEqual([3]);
+    const blueprint = await loadTemplateBlueprint(
+      dataSource,
+      fixture.projectId,
+      fixture.deck.deckId,
+    );
+    expect(blueprint.ooxmlSyncedDeckVersion).toBe(3);
+    expect(
+      await currentPackageBytes(
+        dataSource,
+        fixture.storage,
+        fixture.projectId,
+        blueprint.currentPackageFileId!,
+      ),
+    ).toEqual(Buffer.from("fake-package-v3"));
+  });
+
+  it("re-evaluates the latest deck version while export waits for sync", async () => {
+    const fixture = await seedFakeImportedFixture(dataSource, projectIds);
+    const fake = await startFakePythonWorker(fixture.storage);
+    fakeWorkers.add(fake.server);
+
+    await patchText(fixture.harness, fixture.deck, "version 2");
+    const version2 = (await fixture.harness.decks.getDeck(fixture.projectId))
+      .deck;
+    const exportPayload = await enqueueExport(
+      fixture.harness,
+      fixture.projectId,
+    );
+    const exporting = processDeckExportJob(
+      dataSource,
+      fixture.storage,
+      fake.url,
+      exportPayload,
+      { ooxmlReadyAttempts: 4, ooxmlReadyDelayMs: 300 },
+    );
+
+    await waitForJobStatus(dataSource, exportPayload.jobId, "running");
+    await delay(100);
+    await patchText(fixture.harness, version2, "version 3");
+    const latestSyncPayload = fixture.harness.syncPayloads.at(-1);
+    if (!latestSyncPayload)
+      throw new Error("Latest sync job was not enqueued.");
+    const syncJob = await processPptxOoxmlSyncJob(
+      dataSource,
+      fixture.storage,
+      fake.url,
+      latestSyncPayload,
+    );
+    expect(syncJob.status, JSON.stringify(syncJob.error)).toBe("succeeded");
+
+    const exportedJob = await exporting;
+    expect(exportedJob.status, JSON.stringify(exportedJob.error)).toBe(
+      "succeeded",
+    );
+    expect(fake.syncedVersions).toEqual([3]);
+    expect(
+      await jobAssetBytes(dataSource, fixture.storage, exportedJob),
+    ).toEqual(Buffer.from("fake-package-v3"));
+  });
+
+  it("fails a bounded stale export without returning the old package", async () => {
+    const fixture = await seedFakeImportedFixture(dataSource, projectIds);
+    await patchText(fixture.harness, fixture.deck, "unsynced version 2");
+    const exportPayload = await enqueueExport(
+      fixture.harness,
+      fixture.projectId,
+    );
+
+    const exportedJob = await processDeckExportJob(
+      dataSource,
+      fixture.storage,
+      pythonWorkerUrl,
+      exportPayload,
+      { ooxmlReadyAttempts: 2, ooxmlReadyDelayMs: 0 },
+    );
+
+    expect(exportedJob.status).toBe("failed");
+    expect(exportedJob.error).toMatchObject({
+      code: "DECK_EXPORT_OOXML_SYNC_STALE",
+    });
+    expect(exportedJob.result).toBeNull();
+    expect(fixture.storage.objectsByPurpose("export-result")).toHaveLength(0);
+    const rows = await dataSource.query<Array<{ count: string }>>(
+      `SELECT count(*)::text AS count FROM project_assets
+       WHERE project_id = $1 AND purpose = 'export-result'`,
+      [fixture.projectId],
+    );
+    expect(rows[0]?.count).toBe("0");
+  });
+});
+
+class IntegrationStorage extends LocalMinioStorage {
+  private readonly objectPurposes = new Map<
+    string,
+    StoragePutInput["purpose"]
+  >();
+
+  constructor() {
+    const endpoint =
+      process.env.PPTX_INTEGRATION_S3_ENDPOINT ?? "http://127.0.0.1:9000";
+    super({
+      endpoint,
+      publicEndpoint: endpoint,
+      bucket: process.env.PPTX_INTEGRATION_S3_BUCKET ?? "orbit-local",
+      region: process.env.PPTX_INTEGRATION_S3_REGION ?? "ap-northeast-2",
+      accessKeyId: process.env.PPTX_INTEGRATION_S3_ACCESS_KEY_ID ?? "orbit",
+      secretAccessKey:
+        process.env.PPTX_INTEGRATION_S3_SECRET_ACCESS_KEY ?? "orbit-password",
+      forcePathStyle: true,
+    });
+  }
+
+  async seed(
+    key: string,
+    body: Buffer,
+    contentType: string,
+    purpose: StoragePutInput["purpose"],
+  ): Promise<void> {
+    await this.putObject({ key, body, contentType, purpose });
+  }
+
+  override async putObject(input: StoragePutInput): Promise<StorageObject> {
+    const stored = await super.putObject(input);
+    this.objectPurposes.set(input.key, input.purpose);
+    return stored;
+  }
+
+  async bytes(key: string): Promise<Buffer> {
+    const object = await this.getObject(key);
+    return Buffer.from(object.body);
+  }
+
+  objectsByPurpose(purpose: StoragePutInput["purpose"]): string[] {
+    return [...this.objectPurposes.entries()]
+      .filter(([, storedPurpose]) => storedPurpose === purpose)
+      .map(([key]) => key);
+  }
+}
+
+class NotesPreviewFailingStorage extends IntegrationStorage {
+  override async putObject(input: StoragePutInput): Promise<StorageObject> {
+    if (input.key.includes("notes-")) {
+      throw new Error("Synthetic notes preview storage failure.");
+    }
+    return super.putObject(input);
+  }
+}
+
+function createServiceHarness(dataSource: DataSource) {
+  const logger = { info: () => undefined, error: () => undefined };
+  const jobs = new JobsService(
+    dataSource,
+    async () => undefined,
+    logger as never,
+  );
+  const syncPayloads: Array<Record<string, unknown>> = [];
+  const exportPayloads: Array<Record<string, unknown>> = [];
+  const decks = new DecksService(dataSource);
+  return { decks, jobs, syncPayloads, exportPayloads };
+}
+
+async function seedFakeImportedFixture(
+  dataSource: DataSource,
+  projectIds: Set<string>,
+) {
+  const projectId = integrationId("project");
+  const deck = createDeck(projectId, integrationId("deck"), 1);
+  const packageFileId = integrationId("file");
+  const packageKey = `integration/${projectId}/current.pptx`;
+  const storage = new IntegrationStorage();
+  await storage.seed(
+    packageKey,
+    Buffer.from("fake-package-v1"),
+    pptxMimeType,
+    "design-asset",
+  );
+  projectIds.add(projectId);
+  await seedProject(dataSource, projectId);
+  await seedAsset(dataSource, {
+    projectId,
+    fileId: packageFileId,
+    storageKey: packageKey,
+    purpose: "design-asset",
+    body: Buffer.from("fake-package-v1"),
+  });
+  await dataSource.query(
+    `INSERT INTO decks (project_id, deck_id, deck_json, version, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, now(), now())`,
+    [projectId, deck.deckId, deck, deck.version],
+  );
+  const blueprint = templateBlueprintSchema.parse({
+    templateId: integrationId("template"),
+    sourceFileId: packageFileId,
+    sourcePackageFileId: packageFileId,
+    currentPackageFileId: packageFileId,
+    ooxmlSyncedDeckVersion: 1,
+    slides: [
+      {
+        slideIndex: 1,
+        sourceSlideIndex: 1,
+        elementSources: [
+          {
+            elementId: deck.slides[0]!.elements[0]!.elementId,
+            slidePart: "ppt/slides/slide1.xml",
+            shapeId: "2",
+            sourceType: "slide",
+            writable: true,
+          },
+        ],
+        slots: [],
+      },
+    ],
+  });
+  await dataSource.query(
+    `INSERT INTO template_blueprints (
+       template_id, project_id, deck_id, source_file_id,
+       blueprint_json, quality_report_json, created_at, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, now(), now())`,
+    [blueprint.templateId, projectId, deck.deckId, packageFileId, blueprint],
+  );
+  return {
+    projectId,
+    deck,
+    storage,
+    harness: createServiceHarness(dataSource),
+  };
+}
+
+async function seedProject(dataSource: DataSource, projectId: string) {
+  await dataSource.query(
+    `INSERT INTO projects (project_id, workspace_id, title, created_by, created_at)
+     VALUES ($1, $2, 'OOXML integration', 'integration-test', now())`,
+    [projectId, integrationId("workspace")],
+  );
+}
+
+async function seedAsset(
+  dataSource: DataSource,
+  input: {
+    projectId: string;
+    fileId: string;
+    storageKey: string;
+    purpose: "pptx-import" | "design-asset";
+    body: Buffer;
+  },
+) {
+  await dataSource.query(
+    `INSERT INTO project_assets (
+       file_id, project_id, storage_key, original_name, mime_type, size, url,
+       purpose, status, created_at, uploaded_at, deleted_at
+     ) VALUES ($1, $2, $3, 'integration.pptx', $4, $5, $6, $7, 'uploaded', now(), now(), null)`,
+    [
+      input.fileId,
+      input.projectId,
+      input.storageKey,
+      pptxMimeType,
+      input.body.byteLength,
+      `/api/v1/projects/${input.projectId}/assets/${input.fileId}/content`,
+      input.purpose,
+    ],
+  );
+}
+
+async function patchText(
+  harness: ReturnType<typeof createServiceHarness>,
+  deck: Deck,
+  text: string,
+) {
+  const element = deck.slides[0]!.elements[0]!;
+  const response = await harness.decks.appendPatch(deck.projectId, {
+    patch: {
+      deckId: deck.deckId,
+      baseVersion: deck.version,
+      source: "user",
+      operations: [
+        {
+          type: "update_element_props",
+          slideId: deck.slides[0]!.slideId,
+          elementId: element.elementId,
+          props: { text },
+        },
+      ],
+    },
+  });
+  await enqueueSync(harness, deck.projectId, {
+    deckId: deck.deckId,
+    changeId: response.changeRecord.changeId,
+    targetDeckVersion: response.changeRecord.afterVersion,
+  });
+}
+
+async function enqueueSync(
+  harness: ReturnType<typeof createServiceHarness>,
+  projectId: string,
+  input: { deckId: string; changeId: string; targetDeckVersion: number },
+) {
+  const versionedInput = {
+    ...input,
+    syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
+  };
+  const job = await harness.jobs.create({
+    projectId,
+    type: "pptx-ooxml-sync",
+    payload: versionedInput,
+  });
+  const payload = { jobId: job.jobId, projectId, ...versionedInput };
+  harness.syncPayloads.push(payload);
+  return payload;
+}
+
+async function enqueueExport(
+  harness: ReturnType<typeof createServiceHarness>,
+  projectId: string,
+) {
+  const { deck } = await harness.decks.getDeck(projectId);
+  const job = await harness.jobs.create({
+    projectId,
+    type: "deck-export",
+    payload: { deckId: deck.deckId, format: "pptx" },
+  });
+  const payload = { jobId: job.jobId, projectId, deck, format: "pptx" };
+  harness.exportPayloads.push(payload);
+  return payload;
+}
+
+async function startFakePythonWorker(storage: Pick<StoragePort, "putObject">) {
+  const syncedVersions: number[] = [];
+  const server = createServer(async (request, response) => {
+    if (request.method !== "POST" || request.url !== "/ai/pptx-ooxml-sync") {
+      response.writeHead(404).end();
+      return;
+    }
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const body = Buffer.concat(chunks).toString("utf8");
+    const version = Number(
+      body.match(/name="synced_deck_version"\r\n\r\n(\d+)/)?.[1] ?? 0,
+    );
+    const storagePrefix = body.match(
+      /name="storage_prefix"\r\n\r\n([^\r\n]+)/,
+    )?.[1];
+    if (!storagePrefix) {
+      response.writeHead(400).end("storage_prefix is required");
+      return;
+    }
+    const operations = JSON.parse(
+      body.match(
+        /name="operations_file"; filename="operations.json"\r\nContent-Type: application\/json\r\n\r\n([^\r\n]+)/,
+      )?.[1] ?? "[]",
+    ) as Array<{
+      type: string;
+      slideId?: string;
+      elementId?: string;
+      element?: { elementId?: string };
+    }>;
+    syncedVersions.push(version);
+    const packageBody = Buffer.from(`fake-package-v${version}`);
+    const sha256 = createHash("sha256").update(packageBody).digest("hex");
+    const fileName = `current-v${version}.pptx`;
+    const storageKey = `${storagePrefix}${sha256}-${fileName}`;
+    await storage.putObject({
+      key: storageKey,
+      body: packageBody,
+      contentType: pptxMimeType,
+      purpose: "design-asset",
+      metadata: { "orbit-sha256": sha256 },
+    });
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(
+      JSON.stringify({
+        assetTransport: "storage-manifest-v1",
+        assets: [
+          {
+            assetId: "current_package",
+            fileName,
+            mimeType: pptxMimeType,
+            storageKey,
+            size: packageBody.byteLength,
+            sha256,
+          },
+        ],
+        elementSources: [],
+        appliedOperations: operations.map((operation) => ({
+          operationType: operation.type,
+          slideId: operation.slideId,
+          elementId: operation.elementId ?? operation.element?.elementId,
+        })),
+        unsupportedOperations: [],
+        warnings: [],
+      }),
+    );
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const { port } = server.address() as AddressInfo;
+  return { server, url: `http://127.0.0.1:${port}`, syncedVersions };
+}
+
+async function expectPythonWorkerHealthy(baseUrl: string) {
+  const response = await fetch(new URL("/health", baseUrl), {
+    signal: AbortSignal.timeout(10_000),
+  });
+  expect(response.ok).toBe(true);
+}
+
+async function exportDeckWithPython(baseUrl: string, deck: Deck) {
+  const response = await fetch(new URL("/ai/export-deck-pptx", baseUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ deck, format: "pptx" }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) throw new Error(await response.text());
+  const payload = (await response.json()) as { contentBase64: string };
+  return Buffer.from(payload.contentBase64, "base64");
+}
+
+async function importPptxWithPython(
+  baseUrl: string,
+  bytes: Buffer,
+  projectId: string,
+  fileId: string,
+  importPreference: "appearance-first" | "editability-first" =
+    "editability-first",
+) {
+  const form = new FormData();
+  form.append("project_id", projectId);
+  form.append("file_ids", fileId);
+  form.append("import_preference", importPreference);
+  form.append(
+    "files",
+    new Blob([bytes], { type: pptxMimeType }),
+    "roundtrip.pptx",
+  );
+  const response = await fetch(new URL("/design/import-pptx", baseUrl), {
+    method: "POST",
+    body: form,
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return (await response.json()) as {
+    blueprint: {
+      slides?: Array<{
+        elements?: Array<Record<string, unknown>>;
+        speakerNotes?: string;
+      }>;
+    };
+  };
+}
+
+function noteDigest(note: string): string {
+  return createHash("sha256").update(note).digest("hex");
+}
+
+function findImportedText(
+  imported: Awaited<ReturnType<typeof importPptxWithPython>>,
+  text: string,
+) {
+  const element = imported.blueprint.slides
+    ?.flatMap((slide) => slide.elements ?? [])
+    .find(
+      (candidate) =>
+        candidate.type === "text" &&
+        (candidate.props as Record<string, unknown> | undefined)?.text === text,
+    );
+  if (!element) throw new Error(`Re-imported text not found: ${text}`);
+  return element as { x: number; y: number; width: number; height: number };
+}
+
+function importedSlideTextOrder(
+  imported: Awaited<ReturnType<typeof importPptxWithPython>>,
+) {
+  return (imported.blueprint.slides ?? []).map((slide) => {
+    const element = (slide.elements ?? []).find(
+      (candidate) =>
+        candidate.type === "text" &&
+        String(
+          (candidate.props as Record<string, unknown> | undefined)?.text,
+        ).startsWith("Slide "),
+    );
+    if (!element) throw new Error("Re-imported slide text not found.");
+    return String((element.props as Record<string, unknown>).text);
+  });
+}
+
+async function loadTemplateBlueprint(
+  dataSource: DataSource,
+  projectId: string,
+  deckId: string,
+) {
+  const rows = await dataSource.query<Array<{ blueprint_json: unknown }>>(
+    `SELECT blueprint_json FROM template_blueprints
+     WHERE project_id = $1 AND deck_id = $2`,
+    [projectId, deckId],
+  );
+  return templateBlueprintSchema.parse(rows[0]?.blueprint_json);
+}
+
+async function latestChangeId(
+  dataSource: DataSource,
+  projectId: string,
+  afterVersion: number,
+) {
+  const rows = await dataSource.query<Array<{ change_id: string }>>(
+    `SELECT change_id FROM deck_patches
+     WHERE project_id = $1 AND after_version = $2`,
+    [projectId, afterVersion],
+  );
+  const changeId = rows[0]?.change_id;
+  if (!changeId) throw new Error(`Deck change not found for v${afterVersion}.`);
+  return changeId;
+}
+
+async function currentPackageBytes(
+  dataSource: DataSource,
+  storage: IntegrationStorage,
+  projectId: string,
+  fileId: string,
+) {
+  const rows = await dataSource.query<Array<{ storage_key: string }>>(
+    `SELECT storage_key FROM project_assets
+     WHERE project_id = $1 AND file_id = $2`,
+    [projectId, fileId],
+  );
+  const key = rows[0]?.storage_key;
+  if (!key) throw new Error(`Package asset not found: ${fileId}`);
+  return storage.bytes(key);
+}
+
+async function jobAssetBytes(
+  dataSource: DataSource,
+  storage: IntegrationStorage,
+  job: Job,
+) {
+  const fileId = (job.result as { fileId?: string } | null)?.fileId;
+  if (!fileId) throw new Error("Export job has no fileId.");
+  return currentPackageBytes(dataSource, storage, job.projectId, fileId);
+}
+
+async function waitForJobStatus(
+  dataSource: DataSource,
+  jobId: string,
+  status: Job["status"],
+) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const rows = await dataSource.query<Array<{ status: string }>>(
+      "SELECT status FROM jobs WHERE job_id = $1",
+      [jobId],
+    );
+    if (rows[0]?.status === status) return;
+    await delay(10);
+  }
+  throw new Error(`Job ${jobId} did not reach ${status}.`);
+}
+
+async function cleanupProject(dataSource: DataSource, projectId: string) {
+  await dataSource.query("DELETE FROM jobs WHERE project_id = $1", [projectId]);
+  await dataSource.query("DELETE FROM deck_snapshots WHERE project_id = $1", [
+    projectId,
+  ]);
+  await dataSource.query("DELETE FROM deck_patches WHERE project_id = $1", [
+    projectId,
+  ]);
+  await dataSource.query(
+    "DELETE FROM template_blueprints WHERE project_id = $1",
+    [projectId],
+  );
+  await dataSource.query("DELETE FROM decks WHERE project_id = $1", [
+    projectId,
+  ]);
+  await dataSource.query("DELETE FROM projects WHERE project_id = $1", [
+    projectId,
+  ]);
+}
+
+function createDeck(projectId: string, deckId: string, version: number): Deck {
+  return deckSchema.parse({
+    deckId,
+    projectId,
+    title: "OOXML integration",
+    version,
+    metadata: { sourceType: "import" },
+    canvas: {
+      preset: "wide-16-9",
+      width: 1920,
+      height: 1080,
+      aspectRatio: "16:9",
+    },
+    slides: [
+      {
+        slideId: "slide_1",
+        order: 1,
+        title: "Integration",
+        elements: [createTextElement()],
+      },
+    ],
+  });
+}
+
+function createTextElement(
+  text = "Initial integration text",
+  elementId = "el_integration_text",
+): DeckElement {
+  return {
+    elementId,
+    type: "text",
+    role: "body",
+    x: 180,
+    y: 220,
+    width: 760,
+    height: 180,
+    rotation: 0,
+    opacity: 1,
+    zIndex: 1,
+    locked: false,
+    visible: true,
+    props: {
+      text,
+      fontSize: 36,
+      fontWeight: "normal",
+      color: "#111827",
+      align: "left",
+      verticalAlign: "top",
+      lineHeight: 1.2,
+    },
+  };
+}
+
+function createAuthoredLineOrArrow(
+  type: "line" | "arrow",
+  elementId: string,
+  y: number,
+): DeckElement {
+  return {
+    elementId,
+    type,
+    role: "decoration",
+    x: 160,
+    y,
+    width: 520,
+    height: 80,
+    rotation: 0,
+    opacity: 1,
+    zIndex: type === "line" ? 2 : 3,
+    locked: false,
+    visible: true,
+    ooxmlOrigin: "authored",
+    props: {
+      stroke: type === "line" ? "#2563EB" : "#7C3AED",
+      strokeWidth: 8,
+      lineCap: "round",
+      dash: type === "line" ? [16, 8] : undefined,
+    },
+  };
+}
+
+function createAuthoredChart(): DeckElement {
+  return {
+    elementId: "el_authored_chart",
+    type: "chart",
+    role: "chart",
+    x: 760,
+    y: 180,
+    width: 720,
+    height: 460,
+    rotation: 0,
+    opacity: 1,
+    zIndex: 4,
+    locked: false,
+    visible: true,
+    ooxmlOrigin: "authored",
+    props: {
+      type: "bar",
+      title: "Authored fallback chart",
+      data: [
+        { label: "Q1", series: "2026", value: 32 },
+        { label: "Q2", series: "2026", value: 48 },
+      ],
+      style: {
+        colors: ["#2563EB", "#7C3AED"],
+        showLegend: true,
+        showDataLabels: true,
+        showGrid: true,
+      },
+    },
+  };
+}
+
+function findTextElement(deck: Deck, text: string) {
+  const element = deck.slides
+    .flatMap((slide) => slide.elements)
+    .find(
+      (candidate) => candidate.type === "text" && candidate.props.text === text,
+    );
+  if (!element || element.type !== "text") {
+    throw new Error(`Text element not found: ${text}`);
+  }
+  return element;
+}
+
+function findElement(deck: Deck, elementId: string) {
+  const element = deck.slides
+    .flatMap((slide) => slide.elements)
+    .find((candidate) => candidate.elementId === elementId);
+  if (!element) throw new Error(`Element not found: ${elementId}`);
+  return element;
+}
+
+function integrationId(prefix: string) {
+  return `${prefix}_integration_${randomUUID().replaceAll("-", "")}`;
+}
+
+function closeServer(server: Server) {
+  return new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

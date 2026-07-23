@@ -1,4 +1,8 @@
 import type { DeckAnimation, DeckSlideAction, Slide } from "@orbit/shared";
+import {
+  createAnimationTimeline,
+  getAnimationTimelineRoot
+} from "./animationTimeline";
 
 export type SlidePlaybackState = {
   playedAnimationIds: string[];
@@ -6,6 +10,7 @@ export type SlidePlaybackState = {
 
 export type ClickPlaybackResult = {
   animation: DeckAnimation;
+  animations: DeckAnimation[];
   state: SlidePlaybackState;
 };
 
@@ -14,6 +19,7 @@ export type SlideActionExecutionResult =
       kind: "play-animation";
       action: DeckSlideAction;
       animation: DeckAnimation;
+      animations: DeckAnimation[];
       state: SlidePlaybackState;
     }
   | {
@@ -28,32 +34,70 @@ export function createSlidePlaybackState(): SlidePlaybackState {
   };
 }
 
+export function getAnimationActionTriggerKeys(slide: Slide) {
+  const actionKeysByAnimationId = new Map<string, Set<string>>();
+
+  for (const action of slide.actions) {
+    if (
+      action.effect.kind !== "play-animation" ||
+      action.trigger.kind !== "keyword-occurrence"
+    ) {
+      continue;
+    }
+
+    const actionKeys = actionKeysByAnimationId.get(action.effect.animationId) ?? new Set();
+    actionKeys.add(
+      getActionTriggerKey(
+        action as DeckSlideAction & {
+          trigger: Extract<
+            DeckSlideAction["trigger"],
+            { kind: "keyword-occurrence" }
+          >;
+        }
+      )
+    );
+    actionKeysByAnimationId.set(action.effect.animationId, actionKeys);
+  }
+
+  return new Map(
+    Array.from(actionKeysByAnimationId, ([animationId, keys]) => [
+      animationId,
+      Array.from(keys).sort().join("|"),
+    ])
+  );
+}
+
 export function getNextClickAnimation(
   slide: Slide,
   state: SlidePlaybackState
 ): DeckAnimation | null {
-  const playedAnimationIds = new Set(state.playedAnimationIds);
-
-  return (
-    [...slide.animations]
-      .sort((left, right) => left.order - right.order)
-      .find((animation) => !playedAnimationIds.has(animation.animationId)) ?? null
-  );
+  const root = getNextClickRoot(slide, state);
+  const rootAnimation = root?.effects[0];
+  return rootAnimation
+    ? slide.animations[rootAnimation.sourceIndex] ?? null
+    : null;
 }
 
 export function playNextClickAnimation(
   slide: Slide,
   state: SlidePlaybackState
 ): ClickPlaybackResult | null {
-  const animation = getNextClickAnimation(slide, state);
+  const root = getNextClickRoot(slide, state);
+  const animation = root?.effects[0];
 
-  if (!animation) {
+  if (!root || !animation) {
     return null;
   }
 
+  const animations = getRootSourceAnimations(slide, root);
+
   return {
-    animation,
-    state: markAnimationPlayed(state, animation.animationId)
+    animation: animations[0]!,
+    animations,
+    state: markAnimationsPlayed(
+      state,
+      animations.map((candidate) => candidate.animationId)
+    )
   };
 }
 
@@ -124,11 +168,29 @@ export function executeSlideAction(
         return null;
       }
 
+      const plan = createSlideAnimationTimeline(slide);
+      const root = getAnimationTimelineRoot(plan, animation.animationId);
+      const animations = root
+        ? getRootSourceAnimations(slide, root)
+        : [animation];
+
+      if (
+        animations.some((candidate) =>
+          hasPlayedAnimation(state, candidate.animationId)
+        )
+      ) {
+        return null;
+      }
+
       return {
         kind: "play-animation",
         action,
         animation,
-        state: markAnimationPlayed(state, animation.animationId)
+        animations,
+        state: markAnimationsPlayed(
+          state,
+          animations.map((candidate) => candidate.animationId)
+        )
       };
     }
 
@@ -148,17 +210,71 @@ function hasPlayedAnimation(
   return state.playedAnimationIds.includes(animationId);
 }
 
-function markAnimationPlayed(
+function markAnimationsPlayed(
   state: SlidePlaybackState,
-  animationId: string
+  animationIds: Iterable<string>
 ): SlidePlaybackState {
-  if (hasPlayedAnimation(state, animationId)) {
+  const playedAnimationIds = new Set(state.playedAnimationIds);
+  let changed = false;
+
+  for (const animationId of animationIds) {
+    if (!playedAnimationIds.has(animationId)) {
+      playedAnimationIds.add(animationId);
+      changed = true;
+    }
+  }
+
+  if (!changed) {
     return state;
   }
 
   return {
-    playedAnimationIds: [...state.playedAnimationIds, animationId]
+    playedAnimationIds: [...playedAnimationIds]
   };
+}
+
+function createSlideAnimationTimeline(slide: Slide) {
+  return createAnimationTimeline({
+    actionTriggerKeys: getAnimationActionTriggerKeys(slide),
+    animations: slide.animations,
+    legacyOnClickAnimationIds: slide.actions.flatMap((action) =>
+      action.effect.kind === "play-animation"
+        ? [action.effect.animationId]
+        : []
+    ),
+    targetElementIds: slide.elements.map((element) => element.elementId),
+    transitionDurationMs: slide.transition?.durationMs ?? 0
+  });
+}
+
+function getActionTriggerKey(
+  action: DeckSlideAction & {
+    trigger: Extract<DeckSlideAction["trigger"], { kind: "keyword-occurrence" }>;
+  }
+) {
+  return `keyword-occurrence:${action.trigger.keywordId}:${action.trigger.occurrenceId}`;
+}
+
+function getNextClickRoot(slide: Slide, state: SlidePlaybackState) {
+  const playedAnimationIds = new Set(state.playedAnimationIds);
+
+  return (
+    createSlideAnimationTimeline(slide).clickSteps.find((root) =>
+      root.effects.every(
+        (animation) => !playedAnimationIds.has(animation.animationId)
+      )
+    ) ?? null
+  );
+}
+
+function getRootSourceAnimations(
+  slide: Slide,
+  root: NonNullable<ReturnType<typeof getAnimationTimelineRoot>>
+) {
+  return root.effects.flatMap((animation) => {
+    const sourceAnimation = slide.animations[animation.sourceIndex];
+    return sourceAnimation ? [sourceAnimation] : [];
+  });
 }
 
 function normalizeCue(value: string): string {

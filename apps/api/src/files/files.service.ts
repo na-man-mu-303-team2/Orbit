@@ -1,6 +1,7 @@
 import {
   assetUploadUrlResponseSchema,
   filePurposeSchema,
+  ownerOnlyFilePurposes,
   privateAudioPurposes,
   uploadedFileSchema,
 } from "@orbit/shared";
@@ -12,7 +13,8 @@ import type {
   UploadedFile,
 } from "@orbit/shared";
 import { StoragePort } from "@orbit/storage";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
+import type { Readable } from "node:stream";
 import {
   BadRequestException,
   ForbiddenException,
@@ -30,6 +32,8 @@ export const STORAGE_PORT = Symbol("STORAGE_PORT");
 export const UPLOAD_PROXY_ORIGIN = Symbol("UPLOAD_PROXY_ORIGIN");
 
 const uploadUrlExpiresInSeconds = 15 * 60;
+const maximumPrivateAudioReadUrlExpiresInSeconds = 15 * 60;
+const assetContentCacheControl = "private, no-cache";
 const publicAssetContentPurposes = new Set<FilePurpose>([
   "thumbnail",
   "pptx-import",
@@ -62,14 +66,13 @@ export class FilesService {
     projectId: string,
     input: AssetUploadUrlRequest,
     requestOrigin?: string | null,
+    storageKeyOverride?: string,
   ): Promise<AssetUploadUrlResponse> {
     const project = await this.projectsService.getAccessibleProject(projectId);
     const fileId = `file_${randomUUID()}`;
-    const storageKey = this.createStorageKey(
-      project.projectId,
-      fileId,
-      input.originalName,
-    );
+    const storageKey =
+      storageKeyOverride ??
+      this.createStorageKey(project.projectId, fileId, input.originalName);
     const uploadUrl = await this.createUploadTarget({
       projectId: project.projectId,
       fileId,
@@ -106,6 +109,28 @@ export class FilesService {
       expiresAt: uploadUrl.expiresAt,
       purpose: input.purpose,
     });
+  }
+
+  async createRehearsalAudioUploadUrl(
+    projectId: string,
+    input: AssetUploadUrlRequest,
+    rehearsal: { runId: string; createdAt: Date },
+  ): Promise<AssetUploadUrlResponse> {
+    const extension = rehearsalAudioExtension(input.mimeType);
+    const date = formatAsiaSeoulDate(rehearsal.createdAt);
+    const storageKey = `rehearsals/${date}/${projectId}/${rehearsal.runId}/audio.${extension}`;
+    return this.createUploadUrl(projectId, input, undefined, storageKey);
+  }
+
+  async createPresentationAudioUploadUrl(
+    projectId: string,
+    input: AssetUploadUrlRequest,
+    presentation: { runId: string; createdAt: Date },
+  ): Promise<AssetUploadUrlResponse> {
+    const extension = rehearsalAudioExtension(input.mimeType);
+    const date = formatAsiaSeoulDate(presentation.createdAt);
+    const storageKey = `presentations/${date}/${projectId}/${presentation.runId}/audio.${extension}`;
+    return this.createUploadUrl(projectId, input, undefined, storageKey);
   }
 
   // local MinIO 모드에서 브라우저가 보낸 binary를 실제 storage object로 저장한다.
@@ -172,7 +197,7 @@ export class FilesService {
 
     if (
       (expectedPurpose && asset.purpose !== expectedPurpose) ||
-      (!expectedPurpose && privateAudioPurposes.has(asset.purpose))
+      (!expectedPurpose && ownerOnlyFilePurposes.has(asset.purpose))
     ) {
       throw new NotFoundException(`Asset not found: ${input.fileId}`);
     }
@@ -219,18 +244,124 @@ export class FilesService {
       throw new ForbiddenException(`Asset purpose must be ${purpose}`);
     }
 
-    if (!purpose && privateAudioPurposes.has(asset.purpose)) {
+    if (!purpose && ownerOnlyFilePurposes.has(asset.purpose)) {
       throw new NotFoundException(`Asset not found: ${fileId}`);
     }
 
     return asset;
   }
 
+  async getOrCreatePrivateAudioDerivative(
+    projectId: string,
+    fileId: string,
+    purpose: FilePurpose,
+    derivativeFileName: string,
+    createDerivative: (source: {
+      body: Uint8Array;
+      contentType: string;
+    }) => Promise<Uint8Array>,
+  ): Promise<{
+    body: Uint8Array;
+    contentType: string;
+    storageKey: string;
+    created: boolean;
+  }> {
+    if (!privateAudioPurposes.has(purpose)) {
+      throw new BadRequestException("Private audio purpose is required.");
+    }
+    if (!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(derivativeFileName)) {
+      throw new BadRequestException(
+        "Private audio derivative name is invalid.",
+      );
+    }
+
+    const asset = await this.getUploadedAsset(projectId, fileId, purpose);
+    const separatorIndex = asset.storageKey.lastIndexOf("/");
+    const storageFolder =
+      separatorIndex >= 0 ? asset.storageKey.slice(0, separatorIndex + 1) : "";
+    const storageKey = `${storageFolder}${derivativeFileName}`;
+    const existing = await this.storage.headObject(storageKey);
+    if (existing) {
+      const stored = await this.storage.getObject(storageKey);
+      return { ...stored, storageKey, created: false };
+    }
+
+    const source = await this.storage.getObject(asset.storageKey);
+    const body = await createDerivative(source);
+    await this.storage.putObject({
+      key: storageKey,
+      body,
+      contentType: "audio/wav",
+      purpose,
+    });
+    return { body, contentType: "audio/wav", storageKey, created: true };
+  }
+  async createPrivateAudioReadUrl(
+    projectId: string,
+    fileId: string,
+    purpose: FilePurpose,
+    expiresInSeconds: number,
+  ): Promise<string> {
+    if (!privateAudioPurposes.has(purpose)) {
+      throw new BadRequestException("Private audio purpose is required.");
+    }
+    if (
+      !Number.isInteger(expiresInSeconds) ||
+      expiresInSeconds < 1 ||
+      expiresInSeconds > maximumPrivateAudioReadUrlExpiresInSeconds
+    ) {
+      throw new BadRequestException(
+        "Private audio read URL expiry is invalid.",
+      );
+    }
+
+    const asset = await this.getUploadedAsset(projectId, fileId, purpose);
+    return this.storage.getSignedReadUrl(asset.storageKey, expiresInSeconds);
+  }
+
+  async isPrivateAudioAvailable(
+    projectId: string,
+    fileId: string,
+    purpose: FilePurpose,
+  ): Promise<boolean> {
+    if (!privateAudioPurposes.has(purpose)) {
+      throw new BadRequestException("Private audio purpose is required.");
+    }
+
+    try {
+      const asset = await this.getUploadedAsset(projectId, fileId, purpose);
+      return (await this.storage.headObject(asset.storageKey)) !== null;
+    } catch (error) {
+      if (error instanceof NotFoundException) return false;
+      throw error;
+    }
+  }
+
+  async isOwnerOnlyAssetAvailable(
+    projectId: string,
+    fileId: string,
+    purpose: FilePurpose,
+  ): Promise<boolean> {
+    if (!ownerOnlyFilePurposes.has(purpose)) {
+      throw new BadRequestException("Owner-only file purpose is required.");
+    }
+
+    try {
+      const asset = await this.getUploadedAsset(projectId, fileId, purpose);
+      return (await this.storage.headObject(asset.storageKey)) !== null;
+    } catch (error) {
+      if (error instanceof NotFoundException) return false;
+      throw error;
+    }
+  }
+
   private async verifyUploadedObject(asset: ProjectAssetEntity): Promise<void> {
     const head = await this.storage.headObject(asset.storageKey);
 
     if (!head) {
-      throw new NotFoundException(`Asset not found in storage: ${asset.fileId}`);
+      throw new NotFoundException(
+        `Asset not found in storage: ${asset.fileId}`,
+      );
     }
 
     if (head.contentLength !== asset.size) {
@@ -271,14 +402,12 @@ export class FilesService {
 
     if (asset.status === "deleted") {
       if (!asset.deletedAt) {
-        throw new NotFoundException(`Asset is deleted without deletion time: ${fileId}`);
+        throw new NotFoundException(
+          `Asset is deleted without deletion time: ${fileId}`,
+        );
       }
 
       return asset.deletedAt.toISOString();
-    }
-
-    if (asset.status !== "uploaded") {
-      throw new NotFoundException(`Asset is not uploaded: ${fileId}`);
     }
 
     await this.storage.removeObject(asset.storageKey);
@@ -300,7 +429,7 @@ export class FilesService {
     });
 
     return assets
-      .filter((asset) => !privateAudioPurposes.has(asset.purpose))
+      .filter((asset) => !ownerOnlyFilePurposes.has(asset.purpose))
       .map((asset) => this.toUploadedFile(asset));
   }
 
@@ -329,6 +458,70 @@ export class FilesService {
     return {
       body: Buffer.from(await response.arrayBuffer()),
       contentType: asset.mimeType,
+    };
+  }
+
+  async readOwnerOnlyAssetContent(
+    projectId: string,
+    fileId: string,
+    purpose: FilePurpose,
+  ): Promise<{ body: Buffer; contentType: string; originalName: string }> {
+    if (!ownerOnlyFilePurposes.has(purpose)) {
+      throw new BadRequestException("Owner-only asset purpose is required.");
+    }
+
+    const asset = await this.getUploadedAsset(projectId, fileId, purpose);
+    const stored = await this.storage.getObject(asset.storageKey);
+    return {
+      body: Buffer.from(stored.body),
+      contentType: asset.mimeType || stored.contentType,
+      originalName: asset.originalName,
+    };
+  }
+
+  async openUploadedAssetContent(
+    projectId: string,
+    fileId: string,
+    ifNoneMatch?: string,
+  ): Promise<
+    | {
+        status: "not-modified";
+        cacheControl: string;
+        etag: string;
+      }
+    | {
+        status: "ok";
+        body: Readable;
+        cacheControl: string;
+        contentLength: number;
+        contentType: string;
+        etag: string;
+      }
+  > {
+    const asset = await this.getUploadedAsset(projectId, fileId);
+    const assetPurpose = filePurposeSchema.parse(asset.purpose);
+
+    if (!publicAssetContentPurposes.has(assetPurpose)) {
+      throw new NotFoundException(`Asset content unavailable: ${fileId}`);
+    }
+
+    const etag = createAssetContentEtag(asset);
+    if (matchesIfNoneMatch(ifNoneMatch, etag)) {
+      return {
+        status: "not-modified",
+        cacheControl: assetContentCacheControl,
+        etag,
+      };
+    }
+
+    const stored = await this.storage.getObjectStream(asset.storageKey);
+    return {
+      status: "ok",
+      body: stored.body,
+      cacheControl: assetContentCacheControl,
+      contentLength: stored.contentLength || asset.size,
+      contentType: asset.mimeType,
+      etag,
     };
   }
 
@@ -377,7 +570,10 @@ export class FilesService {
     fileId: string,
     requestOrigin?: string | null,
   ): string {
-    const origin = (requestOrigin ?? this.uploadProxyOrigin ?? "").replace(/\/+$/, "");
+    const origin = (requestOrigin ?? this.uploadProxyOrigin ?? "").replace(
+      /\/+$/,
+      "",
+    );
     return `${origin}/api/v1/projects/${encodeURIComponent(
       projectId,
     )}/assets/${encodeURIComponent(fileId)}/content`;
@@ -412,4 +608,53 @@ export class FilesService {
       createdAt: asset.createdAt.toISOString(),
     });
   }
+}
+
+function createAssetContentEtag(asset: ProjectAssetEntity): string {
+  const uploadedAt = (asset.uploadedAt ?? asset.createdAt).toISOString();
+  const digest = createHash("sha256")
+    .update(`${asset.fileId}:${asset.size}:${uploadedAt}`)
+    .digest("base64url");
+  return `W/"${digest}"`;
+}
+
+function matchesIfNoneMatch(
+  ifNoneMatch: string | undefined,
+  currentEtag: string,
+): boolean {
+  if (!ifNoneMatch) return false;
+  return ifNoneMatch
+    .split(",")
+    .map((value) => value.trim())
+    .some((value) => value === "*" || value === currentEtag);
+}
+
+function formatAsiaSeoulDate(value: Date): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const readPart = (type: "year" | "month" | "day") =>
+    parts.find((part) => part.type === type)?.value;
+  return `${readPart("year")}-${readPart("month")}-${readPart("day")}`;
+}
+
+function rehearsalAudioExtension(mimeType: string): string {
+  const extensions: Record<string, string> = {
+    "audio/webm": "webm",
+    "audio/m4a": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/mp4": "m4a",
+    "video/mp4": "m4a",
+    "audio/ogg": "ogg",
+    "audio/mp3": "mp3",
+    "audio/mpeg": "mp3",
+    "audio/mpga": "mp3",
+    "audio/flac": "flac",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+  };
+  return extensions[mimeType] ?? "webm";
 }

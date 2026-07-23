@@ -1,5 +1,5 @@
 import type { Slide } from "@orbit/shared";
-import { ExternalLink } from "lucide-react";
+import { IconExternalLink as ExternalLink } from "@tabler/icons-react";
 
 export function SourceLedgerPanel(props: { slide: Slide | null }) {
   const sources = deduplicateSourceLedger(props.slide?.aiNotes?.sourceLedger ?? []);

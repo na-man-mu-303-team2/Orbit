@@ -9,6 +9,7 @@ import {
   challengeQnaSessionSchema,
   challengeQnaSourceSnapshotSchema,
   completeChallengeQnaAudioRequestSchema,
+  createAssetUploadUrlRequestSchema,
   createChallengeQnaAnswerAttemptRequestSchema,
   createChallengeQnaSessionRequestSchema,
   deckSchema,
@@ -17,7 +18,8 @@ import {
   type ChallengeQnaAnswerAttempt,
   type ChallengeQnaSession,
 } from "@orbit/shared";
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 import { randomUUID } from "node:crypto";
 import { DataSource, type EntityManager } from "typeorm";
 import { FilesService } from "../files/files.service";
@@ -31,12 +33,19 @@ const assistanceRank = { none: 0, "concept-hint": 1, "slide-hint": 2, "full-guid
 @Injectable()
 export class ChallengeQnaService {
   private readonly config = loadOrbitConfig(process.env, { service: "api" });
+  private readonly qnaAnswerAudioUploadRequestSchema = createAssetUploadUrlRequestSchema({
+    maxRehearsalAudioUploadSizeBytes: this.config.REHEARSAL_AUDIO_MAX_BYTES,
+    allowedPrivatePurpose: "qna-answer-audio"
+  });
   constructor(
     private readonly dataSource: DataSource,
     private readonly projects: ProjectsService,
     private readonly files: FilesService,
     private readonly jobs: JobsService,
     private readonly evidence: ChallengeQnaEvidenceCache,
+    @Optional()
+    @InjectPinoLogger(ChallengeQnaService.name)
+    private readonly logger?: PinoLogger,
   ) {}
 
   async createSession(projectId: string, actorUserId: string, body: unknown) {
@@ -91,7 +100,7 @@ export class ChallengeQnaService {
     await this.projects.assertCanReadProject(String(row.project_id), actorUserId);
     const questions = await this.dataSource.query(`
       SELECT questions.*, COALESCE(assistance.level,'none') AS assistance_level,
-        COUNT(attempts.answer_attempt_id)::int AS attempt_count
+        (COUNT(attempts.answer_attempt_id) FILTER (WHERE attempts.status='succeeded'))::int AS succeeded_attempt_count
       FROM challenge_qna_questions questions
       LEFT JOIN challenge_qna_assistance assistance ON assistance.qna_session_id=questions.qna_session_id
         AND assistance.question_id=questions.question_id AND assistance.question_revision=questions.revision
@@ -130,7 +139,7 @@ export class ChallengeQnaService {
     const question = first(await this.dataSource.query(`SELECT * FROM challenge_qna_questions WHERE qna_session_id=$1 AND question_id=$2 AND revision=$3`, [sessionId, questionId, request.questionRevision]));
     if (!question || request.questionRevision !== row.generation_revision) throw new ConflictException({ code: "SOURCE_INCOMPATIBLE", message: "Question revision is stale." });
     if (request.level === "full-guide") {
-      const firstAttempt = first(await this.dataSource.query(`SELECT 1 FROM challenge_qna_answer_attempts WHERE qna_session_id=$1 AND question_id=$2 AND question_revision=$3 LIMIT 1`, [sessionId, questionId, request.questionRevision]));
+      const firstAttempt = first(await this.dataSource.query(`SELECT 1 FROM challenge_qna_answer_attempts WHERE qna_session_id=$1 AND question_id=$2 AND question_revision=$3 AND status='succeeded' LIMIT 1`, [sessionId, questionId, request.questionRevision]));
       if (!firstAttempt) throw new ConflictException({ code: "INVALID_STATE_TRANSITION", message: "Submit an answer before revealing the full guide." });
     }
     await this.dataSource.query(`INSERT INTO challenge_qna_assistance (project_id,qna_session_id,question_id,question_revision,level,level_rank,updated_by,updated_at)
@@ -156,9 +165,12 @@ export class ChallengeQnaService {
     const attemptId = `answer_${randomUUID()}`;
     const now = new Date();
     let upload: Awaited<ReturnType<FilesService["createUploadUrl"]>> | null = null;
-    if (request.inputMode === "voice") upload = await this.files.createUploadUrl(String(session.project_id), {
-      originalName: "challenge-qna-answer", mimeType: request.mimeType, size: request.size, purpose: "qna-answer-audio",
-    });
+    if (request.inputMode === "voice") upload = await this.files.createUploadUrl(
+      String(session.project_id),
+      this.qnaAnswerAudioUploadRequestSchema.parse({
+        originalName: "challenge-qna-answer", mimeType: request.mimeType, size: request.size, purpose: "qna-answer-audio",
+      }),
+    );
     const status = request.inputMode === "voice" ? "uploading" : "created";
     const rows = await this.dataSource.query(`INSERT INTO challenge_qna_answer_attempts (
       answer_attempt_id,project_id,qna_session_id,question_id,question_revision,client_request_id,attempt_number,input_mode,
@@ -214,7 +226,22 @@ export class ChallengeQnaService {
   private async dispatchGeneration(session: ChallengeQnaSession) {
     const job = await this.jobs.create({ projectId: session.projectId, type: "challenge-qna-generation", payload: { qnaSessionId: session.qnaSessionId, generationRevision: session.generationRevision } });
     await this.dataSource.query(`UPDATE challenge_qna_sessions SET generation_job_id=$2 WHERE qna_session_id=$1 AND generation_revision=$3`, [session.qnaSessionId, job.jobId, session.generationRevision]);
-    await enqueueChallengeQnaGenerationJob({ driver: this.config.JOB_QUEUE_DRIVER, redisUrl: this.config.REDIS_URL, jobId: job.jobId, projectId: session.projectId, qnaSessionId: session.qnaSessionId, generationRevision: session.generationRevision });
+    try {
+      await enqueueChallengeQnaGenerationJob({ driver: this.config.JOB_QUEUE_DRIVER, redisUrl: this.config.REDIS_URL, jobId: job.jobId, projectId: session.projectId, qnaSessionId: session.qnaSessionId, generationRevision: session.generationRevision });
+      this.logger?.info({ event: "job.enqueued", jobId: job.jobId, jobType: job.type, projectId: session.projectId }, "Challenge Q&A generation job enqueued.");
+    } catch (error) {
+      await Promise.all([
+        this.jobs.update(job.jobId, {
+          status: "failed", progress: 0, message: "Challenge Q&A generation enqueue failed.",
+          error: { code: "QNA_GENERATION_ENQUEUE_FAILED", message: "Challenge Q&A generation enqueue failed." },
+        }),
+        this.dataSource.query(`UPDATE challenge_qna_sessions SET status='failed',error_code='PROVIDER_UNAVAILABLE'
+          WHERE qna_session_id=$1 AND generation_job_id=$2 AND generation_revision=$3 AND status='preparing'`,
+          [session.qnaSessionId, job.jobId, session.generationRevision]),
+      ]);
+      this.logger?.error({ event: "job.enqueue_failed", jobId: job.jobId, jobType: job.type, projectId: session.projectId, errorName: error instanceof Error ? error.name : "UnknownError" }, "Challenge Q&A generation enqueue failed.");
+      throw error;
+    }
   }
 
   private async queueAnswer(row: Record<string, any>): Promise<ChallengeQnaAnswerAttempt> {
@@ -283,7 +310,7 @@ function toSession(row: Record<string, any>, redactGrounding: boolean): Challeng
 }
 
 function publicQuestion(row: Record<string, any>) {
-  const canRevealGuide = Number(row.attempt_count) > 0 || row.assistance_level === "full-guide";
+  const canRevealGuide = Number(row.succeeded_attempt_count) > 0;
   return { questionId: row.question_id, projectId: row.project_id, qnaSessionId: row.qna_session_id, revision: row.revision,
     order: row.question_order, questionType: row.question_type, difficulty: row.difficulty, questionText: row.question_text,
     linkedGoalIds: row.linked_goal_ids_json, sourceRefs: row.source_refs_json, assistanceLevel: row.assistance_level,

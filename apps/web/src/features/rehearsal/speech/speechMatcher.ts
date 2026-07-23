@@ -1,3 +1,10 @@
+import {
+  matchPronunciationAliases,
+  normalizePronunciationText,
+  type PronunciationLexiconEntry,
+  type PronunciationLexiconSnapshot,
+} from "@orbit/shared";
+
 import { defaultSpeechTrackingConfig } from "./speechTrackingConfig";
 import { normalizeSpeechText } from "./phraseExtractor";
 
@@ -62,9 +69,29 @@ export function matchPhraseCandidate(options: {
 export function matchKeywordAliases(options: {
   transcript: string;
   keywords: readonly KeywordAliasInput[];
+  pronunciationLexicon?: PronunciationLexiconSnapshot;
+  pronunciationEntries?: readonly PronunciationLexiconEntry[];
+  slideId?: string;
 }): KeywordAliasMatch[] {
   const normalizedTranscript = normalizeSpeechText(options.transcript);
   const matches: KeywordAliasMatch[] = [];
+  const pronunciationEntries =
+    options.pronunciationEntries ?? options.pronunciationLexicon?.entries ?? [];
+  const pronunciationEvidence =
+    pronunciationEntries.length === 0
+      ? []
+      : matchPronunciationAliases(
+          options.transcript,
+          options.pronunciationLexicon ?? {
+            schemaVersion: 1,
+            generatorVersion: "runtime-subset",
+            deckId: "runtime",
+            deckVersion: 1,
+            sourceHash: "0000000000000000",
+            entries: [...pronunciationEntries],
+          },
+          options.slideId ? { slideIds: [options.slideId] } : {},
+        ).evidence;
 
   for (const keyword of options.keywords) {
     const matchedAlias = keyword.aliases.find((alias) => {
@@ -83,6 +110,22 @@ export function matchKeywordAliases(options: {
 
     if (matchedAlias) {
       matches.push({ keywordId: keyword.keywordId, matchedAlias });
+      continue;
+    }
+
+    const canonicalKeys = new Set(
+      keyword.aliases
+        .map((alias) => normalizePronunciationText(alias).compactText)
+        .filter(Boolean),
+    );
+    const matchedEvidence = pronunciationEvidence.find((evidence) =>
+      canonicalKeys.has(evidence.canonicalKey),
+    );
+    if (matchedEvidence) {
+      matches.push({
+        keywordId: keyword.keywordId,
+        matchedAlias: matchedEvidence.matchedText,
+      });
     }
   }
 
@@ -93,12 +136,14 @@ export function calculateWordMultisetRecall(options: {
   scriptText: string;
   transcriptText: string;
 }) {
-  const scriptWords = tokenizeRecallWords(options.scriptText);
+  const scriptWords = tokenizeSpeechRecallWords(options.scriptText);
   if (scriptWords.length === 0) {
     return 0;
   }
 
-  const transcriptCounts = countWords(tokenizeRecallWords(options.transcriptText));
+  const transcriptCounts = countWords(
+    tokenizeSpeechRecallWords(options.transcriptText)
+  );
   let matched = 0;
 
   for (const [word, scriptCount] of countWords(scriptWords).entries()) {
@@ -180,7 +225,7 @@ function hasEnglishWordBoundaryMatch(transcript: string, alias: string) {
   );
 }
 
-function tokenizeRecallWords(value: string) {
+export function tokenizeSpeechRecallWords(value: string) {
   return value
     .normalize("NFC")
     .replace(/[^\p{L}\p{N}+#.-]+/gu, " ")

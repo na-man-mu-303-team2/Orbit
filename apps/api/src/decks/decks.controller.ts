@@ -47,6 +47,27 @@ export class DecksController {
     return this.decksService.putDeck(projectId, body);
   }
 
+  @Get("deck/import-quality")
+  async getPptxImportQuality(
+    @Param("projectId") projectId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.decksService.getPptxImportQuality(projectId);
+  }
+
+  @Get("deck/slides/:slideId/notes-preview")
+  async getPptxNotesPreview(
+    @Param("projectId") projectId: string,
+    @Param("slideId") slideId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.decksService.getPptxNotesPreview(projectId, slideId);
+  }
+
   @Post("deck/patches")
   async appendPatch(
     @Param("projectId") projectId: string,
@@ -69,6 +90,26 @@ export class DecksController {
     return this.decksService.createExportJob(projectId, body);
   }
 
+  @Get("deck/ooxml-sync-state")
+  async getOoxmlSyncState(
+    @Param("projectId") projectId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.decksService.getOoxmlSyncState(projectId);
+  }
+
+  @Post("deck/ooxml-sync/retry")
+  async retryOoxmlSync(
+    @Param("projectId") projectId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.decksService.retryOoxmlSync(projectId);
+  }
+
   @Post("deck/semantic-cues")
   async createSemanticCueExtractionJob(
     @Param("projectId") projectId: string,
@@ -80,6 +121,17 @@ export class DecksController {
     return this.decksService.createSemanticCueExtractionJob(projectId, body);
   }
 
+  @Post("deck/speaker-notes/suggestions")
+  async createSpeakerNotesSuggestionJob(
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return this.decksService.createSpeakerNotesSuggestionJob(projectId, body);
+  }
+
   @Get("snapshots")
   async listSnapshots(
     @Param("projectId") projectId: string,
@@ -88,6 +140,17 @@ export class DecksController {
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanReadProject(projectId, user.userId);
     return this.decksService.listSnapshots(projectId);
+  }
+
+  @Get("snapshots/:snapshotId")
+  async getSnapshot(
+    @Param("projectId") projectId: string,
+    @Param("snapshotId") snapshotId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanReadProject(projectId, user.userId);
+    return this.decksService.getSnapshot(projectId, snapshotId);
   }
 
   @Post("snapshots/:snapshotId/restore")

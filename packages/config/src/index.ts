@@ -1,4 +1,6 @@
 import {
+  aiDeckExecutionModeSchema,
+  aiDeckWorkerQueueSchema,
   appEnvSchema,
   defaultRehearsalAudioMaxBytes,
   jobQueueDriverSchema,
@@ -198,6 +200,7 @@ export const orbitEnvSchema = z.object({
     "API_JSON_BODY_LIMIT_BYTES",
     defaultApiJsonBodyLimitBytes
   ),
+  API_TRUST_PROXY_HOPS: optionalIntegerInRange("API_TRUST_PROXY_HOPS", 0, 0, 10),
   WORKER_PORT: requiredPort("WORKER_PORT"),
   PYTHON_WORKER_PORT: requiredPort("PYTHON_WORKER_PORT"),
   WEB_ORIGIN: requiredUrl("WEB_ORIGIN"),
@@ -211,7 +214,12 @@ export const orbitEnvSchema = z.object({
   ADAPTIVE_REHEARSAL_COACH_ENABLED: booleanStringSchema.default(false),
   FOCUSED_PRACTICE_ENABLED: booleanStringSchema.default(false),
   CHALLENGE_QNA_ENABLED: booleanStringSchema.default(false),
+  SLIDE_PRACTICE_ENABLED: booleanStringSchema.default(false),
+  SLIDE_QUESTION_GUIDES_ENABLED: booleanStringSchema.default(false),
   DEMO_COACHING_FIXTURE_ENABLED: booleanStringSchema.default(false),
+  DEMO_AI_DECK_CACHE_ENABLED: booleanStringSchema.default(false),
+  DEMO_AI_DECK_SOURCE_PROJECT_ID: optionalString,
+  DEMO_AI_DECK_TRIGGER_TOPIC: optionalString,
   DEMO_FIXTURE_ENV_ALLOWLIST: commaSeparatedStringSchema.default([]),
   ADAPTIVE_COACHING_PROJECT_ALLOWLIST: commaSeparatedStringSchema.default([]),
   COACHING_IDEMPOTENCY_HMAC_SECRET: optionalString,
@@ -233,6 +241,20 @@ export const orbitEnvSchema = z.object({
   S3_SECRET_ACCESS_KEY: optionalString,
   S3_FORCE_PATH_STYLE: booleanStringSchema.default(true),
   JOB_QUEUE_DRIVER: jobQueueDriverSchema,
+  AI_DECK_EXECUTION_MODE: aiDeckExecutionModeSchema.default("bullmq"),
+  AI_DECK_WORKER_QUEUE: aiDeckWorkerQueueSchema.default("all"),
+  AI_DECK_WORKER_CONCURRENCY: optionalIntegerInRange(
+    "AI_DECK_WORKER_CONCURRENCY",
+    5,
+    1,
+    32
+  ),
+  AI_DECK_USER_CONCURRENCY: optionalIntegerInRange(
+    "AI_DECK_USER_CONCURRENCY",
+    5,
+    1,
+    32
+  ),
   LIVE_STT_PROVIDER: liveSttProviderSchema,
   LIVE_STT_ENGINE: liveSttEngineSchema.default("web-speech"),
   REPORT_STT_PROVIDER: reportSttProviderSchema,
@@ -248,10 +270,10 @@ export const orbitEnvSchema = z.object({
   OPENAI_IMAGE_MODEL: defaultedString("gpt-image-1"),
   IMAGE_PROVIDER: z.enum(["disabled", "openai"]).default("openai"),
   PUBLIC_IMAGE_PROVIDER: z.enum(["disabled", "openverse"]).default("openverse"),
-  IMAGE_MAX_PER_DECK: optionalIntegerInRange("IMAGE_MAX_PER_DECK", 4, 0, 12),
+  IMAGE_MAX_PER_DECK: optionalIntegerInRange("IMAGE_MAX_PER_DECK", 0, 0, 12),
   IMAGE_MAX_PER_USER_PER_DAY: optionalIntegerInRange(
     "IMAGE_MAX_PER_USER_PER_DAY",
-    30,
+    0,
     0,
     200
   ),
@@ -293,6 +315,15 @@ export const orbitEnvSchema = z.object({
   }
   if (value.APP_ENV === "production" && value.DEMO_COACHING_FIXTURE_ENABLED) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["DEMO_COACHING_FIXTURE_ENABLED"], message: "Demo coaching fixtures are forbidden in production" });
+  }
+  if (value.APP_ENV === "production" && value.DEMO_AI_DECK_CACHE_ENABLED) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["DEMO_AI_DECK_CACHE_ENABLED"], message: "Demo AI deck cache is forbidden in production" });
+  }
+  if (value.DEMO_AI_DECK_CACHE_ENABLED && !value.DEMO_AI_DECK_SOURCE_PROJECT_ID) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["DEMO_AI_DECK_SOURCE_PROJECT_ID"], message: "Demo AI deck source project is required when the cache is enabled" });
+  }
+  if (value.DEMO_AI_DECK_CACHE_ENABLED && !value.DEMO_AI_DECK_TRIGGER_TOPIC) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["DEMO_AI_DECK_TRIGGER_TOPIC"], message: "Demo AI deck trigger topic is required when the cache is enabled" });
   }
   if (value.APP_ENV === "production" && value.ADAPTIVE_REHEARSAL_COACH_ENABLED && (!value.COACHING_IDEMPOTENCY_HMAC_SECRET || value.COACHING_IDEMPOTENCY_HMAC_SECRET.length < 32)) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["COACHING_IDEMPOTENCY_HMAC_SECRET"], message: "Production coaching idempotency HMAC secret must be at least 32 characters" });

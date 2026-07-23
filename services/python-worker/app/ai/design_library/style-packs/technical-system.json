@@ -1,0 +1,26 @@
+{
+  "id": "technical-system",
+  "theme": {
+    "name": "technical-system",
+    "headingFontFamily": "Pretendard",
+    "bodyFontFamily": "Pretendard",
+    "background": "#0B1220",
+    "surface": "#111C30",
+    "text": "#F8FAFC",
+    "accent": "#22D3EE",
+    "secondary": "#A3E635",
+    "muted": "#17243A",
+    "border": "#2B3D58",
+    "titleSize": 64,
+    "headingSize": 42,
+    "bodySize": 25,
+    "captionSize": 16
+  },
+  "effects": {
+    "borderRadius": 4
+  },
+  "layout": {
+    "rhythm": "system-diagram",
+    "imageTreatment": "technical-documentary"
+  }
+}

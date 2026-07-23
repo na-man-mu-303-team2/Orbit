@@ -1,4 +1,5 @@
 import { FilePurpose } from "@orbit/shared";
+import { Readable } from "node:stream";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -14,6 +15,7 @@ export interface StoragePutInput {
   body: Uint8Array | string;
   contentType: string;
   purpose: FilePurpose;
+  metadata?: Record<string, string>;
 }
 
 export interface StorageUploadUrlInput {
@@ -41,12 +43,27 @@ export interface StorageObject {
 export interface StorageHeadResult {
   contentLength: number;
   contentType: string;
+  metadata?: Record<string, string>;
+}
+
+export interface StorageReadResult {
+  body: Uint8Array;
+  contentType: string;
+}
+
+export interface StorageStreamReadResult {
+  body: Readable;
+  contentLength: number;
+  contentType: string;
+  etag?: string;
 }
 
 export interface StoragePort {
   putObject(input: StoragePutInput): Promise<StorageObject>;
   createUploadUrl(input: StorageUploadUrlInput): Promise<StorageUploadUrl>;
-  getSignedReadUrl(key: string): Promise<string>;
+  getObject(key: string): Promise<StorageReadResult>;
+  getObjectStream(key: string): Promise<StorageStreamReadResult>;
+  getSignedReadUrl(key: string, expiresInSeconds?: number): Promise<string>;
   removeObject(key: string): Promise<void>;
   headObject(key: string): Promise<StorageHeadResult | null>;
 }
@@ -73,7 +90,9 @@ export class S3CompatibleStorage implements StoragePort {
     this.region = options.region;
     this.forcePathStyle = options.forcePathStyle ?? false;
     this.internalClient = this.createClient(options.endpoint);
-    this.publicClient = this.createClient(options.publicEndpoint ?? options.endpoint);
+    this.publicClient = this.createClient(
+      options.publicEndpoint ?? options.endpoint,
+    );
   }
 
   // API 서버가 직접 object를 저장해야 할 때 S3-compatible bucket에 PUT한다.
@@ -89,6 +108,7 @@ export class S3CompatibleStorage implements StoragePort {
         Key: input.key,
         Body: input.body,
         ContentType: input.contentType,
+        Metadata: input.metadata,
       }),
     );
 
@@ -127,15 +147,46 @@ export class S3CompatibleStorage implements StoragePort {
     };
   }
 
+  async getObject(key: string): Promise<StorageReadResult> {
+    const result = await this.internalClient.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    if (!result.Body) {
+      throw new Error(`Storage object body is empty: ${key}`);
+    }
+    return {
+      body: await result.Body.transformToByteArray(),
+      contentType: result.ContentType ?? "application/octet-stream",
+    };
+  }
+
+  async getObjectStream(key: string): Promise<StorageStreamReadResult> {
+    const result = await this.internalClient.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    if (!result.Body) {
+      throw new Error(`Storage object body is empty: ${key}`);
+    }
+
+    return {
+      body: Readable.from(result.Body as AsyncIterable<Uint8Array>),
+      contentLength: result.ContentLength ?? 0,
+      contentType: result.ContentType ?? "application/octet-stream",
+      etag: result.ETag,
+    };
+  }
   // 저장된 object를 읽기 위한 presigned GET URL을 만든다.
-  async getSignedReadUrl(key: string): Promise<string> {
+  async getSignedReadUrl(
+    key: string,
+    expiresInSeconds = 15 * 60,
+  ): Promise<string> {
     return getSignedUrl(
       this.publicClient,
       new GetObjectCommand({
         Bucket: this.bucket,
         Key: key,
       }),
-      { expiresIn: 15 * 60 },
+      { expiresIn: expiresInSeconds },
     );
   }
 
@@ -148,9 +199,13 @@ export class S3CompatibleStorage implements StoragePort {
       return {
         contentLength: result.ContentLength ?? 0,
         contentType: result.ContentType ?? "",
+        metadata: result.Metadata ?? {},
       };
     } catch (error) {
-      if (error instanceof S3ServiceException && error.$metadata.httpStatusCode === 404) {
+      if (
+        error instanceof S3ServiceException &&
+        error.$metadata.httpStatusCode === 404
+      ) {
         return null;
       }
       throw error;
@@ -170,7 +225,8 @@ export class S3CompatibleStorage implements StoragePort {
   // endpoint와 credentials를 주입해 MinIO와 AWS S3를 같은 인터페이스로 다룬다.
   private createClient(endpoint?: string): S3Client {
     const hasStaticCredentials =
-      Boolean(this.options.accessKeyId) && Boolean(this.options.secretAccessKey);
+      Boolean(this.options.accessKeyId) &&
+      Boolean(this.options.secretAccessKey);
 
     return new S3Client({
       region: this.region,
@@ -193,7 +249,10 @@ export class S3CompatibleStorage implements StoragePort {
       .join("/");
 
     if (this.options.publicEndpoint) {
-      const normalizedEndpoint = this.options.publicEndpoint.replace(/\/+$/, "");
+      const normalizedEndpoint = this.options.publicEndpoint.replace(
+        /\/+$/,
+        "",
+      );
       return `${normalizedEndpoint}/${this.bucket}/${encodedKey}`;
     }
 

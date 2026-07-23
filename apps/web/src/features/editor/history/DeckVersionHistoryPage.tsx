@@ -1,4 +1,4 @@
-import type { DeckSnapshot, DeckSnapshotReason } from "@orbit/shared";
+import type { DeckSnapshot, DeckSnapshotDetail, DeckSnapshotReason } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconArrowLeft,
@@ -7,16 +7,17 @@ import {
   IconHistory,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   OrbitButton,
   OrbitDialog,
   OrbitStatus,
   type OrbitStatusTone,
-} from "../../../design-system";
+} from "../../../components/ui";
 import { fetchProjectDeck } from "../../rehearsal/keywords/keywordEditorApi";
-import { fetchDeckSnapshots, restoreDeckSnapshot } from "./deckSnapshotApi";
+import { ReadOnlySlideCanvas } from "../../slides/rendering";
+import { fetchDeckSnapshot, fetchDeckSnapshots, restoreDeckSnapshot } from "./deckSnapshotApi";
 import "./deck-version-history.css";
 
 const reasonLabels: Record<DeckSnapshotReason, string> = {
@@ -54,6 +55,16 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
     () => snapshotsQuery.data?.find((item) => item.snapshotId === selectedId) ?? snapshotsQuery.data?.[0],
     [selectedId, snapshotsQuery.data],
   );
+  const selectedSnapshotId = selected?.snapshotId;
+  const snapshotQuery = useQuery({
+    queryKey: ["deck-snapshot", props.projectId, selectedSnapshotId],
+    queryFn: () => {
+      if (!selectedSnapshotId) throw new Error("선택한 버전이 없습니다.");
+      return fetchDeckSnapshot(props.projectId, selectedSnapshotId);
+    },
+    enabled: Boolean(selectedSnapshotId),
+    retry: false,
+  });
 
   async function restoreSelected() {
     if (!selected) return;
@@ -66,6 +77,7 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["deck", props.projectId] }),
         queryClient.invalidateQueries({ queryKey: ["deck-history-preview", props.projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
         snapshotsQuery.refetch(),
       ]);
     } catch (cause) {
@@ -87,7 +99,7 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
   const currentVersion = currentDeck?.version;
 
   return (
-    <div className="orbit-ds-page deck-history-page">
+    <div className="redesign-page deck-history-page">
       <div className="deck-history-breadcrumb">
         <a href={`/project/${encodeURIComponent(props.projectId)}`}>
           <IconArrowLeft aria-hidden="true" size={17} /> 에디터
@@ -98,7 +110,7 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
 
       <section className="deck-history-heading">
         <div>
-          <p className="orbit-ds-eyebrow">Version history</p>
+          <p className="redesign-eyebrow">Version history</p>
           <h1>이전 작업을 확인하고 안전하게 복원하세요.</h1>
           <p>자동 저장과 주요 변경 시점의 덱 버전을 비교합니다.</p>
         </div>
@@ -138,8 +150,16 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
                 </OrbitButton>
               </header>
               <div className="deck-history-version-card">
-                <span>{currentDeck?.title ?? "ORBIT PRESENTATION"}</span>
-                <div><small>RESTORE POINT</small><strong>VERSION<br />{selected.version}</strong></div>
+                {snapshotQuery.isLoading ? (
+                  <div className="deck-history-preview-state" role="status">버전 미리보기를 불러오는 중이에요.</div>
+                ) : snapshotQuery.isError ? (
+                  <div className="deck-history-preview-state" role="alert">
+                    <span>선택한 버전을 불러오지 못했어요.</span>
+                    <OrbitButton onClick={() => void snapshotQuery.refetch()} size="compact" variant="secondary">다시 시도</OrbitButton>
+                  </div>
+                ) : snapshotQuery.data ? (
+                  <DeckSnapshotCanvasPreview snapshot={snapshotQuery.data} />
+                ) : null}
                 <dl>
                   <div><dt>변경 유형</dt><dd>{reasonLabels[selected.reason]}</dd></div>
                   <div><dt>저장 시각</dt><dd>{formatSnapshotDate(selected.createdAt)}</dd></div>
@@ -165,8 +185,47 @@ export function DeckVersionHistoryPage(props: { projectId: string }) {
   );
 }
 
+function DeckSnapshotCanvasPreview(props: { snapshot: DeckSnapshotDetail }) {
+  const shell = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(0);
+  const { deck } = props.snapshot;
+  const slide = deck.slides[0];
+
+  useEffect(() => {
+    const target = shell.current;
+    if (!target || !slide) return;
+
+    const update = () => {
+      if (target.clientWidth <= 0) return;
+      setScale(target.clientWidth / deck.canvas.width);
+    };
+
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [deck, slide]);
+
+  if (!slide) {
+    return <div className="deck-history-preview-state">이 버전에는 표시할 슬라이드가 없습니다.</div>;
+  }
+
+  return (
+    <div
+      aria-label={`버전 ${props.snapshot.version} 첫 슬라이드 미리보기`}
+      className="deck-history-slide-preview"
+      ref={shell}
+      style={{ aspectRatio: `${deck.canvas.width} / ${deck.canvas.height}` }}
+    >
+      {scale > 0 ? (
+        <ReadOnlySlideCanvas deck={deck} scale={scale} slide={slide} />
+      ) : null}
+    </div>
+  );
+}
+
 function HistoryState(props: { error?: boolean; title: string }) {
-  return <div className="orbit-ds-page deck-history-page"><section className="deck-history-state" role={props.error ? "alert" : "status"}><IconHistory size={30} /><h1>{props.title}</h1><a href="/project">프로젝트로 돌아가기</a></section></div>;
+  return <div className="redesign-page deck-history-page"><section className="deck-history-state" role={props.error ? "alert" : "status"}><IconHistory size={30} /><h1>{props.title}</h1><a href="/project">프로젝트로 돌아가기</a></section></div>;
 }
 
 export function snapshotTone(snapshot: DeckSnapshot, currentVersion?: number): OrbitStatusTone {

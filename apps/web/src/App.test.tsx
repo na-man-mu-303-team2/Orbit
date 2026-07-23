@@ -1,66 +1,33 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Job, Project } from "@orbit/shared";
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { forwardRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
-  buildAiTemplateDeckGenerationPayload,
-  buildDesignReferences,
-  buildGenerateDeckPayload,
-  buildGenerateDeckDesignDirection,
-  buildDefaultHomeGenerateDeckDesignDirection,
-  buildHomeJsonFirstGenerateDeckPayload,
-  buildHomeTemplateStyleGenerateDeckDesignDirection,
-  buildPptxOoxmlGenerationPayload,
-  buildReferenceGenerationInput,
-  buildSimpleBasicGenerateDeckDesignDirection,
-  buildTemplateStyleDesignOverrides,
-  createGeneratedDeckProject,
-  ExtractResultItem,
-  GeneratedDeckResult,
+  App,
   deckRenderPayloadStorageKey,
-  getGeneratedDeckProjectPath,
-  getGeneratedDeckProjectTitle,
-  getCreateDeckPhaseActionLabel,
+  fetchProjectAccess,
+  getProjectAccessFailureBehavior,
   getProjectAccessRoleLabel,
-  getAiTemplateDeckGenerationJobResult,
-  getGenerateDeckJobResult,
-  buildHomeExtractFormData,
-  getHomeDeckGenerationJobEndpoint,
-  getHomeDefaultUploadRole,
-  getHomeGenerationValidationMessage,
   getAppNavigationItem,
-  getHomeContentReferenceUploads,
-  getHomePptxConversionValidationMessage,
-  getHomeTemplateStylePath,
-  homeReferenceExtractEndpoint,
-  homeTemplateStyles,
-  getPptxOoxmlGeneratedProjectPath,
-  getPptxOoxmlGenerationJobResult,
-  getPptxConversionProjectTitle,
-  getJobResultFiles,
   getRoute,
-  mergeGeneratedProjectList,
-  parseHomeIntegerInput,
-  pollJob,
-  pollExtractJob,
-  resolveGenerateDeckTargetProject,
+  ProjectAccessRequestError,
+  shouldRetryProjectAccess,
   shouldRenderAppFrame,
-  shouldWaitForAuthResolution,
-  TemplateRail,
-  TemplateStyleOptionsPanel
+  shouldWaitForAuthResolution
 } from "./App";
 import { OrbitAppHeader } from "./components/OrbitAppHeader";
-import {
-  OrbitAuthPage,
-  OrbitPublicLandingPage,
-  submitOrbitAuth
-} from "./features/auth/OrbitAuthPage";
-import {
-  OrbitProjectExplorer,
-  OrbitWorkspaceHome
-} from "./features/projects/OrbitProjectHub";
+import { OrbitAuthPage, submitOrbitAuth } from "./features/auth/AuthPage";
+import { LandingPage } from "./features/landing/LandingPage";
+import { authMeQueryKey } from "./features/auth/auth-session";
+import { ProjectExplorerPage } from "./features/projects/ProjectExplorerPage";
+import { OrbitWorkspaceHome } from "./features/projects/ProjectHub";
+import { RehearsalProjectPickerPage } from "./features/rehearsal/RehearsalProjectPickerPage";
+
+vi.mock("@huggingface/transformers", () => ({
+  env: {},
+  pipeline: vi.fn(),
+}));
 
 vi.mock("react-konva", () => {
   const Group = forwardRef<HTMLDivElement, { children?: ReactNode }>(
@@ -86,9 +53,8 @@ vi.mock("react-konva", () => {
     Text
   };
 });
-
 describe("App shell routing", () => {
-  it("keeps the product navigation order and active state consistent", () => {
+  it("renders the product brand and account menu", () => {
     const html = renderToStaticMarkup(
       <OrbitAppHeader
         activeItem="reports"
@@ -101,20 +67,30 @@ describe("App shell routing", () => {
       />
     );
 
-    expect(html.indexOf(">홈<")).toBeLessThan(html.indexOf(">프로젝트<"));
-    expect(html.indexOf(">프로젝트<")).toBeLessThan(html.indexOf(">리허설<"));
-    expect(html.indexOf(">리허설<")).toBeLessThan(html.indexOf(">리포트<"));
-    expect(html).toContain('aria-current="page"');
+    expect(html).toContain("main-logo.png");
+    expect(html).toContain("kim@orbit.test");
     expect(html).toContain('aria-haspopup="menu"');
   });
 
   it("resolves the header active item from production routes", () => {
     expect(getAppNavigationItem({ name: "home" })).toBe("home");
-    expect(getAppNavigationItem({ name: "project-list" }, "")).toBe("project");
-    expect(getAppNavigationItem({ name: "project-list" }, "?intent=rehearsal")).toBe(
-      "rehearsal"
-    );
+    expect(getAppNavigationItem({ name: "project-list" })).toBe("project");
+    expect(getAppNavigationItem({ name: "rehearsal-project-list" })).toBe("rehearsal");
     expect(getAppNavigationItem({ name: "report-list" })).toBe("reports");
+    expect(
+      getAppNavigationItem({
+        name: "rehearsal-report",
+        projectId: "project_bcaee91d-3878-4bec-a9b1-9f41fad8bff5",
+        runId: "run_cdfd5478-97dc-4598-b556-3a2e1737e338"
+      })
+    ).toBe("reports");
+    expect(
+      getAppNavigationItem({
+        name: "presentation-report",
+        projectId: "project_bcaee91d-3878-4bec-a9b1-9f41fad8bff5",
+        sessionId: "session_demo_1"
+      })
+    ).toBe("reports");
     expect(getAppNavigationItem({ name: "create-deck" })).toBe("project");
   });
 
@@ -163,18 +139,34 @@ describe("App shell routing", () => {
   });
 
   it("renders public routes without waiting for the current-user request", () => {
-    expect(shouldWaitForAuthResolution({ name: "login" })).toBe(false);
-    expect(shouldWaitForAuthResolution({ name: "signup" })).toBe(false);
+    expect(shouldWaitForAuthResolution({ name: "login" })).toBe(true);
+    expect(shouldWaitForAuthResolution({ name: "signup" })).toBe(true);
     expect(shouldWaitForAuthResolution({ name: "report-mockup" })).toBe(false);
     expect(shouldWaitForAuthResolution({ name: "not-found" })).toBe(false);
     expect(
       shouldWaitForAuthResolution({ name: "audience-session", sessionId: "session-1" })
+    ).toBe(false);
+    expect(
+      shouldWaitForAuthResolution({
+        name: "audience-activity",
+        sessionId: "session-1",
+        activityId: "activity-1"
+      })
+    ).toBe(false);
+    expect(
+      shouldWaitForAuthResolution({
+        name: "companion-spike",
+        spikeId: "spike-1"
+      })
     ).toBe(false);
   });
 
   it("waits for authentication before rendering workspace routes", () => {
     expect(shouldWaitForAuthResolution({ name: "home" })).toBe(true);
     expect(shouldWaitForAuthResolution({ name: "project-list" })).toBe(true);
+    expect(
+      shouldWaitForAuthResolution({ name: "rehearsal-project-list" })
+    ).toBe(true);
     expect(
       shouldWaitForAuthResolution({ name: "project-editor", projectId: "project-1" })
     ).toBe(true);
@@ -211,13 +203,89 @@ describe("App shell routing", () => {
     expect(getRoute("/mockup/challenge-qna")).toEqual({ name: "mockup", screen: "challenge-qna" });
     expect(getRoute("/mockup/audience")).toEqual({ name: "mockup", screen: "audience" });
     expect(getRoute("/mockup/version-history")).toEqual({ name: "mockup", screen: "version-history" });
-    expect(getRoute("/mockup/ai-ppt")).toEqual({ name: "mockup", screen: "ai-ppt" });
+    expect(getRoute("/mockup/ai-ppt")).toEqual({ name: "not-found" });
     expect(shouldRenderAppFrame({ name: "mockup", screen: "public" })).toBe(false);
   });
 
   it("exposes separate production login and signup routes", () => {
     expect(getRoute("/login")).toEqual({ name: "login" });
     expect(getRoute("/signup")).toEqual({ name: "signup" });
+    expect(getRoute("/profile")).toEqual({ name: "profile" });
+  });
+
+  it("parses the canonical direct audience activity route", () => {
+    expect(getRoute("/audience/session_1/a/activity_1")).toEqual({
+      name: "audience-activity",
+      sessionId: "session_1",
+      activityId: "activity_1"
+    });
+  });
+
+  it("parses isolated companion spike routes outside the product shell", () => {
+    const companion = getRoute("/companion-spike/spike_1");
+    const audience = getRoute("/companion-spike/spike_1/audience");
+    const capture = getRoute("/companion-spike/spike_1/capture");
+
+    expect(companion).toEqual({
+      name: "companion-spike",
+      spikeId: "spike_1"
+    });
+    expect(audience).toEqual({
+      name: "companion-spike-audience",
+      spikeId: "spike_1"
+    });
+    expect(capture).toEqual({
+      name: "companion-spike-capture",
+      spikeId: "spike_1"
+    });
+    expect(shouldRenderAppFrame(companion)).toBe(false);
+    expect(shouldRenderAppFrame(audience)).toBe(false);
+    expect(shouldRenderAppFrame(capture)).toBe(false);
+  });
+
+  it("parses the standalone activity audience preview route", () => {
+    expect(
+      getRoute("/project/project_demo_1/activity-preview/activity_pre_question_1")
+    ).toEqual({
+      name: "activity-preview",
+      projectId: "project_demo_1",
+      activityId: "activity_pre_question_1"
+    });
+    expect(
+      shouldRenderAppFrame({
+        name: "activity-preview",
+        projectId: "project_demo_1",
+        activityId: "activity_pre_question_1"
+      })
+    ).toBe(false);
+  });
+
+  it("renders the production AI PPT wizard from the createdeck route", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(authMeQueryKey, {
+      userId: "user_demo_1",
+      email: "demo@orbit.test"
+    });
+    vi.stubGlobal("window", {
+      location: { pathname: "/createdeck", search: "" }
+    });
+
+    try {
+      expect(getRoute()).toEqual({ name: "create-deck" });
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
+      );
+
+      expect(html).not.toContain("핵심 컨텍스트");
+      expect(html).toContain("대본 톤");
+      expect(html).toContain("다음 단계");
+      expect(html).toContain("Style &amp; Color");
+    } finally {
+      vi.unstubAllGlobals();
+      queryClient.clear();
+    }
   });
 
   it("parses project brief and version history production routes", () => {
@@ -228,6 +296,28 @@ describe("App shell routing", () => {
     expect(getRoute("/project/project_demo_1/history")).toEqual({
       name: "project-history",
       projectId: "project_demo_1"
+    });
+    expect(
+      getRoute(
+        "/project/project_demo_1/presentation-sessions/session_demo_1/results",
+      ),
+    ).toEqual({
+      name: "activity-results",
+      projectId: "project_demo_1",
+      sessionId: "session_demo_1",
+    });
+  });
+
+  it("matches Style & Color and generation before the generic project route", () => {
+    expect(getRoute("/project/project_demo_1/style-color/job-1")).toEqual({
+      name: "story-style-color",
+      projectId: "project_demo_1",
+      jobId: "job-1",
+    });
+    expect(getRoute("/project/project_demo_1/generation/job-1")).toEqual({
+      name: "ai-deck-generation",
+      projectId: "project_demo_1",
+      jobId: "job-1",
     });
   });
 
@@ -248,6 +338,25 @@ describe("App shell routing", () => {
     expect(getRoute("/presentation/project_demo_1")).toEqual({
       name: "presentation",
       projectId: "project_demo_1"
+    });
+    expect(
+      getRoute(
+        "/presentation/project_demo_1/report/session_demo_1",
+        "?runId=presentation_run_1"
+      )
+    ).toEqual({
+      name: "presentation-report",
+      projectId: "project_demo_1",
+      sessionId: "session_demo_1",
+      runId: "presentation_run_1"
+    });
+    expect(
+      getRoute("/presentation/project_demo_1/report/session_demo_1")
+    ).toEqual({
+      name: "presentation-report",
+      projectId: "project_demo_1",
+      sessionId: "session_demo_1",
+      runId: undefined
     });
   });
 
@@ -286,38 +395,33 @@ describe("App shell routing", () => {
 
   it("preserves rehearsal intent in the project selection route", () => {
     expect(getRoute("/project", "?intent=rehearsal")).toEqual({
-      name: "project-list",
-      intent: "rehearsal"
+      name: "rehearsal-project-list"
     });
   });
 
-  it("parses a selected home template style from the query string", () => {
+  it("ignores the removed home template style query route", () => {
     expect(getRoute("/", "?templateStyle=presentation-document")).toEqual({
-      name: "home",
-      templateStyleId: "presentation-document"
+      name: "home"
     });
-    expect(getHomeTemplateStylePath("submission-document")).toBe(
-      "/?templateStyle=submission-document"
-    );
   });
 });
-
 describe("public and authentication surfaces", () => {
-  it("renders the public landing conversion path without unsupported auth actions", () => {
+  it("renders the public landing hero with login and signup entry points", () => {
     const html = renderToStaticMarkup(
-      <OrbitPublicLandingPage onNavigate={() => undefined} />
+        <LandingPage onNavigate={() => undefined} />
     );
 
-    expect(html).toContain("생각을 발표로 바꾸는 가장 빠른 캔버스");
-    expect(html).toContain("무료로 발표 만들기");
-    expect(html).toContain("생성");
-    expect(html).toContain("편집");
-    expect(html).toContain("리허설");
+    expect(html).toContain("생각을 발표로 바꾸는");
+    expect(html).toContain("가장 빠른 캔버스");
+    expect(html).toContain("로그인");
+    expect(html).toContain("무료로 시작");
+    expect(html.match(/redesign-gradient-button/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(html).not.toContain("랜딩 페이지 메뉴");
     expect(html).not.toContain("Google");
     expect(html).not.toContain("비밀번호를 잊으셨나요");
   });
 
-  it("renders email/password-only login and signup forms", () => {
+  it("renders nickname only on the signup form", () => {
     const queryClient = new QueryClient();
     const loginHtml = renderToStaticMarkup(
       <QueryClientProvider client={queryClient}>
@@ -334,8 +438,12 @@ describe("public and authentication surfaces", () => {
     expect(signupHtml).toContain("첫 발표를 시작해 볼까요?");
     expect(loginHtml).toContain('type="email"');
     expect(loginHtml).toContain('type="password"');
+    expect(loginHtml).toContain("redesign-gradient-button");
+    expect(signupHtml).toContain("redesign-gradient-button");
     expect(signupHtml).not.toContain("Google");
-    expect(signupHtml).not.toContain('autocomplete="name"');
+    expect(loginHtml).not.toContain('autoComplete="name"');
+    expect(signupHtml).toContain('autoComplete="name"');
+    expect(signupHtml).toContain("닉네임");
   });
 
   it("submits the existing auth contract and surfaces API errors", async () => {
@@ -369,1072 +477,171 @@ describe("public and authentication surfaces", () => {
 });
 
 describe("workspace project surfaces", () => {
+  it("classifies an expired authentication session from project access", async () => {
+    await expect(
+      fetchProjectAccess(
+        "project_1",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ message: "Authentication required" }), {
+            status: 401,
+          }),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      name: "ProjectAccessRequestError",
+      status: 401,
+    });
+  });
+
+  it("retries transient project access failures but not authentication or missing-project responses", () => {
+    expect(shouldRetryProjectAccess(0, new TypeError("Failed to fetch"))).toBe(true);
+    expect(shouldRetryProjectAccess(2, new TypeError("Failed to fetch"))).toBe(false);
+    expect(
+      shouldRetryProjectAccess(
+        0,
+        new ProjectAccessRequestError("Authentication required", 401),
+      ),
+    ).toBe(false);
+    expect(
+      shouldRetryProjectAccess(
+        0,
+        new ProjectAccessRequestError("Project not found", 404),
+      ),
+    ).toBe(false);
+    expect(
+      shouldRetryProjectAccess(
+        0,
+        new ProjectAccessRequestError("Server error", 503),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps an already-authorized editor open for a transient access failure", () => {
+    expect(
+      getProjectAccessFailureBehavior(new TypeError("Failed to fetch"), true),
+    ).toBe("preserve");
+    expect(
+      getProjectAccessFailureBehavior(
+        new ProjectAccessRequestError("Authentication required", 401),
+        true,
+      ),
+    ).toBe("login");
+    expect(
+      getProjectAccessFailureBehavior(new TypeError("Failed to fetch"), false),
+    ).toBe("blocking");
+  });
+
   it("uses localized project access roles", () => {
     expect(getProjectAccessRoleLabel("owner")).toBe("소유자");
     expect(getProjectAccessRoleLabel("editor")).toBe("편집 가능");
     expect(getProjectAccessRoleLabel("viewer")).toBe("보기 전용");
   });
 
-  it("keeps a single AI presentation primary action on workspace home", () => {
+  it("renders a recents-only workspace home with an AI creation tile", () => {
+    const queryClient = new QueryClient();
+    const projectItems = Array.from({ length: 5 }, (_, index) => ({
+      createdAt: `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
+      createdBy: "user_1",
+      isPinned: index === 0,
+      pinnedAt: index === 0 ? "2026-07-20T00:00:00.000Z" : null,
+      projectId: `project_${index + 1}`,
+      tags: [],
+      generation: null,
+      title: `프로젝트 ${index + 1}`,
+      workspaceId: "workspace_1"
+    }));
+    queryClient.setQueryData(
+      ["projects", "page", { filter: "all", query: "", sort: "latest", tags: [] }],
+      {
+        pages: [{ items: projectItems, page: 1, limit: 5, hasMore: false }],
+        pageParams: [1]
+      }
+    );
     const html = renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider client={queryClient}>
         <OrbitWorkspaceHome onNavigate={() => undefined} userName="지윤" />
       </QueryClientProvider>
     );
 
-    expect(html).toContain("지윤님,");
-    expect(html.match(/<button class="orbit-ds-button/g)).toHaveLength(1);
-    expect(html).toContain("프로젝트를 불러오는 중입니다.");
-    expect(html).toContain("리허설 시작하기");
+    expect(html).toContain("내 프로젝트");
+    expect(html).not.toContain("Workspace");
+    expect(html).toContain("더보기");
+    expect(html).toContain('class="workspace-create-project-card"');
+    expect(html).toContain("AI로 발표자료 만들기");
+    expect(html).toContain("발표자료 초안을 만들어드려요.");
+    expect(html).not.toContain("빈 슬라이드로 시작하세요.");
+    expect(html.match(/<article[^>]*workspace-home-card/g)).toHaveLength(5);
+    expect(html).toMatch(/class="[^"]*workspace-home-card is-pinned/);
+    expect(html).not.toContain("워크스페이스 메뉴");
   });
 
-  it("renders search, sorting, refresh and creation controls in project explorer", () => {
+  it("renders search, sorting and creation controls in project explorer", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["projects"], [
+      {
+        createdAt: "2026-07-18T00:00:00.000Z",
+        createdBy: "user_1",
+        isPinned: false,
+        projectId: "project_1",
+        title: "프로젝트 1",
+        workspaceId: "workspace_1",
+      },
+    ]);
     const html = renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
-        <OrbitProjectExplorer onNavigate={() => undefined} />
+      <QueryClientProvider client={queryClient}>
+        <ProjectExplorerPage onNavigate={() => undefined} />
       </QueryClientProvider>
     );
 
     expect(html).toContain('aria-label="프로젝트 검색"');
-    expect(html).toContain('aria-label="프로젝트 정렬"');
-    expect(html).toContain('aria-label="프로젝트 새로고침"');
+    expect(html).toContain('aria-label="새 발표자료 만들기"');
+    expect(html).toContain('class="orbit-project-browse-tools"');
+    expect(html).toContain('aria-label="프로젝트 정렬: 최근 생성순"');
+    expect(html).not.toContain('aria-label="프로젝트 새로고침"');
     expect(html).toContain("빈 프로젝트");
+    expect(html).toContain("PPTX 업로드");
+    expect(html).toContain("orbit-project-commandbar-action orbit-project-commandbar-blank");
+    expect(html).toContain("orbit-project-commandbar-action orbit-project-commandbar-upload");
+    expect(html).toContain('class="orbit-project-gallery"');
+    expect(html).toContain('aria-label="프로젝트 1 고정"');
+    expect(html).toContain('aria-label="프로젝트 1 리허설 시작"');
+    expect(html).toContain('aria-label="프로젝트 1 삭제"');
+    expect(html.indexOf('aria-label="프로젝트 1 고정"')).toBeLessThan(
+      html.indexOf('aria-label="프로젝트 1 리허설 시작"'),
+    );
+    expect(html.indexOf('aria-label="프로젝트 1 리허설 시작"')).toBeLessThan(
+      html.indexOf('aria-label="프로젝트 1 삭제"'),
+    );
+    expect(html).not.toContain('aria-label="프로젝트 1 작업 메뉴"');
+    expect(html).not.toContain("<h1>프로젝트</h1>");
   });
 
   it("renders a dedicated rehearsal project picker without creation or delete actions", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["projects"], [
+      {
+        createdAt: "2026-07-18T00:00:00.000Z",
+        createdBy: "user_1",
+        isPinned: false,
+        projectId: "project_private_identifier",
+        title: "리허설 발표자료",
+        workspaceId: "workspace_1",
+      },
+    ]);
     const html = renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
-        <OrbitProjectExplorer intent="rehearsal" onNavigate={() => undefined} />
+      <QueryClientProvider client={queryClient}>
+        <RehearsalProjectPickerPage onNavigate={() => undefined} />
       </QueryClientProvider>
     );
 
-    expect(html).toContain("리허설할 프로젝트 선택");
-    expect(html).toContain("마이크 점검");
+    expect(html).toContain('aria-label="리허설 프로젝트 목록"');
+    expect(html).toContain("리허설 발표자료");
+    expect(html).toContain("연습하기");
+    expect(html).not.toContain("연습하러 가기");
+    expect(html).not.toContain(">작업</span>");
+    expect(html).toContain("redesign-button-primary");
+    expect(html).not.toContain("project_private_identifier");
+    expect(html).toContain('aria-label="프로젝트 새로고침"');
     expect(html).not.toContain("빈 프로젝트");
-  });
-});
-
-describe("home template styles", () => {
-  it("renders only the three supported template style cards", () => {
-    const html = renderToStaticMarkup(
-      <TemplateRail title="템플릿" selectedStyleId="presentation-document" />
-    );
-
-    expect(homeTemplateStyles).toHaveLength(3);
-    expect(html).toContain("빈 프레젠테이션 만들기");
-    expect(html).toContain("심플 베이직 스타일");
-    expect(html).toContain("발표용 문서 스타일");
-    expect(html).toContain("제출용 문서 스타일");
-    expect(html).toContain('aria-pressed="true"');
-    expect(html).not.toContain("피치덱");
-    expect(html).not.toContain("수업 자료");
-    expect(html).not.toContain("워크숍");
-  });
-
-  it("does not select a template style by default", () => {
-    const html = renderToStaticMarkup(<TemplateRail title="템플릿" />);
-
-    expect(html).not.toContain('aria-pressed="true"');
-    expect(html).not.toContain("template-card-active");
-  });
-
-  it("renders selected template style settings", () => {
-    const html = renderToStaticMarkup(
-      <TemplateStyleOptionsPanel
-        templateStyle={homeTemplateStyles[0]}
-        topic=""
-        prompt=""
-        tone="professional"
-        durationInput="10"
-        minSlidesInput="5"
-        maxSlidesInput="8"
-        designPrompt=""
-        densityTarget="style-default"
-        layoutDiversity="style-default"
-        mediaPolicy="style-default"
-        uploads={[]}
-        totalUploadSize={0}
-        rejected={[]}
-        job={null}
-        status=""
-        error=""
-        onClearStyle={() => undefined}
-        onTopicChange={() => undefined}
-        onPromptChange={() => undefined}
-        onToneChange={() => undefined}
-        onDurationInputChange={() => undefined}
-        onMinSlidesInputChange={() => undefined}
-        onMaxSlidesInputChange={() => undefined}
-        onDesignPromptChange={() => undefined}
-        onDensityTargetChange={() => undefined}
-        onFileChange={() => undefined}
-        onLayoutDiversityChange={() => undefined}
-        onMediaPolicyChange={() => undefined}
-        onRemoveUpload={() => undefined}
-        onUpdateUploadRole={() => undefined}
-        onGenerate={() => undefined}
-      />
-    );
-
-    expect(html).toContain("발표 주제");
-    expect(html).toContain("PPT 생성하기");
-    expect(html).toContain('name="templateDesignPrompt"');
-    expect(html).toContain('name="templateDensityTarget"');
-    expect(html).toContain('name="templateLayoutDiversity"');
-    expect(html).toContain('name="templateMediaPolicy"');
-    expect(html).toContain("참고자료 첨부");
-    expect(html).toContain('type="file"');
-  });
-
-  it("hides design reference roles in the selected template style settings", () => {
-    const pptx = new File(["pptx"], "reference.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    });
-    const html = renderToStaticMarkup(
-      <TemplateStyleOptionsPanel
-        templateStyle={homeTemplateStyles[0]}
-        topic=""
-        prompt=""
-        tone="professional"
-        durationInput="10"
-        minSlidesInput="5"
-        maxSlidesInput="8"
-        designPrompt=""
-        densityTarget="style-default"
-        layoutDiversity="style-default"
-        mediaPolicy="style-default"
-        uploads={[{ id: "pptx", file: pptx, role: "content" }]}
-        totalUploadSize={pptx.size}
-        rejected={[]}
-        job={null}
-        status=""
-        error=""
-        onClearStyle={() => undefined}
-        onTopicChange={() => undefined}
-        onPromptChange={() => undefined}
-        onToneChange={() => undefined}
-        onDurationInputChange={() => undefined}
-        onMinSlidesInputChange={() => undefined}
-        onMaxSlidesInputChange={() => undefined}
-        onDesignPromptChange={() => undefined}
-        onDensityTargetChange={() => undefined}
-        onFileChange={() => undefined}
-        onLayoutDiversityChange={() => undefined}
-        onMediaPolicyChange={() => undefined}
-        onRemoveUpload={() => undefined}
-        onUpdateUploadRole={() => undefined}
-        onGenerate={() => undefined}
-      />
-    );
-
-    expect(html).toContain("내용 참고");
-    expect(html).not.toContain("디자인 참고");
-    expect(html).not.toContain("둘 다");
-  });
-});
-
-describe("reference extraction upload flow", () => {
-  it("builds generate-deck references and keywords from succeeded extraction results", () => {
-    const input = buildReferenceGenerationInput([
-      {
-        referenceDocumentId: " file_1 ",
-        fileName: "success.pdf",
-        kind: "pdf",
-        status: "succeeded",
-        rawText: "raw",
-        cleanedText: "cleaned",
-        keywords: [
-          { keyword: "Deck", reason: "topic", priority: "high" },
-          { keyword: " deck ", reason: "duplicate", priority: "medium" }
-        ]
-      },
-      {
-        referenceDocumentId: "file_2",
-        fileName: "failed.pdf",
-        kind: "pdf",
-        status: "failed",
-        rawText: "",
-        keywords: [{ keyword: "ignored", reason: "failed", priority: "low" }]
-      },
-      {
-        referenceDocumentId: "file_1",
-        fileName: "duplicate.pdf",
-        kind: "pdf",
-        status: "succeeded",
-        rawText: "raw",
-        keywords: [{ keyword: "AI", reason: "topic", priority: "high" }]
-      }
-    ]);
-
-    expect(input.references).toEqual([{ fileId: "file_1" }]);
-    expect(input.referenceKeywords).toEqual([{ text: "Deck" }, { text: "AI" }]);
-    expect(input.referenceContext).toEqual([
-      { fileId: "file_1", title: "success.pdf", content: "cleaned" }
-    ]);
-    expect(input.succeededFiles).toHaveLength(2);
-    expect(input.failedFiles.map((file) => file.fileName)).toEqual(["failed.pdf"]);
-  });
-
-  it("polls a succeeded job and renders its result", async () => {
-    const file = {
-      fileName: "sample.pdf",
-      kind: "pdf",
-      status: "succeeded",
-      message: "done",
-      rawText: "raw text",
-      cleanedText: "cleaned text",
-      cleanupStatus: "succeeded",
-      keywords: [{ keyword: "deck", reason: "topic", priority: "high" }],
-      keywordStatus: "succeeded",
-      indexingStatus: "indexed",
-      indexingMessage: "stored",
-      chunkCount: 2
-    };
-    const baseJob: Job = {
-      jobId: "job-1",
-      projectId: "project-a",
-      type: "reference-extract",
-      status: "running",
-      progress: 10,
-      message: "Reference extraction running.",
-      result: null,
-      error: null,
-      createdAt: "2026-06-27T00:00:00.000Z",
-      updatedAt: "2026-06-27T00:00:00.000Z"
-    };
-    const fetcher = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify(baseJob)))
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            ...baseJob,
-            status: "succeeded",
-            progress: 100,
-            result: { files: [file] }
-          })
-        )
-      );
-
-    const job = await pollExtractJob("job-1", { delayMs: 0, fetcher });
-    const [result] = getJobResultFiles(job);
-    const html = renderToStaticMarkup(<ExtractResultItem result={result} />);
-
-    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/jobs/job-1");
-    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/jobs/job-1");
-    expect(html).toContain("sample.pdf");
-    expect(html).toContain("cleaned text");
-    expect(html).toContain("2 chunks");
-  });
-});
-
-describe("AI deck generation flow", () => {
-  it("uses the input, review, and generating action hierarchy", () => {
-    expect(getCreateDeckPhaseActionLabel("input", false)).toBe("구성 확인");
-    expect(getCreateDeckPhaseActionLabel("review", false)).toBe("발표자료 생성 시작");
-    expect(getCreateDeckPhaseActionLabel("review", true)).toBe("발표자료 생성 중...");
-  });
-
-  it("builds a PPTX OOXML generation payload without old generate-deck fields", () => {
-    expect(
-      buildPptxOoxmlGenerationPayload({
-        fileId: "file_template",
-        topic: " ORBIT ",
-        prompt: " Keep source package "
-      })
-    ).toEqual({
-      fileId: "file_template",
-      topic: "ORBIT",
-      prompt: "Keep source package"
-    });
-    expect(
-      buildPptxOoxmlGenerationPayload({
-        fileId: "file_template",
-        topic: " ",
-        prompt: ""
-      })
-    ).toEqual({ fileId: "file_template" });
-  });
-
-  it("validates the home PPTX conversion shortcut", () => {
-    const pptx = new File(["pptx"], "source deck.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    });
-    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
-
-    expect(getHomePptxConversionValidationMessage([])).toBe(
-      "변환할 PPTX 파일을 첨부하세요."
-    );
-    expect(
-      getHomePptxConversionValidationMessage([
-        { id: "pptx", file: pptx, role: "design" }
-      ])
-    ).toBe("");
-    expect(
-      getHomePptxConversionValidationMessage([
-        { id: "pptx", file: pptx, role: "design" },
-        { id: "pdf", file: pdf, role: "content" }
-      ])
-    ).toBe("PPTX 변환은 PPTX 파일 1개만 첨부할 수 있습니다.");
-    expect(getPptxConversionProjectTitle(" source deck.pptx ")).toBe(
-      "source deck"
-    );
-  });
-
-  it("reads a PPTX OOXML generation job result", () => {
-    const job: Job = {
-      jobId: "job-ooxml",
-      projectId: "project-a",
-      type: "pptx-ooxml-generation",
-      status: "succeeded",
-      progress: 100,
-      message: "PPTX OOXML generation completed.",
-      result: {
-        deckId: "deck_ooxml_file_template",
-        templateId: "template_file_template",
-        sourceFileId: "file_template",
-        currentPackageFileId: "file_current",
-        qualityReport: {
-          compositeScore: 90,
-          metrics: {
-            geometry: 90,
-            text: 90,
-            color: 90,
-            layer: 90,
-            editability: 90,
-            pixelSimilarity: null
-          },
-          weights: {
-            geometry: 25,
-            text: 15,
-            color: 10,
-            layer: 10,
-            editability: 10,
-            pixelSimilarity: 30
-          },
-          editabilityCoverage: 0.9,
-          appliedCap: null,
-          notes: []
-        },
-        warnings: []
-      },
-      error: null,
-      createdAt: "2026-06-27T00:00:00.000Z",
-      updatedAt: "2026-06-27T00:00:01.000Z"
-    };
-
-    expect(getPptxOoxmlGenerationJobResult(job)?.deckId).toBe(
-      "deck_ooxml_file_template"
-    );
-    expect(getPptxOoxmlGeneratedProjectPath("project-a")).toBe(
-      "/project/project-a"
-    );
-  });
-
-  it("builds a home AI template deck payload with file roles", () => {
-    const pptx = new File(["pptx"], "design.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    });
-    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
-    const uploadedFileIds = new Map([
-      ["content", "file_content"],
-      ["design", "file_design"]
-    ]);
-
-    expect(
-      buildAiTemplateDeckGenerationPayload({
-        topic: " ORBIT ",
-        prompt: " 핵심 메시지 ",
-        designPrompt: " 리포트 톤 ",
-        duration: 12,
-        minSlides: 4,
-        maxSlides: 6,
-        tone: "confident",
-        uploads: [
-          { id: "content", file: pdf, role: "content" },
-          { id: "design", file: pptx, role: "design" }
-        ],
-        uploadedAssetFileIds: uploadedFileIds
-      })
-    ).toMatchObject({
-      topic: "ORBIT",
-      prompt: "핵심 메시지",
-      designPrompt: "리포트 톤",
-      targetDurationMinutes: 12,
-      slideCountRange: { min: 4, max: 6 },
-      metadata: {
-        audience: "general",
-        purpose: "inform",
-        tone: "confident"
-      },
-      assets: [
-        { fileId: "file_content", role: "content" },
-        { fileId: "file_design", role: "design" }
-      ]
-    });
-  });
-
-  it("keeps a home PPTX both role in the AI template deck payload", () => {
-    const pptx = new File(["pptx"], "template.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    });
-
-    expect(
-      buildAiTemplateDeckGenerationPayload({
-        topic: "ORBIT",
-        prompt: "",
-        designPrompt: "",
-        duration: 10,
-        minSlides: 5,
-        maxSlides: 8,
-        tone: "professional",
-        uploads: [{ id: "template", file: pptx, role: "both" }],
-        uploadedAssetFileIds: new Map([["template", "file_template"]])
-      }).assets
-    ).toEqual([{ fileId: "file_template", role: "both" }]);
-  });
-
-  it("keeps home number inputs empty until submit validation", () => {
-    expect(parseHomeIntegerInput("")).toBeNull();
-    expect(parseHomeIntegerInput("25")).toBe(25);
-  });
-
-  it("rejects invalid home generation duration and slide ranges", () => {
-    const pptx = new File(["pptx"], "design.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    });
-    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
-    const uploads = [{ id: "design", file: pptx, role: "design" as const }];
-
-    expect(getHomeGenerationValidationMessage("ORBIT", [], "10", "5", "8")).toBe("");
-    expect(
-      getHomeGenerationValidationMessage(
-        "ORBIT",
-        [{ id: "pdf", file: pdf, role: "design" }],
-        "10",
-        "5",
-        "8"
-      )
-    ).toBe("디자인 참고 파일은 PPTX여야 합니다.");
-    expect(
-      getHomeGenerationValidationMessage(
-        "ORBIT",
-        [
-          { id: "design-1", file: pptx, role: "design" },
-          { id: "design-2", file: pptx, role: "both" }
-        ],
-        "10",
-        "5",
-        "8"
-      )
-    ).toBe("디자인 참고 PPTX는 1개만 선택하세요.");
-    expect(
-      getHomeGenerationValidationMessage(
-        "ORBIT",
-        [
-          { id: "design-1", file: pptx, role: "design" },
-          { id: "design-2", file: pptx, role: "both" }
-        ],
-        "10",
-        "5",
-        "8",
-        false
-      )
-    ).toBe("");
-    expect(getHomeGenerationValidationMessage("ORBIT", uploads, "0", "5", "8")).toBe(
-      "발표 시간은 1~120분으로 입력하세요."
-    );
-    expect(getHomeGenerationValidationMessage("ORBIT", uploads, "10", "9", "8")).toBe(
-      "최소 슬라이드 수는 최대 슬라이드 수보다 클 수 없습니다."
-    );
-  });
-
-  it("defaults PPTX uploads to content references while a template style is selected", () => {
-    const pptx = new File(["pptx"], "reference.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    });
-    const docx = new File(["docx"], "reference.docx", {
-      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    });
-
-    expect(getHomeDefaultUploadRole(pptx, false)).toBe("design");
-    expect(getHomeDefaultUploadRole(pptx, true)).toBe("content");
-    expect(getHomeDefaultUploadRole(docx, true)).toBe("content");
-  });
-
-  it("reads an AI template deck generation job result", () => {
-    const job: Job = {
-      jobId: "job-template",
-      projectId: "project-a",
-      type: "ai-template-deck-generation",
-      status: "succeeded",
-      progress: 100,
-      message: "AI template deck generation completed.",
-      result: {
-        deckId: "deck_ai_project_a",
-        templateId: "template_file_design",
-        sourceFileId: "file_design",
-        currentPackageFileId: "file_current",
-        contentReferenceFileIds: ["file_content"],
-        qualityReport: {
-          compositeScore: 90,
-          metrics: {
-            geometry: 90,
-            text: 90,
-            color: 90,
-            layer: 90,
-            editability: 90,
-            pixelSimilarity: null
-          },
-          weights: {
-            geometry: 25,
-            text: 15,
-            color: 10,
-            layer: 10,
-            editability: 10,
-            pixelSimilarity: 30
-          },
-          editabilityCoverage: 0.9,
-          appliedCap: null,
-          notes: []
-        },
-        warnings: []
-      },
-      error: null,
-      createdAt: "2026-07-04T00:00:00.000Z",
-      updatedAt: "2026-07-04T00:00:01.000Z"
-    };
-
-    expect(getAiTemplateDeckGenerationJobResult(job)).toMatchObject({
-      deckId: "deck_ai_project_a",
-      currentPackageFileId: "file_current",
-      contentReferenceFileIds: ["file_content"]
-    });
-  });
-
-  it("builds a generate-deck payload with design direction", () => {
-    const payload = buildGenerateDeckPayload({
-      topic: "ORBIT",
-      prompt: "Generate slides",
-      designPrompt: "retro pixel palette",
-      duration: 10,
-      minSlides: 5,
-      maxSlides: 8,
-      template: "report",
-      metadata: {
-        audience: "general",
-        purpose: "inform",
-        tone: "professional"
-      },
-      design: {
-        profile: "executive-report",
-        visualRhythm: "auto",
-        densityTarget: "medium",
-        mediaPolicy: "balanced",
-        layoutDiversity: "varied"
-      },
-      designReferences: [{ fileId: "file_design_1" }],
-      referenceInput: {
-        references: [{ fileId: "file_1" }],
-        referenceKeywords: [{ text: "Deck" }],
-        referenceContext: [
-          { fileId: "file_1", title: "source.pdf", content: "source text" }
-        ],
-        succeededFiles: [],
-        failedFiles: []
-      }
-    });
-
-    expect(payload).toMatchObject({
-      topic: "ORBIT",
-      prompt: "Generate slides",
-      designPrompt: "retro pixel palette",
-      targetDurationMinutes: 10,
-      slideCountRange: { min: 5, max: 8 },
-      design: {
-        profile: "executive-report",
-        visualRhythm: "auto",
-        densityTarget: "medium",
-        mediaPolicy: "balanced",
-        layoutDiversity: "varied"
-      },
-      references: [{ fileId: "file_1" }],
-      designReferences: [{ fileId: "file_design_1" }],
-      referenceKeywords: [{ text: "Deck" }],
-      referenceContext: [
-        { fileId: "file_1", title: "source.pdf", content: "source text" }
-      ]
-    });
-  });
-
-  it("builds a JSON-first home payload without a design PPTX", () => {
-    const payload = buildHomeJsonFirstGenerateDeckPayload({
-      topic: " ORBIT ",
-      prompt: " 핵심 메시지 ",
-      designPrompt: " 심플 베이직 발표용 ",
-      duration: 10,
-      minSlides: 5,
-      maxSlides: 8,
-      tone: "professional"
-    });
-
-    expect(payload).toMatchObject({
-      topic: "ORBIT",
-      prompt: "핵심 메시지",
-      designPrompt: "심플 베이직 발표용",
-      design: {
-        visualRhythm: "auto",
-        densityTarget: "medium",
-        mediaPolicy: "balanced",
-        layoutDiversity: "varied"
-      },
-      references: [],
-      designReferences: [],
-      referenceKeywords: [],
-      referenceContext: []
-    });
-    expect(payload.design).not.toHaveProperty("stylePackId");
-  });
-
-  it("builds JSON-first home payloads with selected template styles", () => {
-    const presentationPayload = buildHomeJsonFirstGenerateDeckPayload({
-      topic: "ORBIT",
-      prompt: "",
-      designPrompt: "",
-      templateStyleId: "presentation-document",
-      duration: 10,
-      minSlides: 5,
-      maxSlides: 8,
-      tone: "professional"
-    });
-    const submissionPayload = buildHomeJsonFirstGenerateDeckPayload({
-      topic: "ORBIT",
-      prompt: "",
-      designPrompt: "",
-      templateStyleId: "submission-document",
-      duration: 10,
-      minSlides: 5,
-      maxSlides: 8,
-      tone: "professional"
-    });
-
-    expect(presentationPayload.design).toMatchObject({
-      stylePackId: "presentation-document",
-      densityTarget: "low"
-    });
-    expect(submissionPayload.design).toMatchObject({
-      stylePackId: "submission-document",
-      densityTarget: "high",
-      visualRhythm: "technical"
-    });
-  });
-
-  it("applies selected template style design overrides", () => {
-    const payload = buildHomeJsonFirstGenerateDeckPayload({
-      topic: "ORBIT",
-      prompt: "",
-      designPrompt: "",
-      templateStyleId: "presentation-document",
-      templateStyleDesignOverrides: buildTemplateStyleDesignOverrides({
-        densityTarget: "high",
-        layoutDiversity: "varied",
-        mediaPolicy: "avoid"
-      }),
-      duration: 10,
-      minSlides: 5,
-      maxSlides: 8,
-      tone: "professional"
-    });
-
-    expect(payload.design).toMatchObject({
-      stylePackId: "presentation-document",
-      densityTarget: "high",
-      layoutDiversity: "varied",
-      mediaPolicy: "avoid"
-    });
-  });
-
-  it("keeps content references when a template style is selected", () => {
-    const payload = buildHomeJsonFirstGenerateDeckPayload({
-      topic: "ORBIT",
-      prompt: "",
-      designPrompt: "",
-      templateStyleId: "simple-basic",
-      duration: 10,
-      minSlides: 5,
-      maxSlides: 8,
-      tone: "professional",
-      referenceInput: {
-        references: [{ fileId: "file_reference" }],
-        referenceKeywords: [{ text: "핵심" }],
-        referenceContext: [
-          { fileId: "file_reference", title: "reference.docx", content: "본문" }
-        ],
-        succeededFiles: [],
-        failedFiles: []
-      }
-    });
-
-    expect(payload.design.stylePackId).toBe("simple-basic");
-    expect(payload.references).toEqual([{ fileId: "file_reference" }]);
-    expect(payload.referenceKeywords).toEqual([{ text: "핵심" }]);
-    expect(payload.referenceContext).toEqual([
-      { fileId: "file_reference", title: "reference.docx", content: "본문" }
-    ]);
-  });
-
-  it("routes home deck generation to JSON-first unless a design PPTX exists", () => {
-    const pptx = new File(["pptx"], "design.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    });
-    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
-
-    expect(getHomeDeckGenerationJobEndpoint("project a", [])).toBe(
-      "/api/v1/projects/project%20a/jobs/generate-deck"
-    );
-    expect(
-      getHomeDeckGenerationJobEndpoint("project a", [
-        { id: "pdf", file: pdf, role: "content" }
-      ])
-    ).toBe("/api/v1/projects/project%20a/jobs/generate-deck");
-    expect(
-      getHomeDeckGenerationJobEndpoint("project a", [
-        { id: "pptx", file: pptx, role: "design" }
-      ])
-    ).toBe("/api/v1/projects/project%20a/jobs/ai-template-deck-generation");
-    expect(
-      getHomeDeckGenerationJobEndpoint(
-        "project a",
-        [{ id: "pptx", file: pptx, role: "design" }],
-        false
-      )
-    ).toBe("/api/v1/projects/project%20a/jobs/generate-deck");
-    expect(getHomeDeckGenerationJobEndpoint("project a", [])).not.toContain(
-      "pptx-ooxml"
-    );
-    expect(
-      getHomeContentReferenceUploads([{ id: "pdf", file: pdf, role: "content" }])
-    ).toHaveLength(1);
-    expect(
-      getHomeContentReferenceUploads(
-        [{ id: "pptx", file: pptx, role: "design" }],
-        true
-      )
-    ).toEqual([{ id: "pptx", file: pptx, role: "design" }]);
-  });
-
-  it("builds extract form data for content-only home references", () => {
-    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
-    const formData = buildHomeExtractFormData(
-      "project_ai",
-      [{ id: "pdf", file: pdf, role: "content" }],
-      new Map([["pdf", "file_content"]])
-    );
-
-    expect(formData.get("projectId")).toBe("project_ai");
-    expect(formData.getAll("files")).toEqual([pdf]);
-    expect(formData.getAll("fileIds")).toEqual(["file_content"]);
-  });
-
-  it("routes home reference extraction through the API proxy", () => {
-    expect(homeReferenceExtractEndpoint).toBe("/api/extract");
-  });
-
-  it("omits a design profile when the profile picker is automatic", () => {
-    expect(
-      buildGenerateDeckDesignDirection({
-        profile: "auto",
-        visualRhythm: "auto",
-        densityTarget: "medium",
-        mediaPolicy: "balanced",
-        layoutDiversity: "varied"
-      })
-    ).toEqual({
-      visualRhythm: "auto",
-      densityTarget: "medium",
-      mediaPolicy: "balanced",
-      layoutDiversity: "varied"
-    });
-
-    expect(
-      buildGenerateDeckDesignDirection({
-        profile: "editorial",
-        visualRhythm: "auto",
-        densityTarget: "medium",
-        mediaPolicy: "balanced",
-        layoutDiversity: "varied"
-      }).profile
-    ).toBe("editorial");
-    expect(buildSimpleBasicGenerateDeckDesignDirection().stylePackId).toBe(
-      "simple-basic"
-    );
-    expect(buildDefaultHomeGenerateDeckDesignDirection()).toEqual({
-      visualRhythm: "auto",
-      densityTarget: "medium",
-      mediaPolicy: "balanced",
-      layoutDiversity: "varied"
-    });
-    expect(
-      buildHomeTemplateStyleGenerateDeckDesignDirection("presentation-document")
-        .stylePackId
-    ).toBe("presentation-document");
-  });
-
-  it("defaults an omitted design prompt to an empty string", () => {
-    const payload = buildGenerateDeckPayload({
-      topic: "ORBIT",
-      prompt: "Generate slides",
-      duration: 10,
-      minSlides: 5,
-      maxSlides: 8,
-      template: "report",
-      metadata: {
-        audience: "general",
-        purpose: "inform",
-        tone: "professional"
-      },
-      design: {
-        profile: "executive-report",
-        visualRhythm: "auto",
-        densityTarget: "medium",
-        mediaPolicy: "balanced",
-        layoutDiversity: "varied"
-      },
-      designReferences: [],
-      referenceInput: {
-        references: [],
-        referenceKeywords: [],
-        referenceContext: [],
-        succeededFiles: [],
-        failedFiles: []
-      }
-    });
-
-    expect(payload.designPrompt).toBe("");
-  });
-
-  it("builds design references from PPTX role uploads", () => {
-    const pptx = new File(["pptx"], "design.pptx", {
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    });
-    const pdf = new File(["pdf"], "content.pdf", { type: "application/pdf" });
-    const uploadedFileIds = new Map([
-      ["design-only", "file_design"],
-      ["both", "file_both"]
-    ]);
-
-    expect(
-      buildDesignReferences(
-        [
-          { id: "content", file: pdf, role: "content" },
-          { id: "design-only", file: pptx, role: "design" },
-          { id: "both", file: pptx, role: "both" }
-        ],
-        uploadedFileIds
-      )
-    ).toEqual([{ fileId: "file_design" }, { fileId: "file_both" }]);
-  });
-
-  it("keeps a generated project at the top of the project list cache", () => {
-    const older: Project = {
-      projectId: "project_old",
-      workspaceId: "workspace_demo_1",
-      title: "Old",
-      createdBy: "user_demo_1",
-      createdAt: "2026-06-28T00:00:00.000Z"
-    };
-    const generated: Project = {
-      projectId: "project_new_ai",
-      workspaceId: "workspace_demo_1",
-      title: "New",
-      createdBy: "user_demo_1",
-      createdAt: "2026-06-29T00:00:00.000Z"
-    };
-
-    expect(mergeGeneratedProjectList([older], generated)).toEqual([
-      generated,
-      older
-    ]);
-    expect(mergeGeneratedProjectList([generated, older], generated)).toEqual([
-      generated,
-      older
-    ]);
-  });
-
-  it("creates a new project for an AI deck generation", async () => {
-    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-
-      if (url.endsWith("/workspaces/workspace_demo_1/projects")) {
-        expect(init?.method).toBe("POST");
-        expect(JSON.parse(String(init?.body))).toEqual({ title: "새 주제" });
-        return new Response(
-          JSON.stringify({
-            projectId: "project_new_ai",
-            workspaceId: "workspace_demo_1",
-            title: "새 주제",
-            createdBy: "user_demo_1",
-            createdAt: "2026-06-29T00:00:00.000Z"
-          })
-        );
-      }
-
-      if (url.endsWith("/projects/project_new_ai/deck")) {
-        const body = JSON.parse(String(init?.body));
-        return new Response(
-          JSON.stringify({
-            deck: body.deck,
-            snapshot: {
-              snapshotId: "snapshot_new_ai",
-              projectId: "project_new_ai",
-              deckId: "deck_new_ai",
-              version: 1,
-              reason: "deck-replaced",
-              createdAt: "2026-06-29T00:00:00.000Z"
-            },
-            updatedAt: "2026-06-29T00:00:00.000Z"
-          })
-        );
-      }
-
-      return new Response("unexpected request", { status: 500 });
-    });
-
-    await expect(createGeneratedDeckProject("  새 주제  ", fetcher)).resolves.toMatchObject({
-      projectId: "project_new_ai"
-    });
-    expect(getGeneratedDeckProjectTitle("   ")).toBe("AI 덱");
-  });
-
-  it("uses a selected project as the generate-deck target", async () => {
-    const selected: Project = {
-      projectId: "project_selected",
-      workspaceId: "workspace_demo_1",
-      title: "Selected",
-      createdBy: "user_demo_1",
-      createdAt: "2026-06-29T00:00:00.000Z"
-    };
-    const fetcher = vi.fn(async () => new Response("unexpected", { status: 500 }));
-
-    await expect(
-      resolveGenerateDeckTargetProject({
-        fetcher,
-        projects: [selected],
-        selectedProjectId: selected.projectId,
-        topic: "새 주제"
-      })
-    ).resolves.toEqual({
-      created: false,
-      project: selected,
-      projectId: selected.projectId
-    });
-    expect(fetcher).not.toHaveBeenCalled();
-  });
-
-  it("polls generic jobs through the API job route", async () => {
-    const fetcher = vi.fn(async (_input: RequestInfo | URL) =>
-      new Response(
-        JSON.stringify({
-          jobId: "job_done",
-          projectId: "project_pptx",
-          type: "pptx-import",
-          status: "succeeded",
-          progress: 100,
-          message: "done",
-          result: null,
-          error: null,
-          createdAt: "2026-07-03T00:00:00.000Z",
-          updatedAt: "2026-07-03T00:00:00.000Z"
-        })
-      )
-    );
-
-    await expect(pollJob("job_done", fetcher)).resolves.toMatchObject({
-      jobId: "job_done"
-    });
-    expect(String(fetcher.mock.calls[0][0])).toBe("/api/jobs/job_done");
-  });
-
-  it("reads a generated deck job result and renders slide evidence", () => {
-    const job: Job = {
-      jobId: "job-2",
-      projectId: "project-a",
-      type: "ai-deck-generation",
-      status: "succeeded",
-      progress: 100,
-      message: "AI deck generation completed.",
-      result: {
-        deckId: "deck_ai_1",
-        deck: {
-          deckId: "deck_ai_1",
-          projectId: "project-a",
-          title: "AI 덱 생성 발표안",
-          version: 1,
-          metadata: {
-            language: "ko",
-            locale: "ko-KR",
-            sourceType: "ai",
-            generatedBy: "ai"
-          },
-          canvas: {
-            preset: "wide-16-9",
-            width: 1920,
-            height: 1080,
-            aspectRatio: "16:9"
-          },
-          slides: [
-            {
-              slideId: "slide_1",
-              order: 1,
-              title: "AI 덱 생성",
-              thumbnailUrl: "",
-              style: {},
-              speakerNotes: "발표자 노트",
-              elements: [],
-              keywords: [],
-              animations: [],
-              actions: [],
-              aiNotes: {
-                emphasisPoints: ["핵심 메시지"],
-                sourceEvidence: [{ fileId: "file_1", note: "근거 후보" }]
-              }
-            }
-          ]
-        },
-        warnings: ["AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다."],
-        validation: {
-          passed: true,
-          layoutIssues: [],
-          contentIssues: [],
-          designIssues: [
-            {
-              scope: "element",
-              path: "slides.0.elements.0.props.data",
-              message: "근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."
-            }
-          ],
-          presentationIssues: []
-        }
-      },
-      error: null,
-      createdAt: "2026-06-27T00:00:00.000Z",
-      updatedAt: "2026-06-27T00:00:01.000Z"
-    };
-    const result = getGenerateDeckJobResult(job);
-
-    expect(result?.deckId).toBe("deck_ai_1");
-    if (!result) {
-      throw new Error("Generated deck result was not parsed.");
-    }
-    expect(getGeneratedDeckProjectPath(result)).toBe("/project/project-a");
-    expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
-      "file_1"
-    );
-    expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
-      "AI가 참고자료/주제 밀도를 기준으로 1장이 적정하다고 판단했습니다."
-    );
-    expect(renderToStaticMarkup(<GeneratedDeckResult result={result} />)).toContain(
-      "근거 데이터가 없어 빈 차트 자리 표시자를 생성했습니다."
-    );
   });
 });

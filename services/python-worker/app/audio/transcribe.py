@@ -7,58 +7,29 @@ import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, Protocol
-from urllib.error import URLError
-from urllib.parse import urlparse
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
 from fastapi import Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
+from app.audio.models import AudioContent, AudioReference
+from app.audio.source import AudioProcessingError, load_audio_content
 from app.config import PythonWorkerConfig
-
-SUPPORTED_AUDIO_MIME_TYPES = {
-    "audio/m4a",
-    "audio/mp3",
-    "audio/mp4",
-    "audio/mpeg",
-    "audio/mpga",
-    "audio/flac",
-    "audio/wav",
-    "audio/webm",
-    "audio/x-m4a",
-    "audio/x-wav",
-    "video/mp4",
-}
 
 _MULTIPART_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
-
-class AudioTranscriptionError(RuntimeError):
-    def __init__(self, code: str, message: str, status_code: int) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.status_code = status_code
+AudioTranscriptionError = AudioProcessingError
 
 
-class AudioReference(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+class PronunciationContextTerm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-    file_id: str = Field(alias="fileId", min_length=1)
-    object_key: str | None = Field(default=None, alias="objectKey", min_length=1)
-    storage_url: str | None = Field(default=None, alias="storageUrl", min_length=1)
-    mime_type: str = Field(alias="mimeType", min_length=1)
-
-    @model_validator(mode="after")
-    def validate_reference(self) -> AudioReference:
-        if not self.object_key and not self.storage_url:
-            raise ValueError("audio reference requires objectKey or storageUrl")
-
-        if self.mime_type not in SUPPORTED_AUDIO_MIME_TYPES:
-            raise ValueError(f"unsupported audio mime type: {self.mime_type}")
-
-        return self
+    source: str = Field(min_length=1, max_length=64)
+    aliases: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
+        min_length=1,
+        max_length=4,
+    )
 
 
 class AudioTranscribeRequest(BaseModel):
@@ -67,6 +38,11 @@ class AudioTranscribeRequest(BaseModel):
     run_id: str = Field(alias="runId", min_length=1)
     project_id: str = Field(alias="projectId", min_length=1)
     audio: AudioReference
+    pronunciation_context: list[PronunciationContextTerm] = Field(
+        default_factory=list,
+        alias="pronunciationContext",
+        max_length=32,
+    )
 
 
 class TranscriptSegment(BaseModel):
@@ -91,12 +67,6 @@ class AudioTranscribeResponse(BaseModel):
     segments: list[TranscriptSegment]
 
 
-class AudioContent(BaseModel):
-    data: bytes
-    file_name: str
-    mime_type: str
-
-
 class ProviderTranscription(BaseModel):
     transcript: str
     language: str
@@ -110,7 +80,11 @@ class ReportSttProvider(Protocol):
     name: str
     model: str
 
-    def transcribe(self, audio: AudioContent) -> ProviderTranscription:
+    def transcribe(
+        self,
+        audio: AudioContent,
+        pronunciation_context: list[PronunciationContextTerm] | None = None,
+    ) -> ProviderTranscription:
         pass
 
 
@@ -125,18 +99,28 @@ class OpenAISpeechToTextProvider:
         self._api_key = api_key
         self._language = language
 
-    def transcribe(self, audio: AudioContent) -> ProviderTranscription:
+    def transcribe(
+        self,
+        audio: AudioContent,
+        pronunciation_context: list[PronunciationContextTerm] | None = None,
+    ) -> ProviderTranscription:
         try:
             from io import BytesIO
 
             from openai import OpenAI
 
             client: Any = OpenAI(api_key=self._api_key)
+            request_options: dict[str, Any] = {
+                "model": self.model,
+                "file": (audio.file_name, BytesIO(audio.data), audio.mime_type),
+                "language": _openai_language(self._language),
+                "response_format": _openai_response_format(self.model),
+            }
+            prompt = _build_openai_pronunciation_prompt(pronunciation_context or [])
+            if prompt:
+                request_options["prompt"] = prompt
             result: Any = client.audio.transcriptions.create(
-                model=self.model,
-                file=(audio.file_name, BytesIO(audio.data), audio.mime_type),
-                language=_openai_language(self._language),
-                response_format=_openai_response_format(self.model),
+                **request_options,
             )
         except Exception as exc:  # pragma: no cover - exercised via fake provider.
             raise AudioTranscriptionError(
@@ -155,12 +139,15 @@ class OpenAISpeechToTextProvider:
 
         provider_language = _read_field(result, "language", None)
         duration = _read_optional_float(result, "duration")
+        resolved_language = (
+            provider_language
+            if isinstance(provider_language, str) and provider_language
+            else self._language
+        )
 
         return ProviderTranscription(
             transcript=transcript,
-            language=provider_language
-            if isinstance(provider_language, str) and provider_language
-            else self._language,
+            language=_normalize_transcription_language(resolved_language),
             provider=self.name,
             model=self.model,
             duration_seconds=duration,
@@ -188,7 +175,11 @@ class WhisperXSpeechToTextProvider:
         self._timeout_seconds = timeout_ms / 1000
         self._opener = opener
 
-    def transcribe(self, audio: AudioContent) -> ProviderTranscription:
+    def transcribe(
+        self,
+        audio: AudioContent,
+        pronunciation_context: list[PronunciationContextTerm] | None = None,
+    ) -> ProviderTranscription:
         body, content_type = _build_whisperx_multipart_body(
             audio,
             {
@@ -285,10 +276,25 @@ def transcribe_rehearsal_audio(
     payload: AudioTranscribeRequest,
     provider: ReportSttProvider,
 ) -> AudioTranscribeResponse:
-    audio = read_audio_content(payload.audio)
+    audio_content = load_audio_content(payload.audio)
+    provider_transcription = transcribe_audio_content(
+        audio_content,
+        provider,
+        payload.pronunciation_context,
+    )
+
+    return build_audio_transcribe_response(payload, provider_transcription)
+
+
+def transcribe_audio_content(
+    audio_content: AudioContent,
+    provider: ReportSttProvider,
+    pronunciation_context: list[PronunciationContextTerm] | None = None,
+) -> ProviderTranscription:
+    """이미 로드된 음성을 STT Provider로 전사한다."""
 
     try:
-        result = provider.transcribe(audio)
+        return provider.transcribe(audio_content, pronunciation_context)
     except AudioTranscriptionError:
         raise
     except Exception as exc:
@@ -298,60 +304,26 @@ def transcribe_rehearsal_audio(
             502,
         ) from exc
 
+
+def build_audio_transcribe_response(
+    payload: AudioTranscribeRequest,
+    provider_transcription: ProviderTranscription,
+) -> AudioTranscribeResponse:
+    """Provider 전사 결과를 HTTP 응답 계약으로 변환한다."""
     return AudioTranscribeResponse(
         runId=payload.run_id,
         projectId=payload.project_id,
         fileId=payload.audio.file_id,
-        transcript=result.transcript,
-        language=result.language,
-        provider=result.provider,
-        model=result.model,
-        durationSeconds=result.duration_seconds,
-        segments=result.segments,
+        transcript=provider_transcription.transcript,
+        language=provider_transcription.language,
+        provider=provider_transcription.provider,
+        model=provider_transcription.model,
+        durationSeconds=provider_transcription.duration_seconds,
+        segments=provider_transcription.segments,
     )
 
 
-def read_audio_content(reference: AudioReference) -> AudioContent:
-    source = reference.storage_url or reference.object_key
-    if not source:
-        raise AudioTranscriptionError(
-            "invalid_audio_reference",
-            "audio reference requires objectKey or storageUrl",
-            400,
-        )
-
-    parsed = urlparse(source)
-    file_name = _file_name(reference)
-
-    try:
-        if parsed.scheme in {"http", "https"}:
-            request = UrlRequest(source, headers={"User-Agent": "orbit-python-worker"})
-            with urlopen(request, timeout=15) as response:
-                return AudioContent(
-                    data=response.read(),
-                    file_name=file_name,
-                    mime_type=reference.mime_type,
-                )
-
-        if parsed.scheme == "file":
-            data = Path(parsed.path).read_bytes()
-        else:
-            data = Path(source).read_bytes()
-    except (OSError, URLError) as exc:
-        raise AudioTranscriptionError(
-            "file_access_failed",
-            "Could not read rehearsal audio from the supplied reference",
-            404,
-        ) from exc
-
-    if not data:
-        raise AudioTranscriptionError(
-            "empty_audio",
-            "Rehearsal audio is empty",
-            400,
-        )
-
-    return AudioContent(data=data, file_name=file_name, mime_type=reference.mime_type)
+read_audio_content = load_audio_content
 
 
 def to_http_exception(error: AudioTranscriptionError) -> HTTPException:
@@ -367,8 +339,40 @@ ReportSttProviderDependency = Annotated[
 ]
 
 
+def _build_openai_pronunciation_prompt(
+    context: list[PronunciationContextTerm],
+    max_characters: int = 800,
+) -> str:
+    if not context or max_characters <= 0:
+        return ""
+
+    prefix = "발표 용어 표기와 발음: "
+    suffix = "."
+    terms: list[str] = []
+    for term in context[:32]:
+        source = " ".join(term.source.split())
+        aliases = [" ".join(alias.split()) for alias in term.aliases[:2]]
+        aliases = [alias for alias in aliases if alias]
+        if not source or not aliases:
+            continue
+        candidate = f"{source}({', '.join(aliases)})"
+        next_prompt = prefix + ", ".join([*terms, candidate]) + suffix
+        if len(next_prompt) > max_characters:
+            break
+        terms.append(candidate)
+
+    return prefix + ", ".join(terms) + suffix if terms else ""
+
+
 def _openai_language(language_code: str) -> str:
     return language_code.split("-", maxsplit=1)[0]
+
+
+def _normalize_transcription_language(language: str) -> str:
+    normalized = language.strip().lower().replace("_", "-")
+    if normalized == "korean" or normalized.split("-", maxsplit=1)[0] == "ko":
+        return "ko"
+    return language.strip()
 
 
 def _openai_response_format(model: str) -> str:
@@ -376,27 +380,6 @@ def _openai_response_format(model: str) -> str:
         return "json"
 
     return "verbose_json"
-
-
-def _file_name(reference: AudioReference) -> str:
-    source = reference.storage_url or reference.object_key or reference.file_id
-    name = Path(urlparse(source).path).name
-    return name or f"{reference.file_id}{_extension_for_mime(reference.mime_type)}"
-
-
-def _extension_for_mime(mime_type: str) -> str:
-    return {
-        "audio/m4a": ".m4a",
-        "audio/mp3": ".mp3",
-        "audio/mp4": ".mp4",
-        "audio/mpeg": ".mp3",
-        "audio/flac": ".flac",
-        "audio/wav": ".wav",
-        "audio/webm": ".webm",
-        "audio/x-m4a": ".m4a",
-        "audio/x-wav": ".wav",
-        "video/mp4": ".mp4",
-    }.get(mime_type, ".audio")
 
 
 def _read_field(data: Any, field: str, default: Any) -> Any:
@@ -461,7 +444,7 @@ def _parse_whisperx_response(
 
     return ProviderTranscription(
         transcript=transcript,
-        language=language,
+        language=_normalize_transcription_language(language),
         provider=provider,
         model=model,
         duration_seconds=duration,

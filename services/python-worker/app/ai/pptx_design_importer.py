@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import base64
+import posixpath
+import re
+import zipfile
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any, cast
+from xml.etree import ElementTree as ET
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
@@ -15,6 +19,18 @@ from app.ai.pptx_quality import not_evaluated_slide_reports
 
 CANVAS_WIDTH = 1920
 CANVAS_HEIGHT = 1080
+OFFICE_REL_NS = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+)
+SLIDE_REL_TYPE = f"{OFFICE_REL_NS}/slide"
+NOTES_SLIDE_REL_TYPE = f"{OFFICE_REL_NS}/notesSlide"
+NOTES_MASTER_REL_TYPE = f"{OFFICE_REL_NS}/notesMaster"
+NOTES_SLIDE_PART_PATTERN = re.compile(
+    r"ppt/notesSlides/notesSlide[^/]+\.xml"
+)
+NOTES_MASTER_PART_PATTERN = re.compile(
+    r"ppt/notesMasters/notesMaster[^/]+\.xml"
+)
 
 
 class ImportedDesignAsset(BaseModel):
@@ -110,6 +126,13 @@ class ShapeTransform:
             translate_x=self.scale_x * local.translate_x + self.translate_x,
             translate_y=self.scale_y * local.translate_y + self.translate_y,
         )
+
+
+@dataclass(frozen=True)
+class ImportedNotesPage:
+    speaker_notes: str | None
+    notes_page: dict[str, Any]
+    diagnostic_code: str | None = None
 
 
 def import_pptx_design(
@@ -233,14 +256,23 @@ def import_pptx_design(
             "warnings": warnings,
         }
     )
+    blueprint_payload = blueprint.model_dump(by_alias=True)
+    template_blueprint = build_template_blueprint(
+        file_id,
+        slides,
+        slot_sources_by_slide,
+    )
+    quality_report = build_quality_report(slides, warnings)
+    attach_pptx_speaker_notes(
+        path,
+        blueprint_payload,
+        template_blueprint,
+        quality_report,
+    )
     return PptxDesignImportResult(
-        blueprint=blueprint.model_dump(by_alias=True),
-        templateBlueprint=build_template_blueprint(
-            file_id,
-            slides,
-            slot_sources_by_slide,
-        ),
-        qualityReport=build_quality_report(slides, warnings),
+        blueprint=blueprint_payload,
+        templateBlueprint=template_blueprint,
+        qualityReport=quality_report,
         assets=assets,
         warnings=warnings,
     )
@@ -876,6 +908,11 @@ def build_template_blueprint(
             {
                 "slideIndex": index + 1,
                 "sourceSlideIndex": int(slide.get("sourceSlideIndex", index + 1)),
+                **(
+                    {"sourceSlidePart": str(slide["sourceSlidePart"])}
+                    if slide.get("sourceSlidePart")
+                    else {}
+                ),
                 **template_slide_metadata(slide),
                 "elementSources": [
                     source
@@ -1130,6 +1167,346 @@ def infer_element_source(element: dict[str, Any]) -> dict[str, Any]:
     if "_cell_" in element_id:
         return {"type": "table"}
     return {"type": "slide"}
+
+
+def attach_pptx_speaker_notes(
+    path: Path,
+    blueprint: dict[str, Any],
+    template_blueprint: dict[str, Any],
+    quality_report: dict[str, Any],
+) -> None:
+    blueprint_slides = blueprint.get("slides", [])
+    template_slides = template_blueprint.get("slides", [])
+    expected_count = min(len(blueprint_slides), len(template_slides))
+    imported_pages, package_slide_count = import_pptx_notes_pages(path)
+    warning_counts: dict[str, int] = {}
+
+    if package_slide_count != expected_count:
+        warning_counts["PPTX_NOTES_PAGE_COUNT_MISMATCH"] = abs(
+            package_slide_count - expected_count
+        ) or 1
+
+    imported_count = 0
+    writable_count = 0
+    for index in range(expected_count):
+        imported = (
+            imported_pages[index]
+            if index < len(imported_pages)
+            else absent_notes_page(None, None)
+        )
+        template_slides[index]["notesPage"] = imported.notes_page
+        if imported.speaker_notes is not None:
+            blueprint_slides[index]["speakerNotes"] = imported.speaker_notes
+            imported_count += 1
+        if imported.notes_page.get("bodyWritable"):
+            writable_count += 1
+        if imported.diagnostic_code:
+            warning_counts[imported.diagnostic_code] = (
+                warning_counts.get(imported.diagnostic_code, 0) + 1
+            )
+
+    quality_report["notesDiagnostics"] = {
+        "total": expected_count,
+        "imported": imported_count,
+        "rendered": 0,
+        "writable": writable_count,
+        "warnings": [
+            {"code": code, "count": count}
+            for code, count in sorted(warning_counts.items())
+        ],
+    }
+
+
+def import_pptx_notes_pages(path: Path) -> tuple[list[ImportedNotesPage], int]:
+    try:
+        with zipfile.ZipFile(path, "r") as package:
+            slide_parts = notes_source_slide_parts(package)
+            dimensions = notes_page_dimensions(package)
+            return (
+                [
+                    import_notes_page_for_slide(package, slide_part, dimensions)
+                    for slide_part in slide_parts
+                ],
+                len(slide_parts),
+            )
+    except (ET.ParseError, KeyError, OSError, ValueError, zipfile.BadZipFile):
+        return [], 0
+
+
+def notes_source_slide_parts(package: zipfile.ZipFile) -> list[str]:
+    presentation = read_package_xml(package, "ppt/presentation.xml")
+    relationships = package_relationships(package, "ppt/presentation.xml")
+    slide_parts: list[str] = []
+    for slide_id in presentation.iter():
+        if local_name(slide_id) != "sldId":
+            continue
+        relationship_id = slide_id.get(f"{{{OFFICE_REL_NS}}}id")
+        relationship = relationships.get(str(relationship_id or ""))
+        if relationship is None or relationship.get("Type") != SLIDE_REL_TYPE:
+            continue
+        target = relationship.get("Target", "")
+        resolved = resolve_internal_part(
+            "ppt/presentation.xml",
+            target,
+            relationship.get("TargetMode"),
+        )
+        if resolved is not None and resolved in package.namelist():
+            slide_parts.append(resolved)
+    return slide_parts
+
+
+def notes_page_dimensions(
+    package: zipfile.ZipFile,
+) -> tuple[int, int] | None:
+    presentation = read_package_xml(package, "ppt/presentation.xml")
+    notes_size = next(
+        (item for item in presentation.iter() if local_name(item) == "notesSz"),
+        None,
+    )
+    if notes_size is None:
+        return None
+    width = int_attr(notes_size, "cx", 0)
+    height = int_attr(notes_size, "cy", 0)
+    return (width, height) if width > 0 and height > 0 else None
+
+
+def import_notes_page_for_slide(
+    package: zipfile.ZipFile,
+    slide_part: str,
+    dimensions: tuple[int, int] | None,
+) -> ImportedNotesPage:
+    relationships = package_relationships(package, slide_part)
+    notes_relationships = [
+        relationship
+        for relationship in relationships.values()
+        if relationship.get("Type") == NOTES_SLIDE_REL_TYPE
+    ]
+    if not notes_relationships:
+        return absent_notes_page(dimensions, None)
+    if len(notes_relationships) != 1:
+        return absent_notes_page(
+            dimensions,
+            "PPTX_NOTES_RELATIONSHIP_INVALID",
+        )
+
+    relationship = notes_relationships[0]
+    if not relationship.get("Target"):
+        return absent_notes_page(
+            dimensions,
+            "PPTX_NOTES_RELATIONSHIP_MISSING",
+        )
+    notes_part = resolve_internal_part(
+        slide_part,
+        relationship.get("Target", ""),
+        relationship.get("TargetMode"),
+    )
+    if (
+        notes_part is None
+        or NOTES_SLIDE_PART_PATTERN.fullmatch(notes_part) is None
+        or notes_part not in package.namelist()
+    ):
+        return absent_notes_page(
+            dimensions,
+            "PPTX_NOTES_RELATIONSHIP_INVALID",
+        )
+
+    notes_root = read_package_xml(package, notes_part)
+    shape_tree = direct_path(notes_root, "cSld", "spTree")
+    body_shapes = [
+        shape
+        for shape in direct_children(shape_tree, "sp")
+        if notes_placeholder_type(shape) == "body"
+    ]
+    notes_master_part, master_diagnostic = notes_master_for_page(
+        package,
+        notes_part,
+    )
+    notes_page: dict[str, Any] = {
+        "status": "preserved",
+        "sourceNotesPart": notes_part,
+        "bodyWritable": False,
+        "hasNonBodyContent": notes_page_has_non_body_content(shape_tree),
+    }
+    if notes_master_part is not None:
+        notes_page["sourceNotesMasterPart"] = notes_master_part
+    if dimensions is not None:
+        notes_page["notesWidthEmu"], notes_page["notesHeightEmu"] = dimensions
+
+    if len(body_shapes) == 0:
+        return ImportedNotesPage(
+            speaker_notes=None,
+            notes_page=notes_page,
+            diagnostic_code="PPTX_NOTES_BODY_MISSING",
+        )
+    if len(body_shapes) > 1:
+        return ImportedNotesPage(
+            speaker_notes=None,
+            notes_page=notes_page,
+            diagnostic_code="PPTX_NOTES_BODY_AMBIGUOUS",
+        )
+
+    body_shape = body_shapes[0]
+    shape_id = notes_body_shape_id(body_shape)
+    if shape_id:
+        notes_page["bodyShapeId"] = shape_id
+        notes_page["bodyWritable"] = True
+    text_body = direct_path(body_shape, "txBody")
+    speaker_notes = extract_notes_body_text(text_body)
+    diagnostic = master_diagnostic
+    if not shape_id:
+        diagnostic = "PPTX_NOTES_BODY_NOT_WRITABLE"
+    return ImportedNotesPage(
+        speaker_notes=speaker_notes,
+        notes_page=notes_page,
+        diagnostic_code=diagnostic,
+    )
+
+
+def absent_notes_page(
+    dimensions: tuple[int, int] | None,
+    diagnostic_code: str | None,
+) -> ImportedNotesPage:
+    notes_page: dict[str, Any] = {
+        "status": "absent",
+        "bodyWritable": False,
+        "hasNonBodyContent": False,
+    }
+    if dimensions is not None:
+        notes_page["notesWidthEmu"], notes_page["notesHeightEmu"] = dimensions
+    return ImportedNotesPage(
+        speaker_notes=None,
+        notes_page=notes_page,
+        diagnostic_code=diagnostic_code,
+    )
+
+
+def notes_master_for_page(
+    package: zipfile.ZipFile,
+    notes_part: str,
+) -> tuple[str | None, str | None]:
+    relationships = package_relationships(package, notes_part)
+    master_relationships = [
+        relationship
+        for relationship in relationships.values()
+        if relationship.get("Type") == NOTES_MASTER_REL_TYPE
+    ]
+    if not master_relationships:
+        return None, None
+    if len(master_relationships) != 1:
+        return None, "PPTX_NOTES_RELATIONSHIP_INVALID"
+    relationship = master_relationships[0]
+    master_part = resolve_internal_part(
+        notes_part,
+        relationship.get("Target", ""),
+        relationship.get("TargetMode"),
+    )
+    if (
+        master_part is None
+        or NOTES_MASTER_PART_PATTERN.fullmatch(master_part) is None
+        or master_part not in package.namelist()
+    ):
+        return None, "PPTX_NOTES_RELATIONSHIP_INVALID"
+    return master_part, None
+
+
+def package_relationships(
+    package: zipfile.ZipFile,
+    part_path: str,
+) -> dict[str, dict[str, str]]:
+    directory, _, filename = part_path.rpartition("/")
+    relationships_path = (
+        f"{directory}/_rels/{filename}.rels"
+        if directory
+        else f"_rels/{filename}.rels"
+    )
+    if relationships_path not in package.namelist():
+        return {}
+    root = read_package_xml(package, relationships_path)
+    return {
+        str(relationship.get("Id")): {
+            str(key): str(value)
+            for key, value in relationship.attrib.items()
+        }
+        for relationship in list(root)
+        if local_name(relationship) == "Relationship" and relationship.get("Id")
+    }
+
+
+def resolve_internal_part(
+    source_part: str,
+    target: str,
+    target_mode: str | None,
+) -> str | None:
+    if target_mode not in {None, "", "Internal"}:
+        return None
+    if not target or "\\" in target or ":" in target or "?" in target or "#" in target:
+        return None
+    if target.startswith("/"):
+        candidate = posixpath.normpath(target.lstrip("/"))
+    else:
+        candidate = posixpath.normpath(
+            posixpath.join(posixpath.dirname(source_part), target)
+        )
+    if candidate in {"", ".", ".."} or candidate.startswith("../"):
+        return None
+    return candidate
+
+
+def read_package_xml(
+    package: zipfile.ZipFile,
+    part_path: str,
+) -> ET.Element[Any]:
+    return ET.fromstring(package.read(part_path))
+
+
+def direct_path(root: Any | None, *names: str) -> Any | None:
+    current = root
+    for name in names:
+        current = first_child(current, name) if current is not None else None
+        if current is None:
+            return None
+    return current
+
+
+def notes_placeholder_type(shape: Any) -> str:
+    placeholder = direct_path(shape, "nvSpPr", "nvPr", "ph")
+    return str(placeholder.get("type", "")) if placeholder is not None else ""
+
+
+def notes_body_shape_id(shape: Any) -> str | None:
+    shape_properties = direct_path(shape, "nvSpPr", "cNvPr")
+    shape_id = str(shape_properties.get("id", "")) if shape_properties is not None else ""
+    return shape_id if shape_id else None
+
+
+def notes_page_has_non_body_content(shape_tree: Any | None) -> bool:
+    if shape_tree is None:
+        return False
+    for item in list(shape_tree):
+        if local_name(item) not in {"sp", "pic", "graphicFrame", "cxnSp", "grpSp"}:
+            continue
+        placeholder_type = notes_placeholder_type(item) if local_name(item) == "sp" else ""
+        if placeholder_type not in {"body", "sldImg", "sldNum"}:
+            return True
+    return False
+
+
+def extract_notes_body_text(text_body: Any | None) -> str:
+    if text_body is None:
+        return ""
+    paragraphs: list[str] = []
+    for paragraph in direct_children(text_body, "p"):
+        fragments: list[str] = []
+        for item in paragraph.iter():
+            name = local_name(item)
+            if name == "t":
+                fragments.append(str(item.text or ""))
+            elif name == "br":
+                fragments.append("\n")
+            elif name == "tab":
+                fragments.append("\t")
+        paragraphs.append("".join(fragments))
+    return "\n".join(paragraphs)
 
 
 QUALITY_WEIGHTS = {

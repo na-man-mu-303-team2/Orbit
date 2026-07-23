@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import {
   applyDeckPatch,
   removeLegacyAiGeneratedTitleAnimations,
@@ -9,29 +10,44 @@ import {
   enqueueDeckExportJob,
   enqueuePptxOoxmlSyncJob,
   enqueueSemanticCueExtractionJob,
+  enqueueSpeakerNotesSuggestionJob,
   type EnqueueDeckExportJobInput,
   type EnqueuePptxOoxmlSyncJobInput,
   type EnqueueSemanticCueExtractionJobInput,
+  type EnqueueSpeakerNotesSuggestionJobInput,
 } from "@orbit/job-queue";
 import {
   appendDeckPatchAckResponseSchema,
   appendDeckPatchRequestSchema,
   appendDeckPatchResponseSchema,
   deckApiErrorSchema,
+  deckExportEnqueueErrorSchema,
   deckExportRequestSchema,
   deckSchema,
+  deckSnapshotDetailSchema,
   deckSnapshotIdSchema,
   deckSnapshotReasonSchema,
   deckSnapshotSchema,
   getDeckResponseSchema,
+  getPptxNotesPreviewResponseSchema,
+  getPptxImportQualityResponseSchema,
+  getOoxmlSyncStateResponseSchema,
   jobSchema,
+  PPTX_OOXML_SYNC_CAPABILITY_VERSION,
   listDeckSnapshotsResponseSchema,
   putDeckRequestSchema,
   putDeckResponseSchema,
+  qualityReportSchema,
+  retryOoxmlSyncResponseSchema,
   restoreDeckSnapshotResponseSchema,
+  recoverTemplateBlueprintSlideIds,
   createSemanticCueExtractionJobResponseSchema,
   semanticCueExtractionJobPayloadSchema,
   semanticCueExtractionRequestSchema,
+  createSpeakerNotesSuggestionJobResponseSchema,
+  speakerNotesSuggestionJobPayloadSchema,
+  speakerNotesSuggestionRequestSchema,
+  templateBlueprintSchema,
 } from "@orbit/shared";
 import type {
   AppendDeckPatchAckRequest,
@@ -43,21 +59,31 @@ import type {
   DeckApiError,
   DeckApiErrorCode,
   DeckChangeRecord,
+  DeckElement,
   DeckPatchOperation,
   DeckSnapshot,
+  DeckSnapshotDetail,
   DeckSnapshotReason,
   GetDeckResponse,
+  GetPptxNotesPreviewResponse,
+  GetPptxImportQualityResponse,
+  Job,
+  OoxmlSyncState,
   ListDeckSnapshotsResponse,
   PutDeckRequest,
   PutDeckResponse,
   RestoreDeckSnapshotResponse,
   CreateSemanticCueExtractionJobResponse,
+  CreateSpeakerNotesSuggestionJobResponse,
+  TemplateBlueprint,
 } from "@orbit/shared";
 import {
+  ConflictException,
   HttpException,
   HttpStatus,
   Inject,
   Injectable,
+  NotFoundException,
   Optional,
 } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
@@ -102,6 +128,22 @@ type TemplateBlueprintRow = {
   blueprint_json: unknown;
 };
 
+type PptxImportQualityRow = {
+  quality_report_json: unknown;
+};
+
+type PptxNotesPreviewAssetRow = {
+  file_id: string;
+  project_id: string;
+  purpose: string;
+  status: string;
+  mime_type: string;
+};
+
+type OoxmlTemplateBlueprint = TemplateBlueprintRow & {
+  blueprint: TemplateBlueprint;
+};
+
 type PptxOoxmlSyncJobInput = {
   deckId: string;
   changeId: string;
@@ -121,6 +163,17 @@ export type SemanticCueExtractionEnqueueJob = (
 ) => Promise<void>;
 export const SEMANTIC_CUE_EXTRACTION_ENQUEUE_JOB =
   "SEMANTIC_CUE_EXTRACTION_ENQUEUE_JOB";
+export type SpeakerNotesSuggestionEnqueueJob = (
+  input: EnqueueSpeakerNotesSuggestionJobInput,
+) => Promise<void>;
+export const SPEAKER_NOTES_SUGGESTION_ENQUEUE_JOB =
+  "SPEAKER_NOTES_SUGGESTION_ENQUEUE_JOB";
+
+export type InitialDeckWriteResult = {
+  deck: Deck;
+  snapshot: DeckSnapshot;
+  updatedAt: string;
+};
 
 @Injectable()
 export class DecksService {
@@ -135,11 +188,13 @@ export class DecksService {
     private readonly enqueueDeckExport: DeckExportEnqueueJob = enqueueDeckExportJob,
     @Optional()
     @Inject(SEMANTIC_CUE_EXTRACTION_ENQUEUE_JOB)
-    private readonly enqueueSemanticCueJob: SemanticCueExtractionEnqueueJob =
-      enqueueSemanticCueExtractionJob,
+    private readonly enqueueSemanticCueJob: SemanticCueExtractionEnqueueJob = enqueueSemanticCueExtractionJob,
     @Optional()
     @InjectPinoLogger(DecksService.name)
     private readonly logger?: PinoLogger,
+    @Optional()
+    @Inject(SPEAKER_NOTES_SUGGESTION_ENQUEUE_JOB)
+    private readonly enqueueSpeakerNotesSuggestion: SpeakerNotesSuggestionEnqueueJob = enqueueSpeakerNotesSuggestionJob,
   ) {}
 
   async getDeck(projectId: string): Promise<GetDeckResponse> {
@@ -168,6 +223,171 @@ export class DecksService {
     });
   }
 
+  async getDeckForUpdate(
+    manager: EntityManager,
+    projectId: string,
+    deckId: string,
+  ): Promise<Deck> {
+    const deckRow = await this.findDeckRowForUpdate(
+      manager,
+      projectId,
+      deckId,
+    );
+
+    if (!deckRow) {
+      throwDeckApiException(
+        "DECK_NOT_FOUND",
+        HttpStatus.NOT_FOUND,
+        `Deck not found for project: ${projectId}`,
+      );
+    }
+
+    return (
+      await this.readCurrentDeckState(
+        manager,
+        parseDeckRow(deckRow),
+        projectId,
+        deckId,
+        toIso(deckRow.updated_at),
+        true,
+      )
+    ).deck;
+  }
+
+  async createInitialDeckInTransaction(
+    manager: EntityManager,
+    deck: Deck,
+    createdAt: string,
+  ): Promise<InitialDeckWriteResult> {
+    const initialDeck = deckSchema.parse(deck);
+    const storedDeck = await this.writeDeckCheckpoint(
+      manager,
+      initialDeck,
+      createdAt,
+      null,
+    );
+    await this.updateProjectTitle(manager, storedDeck.projectId, storedDeck.title);
+    const snapshot = await this.createSnapshot(
+      manager,
+      storedDeck,
+      "deck-replaced",
+      createdAt,
+    );
+
+    return { deck: storedDeck, snapshot, updatedAt: createdAt };
+  }
+
+  async getPptxImportQuality(
+    projectId: string,
+  ): Promise<GetPptxImportQualityResponse> {
+    const { deck } = await this.getDeck(projectId);
+    const rows = await this.dataSource.query<PptxImportQualityRow[]>(
+      `
+        SELECT quality_report_json
+        FROM template_blueprints
+        WHERE project_id = $1 AND deck_id = $2
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1
+      `,
+      [projectId, deck.deckId],
+    );
+    const qualityReport = qualityReportSchema.safeParse(
+      rows[0]?.quality_report_json,
+    );
+
+    return getPptxImportQualityResponseSchema.parse({
+      importQuality: qualityReport.success
+        ? { qualityReport: qualityReport.data }
+        : null,
+    });
+  }
+
+  async getPptxNotesPreview(
+    projectId: string,
+    slideId: string,
+  ): Promise<GetPptxNotesPreviewResponse> {
+    const { deck } = await this.getDeck(projectId);
+    const slide = deck.slides.find(
+      (candidate) => candidate.slideId === slideId,
+    );
+    if (!slide) {
+      throw new NotFoundException(`Deck slide not found: ${slideId}`);
+    }
+
+    const response = (
+      status: GetPptxNotesPreviewResponse["notesPreview"]["status"],
+      assetUrl: string | null = null,
+    ) =>
+      getPptxNotesPreviewResponseSchema.parse({
+        notesPreview: { slideId, status, assetUrl },
+      });
+    const imported = await this.findOoxmlTemplateBlueprint(
+      this.dataSource,
+      projectId,
+      deck.deckId,
+      deck,
+    );
+    if (!imported) {
+      return response(
+        deck.metadata.sourceType === "import" ? "unavailable" : "absent",
+      );
+    }
+
+    const blueprintSlide = imported.blueprint.slides.find(
+      (candidate) => candidate.slideId === slideId,
+    );
+    if (!blueprintSlide) return response("unavailable");
+
+    const syncState = await this.readOoxmlSyncState(projectId, deck);
+    if (syncState.status === "pending") return response("sync-pending");
+    if (syncState.status === "stale" || syncState.status === "failed") {
+      return response("stale");
+    }
+
+    const notesPage = blueprintSlide.notesPage;
+    if (!notesPage || notesPage.status === "absent") {
+      return response("absent");
+    }
+    if (notesPage.status !== "rendered") {
+      return response("render-unavailable");
+    }
+
+    const previewFileId = notesPage.renderAssetFileId;
+    if (!previewFileId) return response("unavailable");
+
+    let rows: PptxNotesPreviewAssetRow[];
+    try {
+      rows = await this.dataSource.query<PptxNotesPreviewAssetRow[]>(
+        `
+          SELECT file_id, project_id, purpose, status, mime_type
+          FROM project_assets
+          WHERE project_id = $1 AND file_id = $2
+          LIMIT 1
+        `,
+        [projectId, previewFileId],
+      );
+    } catch {
+      return response("unavailable");
+    }
+    const asset = rows[0];
+    if (
+      !asset ||
+      asset.project_id !== projectId ||
+      asset.purpose !== "design-asset" ||
+      asset.status !== "uploaded" ||
+      !asset.mime_type.startsWith("image/")
+    ) {
+      return response("unavailable");
+    }
+
+    return response(
+      "available",
+      `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(
+        previewFileId,
+      )}/content`,
+    );
+  }
+
   async createExportJob(projectId: string, body: unknown) {
     if (!this.jobsService) {
       throw new HttpException(
@@ -178,12 +398,39 @@ export class DecksService {
 
     const request = deckExportRequestSchema.parse(body ?? {});
     const { deck } = await this.getDeck(projectId);
+    if (request.format === "pptx") {
+      const syncState = await this.readOoxmlSyncState(projectId, deck);
+      if (
+        syncState.status !== "not-applicable" &&
+        syncState.status !== "synced"
+      ) {
+        throw new HttpException(
+          {
+            code: "DECK_EXPORT_OOXML_SYNC_NOT_READY",
+            message:
+              "최신 편집 내용의 PPTX 동기화가 완료되지 않았습니다. 동기화 재시도 후 다시 내보내세요.",
+            ooxmlSyncState: syncState,
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+    }
+    if (request.presentationSessionId) {
+      await this.assertExportSession(
+        projectId,
+        deck.deckId,
+        request.presentationSessionId,
+      );
+    }
     const queuedJob = await this.jobsService.create({
       projectId,
       type: "deck-export",
       payload: {
         deckId: deck.deckId,
         format: request.format,
+        ...(request.presentationSessionId
+          ? { presentationSessionId: request.presentationSessionId }
+          : {}),
       },
     });
 
@@ -196,22 +443,117 @@ export class DecksService {
         projectId,
         deck,
         format: request.format,
+        ...(request.presentationSessionId
+          ? { presentationSessionId: request.presentationSessionId }
+          : {}),
       });
+      this.logger?.info(
+        {
+          event: "deck_export.enqueued",
+          jobId: queuedJob.jobId,
+          projectId,
+          deckId: deck.deckId,
+          format: request.format,
+          presentationSessionId: request.presentationSessionId,
+        },
+        "Deck export job enqueued.",
+      );
     } catch (error) {
-      await this.jobsService.update(queuedJob.jobId, {
+      const publicMessage = "Deck export queue is unavailable.";
+      const failedJobPatch = {
         status: "failed",
         progress: 0,
-        message: "Deck export enqueue failed.",
+        message: publicMessage,
         error: {
           code: "DECK_EXPORT_ENQUEUE_FAILED",
-          message:
-            error instanceof Error ? error.message : "Deck export enqueue failed.",
+          message: publicMessage,
+          retryable: true,
         },
-      });
-      throw error;
+      } as const;
+      const updatedJob = await this.jobsService.update(
+        queuedJob.jobId,
+        failedJobPatch,
+      );
+      const failedJob = jobSchema.parse(
+        updatedJob ?? { ...queuedJob, ...failedJobPatch },
+      );
+      this.logger?.error(
+        {
+          event: "deck_export.enqueue_failed",
+          jobId: queuedJob.jobId,
+          projectId,
+          deckId: deck.deckId,
+          format: request.format,
+          presentationSessionId: request.presentationSessionId,
+          error: serializeLogError(error),
+        },
+        "Deck export job enqueue failed.",
+      );
+      throw new HttpException(
+        deckExportEnqueueErrorSchema.parse({
+          code: "DECK_EXPORT_ENQUEUE_FAILED",
+          message: publicMessage,
+          job: failedJob,
+        }),
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
     }
 
     return { job: jobSchema.parse(queuedJob) };
+  }
+
+  async getOoxmlSyncState(projectId: string) {
+    const { deck } = await this.getDeck(projectId);
+    const state = await this.readOoxmlSyncState(projectId, deck);
+    return getOoxmlSyncStateResponseSchema.parse({ ooxmlSyncState: state });
+  }
+
+  async retryOoxmlSync(projectId: string) {
+    const { deck } = await this.getDeck(projectId);
+    const current = await this.readOoxmlSyncState(projectId, deck);
+    if (current.status === "not-applicable" || current.status === "synced") {
+      return retryOoxmlSyncResponseSchema.parse({ ooxmlSyncState: current });
+    }
+    if (
+      current.status === "pending" &&
+      current.job?.status !== "failed"
+    ) {
+      return retryOoxmlSyncResponseSchema.parse({ ooxmlSyncState: current });
+    }
+    if (!current.retryable) {
+      throw new ConflictException("PPTX OOXML sync job is not retryable.");
+    }
+
+    const job = await this.enqueueOoxmlSync(projectId, {
+      deckId: deck.deckId,
+      changeId: `retry_${randomUUID()}`,
+      targetDeckVersion: deck.version,
+    });
+    const state = await this.readOoxmlSyncState(projectId, deck, job);
+    return retryOoxmlSyncResponseSchema.parse({ ooxmlSyncState: state });
+  }
+
+  private async assertExportSession(
+    projectId: string,
+    deckId: string,
+    sessionId: string,
+  ) {
+    const rows = await this.dataSource.query(
+      `
+        SELECT session_id
+        FROM presentation_sessions
+        WHERE project_id = $1 AND deck_id = $2 AND session_id = $3
+          AND results_deleted_at IS NULL
+        LIMIT 1
+      `,
+      [projectId, deckId, sessionId],
+    );
+    if (!rows[0]) {
+      throw new HttpException(
+        "Presentation session not found for export",
+        HttpStatus.NOT_FOUND,
+      );
+    }
   }
 
   async putDeck(projectId: string, body: unknown): Promise<PutDeckResponse> {
@@ -226,9 +568,15 @@ export class DecksService {
       );
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    let syncInput: PptxOoxmlSyncJobInput | null = null;
+    const response = await this.dataSource.transaction(async (manager) => {
       const updatedAt = nowIso();
-      const deckRow = await this.findProjectDeckRowForUpdate(manager, projectId);
+      const deckRow = await this.findProjectDeckRowForUpdate(
+        manager,
+        projectId,
+      );
+      let currentDeck: Deck | undefined;
+      let templateBlueprint: OoxmlTemplateBlueprint | undefined;
 
       if (deckRow) {
         if (deckRow.deck_id !== request.deck.deckId) {
@@ -243,7 +591,7 @@ export class DecksService {
           );
         }
 
-        const currentDeck = (
+        currentDeck = (
           await this.readCurrentDeckState(
             manager,
             parseDeckRow(deckRow),
@@ -266,25 +614,42 @@ export class DecksService {
             ],
           );
         }
+
+        templateBlueprint = await this.findOoxmlTemplateBlueprint(
+          manager,
+          projectId,
+          currentDeck.deckId,
+          currentDeck,
+        );
       }
 
-      const deck = await this.upsertDeck(
-        manager,
-        removeLegacyAiGeneratedTitleAnimations(request.deck),
-        updatedAt,
+      const requestedDeck = removeLegacyAiGeneratedTitleAnimations(
+        request.deck,
       );
+      const replacement =
+        currentDeck && templateBlueprint
+          ? createOoxmlReplacement(currentDeck, requestedDeck, updatedAt)
+          : undefined;
+      const nextDeck = replacement?.deck ?? requestedDeck;
+
       await this.deletePatchRowsAfterVersion(
         manager,
         projectId,
-        deck.deckId,
-        deck.version,
+        nextDeck.deckId,
+        nextDeck.version,
       );
-      await this.deletePatchRowsUpToVersion(
+
+      if (replacement) {
+        await this.insertPatchLog(manager, projectId, replacement.changeRecord);
+      }
+
+      const deck = await this.writeDeckCheckpoint(
         manager,
-        projectId,
-        deck.deckId,
-        deck.version,
+        nextDeck,
+        updatedAt,
+        templateBlueprint ?? null,
       );
+      await this.updateProjectTitle(manager, projectId, deck.title);
       const snapshot = await this.createSnapshot(
         manager,
         deck,
@@ -292,12 +657,26 @@ export class DecksService {
         updatedAt,
       );
 
-      return putDeckResponseSchema.parse({
+      if (replacement) {
+        syncInput = {
+          deckId: deck.deckId,
+          changeId: replacement.changeRecord.changeId,
+          targetDeckVersion: deck.version,
+        };
+      }
+
+      return {
         deck,
         snapshot,
         updatedAt,
-      });
+      };
     });
+
+    const ooxmlSyncJob = syncInput
+      ? await this.enqueueOoxmlSync(projectId, syncInput)
+      : undefined;
+
+    return putDeckResponseSchema.parse({ ...response, ooxmlSyncJob });
   }
 
   async appendPatch(
@@ -365,13 +744,34 @@ export class DecksService {
       }
 
       await this.insertPatchLog(manager, projectId, applyResult.changeRecord);
+      const templateBlueprint = await this.findOoxmlTemplateBlueprint(
+        manager,
+        projectId,
+        applyResult.deck.deckId,
+        currentDeck,
+      );
       const shouldCheckpoint =
-        Boolean(request.snapshotReason) ||
-        applyResult.deck.version - checkpointVersion >=
-          deckCheckpointPatchInterval;
-      const deck = shouldCheckpoint
-        ? await this.writeDeckCheckpoint(manager, applyResult.deck, updatedAt)
-        : applyResult.deck;
+        !templateBlueprint &&
+        (Boolean(request.snapshotReason) ||
+          applyResult.deck.version - checkpointVersion >=
+            deckCheckpointPatchInterval);
+      const deck =
+        templateBlueprint || shouldCheckpoint
+          ? await this.writeDeckCheckpoint(
+              manager,
+              applyResult.deck,
+              updatedAt,
+              templateBlueprint ?? null,
+            )
+          : applyResult.deck;
+
+      if (applyResult.deck.title !== currentDeck.title) {
+        await this.updateProjectTitle(
+          manager,
+          projectId,
+          applyResult.deck.title,
+        );
+      }
 
       const snapshot = request.snapshotReason
         ? await this.createSnapshot(
@@ -381,16 +781,7 @@ export class DecksService {
             updatedAt,
           )
         : null;
-      const templateBlueprint = await this.findOoxmlTemplateBlueprint(
-        manager,
-        projectId,
-        deck.deckId,
-      );
-
-      if (
-        templateBlueprint &&
-        hasOoxmlSyncableOperation(applyResult.changeRecord.operations)
-      ) {
+      if (templateBlueprint) {
         syncInput = {
           deckId: deck.deckId,
           changeId: applyResult.changeRecord.changeId,
@@ -438,50 +829,55 @@ export class DecksService {
       );
     }
 
-    const preparedRequest = await this.dataSource.transaction(async (manager) => {
-      const deckRow = await this.findProjectDeckRowForUpdate(manager, projectId);
-
-      if (!deckRow) {
-        throwDeckApiException(
-          "DECK_NOT_FOUND",
-          HttpStatus.NOT_FOUND,
-          `Deck not found for project: ${projectId}`,
+    const preparedRequest = await this.dataSource.transaction(
+      async (manager) => {
+        const deckRow = await this.findProjectDeckRowForUpdate(
+          manager,
+          projectId,
         );
-      }
 
-      const requestedDeckId = request.deckId ?? deckRow.deck_id;
-      if (requestedDeckId !== deckRow.deck_id) {
-        throwDeckApiException(
-          "DECK_MISMATCH",
-          HttpStatus.BAD_REQUEST,
-          "Requested deckId must match project deck",
-          [
-            `deck.deckId=${deckRow.deck_id}`,
-            `request.deckId=${requestedDeckId}`,
-          ],
+        if (!deckRow) {
+          throwDeckApiException(
+            "DECK_NOT_FOUND",
+            HttpStatus.NOT_FOUND,
+            `Deck not found for project: ${projectId}`,
+          );
+        }
+
+        const requestedDeckId = request.deckId ?? deckRow.deck_id;
+        if (requestedDeckId !== deckRow.deck_id) {
+          throwDeckApiException(
+            "DECK_MISMATCH",
+            HttpStatus.BAD_REQUEST,
+            "Requested deckId must match project deck",
+            [
+              `deck.deckId=${deckRow.deck_id}`,
+              `request.deckId=${requestedDeckId}`,
+            ],
+          );
+        }
+
+        const materializedState = await this.readCurrentDeckState(
+          manager,
+          parseDeckRow(deckRow),
+          projectId,
+          deckRow.deck_id,
+          toIso(deckRow.updated_at),
+          true,
         );
-      }
+        const deck = await this.writeDeckCheckpoint(
+          manager,
+          materializedState.deck,
+          nowIso(),
+        );
 
-      const materializedState = await this.readCurrentDeckState(
-        manager,
-        parseDeckRow(deckRow),
-        projectId,
-        deckRow.deck_id,
-        toIso(deckRow.updated_at),
-        true,
-      );
-      const deck = await this.writeDeckCheckpoint(
-        manager,
-        materializedState.deck,
-        nowIso(),
-      );
-
-      return semanticCueExtractionJobPayloadSchema.shape.request.parse({
-        deckId: deck.deckId,
-        force: request.force,
-        baseVersion: deck.version,
-      });
-    });
+        return semanticCueExtractionJobPayloadSchema.shape.request.parse({
+          deckId: deck.deckId,
+          force: request.force,
+          baseVersion: deck.version,
+        });
+      },
+    );
 
     const queuedJob = await this.jobsService.create({
       projectId,
@@ -539,7 +935,153 @@ export class DecksService {
       throw error;
     }
 
-    return createSemanticCueExtractionJobResponseSchema.parse({ job: queuedJob });
+    return createSemanticCueExtractionJobResponseSchema.parse({
+      job: queuedJob,
+    });
+  }
+
+  async createSpeakerNotesSuggestionJob(
+    projectId: string,
+    body: unknown,
+  ): Promise<CreateSpeakerNotesSuggestionJobResponse> {
+    const request = speakerNotesSuggestionRequestSchema.parse(body);
+
+    if (!this.jobsService) {
+      throwDeckApiException(
+        "DECK_VALIDATION_FAILED",
+        HttpStatus.SERVICE_UNAVAILABLE,
+        "Jobs service is not available",
+      );
+    }
+
+    const preparedRequest = await this.dataSource.transaction(async (manager) => {
+      const deckRow = await this.findProjectDeckRowForUpdate(manager, projectId);
+      if (!deckRow) {
+        throwDeckApiException(
+          "DECK_NOT_FOUND",
+          HttpStatus.NOT_FOUND,
+          `Deck not found for project: ${projectId}`,
+        );
+      }
+      if (request.deckId !== deckRow.deck_id) {
+        throwDeckApiException(
+          "DECK_MISMATCH",
+          HttpStatus.BAD_REQUEST,
+          "Requested deckId must match project deck",
+        );
+      }
+
+      const materializedState = await this.readCurrentDeckState(
+        manager,
+        parseDeckRow(deckRow),
+        projectId,
+        deckRow.deck_id,
+        toIso(deckRow.updated_at),
+        true,
+      );
+      if (materializedState.deck.version !== request.baseVersion) {
+        throwDeckApiException(
+          "STALE_BASE_VERSION",
+          HttpStatus.CONFLICT,
+          "Deck changed before the speaker notes suggestion started",
+        );
+      }
+      const slide = materializedState.deck.slides.find(
+        (candidate) => candidate.slideId === request.slideId,
+      );
+      if (!slide) {
+        throwDeckApiException(
+          "DECK_VALIDATION_FAILED",
+          HttpStatus.BAD_REQUEST,
+          "Requested slide does not exist in the deck",
+        );
+      }
+      const hasNotes = slide.speakerNotes.trim().length > 0;
+      const requiresExistingNotes = request.mode !== "draft" && request.mode !== "icebreaker";
+      if (
+        (request.mode === "draft" && hasNotes) ||
+        (requiresExistingNotes && !hasNotes)
+      ) {
+        throwDeckApiException(
+          "DECK_VALIDATION_FAILED",
+          HttpStatus.BAD_REQUEST,
+          hasNotes
+            ? "Draft mode is only available when speaker notes are empty"
+            : "Refinement modes require existing speaker notes",
+        );
+      }
+
+      const deck = await this.writeDeckCheckpoint(
+        manager,
+        materializedState.deck,
+        nowIso(),
+      );
+      return speakerNotesSuggestionJobPayloadSchema.shape.request.parse({
+        ...request,
+        baseVersion: deck.version,
+      });
+    });
+
+    const queuedJob = await this.jobsService.create({
+      projectId,
+      type: "speaker-notes-suggestion",
+      payload: { request: preparedRequest },
+    });
+
+    try {
+      const config = loadOrbitConfig(process.env, { service: "api" });
+      await this.enqueueSpeakerNotesSuggestion({
+        driver: config.JOB_QUEUE_DRIVER,
+        redisUrl: config.REDIS_URL,
+        jobId: queuedJob.jobId,
+        projectId,
+        request: preparedRequest,
+      });
+      this.logger?.info(
+        {
+          event: "speaker_notes.suggestion.queued",
+          jobId: queuedJob.jobId,
+          jobType: queuedJob.type,
+          projectId,
+          deckId: preparedRequest.deckId,
+          slideId: preparedRequest.slideId,
+          deckVersion: preparedRequest.baseVersion,
+          mode: preparedRequest.mode,
+        },
+        "Speaker notes suggestion job enqueued.",
+      );
+    } catch (error) {
+      await this.jobsService.update(queuedJob.jobId, {
+        status: "failed",
+        progress: 0,
+        message: "Speaker notes suggestion enqueue failed.",
+        error: {
+          code: "SPEAKER_NOTES_SUGGESTION_ENQUEUE_FAILED",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Speaker notes suggestion enqueue failed.",
+        },
+      });
+      this.logger?.error(
+        {
+          event: "speaker_notes.suggestion.failed",
+          jobId: queuedJob.jobId,
+          jobType: queuedJob.type,
+          projectId,
+          deckId: preparedRequest.deckId,
+          slideId: preparedRequest.slideId,
+          deckVersion: preparedRequest.baseVersion,
+          mode: preparedRequest.mode,
+          reason: "enqueue_failed",
+          error: serializeLogError(error),
+        },
+        "Speaker notes suggestion enqueue failed.",
+      );
+      throw error;
+    }
+
+    return createSpeakerNotesSuggestionJobResponseSchema.parse({ job: queuedJob });
   }
 
   async listSnapshots(projectId: string): Promise<ListDeckSnapshotsResponse> {
@@ -559,11 +1101,60 @@ export class DecksService {
     });
   }
 
+  async getSnapshot(
+    projectId: string,
+    snapshotId: string,
+  ): Promise<DeckSnapshotDetail> {
+    const rows = await this.dataSource.query<DeckSnapshotRow[]>(
+      `
+        SELECT snapshot_id, project_id, deck_id, deck_json, version, reason, created_at
+        FROM deck_snapshots
+        WHERE project_id = $1 AND snapshot_id = $2
+        LIMIT 1
+      `,
+      [projectId, snapshotId],
+    );
+    const row = rows[0];
+
+    if (!row) {
+      throwDeckApiException(
+        "SNAPSHOT_NOT_FOUND",
+        HttpStatus.NOT_FOUND,
+        `Snapshot not found: ${snapshotId}`,
+      );
+    }
+
+    return deckSnapshotDetailSchema.parse({
+      ...parseSnapshotRow(row),
+      deck: removeLegacyAiGeneratedTitleAnimations(parseDeckJson(row.deck_json)),
+    });
+  }
+
+  async getOrCreateSnapshot(deck: Deck): Promise<DeckSnapshot> {
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `SELECT deck_id FROM decks WHERE project_id = $1 AND deck_id = $2 FOR UPDATE`,
+        [deck.projectId, deck.deckId],
+      );
+      const rows = await manager.query<DeckSnapshotRow[]>(
+        `SELECT snapshot_id, project_id, deck_id, deck_json, version, reason, created_at
+         FROM deck_snapshots
+         WHERE project_id = $1 AND deck_id = $2 AND version = $3
+         ORDER BY created_at DESC, snapshot_id DESC LIMIT 1`,
+        [deck.projectId, deck.deckId, deck.version],
+      );
+      return rows[0]
+        ? parseSnapshotRow(rows[0])
+        : this.createSnapshot(manager, deck, "auto-save", nowIso());
+    });
+  }
+
   async restoreSnapshot(
     projectId: string,
     snapshotId: string,
   ): Promise<RestoreDeckSnapshotResponse> {
-    return this.dataSource.transaction(async (manager) => {
+    let syncInput: PptxOoxmlSyncJobInput | null = null;
+    const response = await this.dataSource.transaction(async (manager) => {
       const snapshotRow = await this.findSnapshotRow(manager, snapshotId);
 
       if (!snapshotRow) {
@@ -591,6 +1182,8 @@ export class DecksService {
         parseDeckJson(snapshotRow.deck_json),
       );
       const updatedAt = nowIso();
+      let currentDeck: Deck | undefined;
+      let templateBlueprint: OoxmlTemplateBlueprint | undefined;
       const currentRow = await this.findDeckRowForUpdate(
         manager,
         projectId,
@@ -605,13 +1198,48 @@ export class DecksService {
           toIso(currentRow.updated_at),
           true,
         );
+        currentDeck = currentState.deck;
+        templateBlueprint = await this.findOoxmlTemplateBlueprint(
+          manager,
+          projectId,
+          currentDeck.deckId,
+          currentDeck,
+        );
         await this.createSnapshot(
           manager,
-          currentState.deck,
+          currentDeck,
           "snapshot-restore",
           updatedAt,
         );
       }
+
+      if (currentDeck && templateBlueprint) {
+        const replacement = createOoxmlReplacement(
+          currentDeck,
+          deck,
+          updatedAt,
+        );
+        await this.insertPatchLog(manager, projectId, replacement.changeRecord);
+        const restoredDeck = await this.writeDeckCheckpoint(
+          manager,
+          replacement.deck,
+          updatedAt,
+          templateBlueprint,
+        );
+        await this.updateProjectTitle(
+          manager,
+          projectId,
+          restoredDeck.title,
+        );
+        syncInput = {
+          deckId: restoredDeck.deckId,
+          changeId: replacement.changeRecord.changeId,
+          targetDeckVersion: restoredDeck.version,
+        };
+
+        return { deck: restoredDeck, restoredSnapshot, updatedAt };
+      }
+
       await this.deletePatchRowsAfterVersion(
         manager,
         projectId,
@@ -619,12 +1247,18 @@ export class DecksService {
         deck.version,
       );
       await this.writeDeckCheckpoint(manager, deck, updatedAt);
+      await this.updateProjectTitle(manager, projectId, deck.title);
 
-      return restoreDeckSnapshotResponseSchema.parse({
-        deck,
-        restoredSnapshot,
-        updatedAt,
-      });
+      return { deck, restoredSnapshot, updatedAt };
+    });
+
+    const ooxmlSyncJob = syncInput
+      ? await this.enqueueOoxmlSync(projectId, syncInput)
+      : undefined;
+
+    return restoreDeckSnapshotResponseSchema.parse({
+      ...response,
+      ooxmlSyncJob,
     });
   }
 
@@ -764,17 +1398,47 @@ export class DecksService {
     return parseDeckRow(rows[0]);
   }
 
+  private async updateProjectTitle(
+    executor: QueryExecutor,
+    projectId: string,
+    title: string,
+  ): Promise<void> {
+    await executor.query(
+      `
+        UPDATE projects
+        SET title = $2
+        WHERE project_id = $1
+      `,
+      [projectId, title],
+    );
+  }
+
   private async writeDeckCheckpoint(
     executor: QueryExecutor,
     deck: Deck,
     updatedAt: string,
+    knownTemplateBlueprint?: OoxmlTemplateBlueprint | null,
   ): Promise<Deck> {
+    const templateBlueprint =
+      knownTemplateBlueprint === undefined
+        ? await this.findOoxmlTemplateBlueprint(
+            executor,
+            deck.projectId,
+            deck.deckId,
+            deck,
+          )
+        : (knownTemplateBlueprint ?? undefined);
     const checkpointDeck = await this.upsertDeck(executor, deck, updatedAt);
     await this.deletePatchRowsUpToVersion(
       executor,
       checkpointDeck.projectId,
       checkpointDeck.deckId,
-      checkpointDeck.version,
+      templateBlueprint
+        ? Math.min(
+            templateBlueprint.blueprint.ooxmlSyncedDeckVersion ?? 1,
+            checkpointDeck.version,
+          )
+        : checkpointDeck.version,
     );
     return checkpointDeck;
   }
@@ -901,7 +1565,8 @@ export class DecksService {
     executor: QueryExecutor,
     projectId: string,
     deckId: string,
-  ): Promise<TemplateBlueprintRow | undefined> {
+    deck: Deck,
+  ): Promise<OoxmlTemplateBlueprint | undefined> {
     const rows = await executor.query<TemplateBlueprintRow[]>(
       `
         SELECT template_id, blueprint_json
@@ -914,14 +1579,90 @@ export class DecksService {
     );
     const row = rows[0];
 
-    if (!row || !isRecord(row.blueprint_json)) {
+    if (!row) {
       return undefined;
     }
 
-    return typeof row.blueprint_json.currentPackageFileId === "string" ||
-      typeof row.blueprint_json.sourcePackageFileId === "string"
-      ? row
-      : undefined;
+    const parsed = templateBlueprintSchema.safeParse(row.blueprint_json);
+    if (
+      !parsed.success ||
+      (!parsed.data.currentPackageFileId && !parsed.data.sourcePackageFileId)
+    ) {
+      return undefined;
+    }
+
+    const recovered = recoverTemplateBlueprintSlideIds(
+      parsed.data,
+      deck.slides,
+    );
+    if (!recovered) return undefined;
+    if (recovered.recovered) {
+      await executor.query(
+        `
+          UPDATE template_blueprints
+          SET blueprint_json = $2, updated_at = now()
+          WHERE template_id = $1
+        `,
+        [row.template_id, recovered.blueprint],
+      );
+    }
+
+    return { ...row, blueprint: recovered.blueprint };
+  }
+
+  private async readOoxmlSyncState(
+    projectId: string,
+    deck: Deck,
+    suppliedJob?: Job,
+  ): Promise<OoxmlSyncState> {
+    const imported = await this.findOoxmlTemplateBlueprint(
+      this.dataSource,
+      projectId,
+      deck.deckId,
+      deck,
+    );
+    if (!imported) {
+      return {
+        status: "not-applicable",
+        deckId: deck.deckId,
+        deckVersion: deck.version,
+        syncedDeckVersion: null,
+        retryable: false,
+      };
+    }
+
+    const syncedDeckVersion =
+      imported.blueprint.ooxmlSyncedDeckVersion ?? null;
+    const job =
+      suppliedJob ??
+      (await this.jobsService?.getLatestPptxOoxmlSync(
+        projectId,
+        deck.deckId,
+        deck.version,
+      ));
+    const status =
+      syncedDeckVersion === deck.version
+        ? "synced"
+        : job?.status === "failed"
+          ? "failed"
+          : job?.status === "queued" || job?.status === "running"
+            ? "pending"
+            : "stale";
+
+    const attemptedCapabilityVersion = readSyncCapabilityVersion(job);
+    return {
+      status,
+      deckId: deck.deckId,
+      deckVersion: deck.version,
+      syncedDeckVersion,
+      retryable:
+        status === "stale" ||
+        (status === "failed" &&
+          (job?.error?.retryable === true ||
+            attemptedCapabilityVersion <
+              PPTX_OOXML_SYNC_CAPABILITY_VERSION)),
+      ...(job ? { job } : {}),
+    };
   }
 
   private async enqueueOoxmlSync(
@@ -932,10 +1673,14 @@ export class DecksService {
       return undefined;
     }
 
+    const versionedInput = {
+      ...input,
+      syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
+    };
     const queuedJob = await this.jobsService.create({
       projectId,
       type: "pptx-ooxml-sync",
-      payload: input,
+      payload: versionedInput,
     });
 
     try {
@@ -945,11 +1690,21 @@ export class DecksService {
         redisUrl: config.REDIS_URL,
         jobId: queuedJob.jobId,
         projectId,
-        ...input,
+        ...versionedInput,
       });
+      this.logger?.info(
+        {
+          event: "pptx_ooxml.sync.queued",
+          jobId: queuedJob.jobId,
+          projectId,
+          deckId: input.deckId,
+          targetDeckVersion: input.targetDeckVersion,
+        },
+        "PPTX OOXML sync job enqueued.",
+      );
       return queuedJob;
     } catch (error) {
-      return (
+      const failedJob =
         (await this.jobsService.update(queuedJob.jobId, {
           status: "failed",
           progress: 0,
@@ -960,11 +1715,33 @@ export class DecksService {
               error instanceof Error
                 ? error.message
                 : "PPTX OOXML sync enqueue failed.",
+            retryable: true,
+            syncCapabilityVersion: PPTX_OOXML_SYNC_CAPABILITY_VERSION,
           },
-        })) ?? queuedJob
+        })) ?? queuedJob;
+      this.logger?.error(
+        {
+          event: "pptx_ooxml.sync.enqueue_failed",
+          jobId: queuedJob.jobId,
+          projectId,
+          deckId: input.deckId,
+          targetDeckVersion: input.targetDeckVersion,
+        },
+        "PPTX OOXML sync job enqueue failed.",
       );
+      return failedJob;
     }
   }
+}
+
+function readSyncCapabilityVersion(job: Job | null | undefined): number {
+  const resultVersion = job?.result?.syncCapabilityVersion;
+  return (
+    job?.error?.syncCapabilityVersion ??
+    (typeof resultVersion === "number" && Number.isInteger(resultVersion)
+      ? resultVersion
+      : 1)
+  );
 }
 
 function parsePutDeckRequest(body: unknown): PutDeckRequest {
@@ -982,17 +1759,245 @@ function parsePutDeckRequest(body: unknown): PutDeckRequest {
   return result.data;
 }
 
-function hasOoxmlSyncableOperation(
-  operations: DeckPatchOperation[],
-): boolean {
-  return operations.some((operation) =>
-    [
-      "add_element",
-      "update_element_frame",
-      "update_element_props",
-      "delete_element",
-    ].includes(operation.type),
+function createOoxmlReplacement(
+  currentDeck: Deck,
+  requestedDeck: Deck,
+  createdAt: string,
+): { deck: Deck; changeRecord: DeckChangeRecord } {
+  const deck = deckSchema.parse({
+    ...requestedDeck,
+    version: currentDeck.version + 1,
+  });
+  const slideOperations = createOoxmlSlideDiff(currentDeck, deck);
+  const operations = [
+    ...slideOperations,
+    ...createOoxmlSpeakerNotesDiff(currentDeck, deck),
+    ...createOoxmlElementDiff(currentDeck, deck),
+  ];
+
+  return {
+    deck,
+    changeRecord: {
+      changeId: `change_${deck.deckId}_${deck.version}_put`,
+      deckId: deck.deckId,
+      beforeVersion: currentDeck.version,
+      afterVersion: deck.version,
+      source: "user",
+      createdAt,
+      operations:
+        operations.length > 0
+          ? operations
+          : [{ type: "update_deck", title: deck.title }],
+    },
+  };
+}
+
+function createOoxmlSlideDiff(
+  currentDeck: Deck,
+  nextDeck: Deck,
+): DeckPatchOperation[] {
+  const currentSlides = validateAndSortSlides(currentDeck);
+  const nextSlides = validateAndSortSlides(nextDeck);
+  const currentIds = currentSlides.map((slide) => slide.slideId);
+  const nextIds = nextSlides.map((slide) => slide.slideId);
+  const currentIdSet = new Set(currentIds);
+  const nextIdSet = new Set(nextIds);
+  const hasSameSlides =
+    currentIds.length === nextIds.length &&
+    currentIdSet.size === currentIds.length &&
+    nextIdSet.size === nextIds.length &&
+    nextIds.every((slideId) => currentIdSet.has(slideId));
+
+  if (hasSameSlides) {
+    if (isDeepStrictEqual(currentIds, nextIds)) return [];
+    return [
+      {
+        type: "reorder_slides",
+        slideOrders: nextSlides.map((slide) => ({
+          slideId: slide.slideId,
+          order: slide.order,
+        })),
+      },
+    ];
+  }
+
+  return [
+    ...currentSlides
+      .filter((slide) => !nextIdSet.has(slide.slideId))
+      .map(
+        (slide): DeckPatchOperation => ({
+          type: "delete_slide",
+          slideId: slide.slideId,
+        }),
+      ),
+    ...nextSlides
+      .filter((slide) => !currentIdSet.has(slide.slideId))
+      .map(
+        (slide): DeckPatchOperation => ({
+          type: "add_slide",
+          slide,
+        }),
+      ),
+  ];
+}
+
+function validateAndSortSlides(deck: Deck): Deck["slides"] {
+  const slideIds = deck.slides.map((slide) => slide.slideId);
+  const orders = deck.slides.map((slide) => slide.order);
+  const expectedOrders = new Set(deck.slides.map((_, index) => index + 1));
+  const hasUniqueIds = new Set(slideIds).size === slideIds.length;
+  const hasExactOrders =
+    new Set(orders).size === orders.length &&
+    orders.every((order) => expectedOrders.has(order));
+  if (!hasUniqueIds || !hasExactOrders) {
+    throwDeckApiException(
+      "DECK_VALIDATION_FAILED",
+      HttpStatus.BAD_REQUEST,
+      "Deck slide IDs and orders must be exact permutations",
+      [`slideIds=${slideIds.join(",")}`, `slideOrders=${orders.join(",")}`],
+    );
+  }
+  return [...deck.slides].sort((left, right) => left.order - right.order);
+}
+
+function createOoxmlSpeakerNotesDiff(
+  currentDeck: Deck,
+  nextDeck: Deck,
+): DeckPatchOperation[] {
+  const currentSlides = new Map(
+    currentDeck.slides.map((slide) => [slide.slideId, slide]),
   );
+  return nextDeck.slides.flatMap((slide) => {
+    const current = currentSlides.get(slide.slideId);
+    if (!current || current.speakerNotes === slide.speakerNotes) return [];
+    return [
+      {
+        type: "update_speaker_notes" as const,
+        slideId: slide.slideId,
+        speakerNotes: slide.speakerNotes,
+      },
+    ];
+  });
+}
+
+function createOoxmlElementDiff(
+  currentDeck: Deck,
+  nextDeck: Deck,
+): DeckPatchOperation[] {
+  const nextSlideIds = new Set(nextDeck.slides.map((slide) => slide.slideId));
+  const sharedSlideIds = new Set(
+    currentDeck.slides
+      .map((slide) => slide.slideId)
+      .filter((slideId) => nextSlideIds.has(slideId)),
+  );
+  const currentElements = indexDeckElements(currentDeck, sharedSlideIds);
+  const nextElements = indexDeckElements(nextDeck, sharedSlideIds);
+  const operations: DeckPatchOperation[] = [];
+
+  for (const [elementKey, current] of currentElements) {
+    const next = nextElements.get(elementKey);
+    if (
+      !next ||
+      next.slideId !== current.slideId ||
+      next.element.type !== current.element.type
+    ) {
+      operations.push({
+        type: "delete_element",
+        slideId: current.slideId,
+        elementId: current.element.elementId,
+      });
+    }
+  }
+
+  for (const [elementKey, next] of nextElements) {
+    const current = currentElements.get(elementKey);
+    if (
+      !current ||
+      current.slideId !== next.slideId ||
+      current.element.type !== next.element.type
+    ) {
+      operations.push({
+        type: "add_element",
+        slideId: next.slideId,
+        element: next.element,
+      });
+      continue;
+    }
+
+    const currentFrame = ooxmlElementFrame(current.element);
+    const nextFrame = ooxmlElementFrame(next.element);
+    if (!isDeepStrictEqual(currentFrame, nextFrame)) {
+      operations.push({
+        type: "update_element_frame",
+        slideId: next.slideId,
+        elementId: next.element.elementId,
+        frame: nextFrame,
+      });
+    }
+    if (!isDeepStrictEqual(current.element.props, next.element.props)) {
+      operations.push({
+        type: "update_element_props",
+        slideId: next.slideId,
+        elementId: next.element.elementId,
+        props: changedOoxmlElementProps(
+          current.element.props,
+          next.element.props,
+        ),
+      });
+    }
+  }
+
+  return operations;
+}
+
+function changedOoxmlElementProps(
+  currentProps: DeckElement["props"],
+  nextProps: DeckElement["props"],
+): Record<string, unknown> {
+  const current = currentProps as Record<string, unknown>;
+  const next = nextProps as Record<string, unknown>;
+  const changed: Record<string, unknown> = {};
+
+  const propNames = new Set([...Object.keys(current), ...Object.keys(next)]);
+  for (const propName of propNames) {
+    if (!isDeepStrictEqual(current[propName], next[propName])) {
+      changed[propName] = propName in next ? next[propName] : null;
+    }
+  }
+
+  return changed;
+}
+
+function indexDeckElements(deck: Deck, includedSlideIds?: ReadonlySet<string>) {
+  const elements = new Map<
+    string,
+    { slideId: Deck["slides"][number]["slideId"]; element: DeckElement }
+  >();
+  for (const slide of deck.slides) {
+    if (includedSlideIds && !includedSlideIds.has(slide.slideId)) continue;
+    for (const element of slide.elements) {
+      elements.set(`${slide.slideId}\0${element.elementId}`, {
+        slideId: slide.slideId,
+        element,
+      });
+    }
+  }
+  return elements;
+}
+
+function ooxmlElementFrame(element: DeckElement) {
+  return {
+    role: element.role,
+    x: element.x,
+    y: element.y,
+    width: element.width,
+    height: element.height,
+    rotation: element.rotation,
+    opacity: element.opacity,
+    zIndex: element.zIndex,
+    locked: element.locked,
+    visible: element.visible,
+  };
 }
 
 function parseAppendDeckPatchRequest(body: unknown): AppendDeckPatchRequest {

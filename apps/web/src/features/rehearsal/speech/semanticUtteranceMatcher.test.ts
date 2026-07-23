@@ -18,9 +18,9 @@ describe("dotProduct", () => {
 describe("createSemanticUtteranceMatcher", () => {
   it("현재 슬라이드 speakerNotes 문장을 인덱싱하고 top 3 similarity를 순위화한다", async () => {
     const embeddingService = createFakeEmbeddingService({
-      "Intro.": [1, 0],
-      "Middle.": [0.8, 0.6],
-      "Outro.": [0, 1],
+      Intro: [1, 0],
+      Middle: [0.8, 0.6],
+      Outro: [0, 1],
       "latest final transcript": [1, 0]
     });
     const matcher = createSemanticUtteranceMatcher({ embeddingService });
@@ -42,9 +42,9 @@ describe("createSemanticUtteranceMatcher", () => {
     });
     expect(result.accepted).toBe(true);
     expect(result.topMatches.map((match) => match.text)).toEqual([
-      "Intro.",
-      "Middle.",
-      "Outro."
+      "Intro",
+      "Middle",
+      "Outro"
     ]);
     expect(result.topMatches.map((match) => match.covered)).toEqual([
       false,
@@ -56,8 +56,8 @@ describe("createSemanticUtteranceMatcher", () => {
 
   it("speakerNotesHash가 같으면 slide index embedding을 재사용한다", async () => {
     const embeddingService = createFakeEmbeddingService({
-      "One.": [1, 0],
-      "Two.": [0, 1],
+      One: [1, 0],
+      Two: [0, 1],
       query: [1, 0]
     });
     const matcher = createSemanticUtteranceMatcher({ embeddingService });
@@ -71,8 +71,8 @@ describe("createSemanticUtteranceMatcher", () => {
   it("threshold 미만이거나 ambiguous margin 안이면 accepted false로 둔다", async () => {
     const belowThreshold = createSemanticUtteranceMatcher({
       embeddingService: createFakeEmbeddingService({
-        "One.": [0.7, 0],
-        "Two.": [0, 1],
+        One: [0.7, 0],
+        Two: [0, 1],
         query: [1, 0]
       })
     });
@@ -88,8 +88,8 @@ describe("createSemanticUtteranceMatcher", () => {
 
     const ambiguous = createSemanticUtteranceMatcher({
       embeddingService: createFakeEmbeddingService({
-        "One.": [0.9, 0],
-        "Two.": [0.88, 0],
+        One: [0.9, 0],
+        Two: [0.88, 0],
         query: [1, 0]
       })
     });
@@ -106,8 +106,8 @@ describe("createSemanticUtteranceMatcher", () => {
 
   it("빈 문장, 너무 짧은 final transcript, covered top match는 coverage 대상에서 제외한다", async () => {
     const embeddingService = createFakeEmbeddingService({
-      "One.": [1, 0],
-      "Two.": [0, 1],
+      One: [1, 0],
+      Two: [0, 1],
       okay: [1, 0]
     });
     const matcher = createSemanticUtteranceMatcher({ embeddingService });

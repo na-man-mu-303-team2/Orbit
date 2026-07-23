@@ -9,10 +9,11 @@ const Group = KonvaGroup as unknown as KonvaComponent;
 const Rect = KonvaRect as unknown as KonvaComponent;
 
 export function HighlightOverlay(props: {
+  color?: string;
   element: DeckElement;
   state?: ElementPresentationState;
 }) {
-  const { element, state } = props;
+  const { color = "#2563eb", element, state } = props;
   const visible = state?.visible ?? element.visible;
   const opacity = state?.opacity ?? element.opacity;
 
@@ -42,9 +43,9 @@ export function HighlightOverlay(props: {
         height={height}
         opacity={0.95}
         shadowBlur={24}
-        shadowColor="#2563eb"
+        shadowColor={color}
         shadowOpacity={0.38}
-        stroke="#2563eb"
+        stroke={color}
         strokeWidth={4}
         width={width}
       />
@@ -53,7 +54,7 @@ export function HighlightOverlay(props: {
 }
 
 export function getActiveHighlightElementIds(
-  highlights: Array<{ active: boolean; elementId: string }> = []
+  highlights: Array<{ active: boolean; elementId: string }> = [],
 ) {
   const activeIds = new Set<string>();
 

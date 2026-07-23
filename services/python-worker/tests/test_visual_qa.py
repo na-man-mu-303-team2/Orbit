@@ -215,6 +215,38 @@ def test_review_uses_exported_pptx_render_and_montage(monkeypatch: pytest.Monkey
     assert request_content[1]["image_url"].startswith("data:image/png;base64,")
 
 
+def test_review_schema_uses_actual_single_slide_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = deck()
+    candidate["slides"][0]["slideId"] = "slide_5"
+    candidate["slides"][0]["order"] = 5
+    monkeypatch.setattr(
+        visual_qa_module,
+        "export_deck_pptx",
+        lambda _request: SimpleNamespace(
+            content_base64=base64.b64encode(b"pptx").decode("ascii"),
+            warnings=[],
+        ),
+    )
+    monkeypatch.setattr(
+        visual_qa_module,
+        "render_pptx_to_png_assets",
+        lambda _content, _canvas: [rendered_asset(1)],
+    )
+    responses = FakeResponses({"passed": True, "issues": [], "repairActions": []})
+
+    review_deck_visuals(
+        VisualQaRequest(deck=candidate),
+        client=SimpleNamespace(responses=responses),
+    )
+
+    issue_order = responses.requests[0]["text"]["format"]["schema"]["properties"][
+        "issues"
+    ]["items"]["properties"]["slideOrder"]
+    assert issue_order["enum"] == [5]
+
+
 def test_visual_review_prompt_includes_design_program_contract() -> None:
     prompt = visual_qa_module.visual_review_prompt(deck())
 
@@ -244,7 +276,7 @@ def test_visual_qa_instructions_reject_clean_but_undercomposed_slides() -> None:
 
 def test_visual_review_response_limits_repair_targets_to_current_deck_ids() -> None:
     schema = visual_review_response_format(
-        2,
+        [1, 2],
         slide_ids=["slide_1", "slide_2"],
         element_ids=["el_1_program_v2_title", "el_2_program_v2_message"],
     )["format"]["schema"]
@@ -512,6 +544,49 @@ def test_visual_review_contract_accepts_large_declared_focal_and_media_split() -
     assert normalized.repair_actions == []
 
 
+def test_visual_review_contract_accepts_editorial_media_band() -> None:
+    candidate = deck()
+    slide = candidate["slides"][0]
+    slide["aiNotes"]["compositionPlan"]["compositionId"] = "editorial-media-band"
+    slide["elements"].append(
+        {
+            "elementId": "el_1_program_v2_media_asset",
+            "type": "image",
+            "role": "media",
+            "x": 120,
+            "y": 248,
+            "width": 1680,
+            "height": 340,
+            "props": {"src": "data:image/png;base64,AA=="},
+        }
+    )
+    review = VisualQaReview.model_validate(
+        {
+            "passed": False,
+            "issues": [
+                {
+                    "code": "BALANCE_WEAK",
+                    "slideOrder": 1,
+                    "message": "The horizontal media band is unbalanced.",
+                }
+            ],
+            "repairActions": [
+                {
+                    "action": "moveSupportingContent",
+                    "slideId": "slide_1",
+                    "reason": "Rebalance the band.",
+                }
+            ],
+        }
+    )
+
+    normalized = visual_qa_module.enforce_visual_review_contract(review, candidate)
+
+    assert normalized.passed is True
+    assert normalized.issues == []
+    assert normalized.repair_actions == []
+
+
 def test_visual_review_contract_retains_small_focal_and_media_split() -> None:
     candidate = deck()
     slide = candidate["slides"][0]
@@ -569,6 +644,41 @@ def test_visual_review_contract_retains_small_focal_and_media_split() -> None:
         "BALANCE_WEAK",
     ]
     assert len(normalized.repair_actions) == 2
+
+
+def test_visual_review_contract_retains_repair_for_actual_single_slide_order() -> None:
+    candidate = deck()
+    slide = candidate["slides"][0]
+    slide["slideId"] = "slide_5"
+    slide["order"] = 5
+    title = slide["elements"][1]
+    title.update({"width": 400, "height": 80})
+    title["props"]["fontSize"] = 28
+    review = VisualQaReview.model_validate(
+        {
+            "passed": False,
+            "issues": [
+                {
+                    "code": "FOCAL_POINT_WEAK",
+                    "slideOrder": 5,
+                    "message": "The title is visibly too small.",
+                }
+            ],
+            "repairActions": [
+                {
+                    "action": "increaseFocalScale",
+                    "slideId": "slide_5",
+                    "reason": "Increase the title.",
+                }
+            ],
+        }
+    )
+
+    normalized = visual_qa_module.enforce_visual_review_contract(review, candidate)
+
+    assert normalized.passed is False
+    assert [issue.slide_order for issue in normalized.issues] == [5]
+    assert [action.slide_id for action in normalized.repair_actions] == ["slide_5"]
 
 
 def test_visual_review_contract_accepts_strong_text_focal_no_media_cover() -> None:
@@ -706,17 +816,24 @@ def test_visual_review_requires_issues_when_failed() -> None:
         VisualQaReview(passed=False, issues=[], repairActions=[])
 
 
-def test_visual_response_schema_limits_slide_order() -> None:
-    issue = visual_review_response_format(10)["format"]["schema"]["properties"][
+def test_visual_response_schema_uses_actual_slide_orders() -> None:
+    issue = visual_review_response_format([2, 5])["format"]["schema"]["properties"][
         "issues"
     ]["items"]["properties"]["slideOrder"]
 
-    assert issue["minimum"] == 1
-    assert issue["maximum"] == 10
+    assert issue["enum"] == [2, 5]
+
+
+def test_visual_response_schema_uses_actual_single_slide_order() -> None:
+    issue = visual_review_response_format([5])["format"]["schema"]["properties"][
+        "issues"
+    ]["items"]["properties"]["slideOrder"]
+
+    assert issue["enum"] == [5]
 
 
 def test_visual_response_schema_limits_repair_composition_ids() -> None:
-    composition_id = visual_review_response_format(10)["format"]["schema"][
+    composition_id = visual_review_response_format(list(range(1, 11)))["format"]["schema"][
         "properties"
     ]["repairActions"]["items"]["properties"]["compositionId"]
 
@@ -1199,3 +1316,34 @@ def test_required_media_cannot_use_optional_fallback() -> None:
     assert result.warnings == [
         "Optional media fallback skipped: required media cannot use optional fallback"
     ]
+
+
+def test_failed_required_cover_media_uses_no_image_cover_fallback() -> None:
+    candidate = deck()
+    candidate["metadata"]["designProgramSnapshot"]["compositionIds"] = [
+        "cover-visual-impact"
+    ]
+    plan = candidate["slides"][0]["aiNotes"]["compositionPlan"]
+    plan["compositionId"] = "cover-visual-impact"
+    plan["assetRole"] = "atmosphere"
+    plan["requiredAsset"] = True
+    candidate["slides"][0]["aiNotes"]["visualPlan"]["imageNeeded"] = True
+
+    result = repair_deck_visuals(
+        VisualRepairRequest.model_validate(
+            {
+                "deck": candidate,
+                "actions": [],
+                "dropFailedCoverMediaSlideIds": ["slide_1"],
+            }
+        )
+    )
+
+    repaired = result.deck["slides"][0]
+    assert result.warnings == []
+    assert repaired["aiNotes"]["compositionPlan"]["compositionId"] == (
+        "cover-classic-corporate"
+    )
+    assert repaired["aiNotes"]["compositionPlan"]["requiredAsset"] is False
+    assert repaired["aiNotes"]["visualPlan"]["imageNeeded"] is False
+    assert not any(element.get("role") == "media" for element in repaired["elements"])

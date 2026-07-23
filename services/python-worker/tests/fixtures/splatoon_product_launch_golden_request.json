@@ -1,5 +1,4 @@
 {
-  "generationMode": "design-pack",
   "projectId": "project_golden_splatoon",
   "topic": "스플래툰 레이더스 공개 발표",
   "prompt": "공식 발표 사실을 중심으로 스플래툰 레이더스의 차별점과 출시 기대를 전달한다.",
@@ -24,7 +23,6 @@
     "tone": "confident"
   },
   "design": {
-    "engineVersion": "program-v2",
     "stylePackId": "brandlogy-modern",
     "visualRhythm": "bold",
     "densityTarget": "medium",
@@ -38,7 +36,6 @@
   "referencePolicy": "research-first",
   "referenceFileIds": [],
   "references": [],
-  "designReferences": [],
   "referenceKeywords": [
     {
       "text": "Splatoon Raiders"

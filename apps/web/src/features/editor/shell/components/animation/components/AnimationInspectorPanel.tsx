@@ -7,16 +7,24 @@ import { AnimationSelectionSummary } from "./AnimationSelectionSummary";
 import { AnimationSlideOverview } from "./AnimationSlideOverview";
 import type { AnimationEditorPanelProps } from "../types";
 import { useAnimationInspectorModel } from "../hooks/useAnimationInspectorModel";
-import { buildSlideAnimationOrdinalLabelMap } from "../utils/animationUi";
+import {
+  buildSlideAnimationOrdinalLabelMap,
+  formatPreviousAnimationSummary,
+  getPreviousSlideAnimation
+} from "../utils/animationUi";
 
 export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
   const {
+    actionAnimationIds = [],
+    animationTriggerSummaryByAnimationId = {},
+    legacyKeywordAnimationIds = [],
     animations,
     canCreateAnimation,
     element,
     keywordOptions,
     keywordTriggerRestrictionMessage,
     keywordTriggerWarningMessage,
+    mutationDisabledReason = null,
     preferredAnimationId,
     selectedKeywordId,
     selectedKeywordLabel,
@@ -25,7 +33,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     slideElements,
     onAddAnimation,
     onDeleteAnimation,
-    onSelectKeyword,
+    onRequestKeywordOccurrence,
     onSelectSlideAnimation,
     showIds,
     onUpdateAnimation
@@ -44,16 +52,62 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
   } = useAnimationInspectorModel(animations, preferredAnimationId);
   const ordinalLabelByAnimationId =
     buildSlideAnimationOrdinalLabelMap(slideAnimations);
+  const previousSelectedAnimation = selectedAnimation
+    ? getPreviousSlideAnimation(slideAnimations, selectedAnimation.animationId)
+    : null;
+  const actionAnimationIdSet = new Set(actionAnimationIds);
+  const legacyKeywordAnimationIdSet = new Set(legacyKeywordAnimationIds);
+  const selectedTimelineRoot = selectedAnimation
+    ? getAnimationTimelineRoot(
+        createAnimationTimeline({
+          animations: slideAnimations,
+          legacyOnClickAnimationIds: actionAnimationIdSet
+        }),
+        selectedAnimation.animationId
+      )
+    : null;
+  const isSelectedRootActionLinked = Boolean(
+    selectedTimelineRoot?.effects.some((animation) =>
+      actionAnimationIdSet.has(animation.animationId)
+    )
+  );
+  const actionLinkedStartModeReason = isSelectedRootActionLinked
+    ? "대본 키워드 action과 연결되어 시작 방식이 고정됩니다."
+    : null;
+  const deleteNoticeByAnimationId = Object.fromEntries(
+    slideAnimations.flatMap((animation) => {
+      const timelineRoot = getAnimationTimelineRoot(
+        createAnimationTimeline({
+          animations: slideAnimations,
+          legacyOnClickAnimationIds: actionAnimationIdSet
+        }),
+        animation.animationId
+      );
+      const actionLinked = timelineRoot?.effects.some((candidate) =>
+        actionAnimationIdSet.has(candidate.animationId)
+      );
+      const notices = [
+        actionLinked ? "연결된 action과 재생 체인이 함께 삭제됩니다." : null,
+        legacyKeywordAnimationIdSet.has(animation.animationId)
+          ? "기존 키워드 트리거입니다. 대본 위치를 다시 선택해 연결하세요."
+          : null
+      ].filter((notice): notice is string => Boolean(notice));
+      return notices.length > 0 ? [[animation.animationId, notices.join(" ")]] : [];
+    })
+  );
 
   if (!element) {
     return slideAnimations.length > 0 ? (
       <section className="property-panel animation-inspector-panel">
         <AnimationSlideOverview
           animations={slideAnimations}
+          deleteDisabledReason={mutationDisabledReason}
           elements={slideElements}
           focusedAnimationId={preferredAnimationId}
           ordinalLabelByAnimationId={ordinalLabelByAnimationId}
+          deleteNoticeByAnimationId={deleteNoticeByAnimationId}
           showIds={showIds}
+          onDeleteAnimation={onDeleteAnimation}
           onSelectAnimation={onSelectSlideAnimation}
         />
       </section>
@@ -64,6 +118,11 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
 
   return (
     <section className="property-panel animation-inspector-panel">
+      {mutationDisabledReason ? (
+        <div className="animation-editor-warning" role="status">
+          {mutationDisabledReason}
+        </div>
+      ) : null}
       <AnimationSelectionSummary
         element={element}
         showIds={showIds}
@@ -73,19 +132,23 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
 
       <AnimationExistingList
         animations={animations}
+        deleteDisabledReason={mutationDisabledReason}
+        deleteNoticeByAnimationId={deleteNoticeByAnimationId}
         ordinalLabelByAnimationId={ordinalLabelByAnimationId}
         selectedAnimationId={selectedAnimationId}
+        onDeleteAnimation={onDeleteAnimation}
         onSelectAnimation={selectAnimation}
       />
 
       <AnimationCreateFlow
-        canCreateAnimation={canCreateAnimation}
+        canCreateAnimation={canCreateAnimation && !mutationDisabledReason}
         creationType={creationType}
         draft={creationType ? draftByType[creationType] : null}
         keywordOptions={keywordOptions}
         keywordTriggerRestrictionMessage={keywordTriggerRestrictionMessage}
         keywordTriggerWarningMessage={keywordTriggerWarningMessage}
         linkedTypes={linkedTypes}
+        mutationDisabledReason={mutationDisabledReason}
         selectedKeywordId={selectedKeywordId}
         selectedKeywordLabel={selectedKeywordLabel}
         selectedKeywordOccurrenceId={selectedKeywordOccurrenceId}
@@ -97,16 +160,34 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
 
           updateDraft(creationType, patch);
         }}
-        onSelectKeyword={onSelectKeyword}
+        onRequestKeywordOccurrence={onRequestKeywordOccurrence}
         onStartCreating={startCreating}
       />
 
       {mode === "editing-existing" && selectedAnimation ? (
-        <AnimationExistingEditor
-          animation={selectedAnimation}
-          onDeleteAnimation={onDeleteAnimation}
-          onUpdateAnimation={onUpdateAnimation}
-        />
+        <fieldset
+          disabled={Boolean(mutationDisabledReason)}
+          style={{ display: "contents" }}
+        >
+          <AnimationExistingEditor
+            animation={selectedAnimation}
+            deleteNotice={deleteNoticeByAnimationId[selectedAnimation.animationId]}
+            previousEffectSummary={
+              previousSelectedAnimation
+                ? formatPreviousAnimationSummary(
+                    previousSelectedAnimation,
+                    ordinalLabelByAnimationId
+                  )
+                : null
+            }
+            startModeChangeDisabledReason={actionLinkedStartModeReason}
+            triggerSummary={
+              animationTriggerSummaryByAnimationId[selectedAnimation.animationId]
+            }
+            onDeleteAnimation={onDeleteAnimation}
+            onUpdateAnimation={onUpdateAnimation}
+          />
+        </fieldset>
       ) : null}
 
       {mode === "idle" ? (
@@ -115,3 +196,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     </section>
   );
 }
+import {
+  createAnimationTimeline,
+  getAnimationTimelineRoot
+} from "@orbit/editor-core";

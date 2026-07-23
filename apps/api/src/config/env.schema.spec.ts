@@ -7,6 +7,7 @@ const validEnv = {
   WEB_PORT: "5173",
   API_PORT: "3000",
   API_JSON_BODY_LIMIT_BYTES: "5000000",
+  API_TRUST_PROXY_HOPS: "0",
   WORKER_PORT: "3001",
   PYTHON_WORKER_PORT: "8000",
   WEB_ORIGIN: "http://localhost:5173",
@@ -53,6 +54,64 @@ const validEnv = {
 };
 
 describe("ORBIT env validation", () => {
+  it("uses staged BullMQ execution by default and validates staged selectors", () => {
+    const defaults = loadOrbitConfig(validEnv, { service: "api" });
+    expect(defaults.AI_DECK_EXECUTION_MODE).toBe("bullmq");
+    expect(defaults.AI_DECK_WORKER_QUEUE).toBe("all");
+    expect(defaults.AI_DECK_WORKER_CONCURRENCY).toBe(5);
+    expect(defaults.AI_DECK_USER_CONCURRENCY).toBe(5);
+
+    expect(
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          AI_DECK_EXECUTION_MODE: "bullmq",
+          AI_DECK_WORKER_QUEUE: "reference-extract",
+          AI_DECK_WORKER_CONCURRENCY: "7",
+          AI_DECK_USER_CONCURRENCY: "4",
+        },
+        { service: "worker" },
+      ),
+    ).toMatchObject({
+      AI_DECK_EXECUTION_MODE: "bullmq",
+      AI_DECK_WORKER_QUEUE: "reference-extract",
+      AI_DECK_WORKER_CONCURRENCY: 7,
+      AI_DECK_USER_CONCURRENCY: 4,
+    });
+
+    expect(
+      loadOrbitConfig(
+        { ...validEnv, AI_DECK_EXECUTION_MODE: "pg" },
+        { service: "worker" },
+      ).AI_DECK_EXECUTION_MODE,
+    ).toBe("pg");
+
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, AI_DECK_EXECUTION_MODE: "step-functions" },
+        { service: "api" },
+      ),
+    ).toThrow(/AI_DECK_EXECUTION_MODE/);
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, AI_DECK_WORKER_QUEUE: "everything" },
+        { service: "worker" },
+      ),
+    ).toThrow(/AI_DECK_WORKER_QUEUE/);
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, AI_DECK_WORKER_CONCURRENCY: "0" },
+        { service: "worker" },
+      ),
+    ).toThrow(/AI_DECK_WORKER_CONCURRENCY/);
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, AI_DECK_USER_CONCURRENCY: "33" },
+        { service: "worker" },
+      ),
+    ).toThrow(/AI_DECK_USER_CONCURRENCY/);
+  });
+
   it("parses coaching flags and exact project allowlists", () => {
     const config = loadOrbitConfig({ ...validEnv, ADAPTIVE_REHEARSAL_COACH_ENABLED: "true", FOCUSED_PRACTICE_ENABLED: "true", ADAPTIVE_COACHING_PROJECT_ALLOWLIST: "project-a,project-b" }, { service: "api" });
     expect(config.FOCUSED_PRACTICE_ENABLED).toBe(true);
@@ -66,6 +125,42 @@ describe("ORBIT env validation", () => {
   it("forbids production fixtures and incomplete HMAC rotation", () => {
     expect(() => loadOrbitConfig({ ...validEnv, APP_ENV: "production", DEMO_COACHING_FIXTURE_ENABLED: "true" }, { service: "api" })).toThrow("DEMO_COACHING_FIXTURE_ENABLED");
     expect(() => loadOrbitConfig({ ...validEnv, COACHING_IDEMPOTENCY_HMAC_PREVIOUS_SECRET: "previous-secret" }, { service: "api" })).toThrow("COACHING_IDEMPOTENCY_HMAC_PREVIOUS_SECRET");
+  });
+
+  it("validates the demo AI deck cache startup guardrails", () => {
+    expect(
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          DEMO_AI_DECK_CACHE_ENABLED: "true",
+          DEMO_AI_DECK_SOURCE_PROJECT_ID: "project-source",
+          DEMO_AI_DECK_TRIGGER_TOPIC: "Orbit demo",
+        },
+        { service: "api" },
+      ),
+    ).toMatchObject({
+      DEMO_AI_DECK_CACHE_ENABLED: true,
+      DEMO_AI_DECK_SOURCE_PROJECT_ID: "project-source",
+      DEMO_AI_DECK_TRIGGER_TOPIC: "Orbit demo",
+    });
+    expect(() =>
+      loadOrbitConfig(
+        {
+          ...validEnv,
+          APP_ENV: "production",
+          DEMO_AI_DECK_CACHE_ENABLED: "true",
+          DEMO_AI_DECK_SOURCE_PROJECT_ID: "project-source",
+          DEMO_AI_DECK_TRIGGER_TOPIC: "Orbit demo",
+        },
+        { service: "api" },
+      ),
+    ).toThrow("DEMO_AI_DECK_CACHE_ENABLED");
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, DEMO_AI_DECK_CACHE_ENABLED: "true" },
+        { service: "api" },
+      ),
+    ).toThrow("DEMO_AI_DECK_SOURCE_PROJECT_ID");
   });
 
   it("requires private evidence Redis to be isolated from the durable queue Redis", () => {
@@ -153,9 +248,11 @@ describe("ORBIT env validation", () => {
     delete env.LOG_LEVEL;
     delete env.LOG_PRETTY;
     delete env.API_JSON_BODY_LIMIT_BYTES;
+    delete env.API_TRUST_PROXY_HOPS;
 
     expect(loadOrbitConfig(env as NodeJS.ProcessEnv, { service: "api" })).toMatchObject({
       API_JSON_BODY_LIMIT_BYTES: 5000000,
+      API_TRUST_PROXY_HOPS: 0,
       LOG_LEVEL: "info",
       LOG_PRETTY: false
     });
@@ -177,6 +274,21 @@ describe("ORBIT env validation", () => {
         { service: "api" }
       )
     ).toThrow(/API_JSON_BODY_LIMIT_BYTES/);
+  });
+
+  it("validates trusted proxy hop configuration", () => {
+    expect(
+      loadOrbitConfig(
+        { ...validEnv, API_TRUST_PROXY_HOPS: "1" },
+        { service: "api" }
+      ).API_TRUST_PROXY_HOPS
+    ).toBe(1);
+    expect(() =>
+      loadOrbitConfig(
+        { ...validEnv, API_TRUST_PROXY_HOPS: "-1" },
+        { service: "api" }
+      )
+    ).toThrow(/API_TRUST_PROXY_HOPS/);
   });
 
   it("keeps live STT and report STT provider contracts separate", () => {

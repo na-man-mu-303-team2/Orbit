@@ -2,7 +2,6 @@ import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { LoggerModule } from "nestjs-pino";
 import { AuthModule } from "./auth/auth.module";
-import { AiTemplateDeckGenerationModule } from "./ai-template-deck-generation/ai-template-deck-generation.module";
 import { DecksModule } from "./decks/decks.module";
 import { DesignAgentModule } from "./design-agent/design-agent.module";
 import { FilesModule } from "./files/files.module";
@@ -13,9 +12,9 @@ import { databaseOptions } from "./database/data-source";
 import { ExtractModule } from "./extract/extract.module";
 import { GenerateDeckModule } from "./generate-deck/generate-deck.module";
 import { PptxOoxmlGenerationsModule } from "./pptx-ooxml-generations/pptx-ooxml-generations.module";
-import { PptxImportsModule } from "./pptx-imports/pptx-imports.module";
 import { ProjectsModule } from "./projects/projects.module";
 import { PresentationSessionsModule } from "./presentation-sessions/presentation-sessions.module";
+import { ActivitiesModule } from "./activities/activities.module";
 import { PptAdvisorModule } from "./ppt-advisor/ppt-advisor.module";
 import { ReferencesModule } from "./references/references.module";
 import { RealtimeGateway } from "./realtime/realtime.gateway";
@@ -28,12 +27,14 @@ import { PresentationBriefsModule } from "./presentation-briefs/presentation-bri
 import { PracticeGoalsModule } from "./practice-goals/practice-goals.module";
 import { FocusedPracticeModule } from "./focused-practice/focused-practice.module";
 import { ChallengeQnaModule } from "./challenge-qna/challenge-qna.module";
+import { SlidePracticeModule } from "./slide-practice/slide-practice.module";
+import { SlideQuestionGuidesModule } from "./slide-question-guides/slide-question-guides.module";
+import { CommunityTemplatesModule } from "./community-templates/community-templates.module";
 
 @Module({
   imports: [
     LoggerModule.forRoot(createApiLoggerParams()),
     TypeOrmModule.forRoot(databaseOptions),
-    AiTemplateDeckGenerationModule,
     AuthModule,
     HealthModule,
     ProjectsModule,
@@ -43,9 +44,9 @@ import { ChallengeQnaModule } from "./challenge-qna/challenge-qna.module";
     ExtractModule,
     GenerateDeckModule,
     PptxOoxmlGenerationsModule,
-    PptxImportsModule,
     JobsModule,
     PresentationSessionsModule,
+    ActivitiesModule,
     PptAdvisorModule,
     ReferencesModule,
     RuntimeConfigModule,
@@ -56,7 +57,10 @@ import { ChallengeQnaModule } from "./challenge-qna/challenge-qna.module";
     PresentationBriefsModule,
     PracticeGoalsModule,
     FocusedPracticeModule,
-    ChallengeQnaModule
+    ChallengeQnaModule,
+    SlidePracticeModule,
+    SlideQuestionGuidesModule,
+    CommunityTemplatesModule
   ],
   providers: [RealtimeGateway]
 })

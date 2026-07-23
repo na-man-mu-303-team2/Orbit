@@ -2,30 +2,22 @@ import {
   deckElementSchema,
   type DeckCanvas,
   type DeckElement,
-  type GroupElementProps,
   type Slide
 } from "@orbit/shared";
 import { normalizeElementFrameDraft } from "@orbit/editor-core";
 
 export function getRenderableSlideElements(slide: Slide, canvas: DeckCanvas) {
-  const groupedChildElementIds = new Set<string>();
-
-  for (const element of slide.elements) {
-    if (element.type !== "group") {
-      continue;
-    }
-
-    const groupProps = element.props as GroupElementProps;
-
-    for (const childElementId of groupProps.childElementIds) {
-      groupedChildElementIds.add(childElementId);
-    }
+  if (usesSourceSlideSnapshot(slide)) {
+    return [];
   }
 
   return [...slide.elements]
-    .filter((element) => !groupedChildElementIds.has(element.elementId))
     .map((element) => normalizeRenderableElement(canvas, element))
     .sort((left, right) => left.zIndex - right.zIndex);
+}
+
+export function usesSourceSlideSnapshot(slide: Slide) {
+  return slide.importRenderMode === "snapshot";
 }
 
 export function normalizeRenderableElement(

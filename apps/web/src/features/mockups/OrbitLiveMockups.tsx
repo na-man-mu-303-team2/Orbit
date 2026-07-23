@@ -19,7 +19,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import orbitLogoWhite from "../../assets/orbit-logo-white.png";
-import { OrbitButton } from "../../design-system";
+import { OrbitButton } from "../../components/ui";
 import { DeliverySlideCanvas, deliverySlides } from "./OrbitDeliveryMockups";
 import "./orbit-live-mockups.css";
 
@@ -131,5 +131,5 @@ export function OrbitLivePresenterMockup(props: LiveMockupProps) {
 }
 
 function LiveEndDialog(props: { onCancel: () => void; onConfirm: () => void }) {
-  return <div className="live-end-backdrop" role="dialog" aria-label="실전 발표 종료" aria-modal="true"><section><button aria-label="발표 종료 닫기" onClick={props.onCancel} type="button"><IconX size={20} /></button><span><IconCheck size={28} /></span><p className="orbit-ds-eyebrow">LIVE PRESENTATION</p><h1>실전 발표를 종료할까요?</h1><p>청중 화면 연결을 닫고 발표 기록을 저장합니다.</p><div><button onClick={props.onCancel} type="button">발표 계속</button><OrbitButton onClick={props.onConfirm}>종료하고 나가기</OrbitButton></div></section></div>;
+  return <div className="live-end-backdrop" role="dialog" aria-label="실전 발표 종료" aria-modal="true"><section><button aria-label="발표 종료 닫기" onClick={props.onCancel} type="button"><IconX size={20} /></button><span><IconCheck size={28} /></span><p className="redesign-eyebrow">LIVE PRESENTATION</p><h1>실전 발표를 종료할까요?</h1><p>청중 화면 연결을 닫고 발표 기록을 저장합니다.</p><div><button onClick={props.onCancel} type="button">발표 계속</button><OrbitButton onClick={props.onConfirm}>종료하고 나가기</OrbitButton></div></section></div>;
 }

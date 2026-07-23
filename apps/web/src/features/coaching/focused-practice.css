@@ -1,41 +1,53 @@
-.focused-practice-page { background: var(--orbit-ds-canvas); min-height: calc(100vh - 76px); padding: 38px 44px 100px; }
+.focused-practice-page { background: var(--redesign-color-surface-container-lowest); min-height: calc(100vh - 76px); padding: var(--redesign-space-9) var(--redesign-space-11) var(--redesign-space-25); }
 .focused-practice-breadcrumb,
-.focused-practice-shell { margin-inline: auto; max-width: 1260px; }
-.focused-practice-breadcrumb { align-items: center; display: flex; font-size: var(--orbit-ds-type-ui-small); gap: 10px; margin-bottom: 40px; }
-.focused-practice-breadcrumb a { align-items: center; color: var(--orbit-ds-text-muted); display: inline-flex; font-weight: 650; gap: 7px; text-decoration: none; }
-.focused-practice-shell { border: 1px solid var(--orbit-ds-border); border-radius: var(--orbit-ds-radius-panel); padding: 28px; }
-.focused-practice-shell > header { align-items: start; display: flex; gap: 24px; justify-content: space-between; }
-.focused-practice-shell h1 { font-size: 38px; letter-spacing: -.045em; margin: 8px 0 0; }
-.focused-practice-layout { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; margin-top: 24px; }
+.focused-practice-shell { margin-inline: auto; max-width: 1460px; }
+.focused-practice-breadcrumb { align-items: center; display: flex; font-size: var(--redesign-type-body-sm-size); gap: var(--redesign-space-2); margin-bottom: var(--redesign-space-10); }
+.focused-practice-breadcrumb a { align-items: center; color: var(--redesign-color-on-surface-variant); display: inline-flex; font-weight: 650; gap: var(--redesign-space-2); text-decoration: none; }
+.focused-practice-shell { border: 1px solid var(--redesign-color-outline-variant); border-radius: var(--redesign-radius-lg); padding: var(--redesign-space-8); }
+.focused-practice-shell > header { align-items: start; display: flex; gap: var(--redesign-space-6); justify-content: space-between; }
+.focused-practice-shell h1 { font-size: var(--redesign-type-display-sm-size); letter-spacing: -.045em; margin: var(--redesign-space-2) 0 0; }
+.focused-practice-slide-heading { border-bottom: 1px solid var(--redesign-color-outline-variant); display: block; margin-top: var(--redesign-space-8); padding-bottom: var(--redesign-space-4); }
+.focused-practice-slide-heading small { color: var(--redesign-color-on-surface-variant); display: block; font-family: var(--redesign-font-family); font-size: var(--redesign-type-label-sm-size); font-weight: 750; margin-bottom: var(--redesign-space-2); }
+.focused-practice-slide-heading h2 { font-size: var(--redesign-type-headline-lg-mobile-size); letter-spacing: -.035em; line-height: 1.25; margin: 0; }
+.focused-practice-layout { display: grid; gap: var(--redesign-space-4); grid-template-columns: minmax(0, 1fr); margin-top: var(--redesign-space-4); }
 .focused-practice-layout.no-preview { grid-template-columns: 1fr; }
-.focused-slide-preview { background: var(--orbit-ds-lime); border-radius: var(--orbit-ds-radius-panel); color: var(--orbit-ds-ink); display: grid; gap: 20px; min-height: 280px; padding: 28px; }
-.focused-slide-preview > div:first-child { align-self: start; }
-.focused-slide-preview small { color: var(--orbit-ds-ink); font-family: var(--orbit-ds-font-mono); font-size: var(--orbit-ds-type-caption); font-weight: 750; }
-.focused-slide-preview h2 { font-size: 28px; letter-spacing: -.035em; line-height: 1.2; margin: 10px 0 0; }
-.focused-slide-preview-canvas { align-items: center; align-self: end; display: flex; justify-content: center; min-width: 0; overflow: hidden; }
-.focused-slide-preview-canvas .orbit-read-only-slide-viewport { box-shadow: 0 10px 28px rgba(9,9,9,.13); }
-.focused-slide-preview-fallback > div:last-child { align-content: center; background: rgba(255,255,255,.65); border-radius: 12px; display: grid; gap: 8px; min-height: 180px; padding: 24px; }
-.focused-slide-preview-fallback > div:last-child span { font-family: var(--orbit-ds-font-mono); font-size: var(--orbit-ds-type-caption); font-weight: 750; }
-.focused-slide-preview-fallback > div:last-child strong { font-size: 28px; letter-spacing: -.035em; }
-.focused-slide-preview-fallback > div:last-child p { color: var(--orbit-ds-text-muted); line-height: 1.5; margin: 0; }
-.focused-practice-stage { align-content: center; background: var(--orbit-ds-lilac-soft); border-radius: var(--orbit-ds-radius-panel); display: grid; gap: 12px; min-height: 280px; padding: 32px; }
-.focused-practice-stage > span { align-items: center; background: white; border-radius: 50%; display: flex; height: 44px; justify-content: center; width: 44px; }
-.focused-practice-stage small { color: var(--orbit-ds-lilac-strong); font-weight: 750; }
-.focused-practice-stage h2 { font-size: 25px; letter-spacing: -.025em; line-height: 1.35; margin: 0; }
-.focused-practice-stage p { color: var(--orbit-ds-text-muted); line-height: 1.6; margin: 0; }
-.focused-practice-stage div { align-items: center; background: white; border-radius: 10px; display: flex; font-size: var(--orbit-ds-type-ui-small); gap: 9px; padding: 13px; }
-.focused-attempt-history { border: 1px solid var(--orbit-ds-border); border-radius: 14px; margin-top: 16px; overflow: hidden; }
-.focused-attempt-history > header { align-items: center; display: flex; justify-content: space-between; padding: 16px 18px; }
-.focused-attempt-history h2 { font-size: 18px; margin: 0; }
-.focused-attempt-history header span { color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); }
-.focused-attempt-history > p { border-top: 1px solid var(--orbit-ds-border); color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); margin: 0; padding: 18px; }
-.focused-attempt-history > div { align-items: center; border-top: 1px solid var(--orbit-ds-border); display: grid; gap: 16px; grid-template-columns: 48px 110px 1fr auto; min-height: 62px; padding: 0 18px; }
+.focused-practice-visual-stage { background: var(--redesign-color-light-surface); border: 1px solid var(--redesign-color-outline-variant); border-radius: var(--redesign-radius-lg); display: grid; gap: var(--redesign-space-6); grid-template-columns: minmax(0, 7fr) minmax(280px, 3fr); min-height: 560px; padding: var(--redesign-space-7); }
+.focused-slide-preview { align-items: center; background: transparent; border-radius: 0; color: var(--redesign-color-on-surface); display: flex; justify-content: flex-start; min-height: 500px; min-width: 0; padding: 0; }
+.focused-slide-preview-canvas { align-items: center; align-self: stretch; display: flex; flex: 1; justify-content: flex-start; min-height: 0; min-width: 0; overflow: hidden; width: 100%; }
+.focused-slide-preview-canvas .orbit-read-only-slide-viewport { box-shadow: var(--redesign-shadow-raised); }
+.focused-practice-controls { align-content: start; align-self: stretch; border-left: 1px solid var(--redesign-color-outline-variant); display: grid; gap: var(--redesign-space-3); padding: var(--redesign-space-1) 0 var(--redesign-space-1) var(--redesign-space-6); }
+.focused-practice-controls small { color: var(--redesign-color-secondary); font-weight: 750; }
+.focused-practice-controls strong { font-size: var(--redesign-type-title-lg-size); line-height: 1.45; }
+.focused-practice-duration-guidance { background: var(--redesign-color-secondary-container); border-radius: var(--redesign-radius-xl); display: grid; gap: var(--redesign-space-1); margin-top: var(--redesign-space-2); padding: var(--redesign-space-3) var(--redesign-space-4); }
+.focused-practice-duration-guidance span { color: var(--redesign-color-secondary); font-size: var(--redesign-type-label-sm-size); font-weight: 750; }
+.focused-practice-duration-guidance strong { font-family: var(--redesign-font-family); font-size: var(--redesign-type-headline-md-size); font-variant-numeric: tabular-nums; }
+.focused-practice-controls .focused-practice-duration-guidance p { margin: 0; }
+.focused-practice-timer-label { color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-body-sm-size); margin-top: var(--redesign-space-2); }
+.focused-practice-timer { font-family: var(--redesign-font-family); font-size: var(--redesign-type-display-sm-size); font-variant-numeric: tabular-nums; font-weight: 750; letter-spacing: -.04em; line-height: 1; }
+.focused-practice-controls p { color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-body-sm-size); line-height: 1.55; margin: var(--redesign-space-1) 0 var(--redesign-space-2); }
+.focused-practice-control-actions { display: grid; gap: var(--redesign-space-2); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.focused-practice-control-actions .redesign-button { padding-inline: var(--redesign-space-3); width: 100%; }
+.focused-slide-preview-fallback > div:last-child { align-content: center; background: color-mix(in srgb, var(--redesign-color-light-surface) 92%, transparent); border-radius: var(--redesign-radius-xl); color: var(--redesign-color-on-surface); display: grid; gap: var(--redesign-space-2); min-height: 360px; padding: var(--redesign-space-8); width: 100%; }
+.focused-slide-preview-fallback > div:last-child span { font-family: var(--redesign-font-family); font-size: var(--redesign-type-label-sm-size); font-weight: 750; }
+.focused-slide-preview-fallback > div:last-child strong { font-size: var(--redesign-type-headline-lg-mobile-size); letter-spacing: -.035em; }
+.focused-slide-preview-fallback > div:last-child p { color: var(--redesign-color-on-surface-variant); line-height: 1.5; margin: 0; }
+.focused-sentence-preview blockquote { align-self: end; background: color-mix(in srgb, var(--redesign-color-light-surface) 78%, transparent); border-left: 4px solid var(--redesign-color-on-surface); border-radius: var(--redesign-radius-xl); font-size: var(--redesign-type-headline-md-size); font-weight: 700; line-height: 1.55; margin: 0; min-height: 120px; padding: var(--redesign-space-6); }
+.focused-practice-transcript { align-items: start; border-top: 1px solid var(--redesign-color-outline-variant); display: grid; gap: var(--redesign-space-6); grid-template-columns: max-content minmax(0, 1fr); min-height: 0; padding: var(--redesign-space-4) var(--redesign-space-1) 0; }
+.focused-practice-transcript small { color: var(--redesign-color-secondary); font-weight: 750; padding-top: var(--redesign-space-1); }
+.focused-practice-transcript p { color: var(--redesign-color-on-surface); font-size: var(--redesign-type-title-lg-size); font-weight: 650; line-height: 1.75; margin: 0; max-height: 210px; overflow-y: auto; white-space: pre-wrap; }
+.focused-attempt-history { border: 1px solid var(--redesign-color-outline-variant); border-radius: var(--redesign-radius-xl); margin-top: var(--redesign-space-4); overflow: hidden; }
+.focused-attempt-history > header { align-items: center; display: flex; justify-content: space-between; padding: var(--redesign-space-4) var(--redesign-space-4); }
+.focused-attempt-history h2 { font-size: var(--redesign-type-title-md-size); margin: 0; }
+.focused-attempt-history header span { color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-body-sm-size); }
+.focused-attempt-history > p { border-top: 1px solid var(--redesign-color-outline-variant); color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-body-sm-size); margin: 0; padding: var(--redesign-space-4); }
+.focused-attempt-history > div { align-items: center; border-top: 1px solid var(--redesign-color-outline-variant); display: grid; gap: var(--redesign-space-4); grid-template-columns: 48px 110px 1fr auto; min-height: 62px; padding: 0 var(--redesign-space-4); }
 .focused-attempt-history > div > span,
 .focused-attempt-history > div small,
-.focused-attempt-history time { color: var(--orbit-ds-text-muted); font-size: var(--orbit-ds-type-ui-small); }
-.focused-attempt-history time { font-family: var(--orbit-ds-font-mono); }
-.focused-practice-shell > footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
-.focused-practice-shell .orbit-ds-button { min-height: 44px; }
-.focused-practice-error { background: var(--orbit-ds-danger-soft); border-radius: 10px; color: var(--orbit-ds-danger); margin: 18px 0 0; padding: 12px; }
-@media (max-width: 800px) { .focused-practice-page { padding: 28px 18px 72px; } .focused-practice-layout { grid-template-columns: 1fr; } }
-@media (max-width: 640px) { .focused-practice-shell { padding: 20px; } .focused-practice-shell > header { flex-direction: column; } .focused-practice-shell h1 { font-size: 32px; } .focused-slide-preview, .focused-practice-stage { min-height: 240px; padding: 24px; } .focused-attempt-history > div { align-items: start; gap: 7px; grid-template-columns: 52px 1fr auto; padding-block: 13px; } .focused-attempt-history > div small { grid-column: 2 / -1; } .focused-practice-shell > footer { align-items: stretch; flex-direction: column; } .focused-practice-shell > footer .orbit-ds-button { width: 100%; } }
+.focused-attempt-history time { color: var(--redesign-color-on-surface-variant); font-size: var(--redesign-type-body-sm-size); }
+.focused-attempt-history time { font-family: var(--redesign-font-family); }
+.focused-practice-shell > footer { display: flex; gap: var(--redesign-space-2); justify-content: flex-end; margin-top: var(--redesign-space-5); }
+.focused-practice-shell .redesign-button { min-height: 44px; }
+.focused-practice-error { background: var(--redesign-color-error-container); border-radius: var(--redesign-radius-xl); color: var(--redesign-color-error); margin: var(--redesign-space-4) 0 0; padding: var(--redesign-space-3); }
+@media (max-width: 1080px) { .focused-practice-visual-stage { grid-template-columns: 1fr; } }
+@media (max-width: 800px) { .focused-practice-page { padding: var(--redesign-space-7) var(--redesign-space-4) var(--redesign-space-18); } }
+@media (max-width: 640px) { .focused-practice-shell { padding: var(--redesign-space-5); } .focused-practice-shell > header { flex-direction: column; } .focused-practice-shell h1 { font-size: var(--redesign-type-headline-lg-size); } .focused-practice-slide-heading h2 { font-size: var(--redesign-type-headline-md-size); } .focused-practice-visual-stage { min-height: 0; padding: var(--redesign-space-4); } .focused-slide-preview { min-height: 300px; } .focused-practice-controls { border-left: 0; border-top: 1px solid var(--redesign-color-outline-variant); padding: var(--redesign-space-4) 0 0; } .focused-practice-control-actions { grid-template-columns: 1fr; } .focused-practice-transcript { gap: var(--redesign-space-2); grid-template-columns: 1fr; padding-top: var(--redesign-space-4); } .focused-practice-transcript small { padding-top: 0; } .focused-practice-transcript p { font-size: var(--redesign-type-title-md-size); } .focused-attempt-history > div { align-items: start; gap: var(--redesign-space-2); grid-template-columns: 52px 1fr auto; padding-block: var(--redesign-space-3); } .focused-attempt-history > div small { grid-column: 2 / -1; } .focused-practice-shell > footer { align-items: stretch; flex-direction: column; } .focused-practice-shell > footer .redesign-button { width: 100%; } }

@@ -1,11 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createActivitySlide, createDemoDeck } from "@orbit/editor-core";
 import type { ReactNode } from "react";
 import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { p0AnimationDeck } from "./__fixtures__/animationDeck";
-import { SlideshowRenderer } from "./SlideshowRenderer";
+import {
+  getCrossFadeLayerOpacities,
+  getDestinationCrossFadeDurationMs,
+  SlideshowRenderer
+} from "./SlideshowRenderer";
 
 vi.mock("react-konva", () => {
   function attrs(props: Record<string, unknown>) {
@@ -89,6 +94,23 @@ describe("SlideshowRenderer", () => {
     expect(html).toContain("슬라이드를 찾을 수 없습니다.");
   });
 
+  it("renders activity slides as the audience QR surface", () => {
+    const baseDeck = createDemoDeck();
+    const activitySlide = createActivitySlide(baseDeck, "poll");
+    const deck = { ...baseDeck, slides: [...baseDeck.slides, activitySlide] };
+    const html = renderToStaticMarkup(
+      <SlideshowRenderer
+        deck={deck}
+        slideId={activitySlide.slideId}
+        stepIndex={0}
+      />
+    );
+
+    expect(html).toContain("청중 참여 장표");
+    expect(html).toContain("발표자가 참여를 준비하고 있습니다");
+    expect(html).not.toContain('data-testid="read-only-slide-stage"');
+  });
+
   it("falls back to thumbnailUrl when a slide has no renderable elements", () => {
     const thumbnailDeck = {
       ...p0AnimationDeck,
@@ -139,6 +161,67 @@ describe("SlideshowRenderer", () => {
     );
 
     expect(html).toContain("data-element-id=\"el_title\" data-opacity=\"1\"");
+  });
+
+  it("uses the destination fade duration except on first slide or reduced motion", () => {
+    const destinationSlide = {
+      ...p0AnimationDeck.slides[1]!,
+      transition: { type: "fade" as const, durationMs: 700 }
+    };
+
+    expect(
+      getDestinationCrossFadeDurationMs({
+        hasPreviousSlide: true,
+        reducedMotion: false,
+        slide: destinationSlide
+      })
+    ).toBe(700);
+    expect(
+      getDestinationCrossFadeDurationMs({
+        hasPreviousSlide: false,
+        reducedMotion: false,
+        slide: destinationSlide
+      })
+    ).toBe(0);
+    expect(
+      getDestinationCrossFadeDurationMs({
+        hasPreviousSlide: true,
+        reducedMotion: true,
+        slide: destinationSlide
+      })
+    ).toBe(0);
+  });
+
+  it("cross-fades outgoing and incoming layer opacity with bounded progress", () => {
+    expect(getCrossFadeLayerOpacities(0.25)).toEqual({
+      incoming: 0.25,
+      outgoing: 0.75
+    });
+    expect(getCrossFadeLayerOpacities(-1)).toEqual({
+      incoming: 0,
+      outgoing: 1
+    });
+    expect(getCrossFadeLayerOpacities(2)).toEqual({
+      incoming: 1,
+      outgoing: 0
+    });
+  });
+
+  it("renders the first slide immediately without an outgoing transition layer", () => {
+    const firstSlide = {
+      ...p0AnimationDeck.slides[0]!,
+      transition: { type: "fade" as const, durationMs: 700 }
+    };
+    const deck = {
+      ...p0AnimationDeck,
+      slides: [firstSlide, ...p0AnimationDeck.slides.slice(1)]
+    };
+    const html = renderToStaticMarkup(
+      <SlideshowRenderer deck={deck} slideId={firstSlide.slideId} stepIndex={0} />
+    );
+
+    expect(html).toContain("data-transition-active=\"false\"");
+    expect(html).not.toContain("data-cross-fade-layer=\"outgoing\"");
   });
 
   it("keeps renderer imports away from editor interaction modules", () => {

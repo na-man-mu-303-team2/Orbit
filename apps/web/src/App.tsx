@@ -1,232 +1,119 @@
-﻿import {
-  aiTemplateDeckGenerationJobResultSchema,
-  allowedAssetMimeTypes,
+import { CommunityGalleryPage } from "./features/community-templates/CommunityGalleryPage";
+import { CommunityTemplateDetailPage } from "./features/community-templates/CommunityTemplateDetailPage";
+import {
   deckSchema,
   demoIds,
   legacyRehearsalReportMetricsDefaults,
-  maxAssetUploadSizeBytes,
-  type AiTemplateDeckGenerationJobResult,
+  legacyRehearsalSlideSpeakingRate,
+  legacyRehearsalSilenceAnalysis,
+  legacyRehearsalVolumeAnalysis,
+  projectAccessResponseSchema,
   type Deck,
-  type DeckElement,
-  type FilePurpose,
-  type GenerateDeckJobResult,
-  type Job,
-  type PptxOoxmlGenerationJobResult,
   type Project,
+  type ProjectAccessResponse,
   type ProjectMemberRole,
-  type ProjectMemberStatus,
   type RehearsalReport,
-  type RehearsalRun
+  type RehearsalRun,
 } from "@orbit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconFileText } from "@tabler/icons-react";
-import {
-  ArrowRight,
-  ChevronDown,
-  Clock,
-  FileUp,
-  FileText,
-  LayoutTemplate,
-  ListChecks,
-  Paperclip,
-  Plus,
-  Sparkles,
-  UploadCloud
-} from "lucide-react";
-import type {
-  CSSProperties,
-  ChangeEvent,
-  DragEvent,
-  FormEvent,
-  MouseEvent,
-  ReactNode
-} from "react";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createDemoDeck } from "../../../packages/editor-core/src/index";
 import {
   OrbitAppHeader,
-  type OrbitAppNavigationItem
+  type OrbitAppNavigationItem,
 } from "./components/OrbitAppHeader";
-import { OrbitDesignSystemPage } from "./design-system/OrbitDesignSystemPage";
-import { OrbitButton, OrbitEmptyState } from "./design-system";
-import { OrbitAuthPage, OrbitPublicLandingPage } from "./features/auth/OrbitAuthPage";
+import { RedesignSystemPage } from "./features/design-system/RedesignSystemPage";
+import { OrbitButton, OrbitEmptyState, OrbitFailureState } from "./components/ui";
+import { OrbitAuthPage } from "./features/auth/AuthPage";
+import { ProfilePage } from "./features/auth/ProfilePage";
 import {
   authMeQueryKey,
   fetchCurrentUser,
   markAuthLoggedOut,
-  type AuthUser
+  type AuthUser,
 } from "./features/auth/auth-session";
+import { LandingPage } from "./features/landing/LandingPage";
 import { ChallengeQnaPage } from "./features/coaching/ChallengeQnaPage";
 import { FocusedPracticePage } from "./features/coaching/FocusedPracticePage";
 import { PracticePlanPage } from "./features/coaching/PracticePlanPage";
 import { PresentationBriefPage } from "./features/coaching/PresentationBriefPage";
-import { AiPptMockupPage as AiPptWizardPage } from "./features/ai-ppt/AiPptMockupPage";
-import { DeckVersionHistoryPage } from "./features/editor/history/DeckVersionHistoryPage";
-import { OrbitMockupFlow, type OrbitMockupScreen } from "./features/mockups/OrbitMockupFlow";
 import {
-  createProject,
-  fetchProjects,
-  resolveAssetMimeType,
-  uploadProjectAsset
-} from "./features/projects/ProjectAssetWorkspace";
-import { OrbitProjectExplorer, OrbitWorkspaceHome } from "./features/projects/OrbitProjectHub";
+  AiPptMockupPage as AiPptWizardPage,
+  AiPptStyleColorPage,
+} from "./features/ai-ppt/AiPptMockupPage";
+import { AiDeckGenerationPage } from "./features/ai-ppt/AiDeckGenerationPage";
+import { DeckVersionHistoryPage } from "./features/editor/history/DeckVersionHistoryPage";
+import {
+  OrbitMockupFlow,
+  type OrbitMockupScreen,
+} from "./features/mockups/OrbitMockupFlow";
+import { ProjectExplorerPage } from "./features/projects/ProjectExplorerPage";
+import { OrbitWorkspaceHome } from "./features/projects/ProjectHub";
+import { ProjectAccessProvider } from "./features/projects/ProjectAccessContext";
+import { PptxImportProvider } from "./features/projects/PptxImportProvider";
 import "./features/projects/orbit-create-deck.css";
 import "./features/projects/orbit-project-access.css";
 import {
   RehearsalReportPage,
-  RehearsalWorkspace
+  RehearsalWorkspace,
 } from "./features/rehearsal/RehearsalWorkspace";
 import { RehearsalReportListPage } from "./features/rehearsal/RehearsalReportListPage";
+import { RehearsalProjectPickerPage } from "./features/rehearsal/RehearsalProjectPickerPage";
 import { RehearsalProjectOverviewPage } from "./features/rehearsal/RehearsalProjectOverviewPage";
+import { RehearsalMicCheckModal } from "./features/rehearsal/preflight/RehearsalMicCheckModal";
+import {
+  isRehearsalEntryPath,
+  rehearsalNavigationRequestEvent,
+} from "./features/rehearsal/rehearsalUtils";
 import { PresentationWorkspace } from "./features/presentation/PresentationWorkspace";
+import { PresentationReportPage } from "./features/presentation/PresentationReportPage";
 import { AudienceSessionPage } from "./pages/audience/AudienceSessionPage";
 import { PresentWindow } from "./features/rehearsal/presenter/PresentWindow";
 import { ReadOnlySlideCanvas } from "./features/slides/rendering";
-
-type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-
-type ExtractedFile = {
-  referenceDocumentId?: string;
-  fileName: string;
-  kind: string;
-  status: string;
-  message?: string;
-  rawText: string;
-  cleanedText?: string;
-  cleanupStatus?: string;
-  cleanupMessage?: string;
-  keywords?: PresentationKeyword[];
-  keywordStatus?: string;
-  keywordMessage?: string;
-  indexingStatus?: string;
-  indexingMessage?: string;
-  chunkCount?: number;
-};
-
-type JobResult = {
-  files?: ExtractedFile[];
-};
-
-type PptxOoxmlGenerationResponse = {
-  job: Job;
-};
-
-type AiTemplateDeckGenerationResponse = {
-  job: Job;
-};
-
-type GenerateDeckJobResponse = {
-  job: Job;
-};
-
-type ExtractJobResponse = {
-  job: Job;
-};
-
-type ReferenceGenerationInput = {
-  references: Array<{ fileId: string }>;
-  referenceKeywords: Array<{ text: string }>;
-  referenceContext: Array<{ fileId: string; title: string; content: string }>;
-  succeededFiles: ExtractedFile[];
-  failedFiles: ExtractedFile[];
-};
-
-type GenerateDeckPayloadInput = {
-  topic: string;
-  prompt: string;
-  designPrompt?: string;
-  duration: number;
-  minSlides: number;
-  maxSlides: number;
-  template: string;
-  metadata: {
-    audience: string;
-    purpose: string;
-    tone: string;
-  };
-  design: GenerateDeckDesignDirection;
-  designReferences: Array<{ fileId: string }>;
-  referenceInput: ReferenceGenerationInput;
-};
-
-type GenerateDeckDesignDirection = {
-  profile?:
-    | "executive-report"
-    | "startup-pitch"
-    | "editorial"
-    | "technical"
-    | "training";
-  visualRhythm: "auto" | "clean" | "editorial" | "bold" | "technical";
-  densityTarget: "low" | "medium" | "high";
-  mediaPolicy: "avoid" | "balanced" | "placeholder-ok";
-  layoutDiversity: "stable" | "varied";
-  stylePackId?: string;
-  slidePresetId?: string;
-};
-type GenerateDeckDesignProfile = NonNullable<GenerateDeckDesignDirection["profile"]>;
-type GenerateDeckDesignProfileChoice = "auto" | GenerateDeckDesignProfile;
-export type HomeTemplateStyleId =
-  | "simple-basic"
-  | "presentation-document"
-  | "submission-document";
-export type HomeTemplateStyle = {
-  id: HomeTemplateStyleId;
-  title: string;
-  description: string;
-};
-type TemplateStyleDesignOverrides = Partial<
-  Pick<GenerateDeckDesignDirection, "densityTarget" | "layoutDiversity" | "mediaPolicy">
->;
-const templateStyleDefaultOption = "style-default" as const;
-type TemplateDensityTargetOption =
-  | typeof templateStyleDefaultOption
-  | GenerateDeckDesignDirection["densityTarget"];
-type TemplateLayoutDiversityOption =
-  | typeof templateStyleDefaultOption
-  | GenerateDeckDesignDirection["layoutDiversity"];
-type TemplateMediaPolicyOption =
-  | typeof templateStyleDefaultOption
-  | GenerateDeckDesignDirection["mediaPolicy"];
-
-type GenerateDeckTargetProject = {
-  created: boolean;
-  project: Project | null;
-  projectId: string;
-};
-
-type PresentationKeyword = {
-  keyword: string;
-  reason: string;
-  priority: "high" | "medium" | "low" | string;
-};
-
-export type UploadRole = "content" | "design" | "both";
-
-export type UploadFile = {
-  id: string;
-  file: File;
-  role: UploadRole;
-};
-
-type RejectedFile = {
-  name: string;
-  reason: string;
-};
+import {
+  ActivityAudiencePreviewPage,
+  ActivityResultsPage
+} from "./features/activity-slides";
+import {
+  CompanionSpikeAudiencePage,
+  CompanionSpikeCapturePage,
+  CompanionSpikePage,
+} from "./features/presenter-companion/spike/CompanionSpikePage";
+import { CompanionSpikeHostPanel } from "./features/presenter-companion/spike/CompanionSpikeHostPanel";
+import { isCompanionSpikeEnabled } from "./features/presenter-companion/spike/companionSpike";
 
 export type Route =
   | { name: "design-system" }
   | { name: "mockup"; screen: OrbitMockupScreen }
   | { name: "login" }
   | { name: "signup" }
-  | { name: "home"; templateStyleId?: HomeTemplateStyleId }
+  | { name: "profile" }
+  | { name: "home" }
   | { name: "create-deck" }
-  | { name: "project-list"; intent?: "rehearsal" }
+  | { name: "project-list" }
+  | { name: "rehearsal-project-list" }
   | { name: "project-editor"; projectId: string }
   | { name: "project-brief"; projectId: string }
   | { name: "project-history"; projectId: string }
+  | { name: "activity-preview"; projectId: string; activityId: string }
+  | { name: "activity-results"; projectId: string; sessionId: string }
+  | { name: "story-style-color"; projectId: string; jobId: string }
+  | { name: "ai-deck-generation"; projectId: string; jobId: string }
   | { name: "project-request"; projectId: string }
   | { name: "audience-session"; sessionId: string }
+  | { name: "audience-activity"; sessionId: string; activityId: string }
+  | { name: "companion-spike"; spikeId: string }
+  | { name: "companion-spike-audience"; spikeId: string }
+  | { name: "companion-spike-capture"; spikeId: string }
   | { name: "presentation"; projectId: string }
+  | {
+      name: "presentation-report";
+      projectId: string;
+      sessionId: string;
+      runId?: string;
+    }
   | { name: "present"; deckId: string; sessionId?: string }
   | {
       name: "rehearsal";
@@ -237,83 +124,34 @@ export type Route =
       snapshotPreparationId?: string;
       sourceFullRunId?: string;
       sourceGoalSetId?: string;
+      preflightMode?: "microphone" | "without-voice";
       projectId: string;
     }
   | { name: "rehearsal-report"; projectId: string; runId: string }
   | { name: "practice-plan"; projectId: string; sourceFullRunId: string }
-  | { name: "focused-practice"; projectId: string; goalId: string; sourceFullRunId: string }
+  | {
+      name: "focused-practice";
+      projectId: string;
+      goalId: string;
+      sourceFullRunId: string;
+    }
   | { name: "challenge-qna"; projectId: string; sourceFullRunId: string }
   | { name: "report-mockup" }
   | { name: "report-list" }
+  | { name: "community" }
+  | { name: "community-detail"; templateId: string }
   | { name: "report-project-overview"; projectId: string }
   | { name: "not-found" }
   | { name: "deck-render" };
 
 export const deckRenderPayloadStorageKey = "orbit.deckRenderPayload.v1";
 
-type ProjectAccessResponse = {
-  project: Project;
-  membership: {
-    role: ProjectMemberRole;
-    status: ProjectMemberStatus;
-  } | null;
-};
-
 const EditorShell = lazy(() =>
   import("./features/editor/shell/EditorShell").then((module) => ({
-    default: module.EditorShell
-  }))
+    default: module.EditorShell,
+  })),
 );
 
-export const defaultHomeTemplateStyleId: HomeTemplateStyleId = "simple-basic";
-export const homeTemplateStyles: HomeTemplateStyle[] = [
-  {
-    id: "simple-basic",
-    title: "심플 베이직 스타일",
-    description: "깔끔한 기본형 문서 디자인"
-  },
-  {
-    id: "presentation-document",
-    title: "발표용 문서 스타일",
-    description: "키워드와 발표 메모 중심"
-  },
-  {
-    id: "submission-document",
-    title: "제출용 문서 스타일",
-    description: "본문과 근거가 자족적인 보고형"
-  }
-];
-const homeToneOptions: Array<{
-  value: "professional" | "friendly" | "confident" | "concise";
-  label: string;
-  description: string;
-}> = [
-  {
-    value: "professional",
-    label: "Professional",
-    description: "정돈된 비즈니스 톤"
-  },
-  {
-    value: "friendly",
-    label: "Friendly",
-    description: "부드럽고 설명적인 톤"
-  },
-  {
-    value: "confident",
-    label: "Confident",
-    description: "확신 있는 제안 톤"
-  },
-  {
-    value: "concise",
-    label: "Concise",
-    description: "짧고 핵심적인 톤"
-  }
-];
-const uploadRoleLabels: Record<UploadRole, string> = {
-  content: "내용 참고",
-  design: "디자인 참고",
-  both: "둘 다"
-};
 const demoDeck = createDemoDeck();
 const reportMockupRunId = "run_report_mockup";
 const reportMockupGeneratedAt = "2026-07-01T09:00:00.000Z";
@@ -332,7 +170,7 @@ const reportMockupRun: RehearsalRun = {
   error: null,
   rawAudioDeletedAt: null,
   createdAt: "2026-07-01T08:54:12.000Z",
-  updatedAt: reportMockupGeneratedAt
+  updatedAt: reportMockupGeneratedAt,
 };
 const reportMockupReport: RehearsalReport = {
   reportId: "report_mockup",
@@ -341,91 +179,154 @@ const reportMockupReport: RehearsalReport = {
   deckId: demoIds.deckId,
   transcriptRetained: false,
   transcript: null,
+  volumeAnalysis: legacyRehearsalVolumeAnalysis,
+  silenceAnalysis: {
+    ...legacyRehearsalSilenceAnalysis,
+    measurementState: "measured",
+    reasonCode: null,
+    detectorVersion: "6.2.1",
+    analysisWindowStartSeconds: 0.4,
+    analysisWindowEndSeconds: 285.5,
+    totalSilenceSeconds: 2,
+    silenceRatio: 0.007,
+    longSilenceCount: 1,
+    detectedSegmentCount: 1,
+    segments: [
+      {
+        category: "long",
+        startSeconds: 144,
+        endSeconds: 146,
+        durationSeconds: 2,
+      },
+    ],
+  },
   metrics: {
     ...legacyRehearsalReportMetricsDefaults,
     durationSeconds: 286,
     wordsPerMinute: 128,
     fillerWordCount: 3,
-    pauseCount: 2,
+    longSilenceCount: 1,
+    measurements: {
+      ...legacyRehearsalReportMetricsDefaults.measurements,
+      longSilenceCount: {
+        measurementState: "measured",
+        metricDefinitionVersion: 1,
+        reasonCode: null,
+      },
+    },
     keywordCoverage: 0.86,
-    keywordCoverageMeasurement: { state: "measured" }
+    keywordCoverageMeasurement: { state: "measured" },
   },
   speedSamples: [
     { startSecond: 0, endSecond: 30, wordsPerMinute: 118 },
     { startSecond: 30, endSecond: 60, wordsPerMinute: 132 },
-    { startSecond: 60, endSecond: 90, wordsPerMinute: 126 }
+    { startSecond: 60, endSecond: 90, wordsPerMinute: 126 },
   ],
   fillerWordDetails: [{ word: "음", count: 3 }],
-  pauseDetails: [{ startSecond: 144, endSecond: 146, durationSeconds: 2 }],
-  pauseV2Details: [],
-  missedKeywords: [{ slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" }],
+  missedKeywords: [
+    { slideId: "slide_1", keywordId: "kw_1", text: "핵심 메시지" },
+  ],
   utteranceOutcomes: [],
   semanticCueDecisions: [],
   semanticEvaluation: {
     state: "unavailable",
     measurementMode: "none",
     reasons: ["evaluation_not_run"],
-    retryable: false
+    retryable: false,
   },
   semanticCueOutcomes: [],
   slideTimings: [{ slideId: "slide_1", targetSeconds: 60, actualSeconds: 58 }],
-  slideInsights: [{ slideId: "slide_1", fillerWordCount: 2, pauseCount: 1 }],
+  slideInsights: [
+    {
+      slideId: "slide_1",
+      fillerWordCount: 2,
+      longSilenceCount: 1,
+      speakingRate: legacyRehearsalSlideSpeakingRate,
+    },
+  ],
   qnaSummary: {
     questionCount: 0,
     questionSummary: "",
-    unclearTopics: []
+    unclearTopics: [],
   },
   coaching: {
     status: "succeeded",
-    summary: "핵심 메시지는 안정적으로 전달됐고, 속도도 발표 시간에 잘 맞습니다.",
+    summary:
+      "핵심 메시지는 안정적으로 전달됐고, 속도도 발표 시간에 잘 맞습니다.",
     strengths: [
       "도입부에서 발표 목적을 빠르게 제시했습니다.",
       "중요 키워드를 반복해 청중이 흐름을 따라가기 좋았습니다.",
-      "슬라이드 전환 사이의 멈춤이 과하지 않았습니다."
+      "슬라이드 전환 사이의 멈춤이 과하지 않았습니다.",
     ],
     improvements: [
       "중간 설명에서 일부 filler 표현이 반복됩니다.",
       "마무리 전에 다음 행동을 더 명확하게 요청하면 좋습니다.",
-      "수치가 있는 문장은 한 번 더 천천히 읽는 편이 좋습니다."
+      "수치가 있는 문장은 한 번 더 천천히 읽는 편이 좋습니다.",
     ],
     nextPracticeFocus:
       "다음 연습에서는 결론 슬라이드의 CTA 문장을 먼저 고정하고, 수치 설명 구간의 호흡을 조금 더 길게 가져가세요.",
-    message: ""
+    message: "",
   },
-  generatedAt: reportMockupGeneratedAt
+  generatedAt: reportMockupGeneratedAt,
 };
-const pptxAccept = [
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  ".pptx"
-].join(",");
-const homeAssetAccept = [
-  ...allowedAssetMimeTypes,
-  ".pdf",
-  ".pptx",
-  ".docx",
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".webp"
-].join(",");
-const pptxMimeType =
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-const simpleBasicStylePackId = defaultHomeTemplateStyleId;
-const referenceContextMaxChars = 12_000;
+type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-async function fetchProjectAccess(projectId: string): Promise<ProjectAccessResponse> {
-  const response = await fetch(`/api/v1/projects/${encodeURIComponent(projectId)}/access`, {
-    credentials: "include"
-  });
-  if (!response.ok) {
-    throw new Error(await readApiError(response, "프로젝트 권한을 확인하지 못했습니다."));
+export class ProjectAccessRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ProjectAccessRequestError";
   }
-  return response.json() as Promise<ProjectAccessResponse>;
 }
 
+export async function fetchProjectAccess(
+  projectId: string,
+  fetcher: Fetcher = fetch,
+): Promise<ProjectAccessResponse> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/access`,
+    {
+      credentials: "include",
+    },
+  );
+  if (!response.ok) {
+    throw new ProjectAccessRequestError(
+      await readApiError(response, "프로젝트 권한을 확인하지 못했습니다."),
+      response.status,
+    );
+  }
+  return projectAccessResponseSchema.parse(await response.json());
+}
+
+export function shouldRetryProjectAccess(
+  failureCount: number,
+  error: unknown,
+) {
+  if (error instanceof ProjectAccessRequestError) {
+    return error.status >= 500 && failureCount < 2;
+  }
+
+  return failureCount < 2;
+}
+
+export function getProjectAccessFailureBehavior(
+  error: unknown,
+  hasAcceptedMembership: boolean,
+) {
+  if (
+    error instanceof ProjectAccessRequestError &&
+    error.status === 401
+  ) {
+    return "login";
+  }
+
+  return hasAcceptedMembership ? "preserve" : "blocking";
+}
 async function requestProjectAccess(
   projectId: string,
-  role: Exclude<ProjectMemberRole, "owner">
+  role: Exclude<ProjectMemberRole, "owner">,
 ): Promise<ProjectAccessResponse> {
   const response = await fetch(
     `/api/v1/projects/${encodeURIComponent(projectId)}/access-requests`,
@@ -433,202 +334,371 @@ async function requestProjectAccess(
       body: JSON.stringify({ role }),
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      method: "POST"
-    }
+      method: "POST",
+    },
   );
   if (!response.ok) {
-    throw new Error(await readApiError(response, "프로젝트 권한 요청에 실패했습니다."));
+    throw new Error(
+      await readApiError(response, "프로젝트 권한 요청에 실패했습니다."),
+    );
   }
-  return response.json() as Promise<ProjectAccessResponse>;
+  return projectAccessResponseSchema.parse(await response.json());
 }
 
-export function getHomeTemplateStyleId(
-  value: string | null | undefined
-): HomeTemplateStyleId | undefined {
-  const normalized = value?.trim();
-  return homeTemplateStyles.some((style) => style.id === normalized)
-    ? (normalized as HomeTemplateStyleId)
-    : undefined;
-}
-
-export function getHomeTemplateStylePath(styleId: HomeTemplateStyleId) {
-  return `/?templateStyle=${encodeURIComponent(styleId)}`;
-}
-
-export function getRoute(
-  pathname?: string,
-  search?: string
-): Route {
+export function getRoute(pathname?: string, search?: string): Route {
   const currentPathname =
-    pathname ?? (typeof window === "undefined" ? "/" : window.location.pathname);
+    pathname ??
+    (typeof window === "undefined" ? "/" : window.location.pathname);
   const currentSearch =
     search ?? (typeof window === "undefined" ? "" : window.location.search);
   const normalized = currentPathname.replace(/\/+$/, "") || "/";
 
   try {
+    if (normalized === "/login") return { name: "login" };
+    if (normalized === "/signup") return { name: "signup" };
+    if (normalized === "/profile") return { name: "profile" };
+    if (normalized === "/design-system") return { name: "design-system" };
+    if (normalized === "/mockup") return { name: "mockup", screen: "public" };
+    if (normalized === "/mockup/home")
+      return { name: "mockup", screen: "home" };
+    if (normalized === "/mockup/create")
+      return { name: "mockup", screen: "create" };
+    if (normalized === "/mockup/editor")
+      return { name: "mockup", screen: "editor" };
+    if (normalized === "/mockup/microphone-check")
+      return { name: "mockup", screen: "microphone-check" };
+    if (normalized === "/mockup/project-request")
+      return { name: "mockup", screen: "project-request" };
+    if (normalized === "/mockup/rehearsal")
+      return { name: "mockup", screen: "rehearsal" };
+    if (normalized === "/mockup/presenter")
+      return { name: "mockup", screen: "presenter" };
+    if (normalized === "/mockup/rehearsal-complete")
+      return { name: "mockup", screen: "rehearsal-complete" };
+    if (normalized === "/mockup/reports")
+      return { name: "mockup", screen: "reports" };
+    if (normalized === "/mockup/report")
+      return { name: "mockup", screen: "report" };
+    if (normalized === "/mockup/report-project")
+      return { name: "mockup", screen: "report-project" };
+    if (normalized === "/mockup/live")
+      return { name: "mockup", screen: "live" };
+    if (normalized === "/mockup/live-presenter")
+      return { name: "mockup", screen: "live-presenter" };
+    if (normalized === "/mockup/login")
+      return { name: "mockup", screen: "login" };
+    if (normalized === "/mockup/signup")
+      return { name: "mockup", screen: "signup" };
+    if (normalized === "/mockup/catalog")
+      return { name: "mockup", screen: "catalog" };
+    if (normalized === "/mockup/brief")
+      return { name: "mockup", screen: "brief" };
+    if (normalized === "/mockup/practice-plan")
+      return { name: "mockup", screen: "practice-plan" };
+    if (normalized === "/mockup/focused-practice")
+      return { name: "mockup", screen: "focused-practice" };
+    if (normalized === "/mockup/challenge-qna")
+      return { name: "mockup", screen: "challenge-qna" };
+    if (normalized === "/mockup/audience")
+      return { name: "mockup", screen: "audience" };
+    if (normalized === "/mockup/version-history")
+      return { name: "mockup", screen: "version-history" };
+    if (normalized === "/createdeck") return { name: "create-deck" };
+    if (normalized === "/project") {
+      return new URLSearchParams(currentSearch).get("intent") === "rehearsal"
+        ? { name: "rehearsal-project-list" }
+        : { name: "project-list" };
+    }
+    if (normalized === "/reports") return { name: "report-list" };
+    if (normalized === "/community") return { name: "community" };
+    const communityTemplateMatch = normalized.match(/^\/community\/([^/]+)$/);
+    if (communityTemplateMatch) {
+      return {
+        name: "community-detail",
+        templateId: decodeURIComponent(communityTemplateMatch[1]),
+      };
+    }
+    const reportProjectMatch = normalized.match(/^\/reports\/([^/]+)$/);
+    if (reportProjectMatch) {
+      return {
+        name: "report-project-overview",
+        projectId: decodeURIComponent(reportProjectMatch[1]),
+      };
+    }
+    if (normalized === "/report_mockup") return { name: "report-mockup" };
+    if (normalized === "/__deck-render" && isDeckRenderRouteEnabled()) {
+      return { name: "deck-render" };
+    }
 
-  if (normalized === "/login") return { name: "login" };
-  if (normalized === "/signup") return { name: "signup" };
-  if (normalized === "/design-system") return { name: "design-system" };
-  if (normalized === "/mockup") return { name: "mockup", screen: "public" };
-  if (normalized === "/mockup/home") return { name: "mockup", screen: "home" };
-  if (normalized === "/mockup/create") return { name: "mockup", screen: "create" };
-  if (normalized === "/mockup/editor") return { name: "mockup", screen: "editor" };
-  if (normalized === "/mockup/microphone-check") return { name: "mockup", screen: "microphone-check" };
-  if (normalized === "/mockup/project-request") return { name: "mockup", screen: "project-request" };
-  if (normalized === "/mockup/rehearsal") return { name: "mockup", screen: "rehearsal" };
-  if (normalized === "/mockup/presenter") return { name: "mockup", screen: "presenter" };
-  if (normalized === "/mockup/rehearsal-complete") return { name: "mockup", screen: "rehearsal-complete" };
-  if (normalized === "/mockup/reports") return { name: "mockup", screen: "reports" };
-  if (normalized === "/mockup/report") return { name: "mockup", screen: "report" };
-  if (normalized === "/mockup/report-project") return { name: "mockup", screen: "report-project" };
-  if (normalized === "/mockup/live") return { name: "mockup", screen: "live" };
-  if (normalized === "/mockup/live-presenter") return { name: "mockup", screen: "live-presenter" };
-  if (normalized === "/mockup/login") return { name: "mockup", screen: "login" };
-  if (normalized === "/mockup/signup") return { name: "mockup", screen: "signup" };
-  if (normalized === "/mockup/catalog") return { name: "mockup", screen: "catalog" };
-  if (normalized === "/mockup/brief") return { name: "mockup", screen: "brief" };
-  if (normalized === "/mockup/practice-plan") return { name: "mockup", screen: "practice-plan" };
-  if (normalized === "/mockup/focused-practice") return { name: "mockup", screen: "focused-practice" };
-  if (normalized === "/mockup/challenge-qna") return { name: "mockup", screen: "challenge-qna" };
-  if (normalized === "/mockup/audience") return { name: "mockup", screen: "audience" };
-  if (normalized === "/mockup/version-history") return { name: "mockup", screen: "version-history" };
-  if (normalized === "/mockup/ai-ppt") return { name: "mockup", screen: "ai-ppt" };
-  if (normalized === "/createdeck") return { name: "create-deck" };
-  if (normalized === "/project") {
-    return new URLSearchParams(currentSearch).get("intent") === "rehearsal"
-      ? { name: "project-list", intent: "rehearsal" }
-      : { name: "project-list" };
-  }
-  if (normalized === "/reports") return { name: "report-list" };
-  const reportProjectMatch = normalized.match(/^\/reports\/([^/]+)$/);
-  if (reportProjectMatch) {
-    return { name: "report-project-overview", projectId: decodeURIComponent(reportProjectMatch[1]) };
-  }
-  if (normalized === "/report_mockup") return { name: "report-mockup" };
-  if (normalized === "/__deck-render" && isDeckRenderRouteEnabled()) {
-    return { name: "deck-render" };
-  }
+    const companionSpikeAudienceMatch = normalized.match(
+      /^\/companion-spike\/([^/]+)\/audience$/,
+    );
+    if (companionSpikeAudienceMatch) {
+      return {
+        name: "companion-spike-audience",
+        spikeId: decodeURIComponent(companionSpikeAudienceMatch[1]),
+      };
+    }
 
-  const audienceSessionMatch = normalized.match(/^\/audience\/([^/]+)$/);
-  if (audienceSessionMatch) {
-    return {
-      name: "audience-session",
-      sessionId: decodeURIComponent(audienceSessionMatch[1])
-    };
-  }
+    const companionSpikeCaptureMatch = normalized.match(
+      /^\/companion-spike\/([^/]+)\/capture$/,
+    );
+    if (companionSpikeCaptureMatch) {
+      return {
+        name: "companion-spike-capture",
+        spikeId: decodeURIComponent(companionSpikeCaptureMatch[1]),
+      };
+    }
 
-  const presentationMatch = normalized.match(/^\/presentation\/([^/]+)$/);
-  if (presentationMatch) {
-    return {
-      name: "presentation",
-      projectId: decodeURIComponent(presentationMatch[1])
-    };
-  }
+    const companionSpikeMatch = normalized.match(
+      /^\/companion-spike\/([^/]+)$/,
+    );
+    if (companionSpikeMatch) {
+      return {
+        name: "companion-spike",
+        spikeId: decodeURIComponent(companionSpikeMatch[1]),
+      };
+    }
 
-  const projectRequestMatch = normalized.match(/^\/project\/([^/]+)\/request$/);
-  if (projectRequestMatch) {
-    return { name: "project-request", projectId: decodeURIComponent(projectRequestMatch[1]) };
-  }
+    const audienceActivityMatch = normalized.match(/^\/audience\/([^/]+)\/a\/([^/]+)$/);
+    if (audienceActivityMatch) {
+      return {
+        name: "audience-activity",
+        sessionId: decodeURIComponent(audienceActivityMatch[1]),
+        activityId: decodeURIComponent(audienceActivityMatch[2]),
+      };
+    }
 
-  const projectBriefMatch = normalized.match(/^\/project\/([^/]+)\/brief$/);
-  if (projectBriefMatch) {
-    return { name: "project-brief", projectId: decodeURIComponent(projectBriefMatch[1]) };
-  }
+    const audienceSessionMatch = normalized.match(/^\/audience\/([^/]+)$/);
+    if (audienceSessionMatch) {
+      return {
+        name: "audience-session",
+        sessionId: decodeURIComponent(audienceSessionMatch[1]),
+      };
+    }
 
-  const projectHistoryMatch = normalized.match(/^\/project\/([^/]+)\/history$/);
-  if (projectHistoryMatch) {
-    return { name: "project-history", projectId: decodeURIComponent(projectHistoryMatch[1]) };
-  }
+    const presentationReportMatch = normalized.match(
+      /^\/presentation\/([^/]+)\/report\/([^/]+)$/,
+    );
+    if (presentationReportMatch) {
+      return {
+        name: "presentation-report",
+        projectId: decodeURIComponent(presentationReportMatch[1]),
+        sessionId: decodeURIComponent(presentationReportMatch[2]),
+        runId: new URLSearchParams(currentSearch).get("runId") ?? undefined,
+      };
+    }
 
-  const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
-  if (projectMatch) {
-    return { name: "project-editor", projectId: decodeURIComponent(projectMatch[1]) };
-  }
+    const presentationMatch = normalized.match(/^\/presentation\/([^/]+)$/);
+    if (presentationMatch) {
+      return {
+        name: "presentation",
+        projectId: decodeURIComponent(presentationMatch[1]),
+      };
+    }
 
-  const rehearsalReportMatch = normalized.match(/^\/rehearsal\/([^/]+)\/report\/([^/]+)$/);
-  if (rehearsalReportMatch) {
-    return {
-      name: "rehearsal-report",
-      projectId: decodeURIComponent(rehearsalReportMatch[1]),
-      runId: decodeURIComponent(rehearsalReportMatch[2])
-    };
-  }
+    const projectRequestMatch = normalized.match(
+      /^\/project\/([^/]+)\/request$/,
+    );
+    if (projectRequestMatch) {
+      return {
+        name: "project-request",
+        projectId: decodeURIComponent(projectRequestMatch[1]),
+      };
+    }
 
-  const practicePlanMatch = normalized.match(/^\/rehearsal\/([^/]+)\/plan\/([^/]+)$/);
-  if (practicePlanMatch) {
-    return {
-      name: "practice-plan",
-      projectId: decodeURIComponent(practicePlanMatch[1]),
-      sourceFullRunId: decodeURIComponent(practicePlanMatch[2])
-    };
-  }
+    const projectBriefMatch = normalized.match(/^\/project\/([^/]+)\/brief$/);
+    if (projectBriefMatch) {
+      return {
+        name: "project-brief",
+        projectId: decodeURIComponent(projectBriefMatch[1]),
+      };
+    }
 
-  const focusedPracticeMatch = normalized.match(/^\/rehearsal\/([^/]+)\/focus\/([^/]+)$/);
-  if (focusedPracticeMatch) {
-    const searchParams = new URLSearchParams(currentSearch);
-    return {
-      name: "focused-practice",
-      projectId: decodeURIComponent(focusedPracticeMatch[1]),
-      goalId: decodeURIComponent(focusedPracticeMatch[2]),
-      sourceFullRunId: searchParams.get("sourceFullRunId") ?? ""
-    };
-  }
+    const projectHistoryMatch = normalized.match(
+      /^\/project\/([^/]+)\/history$/,
+    );
+    if (projectHistoryMatch) {
+      return {
+        name: "project-history",
+        projectId: decodeURIComponent(projectHistoryMatch[1]),
+      };
+    }
 
-  const challengeQnaMatch = normalized.match(/^\/rehearsal\/([^/]+)\/challenge\/([^/]+)$/);
-  if (challengeQnaMatch) {
-    return {
-      name: "challenge-qna",
-      projectId: decodeURIComponent(challengeQnaMatch[1]),
-      sourceFullRunId: decodeURIComponent(challengeQnaMatch[2])
-    };
-  }
+    const activityResultsMatch = normalized.match(
+      /^\/project\/([^/]+)\/presentation-sessions\/([^/]+)\/results$/,
+    );
+    if (activityResultsMatch) {
+      return {
+        name: "activity-results",
+        projectId: decodeURIComponent(activityResultsMatch[1]),
+        sessionId: decodeURIComponent(activityResultsMatch[2]),
+      };
+    }
 
-  const rehearsalMatch = normalized.match(/^\/rehearsal\/([^/]+)$/);
-  if (rehearsalMatch) {
-    const searchParams = new URLSearchParams(currentSearch);
-    return {
-      name: "rehearsal",
-      presenterInitialSlideIndex: parseRouteNonNegativeInteger(searchParams.get("slideIndex")),
-      presenterInitialStepIndex: parseRouteNonNegativeInteger(searchParams.get("stepIndex")),
-      presenterSessionId: searchParams.get("presenterSessionId") ?? undefined,
-      presenterWindow: searchParams.get("presenterWindow") === "1",
-      snapshotPreparationId: searchParams.get("snapshotPreparationId") ?? undefined,
-      sourceFullRunId: searchParams.get("sourceFullRunId") ?? undefined,
-      sourceGoalSetId: searchParams.get("sourceGoalSetId") ?? undefined,
-      projectId: decodeURIComponent(rehearsalMatch[1])
-    };
-  }
+    const activityPreviewMatch = normalized.match(
+      /^\/project\/([^/]+)\/activity-preview\/([^/]+)$/,
+    );
+    if (activityPreviewMatch) {
+      return {
+        name: "activity-preview",
+        projectId: decodeURIComponent(activityPreviewMatch[1]),
+        activityId: decodeURIComponent(activityPreviewMatch[2]),
+      };
+    }
 
-  const presentMatch = normalized.match(/^\/present\/([^/]+)$/);
-  if (presentMatch) {
-    const searchParams = new URLSearchParams(currentSearch);
-    const sessionId = searchParams.get("sessionId") ?? undefined;
-    return {
-      name: "present",
-      deckId: decodeURIComponent(presentMatch[1]),
-      sessionId
-    };
-  }
+    const storyStyleColorMatch = normalized.match(
+      /^\/project\/([^/]+)\/style-color\/([^/]+)$/,
+    );
+    if (storyStyleColorMatch) {
+      return {
+        name: "story-style-color",
+        projectId: decodeURIComponent(storyStyleColorMatch[1]),
+        jobId: decodeURIComponent(storyStyleColorMatch[2]),
+      };
+    }
 
-  if (normalized === "/") {
-    const searchParams = new URLSearchParams(currentSearch);
-    const templateStyleId = getHomeTemplateStyleId(searchParams.get("templateStyle"));
-    return templateStyleId ? { name: "home", templateStyleId } : { name: "home" };
-  }
-  return { name: "not-found" };
+    const aiDeckGenerationMatch = normalized.match(
+      /^\/project\/([^/]+)\/generation\/([^/]+)$/,
+    );
+    if (aiDeckGenerationMatch) {
+      return {
+        name: "ai-deck-generation",
+        projectId: decodeURIComponent(aiDeckGenerationMatch[1]),
+        jobId: decodeURIComponent(aiDeckGenerationMatch[2]),
+      };
+    }
+
+    const projectMatch = normalized.match(/^\/project\/([^/]+)$/);
+    if (projectMatch) {
+      return {
+        name: "project-editor",
+        projectId: decodeURIComponent(projectMatch[1]),
+      };
+    }
+
+    const rehearsalReportMatch = normalized.match(
+      /^\/rehearsal\/([^/]+)\/report\/([^/]+)$/,
+    );
+    if (rehearsalReportMatch) {
+      return {
+        name: "rehearsal-report",
+        projectId: decodeURIComponent(rehearsalReportMatch[1]),
+        runId: decodeURIComponent(rehearsalReportMatch[2]),
+      };
+    }
+
+    const practicePlanMatch = normalized.match(
+      /^\/rehearsal\/([^/]+)\/plan\/([^/]+)$/,
+    );
+    if (practicePlanMatch) {
+      return {
+        name: "practice-plan",
+        projectId: decodeURIComponent(practicePlanMatch[1]),
+        sourceFullRunId: decodeURIComponent(practicePlanMatch[2]),
+      };
+    }
+
+    const focusedPracticeMatch = normalized.match(
+      /^\/rehearsal\/([^/]+)\/focus\/([^/]+)$/,
+    );
+    if (focusedPracticeMatch) {
+      const searchParams = new URLSearchParams(currentSearch);
+      return {
+        name: "focused-practice",
+        projectId: decodeURIComponent(focusedPracticeMatch[1]),
+        goalId: decodeURIComponent(focusedPracticeMatch[2]),
+        sourceFullRunId: searchParams.get("sourceFullRunId") ?? "",
+      };
+    }
+
+    const challengeQnaMatch = normalized.match(
+      /^\/rehearsal\/([^/]+)\/challenge\/([^/]+)$/,
+    );
+    if (challengeQnaMatch) {
+      return {
+        name: "challenge-qna",
+        projectId: decodeURIComponent(challengeQnaMatch[1]),
+        sourceFullRunId: decodeURIComponent(challengeQnaMatch[2]),
+      };
+    }
+
+    const rehearsalMatch = normalized.match(/^\/rehearsal\/([^/]+)$/);
+    if (rehearsalMatch) {
+      const searchParams = new URLSearchParams(currentSearch);
+      return {
+        name: "rehearsal",
+        presenterInitialSlideIndex: parseRouteNonNegativeInteger(
+          searchParams.get("slideIndex"),
+        ),
+        presenterInitialStepIndex: parseRouteNonNegativeInteger(
+          searchParams.get("stepIndex"),
+        ),
+        presenterSessionId: searchParams.get("presenterSessionId") ?? undefined,
+        presenterWindow: searchParams.get("presenterWindow") === "1",
+        snapshotPreparationId:
+          searchParams.get("snapshotPreparationId") ?? undefined,
+        sourceFullRunId: searchParams.get("sourceFullRunId") ?? undefined,
+        sourceGoalSetId: searchParams.get("sourceGoalSetId") ?? undefined,
+        preflightMode:
+          searchParams.get("preflight") === "complete"
+            ? "microphone"
+            : searchParams.get("preflight") === "without-voice"
+              ? "without-voice"
+              : undefined,
+        projectId: decodeURIComponent(rehearsalMatch[1]),
+      };
+    }
+
+    const presentMatch = normalized.match(/^\/present\/([^/]+)$/);
+    if (presentMatch) {
+      const searchParams = new URLSearchParams(currentSearch);
+      const sessionId = searchParams.get("sessionId") ?? undefined;
+      return {
+        name: "present",
+        deckId: decodeURIComponent(presentMatch[1]),
+        sessionId,
+      };
+    }
+
+    if (normalized === "/") {
+      return { name: "home" };
+    }
+    return { name: "not-found" };
   } catch {
     return { name: "not-found" };
   }
 }
 
-function navigateTo(path: string) {
+function navigateImmediately(path: string) {
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function replaceImmediately(path: string) {
+  window.history.replaceState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function navigateTo(path: string) {
+  if (isRehearsalEntryPath(path) && !new URL(path, window.location.origin).searchParams.has("preflight")) {
+    window.dispatchEvent(new CustomEvent(rehearsalNavigationRequestEvent, { detail: path }));
+    return;
+  }
+  navigateImmediately(path);
+}
+
 export function App() {
+  return (
+    <PptxImportProvider>
+      <AppContent />
+    </PptxImportProvider>
+  );
+}
+
+function AppContent() {
   const [route, setRoute] = useState(() => getRoute());
+  const [pendingRehearsalPath, setPendingRehearsalPath] = useState<string | null>(null);
 
   useEffect(() => {
     const handleRouteChange = () => setRoute(getRoute());
@@ -636,25 +706,91 @@ export function App() {
     return () => window.removeEventListener("popstate", handleRouteChange);
   }, []);
 
+  useEffect(() => {
+    const requestRehearsal = (event: Event) => {
+      setPendingRehearsalPath((event as CustomEvent<string>).detail);
+    };
+    const interceptRehearsalLink = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>("a[href]");
+      if (!anchor || !isRehearsalEntryPath(anchor.href)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingRehearsalPath(anchor.href);
+    };
+    window.addEventListener(rehearsalNavigationRequestEvent, requestRehearsal);
+    document.addEventListener("click", interceptRehearsalLink, true);
+    return () => {
+      window.removeEventListener(rehearsalNavigationRequestEvent, requestRehearsal);
+      document.removeEventListener("click", interceptRehearsalLink, true);
+    };
+  }, []);
+
+  const withRehearsalModal = (content: ReactNode) => (
+    <>
+      {content}
+      {pendingRehearsalPath ? (
+        <RehearsalMicCheckModal
+          onClose={() => setPendingRehearsalPath(null)}
+          onStart={() => {
+            const target = new URL(pendingRehearsalPath, window.location.origin);
+            target.searchParams.set("preflight", "complete");
+            setPendingRehearsalPath(null);
+            navigateImmediately(`${target.pathname}${target.search}${target.hash}`);
+          }}
+          onStartWithoutMicrophone={() => {
+            const target = new URL(pendingRehearsalPath, window.location.origin);
+            target.searchParams.set("preflight", "without-voice");
+            setPendingRehearsalPath(null);
+            navigateImmediately(`${target.pathname}${target.search}${target.hash}`);
+          }}
+        />
+      ) : null}
+    </>
+  );
+
   const auth = useQuery({
     queryKey: authMeQueryKey,
     queryFn: () => fetchCurrentUser(),
-    retry: false
+    retry: false,
   });
 
+  useEffect(() => {
+    if (!auth.isPending && route.name === "profile" && !auth.data) {
+      navigateTo("/login");
+    }
+  }, [auth.data, auth.isPending, route.name]);
+
+  useEffect(() => {
+    if (
+      !auth.isPending &&
+      auth.data &&
+      (route.name === "login" || route.name === "signup")
+    ) {
+      replaceImmediately("/");
+    }
+  }, [auth.data, auth.isPending, route.name]);
+
   if (auth.isPending && shouldWaitForAuthResolution(route)) {
-    return <AuthLoadingFallback />;
+    return withRehearsalModal(<AuthLoadingFallback />);
+  }
+
+  if (
+    auth.data &&
+    (route.name === "login" || route.name === "signup")
+  ) {
+    return withRehearsalModal(<AuthLoadingFallback />);
   }
 
   if (route.name === "home" && !auth.data) {
-    return <OrbitPublicLandingPage onNavigate={navigateTo} />;
+    return withRehearsalModal(<LandingPage onNavigate={navigateTo} />);
   }
 
   if (!shouldRenderAppFrame(route)) {
-    return renderRoute(route, auth.data ?? undefined);
+    return withRehearsalModal(renderRoute(route, auth.data ?? undefined));
   }
 
-  return (
+  return withRehearsalModal(
     <AppFrame
       isAuthenticated={Boolean(auth.data)}
       route={route}
@@ -667,15 +803,17 @@ export function App() {
 
 export function shouldWaitForAuthResolution(route: Route) {
   return ![
-    "login",
-    "signup",
     "design-system",
     "mockup",
     "report-mockup",
     "audience-session",
+    "audience-activity",
+    "companion-spike",
+    "companion-spike-audience",
+    "companion-spike-capture",
     "present",
     "deck-render",
-    "not-found"
+    "not-found",
   ].includes(route.name);
 }
 
@@ -686,29 +824,67 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "design-system" &&
     route.name !== "mockup" &&
     route.name !== "project-editor" &&
+    route.name !== "activity-preview" &&
     route.name !== "presentation" &&
     route.name !== "present" &&
     route.name !== "rehearsal" &&
     route.name !== "report-mockup" &&
     route.name !== "audience-session" &&
+    route.name !== "audience-activity" &&
+    route.name !== "companion-spike" &&
+    route.name !== "companion-spike-audience" &&
+    route.name !== "companion-spike-capture" &&
     route.name !== "deck-render"
   );
 }
 
 function renderRoute(route: Route, user?: AuthUser) {
-  if (route.name === "design-system") return <OrbitDesignSystemPage />;
+  if (route.name === "design-system") return <RedesignSystemPage />;
   if (route.name === "mockup") {
     return <OrbitMockupFlow onNavigate={navigateTo} screen={route.screen} />;
   }
   if (route.name === "login") {
-    return <OrbitAuthPage isAuthenticated={Boolean(user)} mode="login" onNavigate={navigateTo} />;
+    return (
+      <OrbitAuthPage
+        isAuthenticated={Boolean(user)}
+        mode="login"
+        onNavigate={navigateTo}
+      />
+    );
   }
   if (route.name === "signup") {
-    return <OrbitAuthPage isAuthenticated={Boolean(user)} mode="register" onNavigate={navigateTo} />;
+    return (
+      <OrbitAuthPage
+        isAuthenticated={Boolean(user)}
+        mode="register"
+        onNavigate={navigateTo}
+      />
+    );
+  }
+  if (route.name === "profile") {
+    return user ? (
+      <ProfilePage onNavigate={navigateTo} user={user} />
+    ) : (
+      <AuthLoadingFallback />
+    );
+  }
+  if (route.name === "community") {
+    return <CommunityGalleryPage onNavigate={navigateTo} />;
+  }
+  if (route.name === "community-detail") {
+    return (
+      <CommunityTemplateDetailPage
+        onNavigate={navigateTo}
+        templateId={route.templateId}
+      />
+    );
   }
   if (route.name === "create-deck") return <AiPptWizardPage />;
   if (route.name === "project-list") {
-    return <OrbitProjectExplorer intent={route.intent} onNavigate={navigateTo} />;
+    return <ProjectExplorerPage onNavigate={navigateTo} />;
+  }
+  if (route.name === "rehearsal-project-list") {
+    return <RehearsalProjectPickerPage onNavigate={navigateTo} />;
   }
   if (route.name === "project-editor") {
     return (
@@ -716,6 +892,16 @@ function renderRoute(route: Route, user?: AuthUser) {
         <Suspense fallback={<EditorLoadingFallback />}>
           <EditorShell projectId={route.projectId} />
         </Suspense>
+      </ProjectAccessGate>
+    );
+  }
+  if (route.name === "activity-preview") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <ActivityAudiencePreviewPage
+          activityId={route.activityId}
+          projectId={route.projectId}
+        />
       </ProjectAccessGate>
     );
   }
@@ -733,16 +919,81 @@ function renderRoute(route: Route, user?: AuthUser) {
       </ProjectAccessGate>
     );
   }
-  if (route.name === "project-request") return <ProjectAccessRequestPage projectId={route.projectId} />;
+  if (route.name === "activity-results") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <ActivityResultsPage
+          projectId={route.projectId}
+          sessionId={route.sessionId}
+        />
+      </ProjectAccessGate>
+    );
+  }
+  if (route.name === "story-style-color") {
+    return (
+      <AiPptStyleColorPage
+        jobId={route.jobId}
+        projectId={route.projectId}
+      />
+    );
+  }
+  if (route.name === "ai-deck-generation") {
+    return (
+      <AiDeckGenerationPage
+        jobId={route.jobId}
+        projectId={route.projectId}
+      />
+    );
+  }
+  if (route.name === "project-request")
+    return <ProjectAccessRequestPage projectId={route.projectId} />;
   if (route.name === "audience-session") {
     return <AudienceSessionPage sessionId={route.sessionId} />;
   }
+  if (route.name === "audience-activity") {
+    return (
+      <AudienceSessionPage
+        activityId={route.activityId}
+        sessionId={route.sessionId}
+      />
+    );
+  }
+  if (route.name === "companion-spike") {
+    return <CompanionSpikePage spikeId={route.spikeId} />;
+  }
+  if (route.name === "companion-spike-audience") {
+    return <CompanionSpikeAudiencePage spikeId={route.spikeId} />;
+  }
+  if (route.name === "companion-spike-capture") {
+    return <CompanionSpikeCapturePage spikeId={route.spikeId} />;
+  }
   if (route.name === "presentation") {
     return (
-      <PresentationWorkspace
-        fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
-        projectId={route.projectId}
-      />
+      <>
+        <PresentationWorkspace
+          fallbackDeck={
+            route.projectId === demoIds.projectId ? demoDeck : undefined
+          }
+          projectId={route.projectId}
+        />
+        {isCompanionSpikeEnabled() ? (
+          <CompanionSpikeHostPanel
+            hostKind="presentation"
+            projectId={route.projectId}
+          />
+        ) : null}
+      </>
+    );
+  }
+  if (route.name === "presentation-report") {
+    return (
+      <ProjectAccessGate projectId={route.projectId}>
+        <PresentationReportPage
+          projectId={route.projectId}
+          runId={route.runId}
+          sessionId={route.sessionId}
+        />
+      </ProjectAccessGate>
     );
   }
   if (route.name === "present") {
@@ -750,17 +1001,28 @@ function renderRoute(route: Route, user?: AuthUser) {
   }
   if (route.name === "rehearsal") {
     return (
-      <RehearsalWorkspace
-        projectId={route.projectId}
-        presenterInitialSlideIndex={route.presenterInitialSlideIndex}
-        presenterInitialStepIndex={route.presenterInitialStepIndex}
-        presenterSessionId={route.presenterSessionId}
-        presenterWindow={route.presenterWindow}
-        snapshotPreparationId={route.snapshotPreparationId}
-        sourceFullRunId={route.sourceFullRunId}
-        sourceGoalSetId={route.sourceGoalSetId}
-        fallbackDeck={route.projectId === demoIds.projectId ? demoDeck : undefined}
-      />
+      <>
+        <RehearsalWorkspace
+          projectId={route.projectId}
+          presenterInitialSlideIndex={route.presenterInitialSlideIndex}
+          presenterInitialStepIndex={route.presenterInitialStepIndex}
+          presenterSessionId={route.presenterSessionId}
+          presenterWindow={route.presenterWindow}
+          snapshotPreparationId={route.snapshotPreparationId}
+          sourceFullRunId={route.sourceFullRunId}
+          sourceGoalSetId={route.sourceGoalSetId}
+          preflightMode={route.preflightMode}
+          fallbackDeck={
+            route.projectId === demoIds.projectId ? demoDeck : undefined
+          }
+        />
+        {isCompanionSpikeEnabled() ? (
+          <CompanionSpikeHostPanel
+            hostKind="rehearsal"
+            projectId={route.projectId}
+          />
+        ) : null}
+      </>
     );
   }
   if (route.name === "rehearsal-report") {
@@ -773,7 +1035,12 @@ function renderRoute(route: Route, user?: AuthUser) {
     );
   }
   if (route.name === "practice-plan") {
-    return <PracticePlanPage projectId={route.projectId} sourceFullRunId={route.sourceFullRunId} />;
+    return (
+      <PracticePlanPage
+        projectId={route.projectId}
+        sourceFullRunId={route.sourceFullRunId}
+      />
+    );
   }
   if (route.name === "focused-practice") {
     return (
@@ -785,7 +1052,12 @@ function renderRoute(route: Route, user?: AuthUser) {
     );
   }
   if (route.name === "challenge-qna") {
-    return <ChallengeQnaPage projectId={route.projectId} sourceFullRunId={route.sourceFullRunId} />;
+    return (
+      <ChallengeQnaPage
+        projectId={route.projectId}
+        sourceFullRunId={route.sourceFullRunId}
+      />
+    );
   }
   if (route.name === "report-project-overview") {
     return (
@@ -796,7 +1068,8 @@ function renderRoute(route: Route, user?: AuthUser) {
     );
   }
   if (route.name === "report-list") {
-    const projectId = new URLSearchParams(window.location.search).get("project") ?? undefined;
+    const projectId =
+      new URLSearchParams(window.location.search).get("project") ?? undefined;
     return <RehearsalReportListPage projectId={projectId} />;
   }
   if (route.name === "report-mockup") {
@@ -816,17 +1089,29 @@ function renderRoute(route: Route, user?: AuthUser) {
   if (route.name === "not-found") {
     return (
       <OrbitEmptyState
-        action={<><OrbitButton onClick={() => navigateTo("/")}>홈으로</OrbitButton><OrbitButton onClick={() => navigateTo("/project")} variant="secondary">프로젝트 보기</OrbitButton></>}
+        action={
+          <>
+            <OrbitButton onClick={() => navigateTo("/")}>홈으로</OrbitButton>
+            <OrbitButton
+              onClick={() => navigateTo("/project")}
+              variant="secondary"
+            >
+              프로젝트 보기
+            </OrbitButton>
+          </>
+        }
         description="주소가 바뀌었거나 존재하지 않는 페이지입니다."
         title="페이지를 찾을 수 없습니다."
       />
     );
   }
   if (route.name === "home") {
-    if (route.templateStyleId) {
-      return <HomePage user={user} templateStyleId={route.templateStyleId} />;
-    }
-    return <OrbitWorkspaceHome onNavigate={navigateTo} userName={user?.displayName} />;
+    return (
+      <OrbitWorkspaceHome
+        onNavigate={navigateTo}
+        userName={user?.displayName}
+      />
+    );
   }
   return null;
 }
@@ -862,12 +1147,16 @@ export function isDeckRenderRouteEnabled() {
 export function DeckRenderPage() {
   const payload = readDeckRenderPayload();
   if (!payload) {
-    return <div data-testid="deck-render-error">Deck render payload missing.</div>;
+    return (
+      <div data-testid="deck-render-error">Deck render payload missing.</div>
+    );
   }
 
   const slide = payload.deck.slides[payload.slideIndex];
   if (!slide) {
-    return <div data-testid="deck-render-error">Deck render slide missing.</div>;
+    return (
+      <div data-testid="deck-render-error">Deck render slide missing.</div>
+    );
   }
 
   return (
@@ -894,7 +1183,8 @@ function readDeckRenderPayload(): { deck: Deck; slideIndex: number } | null {
     const parsed = JSON.parse(raw) as { deck?: unknown; slideIndex?: unknown };
     const deck = deckSchema.parse(parsed.deck);
     const slideIndex =
-      typeof parsed.slideIndex === "number" && Number.isInteger(parsed.slideIndex)
+      typeof parsed.slideIndex === "number" &&
+      Number.isInteger(parsed.slideIndex)
         ? parsed.slideIndex
         : 0;
     return { deck, slideIndex };
@@ -912,9 +1202,16 @@ function AppFrame(props: {
   const { children, isAuthenticated, route, user } = props;
   const queryClient = useQueryClient();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const pageRef = useRef<HTMLElement>(null);
   const isHomeDashboard = route.name === "home";
+  const routeScrollKey = JSON.stringify(route);
   const userLabel = user ? getUserLabel(user) : "로그인";
   const userInitial = user ? getUserInitial(user) : "U";
+
+  useEffect(() => {
+    pageRef.current?.scrollTo({ left: 0, top: 0 });
+    window.scrollTo({ left: 0, top: 0 });
+  }, [routeScrollKey]);
 
   async function handleLogout() {
     if (isLoggingOut) return;
@@ -923,7 +1220,7 @@ function AppFrame(props: {
     try {
       const response = await fetch("/api/v1/auth/logout", {
         credentials: "include",
-        method: "POST"
+        method: "POST",
       });
       if (!response.ok) {
         throw new Error("로그아웃하지 못했습니다.");
@@ -943,31 +1240,37 @@ function AppFrame(props: {
     >
       <OrbitAppHeader
         activeItem={getAppNavigationItem(route)}
+        avatar={user?.avatar}
         isAuthenticated={isAuthenticated}
         isLoggingOut={isLoggingOut}
+        onAvatarUpdated={(nextUser) =>
+          queryClient.setQueryData<AuthUser | null>(authMeQueryKey, nextUser)
+        }
         onLogout={() => void handleLogout()}
         onNavigate={navigateTo}
         userInitial={userInitial}
         userLabel={userLabel}
       />
-      <main className="orbit-page">{children}</main>
+      <main ref={pageRef} className="orbit-page">
+        {children}
+      </main>
     </div>
   );
 }
 
-export function getAppNavigationItem(
-  route: Route,
-  currentSearch = typeof window === "undefined" ? "" : window.location.search
-): OrbitAppNavigationItem {
+export function getAppNavigationItem(route: Route): OrbitAppNavigationItem {
   if (route.name === "home") return "home";
-  if (route.name === "report-list" || route.name === "report-project-overview") {
+  if (
+    route.name === "report-list" ||
+    route.name === "report-project-overview" ||
+    route.name === "rehearsal-report" ||
+    route.name === "presentation-report"
+  ) {
     return "reports";
   }
   if (
     route.name === "rehearsal" ||
-    (route.name === "project-list" &&
-      (route.intent === "rehearsal" ||
-        new URLSearchParams(currentSearch).get("intent") === "rehearsal"))
+    route.name === "rehearsal-project-list"
   ) {
     return "rehearsal";
   }
@@ -980,7 +1283,7 @@ function getUserInitial(user: AuthUser) {
 }
 
 function getUserLabel(user: AuthUser) {
-  return user.email?.trim() || user.userId;
+  return user.displayName?.trim() || user.email?.trim() || user.userId;
 }
 
 async function readApiError(response: Response, fallback: string) {
@@ -1000,11 +1303,23 @@ async function readApiError(response: Response, fallback: string) {
 }
 
 function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
+  const queryClient = useQueryClient();
   const access = useQuery({
     queryKey: ["project-access", props.projectId],
     queryFn: () => fetchProjectAccess(props.projectId),
-    retry: false
+    retry: shouldRetryProjectAccess,
   });
+  const isUnauthorized =
+    access.error instanceof ProjectAccessRequestError &&
+    access.error.status === 401;
+  const membership = access.data?.membership ?? null;
+  const acceptedMembership =
+    membership?.status === "accepted" ? membership : null;
+  const hasAcceptedMembership = acceptedMembership !== null;
+  const failureBehavior = getProjectAccessFailureBehavior(
+    access.error,
+    hasAcceptedMembership,
+  );
 
   useEffect(() => {
     const membership = access.data?.membership;
@@ -1013,8 +1328,16 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
     }
   }, [access.data?.membership, access.isSuccess, props.projectId]);
 
+  useEffect(() => {
+    if (!isUnauthorized) return;
+
+    markAuthLoggedOut(queryClient);
+    navigateTo("/login");
+  }, [isUnauthorized, queryClient]);
+
   if (access.isLoading) return <EditorLoadingFallback />;
-  if (access.isError) {
+  if (failureBehavior === "login") return <AuthLoadingFallback />;
+  if (access.isError && failureBehavior === "blocking") {
     return (
       <ProjectAccessError
         onRetry={() => void access.refetch()}
@@ -1022,34 +1345,54 @@ function ProjectAccessGate(props: { children: ReactNode; projectId: string }) {
       />
     );
   }
-  if (access.data?.membership?.status !== "accepted") return <EditorLoadingFallback />;
+  if (!hasAcceptedMembership)
+    return <EditorLoadingFallback />;
 
-  return <>{props.children}</>;
+  return (
+    <ProjectAccessProvider membership={acceptedMembership}>
+      {access.isError && failureBehavior === "preserve" ? (
+        <ProjectAccessRecoveryNotice onRetry={() => void access.refetch()} />
+      ) : null}
+      {props.children}
+    </ProjectAccessProvider>
+  );
+}
+
+function ProjectAccessRecoveryNotice(props: { onRetry: () => void }) {
+  return (
+    <aside className="orbit-project-access-recovery" role="status">
+      <span>권한 정보를 다시 확인하지 못했지만 작업 화면은 유지하고 있습니다.</span>
+      <OrbitButton onClick={props.onRetry} size="compact" variant="secondary">
+        다시 확인
+      </OrbitButton>
+    </aside>
+  );
 }
 
 function ProjectAccessError(props: { onRetry: () => void; projectId: string }) {
   return (
     <ProjectAccessLayout projectId={props.projectId}>
-      <article className="orbit-access-message">
-        <span className="orbit-ds-eyebrow">PROJECT ACCESS</span>
-        <h1>프로젝트 권한을 확인하지 못했습니다.</h1>
-        <p>잠시 후 다시 시도하거나 프로젝트 소유자에게 권한 상태를 확인해 주세요.</p>
-        <OrbitButton type="button" onClick={props.onRetry}>다시 확인</OrbitButton>
-        <a href="/project">프로젝트 목록으로</a>
-      </article>
+      <OrbitFailureState
+        description="프로젝트 권한 정보를 서버에서 확인하지 못했습니다."
+        onRetry={props.onRetry}
+        recommendedAction="인터넷 연결을 확인한 뒤 다시 확인하세요. 계속 실패하면 프로젝트 소유자에게 내 권한 상태를 문의하세요."
+        retryLabel="다시 확인"
+        title="프로젝트 권한을 확인하지 못했습니다."
+      />
     </ProjectAccessLayout>
   );
 }
 
 function ProjectAccessRequestPage(props: { projectId: string }) {
   const queryClient = useQueryClient();
-  const [role, setRole] = useState<Exclude<ProjectMemberRole, "owner">>("editor");
+  const [role, setRole] =
+    useState<Exclude<ProjectMemberRole, "owner">>("editor");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const access = useQuery({
     queryKey: ["project-access", props.projectId],
     queryFn: () => fetchProjectAccess(props.projectId),
-    retry: false
+    retry: false,
   });
 
   const membership = access.data?.membership;
@@ -1071,7 +1414,9 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
       queryClient.setQueryData(["project-access", props.projectId], response);
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "프로젝트 권한 요청에 실패했습니다."
+        cause instanceof Error
+          ? cause.message
+          : "프로젝트 권한 요청에 실패했습니다.",
       );
     } finally {
       setIsSubmitting(false);
@@ -1083,16 +1428,25 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
   if (access.isError) {
     return (
       <ProjectAccessLayout projectId={props.projectId}>
-        <div className="orbit-access-message"><p className="orbit-ds-eyebrow">ACCESS CHECK</p><h1>권한 상태를 확인하지 못했습니다.</h1><p>연결을 확인한 뒤 다시 시도해 주세요.</p><OrbitButton onClick={() => void access.refetch()}>다시 확인</OrbitButton><a href="/project">프로젝트 목록으로</a></div>
+        <OrbitFailureState
+          description="현재 프로젝트의 접근 상태를 확인하는 중 문제가 발생했습니다."
+          onRetry={() => void access.refetch()}
+          recommendedAction="인터넷 연결을 확인한 뒤 다시 확인하세요. 같은 문제가 계속되면 프로젝트 목록으로 돌아가 다시 열어보세요."
+          retryLabel="다시 확인"
+          title="권한 상태를 확인하지 못했습니다."
+        />
       </ProjectAccessLayout>
     );
   }
 
   if (membership?.status === "pending") {
     return (
-      <ProjectAccessLayout project={access.data?.project} projectId={props.projectId}>
+      <ProjectAccessLayout
+        project={access.data?.project}
+        projectId={props.projectId}
+      >
         <article className="orbit-access-message">
-          <span className="orbit-ds-eyebrow">APPROVAL PENDING</span>
+          <span className="redesign-eyebrow">APPROVAL PENDING</span>
           <h1>승인을 기다리고 있어요.</h1>
           <p>
             프로젝트 소유자가 요청을 확인하고 있습니다. 승인되면 이 프로젝트에
@@ -1108,23 +1462,45 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
               <dd>대기 중</dd>
             </div>
           </dl>
-          <OrbitButton onClick={() => void access.refetch()} variant="secondary">승인 상태 다시 확인</OrbitButton>
-          <button className="orbit-access-back" onClick={() => navigateTo("/project")} type="button">프로젝트 목록으로</button>
+          <OrbitButton
+            onClick={() => void access.refetch()}
+            variant="secondary"
+          >
+            승인 상태 다시 확인
+          </OrbitButton>
+          <button
+            className="orbit-access-back"
+            onClick={() => navigateTo("/project")}
+            type="button"
+          >
+            프로젝트 목록으로
+          </button>
         </article>
       </ProjectAccessLayout>
     );
   }
 
   return (
-    <ProjectAccessLayout project={access.data?.project} projectId={props.projectId}>
+    <ProjectAccessLayout
+      project={access.data?.project}
+      projectId={props.projectId}
+    >
       <form className="orbit-access-message" onSubmit={handleSubmit}>
-        <span className="orbit-ds-eyebrow">ACCESS REQUIRED</span>
-        <h1>이 프로젝트에 참여하려면<br />승인이 필요해요.</h1>
+        <span className="redesign-eyebrow">ACCESS REQUIRED</span>
+        <h1>
+          이 프로젝트에 참여하려면
+          <br />
+          승인이 필요해요.
+        </h1>
         <p>
           이 프로젝트는 승인된 사용자만 열 수 있습니다. 필요한 권한을 선택해서
           프로젝트 소유자에게 요청하세요.
         </p>
-        <div className="project-request-options" role="radiogroup" aria-label="요청 권한">
+        <div
+          className="project-request-options"
+          role="radiogroup"
+          aria-label="요청 권한"
+        >
           <label className={role === "editor" ? "active" : ""}>
             <input
               checked={role === "editor"}
@@ -1148,11 +1524,21 @@ function ProjectAccessRequestPage(props: { projectId: string }) {
             <span>프로젝트 내용을 읽고 확인할 수 있습니다.</span>
           </label>
         </div>
-        {error ? <p className="orbit-access-error" role="alert">{error}</p> : null}
+        {error ? (
+          <p className="orbit-access-error" role="alert">
+            {error}
+          </p>
+        ) : null}
         <OrbitButton disabled={isSubmitting} type="submit">
           {isSubmitting ? "요청 중..." : "권한 요청하기"}
         </OrbitButton>
-        <button className="orbit-access-back" onClick={() => navigateTo("/project")} type="button">프로젝트 목록으로</button>
+        <button
+          className="orbit-access-back"
+          onClick={() => navigateTo("/project")}
+          type="button"
+        >
+          프로젝트 목록으로
+        </button>
       </form>
     </ProjectAccessLayout>
   );
@@ -1166,11 +1552,26 @@ function ProjectAccessLayout(props: {
   return (
     <section className="orbit-project-access">
       <aside className="orbit-access-context">
-        <div className="orbit-access-icon"><IconFileText aria-hidden="true" size={26} /></div>
-        <p className="orbit-ds-eyebrow">PRIVATE PROJECT</p>
+        <div className="orbit-access-icon">
+          <IconFileText aria-hidden="true" size={26} />
+        </div>
+        <p className="redesign-eyebrow">PRIVATE PROJECT</p>
         <h2>{props.project?.title ?? "비공개 프로젝트"}</h2>
         <p>승인된 구성원만 발표자료를 열고 함께 작업할 수 있습니다.</p>
-        <dl><div><dt>프로젝트 ID</dt><dd>{props.project?.projectId ?? props.projectId}</dd></div><div><dt>생성일</dt><dd>{props.project ? new Date(props.project.createdAt).toLocaleDateString("ko-KR") : "확인 중"}</dd></div></dl>
+        <dl>
+          <div>
+            <dt>프로젝트 ID</dt>
+            <dd>{props.project?.projectId ?? props.projectId}</dd>
+          </div>
+          <div>
+            <dt>생성일</dt>
+            <dd>
+              {props.project
+                ? new Date(props.project.createdAt).toLocaleDateString("ko-KR")
+                : "확인 중"}
+            </dd>
+          </div>
+        </dl>
       </aside>
       <div className="orbit-access-card">{props.children}</div>
     </section>
@@ -1182,2329 +1583,14 @@ export function getProjectAccessRoleLabel(role: ProjectMemberRole) {
   return role === "editor" ? "편집 가능" : "보기 전용";
 }
 
-function HomePage(props: { user?: AuthUser; templateStyleId?: HomeTemplateStyleId }) {
-  const queryClient = useQueryClient();
-  const topicInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [topic, setTopic] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [designPrompt, setDesignPrompt] = useState("");
-  const [selectedTemplateStyleId, setSelectedTemplateStyleId] =
-    useState<HomeTemplateStyleId | undefined>(props.templateStyleId);
-  const [templateDensityTarget, setTemplateDensityTarget] =
-    useState<TemplateDensityTargetOption>(templateStyleDefaultOption);
-  const [templateLayoutDiversity, setTemplateLayoutDiversity] =
-    useState<TemplateLayoutDiversityOption>(templateStyleDefaultOption);
-  const [templateMediaPolicy, setTemplateMediaPolicy] =
-    useState<TemplateMediaPolicyOption>(templateStyleDefaultOption);
-  const [tone, setTone] = useState<"professional" | "friendly" | "confident" | "concise">(
-    "professional"
-  );
-  const [durationInput, setDurationInput] = useState("10");
-  const [minSlidesInput, setMinSlidesInput] = useState("5");
-  const [maxSlidesInput, setMaxSlidesInput] = useState("8");
-  const [uploads, setUploads] = useState<UploadFile[]>([]);
-  const [rejected, setRejected] = useState<RejectedFile[]>([]);
-  const [status, setStatus] = useState("");
-  const [error, setError] = useState("");
-  const [job, setJob] = useState<Job | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
-  const [isCreatingBlankProject, setIsCreatingBlankProject] = useState(false);
-  const [isReferenceDragging, setIsReferenceDragging] = useState(false);
-  const totalSize = useMemo(
-    () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
-    [uploads]
-  );
-  const validationMessage = getHomeGenerationValidationMessage(
-    topic,
-    uploads,
-    durationInput,
-    minSlidesInput,
-    maxSlidesInput,
-    !selectedTemplateStyleId
-  );
-
-  useEffect(() => {
-    setSelectedTemplateStyleId(props.templateStyleId);
-    if (props.templateStyleId) {
-      setUploads((current) => normalizeTemplateReferenceUploads(current));
-      clearHomeGenerationFeedback();
-    }
-  }, [props.templateStyleId]);
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    void runHomeDeckGeneration();
-  }
-
-  async function handleCreateBlankProject() {
-    if (isImporting || isCreatingBlankProject) return;
-
-    setIsCreatingBlankProject(true);
-    clearHomeGenerationFeedback();
-
-    try {
-      const project = await createProject("새 프레젠테이션");
-      await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      navigateTo(`/project/${project.projectId}`);
-    } catch (createError) {
-      setError(
-        createError instanceof Error
-          ? createError.message
-          : "빈 프레젠테이션을 만들지 못했습니다."
-      );
-    } finally {
-      setIsCreatingBlankProject(false);
-    }
-  }
-
-  async function runHomeDeckGeneration() {
-    if (isImporting) return;
-
-    if (validationMessage) {
-      setError(validationMessage);
-      return;
-    }
-
-    setIsImporting(true);
-    setError("");
-    setJob(null);
-    setStatus("프로젝트 생성 중...");
-
-    try {
-      const project = await createProject(getGeneratedDeckProjectTitle(topic));
-      const uploadedAssets = new Map<string, string>();
-      const allowDesignReferences = !selectedTemplateStyleId;
-
-      for (const upload of uploads) {
-        setStatus(`${upload.file.name} 업로드 중...`);
-        const uploaded = await uploadProjectAsset(
-          project.projectId,
-          upload.file,
-          getHomeUploadPurpose(upload, allowDesignReferences)
-        );
-        uploadedAssets.set(upload.id, uploaded.fileId);
-      }
-
-      const duration = parseHomeIntegerInput(durationInput) ?? 10;
-      const minSlides = parseHomeIntegerInput(minSlidesInput) ?? 5;
-      const maxSlides = parseHomeIntegerInput(maxSlidesInput) ?? 8;
-      const hasDesignPptx =
-        allowDesignReferences && hasHomeDesignPptxUpload(uploads);
-      const referenceInput = hasDesignPptx
-        ? buildReferenceGenerationInput([])
-        : await extractHomeReferenceInput(
-            project.projectId,
-            uploads,
-            uploadedAssets,
-            {
-              setJob,
-              setStatus
-            },
-            !allowDesignReferences
-          );
-      const payload = hasDesignPptx
-        ? buildAiTemplateDeckGenerationPayload({
-            topic,
-            prompt,
-            designPrompt,
-            duration,
-            minSlides,
-            maxSlides,
-            tone,
-            uploads,
-            uploadedAssetFileIds: uploadedAssets
-          })
-        : buildHomeJsonFirstGenerateDeckPayload({
-            topic,
-            prompt,
-            designPrompt,
-            templateStyleId: selectedTemplateStyleId,
-            templateStyleDesignOverrides: buildTemplateStyleDesignOverrides({
-              densityTarget: templateDensityTarget,
-              layoutDiversity: templateLayoutDiversity,
-              mediaPolicy: templateMediaPolicy
-            }),
-            duration,
-            minSlides,
-            maxSlides,
-            tone,
-            referenceInput
-          });
-      setStatus("AI 덱 생성 중...");
-      const response = await fetch(
-        getHomeDeckGenerationJobEndpoint(
-          project.projectId,
-          uploads,
-          allowDesignReferences
-        ),
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload)
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(await readApiError(response, "AI 덱 생성을 시작하지 못했습니다."));
-      }
-
-      const data = (await response.json()) as
-        | AiTemplateDeckGenerationResponse
-        | GenerateDeckJobResponse;
-      setJob(data.job);
-      const completed = await pollJob(data.job.jobId, fetch, {
-        timeoutMs: 300_000,
-        delayMs: 1200
-      });
-      setJob(completed);
-
-      if (completed.status === "failed") {
-        throw new Error(
-          completed.error?.message || completed.message || "AI 덱 생성에 실패했습니다."
-        );
-      }
-
-      const result = hasDesignPptx
-        ? getAiTemplateDeckGenerationJobResult(completed)
-        : getGenerateDeckJobResult(completed);
-      if (!result) {
-        throw new Error("AI 덱 생성 결과를 읽지 못했습니다.");
-      }
-
-      await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      await queryClient.invalidateQueries({ queryKey: ["deck", project.projectId] });
-      navigateTo(
-        hasDesignPptx
-          ? `/project/${encodeURIComponent(project.projectId)}`
-          : getGeneratedDeckProjectPath(result as GenerateDeckJobResult)
-      );
-    } catch (submitError) {
-      setError(
-        submitError instanceof Error ? submitError.message : "AI 덱 생성에 실패했습니다."
-      );
-      setStatus("");
-    } finally {
-      setIsImporting(false);
-    }
-  }
-
-  async function handleConvertPptx() {
-    if (isImporting) return;
-
-    const conversionValidationMessage =
-      getHomePptxConversionValidationMessage(uploads);
-    if (conversionValidationMessage) {
-      setError(conversionValidationMessage);
-      return;
-    }
-
-    const pptxUpload = uploads.find((upload) => isPptxFile(upload.file));
-    if (!pptxUpload) {
-      setError("변환할 PPTX 파일을 첨부하세요.");
-      return;
-    }
-
-    setIsImporting(true);
-    setError("");
-    setJob(null);
-    setStatus("프로젝트 생성 중...");
-
-    try {
-      const project = await createProject(
-        getPptxConversionProjectTitle(pptxUpload.file.name)
-      );
-      setStatus(`${pptxUpload.file.name} 업로드 중...`);
-      const uploaded = await uploadProjectAsset(
-        project.projectId,
-        pptxUpload.file,
-        "pptx-import"
-      );
-      const payload = buildPptxOoxmlGenerationPayload({
-        fileId: uploaded.fileId
-      });
-      setStatus("PPTX 변환 중...");
-      const response = await fetch(
-        `/api/v1/projects/${encodeURIComponent(project.projectId)}/pptx-ooxml-generations`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload)
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(await readApiError(response, "PPTX 변환을 시작하지 못했습니다."));
-      }
-
-      const data = (await response.json()) as PptxOoxmlGenerationResponse;
-      setJob(data.job);
-      const completed = await pollJob(data.job.jobId, fetch, {
-        timeoutMs: 300_000,
-        delayMs: 1200
-      });
-      setJob(completed);
-
-      if (completed.status === "failed") {
-        throw new Error(
-          completed.error?.message || completed.message || "PPTX 변환에 실패했습니다."
-        );
-      }
-
-      const result = getPptxOoxmlGenerationJobResult(completed);
-      if (!result) {
-        throw new Error("PPTX 변환 결과를 읽지 못했습니다.");
-      }
-
-      await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      await queryClient.invalidateQueries({ queryKey: ["deck", project.projectId] });
-      navigateTo(getPptxOoxmlGeneratedProjectPath(project.projectId));
-    } catch (submitError) {
-      setError(
-        submitError instanceof Error ? submitError.message : "PPTX 변환에 실패했습니다."
-      );
-      setStatus("");
-    } finally {
-      setIsImporting(false);
-    }
-  }
-
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    if (event.target.files) {
-      addFiles(event.target.files);
-    }
-    event.target.value = "";
-  }
-
-  function handleReferenceDragEnter(event: DragEvent<HTMLElement>) {
-    event.preventDefault();
-    if (!isImporting && event.dataTransfer.types.includes("Files")) {
-      setIsReferenceDragging(true);
-    }
-  }
-
-  function handleReferenceDragOver(event: DragEvent<HTMLElement>) {
-    event.preventDefault();
-    if (!isImporting) {
-      event.dataTransfer.dropEffect = "copy";
-    }
-  }
-
-  function handleReferenceDragLeave(event: DragEvent<HTMLElement>) {
-    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      setIsReferenceDragging(false);
-    }
-  }
-
-  function handleReferenceDrop(event: DragEvent<HTMLElement>) {
-    event.preventDefault();
-    setIsReferenceDragging(false);
-    if (!isImporting && event.dataTransfer.files.length > 0) {
-      addFiles(event.dataTransfer.files);
-    }
-  }
-
-  function addFiles(fileList: FileList | File[]) {
-    const { acceptedFiles, rejectedFiles } = collectHomeUploadFiles(
-      fileList,
-      Boolean(selectedTemplateStyleId)
-    );
-    setUploads((current) => mergeUploadFiles(current, acceptedFiles));
-    setRejected(rejectedFiles);
-    setError("");
-    setStatus("");
-    setJob(null);
-  }
-
-  function removeUpload(id: string) {
-    setUploads((current) => current.filter((upload) => upload.id !== id));
-    setError("");
-    setStatus("");
-    setJob(null);
-  }
-
-  function updateUploadRole(id: string, role: UploadRole) {
-    setUploads((current) =>
-      current.map((upload) =>
-        upload.id === id
-          ? { ...upload, role: selectedTemplateStyleId ? "content" : role }
-          : upload
-      )
-    );
-    setError("");
-    setStatus("");
-    setJob(null);
-  }
-
-  function selectTemplateStyle(styleId: HomeTemplateStyleId) {
-    if (selectedTemplateStyleId === styleId) {
-      clearTemplateStyle();
-      return;
-    }
-    setSelectedTemplateStyleId(styleId);
-    setUploads((current) => normalizeTemplateReferenceUploads(current));
-    clearHomeGenerationFeedback();
-    navigateTo(getHomeTemplateStylePath(styleId));
-  }
-
-  function clearTemplateStyle() {
-    setSelectedTemplateStyleId(undefined);
-    clearHomeGenerationFeedback();
-    navigateTo("/");
-  }
-
-  function clearHomeGenerationFeedback() {
-    setRejected([]);
-    setError("");
-    setStatus("");
-    setJob(null);
-  }
-
-  function focusTopicField() {
-    topicInputRef.current?.focus();
-  }
-
-  function openReferencePicker() {
-    fileInputRef.current?.click();
-  }
-
-  function scrollToTemplateStyles() {
-    document.querySelector(".template-section")?.scrollIntoView({
-      behavior: "smooth",
-      block: "start"
-    });
-  }
-
-  const selectedTemplateStyle = selectedTemplateStyleId
-    ? homeTemplateStyles.find((style) => style.id === selectedTemplateStyleId)
-    : undefined;
-
-  return (
-    <section className="home-page">
-      <header className="page-heading">
-        <h1>{props.user?.displayName ?? "Orbit"} 작업 공간</h1>
-      </header>
-
-      {!selectedTemplateStyle ? (
-        <section className="home-chat-panel home-generate-panel" aria-label="AI 발표 자료 생성">
-          <div className="home-start-panel">
-            <div className="home-start-copy">
-              <span>프레젠테이션 제작</span>
-              <h2>어디서부터 시작할까요?</h2>
-            </div>
-            <div className="home-start-options" aria-label="제작 시작 방식">
-              <button type="button" onClick={focusTopicField}>
-                <FileText size={17} />
-                <span>주제로 시작</span>
-              </button>
-              <button type="button" onClick={openReferencePicker}>
-                <UploadCloud size={17} />
-                <span>자료로 시작</span>
-              </button>
-              <button type="button" onClick={scrollToTemplateStyles}>
-                <LayoutTemplate size={17} />
-                <span>템플릿 선택</span>
-              </button>
-            </div>
-          </div>
-          <form className="home-ai-form" onSubmit={handleSubmit}>
-            <div className="home-generate-layout">
-              <div className="home-brief-stack">
-                <label className="home-field-block home-topic-field">
-                  <span>
-                    <FileText size={16} />
-                    발표 주제
-                  </span>
-                  <input
-                    ref={topicInputRef}
-                    value={topic}
-                    onChange={(event) => setTopic(event.target.value)}
-                    placeholder="예: 2026 상반기 제품 전략 리뷰"
-                    disabled={isImporting}
-                  />
-                </label>
-
-                <label className="home-field-block">
-                  <span>
-                    <ListChecks size={16} />
-                    핵심 내용
-                  </span>
-                  <textarea
-                    value={prompt}
-                    onChange={(event) => setPrompt(event.target.value)}
-                    placeholder="청중, 핵심 메시지, 반드시 포함할 수치, 제외할 내용을 적어주세요."
-                    disabled={isImporting}
-                  />
-                </label>
-
-                <section
-                  className={
-                    isReferenceDragging
-                      ? "home-reference-drop home-reference-drop-active"
-                      : "home-reference-drop"
-                  }
-                  aria-label="참고자료"
-                  onDragEnter={handleReferenceDragEnter}
-                  onDragLeave={handleReferenceDragLeave}
-                  onDragOver={handleReferenceDragOver}
-                  onDrop={handleReferenceDrop}
-                >
-                  <div>
-                    <UploadCloud size={34} />
-                    <div>
-                      <strong>참고자료를 추가하면 더 정확해요</strong>
-                      <span>파일을 이 영역에 끌어다 놓거나 PDF, PPTX, 문서, 이미지를 첨부하세요.</span>
-                    </div>
-                  </div>
-                  <label className="home-attach-button">
-                    <Paperclip size={16} />
-                    <span>파일 첨부</span>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept={homeAssetAccept}
-                      multiple
-                      disabled={isImporting}
-                      onChange={handleFileChange}
-                    />
-                  </label>
-                </section>
-
-                {uploads.length > 0 && !selectedTemplateStyle ? (
-                  <HomeUploadList
-                    uploads={uploads}
-                    totalUploadSize={totalSize}
-                    isDisabled={isImporting}
-                    allowDesignReference
-                    onRemoveUpload={removeUpload}
-                    onUpdateUploadRole={updateUploadRole}
-                  />
-                ) : null}
-              </div>
-
-              <aside className="home-generate-controls" aria-label="생성 옵션">
-                <div className="home-control-heading">
-                  <span>생성 옵션</span>
-                  <strong>발표 상황에 맞추기</strong>
-                </div>
-
-                <fieldset className="home-tone-fieldset">
-                  <legend>발표 톤</legend>
-                  <div className="home-tone-grid">
-                    {homeToneOptions.map((option) => (
-                      <label
-                        className={tone === option.value ? "home-tone-card active" : "home-tone-card"}
-                        key={option.value}
-                      >
-                        <input
-                          type="radio"
-                          name="homeTone"
-                          value={option.value}
-                          checked={tone === option.value}
-                          onChange={() => setTone(option.value)}
-                          disabled={isImporting}
-                        />
-                        <strong>{option.label}</strong>
-                        <span>{option.description}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-
-                <div className="home-options-grid">
-                  <label>
-                    <span>
-                      <Clock size={15} />
-                      발표 시간
-                    </span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={120}
-                      value={durationInput}
-                      disabled={isImporting}
-                      onChange={(event) => setDurationInput(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    <span>최소 슬라이드</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={minSlidesInput}
-                      disabled={isImporting}
-                      onChange={(event) => setMinSlidesInput(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    <span>최대 슬라이드</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={maxSlidesInput}
-                      disabled={isImporting}
-                      onChange={(event) => setMaxSlidesInput(event.target.value)}
-                    />
-                  </label>
-                </div>
-
-                <div className="home-convert-row">
-                  <button
-                    className="home-convert-button"
-                    type="button"
-                    onClick={() => void handleConvertPptx()}
-                    disabled={isImporting || uploads.length === 0}
-                  >
-                    <FileUp size={16} />
-                    {isImporting ? "변환 중" : "PPTX 변환하기"}
-                  </button>
-                </div>
-
-                <button className="home-generate-submit" type="submit" disabled={isImporting}>
-                  <ArrowRight size={17} />
-                  {isImporting ? "생성 중" : "발표자료 생성하기"}
-                </button>
-              </aside>
-            </div>
-          </form>
-          <HomeGenerationFeedback
-            rejected={rejected}
-            job={job}
-            status={status}
-            error={error}
-          />
-        </section>
-      ) : null}
-
-      <TemplateRail
-        title="템플릿 스타일"
-        selectedStyleId={selectedTemplateStyleId}
-        onCreateProject={() => void handleCreateBlankProject()}
-        onSelectStyle={selectTemplateStyle}
-        isCreating={isImporting || isCreatingBlankProject}
-      />
-      {selectedTemplateStyle ? (
-        <TemplateStyleOptionsPanel
-          templateStyle={selectedTemplateStyle}
-          topic={topic}
-          prompt={prompt}
-          tone={tone}
-          durationInput={durationInput}
-          minSlidesInput={minSlidesInput}
-          maxSlidesInput={maxSlidesInput}
-          designPrompt={designPrompt}
-          densityTarget={templateDensityTarget}
-          layoutDiversity={templateLayoutDiversity}
-          mediaPolicy={templateMediaPolicy}
-          uploads={uploads}
-          totalUploadSize={totalSize}
-          rejected={rejected}
-          job={job}
-          status={status}
-          error={error}
-          isDisabled={isImporting}
-          onClearStyle={clearTemplateStyle}
-          onTopicChange={setTopic}
-          onPromptChange={setPrompt}
-          onToneChange={setTone}
-          onDurationInputChange={setDurationInput}
-          onMinSlidesInputChange={setMinSlidesInput}
-          onMaxSlidesInputChange={setMaxSlidesInput}
-          onDesignPromptChange={setDesignPrompt}
-          onDensityTargetChange={setTemplateDensityTarget}
-          onFileChange={handleFileChange}
-          onLayoutDiversityChange={setTemplateLayoutDiversity}
-          onMediaPolicyChange={setTemplateMediaPolicy}
-          onRemoveUpload={removeUpload}
-          onUpdateUploadRole={updateUploadRole}
-          onGenerate={() => void runHomeDeckGeneration()}
-        />
-      ) : null}
-    </section>
-  );
-}
-
-export function TemplateRail(props: {
-  title: string;
-  isCreating?: boolean;
-  onCreateProject?: () => void;
-  onSelectStyle?: (styleId: HomeTemplateStyleId) => void;
-  selectedStyleId?: HomeTemplateStyleId;
-}) {
-  return (
-    <section className="template-section">
-      <div className="section-heading">
-        <h2>{props.title}</h2>
-      </div>
-      <div className="template-row">
-        <button
-          className="new-template-card"
-          type="button"
-          onClick={props.onCreateProject ?? (() => navigateTo("/project"))}
-          disabled={props.isCreating}
-        >
-          <Plus size={28} />
-          <span>빈 프레젠테이션 만들기</span>
-        </button>
-        {homeTemplateStyles.map((template) => (
-          <button
-            aria-pressed={props.selectedStyleId === template.id}
-            className={
-              props.selectedStyleId === template.id
-                ? "template-card template-card-active"
-                : "template-card"
-            }
-            type="button"
-            key={template.id}
-            onClick={() => props.onSelectStyle?.(template.id)}
-          >
-            <LayoutTemplate size={18} />
-            <strong>{template.title}</strong>
-            <span>{template.description}</span>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-export function TemplateStyleOptionsPanel(props: {
-  templateStyle: HomeTemplateStyle;
-  topic: string;
-  prompt: string;
-  tone: "professional" | "friendly" | "confident" | "concise";
-  durationInput: string;
-  minSlidesInput: string;
-  maxSlidesInput: string;
-  designPrompt: string;
-  densityTarget: TemplateDensityTargetOption;
-  layoutDiversity: TemplateLayoutDiversityOption;
-  mediaPolicy: TemplateMediaPolicyOption;
-  uploads: UploadFile[];
-  totalUploadSize: number;
-  rejected: RejectedFile[];
-  job: Job | null;
-  status: string;
-  error: string;
-  isDisabled?: boolean;
-  onClearStyle?: () => void;
-  onTopicChange: (value: string) => void;
-  onPromptChange: (value: string) => void;
-  onToneChange: (value: "professional" | "friendly" | "confident" | "concise") => void;
-  onDurationInputChange: (value: string) => void;
-  onMinSlidesInputChange: (value: string) => void;
-  onMaxSlidesInputChange: (value: string) => void;
-  onDesignPromptChange: (value: string) => void;
-  onDensityTargetChange: (value: TemplateDensityTargetOption) => void;
-  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onLayoutDiversityChange: (value: TemplateLayoutDiversityOption) => void;
-  onMediaPolicyChange: (value: TemplateMediaPolicyOption) => void;
-  onRemoveUpload: (id: string) => void;
-  onUpdateUploadRole: (id: string, role: UploadRole) => void;
-  onGenerate: () => void;
-}) {
-  return (
-    <section className="template-style-panel" aria-label="템플릿 스타일 설정">
-      <header>
-        <div>
-          <span>선택한 템플릿</span>
-          <h3>{props.templateStyle.title}</h3>
-        </div>
-        <button type="button" onClick={props.onClearStyle} disabled={props.isDisabled}>
-          선택 해제
-        </button>
-      </header>
-      <div className="template-style-generation-grid">
-        <label className="template-style-topic-field">
-          <span>발표 주제</span>
-          <input
-            value={props.topic}
-            onChange={(event) => props.onTopicChange(event.target.value)}
-            placeholder="발표 주제"
-            disabled={props.isDisabled}
-          />
-        </label>
-        <label className="template-style-prompt-field">
-          <span>내용 프롬프트</span>
-          <textarea
-            value={props.prompt}
-            onChange={(event) => props.onPromptChange(event.target.value)}
-            placeholder="핵심 메시지, 포함할 내용, 제외할 내용"
-            disabled={props.isDisabled}
-          />
-        </label>
-        <label>
-          <span>발표 톤</span>
-          <select
-            value={props.tone}
-            onChange={(event) =>
-              props.onToneChange(event.target.value as typeof props.tone)
-            }
-            disabled={props.isDisabled}
-          >
-            <option value="professional">Professional</option>
-            <option value="friendly">Friendly</option>
-            <option value="confident">Confident</option>
-            <option value="concise">Concise</option>
-          </select>
-        </label>
-        <label>
-          <span>발표 시간</span>
-          <input
-            type="number"
-            min={1}
-            max={120}
-            value={props.durationInput}
-            onChange={(event) => props.onDurationInputChange(event.target.value)}
-            disabled={props.isDisabled}
-          />
-        </label>
-        <label>
-          <span>최소 슬라이드</span>
-          <input
-            type="number"
-            min={1}
-            max={20}
-            value={props.minSlidesInput}
-            onChange={(event) => props.onMinSlidesInputChange(event.target.value)}
-            disabled={props.isDisabled}
-          />
-        </label>
-        <label>
-          <span>최대 슬라이드</span>
-          <input
-            type="number"
-            min={1}
-            max={20}
-            value={props.maxSlidesInput}
-            onChange={(event) => props.onMaxSlidesInputChange(event.target.value)}
-            disabled={props.isDisabled}
-          />
-        </label>
-      </div>
-      <div className="template-style-options-grid">
-        <label className="template-style-prompt-field">
-          <span>템플릿 프롬프트</span>
-          <textarea
-            value={props.designPrompt}
-            name="templateDesignPrompt"
-            onChange={(event) => props.onDesignPromptChange(event.target.value)}
-            placeholder="템플릿에 추가로 반영할 색감, 레이아웃, 분위기"
-            disabled={props.isDisabled}
-          />
-        </label>
-        <label>
-          <span>텍스트 밀도</span>
-          <select
-            value={props.densityTarget}
-            name="templateDensityTarget"
-            onChange={(event) =>
-              props.onDensityTargetChange(event.target.value as TemplateDensityTargetOption)
-            }
-            disabled={props.isDisabled}
-          >
-            <option value={templateStyleDefaultOption}>템플릿 기본값</option>
-            <option value="low">낮게</option>
-            <option value="medium">보통</option>
-            <option value="high">높게</option>
-          </select>
-        </label>
-        <label>
-          <span>레이아웃</span>
-          <select
-            value={props.layoutDiversity}
-            name="templateLayoutDiversity"
-            onChange={(event) =>
-              props.onLayoutDiversityChange(
-                event.target.value as TemplateLayoutDiversityOption
-              )
-            }
-            disabled={props.isDisabled}
-          >
-            <option value={templateStyleDefaultOption}>템플릿 기본값</option>
-            <option value="stable">안정적</option>
-            <option value="varied">다양하게</option>
-          </select>
-        </label>
-        <label>
-          <span>미디어 사용</span>
-          <select
-            value={props.mediaPolicy}
-            name="templateMediaPolicy"
-            onChange={(event) =>
-              props.onMediaPolicyChange(event.target.value as TemplateMediaPolicyOption)
-            }
-            disabled={props.isDisabled}
-          >
-            <option value={templateStyleDefaultOption}>템플릿 기본값</option>
-            <option value="avoid">사용 안 함</option>
-            <option value="balanced">균형 있게</option>
-            <option value="placeholder-ok">플레이스홀더 허용</option>
-          </select>
-        </label>
-      </div>
-      <div className="template-style-reference-area">
-        <label className="template-style-attach-button">
-          <Paperclip size={16} />
-          <span>참고자료 첨부</span>
-          <input
-            type="file"
-            accept={homeAssetAccept}
-            multiple
-            disabled={props.isDisabled}
-            onChange={props.onFileChange}
-          />
-        </label>
-        {props.uploads.length > 0 ? (
-          <HomeUploadList
-            uploads={props.uploads}
-            totalUploadSize={props.totalUploadSize}
-            isDisabled={props.isDisabled}
-            allowDesignReference={false}
-            onRemoveUpload={props.onRemoveUpload}
-            onUpdateUploadRole={props.onUpdateUploadRole}
-          />
-        ) : null}
-      </div>
-      <div className="template-style-actions">
-        <button
-          className="template-style-generate-button"
-          type="button"
-          onClick={props.onGenerate}
-          disabled={props.isDisabled}
-        >
-          <Sparkles size={16} />
-          {props.isDisabled ? "생성 중" : "PPT 생성하기"}
-        </button>
-      </div>
-      <HomeGenerationFeedback
-        rejected={props.rejected}
-        job={props.job}
-        status={props.status}
-        error={props.error}
-      />
-    </section>
-  );
-}
-
-function HomeGenerationFeedback(props: {
-  rejected: RejectedFile[];
-  job: Job | null;
-  status: string;
-  error: string;
-}) {
-  return (
-    <>
-      {props.rejected.length > 0 ? (
-        <div className="rejection-list" role="alert">
-          {props.rejected.map((file) => (
-            <p key={file.name}>
-              <strong>{file.name}</strong> {file.reason}
-            </p>
-          ))}
-        </div>
-      ) : null}
-      {props.job ? (
-        <div className="job-status home-job-status" aria-live="polite">
-          <div>
-            <strong>{props.job.status}</strong>
-            <span>{props.job.progress}%</span>
-          </div>
-          {props.job.message ? <p>{props.job.message}</p> : null}
-        </div>
-      ) : null}
-      {props.status ? <p className="chat-file-status">{props.status}</p> : null}
-      {props.error ? <p className="chat-file-error">{props.error}</p> : null}
-    </>
-  );
-}
-
-function HomeUploadList(props: {
-  uploads: UploadFile[];
-  totalUploadSize: number;
-  isDisabled?: boolean;
-  allowDesignReference?: boolean;
-  onRemoveUpload: (id: string) => void;
-  onUpdateUploadRole: (id: string, role: UploadRole) => void;
-}) {
-  const [openRoleMenuId, setOpenRoleMenuId] = useState<string | null>(null);
-  const [roleMenuStyle, setRoleMenuStyle] = useState<CSSProperties>({});
-
-  function getRoleOptions(file: File): UploadRole[] {
-    if (!props.allowDesignReference || !isPptxFile(file)) {
-      return ["content"];
-    }
-    return ["content", "design", "both"];
-  }
-
-  function handleRoleTriggerClick(
-    id: string,
-    file: File,
-    event: MouseEvent<HTMLButtonElement>
-  ) {
-    if (openRoleMenuId === id) {
-      setOpenRoleMenuId(null);
-      return;
-    }
-
-    const rect = event.currentTarget.getBoundingClientRect();
-    const menuWidth = Math.max(rect.width, 128);
-    const optionCount = getRoleOptions(file).length;
-    const estimatedMenuHeight = 10 + optionCount * 30 + Math.max(0, optionCount - 1) * 3;
-    const menuTop =
-      rect.bottom + 6 + estimatedMenuHeight > window.innerHeight - 8
-        ? Math.max(8, rect.top - estimatedMenuHeight - 6)
-        : rect.bottom + 6;
-    setRoleMenuStyle({
-      left: rect.right - menuWidth,
-      top: menuTop,
-      width: menuWidth
-    });
-    setOpenRoleMenuId(id);
-  }
-
-  useEffect(() => {
-    if (!openRoleMenuId) {
-      return undefined;
-    }
-
-    function closeRoleMenu() {
-      setOpenRoleMenuId(null);
-    }
-
-    function closeRoleMenuOnPointerDown(event: PointerEvent) {
-      const target = event.target;
-      if (!(target instanceof Element) || !target.closest(".home-upload-role")) {
-        closeRoleMenu();
-      }
-    }
-
-    document.addEventListener("pointerdown", closeRoleMenuOnPointerDown);
-    window.addEventListener("resize", closeRoleMenu);
-    window.addEventListener("scroll", closeRoleMenu, true);
-    return () => {
-      document.removeEventListener("pointerdown", closeRoleMenuOnPointerDown);
-      window.removeEventListener("resize", closeRoleMenu);
-      window.removeEventListener("scroll", closeRoleMenu, true);
-    };
-  }, [openRoleMenuId]);
-
-  return (
-    <div className="home-upload-list">
-      <div className="upload-summary" aria-live="polite">
-        <span>{props.uploads.length}개 파일</span>
-        <span>{formatBytes(props.totalUploadSize)}</span>
-      </div>
-      <ul className="file-list" aria-label="홈 AI 덱 첨부파일">
-        {props.uploads.map(({ id, file, role }) => (
-          <li key={id}>
-            <div>
-              <span className="file-name">{file.name}</span>
-              <span className="file-detail">
-                {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
-              </span>
-            </div>
-            <div className="home-upload-role">
-              <button
-                className="home-upload-role-trigger"
-                type="button"
-                aria-expanded={openRoleMenuId === id}
-                aria-haspopup="listbox"
-                aria-label={`${file.name} 역할`}
-                disabled={props.isDisabled}
-                onClick={(event) => handleRoleTriggerClick(id, file, event)}
-              >
-                <span>{uploadRoleLabels[props.allowDesignReference ? role : "content"]}</span>
-                <ChevronDown size={14} />
-              </button>
-              {openRoleMenuId === id ? (
-                <div className="home-upload-role-menu" role="listbox" style={roleMenuStyle}>
-                  {getRoleOptions(file).map((option) => (
-                    <button
-                      className={
-                        (props.allowDesignReference ? role : "content") === option
-                          ? "home-upload-role-option active"
-                          : "home-upload-role-option"
-                      }
-                      type="button"
-                      role="option"
-                      aria-selected={(props.allowDesignReference ? role : "content") === option}
-                      key={option}
-                      onClick={() => {
-                        props.onUpdateUploadRole(id, option);
-                        setOpenRoleMenuId(null);
-                      }}
-                    >
-                      {uploadRoleLabels[option]}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <button
-              className="home-upload-remove-button"
-              type="button"
-              onClick={() => {
-                props.onRemoveUpload(id);
-                setOpenRoleMenuId(null);
-              }}
-              aria-label={`${file.name} 제거`}
-              disabled={props.isDisabled}
-            >
-              ×
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-export function GenerateDeckView() {
-  const queryClient = useQueryClient();
-  const [topic, setTopic] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [uploads, setUploads] = useState<UploadFile[]>([]);
-  const [rejected, setRejected] = useState<RejectedFile[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState("");
-  const [generateJob, setGenerateJob] = useState<Job | null>(null);
-  const [result, setResult] = useState<PptxOoxmlGenerationJobResult | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [newProjectTitle, setNewProjectTitle] = useState("PPTX 기반 발표자료");
-  const [isCreatingProject, setIsCreatingProject] = useState(false);
-  const [projectError, setProjectError] = useState("");
-  const [phase, setPhase] = useState<"input" | "review">("input");
-  const projectsQuery = useQuery({
-    queryKey: ["projects", "generate-deck"],
-    queryFn: () => fetchProjects(),
-    retry: false
-  });
-  const totalSize = useMemo(
-    () => uploads.reduce((sum, upload) => sum + upload.file.size, 0),
-    [uploads]
-  );
-  const selectedPptx = uploads[0]?.file ?? null;
-
-  const handleCreateProject = async () => {
-    const trimmedTitle = newProjectTitle.trim();
-    if (!trimmedTitle || isCreatingProject) {
-      return;
-    }
-
-    setIsCreatingProject(true);
-    setProjectError("");
-
-    try {
-      const project = await createProject(trimmedTitle);
-      setSelectedProjectId(project.projectId);
-      await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      await projectsQuery.refetch();
-    } catch (error) {
-      setProjectError(
-        error instanceof Error ? error.message : "프로젝트를 만들지 못했습니다."
-      );
-    } finally {
-      setIsCreatingProject(false);
-    }
-  };
-
-  const addFiles = (fileList: FileList | File[]) => {
-    const { acceptedFiles, rejectedFiles } = collectPptxUploadFiles(fileList);
-
-    setUploads(acceptedFiles.slice(0, 1));
-    setRejected(rejectedFiles);
-    setGenerateError("");
-    setGenerateJob(null);
-    setResult(null);
-  };
-
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) {
-      addFiles(event.target.files);
-    }
-
-    event.target.value = "";
-  };
-
-  const handleDrop = (event: DragEvent<HTMLLabelElement>) => {
-    event.preventDefault();
-    setIsDragging(false);
-    addFiles(event.dataTransfer.files);
-  };
-
-  const removeUpload = (id: string) => {
-    setUploads((current) => current.filter((upload) => upload.id !== id));
-    setGenerateError("");
-    setGenerateJob(null);
-    setResult(null);
-    setPhase("input");
-  };
-
-  const generateDeck = async () => {
-    if (!selectedPptx || isGenerating) return;
-
-    setIsGenerating(true);
-    setGenerateError("");
-    setProjectError("");
-    setGenerateJob(null);
-    setResult(null);
-
-    try {
-      const targetProject = await resolveGenerateDeckTargetProject({
-        projects: projectsQuery.data ?? [],
-        selectedProjectId,
-        topic: topic || selectedPptx.name
-      });
-      const uploaded = await uploadProjectAsset(
-        targetProject.projectId,
-        selectedPptx,
-        "pptx-import"
-      );
-      const payload = buildPptxOoxmlGenerationPayload({
-        fileId: uploaded.fileId,
-        topic,
-        prompt
-      });
-      const response = await fetch(
-        `/api/v1/projects/${targetProject.projectId}/pptx-ooxml-generations`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(payload)
-        }
-      );
-
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || "PPTX 덱 생성에 실패했습니다.");
-      }
-
-      const data = (await response.json()) as PptxOoxmlGenerationResponse;
-      setGenerateJob(data.job);
-
-      const job = await pollExtractJob(data.job.jobId, {
-        onUpdate: setGenerateJob
-      });
-
-      if (job.status === "failed") {
-        throw new Error(job.error?.message || job.message || "PPTX 덱 생성에 실패했습니다.");
-      }
-
-      const generatedResult = getPptxOoxmlGenerationJobResult(job);
-      if (!generatedResult) {
-        throw new Error("PPTX 덱 생성 결과를 읽지 못했습니다.");
-      }
-
-      setResult(generatedResult);
-      if (targetProject.created && targetProject.project) {
-        queryClient.setQueryData<Project[]>(["projects"], (current) =>
-          mergeGeneratedProjectList(current, targetProject.project as Project)
-        );
-      }
-      await queryClient.invalidateQueries({
-        queryKey: ["deck", targetProject.projectId]
-      });
-      navigateTo(getPptxOoxmlGeneratedProjectPath(targetProject.projectId));
-    } catch (error) {
-      setGenerateError(
-        error instanceof Error ? error.message : "PPTX 덱 생성에 실패했습니다."
-      );
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  return (
-    <main className="orbit-create-deck">
-      <div className="orbit-create-breadcrumb"><button onClick={() => navigateTo("/")} type="button">홈</button><span>/</span><strong>AI 발표자료 만들기</strong></div>
-      <header className="orbit-create-heading">
-        <div><p className="orbit-ds-eyebrow">AI PRESENTATION</p><h1>{phase === "review" ? "이 구성으로 만들까요?" : "어떤 발표를 만들까요?"}</h1><p>{phase === "review" ? "입력한 프로젝트와 자료를 확인한 뒤 생성을 시작하세요." : "PPTX 자료와 핵심 지시사항을 바탕으로 편집 가능한 발표자료를 만듭니다."}</p></div>
-        <ol className="orbit-create-steps" aria-label="발표자료 생성 단계"><li className={phase === "input" ? "active" : "complete"}><span>1</span>입력</li><li className={phase === "review" ? "active" : ""}><span>2</span>구성 확인</li><li><span>3</span>생성</li></ol>
-      </header>
-      <section className="generate-layout" aria-labelledby="generate-title">
-        <form
-          className="generate-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (phase === "input") {
-              setPhase("review");
-            } else {
-              void generateDeck();
-            }
-          }}
-        >
-          <div className="panel-copy">
-            <span className="eyebrow">PPTX SOURCE</span>
-            <h2 id="generate-title">원본 자료와 발표 맥락</h2>
-          </div>
-
-          <section className="generate-reference-panel" aria-labelledby="generate-project-title">
-            <div className="reference-panel-heading">
-              <span className="eyebrow" id="generate-project-title">
-                저장할 프로젝트
-              </span>
-              <p>생성된 발표자료를 저장하고 에디터에서 이어서 편집합니다.</p>
-            </div>
-
-            <label>
-              <span>기존 프로젝트 선택</span>
-              <select
-                value={selectedProjectId}
-                onChange={(event) => setSelectedProjectId(event.target.value)}
-                disabled={isGenerating || projectsQuery.isLoading}
-              >
-                  <option value="">새 프로젝트로 만들기</option>
-                {(projectsQuery.data ?? []).map((project) => (
-                  <option key={project.projectId} value={project.projectId}>
-                    {project.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div className="form-grid">
-              <label>
-                  <span>새 프로젝트 이름</span>
-                <input
-                  value={newProjectTitle}
-                  onChange={(event) => setNewProjectTitle(event.target.value)}
-                  disabled={isGenerating || isCreatingProject}
-                  placeholder="PPTX 기반 발표자료"
-                />
-              </label>
-            </div>
-
-            <button
-              className="extract-button"
-              type="button"
-              onClick={() => void handleCreateProject()}
-              disabled={isGenerating || isCreatingProject || !newProjectTitle.trim()}
-            >
-              {isCreatingProject ? "프로젝트 생성 중..." : "새 프로젝트를 먼저 만들기"}
-            </button>
-
-            {projectsQuery.isError ? (
-              <div className="rejection-list" role="alert">
-                <p>프로젝트 목록을 불러오지 못했습니다.</p>
-              </div>
-            ) : null}
-
-            {projectError ? (
-              <div className="rejection-list" role="alert">
-                <p>{projectError}</p>
-              </div>
-            ) : null}
-          </section>
-
-          <label>
-            <span>발표 주제</span>
-            <input value={topic} onChange={(event) => setTopic(event.target.value)} />
-          </label>
-
-          <label>
-            <span>핵심 메시지와 지시사항</span>
-            <textarea
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              placeholder="원본 템플릿의 교체 가능한 텍스트 슬롯에 반영할 지시사항"
-            />
-          </label>
-
-          <section
-            className="generate-reference-panel"
-            aria-labelledby="generate-reference-title"
-          >
-            <div className="reference-panel-heading">
-              <span className="eyebrow" id="generate-reference-title">
-                참고자료
-              </span>
-              <p>원본 레이아웃과 편집 구조를 보존할 PPTX 파일 1개</p>
-            </div>
-
-            <label
-              className={`drop-zone${isDragging ? " is-dragging" : ""}`}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setIsDragging(true);
-              }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={handleDrop}
-            >
-              <input type="file" accept={pptxAccept} onChange={handleFileChange} />
-              <span className="upload-mark" aria-hidden="true">
-                +
-              </span>
-              <span className="drop-title">PPTX 파일을 끌어오거나 선택하세요</span>
-              <span className="drop-meta">PPTX 1개</span>
-            </label>
-
-            <div className="upload-summary" aria-live="polite">
-              <span>{uploads.length}개 파일</span>
-              <span>{formatBytes(totalSize)}</span>
-            </div>
-
-            {rejected.length > 0 && (
-              <div className="rejection-list" role="alert">
-                {rejected.map((file) => (
-                  <p key={file.name}>
-                    <strong>{file.name}</strong> {file.reason}
-                  </p>
-                ))}
-              </div>
-            )}
-
-            {uploads.length > 0 && (
-              <ul className="file-list" aria-label="덱 생성 PPTX 파일">
-                {uploads.map(({ id, file }) => (
-                  <li key={id}>
-                    <div>
-                      <span className="file-name">{file.name}</span>
-                      <span className="file-detail">
-                        {getExtension(file.name).toUpperCase()} · {formatBytes(file.size)}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeUpload(id)}
-                      aria-label={`${file.name} 제거`}
-                      disabled={isGenerating}
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          {phase === "review" ? <section className="orbit-create-review" aria-live="polite"><strong>구성 확인</strong><dl><div><dt>프로젝트</dt><dd>{selectedProjectId || newProjectTitle}</dd></div><div><dt>주제</dt><dd>{topic || "PPTX 파일명 기준"}</dd></div><div><dt>자료</dt><dd>{selectedPptx?.name}</dd></div></dl><button onClick={() => setPhase("input")} type="button">입력 수정</button></section> : null}
-
-          <button className="extract-button" type="submit" disabled={isGenerating || !selectedPptx}>{getCreateDeckPhaseActionLabel(phase, isGenerating)}</button>
-
-          {generateJob && (
-            <div className="job-status" aria-live="polite">
-              <div>
-                <strong>pptx {generateJob.status}</strong>
-                <span>{generateJob.progress}%</span>
-              </div>
-              {generateJob.message && <p>{generateJob.message}</p>}
-            </div>
-          )}
-
-          {generateError && (
-            <div className="rejection-list" role="alert">
-              <p>{generateError}</p>
-            </div>
-          )}
-        </form>
-
-        <section className="generate-result" aria-live="polite">
-          {result ? <PptxOoxmlGenerationResult result={result} /> : <DeckPreviewPlaceholder />}
-        </section>
-      </section>
-    </main>
-  );
-}
-
-export function getCreateDeckPhaseActionLabel(
-  phase: "input" | "review",
-  isGenerating: boolean
-) {
-  if (isGenerating) return "발표자료 생성 중...";
-  return phase === "input" ? "구성 확인" : "발표자료 생성 시작";
-}
-
-
-function DeckPreviewPlaceholder() {
-  return (
-    <div className="deck-preview-placeholder">
-      <Sparkles size={28} />
-      <span>PPTX deck</span>
-    </div>
-  );
-}
-
-function getExtension(fileName: string) {
-  return fileName.split(".").pop()?.toLowerCase() ?? "";
-}
-
-function isPptxFile(file: File) {
-  return (
-    getExtension(file.name) === "pptx" &&
-    resolveAssetMimeType(file) === pptxMimeType
-  );
-}
-
-function formatBytes(bytes: number) {
-  if (bytes === 0) return "0 B";
-
-  const units = ["B", "KB", "MB", "GB"];
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  const value = bytes / 1024 ** index;
-
-  return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
-}
-
-function createUploadId(file: File) {
-  return `${file.name}-${file.size}-${file.lastModified}`;
-}
-
-function getHomeUploadPurpose(
-  upload: UploadFile,
-  allowDesignReferences = true
-): FilePurpose {
-  if (
-    allowDesignReferences &&
-    (upload.role === "design" || upload.role === "both") &&
-    isPptxFile(upload.file)
-  ) {
-    return "pptx-import";
-  }
-
-  return "reference-material";
-}
-
-async function extractHomeReferenceInput(
-  projectId: string,
-  uploads: UploadFile[],
-  uploadedAssetFileIds: Map<string, string>,
-  callbacks: {
-    setJob: (job: Job | null) => void;
-    setStatus: (status: string) => void;
-  },
-  includeDesignReferencesAsContent = false
-) {
-  const contentUploads = getHomeContentReferenceUploads(
-    uploads,
-    includeDesignReferencesAsContent
-  );
-  if (contentUploads.length === 0) {
-    return buildReferenceGenerationInput([]);
-  }
-
-  callbacks.setStatus("참고자료 추출 중...");
-  const response = await fetch(homeReferenceExtractEndpoint, {
-    method: "POST",
-    body: buildHomeExtractFormData(projectId, contentUploads, uploadedAssetFileIds)
-  });
-
-  if (!response.ok) {
-    throw new Error(await readApiError(response, "참고자료 추출을 시작하지 못했습니다."));
-  }
-
-  const data = (await response.json()) as ExtractJobResponse;
-  callbacks.setJob(data.job);
-  const completed = await pollExtractJob(data.job.jobId, {
-    fetcher: fetch,
-    onUpdate: callbacks.setJob,
-    timeoutMs: 300_000
-  });
-  callbacks.setJob(completed);
-
-  if (completed.status === "failed") {
-    throw new Error(
-      completed.error?.message || completed.message || "참고자료 추출에 실패했습니다."
-    );
-  }
-
-  return buildReferenceGenerationInput(getJobResultFiles(completed));
-}
-
-export function hasHomeDesignPptxUpload(uploads: UploadFile[]) {
-  return uploads.some((upload) => isHomeDesignPptxUpload(upload));
-}
-
-function isHomeDesignPptxUpload(upload: UploadFile) {
-  return (upload.role === "design" || upload.role === "both") && isPptxFile(upload.file);
-}
-
-export function getHomeContentReferenceUploads(
-  uploads: UploadFile[],
-  includeDesignReferencesAsContent = false
-) {
-  return uploads.filter(
-    (upload) => includeDesignReferencesAsContent || upload.role === "content"
-  );
-}
-
-export const homeReferenceExtractEndpoint = "/api/extract";
-
-export function buildHomeExtractFormData(
-  projectId: string,
-  contentUploads: UploadFile[],
-  uploadedAssetFileIds: Map<string, string>
-) {
-  const formData = new FormData();
-  formData.append("projectId", projectId);
-  for (const upload of contentUploads) {
-    const fileId = uploadedAssetFileIds.get(upload.id);
-    if (!fileId) {
-      throw new Error(`${upload.file.name} 업로드 결과를 찾지 못했습니다.`);
-    }
-    formData.append("files", upload.file);
-    formData.append("fileIds", fileId);
-  }
-  return formData;
-}
-
-export function getHomeDeckGenerationJobEndpoint(
-  projectId: string,
-  uploads: UploadFile[],
-  allowDesignReferences = true
-) {
-  const jobType = allowDesignReferences && hasHomeDesignPptxUpload(uploads)
-    ? "ai-template-deck-generation"
-    : "generate-deck";
-  return `/api/v1/projects/${encodeURIComponent(projectId)}/jobs/${jobType}`;
-}
-
-export function getHomeGenerationValidationMessage(
-  topic: string,
-  uploads: UploadFile[],
-  durationInput = "10",
-  minSlidesInput = "5",
-  maxSlidesInput = "8",
-  allowDesignReferences = true
-) {
-  if (!topic.trim()) {
-    return "발표 주제를 입력하세요.";
-  }
-
-  if (allowDesignReferences) {
-    const designUploads = uploads.filter(
-      (upload) => upload.role === "design" || upload.role === "both"
-    );
-    if (designUploads.length > 1) {
-      return "디자인 참고 PPTX는 1개만 선택하세요.";
-    }
-
-    if (designUploads.length === 1 && !isPptxFile(designUploads[0].file)) {
-      return "디자인 참고 파일은 PPTX여야 합니다.";
-    }
-  }
-
-  const duration = parseHomeIntegerInput(durationInput);
-  if (duration === null || duration < 1 || duration > 120) {
-    return "발표 시간은 1~120분으로 입력하세요.";
-  }
-
-  const minSlides = parseHomeIntegerInput(minSlidesInput);
-  const maxSlides = parseHomeIntegerInput(maxSlidesInput);
-  if (
-    minSlides === null ||
-    maxSlides === null ||
-    minSlides < 1 ||
-    minSlides > 20 ||
-    maxSlides < 1 ||
-    maxSlides > 20
-  ) {
-    return "슬라이드 수는 1~20장으로 입력하세요.";
-  }
-
-  if (minSlides > maxSlides) {
-    return "최소 슬라이드 수는 최대 슬라이드 수보다 클 수 없습니다.";
-  }
-
-  return "";
-}
-
-function collectHomeUploadFiles(
-  fileList: FileList | File[],
-  hasSelectedTemplateStyle = false
-) {
-  const acceptedFiles: UploadFile[] = [];
-  const rejectedFiles: RejectedFile[] = [];
-
-  Array.from(fileList).forEach((file) => {
-    const mimeType = resolveAssetMimeType(file);
-    if (!mimeType) {
-      rejectedFiles.push({
-        name: file.name,
-        reason: "PDF, PPTX, DOCX, JPG, PNG, WebP 파일만 첨부할 수 있습니다."
-      });
-      return;
-    }
-
-    if (file.size > maxAssetUploadSizeBytes) {
-      rejectedFiles.push({
-        name: file.name,
-        reason: `${formatBytes(maxAssetUploadSizeBytes)} 이하 파일만 첨부할 수 있습니다.`
-      });
-      return;
-    }
-
-    if (file.size <= 0) {
-      rejectedFiles.push({
-        name: file.name,
-        reason: "빈 파일은 첨부할 수 없습니다."
-      });
-      return;
-    }
-
-    acceptedFiles.push({
-      id: createUploadId(file),
-      file,
-      role: getHomeDefaultUploadRole(file, hasSelectedTemplateStyle)
-    });
-  });
-
-  return { acceptedFiles, rejectedFiles };
-}
-
-export function getHomeDefaultUploadRole(file: File, hasSelectedTemplateStyle = false) {
-  if (!isPptxFile(file)) {
-    return "content";
-  }
-
-  return hasSelectedTemplateStyle ? "content" : "design";
-}
-
-function normalizeTemplateReferenceUploads(uploads: UploadFile[]) {
-  return uploads.map((upload) => ({ ...upload, role: "content" as const }));
-}
-
-function mergeUploadFiles(current: UploadFile[], next: UploadFile[]) {
-  const byId = new Map(current.map((upload) => [upload.id, upload]));
-  for (const upload of next) {
-    byId.set(upload.id, upload);
-  }
-
-  let hasDesign = false;
-  return Array.from(byId.values()).map((upload) => {
-    if (!isPptxFile(upload.file)) {
-      return { ...upload, role: "content" as const };
-    }
-    if ((upload.role === "design" || upload.role === "both") && hasDesign) {
-      return { ...upload, role: "content" as const };
-    }
-    if (upload.role === "design" || upload.role === "both") {
-      hasDesign = true;
-    }
-    return upload;
-  });
-}
-
-function collectPptxUploadFiles(fileList: FileList | File[]) {
-  const acceptedFiles: UploadFile[] = [];
-  const rejectedFiles: RejectedFile[] = [];
-
-  Array.from(fileList).forEach((file) => {
-    if (isPptxFile(file)) {
-      acceptedFiles.push({ id: createUploadId(file), file, role: "design" });
-      return;
-    }
-
-    rejectedFiles.push({
-      name: file.name,
-      reason: "PPTX 파일 1개만 업로드할 수 있습니다."
-    });
-  });
-
-  return { acceptedFiles, rejectedFiles };
-}
-
-function clampInteger(value: number, min: number, max: number) {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, Math.round(value)));
-}
-
-export function parseHomeIntegerInput(value: string) {
-  const trimmed = value.trim();
-  if (!/^\d+$/.test(trimmed)) return null;
-  const parsed = Number(trimmed);
-  return Number.isSafeInteger(parsed) ? parsed : null;
-}
 function EditorLoadingFallback() {
   return (
-    <section className="loading-page">
-      <h1>에디터를 불러오는 중</h1>
-    </section>
-  );
-}
-export async function pollExtractJob(
-  jobId: string,
-  options: {
-    delayMs?: number;
-    fetcher?: Fetcher;
-    onUpdate?: (job: Job) => void;
-    timeoutMs?: number;
-  } = {}
-): Promise<Job> {
-  const delayMs = options.delayMs ?? 1000;
-  const fetcher = options.fetcher ?? fetch;
-  const timeoutAt = Date.now() + (options.timeoutMs ?? 120_000);
-
-  for (;;) {
-    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
-    if (!response.ok) {
-      throw new Error((await response.text()) || "Job status lookup failed.");
-    }
-
-    const job = (await response.json()) as Job;
-    options.onUpdate?.(job);
-    if (job.status === "succeeded" || job.status === "failed") {
-      return job;
-    }
-
-    if (Date.now() > timeoutAt) {
-      throw new Error("Reference extraction timed out.");
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-  }
-}
-
-export function getJobResultFiles(job: Job): ExtractedFile[] {
-  const result = job.result as JobResult | null;
-  return Array.isArray(result?.files) ? result.files : [];
-}
-
-export function getGenerateDeckJobResult(job: Job): GenerateDeckJobResult | null {
-  const result = job.result as GenerateDeckJobResult | null;
-  return result?.deck ? result : null;
-}
-
-export function getGeneratedDeckProjectPath(result: GenerateDeckJobResult) {
-  return `/project/${encodeURIComponent(result.deck.projectId)}`;
-}
-
-export function getPptxOoxmlGeneratedProjectPath(projectId: string) {
-  return `/project/${encodeURIComponent(projectId)}`;
-}
-
-export function getPptxOoxmlGenerationJobResult(
-  job: Job
-): PptxOoxmlGenerationJobResult | null {
-  const result = job.result as PptxOoxmlGenerationJobResult | null;
-  return result?.deckId && result?.currentPackageFileId ? result : null;
-}
-
-export function getAiTemplateDeckGenerationJobResult(
-  job: Job
-): AiTemplateDeckGenerationJobResult | null {
-  const parsed = aiTemplateDeckGenerationJobResultSchema.safeParse(job.result);
-  return parsed.success ? parsed.data : null;
-}
-
-export function buildAiTemplateDeckGenerationPayload(input: {
-  designPrompt: string;
-  duration: number;
-  maxSlides: number;
-  minSlides: number;
-  prompt: string;
-  tone: "professional" | "friendly" | "confident" | "concise";
-  topic: string;
-  uploadedAssetFileIds: Map<string, string>;
-  uploads: UploadFile[];
-}) {
-  return {
-    topic: input.topic.trim(),
-    prompt: input.prompt.trim(),
-    designPrompt: input.designPrompt.trim(),
-    targetDurationMinutes: clampInteger(input.duration, 1, 120),
-    slideCountRange: {
-      min: clampInteger(input.minSlides, 1, 20),
-      max: clampInteger(input.maxSlides, 1, 20)
-    },
-    template: "default",
-    metadata: {
-      audience: "general",
-      purpose: "inform",
-      tone: input.tone
-    },
-    design: buildGenerateDeckDesignDirection({
-      profile: "auto",
-      visualRhythm: "auto",
-      densityTarget: "medium",
-      mediaPolicy: "balanced",
-      layoutDiversity: "stable"
-    }),
-    assets: input.uploads.map((upload) => {
-      const fileId = input.uploadedAssetFileIds.get(upload.id);
-      if (!fileId) {
-        throw new Error(`${upload.file.name} 업로드 결과를 찾지 못했습니다.`);
-      }
-      return { fileId, role: upload.role };
-    })
-  };
-}
-
-export function buildPptxOoxmlGenerationPayload(input: {
-  fileId: string;
-  topic?: string;
-  prompt?: string;
-}) {
-  return {
-    fileId: input.fileId,
-    ...(input.topic?.trim() ? { topic: input.topic.trim() } : {}),
-    ...(input.prompt?.trim() ? { prompt: input.prompt.trim() } : {})
-  };
-}
-
-export async function pollJob(
-  jobId: string,
-  fetcher: Fetcher = fetch,
-  options: { delayMs?: number; timeoutMs?: number } = {}
-): Promise<Job> {
-  const delayMs = options.delayMs ?? 1200;
-  const timeoutAt = Date.now() + (options.timeoutMs ?? 120_000);
-
-  for (;;) {
-    const response = await fetcher(`/api/jobs/${encodeURIComponent(jobId)}`);
-    if (!response.ok) {
-      throw new Error(await readApiError(response, "작업 상태를 확인하지 못했습니다."));
-    }
-
-    const job = (await response.json()) as Job;
-    if (job.status === "succeeded" || job.status === "failed") {
-      return job;
-    }
-
-    if (Date.now() > timeoutAt) {
-      throw new Error("작업 시간이 초과되었습니다.");
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-  }
-}
-
-export function getGeneratedDeckProjectTitle(topic: string) {
-  return topic.trim() || "AI 덱";
-}
-
-export function getPptxConversionProjectTitle(fileName: string) {
-  return fileName.trim().replace(/\.pptx$/i, "").trim() || "PPTX 변환";
-}
-
-export function getHomePptxConversionValidationMessage(uploads: UploadFile[]) {
-  if (uploads.length === 0) {
-    return "변환할 PPTX 파일을 첨부하세요.";
-  }
-
-  const pptxUploads = uploads.filter((upload) => isPptxFile(upload.file));
-  if (uploads.length !== 1 || pptxUploads.length !== 1) {
-    return "PPTX 변환은 PPTX 파일 1개만 첨부할 수 있습니다.";
-  }
-
-  return "";
-}
-
-export function createGeneratedDeckProject(topic: string, fetcher: Fetcher = fetch) {
-  return createProject(getGeneratedDeckProjectTitle(topic), fetcher);
-}
-
-export async function resolveGenerateDeckTargetProject(args: {
-  fetcher?: Fetcher;
-  projects: Project[];
-  selectedProjectId: string;
-  topic: string;
-}): Promise<GenerateDeckTargetProject> {
-  const selectedProjectId = args.selectedProjectId.trim();
-  if (selectedProjectId) {
-    return {
-      created: false,
-      project:
-        args.projects.find((project) => project.projectId === selectedProjectId) ??
-        null,
-      projectId: selectedProjectId
-    };
-  }
-
-  const project = await createGeneratedDeckProject(args.topic, args.fetcher);
-  return { created: true, project, projectId: project.projectId };
-}
-
-export function buildGenerateDeckPayload(input: GenerateDeckPayloadInput) {
-  return {
-    topic: input.topic,
-    prompt: input.prompt,
-    designPrompt: input.designPrompt ?? "",
-    targetDurationMinutes: input.duration,
-    slideCountRange: { min: input.minSlides, max: input.maxSlides },
-    template: input.template,
-    metadata: input.metadata,
-    design: input.design,
-    references: input.referenceInput.references,
-    designReferences: input.designReferences,
-    referenceKeywords: input.referenceInput.referenceKeywords,
-    referenceContext: input.referenceInput.referenceContext
-  };
-}
-
-export function buildHomeJsonFirstGenerateDeckPayload(input: {
-  designPrompt: string;
-  duration: number;
-  maxSlides: number;
-  minSlides: number;
-  prompt: string;
-  referenceInput?: ReferenceGenerationInput;
-  templateStyleId?: HomeTemplateStyleId;
-  templateStyleDesignOverrides?: TemplateStyleDesignOverrides;
-  tone: "professional" | "friendly" | "confident" | "concise";
-  topic: string;
-}) {
-  const design = input.templateStyleId
-    ? {
-        ...buildHomeTemplateStyleGenerateDeckDesignDirection(input.templateStyleId),
-        ...(input.templateStyleDesignOverrides ?? {})
-      }
-    : buildDefaultHomeGenerateDeckDesignDirection();
-
-  return buildGenerateDeckPayload({
-    topic: input.topic.trim(),
-    prompt: input.prompt.trim(),
-    designPrompt: input.designPrompt.trim(),
-    duration: clampInteger(input.duration, 1, 120),
-    minSlides: clampInteger(input.minSlides, 1, 20),
-    maxSlides: clampInteger(input.maxSlides, 1, 20),
-    template: "default",
-    metadata: {
-      audience: "general",
-      purpose: "inform",
-      tone: input.tone
-    },
-    design,
-    designReferences: [],
-    referenceInput: input.referenceInput ?? buildReferenceGenerationInput([])
-  });
-}
-
-export function buildDesignReferences(
-  uploads: UploadFile[],
-  uploadedAssetFileIds: Map<string, string>
-) {
-  return uploads
-    .filter((upload) => upload.role === "design" || upload.role === "both")
-    .map((upload) => uploadedAssetFileIds.get(upload.id))
-    .filter((fileId): fileId is string => Boolean(fileId))
-    .map((fileId) => ({ fileId }));
-}
-
-export function buildGenerateDeckDesignDirection(input: {
-  densityTarget: GenerateDeckDesignDirection["densityTarget"];
-  layoutDiversity: GenerateDeckDesignDirection["layoutDiversity"];
-  mediaPolicy: GenerateDeckDesignDirection["mediaPolicy"];
-  profile: GenerateDeckDesignProfileChoice;
-  slidePresetId?: string;
-  stylePackId?: string;
-  visualRhythm: GenerateDeckDesignDirection["visualRhythm"];
-}): GenerateDeckDesignDirection {
-  const design: GenerateDeckDesignDirection = {
-    visualRhythm: input.visualRhythm,
-    densityTarget: input.densityTarget,
-    mediaPolicy: input.mediaPolicy,
-    layoutDiversity: input.layoutDiversity
-  };
-
-  if (input.profile !== "auto") {
-    design.profile = input.profile;
-  }
-
-  if (input.stylePackId?.trim()) {
-    design.stylePackId = input.stylePackId.trim();
-  }
-
-  if (input.slidePresetId?.trim()) {
-    design.slidePresetId = input.slidePresetId.trim();
-  }
-
-  return design;
-}
-
-export function buildSimpleBasicGenerateDeckDesignDirection() {
-  return buildHomeTemplateStyleGenerateDeckDesignDirection("simple-basic");
-}
-
-export function buildDefaultHomeGenerateDeckDesignDirection() {
-  return buildGenerateDeckDesignDirection({
-    profile: "auto",
-    visualRhythm: "auto",
-    densityTarget: "medium",
-    mediaPolicy: "balanced",
-    layoutDiversity: "varied"
-  });
-}
-
-export function buildHomeTemplateStyleGenerateDeckDesignDirection(
-  styleId: HomeTemplateStyleId
-) {
-  if (styleId === "presentation-document") {
-    return buildGenerateDeckDesignDirection({
-      profile: "auto",
-      visualRhythm: "clean",
-      densityTarget: "low",
-      mediaPolicy: "balanced",
-      layoutDiversity: "stable",
-      stylePackId: styleId
-    });
-  }
-
-  if (styleId === "submission-document") {
-    return buildGenerateDeckDesignDirection({
-      profile: "auto",
-      visualRhythm: "technical",
-      densityTarget: "high",
-      mediaPolicy: "balanced",
-      layoutDiversity: "stable",
-      stylePackId: styleId
-    });
-  }
-
-  return buildGenerateDeckDesignDirection({
-    profile: "auto",
-    visualRhythm: "clean",
-    densityTarget: "medium",
-    mediaPolicy: "balanced",
-    layoutDiversity: "stable",
-    stylePackId: simpleBasicStylePackId
-  });
-}
-
-export function buildTemplateStyleDesignOverrides(input: {
-  densityTarget: TemplateDensityTargetOption;
-  layoutDiversity: TemplateLayoutDiversityOption;
-  mediaPolicy: TemplateMediaPolicyOption;
-}): TemplateStyleDesignOverrides {
-  const overrides: TemplateStyleDesignOverrides = {};
-
-  if (input.densityTarget !== templateStyleDefaultOption) {
-    overrides.densityTarget = input.densityTarget;
-  }
-
-  if (input.layoutDiversity !== templateStyleDefaultOption) {
-    overrides.layoutDiversity = input.layoutDiversity;
-  }
-
-  if (input.mediaPolicy !== templateStyleDefaultOption) {
-    overrides.mediaPolicy = input.mediaPolicy;
-  }
-
-  return overrides;
-}
-
-export function mergeGeneratedProjectList(
-  current: Project[] | undefined,
-  project: Project
-) {
-  return current?.some((item) => item.projectId === project.projectId)
-    ? current
-    : [project, ...(current ?? [])];
-}
-
-export function buildReferenceGenerationInput(
-  files: ExtractedFile[]
-): ReferenceGenerationInput {
-  const references: Array<{ fileId: string }> = [];
-  const referenceKeywords: Array<{ text: string }> = [];
-  const referenceContext: Array<{ fileId: string; title: string; content: string }> = [];
-  const succeededFiles: ExtractedFile[] = [];
-  const failedFiles: ExtractedFile[] = [];
-  const seenFileIds = new Set<string>();
-  const seenKeywords = new Set<string>();
-  const seenContextIds = new Set<string>();
-
-  for (const file of files) {
-    const fileId = file.referenceDocumentId?.trim() ?? "";
-    if (file.status.toLowerCase() !== "succeeded" || !fileId) {
-      failedFiles.push(file);
-      continue;
-    }
-
-    succeededFiles.push(file);
-    if (!seenFileIds.has(fileId)) {
-      seenFileIds.add(fileId);
-      references.push({ fileId });
-    }
-
-    const content = (file.cleanedText?.trim() || file.rawText.trim()).slice(
-      0,
-      referenceContextMaxChars
-    );
-    if (content && !seenContextIds.has(fileId)) {
-      seenContextIds.add(fileId);
-      referenceContext.push({ fileId, title: file.fileName, content });
-    }
-
-    for (const keyword of file.keywords ?? []) {
-      const text = keyword.keyword.trim();
-      const key = text.toLowerCase();
-      if (!text || seenKeywords.has(key)) continue;
-
-      seenKeywords.add(key);
-      referenceKeywords.push({ text });
-    }
-  }
-
-  return {
-    references,
-    referenceKeywords,
-    referenceContext,
-    succeededFiles,
-    failedFiles
-  };
-}
-
-function PptxOoxmlGenerationResult(props: {
-  result: PptxOoxmlGenerationJobResult;
-}) {
-  const { result } = props;
-
-  return (
-    <div className="generated-deck">
-      <header className="result-heading">
-        <div>
-          <span>PPTX OOXML deck</span>
-          <h2>{result.deckId}</h2>
-        </div>
-        <strong>{result.qualityReport.compositeScore}</strong>
-      </header>
-      {result.warnings.length > 0 ? <p>{result.warnings.join(" · ")}</p> : null}
-      <p>template {result.templateId}</p>
-      <p>package {result.currentPackageFileId}</p>
-    </div>
-  );
-}
-
-export function GeneratedDeckResult(props: { result: GenerateDeckJobResult }) {
-  const { deck, validation, warnings } = props.result;
-
-  return (
-    <div className="generated-deck">
-      <header className="result-heading">
-        <div>
-          <span>Generated deck</span>
-          <h2>{deck.title}</h2>
-        </div>
-        <strong>{deck.slides.length} slides</strong>
-      </header>
-      {warnings.length > 0 ? <p>{warnings.join(" · ")}</p> : null}
-      {validation.designIssues.length > 0 ? (
-        <ul>
-          {validation.designIssues.map((issue, index) => (
-            <li key={`${issue.path}-${index}`}>{issue.message}</li>
-          ))}
-        </ul>
-      ) : null}
-      <p>validation {validation.passed ? "passed" : "failed"}</p>
-      <div className="generated-slide-grid">
-        {deck.slides.map((slide) => (
-          <article key={slide.slideId} className="generated-slide-card">
-            <GeneratedSlidePreview
-              canvas={deck.canvas}
-              elements={slide.elements}
-              title={slide.title}
-            />
-            <strong>{slide.title}</strong>
-            {slide.aiNotes?.sourceEvidence.length ? (
-              <ul>
-                {slide.aiNotes.sourceEvidence.map((evidence) => (
-                  <li key={`${slide.slideId}-${evidence.fileId}`}>
-                    {evidence.fileId}
-                    {evidence.note ? ` 쨌 ${evidence.note}` : ""}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </article>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function GeneratedSlidePreview(props: {
-  canvas: { width: number; height: number };
-  elements: DeckElement[];
-  title: string;
-}) {
-  return (
-    <div
-      className="generated-slide-preview"
-      aria-label={props.title}
-      style={{ aspectRatio: `${props.canvas.width} / ${props.canvas.height}` }}
+    <section
+      aria-label="에디터를 불러오는 중"
+      className="editor-loading-page redesign-dark"
+      role="status"
     >
-      {props.elements
-        .filter((element) => element.visible)
-        .sort((a, b) => a.zIndex - b.zIndex)
-        .map((element) => (
-          <GeneratedSlideElement
-            key={element.elementId}
-            canvas={props.canvas}
-            element={element}
-          />
-        ))}
-    </div>
-  );
-}
-
-function GeneratedSlideElement(props: {
-  canvas: { width: number; height: number };
-  element: DeckElement;
-}) {
-  const { canvas, element } = props;
-  const baseStyle: CSSProperties = {
-    left: `${(element.x / canvas.width) * 100}%`,
-    top: `${(element.y / canvas.height) * 100}%`,
-    width: `${(element.width / canvas.width) * 100}%`,
-    height: `${(element.height / canvas.height) * 100}%`,
-    opacity: element.opacity,
-    transform: `rotate(${element.rotation}deg)`,
-    zIndex: element.zIndex
-  };
-
-  if (element.type === "text") {
-    return (
-      <div
-        className="generated-slide-element generated-slide-text"
-        style={{
-          ...baseStyle,
-          color: element.props.color,
-          fontSize: `max(8px, ${(element.props.fontSize / canvas.width) * 100}cqw)`,
-          fontWeight: element.props.fontWeight,
-          lineHeight: element.props.lineHeight,
-          textAlign: element.props.align
-        }}
-      >
-        {element.props.text}
-      </div>
-    );
-  }
-
-  return <div className="generated-slide-element generated-slide-shape" style={baseStyle} />;
-}
-
-export function ExtractResultItem(props: { result: ExtractedFile }) {
-  const { result } = props;
-
-  return (
-    <article className="result-item">
-      <header>
-        <h3>{result.fileName}</h3>
-        <p>
-          {result.kind.toUpperCase()} 쨌 {result.status}
-        </p>
-      </header>
-      {result.indexingStatus ? (
-        <p>
-          {result.indexingStatus}
-          {typeof result.chunkCount === "number" ? ` 쨌 ${result.chunkCount} chunks` : ""}
-          {result.indexingMessage ? ` 쨌 ${result.indexingMessage}` : ""}
-        </p>
-      ) : null}
-      <pre>{result.cleanedText || result.cleanupMessage || result.rawText}</pre>
-      {result.keywords?.length ? (
-        <ul>
-          {result.keywords.map((keyword) => (
-            <li key={`${result.fileName}-${keyword.keyword}`}>
-              <strong>{keyword.keyword}</strong> {keyword.reason}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </article>
+      <span aria-hidden="true" className="editor-loading-indicator" />
+    </section>
   );
 }

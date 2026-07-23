@@ -1,16 +1,19 @@
 import type {
   GeneratedImageProvider,
+  GeneratedImageReferenceImage,
   ImageAssetCandidate,
   OfficialImageProvider,
   PublicImageSearchProvider
 } from "@orbit/ai";
 import {
+  designImageGenerationResultSchema,
   deckSchema,
+  type DesignImageGenerationJobPayload,
   type Deck,
   type Slide
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { DataSource } from "typeorm";
 
 export type ImageAssetRuntime = {
@@ -23,6 +26,175 @@ export type ImageAssetRuntime = {
 
 export type ImageAssetScope = {
   userId: string;
+};
+
+export async function generateDesignImageAsset(
+  dataSource: DataSource,
+  storage: Pick<StoragePort, "putObject" | "getSignedReadUrl">,
+  runtime: ImageAssetRuntime,
+  payload: DesignImageGenerationJobPayload,
+) {
+  if (!runtime.generated) {
+    throw new Error("Image generation provider is disabled");
+  }
+  const deterministicIdentity = `design-image:${payload.jobId}`;
+  const deterministicFileId = stableImageAssetFileId(deterministicIdentity);
+  if (
+    (await remainingDailyBudget(
+      dataSource,
+      runtime,
+      { userId: payload.userId },
+      deterministicFileId,
+    )) <= 0
+  ) {
+    throw new Error("Daily image generation limit exceeded");
+  }
+
+  const enrichedPrompt = buildDesignImagePrompt(payload);
+  const referenceImages = await loadReferenceImages(dataSource, storage, payload);
+  const asset = await retryImageRequest(
+    () =>
+      runtime.generated!.generate({
+        prompt: enrichedPrompt,
+        aspectRatio: payload.aspectRatio,
+        ...(referenceImages.length ? { referenceImages } : {}),
+        abortSignal: AbortSignal.timeout(120_000),
+      }),
+    1,
+  );
+  assertCandidate(asset, "ai-generated");
+  const dimensions = imageDimensions(asset.body, asset.mimeType);
+  if (!dimensions) throw new Error("Generated image dimensions are unavailable");
+  const stored = await storeImageAsset(
+    dataSource,
+    storage,
+    payload.projectId,
+    { ...asset, generationPrompt: enrichedPrompt },
+    { userId: payload.userId },
+    deterministicIdentity,
+  );
+
+  return designImageGenerationResultSchema.parse({
+    ...stored,
+    projectId: payload.projectId,
+    purpose: "design-asset",
+    mimeType: asset.mimeType,
+    width: dimensions.width,
+    height: dimensions.height,
+    prompt: payload.prompt,
+    aspectRatio: payload.aspectRatio,
+  });
+}
+
+async function loadReferenceImages(
+  dataSource: DataSource,
+  storage: Pick<StoragePort, "getSignedReadUrl">,
+  payload: DesignImageGenerationJobPayload,
+): Promise<GeneratedImageReferenceImage[]> {
+  const loaded: GeneratedImageReferenceImage[] = [];
+  const selectedReference = payload.selectedImageReference;
+  if (selectedReference) {
+    if (selectedReference.projectId !== payload.projectId) {
+      throw new Error("Selected image project mismatch");
+    }
+    const rows = (await dataSource.query(
+      `
+        SELECT file_id, project_id, storage_key, original_name, mime_type, size
+        FROM project_assets
+        WHERE project_id = $1
+          AND file_id = $2
+          AND status = 'uploaded'
+          AND mime_type IN ('image/png', 'image/jpeg', 'image/webp')
+        LIMIT 1
+      `,
+      [payload.projectId, selectedReference.fileId],
+    )) as StoredAssetRow[];
+    const asset = rows[0];
+    if (!asset) {
+      throw new Error("Selected image reference asset is unavailable");
+    }
+    loaded.push(await readReferenceImage(storage, asset, "Selected image reference content is unavailable"));
+  }
+
+  const attachments = payload.referenceImages ?? [];
+  if (attachments.length) {
+    const fileIds = attachments.map((image) => image.fileId);
+    const rows = (await dataSource.query(
+      `
+        SELECT file_id, project_id, storage_key, original_name, mime_type, size
+        FROM project_assets
+        WHERE project_id = $1
+          AND file_id = ANY($2::text[])
+          AND purpose = 'reference-material'
+          AND status = 'uploaded'
+          AND mime_type IN ('image/png', 'image/jpeg', 'image/webp')
+      `,
+      [payload.projectId, fileIds],
+    )) as StoredAssetRow[];
+    const rowsById = new Map(rows.map((row) => [row.file_id, row]));
+    for (const fileId of fileIds) {
+      const asset = rowsById.get(fileId);
+      if (!asset) {
+        throw new Error("Reference image asset is unavailable");
+      }
+      loaded.push(await readReferenceImage(storage, asset, "Reference image content is unavailable"));
+    }
+  }
+
+  return loaded;
+}
+
+async function readReferenceImage(
+  storage: Pick<StoragePort, "getSignedReadUrl">,
+  asset: StoredAssetRow,
+  unavailableMessage: string,
+): Promise<GeneratedImageReferenceImage> {
+  const response = await fetch(await storage.getSignedReadUrl(asset.storage_key), {
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) {
+    throw new Error(unavailableMessage);
+  }
+  return {
+    body: new Uint8Array(await response.arrayBuffer()),
+    mimeType: asset.mime_type as GeneratedImageReferenceImage["mimeType"],
+    fileName: asset.original_name,
+    inputFidelity: "high",
+  };
+}
+
+function buildDesignImagePrompt(payload: DesignImageGenerationJobPayload) {
+  const context = payload.slideContext;
+  const slideText = context.text.join(" · ");
+  return [
+    payload.prompt,
+    context.title ? `Presentation context: ${context.title}.` : "",
+    slideText ? `Visible slide text: ${slideText}.` : "",
+    `Visual style: ${context.theme.name}; primary ${context.theme.primaryColor}; secondary ${context.theme.secondaryColor}; accent ${context.theme.accentColor}; background ${context.theme.backgroundColor}.`,
+    "Create a presentation-ready image with no text, logo, or watermark.",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .slice(0, 4_000);
+}
+
+export type ImageAssetFallbackDiagnostic = {
+  reasonCode:
+    | "OPENAI_IMAGE_HTTP_ERROR"
+    | "OPENAI_IMAGE_EMPTY_RESPONSE"
+    | "OPENVERSE_SEARCH_HTTP_ERROR"
+    | "OPENVERSE_NO_LICENSED_CANDIDATE"
+    | "PUBLIC_IMAGE_DOWNLOAD_FAILED"
+    | "OFFICIAL_IMAGE_UNAVAILABLE"
+    | "IMAGE_ASSET_INVALID_SIZE"
+    | "IMAGE_ASSET_INVALID_MIME"
+    | "IMAGE_ASSET_RESOLUTION_TOO_LOW"
+    | "IMAGE_STORAGE_FAILED"
+    | "IMAGE_PROVIDER_UNAVAILABLE";
+  name: string;
+  provider: "openai" | "openverse" | "official-web" | "user-upload" | "storage";
+  providerHttpStatus?: number;
+  providerRequestId?: string;
 };
 
 type StoredAssetRow = {
@@ -42,7 +214,9 @@ export async function resolveDeckImageAssets(
   runtime: ImageAssetRuntime,
   scope: ImageAssetScope,
   onlySlideIds?: ReadonlySet<string>,
-  officialAssetFileIds: readonly string[] = []
+  officialAssetFileIds: readonly string[] = [],
+  deterministicIdentity?: string,
+  onFallback?: (diagnostic: ImageAssetFallbackDiagnostic) => void
 ): Promise<{ deck: Deck; warnings: string[] }> {
   const warnings: string[] = [];
   const candidates = deck.slides.filter(
@@ -51,7 +225,10 @@ export async function resolveDeckImageAssets(
       (onlySlideIds === undefined || onlySlideIds.has(slide.slideId))
   );
   if (candidates.length === 0) return { deck, warnings };
-  const selected = candidates.slice(0, Math.max(0, runtime.maxPerDeck));
+  const selected =
+    runtime.maxPerDeck === 0
+      ? candidates
+      : candidates.slice(0, runtime.maxPerDeck);
   if (candidates.length > selected.length) {
     warnings.push(
       `Image asset limit retained placeholders on ${candidates.length - selected.length} slide(s).`
@@ -99,6 +276,11 @@ export async function resolveDeckImageAssets(
     if (uploadedOfficialAsset) uploadedOfficialAssetIndex += 1;
     if (!provider && !uploadedOfficialAsset) {
       warnings.push(`Image provider is disabled for ${policy}.`);
+      emitImageFallback(onFallback, {
+        reasonCode: "IMAGE_PROVIDER_UNAVAILABLE",
+        name: "ImageProviderUnavailableError",
+        provider: providerForPolicy(policy, Boolean(uploadedOfficialAsset)),
+      });
       continue;
     }
 
@@ -112,6 +294,7 @@ export async function resolveDeckImageAssets(
               : policy === "ai-generated"
               ? await (provider as GeneratedImageProvider).generate({
                   prompt,
+                  aspectRatio: imageAspectRatio(slide),
                   abortSignal: AbortSignal.timeout(60_000)
                 })
               : policy === "official-assets"
@@ -135,7 +318,10 @@ export async function resolveDeckImageAssets(
         storage,
         deck.projectId,
         asset,
-        scope
+        scope,
+        deterministicIdentity
+          ? `${deterministicIdentity}:${slide.slideId}`
+          : undefined
       );
       resolvedDeck = replaceSlideImagePlaceholder(
         resolvedDeck,
@@ -148,6 +334,10 @@ export async function resolveDeckImageAssets(
         usedPublicAssetUrls.add(asset.sourceAssetUrl);
       }
     } catch (error) {
+      emitImageFallback(
+        onFallback,
+        classifyImageAssetError(error, policy, Boolean(uploadedOfficialAsset))
+      );
       warnings.push(
         `Image asset fallback retained for slide ${slide.order}: ${safeErrorMessage(error)}`
       );
@@ -175,8 +365,10 @@ function isResolvableImageSlide(slide: Slide) {
 async function remainingDailyBudget(
   dataSource: DataSource,
   runtime: ImageAssetRuntime,
-  scope: ImageAssetScope
+  scope: ImageAssetScope,
+  excludeFileId?: string,
 ) {
+  if (runtime.maxPerUserPerDay === 0) return Number.POSITIVE_INFINITY;
   const rows = (await dataSource.query(
     `
       SELECT
@@ -184,8 +376,9 @@ async function remainingDailyBudget(
       FROM project_assets
       WHERE created_at >= date_trunc('day', now())
         AND asset_provider IS NOT NULL
+        AND ($2::text IS NULL OR file_id <> $2)
     `,
-    [scope.userId]
+    [scope.userId, excludeFileId ?? null]
   )) as Array<{ user_count: string | number }>;
   return Math.max(
     0,
@@ -319,19 +512,28 @@ async function storeImageAsset(
   storage: Pick<StoragePort, "putObject">,
   projectId: string,
   asset: ImageAssetCandidate,
-  scope: ImageAssetScope
+  scope: ImageAssetScope,
+  deterministicIdentity?: string
 ) {
-  const fileId = `file_${randomUUID()}`;
+  const stableHash = deterministicIdentity
+    ? stableImageAssetHash(deterministicIdentity)
+    : undefined;
+  const fileId = deterministicIdentity
+    ? stableImageAssetFileId(deterministicIdentity)
+    : `file_${randomUUID()}`;
   const originalName = safeStorageName(asset.fileName);
-  const storageKey = `projects/${projectId}/assets/${fileId}-${originalName}`;
+  const storageKey = stableHash
+    ? `projects/${projectId}/ai-deck-assets/${stableHash}-${originalName}`
+    : `projects/${projectId}/assets/${fileId}-${originalName}`;
   const url = createAssetContentUrl(projectId, fileId);
-  await storage.putObject({
-    key: storageKey,
-    body: asset.body,
-    contentType: asset.mimeType,
-    purpose: "design-asset"
-  });
-  await dataSource.query(
+  try {
+    await storage.putObject({
+      key: storageKey,
+      body: asset.body,
+      contentType: asset.mimeType,
+      purpose: "design-asset"
+    });
+    await dataSource.query(
     `
       INSERT INTO project_assets (
         file_id, project_id, storage_key, original_name, mime_type, size, url,
@@ -345,6 +547,23 @@ async function storeImageAsset(
         'design-asset', 'uploaded', now(), now(), null,
         $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
       )
+      ON CONFLICT (file_id) DO UPDATE
+      SET storage_key = EXCLUDED.storage_key,
+          original_name = EXCLUDED.original_name,
+          mime_type = EXCLUDED.mime_type,
+          size = EXCLUDED.size,
+          url = EXCLUDED.url,
+          source_url = EXCLUDED.source_url,
+          author = EXCLUDED.author,
+          license = EXCLUDED.license,
+          license_checked_at = EXCLUDED.license_checked_at,
+          asset_provider = EXCLUDED.asset_provider,
+          generation_prompt = EXCLUDED.generation_prompt,
+          generated_for_user_id = EXCLUDED.generated_for_user_id,
+          source_asset_url = EXCLUDED.source_asset_url,
+          source_authority = EXCLUDED.source_authority,
+          usage_basis = EXCLUDED.usage_basis
+      WHERE project_assets.project_id = EXCLUDED.project_id
     `,
     [
       fileId,
@@ -365,8 +584,23 @@ async function storeImageAsset(
       asset.sourceAuthority ?? "unknown",
       asset.usageBasis ?? (asset.generationPrompt ? "generated" : null)
     ]
-  );
+    );
+  } catch (error) {
+    throw new ImageAssetPipelineError(
+      "IMAGE_STORAGE_FAILED",
+      "storage",
+      error
+    );
+  }
   return { fileId, url };
+}
+
+function stableImageAssetHash(identity: string) {
+  return createHash("sha256").update(identity).digest("hex").slice(0, 32);
+}
+
+function stableImageAssetFileId(identity: string) {
+  return `file_aideck_${stableImageAssetHash(identity)}`;
 }
 
 function replaceSlideImagePlaceholder(
@@ -391,6 +625,8 @@ function replaceSlideImagePlaceholder(
         /_media_placeholder$/,
         "_media_asset"
       );
+      const fit = imageFit(asset);
+      const framing = imageFramingPreset(slide, placeholder);
       return {
         ...slide,
         animations: slide.animations.map((animation) =>
@@ -411,9 +647,9 @@ function replaceSlideImagePlaceholder(
             props: {
               src: url,
               alt: plan?.imageAlt ?? plan?.reason ?? slide.title,
-              fit: imageFit(asset),
-              focusX: 0.5,
-              focusY: 0.5
+              fit,
+              focusX: fit === "contain" ? 0.5 : framing.focusX,
+              focusY: fit === "contain" ? 0.5 : framing.focusY
             }
           }
         ],
@@ -465,12 +701,82 @@ function imagePrompt(deck: Deck, slide: Slide) {
   const aspectRatio = media
     ? Math.round((media.width / media.height) * 100) / 100
     : 1.5;
-  const framing = `Designed for a ${aspectRatio}:1 frame. Single dominant subject fills 70-80% of the frame. Keep the complete subject inside the central 70% crop-safe area. No text, logo, watermark, or large empty margins.`;
+  const preset = imageFramingPreset(slide, media);
+  const framing = `Designed for a ${aspectRatio}:1 frame. ${preset.prompt} No text, logo, watermark, or embedded typography.`;
   if (plan?.imagePrompt?.trim()) {
     return `${plan.imagePrompt.trim()}. ${framing}`;
   }
   const reason = plan?.reason ?? "support the key message";
   return `${deck.title}. ${slide.title}. ${reason}. ${framing}`;
+}
+
+function imageAspectRatio(
+  slide: Slide
+): "landscape" | "portrait" | "square" {
+  const media = slide.elements.find((element) => element.role === "media");
+  if (!media || media.height <= 0) return "landscape";
+  const ratio = media.width / media.height;
+  if (ratio >= 1.2) return "landscape";
+  if (ratio <= 0.8) return "portrait";
+  return "square";
+}
+
+function imageFramingPreset(
+  slide: Slide,
+  media: Slide["elements"][number] | undefined
+) {
+  const compositionId = slide.aiNotes?.compositionPlan?.compositionId;
+  const assetRole = slide.aiNotes?.compositionPlan?.assetRole;
+  if (
+    compositionId === "hero-full-bleed" ||
+    compositionId === "cover-immersive-background"
+  ) {
+    return {
+      prompt:
+        "Compose a wide environmental scene with layered depth and room for presentation cropping; avoid a centered cutout subject.",
+      focusX: 0.5,
+      focusY: 0.5
+    };
+  }
+  if (compositionId === "editorial-media-band") {
+    return {
+      prompt:
+        "Compose a wide horizontal scene with layered context; keep important details away from the top and bottom crop edges.",
+      focusX: 0.5,
+      focusY: 0.46
+    };
+  }
+  if (assetRole === "evidence" || compositionId === "image-evidence") {
+    return {
+      prompt:
+        "Show factual product, place, or real-world evidence in context; avoid infographics, diagrams, posters, UI mockups, or decorative text.",
+      focusX: 0.5,
+      focusY: 0.5
+    };
+  }
+  if (
+    compositionId === "hero-split" ||
+    compositionId === "cover-visual-impact" ||
+    compositionId === "cover-research-author" ||
+    compositionId === "editorial-split"
+  ) {
+    const mediaOnRight = media
+      ? media.x + media.width / 2 >= 1920 / 2
+      : true;
+    return {
+      prompt: mediaOnRight
+        ? "Place the primary person, product, or object on the right third, oriented toward the left-side text area; retain contextual depth."
+        : "Place the primary person, product, or object on the left third, oriented toward the right-side text area; retain contextual depth.",
+      focusX: mediaOnRight ? 0.68 : 0.32,
+      focusY: 0.5
+    };
+  }
+  return {
+    prompt:
+      "Compose a presentation-ready editorial scene with contextual depth and a clear focal hierarchy; avoid an isolated sticker-like illustration.",
+    focusX: 0.5,
+    focusY: 0.5
+  };
 }
 
 function imageFit(asset: ImageAssetCandidate): "contain" | "cover" {
@@ -542,4 +848,113 @@ function createAssetContentUrl(projectId: string, fileId: string) {
 
 function safeErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Image provider failed";
+}
+
+function emitImageFallback(
+  onFallback: ((diagnostic: ImageAssetFallbackDiagnostic) => void) | undefined,
+  diagnostic: ImageAssetFallbackDiagnostic
+): void {
+  try {
+    onFallback?.(diagnostic);
+  } catch {
+    // Diagnostic logging must not change image fallback behavior.
+  }
+}
+
+export function classifyImageAssetError(
+  error: unknown,
+  policy: string,
+  uploadedOfficialAsset = false
+): ImageAssetFallbackDiagnostic {
+  if (error instanceof ImageAssetPipelineError) {
+    return {
+      reasonCode: error.reasonCode,
+      name: error.name,
+      provider: error.provider,
+      providerHttpStatus: safeHttpStatus(error.cause),
+      providerRequestId: safeProviderRequestId(error.cause)
+    };
+  }
+  const message = error instanceof Error ? error.message : "";
+  const provider = providerForPolicy(policy, uploadedOfficialAsset);
+  const reasonCode = message.startsWith(
+    "OpenAI image generation failed with status"
+  )
+    ? "OPENAI_IMAGE_HTTP_ERROR"
+    : message === "OpenAI image generation returned no image data"
+      ? "OPENAI_IMAGE_EMPTY_RESPONSE"
+      : message.startsWith("Openverse image search failed with status")
+        ? "OPENVERSE_SEARCH_HTTP_ERROR"
+        : message === "Openverse returned no licensed image candidate"
+          ? "OPENVERSE_NO_LICENSED_CANDIDATE"
+          : message.startsWith("Public image download failed with status")
+            ? "PUBLIC_IMAGE_DOWNLOAD_FAILED"
+            : message.includes("Official") || uploadedOfficialAsset
+              ? "OFFICIAL_IMAGE_UNAVAILABLE"
+              : message.includes("size") || message.includes("byte")
+                ? "IMAGE_ASSET_INVALID_SIZE"
+                : message.includes("MIME") || message.includes("content type")
+                  ? "IMAGE_ASSET_INVALID_MIME"
+                  : message.includes("resolution") ||
+                      message.includes("640x360")
+                    ? "IMAGE_ASSET_RESOLUTION_TOO_LOW"
+                    : "IMAGE_PROVIDER_UNAVAILABLE";
+  return {
+    reasonCode,
+    name: error instanceof Error ? error.name : "UnknownError",
+    provider,
+    providerHttpStatus: safeHttpStatus(error) ?? statusFromMessage(message),
+    providerRequestId: safeProviderRequestId(error)
+  };
+}
+
+class ImageAssetPipelineError extends Error {
+  constructor(
+    readonly reasonCode: "IMAGE_STORAGE_FAILED",
+    readonly provider: "storage",
+    override readonly cause: unknown
+  ) {
+    super("Image asset storage failed.");
+    this.name = "ImageAssetPipelineError";
+  }
+}
+
+function providerForPolicy(
+  policy: string,
+  uploadedOfficialAsset: boolean
+): ImageAssetFallbackDiagnostic["provider"] {
+  if (uploadedOfficialAsset) return "user-upload";
+  if (policy === "ai-generated") return "openai";
+  if (policy === "public-assets") return "openverse";
+  return "official-web";
+}
+
+function safeHttpStatus(error: unknown): number | undefined {
+  if (!isRecord(error)) return undefined;
+  for (const key of ["status", "statusCode", "httpStatus"]) {
+    const value = error[key];
+    if (typeof value === "number" && value >= 100 && value <= 599) return value;
+  }
+  return undefined;
+}
+
+function safeProviderRequestId(error: unknown): string | undefined {
+  if (!isRecord(error)) return undefined;
+  for (const key of ["requestId", "request_id"]) {
+    const value = error[key];
+    if (typeof value === "string" && value.length > 0 && value.length <= 256) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function statusFromMessage(message: string): number | undefined {
+  const match = /status (\d{3})(?:\D|$)/.exec(message);
+  const status = Number(match?.[1]);
+  return status >= 100 && status <= 599 ? status : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

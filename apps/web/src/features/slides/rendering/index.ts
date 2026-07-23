@@ -9,9 +9,30 @@ export {
   clampBackgroundOverlayOpacity,
   getSlideBackgroundSize
 } from "./SlideBackground";
-export { ElementNodeContent, type SlideElementFrame } from "./elementRendering";
+export {
+  ElementNodeContent,
+  verticalAxisTitleText,
+  type SlideElementFrame,
+} from "./elementRendering";
 export { getActiveHighlightElementIds, HighlightOverlay } from "./highlightOverlay";
+export { getHighlightOverlayElements } from "./highlightOverlayElements";
+export {
+  diagnoseImportedDeckFonts,
+  type ImportedFontAvailabilityDiagnostic
+} from "./fontAvailability";
 export {
   getRenderableSlideElements,
-  normalizeRenderableElement
+  normalizeRenderableElement,
+  usesSourceSlideSnapshot
 } from "./elementNormalization";
+export {
+  clearProjectSlideImageCache,
+  collectSlideAssetUrls,
+  getReadySlideImage,
+  loadSlideImage,
+  preloadSlideAssets,
+  prepareSlideAssets,
+  retainSlideAssetWindow,
+  type SlideAssetPreparationResult,
+  type SlideImagePriority
+} from "./slideImageCache";

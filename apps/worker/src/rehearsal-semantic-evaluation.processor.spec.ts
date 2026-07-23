@@ -6,7 +6,7 @@ import { processRehearsalSemanticEvaluationJob } from "./rehearsal-semantic-eval
 const payload = {
   jobId: "job-semantic-retry",
   projectId: "project-a",
-  runId: "run-a"
+  runId: "run-a",
 };
 
 describe("processRehearsalSemanticEvaluationJob", () => {
@@ -15,45 +15,50 @@ describe("processRehearsalSemanticEvaluationJob", () => {
   });
 
   it("replaces only semantic report fields with recovered canonical outcomes", async () => {
-    const recoveredReport = report({
-      state: "succeeded",
-      measurementMode: "basic",
-      reasons: [],
-      retryable: false
-    }, [coveredOutcome()]);
+    const recoveredReport = report(
+      {
+        state: "succeeded",
+        measurementMode: "basic",
+        reasons: [],
+        retryable: false,
+      },
+      [coveredOutcome()],
+    );
     const query = vi
       .fn()
       .mockResolvedValueOnce([jobRow("running", 10, null, null)])
       .mockResolvedValueOnce([runRow()])
       .mockResolvedValueOnce([jobRow("running", 60, null, null)])
       .mockResolvedValueOnce([{ report_json: recoveredReport }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         jobRow(
           "succeeded",
           100,
           { runId: "run-a", semanticCueOutcomeCount: 1 },
-          null
-        )
+          null,
+        ),
       ]);
     const cache = evidenceCache({
-      segments: [{ startMs: 0, endMs: 1_500, text: "ORBIT 핵심 의미" }]
+      segments: [{ startMs: 0, endMs: 1_500, text: "ORBIT 핵심 의미" }],
     });
     const events = vi.fn();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            semanticEvaluation: {
-              state: "succeeded",
-              measurementMode: "basic",
-              reasons: [],
-              retryable: false
-            },
-            semanticCueOutcomes: [coveredOutcome()]
-          })
-        )
-      )
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              semanticEvaluation: {
+                state: "succeeded",
+                measurementMode: "basic",
+                reasons: [],
+                retryable: false,
+              },
+              semanticCueOutcomes: [coveredOutcome()],
+            }),
+          ),
+      ),
     );
 
     const job = await processRehearsalSemanticEvaluationJob(
@@ -61,24 +66,24 @@ describe("processRehearsalSemanticEvaluationJob", () => {
       "http://localhost:8000",
       payload,
       cache,
-      events
+      events,
     );
 
     expect(job.status).toBe("succeeded");
     expect(fetch).toHaveBeenCalledWith(
       "http://localhost:8000/rehearsal/analyze-semantic-cues",
-      expect.objectContaining({ method: "POST" })
+      expect.objectContaining({ method: "POST" }),
     );
     const requestBody = JSON.parse(
-      String(vi.mocked(fetch).mock.calls[0]?.[1]?.body)
+      String(vi.mocked(fetch).mock.calls[0]?.[1]?.body),
     );
     expect(requestBody).toMatchObject({
       runId: "run-a",
       evaluationSnapshot: evaluationSnapshot(),
-      segments: [{ startMs: 0, endMs: 1_500, text: "ORBIT 핵심 의미" }]
+      segments: [{ startMs: 0, endMs: 1_500, text: "ORBIT 핵심 의미" }],
     });
     const reportUpdate = query.mock.calls.find(([sql]) =>
-      String(sql).includes("jsonb_set")
+      String(sql).includes("jsonb_set"),
     );
     expect(reportUpdate?.[0]).toContain("'{semanticEvaluation}'");
     expect(reportUpdate?.[0]).toContain("'{semanticCueOutcomes}'");
@@ -88,7 +93,7 @@ describe("processRehearsalSemanticEvaluationJob", () => {
       "run-a",
       "project-a",
       JSON.stringify(recoveredReport.semanticEvaluation),
-      JSON.stringify(recoveredReport.semanticCueOutcomes)
+      JSON.stringify(recoveredReport.semanticCueOutcomes),
     ]);
     expect(recoveredReport.metrics.wordsPerMinute).toBe(121);
     expect(recoveredReport.coaching?.summary).toBe("delivery preserved");
@@ -97,8 +102,8 @@ describe("processRehearsalSemanticEvaluationJob", () => {
         event: "rehearsal.semantic_evaluation.succeeded",
         runId: "run-a",
         jobId: "job-semantic-retry",
-        reasons: []
-      })
+        reasons: [],
+      }),
     );
     expect(JSON.stringify(events.mock.calls)).not.toContain("ORBIT 핵심 의미");
   });
@@ -111,8 +116,8 @@ describe("processRehearsalSemanticEvaluationJob", () => {
       .mockResolvedValueOnce([
         jobRow("failed", 10, null, {
           code: "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED",
-          message: "Rehearsal semantic evidence has expired."
-        })
+          message: "Rehearsal semantic evidence has expired.",
+        }),
       ]);
     const events = vi.fn();
     const fetchMock = vi.fn();
@@ -123,20 +128,20 @@ describe("processRehearsalSemanticEvaluationJob", () => {
       "http://localhost:8000",
       payload,
       evidenceCache(null),
-      events
+      events,
     );
 
     expect(job.status).toBe("failed");
     expect(job.error?.code).toBe("REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED");
-    expect(query.mock.calls.some(([sql]) => String(sql).includes("jsonb_set"))).toBe(
-      false
-    );
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("jsonb_set")),
+    ).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(events).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "rehearsal.semantic_evaluation.retry_failed",
-        reason: "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED"
-      })
+        reason: "REHEARSAL_SEMANTIC_EVIDENCE_EXPIRED",
+      }),
     );
   });
 
@@ -149,13 +154,13 @@ describe("processRehearsalSemanticEvaluationJob", () => {
       .mockResolvedValueOnce([
         jobRow("failed", 60, null, {
           code: "REHEARSAL_SEMANTIC_EVALUATION_FAILED",
-          message: "server_evaluation_failed"
-        })
+          message: "server_evaluation_failed",
+        }),
       ]);
     const events = vi.fn();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response("unavailable", { status: 503 }))
+      vi.fn(async () => new Response("unavailable", { status: 503 })),
     );
 
     const job = await processRehearsalSemanticEvaluationJob(
@@ -163,20 +168,20 @@ describe("processRehearsalSemanticEvaluationJob", () => {
       "http://localhost:8000",
       payload,
       evidenceCache({
-        segments: [{ startMs: 0, endMs: 1_500, text: "재시도 발화" }]
+        segments: [{ startMs: 0, endMs: 1_500, text: "재시도 발화" }],
       }),
-      events
+      events,
     );
 
     expect(job.status).toBe("failed");
-    expect(query.mock.calls.some(([sql]) => String(sql).includes("jsonb_set"))).toBe(
-      false
-    );
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("jsonb_set")),
+    ).toBe(false);
     expect(events).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "rehearsal.semantic_evaluation.retry_failed",
-        reason: "REHEARSAL_SEMANTIC_EVALUATION_FAILED"
-      })
+        reason: "REHEARSAL_SEMANTIC_EVALUATION_FAILED",
+      }),
     );
     expect(JSON.stringify(events.mock.calls)).not.toContain("재시도 발화");
   });
@@ -190,24 +195,25 @@ describe("processRehearsalSemanticEvaluationJob", () => {
       .mockResolvedValueOnce([
         jobRow("failed", 60, null, {
           code: "REHEARSAL_SEMANTIC_EVALUATION_INCOMPLETE",
-          message: "timeout"
-        })
+          message: "timeout",
+        }),
       ]);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            semanticEvaluation: {
-              state: "partial",
-              measurementMode: "none",
-              reasons: ["timeout"],
-              retryable: true
-            },
-            semanticCueOutcomes: [unmeasuredOutcome()]
-          })
-        )
-      )
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              semanticEvaluation: {
+                state: "partial",
+                measurementMode: "none",
+                reasons: ["timeout"],
+                retryable: true,
+              },
+              semanticCueOutcomes: [unmeasuredOutcome()],
+            }),
+          ),
+      ),
     );
 
     const job = await processRehearsalSemanticEvaluationJob(
@@ -215,14 +221,14 @@ describe("processRehearsalSemanticEvaluationJob", () => {
       "http://localhost:8000",
       payload,
       evidenceCache({
-        segments: [{ startMs: 0, endMs: 1_500, text: "재시도 발화" }]
-      })
+        segments: [{ startMs: 0, endMs: 1_500, text: "재시도 발화" }],
+      }),
     );
 
     expect(job.error?.code).toBe("REHEARSAL_SEMANTIC_EVALUATION_INCOMPLETE");
-    expect(query.mock.calls.some(([sql]) => String(sql).includes("jsonb_set"))).toBe(
-      false
-    );
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("jsonb_set")),
+    ).toBe(false);
   });
 
   it("finishes repeated work as an idempotent no-op after recovery", async () => {
@@ -231,9 +237,9 @@ describe("processRehearsalSemanticEvaluationJob", () => {
         state: "succeeded",
         measurementMode: "basic",
         reasons: [],
-        retryable: false
+        retryable: false,
       },
-      [coveredOutcome()]
+      [coveredOutcome()],
     );
     const query = vi
       .fn()
@@ -244,11 +250,11 @@ describe("processRehearsalSemanticEvaluationJob", () => {
           "succeeded",
           100,
           { runId: "run-a", semanticCueOutcomeCount: 1 },
-          null
-        )
+          null,
+        ),
       ]);
     const cache = evidenceCache({
-      segments: [{ startMs: 0, endMs: 500, text: "호출되지 않을 발화" }]
+      segments: [{ startMs: 0, endMs: 500, text: "호출되지 않을 발화" }],
     });
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -257,15 +263,15 @@ describe("processRehearsalSemanticEvaluationJob", () => {
       { query } as unknown as DataSource,
       "http://localhost:8000",
       payload,
-      cache
+      cache,
     );
 
     expect(job.status).toBe("succeeded");
     expect(cache.getSemanticEvidence).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(query.mock.calls.some(([sql]) => String(sql).includes("jsonb_set"))).toBe(
-      false
-    );
+    expect(
+      query.mock.calls.some(([sql]) => String(sql).includes("jsonb_set")),
+    ).toBe(false);
   });
 
   it("does not overwrite a concurrent retry that recovered first", async () => {
@@ -274,9 +280,9 @@ describe("processRehearsalSemanticEvaluationJob", () => {
         state: "succeeded",
         measurementMode: "basic",
         reasons: [],
-        retryable: false
+        retryable: false,
       },
-      [coveredOutcome()]
+      [coveredOutcome()],
     );
     const query = vi
       .fn()
@@ -290,19 +296,20 @@ describe("processRehearsalSemanticEvaluationJob", () => {
           "succeeded",
           100,
           { runId: "run-a", semanticCueOutcomeCount: 1 },
-          null
-        )
+          null,
+        ),
       ]);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            semanticEvaluation: recoveredReport.semanticEvaluation,
-            semanticCueOutcomes: recoveredReport.semanticCueOutcomes
-          })
-        )
-      )
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              semanticEvaluation: recoveredReport.semanticEvaluation,
+              semanticCueOutcomes: recoveredReport.semanticCueOutcomes,
+            }),
+          ),
+      ),
     );
 
     const job = await processRehearsalSemanticEvaluationJob(
@@ -310,20 +317,20 @@ describe("processRehearsalSemanticEvaluationJob", () => {
       "http://localhost:8000",
       payload,
       evidenceCache({
-        segments: [{ startMs: 0, endMs: 500, text: "동시 재시도 발화" }]
-      })
+        segments: [{ startMs: 0, endMs: 500, text: "동시 재시도 발화" }],
+      }),
     );
 
     expect(job.status).toBe("succeeded");
     const reportUpdate = query.mock.calls.find(([sql]) =>
-      String(sql).includes("jsonb_set")
+      String(sql).includes("jsonb_set"),
     );
     expect(reportUpdate?.[0]).toContain(
-      "report_json #>> '{semanticEvaluation,retryable}' = 'true'"
+      "report_json #>> '{semanticEvaluation,retryable}' = 'true'",
     );
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("SELECT report_json"),
-      ["run-a", "project-a"]
+      ["run-a", "project-a"],
     );
   });
 });
@@ -331,13 +338,13 @@ describe("processRehearsalSemanticEvaluationJob", () => {
 function evidenceCache(
   value: {
     segments: Array<{ startMs: number; endMs: number; text: string }>;
-  } | null
+  } | null,
 ) {
   return {
     set: vi.fn(async () => undefined),
     setSemanticEvidence: vi.fn(async () => undefined),
     getSemanticEvidence: vi.fn(async () => value),
-    close: vi.fn(async () => undefined)
+    close: vi.fn(async () => undefined),
   };
 }
 
@@ -347,10 +354,10 @@ function runRow(
       state: "partial",
       measurementMode: "none",
       reasons: ["timeout"],
-      retryable: true
+      retryable: true,
     },
-    [unmeasuredOutcome()]
-  )
+    [unmeasuredOutcome()],
+  ),
 ) {
   return {
     run_id: "run-a",
@@ -361,15 +368,15 @@ function runRow(
     evaluation_snapshot_json: evaluationSnapshot(),
     meta_json: {
       slideTimeline: [
-        { slideId: "slide_1", enteredAt: "2026-07-10T00:00:00.000Z" }
+        { slideId: "slide_1", enteredAt: "2026-07-10T00:00:00.000Z" },
       ],
       missedKeywords: [],
       adviceEvents: [],
       utteranceOutcomes: [],
       semanticCueDecisions: [],
-      semanticCapabilityEvents: []
+      semanticCapabilityEvents: [],
     },
-    report_json: reportJson
+    report_json: reportJson,
   };
 }
 
@@ -380,7 +387,7 @@ function report(
     reasons: Array<"timeout">;
     retryable: boolean;
   },
-  semanticCueOutcomes: Array<Record<string, unknown>>
+  semanticCueOutcomes: Array<Record<string, unknown>>,
 ) {
   return rehearsalReportSchema.parse({
     reportId: "report_run-a",
@@ -393,8 +400,8 @@ function report(
       durationSeconds: 10,
       wordsPerMinute: 121,
       fillerWordCount: 1,
-      pauseCount: 0,
-      keywordCoverage: 1
+      longSilenceCount: null,
+      keywordCoverage: 1,
     },
     semanticEvaluation,
     semanticCueOutcomes,
@@ -404,9 +411,9 @@ function report(
       strengths: [],
       improvements: [],
       nextPracticeFocus: "도입부",
-      message: ""
+      message: "",
     },
-    generatedAt: "2026-07-10T00:00:10.000Z"
+    generatedAt: "2026-07-10T00:00:10.000Z",
   });
 }
 
@@ -443,11 +450,11 @@ function evaluationSnapshot() {
             nliHypotheses: ["발표자는 ORBIT을 설명했다"],
             negativeHints: [],
             targetElementIds: [],
-            triggerActionIds: []
-          }
-        ]
-      }
-    ]
+            triggerActionIds: [],
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -465,7 +472,7 @@ function coveredOutcome() {
     measurementMode: "basic",
     fallbackUsed: false,
     coveredConcepts: ["ORBIT"],
-    missingConcepts: []
+    missingConcepts: [],
   };
 }
 
@@ -483,7 +490,7 @@ function unmeasuredOutcome() {
     fallbackReason: "timeout",
     unmeasuredReason: "timeout",
     coveredConcepts: [],
-    missingConcepts: ["ORBIT"]
+    missingConcepts: ["ORBIT"],
   };
 }
 
@@ -491,7 +498,7 @@ function jobRow(
   status: "running" | "succeeded" | "failed",
   progress: number,
   result: Record<string, unknown> | null,
-  error: { code: string; message: string } | null
+  error: { code: string; message: string } | null,
 ) {
   return {
     job_id: "job-semantic-retry",
@@ -503,6 +510,6 @@ function jobRow(
     result,
     error,
     created_at: "2026-07-10T00:00:00.000Z",
-    updated_at: "2026-07-10T00:00:01.000Z"
+    updated_at: "2026-07-10T00:00:01.000Z",
   };
 }

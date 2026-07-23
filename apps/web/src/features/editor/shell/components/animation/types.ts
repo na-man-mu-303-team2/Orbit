@@ -1,4 +1,8 @@
-import type { DeckAnimation, DeckElement } from "@orbit/shared";
+import type {
+  DeckAnimation,
+  DeckAnimationStartMode,
+  DeckElement
+} from "@orbit/shared";
 import type { AnimationKeywordTriggerOption } from "./models";
 
 export type SupportedAnimationType = "fade-in" | "fade-out";
@@ -10,15 +14,20 @@ export type AnimationPanelMode =
 export type AnimationDraftInput = {
   delayMs: number;
   durationMs: number;
+  startMode: DeckAnimationStartMode;
   type: DeckAnimation["type"];
 };
 
 export type AnimationTimingDraft = Omit<AnimationDraftInput, "type">;
 
 export type AnimationEditorPanelProps = {
+  actionAnimationIds?: Iterable<string>;
+  animationTriggerSummaryByAnimationId?: Readonly<Record<string, string>>;
+  legacyKeywordAnimationIds?: Iterable<string>;
   animations: DeckAnimation[];
   canCreateAnimation: boolean;
   element: DeckElement | null;
+  mutationDisabledReason?: string | null;
   keywordOptions: AnimationKeywordTriggerOption[];
   keywordTriggerRestrictionMessage?: string | null;
   keywordTriggerWarningMessage?: string | null;
@@ -34,7 +43,7 @@ export type AnimationEditorPanelProps = {
     keywordOccurrenceId?: string | null
   ) => void;
   onDeleteAnimation: (animationId: string) => void;
-  onSelectKeyword: (keywordId: string) => void;
+  onRequestKeywordOccurrence: () => void;
   onSelectSlideAnimation: (animation: DeckAnimation) => void;
   onUpdateAnimation: (
     animationId: string,

@@ -3,11 +3,13 @@ import { forwardRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { p0AnimationDeck } from "../../rehearsal/presenter/__fixtures__/animationDeck";
+import { computeSettledElementStates } from "../../rehearsal/presenter/slideshowStepModel";
 import {
   buildSlideBackgroundStyle,
   getActiveHighlightElementIds,
   getRenderableSlideElements,
-  ReadOnlySlideCanvas
+  ReadOnlySlideCanvas,
+  verticalAxisTitleText
 } from "./index";
 
 vi.mock("react-konva", () => {
@@ -23,6 +25,10 @@ vi.mock("react-konva", () => {
           : undefined,
       "data-opacity":
         typeof props.opacity === "number" ? String(props.opacity) : undefined,
+      "data-clip-height":
+        typeof props.clipHeight === "number" ? String(props.clipHeight) : undefined,
+      "data-clip-width":
+        typeof props.clipWidth === "number" ? String(props.clipWidth) : undefined,
       "data-testid":
         typeof props["data-testid"] === "string" ? props["data-testid"] : undefined
     };
@@ -47,19 +53,37 @@ vi.mock("react-konva", () => {
   );
   const Text = ({
     fill,
+    fontStyle,
     fontSize,
     rotation,
-    text
+    text,
+    textDecoration,
+    width,
+    wrap,
+    x,
+    y
   }: {
     fill?: string;
+    fontStyle?: string;
     fontSize?: number;
     rotation?: number;
     text?: string;
+    textDecoration?: string;
+    width?: number;
+    wrap?: string;
+    x?: number;
+    y?: number;
   }) => (
     <span
       data-fill={fill}
+      data-font-style={fontStyle}
       data-font-size={fontSize === undefined ? undefined : String(fontSize)}
       data-rotation={rotation === undefined ? undefined : String(rotation)}
+      data-text-decoration={textDecoration}
+      data-width={width === undefined ? undefined : String(width)}
+      data-wrap={wrap}
+      data-x={x === undefined ? undefined : String(x)}
+      data-y={y === undefined ? undefined : String(y)}
     >
       {text}
     </span>
@@ -103,11 +127,45 @@ describe("ReadOnlySlideCanvas", () => {
     const elements = getRenderableSlideElements(slide, p0AnimationDeck.canvas);
 
     expect(elements.map((element) => element.elementId)).toContain("el_group");
-    expect(elements.map((element) => element.elementId)).not.toContain("el_group_rect");
-    expect(elements.map((element) => element.elementId)).not.toContain("el_group_label");
+    expect(elements.map((element) => element.elementId)).toContain("el_group_rect");
+    expect(elements.map((element) => element.elementId)).toContain("el_group_label");
     expect(elements.map((element) => element.zIndex)).toEqual(
       [...elements.map((element) => element.zIndex)].sort((left, right) => left - right)
     );
+  });
+
+  it("keeps grouped children in their original global layer order", () => {
+    const rect = slide.elements.find(
+      (element) => element.elementId === "el_group_rect"
+    )!;
+    const image = slide.elements.find(
+      (element) => element.elementId === "el_image"
+    )!;
+    const group = slide.elements.find(
+      (element) => element.elementId === "el_group"
+    )!;
+    if (group.type !== "group") throw new Error("group fixture is invalid");
+    const elements = getRenderableSlideElements(
+      {
+        ...slide,
+        elements: [
+          { ...image, zIndex: 2 },
+          {
+            ...group,
+            zIndex: 3,
+            props: { childElementIds: [image.elementId, rect.elementId] }
+          },
+          { ...rect, zIndex: 1 }
+        ]
+      },
+      p0AnimationDeck.canvas
+    );
+
+    expect(elements.map((element) => element.elementId)).toEqual([
+      rect.elementId,
+      image.elementId,
+      group.elementId
+    ]);
   });
 
   it("matches editor slide background image behavior", () => {
@@ -141,6 +199,28 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).not.toContain("data-highlight-element-id=\"el_body\"");
   });
 
+  it("renders only the source snapshot while preserving the imported element tree", () => {
+    const snapshotSlide = {
+      ...slide,
+      importRenderMode: "snapshot" as const,
+      thumbnailUrl: "/api/v1/projects/project_p0/assets/file_source/content"
+    };
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={{ ...p0AnimationDeck, slides: [snapshotSlide] }}
+        highlights={[{ elementId: "el_image", active: true }]}
+        slide={snapshotSlide}
+      />
+    );
+
+    expect(snapshotSlide.elements.length).toBeGreaterThan(0);
+    expect(html).toContain(
+      "/api/v1/projects/project_p0/assets/file_source/content"
+    );
+    expect(html).not.toContain("data-element-id=\"el_image\"");
+    expect(html).not.toContain("data-highlight-element-id=\"el_image\"");
+  });
+
   it("applies presentation state to grouped child elements", () => {
     const html = renderToStaticMarkup(
       <ReadOnlySlideCanvas
@@ -157,6 +237,50 @@ describe("ReadOnlySlideCanvas", () => {
 
     expect(html).toContain("data-element-id=\"el_group_label\"");
     expect(html).toContain("data-opacity=\"0\"");
+  });
+
+  it("applies a group presentation state to every grouped child", () => {
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={p0AnimationDeck}
+        elementStates={{
+          el_group: {
+            opacity: 0.25,
+            visible: true
+          }
+        }}
+        slide={slide}
+      />
+    );
+
+    expect(html).toMatch(
+      /data-element-id="el_group_rect" data-opacity="0\.25"/
+    );
+    expect(html).toMatch(
+      /data-element-id="el_group_label" data-opacity="0\.25"/
+    );
+  });
+
+  it("hides every grouped child after a group fade-out animation settles", () => {
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={p0AnimationDeck}
+        elementStates={computeSettledElementStates({
+          deck: p0AnimationDeck,
+          slide,
+          stepIndex: 1,
+          triggerAnimationIds: ["anim_group_fade_out"]
+        })}
+        slide={slide}
+      />
+    );
+
+    expect(html).toMatch(
+      /data-element-id="el_group_rect" data-opacity="0"/
+    );
+    expect(html).toMatch(
+      /data-element-id="el_group_label" data-opacity="0"/
+    );
   });
 
   it("does not render placeholder text for empty groups", () => {
@@ -214,14 +338,16 @@ describe("ReadOnlySlideCanvas", () => {
                 baseline: "normal" as const,
                 color: "#111827",
                 fontSize: 48,
-                fontWeight: "bold" as const
+                fontWeight: "bold" as const,
+                italic: true
               },
               {
                 text: "World",
                 baseline: "normal" as const,
                 color: "#2563eb",
                 fontSize: 36,
-                fontWeight: "normal" as const
+                fontWeight: "normal" as const,
+                underline: true
               }
             ],
             fontSize: 48,
@@ -242,8 +368,12 @@ describe("ReadOnlySlideCanvas", () => {
 
     expect(html).toContain("data-fill=\"#111827\"");
     expect(html).toContain("data-font-size=\"48\"");
+    expect(html).toContain("data-font-style=\"bold italic\"");
     expect(html).toContain("data-fill=\"#2563eb\"");
     expect(html).toContain("data-font-size=\"36\"");
+    expect(html).toContain("data-text-decoration=\"underline\"");
+    expect(html).toContain("data-clip-height=\"120\"");
+    expect(html).toContain("data-clip-width=\"600\"");
   });
 
   it("renders PPT text paragraphs from paragraph props", () => {
@@ -311,6 +441,8 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).toContain("First paragraph");
     expect(html).toContain("Second paragraph");
     expect(html).toContain("data-font-size=\"40\"");
+    expect(html).not.toContain("data-width=");
+    expect(html).not.toContain("data-wrap=\"none\"");
   });
 
   it("renders editable table cells", () => {
@@ -567,5 +699,9 @@ describe("ReadOnlySlideCanvas", () => {
         { elementId: "el_body", active: false }
       ])].sort()
     ).toEqual(["el_image"]);
+  });
+
+  it("lays out vertical axis titles without rotating their glyphs", () => {
+    expect(verticalAxisTitleText("매출액")).toBe("매\n출\n액");
   });
 });

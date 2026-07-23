@@ -1,0 +1,4 @@
+.redesign-card { background: var(--redesign-color-surface-container-lowest); border: var(--redesign-border-subtle); border-radius: var(--redesign-radius-lg); color: var(--redesign-color-on-surface); }
+.redesign-card[data-interactive="true"] { transition: var(--redesign-transition-color), var(--redesign-transition-transform); }
+.redesign-card[data-interactive="true"]:hover { border-color: var(--redesign-color-primary-emphasis); box-shadow: var(--redesign-glow-primary); transform: translateY(-2px); }
+.redesign-card[data-selected="true"] { border-color: var(--redesign-color-primary-emphasis); box-shadow: var(--redesign-glow-primary); }

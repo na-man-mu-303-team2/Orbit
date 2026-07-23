@@ -1,11 +1,18 @@
 import type { DeckAnimation, Keyword, Slide, DeckElement } from "@orbit/shared";
-import { Plus, Trash2, X } from "lucide-react";
+import {
+  IconPlus as Plus,
+  IconTrash as Trash2,
+  IconX as X
+} from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type { SlideAnimationDiagnostics } from "../../../../../../../packages/editor-core/src/index";
 import { IdBadge } from "./EditorIdBadge";
-import { KeywordHighlightedNotes } from "./KeywordInspector";
+import {
+  KeywordHighlightedNotes,
+  type KeywordSelectionContext
+} from "./KeywordInspector";
 import {
   PropertyNumberField,
   QuickBarSelectField
@@ -71,7 +78,10 @@ type AnimationEditorModalProps = {
   onClose: () => void;
   onDeleteAnimation: (animationId: string) => void;
   onSelectKeyword: (keywordId: string, occurrenceKey?: string | null) => void;
-  onSelectKeywordText: (value: string, start: number) => void;
+  onSelectKeywordText: (
+    value: string,
+    start: number
+  ) => KeywordSelectionContext | null;
   onUpdateAnimation: (
     animationId: string,
     patch: Partial<DeckAnimation>
@@ -286,7 +296,7 @@ export function AnimationEditorModal(props: AnimationEditorModalProps) {
             <div className="animation-editor-create-actions">
               <span className="animation-editor-footer-hint">
                 {selectedKeywordLabel && !selectedKeywordOccurrenceKey
-                  ? "반복되는 단어일 수 있습니다. 발표 메모에서 실제로 트리거할 단어 위치를 선택하세요."
+                  ? "발표 메모에서 애니메이션을 시작할 단어를 선택하세요."
                   : selectedKeywordLabel
                   ? "선택한 키워드와 현재 설정으로 새 애니메이션이 추가됩니다."
                   : "1번에서 키워드를 먼저 선택하면 2번 설정과 추가하기가 활성화됩니다."}

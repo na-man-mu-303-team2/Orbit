@@ -9,11 +9,17 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from app.audio import processing
+from app.audio.analysis.models import (
+    unmeasured_silence_analysis,
+    unmeasured_volume_analysis,
+)
 from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscriptionError,
     AudioContent,
     OpenAISpeechToTextProvider,
+    PronunciationContextTerm,
     ProviderTranscription,
     SpeechToTextProvider,
     TranscriptSegment,
@@ -35,7 +41,11 @@ class FakeSpeechToTextProvider:
         self.transcript = transcript
         self.last_audio: AudioContent | None = None
 
-    def transcribe(self, audio: AudioContent) -> ProviderTranscription:
+    def transcribe(
+        self,
+        audio: AudioContent,
+        pronunciation_context: list[PronunciationContextTerm] | None = None,
+    ) -> ProviderTranscription:
         self.last_audio = audio
         return ProviderTranscription(
             transcript=self.transcript,
@@ -57,7 +67,11 @@ class FailingSpeechToTextProvider:
     name = "fake"
     model = "failing-transcriber"
 
-    def transcribe(self, audio: AudioContent) -> ProviderTranscription:
+    def transcribe(
+        self,
+        audio: AudioContent,
+        pronunciation_context: list[PronunciationContextTerm] | None = None,
+    ) -> ProviderTranscription:
         raise RuntimeError(f"failed for {audio.file_name}")
 
 
@@ -82,6 +96,52 @@ def test_transcribe_audio_returns_fixture_transcript(tmp_path: Path) -> None:
     assert len(response.segments) == 1
     assert provider.last_audio is not None
     assert provider.last_audio.data == b"fake wav bytes"
+
+
+def test_rehearsal_processing_loads_once_and_shares_audio_content(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    audio_path = tmp_path / "rehearsal.wav"
+    audio_path.write_bytes(b"fake wav bytes")
+    audio_content = AudioContent(
+        data=b"shared audio bytes",
+        file_name="rehearsal.wav",
+        mime_type="audio/wav",
+    )
+    provider = FakeSpeechToTextProvider()
+    analyzed_audio: list[AudioContent] = []
+    load_count = 0
+
+    def fake_load_audio_content(_reference: object) -> AudioContent:
+        nonlocal load_count
+        load_count += 1
+        return audio_content
+
+    def fake_analyze_audio_safely(audio: AudioContent, _detector: object):
+        analyzed_audio.append(audio)
+        return (
+            unmeasured_volume_analysis("ANALYSIS_FAILED"),
+            unmeasured_silence_analysis(
+                "ANALYSIS_FAILED",
+                detector_version="test-vad",
+            ),
+        )
+
+    monkeypatch.setattr(processing, "load_audio_content", fake_load_audio_content)
+    monkeypatch.setattr(
+        processing,
+        "analyze_audio_safely",
+        fake_analyze_audio_safely,
+    )
+
+    response = processing.process_rehearsal_audio(_request(audio_path), provider)
+
+    assert load_count == 1
+    assert provider.last_audio is audio_content
+    assert analyzed_audio == [audio_content]
+    assert response.volume_analysis.reason_code == "ANALYSIS_FAILED"
+    assert response.silence_analysis.reason_code == "ANALYSIS_FAILED"
 
 
 def test_audio_reference_accepts_flac_mime_type(tmp_path: Path) -> None:
@@ -206,6 +266,47 @@ def test_gpt4o_transcribe_uses_json_response_format(
     assert calls[0]["response_format"] == "json"
 
 
+def test_openai_stt_uses_bounded_pronunciation_context_as_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeTranscriptions:
+        def create(self, **kwargs: object) -> dict[str, str]:
+            calls.append(kwargs)
+            return {"text": "오픈에이아이 에이피아이"}
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key: str) -> None:
+            self.audio = SimpleNamespace(transcriptions=FakeTranscriptions())
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    provider = OpenAISpeechToTextProvider(
+        api_key="test-key",
+        model="whisper-1",
+        language="ko-KR",
+    )
+
+    provider.transcribe(
+        AudioContent(
+            data=b"fake webm bytes",
+            file_name="rehearsal.webm",
+            mime_type="audio/webm",
+        ),
+        [
+            PronunciationContextTerm(
+                source="OpenAI",
+                aliases=["오픈에이아이", "오픈 AI"],
+            ),
+            PronunciationContextTerm(source="API", aliases=["에이피아이"]),
+        ],
+    )
+
+    assert calls[0]["prompt"] == (
+        "발표 용어 표기와 발음: OpenAI(오픈에이아이, 오픈 AI), API(에이피아이)."
+    )
+
+
 def test_whisper1_uses_verbose_json_and_parses_segments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -216,6 +317,7 @@ def test_whisper1_uses_verbose_json_and_parses_segments(
             calls.append(kwargs)
             return {
                 "text": "첫 문장 다음 문장",
+                "language": "korean",
                 "duration": 12.5,
                 "segments": [
                     {"text": "첫 문장", "start": 0.0, "end": 2.0},
@@ -246,6 +348,7 @@ def test_whisper1_uses_verbose_json_and_parses_segments(
     # whisper-1은 verbose_json 응답을 써야 세그먼트/duration이 채워진다.
     assert calls[0]["response_format"] == "verbose_json"
     assert result.transcript == "첫 문장 다음 문장"
+    assert result.language == "ko"
     assert result.duration_seconds == 12.5
     assert len(result.segments) == 2
     assert result.segments[0].start_seconds == 0.0
@@ -590,6 +693,35 @@ def test_audio_transcribe_endpoint_uses_injected_provider(
 
     assert response.status_code == 200
     assert response.json()["transcript"] == "발표 키워드를 확인했습니다"
+    assert response.json()["volumeAnalysis"] == {
+        "metricDefinitionVersion": 2,
+        "measurementState": "unmeasured",
+        "reasonCode": "AUDIO_DECODE_FAILED",
+        "averageDbfs": None,
+        "baselineDbfs": None,
+        "variationDb": None,
+        "activeRatio": None,
+        "issueSegments": [],
+    }
+    silence_analysis = response.json()["silenceAnalysis"]
+    assert silence_analysis == {
+        "metricDefinitionVersion": 2,
+        "measurementState": "unmeasured",
+        "reasonCode": "AUDIO_DECODE_FAILED",
+        "detector": "silero-vad",
+        "detectorVersion": silence_analysis["detectorVersion"],
+        "speechThreshold": 0.5,
+        "minimumSilenceMs": 250,
+        "longSilenceMs": 5000,
+        "analysisWindowStartSeconds": None,
+        "analysisWindowEndSeconds": None,
+        "totalSilenceSeconds": None,
+        "silenceRatio": None,
+        "longSilenceCount": None,
+        "detectedSegmentCount": None,
+        "segmentsTruncated": False,
+        "segments": [],
+    }
     assert response.json()["segments"] == [
         {
             "text": "발표 키워드를 확인했습니다",
@@ -597,6 +729,44 @@ def test_audio_transcribe_endpoint_uses_injected_provider(
             "endSeconds": 3.5,
         }
     ]
+
+
+def test_private_audio_transcribe_endpoint_does_not_run_volume_analysis(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    audio_path = tmp_path / "private.webm"
+    audio_path.write_bytes(b"fake webm bytes")
+
+    for key, value in VALID_ENV.items():
+        monkeypatch.setenv(key, value)
+
+    def provider_override() -> SpeechToTextProvider:
+        return FakeSpeechToTextProvider("집중 연습 전사입니다")
+
+    app.dependency_overrides[get_speech_to_text_provider] = provider_override
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/audio/transcribe-private",
+                json={
+                    "runId": "run_demo_1",
+                    "projectId": "project_demo_1",
+                    "audio": {
+                        "fileId": "file_demo_1",
+                        "storageUrl": str(audio_path),
+                        "mimeType": "audio/webm",
+                    },
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["transcript"] == "집중 연습 전사입니다"
+    assert "volumeAnalysis" not in response.json()
+    assert "silenceAnalysis" not in response.json()
 
 
 def _request(audio_path: Path) -> AudioTranscribeRequest:

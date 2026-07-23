@@ -1,17 +1,20 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-import json
-from typing import Any, Literal, cast
+from typing import Any, Literal, Self, cast
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.ai.color_options import (
+    DeckColorCustomizationRequest,
+    DeckColorCustomizationResponse,
     DeckColorOptionsRequest,
     DeckColorOptionsResponse,
+    customize_deck_color_palette,
     generate_deck_color_options,
 )
 from app.ai.deck_pptx_export import (
@@ -32,21 +35,68 @@ from app.ai.generate_deck import (
     ReferenceContext,
     generate_deck,
 )
+from app.ai.deck_generation.stage_runtime import (
+    ContentPlanningStageInput,
+    ContentPlanningStageResult,
+    DesignPlanningStageInput,
+    DesignPlanningStageResult,
+    LayoutCompileStageInput,
+    LayoutCompileStageResult,
+    SlideComposeStageInput,
+    SlideComposeStageResult,
+    SourceGroundingStageInput,
+    run_content_planning_stage,
+    run_design_planning_stage,
+    run_layout_compile_stage,
+    run_slide_compose_stage,
+    run_source_grounding_stage,
+)
+from app.ai.deck_generation.models import ReferencePolicy, SourceGroundingResult
 from app.ai.pptx_design_importer import (
     ImportedDesignAsset,
     PptxDesignImportResult,
 )
 from app.ai.pptx_ooxml_generation import (
+    PptxImportPreference,
     PptxOoxmlGenerationError,
     PptxOoxmlGenerationResult,
+    PptxRenderUnavailableError,
     PptxOoxmlSyncResult,
     UnsupportedPptxAspectRatioError,
-    apply_slot_texts_to_pptx_ooxml,
     generate_pptx_ooxml,
     sync_pptx_ooxml,
 )
+from app.ai.pptx_ooxml_asset_storage import (
+    StoredPptxOoxmlGenerationResult,
+    StoredPptxOoxmlSyncResult,
+    store_generation_assets,
+    store_sync_assets,
+)
+from app.ai.pptx_ooxml_read_locators import (
+    PptxOoxmlReadLocator,
+    load_pptx_package_locator,
+    materialize_asset_locators,
+)
+from app.ai.pptx_ooxml_sync_transport import (
+    AUTHORED_ELEMENT_FALLBACKS_MAX_BYTES,
+    DECK_CANVAS_MAX_BYTES,
+    OPERATIONS_MAX_BYTES,
+    SLIDE_MOTION_MAX_BYTES,
+    TEMPLATE_BLUEPRINT_MAX_BYTES,
+    PptxOoxmlSyncTransportError,
+    parse_json_part,
+    read_pptx_package,
+    validate_authored_element_fallbacks,
+)
 from app.ai.pptx_ooxml_vector_importer import (
     import_pptx_design_with_optional_ooxml_vector,
+)
+from app.ai.pptx_package_security import PptxPackageSecurityError
+from app.ai.pptx_png_zip_export import (
+    PptxPngZipExportError,
+    PptxPngZipExportRequest,
+    PptxPngZipExportResponse,
+    export_pptx_png_zip,
 )
 from app.ai.visual_qa import (
     VisualQaRequest,
@@ -63,16 +113,44 @@ from app.ai.semantic_cues import (
     SemanticCueExtractionResponse,
     extract_semantic_cues,
 )
+from app.ai.speaker_notes import (
+    SpeakerNotesSuggestionError,
+    SpeakerNotesSuggestionRequest,
+    SpeakerNotesSuggestionResponse,
+    generate_speaker_notes_suggestion,
+)
+from app.audio.clip import create_rehearsal_audio_clip
+from app.audio.models import AudioContent
 from app.audio.transcribe import (
     AudioTranscribeRequest,
     AudioTranscribeResponse,
     AudioTranscriptionError,
+    PronunciationContextTerm,
     ReportSttProviderDependency,
     TranscriptSegment,
     to_http_exception,
     transcribe_rehearsal_audio,
 )
+from app.audio.processing import (
+    RehearsalAudioProcessingResponse,
+    process_rehearsal_audio,
+)
+from app.audio.slide_practice import (
+    SlidePracticeAudioResponse,
+    process_slide_practice_audio,
+)
+from app.audio.analysis.models import (
+    RehearsalSilenceAnalysis,
+    unmeasured_silence_analysis,
+)
 from app.challenge_qna import router as challenge_qna_router
+from app.slide_practice_coaching import (
+    SlidePracticeCoachingError,
+    SlidePracticeCoachingRequest,
+    SlidePracticeCoachingResponse,
+    generate_slide_practice_coaching,
+)
+from app.slide_question_guides import router as slide_question_guides_router
 from app.config import PythonWorkerConfig, load_config
 from app.extraction import (
     ExtractConfig,
@@ -85,8 +163,10 @@ from app.extraction import (
 from app.focused_practice import router as focused_practice_router
 from app.references import (
     PostgresReferenceRepository,
+    ReferenceSearchResult,
     index_reference_text,
     search_reference_chunks,
+    search_reference_chunks_by_file,
 )
 from app.rehearsal import (
     DeckKeyword,
@@ -108,6 +188,68 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
     app: str
     checked_at: datetime
+
+
+def _planning_failure_detail(error: DeckContentGenerationError) -> dict[str, object]:
+    message = str(error)
+    if "SOURCE_GROUNDING_REQUIRED" in message:
+        reason_code = "SOURCE_GROUNDING_REQUIRED"
+    elif message.startswith("LLM deck content generation failed:"):
+        reason_code = "CONTENT_LLM_PROVIDER_FAILURE"
+    elif message.startswith("LLM returned empty deck content."):
+        reason_code = "CONTENT_LLM_EMPTY_RESPONSE"
+    elif message.startswith("LLM returned invalid deck content:"):
+        reason_code = "CONTENT_LLM_INVALID_RESPONSE"
+    elif message.startswith(
+        (
+            "LLM content plan reused content item IDs:",
+            "LLM content plan referenced unavailable source IDs:",
+            "UNSUPPORTED_NUMERIC_CLAIM:",
+            "LLM returned fewer slides than the requested minimum",
+        )
+    ):
+        reason_code = "CONTENT_LLM_INVALID_RESPONSE"
+    elif message.startswith("LLM slide count repair failed:"):
+        reason_code = "CONTENT_LLM_SLIDE_COUNT_REPAIR_FAILED"
+    elif message.startswith(
+        (
+            "OPENAI_API_KEY is required for prompt or reference-based deck generation.",
+            "LLM deck content generation is required for prompt or reference-based decks.",
+        )
+    ):
+        reason_code = "CONTENT_LLM_PROVIDER_FAILURE"
+    elif "Art Director could not create a valid design plan" in message:
+        reason_code = "ART_DIRECTOR_INVALID_RESPONSE"
+    elif "Art Director" in message and "unavailable" in message:
+        reason_code = "ART_DIRECTOR_UNAVAILABLE"
+    elif message.startswith(
+        (
+            "No composition supports",
+            "No composition sequence satisfies",
+            "Design Program slide count mismatch",
+        )
+    ):
+        reason_code = "DESIGN_COMPOSITION_UNSUPPORTED"
+    else:
+        reason_code = "PLANNING_FAILURE_UNCLASSIFIED"
+
+    detail: dict[str, object] = {"reasonCode": reason_code}
+    if reason_code.startswith(("CONTENT_LLM_", "ART_DIRECTOR_")):
+        detail["provider"] = "openai"
+    provider_error: BaseException | None = error.__cause__
+    for _ in range(3):
+        if provider_error is None:
+            break
+        provider_status = getattr(provider_error, "status_code", None)
+        if isinstance(provider_status, int) and 100 <= provider_status <= 599:
+            detail["providerHttpStatus"] = provider_status
+        provider_request_id = getattr(provider_error, "request_id", None)
+        if isinstance(provider_request_id, str) and 0 < len(provider_request_id) <= 256:
+            detail["providerRequestId"] = provider_request_id
+        if "providerHttpStatus" in detail and "providerRequestId" in detail:
+            break
+        provider_error = provider_error.__cause__
+    return detail
 
 
 class ReferenceExtractRequest(BaseModel):
@@ -197,6 +339,7 @@ class RehearsalAnalyzeRequest(BaseModel):
     project_id: str = Field(alias="projectId")
     deck_id: str = Field(alias="deckId")
     transcript: str
+    language: str = Field(default="und", min_length=1, max_length=128)
     duration_seconds: float = Field(alias="durationSeconds", ge=0)
     segments: list[TranscriptSegment] = Field(default_factory=list)
     deck_keywords: list[DeckKeywordRequest] = Field(
@@ -206,6 +349,18 @@ class RehearsalAnalyzeRequest(BaseModel):
     slide_timeline: list[RehearsalSlideTimelineEntryRequest] = Field(
         default_factory=list,
         alias="slideTimeline",
+    )
+    silence_analysis: RehearsalSilenceAnalysis = Field(
+        default_factory=lambda: unmeasured_silence_analysis(
+            "LEGACY_REPORT",
+            detector_version="unavailable",
+        ),
+        alias="silenceAnalysis",
+    )
+    pronunciation_context: list[PronunciationContextTerm] = Field(
+        default_factory=list,
+        alias="pronunciationContext",
+        max_length=32,
     )
 
 
@@ -235,29 +390,70 @@ class RehearsalFillerWordDetailResponse(BaseModel):
     count: int = Field(ge=0)
 
 
-class RehearsalPauseDetailResponse(BaseModel):
-    start_second: float = Field(alias="startSecond", ge=0)
-    end_second: float = Field(alias="endSecond", ge=0)
-    duration_seconds: float = Field(alias="durationSeconds", ge=0)
-
-
 class RehearsalMissedKeywordResponse(BaseModel):
     slide_id: str = Field(alias="slideId")
     keyword_id: str = Field(alias="keywordId")
     text: str
 
 
+class RehearsalSlideSpeakingRateResponse(BaseModel):
+    metric_definition_version: Literal[1] = Field(alias="metricDefinitionVersion")
+    measurement_state: Literal["measured", "unmeasured"] = Field(
+        alias="measurementState"
+    )
+    reason_code: (
+        Literal[
+            "UNSUPPORTED_LANGUAGE",
+            "SEGMENT_TIMESTAMPS_UNAVAILABLE",
+            "INSUFFICIENT_SLIDE_SPEECH",
+            "BASELINE_UNAVAILABLE",
+            "LEGACY_REPORT",
+        ]
+        | None
+    ) = Field(alias="reasonCode")
+    characters_per_second: float | None = Field(
+        alias="charactersPerSecond",
+        gt=0,
+    )
+    baseline_characters_per_second: float | None = Field(
+        alias="baselineCharactersPerSecond",
+        gt=0,
+    )
+    relative_rate_ratio: float | None = Field(alias="relativeRateRatio", gt=0)
+    pace_category: Literal["slower", "similar", "faster"] | None = Field(
+        alias="paceCategory"
+    )
+    active_speech_seconds: float = Field(alias="activeSpeechSeconds", ge=0)
+    character_count: int = Field(alias="characterCount", ge=0)
+
+    @model_validator(mode="after")
+    def validate_measurement_state(self) -> Self:
+        values = (
+            self.characters_per_second,
+            self.baseline_characters_per_second,
+            self.relative_rate_ratio,
+            self.pace_category,
+        )
+        if self.measurement_state == "measured":
+            if self.reason_code is not None or any(value is None for value in values):
+                raise ValueError("Measured speaking rate requires all values.")
+        elif self.reason_code is None or any(value is not None for value in values):
+            raise ValueError("Unmeasured speaking rate requires only a reason code.")
+        return self
+
+
 class RehearsalSlideInsightResponse(BaseModel):
     slide_id: str = Field(alias="slideId")
     filler_word_count: int = Field(alias="fillerWordCount", ge=0)
-    pause_count: int = Field(alias="pauseCount", ge=0)
+    long_silence_count: int | None = Field(alias="longSilenceCount", ge=0)
+    speaking_rate: RehearsalSlideSpeakingRateResponse = Field(alias="speakingRate")
 
 
 class RehearsalAnalyzeResponse(BaseModel):
     run_id: str = Field(alias="runId")
     words_per_minute: float = Field(alias="wordsPerMinute")
     filler_word_count: int = Field(alias="fillerWordCount")
-    pause_count: int = Field(alias="pauseCount")
+    long_silence_count: int | None = Field(alias="longSilenceCount")
     keyword_coverage: float = Field(alias="keywordCoverage")
     speed_samples: list[RehearsalSpeedSampleResponse] = Field(
         default_factory=list,
@@ -266,10 +462,6 @@ class RehearsalAnalyzeResponse(BaseModel):
     filler_word_details: list[RehearsalFillerWordDetailResponse] = Field(
         default_factory=list,
         alias="fillerWordDetails",
-    )
-    pause_details: list[RehearsalPauseDetailResponse] = Field(
-        default_factory=list,
-        alias="pauseDetails",
     )
     missed_keywords: list[RehearsalMissedKeywordResponse] = Field(
         default_factory=list,
@@ -291,6 +483,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="ORBIT Python Worker", version="0.1.0", lifespan=lifespan)
 app.include_router(challenge_qna_router)
+app.include_router(slide_question_guides_router)
 app.include_router(focused_practice_router)
 
 
@@ -447,11 +640,14 @@ async def import_pptx_design_endpoint(
                 if file_ids and index < len(file_ids) and file_ids[index].strip()
                 else f"file_{uuid4()}"
             )
-            result = await run_in_threadpool(
-                import_pptx_design_with_optional_ooxml_vector,
-                source_path,
-                file_id,
-            )
+            try:
+                result = await run_in_threadpool(
+                    import_pptx_design_with_optional_ooxml_vector,
+                    source_path,
+                    file_id,
+                )
+            except PptxPackageSecurityError as error:
+                raise HTTPException(status_code=400, detail=error.code) from error
             remapped = _remap_import_asset_ids(result, len(assets))
             slides.extend(
                 cast(list[dict[str, Any]], remapped.blueprint.get("slides", []))
@@ -480,104 +676,273 @@ async def import_pptx_design_endpoint(
     )
 
 
-@app.post("/ai/pptx-ooxml-generation", response_model=PptxOoxmlGenerationResult)
+@app.post(
+    "/ai/pptx-ooxml-generation",
+    response_model=PptxOoxmlGenerationResult | StoredPptxOoxmlGenerationResult,
+)
 async def generate_pptx_ooxml_endpoint(
     request: Request,
     file: UploadFile = File(...),
-    project_id: str = Form("default"),
     file_id: str = Form(...),
-    topic: str = Form(""),
-    prompt: str = Form(""),
-) -> PptxOoxmlGenerationResult:
+    import_preference: PptxImportPreference = Form("editability-first"),
+    storage_prefix: str | None = Form(None),
+) -> PptxOoxmlGenerationResult | StoredPptxOoxmlGenerationResult:
     from pathlib import Path
     from tempfile import TemporaryDirectory
 
-    del project_id
-
-    worker_config = _config(request)
     with TemporaryDirectory(prefix="orbit-ooxml-") as temp_dir:
         source_path = Path(temp_dir) / Path(file.filename or "upload.pptx").name
         source_path.write_bytes(await file.read())
         try:
-            return await run_in_threadpool(
+            generated = await run_in_threadpool(
                 generate_pptx_ooxml,
                 source_path,
                 file_id,
-                topic=topic,
-                prompt=prompt,
-                api_key=worker_config.openai_api_key,
-                model=worker_config.openai_model,
+                import_preference=import_preference,
+            )
+            if storage_prefix is None:
+                return generated
+            return await run_in_threadpool(
+                store_generation_assets,
+                generated,
+                config=_config(request),
+                storage_prefix=storage_prefix,
             )
         except UnsupportedPptxAspectRatioError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        except PptxPackageSecurityError as error:
+            raise HTTPException(status_code=400, detail=error.code) from error
         except PptxOoxmlGenerationError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 
 
-@app.post("/ai/pptx-ooxml-sync", response_model=PptxOoxmlSyncResult)
+@app.post(
+    "/ai/pptx-ooxml-sync",
+    response_model=PptxOoxmlSyncResult | StoredPptxOoxmlSyncResult,
+    response_model_exclude_none=True,
+)
 async def sync_pptx_ooxml_endpoint(
-    file: UploadFile = File(...),
-    template_blueprint: str = Form(...),
-    operations: str = Form(...),
-    deck_canvas: str = Form(...),
+    request: Request,
+    file: UploadFile | None = File(None),
+    source_locator_file: UploadFile | None = File(None),
+    asset_locators_file: UploadFile | None = File(None),
+    template_blueprint_file: UploadFile | None = File(None),
+    operations_file: UploadFile | None = File(None),
+    slide_motion_file: UploadFile | None = File(None),
+    deck_canvas_file: UploadFile | None = File(None),
+    authored_element_fallbacks_file: UploadFile | None = File(None),
+    template_blueprint: str | None = Form(None),
+    operations: str | None = Form(None),
+    slide_motion: str | None = Form(None),
+    deck_canvas: str | None = Form(None),
     synced_deck_version: int = Form(...),
     render: bool = Form(True),
-) -> PptxOoxmlSyncResult:
+    storage_prefix: str | None = Form(None),
+) -> PptxOoxmlSyncResult | StoredPptxOoxmlSyncResult:
     from pathlib import Path
     from tempfile import TemporaryDirectory
 
+    source_locator: PptxOoxmlReadLocator | None = None
+    try:
+        if (file is None) == (source_locator_file is None):
+            raise ValueError("exactly one OOXML package source is required")
+        source_locator = (
+            PptxOoxmlReadLocator.model_validate(
+                await parse_json_part(
+                    field="source_locator",
+                    upload=source_locator_file,
+                    legacy_text=None,
+                    max_bytes=16 * 1024,
+                    expected="object",
+                )
+            )
+            if source_locator_file is not None
+            else None
+        )
+        package_bytes = (
+            await run_in_threadpool(
+                load_pptx_package_locator,
+                source_locator,
+                config=_config(request),
+            )
+            if source_locator is not None
+            else await read_pptx_package(cast(UploadFile, file))
+        )
+        parsed_template_blueprint = cast(
+            dict[str, Any],
+            await parse_json_part(
+                field="template_blueprint",
+                upload=template_blueprint_file,
+                legacy_text=template_blueprint,
+                max_bytes=TEMPLATE_BLUEPRINT_MAX_BYTES,
+                expected="object",
+            ),
+        )
+        parsed_operations = cast(
+            list[dict[str, Any]],
+            await parse_json_part(
+                field="operations",
+                upload=operations_file,
+                legacy_text=operations,
+                max_bytes=OPERATIONS_MAX_BYTES,
+                expected="operations",
+            ),
+        )
+        parsed_slide_motion = cast(
+            list[dict[str, Any]],
+            await parse_json_part(
+                field="slide_motion",
+                upload=slide_motion_file,
+                legacy_text=slide_motion,
+                max_bytes=SLIDE_MOTION_MAX_BYTES,
+                expected="operations",
+            )
+            if slide_motion_file is not None or slide_motion is not None
+            else [],
+        )
+        parsed_deck_canvas = cast(
+            dict[str, Any],
+            await parse_json_part(
+                field="deck_canvas",
+                upload=deck_canvas_file,
+                legacy_text=deck_canvas,
+                max_bytes=DECK_CANVAS_MAX_BYTES,
+                expected="object",
+            ),
+        )
+        parsed_authored_element_fallbacks = validate_authored_element_fallbacks(
+            await parse_json_part(
+                field="authored_element_fallbacks",
+                upload=authored_element_fallbacks_file,
+                legacy_text=None,
+                max_bytes=AUTHORED_ELEMENT_FALLBACKS_MAX_BYTES,
+                expected="object",
+            )
+            if authored_element_fallbacks_file is not None
+            else {"theme": {}, "elements": []}
+        )
+        asset_locators = (
+            [
+                PptxOoxmlReadLocator.model_validate(item)
+                for item in cast(
+                    list[dict[str, Any]],
+                    await parse_json_part(
+                        field="asset_locators",
+                        upload=asset_locators_file,
+                        legacy_text=None,
+                        max_bytes=1024 * 1024,
+                        expected="operations",
+                    ),
+                )
+            ]
+            if asset_locators_file is not None
+            else []
+        )
+        if asset_locators:
+            materialized = cast(
+                dict[str, Any],
+                await run_in_threadpool(
+                    materialize_asset_locators,
+                    {
+                        "operations": parsed_operations,
+                        "authoredElementFallbacks": parsed_authored_element_fallbacks,
+                    },
+                    asset_locators,
+                    config=_config(request),
+                ),
+            )
+            parsed_operations = cast(
+                list[dict[str, Any]],
+                materialized["operations"],
+            )
+            parsed_authored_element_fallbacks = (
+                validate_authored_element_fallbacks(
+                    materialized["authoredElementFallbacks"]
+                )
+            )
+    except PptxOoxmlSyncTransportError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.detail(),
+        ) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
     with TemporaryDirectory(prefix="orbit-ooxml-sync-") as temp_dir:
-        source_path = Path(temp_dir) / Path(file.filename or "current.pptx").name
-        source_path.write_bytes(await file.read())
+        source_name = (
+            source_locator.file_name
+            if source_locator
+            else cast(UploadFile, file).filename
+        )
+        source_path = Path(temp_dir) / Path(source_name or "current.pptx").name
+        source_path.write_bytes(package_bytes)
         try:
-            return await run_in_threadpool(
+            synced = await run_in_threadpool(
                 sync_pptx_ooxml,
                 source_path,
-                template_blueprint=json.loads(template_blueprint),
-                operations=json.loads(operations),
-                deck_canvas=json.loads(deck_canvas),
+                template_blueprint=parsed_template_blueprint,
+                operations=parsed_operations,
+                slide_motion=parsed_slide_motion,
+                deck_canvas=parsed_deck_canvas,
+                authored_element_fallbacks=parsed_authored_element_fallbacks,
                 synced_deck_version=synced_deck_version,
                 render=render,
             )
-        except (json.JSONDecodeError, TypeError, ValueError) as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-        except PptxOoxmlGenerationError as error:
-            raise HTTPException(status_code=503, detail=str(error)) from error
-
-
-@app.post("/ai/pptx-ooxml-apply-slot-texts", response_model=PptxOoxmlSyncResult)
-async def apply_pptx_ooxml_slot_texts_endpoint(
-    file: UploadFile = File(...),
-    template_blueprint: str = Form(...),
-    slot_texts: str = Form(...),
-    render: bool = Form(True),
-) -> PptxOoxmlSyncResult:
-    from pathlib import Path
-    from tempfile import TemporaryDirectory
-
-    with TemporaryDirectory(prefix="orbit-ooxml-apply-") as temp_dir:
-        source_path = Path(temp_dir) / Path(file.filename or "current.pptx").name
-        source_path.write_bytes(await file.read())
-        try:
-            raw_slot_texts = json.loads(slot_texts)
-            if not isinstance(raw_slot_texts, list):
-                raise ValueError("slot_texts must be a JSON array.")
+            if storage_prefix is None:
+                return synced
             return await run_in_threadpool(
-                apply_slot_texts_to_pptx_ooxml,
-                source_path,
-                template_blueprint=json.loads(template_blueprint),
-                slot_texts=[str(text) for text in raw_slot_texts],
-                render=render,
+                store_sync_assets,
+                synced,
+                config=_config(request),
+                storage_prefix=storage_prefix,
             )
-        except (json.JSONDecodeError, TypeError, ValueError) as error:
+        except (TypeError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        except PptxPackageSecurityError as error:
+            raise HTTPException(status_code=400, detail=error.code) from error
         except PptxOoxmlGenerationError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 
 
-@app.post("/audio/transcribe", response_model=AudioTranscribeResponse)
+@app.post("/audio/clip")
+async def create_rehearsal_audio_clip_endpoint(
+    request: Request,
+    file: UploadFile = File(...),
+    start_seconds: float = Form(..., alias="startSeconds"),
+    end_seconds: float = Form(..., alias="endSeconds"),
+) -> Response:
+    config = _config(request)
+    audio_bytes = await file.read(config.rehearsal_audio_max_bytes + 1)
+    if len(audio_bytes) > config.rehearsal_audio_max_bytes:
+        raise HTTPException(status_code=413, detail="rehearsal audio is too large")
+
+    try:
+        clip_bytes = await run_in_threadpool(
+            create_rehearsal_audio_clip,
+            AudioContent(
+                data=audio_bytes,
+                file_name=file.filename or "rehearsal-audio",
+                mime_type=file.content_type or "application/octet-stream",
+            ),
+            start_seconds,
+            end_seconds,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=422, detail="audio clip generation failed"
+        ) from error
+
+    return Response(
+        content=clip_bytes,
+        media_type="audio/wav",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
 @app.post("/audio/transcribe-private", response_model=AudioTranscribeResponse)
-def transcribe_audio(
+def transcribe_private_audio_endpoint(
     payload: AudioTranscribeRequest,
     provider: ReportSttProviderDependency,
 ) -> AudioTranscribeResponse:
@@ -585,6 +950,50 @@ def transcribe_audio(
         return transcribe_rehearsal_audio(payload, provider)
     except AudioTranscriptionError as exc:
         raise to_http_exception(exc) from exc
+
+
+@app.post("/audio/transcribe", response_model=RehearsalAudioProcessingResponse)
+def process_rehearsal_audio_endpoint(
+    payload: AudioTranscribeRequest,
+    provider: ReportSttProviderDependency,
+) -> RehearsalAudioProcessingResponse:
+    try:
+        return process_rehearsal_audio(payload, provider)
+    except AudioTranscriptionError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@app.post("/slide-practice/analyze-audio", response_model=SlidePracticeAudioResponse)
+def process_slide_practice_audio_endpoint(
+    payload: AudioTranscribeRequest,
+    provider: ReportSttProviderDependency,
+) -> SlidePracticeAudioResponse:
+    try:
+        return process_slide_practice_audio(payload, provider)
+    except AudioTranscriptionError as exc:
+        raise to_http_exception(exc) from exc
+
+
+@app.post(
+    "/slide-practice/coaching",
+    response_model=SlidePracticeCoachingResponse,
+)
+def generate_slide_practice_coaching_endpoint(
+    payload: SlidePracticeCoachingRequest,
+    request: Request,
+) -> SlidePracticeCoachingResponse:
+    config = _config(request)
+    try:
+        return generate_slide_practice_coaching(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except SlidePracticeCoachingError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Slide practice coaching generation failed.",
+        ) from error
 
 
 @app.post("/ai/generate-deck", response_model=GenerateDeckResponse)
@@ -607,6 +1016,130 @@ def generate_ai_deck(
         raise HTTPException(status_code=503, detail=str(error)) from error
 
 
+@app.post(
+    "/internal/ai/deck-generation/source-grounding",
+    response_model=SourceGroundingResult,
+)
+def source_grounding_stage(
+    payload: SourceGroundingStageInput,
+    request: Request,
+) -> SourceGroundingResult:
+    config = _config(request)
+    try:
+        reference_context, degraded = _staged_reference_context(
+            payload.request,
+            config,
+        )
+        result = run_source_grounding_stage(
+            payload.model_copy(
+                update={
+                    "request": payload.request.model_copy(
+                        update={"reference_context": reference_context}
+                    )
+                }
+            ),
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+        if degraded:
+            result.warnings.append(
+                "Reference chunk retrieval was unavailable for some files; "
+                "generation continued with extracted text or web research."
+            )
+            if (
+                "REFERENCE_CHUNK_RETRIEVAL_DEGRADED"
+                not in result.raw_input.warning_codes
+            ):
+                result.raw_input.warning_codes.append(
+                    "REFERENCE_CHUNK_RETRIEVAL_DEGRADED"
+                )
+        return result
+    except DeckContentGenerationError as error:
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
+
+
+@app.post(
+    "/internal/ai/deck-generation/content-planning",
+    response_model=ContentPlanningStageResult,
+)
+def content_planning_stage(
+    payload: ContentPlanningStageInput,
+    request: Request,
+) -> ContentPlanningStageResult:
+    config = _config(request)
+    try:
+        return run_content_planning_stage(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
+
+
+@app.post(
+    "/internal/ai/deck-generation/design-planning",
+    response_model=DesignPlanningStageResult,
+)
+def design_planning_stage(
+    payload: DesignPlanningStageInput,
+    request: Request,
+) -> DesignPlanningStageResult:
+    config = _config(request)
+    try:
+        return run_design_planning_stage(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
+
+
+@app.post(
+    "/internal/ai/deck-generation/layout-compile",
+    response_model=LayoutCompileStageResult,
+)
+def layout_compile_stage(
+    payload: LayoutCompileStageInput,
+    request: Request,
+) -> LayoutCompileStageResult:
+    config = _config(request)
+    return run_layout_compile_stage(
+        payload,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+        image_review_mode=config.ai_slide_image_review_mode,
+    )
+
+
+@app.post(
+    "/internal/ai/deck-generation/slide-compose",
+    response_model=SlideComposeStageResult,
+)
+def slide_compose_stage(
+    payload: SlideComposeStageInput,
+    request: Request,
+) -> SlideComposeStageResult:
+    config = _config(request)
+    try:
+        return run_slide_compose_stage(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except DeckContentGenerationError as error:
+        raise HTTPException(
+            status_code=503, detail=_planning_failure_detail(error)
+        ) from error
+
+
 @app.post("/ai/deck-color-options", response_model=DeckColorOptionsResponse)
 def generate_ai_deck_color_options(
     payload: DeckColorOptionsRequest,
@@ -614,6 +1147,22 @@ def generate_ai_deck_color_options(
 ) -> DeckColorOptionsResponse:
     config = _config(request)
     return generate_deck_color_options(
+        payload,
+        model=config.openai_model,
+        api_key=config.openai_api_key,
+    )
+
+
+@app.post(
+    "/ai/deck-color-customization",
+    response_model=DeckColorCustomizationResponse,
+)
+def generate_ai_deck_color_customization(
+    payload: DeckColorCustomizationRequest,
+    request: Request,
+) -> DeckColorCustomizationResponse:
+    config = _config(request)
+    return customize_deck_color_palette(
         payload,
         model=config.openai_model,
         api_key=config.openai_api_key,
@@ -643,6 +1192,18 @@ def propose_slide_design(
 @app.post("/ai/export-deck-pptx", response_model=DeckPptxExportResponse)
 def export_ai_deck_pptx(payload: DeckPptxExportRequest) -> DeckPptxExportResponse:
     return export_deck_pptx(payload)
+
+
+@app.post("/ai/export-pptx-png-zip", response_model=PptxPngZipExportResponse)
+def export_pptx_png_zip_endpoint(
+    payload: PptxPngZipExportRequest,
+) -> PptxPngZipExportResponse:
+    try:
+        return export_pptx_png_zip(payload)
+    except PptxRenderUnavailableError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except PptxPngZipExportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.post("/ai/review-deck-visuals", response_model=VisualQaResponse)
@@ -682,6 +1243,25 @@ def extract_semantic_cues_endpoint(
         raise HTTPException(status_code=503, detail=str(error)) from error
 
 
+@app.post(
+    "/ai/speaker-notes/suggest",
+    response_model=SpeakerNotesSuggestionResponse,
+)
+def suggest_speaker_notes(
+    payload: SpeakerNotesSuggestionRequest,
+    request: Request,
+) -> SpeakerNotesSuggestionResponse:
+    config = _config(request)
+    try:
+        return generate_speaker_notes_suggestion(
+            payload,
+            model=config.openai_model,
+            api_key=config.openai_api_key,
+        )
+    except SpeakerNotesSuggestionError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
 @app.post("/rehearsal/analyze", response_model=RehearsalAnalyzeResponse)
 def analyze_rehearsal(
     request: Request,
@@ -701,6 +1281,7 @@ def analyze_rehearsal(
     ]
     metrics = analyze_rehearsal_metrics(
         transcript=payload.transcript,
+        language=payload.language,
         duration_seconds=payload.duration_seconds,
         segments=payload.segments,
         deck_keywords=deck_keywords,
@@ -711,6 +1292,8 @@ def analyze_rehearsal(
             )
             for entry in payload.slide_timeline
         ],
+        silence_analysis=payload.silence_analysis,
+        pronunciation_context=payload.pronunciation_context,
     )
     coaching = generate_rehearsal_coaching(
         transcript=payload.transcript,
@@ -735,7 +1318,7 @@ def analyze_rehearsal(
         runId=payload.run_id,
         wordsPerMinute=metrics.words_per_minute,
         fillerWordCount=metrics.filler_word_count,
-        pauseCount=metrics.pause_count,
+        longSilenceCount=metrics.long_silence_count,
         keywordCoverage=metrics.keyword_coverage,
         speedSamples=[
             RehearsalSpeedSampleResponse(
@@ -752,14 +1335,6 @@ def analyze_rehearsal(
             )
             for detail in metrics.filler_word_details
         ],
-        pauseDetails=[
-            RehearsalPauseDetailResponse(
-                startSecond=detail.start_second,
-                endSecond=detail.end_second,
-                durationSeconds=detail.duration_seconds,
-            )
-            for detail in metrics.pause_details
-        ],
         missedKeywords=[
             RehearsalMissedKeywordResponse(
                 slideId=keyword.slide_id,
@@ -772,7 +1347,22 @@ def analyze_rehearsal(
             RehearsalSlideInsightResponse(
                 slideId=insight.slide_id,
                 fillerWordCount=insight.filler_word_count,
-                pauseCount=insight.pause_count,
+                longSilenceCount=insight.long_silence_count,
+                speakingRate=RehearsalSlideSpeakingRateResponse(
+                    metricDefinitionVersion=(
+                        insight.speaking_rate.metric_definition_version
+                    ),
+                    measurementState=insight.speaking_rate.measurement_state,
+                    reasonCode=insight.speaking_rate.reason_code,
+                    charactersPerSecond=(insight.speaking_rate.characters_per_second),
+                    baselineCharactersPerSecond=(
+                        insight.speaking_rate.baseline_characters_per_second
+                    ),
+                    relativeRateRatio=insight.speaking_rate.relative_rate_ratio,
+                    paceCategory=insight.speaking_rate.pace_category,
+                    activeSpeechSeconds=insight.speaking_rate.active_speech_seconds,
+                    characterCount=insight.speaking_rate.character_count,
+                ),
             )
             for insight in metrics.slide_insights
         ],
@@ -831,14 +1421,20 @@ class RehearsalProgressCommentResponse(BaseModel):
     comment: str | None = None
 
 
-@app.post("/rehearsal/progress-comment", response_model=RehearsalProgressCommentResponse)
+@app.post(
+    "/rehearsal/progress-comment", response_model=RehearsalProgressCommentResponse
+)
 def rehearsal_progress_comment(
     payload: RehearsalProgressCommentRequest,
     request: Request,
 ) -> RehearsalProgressCommentResponse:
     config = _config(request)
     run_series = [
-        RunSeriesEntry(run_id=e.run_id, created_at=e.created_at, duration_seconds=e.duration_seconds)
+        RunSeriesEntry(
+            run_id=e.run_id,
+            created_at=e.created_at,
+            duration_seconds=e.duration_seconds,
+        )
         for e in payload.run_series
     ]
     comment = generate_progress_comment(
@@ -846,7 +1442,9 @@ def rehearsal_progress_comment(
         model=config.openai_model,
         api_key=config.openai_api_key,
     )
-    return RehearsalProgressCommentResponse(projectId=payload.project_id, comment=comment)
+    return RehearsalProgressCommentResponse(
+        projectId=payload.project_id, comment=comment
+    )
 
 
 def _remap_import_asset_ids(
@@ -1021,6 +1619,198 @@ def _generate_deck_reference_context(
         if result.file_id in file_ids and result.content.strip()
     ]
     return unique_reference_context([*direct_context, *searched_context])[:6]
+
+
+def _staged_reference_context(
+    payload: GenerateDeckRequest,
+    config: PythonWorkerConfig,
+) -> tuple[list[ReferenceContext], bool]:
+    policy = _reference_policy(payload)
+    if policy == "user-input-only":
+        return [], False
+
+    file_ids = list(
+        dict.fromkeys(
+            [reference.file_id for reference in payload.references]
+            or payload.reference_file_ids
+        )
+    )
+    if not file_ids:
+        return unique_reference_context(payload.reference_context), False
+
+    direct_by_file: dict[str, ReferenceContext] = {}
+    for context in payload.reference_context:
+        if (
+            context.file_id in file_ids
+            and context.content.strip()
+            and context.file_id not in direct_by_file
+        ):
+            direct_by_file[context.file_id] = context
+
+    if policy == "topic-only":
+        return list(direct_by_file.values()), False
+
+    query = " ".join(
+        dict.fromkeys(
+            value.strip()
+            for value in [
+                payload.topic,
+                payload.prompt,
+                payload.brief.audience_text,
+                str(payload.metadata.audience),
+                *[keyword.text for keyword in payload.reference_keywords],
+            ]
+            if value.strip()
+        )
+    )
+    try:
+        candidates, embedding_result = search_reference_chunks_by_file(
+            repository=PostgresReferenceRepository(config.database_url),
+            project_id=payload.project_id,
+            query=query or payload.topic,
+            file_ids=file_ids,
+            limit_per_file=3,
+            model=config.openai_embedding_model,
+            api_key=config.openai_api_key,
+        )
+    except Exception:
+        candidates = []
+        embedding_result = None
+
+    candidates = _unique_reference_chunks(
+        candidates,
+        project_id=payload.project_id,
+        file_ids=file_ids,
+    )
+    available_file_ids = {candidate.file_id for candidate in candidates}
+    missing_file_ids = [
+        file_id for file_id in file_ids if file_id not in available_file_ids
+    ]
+    search_succeeded = (
+        embedding_result is not None and embedding_result.status == "succeeded"
+    )
+    if policy == "references-only" and (not search_succeeded or missing_file_ids):
+        raise DeckContentGenerationError(
+            "SOURCE_GROUNDING_REQUIRED: every selected reference requires an "
+            "indexed chunk."
+        )
+
+    if policy == "research-first":
+        research_chunks = sorted(candidates, key=_chunk_rank)[:4]
+        return _chunk_contexts(research_chunks, direct_by_file), bool(
+            not search_succeeded or missing_file_ids
+        )
+
+    selected: list[ReferenceSearchResult] = []
+    selected_keys: set[tuple[str, str]] = set()
+    fallback_contexts: list[ReferenceContext] = []
+    for file_id in file_ids:
+        best = next(
+            (candidate for candidate in candidates if candidate.file_id == file_id),
+            None,
+        )
+        if best is not None:
+            selected.append(best)
+            selected_keys.add((best.file_id, best.chunk_id))
+        elif policy == "references-first" and file_id in direct_by_file:
+            fallback_contexts.append(direct_by_file[file_id])
+
+    selected.extend(
+        candidate
+        for candidate in sorted(candidates, key=_chunk_rank)
+        if (candidate.file_id, candidate.chunk_id) not in selected_keys
+    )
+    selected = selected[: 12 - len(fallback_contexts)]
+    return [
+        *_chunk_contexts(selected, direct_by_file),
+        *fallback_contexts,
+    ], bool(not search_succeeded or missing_file_ids)
+
+
+def _reference_policy(payload: GenerateDeckRequest) -> ReferencePolicy:
+    return (
+        payload.reference_policy
+        or payload.design.reference_policy
+        or payload.brief.reference_policy
+    )
+
+
+def _unique_reference_chunks(
+    candidates: list[ReferenceSearchResult],
+    *,
+    project_id: str,
+    file_ids: list[str],
+) -> list[ReferenceSearchResult]:
+    allowed_file_ids = set(file_ids)
+    seen: set[tuple[str, str]] = set()
+    counts: dict[str, int] = {}
+    unique: list[ReferenceSearchResult] = []
+    for candidate in sorted(candidates, key=_chunk_rank):
+        normalized = " ".join(candidate.content.split()).casefold()
+        key = (candidate.file_id, normalized)
+        if (
+            candidate.project_id != project_id
+            or candidate.file_id not in allowed_file_ids
+            or not normalized
+            or key in seen
+            or counts.get(candidate.file_id, 0) >= 3
+        ):
+            continue
+        seen.add(key)
+        counts[candidate.file_id] = counts.get(candidate.file_id, 0) + 1
+        unique.append(candidate)
+    return unique
+
+
+def _chunk_rank(candidate: ReferenceSearchResult) -> tuple[float, int, str]:
+    return (-candidate.score, candidate.chunk_index, candidate.chunk_id)
+
+
+def _chunk_contexts(
+    candidates: list[ReferenceSearchResult],
+    direct_by_file: dict[str, ReferenceContext],
+) -> list[ReferenceContext]:
+    content_by_key = {
+        (candidate.file_id, candidate.chunk_id): candidate.content.strip()
+        for candidate in candidates
+    }
+    by_file: dict[str, list[ReferenceSearchResult]] = {}
+    for candidate in candidates:
+        by_file.setdefault(candidate.file_id, []).append(candidate)
+    for file_candidates in by_file.values():
+        ordered = sorted(file_candidates, key=lambda candidate: candidate.chunk_index)
+        for previous, current in zip(ordered, ordered[1:]):
+            if current.chunk_index == previous.chunk_index + 1:
+                key = (current.file_id, current.chunk_id)
+                content_by_key[key] = _remove_chunk_overlap(
+                    content_by_key[(previous.file_id, previous.chunk_id)],
+                    content_by_key[key],
+                )
+
+    contexts: list[ReferenceContext] = []
+    for candidate in candidates:
+        direct = direct_by_file.get(candidate.file_id)
+        contexts.append(
+            ReferenceContext(
+            fileId=candidate.file_id,
+            sourceId=f"uploaded:{candidate.file_id}:{candidate.chunk_id}",
+            chunkId=candidate.chunk_id,
+            title=(
+                str(candidate.metadata.get("fileName", "")).strip()
+                or (direct.title if direct else "")
+            ),
+            content=content_by_key[(candidate.file_id, candidate.chunk_id)],
+            )
+        )
+    return contexts
+
+
+def _remove_chunk_overlap(previous: str, current: str) -> str:
+    max_overlap = min(150, len(previous), len(current))
+    for size in range(max_overlap, 19, -1):
+        if previous[-size:] == current[:size]:
+            return current[size:].lstrip() or current
+    return current
 
 
 def unique_reference_context(items: list[ReferenceContext]) -> list[ReferenceContext]:

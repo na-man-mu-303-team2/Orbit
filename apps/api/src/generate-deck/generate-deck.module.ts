@@ -5,9 +5,13 @@ import { JobsModule } from "../jobs/jobs.module";
 import { ProjectsModule } from "../projects/projects.module";
 import { SavedDesignPacksModule } from "../saved-design-packs/saved-design-packs.module";
 import { PresentationBriefsModule } from "../presentation-briefs/presentation-briefs.module";
+import { AiDeckPreviewController } from "./ai-deck-preview.controller";
+import { AiDeckPreviewService } from "./ai-deck-preview.service";
 import { DeckColorOptionsController } from "./deck-color-options.controller";
 import { GenerateDeckController } from "./generate-deck.controller";
 import { GenerateDeckService } from "./generate-deck.service";
+import { DesignSelectionController } from "./design-selection.controller";
+import { DesignSelectionService } from "./design-selection.service";
 
 @Module({
   imports: [
@@ -18,7 +22,12 @@ import { GenerateDeckService } from "./generate-deck.service";
     ProjectsModule,
     SavedDesignPacksModule
   ],
-  controllers: [DeckColorOptionsController, GenerateDeckController],
-  providers: [GenerateDeckService]
+  controllers: [
+    AiDeckPreviewController,
+    DeckColorOptionsController,
+    DesignSelectionController,
+    GenerateDeckController,
+  ],
+  providers: [AiDeckPreviewService, DesignSelectionService, GenerateDeckService]
 })
 export class GenerateDeckModule {}

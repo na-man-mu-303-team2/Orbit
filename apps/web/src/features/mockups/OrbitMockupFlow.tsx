@@ -24,7 +24,7 @@ import {
 } from "@tabler/icons-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import orbitLogo from "./assets/orbit-logo-selected.png";
-import { OrbitButton, OrbitStatus } from "../../design-system";
+import { OrbitButton, OrbitStatus } from "../../components/ui";
 import { OrbitEditorMockup } from "./OrbitEditorMockup";
 import { OrbitPresenterMockup, OrbitRehearsalMockup } from "./OrbitDeliveryMockups";
 import { OrbitRehearsalCompleteMockup, OrbitReportDetailMockup, OrbitReportListMockup } from "./OrbitReportMockups";
@@ -34,7 +34,6 @@ import { OrbitMicrophoneCheckMockup } from "./OrbitMicrophoneCheckMockup";
 import { OrbitProjectAccessMockup, OrbitProjectReportMockup } from "./OrbitProjectMockups";
 import { MockupHeader } from "./OrbitMockupHeader";
 import {
-  OrbitAiPptConnectedMockup,
   OrbitAudienceEntranceMockup,
   OrbitChallengeQnaMockup,
   OrbitFocusedPracticeMockup,
@@ -44,10 +43,9 @@ import {
   OrbitVersionHistoryMockup
 } from "./OrbitGapMockups";
 import rehearsalEditorialImage from "./assets/rehearsal-editorial.png";
-import "../../design-system/orbit-design-system.css";
 import "./orbit-mockup.css";
 
-export type OrbitMockupScreen = "public" | "home" | "create" | "editor" | "microphone-check" | "project-request" | "rehearsal" | "presenter" | "rehearsal-complete" | "reports" | "report" | "report-project" | "live" | "live-presenter" | "login" | "signup" | "catalog" | "brief" | "practice-plan" | "focused-practice" | "challenge-qna" | "audience" | "version-history" | "ai-ppt";
+export type OrbitMockupScreen = "public" | "home" | "create" | "editor" | "microphone-check" | "project-request" | "rehearsal" | "presenter" | "rehearsal-complete" | "reports" | "report" | "report-project" | "live" | "live-presenter" | "login" | "signup" | "catalog" | "brief" | "practice-plan" | "focused-practice" | "challenge-qna" | "audience" | "version-history";
 
 type OrbitMockupFlowProps = {
   onNavigate: (path: string) => void;
@@ -110,9 +108,6 @@ export function OrbitMockupFlow(props: OrbitMockupFlowProps) {
   }
   if (props.screen === "version-history") {
     return <OrbitVersionHistoryMockup onNavigate={props.onNavigate} />;
-  }
-  if (props.screen === "ai-ppt") {
-    return <OrbitAiPptConnectedMockup onNavigate={props.onNavigate} />;
   }
   if (props.screen === "public") {
     return <OrbitPublicMockup onNavigate={props.onNavigate} />;
@@ -190,7 +185,7 @@ export function OrbitPublicMockup(props: Pick<OrbitMockupFlowProps, "onNavigate"
       <main>
         <section className="mockup-public-hero">
           <div className="mockup-public-copy">
-            <p className="orbit-ds-eyebrow">AI PRESENTATION WORKSPACE</p>
+            <p className="redesign-eyebrow">AI PRESENTATION WORKSPACE</p>
             <h1>생각을 발표로 바꾸는 가장 빠른 캔버스</h1>
             <p>
               아이디어 정리부터 슬라이드 생성, 리허설과 피드백까지 ORBIT이 발표의 전
@@ -298,7 +293,7 @@ export function OrbitHomeMockup(props: Pick<OrbitMockupFlowProps, "onNavigate">)
       <main className="mockup-app-main">
         <section className="mockup-home-heading">
           <div>
-            <p className="orbit-ds-eyebrow">YOUR WORKSPACE</p>
+            <p className="redesign-eyebrow">YOUR WORKSPACE</p>
             <h1>김지윤님, 다음 발표를 이어가세요.</h1>
             <p>만들고, 편집하고, 연습하는 흐름을 한 곳에서 관리하세요.</p>
           </div>
@@ -357,7 +352,7 @@ export function OrbitHomeMockup(props: Pick<OrbitMockupFlowProps, "onNavigate">)
               </select>
               <IconChevronDown aria-hidden="true" size={17} />
             </label>
-            <button aria-label="프로젝트 보기 설정" className="orbit-ds-icon-button" type="button">
+            <button aria-label="프로젝트 보기 설정" className="redesign-icon-button" type="button">
               <IconSettings size={19} />
             </button>
           </div>
@@ -477,7 +472,7 @@ export function OrbitCreateMockup(props: Pick<OrbitMockupFlowProps, "onNavigate"
           <span className="mockup-success-icon">
             <IconCheck size={34} />
           </span>
-          <p className="orbit-ds-eyebrow">GENERATION COMPLETE</p>
+          <p className="redesign-eyebrow">GENERATION COMPLETE</p>
           <h1>발표자료 초안이 준비됐어요.</h1>
           <p>8장의 슬라이드와 발표 스크립트, 리허설 가이드를 만들었습니다.</p>
           <div className="mockup-success-summary">
@@ -516,7 +511,7 @@ export function OrbitCreateMockup(props: Pick<OrbitMockupFlowProps, "onNavigate"
 
         <section className="mockup-create-heading">
           <div>
-            <p className="orbit-ds-eyebrow">AI PRESENTATION</p>
+            <p className="redesign-eyebrow">AI PRESENTATION</p>
             <h1>{phase === "review" ? "이 구성으로 만들까요?" : "어떤 발표를 만들까요?"}</h1>
             <p>
               {phase === "review"
@@ -743,7 +738,7 @@ function CreateReview(props: {
     <section className="mockup-review-card">
       <div className="mockup-review-main">
         <span className="mockup-review-icon"><IconWand size={28} /></span>
-        <p className="orbit-ds-eyebrow">PRESENTATION BRIEF</p>
+        <p className="redesign-eyebrow">PRESENTATION BRIEF</p>
         <h2>{props.topic}</h2>
         <p>{props.message}</p>
         {props.fileName ? <span className="mockup-review-file"><IconFileText size={18} />{props.fileName}</span> : null}

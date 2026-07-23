@@ -5,8 +5,13 @@ import type {
   TextElementProps
 } from "@orbit/shared";
 import { Text as KonvaTextShape } from "konva/lib/shapes/Text";
-
-const textElementPadding = 4;
+import type { RichTextFontStyle } from "../../../slides/rendering/richTextLayout";
+import {
+  getRichTextFontStyle,
+  hasRichTextLayout,
+  resolveTextBodyInset,
+  richTextLayout
+} from "../../../slides/rendering/richTextLayout";
 
 export function getCssFontWeight(fontWeight: TextElementProps["fontWeight"]) {
   if (typeof fontWeight === "number") {
@@ -33,7 +38,7 @@ export function getKonvaFontStyle(
 }
 
 export function getTextElementText(props: TextElementProps) {
-  if (props.paragraphs?.length) {
+  if (props.paragraphs !== undefined) {
     return props.paragraphs.map(getParagraphText).join("\n");
   }
 
@@ -55,7 +60,9 @@ export function getPrimaryTextRun(props: TextElementProps) {
       color: paragraphRun.color ?? paragraph?.color,
       fontFamily: paragraphRun.fontFamily ?? paragraph?.fontFamily,
       fontSize: paragraphRun.fontSize ?? paragraph?.fontSize,
-      fontWeight: paragraphRun.fontWeight ?? paragraph?.fontWeight
+      fontWeight: paragraphRun.fontWeight ?? paragraph?.fontWeight,
+      italic: paragraphRun.italic ?? paragraph?.italic,
+      underline: paragraphRun.underline ?? paragraph?.underline
     };
   }
 
@@ -83,25 +90,82 @@ export function getTextElementLayout(args: {
   theme: Deck["theme"];
 }) {
   const { frame, props, slide, theme } = args;
-  const primaryRun = getPrimaryTextRun(props);
+  const useRichText =
+    props.writingMode !== "vertical-270" && hasRichTextLayout(props);
+  const primaryRun = useRichText ? undefined : getPrimaryTextRun(props);
   const fontFamily =
     primaryRun?.fontFamily ??
     props.fontFamily ??
     slide.style.fontFamily ??
     theme.typography.bodyFontFamily;
   const color = primaryRun?.color ?? props.color ?? slide.style.textColor ?? theme.textColor;
-  const fontSize = primaryRun?.fontSize ?? props.fontSize;
+  const sourceFontSize = primaryRun?.fontSize ?? props.fontSize;
+  const fontScale =
+    props.autoFit === "shrink-text" ? (props.fontScale ?? 1) : 1;
+  const fontSize = sourceFontSize * fontScale;
   const fontWeight = primaryRun?.fontWeight ?? props.fontWeight;
-  const fontStyle = getKonvaFontStyle(fontWeight);
+  const letterSpacing = primaryRun?.letterSpacing ?? props.letterSpacing ?? 0;
+  const lineHeight = Math.max(
+    0.5,
+    props.lineHeight *
+      (props.autoFit === "shrink-text"
+        ? 1 - (props.lineSpaceReduction ?? 0)
+        : 1)
+  );
+  const italic = primaryRun?.italic ?? props.italic ?? false;
+  const underline = primaryRun?.underline ?? props.underline ?? false;
+  const fontStyle = getRichTextFontStyle(fontWeight, italic);
   const text = getTextElementText(props);
-  const width = Math.max(1, frame.width - textElementPadding * 2);
-  const availableHeight = Math.max(1, frame.height - textElementPadding * 2);
+  const bodyInset = resolveTextBodyInset(props);
+  const width = Math.max(1, frame.width - bodyInset.left - bodyInset.right);
+  const availableHeight = Math.max(
+    1,
+    frame.height - bodyInset.top - bodyInset.bottom
+  );
+
+  if (useRichText) {
+    const richText = richTextLayout({
+      baseStyle: {
+        color,
+        fontFamily,
+        fontSize: sourceFontSize,
+        fontWeight,
+        italic,
+        letterSpacing,
+        underline
+      },
+      frame,
+      props
+    });
+
+    return {
+      availableHeight,
+      color,
+      contentHeight: richText.contentHeight,
+      contentWidth: richText.contentWidth,
+      contentX: richText.contentX,
+      fontFamily,
+      fontSize,
+      fontStyle,
+      letterSpacing,
+      lineHeight,
+      richText,
+      text,
+      textDecoration: underline ? ("underline" as const) : undefined,
+      totalContentHeight: richText.totalContentHeight,
+      width: richText.innerWidth,
+      x: richText.innerX,
+      y: richText.contentY
+    };
+  }
+
   const contentMetrics = measureTextContentBounds({
     align: props.align,
     fontFamily,
     fontSize,
     fontStyle,
-    lineHeight: props.lineHeight,
+    letterSpacing,
+    lineHeight,
     text,
     width
   });
@@ -111,8 +175,8 @@ export function getTextElementLayout(args: {
     props.align === "justify"
       ? width
       : Math.max(1, Math.min(contentMetrics.width, width));
-  let y = textElementPadding;
-  let contentX = textElementPadding;
+  let y = bodyInset.top;
+  let contentX = bodyInset.left;
 
   if (props.verticalAlign === "middle") {
     y += spareHeight / 2;
@@ -127,6 +191,7 @@ export function getTextElementLayout(args: {
   }
 
   return {
+    availableHeight,
     color,
     contentHeight,
     contentWidth,
@@ -134,21 +199,63 @@ export function getTextElementLayout(args: {
     fontFamily,
     fontSize,
     fontStyle,
+    letterSpacing,
+    lineHeight,
+    richText: null,
     text,
+    textDecoration: underline ? ("underline" as const) : undefined,
+    totalContentHeight: contentMetrics.height,
     width,
-    x: textElementPadding,
+    x: bodyInset.left,
     y
   };
+}
+
+export function isTextElementOverflowing(args: {
+  frame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  props: TextElementProps;
+  slide: Slide;
+  theme: Deck["theme"];
+}) {
+  const layout = getTextElementLayout(args);
+
+  if (args.props.writingMode !== "vertical-270") {
+    return layout.totalContentHeight > layout.availableHeight;
+  }
+
+  const metrics = measureTextContentBounds({
+    align: args.props.align,
+    fontFamily: layout.fontFamily,
+    fontSize: layout.fontSize,
+    fontStyle: layout.fontStyle,
+    letterSpacing: layout.letterSpacing,
+    lineHeight: layout.lineHeight,
+    text: layout.text,
+    width: Math.max(1, args.frame.height)
+  });
+
+  return metrics.height > Math.max(1, args.frame.width);
 }
 
 export function estimateTextContentBounds(args: {
   text: string;
   width: number;
   fontSize: number;
+  letterSpacing?: number;
   lineHeight: number;
 }) {
   const { text, width, fontSize, lineHeight } = args;
-  const charsPerLine = Math.max(1, Math.floor(width / Math.max(fontSize * 0.55, 1)));
+  const characterWidth = Math.max(
+    fontSize * 0.55 + (args.letterSpacing ?? 0),
+    1
+  );
+  const charsPerLine = Math.max(1, Math.floor(width / characterWidth));
   const paragraphs = text.replace(/\r\n/g, "\n").split("\n");
   const estimatedLineLengths: number[] = [];
 
@@ -169,7 +276,7 @@ export function estimateTextContentBounds(args: {
   return {
     height: lineCount * fontSize * lineHeight,
     lineCount,
-    width: Math.min(width, maxCharsInLine * fontSize * 0.55)
+    width: Math.min(width, maxCharsInLine * characterWidth)
   };
 }
 
@@ -177,7 +284,8 @@ export function measureTextContentBounds(args: {
   align: TextElementProps["align"];
   fontFamily: string;
   fontSize: number;
-  fontStyle: "normal" | "bold";
+  fontStyle: RichTextFontStyle;
+  letterSpacing?: number;
   lineHeight: number;
   text: string;
   width: number;
@@ -187,6 +295,7 @@ export function measureTextContentBounds(args: {
       text: args.text,
       width: args.width,
       fontSize: args.fontSize,
+      letterSpacing: args.letterSpacing,
       lineHeight: args.lineHeight
     });
   }
@@ -196,6 +305,7 @@ export function measureTextContentBounds(args: {
     fontFamily: args.fontFamily,
     fontSize: args.fontSize,
     fontStyle: args.fontStyle,
+    letterSpacing: args.letterSpacing ?? 0,
     lineHeight: args.lineHeight,
     padding: 0,
     text: args.text,

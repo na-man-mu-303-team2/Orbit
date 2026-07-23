@@ -23,13 +23,45 @@ describe("image providers", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await new OpenAiGeneratedImageProvider("secret-key").generate({
-      prompt: "presentation visual"
+      prompt: "presentation visual",
+      aspectRatio: "portrait"
     });
 
     expect(Array.from(result.body)).toEqual([1, 2]);
     expect(result.mimeType).toBe("image/png");
     const requestBody = String(fetchMock.mock.calls[0]?.[1]?.body ?? "");
     expect(requestBody).not.toContain("secret-key");
+    expect(JSON.parse(requestBody)).toMatchObject({ size: "1024x1536" });
+  });
+
+  it("sends reference images through the OpenAI image edit endpoint", async () => {
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({ data: [{ b64_json: Buffer.from([3, 4]).toString("base64") }] }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new OpenAiGeneratedImageProvider("secret-key").generate({
+      prompt: "reference based visual",
+      referenceImages: [
+        {
+          body: new Uint8Array([1, 2, 3]),
+          mimeType: "image/png",
+          fileName: "reference.png",
+          inputFidelity: "high",
+        },
+      ],
+    });
+
+    expect(Array.from(result.body)).toEqual([3, 4]);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://api.openai.com/v1/images/edits",
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBeInstanceOf(FormData);
+    expect(String(fetchMock.mock.calls[0]?.[1]?.headers)).not.toContain("secret-key");
   });
 
   it("returns Openverse attribution and license metadata", async () => {
@@ -121,7 +153,7 @@ describe("image providers", () => {
       sourceUrl: "https://example.com/large"
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
       "https://images.example.com/large.jpg"
     );
   });
@@ -214,7 +246,7 @@ describe("image providers", () => {
     });
 
     expect(result.sourceAssetUrl).toBe("https://images.example.com/fresh.jpg");
-    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
       "https://images.example.com/fresh.jpg"
     );
   });
@@ -262,7 +294,7 @@ describe("image providers", () => {
     });
 
     expect(result.sourceUrl).toBe("https://example.com/branching");
-    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
       "https://images.example.com/branching.jpg"
     );
   });
@@ -390,6 +422,66 @@ describe("image providers", () => {
         query: "Git branching presentation diagram"
       })
     ).rejects.toThrow("no licensed image candidate");
+  });
+
+  it("blocks private Openverse asset URLs before download", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          results: [
+            {
+              url: "http://127.0.0.1/private.jpg",
+              width: 1280,
+              height: 720,
+              license: "cc-by",
+              foreign_landing_url: "https://example.com/private",
+              title: "Private product"
+            }
+          ]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new OpenversePublicImageSearchProvider().search({ query: "product" })
+    ).rejects.toThrow("private network");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("blocks Openverse asset redirects to private networks", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [
+              {
+                url: "https://images.example.com/product.jpg",
+                width: 1280,
+                height: 720,
+                license: "cc-by",
+                foreign_landing_url: "https://example.com/product",
+                title: "Product"
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: "http://127.0.0.1/internal.jpg" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new OpenversePublicImageSearchProvider().search({ query: "product" })
+    ).rejects.toThrow("private network");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("loads an official representative image with distinct provenance URLs", async () => {

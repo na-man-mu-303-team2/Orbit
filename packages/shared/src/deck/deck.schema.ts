@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import {
+  activityDefinitionSchema,
+  activityResultDefinitionSchema
+} from "../activity/activity-definition.schema";
 import { animationSchema } from "./animation.schema";
 import {
   deckCompositionBackgroundModeSchema,
@@ -15,7 +19,7 @@ import {
 import { deriveKeywordOccurrences } from "./keyword-occurrences";
 import { semanticCueSchema } from "./semantic-cue.schema";
 import { slideActionSchema } from "./slide-action.schema";
-import { deckElementSchema } from "./slide-object.schema";
+import { deckElementSchema, ooxmlOriginSchema } from "./slide-object.schema";
 import { savedDesignPackSnapshotSchema } from "./saved-design-pack.schema";
 import { themeColorSchema, themeSchema } from "./theme.schema";
 
@@ -82,6 +86,19 @@ export const deckCreatedFromSchema = z.object({
   designReferences: z.array(deckCreatedFromReferenceSchema).default([])
 });
 
+export const deckGenerationQualityIssueSchema = z.object({
+  code: z.string().trim().min(1),
+  message: z.string().trim().min(1),
+  severity: z.enum(["warning", "risk"]).default("warning"),
+  slideId: deckSlideIdSchema.optional(),
+  slideOrder: z.number().int().positive().optional()
+});
+
+export const deckGenerationQualitySchema = z.object({
+  status: z.enum(["passed", "advisory", "unavailable"]),
+  issues: z.array(deckGenerationQualityIssueSchema).default([])
+});
+
 export const deckMetadataSchema = z.object({
   language: z.literal("ko").default("ko"),
   locale: z.literal("ko-KR").default("ko-KR"),
@@ -92,6 +109,7 @@ export const deckMetadataSchema = z.object({
   purpose: aiDeckPurposeSchema.optional(),
   tone: aiDeckToneSchema.optional(),
   presentationProfile: aiDeckPresentationProfileSchema.optional(),
+  generationQuality: deckGenerationQualitySchema.optional(),
   designPackSnapshot: z.lazy(() => savedDesignPackSnapshotSchema).optional(),
   designProgramSnapshot: deckDesignProgramSnapshotSchema.optional(),
   createdFrom: deckCreatedFromSchema.optional()
@@ -163,9 +181,27 @@ export const slideKeywordsSchema = z
 
 export const slideOrderSchema = z.number().int().positive();
 
+export const slideTransitionSchema = z.object({
+  type: z.literal("fade"),
+  durationMs: z.number().int().positive()
+});
+
+export const importedMainSequenceCoverageSchema = z.enum([
+  "unknown",
+  "absent",
+  "partial",
+  "complete"
+]);
+
+export const ooxmlMotionCapabilitiesSchema = z.object({
+  transitionWritable: z.boolean(),
+  importedMainSequenceCoverage: importedMainSequenceCoverageSchema
+});
+
 export const slideLayoutSchema = z.enum([
   "title",
   "title-content",
+  "agenda",
   "section",
   "two-column",
   "image-left",
@@ -279,22 +315,162 @@ export const slideAiNotesSchema = z
   })
   .default({});
 
-export const slideSchema = z
-  .object({
+export const slideKindSchema = z.enum([
+  "content",
+  "activity",
+  "activity-results"
+]);
+
+export const slideImportRenderModeSchema = z.enum([
+  "editable",
+  "hybrid",
+  "snapshot"
+]);
+
+const slideBaseSchema = z.object({
     slideId: deckSlideIdSchema,
+    ooxmlOrigin: ooxmlOriginSchema.optional(),
+    ooxmlSourceSlidePart: z
+      .string()
+      .regex(/^ppt\/slides\/slide[^/]+\.xml$/)
+      .optional(),
+    ooxmlMotionCapabilities: ooxmlMotionCapabilitiesSchema.optional(),
     order: slideOrderSchema,
     title: z.string().default(""),
     thumbnailUrl: z.string().default(""),
     estimatedSeconds: z.number().int().positive().optional(),
+    transition: slideTransitionSchema.optional(),
     style: slideStyleSchema,
     speakerNotes: z.string().default(""),
+    importRenderMode: slideImportRenderModeSchema.optional(),
     elements: z.array(deckElementSchema).default([]),
     keywords: slideKeywordsSchema.default([]),
     semanticCues: z.array(semanticCueSchema).default([]),
     animations: z.array(animationSchema).default([]),
     actions: z.array(slideActionSchema).default([]),
     aiNotes: slideAiNotesSchema.optional()
+  });
+
+export const contentSlideSchema = slideBaseSchema.extend({
+  kind: z.literal("content")
+});
+
+export const activitySlideSchema = slideBaseSchema
+  .extend({
+    kind: z.literal("activity"),
+    activity: activityDefinitionSchema
   })
+  .strict();
+
+export const activityResultsSlideSchema = slideBaseSchema
+  .extend({
+    kind: z.literal("activity-results"),
+    activityResult: activityResultDefinitionSchema
+  })
+  .strict();
+
+const normalizedSlideSchema = z.discriminatedUnion("kind", [
+  contentSlideSchema,
+  activitySlideSchema,
+  activityResultsSlideSchema
+]);
+
+export type Slide = z.infer<typeof normalizedSlideSchema>;
+export type SlideTransition = z.infer<typeof slideTransitionSchema>;
+export type SlideImportRenderMode = z.infer<
+  typeof slideImportRenderModeSchema
+>;
+export type ImportedMainSequenceCoverage = z.infer<
+  typeof importedMainSequenceCoverageSchema
+>;
+export type OoxmlMotionCapabilities = z.infer<
+  typeof ooxmlMotionCapabilitiesSchema
+>;
+
+const legacyActivityQrReferencePrefix = "orbit-activity://";
+const legacyActivityQrReferenceSuffix = "/participant";
+
+function normalizeLegacyActivityQrElements(
+  input: Record<string, unknown>,
+  activityIds: Set<string>
+) {
+  if (!Array.isArray(input.elements)) {
+    return input;
+  }
+
+  return {
+    ...input,
+    elements: input.elements.map((element) => {
+      const activityId = getLegacyActivityQrActivityId(element);
+      if (
+        !activityId ||
+        !activityIds.has(activityId) ||
+        typeof element !== "object" ||
+        element === null
+      ) {
+        return element;
+      }
+
+      return {
+        ...element,
+        type: "activity-qr",
+        props: { activityId }
+      };
+    })
+  };
+}
+
+function getLegacyActivityQrActivityId(element: unknown): string | null {
+  if (
+    typeof element !== "object" ||
+    element === null ||
+    !(
+      "type" in element &&
+      element.type === "image" &&
+      "props" in element &&
+      typeof element.props === "object" &&
+      element.props !== null &&
+      "src" in element.props &&
+      typeof element.props.src === "string"
+    )
+  ) {
+    return null;
+  }
+
+  const src = element.props.src;
+  if (
+    !src.startsWith(legacyActivityQrReferencePrefix) ||
+    !src.endsWith(legacyActivityQrReferenceSuffix)
+  ) {
+    return null;
+  }
+
+  const encodedActivityId = src.slice(
+    legacyActivityQrReferencePrefix.length,
+    -legacyActivityQrReferenceSuffix.length
+  );
+  if (!encodedActivityId || encodedActivityId.includes("/")) {
+    return null;
+  }
+
+  try {
+    const activityId = decodeURIComponent(encodedActivityId).trim();
+    return activityId || null;
+  } catch {
+    return null;
+  }
+}
+
+export const slideSchema: z.ZodType<Slide, z.ZodTypeDef, unknown> = z
+  .preprocess((input) => {
+    if (typeof input === "object" && input !== null && !Array.isArray(input)) {
+      if (!("kind" in input)) {
+        return { ...input, kind: "content" };
+      }
+      return input;
+    }
+    return input;
+  }, normalizedSlideSchema)
   .superRefine((slide, ctx) => {
     const actionIds = new Set<string>();
     const elementIds = new Set(slide.elements.map((element) => element.elementId));
@@ -447,7 +623,7 @@ export const slideSchema = z
     });
   });
 
-export const deckSchema = z.object({
+const deckObjectSchema = z.object({
   deckId: deckIdSchema,
   projectId: z.string().min(1),
   title: z.string().min(1),
@@ -459,7 +635,96 @@ export const deckSchema = z.object({
   slides: z.array(slideSchema).min(1)
 });
 
+export const deckShellSchema = deckObjectSchema.omit({ slides: true });
+
+export const deckSchema = z
+  .preprocess(normalizeLegacyActivityQrDeck, deckObjectSchema)
+  .superRefine((deck, ctx) => {
+  const activityIds = new Set<string>();
+  const hasActivitySlides = deck.slides.some(
+    (slide) => slide.kind === "activity" || slide.kind === "activity-results"
+  );
+
+  if (hasActivitySlides && deck.canvas.preset !== "wide-16-9") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["canvas", "preset"],
+      message: "Decks with Activity slides must use the wide-16-9 canvas"
+    });
+  }
+
+  deck.slides.forEach((slide, index) => {
+    if (slide.kind !== "activity") {
+      return;
+    }
+
+    if (activityIds.has(slide.activity.activityId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["slides", index, "activity", "activityId"],
+        message: "activity IDs must be unique within a Deck"
+      });
+    }
+    activityIds.add(slide.activity.activityId);
+  });
+
+  deck.slides.forEach((slide, slideIndex) => {
+    slide.elements.forEach((element, elementIndex) => {
+      if (element.type !== "activity-qr") {
+        return;
+      }
+
+      if (!activityIds.has(element.props.activityId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["slides", slideIndex, "elements", elementIndex, "props", "activityId"],
+          message: "activity QR elements must reference an activity in the same Deck"
+        });
+      }
+    });
+  });
+  });
+
+function normalizeLegacyActivityQrDeck(input: unknown) {
+  if (
+    typeof input !== "object" ||
+    input === null ||
+    Array.isArray(input) ||
+    !("slides" in input) ||
+    !Array.isArray(input.slides)
+  ) {
+    return input;
+  }
+
+  const activityIds = new Set(
+    input.slides.flatMap((slide) =>
+      typeof slide === "object" &&
+      slide !== null &&
+      !Array.isArray(slide) &&
+      "kind" in slide &&
+      slide.kind === "activity" &&
+      "activity" in slide &&
+      typeof slide.activity === "object" &&
+      slide.activity !== null &&
+      "activityId" in slide.activity &&
+      typeof slide.activity.activityId === "string"
+        ? [slide.activity.activityId]
+        : []
+    )
+  );
+
+  return {
+    ...input,
+    slides: input.slides.map((slide) =>
+      typeof slide === "object" && slide !== null && !Array.isArray(slide)
+        ? normalizeLegacyActivityQrElements(slide, activityIds)
+        : slide
+    )
+  };
+}
+
 export type Deck = z.infer<typeof deckSchema>;
+export type DeckShell = z.infer<typeof deckShellSchema>;
 export type DeckCanvas = z.infer<typeof deckCanvasSchema>;
 export type DeckMetadata = z.infer<typeof deckMetadataSchema>;
 export type DeckSourceType = z.infer<typeof deckSourceTypeSchema>;
@@ -471,7 +736,10 @@ export type DeckDesignProgramSnapshot = z.infer<
   typeof deckDesignProgramSnapshotSchema
 >;
 export type DeckCreatedFrom = z.infer<typeof deckCreatedFromSchema>;
-export type Slide = z.infer<typeof slideSchema>;
+export type SlideKind = z.infer<typeof slideKindSchema>;
+export type ContentSlide = z.infer<typeof contentSlideSchema>;
+export type ActivitySlide = z.infer<typeof activitySlideSchema>;
+export type ActivityResultsSlide = z.infer<typeof activityResultsSlideSchema>;
 export type SlideLayout = z.infer<typeof slideLayoutSchema>;
 export type SlideStyle = z.infer<typeof slideStyleSchema>;
 export type SlideBackgroundImage = z.infer<typeof slideBackgroundImageSchema>;

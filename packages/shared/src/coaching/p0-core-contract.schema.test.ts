@@ -1,14 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import { focusedPracticeTargetScopeSchema } from "./coaching-common.schema";
-import { reportObservationSchema } from "./evaluation-criterion.schema";
+import {
+  criterionResultSchema,
+  evaluationCriterionSchema,
+  reportObservationSchema,
+} from "./evaluation-criterion.schema";
 import { p0CoreContractFixtures } from "./p0-core-contract.fixtures";
 import { presenterAidSchema } from "./presenter-aid.schema";
+import {
+  coachingActionSchema,
+  practiceGoalSchema,
+} from "./practice-goal.schema";
 import {
   rehearsalAnalyzeRequestSchema,
   rehearsalAnalyzeRequestV1Schema,
   rehearsalAnalyzeRequestV2Schema,
-  rehearsalAnalyzePauseV2DetailSchema,
   rehearsalAnalyzeResponseV2Schema,
   rehearsalAnalyzeSttQualityGateSchema,
 } from "./rehearsal-analyze.schema";
@@ -21,7 +28,6 @@ import {
 import {
   evidenceClipPlaybackResponseSchema,
   evidenceClipSchema,
-  pauseV2DetailSchema,
   speechRateMeasurementSchema,
   sttQualityGateSchema,
 } from "./speech-evidence.schema";
@@ -31,6 +37,30 @@ import {
 } from "../rehearsals/rehearsal.schema";
 
 const fixtures = p0CoreContractFixtures;
+
+describe("P0 focused-practice duration guidance fixture", () => {
+  it("fixes the target policy and 30-60 second examples", () => {
+    expect(fixtures.focusedPracticeDurationGuidance).toEqual({
+      minimumSeconds: 30,
+      maximumSeconds: 60,
+      sentenceCharactersPerSecond: 4,
+      slideCharactersPerSecond: 3.5,
+      storedTimingPriority: [
+        "targetSpokenSeconds",
+        "targetSeconds",
+        "estimatedSeconds",
+        "targetSecondsPerSlide",
+      ],
+      targetRecommendations: [
+        { targetType: "sentence", expectedSeconds: 30 },
+        { targetType: "slide", expectedSeconds: 36 },
+        { targetType: "slide-range", expectedSeconds: 60 },
+        { targetType: "opening", expectedSeconds: 45 },
+        { targetType: "closing", expectedSeconds: 30 },
+      ],
+    });
+  });
+});
 
 describe("P0 rehearsal focus contracts", () => {
   it("parses a CAS profile and freezes its revision with inline items", () => {
@@ -81,6 +111,88 @@ describe("P0 rehearsal focus contracts", () => {
         ],
       }).success,
     ).toBe(false);
+  });
+
+  it("drops legacy pause focus items without accepting them in new writes", () => {
+    const legacyItems = [
+      {
+        ...fixtures.focusProfile.items[0],
+        kind: "pauses",
+        priority: 1,
+      },
+      {
+        ...fixtures.focusProfile.items[0],
+        focusItemId: "focus-2",
+        kind: "filler-words",
+        priority: 2,
+      },
+    ];
+    const parsed = rehearsalFocusProfileSchema.parse({
+      ...fixtures.focusProfile,
+      items: legacyItems,
+    });
+
+    expect(parsed.items).toHaveLength(1);
+    expect(parsed.items[0]?.kind).toBe("filler-words");
+    expect(parsed.items[0]?.priority).toBe(1);
+    expect(
+      putRehearsalFocusProfileRequestSchema.safeParse({
+        expectedRevision: 2,
+        items: legacyItems,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("P0 Practice Goal Target handoff fixtures", () => {
+  it("keeps Criterion, Observation, Goal, and Action identities aligned", () => {
+    const cases = fixtures.practiceGoalTargetHandoff.cases;
+    expect(cases.map((fixture) => fixture.name)).toEqual([
+      "sentence",
+      "slide",
+      "slide-range",
+      "opening",
+      "closing",
+      "full-run-only",
+    ]);
+
+    for (const fixture of cases) {
+      const criterion = evaluationCriterionSchema.parse(fixture.criterion);
+      const observation = reportObservationSchema.parse(fixture.observation);
+      const result = criterionResultSchema.parse(fixture.criterionResult);
+      const goal = practiceGoalSchema.parse(fixture.practiceGoal);
+      const action = coachingActionSchema.parse(fixture.coachingAction);
+
+      expect(result.category).toBe(criterion.category);
+      expect(goal.category).toBe(criterion.category);
+      expect(observation.criterionRef).toEqual(goal.criterionRef);
+      expect(result.criterionRef).toEqual(goal.criterionRef);
+      expect(action.criterionRef).toEqual(goal.criterionRef);
+      expect(action.observationIds).toContain(observation.observationId);
+      expect(action.instruction).toBe(goal.nextAction);
+      expect(action.successCondition).toBe(goal.successCondition);
+
+      if (goal.targetScope) {
+        expect(action.target).toEqual({
+          type: "focused-practice",
+          projectId: goal.projectId,
+          goalId: goal.goalId,
+          sourceFullRunId: goal.originFullRunId,
+        });
+      } else {
+        expect(goal.recommendedPracticeMode).toBe("full-run-only");
+        expect(action.target.type).toBe("full-rehearsal");
+      }
+    }
+  });
+
+  it("represents no problem candidates as empty topActions", () => {
+    expect(
+      coachingActionSchema
+        .array()
+        .max(3)
+        .parse(fixtures.practiceGoalTargetHandoff.emptyTopActions),
+    ).toEqual([]);
   });
 });
 
@@ -226,7 +338,9 @@ describe("P0 speech evidence contracts", () => {
     );
     expect(parsed.contractVersion).toBe(2);
     expect(parsed.sttQualityGate.state).toBe("unavailable");
-    expect(parsed.measurements.pauseV2.metricDefinitionVersion).toBe(2);
+    expect(parsed.measurements.longSilenceCount.metricDefinitionVersion).toBe(
+      1,
+    );
     expect(
       rehearsalAnalyzeResponseV2Schema.safeParse({
         ...fixtures.rehearsalAnalyzeResponse,
@@ -280,12 +394,7 @@ describe("P0 speech evidence contracts", () => {
     expect(
       rehearsalAnalyzeResponseV2Schema.safeParse({
         ...fixtures.rehearsalAnalyzeResponse,
-        pauseV2Details: [
-          {
-            ...fixtures.rehearsalAnalyzeResponse.pauseV2Details[0],
-            intent: "hesitation",
-          },
-        ],
+        longSilenceCount: null,
       }).success,
     ).toBe(false);
     expect(
@@ -313,7 +422,7 @@ describe("P0 speech evidence contracts", () => {
     ).toBe(false);
   });
 
-  it("rejects slide insights when filler or pause v1 is unmeasured", () => {
+  it("rejects slide insights when filler is unmeasured", () => {
     const fillerUnmeasured = {
       ...fixtures.rehearsalAnalyzeResponse,
       fillerWordCount: null,
@@ -327,36 +436,15 @@ describe("P0 speech evidence contracts", () => {
         },
       },
     };
-    const pauseV1Unmeasured = {
-      ...fixtures.rehearsalAnalyzeResponse,
-      pauseCount: null,
-      pauseDetails: [],
-      measurements: {
-        ...fixtures.rehearsalAnalyzeResponse.measurements,
-        pauseV1: {
-          measurementState: "unmeasured",
-          metricDefinitionVersion: 1,
-          reasonCode: "SEGMENT_TIMESTAMPS_UNAVAILABLE",
-        },
-      },
-    };
-
     expect(
       rehearsalAnalyzeResponseV2Schema.safeParse(fillerUnmeasured).success,
     ).toBe(false);
     expect(
       rehearsalAnalyzeResponseV2Schema.safeParse({
         ...fillerUnmeasured,
-        slideInsights: [],
-      }).success,
-    ).toBe(true);
-    expect(
-      rehearsalAnalyzeResponseV2Schema.safeParse(pauseV1Unmeasured).success,
-    ).toBe(false);
-    expect(
-      rehearsalAnalyzeResponseV2Schema.safeParse({
-        ...pauseV1Unmeasured,
-        slideInsights: [],
+        slideInsights: fixtures.rehearsalAnalyzeResponse.slideInsights.map(
+          (insight) => ({ ...insight, fillerWordCount: null }),
+        ),
       }).success,
     ).toBe(true);
   });
@@ -372,7 +460,6 @@ describe("P0 speech evidence contracts", () => {
       charactersPerMinute: null,
       wordsPerMinute: null,
       fillerWordCount: null,
-      pauseCount: null,
       keywordCoverage: null,
       sttQualityGate: {
         version: 1,
@@ -387,18 +474,12 @@ describe("P0 speech evidence contracts", () => {
         charactersPerMinute: lowConfidenceMeasurementV1,
         wordsPerMinute: lowConfidenceMeasurementV1,
         fillerWordCount: lowConfidenceMeasurementV1,
-        pauseV1: lowConfidenceMeasurementV1,
-        pauseV2: {
-          measurementState: "unmeasured",
-          metricDefinitionVersion: 2,
-          reasonCode: "LOW_TRANSCRIPTION_CONFIDENCE",
-        },
+        longSilenceCount:
+          fixtures.rehearsalAnalyzeResponse.measurements.longSilenceCount,
         keywordCoverage: lowConfidenceMeasurementV1,
       },
       speedSamples: [],
       fillerWordDetails: [],
-      pauseDetails: [],
-      pauseV2Details: [],
       missedKeywords: [],
     };
 
@@ -409,54 +490,9 @@ describe("P0 speech evidence contracts", () => {
     expect(
       rehearsalAnalyzeResponseV2Schema.safeParse({
         ...failedQualityGateResponse,
-        slideInsights: [],
-      }).success,
-    ).toBe(true);
-  });
-
-  it("requires pause v2 position values to match their evidence source", () => {
-    const pause = fixtures.rehearsalAnalyzeResponse.pauseV2Details[0];
-
-    expect(
-      rehearsalAnalyzePauseV2DetailSchema.safeParse({
-        ...pause,
-        positionSource: "none",
-        position: "slide-transition",
-      }).success,
-    ).toBe(false);
-    expect(
-      rehearsalAnalyzePauseV2DetailSchema.safeParse({
-        ...pause,
-        positionSource: "slide-timeline",
-        position: "within-sentence",
-      }).success,
-    ).toBe(false);
-    expect(
-      rehearsalAnalyzePauseV2DetailSchema.safeParse({
-        ...pause,
-        positionSource: "provider",
-        position: "slide-transition",
-      }).success,
-    ).toBe(false);
-    expect(
-      rehearsalAnalyzePauseV2DetailSchema.safeParse({
-        ...pause,
-        positionSource: "none",
-        position: "unknown",
-      }).success,
-    ).toBe(true);
-    expect(
-      rehearsalAnalyzePauseV2DetailSchema.safeParse({
-        ...pause,
-        positionSource: "provider",
-        position: "between-sentences",
-      }).success,
-    ).toBe(true);
-    expect(
-      rehearsalAnalyzePauseV2DetailSchema.safeParse({
-        ...pause,
-        positionSource: "provider",
-        position: "within-sentence",
+        slideInsights: fixtures.rehearsalAnalyzeResponse.slideInsights.map(
+          (insight) => ({ ...insight, fillerWordCount: null }),
+        ),
       }).success,
     ).toBe(true);
   });
@@ -482,7 +518,7 @@ describe("P0 speech evidence contracts", () => {
       durationSeconds: 60,
       wordsPerMinute: 112,
       fillerWordCount: 1,
-      pauseCount: 1,
+      longSilenceCount: null,
       keywordCoverage: 0.9,
     };
     expect(rehearsalReportMetricsSchema.safeParse(baseMetrics).success).toBe(
@@ -561,18 +597,6 @@ describe("P0 speech evidence contracts", () => {
       sttQualityGateSchema.safeParse({
         ...fixtures.sttQualityGateRejected,
         confidence: 0.9,
-      }).success,
-    ).toBe(false);
-  });
-
-  it("keeps pause v2 classification unknown without provider evidence", () => {
-    expect(
-      pauseV2DetailSchema.parse(fixtures.pauseV2Unknown).classification,
-    ).toBe("unknown");
-    expect(
-      pauseV2DetailSchema.safeParse({
-        ...fixtures.pauseV2Unknown,
-        classification: "hesitation",
       }).success,
     ).toBe(false);
   });

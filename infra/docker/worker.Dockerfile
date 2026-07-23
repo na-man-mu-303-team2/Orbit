@@ -1,4 +1,4 @@
-FROM node:24-alpine
+FROM node:24-alpine AS deps
 
 WORKDIR /app
 
@@ -19,4 +19,4 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm --filter @orbit/worker... --workspace-concurrency=1 build
 
-CMD ["pnpm", "--filter", "@orbit/worker", "dev"]
+CMD ["node", "--enable-source-maps", "apps/worker/dist/main.js"]

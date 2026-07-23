@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { AiTemplateDeckGenerationController } from "../ai-template-deck-generation/ai-template-deck-generation.controller";
 import { authSessionCookieName } from "../auth/auth.constants";
 import type { AuthService } from "../auth/auth.service";
 import type { SignedCookieRequest } from "../auth/current-user";
 import { GenerateDeckController } from "../generate-deck/generate-deck.controller";
-import { PptxImportsController } from "../pptx-imports/pptx-imports.controller";
+import { DesignSelectionController } from "../generate-deck/design-selection.controller";
 import { PptxOoxmlGenerationsController } from "../pptx-ooxml-generations/pptx-ooxml-generations.controller";
 import type { ProjectsService } from "../projects/projects.service";
 
@@ -31,46 +30,6 @@ describe("project job controllers", () => {
     );
   });
 
-  it("requires write permission before creating AI template deck jobs", async () => {
-    const { authService, projectsService } = createAuthHarness();
-    const service = { createJob: vi.fn(async () => ({ job: { jobId: "job-1" } })) };
-    const controller = new AiTemplateDeckGenerationController(
-      authService,
-      service as never,
-      projectsService as unknown as ProjectsService,
-    );
-
-    await controller.createJob("project-a", { templateId: "template-1" }, signedRequest());
-
-    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
-      "project-a",
-      "user-1",
-    );
-    expect(service.createJob).toHaveBeenCalledWith("project-a", {
-      templateId: "template-1",
-    });
-  });
-
-  it("requires write permission before creating PPTX import jobs", async () => {
-    const { authService, projectsService } = createAuthHarness();
-    const service = { createImport: vi.fn(async () => ({ job: { jobId: "job-1" } })) };
-    const controller = new PptxImportsController(
-      authService,
-      service as never,
-      projectsService as unknown as ProjectsService,
-    );
-
-    await controller.createImport("project-a", { fileId: "file-1" }, signedRequest());
-
-    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
-      "project-a",
-      "user-1",
-    );
-    expect(service.createImport).toHaveBeenCalledWith("project-a", {
-      fileId: "file-1",
-    });
-  });
-
   it("requires write permission before creating PPTX OOXML generation jobs", async () => {
     const { authService, projectsService } = createAuthHarness();
     const service = {
@@ -95,6 +54,30 @@ describe("project job controllers", () => {
     expect(service.createGeneration).toHaveBeenCalledWith("project-a", {
       fileId: "file-1",
     });
+  });
+
+  it("requires write permission before selecting an AI deck design", async () => {
+    const { authService, projectsService } = createAuthHarness();
+    const service = { select: vi.fn(async () => ({ status: "generating" })) };
+    const controller = new DesignSelectionController(
+      authService,
+      projectsService as unknown as ProjectsService,
+      service as never,
+    );
+
+    const body = { paletteOptionId: "blue" };
+    await controller.put(
+      "project-a",
+      "job-1",
+      body,
+      signedRequest(),
+    );
+
+    expect(projectsService.assertCanWriteProject).toHaveBeenCalledWith(
+      "project-a",
+      "user-1",
+    );
+    expect(service.select).toHaveBeenCalledWith("project-a", "job-1", body);
   });
 });
 

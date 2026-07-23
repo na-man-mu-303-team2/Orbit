@@ -21,6 +21,7 @@
 ## 저장소 구조와 앱 경계
 
 - Web 작업은 기본적으로 `apps/web`, 필요한 경우 `packages/shared`, `packages/editor-core`, `packages/realtime` 안에서 처리한다.
+- Web redesign의 공통 primitive 컴포넌트는 `apps/web/src/components/ui`에 컴포넌트별 파일로 두고 `index.ts`에서 공개한다. 조합형 공통 패턴은 `apps/web/src/components/patterns`, 기능 전용 UI는 `apps/web/src/features/<feature-name>`에 둔다. redesign 토큰은 `apps/web/src/styles/tokens.css`를 사용하며 기존 `apps/web/src/design-system`과 섞지 않는다.
 - API 작업은 기본적으로 `apps/api`, 필요한 경우 `packages/shared`, `packages/config`, `packages/storage`, `packages/job-queue`, `packages/realtime` 안에서 처리한다.
 - Worker 작업은 기본적으로 `apps/worker`, 필요한 경우 `packages/shared`, `packages/job-queue`, `packages/storage`, `packages/ai` 안에서 처리한다.
 - Python worker 작업은 기본적으로 `services/python-worker` 안에서 처리한다.
@@ -60,6 +61,22 @@
 - 이미 push된 공유 브랜치에는 rebase 또는 force push를 하지 않는다.
 - 사용자가 요청하지 않은 Git 원격 상태 변경을 하지 않는다.
 - Git과 PR 세부 기준은 `docs/git-rules.md`를 따른다.
+
+### 최신 `develop`을 현재 작업 브랜치에 반영하는 절차
+
+현재 작업 브랜치에 최신 `origin/develop`을 반영해 달라는 요청을 받으면 아래 순서를 사용한다.
+
+1. 현재 tracked/untracked 변경을 확인하고 기능별 최소 단위로 검증·커밋한다.
+2. `git fetch origin develop --prune`으로 원격 기준만 갱신한다.
+3. 깨끗한 작업 트리에서 `git merge origin/develop`을 실행한다.
+4. 충돌이 발생하면 파일별 conflict block을 확인하고 현재 기능과 `develop`의 의도를 모두 보존한 뒤 관련 계약·테스트를 함께 정합화한다.
+5. 변경 범위의 테스트와 빌드를 실행하고, 로컬 서버를 재빌드한 경우 liveness와 readiness를 모두 재검증한다.
+6. 충돌 해결 파일을 stage하고 `git commit`으로 merge commit을 완료한다. 충돌 없이 merge commit이 자동 생성된 경우에는 같은 내용을 중복 커밋하지 않는다.
+
+- 공유 브랜치에서는 최신 base 반영을 위해 rebase나 force push를 사용하지 않는다.
+- 작업 트리가 dirty인 상태에서 `git pull`이나 `git merge`를 실행하지 않는다.
+- 이력과 실패 지점을 명확히 하기 위해 `git pull origin develop`보다 `fetch`와 명시적 `merge`를 우선한다.
+- 사용자가 `main` 등 다른 base branch를 명시한 경우에만 위 절차의 `develop`을 해당 branch로 바꾼다.
 
 ## 코드와 테스트 필수 규칙
 

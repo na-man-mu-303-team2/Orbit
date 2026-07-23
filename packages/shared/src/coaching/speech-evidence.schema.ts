@@ -153,8 +153,7 @@ export const rehearsalReportMeasurementsSchema = z
     charactersPerMinute: metricMeasurementSchema,
     wordsPerMinute: metricMeasurementSchema,
     fillerWordCount: metricMeasurementSchema,
-    pauseV1: metricMeasurementSchema,
-    pauseV2: metricMeasurementSchema,
+    longSilenceCount: metricMeasurementSchema,
     keywordCoverage: metricMeasurementSchema,
   })
   .strict()
@@ -164,8 +163,6 @@ export const rehearsalReportMeasurementsSchema = z
       ["charactersPerMinute", 1],
       ["wordsPerMinute", 1],
       ["fillerWordCount", 1],
-      ["pauseV1", 1],
-      ["pauseV2", 2],
       ["keywordCoverage", 1],
     ] as const;
 
@@ -178,6 +175,18 @@ export const rehearsalReportMeasurementsSchema = z
         });
       }
     });
+
+    if (
+      ![1, 2].includes(
+        measurements.longSilenceCount.metricDefinitionVersion,
+      )
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "long silence measurement must use a supported metric version.",
+        path: ["longSilenceCount", "metricDefinitionVersion"],
+      });
+    }
   });
 
 export const rehearsalReportAnalysisCapabilitiesSchema = z
@@ -187,51 +196,8 @@ export const rehearsalReportAnalysisCapabilitiesSchema = z
     segmentTimestamps: analysisCapabilitySchema,
     sttConfidence: analysisCapabilitySchema,
     sentenceBoundaries: analysisCapabilitySchema,
-    pauseIntentClassification: analysisCapabilitySchema,
   })
   .strict();
-
-export const pauseV2DetailSchema = z
-  .object({
-    pauseId: coachingIdSchema,
-    metricDefinitionVersion: z.literal(2),
-    startMs: z.number().int().nonnegative(),
-    endMs: z.number().int().nonnegative(),
-    durationMs: z.number().int().positive(),
-    position: z.enum([
-      "between-sentences",
-      "within-sentence",
-      "slide-transition",
-      "unknown",
-    ]),
-    classification: z.enum(["intentional", "hesitation", "unknown"]),
-    classificationCapability: z.enum(["provider-evidence", "not-available"]),
-    slideId: coachingIdSchema.nullable(),
-  })
-  .strict()
-  .superRefine((pause, context) => {
-    if (
-      pause.endMs < pause.startMs ||
-      pause.durationMs !== pause.endMs - pause.startMs
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "pause duration must match its time range.",
-        path: ["durationMs"],
-      });
-    }
-    if (
-      pause.classificationCapability === "not-available" &&
-      pause.classification !== "unknown"
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "pause classification must stay unknown without provider evidence.",
-        path: ["classification"],
-      });
-    }
-  });
 
 export const evidenceClipRefSchema = z
   .object({
@@ -331,7 +297,6 @@ export type RehearsalReportMeasurements = z.infer<
 export type RehearsalReportAnalysisCapabilities = z.infer<
   typeof rehearsalReportAnalysisCapabilitiesSchema
 >;
-export type PauseV2Detail = z.infer<typeof pauseV2DetailSchema>;
 export type EvidenceClip = z.infer<typeof evidenceClipSchema>;
 export type EvidenceClipPlaybackResponse = z.infer<
   typeof evidenceClipPlaybackResponseSchema

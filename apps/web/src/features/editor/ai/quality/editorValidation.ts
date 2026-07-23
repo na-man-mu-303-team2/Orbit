@@ -4,6 +4,7 @@ import {
   getKonvaFontStyle,
   getPrimaryTextRun,
   getTextElementText,
+  isTextElementOverflowing,
   measureTextContentBounds
 } from "../../canvas/text/textLayout";
 
@@ -16,37 +17,17 @@ const presentationGridStep = presentationGridColumnWidth + presentationGridGutte
 const presentationGridSafeX = 120;
 const presentationGridSpacing = 8;
 const presentationGridTolerance = 4;
+const locallyRecomputedGenerationIssueCodes = new Set([
+  "BODY_CONTENT_DENSE",
+  "CTA_MISSING",
+  "SPEAKER_NOTES_DENSE",
+  "SPEAKER_NOTES_SHORT"
+]);
 
 export type EditorValidationItem = {
   elementId?: string;
   elementIds?: string[];
-  issue?:
-    | "textOverflow"
-    | "titleWrap"
-    | "labelWrap"
-    | "speakerNotesShort"
-    | "textContrast"
-    | "contrastUnverifiable"
-    | "mediaSlotMissing"
-    | "sourceLedgerMissing"
-    | "slideCountMismatch"
-    | "ACTION_TITLE_WEAK"
-    | "BODY_CONTENT_DENSE"
-    | "FONT_SIZE_BELOW_MINIMUM"
-    | "FONT_FAMILY_OVERUSED"
-    | "LINE_HEIGHT_OUT_OF_RANGE"
-    | "VISUAL_HIERARCHY_WEAK"
-    | "CTA_MISSING"
-    | "GRID_ALIGNMENT_INCONSISTENT"
-    | "CONTENT_DUPLICATED"
-    | "SPEAKER_NOTES_SHORT"
-    | "SPEAKER_NOTES_DENSE"
-    | "SLIDE_MESSAGE_MULTIPLE"
-    | "NARRATIVE_FLOW_WEAK"
-    | "EVIDENCE_MISMATCH"
-    | "IMAGE_RELEVANCE_WEAK"
-    | "IMAGE_LICENSE_MISSING"
-    | "SPEAKER_NOTES_REPEATED";
+  issue?: string;
   level?: "warning";
   canonicalIssue?: "TEXT_OVERFLOW";
   message: string;
@@ -63,15 +44,39 @@ export function getEditorValidationItems(
   const slideItems = slides.flatMap((targetSlide) =>
     getEditorSlideValidationItems(deck, targetSlide)
   );
-  if (!slide) return [...deckItems, ...slideItems];
-  return [
-    ...deckItems.filter((item) => !item.slideId || item.slideId === slide.slideId),
+  if (!slide) return uniqueValidationItems([...deckItems, ...slideItems]);
+  return uniqueValidationItems([
+    ...deckItems.filter((item) => item.slideId === slide.slideId),
     ...slideItems
-  ];
+  ]);
+}
+
+function uniqueValidationItems(items: EditorValidationItem[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = [
+      item.issue ?? "",
+      item.slideId ?? "",
+      item.elementId ?? "",
+      [...(item.elementIds ?? [])].sort().join(","),
+      item.message
+    ].join(":");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function getEditorDeckValidationItems(deck: Deck): EditorValidationItem[] {
-  const items: EditorValidationItem[] = [];
+  const items: EditorValidationItem[] =
+    deck.metadata.generationQuality?.issues
+      .filter((issue) => !locallyRecomputedGenerationIssueCodes.has(issue.code))
+      .map((issue) => ({
+        issue: issue.code,
+        message: issue.message,
+        severity: issue.severity,
+        slideId: issue.slideId,
+      })) ?? [];
   const presentationRules = Boolean(deck.metadata.presentationProfile);
   const timingPlan = deck.slides.find(
     (slide) => slide.aiNotes?.timingPlan
@@ -225,6 +230,7 @@ function getEditorSlideValidationItems(
       items.push({
         elementId: element.elementId,
         message: "이미지 자리 표시자가 남아 있습니다.",
+        slideId: slide.slideId,
         severity: "warning"
       });
     }
@@ -236,6 +242,7 @@ function getEditorSlideValidationItems(
       items.push({
         elementId: element.elementId,
         message: "이미지 대체 텍스트가 비어 있습니다.",
+        slideId: slide.slideId,
         severity: "warning"
       });
     }
@@ -244,6 +251,7 @@ function getEditorSlideValidationItems(
       items.push({
         elementId: element.elementId,
         message: "차트 데이터가 비어 있습니다.",
+        slideId: slide.slideId,
         severity: "warning"
       });
     }
@@ -255,6 +263,7 @@ function getEditorSlideValidationItems(
           issue: "textOverflow",
           canonicalIssue: "TEXT_OVERFLOW",
           message: "텍스트가 상자 높이를 넘을 수 있습니다.",
+          slideId: slide.slideId,
           severity: "warning"
         });
       }
@@ -266,6 +275,7 @@ function getEditorSlideValidationItems(
           message: deck.metadata.presentationProfile
             ? "제목이 세 줄 이상으로 줄바꿈되었습니다."
             : "제목이 여러 줄로 줄바꿈되었습니다.",
+          slideId: slide.slideId,
           severity: "warning"
         });
       }
@@ -275,6 +285,7 @@ function getEditorSlideValidationItems(
           elementId: element.elementId,
           issue: "labelWrap",
           message: "짧은 라벨이 여러 줄로 줄바꿈되었습니다.",
+          slideId: slide.slideId,
           severity: "warning"
         });
       }
@@ -291,6 +302,7 @@ function getEditorSlideValidationItems(
           elementId: element.elementId,
           issue: "contrastUnverifiable",
           message: "이미지, 그라데이션 또는 반투명 배경의 텍스트 대비는 자동 검증할 수 없습니다.",
+          slideId: slide.slideId,
           severity: "risk"
         });
         continue;
@@ -304,6 +316,7 @@ function getEditorSlideValidationItems(
           elementId: element.elementId,
           issue: "textContrast",
           message: "텍스트와 배경 대비가 낮습니다.",
+          slideId: slide.slideId,
           severity: "warning"
         });
       }
@@ -313,6 +326,7 @@ function getEditorSlideValidationItems(
       items.push({
         elementId: element.elementId,
         message: "내보내기에서 모양이 달라질 수 있습니다.",
+        slideId: slide.slideId,
         severity: "risk"
       });
     }
@@ -504,7 +518,7 @@ function getEditorTypographyValidationItems(
   return slide.elements.flatMap((element) => {
     if (!element.visible || element.type !== "text") return [];
     const role = element.role ?? "";
-    const minimumSize = minimumPresentationFontSize(slideIndex, role);
+    const minimumSize = getMinimumPresentationFontSize(slideIndex, element.role);
     const items: EditorValidationItem[] = [];
     if (element.props.fontSize < minimumSize) {
       items.push({
@@ -535,9 +549,12 @@ function getEditorTypographyValidationItems(
   });
 }
 
-function minimumPresentationFontSize(slideIndex: number, role: string) {
+export function getMinimumPresentationFontSize(
+  slideIndex: number,
+  role: DeckElement["role"]
+) {
   if (role === "title") return slideIndex === 0 ? 44 : 32;
-  if (["body", "highlight", "subtitle"].includes(role)) return 18;
+  if (role && ["body", "highlight", "subtitle"].includes(role)) return 18;
   if (role === "caption") return 14;
   if (role === "footer") return 12;
   return 12;
@@ -866,9 +883,18 @@ function isEditorTextOverflowing(
   const text = getTextElementText(element.props as TextElementProps);
   if (!text) return false;
 
-  const metrics = getEditorTextContentMetrics(deck, slide, element, text);
-
-  return metrics.height > Math.max(1, element.height - 8);
+  return isTextElementOverflowing({
+    frame: {
+      x: element.x,
+      y: element.y,
+      width: element.width,
+      height: element.height,
+      rotation: element.rotation
+    },
+    props: element.props as TextElementProps,
+    slide,
+    theme: deck.theme
+  });
 }
 
 function isEditorTitleTextWrapped(
@@ -1068,6 +1094,7 @@ function getEditorTextOverlapValidationItems(
 
       items.push({
         elementIds: [first.elementId, second.elementId],
+        issue: "textOverlap",
         level: "warning",
         message: "텍스트 요소가 겹쳐 읽기 어려울 수 있습니다.",
         severity: "warning",

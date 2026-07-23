@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import copy
+import hashlib
 import math
 import os
 import zipfile
@@ -16,6 +18,7 @@ from app.ai.pptx_design_importer import (
     ImportedDesignBlueprint,
     PptxDesignImportResult,
     apply_repeated_text_roles,
+    attach_pptx_speaker_notes,
     assign_text_roles,
     average_image_color,
     build_quality_report,
@@ -25,12 +28,22 @@ from app.ai.pptx_design_importer import (
     import_pptx_design,
     preset_custom_shape_path,
 )
+from app.ai.pptx_motion import (
+    main_sequence_node,
+    parse_slide_motion,
+    supported_main_sequence_shape_ids,
+)
+from app.ai.pptx_package_security import inspect_pptx_package
 
 PML_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 DML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 PKG_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+ORBIT_OOXML_NS = "urn:orbit:deck:ooxml"
+TABLE_GRAPHIC_DATA_URI = (
+    "http://schemas.openxmlformats.org/drawingml/2006/table"
+)
 
 SLIDE_REL_TYPE = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
@@ -51,6 +64,22 @@ VECTOR_IMPORT_FLAG = "ORBIT_PPTX_OOXML_VECTOR_IMPORT"
 DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU = 91440
 DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU = 45720
 DEFAULT_PPTX_FONT_FAMILY = "Aptos, Calibri, Arial, sans-serif"
+PPTX_FONT_BROWSER_FALLBACK = "PPTX_FONT_BROWSER_FALLBACK"
+PPTX_FONT_FAMILY_ALIASES = {
+    "pretendard": ("Pretendard", None),
+    "pretendard extralight": ("Pretendard", 200),
+    "pretendard medium": ("Pretendard", 500),
+    "pretendard semibold": ("Pretendard", 600),
+    "pretendard extrabold": ("Pretendard", 800),
+}
+PPTX_BROWSER_AVAILABLE_FONT_FAMILIES = frozenset(
+    {"Pretendard", "Arial", "sans-serif", "serif", "monospace"}
+)
+RICH_TEXT_UNSUPPORTED_HYPERLINK = "PPTX_RICH_TEXT_UNSUPPORTED_HYPERLINK"
+TABLE_STRUCTURE_UNSUPPORTED = "PPTX_TABLE_STRUCTURE_UNSUPPORTED"
+TABLE_TRACK_MISMATCH = "PPTX_TABLE_TRACK_MISMATCH"
+MAX_TABLE_CELL_LOCATORS = 10_000
+MAX_MOTION_DIAGNOSTIC_DETAILS = 500
 FALLBACK_SCHEME_COLORS = {
     "bg1": "#FFFFFF",
     "tx1": "#111827",
@@ -82,6 +111,7 @@ def import_pptx_design_with_optional_ooxml_vector(
     canvas_width: int = CANVAS_WIDTH,
     canvas_height: int = CANVAS_HEIGHT,
 ) -> PptxDesignImportResult:
+    inspect_pptx_package(path.read_bytes())
     if ooxml_vector_import_disabled():
         return import_pptx_design(
             path,
@@ -198,10 +228,13 @@ class OoxmlTransform:
 @dataclass
 class OoxmlImportState:
     assets: list[ImportedDesignAsset]
+    asset_ids_by_content_hash: dict[str, str]
     asset_colors: dict[str, str]
     theme_colors: dict[str, str]
+    theme_fonts: OoxmlThemeFonts
     theme_styles: OoxmlThemeStyles
     warnings: list[str]
+    text_style_context: OoxmlTextStyleContext | None = None
     z_cursor: int = 1
 
     def next_z(self) -> int:
@@ -214,6 +247,31 @@ class OoxmlImportState:
 class OoxmlThemeStyles:
     line_styles: tuple[ET.Element[Any], ...] = ()
     effect_styles: tuple[ET.Element[Any], ...] = ()
+
+
+@dataclass(frozen=True)
+class OoxmlThemeFonts:
+    major_latin: str = "Calibri"
+    major_east_asian: str = "Calibri"
+    major_complex_script: str = "Calibri"
+    minor_latin: str = "Calibri"
+    minor_east_asian: str = "Calibri"
+    minor_complex_script: str = "Calibri"
+
+
+@dataclass(frozen=True)
+class OoxmlTextStyleContext:
+    layout: ET.Element[Any] | None
+    master: ET.Element[Any] | None
+    theme_fonts: OoxmlThemeFonts
+
+
+@dataclass(frozen=True)
+class OoxmlTextCascade:
+    layout_shape: ET.Element[Any] | None
+    master_shape: ET.Element[Any] | None
+    master_text_style: ET.Element[Any] | None
+    theme_fonts: OoxmlThemeFonts
 
 
 def import_pptx_ooxml_visual_tree(
@@ -238,19 +296,27 @@ def import_pptx_ooxml_visual_tree(
         content_types = content_type_map(package)
         state = OoxmlImportState(
             assets=[],
+            asset_ids_by_content_hash={},
             asset_colors={},
             theme_colors=theme_color_map(package),
+            theme_fonts=theme_font_scheme(package),
             theme_styles=theme_style_matrix(package),
             warnings=[],
         )
         slides: list[dict[str, Any]] = []
         slot_sources_by_slide: list[dict[str, dict[str, Any]]] = []
+        motion_diagnostics: list[dict[str, Any]] = []
 
         for slide_index, slide_part in enumerate(slide_parts, start=1):
             slide = read_xml(package, slide_part)
             if slide is None:
                 state.warnings.append(f"OOXML slide part missing: {slide_part}")
                 continue
+            append_font_availability_diagnostics(
+                slide,
+                state.warnings,
+                slide_index=slide_index,
+            )
             slide_rels = relationships_for_part(package, slide_part)
             layout_part = relationship_target_by_type(
                 slide_part,
@@ -271,6 +337,11 @@ def import_pptx_ooxml_visual_tree(
                 else None
             )
             master = read_xml(package, master_part) if master_part else None
+            state.text_style_context = OoxmlTextStyleContext(
+                layout=layout,
+                master=master,
+                theme_fonts=state.theme_fonts,
+            )
             placeholder_frames = placeholder_frame_map(layout, scale)
             elements: list[dict[str, Any]] = [
                 background_element(slide_index, canvas_width, canvas_height)
@@ -302,6 +373,20 @@ def import_pptx_ooxml_visual_tree(
                     locked=source_name != "slide",
                 )
 
+            shape_targets = animation_shape_targets(
+                slide,
+                slide_index=slide_index,
+                slide_part=slide_part,
+                elements=elements,
+                slot_sources=slot_sources,
+            )
+            motion = parse_slide_motion(
+                slide,
+                slide_index=slide_index,
+                shape_targets=shape_targets,
+            )
+            motion_diagnostics.extend(motion.diagnostics)
+
             assign_text_roles(
                 elements,
                 slot_sources,
@@ -309,14 +394,22 @@ def import_pptx_ooxml_visual_tree(
                 slide_count=len(slide_parts),
             )
             background = slide_background_color(slide, state.theme_colors) or "#FFFFFF"
-            slides.append(
-                {
-                    "sourceFileId": file_id,
-                    "sourceSlideIndex": slide_index,
-                    "style": imported_slide_style(elements, background),
-                    "elements": elements,
-                }
-            )
+            slide_payload: dict[str, Any] = {
+                "sourceFileId": file_id,
+                "sourceSlideIndex": slide_index,
+                "sourceSlidePart": slide_part,
+                "style": imported_slide_style(elements, background),
+                "elements": elements,
+                "animations": motion.animations,
+                "ooxmlMotionCapabilities": {
+                    "transitionWritable": True,
+                    "importedMainSequenceCoverage": motion.coverage,
+                },
+                "motionDiagnostics": motion.diagnostics,
+            }
+            if motion.transition is not None:
+                slide_payload["transition"] = motion.transition
+            slides.append(slide_payload)
             slot_sources_by_slide.append(slot_sources)
 
         apply_repeated_text_roles(slides, slot_sources_by_slide)
@@ -332,17 +425,231 @@ def import_pptx_ooxml_visual_tree(
                 "warnings": state.warnings,
             }
         )
+        template_blueprint = build_template_blueprint(
+            file_id,
+            slides,
+            slot_sources_by_slide,
+        )
+        copy_table_cell_locators_to_blueprint(
+            template_blueprint,
+            slot_sources_by_slide,
+        )
+        copy_animation_group_sources_to_blueprint(
+            template_blueprint,
+            slides,
+            slot_sources_by_slide,
+        )
+        blueprint_payload = blueprint.model_dump(by_alias=True)
+        for payload_slide, source_slide in zip(
+            blueprint_payload.get("slides", []),
+            slides,
+            strict=True,
+        ):
+            for field in (
+                "animations",
+                "transition",
+                "ooxmlMotionCapabilities",
+                "motionDiagnostics",
+            ):
+                if field in source_slide:
+                    payload_slide[field] = copy.deepcopy(source_slide[field])
+        for template_slide, source_slide in zip(
+            template_blueprint.get("slides", []),
+            slides,
+            strict=True,
+        ):
+            template_slide["ooxmlMotionCapabilities"] = copy.deepcopy(
+                source_slide["ooxmlMotionCapabilities"]
+            )
+        quality_report = build_quality_report(slides, state.warnings)
+        quality_report["motionDiagnostics"] = motion_diagnostic_summary(
+            motion_diagnostics
+        )
+        attach_pptx_speaker_notes(
+            path,
+            blueprint_payload,
+            template_blueprint,
+            quality_report,
+        )
         return PptxDesignImportResult(
-            blueprint=blueprint.model_dump(by_alias=True),
-            templateBlueprint=build_template_blueprint(
-                file_id,
-                slides,
-                slot_sources_by_slide,
-            ),
-            qualityReport=build_quality_report(slides, state.warnings),
+            blueprint=blueprint_payload,
+            templateBlueprint=template_blueprint,
+            qualityReport=quality_report,
             assets=state.assets,
             warnings=state.warnings,
         )
+
+
+def motion_diagnostic_summary(
+    diagnostics: list[dict[str, Any]],
+) -> dict[str, Any]:
+    categorized: list[tuple[int, str, str]] = []
+    for diagnostic in diagnostics:
+        code = str(diagnostic.get("code", ""))
+        slide_index = int(diagnostic.get("slideIndex", 0) or 0)
+        if slide_index <= 0:
+            continue
+        if "UNSUPPORTED" in code:
+            category = "unsupported"
+        elif "DOWNGRADED" in code:
+            category = "downgraded"
+        elif "UNRESOLVED" in code or code.endswith("SOURCE_UNAVAILABLE"):
+            category = "unresolved"
+        elif "EXCLUDED" in code:
+            category = "excluded"
+        else:
+            continue
+        categorized.append((slide_index, code, category))
+
+    counts = {
+        category: sum(item_category == category for _, _, item_category in categorized)
+        for category in ("unsupported", "downgraded", "unresolved", "excluded")
+    }
+    detail_counts: dict[tuple[int, str], int] = {}
+    for slide_index, code, _ in categorized:
+        key = (slide_index, code)
+        detail_counts[key] = detail_counts.get(key, 0) + 1
+    details = [
+        {"slideIndex": slide_index, "code": code, "count": count}
+        for (slide_index, code), count in sorted(detail_counts.items())
+    ]
+    return {
+        "total": sum(counts.values()),
+        **counts,
+        "details": details if len(details) <= MAX_MOTION_DIAGNOSTIC_DETAILS else [],
+    }
+
+
+def animation_shape_targets(
+    slide_root: ET.Element[Any],
+    *,
+    slide_index: int,
+    slide_part: str,
+    elements: list[dict[str, Any]],
+    slot_sources: dict[str, dict[str, Any]],
+) -> dict[str, str]:
+    timing = first_local_child(slide_root, "timing")
+    main_sequence = main_sequence_node(timing) if timing is not None else None
+    if main_sequence is None:
+        return {}
+    referenced_shape_ids = supported_main_sequence_shape_ids(main_sequence)
+    element_order = {
+        str(element.get("elementId", "")): index
+        for index, element in enumerate(elements)
+    }
+    targets: dict[str, str] = {}
+    for shape_id in sorted(referenced_shape_ids):
+        child_ids = sorted(
+            (
+                element_id_value
+                for element_id_value, source in slot_sources.items()
+                if str(source.get("slidePart", "")) == slide_part
+                and str(source.get("shapeId", "")) == shape_id
+                and bool(source.get("writable", False))
+            ),
+            key=lambda element_id_value: element_order.get(
+                element_id_value,
+                len(element_order),
+            ),
+        )
+        if len(child_ids) == 1:
+            targets[shape_id] = child_ids[0]
+            continue
+        if not child_ids:
+            continue
+        child_elements = [
+            element
+            for element in elements
+            if str(element.get("elementId", "")) in child_ids
+        ]
+        frame = union_element_frame(child_elements)
+        if frame is None:
+            continue
+        group_id = element_id(slide_index, "slide", shape_id, "animation_group")
+        elements.append(
+            {
+                **element_base(
+                    element_id=group_id,
+                    role="decoration",
+                    frame=frame,
+                    z_index=max(
+                        (int(element.get("zIndex", 0)) for element in child_elements),
+                        default=0,
+                    ),
+                    locked=False,
+                ),
+                "type": "group",
+                "props": {"childElementIds": child_ids},
+            }
+        )
+        slot_sources[group_id] = {
+            "type": "slide",
+            "name": "animation-group",
+            "slidePart": slide_part,
+            "shapeId": shape_id,
+            "writable": True,
+            "animationSyntheticTarget": True,
+        }
+        targets[shape_id] = group_id
+    return targets
+
+
+def union_element_frame(
+    elements: list[dict[str, Any]],
+) -> dict[str, int] | None:
+    if not elements:
+        return None
+    left = min(int(element.get("x", 0)) for element in elements)
+    top = min(int(element.get("y", 0)) for element in elements)
+    right = max(
+        int(element.get("x", 0)) + max(1, int(element.get("width", 1)))
+        for element in elements
+    )
+    bottom = max(
+        int(element.get("y", 0)) + max(1, int(element.get("height", 1)))
+        for element in elements
+    )
+    return {
+        "x": left,
+        "y": top,
+        "width": max(1, right - left),
+        "height": max(1, bottom - top),
+    }
+
+
+def copy_animation_group_sources_to_blueprint(
+    template_blueprint: dict[str, Any],
+    slides: list[dict[str, Any]],
+    slot_sources_by_slide: list[dict[str, dict[str, Any]]],
+) -> None:
+    for slide_index, template_slide in enumerate(template_blueprint.get("slides", [])):
+        if slide_index >= len(slides) or slide_index >= len(slot_sources_by_slide):
+            break
+        existing_ids = {
+            str(source.get("elementId", ""))
+            for source in template_slide.get("elementSources", [])
+            if isinstance(source, dict)
+        }
+        for element in slides[slide_index].get("elements", []):
+            if not isinstance(element, dict) or element.get("type") != "group":
+                continue
+            element_id_value = str(element.get("elementId", ""))
+            source = slot_sources_by_slide[slide_index].get(element_id_value)
+            if not source or element_id_value in existing_ids:
+                continue
+            slide_part = str(source.get("slidePart", ""))
+            shape_id = str(source.get("shapeId", ""))
+            if not slide_part or not shape_id:
+                continue
+            template_slide.setdefault("elementSources", []).append(
+                {
+                    "elementId": element_id_value,
+                    "slidePart": slide_part,
+                    "shapeId": shape_id,
+                    "sourceType": str(source.get("type", "slide")),
+                    "writable": bool(source.get("writable", False)),
+                }
+            )
 
 
 def append_visual_tree(
@@ -474,6 +781,14 @@ def append_graphic_frame(
         )
         if element:
             source["type"] = "table"
+            locators, diagnostics = table_cell_locators(
+                frame_element,
+                slide_index=slide_index,
+                shape_id=shape_id,
+            )
+            state.warnings.extend(diagnostics)
+            if locators is not None:
+                source["tableCellLocators"] = locators
             elements.append(element)
             slot_sources[str(element["elementId"])] = source
             return
@@ -532,7 +847,7 @@ def chart_element(
     if not relationship_id:
         return None
     rel = relationships_for_part(package, part_path).get(relationship_id)
-    if not rel:
+    if not rel or relationship_is_external(rel):
         return None
     chart_part = resolve_part_path(part_path, rel.get("Target", ""))
     chart = read_xml(package, chart_part)
@@ -697,22 +1012,23 @@ def table_cell(
     text = "".join(str(run.get("text", "")) for run in runs)
     tc_pr = first_local_child(cell, "tcPr")
     border_color, border_width = table_cell_border(tc_pr, scale, theme_colors)
-    explicit_fill = solid_color(first_local_child(tc_pr, "solidFill"), theme_colors)
     default_fill, default_text_color = default_table_cell_colors(row_index)
     props: dict[str, Any] = {
         "text": text,
-        "fill": explicit_fill or default_fill,
+        "fill": table_cell_fill(tc_pr, theme_colors, default_fill),
         "textColor": default_text_color,
         "fontSize": 32,
         "fontWeight": "normal",
         "align": paragraph_align(body) if body is not None else "left",
-        "verticalAlign": text_vertical_align(body) if body is not None else "middle",
+        "verticalAlign": table_cell_vertical_align(tc_pr, body),
         "borderColor": border_color,
         "borderWidth": border_width,
-        "colSpan": max(1, int_attr(tc_pr, "gridSpan", 1)),
-        "rowSpan": max(1, int_attr(tc_pr, "rowSpan", 1)),
+        "colSpan": max(1, int_attr(cell, "gridSpan", 1)),
+        "rowSpan": max(1, int_attr(cell, "rowSpan", 1)),
     }
     first_run = next((run for run in runs if str(run.get("text", "")).strip()), None)
+    if first_run is None and body is not None:
+        first_run = table_cell_empty_text_style(body, scale, theme_colors)
     if first_run:
         if first_run.get("fontFamily"):
             props["fontFamily"] = first_run["fontFamily"]
@@ -748,6 +1064,155 @@ def table_row_heights(table: ET.Element[Any], scale: OoxmlScale) -> list[int]:
     ]
 
 
+def table_cell_locators(
+    frame_element: ET.Element[Any],
+    *,
+    slide_index: int,
+    shape_id: str,
+) -> tuple[list[dict[str, Any]] | None, list[str]]:
+    table = direct_graphic_frame_table(frame_element)
+    location = f"slide={slide_index}; shape={shape_id}"
+    if table is None:
+        return None, [
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=non-direct-table"
+        ]
+
+    grid = first_local_child(table, "tblGrid")
+    columns = direct_local_children(grid, "gridCol") if grid is not None else []
+    rows = direct_local_children(table, "tr")
+    if not columns or not rows:
+        return None, [
+            f"{TABLE_TRACK_MISMATCH}: {location}; "
+            "reason=column-track-mismatch"
+        ]
+    if len(columns) > 1000 or len(rows) > 1000:
+        return None, [
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=locator-limit"
+        ]
+    if any(not valid_integer_attribute(column, "w", minimum=1) for column in columns):
+        return None, [
+            f"{TABLE_TRACK_MISMATCH}: {location}; "
+            "reason=column-track-mismatch"
+        ]
+    if any(not valid_integer_attribute(row, "h", minimum=0) for row in rows):
+        return None, [
+            f"{TABLE_TRACK_MISMATCH}: {location}; reason=row-track-mismatch"
+        ]
+
+    row_cells = [direct_local_children(row, "tc") for row in rows]
+    row_lengths = {len(cells) for cells in row_cells}
+    if len(row_lengths) != 1:
+        return None, [
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=jagged-grid"
+        ]
+    if next(iter(row_lengths), 0) != len(columns):
+        return None, [
+            f"{TABLE_TRACK_MISMATCH}: {location}; "
+            "reason=column-track-mismatch"
+        ]
+    if len(rows) * len(columns) > MAX_TABLE_CELL_LOCATORS:
+        return None, [
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=locator-limit"
+        ]
+    if any(table_cell_has_merge(cell) for cells in row_cells for cell in cells):
+        return None, [
+            f"{TABLE_STRUCTURE_UNSUPPORTED}: {location}; reason=merged-cell"
+        ]
+
+    return [
+        {
+            "rowIndex": row_index,
+            "columnIndex": column_index,
+            "fingerprint": table_cell_fingerprint(cell),
+        }
+        for row_index, cells in enumerate(row_cells)
+        for column_index, cell in enumerate(cells)
+    ], []
+
+
+def direct_graphic_frame_table(
+    frame_element: ET.Element[Any],
+) -> ET.Element[Any] | None:
+    graphic = first_local_child(frame_element, "graphic")
+    graphic_data = first_local_child(graphic, "graphicData")
+    if (
+        graphic_data is None
+        or graphic_data.get("uri") != TABLE_GRAPHIC_DATA_URI
+    ):
+        return None
+    return first_local_child(graphic_data, "tbl")
+
+
+def valid_integer_attribute(
+    element: ET.Element[Any],
+    name: str,
+    *,
+    minimum: int,
+) -> bool:
+    raw_value = element.get(name)
+    if raw_value is None:
+        return False
+    try:
+        return int(raw_value) >= minimum
+    except ValueError:
+        return False
+
+
+def table_cell_has_merge(cell: ET.Element[Any]) -> bool:
+    for span_name in ("gridSpan", "rowSpan"):
+        raw_span = cell.get(span_name)
+        if raw_span is None:
+            continue
+        try:
+            if int(raw_span) != 1:
+                return True
+        except ValueError:
+            return True
+    for merge_name in ("hMerge", "vMerge"):
+        raw_merge = cell.get(merge_name)
+        if raw_merge is None:
+            continue
+        if raw_merge.lower() in {"1", "true", "on"}:
+            return True
+        if raw_merge.lower() not in {"0", "false", "off"}:
+            return True
+    return False
+
+
+def table_cell_fingerprint(cell: ET.Element[Any]) -> str:
+    payload = copy.deepcopy(cell)
+    for node in payload.iter():
+        if node.tag == f"{{{DML_NS}}}t":
+            node.text = ""
+            node.attrib.pop(
+                "{http://www.w3.org/XML/1998/namespace}space",
+                None,
+            )
+    canonical = ET.canonicalize(
+        ET.tostring(payload, encoding="unicode"),
+        with_comments=False,
+        rewrite_prefixes=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def copy_table_cell_locators_to_blueprint(
+    template_blueprint: dict[str, Any],
+    slot_sources_by_slide: list[dict[str, dict[str, Any]]],
+) -> None:
+    blueprint_slides = template_blueprint.get("slides", [])
+    for slide_index, blueprint_slide in enumerate(blueprint_slides):
+        if slide_index >= len(slot_sources_by_slide):
+            break
+        sources_by_element = slot_sources_by_slide[slide_index]
+        for element_source in blueprint_slide.get("elementSources", []):
+            element_id_value = str(element_source.get("elementId", ""))
+            source = sources_by_element.get(element_id_value, {})
+            locators = source.get("tableCellLocators")
+            if isinstance(locators, list) and locators:
+                element_source["tableCellLocators"] = locators
+
+
 def table_cell_border(
     tc_pr: ET.Element[Any] | None,
     scale: OoxmlScale,
@@ -763,6 +1228,59 @@ def table_cell_border(
             round(max(0, int_attr(border, "w", 12700) * scale.average_scale), 2),
         )
     return "#FFFFFF", 1
+
+
+def table_cell_fill(
+    tc_pr: ET.Element[Any] | None,
+    theme_colors: dict[str, str],
+    fallback: str,
+) -> str:
+    if tc_pr is None:
+        return fallback
+    fill_names = {"noFill", "solidFill", "gradFill", "blipFill", "pattFill", "grpFill"}
+    fill = next(
+        (child for child in list(tc_pr) if local_name(child) in fill_names),
+        None,
+    )
+    if fill is None:
+        return fallback
+    if local_name(fill) == "solidFill":
+        return solid_color(fill, theme_colors) or "transparent"
+    return "transparent"
+
+
+def table_cell_empty_text_style(
+    body: ET.Element[Any],
+    scale: OoxmlScale,
+    theme_colors: dict[str, str],
+) -> dict[str, Any] | None:
+    for paragraph in direct_local_children(body, "p"):
+        for run in direct_local_children(paragraph, "r"):
+            run_properties = first_local_child(run, "rPr")
+            if run_properties is not None:
+                return run_properties_value(run_properties, scale, theme_colors)
+        end_properties = first_local_child(paragraph, "endParaRPr")
+        if end_properties is not None:
+            return run_properties_value(end_properties, scale, theme_colors)
+        paragraph_properties = first_local_child(paragraph, "pPr")
+        default_properties = first_local_child(paragraph_properties, "defRPr")
+        if default_properties is not None:
+            return run_properties_value(default_properties, scale, theme_colors)
+    return None
+
+
+def table_cell_vertical_align(
+    tc_pr: ET.Element[Any] | None,
+    body: ET.Element[Any] | None,
+) -> str:
+    anchor = str(tc_pr.get("anchor", "")) if tc_pr is not None else ""
+    if anchor:
+        return {
+            "ctr": "middle",
+            "mid": "middle",
+            "b": "bottom",
+        }.get(anchor, "top")
+    return text_vertical_align(body) if body is not None else "middle"
 
 
 def append_group_shape(
@@ -861,6 +1379,13 @@ def append_group_shape(
             },
         }
     )
+    slot_sources[group_element_id] = shape_source(
+        group,
+        part_path,
+        group_id,
+        source_name,
+        locked,
+    )
     return [group_element_id]
 
 
@@ -940,6 +1465,8 @@ def append_shape_text_only(
         z_index=state.next_z(),
         locked=locked,
         theme_colors=state.theme_colors,
+        text_style_context=state.text_style_context,
+        warnings=state.warnings,
     )
     if text_element_payload:
         elements.append(text_element_payload)
@@ -1119,6 +1646,8 @@ def append_shape(
             z_index=state.next_z(),
             locked=locked,
             theme_colors=state.theme_colors,
+            text_style_context=state.text_style_context,
+            warnings=state.warnings,
         )
         if text_element_payload:
             elements.append(text_element_payload)
@@ -1216,6 +1745,8 @@ def append_shape(
         z_index=state.next_z(),
         locked=locked,
         theme_colors=state.theme_colors,
+        text_style_context=state.text_style_context,
+        warnings=state.warnings,
     )
     if text_element_payload:
         elements.append(text_element_payload)
@@ -1364,6 +1895,10 @@ def image_asset_from_relationship(
             f"OOXML image relationship missing on slide {slide_index}: {relationship_id}"
         )
         return None
+    if relationship_is_external(rel):
+        if "PPTX_EXTERNAL_RELATIONSHIP_BLOCKED" not in state.warnings:
+            state.warnings.append("PPTX_EXTERNAL_RELATIONSHIP_BLOCKED")
+        return None
     image_part = resolve_part_path(part_path, rel.get("Target", ""))
     if image_part not in package.namelist():
         state.warnings.append(
@@ -1371,8 +1906,12 @@ def image_asset_from_relationship(
         )
         return None
     blob = package.read(image_part)
-    asset_id = f"image_{len(state.assets) + 1}"
+    content_hash = hashlib.sha256(blob).hexdigest()
+    existing_asset_id = state.asset_ids_by_content_hash.get(content_hash)
     mime_type = mime_type_for_part(content_types, image_part)
+    if existing_asset_id is not None:
+        return existing_asset_id, mime_type
+    asset_id = f"image_{len(state.assets) + 1}"
     state.assets.append(
         ImportedDesignAsset(
             assetId=asset_id,
@@ -1381,6 +1920,7 @@ def image_asset_from_relationship(
             contentBase64=base64.b64encode(blob).decode("ascii"),
         )
     )
+    state.asset_ids_by_content_hash[content_hash] = asset_id
     color = average_image_color(blob)
     if color:
         state.asset_colors[asset_id] = color
@@ -1706,39 +2246,58 @@ def text_element(
     z_index: int,
     locked: bool,
     theme_colors: dict[str, str],
+    text_style_context: OoxmlTextStyleContext | None,
+    warnings: list[str],
 ) -> dict[str, Any] | None:
     body = first_local_child(shape, "txBody")
     if body is None:
         return None
-    paragraphs = text_paragraphs(body, scale, theme_colors)
+    append_rich_text_diagnostics(
+        body,
+        warnings,
+        slide_index=slide_index,
+        shape_id=shape_id,
+    )
+    cascade = text_cascade_for_shape(shape, source_name, text_style_context)
+    paragraphs = text_paragraphs(body, scale, theme_colors, cascade)
     runs = flatten_paragraph_runs(paragraphs)
-    text = "".join(str(run.get("text", "")) for run in runs)
+    text = "\n".join(str(paragraph.get("text", "")) for paragraph in paragraphs)
     if not text.strip():
         return None
-    first_run = next((run for run in runs if str(run.get("text", "")).strip()), runs[0])
-    text_frame = text_content_frame(body, frame, scale)
+    first_style = next(
+        (
+            paragraph
+            for paragraph in paragraphs
+            if str(paragraph.get("text", "")).strip()
+        ),
+        paragraphs[0],
+    )
     props: dict[str, Any] = {
         "text": text,
         "runs": runs,
         "paragraphs": paragraphs,
-        "bodyInset": text_body_inset(body, scale),
-        "fontFamily": first_run.get("fontFamily", DEFAULT_PPTX_FONT_FAMILY),
-        "fontSize": first_run.get("fontSize", 24),
-        "fontWeight": first_run.get("fontWeight", "normal"),
-        "color": first_run.get("color", "#111827"),
-        "align": paragraph_align(body),
-        "verticalAlign": text_vertical_align(body),
-        "writingMode": text_writing_mode(body),
-        "lineHeight": paragraph_line_height(body),
+        "bodyInset": text_body_inset(body, scale, cascade),
+        "fontFamily": first_style.get("fontFamily", DEFAULT_PPTX_FONT_FAMILY),
+        "fontSize": first_style.get("fontSize", 24),
+        "fontWeight": first_style.get("fontWeight", "normal"),
+        "color": first_style.get("color", "#111827"),
+        "align": paragraphs[0].get("align", "left"),
+        "verticalAlign": text_vertical_align(body, cascade),
+        "writingMode": text_writing_mode(body, cascade),
+        "lineHeight": paragraphs[0].get("lineHeight", 1.15),
     }
-    bullet = paragraph_bullet(body)
+    for key in ("italic", "letterSpacing", "underline"):
+        if key in first_style:
+            props[key] = first_style[key]
+    props.update(text_autofit_properties(body, cascade))
+    bullet = paragraphs[0].get("bullet")
     if bullet:
         props["bullet"] = bullet
     return {
         **element_base(
             element_id=element_id(slide_index, source_name, shape_id, "text"),
             role="body",
-            frame=text_frame,
+            frame=frame,
             z_index=z_index,
             locked=locked,
         ),
@@ -1751,32 +2310,66 @@ def text_paragraphs(
     body: ET.Element[Any],
     scale: OoxmlScale,
     theme_colors: dict[str, str],
+    cascade: OoxmlTextCascade,
 ) -> list[dict[str, Any]]:
     paragraphs: list[dict[str, Any]] = []
     for paragraph in direct_local_children(body, "p"):
-        runs = paragraph_runs(paragraph, scale, theme_colors)
+        level = paragraph_level(paragraph)
+        paragraph_layers = paragraph_property_layers(
+            body,
+            paragraph,
+            cascade,
+            level=level,
+        )
+        default_run_layers: list[ET.Element[Any]] = []
+        for layer in paragraph_layers:
+            run_defaults = default_run_properties(layer)
+            if run_defaults is not None:
+                default_run_layers.append(run_defaults)
+        runs, effective_runs = paragraph_runs(
+            paragraph,
+            scale,
+            theme_colors,
+            cascade.theme_fonts,
+            default_run_layers,
+        )
         text = "".join(str(run.get("text", "")) for run in runs)
-        if not text:
-            continue
         props: dict[str, Any] = {
             "text": text,
             "runs": runs,
-            "align": paragraph_align_value(paragraph),
-            "lineHeight": paragraph_line_height_value(paragraph),
-            "spaceBefore": paragraph_spacing_px(paragraph, "spcBef", scale),
-            "spaceAfter": paragraph_spacing_px(paragraph, "spcAft", scale),
-            "indent": paragraph_indent_px(paragraph, scale),
+            "align": paragraph_align_from_layers(paragraph_layers),
+            "lineHeight": paragraph_line_height_from_layers(paragraph_layers),
+            "spaceBefore": paragraph_spacing_from_layers(
+                paragraph_layers,
+                "spcBef",
+                scale,
+            ),
+            "spaceAfter": paragraph_spacing_from_layers(
+                paragraph_layers,
+                "spcAft",
+                scale,
+            ),
+            "indent": paragraph_indent_from_layers(paragraph_layers, scale),
         }
-        bullet = paragraph_bullet_value(paragraph)
+        bullet = paragraph_bullet_from_layers(paragraph_layers, scale)
         if bullet:
             props["bullet"] = bullet
-        first_run = next(
-            (run for run in runs if str(run.get("text", "")).strip()),
-            runs[0],
-        )
-        for key in ("fontFamily", "fontSize", "fontWeight", "color"):
-            if key in first_run:
-                props[key] = first_run[key]
+        if effective_runs:
+            first_run = next(
+                (run for run in effective_runs if str(run.get("text", "")).strip()),
+                effective_runs[0],
+            )
+            for key in (
+                "fontFamily",
+                "fontSize",
+                "fontWeight",
+                "italic",
+                "letterSpacing",
+                "underline",
+                "color",
+            ):
+                if key in first_run:
+                    props[key] = first_run[key]
         paragraphs.append(props)
     if paragraphs:
         return paragraphs
@@ -1789,23 +2382,74 @@ def paragraph_runs(
     paragraph: ET.Element[Any],
     scale: OoxmlScale,
     theme_colors: dict[str, str],
-) -> list[dict[str, Any]]:
+    theme_fonts: OoxmlThemeFonts | None = None,
+    default_run_layers: list[ET.Element[Any]] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     runs: list[dict[str, Any]] = []
+    effective_runs: list[dict[str, Any]] = []
     for child in list(paragraph):
         name = local_name(child)
         if name == "r":
             text = "".join(node.text or "" for node in child.iter() if local_name(node) == "t")
             if text:
-                runs.append({"text": text, **run_props(child, scale, theme_colors)})
+                resolved_theme_fonts = theme_fonts or OoxmlThemeFonts()
+                direct_properties = run_properties_value(
+                    first_local_child(child, "rPr"),
+                    scale,
+                    theme_colors,
+                    resolved_theme_fonts,
+                )
+                runs.append({"text": text, **direct_properties})
+                effective_runs.append(
+                    {
+                        "text": text,
+                        **effective_run_properties(
+                            child,
+                            scale,
+                            theme_colors,
+                            resolved_theme_fonts,
+                            default_run_layers or [],
+                        ),
+                    }
+                )
         elif name == "br":
             runs.append({"text": "\n", "baseline": "normal"})
-    return runs
+            effective_runs.append({"text": "\n", "baseline": "normal"})
+    return runs, effective_runs
+
+
+def append_rich_text_diagnostics(
+    body: ET.Element[Any],
+    warnings: list[str],
+    *,
+    slide_index: int,
+    shape_id: str,
+) -> None:
+    for paragraph_index, paragraph in enumerate(direct_local_children(body, "p")):
+        run_index = 0
+        for child in list(paragraph):
+            if local_name(child) != "r":
+                continue
+            r_pr = first_local_child(child, "rPr")
+            if r_pr is None:
+                run_index += 1
+                continue
+            location = (
+                f"slide={slide_index}; shape={shape_id}; "
+                f"paragraph={paragraph_index}; run={run_index}"
+            )
+            if (
+                first_local_descendant(r_pr, "hlinkClick") is not None
+                or first_local_descendant(r_pr, "hlinkMouseOver") is not None
+            ):
+                warnings.append(f"{RICH_TEXT_UNSUPPORTED_HYPERLINK}: {location}")
+            run_index += 1
 
 
 def flatten_paragraph_runs(paragraphs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     runs: list[dict[str, Any]] = []
     for paragraph_index, paragraph in enumerate(paragraphs):
-        if paragraph_index > 0 and runs:
+        if paragraph_index > 0:
             runs.append({"text": "\n", "baseline": "normal"})
         runs.extend(paragraph.get("runs", []))
     return runs
@@ -1842,17 +2486,83 @@ def run_props(
     theme_colors: dict[str, str],
 ) -> dict[str, Any]:
     r_pr = first_local_child(run, "rPr")
+    return run_properties_value(r_pr, scale, theme_colors)
+
+
+def effective_run_properties(
+    run: ET.Element[Any],
+    scale: OoxmlScale,
+    theme_colors: dict[str, str],
+    theme_fonts: OoxmlThemeFonts,
+    default_run_layers: list[ET.Element[Any]],
+) -> dict[str, Any]:
+    props: dict[str, Any] = {"baseline": "normal"}
+    for layer in default_run_layers:
+        props.update(
+            run_property_overrides(layer, scale, theme_colors, theme_fonts)
+        )
+    direct = first_local_child(run, "rPr")
+    if direct is not None:
+        props.update(
+            run_property_overrides(direct, scale, theme_colors, theme_fonts)
+        )
+    return props
+
+
+def run_properties_value(
+    r_pr: ET.Element[Any] | None,
+    scale: OoxmlScale,
+    theme_colors: dict[str, str],
+    theme_fonts: OoxmlThemeFonts | None = None,
+) -> dict[str, Any]:
     props: dict[str, Any] = {"baseline": "normal"}
     if r_pr is None:
         return props
+    props.update(
+        run_property_overrides(
+            r_pr,
+            scale,
+            theme_colors,
+            theme_fonts or OoxmlThemeFonts(),
+        )
+    )
+    return props
+
+
+def run_property_overrides(
+    r_pr: ET.Element[Any],
+    scale: OoxmlScale,
+    theme_colors: dict[str, str],
+    theme_fonts: OoxmlThemeFonts,
+) -> dict[str, Any]:
+    props: dict[str, Any] = {}
     typeface = run_typeface(r_pr)
+    alias_weight: int | None = None
     if typeface:
-        props["fontFamily"] = typeface
+        typeface = resolve_theme_typeface(typeface, theme_fonts)
+        font_family, alias_weight = normalize_pptx_font_family(typeface)
+        if font_family:
+            props["fontFamily"] = font_family
+        if alias_weight is not None:
+            props["fontWeight"] = alias_weight
     size = int_attr(r_pr, "sz", 0)
     if size > 0:
         props["fontSize"] = font_size_to_canvas_px(size / 100, scale)
-    if r_pr.get("b") in {"1", "true"}:
-        props["fontWeight"] = "bold"
+    bold = r_pr.get("b")
+    if bold is not None and alias_weight is None:
+        props["fontWeight"] = "bold" if bold in {"1", "true"} else "normal"
+    italic = r_pr.get("i")
+    if italic is not None:
+        props["italic"] = italic in {"1", "true"}
+    underline = r_pr.get("u")
+    if underline is not None:
+        props["underline"] = underline not in {"0", "false", "none"}
+    spacing = r_pr.get("spc")
+    if spacing is not None:
+        props["letterSpacing"] = text_point_value_to_canvas_px(
+            int_value(spacing, 0),
+            scale,
+        )
     color = solid_color(first_local_child(r_pr, "solidFill"), theme_colors)
     if color:
         props["color"] = color
@@ -1868,12 +2578,290 @@ def font_size_to_canvas_px(size_pt: float, scale: OoxmlScale) -> int:
     return max(8, round(size_pt * 12700 * scale.average_scale))
 
 
+def text_point_value_to_canvas_px(value: int, scale: OoxmlScale) -> float:
+    return round(value / 100 * 12700 * scale.average_scale, 3)
+
+
 def run_typeface(r_pr: ET.Element[Any]) -> str | None:
     for child_name in ("latin", "ea", "cs"):
         child = first_local_child(r_pr, child_name)
         if child is not None and child.get("typeface"):
             return str(child.get("typeface"))
     return None
+
+
+def resolve_theme_typeface(typeface: str, theme_fonts: OoxmlThemeFonts) -> str:
+    mapping = {
+        "+mj-lt": theme_fonts.major_latin,
+        "+mj-ea": theme_fonts.major_east_asian,
+        "+mj-cs": theme_fonts.major_complex_script,
+        "+mn-lt": theme_fonts.minor_latin,
+        "+mn-ea": theme_fonts.minor_east_asian,
+        "+mn-cs": theme_fonts.minor_complex_script,
+    }
+    return mapping.get(typeface.casefold(), typeface)
+
+
+def normalize_pptx_font_family(typeface: str) -> tuple[str, int | None]:
+    original = typeface.strip()
+    alias = PPTX_FONT_FAMILY_ALIASES.get(original.casefold())
+    return alias if alias is not None else (original, None)
+
+
+def append_font_availability_diagnostics(
+    root: ET.Element[Any],
+    warnings: list[str],
+    *,
+    slide_index: int,
+) -> None:
+    unavailable_families: set[str] = set()
+    available_families = {
+        family.casefold() for family in PPTX_BROWSER_AVAILABLE_FONT_FAMILIES
+    }
+    for node in root.iter():
+        if local_name(node) != "rPr":
+            continue
+        typeface = run_typeface(node)
+        if not typeface or typeface.startswith("+"):
+            continue
+        family, _weight = normalize_pptx_font_family(typeface)
+        if family.casefold() not in available_families:
+            unavailable_families.add(bounded_font_family_label(family))
+
+    warnings.extend(
+        f"{PPTX_FONT_BROWSER_FALLBACK}: slide={slide_index}; "
+        f"family={family}; fallback=Arial"
+        for family in sorted(unavailable_families, key=str.casefold)
+    )
+
+
+def bounded_font_family_label(family: str) -> str:
+    normalized = " ".join(family.replace(";", " ").split())
+    return normalized[:128] or "unknown"
+
+
+def text_cascade_for_shape(
+    shape: ET.Element[Any],
+    source_name: str,
+    context: OoxmlTextStyleContext | None,
+) -> OoxmlTextCascade:
+    theme_fonts = context.theme_fonts if context is not None else OoxmlThemeFonts()
+    if context is None or source_name != "slide":
+        return OoxmlTextCascade(None, None, None, theme_fonts)
+    key = placeholder_key(shape)
+    layout_shape = matching_placeholder_shape(context.layout, key)
+    master_key = placeholder_key(layout_shape) if layout_shape is not None else key
+    master_shape = matching_placeholder_shape(context.master, master_key)
+    return OoxmlTextCascade(
+        layout_shape=layout_shape,
+        master_shape=master_shape,
+        master_text_style=master_text_style(context.master, key),
+        theme_fonts=theme_fonts,
+    )
+
+
+def matching_placeholder_shape(
+    root: ET.Element[Any] | None,
+    key: tuple[str, str] | None,
+) -> ET.Element[Any] | None:
+    if root is None or key is None:
+        return None
+    candidates = [
+        node
+        for node in root.iter()
+        if local_name(node) in {"sp", "graphicFrame"}
+        and placeholder_key(node) is not None
+    ]
+    exact = next((node for node in candidates if placeholder_key(node) == key), None)
+    if exact is not None:
+        return exact
+    placeholder_type, placeholder_index = key
+    if placeholder_index:
+        for node in candidates:
+            candidate_key = placeholder_key(node)
+            if candidate_key is not None and candidate_key[1] == placeholder_index:
+                return node
+    normalized_type = normalized_placeholder_type(placeholder_type)
+    for node in candidates:
+        candidate_key = placeholder_key(node)
+        if (
+            candidate_key is not None
+            and normalized_placeholder_type(candidate_key[0]) == normalized_type
+        ):
+            return node
+    return None
+
+
+def normalized_placeholder_type(placeholder_type: str) -> str:
+    if placeholder_type in {"ctrTitle", "title"}:
+        return "title"
+    if placeholder_type in {"body", "obj", "subTitle"}:
+        return "body"
+    return placeholder_type
+
+
+def master_text_style(
+    master: ET.Element[Any] | None,
+    key: tuple[str, str] | None,
+) -> ET.Element[Any] | None:
+    text_styles = first_local_descendant(master, "txStyles")
+    if text_styles is None:
+        return None
+    placeholder_type = normalized_placeholder_type(key[0]) if key is not None else ""
+    style_name = (
+        "titleStyle"
+        if placeholder_type == "title"
+        else "bodyStyle"
+        if placeholder_type == "body"
+        else "otherStyle"
+    )
+    return first_local_child(text_styles, style_name)
+
+
+def paragraph_level(paragraph: ET.Element[Any]) -> int:
+    properties = first_local_child(paragraph, "pPr")
+    return max(0, min(8, int_attr(properties, "lvl", 0)))
+
+
+def paragraph_property_layers(
+    body: ET.Element[Any],
+    paragraph: ET.Element[Any],
+    cascade: OoxmlTextCascade,
+    *,
+    level: int,
+) -> list[ET.Element[Any]]:
+    layers: list[ET.Element[Any]] = []
+    for container in (
+        cascade.master_text_style,
+        text_body(cascade.master_shape),
+        text_body(cascade.layout_shape),
+        body,
+    ):
+        properties = level_paragraph_properties(container, level)
+        if properties is not None:
+            layers.append(properties)
+    direct = first_local_child(paragraph, "pPr")
+    if direct is not None:
+        layers.append(direct)
+    return layers
+
+
+def text_body(shape: ET.Element[Any] | None) -> ET.Element[Any] | None:
+    return first_local_child(shape, "txBody") if shape is not None else None
+
+
+def level_paragraph_properties(
+    container: ET.Element[Any] | None,
+    level: int,
+) -> ET.Element[Any] | None:
+    if container is None:
+        return None
+    style = (
+        first_local_child(container, "lstStyle")
+        if local_name(container) == "txBody"
+        else container
+    )
+    properties = first_local_child(style, f"lvl{level + 1}pPr")
+    return properties if properties is not None else first_local_child(style, "lvl1pPr")
+
+
+def default_run_properties(
+    paragraph_properties: ET.Element[Any],
+) -> ET.Element[Any] | None:
+    return first_local_child(paragraph_properties, "defRPr")
+
+
+def paragraph_align_from_layers(layers: list[ET.Element[Any]]) -> str:
+    value = next(
+        (str(layer.get("algn")) for layer in reversed(layers) if layer.get("algn")),
+        "left",
+    )
+    return {"ctr": "center", "r": "right", "just": "justify"}.get(value, "left")
+
+
+def paragraph_line_height_from_layers(layers: list[ET.Element[Any]]) -> float:
+    for layer in reversed(layers):
+        line_spacing = first_local_child(layer, "lnSpc")
+        spacing_pct = first_local_child(line_spacing, "spcPct")
+        if spacing_pct is not None:
+            return max(
+                0.5,
+                min(4, int_attr(spacing_pct, "val", 115000) / 100000),
+            )
+    return 1.15
+
+
+def paragraph_spacing_from_layers(
+    layers: list[ET.Element[Any]],
+    tag_name: str,
+    scale: OoxmlScale,
+) -> int:
+    for layer in reversed(layers):
+        spacing = first_local_child(layer, tag_name)
+        if spacing is None:
+            continue
+        points = first_local_child(spacing, "spcPts")
+        if points is not None:
+            return round(
+                int_attr(points, "val", 0) / 100 * 12700 * scale.average_scale
+            )
+        return 0
+    return 0
+
+
+def paragraph_indent_from_layers(
+    layers: list[ET.Element[Any]],
+    scale: OoxmlScale,
+) -> int:
+    value = next(
+        (int_attr(layer, "marL", 0) for layer in reversed(layers) if layer.get("marL") is not None),
+        0,
+    )
+    return round(value * scale.scale_x)
+
+
+def paragraph_bullet_from_layers(
+    layers: list[ET.Element[Any]],
+    scale: OoxmlScale,
+) -> dict[str, Any] | None:
+    for layer in reversed(layers):
+        if first_local_child(layer, "buNone") is not None:
+            return None
+        bullet = first_local_child(layer, "buChar")
+        if bullet is not None:
+            return {
+                "enabled": True,
+                "character": str(bullet.get("char", "\u2022")),
+                "indent": max(0, round(int_attr(layer, "marL", 0) * scale.scale_x)),
+            }
+    return None
+
+
+def body_property_layers(
+    body: ET.Element[Any],
+    cascade: OoxmlTextCascade | None,
+) -> list[ET.Element[Any]]:
+    layers: list[ET.Element[Any]] = []
+    for source_body in (
+        text_body(cascade.master_shape) if cascade is not None else None,
+        text_body(cascade.layout_shape) if cascade is not None else None,
+        body,
+    ):
+        body_properties = first_local_child(source_body, "bodyPr")
+        if body_properties is not None:
+            layers.append(body_properties)
+    return layers
+
+
+def body_attribute(
+    layers: list[ET.Element[Any]],
+    name: str,
+    fallback: str,
+) -> str:
+    return next(
+        (str(layer.get(name)) for layer in reversed(layers) if layer.get(name) is not None),
+        fallback,
+    )
 
 
 def paragraph_align(body: ET.Element[Any]) -> str:
@@ -1891,18 +2879,23 @@ def paragraph_align_value(paragraph: ET.Element[Any]) -> str:
     }.get(align, "left")
 
 
-def text_vertical_align(body: ET.Element[Any]) -> str:
-    body_pr = first_local_child(body, "bodyPr")
-    anchor = str(body_pr.get("anchor", "t")) if body_pr is not None else "t"
+def text_vertical_align(
+    body: ET.Element[Any],
+    cascade: OoxmlTextCascade | None = None,
+) -> str:
+    anchor = body_attribute(body_property_layers(body, cascade), "anchor", "t")
     return {
+        "ctr": "middle",
         "mid": "middle",
         "b": "bottom",
     }.get(anchor, "top")
 
 
-def text_writing_mode(body: ET.Element[Any]) -> str:
-    body_pr = first_local_child(body, "bodyPr")
-    vertical = str(body_pr.get("vert", "horz")) if body_pr is not None else "horz"
+def text_writing_mode(
+    body: ET.Element[Any],
+    cascade: OoxmlTextCascade | None = None,
+) -> str:
+    vertical = body_attribute(body_property_layers(body, cascade), "vert", "horz")
     return "vertical-270" if vertical == "vert270" else "horizontal"
 
 
@@ -1924,75 +2917,114 @@ def paragraph_line_height_value(paragraph: ET.Element[Any]) -> float:
     return max(0.5, min(4, int_attr(spacing_pct, "val", 115000) / 100000))
 
 
-def text_content_frame(
+def text_body_inset(
     body: ET.Element[Any],
-    frame: dict[str, int],
     scale: OoxmlScale,
+    cascade: OoxmlTextCascade | None = None,
 ) -> dict[str, int]:
-    body_pr = first_local_child(body, "bodyPr")
-    if body_pr is None:
-        return frame
-
-    inset = text_body_inset(body, scale)
-    left = inset["left"]
-    right = inset["right"]
-    top = inset["top"]
-    bottom = inset["bottom"]
-    max_horizontal_inset = max(0, frame["width"] - 1)
-    max_vertical_inset = max(0, frame["height"] - 1)
-    horizontal_inset = min(left + right, max_horizontal_inset)
-    vertical_inset = min(top + bottom, max_vertical_inset)
-    return {
-        **frame,
-        "x": frame["x"] + min(left, horizontal_inset),
-        "y": frame["y"] + min(top, vertical_inset),
-        "width": max(1, frame["width"] - horizontal_inset),
-        "height": max(1, frame["height"] - vertical_inset),
-    }
-
-
-def text_body_inset(body: ET.Element[Any], scale: OoxmlScale) -> dict[str, int]:
-    body_pr = first_local_child(body, "bodyPr")
-    if body_pr is None:
-        return {"left": 0, "right": 0, "top": 0, "bottom": 0}
+    layers = body_property_layers(body, cascade)
     return {
         "left": max(
             0,
             round(
-                int_attr(body_pr, "lIns", DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU)
+                int_value(
+                    body_attribute(
+                        layers,
+                        "lIns",
+                        str(DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU),
+                    ),
+                    DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU,
+                )
                 * scale.scale_x
             ),
         ),
         "right": max(
             0,
             round(
-                int_attr(body_pr, "rIns", DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU)
+                int_value(
+                    body_attribute(
+                        layers,
+                        "rIns",
+                        str(DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU),
+                    ),
+                    DEFAULT_TEXT_BODY_HORIZONTAL_INSET_EMU,
+                )
                 * scale.scale_x
             ),
         ),
         "top": max(
             0,
             round(
-                int_attr(body_pr, "tIns", DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU)
+                int_value(
+                    body_attribute(
+                        layers,
+                        "tIns",
+                        str(DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU),
+                    ),
+                    DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU,
+                )
                 * scale.scale_y
             ),
         ),
         "bottom": max(
             0,
             round(
-                int_attr(body_pr, "bIns", DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU)
+                int_value(
+                    body_attribute(
+                        layers,
+                        "bIns",
+                        str(DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU),
+                    ),
+                    DEFAULT_TEXT_BODY_VERTICAL_INSET_EMU,
+                )
                 * scale.scale_y
             ),
         ),
     }
 
 
-def paragraph_bullet(body: ET.Element[Any]) -> dict[str, Any] | None:
+def text_autofit_properties(
+    body: ET.Element[Any],
+    cascade: OoxmlTextCascade,
+) -> dict[str, Any]:
+    for body_properties in reversed(body_property_layers(body, cascade)):
+        if first_local_child(body_properties, "noAutofit") is not None:
+            return {"autoFit": "none"}
+        if first_local_child(body_properties, "spAutoFit") is not None:
+            return {"autoFit": "resize-shape"}
+        normal = first_local_child(body_properties, "normAutofit")
+        if normal is None:
+            continue
+        return {
+            "autoFit": "shrink-text",
+            "fontScale": max(
+                0.01,
+                min(1, int_attr(normal, "fontScale", 100000) / 100000),
+            ),
+            "lineSpaceReduction": max(
+                0,
+                min(1, int_attr(normal, "lnSpcReduction", 0) / 100000),
+            ),
+        }
+    return {}
+
+
+def paragraph_bullet(
+    body: ET.Element[Any],
+    scale: OoxmlScale,
+) -> dict[str, Any] | None:
     first_paragraph = first_local_child(body, "p")
-    return paragraph_bullet_value(first_paragraph) if first_paragraph is not None else None
+    return (
+        paragraph_bullet_value(first_paragraph, scale)
+        if first_paragraph is not None
+        else None
+    )
 
 
-def paragraph_bullet_value(paragraph: ET.Element[Any]) -> dict[str, Any] | None:
+def paragraph_bullet_value(
+    paragraph: ET.Element[Any],
+    scale: OoxmlScale,
+) -> dict[str, Any] | None:
     p_pr = first_local_child(paragraph, "pPr")
     if p_pr is None:
         return None
@@ -2002,7 +3034,7 @@ def paragraph_bullet_value(paragraph: ET.Element[Any]) -> dict[str, Any] | None:
     return {
         "enabled": True,
         "character": str(bullet.get("char", "\u2022")),
-        "indent": max(0, round(int_attr(p_pr, "marL", 0) / 12700)),
+        "indent": max(0, round(int_attr(p_pr, "marL", 0) * scale.scale_x)),
     }
 
 
@@ -2473,8 +3505,17 @@ def presentation_slide_parts(package: zipfile.ZipFile) -> list[str]:
         if not rel_id:
             continue
         rel = rels.get(rel_id)
-        if rel and rel.get("Type") == SLIDE_REL_TYPE:
-            slide_parts.append(resolve_part_path("ppt/presentation.xml", rel.get("Target", "")))
+        if (
+            rel
+            and rel.get("Type") == SLIDE_REL_TYPE
+            and not relationship_is_external(rel)
+        ):
+            slide_parts.append(
+                resolve_part_path(
+                    "ppt/presentation.xml",
+                    rel.get("Target", ""),
+                )
+            )
     return slide_parts
 
 
@@ -2509,6 +3550,34 @@ def theme_color_map(package: zipfile.ZipFile) -> dict[str, str]:
         if target in colors:
             colors[alias] = colors[target]
     return {**FALLBACK_SCHEME_COLORS, **colors}
+
+
+def theme_font_scheme(package: zipfile.ZipFile) -> OoxmlThemeFonts:
+    theme_part = presentation_theme_part(package) or first_theme_part(package)
+    theme = read_xml(package, theme_part)
+    font_scheme = first_local_descendant(theme, "fontScheme") if theme is not None else None
+    major = first_local_child(font_scheme, "majorFont")
+    minor = first_local_child(font_scheme, "minorFont")
+    major_latin = theme_font_value(major, "latin", "Calibri")
+    minor_latin = theme_font_value(minor, "latin", "Calibri")
+    return OoxmlThemeFonts(
+        major_latin=major_latin,
+        major_east_asian=theme_font_value(major, "ea", major_latin),
+        major_complex_script=theme_font_value(major, "cs", major_latin),
+        minor_latin=minor_latin,
+        minor_east_asian=theme_font_value(minor, "ea", minor_latin),
+        minor_complex_script=theme_font_value(minor, "cs", minor_latin),
+    )
+
+
+def theme_font_value(
+    font_group: ET.Element[Any] | None,
+    script: str,
+    fallback: str,
+) -> str:
+    font = first_local_child(font_group, script)
+    typeface = str(font.get("typeface", "")).strip() if font is not None else ""
+    return typeface or fallback
 
 
 def theme_style_matrix(package: zipfile.ZipFile) -> OoxmlThemeStyles:
@@ -2641,9 +3710,17 @@ def relationship_target_by_type(
     if not part_path:
         return None
     for rel in rels.values():
-        if rel.get("Type") == rel_type and rel.get("Target"):
+        if (
+            rel.get("Type") == rel_type
+            and rel.get("Target")
+            and not relationship_is_external(rel)
+        ):
             return resolve_part_path(part_path, rel["Target"])
     return None
+
+
+def relationship_is_external(relationship: dict[str, str]) -> bool:
+    return relationship.get("TargetMode", "").lower() == "external"
 
 
 def rels_path_for_part(part_path: str) -> str:
@@ -2756,6 +3833,13 @@ def int_attr(element: ET.Element[Any] | None, name: str, fallback: int) -> int:
         return fallback
     try:
         return int(str(element.get(name)))
+    except Exception:
+        return fallback
+
+
+def int_value(value: object, fallback: int) -> int:
+    try:
+        return int(str(value))
     except Exception:
         return fallback
 

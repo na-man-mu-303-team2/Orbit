@@ -16,6 +16,15 @@ describe("filePurposeSchema", () => {
       "rehearsal-slide-snapshot",
     );
   });
+
+  it("accepts owner-only rehearsal transcript artifacts", () => {
+    expect(filePurposeSchema.parse("rehearsal-transcript-json")).toBe(
+      "rehearsal-transcript-json",
+    );
+    expect(filePurposeSchema.parse("rehearsal-transcript-text")).toBe(
+      "rehearsal-transcript-text",
+    );
+  });
 });
 
 describe("assetUploadUrlRequestSchema", () => {
@@ -39,12 +48,29 @@ describe("assetUploadUrlRequestSchema", () => {
     for (const purpose of [
       "rehearsal-audio",
       "focused-practice-audio",
+      "slide-practice-audio",
       "qna-answer-audio",
     ] as const) {
       expect(
         assetUploadUrlRequestSchema.safeParse({
           originalName: "private.webm",
           mimeType: "audio/webm",
+          size: 1024,
+          purpose,
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("reserves rehearsal transcript artifacts from generic uploads", () => {
+    for (const purpose of [
+      "rehearsal-transcript-json",
+      "rehearsal-transcript-text",
+    ] as const) {
+      expect(
+        assetUploadUrlRequestSchema.safeParse({
+          originalName: "transcript.json",
+          mimeType: "application/pdf",
           size: 1024,
           purpose,
         }).success,
@@ -86,7 +112,7 @@ describe("assetUploadUrlRequestSchema", () => {
   });
 
   it("rejects rehearsal audio MIME types outside the report STT contract", () => {
-    for (const mimeType of ["audio/ogg"] as const) {
+    for (const mimeType of ["audio/aac"] as const) {
       const result = assetUploadUrlRequestSchema.safeParse({
         originalName: "rehearsal.audio",
         mimeType,

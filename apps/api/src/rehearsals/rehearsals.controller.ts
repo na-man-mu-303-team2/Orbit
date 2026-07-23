@@ -1,9 +1,19 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
-import { AuthService } from "../auth/auth.service";
 import {
-  getCurrentUser,
-  type SignedCookieRequest,
-} from "../auth/current-user";
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  StreamableFile,
+} from "@nestjs/common";
+import type { Response } from "express";
+import { AuthService } from "../auth/auth.service";
+import { getCurrentUser, type SignedCookieRequest } from "../auth/current-user";
 import { ProjectsService } from "../projects/projects.service";
 import { RehearsalsService } from "./rehearsals.service";
 
@@ -61,7 +71,7 @@ export class RehearsalsController {
   @Post("api/v1/rehearsals/:runId/semantic-evaluation/retry")
   async retrySemanticEvaluation(
     @Param("runId") runId: string,
-    @Req() request: SignedCookieRequest
+    @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
     await this.assertCanWriteRun(runId, user.userId);
@@ -94,7 +104,7 @@ export class RehearsalsController {
   async getComparison(
     @Param("projectId") projectId: string,
     @Param("runId") runId: string,
-    @Req() request: SignedCookieRequest
+    @Req() request: SignedCookieRequest,
   ) {
     const user = await getCurrentUser(this.authService, request);
     await this.projectsService.assertCanReadProject(projectId, user.userId);
@@ -119,6 +129,53 @@ export class RehearsalsController {
     const user = await getCurrentUser(this.authService, request);
     await this.assertCanReadRun(runId, user.userId);
     return this.rehearsalsService.getReport(runId);
+  }
+
+  @Post("api/v1/rehearsals/:runId/audio/clip")
+  async getAudioClip(
+    @Param("runId") runId: string,
+    @Body() body: unknown,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.assertCanReadRun(runId, user.userId);
+    const clip = await this.rehearsalsService.getAudioClip(runId, body);
+    return new StreamableFile(clip.body, {
+      type: clip.contentType,
+      disposition: "inline",
+      length: clip.body.byteLength,
+    });
+  }
+  @Get("api/v1/rehearsals/:runId/audio/playback-url")
+  async getAudioPlaybackUrl(
+    @Param("runId") runId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.assertCanReadRun(runId, user.userId);
+    return this.rehearsalsService.getAudioPlaybackUrl(runId);
+  }
+
+  @Get("api/v1/rehearsals/:runId/downloads/:artifact")
+  async downloadArtifact(
+    @Param("runId") runId: string,
+    @Param("artifact") artifact: string,
+    @Req() request: SignedCookieRequest,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const user = await getCurrentUser(this.authService, request);
+    await this.assertCanReadRun(runId, user.userId);
+    if (artifact !== "audio" && artifact !== "transcript") {
+      throw new NotFoundException("Rehearsal download not found.");
+    }
+    const download = await this.rehearsalsService.getDownload(runId, artifact);
+    response.setHeader("content-type", download.contentType);
+    response.setHeader(
+      "content-disposition",
+      `attachment; filename="${download.fileName}"`,
+    );
+    response.setHeader("content-length", download.body.byteLength);
+    return new StreamableFile(download.body);
   }
 
   @Get("api/v1/projects/:projectId/rehearsal-summary")

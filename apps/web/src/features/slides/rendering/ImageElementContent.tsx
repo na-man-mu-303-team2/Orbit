@@ -9,6 +9,8 @@ import type { ComponentType } from "react";
 import { useEffect, useState } from "react";
 
 import { resolveEditorAssetUrl } from "../../editor/shared/editorAssetUrl";
+import { getImageElementLayout } from "./imageElementLayout";
+import { getReadySlideImage, loadSlideImage } from "./slideImageCache";
 
 type KonvaComponent = ComponentType<any>;
 
@@ -26,9 +28,24 @@ export function ImageElementContent(props: {
     rotation: number;
   };
   imageProps: ImageElementProps;
+  projectId: string;
 }) {
-  const { frame, imageProps } = props;
-  const image = useLoadedImage(resolveEditorAssetUrl(imageProps.src));
+  return <StaticImageContent {...props} />;
+}
+
+function StaticImageContent(props: {
+  frame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+  };
+  imageProps: ImageElementProps;
+  projectId: string;
+}) {
+  const { frame, imageProps, projectId } = props;
+  const image = useLoadedImage(projectId, resolveEditorAssetUrl(imageProps.src));
   const layout =
     image && image.naturalWidth > 0 && image.naturalHeight > 0
       ? getImageElementLayout({
@@ -86,8 +103,10 @@ export function ImageElementContent(props: {
   );
 }
 
-function useLoadedImage(src: string) {
-  const [image, setImage] = useState<HTMLImageElement | null>(null);
+function useLoadedImage(projectId: string, src: string) {
+  const [image, setImage] = useState<HTMLImageElement | null>(() =>
+    getReadySlideImage(projectId, src)
+  );
 
   useEffect(() => {
     if (!src || typeof window === "undefined") {
@@ -96,149 +115,29 @@ function useLoadedImage(src: string) {
     }
 
     let cancelled = false;
-    const nextImage = new window.Image();
+    const readyImage = getReadySlideImage(projectId, src);
+    if (readyImage) {
+      setImage(readyImage);
+      return;
+    }
 
-    nextImage.onload = () => {
+    setImage(null);
+    void loadSlideImage(projectId, src, "high").then((nextImage) => {
       if (!cancelled) {
         setImage(nextImage);
       }
-    };
-    nextImage.onerror = () => {
+    }).catch(() => {
       if (!cancelled) {
         setImage(null);
       }
-    };
-    nextImage.src = src;
-
-    if (nextImage.complete && nextImage.naturalWidth > 0) {
-      setImage(nextImage);
-    } else {
-      setImage(null);
-    }
+    });
 
     return () => {
       cancelled = true;
-      nextImage.onload = null;
-      nextImage.onerror = null;
     };
-  }, [src]);
+  }, [projectId, src]);
 
   return image;
-}
-
-function getImageElementLayout(args: {
-  crop: ImageElementProps["crop"];
-  fit: ImageElementProps["fit"];
-  focusX: number;
-  focusY: number;
-  frameHeight: number;
-  frameWidth: number;
-  imageHeight: number;
-  imageWidth: number;
-}) {
-  const {
-    crop,
-    fit,
-    focusX,
-    focusY,
-    frameHeight,
-    frameWidth,
-    imageHeight,
-    imageWidth
-  } = args;
-
-  if (crop) {
-    const left = clampCrop(crop.left);
-    const top = clampCrop(crop.top);
-    const right = clampCrop(crop.right);
-    const bottom = clampCrop(crop.bottom);
-    const cropX = imageWidth * left;
-    const cropY = imageHeight * top;
-    const cropWidth = Math.max(1, imageWidth * (1 - left - right));
-    const cropHeight = Math.max(1, imageHeight * (1 - top - bottom));
-
-    return {
-      crop: {
-        height: cropHeight,
-        width: cropWidth,
-        x: cropX,
-        y: cropY
-      },
-      height: frameHeight,
-      width: frameWidth,
-      x: 0,
-      y: 0
-    };
-  }
-
-  if (fit === "stretch") {
-    return {
-      crop: undefined,
-      height: frameHeight,
-      width: frameWidth,
-      x: 0,
-      y: 0
-    };
-  }
-
-  if (fit === "contain") {
-    const scale = Math.min(frameWidth / imageWidth, frameHeight / imageHeight);
-    const width = imageWidth * scale;
-    const height = imageHeight * scale;
-
-    return {
-      crop: undefined,
-      height,
-      width,
-      x: (frameWidth - width) / 2,
-      y: (frameHeight - height) / 2
-    };
-  }
-
-  const frameRatio = frameWidth / frameHeight;
-  const imageRatio = imageWidth / imageHeight;
-
-  if (imageRatio > frameRatio) {
-    const cropWidth = imageHeight * frameRatio;
-    const maxCropX = Math.max(0, imageWidth - cropWidth);
-
-    return {
-      crop: {
-        height: imageHeight,
-        width: cropWidth,
-        x: maxCropX * clampFocus(focusX),
-        y: 0
-      },
-      height: frameHeight,
-      width: frameWidth,
-      x: 0,
-      y: 0
-    };
-  }
-
-  const cropHeight = imageWidth / frameRatio;
-  const maxCropY = Math.max(0, imageHeight - cropHeight);
-
-  return {
-    crop: {
-      height: cropHeight,
-      width: imageWidth,
-      x: 0,
-      y: maxCropY * clampFocus(focusY)
-    },
-    height: frameHeight,
-    width: frameWidth,
-    x: 0,
-    y: 0
-  };
-}
-
-function clampFocus(value: number) {
-  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
-}
-
-function clampCrop(value: number) {
-  return Math.max(0, Math.min(0.99, Number.isFinite(value) ? value : 0));
 }
 
 function truncateValue(value: string, maxLength: number) {

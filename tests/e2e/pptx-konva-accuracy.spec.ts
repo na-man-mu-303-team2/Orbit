@@ -4,41 +4,170 @@ import path from "node:path";
 
 const deckRenderPayloadStorageKey = "orbit.deckRenderPayload.v1";
 const manifestPath =
+  process.env.PPTX_EXPORT_ACCURACY_MANIFEST ??
   process.env.PPTX_KONVA_ACCURACY_MANIFEST ??
   "tmp/pptx-konva-accuracy/run/manifest.json";
 
 type AccuracyManifest = {
+  kind?: "deck-pptx-export";
   route: string;
+  render?: {
+    deviceScaleFactor: number;
+    locale: string;
+    timezoneId: string;
+    viewport: { height: number; width: number };
+  };
   rows: Array<{
     candidatePath: string;
+    expectedRenderMode?: "editable" | "hybrid" | "snapshot";
+    modeReasons?: string[];
     name: string;
     payloadPath: string;
   }>;
+  browserCapture?: {
+    browserVersion: string;
+    deviceScaleFactor: number;
+    locale: string;
+    timezoneId: string;
+    viewport: { height: number; width: number };
+  };
 };
 
 const manifest = readManifest();
 
+if (manifest?.render) {
+  test.use({
+    deviceScaleFactor: manifest.render.deviceScaleFactor,
+    locale: manifest.render.locale,
+    timezoneId: manifest.render.timezoneId,
+    viewport: manifest.render.viewport,
+  });
+}
+
 test.describe("PPTX Konva accuracy render", () => {
   if (!manifest) {
     test.skip(true, `accuracy manifest missing: ${manifestPath}`);
+    test("requires an accuracy manifest", () => {});
     return;
   }
+
+  test.beforeAll(async ({ browser }) => {
+    if (!manifest.render || manifest.kind !== "deck-pptx-export") return;
+    manifest.browserCapture = {
+      browserVersion: browser.version(),
+      deviceScaleFactor: manifest.render.deviceScaleFactor,
+      locale: manifest.render.locale,
+      timezoneId: manifest.render.timezoneId,
+      viewport: manifest.render.viewport,
+    };
+    fs.writeFileSync(
+      rootPath(manifestPath),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      "utf8",
+    );
+  });
 
   for (const row of manifest.rows) {
     test(`captures ${row.name}`, async ({ page }) => {
       const payload = fs.readFileSync(rootPath(row.payloadPath), "utf8");
       const candidatePath = rootPath(row.candidatePath);
       fs.mkdirSync(path.dirname(candidatePath), { recursive: true });
+      const parsedPayload = JSON.parse(payload) as {
+        deck?: {
+          slides?: Array<{
+            elements?: unknown[];
+            importRenderMode?: string;
+            thumbnailUrl?: unknown;
+          }>;
+        };
+      };
+      const selectedSlide = parsedPayload.deck?.slides?.[0];
+      if (row.expectedRenderMode) {
+        expect(selectedSlide?.importRenderMode).toBe(row.expectedRenderMode);
+        expect(selectedSlide?.elements?.length ?? 0).toBeGreaterThan(0);
+      }
+      if (row.expectedRenderMode === "snapshot") {
+        expect(selectedSlide?.thumbnailUrl).toEqual(
+          expect.stringMatching(/^data:image\//),
+        );
+        expect(row.modeReasons?.length ?? 0).toBeGreaterThan(0);
+      }
+      if (row.expectedRenderMode === "hybrid") {
+        expect(row.modeReasons).toContain(
+          "PPTX_RENDER_MODE_HYBRID_RASTER_FALLBACK",
+        );
+      }
 
       await page.addInitScript(
-        ({ key, value }) => window.localStorage.setItem(key, value),
+        ({ key, value }) => {
+          const payload = JSON.parse(value) as {
+            deck?: {
+              slides?: Array<{
+                elements?: Array<{ props?: { src?: unknown } }>;
+                style?: { backgroundImage?: { src?: unknown } };
+                thumbnailUrl?: unknown;
+              }>;
+            };
+          };
+          const blobUrlBySource = new Map<string, string>();
+          const toBlobUrl = (source: unknown) => {
+            if (
+              typeof source !== "string" ||
+              !source.startsWith("data:") ||
+              !source.includes(";base64,")
+            ) {
+              return source;
+            }
+            const cached = blobUrlBySource.get(source);
+            if (cached) return cached;
+            const [header, encoded] = source.split(";base64,", 2);
+            const binary = window.atob(encoded);
+            const bytes = Uint8Array.from(binary, (character) =>
+              character.charCodeAt(0),
+            );
+            const blobUrl = URL.createObjectURL(
+              new Blob([bytes], { type: header.slice("data:".length) }),
+            );
+            blobUrlBySource.set(source, blobUrl);
+            return blobUrl;
+          };
+          for (const slide of payload.deck?.slides ?? []) {
+            slide.thumbnailUrl = toBlobUrl(slide.thumbnailUrl);
+            if (slide.style?.backgroundImage) {
+              slide.style.backgroundImage.src = toBlobUrl(
+                slide.style.backgroundImage.src,
+              );
+            }
+            for (const element of slide.elements ?? []) {
+              if (element.props) {
+                element.props.src = toBlobUrl(element.props.src);
+              }
+            }
+          }
+          window.localStorage.setItem(key, JSON.stringify(payload));
+        },
         { key: deckRenderPayloadStorageKey, value: payload },
       );
       await page.goto(manifest.route);
+      if (manifest.kind === "deck-pptx-export") {
+        await page.evaluate(() => document.fonts.ready);
+        await page.reload({ waitUntil: "load" });
+      }
 
       await expect(page.getByTestId("deck-render-page")).toBeVisible();
       const slide = page.getByTestId("slide-background");
       await expect(slide).toBeVisible();
+      await waitForDeterministicSlideRender(page);
+
+      if (manifest.render) {
+        const box = await slide.boundingBox();
+        expect(box).not.toBeNull();
+        expect(box?.width).toBe(manifest.render.viewport.width);
+        expect(box?.height).toBe(manifest.render.viewport.height);
+        expect(await page.evaluate(() => window.devicePixelRatio)).toBe(
+          manifest.render.deviceScaleFactor,
+        );
+      }
       await slide.screenshot({ path: candidatePath });
       expect(fs.existsSync(candidatePath)).toBe(true);
     });
@@ -55,4 +184,62 @@ function readManifest(): AccuracyManifest | null {
 
 function rootPath(value: string) {
   return path.resolve(process.cwd(), value);
+}
+
+async function waitForDeterministicSlideRender(
+  page: import("@playwright/test").Page,
+) {
+  await page.evaluate(async (storageKey) => {
+    await document.fonts.ready;
+    const raw = window.localStorage.getItem(storageKey);
+    const parsed = raw ? (JSON.parse(raw) as { deck?: unknown }) : null;
+    const imageSources: string[] = [];
+    if (parsed?.deck && typeof parsed.deck === "object") {
+      const deck = parsed.deck as {
+        slides?: Array<{
+          elements?: Array<{ props?: { src?: unknown }; type?: unknown }>;
+          style?: { backgroundImage?: { src?: unknown } };
+          thumbnailUrl?: unknown;
+        }>;
+      };
+      for (const slide of deck.slides ?? []) {
+        if (typeof slide.thumbnailUrl === "string") {
+          imageSources.push(slide.thumbnailUrl);
+        }
+        const backgroundSource = slide.style?.backgroundImage?.src;
+        if (typeof backgroundSource === "string") {
+          imageSources.push(backgroundSource);
+        }
+        for (const element of slide.elements ?? []) {
+          const source = element.props?.src;
+          if (
+            (element.type === "image" || element.type === "svg") &&
+            typeof source === "string"
+          ) {
+            imageSources.push(source);
+          }
+        }
+      }
+    }
+    await Promise.all(
+      [...new Set(imageSources)].map(
+        (source) =>
+          new Promise<void>((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve();
+            image.onerror = () =>
+              reject(
+                new Error(
+                  `accuracy image failed to load: ${source.slice(0, 48)}`,
+                ),
+              );
+            image.src = source;
+            if (image.complete && image.naturalWidth > 0) resolve();
+          }),
+      ),
+    );
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  }, deckRenderPayloadStorageKey);
 }

@@ -4,7 +4,7 @@ import {
   IconSearch,
   IconUserCircle
 } from "@tabler/icons-react";
-import { OrbitButton } from "../../design-system";
+import { OrbitButton } from "../../components/ui";
 import orbitLogo from "./assets/orbit-logo-selected.png";
 
 export function MockupHeader(props: {

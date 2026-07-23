@@ -9,7 +9,7 @@ import {
   OrbitInput,
   OrbitSelect,
   OrbitTabs
-} from "../../../../design-system";
+} from "../../../../components/ui";
 import type { ShareRole } from "../api/projectMembersApi";
 
 export type ShareAccessTab = "status" | "requests";

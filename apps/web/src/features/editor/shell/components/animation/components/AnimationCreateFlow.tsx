@@ -16,6 +16,7 @@ export function AnimationCreateFlow(props: {
   keywordTriggerRestrictionMessage?: string | null;
   keywordTriggerWarningMessage?: string | null;
   linkedTypes: SupportedAnimationType[];
+  mutationDisabledReason?: string | null;
   selectedKeywordId: string | null;
   selectedKeywordLabel: string | null;
   selectedKeywordOccurrenceId?: string | null;
@@ -25,7 +26,7 @@ export function AnimationCreateFlow(props: {
     keywordOccurrenceId?: string | null
   ) => void;
   onDraftChange: (patch: Partial<AnimationTimingDraft>) => void;
-  onSelectKeyword: (keywordId: string) => void;
+  onRequestKeywordOccurrence: () => void;
   onStartCreating: (type: SupportedAnimationType) => void;
 }) {
   const {
@@ -36,12 +37,13 @@ export function AnimationCreateFlow(props: {
     keywordTriggerRestrictionMessage = null,
     keywordTriggerWarningMessage = null,
     linkedTypes,
+    mutationDisabledReason = null,
     selectedKeywordId,
     selectedKeywordLabel,
     selectedKeywordOccurrenceId = null,
     onAddAnimation,
     onDraftChange,
-    onSelectKeyword,
+    onRequestKeywordOccurrence,
     onStartCreating
   } = props;
 
@@ -50,16 +52,21 @@ export function AnimationCreateFlow(props: {
       <AnimationCreatePicker
         creationType={creationType}
         linkedTypes={linkedTypes}
+        mutationDisabledReason={mutationDisabledReason}
         onStartCreating={onStartCreating}
       />
 
-      <AnimationKeywordPicker
-        keywordOptions={keywordOptions}
-        keywordTriggerRestrictionMessage={keywordTriggerRestrictionMessage}
-        keywordTriggerWarningMessage={keywordTriggerWarningMessage}
-        selectedKeywordId={selectedKeywordId}
-        onSelectKeyword={onSelectKeyword}
-      />
+      {creationType ? (
+        <AnimationKeywordPicker
+          keywordOptions={keywordOptions}
+          keywordTriggerRestrictionMessage={keywordTriggerRestrictionMessage}
+          keywordTriggerWarningMessage={keywordTriggerWarningMessage}
+          selectedKeywordId={selectedKeywordId}
+          selectedKeywordLabel={selectedKeywordLabel}
+          selectedKeywordOccurrenceId={selectedKeywordOccurrenceId}
+          onRequestKeywordOccurrence={onRequestKeywordOccurrence}
+        />
+      ) : null}
 
       {creationType && draft ? (
         <AnimationCreateEditor

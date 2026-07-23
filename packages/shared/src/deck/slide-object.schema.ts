@@ -14,6 +14,7 @@ export const deckElementTypeSchema = z.enum([
   "star",
   "ring",
   "image",
+  "activity-qr",
   "svg",
   "group",
   "customShape",
@@ -35,11 +36,41 @@ export const deckElementRoleSchema = z.enum([
   "footer"
 ]);
 
-export const deckElementCoordinateSchema = z.number().finite().nonnegative();
+export const deckElementCoordinateLimit = 1_000_000;
+export const deckElementCoordinateSchema = z
+  .number()
+  .finite()
+  .min(-deckElementCoordinateLimit)
+  .max(deckElementCoordinateLimit);
 export const deckElementSizeSchema = z.number().finite().positive();
+
+export const ooxmlOriginSchema = z.enum(["imported", "authored"]);
+
+export const ooxmlRichTextEditCapabilitySchema = z.enum([
+  "none",
+  "style-only",
+  "full"
+]);
+
+export const ooxmlCropEditCapabilitySchema = z.enum([
+  "none",
+  "picture",
+  "picture-fill"
+]);
+
+export const ooxmlElementEditCapabilitiesSchema = z.object({
+  richText: ooxmlRichTextEditCapabilitySchema,
+  crop: ooxmlCropEditCapabilitySchema,
+  tableCellText: z.boolean(),
+  frame: z.boolean().optional(),
+  delete: z.boolean().optional(),
+  imageSource: z.boolean().optional()
+});
 
 export const deckElementBaseSchema = z.object({
   elementId: deckElementIdSchema,
+  ooxmlOrigin: ooxmlOriginSchema.optional(),
+  ooxmlEditCapabilities: ooxmlElementEditCapabilitiesSchema.optional(),
   role: deckElementRoleSchema.optional(),
   x: deckElementCoordinateSchema,
   y: deckElementCoordinateSchema,
@@ -120,6 +151,9 @@ export const textElementRunSchema = z.object({
   fontFamily: z.string().min(1).optional(),
   fontSize: z.number().finite().positive().optional(),
   fontWeight: textFontWeightSchema.optional(),
+  letterSpacing: z.number().finite().optional(),
+  italic: z.boolean().optional(),
+  underline: z.boolean().optional(),
   color: themeColorSchema.optional(),
   baseline: z.enum(["normal", "superscript", "subscript"]).default("normal")
 });
@@ -136,6 +170,9 @@ export const textElementParagraphSchema = z.object({
   fontFamily: z.string().min(1).optional(),
   fontSize: z.number().finite().positive().optional(),
   fontWeight: textFontWeightSchema.optional(),
+  letterSpacing: z.number().finite().optional(),
+  italic: z.boolean().optional(),
+  underline: z.boolean().optional(),
   color: themeColorSchema.optional(),
   align: textAlignSchema.default("left"),
   lineHeight: z.number().finite().positive().default(1.2),
@@ -161,12 +198,30 @@ export const textElementPropsSchema = z
     fontFamily: z.string().min(1).optional(),
     fontSize: z.number().finite().positive().default(24),
     fontWeight: textFontWeightSchema.default("normal"),
+    letterSpacing: z.number().finite().optional(),
+    italic: z.boolean().optional(),
+    underline: z.boolean().optional(),
     color: themeColorSchema.optional(),
     align: textAlignSchema.default("left"),
     verticalAlign: textVerticalAlignSchema.default("top"),
     writingMode: textWritingModeSchema.optional(),
+    autoFit: z.enum(["none", "shrink-text", "resize-shape"]).optional(),
+    fontScale: z.number().finite().positive().max(1).optional(),
+    lineSpaceReduction: z.number().finite().min(0).max(1).optional(),
     lineHeight: z.number().finite().positive().default(1.2),
     bullet: textElementBulletSchema.optional()
+  })
+  .superRefine((props, ctx) => {
+    if (
+      props.autoFit !== "shrink-text" &&
+      (props.fontScale !== undefined || props.lineSpaceReduction !== undefined)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "fontScale and lineSpaceReduction require autoFit=shrink-text"
+      });
+    }
   })
   .default({});
 
@@ -201,6 +256,15 @@ export const imageElementPropsSchema = z.object({
   focusX: z.number().finite().min(0).max(1).default(0.5),
   focusY: z.number().finite().min(0).max(1).default(0.5),
   crop: imageCropSchema.optional()
+});
+
+/**
+ * A stable reference to an activity whose participant URL is resolved at
+ * presentation time. The URL and rendered QR bitmap are deliberately not
+ * persisted in Deck JSON because both are scoped to a presentation session.
+ */
+export const activityQrElementPropsSchema = z.object({
+  activityId: z.string().trim().min(1)
 });
 
 export const svgElementPropsSchema = imageElementPropsSchema;
@@ -298,6 +362,11 @@ export const imageElementSchema = deckElementBaseSchema.extend({
   props: imageElementPropsSchema
 });
 
+export const activityQrElementSchema = deckElementBaseSchema.extend({
+  type: z.literal("activity-qr"),
+  props: activityQrElementPropsSchema
+});
+
 export const svgElementSchema = deckElementBaseSchema.extend({
   type: z.literal("svg"),
   props: svgElementPropsSchema
@@ -333,6 +402,7 @@ export const deckElementSchema = z.discriminatedUnion("type", [
   starElementSchema,
   ringElementSchema,
   imageElementSchema,
+  activityQrElementSchema,
   svgElementSchema,
   groupElementSchema,
   customShapeElementSchema,
@@ -360,6 +430,7 @@ export type TextFontWeight = z.infer<typeof textFontWeightSchema>;
 export type TextElementProps = z.infer<typeof textElementPropsSchema>;
 export type ImageFit = z.infer<typeof imageFitSchema>;
 export type ImageElementProps = z.infer<typeof imageElementPropsSchema>;
+export type ActivityQrElementProps = z.infer<typeof activityQrElementPropsSchema>;
 export type SvgElementProps = z.infer<typeof svgElementPropsSchema>;
 export type GroupElementProps = z.infer<typeof groupElementPropsSchema>;
 export type TableCellProps = z.infer<typeof tableCellPropsSchema>;

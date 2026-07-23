@@ -7,21 +7,40 @@ export const filePurposeSchema = z.enum([
   "pptx-import",
   "reference-material",
   "rehearsal-audio",
+  "presentation-audio",
+  "rehearsal-transcript-json",
+  "rehearsal-transcript-text",
   "focused-practice-audio",
+  "slide-practice-audio",
   "qna-answer-audio",
   "export-result",
   "report-result",
   "thumbnail",
+  "profile-avatar",
   "rehearsal-slide-snapshot",
   "design-asset",
 ]);
 
 export const privateAudioPurposeSchema = z.enum([
   "rehearsal-audio",
+  "presentation-audio",
   "focused-practice-audio",
+  "slide-practice-audio",
   "qna-answer-audio",
 ]);
 export const privateAudioPurposes = new Set<string>(privateAudioPurposeSchema.options);
+
+export const rehearsalTranscriptPurposeSchema = z.enum([
+  "rehearsal-transcript-json",
+  "rehearsal-transcript-text",
+]);
+export const rehearsalTranscriptPurposes = new Set<string>(
+  rehearsalTranscriptPurposeSchema.options,
+);
+export const ownerOnlyFilePurposes = new Set<string>([
+  ...privateAudioPurposeSchema.options,
+  ...rehearsalTranscriptPurposeSchema.options,
+]);
 
 export const allowedAssetMimeTypes = [
   "application/pdf",
@@ -35,6 +54,7 @@ export const allowedAssetMimeTypes = [
   "audio/mp4",
   "audio/mpeg",
   "audio/mpga",
+  "audio/ogg",
   "audio/flac",
   "audio/wav",
   "audio/webm",
@@ -52,6 +72,7 @@ export const allowedRehearsalAudioMimeTypes = [
   "audio/mp4",
   "audio/mpeg",
   "audio/mpga",
+  "audio/ogg",
   "audio/flac",
   "audio/wav",
   "audio/webm",
@@ -113,6 +134,14 @@ export function createAssetUploadUrlRequestSchema(
       });
     }
 
+    if (value.purpose === "profile-avatar") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "profile-avatar is reserved for the profile avatar command.",
+        path: ["purpose"],
+      });
+    }
+
     if (
       privateAudioPurposes.has(value.purpose) &&
       value.purpose !== options.allowedPrivatePurpose
@@ -124,10 +153,18 @@ export function createAssetUploadUrlRequestSchema(
       });
     }
 
+    if (rehearsalTranscriptPurposes.has(value.purpose)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${value.purpose} is reserved for internal rehearsal transcript artifacts.`,
+        path: ["purpose"],
+      });
+    }
+
     if (privateAudioPurposes.has(value.purpose) && !isAudio) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "rehearsal-audio 업로드는 지원하는 오디오 MIME type이어야 합니다.",
+        message: "비공개 오디오 업로드는 지원하는 오디오 MIME type이어야 합니다.",
         path: ["mimeType"],
       });
     }
@@ -138,7 +175,7 @@ export function createAssetUploadUrlRequestSchema(
         maximum: rehearsalAudioMaxBytes,
         inclusive: true,
         type: "number",
-        message: "rehearsal-audio 업로드는 설정된 최대 크기 이하여야 합니다.",
+        message: "비공개 오디오 업로드는 설정된 최대 크기 이하여야 합니다.",
         path: ["size"],
       });
     }
@@ -181,6 +218,9 @@ export const completeAssetUploadRequestSchema = z.object({
 });
 
 export type FilePurpose = z.infer<typeof filePurposeSchema>;
+export type RehearsalTranscriptPurpose = z.infer<
+  typeof rehearsalTranscriptPurposeSchema
+>;
 export type UploadedFile = z.infer<typeof uploadedFileSchema>;
 export type AssetUploadUrlRequest = z.infer<typeof assetUploadUrlRequestSchema>;
 export type AssetUploadUrlResponse = z.infer<

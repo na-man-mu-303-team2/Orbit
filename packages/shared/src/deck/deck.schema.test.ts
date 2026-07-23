@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deckSchema } from "./deck.schema";
+import { deckSchema, deckShellSchema, slideLayoutSchema } from "./deck.schema";
 import { createKeywordOccurrenceId } from "./keyword-occurrences";
 import { deckChangeRecordSchema, deckPatchSchema } from "./patch.schema";
 
@@ -20,6 +20,16 @@ type DeckValidationInput = {
     purpose?: string;
     tone?: string;
     presentationProfile?: string;
+    generationQuality?: {
+      status: string;
+      issues: Array<{
+        code: string;
+        message: string;
+        severity: string;
+        slideId?: string;
+        slideOrder?: number;
+      }>;
+    };
     designProgramSnapshot?: {
       version: string;
       visualConcept: string;
@@ -52,6 +62,12 @@ type DeckValidationInput = {
     title: string;
     thumbnailUrl: string;
     estimatedSeconds?: number;
+    transition?: {
+      type: "fade";
+      durationMs: number;
+    };
+    ooxmlSourceSlidePart?: string;
+    importRenderMode?: "editable" | "hybrid" | "snapshot";
     style: Record<string, unknown>;
     speakerNotes: string;
     aiNotes?: {
@@ -128,6 +144,11 @@ type DeckValidationInput = {
       elementId: string;
       type: string;
       order: number;
+      startMode?:
+        | "on-slide-enter"
+        | "on-click"
+        | "with-previous"
+        | "after-previous";
       durationMs: number;
       delayMs: number;
       easing: string;
@@ -289,8 +310,62 @@ const expectInvalidDeck = (deck: unknown) => {
 };
 
 describe("deckSchema validation", () => {
+  it("accepts the agenda layout emitted by agenda compositions", () => {
+    expect(slideLayoutSchema.parse("agenda")).toBe("agenda");
+  });
+
   it("accepts a 1920x1080 wide-16-9 deck", () => {
     expectValidDeck(createValidDeck());
+  });
+
+  it("keeps legacy slides compatible and validates imported render modes", () => {
+    const legacyDeck = createValidDeck();
+    expect(deckSchema.parse(legacyDeck).slides[0].importRenderMode).toBeUndefined();
+
+    for (const importRenderMode of ["editable", "hybrid", "snapshot"] as const) {
+      const importedDeck = createValidDeck();
+      importedDeck.slides[0].importRenderMode = importRenderMode;
+      expect(deckSchema.parse(importedDeck).slides[0].importRenderMode).toBe(
+        importRenderMode
+      );
+    }
+
+    expect(
+      deckSchema.safeParse({
+        ...legacyDeck,
+        slides: [
+          {
+            ...legacyDeck.slides[0],
+            importRenderMode: "rendered-background"
+          }
+        ]
+      }).success
+    ).toBe(false);
+  });
+
+  it("accepts finite element coordinates outside the canvas", () => {
+    const deck = createValidDeck();
+    deck.slides[0].elements[0].x = -240;
+    deck.slides[0].elements[0].y = -80;
+
+    expectValidDeck(deck);
+  });
+
+  it("rejects element coordinates outside the supported absolute range", () => {
+    const positiveDeck = createValidDeck();
+    positiveDeck.slides[0].elements[0].x = 1_000_001;
+    const negativeDeck = createValidDeck();
+    negativeDeck.slides[0].elements[0].y = -1_000_001;
+
+    expectInvalidDeck(positiveDeck);
+    expectInvalidDeck(negativeDeck);
+  });
+
+  it("projects a deck shell without slide validation state", () => {
+    const shell = deckShellSchema.parse(createValidDeck());
+
+    expect(shell).not.toHaveProperty("slides");
+    expect(shell.deckId).toBe("deck_test_1");
   });
 
   it("accepts a program-v2 design snapshot and composition plan", () => {
@@ -490,6 +565,24 @@ describe("deckSchema validation", () => {
 
     expect(result.targetDurationMinutes).toBe(20);
     expect(result.slides[0].estimatedSeconds).toBe(90);
+  });
+
+  it("accepts persisted advisory generation quality reasons", () => {
+    const deck = createValidDeck();
+    deck.metadata.generationQuality = {
+      status: "advisory",
+      issues: [
+        {
+          code: "IMAGE_CROP_WEAK",
+          message: "The focal subject is cropped too tightly.",
+          severity: "warning",
+          slideId: "slide_1",
+          slideOrder: 1,
+        },
+      ],
+    };
+
+    expect(deckSchema.parse(deck).metadata.generationQuality?.issues).toHaveLength(1);
   });
 
   it("accepts cue-driven slide actions", () => {
@@ -1026,6 +1119,251 @@ describe("deckSchema validation", () => {
     expectValidDeck(deck);
   });
 
+  it("does not materialize rich text style defaults in a legacy plain text deck", () => {
+    const parsed = deckSchema.parse(createValidDeck());
+    const element = parsed.slides[0].elements[0];
+
+    expect(element?.type).toBe("text");
+    if (!element || element.type !== "text") {
+      throw new Error("expected a text element");
+    }
+
+    expect(parsed.version).toBe(1);
+    expect(element.props).toEqual({
+      text: "ORBIT",
+      fontSize: 24,
+      fontWeight: "normal",
+      align: "left",
+      verticalAlign: "top",
+      lineHeight: 1.2
+    });
+    expect(element.props).not.toHaveProperty("italic");
+    expect(element.props).not.toHaveProperty("underline");
+  });
+
+  it("preserves imported text spacing and autofit metadata", () => {
+    const deck = createValidDeck();
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      props: {
+        text: "Autofit",
+        letterSpacing: 1.2,
+        autoFit: "shrink-text",
+        fontScale: 0.84,
+        lineSpaceReduction: 0.12,
+        runs: [{ text: "Autofit", letterSpacing: 1.2 }],
+        paragraphs: [
+          {
+            text: "Autofit",
+            letterSpacing: 1.2,
+            runs: [{ text: "Autofit", letterSpacing: 1.2 }]
+          }
+        ]
+      }
+    };
+
+    const parsed = deckSchema.parse(deck);
+    const element = parsed.slides[0]?.elements[0];
+
+    expect(element?.type).toBe("text");
+    if (!element || element.type !== "text") {
+      throw new Error("expected a text element");
+    }
+    expect(element.props).toMatchObject({
+      autoFit: "shrink-text",
+      fontScale: 0.84,
+      letterSpacing: 1.2,
+      lineSpaceReduction: 0.12,
+      paragraphs: [
+        {
+          letterSpacing: 1.2,
+          runs: [{ letterSpacing: 1.2 }]
+        }
+      ],
+      runs: [{ letterSpacing: 1.2 }]
+    });
+  });
+
+  it("rejects autofit scale metadata without shrink-text mode", () => {
+    const deck = createValidDeck();
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      props: {
+        text: "Invalid autofit",
+        autoFit: "resize-shape",
+        fontScale: 0.84
+      }
+    };
+
+    expect(() => deckSchema.parse(deck)).toThrow(
+      "fontScale and lineSpaceReduction require autoFit=shrink-text"
+    );
+  });
+
+  it("preserves mixed italic and underline styles through Deck serialization", () => {
+    const deck = createValidDeck();
+    const runs = [
+      {
+        text: "Bold italic",
+        fontWeight: "bold",
+        italic: true,
+        underline: false,
+        color: "#111827"
+      },
+      {
+        text: " and underlined",
+        fontWeight: "normal",
+        italic: false,
+        underline: true,
+        color: "#2563EB"
+      }
+    ];
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      props: {
+        text: "Bold italic and underlined",
+        runs,
+        paragraphs: [
+          {
+            text: "Bold italic and underlined",
+            runs,
+            italic: true,
+            underline: false
+          }
+        ],
+        italic: false,
+        underline: true
+      }
+    };
+
+    const parsed = deckSchema.parse(deck);
+    const reparsed = deckSchema.parse(JSON.parse(JSON.stringify(parsed)));
+    const element = reparsed.slides[0].elements[0];
+
+    expect(element?.type).toBe("text");
+    if (!element || element.type !== "text") {
+      throw new Error("expected a text element");
+    }
+
+    expect(reparsed).toEqual(parsed);
+    expect(reparsed.version).toBe(deck.version);
+    expect(element.props).toMatchObject({
+      italic: false,
+      underline: true,
+      runs: [
+        { italic: true, underline: false },
+        { italic: false, underline: true }
+      ],
+      paragraphs: [
+        {
+          italic: true,
+          underline: false,
+          runs: [
+            { italic: true, underline: false },
+            { italic: false, underline: true }
+          ]
+        }
+      ]
+    });
+  });
+
+  it("accepts canonical single and multi-paragraph text projections", () => {
+    const singleParagraphDeck = createValidDeck();
+    const mirroredRuns = [
+      { text: "Single ", italic: true },
+      { text: "paragraph", underline: true }
+    ];
+    singleParagraphDeck.slides[0].elements[0] = {
+      ...singleParagraphDeck.slides[0].elements[0],
+      props: {
+        text: "Single paragraph",
+        runs: mirroredRuns,
+        paragraphs: [
+          {
+            text: "Single paragraph",
+            runs: mirroredRuns
+          }
+        ]
+      }
+    };
+
+    const singleParsed = deckSchema.parse(singleParagraphDeck);
+    const singleElement = singleParsed.slides[0].elements[0];
+    expect(singleElement?.type).toBe("text");
+    if (!singleElement || singleElement.type !== "text") {
+      throw new Error("expected a text element");
+    }
+    expect(singleElement.props.runs).toEqual(
+      singleElement.props.paragraphs?.[0]?.runs
+    );
+
+    const multiParagraphDeck = createValidDeck();
+    multiParagraphDeck.slides[0].elements[0] = {
+      ...multiParagraphDeck.slides[0].elements[0],
+      props: {
+        text: "First paragraph\nSecond paragraph",
+        paragraphs: [
+          {
+            text: "First paragraph",
+            runs: [
+              { text: "First ", italic: true },
+              { text: "paragraph", underline: true }
+            ]
+          },
+          {
+            text: "Second paragraph"
+          }
+        ]
+      }
+    };
+
+    const multiParsed = deckSchema.parse(multiParagraphDeck);
+    const multiElement = multiParsed.slides[0].elements[0];
+    expect(multiElement?.type).toBe("text");
+    if (!multiElement || multiElement.type !== "text") {
+      throw new Error("expected a text element");
+    }
+
+    const paragraphProjection = multiElement.props.paragraphs
+      ?.map((paragraph) =>
+        paragraph.runs?.length
+          ? paragraph.runs.map((run) => run.text).join("")
+          : paragraph.text
+      )
+      .join("\n");
+    expect(multiElement.props.text).toBe(paragraphProjection);
+    expect(multiElement.props.runs).toBeUndefined();
+    expect(multiParsed.version).toBe(multiParagraphDeck.version);
+  });
+
+  it("keeps legacy runs-only text valid until an edit commit normalizes it", () => {
+    const deck = createValidDeck();
+    deck.slides[0].elements[0] = {
+      ...deck.slides[0].elements[0],
+      props: {
+        text: "Legacy runs",
+        runs: [
+          { text: "Legacy ", italic: true },
+          { text: "runs", underline: true }
+        ]
+      }
+    };
+
+    const parsed = deckSchema.parse(deck);
+    const element = parsed.slides[0].elements[0];
+
+    expect(element?.type).toBe("text");
+    if (!element || element.type !== "text") {
+      throw new Error("expected a text element");
+    }
+
+    expect(element.props.paragraphs).toBeUndefined();
+    expect(element.props.runs?.map((run) => run.text).join("")).toBe(
+      element.props.text
+    );
+    expect(parsed.version).toBe(deck.version);
+  });
+
   it("accepts a 1024x768 standard-4-3 deck", () => {
     const deck = createValidDeck();
 
@@ -1040,8 +1378,8 @@ describe("deckSchema validation", () => {
   });
 
   it.each([
-    ["x", -1],
-    ["y", -1],
+    ["x", Number.NaN],
+    ["y", Number.POSITIVE_INFINITY],
     ["width", 0],
     ["height", 0]
   ])("rejects invalid element %s", (field, value) => {
@@ -1379,6 +1717,25 @@ describe("deckSchema validation", () => {
     expect(result.metadata.createdFrom?.designReferences).toEqual([]);
   });
 
+  it("keeps historical AI metadata design references readable", () => {
+    const deck = createValidDeck();
+
+    deck.metadata = {
+      ...deck.metadata,
+      sourceType: "ai",
+      generatedBy: "ai",
+      createdFrom: {
+        topic: "Historical AI design reference",
+        references: [],
+        designReferences: [{ fileId: "file_design_legacy" }]
+      }
+    };
+
+    expect(
+      deckSchema.parse(deck).metadata.createdFrom?.designReferences
+    ).toEqual([{ fileId: "file_design_legacy" }]);
+  });
+
   it("accepts every supported AI presentation profile", () => {
     for (const presentationProfile of [
       "proposal",
@@ -1535,6 +1892,77 @@ describe("deckSchema validation", () => {
     expectInvalidDeck(deck);
   });
 
+  it("accepts an optional fade transition and every animation start mode", () => {
+    const deck = createValidDeck();
+    deck.slides[0].transition = { type: "fade", durationMs: 700 };
+    deck.slides[0].animations = [
+      "on-slide-enter",
+      "on-click",
+      "with-previous",
+      "after-previous"
+    ].map((startMode, index) => ({
+      ...deck.slides[0].animations[0],
+      animationId: `anim_${index + 1}`,
+      order: index + 1,
+      startMode: startMode as
+        | "on-slide-enter"
+        | "on-click"
+        | "with-previous"
+        | "after-previous"
+    }));
+
+    const parsed = deckSchema.parse(deck);
+
+    expect(parsed.slides[0].transition).toEqual({
+      type: "fade",
+      durationMs: 700
+    });
+    expect(
+      parsed.slides[0].animations.map((animation) => animation.startMode)
+    ).toEqual([
+      "on-slide-enter",
+      "on-click",
+      "with-previous",
+      "after-previous"
+    ]);
+  });
+
+  it("keeps legacy animation startMode absent for contextual migration", () => {
+    const parsed = deckSchema.parse(createValidDeck());
+
+    expect(parsed.slides[0].transition).toBeUndefined();
+    expect(parsed.slides[0].animations[0].startMode).toBeUndefined();
+  });
+
+  it("accepts only a stable OOXML source slide part locator", () => {
+    const deck = createValidDeck();
+    deck.slides[0].ooxmlSourceSlidePart = "ppt/slides/slide3.xml";
+
+    expect(deckSchema.parse(deck).slides[0].ooxmlSourceSlidePart).toBe(
+      "ppt/slides/slide3.xml"
+    );
+
+    deck.slides[0].ooxmlSourceSlidePart = "../slide3.xml";
+    expectInvalidDeck(deck);
+  });
+
+  it.each([
+    { transition: { type: "push", durationMs: 700 }, name: "type" },
+    { transition: { type: "fade", durationMs: 0 }, name: "duration" }
+  ])("rejects an invalid slide transition $name", ({ transition }) => {
+    const deck = createValidDeck();
+    deck.slides[0].transition = transition as never;
+
+    expectInvalidDeck(deck);
+  });
+
+  it("rejects an invalid animation start mode", () => {
+    const deck = createValidDeck();
+    deck.slides[0].animations[0].startMode = "same-time" as never;
+
+    expectInvalidDeck(deck);
+  });
+
   it("rejects invalid element opacity", () => {
     const deck = createValidDeck();
 
@@ -1557,6 +1985,44 @@ describe("deckPatchSchema validation", () => {
     expect(deckPatchSchema.safeParse(createValidPatch()).success).toBe(true);
   });
 
+  it("accepts an element frame patch with off-canvas coordinates", () => {
+    const patch: unknown = {
+      ...createValidPatch(),
+      operations: [
+        {
+          type: "update_element_frame",
+          slideId: "slide_1",
+          elementId: "el_1",
+          frame: {
+            x: -240,
+            y: -80
+          }
+        }
+      ]
+    };
+
+    expect(deckPatchSchema.safeParse(patch).success).toBe(true);
+  });
+
+  it("rejects an element frame patch outside the supported coordinate range", () => {
+    const patch: unknown = {
+      ...createValidPatch(),
+      operations: [
+        {
+          type: "update_element_frame",
+          slideId: "slide_1",
+          elementId: "el_1",
+          frame: {
+            x: 1_000_001,
+            y: -1_000_001
+          }
+        }
+      ]
+    };
+
+    expect(deckPatchSchema.safeParse(patch).success).toBe(false);
+  });
+
   it("accepts deck metadata update patches", () => {
     const patch: unknown = {
       ...createValidPatch(),
@@ -1571,6 +2037,92 @@ describe("deckPatchSchema validation", () => {
     };
 
     expect(deckPatchSchema.safeParse(patch).success).toBe(true);
+  });
+
+  it("accepts deck and slide target duration update patches", () => {
+    const patch: unknown = {
+      ...createValidPatch(),
+      operations: [
+        { type: "update_deck", targetDurationMinutes: 12 },
+        { type: "update_slide", slideId: "slide_1", estimatedSeconds: 90 }
+      ]
+    };
+
+    expect(deckPatchSchema.safeParse(patch).success).toBe(true);
+  });
+
+  it.each([0, 121, 1.5])(
+    "rejects invalid deck target duration %s",
+    (targetDurationMinutes) => {
+      const patch: unknown = {
+        ...createValidPatch(),
+        operations: [{ type: "update_deck", targetDurationMinutes }]
+      };
+
+      expect(deckPatchSchema.safeParse(patch).success).toBe(false);
+    }
+  );
+
+  it("accepts setting and clearing a transition and updating startMode", () => {
+    const setPatch: unknown = {
+      ...createValidPatch(),
+      operations: [
+        {
+          type: "update_slide_transition",
+          slideId: "slide_1",
+          transition: { type: "fade", durationMs: 700 }
+        },
+        {
+          type: "update_animation",
+          slideId: "slide_1",
+          animationId: "anim_1",
+          animation: { startMode: "after-previous" }
+        }
+      ]
+    };
+    const clearPatch: unknown = {
+      ...createValidPatch(),
+      operations: [
+        {
+          type: "update_slide_transition",
+          slideId: "slide_1",
+          transition: null
+        }
+      ]
+    };
+
+    expect(deckPatchSchema.safeParse(setPatch).success).toBe(true);
+    expect(deckPatchSchema.safeParse(clearPatch).success).toBe(true);
+  });
+
+  it("rejects unsupported transition and animation startMode patches", () => {
+    const patches: unknown[] = [
+      {
+        ...createValidPatch(),
+        operations: [
+          {
+            type: "update_slide_transition",
+            slideId: "slide_1",
+            transition: { type: "push", durationMs: 700 }
+          }
+        ]
+      },
+      {
+        ...createValidPatch(),
+        operations: [
+          {
+            type: "update_animation",
+            slideId: "slide_1",
+            animationId: "anim_1",
+            animation: { startMode: "same-time" }
+          }
+        ]
+      }
+    ];
+
+    expect(
+      patches.every((patch) => !deckPatchSchema.safeParse(patch).success)
+    ).toBe(true);
   });
 
   it("rejects replace keyword patches with duplicate keyword IDs", () => {

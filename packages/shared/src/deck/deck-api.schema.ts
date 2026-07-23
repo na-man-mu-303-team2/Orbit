@@ -3,8 +3,9 @@ import { z } from "zod";
 import { isoDateTimeSchema } from "../common/time.schema";
 import { jobSchema } from "../jobs/job.schema";
 import { deckSchema } from "./deck.schema";
-import { deckIdSchema } from "./id.schema";
+import { deckIdSchema, deckSlideIdSchema } from "./id.schema";
 import { deckChangeRecordSchema, deckPatchSchema } from "./patch.schema";
+import { qualityReportSchema } from "./template-blueprint.schema";
 
 type DeckApiIssuePath = Array<string | number>;
 
@@ -132,6 +133,82 @@ export const getDeckResponseSchema = z
     ]);
   });
 
+export const pptxImportQualitySchema = z.object({
+  qualityReport: qualityReportSchema,
+});
+
+export const getPptxImportQualityResponseSchema = z.object({
+  importQuality: pptxImportQualitySchema.nullable(),
+});
+
+export const pptxNotesPreviewStatusSchema = z.enum([
+  "available",
+  "absent",
+  "sync-pending",
+  "stale",
+  "render-unavailable",
+  "unavailable",
+]);
+
+const protectedProjectAssetUrlSchema = z
+  .string()
+  .regex(/^\/api\/v1\/projects\/[^/]+\/assets\/[^/]+\/content$/);
+
+export const pptxNotesPreviewSchema = z
+  .object({
+    slideId: deckSlideIdSchema,
+    status: pptxNotesPreviewStatusSchema,
+    assetUrl: protectedProjectAssetUrlSchema.nullable(),
+  })
+  .strict()
+  .superRefine((preview, ctx) => {
+    if (preview.status === "available" && preview.assetUrl === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["assetUrl"],
+        message: "available notes preview requires an assetUrl",
+      });
+    }
+    if (preview.status !== "available" && preview.assetUrl !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["assetUrl"],
+        message: "unavailable notes preview must not expose an assetUrl",
+      });
+    }
+  });
+
+export const getPptxNotesPreviewResponseSchema = z
+  .object({
+    notesPreview: pptxNotesPreviewSchema,
+  })
+  .strict();
+
+export const ooxmlSyncStatusSchema = z.enum([
+  "not-applicable",
+  "pending",
+  "synced",
+  "stale",
+  "failed",
+]);
+
+export const ooxmlSyncStateSchema = z.object({
+  status: ooxmlSyncStatusSchema,
+  deckId: deckIdSchema,
+  deckVersion: z.number().int().positive(),
+  syncedDeckVersion: z.number().int().positive().nullable(),
+  retryable: z.boolean(),
+  job: jobSchema.optional(),
+});
+
+export const getOoxmlSyncStateResponseSchema = z.object({
+  ooxmlSyncState: ooxmlSyncStateSchema,
+});
+
+export const retryOoxmlSyncResponseSchema = z.object({
+  ooxmlSyncState: ooxmlSyncStateSchema,
+});
+
 export const putDeckRequestSchema = z.object({
   baseVersion: z.number().int().positive().optional(),
   deck: deckSchema,
@@ -142,6 +219,7 @@ export const putDeckResponseSchema = z
   .object({
     deck: deckSchema,
     snapshot: deckSnapshotSchema,
+    ooxmlSyncJob: jobSchema.optional(),
     updatedAt: isoDateTimeSchema,
   })
   .superRefine((response, ctx) => {
@@ -277,6 +355,7 @@ export const restoreDeckSnapshotResponseSchema = z
   .object({
     deck: deckSchema,
     restoredSnapshot: deckSnapshotSchema,
+    ooxmlSyncJob: jobSchema.optional(),
     updatedAt: isoDateTimeSchema,
   })
   .superRefine((response, ctx) => {
@@ -292,12 +371,23 @@ export const restoreDeckSnapshotResponseSchema = z
       response.deck.deckId,
       ["restoredSnapshot", "deckId"],
     );
-    requireMatchingVersion(
-      ctx,
-      response.restoredSnapshot.version,
-      response.deck.version,
-      ["restoredSnapshot", "version"],
-    );
+    if (response.ooxmlSyncJob) {
+      requireMatchingProject(
+        ctx,
+        response.ooxmlSyncJob.projectId,
+        response.deck.projectId,
+        ["ooxmlSyncJob", "projectId"],
+      );
+    }
+    if (response.deck.version !== response.restoredSnapshot.version) {
+      if (response.ooxmlSyncJob?.type !== "pptx-ooxml-sync") {
+        addMismatchIssue(
+          ctx,
+          ["ooxmlSyncJob", "type"],
+          "version-normalized restore requires a pptx-ooxml-sync job",
+        );
+      }
+    }
   });
 
 export type DeckApiProjectId = z.infer<typeof deckApiProjectIdSchema>;
@@ -309,6 +399,25 @@ export type DeckSnapshot = z.infer<typeof deckSnapshotSchema>;
 export type DeckSnapshotDetail = z.infer<typeof deckSnapshotDetailSchema>;
 export type DeckPatchLogEntry = z.infer<typeof deckPatchLogEntrySchema>;
 export type GetDeckResponse = z.infer<typeof getDeckResponseSchema>;
+export type PptxImportQuality = z.infer<typeof pptxImportQualitySchema>;
+export type GetPptxImportQualityResponse = z.infer<
+  typeof getPptxImportQualityResponseSchema
+>;
+export type PptxNotesPreviewStatus = z.infer<
+  typeof pptxNotesPreviewStatusSchema
+>;
+export type PptxNotesPreview = z.infer<typeof pptxNotesPreviewSchema>;
+export type GetPptxNotesPreviewResponse = z.infer<
+  typeof getPptxNotesPreviewResponseSchema
+>;
+export type OoxmlSyncStatus = z.infer<typeof ooxmlSyncStatusSchema>;
+export type OoxmlSyncState = z.infer<typeof ooxmlSyncStateSchema>;
+export type GetOoxmlSyncStateResponse = z.infer<
+  typeof getOoxmlSyncStateResponseSchema
+>;
+export type RetryOoxmlSyncResponse = z.infer<
+  typeof retryOoxmlSyncResponseSchema
+>;
 export type PutDeckRequest = z.infer<typeof putDeckRequestSchema>;
 export type PutDeckResponse = z.infer<typeof putDeckResponseSchema>;
 export type AppendDeckPatchRequest = z.infer<

@@ -5,7 +5,9 @@ import {
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  Headers,
   HttpCode,
   Param,
   Post,
@@ -70,10 +72,7 @@ export class FilesController {
     const input = parseRequest(completeAssetUploadRequestSchema, body ?? {});
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanWriteProject(projectId, user.userId);
-    return this.filesService.completeUpload(
-      projectId,
-      input,
-    );
+    return this.filesService.completeUpload(projectId, input);
   }
 
   @Get(":fileId/content")
@@ -81,17 +80,42 @@ export class FilesController {
     @Param("projectId") projectId: string,
     @Param("fileId") fileId: string,
     @Req() request: SignedCookieRequest,
+    @Headers("if-none-match") ifNoneMatch: string | undefined,
     @Res({ passthrough: true }) response: Response,
   ) {
     const user = await this.getCurrentUser(request);
     await this.projectsService.assertCanReadProject(projectId, user.userId);
-    const asset = await this.filesService.readUploadedAssetContent(
+    const asset = await this.filesService.openUploadedAssetContent(
       projectId,
       fileId,
+      ifNoneMatch,
     );
 
+    response.setHeader("cache-control", asset.cacheControl);
+    response.setHeader("etag", asset.etag);
+
+    if (asset.status === "not-modified") {
+      response.status(304).end();
+      return;
+    }
+
     response.setHeader("content-type", asset.contentType);
+    response.setHeader("content-length", String(asset.contentLength));
     return new StreamableFile(asset.body);
+  }
+
+  @Delete(":fileId")
+  async deleteFile(
+    @Param("projectId") projectId: string,
+    @Param("fileId") fileId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    const user = await this.getCurrentUser(request);
+    await this.projectsService.assertCanWriteProject(projectId, user.userId);
+    return {
+      fileId,
+      deletedAt: await this.filesService.deleteUploadedAsset(projectId, fileId),
+    };
   }
 
   // local upload proxy가 받은 파일 binary를 서비스 계층 저장 흐름으로 넘긴다.

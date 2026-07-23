@@ -1,27 +1,43 @@
 import {
   demoIds,
+  createProjectRequestSchema,
   deleteProjectResponseSchema,
   projectMembersResponseSchema,
+  projectAccessResponseSchema,
+  projectApiErrorSchema,
   projectListResponseSchema,
   projectSchema,
+  updateProjectPinResponseSchema,
+  updateProjectTagsResponseSchema,
 } from "@orbit/shared";
 import type {
   CreateProjectRequest,
   DeleteProjectResponse,
   Project,
+  ProjectListItem,
+  ProjectGenerationSummary,
   ProjectMemberRole,
-  ProjectMemberStatus,
   ProjectMembersResponse,
+  ProjectAccessResponse,
+  ProjectApiErrorCode,
+  UpdateProjectPinResponse,
+  UpdateProjectTagsResponse,
 } from "@orbit/shared";
 import { randomUUID } from "crypto";
 import {
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
+  Optional,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import { InjectDataSource } from "@nestjs/typeorm";
 import { InjectRepository } from "@nestjs/typeorm";
-import { DataSource, In, Repository } from "typeorm";
+import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
+import { DataSource, EntityManager, In, Repository } from "typeorm";
+import { serializeLogError } from "../logging";
+import { isKdhHomeProjectId } from "./kdh-home-project-ids";
 import { ProjectEntity } from "./project.entity";
 import { ProjectMemberEntity } from "./project-member.entity";
 
@@ -40,12 +56,13 @@ type UserLookupRow = {
   email: string;
 };
 
-export type ProjectAccessResponse = {
-  project: Project;
-  membership: {
-    role: ProjectMemberRole;
-    status: ProjectMemberStatus;
-  } | null;
+type ActiveGenerationRow = {
+  job_id: string;
+  project_id: string;
+  type: "ai-deck-generation" | "pptx-ooxml-generation";
+  status: "queued" | "running";
+  progress: number;
+  message: string;
 };
 
 @Injectable()
@@ -56,6 +73,9 @@ export class ProjectsService {
     private readonly projectsRepository: Repository<ProjectEntity>,
     @InjectRepository(ProjectMemberEntity)
     private readonly projectMembersRepository: Repository<ProjectMemberEntity>,
+    @Optional()
+    @InjectPinoLogger(ProjectsService.name)
+    private readonly logger?: PinoLogger,
   ) {}
 
   async create(
@@ -63,33 +83,41 @@ export class ProjectsService {
     input: CreateProjectRequest,
     userId: string,
   ): Promise<Project> {
-    this.assertWorkspaceAccess(workspaceId);
     const now = new Date();
+    return this.dataSource.transaction((manager) =>
+      this.createInTransaction(manager, workspaceId, input, userId, now),
+    );
+  }
 
-    const savedProject = await this.dataSource.transaction(async (manager) => {
-      await this.ensureDemoWorkspace(manager, userId, now);
-      const project = manager.create(ProjectEntity, {
-        projectId: `project_${randomUUID()}`,
-        workspaceId,
-        title: input.title ?? defaultProjectTitle,
-        createdBy: userId,
-        createdAt: now,
-      });
-      const createdProject = await manager.save(project);
-      await manager.save(
-        manager.create(ProjectMemberEntity, {
-          projectId: createdProject.projectId,
-          userId,
-          role: "owner",
-          status: "accepted",
-          createdAt: now,
-        }),
-      );
-
-      return createdProject;
+  async createInTransaction(
+    manager: EntityManager,
+    workspaceId: string,
+    input: CreateProjectRequest,
+    userId: string,
+    createdAt = new Date(),
+  ): Promise<Project> {
+    this.assertWorkspaceAccess(workspaceId);
+    const request = createProjectRequestSchema.parse(input);
+    await this.ensureDemoWorkspace(manager, userId, createdAt);
+    const project = manager.create(ProjectEntity, {
+      projectId: `project_${randomUUID()}`,
+      workspaceId,
+      title: request.title ?? defaultProjectTitle,
+      createdBy: userId,
+      createdAt,
     });
+    const createdProject = await manager.save(project);
+    await manager.save(
+      manager.create(ProjectMemberEntity, {
+        projectId: createdProject.projectId,
+        userId,
+        role: "owner",
+        status: "accepted",
+        createdAt,
+      }),
+    );
 
-    return this.toProjectDto(savedProject);
+    return this.toProjectDto(createdProject);
   }
 
   private async ensureDemoWorkspace(
@@ -140,7 +168,7 @@ export class ProjectsService {
     );
   }
 
-  async list(workspaceId: string, userId: string): Promise<Project[]> {
+  async list(workspaceId: string, userId: string): Promise<ProjectListItem[]> {
     this.assertWorkspaceAccess(workspaceId);
 
     const acceptedMemberships = await this.projectMembersRepository.find({
@@ -160,9 +188,137 @@ export class ProjectsService {
       where: { workspaceId, projectId: In(projectIds) },
       order: { createdAt: "DESC" },
     });
+    const activeGenerations = await this.findActiveGenerationJobs(projectIds);
+    const membershipsByProjectId = new Map(
+      acceptedMemberships.map((membership) => [membership.projectId, membership]),
+    );
 
     return projectListResponseSchema.parse(
-      projects.map((project) => this.toProjectDto(project)),
+      projects.map((project) => ({
+        ...this.toProjectDto(project),
+        isPinned: Boolean(membershipsByProjectId.get(project.projectId)?.isPinned),
+        pinnedAt:
+          membershipsByProjectId.get(project.projectId)?.pinnedAt?.toISOString() ?? null,
+        tags: project.tags ?? [],
+        generation: activeGenerations.get(project.projectId) ?? null,
+      })),
+    );
+  }
+
+  async listPage(
+    workspaceId: string,
+    userId: string,
+    input: ProjectPageRequest,
+  ): Promise<ProjectPageResponse> {
+    this.assertWorkspaceAccess(workspaceId);
+    const conditions = [
+      "p.workspace_id = $1",
+      "pm.user_id = $2",
+      "pm.status = 'accepted'",
+      "pm.role IN ('owner', 'editor', 'viewer')",
+    ];
+    const values: Array<string | number | string[]> = [workspaceId, userId];
+    const addValue = (value: string | number | string[]) => {
+      values.push(value);
+      return `$${values.length}`;
+    };
+
+    if (input.query) {
+      const escaped = input.query.replace(/[\\%_]/g, "\\$&");
+      conditions.push(`p.title ILIKE ${addValue(`%${escaped}%`)} ESCAPE '\\'`);
+    }
+    if (input.tags.length > 0) conditions.push(`p.tags @> ${addValue(input.tags)}::text[]`);
+    if (input.filter === "pinned") conditions.push("pm.is_pinned = true");
+    if (input.filter === "shared") conditions.push("'공유됨' = ANY(p.tags)");
+    if (input.filter === "draft") conditions.push("p.title ~* '(초안|draft|새 프레젠테이션|untitled)'");
+    if (input.filter === "presentation") conditions.push("p.title !~* '(초안|draft|새 프레젠테이션|untitled)'");
+
+    const secondaryOrder = input.sort === "oldest"
+      ? "p.created_at ASC"
+      : input.sort === "name"
+        ? "lower(p.title) ASC"
+        : "p.created_at DESC";
+    const limitRef = addValue(input.limit);
+    const offsetRef = addValue((input.page - 1) * input.limit);
+    const rows = await this.dataSource.query<Array<{
+      project_id: string;
+      is_pinned: boolean;
+      pinned_at: Date | string | null;
+      total_count: number | string;
+    }>>(
+      `
+        SELECT p.project_id, pm.is_pinned, pm.pinned_at, COUNT(*) OVER() AS total_count
+        FROM projects p
+        INNER JOIN project_members pm ON pm.project_id = p.project_id
+        WHERE ${conditions.join(" AND ")}
+        ORDER BY pm.is_pinned DESC, pm.pinned_at DESC NULLS LAST,
+          ${secondaryOrder}, p.project_id ASC
+        LIMIT ${limitRef}
+        OFFSET ${offsetRef}
+      `,
+      values,
+    );
+    const total = Number(rows[0]?.total_count ?? 0);
+    if (rows.length === 0) {
+      return projectPageResponseSchema.parse({
+        items: [], total, page: input.page, limit: input.limit, hasMore: false,
+      });
+    }
+
+    const projectIds = rows.map((row) => row.project_id);
+    const projects = await this.projectsRepository.find({
+      where: { workspaceId, projectId: In(projectIds) },
+    });
+    const projectsById = new Map(projects.map((project) => [project.projectId, project]));
+    const activeGenerations = await this.findActiveGenerationJobs(projectIds);
+    const items = rows.flatMap((row) => {
+      const project = projectsById.get(row.project_id);
+      if (!project) return [];
+      return [{
+        ...this.toProjectDto(project),
+        isPinned: row.is_pinned,
+        pinnedAt: row.pinned_at ? new Date(row.pinned_at).toISOString() : null,
+        tags: project.tags ?? [],
+        generation: activeGenerations.get(project.projectId) ?? null,
+      }];
+    });
+
+    return projectPageResponseSchema.parse({
+      items,
+      total,
+      page: input.page,
+      limit: input.limit,
+      hasMore: input.page * input.limit < total,
+    });
+  }
+
+  private async findActiveGenerationJobs(
+    projectIds: string[],
+  ): Promise<Map<string, ProjectGenerationSummary>> {
+    const rows = await this.dataSource.query<ActiveGenerationRow[]>(
+      `
+        SELECT DISTINCT ON (project_id)
+          job_id, project_id, type, status, progress, message
+        FROM jobs
+        WHERE project_id = ANY($1::text[])
+          AND type IN ('ai-deck-generation', 'pptx-ooxml-generation')
+          AND status IN ('queued', 'running')
+        ORDER BY project_id, created_at DESC
+      `,
+      [projectIds],
+    );
+
+    return new Map(
+      rows.map((row) => [
+        row.project_id,
+        {
+          jobId: row.job_id,
+          type: row.type,
+          status: row.status,
+          progress: row.progress,
+          message: row.message,
+        },
+      ]),
     );
   }
 
@@ -174,6 +330,70 @@ export class ProjectsService {
     await this.assertProjectOwner(workspaceId, projectId, requesterUserId);
     await this.projectsRepository.delete({ projectId, workspaceId });
     return deleteProjectResponseSchema.parse({ projectId });
+  }
+
+  async updateTitle(
+    workspaceId: string,
+    projectId: string,
+    requesterUserId: string,
+    title: string,
+  ): Promise<Project> {
+    const project = await this.assertCanWriteProject(projectId, requesterUserId);
+    if (project.workspaceId !== workspaceId) {
+      throw new NotFoundException(`Project not found: ${projectId}`);
+    }
+    await this.projectsRepository.update({ projectId, workspaceId }, { title });
+    return projectSchema.parse({ ...project, title });
+  }
+
+  async updatePin(
+    workspaceId: string,
+    projectId: string,
+    requesterUserId: string,
+    isPinned: boolean,
+  ): Promise<UpdateProjectPinResponse> {
+    const member = await this.assertAcceptedMember(
+      workspaceId,
+      projectId,
+      requesterUserId,
+    );
+    member.isPinned = isPinned;
+    member.pinnedAt = isPinned ? new Date() : null;
+    await this.projectMembersRepository.save(member);
+
+    this.logger?.info(
+      { event: "project.pin_updated", projectId, userId: requesterUserId, isPinned },
+      "Project pin updated.",
+    );
+    return updateProjectPinResponseSchema.parse({
+      projectId,
+      isPinned,
+      pinnedAt: member.pinnedAt?.toISOString() ?? null,
+    });
+  }
+
+  async updateTags(
+    workspaceId: string,
+    projectId: string,
+    requesterUserId: string,
+    tags: string[],
+  ): Promise<UpdateProjectTagsResponse> {
+    const project = await this.assertCanWriteProject(projectId, requesterUserId);
+    if (project.workspaceId !== workspaceId) {
+      throw new NotFoundException(`Project not found: ${projectId}`);
+    }
+
+    await this.projectsRepository.update({ projectId, workspaceId }, { tags });
+    this.logger?.info(
+      {
+        event: "project.tags_updated",
+        projectId,
+        userId: requesterUserId,
+        tagCount: tags.length,
+      },
+      "Project tags updated.",
+    );
+    return updateProjectTagsResponseSchema.parse({ projectId, tags });
   }
 
   async getAccessibleProject(projectId: string): Promise<Project> {
@@ -205,18 +425,30 @@ export class ProjectsService {
     projectId: string,
     userId: string,
   ): Promise<ProjectAccessResponse> {
-    const project = await this.findProjectOrDemo(projectId);
-    const member = await this.findProjectMember(project.projectId, userId);
+    try {
+      const project = await this.findProjectOrDemo(projectId);
+      const member = await this.findProjectMember(project.projectId, userId);
+      if (isKdhHomeProjectId(project.projectId) && !member) {
+        throw new NotFoundException(`Project not found: ${projectId}`);
+      }
 
-    return {
-      project: this.toProjectDto(project),
-      membership: member
-        ? {
-            role: member.role,
-            status: member.status,
-          }
-        : null,
-    };
+      return projectAccessResponseSchema.parse({
+        project: this.toProjectDto(project),
+        membership: member
+          ? {
+              role: member.role,
+              status: member.status,
+            }
+          : null,
+      });
+    } catch (error) {
+      return this.throwProjectReadFailure(error, {
+        code: "PROJECT_ACCESS_UNAVAILABLE",
+        event: "project_access.read_failed",
+        message: "프로젝트 권한 정보를 불러오지 못했습니다.",
+        projectId,
+      });
+    }
   }
 
   async requestAccess(
@@ -226,6 +458,10 @@ export class ProjectsService {
   ): Promise<ProjectAccessResponse> {
     const project = await this.findProjectOrDemo(projectId);
     const existing = await this.findProjectMember(project.projectId, userId);
+
+    if (isKdhHomeProjectId(project.projectId) && !existing) {
+      throw new NotFoundException(`Project not found: ${projectId}`);
+    }
 
     if (existing?.status === "accepted") {
       return {
@@ -271,13 +507,27 @@ export class ProjectsService {
     return this.toProjectDto(project);
   }
 
+  async assertIsProjectOwner(projectId: string, userId: string): Promise<void> {
+    const project = await this.findProjectOrDemo(projectId);
+    await this.assertProjectOwner(project.workspaceId, project.projectId, userId);
+  }
+
   async listMembers(
     workspaceId: string,
     projectId: string,
     requesterUserId: string,
   ): Promise<ProjectMembersResponse> {
-    await this.assertProjectOwner(workspaceId, projectId, requesterUserId);
-    return this.getProjectMembers(projectId);
+    try {
+      await this.assertProjectOwner(workspaceId, projectId, requesterUserId);
+      return await this.getProjectMembers(projectId);
+    } catch (error) {
+      return this.throwProjectReadFailure(error, {
+        code: "PROJECT_MEMBERS_UNAVAILABLE",
+        event: "project_members.read_failed",
+        message: "프로젝트 구성원 정보를 불러오지 못했습니다.",
+        projectId,
+      });
+    }
   }
 
   async inviteMember(
@@ -450,6 +700,34 @@ export class ProjectsService {
     return this.projectMembersRepository.findOne({ where: { projectId, userId } });
   }
 
+  private throwProjectReadFailure(
+    error: unknown,
+    context: {
+      code: ProjectApiErrorCode;
+      event: string;
+      message: string;
+      projectId: string;
+    },
+  ): never {
+    if (error instanceof HttpException) throw error;
+
+    this.logger?.error(
+      {
+        event: context.event,
+        projectId: context.projectId,
+        error: serializeLogError(error),
+      },
+      context.message,
+    );
+    throw new ServiceUnavailableException(
+      projectApiErrorSchema.parse({
+        code: context.code,
+        message: context.message,
+        details: [],
+      }),
+    );
+  }
+
   private async findUserByEmail(email: string): Promise<UserLookupRow | undefined> {
     const rows = await this.dataSource.query<UserLookupRow[]>(
       `
@@ -527,3 +805,8 @@ export class ProjectsService {
     });
   }
 }
+import {
+  projectPageResponseSchema,
+  type ProjectPageRequest,
+  type ProjectPageResponse,
+} from "@orbit/shared";
