@@ -2150,6 +2150,8 @@ def agenda_section_slides(slide_plans: list[SlidePlan]) -> list[SlidePlan]:
 def normalize_structural_slide_plans(
     raw_input: RawInput,
     slide_plans: list[SlidePlan],
+    *,
+    populate_agenda: bool = True,
 ) -> list[SlidePlan]:
     if not slide_plans:
         return []
@@ -2179,7 +2181,7 @@ def normalize_structural_slide_plans(
             slide.obligation_refs = []
 
     agenda = normalized[1] if len(normalized) >= 2 else None
-    if agenda is not None and agenda.slide_type == "agenda":
+    if populate_agenda and agenda is not None and agenda.slide_type == "agenda":
         sections = agenda_section_slides(normalized)
         agenda.content_items = [
             GeneratedContentItem(
@@ -2845,12 +2847,20 @@ def plan_story_content(
                     coverContent=cover_content if order == 1 else None,
                 )
             )
-        slide_plans = normalize_structural_slide_plans(raw_input, slide_plans)
+        slide_plans = normalize_structural_slide_plans(
+            raw_input,
+            slide_plans,
+            populate_agenda=False,
+        )
         outline = DeckOutline(
             title=deck_title_for_topic(raw_input.topic, generated.title),
             slide_titles=[slide.title for slide in slide_plans],
         )
-    slide_plans = normalize_structural_slide_plans(raw_input, slide_plans)
+    slide_plans = normalize_structural_slide_plans(
+        raw_input,
+        slide_plans,
+        populate_agenda=False,
+    )
     slide_plans = apply_timing_to_slide_plans(raw_input, slide_plans)
     return ContentPlan(
         outline=outline,
@@ -2878,7 +2888,7 @@ def normalize_cover_content(
             1,
         ),
     )
-    subtitle = concise_cover_subtitle(candidate.subtitle or str(first_slide.message))
+    subtitle = concise_cover_subtitle(str(first_slide.message))
     return CoverContent(
         title=title,
         subtitle=subtitle,
