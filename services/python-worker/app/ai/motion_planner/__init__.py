@@ -20,8 +20,10 @@ from app.ai.motion_planner.errors import MotionPlannerError, MotionPlannerErrorC
 from app.ai.motion_planner.fallback import deterministic_fallback_plan
 from app.ai.motion_planner.compiler import (
     CompiledMotion,
+    CompiledMotionV3,
     MotionCompileError,
     compile_narrative_motion,
+    compile_narrative_motion_v3,
 )
 from app.ai.motion_planner.service import SemanticMotionResult, plan_and_compile_motion
 from app.ai.motion_planner.merge import MergedMotion, merge_narrative_motion
@@ -79,9 +81,11 @@ __all__ = [
     "plan_narrative_motion",
     "plan_narrative_motion_v3",
     "CompiledMotion",
+    "CompiledMotionV3",
     "MotionCompileError",
     "SemanticMotionResult",
     "compile_narrative_motion",
+    "compile_narrative_motion_v3",
     "plan_and_compile_motion",
     "MergedMotion",
     "MotionMergeValidationError",

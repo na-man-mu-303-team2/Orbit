@@ -3,9 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from app.ai.motion_planner.models import MotionIntent, MotionTarget, SlideType
+from app.ai.motion_planner.models import (
+    MotionIntent,
+    MotionTarget,
+    MotionUnit,
+    SlideType,
+)
 
 COMPILER_VERSION: Literal["motion-compiler-v2"] = "motion-compiler-v2"
+COMPILER_VERSION_V3: Literal["motion-compiler-v3"] = "motion-compiler-v3"
 MAX_ENTRY_MOTION_MS = 900
 MAX_CLICK_STEP_MOTION_MS = 1_200
 MAX_TOTAL_MOTION_MS = 6_000
@@ -63,5 +69,24 @@ def effect_spec_for_target(
         "deliberate": {"appear": 400, "fade-in": 500, "zoom-in": 550},
         "balanced": {"appear": 300, "fade-in": 400, "zoom-in": 450},
         "brisk": {"appear": 200, "fade-in": 300, "zoom-in": 350},
+    }
+    return MotionEffectSpec(effect=effect, duration_ms=durations[pacing][effect])
+
+
+def effect_spec_for_unit(
+    unit: MotionUnit,
+    motion_intent: MotionIntent,
+    pacing: Literal["deliberate", "balanced", "brisk"],
+) -> MotionEffectSpec:
+    del unit
+    effect: AnimationEffect = (
+        "fade-in"
+        if motion_intent in {"introduce", "focus", "compare", "conclude"}
+        else "appear"
+    )
+    durations = {
+        "deliberate": {"appear": 400, "fade-in": 500},
+        "balanced": {"appear": 300, "fade-in": 400},
+        "brisk": {"appear": 200, "fade-in": 300},
     }
     return MotionEffectSpec(effect=effect, duration_ms=durations[pacing][effect])

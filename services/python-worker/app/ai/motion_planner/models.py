@@ -143,6 +143,29 @@ class ExtractedMotionContextV3(BaseModel):
     notes_present: bool = Field(alias="notesPresent")
     notes_truncated: bool = Field(alias="notesTruncated")
 
+    @model_validator(mode="after")
+    def enforce_unit_integrity(self) -> Self:
+        unit_ids = [unit.unit_id for unit in self.units]
+        if len(set(unit_ids)) != len(unit_ids):
+            raise ValueError("Motion unit IDs must be unique")
+        animation_ids = [
+            element_id
+            for unit in self.units
+            for element_id in unit.animation_element_ids
+        ]
+        if len(animation_ids) > 24:
+            raise ValueError("Motion units allow at most 24 animation elements")
+        if len(set(animation_ids)) != len(animation_ids):
+            raise ValueError("Animation elements must belong to one motion unit")
+        member_ids = [
+            element_id
+            for unit in self.units
+            for element_id in unit.member_element_ids
+        ]
+        if len(set(member_ids)) != len(member_ids):
+            raise ValueError("Member elements must belong to one motion unit")
+        return self
+
 
 class MotionPlanTarget(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
