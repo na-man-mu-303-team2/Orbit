@@ -75,6 +75,7 @@ export type CompanionSpikeSignal =
 
 export type CompanionSpikeChannelMessage =
   | { ink: CompanionSpikeInk; type: "ink" }
+  | { type: "audience-ready" }
   | {
       appliedAtMs: number;
       sequence: number;
