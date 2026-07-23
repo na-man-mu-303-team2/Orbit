@@ -56,6 +56,7 @@ export type AnimationTimelinePlan = {
 };
 
 export function createAnimationTimeline(input: {
+  actionTriggerKeys?: ReadonlyMap<string, string>;
   animations: readonly TimelineAnimationInput[];
   legacyOnClickAnimationIds?: Iterable<string>;
   targetElementIds?: Iterable<string>;
@@ -77,6 +78,11 @@ export function createAnimationTimeline(input: {
     sortedAnimations,
     legacyOnClickAnimationIds
   );
+  const actionBoundaryModes = inferActionTriggerBoundaryModes(
+    sortedAnimations,
+    legacyModes,
+    input.actionTriggerKeys
+  );
   const diagnostics: AnimationTimelineDiagnostic[] = [];
   let diagnosticsTruncatedCount = 0;
   const roots: AnimationTimelineRoot[] = [];
@@ -94,9 +100,11 @@ export function createAnimationTimeline(input: {
   };
 
   for (const { animation, sourceIndex } of sortedAnimations) {
-    const startMode = isAnimationStartMode(animation.startMode)
-      ? animation.startMode
-      : legacyModes.get(sourceIndex) ?? "on-slide-enter";
+    const startMode =
+      actionBoundaryModes.get(sourceIndex) ??
+      (isAnimationStartMode(animation.startMode)
+        ? animation.startMode
+        : legacyModes.get(sourceIndex) ?? "on-slide-enter");
     const startsRoot = startMode === "on-slide-enter" || startMode === "on-click";
 
     if (startsRoot || !currentRoot) {
@@ -245,6 +253,54 @@ function inferLegacyStartModes(
           : "with-previous"
       );
     });
+  }
+
+  return modes;
+}
+
+/**
+ * A trigger action starts a semantic presentation step. Legacy decks can
+ * attach different triggers to effects that are still linked by relative
+ * timing. Treating that whole chain as one step makes the first trigger play
+ * every effect in the chain. This read-time normalization preserves the
+ * authored timings for a shared trigger, while separating effects owned by
+ * different triggers into independent click roots.
+ */
+function inferActionTriggerBoundaryModes(
+  animations: Array<{
+    animation: TimelineAnimationInput;
+    sourceIndex: number;
+  }>,
+  legacyModes: Map<number, AnimationStartMode>,
+  actionTriggerKeys?: ReadonlyMap<string, string>
+) {
+  const modes = new Map<number, AnimationStartMode>();
+  if (!actionTriggerKeys || actionTriggerKeys.size === 0) {
+    return modes;
+  }
+
+  let currentRootTriggerKey: string | null = null;
+
+  for (const { animation, sourceIndex } of animations) {
+    const authoredStartMode = isAnimationStartMode(animation.startMode)
+      ? animation.startMode
+      : legacyModes.get(sourceIndex) ?? "on-slide-enter";
+    const triggerKey = actionTriggerKeys.get(animation.animationId) ?? null;
+    const isRelative =
+      authoredStartMode === "with-previous" ||
+      authoredStartMode === "after-previous";
+    const needsIndependentRoot =
+      triggerKey !== null && isRelative && triggerKey !== currentRootTriggerKey;
+    const startMode = needsIndependentRoot ? "on-click" : authoredStartMode;
+    const startsRoot = startMode === "on-slide-enter" || startMode === "on-click";
+
+    if (needsIndependentRoot) {
+      modes.set(sourceIndex, "on-click");
+    }
+
+    if (startsRoot) {
+      currentRootTriggerKey = triggerKey;
+    }
   }
 
   return modes;

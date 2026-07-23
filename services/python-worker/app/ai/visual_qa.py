@@ -603,6 +603,7 @@ def _has_balanced_media_split(slide: dict[str, Any]) -> bool:
         "hero-split",
         "cta-closing",
         "editorial-split",
+        "editorial-media-band",
         "image-evidence",
     }:
         return False
@@ -624,6 +625,13 @@ def _has_balanced_media_split(slide: dict[str, Any]) -> bool:
     )
     if media is None or title is None:
         return False
+    if composition_id == "editorial-media-band":
+        return (
+            float(media.get("width", 0)) >= 1344
+            and float(media.get("height", 0)) >= 272
+            and float(title.get("width", 0)) >= 672
+            and float(title.get("props", {}).get("fontSize", 0)) >= 44
+        )
     return (
         float(media.get("width", 0)) >= 768
         and float(media.get("height", 0)) >= 540
@@ -1256,6 +1264,10 @@ def _slide_type_for_composition(slide: dict[str, Any]) -> str:
     )
     if slide.get("order") == 1:
         return "cover"
+    if str(composition).startswith("agenda-"):
+        return "agenda"
+    if str(composition).startswith("closing-"):
+        return "closing"
     if composition == "cta-closing":
         return "summary"
     return {

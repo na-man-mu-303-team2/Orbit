@@ -2115,18 +2115,29 @@ def create_speaker_notes_page(
         presentation_rels_root,
         NOTES_MASTER_REL_TYPE,
     )
+    # A notes master may have been created by an earlier update_speaker_notes
+    # operation in this same sync, in which case it lives in added_entries (and
+    # its theme/rels too) rather than package_entries. Read from both so a
+    # second notes-less slide can reuse the freshly created master instead of
+    # failing NOTES_MASTER_CAPABILITY_UNSAFE.
+    def pending_part(part: str) -> bytes | None:
+        if part in package_entries:
+            return package_entries[part]
+        return added_entries.get(part)
+
     if actual_master_parts:
         notes_master_part = next(iter(actual_master_parts))
         if blueprint_master_parts != {notes_master_part}:
             return "NOTES_MASTER_CAPABILITY_UNSAFE"
-        if notes_master_part not in package_entries:
+        notes_master_xml = pending_part(notes_master_part)
+        if notes_master_xml is None:
             return "NOTES_MASTER_CAPABILITY_UNSAFE"
         try:
-            ET.fromstring(package_entries[notes_master_part])
+            ET.fromstring(notes_master_xml)
         except ET.ParseError:
             return "NOTES_MASTER_CAPABILITY_UNSAFE"
         notes_master_rels_part = rels_part_for_slide_part(notes_master_part)
-        notes_master_rels_xml = package_entries.get(notes_master_rels_part)
+        notes_master_rels_xml = pending_part(notes_master_rels_part)
         if notes_master_rels_xml is None:
             return "NOTES_MASTER_CAPABILITY_UNSAFE"
         try:
@@ -2146,10 +2157,15 @@ def create_speaker_notes_page(
             and relationship_is_internal(theme_relationships[0])
             else ""
         )
+        theme_xml = pending_part(theme_part) if theme_part else None
+        if theme_xml is None:
+            try:
+                theme_xml = source_package.read(theme_part)
+            except KeyError:
+                return "NOTES_MASTER_CAPABILITY_UNSAFE"
         try:
-            theme_xml = source_package.read(theme_part)
             ET.fromstring(theme_xml)
-        except (KeyError, ET.ParseError):
+        except ET.ParseError:
             return "NOTES_MASTER_CAPABILITY_UNSAFE"
         if (
             len(existing_presentation_master_relationships) != 1

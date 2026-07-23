@@ -51,7 +51,6 @@ import {
   OrbitInput,
 } from "../../components/ui";
 import "../../styles/tokens.css";
-import { uploadAndImportPptxTemplate } from "../editor/shell/api/editorJobApi";
 import { PptxImportPreferenceDialog } from "../editor/shell/components/PptxImportPreferenceDialog";
 import {
   createProjectTagDefinition,
@@ -64,13 +63,16 @@ import {
 } from "../editor/shell/utils/editorFileValidation";
 import {
   createProject,
-  createProjectWithoutDeck,
   deleteProject,
   fetchProjectPage,
   updateProjectPin,
   updateProjectTags,
 } from "./ProjectAssetWorkspace";
 import { WorkspaceProjectCard } from "./WorkspaceProjectCard";
+import {
+  mergePptxImportProject,
+  usePptxImport,
+} from "./PptxImportProvider";
 import "./workspace-home.css";
 import "./figma-home.css";
 import { CreateProjectCard } from "./CreateProjectCard";
@@ -134,10 +136,10 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
   const [newTagColor, setNewTagColor] = useState<ProjectTagColor>("yellow");
   const [tagError, setTagError] = useState("");
   const [tagSaving, setTagSaving] = useState(false);
-  const [pptxImportPhase, setPptxImportPhase] = useState<"idle" | "uploading" | "importing">("idle");
   const [pendingPptxImportFile, setPendingPptxImportFile] = useState<File | null>(null);
   const [actionError, setActionError] = useState("");
-  const isImportingPptx = pptxImportPhase !== "idle";
+  const pptxImport = usePptxImport();
+  const isImportingPptx = pptxImport.isImporting;
   const projects = useProjectList({ filter: "all", query, sort, tags: selectedTags });
   const projectTags = useQuery({
     queryKey: projectTagDefinitionsQueryKey,
@@ -191,7 +193,10 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
   }, [communityItems.length]);
   const availableTags = useMemo(() => projectTags.data?.tags ?? [], [projectTags.data]);
   const cardTagOptions = availableTags;
-  const visibleProjects = loadedProjects;
+  const visibleProjects = useMemo(
+    () => mergePptxImportProject(loadedProjects, pptxImport.operation),
+    [loadedProjects, pptxImport.operation],
+  );
 
   const dismissPublishToast = useCallback(() => {
     setPublishToast(null);
@@ -264,29 +269,12 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
       return;
     }
 
-    let project: Project | null = null;
     setActionError("");
-    setPptxImportPhase("uploading");
     try {
-      project = await createProjectWithoutDeck(projectTitleFromFile(file.name));
-      await uploadAndImportPptxTemplate(project.projectId, file, {
-        importPreference,
-        onPhase: setPptxImportPhase,
-      });
+      await pptxImport.startImport(file, importPreference);
       await projects.refetch();
-      props.onNavigate(projectPath(project));
     } catch (cause) {
-      if (project) {
-        try {
-          await deleteProject(project.projectId);
-          await projects.refetch();
-        } catch {
-          // Keep the original import error because it is more actionable.
-        }
-      }
       setActionError(cause instanceof Error ? cause.message : "PPTX를 가져오지 못했습니다.");
-    } finally {
-      setPptxImportPhase("idle");
     }
   }
 
@@ -623,6 +611,11 @@ export function OrbitWorkspaceHome(props: ProjectHubProps & { userName?: string 
                   tagOptions={cardTagOptions}
                   pinning={pinningId === project.projectId}
                   project={project}
+                  pptxImport={
+                    pptxImport.operation?.project.projectId === project.projectId
+                      ? pptxImport.operation
+                      : null
+                  }
                 />
               ))}
             </div>
@@ -752,10 +745,6 @@ function useProjectList(input: Omit<ProjectPageRequest, "limit" | "page">) {
 function formatProjectDate(project: Project) {
   const date = new Date(project.createdAt);
   return Number.isNaN(date.getTime()) ? "날짜 없음" : date.toLocaleDateString("ko-KR");
-}
-
-function projectTitleFromFile(fileName: string) {
-  return fileName.replace(/\.pptx$/i, "").trim() || "PPTX 프로젝트";
 }
 
 function projectPath(project: Project) {

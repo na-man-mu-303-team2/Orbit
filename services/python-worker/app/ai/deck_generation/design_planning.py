@@ -86,6 +86,12 @@ DOCUMENT_STYLE_PACK_IDS = (
 )
 
 
+MODERN_EDITORIAL_STYLE_PACK_ID = "modern-editorial"
+PRODUCT_SHOWCASE_STYLE_PACK_ID = "product-showcase"
+DATA_REPORT_STYLE_PACK_ID = "data-report"
+TECHNICAL_SYSTEM_STYLE_PACK_ID = "technical-system"
+
+
 SIMPLE_BASIC_STYLE_KEYWORDS = (
     "simple basic",
     "simple-basic",
@@ -542,8 +548,20 @@ NEUTRAL_COLORS = {"#ffffff", "#111827", "#000000", "#6b7280"}
 def art_director_context(
     raw_input: RawInput,
     theme: dict[str, Any],
+    *,
+    style_pack_id: str = "",
+    style_prompt: str = "",
 ) -> ArtDirectorContext:
     palette = theme.get("palette", {})
+    design_direction = " ".join(
+        part
+        for part in (
+            raw_input.design_prompt.strip(),
+            f"Effective style pack: {style_pack_id}." if style_pack_id else "",
+            style_prompt.strip(),
+        )
+        if part
+    )
     return ArtDirectorContext(
         topic=raw_input.topic,
         presentationProfile=raw_input.presentation_profile,
@@ -554,7 +572,7 @@ def art_director_context(
             "successCriteria": raw_input.brief.success_criteria,
             "durationMinutes": str(raw_input.target_duration_minutes),
         },
-        designDirection=" ".join(raw_input.design_prompt.split())[:600],
+        designDirection=" ".join(design_direction.split())[:1800],
         palette={
             "background": str(theme.get("backgroundColor", "#FFFFFF")),
             "surface": str(palette.get("surface", "#F3F4F6")),
@@ -579,10 +597,15 @@ def program_v2_slide_summary(
     content_items = [
         item.model_dump(by_alias=True) for item in slide_plan.content_items
     ]
-    if not content_items and slide_plan.order != 1 and slide_plan.slide_type != "cover":
+    if (
+        not content_items
+        and slide_plan.order != 1
+        and slide_plan.slide_type not in {"cover", "closing"}
+    ):
         estimated_count = {
             "cover": 1,
             "title": 1,
+            "agenda": 1,
             "problem": 2,
             "solution": 2,
             "feature-grid": 3,
@@ -593,6 +616,7 @@ def program_v2_slide_summary(
             "comparison": 2,
             "quote": 1,
             "summary": 1,
+            "closing": 0,
         }.get(slide_plan.slide_type, 1)
         content_items = [
             {
@@ -966,31 +990,122 @@ def select_style_pack(
     raw_input: RawInput,
     slide_plans: list[SlidePlan],
 ) -> dict[str, Any] | None:
-    override = registry_item(STYLE_PACK_REGISTRY, raw_input.design.style_pack_id)
-    if override is not None:
-        return override
+    return registry_item(
+        STYLE_PACK_REGISTRY,
+        effective_style_pack_id(raw_input, slide_plans),
+    )
 
-    if wants_presentation_document_style(raw_input):
-        return registry_item(STYLE_PACK_REGISTRY, PRESENTATION_DOCUMENT_STYLE_PACK_ID)
 
-    if wants_submission_document_style(raw_input):
-        return registry_item(STYLE_PACK_REGISTRY, SUBMISSION_DOCUMENT_STYLE_PACK_ID)
+def effective_style_pack_id(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> str:
+    selected = selected_style_pack_id(raw_input)
+    if registry_item(STYLE_PACK_REGISTRY, selected) is not None:
+        return selected
 
-    if wants_simple_basic_style(raw_input):
-        return registry_item(STYLE_PACK_REGISTRY, SIMPLE_BASIC_STYLE_PACK_ID)
+    document_style = effective_document_style_pack_id(raw_input)
+    if document_style:
+        return document_style
 
+    if raw_input.design.visual_rhythm != "auto":
+        return ""
+
+    plans = slide_plans or []
     text = " ".join(
         [
             raw_input.topic,
             raw_input.prompt,
             raw_input.design_prompt,
-            *[slide_plan.title for slide_plan in slide_plans],
-            *[slide_plan.message for slide_plan in slide_plans],
+            raw_input.presentation_profile,
+            raw_input.metadata.audience,
+            raw_input.metadata.purpose,
+            raw_input.metadata.tone,
+            *[slide_plan.title for slide_plan in plans],
+            *[slide_plan.message for slide_plan in plans],
+            *[slide_plan.visual_intent.palette_hint for slide_plan in plans],
         ]
     ).casefold()
-    if has_any(text, ["teal process", "process card", "process cards"]):
-        return registry_item(STYLE_PACK_REGISTRY, "teal-professional-process")
-    return None
+    slide_types = [slide_plan.slide_type for slide_plan in plans]
+    if (
+        slide_types.count("architecture") >= 2
+        or has_any(
+            text,
+            [
+                "architecture",
+                "infrastructure",
+                "security",
+                "technical",
+                "cloud",
+                "database",
+                "api",
+                "speech",
+                "stt",
+                "audio",
+                "voice",
+                "language",
+                "언어",
+                "음성",
+                "오디오",
+                "방언",
+                "아키텍처",
+                "인프라",
+                "보안",
+                "기술",
+                "클라우드",
+                "데이터베이스",
+            ],
+        )
+    ):
+        return TECHNICAL_SYSTEM_STYLE_PACK_ID
+    if (
+        raw_input.metadata.purpose == "report"
+        or sum(slide_type in {"data", "chart"} for slide_type in slide_types) >= 2
+        or has_any(
+            text,
+            [
+                "kpi",
+                "metric",
+                "analytics",
+                "research",
+                "report",
+                "분석",
+                "연구",
+                "보고서",
+                "지표",
+                "성과",
+            ],
+        )
+    ):
+        return DATA_REPORT_STYLE_PACK_ID
+    if (
+        sum(slide_type in {"solution", "feature-grid"} for slide_type in slide_types)
+        >= 2
+        or has_any(
+            text,
+            [
+                "product",
+                "launch",
+                "feature",
+                "startup",
+                "saas",
+                "game",
+                "campaign",
+                "neon",
+                "ink",
+                "게임",
+                "캠페인",
+                "네온",
+                "잉크",
+                "제품",
+                "출시",
+                "기능",
+                "스타트업",
+            ],
+        )
+    ):
+        return PRODUCT_SHOWCASE_STYLE_PACK_ID
+    return MODERN_EDITORIAL_STYLE_PACK_ID
 
 
 def wants_simple_basic_style(raw_input: RawInput) -> bool:
@@ -1026,17 +1141,24 @@ def effective_document_style_pack_id(raw_input: RawInput) -> str:
 
 
 def preset_style_prompt_for(raw_input: RawInput) -> str:
-    style_prompt = selected_style_pack_prompt(raw_input)
+    style_prompt = effective_style_pack_prompt(raw_input)
     if style_prompt:
         return style_prompt
     return STYLE_PACK_LLM_PROMPTS.get(effective_document_style_pack_id(raw_input), "")
 
 
-def selected_style_pack_prompt(raw_input: RawInput) -> str:
-    style_pack_id = selected_style_pack_id(raw_input)
+def effective_style_pack_prompt(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan] | None = None,
+) -> str:
+    style_pack_id = effective_style_pack_id(raw_input, slide_plans)
     if not style_pack_id:
         return ""
     return STYLE_PACK_PROMPT_REGISTRY.get(style_pack_id, "")
+
+
+def selected_style_pack_prompt(raw_input: RawInput) -> str:
+    return effective_style_pack_prompt(raw_input)
 
 
 def uses_document_style_pack(raw_input: RawInput) -> bool:
@@ -1117,6 +1239,8 @@ def apply_style_pack(
 def direct_design(
     raw_input: RawInput,
     slide_plans: list[SlidePlan] | None = None,
+    *,
+    style_pack_id: str | None = None,
 ) -> dict[str, Any]:
     profile = design_profile_for(raw_input, slide_plans)
     theme = {
@@ -1142,7 +1266,11 @@ def direct_design(
         },
         "effects": {"borderRadius": 8},
     }
-    theme = apply_style_pack(theme, select_style_pack(raw_input, slide_plans or []))
+    selected_pack = registry_item(
+        STYLE_PACK_REGISTRY,
+        style_pack_id or effective_style_pack_id(raw_input, slide_plans),
+    )
+    theme = apply_style_pack(theme, selected_pack)
     theme = apply_explicit_palette(theme, raw_input, slide_plans)
     return apply_palette_override(theme, raw_input.design.palette_override)
 
@@ -1765,7 +1893,7 @@ def design_pack_locks_dark_canvas(raw_input: RawInput) -> bool:
 
 
 def resolve_style_prompt_context(raw_input: RawInput) -> StylePromptContext:
-    selected_prompt = selected_style_pack_prompt(raw_input)
+    selected_prompt = effective_style_pack_prompt(raw_input)
     return StylePromptContext(
         preset_style_prompt=(
             selected_prompt
@@ -1793,14 +1921,21 @@ def plan_design(
         slide_plans,
         preserve_approved_content=preserve_approved_content,
     )
-    theme = direct_design(raw_input, slide_plans)
+    style_pack_id = effective_style_pack_id(raw_input, slide_plans)
+    style_prompt = effective_style_pack_prompt(raw_input, slide_plans)
+    theme = direct_design(raw_input, slide_plans, style_pack_id=style_pack_id)
     theme = apply_font_override(theme, raw_input.design.font_override)
     try:
         slide_summaries = [
             program_v2_slide_summary(slide, raw_input) for slide in slide_plans
         ]
         program = create_design_program(
-            art_director_context(raw_input, theme),
+            art_director_context(
+                raw_input,
+                theme,
+                style_pack_id=style_pack_id,
+                style_prompt=style_prompt,
+            ),
             slide_summaries,
             client=client,
             model=model,
@@ -1815,6 +1950,8 @@ def plan_design(
             media_policy=raw_input.design.media_policy,
             media_budget=4,
             preserve_slide_types=preserve_approved_content,
+            layout_diversity=raw_input.design.layout_diversity,
+            style_pack_id=style_pack_id,
         )
     except (CompositionCompileError, DesignProgramError) as error:
         raise DeckContentGenerationError(str(error)) from error

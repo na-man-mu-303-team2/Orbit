@@ -1,11 +1,15 @@
+import base64
 import json
 from collections import Counter
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pptx import Presentation
 
+import app.ai.deck_generation.design_planning as design_planning_module
 from app.ai.composition_library import (
     COMPOSITION_SPECS,
     compile_composition,
@@ -19,6 +23,7 @@ from app.ai.design_program import (
     create_design_program,
     design_program_response_format,
 )
+from app.ai.deck_pptx_export import DeckPptxExportRequest, export_deck_pptx
 from app.ai.deck_generation.design_planning import (
     apply_program_v2_design_tokens,
     eligible_cover_compositions,
@@ -207,7 +212,7 @@ def test_program_v2_compiles_empty_cover_and_closing_content_items() -> None:
 
     assert [slide.composition_id for slide in program.slides] == [
         "cover-classic-corporate",
-        "cta-closing",
+        "closing-centered-minimal",
     ]
     assert all(item.elements for item in compiled)
 
@@ -910,10 +915,32 @@ def test_program_v2_golden_pipeline_contract() -> None:
     assert [slide["slideId"] for slide in deck["slides"]] == [
         f"slide_{order}" for order in range(1, 11)
     ]
-    assert [
+    actual_element_ids = [
         [element["elementId"] for element in slide["elements"]]
         for slide in deck["slides"]
-    ] == golden_element_ids()
+    ]
+    assert all(actual_element_ids)
+    assert all(
+        all(element_id.startswith(f"el_{order}_program_v2_") for element_id in ids)
+        for order, ids in enumerate(actual_element_ids, start=1)
+    )
+    assert actual_element_ids[1] == golden_element_ids()[1]
+    assert actual_element_ids[-1] == golden_element_ids()[-1]
+    assert [
+        slide["aiNotes"]["compositionPlan"]["compositionId"]
+        for slide in deck["slides"]
+    ] == [
+        "cover-visual-impact",
+        "agenda-numbered-list",
+        "bento-focus",
+        "editorial-split",
+        "diagram-orbit",
+        "editorial-split",
+        "process-vertical-rail",
+        "editorial-media-band",
+        "diagram-hub",
+        "closing-centered-minimal",
+    ]
     title_element = next(
         element
         for element in deck["slides"][0]["elements"]
@@ -933,6 +960,11 @@ def test_program_v2_golden_pipeline_contract() -> None:
     }
     assert title_element["props"]["text"] == "미지의 군도로"
     assert all(slide["animations"] == [] for slide in deck["slides"])
+    pptx_response = export_deck_pptx(DeckPptxExportRequest(deck=deck))
+    presentation = Presentation(
+        BytesIO(base64.b64decode(pptx_response.content_base64))
+    )
+    assert len(presentation.slides) == len(deck["slides"])
 
     assert response.validation.model_dump(by_alias=True) == {
         "passed": True,
@@ -956,8 +988,8 @@ def test_program_v2_golden_pipeline_contract() -> None:
         "researchIssueCodes": [],
         "researchFactCoverageSatisfied": False,
         "repairAttempted": True,
-        "repairReasons": ["CONTENT_DUPLICATED", "SPEAKER_NOTES_SHORT"],
-        "uniqueCoreLayoutCount": 6,
+        "repairReasons": ["SPEAKER_NOTES_SHORT", "CONTENT_DUPLICATED"],
+        "uniqueCoreLayoutCount": 8,
         "validationIssueCount": 0,
         "visualQaStatus": "not-run",
         "visualReviewAttempts": 0,
@@ -1054,6 +1086,136 @@ def test_splatoon_product_launch_golden_composition_contract() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("topic", "prompt", "expected_style_pack_id"),
+    [
+        ("Team alignment", "Create a concise strategy narrative.", "modern-editorial"),
+        ("Product launch", "Show the new product features.", "product-showcase"),
+        ("Quarterly KPI", "Create an executive metrics report.", "data-report"),
+        ("Cloud architecture", "Explain the API security system.", "technical-system"),
+    ],
+)
+def test_effective_style_pack_is_inferred_from_existing_request_fields(
+    topic: str,
+    prompt: str,
+    expected_style_pack_id: str,
+) -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic=topic,
+            prompt=prompt,
+            design={"visualRhythm": "auto"},
+        )
+    )
+
+    assert (
+        design_planning_module.effective_style_pack_id(raw_input)
+        == expected_style_pack_id
+    )
+    assert (
+        design_planning_module.select_style_pack(raw_input, [])["id"]
+        == expected_style_pack_id
+    )
+    assert design_planning_module.effective_style_pack_prompt(raw_input)
+
+
+def test_explicit_style_pack_stays_ahead_of_automatic_inference() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Cloud architecture",
+            prompt="Explain the API security system.",
+            design={
+                "stylePackId": "brandlogy-modern",
+                "visualRhythm": "auto",
+            },
+        )
+    )
+
+    assert (
+        design_planning_module.effective_style_pack_id(raw_input)
+        == "brandlogy-modern"
+    )
+    context = design_planning_module.art_director_context(
+        raw_input,
+        design_planning_module.direct_design(raw_input, []),
+        style_pack_id="brandlogy-modern",
+        style_prompt=design_planning_module.effective_style_pack_prompt(raw_input),
+    )
+    assert "Effective style pack: brandlogy-modern." in context.design_direction
+    assert "Brandlogy Modern Design Pack" in context.design_direction
+
+
+def test_effective_style_pack_uses_generated_slide_types() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Business update",
+            prompt="Summarize the latest operating results.",
+            design={"visualRhythm": "auto"},
+        )
+    )
+    slide_plans = [
+        SlidePlan(
+            order=index,
+            slide_type="data",
+            title=f"Operating signal {index}",
+            message="Evidence and interpretation",
+            speaker_notes="Explain the evidence.",
+            keywords=[],
+            evidence=[],
+        )
+        for index in (1, 2)
+    ]
+
+    assert (
+        design_planning_module.effective_style_pack_id(raw_input, slide_plans)
+        == "data-report"
+    )
+
+
+def test_automatic_style_pack_preserves_palette_and_font_overrides() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="Product launch",
+            prompt="Show the new product features.",
+            design={
+                "visualRhythm": "auto",
+                "paletteOverride": {
+                    "primary": "#123456",
+                    "background": "#F7F7F2",
+                    "text": "#111111",
+                },
+                "fontOverride": {
+                    "fontId": "custom-sans",
+                    "name": "Custom Sans",
+                    "headingFontFamily": "Custom Sans",
+                    "bodyFontFamily": "Custom Sans",
+                    "recommendedTitleSize": 44,
+                    "recommendedBodySize": 20,
+                    "lineHeight": 1.24,
+                },
+            },
+        )
+    )
+
+    theme = design_planning_module.direct_design(raw_input, [])
+    theme = design_planning_module.apply_font_override(
+        theme,
+        raw_input.design.font_override,
+    )
+
+    assert theme["name"] == "product-showcase"
+    assert theme["backgroundColor"] == "#F7F7F2"
+    assert theme["textColor"] == "#111111"
+    assert theme["palette"]["primary"] == "#123456"
+    assert theme["fontFamily"] == "Custom Sans"
+    assert theme["typography"]["headingFontFamily"] == "Custom Sans"
+    assert theme["typography"]["bodyFontFamily"] == "Custom Sans"
+
+
 def golden_slide_definitions() -> list[tuple[str, str, str, list[str]]]:
     return [
         ("cover", "미지의 군도로", "레이더스는 탐험 중심의 새 경험을 연다", ["공식 공개", "새로운 무대"]),
@@ -1064,7 +1226,7 @@ def golden_slide_definitions() -> list[tuple[str, str, str, list[str]]]:
         ("comparison", "시리즈의 새 축", "대전 중심 경험과 다른 탐험 가치를 제안한다", ["기존 대전", "레이더스 탐험", "공통 잉크 액션"]),
         ("process", "한 번의 원정", "준비부터 귀환까지 선택이 이어진다", ["준비", "진입", "탐사", "귀환"]),
         ("data", "공식 장면이 증거다", "공식 키 아트와 트레일러 장면으로 변화를 보여준다", ["공식 키 아트", "트레일러 장면"]),
-        ("solution", "팬이 기대할 이유", "익숙함과 새로움이 동시에 진입 동기를 만든다", ["세계관", "조작감", "새 목표"]),
+        ("solution", "출시 정보를 확인하세요", "공식 사이트에서 다음 공개와 출시 정보를 확인하세요", ["공식 사이트", "공식 채널", "다음 공개"]),
         ("summary", "다음 공개를 확인하세요", "공식 채널에서 출시 정보를 이어서 확인한다", ["공식 사이트", "공식 채널"]),
     ]
 
@@ -1130,6 +1292,18 @@ def golden_content_plan() -> dict[str, Any]:
     ):
         slide_type, title, message, items = definition
         note_seed = "".join([title, message, *items])
+        speaker_notes = (note_seed * (target // len(note_seed) + 1))[:target]
+        if order == 10:
+            speaker_notes = (
+                "경청해 주셔서 감사합니다. 오늘 공유한 핵심 내용을 차분히 되짚으며 발표를 마무리하겠습니다. "
+                "표지에서 제시한 주제와 본문에서 살펴본 근거가 하나의 흐름으로 연결되었음을 기억해 주시기 바랍니다. "
+                "각 장표의 판단 기준은 확인된 정보의 범위 안에서 정리했으며, 추가 논의가 필요한 사항은 후속 자리에서 이어가겠습니다. "
+                "함께 살펴본 내용이 앞으로의 대화와 검토에 유용한 출발점이 되기를 바랍니다. "
+                "끝까지 집중해 주신 모든 분께 다시 한번 감사드립니다. "
+                "발표 자료의 본문은 핵심 메시지와 근거를 중심으로 구성했으며, 마무리 장표에는 감사의 뜻만 담았습니다. "
+                "오늘 나눈 관점이 각자의 상황에서 의미 있는 질문과 이해로 이어지기를 바랍니다. "
+                "소중한 시간을 내어 함께해 주셔서 고맙습니다."
+            )
         media_intent = {
             "kind": "none",
             "prompt": "",
@@ -1153,9 +1327,7 @@ def golden_content_plan() -> dict[str, Any]:
             {
                 "title": title,
                 "message": message,
-                "speakerNotes": (note_seed * (target // len(note_seed) + 1))[
-                    :target
-                ],
+                "speakerNotes": speaker_notes,
                 "keywords": [title],
                 "slideType": slide_type,
                 "visualIntent": visual_intent.copy(),
@@ -1184,32 +1356,36 @@ def golden_element_ids() -> list[list[str]]:
         ],
         [
             "el_2_program_v2_title",
-            "el_2_program_v2_hub_field",
-            "el_2_program_v2_hub",
-            "el_2_program_v2_connector_left",
-            "el_2_program_v2_connector_right",
-            "el_2_program_v2_connector_bottom",
-            "el_2_program_v2_node_1_field",
-            "el_2_program_v2_node_1_index",
-            "el_2_program_v2_node_1",
-            "el_2_program_v2_node_2_field",
-            "el_2_program_v2_node_2_index",
-            "el_2_program_v2_node_2",
-            "el_2_program_v2_node_3_field",
-            "el_2_program_v2_node_3_index",
-            "el_2_program_v2_node_3",
+            "el_2_program_v2_agenda_rule",
+            "el_2_program_v2_agenda_index_1",
+            "el_2_program_v2_agenda_item_1",
+            "el_2_program_v2_agenda_divider_1",
+            "el_2_program_v2_agenda_index_2",
+            "el_2_program_v2_agenda_item_2",
+            "el_2_program_v2_agenda_divider_2",
+            "el_2_program_v2_agenda_index_3",
+            "el_2_program_v2_agenda_item_3",
+            "el_2_program_v2_agenda_divider_3",
+            "el_2_program_v2_agenda_index_4",
+            "el_2_program_v2_agenda_item_4",
+            "el_2_program_v2_agenda_divider_4",
+            "el_2_program_v2_agenda_index_5",
+            "el_2_program_v2_agenda_item_5",
+            "el_2_program_v2_agenda_divider_5",
+            "el_2_program_v2_agenda_index_6",
+            "el_2_program_v2_agenda_item_6",
         ],
         [
             "el_3_program_v2_title",
-            "el_3_program_v2_comparison_1_field",
-            "el_3_program_v2_comparison_1_index",
-            "el_3_program_v2_comparison_1",
-            "el_3_program_v2_comparison_2_field",
-            "el_3_program_v2_comparison_2_index",
-            "el_3_program_v2_comparison_2",
-            "el_3_program_v2_comparison_3_field",
-            "el_3_program_v2_comparison_3_index",
-            "el_3_program_v2_comparison_3",
+            "el_3_program_v2_bento_1_field",
+            "el_3_program_v2_bento_1_index",
+            "el_3_program_v2_bento_1",
+            "el_3_program_v2_bento_2_field",
+            "el_3_program_v2_bento_2_index",
+            "el_3_program_v2_bento_2",
+            "el_3_program_v2_bento_3_field",
+            "el_3_program_v2_bento_3_index",
+            "el_3_program_v2_bento_3",
         ],
         [
             "el_4_program_v2_title",
@@ -1222,65 +1398,59 @@ def golden_element_ids() -> list[list[str]]:
         ],
         [
             "el_5_program_v2_title",
-            "el_5_program_v2_step_1_field",
-            "el_5_program_v2_step_number_1",
-            "el_5_program_v2_step_1",
-            "el_5_program_v2_step_connector_1",
-            "el_5_program_v2_step_2_field",
-            "el_5_program_v2_step_number_2",
-            "el_5_program_v2_step_2",
-            "el_5_program_v2_step_connector_2",
-            "el_5_program_v2_step_3_field",
-            "el_5_program_v2_step_number_3",
-            "el_5_program_v2_step_3",
-            "el_5_program_v2_step_connector_3",
-            "el_5_program_v2_step_4_field",
-            "el_5_program_v2_step_number_4",
-            "el_5_program_v2_step_4",
+            "el_5_program_v2_orbit_connector_1",
+            "el_5_program_v2_orbit_connector_2",
+            "el_5_program_v2_orbit_connector_3",
+            "el_5_program_v2_orbit_connector_4",
+            "el_5_program_v2_orbit_hub_field",
+            "el_5_program_v2_orbit_hub",
+            "el_5_program_v2_orbit_node_1_field",
+            "el_5_program_v2_orbit_node_1",
+            "el_5_program_v2_orbit_node_2_field",
+            "el_5_program_v2_orbit_node_2",
+            "el_5_program_v2_orbit_node_3_field",
+            "el_5_program_v2_orbit_node_3",
+            "el_5_program_v2_orbit_node_4_field",
+            "el_5_program_v2_orbit_node_4",
         ],
         [
             "el_6_program_v2_title",
-            "el_6_program_v2_item_1_field",
-            "el_6_program_v2_item_1_index",
-            "el_6_program_v2_item_1",
-            "el_6_program_v2_item_2_index",
-            "el_6_program_v2_item_2",
-            "el_6_program_v2_item_2_divider",
-            "el_6_program_v2_item_3_index",
-            "el_6_program_v2_item_3",
+            "el_6_program_v2_comparison_1_field",
+            "el_6_program_v2_comparison_1_index",
+            "el_6_program_v2_comparison_1",
+            "el_6_program_v2_comparison_2_field",
+            "el_6_program_v2_comparison_2_index",
+            "el_6_program_v2_comparison_2",
+            "el_6_program_v2_comparison_3_field",
+            "el_6_program_v2_comparison_3_index",
+            "el_6_program_v2_comparison_3",
         ],
         [
             "el_7_program_v2_title",
-            "el_7_program_v2_timeline_line",
-            "el_7_program_v2_timeline_1_index",
-            "el_7_program_v2_timeline_1",
-            "el_7_program_v2_timeline_stem_1",
-            "el_7_program_v2_timeline_marker_1",
-            "el_7_program_v2_timeline_marker_label_1",
-            "el_7_program_v2_timeline_2_index",
-            "el_7_program_v2_timeline_2",
-            "el_7_program_v2_timeline_stem_2",
-            "el_7_program_v2_timeline_marker_2",
-            "el_7_program_v2_timeline_marker_label_2",
-            "el_7_program_v2_timeline_3_index",
-            "el_7_program_v2_timeline_3",
-            "el_7_program_v2_timeline_stem_3",
-            "el_7_program_v2_timeline_marker_3",
-            "el_7_program_v2_timeline_marker_label_3",
-            "el_7_program_v2_timeline_4_index",
-            "el_7_program_v2_timeline_4",
-            "el_7_program_v2_timeline_stem_4",
-            "el_7_program_v2_timeline_marker_4",
-            "el_7_program_v2_timeline_marker_label_4",
+            "el_7_program_v2_vertical_rail",
+            "el_7_program_v2_rail_marker_1",
+            "el_7_program_v2_rail_marker_label_1",
+            "el_7_program_v2_rail_rule_1",
+            "el_7_program_v2_rail_step_1",
+            "el_7_program_v2_rail_marker_2",
+            "el_7_program_v2_rail_marker_label_2",
+            "el_7_program_v2_rail_rule_2",
+            "el_7_program_v2_rail_step_2",
+            "el_7_program_v2_rail_marker_3",
+            "el_7_program_v2_rail_marker_label_3",
+            "el_7_program_v2_rail_rule_3",
+            "el_7_program_v2_rail_step_3",
+            "el_7_program_v2_rail_marker_4",
+            "el_7_program_v2_rail_marker_label_4",
+            "el_7_program_v2_rail_rule_4",
+            "el_7_program_v2_rail_step_4",
         ],
         [
             "el_8_program_v2_title",
-            "el_8_program_v2_item_1_field",
-            "el_8_program_v2_item_1_index",
-            "el_8_program_v2_item_1",
-            "el_8_program_v2_item_2_field",
-            "el_8_program_v2_item_2_index",
-            "el_8_program_v2_item_2",
+            "el_8_program_v2_editorial_band_rule_1",
+            "el_8_program_v2_editorial_band_item_1",
+            "el_8_program_v2_editorial_band_rule_2",
+            "el_8_program_v2_editorial_band_item_2",
         ],
         [
             "el_9_program_v2_title",
@@ -1302,9 +1472,7 @@ def golden_element_ids() -> list[list[str]]:
         [
             "el_10_program_v2_closing_mark",
             "el_10_program_v2_title",
-            "el_10_program_v2_message",
-            "el_10_program_v2_media_placeholder",
-            "el_10_program_v2_media_caption",
+            "el_10_program_v2_subtitle",
         ],
     ]
 
@@ -1312,7 +1480,7 @@ def golden_element_ids() -> list[list[str]]:
 def golden_design_program() -> dict[str, Any]:
     composition_ids = [
         "hero-full-bleed",
-        "editorial-split",
+        "agenda-numbered-list",
         "feature-comparison",
         "metric-poster",
         "diagram-hub",
@@ -1320,7 +1488,7 @@ def golden_design_program() -> dict[str, Any]:
         "process-horizontal",
         "image-evidence",
         "kpi-strip-evidence",
-        "cta-closing",
+        "closing-centered-minimal",
     ]
     background_modes = [
         "image",

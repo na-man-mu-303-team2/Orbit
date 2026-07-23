@@ -1,4 +1,5 @@
 import type { StoragePort } from "@orbit/storage";
+import { createHash } from "node:crypto";
 import type { DataSource } from "typeorm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -12,9 +13,22 @@ const pptxMimeType =
 const pngSignature = new Uint8Array([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 ]);
-const pngSignatureDataUrl = `data:image/png;base64,${Buffer.from(
-  pngSignature,
-).toString("base64")}`;
+const currentPackageDigest = createHash("sha256")
+  .update("pptx")
+  .digest("hex");
+const storedSyncContentByDigest = new Map(
+  [
+    ["pptx", pptxMimeType],
+    ["notes-preview", "image/png"],
+    ["created-notes-preview", "image/png"],
+  ].map(([content, mimeType]) => {
+    const body = Buffer.from(content);
+    return [
+      createHash("sha256").update(body).digest("hex"),
+      { contentLength: body.byteLength, contentType: mimeType },
+    ] as const;
+  }),
+);
 
 const payload = {
   jobId: "job-sync",
@@ -24,19 +38,23 @@ const payload = {
   targetDeckVersion: 2,
 };
 
-const storage: Pick<StoragePort, "getSignedReadUrl" | "putObject"> = {
+const storage: Pick<StoragePort, "getSignedReadUrl" | "headObject"> = {
   getSignedReadUrl: vi.fn(async (key: string) =>
     key.endsWith("image.png")
       ? "http://storage.local/image.png"
       : "http://storage.local/current.pptx",
   ),
-  putObject: vi.fn(async (input: { key: string; contentType: string }) => ({
-    key: input.key,
-    url: "http://storage.local/design-asset",
-    contentType: input.contentType,
-    purpose: "design-asset" as const,
-    size: 3,
-  })),
+  headObject: vi.fn(async (key: string) => {
+    const digest = key.match(/\/([a-f0-9]{64})-/)?.[1];
+    const stored = digest ? storedSyncContentByDigest.get(digest) : undefined;
+    return stored
+      ? {
+          contentLength: stored.contentLength,
+          contentType: stored.contentType,
+          metadata: { "orbit-sha256": digest ?? "" }
+        }
+      : null;
+  }),
 };
 
 describe("processPptxOoxmlSyncJob", () => {
@@ -80,6 +98,9 @@ describe("processPptxOoxmlSyncJob", () => {
       if (url.endsWith("/ai/pptx-ooxml-sync")) {
         const form = init?.body as FormData;
         expect(form.get("synced_deck_version")).toBe("3");
+        expect(form.get("storage_prefix")).toBe(
+          "projects/project-a/jobs/job-sync/pptx-ooxml/",
+        );
         expect(form.get("template_blueprint")).toBeNull();
         expect(form.get("operations")).toBeNull();
         expect(form.get("deck_canvas")).toBeNull();
@@ -93,9 +114,30 @@ describe("processPptxOoxmlSyncJob", () => {
           }),
           expect.objectContaining({
             type: "update_element_props",
-            props: { src: pngSignatureDataUrl },
+            props: { src: "orbit-storage:image-1" },
           }),
         ]);
+        expect(
+          JSON.parse(
+            await (form.get("source_locator_file") as Blob).text(),
+          ),
+        ).toMatchObject({
+          locatorId: "source-package",
+          readUrl: "http://storage.local/current.pptx",
+          mimeType: pptxMimeType,
+        });
+        expect(
+          JSON.parse(
+            await (form.get("asset_locators_file") as Blob).text(),
+          ),
+        ).toEqual([
+          expect.objectContaining({
+            locatorId: "image-1",
+            readUrl: "http://storage.local/image.png",
+            mimeType: "image/png",
+          }),
+        ]);
+        expect(form.get("file")).toBeNull();
         return new Response(
           JSON.stringify(
             workerResponse([
@@ -207,12 +249,14 @@ describe("processPptxOoxmlSyncJob", () => {
             slideId: "slide_1",
           },
         ]);
-        response.assets.push({
-          assetId: "notes_render_1",
-          fileName: "notes-01.png",
-          mimeType: "image/png",
-          contentBase64: Buffer.from("notes-preview").toString("base64"),
-        });
+        response.assets.push(
+          storedSyncAsset(
+            "notes_render_1",
+            "notes-01.png",
+            "image/png",
+            "notes-preview",
+          ),
+        );
         return new Response(JSON.stringify(response));
       }),
     );
@@ -299,14 +343,14 @@ describe("processPptxOoxmlSyncJob", () => {
             },
           ],
         };
-        response.assets.push({
-          assetId: "notes_render_1",
-          fileName: "notes-01.png",
-          mimeType: "image/png",
-          contentBase64: Buffer.from("created-notes-preview").toString(
-            "base64",
+        response.assets.push(
+          storedSyncAsset(
+            "notes_render_1",
+            "notes-01.png",
+            "image/png",
+            "created-notes-preview",
           ),
-        });
+        );
         return new Response(JSON.stringify(response));
       }),
     );
@@ -407,7 +451,7 @@ describe("processPptxOoxmlSyncJob", () => {
     );
 
     expect(job.error).toMatchObject({ code: "PPTX_OOXML_SYNC_FAILED" });
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("UPDATE template_blueprints"),
@@ -513,7 +557,7 @@ describe("processPptxOoxmlSyncJob", () => {
     });
   });
 
-  it("uses the detected image MIME when legacy asset metadata is wrong", async () => {
+  it("passes project image metadata through a bounded storage locator", async () => {
     const { dataSource } = createDataSource({
       deckVersion: 2,
       syncedVersion: 1,
@@ -544,7 +588,7 @@ describe("processPptxOoxmlSyncJob", () => {
             expect.objectContaining({
               type: "update_element_props",
               props: {
-                src: "data:image/jpeg;base64,/9j/4A==",
+                src: "orbit-storage:image-1",
               },
             }),
           ]);
@@ -1008,7 +1052,7 @@ describe("processPptxOoxmlSyncJob", () => {
       expect(job.error).toMatchObject({
         code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
       });
-      expect(storage.putObject).not.toHaveBeenCalled();
+      expect(storage.headObject).not.toHaveBeenCalled();
       expect(
         query.mock.calls.some(([sql]) =>
           String(sql).includes("UPDATE template_blueprints"),
@@ -1352,7 +1396,7 @@ describe("processPptxOoxmlSyncJob", () => {
       warnings: [expect.stringContaining("line 1")],
     });
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("UPDATE template_blueprints"),
@@ -1455,7 +1499,7 @@ describe("processPptxOoxmlSyncJob", () => {
       code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
       retryable: false,
     });
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("INSERT INTO project_assets"),
@@ -1517,7 +1561,7 @@ describe("processPptxOoxmlSyncJob", () => {
       syncCapabilityVersion: 3,
     });
     expect(JSON.stringify(job.error)).not.toContain("private deck text");
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("INSERT INTO project_assets"),
@@ -1627,7 +1671,7 @@ describe("processPptxOoxmlSyncJob", () => {
         syncCapabilityVersion: 3,
       });
       expect(JSON.stringify(job.error)).not.toContain(privateCellText);
-      expect(storage.putObject).not.toHaveBeenCalled();
+      expect(storage.headObject).not.toHaveBeenCalled();
       expect(
         query.mock.calls.some(([sql]) =>
           String(sql).includes("UPDATE template_blueprints"),
@@ -1674,7 +1718,7 @@ describe("processPptxOoxmlSyncJob", () => {
       code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
       retryable: false,
     });
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("UPDATE template_blueprints"),
@@ -1735,7 +1779,7 @@ describe("processPptxOoxmlSyncJob", () => {
       code: "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
       retryable: false,
     });
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("UPDATE template_blueprints"),
@@ -1780,7 +1824,7 @@ describe("processPptxOoxmlSyncJob", () => {
       syncCapabilityVersion: 3,
     });
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(storage.putObject).not.toHaveBeenCalled();
+    expect(storage.headObject).not.toHaveBeenCalled();
     expect(
       query.mock.calls.some(([sql]) =>
         String(sql).includes("UPDATE template_blueprints"),
@@ -1856,7 +1900,7 @@ describe("processPptxOoxmlSyncJob", () => {
             sourceSlidePart: "ppt/slides/slide2.xml",
             element: expect.objectContaining({
               props: expect.objectContaining({
-                src: pngSignatureDataUrl,
+                src: "orbit-storage:image-1",
               }),
             }),
           }),
@@ -2158,7 +2202,9 @@ function createDataSource(input: {
           file_id: "file_image",
           project_id: "project-a",
           storage_key: "projects/project-a/assets/image.png",
+          original_name: "image.png",
           mime_type: "image/png",
+          size: pngSignature.byteLength,
           status: "uploaded",
         },
       ];
@@ -2180,7 +2226,9 @@ function createDataSource(input: {
     if (sql.includes("FROM deck_patches")) {
       return [{ operations: input.operations }];
     }
-    if (sql.includes("INSERT INTO project_assets")) return [];
+    if (sql.includes("INSERT INTO project_assets")) {
+      return [{ file_id: params[0] as string }];
+    }
     if (sql.includes("UPDATE template_blueprints")) {
       const accepted =
         input.onBlueprintUpdate?.(params[3] as Record<string, unknown>) ?? true;
@@ -2388,12 +2436,15 @@ function workerResponse(
   }> = [],
 ) {
   return {
+    assetTransport: "storage-manifest-v1" as const,
     assets: [
       {
         assetId: "current_package",
         fileName: "current.pptx",
         mimeType: pptxMimeType,
-        contentBase64: Buffer.from("pptx").toString("base64"),
+        storageKey: `projects/project-a/jobs/job-sync/pptx-ooxml/${currentPackageDigest}-current.pptx`,
+        size: Buffer.byteLength("pptx"),
+        sha256: currentPackageDigest,
       },
     ],
     elementSources: [],
@@ -2401,6 +2452,24 @@ function workerResponse(
     unsupportedOperations: [],
     notesPages: [],
     warnings: [],
+  };
+}
+
+function storedSyncAsset(
+  assetId: string,
+  fileName: string,
+  mimeType: string,
+  content: string,
+) {
+  const body = Buffer.from(content);
+  const sha256 = createHash("sha256").update(body).digest("hex");
+  return {
+    assetId,
+    fileName,
+    mimeType,
+    storageKey: `projects/project-a/jobs/job-sync/pptx-ooxml/${sha256}-${fileName}`,
+    size: body.byteLength,
+    sha256,
   };
 }
 

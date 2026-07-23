@@ -216,6 +216,42 @@ describe("slidePlayback", () => {
     ).toEqual(["act_3"]);
   });
 
+  it("keeps effects with different keyword occurrence triggers independent", () => {
+    const slide = createSlide();
+    slide.actions.push(
+      {
+        actionId: "act_occurrence_1",
+        trigger: {
+          kind: "keyword-occurrence",
+          keywordId: "kw_1",
+          occurrenceId: "kwo_slide_1_kw_1_0_2"
+        },
+        effect: { kind: "play-animation", animationId: "anim_1" }
+      },
+      {
+        actionId: "act_occurrence_2",
+        trigger: {
+          kind: "keyword-occurrence",
+          keywordId: "kw_1",
+          occurrenceId: "kwo_slide_1_kw_1_10_12"
+        },
+        effect: { kind: "play-animation", animationId: "anim_2" }
+      }
+    );
+
+    const first = executeSlideAction(slide, createSlidePlaybackState(), slide.actions[2]!);
+    const second = executeSlideAction(slide, first!.state, slide.actions[3]!);
+
+    expect(first).toMatchObject({
+      animations: [{ animationId: "anim_1" }],
+      state: { playedAnimationIds: ["anim_1"] }
+    });
+    expect(second).toMatchObject({
+      animations: [{ animationId: "anim_2" }],
+      state: { playedAnimationIds: ["anim_1", "anim_2"] }
+    });
+  });
+
   it("executes a cue targeting a follower as its whole root chain once", () => {
     const slide = createSlide();
     const action = slide.actions[0];

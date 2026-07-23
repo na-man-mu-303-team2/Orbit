@@ -23,9 +23,23 @@ CompositionId = Literal[
     "image-evidence",
     "feature-comparison",
     "process-horizontal",
+    "process-vertical-rail",
     "timeline",
     "diagram-hub",
+    "diagram-orbit",
+    "bento-focus",
+    "editorial-media-band",
     "cta-closing",
+    "agenda-numbered-list",
+    "agenda-two-column",
+    "agenda-chapter-grid",
+    "agenda-vertical-rail",
+    "agenda-editorial-index",
+    "closing-centered-minimal",
+    "closing-editorial-frame",
+    "closing-split-accent",
+    "closing-vertical-mark",
+    "closing-soft-panel",
 ]
 BackgroundMode = Literal["light", "dark", "image"]
 AssetRole = Literal["evidence", "atmosphere", "decoration", "none"]
@@ -47,9 +61,23 @@ COMPOSITION_IDS = (
     "image-evidence",
     "feature-comparison",
     "process-horizontal",
+    "process-vertical-rail",
     "timeline",
     "diagram-hub",
+    "diagram-orbit",
+    "bento-focus",
+    "editorial-media-band",
     "cta-closing",
+    "agenda-numbered-list",
+    "agenda-two-column",
+    "agenda-chapter-grid",
+    "agenda-vertical-rail",
+    "agenda-editorial-index",
+    "closing-centered-minimal",
+    "closing-editorial-frame",
+    "closing-split-accent",
+    "closing-vertical-mark",
+    "closing-soft-panel",
 )
 
 COVER_COMPOSITION_IDS: tuple[CompositionId, ...] = (
@@ -78,9 +106,23 @@ kpi-strip-evidence | evidence/data | 2-4 items | optional evidence image | evide
 image-evidence | evidence/experience | 1-3 items | required evidence image | image-evidence
 feature-comparison | comparison | 2-4 items | no image | comparison
 process-horizontal | process | 3-6 items | no image | process
+process-vertical-rail | sequential process | 3-6 items | no image | vertical rail
 timeline | release/roadmap | 3-6 items | no image | timeline
 diagram-hub | architecture/ecosystem | 3-6 items | no image | diagram
+bento-focus | product features/KPI/value | 2-4 items | no image | asymmetric bento
+diagram-orbit | architecture/ecosystem/relationships | 3-6 items | no image | radial orbit
+editorial-media-band | narrative/evidence/quote | 1-3 items | optional image | horizontal media band
 cta-closing | CTA/closing | 1-3 items | optional atmosphere image | closing
+agenda-numbered-list | agenda | 1-6 items | no image | numbered vertical list
+agenda-two-column | agenda | 2-6 items | no image | balanced two-column index
+agenda-chapter-grid | agenda | 2-6 items | no image | chapter grid
+agenda-vertical-rail | agenda | 2-6 items | no image | vertical navigation rail
+agenda-editorial-index | agenda | 1-6 items | no image | editorial index
+closing-centered-minimal | closing | 0 items | no image | centered minimal thanks
+closing-editorial-frame | closing | 0 items | no image | framed editorial thanks
+closing-split-accent | closing | 0 items | no image | split accent thanks
+closing-vertical-mark | closing | 0 items | no image | vertical mark thanks
+closing-soft-panel | closing | 0 items | no image | soft panel thanks
 """.strip()
 
 ART_DIRECTOR_INSTRUCTIONS = """
@@ -97,10 +139,16 @@ clean minimal styling unless the user explicitly requests it.
 Keep focal and secondary palette roles visibly distinct when constraints allow it.
 Use evidence images only for factual proof, AI atmosphere only for mood, and native
 shapes for processes, comparisons, timelines, and diagrams.
-Prefer process-horizontal for journeys and processes, timeline for roadmaps and
-schedules, diagram-hub for architectures, metric-poster or kpi-strip-evidence for
-metrics and budgets, and feature-comparison for comparisons. Preserve official
+Prefer process-vertical-rail for sequential processes, timeline only for dated
+roadmaps and schedules, diagram-orbit for architectures and ecosystems, bento-focus
+for compact feature or KPI sets, and editorial-media-band for image-led narratives.
+Use metric-poster or kpi-strip-evidence for metrics and budgets, and
+feature-comparison for comparisons. Keep process-horizontal and diagram-hub as
+compatible fallbacks when their silhouettes better fit the deck. Preserve official
 evidence images when they are the factual proof instead of replacing them.
+Use only agenda-* compositions for agenda slides and only closing-* compositions
+for closing slides. Closing slides contain thank-you copy only and never use
+cta-closing.
 Use the requested media budget across the whole deck, not on every slide.
 Respect forbidden styles and locked design values.
 """.strip()

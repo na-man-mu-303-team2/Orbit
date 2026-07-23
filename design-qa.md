@@ -36,6 +36,57 @@ final result: passed
 
 ---
 
+# PPTX 백그라운드 처리 카드 및 작업 트레이 design QA (2026-07-22)
+
+- Source visual truth: `/Users/donghyunkim/Documents/Orbit-pptx-import-fidelity-speaker-notes/prototypes/orbit-pptx-background-processing/design-qa-final.png`.
+- Implementation screenshot: `/Users/donghyunkim/.codex/visualizations/2026/07/22/019f89ec-2dfd-76c1-b0a1-50a42ceb028f/orbit-pptx-background-production-final.png`.
+- Full-view comparison: `/Users/donghyunkim/.codex/visualizations/2026/07/22/019f89ec-2dfd-76c1-b0a1-50a42ceb028f/orbit-pptx-background-production-comparison.png`.
+- Focused comparison: `/Users/donghyunkim/.codex/visualizations/2026/07/22/019f89ec-2dfd-76c1-b0a1-50a42ceb028f/orbit-pptx-background-focused-comparison.png`.
+- Viewport and normalization: source and implementation screenshots are both 1425 × 1013 pixels. Implementation CSS viewport is 1425 × 1013 at device pixel ratio 2; the in-app browser capture is normalized to CSS pixel dimensions, so no additional density scaling was required.
+- State: `2026 하반기 제품 전략.pptx` 업로드 후 실제 `pptx-ooxml-generation` Job이 `running`, `progress: 78`인 상태.
+
+## Full-view comparison evidence
+
+- 선택한 3번 시안과 실제 ORBIT 홈을 같은 크기로 나란히 비교했다.
+- 운영 화면은 기존 현재 리디자인 시스템의 커뮤니티/프로젝트 구성을 유지한다. 이는 전체 홈 재설계가 아니라 PPTX 처리 상태를 실제 제품에 통합한다는 범위에 따른 의도된 차이다.
+- 처리 프로젝트는 목록 첫 위치에 즉시 나타나며, 임시 16:9 썸네일, 하단 진행 오버레이, 상태칩, 제목, 실제 Job 메시지와 날짜를 한 카드 안에 표시한다.
+- 우측 하단 작업 트레이는 시안과 같은 파일명, 실제 퍼센트, 진행 바, 완료 안내, 접기/닫기 구조를 유지한다.
+
+## Focused comparison evidence
+
+- 처리 카드와 작업 트레이를 각각 같은 비교 입력에 확대해 확인했다.
+- 현재 제품 카드 문법에 맞춰 편집/리허설/리포트는 썸네일의 빠른 작업으로 유지했으며, 처리 중에는 모두 비활성화된다. 시안의 하단 버튼 행을 그대로 복제하지 않은 것은 기존 카드 인터랙션을 보존하기 위한 의도된 차이다.
+- 카드와 트레이 모두 동일한 `78%`를 표시하며 파란 진행 바의 길이와 상태 문구가 일치한다.
+
+## Required fidelity surfaces
+
+- Fonts and typography: 현재 ORBIT의 `Pretendard`와 `--redesign-type-*` 계층을 사용한다. 제목, 상태칩, 보조 메시지, 트레이 파일명의 위계와 말줄임을 확인했다.
+- Spacing and layout rhythm: 처리 카드만 white surface, border, radius, shadow로 묶어 시안의 임시 카드 존재감을 재현했다. 4열 그리드와 우측 하단 fixed tray는 가로 오버플로 없이 유지된다.
+- Colors and visual tokens: 새 리터럴 팔레트 없이 `--redesign-color-primary`(`#0090ff`)와 surface/outline/status 토큰만 사용한다. 카드와 트레이 진행 바가 같은 primary blue로 렌더링된다.
+- Image quality and asset fidelity: 시안에서 생성한 640 × 360 임시 썸네일 raster asset을 실제 앱 asset으로 복사해 사용하며 CSS 도형이나 가짜 placeholder로 대체하지 않았다.
+- Copy and content: `미리보기 만드는 중`, `PPTX 변환 중`, 파일명, Job 메시지, `완료되면 이 작업 트레이에서 알려드릴게요.`가 선택 시안의 의도를 유지한다.
+
+## Comparison history
+
+1. Pass 1 P1 — 브라우저 기본 progress 스타일 때문에 카드와 트레이 진행 바가 초록색으로 렌더링됐다.
+2. Pass 1 P2 — 처리 카드가 일반 카드와 같은 무경계 구조여서 선택 시안보다 임시 프로젝트의 존재감이 약했다.
+3. Fix — WebKit/Mozilla progress selector를 분리해 primary blue를 강제하고, PPTX 처리 카드에만 기존 token 기반 surface, border, radius, shadow와 16:9 비율을 적용했다.
+4. Post-fix — 같은 1425 × 1013 viewport와 `78%` 상태에서 재캡처했다. 카드와 트레이의 색상, 파일명, 상태, 진행률이 일치하고 남은 actionable P0/P1/P2 차이가 없음을 확인했다.
+
+## Interaction and validation
+
+- 처리 카드의 편집, 핀, 리허설, 리포트, 삭제가 모두 비활성화되고 다른 프로젝트의 편집은 활성 상태임을 확인했다.
+- 작업 트레이 접기/펼치기를 실행하고 파일명과 진행률이 복원되는 것을 확인했다.
+- 브라우저 error/warning 로그가 비어 있고 문서 가로 오버플로가 없다.
+- `@orbit/shared`: 55 files, 569 tests passed.
+- `@orbit/api`: 127 files passed, 1 skipped; 599 tests passed, 1 skipped.
+- PPTX 관련 Web 대상 테스트: 3 files, 68 tests passed.
+- Web production build와 `git diff --check`가 통과했다. 전체 Web suite의 1개 실패는 이번 변경과 겹치지 않는 기존 `features/rehearsal/rehearsal-workspace-orbit.css` shadow token 위반이다.
+
+final result: passed
+
+---
+
 # 리허설 성장 추세 회차 표기와 축하 마스코트 motion design QA
 
 - Source visual truth: 사용자 브라우저 주석 화면과 `/private/tmp/orbit-product-design-source.png`.

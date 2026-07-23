@@ -28,7 +28,7 @@ export function buildAnimationKeywordTriggerPolicy(args: {
   if (!args.keywordOccurrenceId) {
     return {
       restrictionMessage:
-        "반복되는 단어일 수 있습니다. 발표 메모에서 실제로 트리거할 단어 위치를 선택하세요.",
+        "발표 메모에서 애니메이션을 시작할 단어를 선택하세요.",
       stepCount: 0,
       warningMessage: null
     };

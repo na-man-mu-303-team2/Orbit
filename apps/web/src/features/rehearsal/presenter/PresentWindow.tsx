@@ -6,6 +6,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import type { ReactNode, Ref } from "react";
+import { shouldAdvancePresentationFromClick } from "../../presenter-shell/presentationClickAdvance";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import orbitLogoWhite from "../../../assets/orbit-logo-white.png";
 import "../../presentation/orbit-live-presentation.css";
@@ -326,6 +327,14 @@ export function PresentWindowContent(props: {
   const shouldShowPresenterControls =
     controlOverlayMode === "always" || shouldShowFallbackControls;
   const isBlackOutput = snapshot.state.audienceOutputMode === "black";
+  const currentSlide = snapshot.deck.slides.find(
+    (slide) => slide.slideId === snapshot.state.slideId,
+  );
+  const canAdvanceStage =
+    Boolean(onNextStep) &&
+    !isBlackOutput &&
+    currentSlide?.kind !== "activity" &&
+    currentSlide?.kind !== "activity-results";
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -351,6 +360,11 @@ export function PresentWindowContent(props: {
         data-deck-id={identity.deckId}
         data-scale={scale}
         data-session-id={identity.sessionId}
+        onClick={(event) => {
+          if (canAdvanceStage && shouldAdvancePresentationFromClick(event.target)) {
+            onNextStep?.();
+          }
+        }}
       >
         <AudienceOutputRenderer
           deck={snapshot.deck}

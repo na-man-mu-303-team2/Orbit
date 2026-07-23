@@ -22,4 +22,32 @@ describe("deckCompositionIdSchema", () => {
       "hero-full-bleed"
     );
   });
+
+  it("accepts phase one automatic art direction compositions", () => {
+    const ids = [
+      "process-vertical-rail",
+      "bento-focus",
+      "diagram-orbit",
+      "editorial-media-band"
+    ];
+
+    expect(ids.map((id) => deckCompositionIdSchema.parse(id))).toEqual(ids);
+  });
+
+  it("accepts agenda and closing compositions", () => {
+    const ids = [
+      "agenda-numbered-list",
+      "agenda-two-column",
+      "agenda-chapter-grid",
+      "agenda-vertical-rail",
+      "agenda-editorial-index",
+      "closing-centered-minimal",
+      "closing-editorial-frame",
+      "closing-split-accent",
+      "closing-vertical-mark",
+      "closing-soft-panel"
+    ];
+
+    expect(ids.map((id) => deckCompositionIdSchema.parse(id))).toEqual(ids);
+  });
 });

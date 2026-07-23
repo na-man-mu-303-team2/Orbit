@@ -237,6 +237,10 @@
       "source": "repo-default",
       "delivery": "code-default"
     },
+    "PYTHON_WORKER_MEMORY_LIMIT": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
     "PYTHON_WORKER_PORT": {
       "source": "doppler-required",
       "delivery": "compose"
@@ -352,6 +356,10 @@
     "WHISPERX_TIMEOUT_MS": {
       "source": "repo-default",
       "delivery": "code-default"
+    },
+    "WORKER_MEMORY_LIMIT": {
+      "source": "repo-default",
+      "delivery": "compose"
     },
     "WORKER_PORT": {
       "source": "doppler-required",

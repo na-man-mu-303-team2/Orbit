@@ -6,6 +6,10 @@ import { RehearsalPanel } from "../rehearsal/panel/RehearsalPanel";
 import { createRehearsalScriptPrompterRows } from "../rehearsal/panel/rehearsalScriptPrompter";
 import type { RehearsalTimingSnapshot, TimingAdviceState } from "../rehearsal/panel/rehearsalTiming";
 import { RehearsalScriptTeleprompter } from "../rehearsal/presenter/RehearsalScriptTeleprompter";
+import {
+  AnimationFlowNavigator,
+  type AnimationFlowNavigation,
+} from "../rehearsal/presenter/AnimationFlowNavigator";
 import { SlideshowRenderer } from "../rehearsal/presenter/SlideshowRenderer";
 import type { SpeechTrackerSnapshot } from "../rehearsal/speech/speechTrackingEvents";
 import {
@@ -18,6 +22,7 @@ import {
 
 export function PresentationScreen(props: {
   adviceState: TimingAdviceState;
+  animationTriggerDebug?: ReactNode;
   autoAdvanceStatus?: ReactNode;
   deck: Deck | null;
   currentSlide: Slide | null;
@@ -33,6 +38,7 @@ export function PresentationScreen(props: {
   onDurationInputBlur: (value: string) => void;
   onDurationInputChange: (value: string) => void;
   onDurationInputFocus: () => void;
+  onAnimationFlowNavigate: (navigation: AnimationFlowNavigation) => void;
   onElapsedInputBlur: (value: string) => void;
   onElapsedInputChange: (value: string) => void;
   onElapsedInputFocus: () => void;
@@ -109,6 +115,15 @@ export function PresentationScreen(props: {
         <PresenterStageSection
           currentIndex={props.currentSlideIndex}
           emptyStageLabel={props.stageEmptyLabel}
+          leftPanel={
+            <AnimationFlowNavigator
+              currentSlideIndex={props.currentSlideIndex}
+              currentStepIndex={props.presenterStepIndex}
+              deck={props.deck}
+              onNavigate={props.onAnimationFlowNavigate}
+              placement="drawer"
+            />
+          }
           nextHint={props.nextHint}
           nextSlideContent={
             props.deck && props.nextSlide ? (
@@ -125,6 +140,7 @@ export function PresentationScreen(props: {
           nextSlideTitle={nextSlideTitle}
           onNext={props.onNext}
           onPrevious={props.onPrevious}
+          onStageAdvance={props.onNext}
           previousDisabled={props.currentSlideIndex === 0}
           renderStage={
             props.deck && props.currentSlide ? (
@@ -138,6 +154,10 @@ export function PresentationScreen(props: {
             ) : null
           }
           stageIndexLabel={props.stageIndexLabel}
+          stageAdvanceDisabled={
+            props.currentSlide?.kind === "activity" ||
+            props.currentSlide?.kind === "activity-results"
+          }
           stageRef={props.presenterStageRef}
           totalSlides={props.totalSlides}
         />
@@ -197,6 +217,7 @@ export function PresentationScreen(props: {
           rows={teleprompterRows}
         />
       </section>
+      {props.animationTriggerDebug}
     </main>
   );
 }

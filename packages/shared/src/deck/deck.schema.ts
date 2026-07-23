@@ -201,6 +201,7 @@ export const ooxmlMotionCapabilitiesSchema = z.object({
 export const slideLayoutSchema = z.enum([
   "title",
   "title-content",
+  "agenda",
   "section",
   "two-column",
   "image-left",

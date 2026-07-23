@@ -1504,13 +1504,18 @@ def validate_presentation(deck: dict[str, Any]) -> list[ValidationIssue]:
 
     if profile in {"proposal", "product-launch", "executive-report"}:
         closing = deck["slides"][-1]
-        closing_text = visible_slide_text(closing)
-        if not has_profile_closing_action(closing_text.casefold(), profile):
+        closing_visual_type = str(
+            closing.get("aiNotes", {}).get("visualPlan", {}).get("visualType", "")
+        )
+        has_thank_you_closing = closing_visual_type == "closing"
+        action_slides = deck["slides"][2:-1] if has_thank_you_closing else [closing]
+        action_text = " ".join(visible_slide_text(slide) for slide in action_slides)
+        if not has_profile_closing_action(action_text.casefold(), profile):
             issues.append(
                 ValidationIssue(
                     code="CTA_MISSING",
-                    scope="slide",
-                    path=f"slides.{len(deck['slides']) - 1}",
+                    scope="deck" if has_thank_you_closing else "slide",
+                    path="slides" if has_thank_you_closing else f"slides.{len(deck['slides']) - 1}",
                     message=(
                         "마지막 슬라이드에 결정 또는 승인 요청이 필요합니다."
                         if profile == "executive-report"
@@ -1664,6 +1669,10 @@ def validate_slide_visual_occupancy(
     has_planned_media = bool(
         slide.get("aiNotes", {}).get("visualPlan", {}).get("imageNeeded")
     )
+    composition_id = str(
+        slide.get("aiNotes", {}).get("compositionPlan", {}).get("compositionId", "")
+    )
+    minimum_media_height = 272 if composition_id == "editorial-media-band" else 420
     core = [
         element
         for element in visible
@@ -1673,10 +1682,12 @@ def validate_slide_visual_occupancy(
     if has_planned_media:
         if not media or any(
             float(element.get("width", 0)) < 686
-            or float(element.get("height", 0)) < 420
+            or float(element.get("height", 0)) < minimum_media_height
             for element in media
         ):
-            reasons.append("이미지 영역은 최소 5열 너비와 420px 높이가 필요합니다.")
+            reasons.append(
+                f"이미지 영역은 최소 5열 너비와 {minimum_media_height}px 높이가 필요합니다."
+            )
     if core and (has_planned_media or visual_type not in {"cover", "quote"}):
         left = min(float(element.get("x", 0)) for element in core)
         top = min(float(element.get("y", 0)) for element in core)
@@ -1895,7 +1906,7 @@ def is_cover_composition_slide(slide: dict[str, Any]) -> bool:
     composition_id = str(
         slide.get("aiNotes", {}).get("compositionPlan", {}).get("compositionId", "")
     )
-    return composition_id.startswith("cover-")
+    return composition_id.startswith(("cover-", "agenda-", "closing-"))
 
 
 def is_grid_aligned(element: dict[str, Any]) -> bool:

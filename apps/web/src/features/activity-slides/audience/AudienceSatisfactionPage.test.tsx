@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createActivitySlide, createDemoDeck } from "@orbit/editor-core";
 import {
   activityPublicResultSchema,
@@ -27,6 +29,9 @@ const pollDefinition = createActivitySlide(
   createDemoDeck(),
   "poll"
 ).activity;
+const audienceSatisfactionCssPath = fileURLToPath(
+  new URL("./audience-satisfaction.css", import.meta.url)
+);
 
 describe("AudienceSatisfactionForm", () => {
   it("uses the shared ORBIT brand and workspace shell on the public page", () => {
@@ -122,6 +127,19 @@ describe("AudienceSatisfactionForm", () => {
     expect(html).toContain("4.5");
     expect(html).toContain("평점 분포");
     expect(html).toContain("5점");
+  });
+
+  it("keeps the public poll result responsive on participant screens", () => {
+    const css = fs.readFileSync(audienceSatisfactionCssPath, "utf8");
+
+    expect(css).toContain(
+      ".activity-participant-results .activity-public-poll-content",
+    );
+    expect(css).toContain("grid-template-columns: minmax(0, 1fr)");
+    expect(css).toContain(
+      ".activity-participant-results .activity-public-poll-question",
+    );
+    expect(css).toContain("font-size: var(--redesign-type-title-lg-size)");
   });
 
   it("shows the submitted answers on the receipt", () => {

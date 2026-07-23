@@ -20,6 +20,7 @@ import type {
   StoragePort,
   StoragePutInput,
 } from "@orbit/storage";
+import { LocalMinioStorage } from "@orbit/storage";
 import { DataSource } from "typeorm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -81,7 +82,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
       const projectId = integrationId("project");
       const sourceFileId = integrationId("file");
       const sourceStorageKey = `integration/${projectId}/reference.pptx`;
-      const storage = new MemoryStorage();
+      const storage = new IntegrationStorage();
       projectIds.add(projectId);
 
       await expectPythonWorkerHealthy(pythonWorkerUrl);
@@ -113,7 +114,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
         ),
       ).toEqual(expectedNoteDigests);
 
-      storage.seed(
+      await storage.seed(
         sourceStorageKey,
         sourceBytes,
         pptxMimeType,
@@ -275,7 +276,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
         `integration/${fallbackProjectId}/reference.pptx`;
       const previewFailingStorage = new NotesPreviewFailingStorage();
       projectIds.add(fallbackProjectId);
-      previewFailingStorage.seed(
+      await previewFailingStorage.seed(
         fallbackStorageKey,
         sourceBytes,
         pptxMimeType,
@@ -348,13 +349,18 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     const projectId = integrationId("project");
     const sourceFileId = integrationId("file");
     const sourceStorageKey = `integration/${projectId}/source.pptx`;
-    const storage = new MemoryStorage();
+    const storage = new IntegrationStorage();
     projectIds.add(projectId);
 
     await expectPythonWorkerHealthy(pythonWorkerUrl);
     const sourceDeck = createDeck(projectId, integrationId("deck"), 1);
     const sourceBytes = await exportDeckWithPython(pythonWorkerUrl, sourceDeck);
-    storage.seed(sourceStorageKey, sourceBytes, pptxMimeType, "pptx-import");
+    await storage.seed(
+      sourceStorageKey,
+      sourceBytes,
+      pptxMimeType,
+      "pptx-import",
+    );
     await seedProject(dataSource, projectId);
     await seedAsset(dataSource, {
       projectId,
@@ -485,7 +491,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     const projectId = integrationId("project");
     const sourceFileId = integrationId("file");
     const sourceStorageKey = `integration/${projectId}/source.pptx`;
-    const storage = new MemoryStorage();
+    const storage = new IntegrationStorage();
     projectIds.add(projectId);
 
     await expectPythonWorkerHealthy(pythonWorkerUrl);
@@ -509,7 +515,12 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
       ],
     });
     const sourceBytes = await exportDeckWithPython(pythonWorkerUrl, sourceDeck);
-    storage.seed(sourceStorageKey, sourceBytes, pptxMimeType, "pptx-import");
+    await storage.seed(
+      sourceStorageKey,
+      sourceBytes,
+      pptxMimeType,
+      "pptx-import",
+    );
     await seedProject(dataSource, projectId);
     await seedAsset(dataSource, {
       projectId,
@@ -731,7 +742,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     const projectId = integrationId("project");
     const sourceFileId = integrationId("file");
     const sourceStorageKey = `integration/${projectId}/source.pptx`;
-    const storage = new MemoryStorage();
+    const storage = new IntegrationStorage();
     projectIds.add(projectId);
 
     await expectPythonWorkerHealthy(pythonWorkerUrl);
@@ -747,7 +758,12 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
       })),
     });
     const sourceBytes = await exportDeckWithPython(pythonWorkerUrl, sourceDeck);
-    storage.seed(sourceStorageKey, sourceBytes, pptxMimeType, "pptx-import");
+    await storage.seed(
+      sourceStorageKey,
+      sourceBytes,
+      pptxMimeType,
+      "pptx-import",
+    );
     await seedProject(dataSource, projectId);
     await seedAsset(dataSource, {
       projectId,
@@ -937,7 +953,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
 
   it("serializes inverted v2/v3 sync jobs and coalesces them to v3", async () => {
     const fixture = await seedFakeImportedFixture(dataSource, projectIds);
-    const fake = await startFakePythonWorker();
+    const fake = await startFakePythonWorker(fixture.storage);
     fakeWorkers.add(fake.server);
 
     await patchText(fixture.harness, fixture.deck, "version 2");
@@ -983,7 +999,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
 
   it("re-evaluates the latest deck version while export waits for sync", async () => {
     const fixture = await seedFakeImportedFixture(dataSource, projectIds);
-    const fake = await startFakePythonWorker();
+    const fake = await startFakePythonWorker(fixture.storage);
     fakeWorkers.add(fake.server);
 
     await patchText(fixture.harness, fixture.deck, "version 2");
@@ -1056,60 +1072,55 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
   });
 });
 
-class MemoryStorage implements Pick<
-  StoragePort,
-  "putObject" | "getSignedReadUrl"
-> {
-  private readonly objects = new Map<
+class IntegrationStorage extends LocalMinioStorage {
+  private readonly objectPurposes = new Map<
     string,
-    { body: Buffer; contentType: string; purpose: StoragePutInput["purpose"] }
+    StoragePutInput["purpose"]
   >();
 
-  seed(
+  constructor() {
+    const endpoint =
+      process.env.PPTX_INTEGRATION_S3_ENDPOINT ?? "http://127.0.0.1:9000";
+    super({
+      endpoint,
+      publicEndpoint: endpoint,
+      bucket: process.env.PPTX_INTEGRATION_S3_BUCKET ?? "orbit-local",
+      region: process.env.PPTX_INTEGRATION_S3_REGION ?? "ap-northeast-2",
+      accessKeyId: process.env.PPTX_INTEGRATION_S3_ACCESS_KEY_ID ?? "orbit",
+      secretAccessKey:
+        process.env.PPTX_INTEGRATION_S3_SECRET_ACCESS_KEY ?? "orbit-password",
+      forcePathStyle: true,
+    });
+  }
+
+  async seed(
     key: string,
     body: Buffer,
     contentType: string,
     purpose: StoragePutInput["purpose"],
-  ): void {
-    this.objects.set(key, { body, contentType, purpose });
+  ): Promise<void> {
+    await this.putObject({ key, body, contentType, purpose });
   }
 
-  async putObject(input: StoragePutInput): Promise<StorageObject> {
-    const body = Buffer.from(input.body);
-    this.objects.set(input.key, {
-      body,
-      contentType: input.contentType,
-      purpose: input.purpose,
-    });
-    return {
-      key: input.key,
-      url: `memory://${input.key}`,
-      contentType: input.contentType,
-      purpose: input.purpose,
-      size: body.byteLength,
-    };
+  override async putObject(input: StoragePutInput): Promise<StorageObject> {
+    const stored = await super.putObject(input);
+    this.objectPurposes.set(input.key, input.purpose);
+    return stored;
   }
 
-  async getSignedReadUrl(key: string): Promise<string> {
-    const object = this.objects.get(key);
-    if (!object) throw new Error(`Storage object not found: ${key}`);
-    return `data:${object.contentType};base64,${object.body.toString("base64")}`;
+  async bytes(key: string): Promise<Buffer> {
+    const object = await this.getObject(key);
+    return Buffer.from(object.body);
   }
 
-  bytes(key: string): Buffer {
-    const object = this.objects.get(key);
-    if (!object) throw new Error(`Storage object not found: ${key}`);
-    return object.body;
-  }
-
-  objectsByPurpose(purpose: StoragePutInput["purpose"]): Buffer[] {
-    return [...this.objects.values()]
-      .filter((object) => object.purpose === purpose)
-      .map((object) => object.body);
+  objectsByPurpose(purpose: StoragePutInput["purpose"]): string[] {
+    return [...this.objectPurposes.entries()]
+      .filter(([, storedPurpose]) => storedPurpose === purpose)
+      .map(([key]) => key);
   }
 }
 
-class NotesPreviewFailingStorage extends MemoryStorage {
+class NotesPreviewFailingStorage extends IntegrationStorage {
   override async putObject(input: StoragePutInput): Promise<StorageObject> {
     if (input.key.includes("notes-")) {
       throw new Error("Synthetic notes preview storage failure.");
@@ -1139,8 +1150,8 @@ async function seedFakeImportedFixture(
   const deck = createDeck(projectId, integrationId("deck"), 1);
   const packageFileId = integrationId("file");
   const packageKey = `integration/${projectId}/current.pptx`;
-  const storage = new MemoryStorage();
-  storage.seed(
+  const storage = new IntegrationStorage();
+  await storage.seed(
     packageKey,
     Buffer.from("fake-package-v1"),
     pptxMimeType,
@@ -1295,7 +1306,7 @@ async function enqueueExport(
   return payload;
 }
 
-async function startFakePythonWorker() {
+async function startFakePythonWorker(storage: Pick<StoragePort, "putObject">) {
   const syncedVersions: number[] = [];
   const server = createServer(async (request, response) => {
     if (request.method !== "POST" || request.url !== "/ai/pptx-ooxml-sync") {
@@ -1308,6 +1319,13 @@ async function startFakePythonWorker() {
     const version = Number(
       body.match(/name="synced_deck_version"\r\n\r\n(\d+)/)?.[1] ?? 0,
     );
+    const storagePrefix = body.match(
+      /name="storage_prefix"\r\n\r\n([^\r\n]+)/,
+    )?.[1];
+    if (!storagePrefix) {
+      response.writeHead(400).end("storage_prefix is required");
+      return;
+    }
     const operations = JSON.parse(
       body.match(
         /name="operations_file"; filename="operations.json"\r\nContent-Type: application\/json\r\n\r\n([^\r\n]+)/,
@@ -1319,17 +1337,29 @@ async function startFakePythonWorker() {
       element?: { elementId?: string };
     }>;
     syncedVersions.push(version);
+    const packageBody = Buffer.from(`fake-package-v${version}`);
+    const sha256 = createHash("sha256").update(packageBody).digest("hex");
+    const fileName = `current-v${version}.pptx`;
+    const storageKey = `${storagePrefix}${sha256}-${fileName}`;
+    await storage.putObject({
+      key: storageKey,
+      body: packageBody,
+      contentType: pptxMimeType,
+      purpose: "design-asset",
+      metadata: { "orbit-sha256": sha256 },
+    });
     response.writeHead(200, { "content-type": "application/json" });
     response.end(
       JSON.stringify({
+        assetTransport: "storage-manifest-v1",
         assets: [
           {
             assetId: "current_package",
-            fileName: `current-v${version}.pptx`,
+            fileName,
             mimeType: pptxMimeType,
-            contentBase64: Buffer.from(`fake-package-v${version}`).toString(
-              "base64",
-            ),
+            storageKey,
+            size: packageBody.byteLength,
+            sha256,
           },
         ],
         elementSources: [],
@@ -1468,7 +1498,7 @@ async function latestChangeId(
 
 async function currentPackageBytes(
   dataSource: DataSource,
-  storage: MemoryStorage,
+  storage: IntegrationStorage,
   projectId: string,
   fileId: string,
 ) {
@@ -1484,7 +1514,7 @@ async function currentPackageBytes(
 
 async function jobAssetBytes(
   dataSource: DataSource,
-  storage: MemoryStorage,
+  storage: IntegrationStorage,
   job: Job,
 ) {
   const fileId = (job.result as { fileId?: string } | null)?.fileId;
