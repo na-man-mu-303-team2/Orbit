@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   consumeCompanionOutputState,
   consumeCompanionAnnotationSnapshot,
+  createCompanionAnnotationCommand,
   type CompanionOutputCursor,
 } from "./useCompanionSocket";
 
@@ -119,6 +120,48 @@ describe("consumeCompanionAnnotationSnapshot", () => {
         surfaceId: "surface_1",
       }),
     ).toBe(incoming);
+  });
+});
+
+describe("createCompanionAnnotationCommand", () => {
+  it("adds the authoritative socket metadata and validates the command", () => {
+    expect(
+      createCompanionAnnotationCommand(
+        {
+          kind: "clear-surface",
+          clientOperationId: "op_1",
+        },
+        {
+          sessionId: "session_1",
+          authorityEpochId: "epoch_1",
+          surfaceId: "surface_1",
+          baseRevision: 3,
+          sequence: 4,
+        },
+      ),
+    ).toMatchObject({
+      kind: "clear-surface",
+      baseRevision: 3,
+      sequence: 4,
+    });
+  });
+
+  it("rejects an invalid opaque operation id before socket emission", () => {
+    expect(
+      createCompanionAnnotationCommand(
+        {
+          kind: "undo",
+          clientOperationId: "invalid operation id",
+        },
+        {
+          sessionId: "session_1",
+          authorityEpochId: "epoch_1",
+          surfaceId: "surface_1",
+          baseRevision: 0,
+          sequence: 0,
+        },
+      ),
+    ).toBeNull();
   });
 });
 
