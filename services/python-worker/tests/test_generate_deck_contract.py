@@ -58,6 +58,7 @@ from app.ai.deck_generation.design_planning import (
 )
 from app.ai.deck_generation.layout_compiler import (
     build_design_pack_content_manifest,
+    unique_keyword_terms,
 )
 from app.ai.deck_generation.models import (
     AgentOutput,
@@ -1820,6 +1821,12 @@ def test_design_pack_content_manifest_blocks_unrendered_item() -> None:
 
 
 
+
+
+def test_unique_keyword_terms_preserves_first_occurrence_and_order() -> None:
+    assert unique_keyword_terms(
+        ["ORBIT", "orbit", "  Agenda  ", "", "AGENDA", "마무리"]
+    ) == ["ORBIT", "Agenda", "마무리"]
 
 
 def test_text_color_fallback_always_meets_contrast_floor() -> None:
