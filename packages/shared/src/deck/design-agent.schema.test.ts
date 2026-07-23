@@ -6,6 +6,7 @@ import {
   designAgentCapabilitiesSchema,
   designAgentWorkerRequestSchema,
   designAgentWorkerResponseSchema,
+  motionPlanMetadataSchema,
 } from "./design-agent.schema";
 
 const paletteOptions = [
@@ -469,5 +470,85 @@ describe("design agent schema", () => {
         },
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts bounded semantic motion plan metadata without raw effects", () => {
+    const motionPlan = motionPlanMetadataSchema.parse({
+      source: "llm",
+      model: "gpt-4.1-mini-2025-04-14",
+      attemptCount: 2,
+      compilerVersion: "motion-compiler-v2",
+      plan: {
+        schemaVersion: 2,
+        pattern: "hero-then-support",
+        pacing: "balanced",
+        beats: [
+          {
+            beatId: "beat_intro",
+            purpose: "orient",
+            trigger: "entry",
+            relation: "together",
+            targets: [{ elementId: "el_title", motionIntent: "introduce" }],
+          },
+          {
+            beatId: "beat_focus",
+            purpose: "emphasize",
+            trigger: "click",
+            relation: "sequence",
+            targets: [{ elementId: "el_media", motionIntent: "focus" }],
+          },
+        ],
+      },
+    });
+
+    expect(motionPlan.plan.pacing).toBe("balanced");
+    expect(
+      motionPlanMetadataSchema.safeParse({
+        ...motionPlan,
+        plan: {
+          ...motionPlan.plan,
+          beats: [
+            {
+              ...motionPlan.plan.beats[0],
+              targets: [
+                {
+                  elementId: "el_title",
+                  motionIntent: "introduce",
+                  effect: "zoom-in",
+                },
+              ],
+            },
+          ],
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects repeated motion plan targets", () => {
+    const result = motionPlanMetadataSchema.safeParse({
+      source: "llm",
+      model: "gpt-4.1-mini-2025-04-14",
+      attemptCount: 1,
+      compilerVersion: "motion-compiler-v2",
+      plan: {
+        schemaVersion: 2,
+        pattern: "cluster-reveal",
+        pacing: "brisk",
+        beats: [
+          {
+            beatId: "beat_repeat",
+            purpose: "reveal",
+            trigger: "entry",
+            relation: "together",
+            targets: [
+              { elementId: "el_repeat", motionIntent: "reveal" },
+              { elementId: "el_repeat", motionIntent: "support" },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(result.success).toBe(false);
   });
 });

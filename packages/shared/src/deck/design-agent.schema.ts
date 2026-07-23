@@ -156,6 +156,121 @@ export const motionPlanningContextSchema = z
   })
   .strict();
 
+export const motionIntentSchema = z.enum([
+  "introduce",
+  "reveal",
+  "focus",
+  "support",
+  "compare",
+  "connect",
+  "conclude",
+]);
+
+export const motionPlanPurposeSchema = z.enum([
+  "orient",
+  "reveal",
+  "connect",
+  "contrast",
+  "emphasize",
+  "conclude",
+]);
+
+export const motionPlanPatternSchema = z.enum([
+  "hero-then-support",
+  "stepwise-process",
+  "paired-comparison",
+  "evidence-then-insight",
+  "cluster-reveal",
+  "summary-recap",
+]);
+
+export const motionPlanPacingSchema = z.enum([
+  "deliberate",
+  "balanced",
+  "brisk",
+]);
+
+export const motionPlanTargetSchema = z
+  .object({
+    elementId: deckElementIdSchema,
+    motionIntent: motionIntentSchema,
+  })
+  .strict();
+
+export const motionPlanBeatSchema = z
+  .object({
+    beatId: z.string().regex(/^beat_[a-z0-9_-]{1,32}$/),
+    purpose: motionPlanPurposeSchema,
+    trigger: z.enum(["entry", "click"]),
+    relation: z.enum(["together", "sequence"]),
+    targets: z.array(motionPlanTargetSchema).min(1).max(4),
+  })
+  .strict()
+  .superRefine((beat, context) => {
+    const targetIds = beat.targets.map((target) => target.elementId);
+    if (new Set(targetIds).size !== targetIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Motion plan beat target IDs must be unique.",
+        path: ["targets"],
+      });
+    }
+  });
+
+export const motionPlanSchema = z
+  .object({
+    schemaVersion: z.literal(2),
+    pattern: motionPlanPatternSchema,
+    pacing: motionPlanPacingSchema,
+    beats: z.array(motionPlanBeatSchema).min(1).max(6),
+  })
+  .strict()
+  .superRefine((plan, context) => {
+    const entryBeats = plan.beats.filter((beat) => beat.trigger === "entry");
+    const clickBeats = plan.beats.filter((beat) => beat.trigger === "click");
+    const targetIds = plan.beats.flatMap((beat) =>
+      beat.targets.map((target) => target.elementId),
+    );
+    if (entryBeats.length > 1) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Motion plan allows at most one entry beat.",
+        path: ["beats"],
+      });
+    }
+    if ((entryBeats[0]?.targets.length ?? 0) > 2) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Motion plan entry beat allows at most two targets.",
+        path: ["beats"],
+      });
+    }
+    if (clickBeats.length > 4) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Motion plan allows at most four click beats.",
+        path: ["beats"],
+      });
+    }
+    if (targetIds.length > 8 || new Set(targetIds).size !== targetIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Motion plan allows at most eight unique targets.",
+        path: ["beats"],
+      });
+    }
+  });
+
+export const motionPlanMetadataSchema = z
+  .object({
+    source: z.literal("llm"),
+    model: z.string().trim().min(1).max(200),
+    attemptCount: z.union([z.literal(1), z.literal(2)]),
+    compilerVersion: z.literal("motion-compiler-v2"),
+    plan: motionPlanSchema,
+  })
+  .strict();
+
 export const createDesignAgentMessageRequestSchema = z.object({
   sessionId: z.string().trim().min(1).max(200).optional(),
   content: z.string().trim().min(1).max(2_000),
@@ -204,6 +319,7 @@ export const designAgentWorkerResponseSchema = z.object({
   operations: z.array(deckPatchOperationSchema).max(200).default([]),
   affectedElementIds: z.array(deckElementIdSchema).max(200).default([]),
   warnings: z.array(z.string().trim().min(1).max(1_000)).max(20).default([]),
+  motionPlan: motionPlanMetadataSchema.optional(),
   paletteOptions: slideRedesignPaletteOptionsSchema.optional(),
   smartArtRequest: smartArtRequestSchema.nullable().default(null),
   uiAction: z
@@ -244,6 +360,7 @@ export const designAgentProposalSchema = z.object({
   interpretedIntent: designAgentIntentSchema.optional(),
   affectedElementIds: z.array(deckElementIdSchema),
   warnings: z.array(z.string()),
+  motionPlan: motionPlanMetadataSchema.optional(),
   status: designAgentProposalStatusSchema,
   appliedChangeId: z.string().optional(),
   rejectedReason: z.string().optional(),
@@ -298,9 +415,15 @@ export type MotionImportContext = z.infer<typeof motionImportContextSchema>;
 export type MotionEffectiveTypography = z.infer<
   typeof motionEffectiveTypographySchema
 >;
-export type MotionPlanningContext = z.infer<
-  typeof motionPlanningContextSchema
->;
+export type MotionPlanningContext = z.infer<typeof motionPlanningContextSchema>;
+export type MotionIntent = z.infer<typeof motionIntentSchema>;
+export type MotionPlanPurpose = z.infer<typeof motionPlanPurposeSchema>;
+export type MotionPlanPattern = z.infer<typeof motionPlanPatternSchema>;
+export type MotionPlanPacing = z.infer<typeof motionPlanPacingSchema>;
+export type MotionPlanTarget = z.infer<typeof motionPlanTargetSchema>;
+export type MotionPlanBeat = z.infer<typeof motionPlanBeatSchema>;
+export type MotionPlan = z.infer<typeof motionPlanSchema>;
+export type MotionPlanMetadata = z.infer<typeof motionPlanMetadataSchema>;
 export type CreateDesignAgentMessageRequest = z.infer<
   typeof createDesignAgentMessageRequestSchema
 >;

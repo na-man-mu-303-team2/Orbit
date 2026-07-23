@@ -1083,6 +1083,7 @@ function toProposalDto(entity: DesignAgentProposalEntity): DesignAgentProposal {
       : {}),
     affectedElementIds: entity.affectedElementIds,
     warnings: entity.warnings,
+    ...(entity.motionPlan ? { motionPlan: entity.motionPlan } : {}),
     status: entity.status,
     ...(entity.appliedChangeId
       ? { appliedChangeId: entity.appliedChangeId }
