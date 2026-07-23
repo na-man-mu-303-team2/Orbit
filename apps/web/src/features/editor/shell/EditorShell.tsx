@@ -200,7 +200,10 @@ import {
   type TriggeredActionPlaybackUpdate
 } from "../../rehearsal/playback/triggeredActionPlayback";
 import { SlideshowRenderer } from "../../rehearsal/presenter/SlideshowRenderer";
-import { createSlideshowAnimationPlan } from "../../rehearsal/presenter/slideshowStepModel";
+import {
+  createSlideshowAnimationPlan,
+  type SlideshowAnimationPlan
+} from "../../rehearsal/presenter/slideshowStepModel";
 import { matchKeywordOccurrenceTriggers } from "../../rehearsal/speech/keywordOccurrenceRuntime";
 import { useAutoSlideQuestionGuides } from "../practice/useAutoSlideQuestionGuides";
 import { useShapeMenuPlacement } from "./hooks/useShapeMenuPlacement";
@@ -662,9 +665,10 @@ export function EditorShell(props: { projectId?: string }) {
   }, []);
 
   function applySlideRehearsalPlaybackUpdate(
-    playbackUpdate: TriggeredActionPlaybackUpdate
+    playbackUpdate: TriggeredActionPlaybackUpdate,
+    animationPlan: SlideshowAnimationPlan | null = slideRehearsalAnimationPlan
   ) {
-    const maxStepIndex = slideRehearsalAnimationPlan?.maxStepIndex ?? 0;
+    const maxStepIndex = animationPlan?.maxStepIndex ?? 0;
     const nextStepIndex = Math.min(
       Math.max(0, playbackUpdate.presenterStepIndex),
       maxStepIndex
@@ -748,7 +752,10 @@ export function EditorShell(props: { projectId?: string }) {
       queuedOccurrencePlayback.consumedOccurrenceIds
     );
     if (queuedOccurrencePlayback.update) {
-      applySlideRehearsalPlaybackUpdate(queuedOccurrencePlayback.update);
+      applySlideRehearsalPlaybackUpdate(
+        queuedOccurrencePlayback.update,
+        eventSlideAnimationPlan
+      );
       if (queuedOccurrencePlayback.update.shouldAdvanceSlide) {
         setSlideRehearsalTerminalActionMessage(
           "다음 장표 트리거를 인식했습니다. 부분 리허설에서는 현재 장표를 유지합니다."
@@ -773,7 +780,7 @@ export function EditorShell(props: { projectId?: string }) {
         slide: eventSlide,
         slideAnimationPlan: eventSlideAnimationPlan
       });
-      applySlideRehearsalPlaybackUpdate(playbackUpdate);
+      applySlideRehearsalPlaybackUpdate(playbackUpdate, eventSlideAnimationPlan);
     }
   }
   const slidePracticeSession = useSlidePracticeSession({

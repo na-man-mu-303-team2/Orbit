@@ -65,6 +65,7 @@ export function matchKeywordOccurrenceTriggers(options: {
     options.slide.keywords
   );
   const matchedOccurrenceIds = getMatchedOccurrenceIdsForTranscriptSpan({
+    confirmedOccurrenceIds,
     occurrences: allOccurrences,
     hasProgressSpan: options.previousTranscript !== undefined,
     keywordHitCounts,
@@ -106,6 +107,7 @@ export function matchKeywordOccurrenceTriggers(options: {
 }
 
 function getMatchedOccurrenceIdsForTranscriptSpan(options: {
+  confirmedOccurrenceIds: ReadonlySet<string>;
   occurrences: ReturnType<typeof deriveKeywordOccurrences>;
   hasProgressSpan: boolean;
   keywordHitCounts: ReadonlyMap<string, number>;
@@ -125,6 +127,13 @@ function getMatchedOccurrenceIdsForTranscriptSpan(options: {
     const candidates = options.occurrences.filter(
       (occurrence) => {
         if (occurrence.keywordId !== keyword.keywordId) {
+          return false;
+        }
+
+        // 이미 재생한 occurrence는 후보 선정 전에 제외해야 한다. 그렇지 않으면
+        // 반복 키워드에서 이전 occurrence가 가장 가까운 후보로 다시 선택되고,
+        // 이후 confirmed 필터에 의해 제거되면서 다음 occurrence를 놓친다.
+        if (options.confirmedOccurrenceIds.has(occurrence.occurrenceId)) {
           return false;
         }
 
