@@ -3695,12 +3695,15 @@
 }
 
 .presenter-remote-shell {
+  background: var(--redesign-color-dark-surface);
   box-sizing: border-box;
+  color: var(--redesign-color-on-dark);
   display: flex;
   flex-direction: column;
   gap: var(--redesign-space-3);
   height: 100dvh;
   overflow: hidden;
+  padding-block-end: var(--redesign-layout-workspace-margin);
   padding-inline: var(--redesign-layout-workspace-margin);
   padding-block-start: 0;
   width: min(100%, var(--redesign-layout-content-max-width));
@@ -3806,11 +3809,12 @@
 
 .presenter-remote-stage {
   align-self: center;
-  background: var(--redesign-color-dark-surface-raised);
+  background: var(--redesign-color-dark-surface-high);
   gap: var(--redesign-space-5) var(--redesign-space-6);
   grid-template-columns: minmax(0, 1fr) clamp(240px, 20vw, 300px);
   grid-template-rows: minmax(0, 1fr) clamp(232px, 27dvh, 248px);
   max-width: 100%;
+  padding: var(--redesign-space-1);
   width: 100%;
 }
 
@@ -3983,9 +3987,11 @@
 }
 
 .presenter-remote-cue-sidebar > .presenter-remote-progress-panel {
-  background: var(--redesign-color-surface-container-low);
-  border: 1px solid var(--redesign-color-outline-variant);
+  background: var(--redesign-color-dark-surface-raised);
+  border: 1px solid
+    color-mix(in srgb, var(--redesign-color-on-dark) 12%, transparent);
   border-radius: var(--redesign-radius-lg);
+  color: var(--redesign-color-on-dark);
   gap: var(--redesign-space-3);
   height: 100%;
   min-height: 0;
@@ -4025,14 +4031,78 @@
 .presenter-remote-cue-sidebar
   > .presenter-remote-progress-panel
   .activity-presenter-panel {
+  background: var(--redesign-color-dark-surface);
+  border-color: color-mix(in srgb, var(--redesign-color-on-dark) 12%, transparent);
+  color: var(--redesign-color-on-dark);
   border-radius: var(--redesign-radius-lg);
   height: 100%;
   min-height: 0;
 }
 
 .presenter-remote-cue-sidebar > .rehearsal-side-timer-card {
+  background: var(--redesign-color-dark-surface);
+  border: 1px solid
+    color-mix(in srgb, var(--redesign-color-on-dark) 12%, transparent);
   border-radius: var(--redesign-radius-lg);
+  color: var(--redesign-color-on-dark);
   overflow: hidden;
+}
+
+.presenter-remote-cue-sidebar .rehearsal-side-timer-hero {
+  background: var(--redesign-color-dark-surface);
+  color: var(--redesign-color-on-dark);
+}
+
+.presenter-remote-cue-sidebar .rehearsal-side-timer-hero::before {
+  display: none;
+}
+
+.presenter-remote-cue-sidebar .rehearsal-side-timer-header {
+  background: var(--redesign-color-dark-surface);
+  color: var(--redesign-color-on-dark);
+}
+
+.presenter-remote-cue-sidebar
+  :is(.rehearsal-side-timer-title, .rehearsal-side-timer-time) {
+  color: var(--redesign-color-on-dark);
+}
+
+.presenter-remote-cue-sidebar .rehearsal-side-timing-progress-list {
+  background: var(--redesign-color-dark-surface-raised);
+  color: var(--redesign-color-on-dark);
+}
+
+.presenter-remote-cue-sidebar .rehearsal-side-timing-progress {
+  color: var(--redesign-color-on-dark);
+}
+
+.presenter-remote-cue-sidebar .rehearsal-side-timing-progress-track {
+  background: var(--redesign-color-dark-surface-high);
+}
+
+.presenter-remote-cue-sidebar
+  .rehearsal-side-timing-progress-track
+  > span {
+  background: var(--redesign-color-on-dark);
+}
+
+.presenter-remote-cue-sidebar .rehearsal-side-detail-card {
+  background: var(--redesign-color-dark-surface-raised);
+  border-color: color-mix(in srgb, var(--redesign-color-on-dark) 12%, transparent);
+  color: var(--redesign-color-on-dark);
+}
+
+.presenter-remote-cue-sidebar .rehearsal-panel-empty,
+.presenter-remote-cue-sidebar .activity-presenter-metrics > div {
+  background: var(--redesign-color-dark-surface-high);
+  border-color: color-mix(in srgb, var(--redesign-color-on-dark) 12%, transparent);
+  color: var(--redesign-color-on-dark);
+}
+
+.presenter-remote-cue-sidebar
+  :is(.rehearsal-panel-empty, .activity-presenter-metrics > div)
+  > * {
+  color: inherit;
 }
 
 .presenter-remote-cue-panel {
