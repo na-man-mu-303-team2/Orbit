@@ -153,6 +153,12 @@ describe("App shell routing", () => {
         activityId: "activity-1"
       })
     ).toBe(false);
+    expect(
+      shouldWaitForAuthResolution({
+        name: "companion-spike",
+        spikeId: "spike-1"
+      })
+    ).toBe(false);
   });
 
   it("waits for authentication before rendering workspace routes", () => {
@@ -213,6 +219,28 @@ describe("App shell routing", () => {
       sessionId: "session_1",
       activityId: "activity_1"
     });
+  });
+
+  it("parses isolated companion spike routes outside the product shell", () => {
+    const companion = getRoute("/companion-spike/spike_1");
+    const audience = getRoute("/companion-spike/spike_1/audience");
+    const capture = getRoute("/companion-spike/spike_1/capture");
+
+    expect(companion).toEqual({
+      name: "companion-spike",
+      spikeId: "spike_1"
+    });
+    expect(audience).toEqual({
+      name: "companion-spike-audience",
+      spikeId: "spike_1"
+    });
+    expect(capture).toEqual({
+      name: "companion-spike-capture",
+      spikeId: "spike_1"
+    });
+    expect(shouldRenderAppFrame(companion)).toBe(false);
+    expect(shouldRenderAppFrame(audience)).toBe(false);
+    expect(shouldRenderAppFrame(capture)).toBe(false);
   });
 
   it("parses the standalone activity audience preview route", () => {
