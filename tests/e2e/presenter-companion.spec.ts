@@ -10,6 +10,10 @@ test.describe("iPad presenter companion pairing", () => {
       async (route) => {
         exchangeCount += 1;
         expect(route.request().method()).toBe("POST");
+        expect(route.request().headers()["content-type"]).toBe(
+          "application/json",
+        );
+        expect(route.request().postDataJSON()).toEqual({});
         await route.fulfill({
           contentType: "application/json",
           json: {

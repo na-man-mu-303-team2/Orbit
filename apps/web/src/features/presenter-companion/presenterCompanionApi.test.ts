@@ -35,7 +35,14 @@ describe("presenterCompanionApi", () => {
     });
     expect(fetcher).toHaveBeenCalledWith(
       "/api/v1/projects/project%201/presentation-sessions/session%2F1/companion-pairings",
-      expect.objectContaining({ credentials: "include", method: "POST" }),
+      expect.objectContaining({
+        body: "{}",
+        credentials: "include",
+        headers: expect.objectContaining({
+          "content-type": "application/json",
+        }),
+        method: "POST",
+      }),
     );
   });
 
@@ -71,6 +78,15 @@ describe("presenterCompanionApi", () => {
 
     expect(fetcher.mock.calls[1]?.[0]).toBe(
       "/api/v1/presentation-companion/pairings/code%2F1/exchange",
+    );
+    expect(fetcher.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({
+        body: "{}",
+        headers: expect.objectContaining({
+          "content-type": "application/json",
+        }),
+        method: "POST",
+      }),
     );
     expect(fetcher.mock.calls).toEqual(
       expect.arrayContaining([

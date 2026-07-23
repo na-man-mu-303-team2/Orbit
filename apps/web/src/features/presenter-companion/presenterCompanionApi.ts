@@ -118,11 +118,17 @@ async function requestJson<T>(
   fetcher: Fetcher,
   init: RequestInit = {},
 ): Promise<T> {
+  const sendsJson = init.method?.toUpperCase() === "POST";
   const response = await fetcher(url, {
     ...init,
+    body:
+      sendsJson && init.body === undefined
+        ? JSON.stringify({})
+        : init.body,
     credentials: "include",
     headers: {
       accept: "application/json",
+      ...(sendsJson ? { "content-type": "application/json" } : {}),
       ...init.headers,
     },
   });
