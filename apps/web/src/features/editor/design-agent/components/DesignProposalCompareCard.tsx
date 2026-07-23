@@ -1,4 +1,8 @@
-import type { Deck, DeckPatchOperation } from "@orbit/shared";
+import type {
+  Deck,
+  DeckPatchOperation,
+  MotionPlanMetadata,
+} from "@orbit/shared";
 import { IconArrowRight, IconArrowsMaximize, IconX } from "@tabler/icons-react";
 import { ReadOnlySlideCanvas } from "../../../slides/rendering";
 import {
@@ -12,6 +16,7 @@ type DesignProposalCompareCardProps = {
   afterDeck: Deck;
   beforeDeck: Deck;
   lifecycle: DesignProposalLifecycle;
+  motionPlan?: MotionPlanMetadata;
   onApply: () => void;
   onClose: () => void;
   onPreview: () => void;
@@ -66,7 +71,10 @@ export function DesignProposalCompareCard(props: DesignProposalCompareCardProps)
       </header>
 
       {motionOnly ? (
-        <MotionProposalSummary slide={afterSlide} />
+        <MotionProposalSummary
+          motionPlan={props.motionPlan}
+          slide={afterSlide}
+        />
       ) : (
         <div className="design-proposal-inline-comparison">
           <figure>

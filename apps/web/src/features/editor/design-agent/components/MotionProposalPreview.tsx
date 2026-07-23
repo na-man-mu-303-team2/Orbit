@@ -1,4 +1,4 @@
-import type { Deck, Slide } from "@orbit/shared";
+import type { Deck, MotionPlanMetadata, Slide } from "@orbit/shared";
 import {
   IconChevronLeft,
   IconChevronRight,
@@ -14,9 +14,11 @@ import {
   createMotionProposalPreviewModel,
   formatMotionProposalSummary,
 } from "./motionProposalPreviewModel";
+import { MotionPlanExplanation } from "./MotionPlanExplanation";
 
 export function MotionProposalPreview(props: {
   deck: Deck;
+  motionPlan?: MotionPlanMetadata;
   slide: Slide;
 }) {
   const model = useMemo(
@@ -93,6 +95,13 @@ export function MotionProposalPreview(props: {
           {currentLabel}
         </span>
       </header>
+
+      {props.motionPlan ? (
+        <MotionPlanExplanation
+          motionPlan={props.motionPlan}
+          slide={props.slide}
+        />
+      ) : null}
 
       <div className="motion-proposal-canvas">
         <MotionPreviewCanvas

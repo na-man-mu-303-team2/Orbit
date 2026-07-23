@@ -344,6 +344,71 @@
   font-size: var(--redesign-type-label-sm-size);
 }
 
+.motion-plan-explanation {
+  display: grid;
+  gap: var(--redesign-space-2);
+  padding: var(--redesign-space-3);
+  border: var(--redesign-border-subtle);
+  border-color: var(--redesign-color-primary);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-primary-container);
+  color: var(--redesign-color-on-primary-container);
+}
+
+.motion-plan-explanation header {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--redesign-space-2);
+}
+
+.motion-plan-ai-badge {
+  padding: var(--redesign-space-1) var(--redesign-space-2);
+  border-radius: var(--redesign-radius-full);
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 800;
+}
+
+.motion-plan-explanation p,
+.motion-plan-explanation ol {
+  margin: 0;
+}
+
+.motion-plan-explanation p {
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: var(--redesign-type-body-sm-line-height);
+}
+
+.motion-plan-explanation ol {
+  display: grid;
+  gap: var(--redesign-space-1);
+  padding-left: var(--redesign-space-5);
+}
+
+.motion-plan-explanation li {
+  padding: var(--redesign-space-1) 0;
+}
+
+.motion-plan-explanation li span {
+  font-size: var(--redesign-type-body-sm-size);
+  font-weight: 700;
+}
+
+.motion-plan-explanation li small {
+  display: block;
+  color: var(--redesign-color-on-primary-container);
+  font-size: var(--redesign-type-label-sm-size);
+  opacity: 0.8;
+}
+
+.motion-plan-provenance {
+  color: var(--redesign-color-on-primary-container);
+  font-size: var(--redesign-type-label-sm-size);
+  opacity: 0.8;
+}
+
 .design-proposal-compare-arrow {
   color: var(--redesign-color-on-surface-variant);
 }

@@ -9,6 +9,7 @@ import {
   isDesignAgentProposalStaleError,
   pollDesignImageGeneration,
   pollSlideRedesignJob,
+  DesignAgentApiError,
 } from "./designAgentApi";
 
 describe("design agent message API", () => {
@@ -120,6 +121,60 @@ describe("design agent message API", () => {
       selectedPaletteOptionId: "current-theme",
     });
   });
+
+  it.each([
+    [
+      "MOTION_AI_PROVIDER_UNAVAILABLE",
+      503,
+      "AI 모션 분석 서비스에 연결하지 못했습니다.",
+    ],
+    [
+      "MOTION_AI_EMPTY_RESPONSE",
+      503,
+      "AI가 모션 계획을 완성하지 못했습니다.",
+    ],
+    [
+      "MOTION_AI_INVALID_PLAN",
+      503,
+      "AI 모션 분석 결과를 검증하지 못했습니다.",
+    ],
+    [
+      "MOTION_AI_COMPILE_UNSAFE",
+      422,
+      "AI 모션 계획이 현재 슬라이드의 안전 기준을 통과하지 못했습니다.",
+    ],
+  ] as const)(
+    "maps %s to an actionable Korean error",
+    async (code, status, message) => {
+      const deck = createDemoDeck();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          new Response(JSON.stringify({ code, message: "internal" }), {
+            status,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+
+      const error = await createDesignAgentMessage(deck.projectId, {
+        content: "애니메이션을 추천해 주세요.",
+        intentPreset: "recommend-animation",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide: deck.slides[0]!,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(DesignAgentApiError);
+      expect(error).toMatchObject({ code, status });
+      expect((error as Error).message).toContain(message);
+    },
+  );
 });
 
 describe("design proposal apply API", () => {

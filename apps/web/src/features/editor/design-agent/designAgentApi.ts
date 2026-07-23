@@ -21,6 +21,36 @@ import {
 } from "@orbit/shared";
 import { io } from "socket.io-client";
 
+export type DesignAgentMotionErrorCode =
+  | "MOTION_AI_PROVIDER_UNAVAILABLE"
+  | "MOTION_AI_EMPTY_RESPONSE"
+  | "MOTION_AI_INVALID_PLAN"
+  | "MOTION_AI_COMPILE_UNSAFE";
+
+const DESIGN_AGENT_MOTION_ERROR_MESSAGES: Record<
+  DesignAgentMotionErrorCode,
+  string
+> = {
+  MOTION_AI_PROVIDER_UNAVAILABLE:
+    "AI 모션 분석 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+  MOTION_AI_EMPTY_RESPONSE:
+    "AI가 모션 계획을 완성하지 못했습니다. 다시 시도해 주세요.",
+  MOTION_AI_INVALID_PLAN:
+    "AI 모션 분석 결과를 검증하지 못했습니다. 다시 시도해 주세요.",
+  MOTION_AI_COMPILE_UNSAFE:
+    "AI 모션 계획이 현재 슬라이드의 안전 기준을 통과하지 못했습니다. 슬라이드를 확인한 뒤 다시 시도해 주세요.",
+};
+
+export class DesignAgentApiError extends Error {
+  constructor(
+    readonly code: DesignAgentMotionErrorCode,
+    readonly status: number,
+  ) {
+    super(DESIGN_AGENT_MOTION_ERROR_MESSAGES[code]);
+    this.name = "DesignAgentApiError";
+  }
+}
+
 export async function createDesignAgentMessage(
   projectId: string,
   input: CreateDesignAgentMessageRequest,
@@ -36,6 +66,10 @@ export async function createDesignAgentMessage(
 
   if (!response.ok) {
     const payload = await response.json().catch(() => undefined);
+    const motionErrorCode = parseMotionErrorCode(payload);
+    if (motionErrorCode) {
+      throw new DesignAgentApiError(motionErrorCode, response.status);
+    }
     const message =
       payload && typeof payload === "object" && "message" in payload
         ? String(payload.message)
@@ -44,6 +78,22 @@ export async function createDesignAgentMessage(
   }
 
   return createDesignAgentMessageResponseSchema.parse(await response.json());
+}
+
+function parseMotionErrorCode(
+  payload: unknown,
+): DesignAgentMotionErrorCode | null {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    !("code" in payload) ||
+    typeof payload.code !== "string"
+  ) {
+    return null;
+  }
+  return payload.code in DESIGN_AGENT_MOTION_ERROR_MESSAGES
+    ? (payload.code as DesignAgentMotionErrorCode)
+    : null;
 }
 
 export async function createDesignImageGeneration(

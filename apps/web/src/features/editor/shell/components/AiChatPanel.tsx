@@ -24,6 +24,7 @@ import {
   createDesignAgentMessage,
   createDesignImageGeneration,
   createSlideRedesignJob,
+  DesignAgentApiError,
   isDesignAgentProposalStaleError,
   pollDesignImageGeneration,
   pollSlideRedesignJob
@@ -373,11 +374,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
       await submitDesignRequest(content);
     } catch (error) {
       if (mode === "design") {
-        setQuickActionError(
-          error instanceof Error
-            ? `디자인 제안을 만들지 못했습니다. ${error.message}`
-            : "디자인 제안을 만들지 못했습니다."
-        );
+        setQuickActionError(formatDesignRequestError(error));
       }
       appendErrorMessage(error);
     } finally {
@@ -415,9 +412,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
       setQuickActionError(
         isDesignAgentProposalStaleError(error)
           ? "슬라이드가 변경되어 리디자인을 다시 시작해야 합니다."
-          : error instanceof Error
-          ? `디자인 제안을 만들지 못했습니다. ${error.message}`
-          : "디자인 제안을 만들지 못했습니다."
+          : formatDesignRequestError(error)
       );
       appendErrorMessage(error);
     } finally {
@@ -670,7 +665,9 @@ export function AiChatPanel(props: AiChatPanelProps) {
         id: `error-${crypto.randomUUID()}`,
         role: "assistant",
         content:
-          error instanceof Error
+          error instanceof DesignAgentApiError
+            ? error.message
+            : error instanceof Error
             ? `요청을 처리하지 못했습니다. ${error.message}`
             : "요청을 처리하지 못했습니다.",
         tone: "error"
@@ -752,6 +749,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
           afterDeck={intermediatePreview.candidateDeck}
           beforeDeck={intermediatePreview.baseDeck}
           lifecycle={effectiveIntermediateLifecycle}
+          motionPlan={intermediatePreview.proposal.motionPlan}
           operations={intermediatePreview.proposal.operations}
           readOnly
           slideId={intermediatePreview.proposal.slideId}
@@ -770,6 +768,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
           afterDeck={pendingPreview.candidateDeck}
           beforeDeck={pendingPreview.baseDeck}
           lifecycle={effectiveProposalLifecycle}
+          motionPlan={pendingPreview.proposal.motionPlan}
           operations={pendingPreview.proposal.operations}
           slideId={pendingPreview.proposal.slideId}
           summary={pendingPreview.proposal.summary ?? pendingPreview.proposal.title}
@@ -969,6 +968,7 @@ export function AiChatPanel(props: AiChatPanelProps) {
           lifecycle={modalPreviewIsReadOnly
             ? effectiveIntermediateLifecycle
             : effectiveProposalLifecycle}
+          motionPlan={modalPreview.proposal.motionPlan}
           operations={modalPreview.proposal.operations}
           readOnly={modalPreviewIsReadOnly}
           slideId={modalPreview.proposal.slideId}
@@ -980,6 +980,13 @@ export function AiChatPanel(props: AiChatPanelProps) {
       ) : null}
     </section>
   );
+}
+
+function formatDesignRequestError(error: unknown): string {
+  if (error instanceof DesignAgentApiError) return error.message;
+  return error instanceof Error
+    ? `디자인 제안을 만들지 못했습니다. ${error.message}`
+    : "디자인 제안을 만들지 못했습니다.";
 }
 
 function getSelectedImagePreview(

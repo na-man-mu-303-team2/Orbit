@@ -1,4 +1,8 @@
-import type { Deck, DeckPatchOperation } from "@orbit/shared";
+import type {
+  Deck,
+  DeckPatchOperation,
+  MotionPlanMetadata,
+} from "@orbit/shared";
 import { createPortal } from "react-dom";
 import { OrbitButton, OrbitDialog } from "../../../../components/ui";
 import { ReadOnlySlideCanvas } from "../../../slides/rendering";
@@ -13,6 +17,7 @@ type DesignProposalPreviewModalProps = {
   afterDeck: Deck;
   beforeDeck: Deck;
   lifecycle: DesignProposalLifecycle;
+  motionPlan?: MotionPlanMetadata;
   onApply: () => void;
   onClose: () => void;
   operations: DeckPatchOperation[];
@@ -78,7 +83,11 @@ export function DesignProposalPreviewModal(
       }
     >
       {motionOnly ? (
-        <MotionProposalPreview deck={props.afterDeck} slide={afterSlide} />
+        <MotionProposalPreview
+          deck={props.afterDeck}
+          motionPlan={props.motionPlan}
+          slide={afterSlide}
+        />
       ) : (
         <div className="design-proposal-modal-comparison">
           <figure>

@@ -137,6 +137,7 @@ describe("DesignProposalCompareCard", () => {
 
     expect(html).toContain("Motion 흐름");
     expect(html).toContain("자동 진입");
+    expect(html).not.toContain("AI 분석");
     expect(html).not.toContain("Before");
     expect(html).not.toContain("After");
   });
