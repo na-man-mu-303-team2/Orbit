@@ -8,12 +8,14 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { ActivityResultsService } from "../activities/activity-results.service";
 import { ActivityRunsService } from "../activities/activity-runs.service";
 import type { CompanionAccessTokenPayload } from "./companion-access-cookie";
+import { PresentationSessionsService } from "./presentation-sessions.service";
 
 @Injectable()
 export class PresentationCompanionActivityService {
   constructor(
     private readonly runs: ActivityRunsService,
     private readonly results: ActivityResultsService,
+    private readonly sessions: PresentationSessionsService,
   ) {}
 
   async getProjection(
@@ -25,6 +27,18 @@ export class PresentationCompanionActivityService {
       throw companionActivityUnavailable();
     }
     const activityId = parsedActivityId.data;
+    const session = await this.sessions.getSessionForPresenter(
+      credential.projectId,
+      credential.sessionId,
+    );
+    if (!session.audienceAccessEnabled) {
+      return presentationCompanionActivityProjectionSchema.parse({
+        activityId,
+        audienceUrl: null,
+        run: null,
+        publicResult: null,
+      });
+    }
     const { run } = await this.runs.getCurrentRun(
       credential.projectId,
       credential.sessionId,

@@ -456,8 +456,9 @@ GET    /api/v1/presentation-companion/:sessionId/assets/:fileId/content
   project API를 호출하지 않는다. companion credential로 보호되는
   `GET /api/v1/presentation-companion/:sessionId/activities/:activityId`가
   현재 run의 공개 `status`, audience URL, `ActivityPublicResult`만 반환한다.
-  run이 없으면 이를 생성하지 않고 nullable 공개 projection을 반환하며,
-  presenter result와 moderation 상태는 포함하지 않는다.
+  run이 없거나 session의 `audienceAccessEnabled=false`이면 이를 생성하지 않고
+  URL과 결과가 모두 null인 공개 projection을 반환하며, presenter result와
+  moderation 상태는 포함하지 않는다.
 - 내부 render asset URL은 companion asset endpoint로 치환한다. 현재 exact
   Deck의 allowlisted render field가 실제 참조한 같은 project image만 읽을 수
   있다. canonical 상대 asset path와 configured `WEB_ORIGIN` 또는

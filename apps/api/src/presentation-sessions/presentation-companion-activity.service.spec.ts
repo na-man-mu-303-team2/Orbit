@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ActivityResultsService } from "../activities/activity-results.service";
 import type { ActivityRunsService } from "../activities/activity-runs.service";
 import type { CompanionAccessTokenPayload } from "./companion-access-cookie";
+import type { PresentationSessionsService } from "./presentation-sessions.service";
 import { PresentationCompanionActivityService } from "./presentation-companion-activity.service";
 
 const credential = {
@@ -29,6 +30,27 @@ describe("PresentationCompanionActivityService", () => {
     );
     expect(fixture.results.getPublicResult).not.toHaveBeenCalled();
     expect(fixture.runs).not.toHaveProperty("ensureCurrentRun");
+  });
+
+  it("hides activity access after audience access is disabled", async () => {
+    const fixture = createFixture(
+      {
+        activityRunId: "activity_run_1",
+        status: "results",
+      },
+      false,
+    );
+
+    await expect(
+      fixture.service.getProjection(credential, "activity_1"),
+    ).resolves.toEqual({
+      activityId: "activity_1",
+      audienceUrl: null,
+      run: null,
+      publicResult: null,
+    });
+    expect(fixture.runs.getCurrentRun).not.toHaveBeenCalled();
+    expect(fixture.results.getPublicResult).not.toHaveBeenCalled();
   });
 
   it("returns only the current run status and public result", async () => {
@@ -80,6 +102,7 @@ describe("PresentationCompanionActivityService", () => {
 
 function createFixture(
   run: { activityRunId: string; status: "results" } | null,
+  audienceAccessEnabled = true,
 ) {
   const runs = {
     getCurrentRun: vi.fn().mockResolvedValue({ run }),
@@ -87,9 +110,19 @@ function createFixture(
   const results = {
     getPublicResult: vi.fn(),
   } as unknown as ActivityResultsService;
+  const sessions = {
+    getSessionForPresenter: vi.fn().mockResolvedValue({
+      audienceAccessEnabled,
+    }),
+  } as unknown as PresentationSessionsService;
   return {
     results,
     runs,
-    service: new PresentationCompanionActivityService(runs, results),
+    service: new PresentationCompanionActivityService(
+      runs,
+      results,
+      sessions,
+    ),
+    sessions,
   };
 }
