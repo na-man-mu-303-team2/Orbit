@@ -683,6 +683,48 @@ def test_generated_body_only_plan_is_normalized_to_structural_roles() -> None:
     ]
 
 
+@pytest.mark.parametrize("slide_count", [4, 5, 8])
+def test_structured_deck_exports_cover_agenda_body_and_closing(
+    slide_count: int,
+) -> None:
+    request = GenerateDeckRequest(
+        projectId="project_demo_1",
+        topic="Structured export",
+        targetDurationMinutes=slide_count,
+        slideCountRange={"min": slide_count, "max": slide_count},
+    )
+
+    first = generate_deck(request)
+    second = generate_deck(request)
+    slides = first.deck["slides"]
+    visual_types = [
+        slide["aiNotes"]["visualPlan"]["visualType"] for slide in slides
+    ]
+    composition_ids = [
+        slide["aiNotes"]["compositionPlan"]["compositionId"] for slide in slides
+    ]
+
+    assert len(slides) == slide_count
+    assert visual_types[0:2] == ["cover", "agenda"]
+    assert visual_types[-1] == "closing"
+    assert all(
+        visual_type not in {"cover", "agenda", "closing"}
+        for visual_type in visual_types[2:-1]
+    )
+    assert composition_ids[1].startswith("agenda-")
+    assert composition_ids[-1].startswith("closing-")
+    assert composition_ids == [
+        slide["aiNotes"]["compositionPlan"]["compositionId"]
+        for slide in second.deck["slides"]
+    ]
+
+    pptx_response = export_deck_pptx(DeckPptxExportRequest(deck=first.deck))
+    presentation = Presentation(
+        BytesIO(base64.b64decode(pptx_response.content_base64))
+    )
+    assert len(presentation.slides) == slide_count
+
+
 def test_speaker_note_bounds_enforce_exact_ninety_to_one_ten_percent() -> None:
     assert speaker_notes_minimum_chars(225) == 203
     assert speaker_notes_maximum_chars(225) == 247
