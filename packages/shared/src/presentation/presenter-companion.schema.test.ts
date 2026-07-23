@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   companionDeckSnapshotSchema,
+  presentationCompanionActivityProjectionSchema,
   presentationCompanionBootstrapSchema,
   presentationCompanionPairingResponseSchema,
 } from "./presenter-companion.schema";
@@ -129,6 +130,31 @@ describe("presentation companion HTTP schemas", () => {
       presentationCompanionBootstrapSchema.safeParse({
         ...bootstrap,
         transcript: "PRIVATE_TRANSCRIPT_MARKER",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts only public activity runtime state", () => {
+    expect(
+      presentationCompanionActivityProjectionSchema.parse({
+        activityId: "activity_1",
+        audienceUrl: "/audience/session_1/a/activity_1",
+        run: { status: "open" },
+        publicResult: null,
+      }),
+    ).toEqual({
+      activityId: "activity_1",
+      audienceUrl: "/audience/session_1/a/activity_1",
+      run: { status: "open" },
+      publicResult: null,
+    });
+    expect(
+      presentationCompanionActivityProjectionSchema.safeParse({
+        activityId: "activity_1",
+        audienceUrl: null,
+        run: null,
+        publicResult: null,
+        presenterResult: "PRIVATE_RESULT",
       }).success,
     ).toBe(false);
   });

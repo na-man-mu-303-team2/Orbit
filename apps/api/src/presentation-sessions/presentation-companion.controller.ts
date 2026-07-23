@@ -27,6 +27,7 @@ import {
   companionAccessCookieOptions,
 } from "./companion-access-cookie";
 import { PresentationCompanionProjectionService } from "./presentation-companion-projection.service";
+import { PresentationCompanionActivityService } from "./presentation-companion-activity.service";
 import {
   assertCompanionJsonSameOrigin,
   assertCompanionSameOrigin,
@@ -140,6 +141,7 @@ export class PublicPresentationCompanionController {
   constructor(
     private readonly companion: PresentationCompanionService,
     private readonly projection: PresentationCompanionProjectionService,
+    private readonly activity: PresentationCompanionActivityService,
     private readonly rateLimit: PresentationCompanionRateLimitService,
   ) {}
 
@@ -218,6 +220,24 @@ export class PublicPresentationCompanionController {
     response.setHeader("content-type", asset.contentType);
     response.setHeader("content-length", String(asset.contentLength));
     return new StreamableFile(asset.body);
+  }
+
+  @Get(":sessionId/activities/:activityId")
+  async getActivityProjection(
+    @Param("sessionId") sessionId: string,
+    @Param("activityId") activityId: string,
+    @Req() request: SignedCookieRequest,
+  ) {
+    assertPresentationCompanionEnabled(this.config);
+    const credential = await this.companion.verifyCredential(
+      this.getCredential(request),
+      getCompanionUserAgent(request),
+      sessionId,
+    );
+    if (!credential) {
+      throw companionUnavailable();
+    }
+    return this.activity.getProjection(credential, activityId);
   }
 
   private getCredential(request: SignedCookieRequest): string {

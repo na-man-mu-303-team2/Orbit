@@ -1,10 +1,12 @@
 import {
   presentationCompanionBootstrapSchema,
+  presentationCompanionActivityProjectionSchema,
   presentationCompanionExchangeResponseSchema,
   presentationCompanionPairingResponseSchema,
   presentationCompanionStatusSchema,
   runtimeConfigResponseSchema,
   type PresentationCompanionBootstrap,
+  type PresentationCompanionActivityProjection,
   type PresentationCompanionPairingResponse,
   type PresentationCompanionStatus,
 } from "@orbit/shared";
@@ -91,6 +93,20 @@ export async function fetchPresenterCompanionBootstrap(
   return requestJson(
     `/api/v1/presentation-companion/${encodeURIComponent(sessionId)}/bootstrap`,
     presentationCompanionBootstrapSchema,
+    fetcher,
+  );
+}
+
+export async function fetchPresenterCompanionActivityProjection(
+  sessionId: string,
+  activityId: string,
+  fetcher: Fetcher = fetch,
+): Promise<PresentationCompanionActivityProjection> {
+  return requestJson(
+    `/api/v1/presentation-companion/${encodeURIComponent(
+      sessionId,
+    )}/activities/${encodeURIComponent(activityId)}`,
+    presentationCompanionActivityProjectionSchema,
     fetcher,
   );
 }

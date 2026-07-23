@@ -222,6 +222,24 @@ describe("PublicPresentationCompanionController", () => {
       "image/png",
     );
   });
+
+  it("reads activity state through the companion credential boundary", async () => {
+    const fixture = createPublicFixture();
+    await expect(
+      fixture.controller.getActivityProjection(
+        "session_1",
+        "activity_1",
+        companionRequest(),
+      ),
+    ).resolves.toMatchObject({
+      activityId: "activity_1",
+      run: { status: "open" },
+    });
+    expect(fixture.activity.getProjection).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "session_1" }),
+      "activity_1",
+    );
+  });
 });
 
 function createProjectFixture() {
@@ -320,14 +338,24 @@ function createPublicFixture() {
   const projection = {
     openReferencedAsset: vi.fn(),
   };
+  const activity = {
+    getProjection: vi.fn().mockResolvedValue({
+      activityId: "activity_1",
+      audienceUrl: "/audience/session_1/a/activity_1",
+      run: { status: "open" },
+      publicResult: null,
+    }),
+  };
   const rateLimit = {
     consumePairingExchange: vi.fn().mockResolvedValue(undefined),
   };
   return {
+    activity,
     companion,
     controller: new PublicPresentationCompanionController(
       companion as never,
       projection as never,
+      activity as never,
       rateLimit as never,
     ),
     projection,

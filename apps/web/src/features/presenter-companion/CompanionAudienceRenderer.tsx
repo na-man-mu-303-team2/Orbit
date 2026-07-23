@@ -15,6 +15,7 @@ import {
   type SurfaceSize,
 } from "./surfaceGeometry";
 import { calculateCompanionRendererScale } from "./companionRendererScale";
+import { CompanionActivityProjectionProvider } from "./CompanionActivityProjectionProvider";
 
 export function CompanionAudienceRenderer(props: {
   deck: CompanionDeckSnapshot;
@@ -85,6 +86,7 @@ export function CompanionAudienceRenderer(props: {
     props.output.slideId,
     props.output.slideIndex,
   );
+  const activityIds = getVisibleActivityIds(props.deck, props.output);
 
   return (
     <section
@@ -100,22 +102,52 @@ export function CompanionAudienceRenderer(props: {
         width: deck.canvas.width * scale,
       }}
     >
-      <AudienceOutputRenderer
-        deck={deck}
-        onScreenShareContentSizeChange={(size) => {
-          setScreenShareMedia(
-            size && activeShareEpochId
-              ? { shareEpochId: activeShareEpochId, size }
-              : null,
-          );
-        }}
-        scale={scale}
-        state={state}
-        stream={props.stream}
-        triggerAnimationIds={triggerAnimationIds}
-      />
+      <CompanionActivityProjectionProvider
+        activityIds={activityIds}
+        sessionId={props.output.sessionId}
+      >
+        <AudienceOutputRenderer
+          deck={deck}
+          onScreenShareContentSizeChange={(size) => {
+            setScreenShareMedia(
+              size && activeShareEpochId
+                ? { shareEpochId: activeShareEpochId, size }
+                : null,
+            );
+          }}
+          scale={scale}
+          state={state}
+          stream={props.stream}
+          triggerAnimationIds={triggerAnimationIds}
+        />
+      </CompanionActivityProjectionProvider>
     </section>
   );
+}
+
+function getVisibleActivityIds(
+  deck: CompanionDeckSnapshot,
+  output: PresentationCompanionOutputState,
+) {
+  if (output.outputMode !== "slide") {
+    return [];
+  }
+  const slide =
+    deck.slides.find((candidate) => candidate.slideId === output.slideId) ??
+    deck.slides[output.slideIndex];
+  if (!slide) {
+    return [];
+  }
+  const activityIds = slide.elements.flatMap((element) =>
+    element.type === "activity-qr" ? [element.props.activityId] : [],
+  );
+  if (slide.kind === "activity") {
+    activityIds.push(slide.activity.activityId);
+  }
+  if (slide.kind === "activity-results") {
+    activityIds.push(slide.activityResult.sourceActivityId);
+  }
+  return Array.from(new Set(activityIds));
 }
 
 function useCompanionRendererScale(canvas: {

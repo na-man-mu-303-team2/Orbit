@@ -203,6 +203,7 @@ function createFixture() {
   const publicController = new PublicPresentationCompanionController(
     companion,
     projection,
+    { getProjection: vi.fn() } as never,
     { consumePairingExchange: vi.fn().mockResolvedValue(undefined) } as never,
   );
   return {

@@ -4,6 +4,9 @@ import {
   activityDefinitionSchema,
   activityResultDefinitionSchema,
 } from "../activity/activity-definition.schema";
+import { activityIdSchema } from "../activity/activity-id.schema";
+import { activityPublicResultSchema } from "../activity/activity-results.schema";
+import { activityRuntimeStatusSchema } from "../activity/activity-runtime.schema";
 import { animationSchema } from "../deck/animation.schema";
 import {
   deckCanvasSchema,
@@ -157,4 +160,44 @@ export type PresentationCompanionStatus = z.infer<
 >;
 export type PresentationCompanionBootstrap = z.infer<
   typeof presentationCompanionBootstrapSchema
+>;
+
+export const presentationCompanionActivityProjectionSchema = z
+  .object({
+    activityId: activityIdSchema,
+    audienceUrl: z.string().min(1).nullable(),
+    run: z
+      .object({
+        status: activityRuntimeStatusSchema,
+      })
+      .strict()
+      .nullable(),
+    publicResult: activityPublicResultSchema.nullable(),
+  })
+  .strict()
+  .superRefine((projection, context) => {
+    if (
+      projection.run === null &&
+      (projection.audienceUrl !== null || projection.publicResult !== null)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "activity projection requires a current run",
+      });
+    }
+    if (
+      projection.publicResult !== null &&
+      (projection.run?.status !== "results" ||
+        projection.publicResult.activityId !== projection.activityId)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["publicResult"],
+        message: "public result must match a revealed activity run",
+      });
+    }
+  });
+
+export type PresentationCompanionActivityProjection = z.infer<
+  typeof presentationCompanionActivityProjectionSchema
 >;

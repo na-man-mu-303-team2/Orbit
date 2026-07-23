@@ -3,6 +3,7 @@ import {
   createPresenterCompanionPairing,
   disconnectPresenterCompanion,
   exchangePresenterCompanionPairing,
+  fetchPresenterCompanionActivityProjection,
   fetchPresenterCompanionStatus,
   isPresenterCompanionEnabled,
 } from "./presenterCompanionApi";
@@ -95,6 +96,40 @@ describe("presenterCompanionApi", () => {
           expect.objectContaining({ credentials: "include" }),
         ]),
       ]),
+    );
+  });
+
+  it("reads only the companion-scoped public activity projection", async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      Response.json({
+        activityId: "activity_1",
+        audienceUrl: "/audience/session_1/a/activity_1",
+        run: { status: "results" },
+        publicResult: {
+          activityRunId: "activity_run_1",
+          activityId: "activity_1",
+          status: "results",
+          revision: 2,
+          responseCount: 3,
+          aggregates: [],
+          approvedTextEntries: [],
+        },
+      }),
+    );
+
+    await expect(
+      fetchPresenterCompanionActivityProjection(
+        "session/1",
+        "activity 1",
+        fetcher,
+      ),
+    ).resolves.toMatchObject({
+      activityId: "activity_1",
+      run: { status: "results" },
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/presentation-companion/session%2F1/activities/activity%201",
+      expect.objectContaining({ credentials: "include" }),
     );
   });
 });

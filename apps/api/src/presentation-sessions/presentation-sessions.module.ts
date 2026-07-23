@@ -23,6 +23,7 @@ import {
 } from "./presentation-runs.service";
 import { PresentationCompanionSpikeGateway } from "./presentation-companion-spike.gateway";
 import { PresentationCompanionProjectionService } from "./presentation-companion-projection.service";
+import { PresentationCompanionActivityService } from "./presentation-companion-activity.service";
 import { PresentationCompanionService } from "./presentation-companion.service";
 import {
   ProjectPresentationCompanionController,
@@ -62,6 +63,7 @@ import {
     PresentationRunsService,
     PresentationCompanionSpikeGateway,
     PresentationCompanionProjectionService,
+    PresentationCompanionActivityService,
     PresentationCompanionPublisher,
     PresentationCompanionCommandRateLimitService,
     PresentationCompanionRateLimitService,
