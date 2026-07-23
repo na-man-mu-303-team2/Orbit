@@ -394,6 +394,19 @@ session 생성 request는 `audienceAccessEnabled`가 없으면 fail-closed인
 - 기본 접근 기간은 audience-enabled server command가 14일로 채우며
   companion-only session은 4시간으로 채운다. schema와 DB는 30일을 초과하는
   기간을 거절한다.
+- 실전 발표와 리허설 preflight는 각각 `presentation`, `rehearsal` purpose의
+  companion-only session을 exact `deckId`/`deckVersion`으로 ensure한다. 실전
+  `PresentationRun`은 사용자가 실제 발표 시작을 선택할 때만 생성하며 같은
+  session의 재시도는 기존 run을 반환한다. 리허설은 `PresentationRun`을
+  생성하지 않는다.
+- 청중 링크를 활성화하거나 비활성화할 때는 기존 presentation session의
+  `PATCH .../:sessionId/access`를 사용해 companion identity를 보존한다.
+  audience access가 꺼진 상태에서 Activity Run을 자동 생성하지 않으며,
+  presenter UI는 먼저 청중 링크/QR에서 접근을 활성화하도록 안내한다.
+- 실전 발표 종료와 리허설 종료는 자신이 ensure한 persisted session ID만
+  명시적으로 close한다. rehearsal 종료는 presentation session이나 사용자가
+  켠 presentation audience opt-in을 변경하지 않으며, presentation 종료는
+  해당 presentation session의 audience entry도 함께 닫는다.
 
 실전 발표의 음성 실행 기록은 `presentation_runs`에 저장하며 `presentation_sessions`와 1:1 관계를 가진다. 이 기록은 `rehearsal_runs`, 리허설 비교·요약·집중 연습 계약과 분리한다.
 
