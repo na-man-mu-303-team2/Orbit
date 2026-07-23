@@ -251,7 +251,7 @@ def test_authored_incomplete_timeline_fails_closed_before_llm() -> None:
 
 
 def test_authored_five_step_timeline_compiles_22_elements_and_five_clicks() -> None:
-    slide, context = five_step_timeline()
+    slide, context = timeline_slide(5)
     extraction = extract_motion_units(slide, context)
     title, *middle, conclusion = extraction.context.units
     cards = [unit for unit in middle if unit.semantic_role == "card"]
@@ -317,7 +317,80 @@ def test_authored_five_step_timeline_compiles_22_elements_and_five_clicks() -> N
     assert len(result.affected_element_ids) == 22
 
 
-def five_step_timeline() -> tuple[dict[str, Any], MotionPlanningContext]:
+def test_authored_six_step_timeline_compiles_26_elements_with_five_clicks() -> None:
+    slide, context = timeline_slide(6)
+    extraction = extract_motion_units(slide, context)
+    title, *middle, conclusion = extraction.context.units
+    cards = [unit for unit in middle if unit.semantic_role == "card"]
+    payload = {
+        "schemaVersion": 3,
+        "pacing": "balanced",
+        "beats": [
+            {
+                "beatId": "beat_entry",
+                "purpose": "orient",
+                "trigger": "entry",
+                "relation": "together",
+                "targets": [
+                    {
+                        "unitId": title.unit_id,
+                        "motionIntent": "introduce",
+                    },
+                    {
+                        "unitId": cards[0].unit_id,
+                        "motionIntent": "reveal",
+                    },
+                ],
+            },
+            *(
+                {
+                    "beatId": f"beat_click_{index}",
+                    "purpose": "reveal",
+                    "trigger": "click",
+                    "relation": "sequence",
+                    "targets": [
+                        {
+                            "unitId": card.unit_id,
+                            "motionIntent": "reveal",
+                        },
+                        *(
+                            [
+                                {
+                                    "unitId": conclusion.unit_id,
+                                    "motionIntent": "conclude",
+                                }
+                            ]
+                            if index == 6
+                            else []
+                        ),
+                    ],
+                }
+                for index, card in enumerate(cards[1:], start=2)
+            ),
+        ],
+    }
+
+    result = plan_and_compile_motion(
+        deck_id="deck_timeline",
+        base_version=3,
+        slide=slide,
+        planning_context=context,
+        import_context=None,
+        model="motion-snapshot",
+        api_key=None,
+        client=FakeClient(payload),
+    )
+
+    assert result.outcome == "applicable"
+    assert result.click_count == 5
+    assert result.beat_count == 6
+    assert len(result.operations) == 26
+    assert len(result.affected_element_ids) == 26
+
+
+def timeline_slide(
+    step_count: int,
+) -> tuple[dict[str, Any], MotionPlanningContext]:
     elements: list[dict[str, Any]] = [
         motion_element(
             "el_title",
@@ -341,8 +414,10 @@ def five_step_timeline() -> tuple[dict[str, Any], MotionPlanningContext]:
             2,
         ),
     ]
-    for index in range(1, 6):
-        x = 120 + (index - 1) * 340
+    step_width = 340 if step_count == 5 else 280
+    content_width = step_width - 24
+    for index in range(1, step_count + 1):
+        x = 120 + (index - 1) * step_width
         above = index % 2 == 1
         elements.extend(
             [
@@ -352,7 +427,7 @@ def five_step_timeline() -> tuple[dict[str, Any], MotionPlanningContext]:
                     "highlight",
                     x,
                     292 if above else 668,
-                    316,
+                    content_width,
                     56,
                     5,
                     f"{index:02d}",
@@ -363,7 +438,7 @@ def five_step_timeline() -> tuple[dict[str, Any], MotionPlanningContext]:
                     "body",
                     x,
                     360 if above else 736,
-                    316,
+                    content_width,
                     168,
                     5,
                     f"{index}단계 전체 본문",
@@ -372,7 +447,7 @@ def five_step_timeline() -> tuple[dict[str, Any], MotionPlanningContext]:
                     f"el_timeline_stem_{index}",
                     "rect",
                     "decoration",
-                    x + 154,
+                    x + content_width // 2 - 4,
                     536 if above else 616,
                     8,
                     32,
@@ -382,7 +457,7 @@ def five_step_timeline() -> tuple[dict[str, Any], MotionPlanningContext]:
                     f"el_timeline_marker_{index}",
                     "rect",
                     "decoration",
-                    x + 126,
+                    x + content_width // 2 - 32,
                     552,
                     64,
                     64,
@@ -392,7 +467,7 @@ def five_step_timeline() -> tuple[dict[str, Any], MotionPlanningContext]:
                     f"el_timeline_marker_label_{index}",
                     "text",
                     "highlight",
-                    x + 126,
+                    x + content_width // 2 - 32,
                     560,
                     64,
                     48,

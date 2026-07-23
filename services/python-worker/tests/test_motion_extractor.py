@@ -653,6 +653,142 @@ def test_v3_extractor_resolves_six_node_diagram_hub() -> None:
     )
 
 
+def test_structure_resolver_preserves_explicit_group_priority() -> None:
+    first_members = [
+        element(
+            "el_comparison_1_field",
+            "rect",
+            "decoration",
+            120,
+            344,
+            828,
+            528,
+            3,
+        ),
+        element(
+            "el_comparison_1_index",
+            "text",
+            "highlight",
+            152,
+            372,
+            764,
+            72,
+            5,
+            "01",
+        ),
+        element(
+            "el_comparison_1",
+            "text",
+            "body",
+            152,
+            464,
+            764,
+            372,
+            5,
+            "첫 번째 비교 본문",
+        ),
+    ]
+    second_members = [
+        element(
+            "el_comparison_2_field",
+            "rect",
+            "decoration",
+            972,
+            440,
+            828,
+            336,
+            3,
+        ),
+        element(
+            "el_comparison_2_index",
+            "text",
+            "highlight",
+            1004,
+            468,
+            764,
+            72,
+            5,
+            "02",
+        ),
+        element(
+            "el_comparison_2",
+            "text",
+            "body",
+            1004,
+            560,
+            764,
+            180,
+            5,
+            "두 번째 비교 본문",
+        ),
+    ]
+    group = {
+        **element(
+            "el_comparison_group_1",
+            "group",
+            "body",
+            120,
+            344,
+            828,
+            528,
+            2,
+        ),
+        "props": {
+            "childElementIds": [
+                str(member["elementId"]) for member in first_members
+            ]
+        },
+    }
+    elements = [
+        element(
+            "el_title",
+            "text",
+            "title",
+            120,
+            96,
+            1680,
+            120,
+            5,
+            "명시적 그룹 비교",
+        ),
+        *first_members,
+        *second_members,
+        group,
+    ]
+
+    extraction = extract_motion_units(
+        {
+            "slideId": "slide_explicit_comparison",
+            "order": 2,
+            "title": "명시적 그룹 비교",
+            "elements": elements,
+            "semanticCues": [],
+            "aiNotes": {
+                "visualPlan": {"visualType": "comparison"},
+                "compositionPlan": {"compositionId": "feature-comparison"},
+            },
+        },
+        planning_context(
+            [
+                item
+                for item in elements
+                if item.get("role") != "decoration"
+                and item.get("type") != "group"
+            ]
+        ),
+    )
+
+    assert len(extraction.context.units) == 3
+    first_card = extraction.context.units[1]
+    assert first_card.kind == "explicit-group"
+    assert first_card.animation_element_ids == ["el_comparison_group_1"]
+    assert first_card.member_element_ids == [
+        "el_comparison_1_field",
+        "el_comparison_1_index",
+        "el_comparison_1",
+    ]
+
+
 def element(
     element_id: str,
     element_type: str,

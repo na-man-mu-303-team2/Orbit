@@ -88,6 +88,11 @@ describe("MotionPlanExplanation", () => {
       elementId: "el_card_number",
       role: "highlight" as const,
     };
+    const markerLabel = {
+      ...sourceText,
+      elementId: "el_card_marker_label",
+      role: "highlight" as const,
+    };
     const body = {
       ...sourceText,
       elementId: "el_card_body",
@@ -100,7 +105,7 @@ describe("MotionPlanExplanation", () => {
     };
     const slide = {
       ...sourceSlide,
-      elements: [title, background, number, body, conclusion],
+      elements: [title, background, number, markerLabel, body, conclusion],
     };
     const motionPlan: MotionPlanMetadata = {
       source: "llm",
@@ -122,11 +127,13 @@ describe("MotionPlanExplanation", () => {
           animationElementIds: [
             background.elementId,
             number.elementId,
+            markerLabel.elementId,
             body.elementId,
           ],
           memberElementIds: [
             background.elementId,
             number.elementId,
+            markerLabel.elementId,
             body.elementId,
           ],
           semanticRole: "card",
@@ -183,7 +190,7 @@ describe("MotionPlanExplanation", () => {
     );
 
     expect(html).toContain("단계별 전개 · 차분한 속도");
-    expect(html).toContain("자동 진입 1 · 클릭 1 · 모션 단위 3개 · 요소 5개");
+    expect(html).toContain("자동 진입 1 · 클릭 1 · 모션 단위 3개 · 요소 6개");
     expect(html).toContain("1단계 카드 전체 · 배경+번호+본문");
     expect(html).toContain("결론 문구 전체 · 텍스트");
     expect(html).toContain("→");
