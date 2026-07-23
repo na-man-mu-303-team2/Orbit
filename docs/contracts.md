@@ -224,7 +224,7 @@ API:
 - 스타일 해석 우선순위는 `object props` > `slide style` > `deck.theme` > `schema fallback`이다.
 - 1차 스프린트 MVP부터 AI 생성 결과가 슬라이드별 디자인을 지정할 수 있도록 `slide.style`을 허용한다.
 - MVP `slide.style` 필드는 `layout`, `fontFamily`, `backgroundColor`, `textColor`, `accentColor`, `backgroundImage`로 제한한다.
-- `slide.style.layout`은 `title`, `title-content`, `section`, `two-column`, `image-left`, `image-right`, `chart-focus`, `quote`, `closing`만 허용한다.
+- `slide.style.layout`은 `title`, `title-content`, `agenda`, `section`, `two-column`, `image-left`, `image-right`, `chart-focus`, `quote`, `closing`만 허용한다.
 - `slide.style.backgroundImage`는 `src`, `alt`, `fit`, `opacity`를 사용하고, `fit`은 `contain`, `cover`, `stretch`만 허용한다.
 - `slide.style`이 생략되면 schema parse 후 `{}`로 정규화하고, renderer/export/AI normalize 단계에서 필요한 값은 `deck.theme`에서 해석한다.
 - 슬라이드 배경은 `slide.style.backgroundImage` > `slide.style.backgroundColor` > `deck.theme.backgroundColor` 순서로 해석한다.
