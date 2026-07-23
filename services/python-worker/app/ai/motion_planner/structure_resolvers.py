@@ -220,6 +220,120 @@ def _resolve_timeline(
     return ResolvedMotionStructure(family=family, slots=tuple(slots))
 
 
+@register_structure_resolver("feature-comparison")
+def _resolve_feature_comparison(
+    slide: dict[str, Any],
+    elements: list[dict[str, Any]],
+) -> ResolvedMotionStructure:
+    del slide
+    family: MotionStructureFamily = "feature-comparison"
+    backings = _indexed_elements(
+        elements,
+        r"_comparison_(\d+)_(?:field|rule)(?:_r\d+)?$",
+        lambda element: element.get("type") in SHAPE_TYPES,
+        family,
+    )
+    indexes = _indexed_elements(
+        elements,
+        r"_comparison_(\d+)_index(?:_r\d+)?$",
+        _is_text,
+        family,
+    )
+    bodies = _indexed_elements(
+        elements,
+        r"_comparison_(\d+)(?:_r\d+)?$",
+        lambda element: _is_text(element)
+        and str(element.get("role", "")) == "body",
+        family,
+    )
+    expected_ordinals = list(range(1, len(backings) + 1))
+    if sorted(backings) != expected_ordinals or not 2 <= len(backings) <= 4:
+        raise MotionStructureResolutionError(
+            family,
+            "comparison indexes must be consecutive with two to four items",
+        )
+    if sorted(indexes) != expected_ordinals:
+        raise MotionStructureResolutionError(
+            family,
+            "every comparison item requires one numeric index",
+        )
+
+    body_candidates = [
+        element
+        for element in elements
+        if _is_text(element) and str(element.get("role", "")) == "body"
+    ]
+    used_body_ids: set[str] = set()
+    slots: list[ResolvedMotionSlot] = []
+    for ordinal in expected_ordinals:
+        backing = backings[ordinal]
+        index = indexes[ordinal]
+        body = bodies.get(ordinal) or _nearest_comparison_body(
+            backing,
+            index,
+            [
+                candidate
+                for candidate in body_candidates
+                if _element_id(candidate) not in used_body_ids
+            ],
+            family,
+            ordinal,
+        )
+        body_id = _element_id(body)
+        if body_id in used_body_ids:
+            raise MotionStructureResolutionError(
+                family,
+                f"comparison {ordinal} reuses a body",
+            )
+        used_body_ids.add(body_id)
+        backing_id = _element_id(backing)
+        slots.append(
+            ResolvedMotionSlot(
+                slot_id=f"comparison-{ordinal}",
+                order=ordinal,
+                member_element_ids=(
+                    backing_id,
+                    _element_id(index),
+                    body_id,
+                ),
+                frame_element_id=backing_id,
+                semantic_role="card",
+            )
+        )
+
+    if len(used_body_ids) != len(body_candidates):
+        raise MotionStructureResolutionError(
+            family,
+            "comparison bodies do not map one-to-one to items",
+        )
+    return ResolvedMotionStructure(family=family, slots=tuple(slots))
+
+
+def _nearest_comparison_body(
+    backing: dict[str, Any],
+    index: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    family: MotionStructureFamily,
+    ordinal: int,
+) -> dict[str, Any]:
+    index_center = _center(index)
+    ranked = sorted(
+        candidates,
+        key=lambda candidate: (
+            0 if _center_is_inside(backing, candidate) else 1,
+            abs(_center(candidate)[0] - index_center[0]),
+            abs(_center(candidate)[1] - index_center[1]),
+            _element_id(candidate),
+        ),
+    )
+    if not ranked:
+        raise MotionStructureResolutionError(
+            family,
+            f"comparison {ordinal} body is missing",
+        )
+    return ranked[0]
+
+
 def _indexed_elements(
     elements: list[dict[str, Any]],
     pattern: str,

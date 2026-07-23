@@ -410,6 +410,115 @@ def test_v3_extractor_resolves_alternating_five_step_timeline() -> None:
     )
 
 
+def test_v3_extractor_resolves_four_item_feature_comparison_rules() -> None:
+    elements = [
+        element(
+            "el_3_program_v2_title",
+            "text",
+            "title",
+            120,
+            96,
+            1680,
+            120,
+            5,
+            "비교 장표",
+        ),
+        element(
+            "el_3_program_v2_message",
+            "text",
+            "highlight",
+            120,
+            232,
+            1680,
+            80,
+            5,
+            "기준과 대안을 비교합니다",
+        ),
+    ]
+    for index in range(1, 5):
+        if index == 1:
+            x, y, width, height = 120, 344, 1680, 216
+            backing_suffix = "field"
+        else:
+            x, y, width, height = (
+                120 + (index - 2) * 568,
+                584,
+                544,
+                8,
+            )
+            backing_suffix = "rule"
+        elements.extend(
+            [
+                element(
+                    f"el_3_program_v2_comparison_{index}_{backing_suffix}",
+                    "rect",
+                    "decoration",
+                    x,
+                    y,
+                    width,
+                    height,
+                    3,
+                ),
+                element(
+                    f"el_3_program_v2_comparison_{index}_index",
+                    "text",
+                    "highlight",
+                    x + (36 if index == 1 else 0),
+                    y + (24 if index == 1 else 32),
+                    96 if index == 1 else width,
+                    64,
+                    5,
+                    f"{index:02d}",
+                ),
+                element(
+                    (
+                        "renamed_comparison_body"
+                        if index == 3
+                        else f"el_3_program_v2_comparison_{index}"
+                    ),
+                    "text",
+                    "body",
+                    x + (160 if index == 1 else 0),
+                    y + (24 if index == 1 else 112),
+                    width - (196 if index == 1 else 0),
+                    168,
+                    5,
+                    f"{index}번 비교 전체 본문",
+                ),
+            ]
+        )
+
+    extraction = extract_motion_units(
+        {
+            "slideId": "slide_comparison",
+            "order": 3,
+            "title": "비교 장표",
+            "elements": elements,
+            "semanticCues": [],
+            "aiNotes": {
+                "visualPlan": {"visualType": "comparison"},
+                "compositionPlan": {"compositionId": "feature-comparison"},
+            },
+        },
+        planning_context(
+            [
+                item
+                for item in elements
+                if item.get("role") != "decoration"
+            ]
+        ),
+    )
+
+    assert extraction.context.structure_family == "feature-comparison"
+    assert len(extraction.context.units) == 6
+    comparison_units = [
+        unit for unit in extraction.context.units if unit.semantic_role == "card"
+    ]
+    assert len(comparison_units) == 4
+    assert all(len(unit.animation_element_ids) == 3 for unit in comparison_units)
+    assert "renamed_comparison_body" in comparison_units[2].member_element_ids
+
+
 def element(
     element_id: str,
     element_type: str,
