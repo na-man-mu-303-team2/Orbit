@@ -503,6 +503,26 @@
   transition: var(--redesign-transition-transform);
 }
 
+.workspace-home-card[data-pptx="true"] {
+  padding: var(--redesign-space-2);
+  border: var(--redesign-border-subtle);
+  border-radius: var(--redesign-radius-xl);
+  background: var(--redesign-color-light-surface);
+  box-shadow: var(--redesign-shadow-card);
+}
+
+.workspace-home-card[data-pptx="true"] .workspace-home-thumb {
+  aspect-ratio: 16 / 9;
+}
+
+.workspace-home-card[data-pptx="true"] .workspace-home-card-caption {
+  padding: var(--redesign-space-3) var(--redesign-space-2) var(--redesign-space-2);
+}
+
+.workspace-home-card[data-pptx="true"] .workspace-home-card-tags {
+  display: none;
+}
+
 .workspace-home-thumb-wrap {
   position: relative;
   overflow: hidden;
@@ -532,6 +552,69 @@
 }
 
 .workspace-home-thumb-placeholder { color: var(--redesign-color-outline); }
+
+.workspace-pptx-placeholder {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.workspace-pptx-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  display: grid;
+  gap: var(--redesign-space-2);
+  padding: var(--redesign-space-3) var(--redesign-space-4);
+  background: color-mix(in srgb, var(--redesign-color-inverse-surface) 91%, transparent);
+  color: var(--redesign-color-inverse-on-surface);
+  pointer-events: none;
+}
+
+.workspace-pptx-progress > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--redesign-space-3);
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.workspace-pptx-progress > div > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-pptx-progress > div > strong {
+  flex: 0 0 auto;
+  font-size: var(--redesign-type-label-sm-size);
+}
+
+.workspace-pptx-progress progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--redesign-radius-full);
+  background: color-mix(in srgb, var(--redesign-color-light-surface) 20%, transparent);
+}
+
+.workspace-pptx-progress progress::-webkit-progress-bar {
+  background: color-mix(in srgb, var(--redesign-color-light-surface) 20%, transparent);
+}
+
+.workspace-pptx-progress progress::-webkit-progress-value {
+  background: var(--redesign-color-primary);
+}
+
+.workspace-pptx-progress progress::-moz-progress-bar {
+  background: var(--redesign-color-primary);
+}
 
 .workspace-home-card-actions {
   position: absolute;
@@ -613,6 +696,37 @@
 
 .workspace-home-card-caption {
   padding: var(--redesign-space-3) 2px 0;
+}
+
+.workspace-pptx-status {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: var(--redesign-space-2);
+  padding: 2px var(--redesign-space-2);
+  border-radius: var(--redesign-radius-full);
+  background: var(--redesign-color-primary-subtle);
+  color: var(--redesign-color-primary-emphasis);
+  font-size: var(--redesign-type-label-xs-size);
+  font-weight: 750;
+}
+
+.workspace-pptx-status.is-complete {
+  background: var(--redesign-color-success-subtle);
+  color: var(--redesign-color-success);
+}
+
+.workspace-pptx-status.is-failed {
+  background: var(--redesign-color-error-subtle);
+  color: var(--redesign-color-error);
+}
+
+.workspace-pptx-message {
+  margin: var(--redesign-space-2) 0 0;
+  overflow: hidden;
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workspace-home-card-heading {

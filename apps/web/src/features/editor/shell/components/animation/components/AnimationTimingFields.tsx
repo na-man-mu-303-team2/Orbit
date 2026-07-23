@@ -37,27 +37,35 @@ export function AnimationTimingFields(props: {
 
   return (
     <div className="animation-panel-timing-fields">
-      <label className="animation-start-mode-field">
-        <strong>시작 방식</strong>
-        <select
-          aria-label="애니메이션 시작 방식"
-          disabled={Boolean(startModeChangeDisabledReason)}
-          value={startMode}
-          onChange={(event) =>
-            onStartModeChange(
-              event.currentTarget.value as DeckAnimationStartMode
-            )
-          }
-        >
-          {startModeOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
       {startModeChangeDisabledReason ? (
-        <div className="animation-editor-warning" role="status">
+        <div className="animation-start-mode-field">
+          <strong>시작 조건</strong>
+          <span className="animation-start-mode-locked-value">
+            연결된 action이 실행되면 재생
+          </span>
+        </div>
+      ) : (
+        <label className="animation-start-mode-field">
+          <strong>시작 방식</strong>
+          <select
+            aria-label="애니메이션 시작 방식"
+            value={startMode}
+            onChange={(event) =>
+              onStartModeChange(
+                event.currentTarget.value as DeckAnimationStartMode
+              )
+            }
+          >
+            {startModeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {startModeChangeDisabledReason ? (
+        <div className="animation-start-mode-lock-notice" role="status">
           {startModeChangeDisabledReason}
         </div>
       ) : null}

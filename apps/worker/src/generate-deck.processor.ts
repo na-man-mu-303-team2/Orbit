@@ -75,6 +75,13 @@ export async function processGenerateDeckJob(
       body: JSON.stringify({
         projectId: payload.projectId,
         ...payload.request,
+        design: {
+          ...payload.request.design,
+          ...(!payload.request.design?.stylePackId &&
+          payload.designPackSnapshot?.baseStylePackId
+            ? { stylePackId: payload.designPackSnapshot.baseStylePackId }
+            : {}),
+        },
         designProgramContext: {
           savedDesignPreferences: payload.designPackSnapshot?.preferences ?? {},
         },

@@ -1664,6 +1664,10 @@ def validate_slide_visual_occupancy(
     has_planned_media = bool(
         slide.get("aiNotes", {}).get("visualPlan", {}).get("imageNeeded")
     )
+    composition_id = str(
+        slide.get("aiNotes", {}).get("compositionPlan", {}).get("compositionId", "")
+    )
+    minimum_media_height = 272 if composition_id == "editorial-media-band" else 420
     core = [
         element
         for element in visible
@@ -1673,10 +1677,12 @@ def validate_slide_visual_occupancy(
     if has_planned_media:
         if not media or any(
             float(element.get("width", 0)) < 686
-            or float(element.get("height", 0)) < 420
+            or float(element.get("height", 0)) < minimum_media_height
             for element in media
         ):
-            reasons.append("이미지 영역은 최소 5열 너비와 420px 높이가 필요합니다.")
+            reasons.append(
+                f"이미지 영역은 최소 5열 너비와 {minimum_media_height}px 높이가 필요합니다."
+            )
     if core and (has_planned_media or visual_type not in {"cover", "quote"}):
         left = min(float(element.get("x", 0)) for element in core)
         top = min(float(element.get("y", 0)) for element in core)

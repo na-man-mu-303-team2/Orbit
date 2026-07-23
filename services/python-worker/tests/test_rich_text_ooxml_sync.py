@@ -134,6 +134,67 @@ def test_equal_text_with_style_preserves_mixed_run_structure(
     assert body_pr.attrib["anchor"] == "ctr"
 
 
+def test_imported_letter_spacing_and_autofit_round_trip_through_targeted_sync(
+    tmp_path: Path,
+) -> None:
+    pptx_path = rich_text_source_pptx(tmp_path)
+    generated = generate_pptx_ooxml(pptx_path, "file_rich_text", render=False)
+    text = text_element(generated, "Simple source")
+    source = source_for_text(generated, "Simple source")
+    props = copy.deepcopy(text["props"])
+    props.update(
+        {
+            "autoFit": "shrink-text",
+            "fontScale": 0.8,
+            "lineSpaceReduction": 0.1,
+        }
+    )
+    props["paragraphs"][0]["runs"][0]["letterSpacing"] = 2.4
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        operations=[
+            {
+                "type": "update_element_props",
+                "slideId": template_slide_id(generated),
+                "elementId": text["elementId"],
+                "props": props,
+            }
+        ],
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+    )
+
+    assert result.unsupported_operations == []
+    package = current_package_bytes(result.assets)
+    shape = shape_element(package, source["shapeId"])
+    body_properties = shape.find(f"{{{PML_NS}}}txBody/{{{DML_NS}}}bodyPr")
+    assert body_properties is not None
+    normal_autofit = body_properties.find(f"{{{DML_NS}}}normAutofit")
+    assert normal_autofit is not None
+    assert normal_autofit.attrib == {
+        "fontScale": "80000",
+        "lnSpcReduction": "10000",
+    }
+    run_properties = next(shape.iter(f"{{{DML_NS}}}rPr"))
+    assert run_properties.attrib["spc"] == "120"
+
+    synced_path = tmp_path / "autofit-synced.pptx"
+    synced_path.write_bytes(package)
+    reimported = generate_pptx_ooxml(
+        synced_path,
+        "file_rich_text_reimport",
+        render=False,
+    )
+    imported = text_element(reimported, "Simple source")["props"]
+    assert imported["autoFit"] == "shrink-text"
+    assert imported["fontScale"] == 0.8
+    assert imported["lineSpaceReduction"] == 0.1
+    assert imported["paragraphs"][0]["runs"][0]["letterSpacing"] == 2.4
+
+
 def test_imported_field_text_is_fail_closed_without_package_mutation(
     tmp_path: Path,
 ) -> None:

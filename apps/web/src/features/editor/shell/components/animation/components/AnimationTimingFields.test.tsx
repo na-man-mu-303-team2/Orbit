@@ -55,6 +55,8 @@ describe("AnimationTimingFields", () => {
     );
 
     expect(html).toContain("action 연결을 해제한 뒤 변경하세요.");
-    expect(html).toContain("disabled=\"\"");
+    expect(html).toContain("시작 조건");
+    expect(html).toContain("연결된 action이 실행되면 재생");
+    expect(html).not.toContain("애니메이션 시작 방식");
   });
 });

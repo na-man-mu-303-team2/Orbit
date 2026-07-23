@@ -6,6 +6,8 @@ x-orbit-env: &orbit-env
   API_TRUST_PROXY_HOPS: ${API_TRUST_PROXY_HOPS:-1}
   WORKER_PORT: ${WORKER_PORT:?}
   PYTHON_WORKER_PORT: ${PYTHON_WORKER_PORT:?}
+  WORKER_MEMORY_LIMIT: ${WORKER_MEMORY_LIMIT:-768m}
+  PYTHON_WORKER_MEMORY_LIMIT: ${PYTHON_WORKER_MEMORY_LIMIT:-1024m}
 
   WEB_ORIGIN: ${WEB_ORIGIN:?}
   API_BASE_URL: ${API_BASE_URL:?}
@@ -106,6 +108,7 @@ services:
       TEXTRACT_ENABLED: "false"
       PYTHON_WORKER_URL: http://python-worker:8000
     restart: unless-stopped
+    mem_limit: ${WORKER_MEMORY_LIMIT:-768m}
 
   python-worker:
     image: ghcr.io/na-man-mu-303-team2/orbit-python-worker:${IMAGE_TAG:-latest}
@@ -130,8 +133,10 @@ services:
       PYTHON_WORKER_URL: http://python-worker:8000
     ports: !reset []
     restart: unless-stopped
+    mem_limit: ${PYTHON_WORKER_MEMORY_LIMIT:-1024m}
 
   web:
+    image: ghcr.io/na-man-mu-303-team2/orbit-web:${WEB_IMAGE_TAG:-${IMAGE_TAG:-latest}}
     build:
       args:
         APP_ENV: ${APP_ENV:?}

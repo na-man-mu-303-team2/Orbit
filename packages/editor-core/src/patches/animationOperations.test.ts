@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { Deck } from "@orbit/shared";
-import { createDemoDeck } from "../index";
+import { applyDeckPatch, createDemoDeck } from "../index";
 import {
   createAddAnimationPatch,
   createAnimationId,
   createDefaultAnimation,
   createDeleteAnimationPatch,
+  createDeleteAnimationTimelineRootPatch,
   createUpdateAnimationPatch,
   getElementAnimations,
   getNextAnimationOrder,
@@ -57,6 +58,90 @@ describe("animation operations", () => {
         }
       ]
     });
+  });
+
+  it("deletes an action-linked timeline root and its actions atomically", () => {
+    const deck = createDemoDeck();
+    const slide = {
+      ...deck.slides[0]!,
+      animations: [
+        {
+          animationId: "anim_root",
+          elementId: "el_1",
+          order: 1,
+          type: "fade-in" as const,
+          startMode: "on-click" as const,
+          durationMs: 400,
+          delayMs: 0,
+          easing: "ease-out" as const
+        },
+        {
+          animationId: "anim_follower",
+          elementId: "el_2",
+          order: 2,
+          type: "fade-in" as const,
+          startMode: "after-previous" as const,
+          durationMs: 400,
+          delayMs: 0,
+          easing: "ease-out" as const
+        },
+        {
+          animationId: "anim_other",
+          elementId: "el_3",
+          order: 3,
+          type: "fade-in" as const,
+          startMode: "on-click" as const,
+          durationMs: 400,
+          delayMs: 0,
+          easing: "ease-out" as const
+        }
+      ],
+      actions: [
+        {
+          actionId: "act_1",
+          trigger: { kind: "keyword" as const, keywordId: "kw_1" },
+          effect: {
+            kind: "play-animation" as const,
+            animationId: "anim_follower"
+          }
+        }
+      ]
+    };
+    const deckWithActionLinkedRoot = {
+      ...deck,
+      slides: [slide, ...deck.slides.slice(1)]
+    };
+
+    const patch = createDeleteAnimationTimelineRootPatch(
+      deckWithActionLinkedRoot,
+      slide.slideId,
+      "anim_root"
+    );
+    const result = applyDeckPatch(deckWithActionLinkedRoot, patch);
+
+    expect(patch.operations).toEqual([
+      {
+        type: "delete_slide_action",
+        slideId: slide.slideId,
+        actionId: "act_1"
+      },
+      {
+        type: "delete_animation",
+        slideId: slide.slideId,
+        animationId: "anim_root"
+      },
+      {
+        type: "delete_animation",
+        slideId: slide.slideId,
+        animationId: "anim_follower"
+      }
+    ]);
+    if (!result.ok) {
+      throw new Error(JSON.stringify(result.error));
+    }
+    expect(result.deck.slides[0]?.animations.map((animation) => animation.animationId))
+      .toEqual(["anim_other"]);
+    expect(result.deck.slides[0]?.actions).toEqual([]);
   });
 
   it("creates the next unique animation id across the deck", () => {

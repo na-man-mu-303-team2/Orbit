@@ -48,7 +48,6 @@ import {
   Gauge,
   LoaderCircle,
   Mic,
-  Monitor,
   MoreHorizontal,
   PlayCircle,
   Presentation,
@@ -149,8 +148,13 @@ import {
   resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions,
   getTriggerAnimationIdsForSlide,
+  restoreSlidePlaybackAtStep,
   resolveTriggeredActionPlaybackUpdate,
 } from "./playback/triggeredActionPlayback";
+import {
+  AnimationFlowNavigator,
+  type AnimationFlowNavigation,
+} from "./presenter/AnimationFlowNavigator";
 import {
   DisplayControls,
   type RequestDisplayScreensResult,
@@ -2125,6 +2129,10 @@ export function RehearsalWorkspace(props: {
   const slidePlaybackStateRef = useRef<SlidePlaybackState>(
     createSlidePlaybackState(),
   );
+  const pendingFlowRestoreRef = useRef<{
+    slideId: string;
+    stepIndex: number;
+  } | null>(null);
   const advanceControllerStateRef = useRef<AdvanceControllerState>(
     createInitialAdvanceControllerState(),
   );
@@ -2865,7 +2873,16 @@ export function RehearsalWorkspace(props: {
 
   useEffect(() => {
     resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
-    resetLivePlaybackForSlide(currentSlide);
+    const pendingFlowRestore = pendingFlowRestoreRef.current;
+    if (
+      currentSlide &&
+      pendingFlowRestore?.slideId === currentSlide.slideId
+    ) {
+      pendingFlowRestoreRef.current = null;
+      restoreLivePlaybackAtStep(currentSlide, pendingFlowRestore.stepIndex);
+    } else {
+      resetLivePlaybackForSlide(currentSlide);
+    }
     const nextBiasContext =
       deck && currentSlide
         ? buildLiveSttBiasContext(currentSlide, {
@@ -3922,6 +3939,9 @@ export function RehearsalWorkspace(props: {
       return;
     }
 
+    const previousTranscript = renderLiveTranscriptBuffer(
+      liveTranscriptBufferRef.current,
+    );
     const nextBuffer = applyLiveTranscriptEvent(
       liveTranscriptBufferRef.current,
       event,
@@ -3941,6 +3961,9 @@ export function RehearsalWorkspace(props: {
     const matchingTranscript = shouldUseLiveSttPostprocessBias(biasMode)
       ? applyLiveTranscriptBias(transcript, biasContext)
       : transcript;
+    const previousMatchingTranscript = shouldUseLiveSttPostprocessBias(biasMode)
+      ? applyLiveTranscriptBias(previousTranscript, biasContext)
+      : previousTranscript;
     const analysis = evaluateLiveTranscript(
       slide,
       matchingTranscript,
@@ -3963,6 +3986,7 @@ export function RehearsalWorkspace(props: {
     const occurrenceMatches = matchKeywordOccurrenceTriggers({
       slide,
       targetOccurrenceIds,
+      previousTranscript: previousMatchingTranscript,
       transcript: matchingTranscript,
       latestTranscript: event.transcript,
       confidence: event.confidence,
@@ -4167,6 +4191,25 @@ export function RehearsalWorkspace(props: {
     setLiveSlideAdvance(null);
   }
 
+  function restoreLivePlaybackAtStep(slide: Slide, stepIndex: number) {
+    resetLiveTranscriptForSlide(slide);
+    const restored = restoreSlidePlaybackAtStep({
+      slide,
+      slideAnimationPlan: createSlideshowAnimationPlan({
+        slide,
+        triggerAnimationIds: getTriggerAnimationIdsForSlide(slide),
+      }),
+      stepIndex,
+    });
+    slidePlaybackStateRef.current = restored.playbackState;
+    setSlidePlaybackState(restored.playbackState);
+    liveKeywordOccurrenceStateRef.current = {
+      confirmedOccurrenceIds: restored.consumedOccurrenceIds,
+      slideId: slide.slideId,
+    };
+    setLiveSlideAdvance(null);
+  }
+
   function getCurrentLiveBiasContext(deckSnapshot: Deck, slideIndex: number) {
     const slide = deckSnapshot.slides[slideIndex];
     if (!slide) {
@@ -4320,6 +4363,31 @@ export function RehearsalWorkspace(props: {
       source: "manual",
       stepIndex: 0,
       targetSlideIndex: currentSlideIndexRef.current - 1,
+    });
+  };
+  const handleAnimationFlowNavigation = (navigation: AnimationFlowNavigation) => {
+    if (!deck) return;
+    cancelAutoAdvanceForManualCommand();
+    const targetSlide = deck.slides[navigation.targetSlideIndex];
+    if (!targetSlide) return;
+    const stepIndex =
+      targetSlide.kind === "activity" || targetSlide.kind === "activity-results"
+        ? 0
+        : navigation.stepIndex;
+
+    if (navigation.targetSlideIndex === currentSlideIndexRef.current) {
+      pendingFlowRestoreRef.current = null;
+      restoreLivePlaybackAtStep(targetSlide, stepIndex);
+    } else {
+      pendingFlowRestoreRef.current = {
+        slideId: targetSlide.slideId,
+        stepIndex,
+      };
+    }
+    void requestPreparedSlideChange({
+      source: "flow-navigator",
+      stepIndex,
+      targetSlideIndex: navigation.targetSlideIndex,
     });
   };
   const goNext = () => {
@@ -4974,6 +5042,7 @@ export function RehearsalWorkspace(props: {
       <SingleScreenPresenter
         deck={deck}
         onExit={() => setIsSingleScreenOpen(false)}
+        onNextStep={handleNextPresenterStep}
         slideElapsedLabel={formatClock(slideElapsedSeconds)}
         slideId={currentSlide.slideId}
         slideTargetLabel={formatClock(currentSlideTargetSeconds)}
@@ -5180,14 +5249,6 @@ export function RehearsalWorkspace(props: {
                 onRequestDisplayScreens={requestDisplayScreens}
                 onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}
               />
-              <button
-                className="presenter-single-screen-button"
-                type="button"
-                onClick={() => setIsSingleScreenOpen(true)}
-              >
-                <Monitor size={16} />
-                단일 화면
-              </button>
             </div>
           ) : null
         }
@@ -5224,11 +5285,22 @@ export function RehearsalWorkspace(props: {
         <PresenterStageSection
           currentIndex={currentSlideIndex}
           emptyStageLabel={"\ubc1c\ud45c\uc790\ub8cc \ub85c\ub529 \uc911"}
+          leftPanel={
+            <AnimationFlowNavigator
+              currentSlideIndex={currentSlideIndex}
+              currentStepIndex={presenterStepIndex}
+              deck={deck}
+              navigationPending={isSlidePreparationPending}
+              onNavigate={handleAnimationFlowNavigation}
+              placement="drawer"
+            />
+          }
           navigationPending={isSlidePreparationPending}
           nextHint={nextSlideHint}
           nextSlideTitle={nextSlide ? getSlideTitle(nextSlide) : "다음 슬라이드 없음"}
-          onNext={goNext}
+          onNext={handleNextPresenterStep}
           onPrevious={goPrevious}
+          onStageAdvance={handleNextPresenterStep}
           previousDisabled={currentSlideIndex === 0}
           renderStage={
             deck && currentSlide && presenterScale !== null ? (
@@ -5247,6 +5319,10 @@ export function RehearsalWorkspace(props: {
                   deck.slides.length,
                 ).padStart(2, "0")}`
               : undefined
+          }
+          stageAdvanceDisabled={
+            currentSlide?.kind === "activity" ||
+            currentSlide?.kind === "activity-results"
           }
           stageRef={presenterStageRef}
           totalSlides={deck?.slides.length ?? 0}

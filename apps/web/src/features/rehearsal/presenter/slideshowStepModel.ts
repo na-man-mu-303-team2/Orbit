@@ -1,5 +1,6 @@
 import {
   createAnimationTimeline,
+  getAnimationActionTriggerKeys,
   type AnimationTimelineDiagnostic,
   type PlannedAnimationTimelineEffect
 } from "@orbit/editor-core";
@@ -47,6 +48,7 @@ export function createSlideshowAnimationPlan(
 ): SlideshowAnimationPlan {
   const triggerAnimationIds = [...(input.triggerAnimationIds ?? [])];
   const timeline = createAnimationTimeline({
+    actionTriggerKeys: getAnimationActionTriggerKeys(input.slide),
     animations: input.slide.animations,
     legacyOnClickAnimationIds: triggerAnimationIds,
     targetElementIds: input.slide.elements.map((element) => element.elementId),

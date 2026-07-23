@@ -1,4 +1,5 @@
 import type { DeckAnimation, DeckElement } from "@orbit/shared";
+import { IconTrash } from "@tabler/icons-react";
 
 import { IdBadge } from "../../EditorIdBadge";
 import { AnimationPanelSection } from "./AnimationPanelSection";
@@ -26,16 +27,22 @@ function getAnimationTargetLabel(
 export function AnimationSlideOverview(props: {
   animations: DeckAnimation[];
   elements: DeckElement[];
+  deleteDisabledReason?: string | null;
+  deleteNoticeByAnimationId?: Record<string, string | undefined>;
   focusedAnimationId?: string | null;
   ordinalLabelByAnimationId: Record<string, string>;
+  onDeleteAnimation: (animationId: string) => void;
   onSelectAnimation: (animation: DeckAnimation) => void;
   showIds: boolean;
 }) {
   const {
     animations,
+    deleteDisabledReason = null,
+    deleteNoticeByAnimationId = {},
     elements,
     focusedAnimationId = null,
     ordinalLabelByAnimationId,
+    onDeleteAnimation,
     onSelectAnimation,
     showIds
   } = props;
@@ -55,9 +62,11 @@ export function AnimationSlideOverview(props: {
           {animations.map((animation) => {
             const isSelected = focusedAnimationId === animation.animationId;
 
+            const deleteNotice = deleteNoticeByAnimationId[animation.animationId];
+
             return (
+              <div className="animation-panel-existing-row" key={animation.animationId}>
               <button
-                key={animation.animationId}
                 className={`animation-panel-existing-item${isSelected ? " selected" : ""}`}
                 type="button"
                 onClick={() => onSelectAnimation(animation)}
@@ -79,6 +88,17 @@ export function AnimationSlideOverview(props: {
                   {showIds ? <IdBadge id={animation.animationId} /> : null}
                 </div>
               </button>
+              <button
+                aria-label={`${getAnimationTypeLabel(animation.type)} 애니메이션 삭제`}
+                className="animation-panel-existing-delete"
+                disabled={Boolean(deleteDisabledReason)}
+                title={deleteDisabledReason ?? deleteNotice}
+                type="button"
+                onClick={() => onDeleteAnimation(animation.animationId)}
+              >
+                <IconTrash aria-hidden="true" size={15} />
+              </button>
+            </div>
             );
           })}
         </div>

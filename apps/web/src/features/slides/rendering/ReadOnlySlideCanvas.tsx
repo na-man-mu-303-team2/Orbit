@@ -7,7 +7,10 @@ import {
 } from "react-konva";
 import type { ComponentType } from "react";
 import { ElementNodeContent } from "./elementRendering";
-import { getRenderableSlideElements } from "./elementNormalization";
+import {
+  getRenderableSlideElements,
+  usesSourceSlideSnapshot
+} from "./elementNormalization";
 import { resolveGroupedElementPresentationStates } from "./groupPresentationState";
 import { getHighlightOverlayElements } from "./highlightOverlayElements";
 import { SlideBackground } from "./SlideBackground";
@@ -58,6 +61,21 @@ export function ReadOnlySlideCanvas(props: {
     elementStates: resolvedElementStates,
     slide
   });
+  const backgroundSlide =
+    usesSourceSlideSnapshot(slide) && slide.thumbnailUrl
+      ? {
+          ...slide,
+          style: {
+            ...slide.style,
+            backgroundImage: {
+              src: slide.thumbnailUrl,
+              alt: slide.title,
+              fit: "stretch" as const,
+              opacity: 1
+            }
+          }
+        }
+      : slide;
 
   return (
     <div
@@ -70,7 +88,7 @@ export function ReadOnlySlideCanvas(props: {
     >
       <SlideBackground
         deck={deck}
-        slide={slide}
+        slide={backgroundSlide}
         style={{
           transform: scale === 1 ? undefined : `scale(${scale})`,
           transformOrigin: "top left"

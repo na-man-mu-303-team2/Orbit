@@ -3,10 +3,14 @@ import { describe, expect, it } from "vitest";
 import type { Slide } from "@orbit/shared";
 
 import {
+  getTriggerAnimationIdsForSlide,
   getKeywordOccurrenceTriggerIdsForSlide,
+  restoreSlidePlaybackAtStep,
+  resolveManualAnimationPlaybackUpdate,
   resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions
 } from "./triggeredActionPlayback";
+import { createSlideshowAnimationPlan } from "../presenter/slideshowStepModel";
 
 describe("triggeredActionPlayback", () => {
   it("keeps legacy keyword and keyword occurrence trigger resolution separate", () => {
@@ -31,6 +35,114 @@ describe("triggeredActionPlayback", () => {
     const slide = createSlide();
 
     expect(resolveKeywordTriggeredActions(slide, "kw_ai")).toEqual([]);
+  });
+
+  it("keeps a legacy keyword next-slide action available beside occurrence animations", () => {
+    const baseSlide = createSlide();
+    const slide = {
+      ...baseSlide,
+      actions: [
+        ...baseSlide.actions,
+        {
+          actionId: "act_legacy_advance",
+          trigger: { kind: "keyword" as const, keywordId: "kw_ai" },
+          effect: { kind: "go-to-next-slide" as const }
+        }
+      ]
+    };
+
+    expect(
+      resolveKeywordTriggeredActions(slide, "kw_ai").map((action) => action.actionId)
+    ).toEqual(["act_legacy_advance"]);
+  });
+
+  it("consumes an occurrence action when manual progression plays its step", () => {
+    const slide = createSlide();
+    const slideAnimationPlan = createSlideshowAnimationPlan({
+      slide,
+      triggerAnimationIds: getTriggerAnimationIdsForSlide(slide)
+    });
+    const update = resolveManualAnimationPlaybackUpdate({
+      playbackState: { playedAnimationIds: ["anim_legacy"] },
+      presenterStepIndex: 1,
+      slide,
+      slideAnimationPlan
+    });
+
+    expect(update.playbackState.playedAnimationIds).toEqual([
+      "anim_legacy",
+      "anim_occurrence"
+    ]);
+    expect(update.presenterStepIndex).toBe(2);
+    expect(update.consumedOccurrenceIds).toEqual([
+      "kwo_slide_1_kw_ai_47_49"
+    ]);
+    expect(update.shouldAdvanceSlide).toBe(false);
+  });
+
+  it("plays action-free click steps and advances only after the final step", () => {
+    const baseSlide = createSlide();
+    const slide = {
+      ...baseSlide,
+      actions: [],
+      animations: [
+        {
+          ...baseSlide.animations[0]!,
+          animationId: "anim_manual",
+          startMode: "on-click" as const
+        }
+      ]
+    };
+    const slideAnimationPlan = createSlideshowAnimationPlan({ slide });
+    const firstUpdate = resolveManualAnimationPlaybackUpdate({
+      playbackState: { playedAnimationIds: [] },
+      presenterStepIndex: 0,
+      slide,
+      slideAnimationPlan
+    });
+    const finalUpdate = resolveManualAnimationPlaybackUpdate({
+      playbackState: firstUpdate.playbackState,
+      presenterStepIndex: firstUpdate.presenterStepIndex,
+      slide,
+      slideAnimationPlan
+    });
+
+    expect(firstUpdate.playbackState.playedAnimationIds).toEqual(["anim_manual"]);
+    expect(firstUpdate.shouldAdvanceSlide).toBe(false);
+    expect(finalUpdate.shouldAdvanceSlide).toBe(true);
+  });
+
+  it("reconstructs played animations and consumed occurrences for a recovery step", () => {
+    const slide = createSlide();
+    const slideAnimationPlan = createSlideshowAnimationPlan({
+      slide,
+      triggerAnimationIds: getTriggerAnimationIdsForSlide(slide),
+    });
+
+    expect(
+      restoreSlidePlaybackAtStep({
+        slide,
+        slideAnimationPlan,
+        stepIndex: 1,
+      }),
+    ).toEqual({
+      consumedOccurrenceIds: [],
+      playbackState: { playedAnimationIds: ["anim_legacy"] },
+      presenterStepIndex: 1,
+    });
+    expect(
+      restoreSlidePlaybackAtStep({
+        slide,
+        slideAnimationPlan,
+        stepIndex: 99,
+      }),
+    ).toEqual({
+      consumedOccurrenceIds: ["kwo_slide_1_kw_ai_47_49"],
+      playbackState: {
+        playedAnimationIds: ["anim_legacy", "anim_occurrence"],
+      },
+      presenterStepIndex: 2,
+    });
   });
 });
 

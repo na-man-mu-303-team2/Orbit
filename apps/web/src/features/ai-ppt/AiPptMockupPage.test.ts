@@ -67,6 +67,9 @@ describe("AI PPT simplified input", () => {
     expect(payload.targetDurationMinutes).toBe(10);
     expect(payload.slideCountRange).toEqual({ min: 5, max: 8 });
     expect(payload.design.mediaPolicy).toBe("minimal");
+    expect(payload.design.stylePackId).toBeUndefined();
+    expect(payload.design.visualRhythm).toBe("auto");
+    expect(payload.designPrompt).not.toContain("base=brandlogy-modern");
     expect(payload.referenceFileIds).toEqual([]);
     expect(payload.coachingContext).toEqual({
       briefRef: { mode: "generic" },

@@ -821,6 +821,7 @@ describe("editor shell", () => {
       type: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     });
     const phases: string[] = [];
+    const jobStatuses: string[] = [];
     const requestedUrls: string[] = [];
     const importedDeck = createDemoDeck();
     importedDeck.deckId = "deck_ooxml_file_template";
@@ -877,7 +878,10 @@ describe("editor shell", () => {
 
       if (url.endsWith("/pptx-ooxml-generations")) {
         expect(init?.method).toBe("POST");
-        expect(JSON.parse(String(init?.body))).toEqual({ fileId: "file_template" });
+        expect(JSON.parse(String(init?.body))).toEqual({
+          fileId: "file_template",
+          importPreference: "appearance-first"
+        });
         return new Response(
           JSON.stringify({
             job: jobPayload("queued", null, "pptx-ooxml-generation")
@@ -911,6 +915,8 @@ describe("editor shell", () => {
     await expect(
       importPptxIntoEditor("project-a", file, {
         fetcher,
+        importPreference: "appearance-first",
+        onJob: (job) => jobStatuses.push(job.status),
         onPhase: (phase) => phases.push(phase),
         pollIntervalMs: 0,
         refetchDeck
@@ -925,6 +931,7 @@ describe("editor shell", () => {
       importedDeck: { deckId: "deck_ooxml_file_template" }
     });
     expect(phases).toEqual(["uploading", "importing"]);
+    expect(jobStatuses).toEqual(["queued", "running", "succeeded"]);
     expect(jobPollCount).toBe(2);
     expect(refetchDeck).toHaveBeenCalledOnce();
     expect(requestedUrls.some((url) => url.endsWith("/pptx-imports"))).toBe(false);

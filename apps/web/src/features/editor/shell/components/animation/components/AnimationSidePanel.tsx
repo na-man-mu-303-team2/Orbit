@@ -34,7 +34,7 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
     onPlaySlideAnimations,
     onResizeStart,
     onDeleteAnimation,
-    onSelectKeyword,
+    onRequestKeywordOccurrence,
     onSelectSlideAnimation,
     onUpdateAnimation
   } = props;
@@ -66,7 +66,7 @@ export function AnimationSidePanel(props: AnimationSidePanelProps) {
         slideElements={slideElements}
         onAddAnimation={onAddAnimation}
         onDeleteAnimation={onDeleteAnimation}
-        onSelectKeyword={onSelectKeyword}
+        onRequestKeywordOccurrence={onRequestKeywordOccurrence}
         onSelectSlideAnimation={onSelectSlideAnimation}
         showIds={showIds}
         onUpdateAnimation={onUpdateAnimation}

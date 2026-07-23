@@ -5,7 +5,10 @@ import {
   deckIdSchema,
   deckSlideIdSchema,
 } from "./id.schema";
-import { ooxmlMotionCapabilitiesSchema } from "./deck.schema";
+import {
+  ooxmlMotionCapabilitiesSchema,
+  slideImportRenderModeSchema,
+} from "./deck.schema";
 import {
   deckElementTypeSchema,
   ooxmlElementEditCapabilitiesSchema,
@@ -225,6 +228,96 @@ export const templateBlueprintSlotSchema = z.object({
   source: templateSlotSourceSchema,
 });
 
+export const templateNotesPageStatusSchema = z.enum([
+  "absent",
+  "preserved",
+  "rendered",
+  "render-unavailable",
+]);
+
+const notesPartSchema = z
+  .string()
+  .regex(/^ppt\/notesSlides\/notesSlide[^/]+\.xml$/);
+const notesMasterPartSchema = z
+  .string()
+  .regex(/^ppt\/notesMasters\/notesMaster[^/]+\.xml$/);
+const notesDimensionEmuSchema = z.number().int().positive().max(10_000_000_000);
+
+export const templateNotesPageSchema = z
+  .object({
+    status: templateNotesPageStatusSchema,
+    sourceNotesPart: notesPartSchema.optional(),
+    sourceNotesMasterPart: notesMasterPartSchema.optional(),
+    bodyShapeId: z.string().trim().min(1).max(128).optional(),
+    bodyWritable: z.boolean(),
+    notesWidthEmu: notesDimensionEmuSchema.optional(),
+    notesHeightEmu: notesDimensionEmuSchema.optional(),
+    renderAssetFileId: z.string().trim().min(1).max(200).optional(),
+    hasNonBodyContent: z.boolean(),
+  })
+  .strict()
+  .superRefine((notesPage, ctx) => {
+    const hasSourceNotes = notesPage.sourceNotesPart !== undefined;
+    if (notesPage.status === "absent" && hasSourceNotes) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "absent notes page must not reference a source notes part",
+        path: ["sourceNotesPart"],
+      });
+    }
+    if (
+      notesPage.status === "absent" &&
+      (notesPage.sourceNotesMasterPart !== undefined ||
+        notesPage.bodyShapeId !== undefined ||
+        notesPage.bodyWritable ||
+        notesPage.hasNonBodyContent)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "absent notes page must not expose notes content metadata",
+        path: ["status"],
+      });
+    }
+    if (notesPage.status !== "absent" && !hasSourceNotes) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "preserved notes page requires a source notes part",
+        path: ["sourceNotesPart"],
+      });
+    }
+    if (notesPage.status === "rendered" && !notesPage.renderAssetFileId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "rendered notes page requires a render asset",
+        path: ["renderAssetFileId"],
+      });
+    }
+    if (notesPage.status !== "rendered" && notesPage.renderAssetFileId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "render asset is only valid for rendered notes pages",
+        path: ["renderAssetFileId"],
+      });
+    }
+    if (notesPage.bodyWritable && !notesPage.bodyShapeId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "writable notes body requires a stable body shape ID",
+        path: ["bodyShapeId"],
+      });
+    }
+    if (
+      (notesPage.notesWidthEmu === undefined) !==
+      (notesPage.notesHeightEmu === undefined)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "notes page dimensions must be provided together",
+        path: ["notesWidthEmu"],
+      });
+    }
+  });
+
 export const templateBlueprintSlideSchema = z
   .object({
     slideId: deckSlideIdSchema.optional(),
@@ -244,6 +337,7 @@ export const templateBlueprintSlideSchema = z
     selectionReason: z.string().trim().min(1).optional(),
     renderAssetFileId: z.string().min(1).optional(),
     fallbackRenderAssetFileId: z.string().min(1).optional(),
+    notesPage: templateNotesPageSchema.optional(),
     elementSources: z.array(templateElementSourceSchema).default([]),
     slots: z.array(templateBlueprintSlotSchema).default([]),
   })
@@ -322,13 +416,129 @@ export const qualityReportSlideStatusSchema = z.enum([
   "not_evaluated",
 ]);
 
-export const qualityReportSlideSchema = z.object({
-  slideIndex: z.number().int().positive(),
-  status: qualityReportSlideStatusSchema,
-  ssim: z.number().finite().min(0).max(1).nullable(),
-  reasons: z.array(z.string()).default([]),
-  fallback: z.enum(["rendered-background", "none"]).default("none"),
-});
+export const qualityReportPixelEvaluationSchema = z.enum([
+  "passed",
+  "failed",
+  "not-evaluated",
+]);
+
+export const qualityReportSlideSchema = z
+  .object({
+    slideIndex: z.number().int().positive(),
+    status: qualityReportSlideStatusSchema,
+    ssim: z.number().finite().min(0).max(1).nullable(),
+    reasons: z.array(z.string()).default([]),
+    fallback: z.enum(["rendered-background", "none"]).default("none"),
+    selectedRenderMode: slideImportRenderModeSchema.optional(),
+    recommendedRenderMode: slideImportRenderModeSchema.optional(),
+    pixelEvaluation: qualityReportPixelEvaluationSchema.optional(),
+    unsupportedObjectCount: z.number().int().min(0).max(10_000).optional(),
+    fontSubstitutionCount: z.number().int().min(0).max(10_000).optional(),
+  })
+  .superRefine((report, ctx) => {
+    const fidelityFields = [
+      report.selectedRenderMode,
+      report.recommendedRenderMode,
+      report.pixelEvaluation,
+      report.unsupportedObjectCount,
+      report.fontSubstitutionCount,
+    ];
+    const presentFieldCount = fidelityFields.filter(
+      (field) => field !== undefined,
+    ).length;
+    if (presentFieldCount > 0 && presentFieldCount < fidelityFields.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "slide fidelity diagnostics must be provided together",
+        path: ["selectedRenderMode"],
+      });
+    }
+
+    const expectedPixelEvaluation = {
+      passed: "passed",
+      vectorization_failed: "failed",
+      not_evaluated: "not-evaluated",
+    }[report.status];
+    if (
+      report.pixelEvaluation !== undefined &&
+      report.pixelEvaluation !== expectedPixelEvaluation
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "pixel evaluation must match the legacy slide status",
+        path: ["pixelEvaluation"],
+      });
+    }
+    if (report.pixelEvaluation === "not-evaluated" && report.ssim !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "unevaluated pixel fidelity must not include an SSIM value",
+        path: ["ssim"],
+      });
+    }
+    if (report.pixelEvaluation === "passed" && report.ssim === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "passed pixel fidelity requires an SSIM value",
+        path: ["ssim"],
+      });
+    }
+  });
+
+export const qualityReportNotesWarningCodeSchema = z.enum([
+  "PPTX_NOTES_RELATIONSHIP_MISSING",
+  "PPTX_NOTES_RELATIONSHIP_INVALID",
+  "PPTX_NOTES_BODY_MISSING",
+  "PPTX_NOTES_BODY_AMBIGUOUS",
+  "PPTX_NOTES_BODY_NOT_WRITABLE",
+  "PPTX_NOTES_RENDERER_UNAVAILABLE",
+  "PPTX_NOTES_RENDER_TIMEOUT",
+  "PPTX_NOTES_RENDER_FAILED",
+  "PPTX_NOTES_PAGE_COUNT_MISMATCH",
+  "PPTX_NOTES_PREVIEW_ASSET_FAILED",
+]);
+
+export const qualityReportNotesDiagnosticsSchema = z
+  .object({
+    total: z.number().int().min(0).max(10_000),
+    imported: z.number().int().min(0).max(10_000),
+    rendered: z.number().int().min(0).max(10_000),
+    writable: z.number().int().min(0).max(10_000),
+    warnings: z
+      .array(
+        z
+          .object({
+            code: qualityReportNotesWarningCodeSchema,
+            count: z.number().int().positive().max(10_000),
+          })
+          .strict(),
+      )
+      .max(100)
+      .default([]),
+  })
+  .strict()
+  .superRefine((diagnostics, ctx) => {
+    for (const field of ["imported", "rendered", "writable"] as const) {
+      if (diagnostics[field] > diagnostics.total) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${field} notes count must not exceed total`,
+          path: [field],
+        });
+      }
+    }
+    const codes = new Set<string>();
+    diagnostics.warnings.forEach((warning, index) => {
+      if (codes.has(warning.code)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "notes diagnostic warning codes must be unique",
+          path: ["warnings", index, "code"],
+        });
+      }
+      codes.add(warning.code);
+    });
+  });
 
 export const qualityReportMotionDiagnosticsSchema = z
   .object({
@@ -411,6 +621,7 @@ export const qualityReportSchema = z.object({
   appliedCap: z.number().int().min(0).max(100).nullable().default(null),
   slideReports: z.array(qualityReportSlideSchema).default([]),
   motionDiagnostics: qualityReportMotionDiagnosticsSchema.optional(),
+  notesDiagnostics: qualityReportNotesDiagnosticsSchema.optional(),
   notes: z.array(z.string()).default([]),
 });
 
@@ -428,6 +639,10 @@ export type TemplateSlotReplaceMode = z.infer<
   typeof templateSlotReplaceModeSchema
 >;
 export type TemplateBlueprintSlot = z.infer<typeof templateBlueprintSlotSchema>;
+export type TemplateNotesPageStatus = z.infer<
+  typeof templateNotesPageStatusSchema
+>;
+export type TemplateNotesPage = z.infer<typeof templateNotesPageSchema>;
 export type TemplateElementSource = z.infer<typeof templateElementSourceSchema>;
 export type TemplateTableCellLocator = z.infer<
   typeof templateTableCellLocatorSchema
@@ -482,4 +697,13 @@ export type QualityReportSlideStatus = z.infer<
   typeof qualityReportSlideStatusSchema
 >;
 export type QualityReportSlide = z.infer<typeof qualityReportSlideSchema>;
+export type QualityReportPixelEvaluation = z.infer<
+  typeof qualityReportPixelEvaluationSchema
+>;
+export type QualityReportNotesWarningCode = z.infer<
+  typeof qualityReportNotesWarningCodeSchema
+>;
+export type QualityReportNotesDiagnostics = z.infer<
+  typeof qualityReportNotesDiagnosticsSchema
+>;
 export type PptxImportJobResult = z.infer<typeof pptxImportJobResultSchema>;

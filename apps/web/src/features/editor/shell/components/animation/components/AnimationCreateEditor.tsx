@@ -38,6 +38,9 @@ export function AnimationCreateEditor(props: {
   const canSubmit =
     canCreateAnimation && !keywordTriggerRestrictionMessage;
   const hasKeywordTrigger = Boolean(selectedKeywordId);
+  const needsKeywordOccurrence = Boolean(
+    selectedKeywordId && !selectedKeywordOccurrenceId
+  );
   const startMode = hasKeywordTrigger ? "on-click" : draft.startMode;
 
   return (
@@ -65,38 +68,49 @@ export function AnimationCreateEditor(props: {
           {keywordTriggerWarningMessage}
         </div>
       ) : null}
-      <AnimationTimingFields
-        delayMs={draft.delayMs}
-        durationMs={draft.durationMs}
-        startMode={startMode}
-        startModeChangeDisabledReason={
-          hasKeywordTrigger
-            ? "키워드 action과 연결된 효과는 클릭할 때 시작합니다."
-            : null
-        }
-        onDelayChange={(delayMs) => onDraftChange({ delayMs })}
-        onDurationChange={(durationMs) => onDraftChange({ durationMs })}
-        onStartModeChange={(nextStartMode) =>
-          onDraftChange({ startMode: nextStartMode })
-        }
-      />
-      <div className="animation-panel-timing-actions">
-        <button
-          className="animation-panel-primary-button"
-          disabled={!canSubmit}
-          type="button"
-          onClick={() =>
-            onAddAnimation({
-              delayMs: draft.delayMs,
-              durationMs: draft.durationMs,
-              startMode,
-              type
-            }, selectedKeywordId, selectedKeywordOccurrenceId)
-          }
-        >
-          애니메이션 추가
-        </button>
-      </div>
+      {needsKeywordOccurrence ? (
+        <p className="animation-panel-section-note">
+          대본에서 트리거 위치를 선택하면 발화 트리거와 타이밍을 설정할 수 있습니다.
+        </p>
+      ) : (
+        <>
+          {hasKeywordTrigger ? (
+            <span className="animation-trigger-status">발화 트리거</span>
+          ) : null}
+          <AnimationTimingFields
+            delayMs={draft.delayMs}
+            durationMs={draft.durationMs}
+            startMode={startMode}
+            startModeChangeDisabledReason={
+              hasKeywordTrigger
+                ? "선택한 대본 단어가 발화되면 시작합니다."
+                : null
+            }
+            onDelayChange={(delayMs) => onDraftChange({ delayMs })}
+            onDurationChange={(durationMs) => onDraftChange({ durationMs })}
+            onStartModeChange={(nextStartMode) =>
+              onDraftChange({ startMode: nextStartMode })
+            }
+          />
+          <div className="animation-panel-timing-actions">
+            <button
+              className="animation-panel-primary-button"
+              disabled={!canSubmit}
+              type="button"
+              onClick={() =>
+                onAddAnimation({
+                  delayMs: draft.delayMs,
+                  durationMs: draft.durationMs,
+                  startMode,
+                  type
+                }, selectedKeywordId, selectedKeywordOccurrenceId)
+              }
+            >
+              애니메이션 추가
+            </button>
+          </div>
+        </>
+      )}
     </AnimationPanelSection>
   );
 }

@@ -25,4 +25,12 @@ describe("recommendGenerateDeckFonts", () => {
       overflowRisk: "high"
     });
   });
+
+  it("declares every numeric weight used by imported Pretendard variants", () => {
+    const pretendard = generateDeckFontCatalog.find(
+      (font) => font.fontId === "pretendard"
+    );
+
+    expect(pretendard?.weights).toEqual([200, 400, 500, 600, 700, 800]);
+  });
 });

@@ -199,6 +199,28 @@ describe("ReadOnlySlideCanvas", () => {
     expect(html).not.toContain("data-highlight-element-id=\"el_body\"");
   });
 
+  it("renders only the source snapshot while preserving the imported element tree", () => {
+    const snapshotSlide = {
+      ...slide,
+      importRenderMode: "snapshot" as const,
+      thumbnailUrl: "/api/v1/projects/project_p0/assets/file_source/content"
+    };
+    const html = renderToStaticMarkup(
+      <ReadOnlySlideCanvas
+        deck={{ ...p0AnimationDeck, slides: [snapshotSlide] }}
+        highlights={[{ elementId: "el_image", active: true }]}
+        slide={snapshotSlide}
+      />
+    );
+
+    expect(snapshotSlide.elements.length).toBeGreaterThan(0);
+    expect(html).toContain(
+      "/api/v1/projects/project_p0/assets/file_source/content"
+    );
+    expect(html).not.toContain("data-element-id=\"el_image\"");
+    expect(html).not.toContain("data-highlight-element-id=\"el_image\"");
+  });
+
   it("applies presentation state to grouped child elements", () => {
     const html = renderToStaticMarkup(
       <ReadOnlySlideCanvas

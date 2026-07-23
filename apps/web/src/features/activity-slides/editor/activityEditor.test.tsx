@@ -30,10 +30,12 @@ describe("activity slide editor", () => {
     const presenter = renderToStaticMarkup(<ActivitySlidePreview role="presenter" slide={slide} />);
 
     expect(audience).toContain("청중 참여 장표 미리보기");
-    expect(audience).toContain("응답 제출");
-    expect(audience).toContain("답변을 입력해 주세요");
+    expect(audience).not.toContain("응답 제출");
     expect(audience).toContain("전혀 아니요");
     expect(audience).toContain("매우 그래요");
+    expect(audience).toContain("다음 질문");
+    expect(audience).not.toContain("답변을 입력해 주세요");
+    expect(audience).not.toContain("이전 질문");
     expect(audience).not.toContain("redesign-orbit-brand");
     expect(audience).not.toContain("AUDIENCE");
     expect(presenter).toContain("발표자 참여 장표 미리보기");
@@ -45,11 +47,12 @@ describe("activity slide editor", () => {
     const html = renderToStaticMarkup(<ActivitySlideInspector onChange={vi.fn()} slide={slide} />);
 
     expect(html).not.toContain('aria-label="참여 장표 미리보기 역할"');
-    expect(html).toContain("발표자 화면 미리보기");
-    expect(html).toContain("발표자 참여 장표 미리보기");
+    expect(html).toContain("발표 화면 미리보기");
+    expect(html).toContain("리허설과 발표 중 청중에게 표시되는 참여 안내 화면입니다.");
+    expect(html).toContain("activity-audience-slide");
+    expect(html).toContain("지금 참여해 주세요");
     expect(html).toContain("응답 화면은 자동으로 만들어져요.");
     expect(html).not.toContain("시스템 레이어");
-    expect(html).toContain('data-activity-system-layer="locked"');
     expect(html).toContain('data-semantic-locked="false"');
   });
 
@@ -243,6 +246,35 @@ describe("activity slide editor", () => {
     expect(html).toContain('data-activity-template="poll"');
   });
 
+  it("shows one pre-question at a time with next-question navigation", () => {
+    const preQuestionSlide = createActivitySlide(createDemoDeck(), "pre-question");
+    const firstQuestion = preQuestionSlide.activity.questions[0]!;
+    const html = renderToStaticMarkup(
+      <ActivitySlidePreview
+        role="audience"
+        slide={{
+          ...preQuestionSlide,
+          activity: {
+            ...preQuestionSlide.activity,
+            questions: [
+              firstQuestion,
+              {
+                ...firstQuestion,
+                questionId: `${firstQuestion.questionId}_2`,
+                prompt: "두 번째 사전 질문"
+              }
+            ]
+          }
+        }}
+      />
+    );
+
+    expect(html).toContain(firstQuestion.prompt);
+    expect(html).toContain("다음 질문");
+    expect(html).not.toContain("두 번째 사전 질문");
+    expect(html).not.toContain("이전 질문");
+  });
+
   it.each(["pre-question", "poll", "satisfaction"] as const)("renders the %s template inspector", (template) => {
     const templateSlide = createActivitySlide(createDemoDeck(), template);
     const html = renderToStaticMarkup(<ActivitySlideInspector onChange={vi.fn()} slide={templateSlide} />);
@@ -274,8 +306,9 @@ describe("activity slide editor", () => {
     expect(inspectorHtml).toContain("청중 화면 새 창에서 보기");
     expect(inspectorHtml).not.toContain('title="실제 청중 화면 미리보기"');
     expect(inspectorHtml).not.toContain("실제 청중 입력 화면을 그대로 표시합니다.");
-    expect(inspectorHtml).toContain("발표자 화면 미리보기");
-    expect(inspectorHtml).toContain("발표 중 확인하게 될 응답 상태를 미리 보여줍니다.");
+    expect(inspectorHtml).toContain("발표 화면 미리보기");
+    expect(inspectorHtml).toContain("리허설과 발표 중 청중에게 표시되는 참여 안내 화면입니다.");
+    expect(inspectorHtml).toContain("지금 참여해 주세요");
     expect(inspectorHtml).toContain("받은 사전 질문");
     expect(inspectorHtml).toContain("질문 확인");
     expect(inspectorHtml).not.toContain("들어온 주관식 답변 확인");

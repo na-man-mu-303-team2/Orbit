@@ -1,4 +1,8 @@
-export type SlideNavigationSource = "auto" | "manual" | "remote-goto";
+export type SlideNavigationSource =
+  | "auto"
+  | "flow-navigator"
+  | "manual"
+  | "remote-goto";
 
 export type SlideNavigationRequest = {
   source: SlideNavigationSource;
@@ -30,7 +34,11 @@ export function createSlideAssetNavigationGate(options: {
     async request(
       request: SlideNavigationRequest
     ): Promise<SlideNavigationResult> {
-      if (pending && request.source !== "remote-goto") {
+      if (
+        pending &&
+        request.source !== "remote-goto" &&
+        request.source !== "flow-navigator"
+      ) {
         return "ignored";
       }
 
