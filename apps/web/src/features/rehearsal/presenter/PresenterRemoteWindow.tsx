@@ -3,6 +3,7 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
+  CircleSlash2,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -633,7 +634,9 @@ function PresenterSlidePreview(props: {
             />
           )
         ) : (
-          <div className="presenter-remote-preview-empty">마지막 슬라이드</div>
+          <div className="presenter-remote-preview-empty" aria-label="마지막 슬라이드">
+            <CircleSlash2 aria-hidden="true" />
+          </div>
         )}
       </div>
       {slide ? <p>{slide.title || slide.slideId}</p> : null}

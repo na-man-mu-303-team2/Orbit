@@ -3400,9 +3400,20 @@
 }
 
 .presenter-remote-preview-empty {
+  align-items: center;
   color: var(--redesign-color-on-surface-variant);
+  display: flex;
   font-size: var(--redesign-type-body-sm-size);
   font-weight: 900;
+  height: 100%;
+  justify-content: center;
+  width: 100%;
+}
+
+.presenter-remote-preview-empty svg {
+  height: clamp(32px, 5vw, 72px);
+  stroke-width: 2.4;
+  width: clamp(32px, 5vw, 72px);
 }
 
 .presenter-remote-preview p {
