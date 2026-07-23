@@ -633,6 +633,9 @@ export type PresentationCompanionAnnotationAck = z.infer<
 export type PresentationCompanionAnnotationSnapshot = z.infer<
   typeof presentationCompanionAnnotationSnapshotSchema
 >;
+export type PresentationCompanionStroke = z.infer<
+  typeof presentationCompanionStrokeSchema
+>;
 export type PresentationCompanionSnapshotRequest = z.infer<
   typeof presentationCompanionSnapshotRequestSchema
 >;
