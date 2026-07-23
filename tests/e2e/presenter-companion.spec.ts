@@ -59,9 +59,80 @@ test.describe("iPad presenter companion pairing", () => {
     );
     expect(page.url()).not.toContain("expired-private-code");
   });
+
+  test("fails closed when a bootstrap contains a private presenter field", async ({
+    page,
+  }) => {
+    const privateMarker = "PRIVATE_PRESENTER_NOTES_SENTINEL";
+    await page.route(
+      "**/api/v1/presentation-companion/session_private/bootstrap",
+      async (route) => {
+        const bootstrap = createBootstrap();
+        await route.fulfill({
+          contentType: "application/json",
+          json: {
+            ...bootstrap,
+            deck: {
+              ...bootstrap.deck,
+              slides: bootstrap.deck.slides.map((slide) => ({
+                ...slide,
+                speakerNotes: privateMarker,
+              })),
+            },
+          },
+        });
+      },
+    );
+
+    await page.goto("/companion/session_private");
+
+    await expect(page.getByRole("alert")).toContainText(
+      "iPad 발표 도우미 연결을 확인할 수 없습니다.",
+    );
+    await expect(page.locator("body")).not.toContainText(privateMarker);
+  });
+
+  test("uses the same safe route for rehearsal and keeps private markers absent", async ({
+    page,
+  }) => {
+    await page.route(
+      "**/api/v1/presentation-companion/session_rehearsal/bootstrap",
+      async (route) => {
+        await route.fulfill({
+          contentType: "application/json",
+          json: createBootstrap("rehearsal"),
+        });
+      },
+    );
+
+    await page.goto("/companion/session_rehearsal");
+
+    await expect(page.getByText("리허설")).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("speakerNotes");
+    await expect(page.locator("body")).not.toContainText("transcript");
+  });
+
+  test("keeps the companion surface closed when the feature is rolled back", async ({
+    page,
+  }) => {
+    await page.route(
+      "**/api/v1/presentation-companion/session_flag_off/bootstrap",
+      async (route) => {
+        await route.fulfill({ status: 404 });
+      },
+    );
+
+    await page.goto("/companion/session_flag_off");
+
+    await expect(page.getByRole("alert")).toContainText(
+      "iPad 발표 도우미 연결을 확인할 수 없습니다.",
+    );
+  });
 });
 
-function createBootstrap() {
+function createBootstrap(
+  sessionPurpose: "presentation" | "rehearsal" = "presentation",
+) {
   return {
     deck: {
       canvas: {
@@ -98,6 +169,6 @@ function createBootstrap() {
     expiresAt: "2026-07-23T04:00:00.000Z",
     scopes: ["view-audience-output", "write-annotation"],
     sessionId: "session_companion_1",
-    sessionPurpose: "presentation",
+    sessionPurpose,
   };
 }
