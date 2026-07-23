@@ -87,18 +87,16 @@ describe("PresentationWorkspace", () => {
     expect(source).toContain("rehearsal: false");
   });
 
-  it("resolves only the current presentation-step keyword occurrence", () => {
+  it("dispatches each presentation STT event through the shared occurrence runtime", () => {
     const source = fs.readFileSync(presentationWorkspaceSourcePath, "utf8");
 
-    expect(source).toContain("getExpectedKeywordOccurrenceStep");
-    expect(source).toContain("matchExpectedKeywordOccurrenceStep");
-    expect(source).toContain("findFutureKeywordOccurrenceMatches");
-    expect(source).toContain("resolveKeywordOccurrenceTriggeredActions");
+    expect(source).toContain("dispatchKeywordOccurrencePlayback");
+    expect(source).toContain("presentationSpeechEventHandlerRef");
+    expect(source).toContain("usePresentationSpeech(");
     expect(source).toContain("resolveManualAnimationPlaybackUpdate");
     expect(source).toContain("applyPlaybackUpdate");
     expect(source).toContain("confirmedOccurrenceIds");
-    expect(source).toContain("getSlideTranscriptEvent");
-    expect(source).toContain("resolvedSpeechEventRef");
+    expect(source).not.toContain("resolvedSpeechEventRef");
   });
 
   it("renders the auto-start presenter controls for an Activity slide", () => {

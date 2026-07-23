@@ -38,17 +38,23 @@ export function getExpectedKeywordOccurrenceStep(args: {
   slide: Slide;
   slideAnimationPlan: SlideshowAnimationPlan;
 }): ExpectedKeywordOccurrenceStep | null {
+  const terminalStepIndex =
+    args.slideAnimationPlan.maxStepIndex ??
+    args.slideAnimationPlan.triggerSteps.length;
   const timelineStep = args.slideAnimationPlan.triggerSteps[args.presenterStepIndex];
-  if (!timelineStep) return null;
+  const isTerminalStep =
+    !timelineStep &&
+    args.presenterStepIndex >= terminalStepIndex;
   const animationIds = new Set(
-    timelineStep.animations.map((animation) => animation.animationId)
+    timelineStep?.animations.map((animation) => animation.animationId) ?? []
   );
   const occurrenceIds = Array.from(
     new Set(
       args.slide.actions.flatMap((action) =>
         action.trigger.kind === "keyword-occurrence" &&
-        action.effect.kind === "play-animation" &&
-        animationIds.has(action.effect.animationId)
+        ((action.effect.kind === "play-animation" &&
+          animationIds.has(action.effect.animationId)) ||
+          (isTerminalStep && action.effect.kind === "go-to-next-slide"))
           ? [action.trigger.occurrenceId]
           : []
       )
@@ -157,9 +163,12 @@ export function findFutureKeywordOccurrenceMatches(args: {
     cursor = currentHits[0].end;
   }
   const matches: ExpectedKeywordOccurrenceMatch[] = [];
+  const terminalStepIndex =
+    args.slideAnimationPlan.maxStepIndex ??
+    args.slideAnimationPlan.triggerSteps.length;
   for (
     let stepIndex = args.presenterStepIndex + 1;
-    stepIndex < args.slideAnimationPlan.triggerSteps.length;
+    stepIndex <= terminalStepIndex;
     stepIndex += 1
   ) {
     const expectedStep = getExpectedKeywordOccurrenceStep({

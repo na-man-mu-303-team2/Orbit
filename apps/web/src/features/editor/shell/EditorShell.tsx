@@ -191,7 +191,6 @@ import {
 import { useSlidePracticeSession } from "../practice/useSlidePracticeSession";
 import {
   getTriggerAnimationIdsForSlide,
-  resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions,
   resolveManualAnimationPlaybackUpdate,
   resolveQueuedKeywordOccurrencePlayback,
@@ -203,11 +202,7 @@ import {
   createSlideshowAnimationPlan,
   type SlideshowAnimationPlan
 } from "../../rehearsal/presenter/slideshowStepModel";
-import {
-  findFutureKeywordOccurrenceMatches,
-  getExpectedKeywordOccurrenceStep,
-  matchExpectedKeywordOccurrenceStep
-} from "../../rehearsal/speech/keywordOccurrenceStepResolver";
+import { dispatchKeywordOccurrencePlayback } from "../../rehearsal/speech/keywordOccurrencePlaybackDispatcher";
 import { useAutoSlideQuestionGuides } from "../practice/useAutoSlideQuestionGuides";
 import { useShapeMenuPlacement } from "./hooks/useShapeMenuPlacement";
 import { createSelectionNudgePatch } from "./utils/selectionNudge";
@@ -744,66 +739,33 @@ export function EditorShell(props: { projectId?: string }) {
       slide: eventSlide,
       triggerAnimationIds: getTriggerAnimationIdsForSlide(eventSlide)
     });
-    const expectedStep = getExpectedKeywordOccurrenceStep({
-      presenterStepIndex: slideRehearsalStepIndexRef.current,
-      slide: eventSlide,
-      slideAnimationPlan: eventSlideAnimationPlan
-    });
-    const occurrenceResolution = matchExpectedKeywordOccurrenceStep({
+    const dispatchedOccurrencePlayback = dispatchKeywordOccurrencePlayback({
       confidence: event.result.confidence ?? null,
       consumedOccurrenceIds: slideRehearsalConfirmedOccurrenceIdsRef.current,
-      expectedStep,
       newSegment: event.newSegment,
-      slide: eventSlide
-    });
-    const occurrenceMatches = [
-      ...occurrenceResolution.matches,
-      ...findFutureKeywordOccurrenceMatches({
-        confidence: event.result.confidence ?? null,
-        consumedOccurrenceIds: slideRehearsalConfirmedOccurrenceIdsRef.current,
-        newSegment: event.newSegment,
-        presenterStepIndex: slideRehearsalStepIndexRef.current,
-        slide: eventSlide,
-        slideAnimationPlan: eventSlideAnimationPlan
-      })
-    ];
-    const actionsByOccurrenceId = new Map<string, Slide["actions"]>();
-    for (const occurrenceMatch of occurrenceMatches) {
-      actionsByOccurrenceId.set(
-        occurrenceMatch.occurrenceId,
-        resolveKeywordOccurrenceTriggeredActions(
-          eventSlide,
-          occurrenceMatch.keywordId,
-          occurrenceMatch.occurrenceId
-        )
-      );
-    }
-    const queuedOccurrencePlayback = resolveQueuedKeywordOccurrencePlayback({
-      actionsByOccurrenceId,
-      matchedOccurrenceIds: occurrenceMatches.map(
-        (occurrenceMatch) => occurrenceMatch.occurrenceId
-      ),
       pendingOccurrenceIds: slideRehearsalPendingOccurrenceIdsRef.current,
       playbackState: slideRehearsalPlaybackStateRef.current,
       presenterStepIndex: slideRehearsalStepIndexRef.current,
       slide: eventSlide,
       slideAnimationPlan: eventSlideAnimationPlan
     });
+    const occurrenceMatches = dispatchedOccurrencePlayback.matches;
+    const queuedOccurrencePlayback = dispatchedOccurrencePlayback.queuedPlayback;
     slideRehearsalPendingOccurrenceIdsRef.current =
       queuedOccurrencePlayback.pendingOccurrenceIds;
     setSlideRehearsalAnimationDebug({
       approvalOccurrenceId:
-        occurrenceResolution.blocker === "confidence-low" &&
-        occurrenceResolution.candidates.length === 1
-          ? occurrenceResolution.candidates[0]?.occurrenceId ?? null
+        dispatchedOccurrencePlayback.resolution.blocker === "confidence-low" &&
+        dispatchedOccurrencePlayback.resolution.candidates.length === 1
+          ? dispatchedOccurrencePlayback.resolution.candidates[0]?.occurrenceId ?? null
           : null,
-      blocker: occurrenceResolution.blocker,
+      blocker: dispatchedOccurrencePlayback.resolution.blocker,
       confidence: event.result.confidence ?? null,
       consumedOccurrenceIds: [
         ...slideRehearsalConfirmedOccurrenceIdsRef.current,
         ...queuedOccurrencePlayback.consumedOccurrenceIds
       ],
-      expectedOccurrenceIds: expectedStep?.occurrenceIds ?? [],
+      expectedOccurrenceIds: dispatchedOccurrencePlayback.expectedStepOccurrenceIds,
       matchedOccurrenceIds: occurrenceMatches.map(
         (occurrenceMatch) => occurrenceMatch.occurrenceId
       ),

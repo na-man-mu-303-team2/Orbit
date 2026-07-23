@@ -97,4 +97,33 @@ describe("current-step keyword occurrence resolver", () => {
       })
     ).toMatchObject([{ occurrenceId: "ob" }]);
   });
+
+  it("exposes an occurrence next-slide action as the terminal step", () => {
+    const terminalSlide = {
+      ...slide,
+      actions: [
+        ...slide.actions,
+        {
+          actionId: "next",
+          effect: { kind: "go-to-next-slide" },
+          trigger: { kind: "keyword-occurrence", keywordId: "kb", occurrenceId: "onext" },
+        },
+      ],
+    } as Slide;
+    const terminalPlan = {
+      maxStepIndex: 2,
+      triggerSteps: [
+        { animations: [{ animationId: "anim-a" }], durationMs: 1, order: 1, rootAnimationId: "anim-a" },
+        { animations: [{ animationId: "anim-b" }], durationMs: 1, order: 2, rootAnimationId: "anim-b" },
+      ],
+    } as never;
+
+    expect(
+      getExpectedKeywordOccurrenceStep({
+        presenterStepIndex: 2,
+        slide: terminalSlide,
+        slideAnimationPlan: terminalPlan,
+      }),
+    ).toMatchObject({ occurrenceIds: ["onext"], stepIndex: 2 });
+  });
 });

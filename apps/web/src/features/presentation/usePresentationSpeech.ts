@@ -7,7 +7,7 @@ import {
 } from "../rehearsal/speech/speechTracker";
 import type { SpeechTrackerSnapshot } from "../rehearsal/speech/speechTrackingEvents";
 import { createLiveSttPort } from "../rehearsal/stt/liveSttEngineRegistry";
-import type { LiveSttPort } from "../rehearsal/stt/liveSttPort";
+import type { LiveSttPort, LiveSttResult } from "../rehearsal/stt/liveSttPort";
 import { normalizeLiveSttBiasPhrases } from "../rehearsal/stt/liveSttPort";
 import { fetchLiveSttRuntimeConfig } from "../rehearsal/stt/liveSttRuntimeConfig";
 import {
@@ -27,6 +27,13 @@ type PresentationSpeechState = {
   wordsPerMinute: number;
 };
 
+export type PresentationSpeechTranscriptEvent = {
+  newSegment: string;
+  result: LiveSttResult;
+  slide: Slide;
+  transcript: string;
+};
+
 const initialState: PresentationSpeechState = {
   error: null,
   lastTranscriptActivityAtMs: null,
@@ -38,7 +45,10 @@ const initialState: PresentationSpeechState = {
   wordsPerMinute: 0,
 };
 
-export function usePresentationSpeech(projectId?: string) {
+export function usePresentationSpeech(
+  projectId?: string,
+  onSlideTranscriptEvent?: (event: PresentationSpeechTranscriptEvent) => void,
+) {
   const [state, setState] = useState(initialState);
   const portRef = useRef<LiveSttPort | null>(null);
   const trackerRef = useRef<SpeechTracker | null>(null);
@@ -57,6 +67,8 @@ export function usePresentationSpeech(projectId?: string) {
     createTranscriptRevisionState(),
   );
   const unsubscribersRef = useRef<Array<() => void>>([]);
+  const onSlideTranscriptEventRef = useRef(onSlideTranscriptEvent);
+  onSlideTranscriptEventRef.current = onSlideTranscriptEvent;
 
   const enterSlide = useCallback((slide: Slide) => {
     slideRef.current = slide;
@@ -128,6 +140,15 @@ export function usePresentationSpeech(projectId?: string) {
           latestSlideTranscriptAfterRef.current = transcriptRevision.currentTranscript;
           latestSlideTranscriptSegmentRef.current = transcriptRevision.newSegment;
           latestSlideTranscriptSequenceRef.current += 1;
+          const activeSlide = slideRef.current;
+          if (activeSlide) {
+            onSlideTranscriptEventRef.current?.({
+              newSegment: transcriptRevision.newSegment,
+              result,
+              slide: activeSlide,
+              transcript: transcriptRevision.currentTranscript,
+            });
+          }
           tracker.acceptResult(result);
           if (result.isFinal) {
             const finalText = result.text.trim();

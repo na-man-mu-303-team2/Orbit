@@ -146,7 +146,6 @@ import { SherpaLiveSttPort } from "./stt/sherpaLiveSttPort";
 import {
   getKeywordOccurrenceTriggerIdsForSlide,
   resolveCueTriggeredActions,
-  resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions,
   getTriggerAnimationIdsForSlide,
   restoreSlidePlaybackAtStep,
@@ -282,11 +281,7 @@ import {
   type PauseDetectorSnapshot,
 } from "./speech/pauseDetector";
 import { defaultSpeechTrackingConfig } from "./speech/speechTrackingConfig";
-import {
-  findFutureKeywordOccurrenceMatches,
-  getExpectedKeywordOccurrenceStep,
-  matchExpectedKeywordOccurrenceStep,
-} from "./speech/keywordOccurrenceStepResolver";
+import { dispatchKeywordOccurrencePlayback } from "./speech/keywordOccurrencePlaybackDispatcher";
 import {
   applyTranscriptRevision,
   createTranscriptRevisionState,
@@ -4037,29 +4032,21 @@ export function RehearsalWorkspace(props: {
     );
     if (transcriptRevision.isStale) return;
     liveOccurrenceTranscriptRevisionRef.current = transcriptRevision.state;
-    const expectedStep = getExpectedKeywordOccurrenceStep({
+    const pendingOccurrenceIds =
+      pendingKeywordOccurrenceIdsRef.current?.slideId === slide.slideId
+        ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
+        : [];
+    const dispatchedOccurrencePlayback = dispatchKeywordOccurrencePlayback({
+      confidence: event.confidence,
+      consumedOccurrenceIds: occurrenceState.confirmedOccurrenceIds,
+      newSegment: transcriptRevision.newSegment,
+      pendingOccurrenceIds,
+      playbackState: slidePlaybackStateRef.current,
       presenterStepIndex: presenterStepIndexRef.current,
       slide,
       slideAnimationPlan,
     });
-    const occurrenceResolution = matchExpectedKeywordOccurrenceStep({
-      confidence: event.confidence,
-      consumedOccurrenceIds: occurrenceState.confirmedOccurrenceIds,
-      expectedStep,
-      newSegment: transcriptRevision.newSegment,
-      slide,
-    });
-    const occurrenceMatches = [
-      ...occurrenceResolution.matches,
-      ...findFutureKeywordOccurrenceMatches({
-        confidence: event.confidence,
-        consumedOccurrenceIds: occurrenceState.confirmedOccurrenceIds,
-        newSegment: transcriptRevision.newSegment,
-        presenterStepIndex: presenterStepIndexRef.current,
-        slide,
-        slideAnimationPlan,
-      }),
-    ];
+    const occurrenceMatches = dispatchedOccurrencePlayback.matches;
 
     for (const occurrenceMatch of occurrenceMatches) {
       setLiveCue(
@@ -4070,32 +4057,7 @@ export function RehearsalWorkspace(props: {
       );
 
     }
-    const actionsByOccurrenceId = new Map<string, Slide["actions"]>();
-    for (const occurrenceMatch of occurrenceMatches) {
-      actionsByOccurrenceId.set(
-        occurrenceMatch.occurrenceId,
-        resolveKeywordOccurrenceTriggeredActions(
-          slide,
-          occurrenceMatch.keywordId,
-          occurrenceMatch.occurrenceId,
-        ),
-      );
-    }
-    const pendingOccurrenceIds =
-      pendingKeywordOccurrenceIdsRef.current?.slideId === slide.slideId
-        ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
-        : [];
-    const queuedOccurrencePlayback = resolveQueuedKeywordOccurrencePlayback({
-      actionsByOccurrenceId,
-      matchedOccurrenceIds: occurrenceMatches.map(
-        (match) => match.occurrenceId,
-      ),
-      pendingOccurrenceIds,
-      playbackState: slidePlaybackStateRef.current,
-      presenterStepIndex: presenterStepIndexRef.current,
-      slide,
-      slideAnimationPlan,
-    });
+    const queuedOccurrencePlayback = dispatchedOccurrencePlayback.queuedPlayback;
     pendingKeywordOccurrenceIdsRef.current = {
       occurrenceIds: queuedOccurrencePlayback.pendingOccurrenceIds,
       slideId: slide.slideId,
@@ -4103,17 +4065,17 @@ export function RehearsalWorkspace(props: {
     setPendingKeywordOccurrenceIds(queuedOccurrencePlayback.pendingOccurrenceIds);
     setLiveAnimationTriggerDebug({
       approvalOccurrenceId:
-        occurrenceResolution.blocker === "confidence-low" &&
-        occurrenceResolution.candidates.length === 1
-          ? occurrenceResolution.candidates[0]?.occurrenceId ?? null
+        dispatchedOccurrencePlayback.resolution.blocker === "confidence-low" &&
+        dispatchedOccurrencePlayback.resolution.candidates.length === 1
+          ? dispatchedOccurrencePlayback.resolution.candidates[0]?.occurrenceId ?? null
           : null,
-      blocker: occurrenceResolution.blocker,
+      blocker: dispatchedOccurrencePlayback.resolution.blocker,
       confidence: event.confidence,
       consumedOccurrenceIds: [
         ...occurrenceState.confirmedOccurrenceIds,
         ...queuedOccurrencePlayback.consumedOccurrenceIds,
       ],
-      expectedOccurrenceIds: expectedStep?.occurrenceIds ?? [],
+      expectedOccurrenceIds: dispatchedOccurrencePlayback.expectedStepOccurrenceIds,
       isFinal: event.isFinal,
       matchedOccurrenceIds: occurrenceMatches.map((match) => match.occurrenceId),
       newSegment: transcriptRevision.newSegment,

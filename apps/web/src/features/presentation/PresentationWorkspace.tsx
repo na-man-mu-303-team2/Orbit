@@ -26,7 +26,10 @@ import {
   createPresentationRecordingSession,
   type PresentationRecordingSession,
 } from "./presentationRecording";
-import { usePresentationSpeech } from "./usePresentationSpeech";
+import {
+  usePresentationSpeech,
+  type PresentationSpeechTranscriptEvent,
+} from "./usePresentationSpeech";
 import { getPresentationHighlightedKeywordOccurrences } from "./presentationKeywordOccurrences";
 import { getPresentationFailureCopy } from "./presentationFailureCopy";
 import {
@@ -52,7 +55,6 @@ import {
   restoreSlidePlaybackAtStep,
   resolveManualAnimationPlaybackUpdate,
   resolveQueuedKeywordOccurrencePlayback,
-  resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions,
   resolveTriggeredActionPlaybackUpdate,
 } from "../rehearsal/playback/triggeredActionPlayback";
@@ -71,10 +73,10 @@ import {
 } from "../rehearsal/advance/advanceController";
 import { createDefaultPhraseExtractor } from "../rehearsal/speech/phraseExtractor";
 import {
-  findFutureKeywordOccurrenceMatches,
   getExpectedKeywordOccurrenceStep,
   matchExpectedKeywordOccurrenceStep,
 } from "../rehearsal/speech/keywordOccurrenceStepResolver";
+import { dispatchKeywordOccurrencePlayback } from "../rehearsal/speech/keywordOccurrencePlaybackDispatcher";
 import type { SpeechTrackerSnapshot } from "../rehearsal/speech/speechTrackingEvents";
 import {
   PresenterStatusShell,
@@ -161,10 +163,15 @@ export function PresentationWorkspace(props: {
     occurrenceIds: string[];
     slideId: string;
   } | null>(null);
-  const resolvedSpeechEventRef = useRef<{
-    sequence: number;
-    slideId: string;
-  } | null>(null);
+  const presentationSpeechEventHandlerRef = useRef<
+    ((event: PresentationSpeechTranscriptEvent) => void) | null
+  >(null);
+  const currentSlideRef = useRef<Slide | null>(null);
+  const slideshowAnimationPlanRef = useRef<ReturnType<
+    typeof createSlideshowAnimationPlan
+  > | null>(null);
+  const presenterStepIndexRef = useRef(presenterStepIndex);
+  const runtimePhaseRef = useRef(runtimePhase);
   const [pendingKeywordOccurrenceIds, setPendingKeywordOccurrenceIds] =
     useState<string[]>([]);
   const pendingFlowRestoreRef = useRef<{
@@ -181,8 +188,6 @@ export function PresentationWorkspace(props: {
       createInitialAdvanceControllerState(),
     );
   const [autoAdvanceNowMs, setAutoAdvanceNowMs] = useState(0);
-  const speech = usePresentationSpeech(props.projectId);
-
   useEffect(() => {
     if (props.initialDeck) {
       return;
@@ -298,6 +303,14 @@ export function PresentationWorkspace(props: {
           })
         : null,
     [currentSlide, triggerAnimationIds],
+  );
+  currentSlideRef.current = currentSlide;
+  slideshowAnimationPlanRef.current = slideshowAnimationPlan;
+  presenterStepIndexRef.current = presenterStepIndex;
+  runtimePhaseRef.current = runtimePhase;
+  const speech = usePresentationSpeech(
+    props.projectId,
+    (event) => presentationSpeechEventHandlerRef.current?.(event),
   );
   const animationTriggerDebugEnabled =
     typeof window !== "undefined" &&
@@ -478,6 +491,7 @@ export function PresentationWorkspace(props: {
 
   const goPrevious = useCallback(() => {
     cancelAutoAdvanceForManualCommand();
+    presenterStepIndexRef.current = 0;
     setPresenterStepIndex(0);
     setCurrentSlideIndex((current) => Math.max(0, current - 1));
   }, [cancelAutoAdvanceForManualCommand]);
@@ -488,6 +502,7 @@ export function PresentationWorkspace(props: {
     }
 
     cancelAutoAdvanceForManualCommand();
+    presenterStepIndexRef.current = 0;
     setPresenterStepIndex(0);
     setCurrentSlideIndex((current) =>
       Math.min(deck.slides.length - 1, current + 1),
@@ -534,10 +549,53 @@ export function PresentationWorkspace(props: {
         return;
       }
 
+      presenterStepIndexRef.current = args.update.presenterStepIndex;
       setPresenterStepIndex(args.update.presenterStepIndex);
     },
     [goNext],
   );
+
+  presentationSpeechEventHandlerRef.current = (event) => {
+    const slide = event.slide;
+    const slideAnimationPlan = slideshowAnimationPlanRef.current;
+    if (
+      !slideAnimationPlan ||
+      currentSlideRef.current?.slideId !== slide.slideId ||
+      runtimePhaseRef.current !== "active"
+    ) {
+      return;
+    }
+    const occurrenceState =
+      keywordOccurrenceStateRef.current?.slideId === slide.slideId
+        ? keywordOccurrenceStateRef.current
+        : { slideId: slide.slideId, confirmedOccurrenceIds: [] };
+    const pendingOccurrenceIds =
+      pendingKeywordOccurrenceIdsRef.current?.slideId === slide.slideId
+        ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
+        : [];
+    const dispatched = dispatchKeywordOccurrencePlayback({
+      confidence: event.result.confidence ?? null,
+      consumedOccurrenceIds: occurrenceState.confirmedOccurrenceIds,
+      newSegment: event.newSegment,
+      pendingOccurrenceIds,
+      playbackState: playbackStateRef.current,
+      presenterStepIndex: presenterStepIndexRef.current,
+      slide,
+      slideAnimationPlan,
+    });
+    pendingKeywordOccurrenceIdsRef.current = {
+      occurrenceIds: dispatched.queuedPlayback.pendingOccurrenceIds,
+      slideId: slide.slideId,
+    };
+    setPendingKeywordOccurrenceIds(dispatched.queuedPlayback.pendingOccurrenceIds);
+    if (dispatched.queuedPlayback.update) {
+      applyPlaybackUpdate({
+        consumedOccurrenceIds: dispatched.queuedPlayback.consumedOccurrenceIds,
+        slide,
+        update: dispatched.queuedPlayback.update,
+      });
+    }
+  };
 
   const handleNextPresenterStep = useCallback(() => {
     if (!currentSlide || !slideshowAnimationPlan) {
@@ -792,108 +850,6 @@ export function PresentationWorkspace(props: {
     runtimePhase,
     slideshowAnimationPlan,
     speech.state.lastTranscriptActivityAtMs,
-    speech.state.status,
-  ]);
-
-  useEffect(() => {
-    if (
-      !currentSlide ||
-      !slideshowAnimationPlan ||
-      runtimePhase !== "active" ||
-      speech.state.status !== "listening" ||
-      !speech.state.latestTranscript.trim()
-    ) {
-      return;
-    }
-
-    const currentState =
-      keywordOccurrenceStateRef.current?.slideId === currentSlide.slideId
-        ? keywordOccurrenceStateRef.current
-        : { slideId: currentSlide.slideId, confirmedOccurrenceIds: [] };
-    const transcriptEvent = speech.getSlideTranscriptEvent();
-    if (
-      transcriptEvent.sequence === 0 ||
-      (resolvedSpeechEventRef.current?.slideId === currentSlide.slideId &&
-        resolvedSpeechEventRef.current.sequence >= transcriptEvent.sequence)
-    ) {
-      return;
-    }
-    resolvedSpeechEventRef.current = {
-      sequence: transcriptEvent.sequence,
-      slideId: currentSlide.slideId,
-    };
-    const expectedStep = getExpectedKeywordOccurrenceStep({
-      presenterStepIndex,
-      slide: currentSlide,
-      slideAnimationPlan: slideshowAnimationPlan,
-    });
-    const resolution = matchExpectedKeywordOccurrenceStep({
-      confidence: speech.state.latestTranscriptConfidence,
-      consumedOccurrenceIds: currentState.confirmedOccurrenceIds,
-      expectedStep,
-      newSegment: transcriptEvent.newSegment,
-      slide: currentSlide,
-    });
-    const matches = [
-      ...resolution.matches,
-      ...findFutureKeywordOccurrenceMatches({
-        confidence: speech.state.latestTranscriptConfidence,
-        consumedOccurrenceIds: currentState.confirmedOccurrenceIds,
-        newSegment: transcriptEvent.newSegment,
-        presenterStepIndex,
-        slide: currentSlide,
-        slideAnimationPlan: slideshowAnimationPlan,
-      }),
-    ];
-    if (matches.length === 0) {
-      return;
-    }
-
-    const actionsByOccurrenceId = new Map<string, Slide["actions"]>();
-    for (const match of matches) {
-      actionsByOccurrenceId.set(
-        match.occurrenceId,
-        resolveKeywordOccurrenceTriggeredActions(
-          currentSlide,
-          match.keywordId,
-          match.occurrenceId,
-        ),
-      );
-    }
-    const pendingOccurrenceIds =
-      pendingKeywordOccurrenceIdsRef.current?.slideId === currentSlide.slideId
-        ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
-        : [];
-    const queued = resolveQueuedKeywordOccurrencePlayback({
-      actionsByOccurrenceId,
-      matchedOccurrenceIds: matches.map((match) => match.occurrenceId),
-      pendingOccurrenceIds,
-      playbackState: playbackStateRef.current,
-      presenterStepIndex,
-      slide: currentSlide,
-      slideAnimationPlan: slideshowAnimationPlan,
-    });
-    pendingKeywordOccurrenceIdsRef.current = {
-      occurrenceIds: queued.pendingOccurrenceIds,
-      slideId: currentSlide.slideId,
-    };
-    setPendingKeywordOccurrenceIds(queued.pendingOccurrenceIds);
-    if (!queued.update) {
-      return;
-    }
-    applyPlaybackUpdate({
-      consumedOccurrenceIds: queued.consumedOccurrenceIds,
-      slide: currentSlide,
-      update: queued.update,
-    });
-  }, [
-    applyPlaybackUpdate,
-    currentSlide,
-    presenterStepIndex,
-    runtimePhase,
-    slideshowAnimationPlan,
-    speech.state.latestTranscript,
-    speech.state.latestTranscriptConfidence,
     speech.state.status,
   ]);
 
