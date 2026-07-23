@@ -3689,7 +3689,9 @@
   gap: var(--redesign-space-3);
   height: 100dvh;
   overflow: hidden;
+  padding-inline: var(--redesign-layout-workspace-margin);
   padding-block-start: 0;
+  width: min(100%, var(--redesign-layout-content-max-width));
 }
 
 .presenter-remote-shell > .audience-output-controls {
@@ -3776,15 +3778,26 @@
 .presenter-remote-shell
   > .audience-output-controls
   .audience-output-control-status {
+  align-items: center;
+  background: var(--redesign-color-warning-container);
+  border: 1px solid
+    color-mix(in srgb, var(--redesign-color-warning) 28%, transparent);
+  border-radius: var(--redesign-radius);
+  color: var(--redesign-color-warning);
+  display: flex;
   font-size: var(--redesign-type-label-sm-size);
+  font-weight: 750;
+  gap: var(--redesign-space-2);
+  padding: var(--redesign-space-2) var(--redesign-space-3);
   text-align: left;
 }
 
 .presenter-remote-stage {
   align-self: center;
+  gap: var(--redesign-space-5) var(--redesign-space-6);
   grid-template-columns: minmax(0, 1fr) clamp(240px, 20vw, 300px);
-  grid-template-rows: minmax(0, 1fr) clamp(128px, 16dvh, 176px);
-  max-width: min(100%, calc((100dvh - 170px) * 16 / 9 + 336px));
+  grid-template-rows: minmax(0, 1fr) clamp(232px, 27dvh, 248px);
+  max-width: 100%;
   width: 100%;
 }
 
@@ -3794,18 +3807,27 @@
 
 .presenter-remote-preview-rail {
   align-items: center;
+  background: var(--redesign-color-dark-surface);
+  border: 0;
+  border-radius: var(--redesign-radius-lg);
   display: grid;
   grid-column: 1;
   grid-row: 2;
   grid-template-columns: 44px minmax(132px, 0.78fr) minmax(154px, 1fr) minmax(132px, 0.78fr) 44px;
   overflow: hidden;
-  padding: var(--redesign-space-3);
+  padding: var(--redesign-space-3) var(--redesign-space-5);
 }
 
 .presenter-remote-preview {
   align-content: center;
   gap: var(--redesign-space-1);
+  min-height: 0;
   min-width: 0;
+  opacity: 0.58;
+}
+
+.presenter-remote-preview:nth-of-type(2) {
+  opacity: 1;
 }
 
 .presenter-remote-preview-control {
@@ -3844,6 +3866,21 @@
 
 .presenter-remote-preview-frame {
   border-radius: var(--redesign-radius);
+}
+
+.presenter-remote-preview:nth-of-type(2) .presenter-remote-preview-frame {
+  background: var(--redesign-color-surface-container-lowest);
+  border-color: var(--redesign-color-surface-container-lowest);
+}
+
+.presenter-remote-preview-title span,
+.presenter-remote-preview-title strong,
+.presenter-remote-preview p {
+  color: var(--redesign-color-on-dark);
+}
+
+.presenter-remote-preview > p {
+  display: none;
 }
 
 .presenter-remote-slide-list {
@@ -3918,42 +3955,51 @@
   overflow: hidden;
 }
 
-.presenter-remote-cue-sidebar > .rehearsal-panel {
-  gap: var(--redesign-space-3);
-  min-height: 0;
-  overflow: auto;
-  padding: 0;
-}
-
-.presenter-remote-cue-sidebar
-  > .rehearsal-panel
-  .rehearsal-panel-top-grid {
-  gap: var(--redesign-space-3);
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.presenter-remote-cue-sidebar
-  > .rehearsal-panel
-  .rehearsal-panel-top-grid
-  > .rehearsal-panel-section {
-  background: var(--redesign-color-surface-container-lowest);
+.presenter-remote-cue-sidebar > .presenter-remote-progress-panel {
+  background: var(--redesign-color-surface-container-low);
   border: 1px solid var(--redesign-color-outline-variant);
   border-radius: var(--redesign-radius-lg);
+  gap: var(--redesign-space-3);
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
   padding: var(--redesign-space-3);
 }
 
 .presenter-remote-cue-sidebar
-  > .rehearsal-panel
+  > .presenter-remote-progress-panel
+  .rehearsal-panel-top-grid {
+  gap: var(--redesign-space-3);
+  height: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: max-content minmax(0, 1fr);
+}
+
+.presenter-remote-cue-sidebar
+  > .presenter-remote-progress-panel
+  .rehearsal-panel-top-grid
+  > .rehearsal-panel-section {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
+.presenter-remote-cue-sidebar
+  > .presenter-remote-progress-panel
   .rehearsal-panel-live-slot {
   border-left: 0;
+  display: block;
+  height: 100%;
   min-height: 0;
   padding-left: 0;
 }
 
 .presenter-remote-cue-sidebar
-  > .rehearsal-panel
+  > .presenter-remote-progress-panel
   .activity-presenter-panel {
   border-radius: var(--redesign-radius-lg);
+  height: 100%;
   min-height: 0;
 }
 

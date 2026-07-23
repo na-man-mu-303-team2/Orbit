@@ -138,7 +138,8 @@ export function AudienceOutputControls(props: {
         ) : null}
 
         <p aria-live="polite" className="audience-output-control-status">
-          {getAudienceOutputStatus(props)}
+          <IconAlertTriangle aria-hidden="true" size={18} />
+          <span>{getAudienceOutputStatus(props)}</span>
         </p>
       </div>
 

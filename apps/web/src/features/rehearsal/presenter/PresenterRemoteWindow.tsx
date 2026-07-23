@@ -514,7 +514,10 @@ export function PresenterRemoteWindow(props: {
             title="발표 스톱워치"
           />
 
-          <section className="rehearsal-panel" aria-label="발표 진행 패널">
+          <section
+            className="rehearsal-panel presenter-remote-progress-panel"
+            aria-label="발표 진행 패널"
+          >
             <RehearsalPanelTopGrid
               hitKeywordIds={hitKeywordIds}
               keywords={panelKeywords}
