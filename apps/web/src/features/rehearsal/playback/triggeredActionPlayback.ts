@@ -29,7 +29,11 @@ export type QueuedKeywordOccurrencePlaybackUpdate = {
   update: TriggeredActionPlaybackUpdate | null;
 };
 
-/** Only the current timeline step may run from speech; later matches wait for click fallback. */
+/**
+ * Only the current animation step may run from speech; later matches wait for
+ * click fallback. An occurrence-only next-slide action is the terminal step,
+ * so it may run only after every animation step has settled.
+ */
 export function resolveQueuedKeywordOccurrencePlayback(args: {
   actionsByOccurrenceId: ReadonlyMap<string, DeckSlideAction[]>;
   pendingOccurrenceIds: readonly string[];
@@ -43,15 +47,22 @@ export function resolveQueuedKeywordOccurrencePlayback(args: {
   const currentAnimationIds = new Set(
     currentStep?.animations.map((animation) => animation.animationId) ?? []
   );
+  const canAdvanceSlide =
+    args.presenterStepIndex >= args.slideAnimationPlan.maxStepIndex;
   const pendingOccurrenceIds = new Set(args.pendingOccurrenceIds);
   args.matchedOccurrenceIds.forEach((occurrenceId) => pendingOccurrenceIds.add(occurrenceId));
-  const executableOccurrenceIds = Array.from(pendingOccurrenceIds).filter((occurrenceId) =>
-    (args.actionsByOccurrenceId.get(occurrenceId) ?? []).some(
-      (action) =>
-        action.effect.kind === "play-animation" &&
-        currentAnimationIds.has(action.effect.animationId)
-    )
+  const executableActionsByOccurrenceId = new Map(
+    Array.from(pendingOccurrenceIds).flatMap((occurrenceId) => {
+      const actions = (args.actionsByOccurrenceId.get(occurrenceId) ?? []).filter(
+        (action) =>
+          (action.effect.kind === "play-animation" &&
+            currentAnimationIds.has(action.effect.animationId)) ||
+          (action.effect.kind === "go-to-next-slide" && canAdvanceSlide)
+      );
+      return actions.length > 0 ? [[occurrenceId, actions] as const] : [];
+    })
   );
+  const executableOccurrenceIds = [...executableActionsByOccurrenceId.keys()];
   if (executableOccurrenceIds.length === 0) {
     return {
       consumedOccurrenceIds: [],
@@ -61,7 +72,8 @@ export function resolveQueuedKeywordOccurrencePlayback(args: {
   }
   const update = resolveTriggeredActionPlaybackUpdate({
     actions: executableOccurrenceIds.flatMap(
-      (occurrenceId) => args.actionsByOccurrenceId.get(occurrenceId) ?? []
+      (occurrenceId) =>
+        executableActionsByOccurrenceId.get(occurrenceId) ?? []
     ),
     playbackState: args.playbackState,
     presenterStepIndex: args.presenterStepIndex,

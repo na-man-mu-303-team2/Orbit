@@ -155,6 +155,63 @@ describe("triggeredActionPlayback", () => {
     expect(secondClick.consumedOccurrenceIds).toEqual([occurrenceId]);
   });
 
+  it("runs an occurrence next-slide action only after all animation steps", () => {
+    const baseSlide = createSlide();
+    const occurrenceId = "kwo_slide_1_kw_ai_47_49";
+    const slide = {
+      ...baseSlide,
+      actions: [
+        ...baseSlide.actions,
+        {
+          actionId: "act_occurrence_advance",
+          trigger: {
+            kind: "keyword-occurrence" as const,
+            keywordId: "kw_ai",
+            occurrenceId
+          },
+          effect: { kind: "go-to-next-slide" as const }
+        }
+      ]
+    };
+    const slideAnimationPlan = createSlideshowAnimationPlan({
+      slide,
+      triggerAnimationIds: getTriggerAnimationIdsForSlide(slide)
+    });
+    const actionsByOccurrenceId = new Map([
+      [
+        occurrenceId,
+        resolveKeywordOccurrenceTriggeredActions(slide, "kw_ai", occurrenceId)
+      ]
+    ]);
+
+    const queued = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId,
+      matchedOccurrenceIds: [occurrenceId],
+      pendingOccurrenceIds: [],
+      playbackState: { playedAnimationIds: [] },
+      presenterStepIndex: 0,
+      slide,
+      slideAnimationPlan
+    });
+    const advanced = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId,
+      matchedOccurrenceIds: [occurrenceId],
+      pendingOccurrenceIds: queued.pendingOccurrenceIds,
+      playbackState: {
+        playedAnimationIds: ["anim_legacy", "anim_occurrence"]
+      },
+      presenterStepIndex: slideAnimationPlan.maxStepIndex,
+      slide,
+      slideAnimationPlan
+    });
+
+    expect(queued.update).toBeNull();
+    expect(queued.pendingOccurrenceIds).toEqual([occurrenceId]);
+    expect(advanced.pendingOccurrenceIds).toEqual([]);
+    expect(advanced.consumedOccurrenceIds).toEqual([occurrenceId]);
+    expect(advanced.update?.shouldAdvanceSlide).toBe(true);
+  });
+
   it("reconstructs played animations and consumed occurrences for a recovery step", () => {
     const slide = createSlide();
     const slideAnimationPlan = createSlideshowAnimationPlan({
