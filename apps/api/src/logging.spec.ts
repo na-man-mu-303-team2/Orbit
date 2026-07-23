@@ -31,6 +31,8 @@ describe("API logging redaction", () => {
         "*.points",
         "usernameFragment",
         "*.usernameFragment",
+        "token",
+        "*.token",
       ]),
     );
   });
