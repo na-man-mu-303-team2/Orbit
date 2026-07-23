@@ -797,6 +797,18 @@ def test_animation_recommendation_compiles_semantic_plan_in_on_mode() -> None:
     assert first.motion_plan.model == "motion-snapshot"
     assert first.motion_plan.attempt_count == 1
     assert first.motion_plan.compiler_version == "motion-compiler-v3"
+    serialized_motion_plan = first.model_dump(by_alias=True)["motionPlan"]
+    assert all(
+        set(unit) == {
+            "unitId",
+            "kind",
+            "animationElementIds",
+            "memberElementIds",
+            "semanticRole",
+            "readingOrder",
+        }
+        for unit in serialized_motion_plan["units"]
+    )
 
 
 def test_animation_recommendation_allows_safe_existing_animation_update() -> None:

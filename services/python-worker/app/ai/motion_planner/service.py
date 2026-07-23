@@ -26,6 +26,7 @@ from app.ai.motion_planner.models import (
     MotionPlanMetadata,
     MotionPlanMetadataV3,
     MotionPlanningContext,
+    MotionPlanUnit,
 )
 
 
@@ -171,7 +172,14 @@ def plan_and_compile_motion(
             attemptCount=completed_attempt,
             compilerVersion="motion-compiler-v3",
             units=[
-                unit
+                MotionPlanUnit(
+                    unitId=unit.unit_id,
+                    kind=unit.kind,
+                    animationElementIds=unit.animation_element_ids,
+                    memberElementIds=unit.member_element_ids,
+                    semanticRole=unit.semantic_role,
+                    readingOrder=unit.reading_order,
+                )
                 for unit in extraction_v3.context.units
                 if unit.unit_id in selected_unit_ids
             ],

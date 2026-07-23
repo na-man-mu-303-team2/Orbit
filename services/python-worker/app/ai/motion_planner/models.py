@@ -423,6 +423,21 @@ class NarrativeMotionPlanV3(NarrativeMotionPlanDraftV3):
         return self
 
 
+class MotionPlanUnit(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    unit_id: str = Field(alias="unitId", pattern=r"^motion_unit_[a-z0-9_-]{1,160}$")
+    kind: MotionUnitKind
+    animation_element_ids: list[str] = Field(
+        alias="animationElementIds", min_length=1, max_length=4
+    )
+    member_element_ids: list[str] = Field(
+        alias="memberElementIds", min_length=1, max_length=8
+    )
+    semantic_role: MotionUnitSemanticRole = Field(alias="semanticRole")
+    reading_order: int = Field(alias="readingOrder", ge=1, le=200)
+
+
 class MotionPlanMetadataV3(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -430,5 +445,5 @@ class MotionPlanMetadataV3(BaseModel):
     model: str = Field(min_length=1, max_length=200)
     attempt_count: Literal[1, 2] = Field(alias="attemptCount")
     compiler_version: Literal["motion-compiler-v3"] = Field(alias="compilerVersion")
-    units: list[MotionUnit] = Field(min_length=1, max_length=8)
+    units: list[MotionPlanUnit] = Field(min_length=1, max_length=8)
     plan: NarrativeMotionPlanV3
