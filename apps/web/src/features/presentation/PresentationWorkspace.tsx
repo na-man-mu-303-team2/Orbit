@@ -1087,6 +1087,7 @@ export function PresentationWorkspace(props: {
       }
 
       await prepareActivityQrRuns({
+        audienceAccessEnabled: runtime.audienceUrl !== null,
         deck,
         projectId: props.projectId,
         sessionId: runtime.sessionId,
