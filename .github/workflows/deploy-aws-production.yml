@@ -98,12 +98,19 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Pass this workflow's commit SHA to the EC2 deploy. The static web
+          # bundle uploaded to S3 is built from this exact commit, so the backend
+          # images must be pinned to the same SHA. Otherwise, if main advances
+          # while an earlier queued deploy is still running, the on-box `git pull`
+          # would move HEAD to a newer commit and the backend/web bundles would
+          # diverge. The wrapper preserves the environment through `exec`, so
+          # deploy-aws-ec2.sh reads DEPLOY_COMMIT_SHA.
           command_id="$(aws ssm send-command \
             --region "$AWS_REGION" \
             --instance-ids "${{ steps.stack.outputs.instance-id }}" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy ORBIT main production" \
-            --parameters commands='["sudo /usr/local/sbin/orbit-deploy-aws-production"]' \
+            --parameters commands='["sudo env DEPLOY_COMMIT_SHA=${{ github.sha }} /usr/local/sbin/orbit-deploy-aws-production"]' \
             --query 'Command.CommandId' \
             --output text)"
 
