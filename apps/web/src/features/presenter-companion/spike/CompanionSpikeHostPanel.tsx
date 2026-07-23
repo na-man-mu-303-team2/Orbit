@@ -23,7 +23,6 @@ import {
   isCompanionSpikeSignal,
   type CompanionSpikeCapabilities,
   type CompanionSpikeHostKind,
-  type CompanionSpikeInk,
   type CompanionSpikeLatencySummary,
   type CompanionSpikePoint,
   type CompanionSpikeSignal,
@@ -160,7 +159,7 @@ export function CompanionSpikeHostPanel({
         companionSpikeEvents.create,
         { hostKind, projectId },
         (result: SessionCreateResult) => {
-          if ("created" in result && result.created) {
+          if ("created" in result) {
             window.sessionStorage.setItem(storageKey, result.spikeId);
             setSpikeId(result.spikeId);
             setError(null);

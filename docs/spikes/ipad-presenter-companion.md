@@ -4,15 +4,13 @@
 
 - 구현 상태: staging 실험 하네스 구현 완료
 - 로컬 정적 검증: `git diff --check` 통과
-- 자동 테스트/타입 검사: 미실행
+- 자동 테스트/타입 검사: 통과
 - 물리 기기 검증: 대기
 - Checkpoint 0: **판정 보류**
 
-자동 테스트와 타입 검사는 현재 worktree에 workspace 의존성이 설치되어 있지
-않아 실행하지 못했다. `corepack pnpm install --frozen-lockfile`은 외부
-registry 접근과 workspace 변경 승인이 없어 중단했으며 우회 설치는 하지
-않았다. staging 배포 역시 별도 승인이 필요한 외부 상태 변경이므로 수행하지
-않았다.
+`corepack pnpm install --frozen-lockfile`로 lockfile 변경 없이 workspace
+의존성을 설치했다. API와 Web 전체 테스트 및 typecheck를 통과했다. staging
+배포는 별도 승인과 물리 기기 준비가 필요하므로 수행하지 않았다.
 
 이 문서의 수치 표는 실제 HTTPS staging과 물리 iPad에서 측정한 값만
 기록한다. 비어 있는 칸은 실패나 0이 아니라 `미측정`을 뜻한다.
@@ -224,9 +222,9 @@ pnpm --filter @orbit/web typecheck
 | 검증 | 결과 |
 | --- | --- |
 | `git diff --check` | 통과 |
-| API spike 단위 테스트 | 미실행 — workspace 의존성 없음 |
-| Web helper/route 단위 테스트 | 미실행 — workspace 의존성 없음 |
-| API/Web typecheck | 미실행 — workspace 의존성 없음 |
+| API 전체 테스트 | 통과 — 620 passed, 1 integration test skipped |
+| Web 전체 테스트 | 통과 — 1,857 passed |
+| API/Web typecheck | 통과 |
 | HTTPS staging | 미실행 — 배포 승인 없음 |
 | 물리 iPad QA | 미실행 — staging/기기 필요 |
 

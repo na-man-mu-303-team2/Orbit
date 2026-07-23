@@ -82,7 +82,7 @@ export function CompanionSpikePage({ spikeId }: { spikeId: string }) {
         companionSpikeEvents.join,
         { spikeId },
         (result: JoinResult) => {
-          if ("joined" in result && result.joined) {
+          if ("joined" in result) {
             setJoined(true);
             setStatus("입력 가능");
             return;
