@@ -76,6 +76,13 @@ import {
   ActivityAudiencePreviewPage,
   ActivityResultsPage
 } from "./features/activity-slides";
+import {
+  CompanionSpikeAudiencePage,
+  CompanionSpikeCapturePage,
+  CompanionSpikePage,
+} from "./features/presenter-companion/spike/CompanionSpikePage";
+import { CompanionSpikeHostPanel } from "./features/presenter-companion/spike/CompanionSpikeHostPanel";
+import { isCompanionSpikeEnabled } from "./features/presenter-companion/spike/companionSpike";
 
 export type Route =
   | { name: "design-system" }
@@ -97,6 +104,9 @@ export type Route =
   | { name: "project-request"; projectId: string }
   | { name: "audience-session"; sessionId: string }
   | { name: "audience-activity"; sessionId: string; activityId: string }
+  | { name: "companion-spike"; spikeId: string }
+  | { name: "companion-spike-audience"; spikeId: string }
+  | { name: "companion-spike-capture"; spikeId: string }
   | { name: "presentation"; projectId: string }
   | {
       name: "presentation-report";
@@ -418,6 +428,36 @@ export function getRoute(pathname?: string, search?: string): Route {
     if (normalized === "/report_mockup") return { name: "report-mockup" };
     if (normalized === "/__deck-render" && isDeckRenderRouteEnabled()) {
       return { name: "deck-render" };
+    }
+
+    const companionSpikeAudienceMatch = normalized.match(
+      /^\/companion-spike\/([^/]+)\/audience$/,
+    );
+    if (companionSpikeAudienceMatch) {
+      return {
+        name: "companion-spike-audience",
+        spikeId: decodeURIComponent(companionSpikeAudienceMatch[1]),
+      };
+    }
+
+    const companionSpikeCaptureMatch = normalized.match(
+      /^\/companion-spike\/([^/]+)\/capture$/,
+    );
+    if (companionSpikeCaptureMatch) {
+      return {
+        name: "companion-spike-capture",
+        spikeId: decodeURIComponent(companionSpikeCaptureMatch[1]),
+      };
+    }
+
+    const companionSpikeMatch = normalized.match(
+      /^\/companion-spike\/([^/]+)$/,
+    );
+    if (companionSpikeMatch) {
+      return {
+        name: "companion-spike",
+        spikeId: decodeURIComponent(companionSpikeMatch[1]),
+      };
     }
 
     const audienceActivityMatch = normalized.match(/^\/audience\/([^/]+)\/a\/([^/]+)$/);
@@ -768,6 +808,9 @@ export function shouldWaitForAuthResolution(route: Route) {
     "report-mockup",
     "audience-session",
     "audience-activity",
+    "companion-spike",
+    "companion-spike-audience",
+    "companion-spike-capture",
     "present",
     "deck-render",
     "not-found",
@@ -788,6 +831,9 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "report-mockup" &&
     route.name !== "audience-session" &&
     route.name !== "audience-activity" &&
+    route.name !== "companion-spike" &&
+    route.name !== "companion-spike-audience" &&
+    route.name !== "companion-spike-capture" &&
     route.name !== "deck-render"
   );
 }
@@ -912,14 +958,31 @@ function renderRoute(route: Route, user?: AuthUser) {
       />
     );
   }
+  if (route.name === "companion-spike") {
+    return <CompanionSpikePage spikeId={route.spikeId} />;
+  }
+  if (route.name === "companion-spike-audience") {
+    return <CompanionSpikeAudiencePage spikeId={route.spikeId} />;
+  }
+  if (route.name === "companion-spike-capture") {
+    return <CompanionSpikeCapturePage spikeId={route.spikeId} />;
+  }
   if (route.name === "presentation") {
     return (
-      <PresentationWorkspace
-        fallbackDeck={
-          route.projectId === demoIds.projectId ? demoDeck : undefined
-        }
-        projectId={route.projectId}
-      />
+      <>
+        <PresentationWorkspace
+          fallbackDeck={
+            route.projectId === demoIds.projectId ? demoDeck : undefined
+          }
+          projectId={route.projectId}
+        />
+        {isCompanionSpikeEnabled() ? (
+          <CompanionSpikeHostPanel
+            hostKind="presentation"
+            projectId={route.projectId}
+          />
+        ) : null}
+      </>
     );
   }
   if (route.name === "presentation-report") {
@@ -938,20 +1001,28 @@ function renderRoute(route: Route, user?: AuthUser) {
   }
   if (route.name === "rehearsal") {
     return (
-      <RehearsalWorkspace
-        projectId={route.projectId}
-        presenterInitialSlideIndex={route.presenterInitialSlideIndex}
-        presenterInitialStepIndex={route.presenterInitialStepIndex}
-        presenterSessionId={route.presenterSessionId}
-        presenterWindow={route.presenterWindow}
-        snapshotPreparationId={route.snapshotPreparationId}
-        sourceFullRunId={route.sourceFullRunId}
-        sourceGoalSetId={route.sourceGoalSetId}
-        preflightMode={route.preflightMode}
-        fallbackDeck={
-          route.projectId === demoIds.projectId ? demoDeck : undefined
-        }
-      />
+      <>
+        <RehearsalWorkspace
+          projectId={route.projectId}
+          presenterInitialSlideIndex={route.presenterInitialSlideIndex}
+          presenterInitialStepIndex={route.presenterInitialStepIndex}
+          presenterSessionId={route.presenterSessionId}
+          presenterWindow={route.presenterWindow}
+          snapshotPreparationId={route.snapshotPreparationId}
+          sourceFullRunId={route.sourceFullRunId}
+          sourceGoalSetId={route.sourceGoalSetId}
+          preflightMode={route.preflightMode}
+          fallbackDeck={
+            route.projectId === demoIds.projectId ? demoDeck : undefined
+          }
+        />
+        {isCompanionSpikeEnabled() ? (
+          <CompanionSpikeHostPanel
+            hostKind="rehearsal"
+            projectId={route.projectId}
+          />
+        ) : null}
+      </>
     );
   }
   if (route.name === "rehearsal-report") {

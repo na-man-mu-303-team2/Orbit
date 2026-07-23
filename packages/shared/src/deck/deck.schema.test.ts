@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deckSchema, deckShellSchema } from "./deck.schema";
+import { deckSchema, deckShellSchema, slideLayoutSchema } from "./deck.schema";
 import { createKeywordOccurrenceId } from "./keyword-occurrences";
 import { deckChangeRecordSchema, deckPatchSchema } from "./patch.schema";
 
@@ -310,6 +310,10 @@ const expectInvalidDeck = (deck: unknown) => {
 };
 
 describe("deckSchema validation", () => {
+  it("accepts the agenda layout emitted by agenda compositions", () => {
+    expect(slideLayoutSchema.parse("agenda")).toBe("agenda");
+  });
+
   it("accepts a 1920x1080 wide-16-9 deck", () => {
     expectValidDeck(createValidDeck());
   });

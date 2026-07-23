@@ -116,6 +116,7 @@ PresentationProfile = Literal[
 SlideType = Literal[
     "title",
     "cover",
+    "agenda",
     "problem",
     "solution",
     "feature-grid",
@@ -126,6 +127,7 @@ SlideType = Literal[
     "quote",
     "chart",
     "summary",
+    "closing",
 ]
 MediaKind = Literal["none", "provided", "generate", "placeholder"]
 AgentStatus = Literal["succeeded", "failed"]
@@ -581,6 +583,8 @@ class RawInput(BaseModel):
     slide_count: int
     min_slide_count: int
     max_slide_count: int
+    requested_min_slide_count: int = 1
+    requested_max_slide_count: int = 20
     timing_plan: PresentationTimingPlan = Field(alias="timingPlan")
     template: Template
     metadata: GenerateDeckMetadata

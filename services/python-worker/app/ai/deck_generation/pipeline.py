@@ -430,6 +430,9 @@ def analyze_input(
         request.target_duration_minutes,
         request.slide_count_range,
     )
+    slide_count = max(4, slide_count)
+    effective_min_slide_count = max(4, request.slide_count_range.min)
+    effective_max_slide_count = max(4, request.slide_count_range.max)
     duration_seconds = request.target_duration_minutes * 60
     if slide_count > duration_seconds // 15:
         raise DeckContentGenerationError(
@@ -459,8 +462,10 @@ def analyze_input(
         brief=brief,
         target_duration_minutes=request.target_duration_minutes,
         slide_count=slide_count,
-        min_slide_count=request.slide_count_range.min,
-        max_slide_count=request.slide_count_range.max,
+        min_slide_count=effective_min_slide_count,
+        max_slide_count=effective_max_slide_count,
+        requested_min_slide_count=request.slide_count_range.min,
+        requested_max_slide_count=request.slide_count_range.max,
         timingPlan=presentation_timing_plan_for_request(request, slide_count),
         template=request.template,
         metadata=request.metadata,

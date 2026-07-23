@@ -21,6 +21,7 @@ import {
   PRESENTATION_ANALYSIS_ENQUEUE_JOB,
   PresentationRunsService,
 } from "./presentation-runs.service";
+import { PresentationCompanionSpikeGateway } from "./presentation-companion-spike.gateway";
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import {
     PresentationSessionRepository,
     PresentationSessionsService,
     PresentationRunsService,
+    PresentationCompanionSpikeGateway,
     {
       provide: PRESENTATION_ANALYSIS_ENQUEUE_JOB,
       useValue: enqueuePresentationAnalysisJob,
