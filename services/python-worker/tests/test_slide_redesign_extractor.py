@@ -288,6 +288,32 @@ def test_heuristic_slide_type_covers_structural_signals() -> None:
     assert heuristic_slide_type(data) == "data"
 
 
+def test_heuristic_slide_type_counts_segments_in_one_bullet_element() -> None:
+    hierarchy = infer_hierarchy(
+        collect_text_elements(
+            {
+                "elements": [
+                    text_element(
+                        "el-title",
+                        "실행 항목",
+                        role="title",
+                        font_size=48,
+                        y=80,
+                    ),
+                    text_element(
+                        "el-body",
+                        "• 조사\n• 설계\n• 개발\n• 검증\n• 출시",
+                        role="body",
+                        y=300,
+                    ),
+                ]
+            }
+        )
+    )
+
+    assert heuristic_slide_type(hierarchy) == "feature-grid"
+
+
 GOLDEN_FIXTURES = json.loads(
     (
         Path(__file__).parent

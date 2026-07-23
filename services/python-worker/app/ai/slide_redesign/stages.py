@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable
 from copy import deepcopy
 from typing import Any, Literal, cast
@@ -155,6 +156,22 @@ def run_compose_stage(
         has_source_refs=_has_source_refs(slide),
     )
     constraints = artifact.constraints.to_constraints()
+    constrained_ids = _constrained_ids(constraints)
+    split_source_counts = Counter(artifact.provenance.values())
+    split_constrained_ids = {
+        element_id
+        for element_id, count in split_source_counts.items()
+        if count > 1 and element_id in constrained_ids
+    }
+    if split_constrained_ids:
+        return ComposeStageArtifact(
+            outcome="refused-unsafe",
+            reason=unsafe_refusal_message(
+                sorted(split_constrained_ids),
+                slide,
+            ),
+            candidateCount=len(candidates),
+        )
     analyses = filter_candidates(
         summary,
         artifact.provenance,
@@ -165,7 +182,6 @@ def run_compose_stage(
         palette_override,
     )
     if not analyses:
-        constrained_ids = _constrained_ids(constraints)
         if constrained_ids:
             return ComposeStageArtifact(
                 outcome="refused-unsafe",

@@ -270,20 +270,30 @@ def heuristic_slide_type(hierarchy: SlideHierarchy) -> SlideType:
     if not items and hierarchy.title is not None and hierarchy.message is None:
         return "cover"
 
-    item_texts = [item.text for item in items]
-    if len(items) >= 3 and any(
+    raw_item_texts = [item.text for item in items]
+    item_texts = [
+        segment
+        for item_text in raw_item_texts
+        for segment in split_bullets(item_text)
+    ]
+    if len(item_texts) >= 3 and any(
         re.search(r"(?:단계|→|①|^\s*\d+\.)", text, flags=re.MULTILINE)
-        for text in item_texts
+        for text in raw_item_texts
     ):
         return "process"
-    if items and sum(bool(re.search(r"\d", text)) for text in item_texts) / len(items) >= 0.5:
+    if (
+        item_texts
+        and sum(bool(re.search(r"\d", text)) for text in item_texts)
+        / len(item_texts)
+        >= 0.5
+    ):
         return "data"
-    if len(items) == 2 and any(
+    if len(item_texts) == 2 and any(
         marker in " ".join(item_texts).casefold()
         for marker in ("vs", "대비", "전/후", "장점/단점")
     ):
         return "comparison"
-    if len(items) >= 3:
+    if len(item_texts) >= 3:
         return "feature-grid"
 
     visible_text = " ".join(
@@ -293,7 +303,7 @@ def heuristic_slide_type(hierarchy: SlideHierarchy) -> SlideType:
             *item_texts,
         ]
     )
-    if len(items) <= 1 and re.search(r'["“”‘’\'「」『』]', visible_text):
+    if len(item_texts) <= 1 and re.search(r'["“”‘’\'「」『』]', visible_text):
         return "quote"
     return "summary"
 

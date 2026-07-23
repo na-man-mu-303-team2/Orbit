@@ -10,6 +10,7 @@ from app.ai.color_options import contrast_ratio
 from app.ai.composition_library import COMPOSITION_SPECS, CompositionCompileError
 from app.ai.design_program import BackgroundMode, CompositionId
 from app.ai.slide_redesign.composer import (
+    CompositionCandidate,
     build_single_slide_program,
     compile_redesign,
     eligible_candidates,
@@ -56,13 +57,27 @@ def test_derive_palette_preserves_theme_focal_color() -> None:
     assert roles.focal == "#E11D48"
 
 
-def test_process_candidates_include_process_and_timeline() -> None:
+def test_ordered_process_candidates_exclude_undated_timeline() -> None:
     candidates = eligible_candidates(
         summary("process", ["1. 준비", "2. 실행", "3. 확인", "4. 회고"])
     )
 
     composition_ids = {candidate.composition_id for candidate in candidates}
+    assert {"process-horizontal", "process-vertical-rail"} <= composition_ids
+    assert "timeline" not in composition_ids
+
+
+def test_dated_process_candidates_include_timeline() -> None:
+    candidates = eligible_candidates(
+        summary(
+            "process",
+            ["2026.01 준비", "2026.02 실행", "2026.03 확인"],
+        )
+    )
+
+    composition_ids = {candidate.composition_id for candidate in candidates}
     assert {"process-horizontal", "timeline"} <= composition_ids
+    assert "process-vertical-rail" not in composition_ids
 
 
 def test_required_media_compositions_are_excluded() -> None:
@@ -236,11 +251,9 @@ def test_all_media_free_m1_compositions_compile_within_canvas(
         spec.purposes[0],
         [f"항목 {index}: {index * 10}%" for index in range(1, item_count + 1)],
     )
-    candidate = next(
-        candidate
-        for candidate in eligible_candidates(slide_summary)
-        if candidate.composition_id == composition_id
-        and candidate.background_mode == background_mode
+    candidate = CompositionCandidate(
+        composition_id=composition_id,
+        background_mode=background_mode,
     )
     theme = {
         "fontFamily": "Pretendard",
