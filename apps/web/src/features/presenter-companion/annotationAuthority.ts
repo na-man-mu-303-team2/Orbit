@@ -38,6 +38,10 @@ export class AnnotationAuthority {
     });
   }
 
+  releaseSurface(surfaceId: string): boolean {
+    return this.surfaces.delete(surfaceId);
+  }
+
   consume(
     command: PresentationCompanionAnnotationCommand,
     activeSurfaceId: string,

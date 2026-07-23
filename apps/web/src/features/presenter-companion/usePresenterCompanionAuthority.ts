@@ -57,6 +57,7 @@ export function usePresenterCompanionAuthority(input: {
     useRef<PresentationCompanionOutputState | null>(null);
   const annotationAuthorityRef = useRef<AnnotationAuthority | null>(null);
   const currentSurfaceIdRef = useRef("");
+  const retainedShareSurfaceIdRef = useRef<string | null>(null);
   const annotationDeltaHandlerRef = useRef(input.onAnnotationDelta);
   const annotationSnapshotHandlerRef = useRef(
     input.onAnnotationSnapshot,
@@ -138,6 +139,9 @@ export function usePresenterCompanionAuthority(input: {
     currentSurfaceIdRef.current = createCompanionSurfaceId(
       input.state.slideId,
     );
+    retainedShareSurfaceIdRef.current = input.shareEpochId
+      ? createCompanionShareSurfaceId(input.shareEpochId)
+      : null;
     annotationAuthorityRef.current = new AnnotationAuthority(
       sessionId,
       authorityEpochIdRef.current,
@@ -329,6 +333,7 @@ export function usePresenterCompanionAuthority(input: {
       socketRef.current = null;
       latestOutputRef.current = null;
       annotationAuthorityRef.current = null;
+      retainedShareSurfaceIdRef.current = null;
       pairingGenerationRef.current = null;
       setPairingGeneration(null);
     };
@@ -340,6 +345,17 @@ export function usePresenterCompanionAuthority(input: {
     publishCurrentOutput,
     publishAnnotationSnapshot,
   ]);
+
+  useEffect(() => {
+    const nextSurfaceId = input.shareEpochId
+      ? createCompanionShareSurfaceId(input.shareEpochId)
+      : null;
+    const previousSurfaceId = retainedShareSurfaceIdRef.current;
+    if (previousSurfaceId && previousSurfaceId !== nextSurfaceId) {
+      annotationAuthorityRef.current?.releaseSurface(previousSurfaceId);
+    }
+    retainedShareSurfaceIdRef.current = nextSurfaceId;
+  }, [input.shareEpochId]);
 
   useEffect(() => {
     if (!input.enabled || !input.state || status !== "active") return;

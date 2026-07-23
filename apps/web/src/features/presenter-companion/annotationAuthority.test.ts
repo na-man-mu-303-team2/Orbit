@@ -85,4 +85,45 @@ describe("AnnotationAuthority", () => {
       ).strokes,
     ).toEqual([]);
   });
+
+  it("releases a finished share surface without clearing slide ink", () => {
+    const authority = new AnnotationAuthority("session_1", "epoch_1");
+    addStroke(authority, "surface_slide", "slide_stroke", 0);
+    addStroke(authority, "surface_share_1", "share_stroke", 0);
+
+    expect(authority.releaseSurface("surface_share_1")).toBe(true);
+    expect(authority.getSnapshot("surface_share_1").strokes).toEqual(
+      [],
+    );
+    expect(
+      authority.getSnapshot("surface_slide").strokes.map(
+        (stroke) => stroke.strokeId,
+      ),
+    ).toEqual(["slide_stroke"]);
+  });
 });
+
+function addStroke(
+  authority: AnnotationAuthority,
+  surfaceId: string,
+  strokeId: string,
+  sequence: number,
+) {
+  authority.consume(
+    {
+      sessionId: "session_1",
+      authorityEpochId: "epoch_1",
+      surfaceId,
+      clientOperationId: `op_${strokeId}`,
+      baseRevision: 0,
+      sequence,
+      kind: "stroke-begin",
+      strokeId,
+      tool: "pen",
+      color: "ink-blue",
+      width: 0.01,
+      point: { x: 0.5, y: 0.5, pressure: 0.5, t: 0 },
+    },
+    surfaceId,
+  );
+}

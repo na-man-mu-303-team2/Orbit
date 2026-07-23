@@ -529,6 +529,11 @@ command/ack/snapshot/request, volatile laser, WebRTC signal, revoke,
   server 없이 생성한다. peer 연결이 2초 안에 완료되지 않거나 실패해도
   desktop capture와 main audience output은 유지하고 iPad의 해당 share
   surface 쓰기만 비활성화한다.
+- screen-share annotation 좌표는 source video content-local `0..1`이다.
+  iPad 입력 canvas와 main audience overlay는 각 viewport에서 같은
+  `contain` rect를 계산해 letterbox를 제외한다. capture 종료나 새
+  `shareEpochId` 시작 시 이전 share surface state는 폐기하지만 slide
+  surface state는 authority epoch 동안 보존해 slide 복귀 시 복원한다.
 - annotation과 companion signaling은 body `sessionId`, 최신 generation,
   active `authorityEpochId`를 relay 직전에 다시 확인한다. annotation
   command는 presenter room 전체가 아니라 authority epoch room 하나에만
