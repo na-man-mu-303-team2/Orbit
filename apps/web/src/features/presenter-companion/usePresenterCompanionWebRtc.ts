@@ -2,9 +2,9 @@ import type { PresentationCompanionSignal } from "@orbit/shared";
 import { useEffect, useRef, useState } from "react";
 import {
   createPresenterCompanionWebRtcController,
+  type CompanionSignalInput,
   type CompanionWebRtcStatus,
 } from "./companionWebRtc";
-import type { CompanionSignalInput } from "./useCompanionSocket";
 
 export function usePresenterCompanionWebRtc(input: {
   activeShare: { shareEpochId: string; stream: MediaStream } | null;

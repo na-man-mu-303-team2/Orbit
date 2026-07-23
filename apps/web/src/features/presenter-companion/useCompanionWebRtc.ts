@@ -2,9 +2,9 @@ import type { PresentationCompanionSignal } from "@orbit/shared";
 import { useEffect, useRef, useState } from "react";
 import {
   createReceiverCompanionWebRtcController,
+  type CompanionSignalInput,
   type CompanionWebRtcStatus,
 } from "./companionWebRtc";
-import type { CompanionSignalInput } from "./useCompanionSocket";
 
 export function useCompanionWebRtc(input: {
   sendSignal: (signal: CompanionSignalInput) => boolean;

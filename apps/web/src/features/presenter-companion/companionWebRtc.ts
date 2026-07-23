@@ -1,11 +1,38 @@
 import type { PresentationCompanionSignal } from "@orbit/shared";
-import type { CompanionSignalInput } from "./useCompanionSocket";
 
 export type CompanionWebRtcStatus =
   | "idle"
   | "connecting"
   | "connected"
   | "failed";
+
+export type CompanionSignalInput =
+  | {
+      kind: "offer" | "answer";
+      sdp: string;
+      shareEpochId: string;
+      signalId: string;
+    }
+  | {
+      candidate: string;
+      kind: "ice";
+      sdpMid: string | null;
+      sdpMLineIndex: number | null;
+      shareEpochId: string;
+      signalId: string;
+      usernameFragment?: string;
+    }
+  | {
+      kind: "end";
+      reason:
+        | "capture-ended"
+        | "replaced"
+        | "revoked"
+        | "closed"
+        | "failed";
+      shareEpochId: string;
+      signalId: string;
+    };
 
 export type CompanionWebRtcSenderPort = {
   replaceTrack: (track: MediaStreamTrack | null) => Promise<void>;

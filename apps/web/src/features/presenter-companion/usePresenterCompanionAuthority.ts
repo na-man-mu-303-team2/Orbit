@@ -19,6 +19,7 @@ import {
   AnnotationAuthority,
   type AcceptedAnnotationDelta,
 } from "./annotationAuthority";
+import type { CompanionSignalInput } from "./companionWebRtc";
 
 type PresenterCompanionSocket = Pick<
   Socket,
@@ -26,34 +27,6 @@ type PresenterCompanionSocket = Pick<
 >;
 
 type AuthorityStatus = "disabled" | "claiming" | "active" | "standby";
-
-export type CompanionSignalInput =
-  | {
-      kind: "offer" | "answer";
-      sdp: string;
-      shareEpochId: string;
-      signalId: string;
-    }
-  | {
-      candidate: string;
-      kind: "ice";
-      sdpMid: string | null;
-      sdpMLineIndex: number | null;
-      shareEpochId: string;
-      signalId: string;
-      usernameFragment?: string;
-    }
-  | {
-      kind: "end";
-      reason:
-        | "capture-ended"
-        | "replaced"
-        | "revoked"
-        | "closed"
-        | "failed";
-      shareEpochId: string;
-      signalId: string;
-    };
 
 export function usePresenterCompanionAuthority(input: {
   enabled: boolean;

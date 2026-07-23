@@ -20,6 +20,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { AnnotationCommandQueue } from "./annotationCommandQueue";
+import type { CompanionSignalInput } from "./companionWebRtc";
 
 type CompanionSocket = Pick<
   Socket,
@@ -527,34 +528,6 @@ export function useCompanionSocket(
     subscribeSignal,
   };
 }
-
-export type CompanionSignalInput =
-  | {
-      kind: "offer" | "answer";
-      sdp: string;
-      shareEpochId: string;
-      signalId: string;
-    }
-  | {
-      candidate: string;
-      kind: "ice";
-      sdpMid: string | null;
-      sdpMLineIndex: number | null;
-      shareEpochId: string;
-      signalId: string;
-      usernameFragment?: string;
-    }
-  | {
-      kind: "end";
-      reason:
-        | "capture-ended"
-        | "replaced"
-        | "revoked"
-        | "closed"
-        | "failed";
-      shareEpochId: string;
-      signalId: string;
-    };
 
 export function createCompanionAnnotationCommand(
   input: CompanionAnnotationCommandInput,
