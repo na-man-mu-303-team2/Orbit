@@ -3695,19 +3695,17 @@
 }
 
 .presenter-remote-shell {
-  background: var(--redesign-color-dark-surface);
-  border-radius: var(--redesign-radius-xl);
+  background: var(--redesign-color-dark-surface-high);
   box-sizing: border-box;
   color: var(--redesign-color-on-dark);
   display: flex;
   flex-direction: column;
-  gap: var(--redesign-space-3);
+  gap: var(--redesign-space-5);
   height: 100dvh;
+  margin: 0;
   overflow: hidden;
-  padding-block-end: var(--redesign-layout-workspace-margin);
-  padding-inline: var(--redesign-layout-workspace-margin);
-  padding-block-start: 0;
-  width: min(100%, var(--redesign-layout-content-max-width));
+  padding: var(--redesign-space-5);
+  width: 100%;
 }
 
 .presenter-remote-shell > .audience-output-controls {
@@ -11064,4 +11062,29 @@
     max-width: calc(100vw - 32px);
     min-width: 230px;
   }
+}
+
+html:has(.presenter-remote-shell),
+body:has(.presenter-remote-shell),
+body:has(.presenter-remote-shell) #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body:has(.presenter-remote-shell) #root {
+  min-height: 0;
+}
+
+.presenter-remote-shell {
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.presenter-remote-stage {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
