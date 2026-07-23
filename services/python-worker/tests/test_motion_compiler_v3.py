@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 
 from app.ai.motion_planner import (
     ExtractedMotionContextV3,
@@ -173,10 +172,10 @@ def test_v3_compiler_rejects_partial_spatial_target() -> None:
         )
 
 
-def test_v3_context_rejects_more_than_24_animation_elements() -> None:
+def test_v3_context_accepts_32_animation_elements() -> None:
     unit = context().units[0].model_dump(by_alias=True)
     units = []
-    for index in range(7):
+    for index in range(8):
         units.append(
             {
                 **unit,
@@ -191,14 +190,17 @@ def test_v3_context_rejects_more_than_24_animation_elements() -> None:
             }
         )
 
-    with pytest.raises(ValidationError, match="at most 24"):
-        ExtractedMotionContextV3.model_validate(
-            {
-                "slideType": "feature-grid",
-                "narrativeIntent": "sequence",
-                "units": units,
-                "approvedCueCount": 0,
-                "notesPresent": False,
-                "notesTruncated": False,
-            }
-        )
+    parsed = ExtractedMotionContextV3.model_validate(
+        {
+            "slideType": "feature-grid",
+            "narrativeIntent": "sequence",
+            "units": units,
+            "approvedCueCount": 0,
+            "notesPresent": False,
+            "notesTruncated": False,
+        }
+    )
+
+    assert sum(
+        len(item.animation_element_ids) for item in parsed.units
+    ) == 32

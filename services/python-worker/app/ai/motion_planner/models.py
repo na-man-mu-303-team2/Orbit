@@ -153,8 +153,8 @@ class ExtractedMotionContextV3(BaseModel):
             for unit in self.units
             for element_id in unit.animation_element_ids
         ]
-        if len(animation_ids) > 24:
-            raise ValueError("Motion units allow at most 24 animation elements")
+        if len(animation_ids) > 32:
+            raise ValueError("Motion units allow at most 32 animation elements")
         if len(set(animation_ids)) != len(animation_ids):
             raise ValueError("Animation elements must belong to one motion unit")
         member_ids = [

@@ -431,13 +431,13 @@ export const motionPlanMetadataV3Schema = z
       (unit) => unit.animationElementIds,
     );
     if (
-      animationElementIds.length > 24 ||
+      animationElementIds.length > 32 ||
       new Set(animationElementIds).size !== animationElementIds.length
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "Motion plan metadata allows at most 24 unique animation elements.",
+          "Motion plan metadata allows at most 32 unique animation elements.",
         path: ["units"],
       });
     }

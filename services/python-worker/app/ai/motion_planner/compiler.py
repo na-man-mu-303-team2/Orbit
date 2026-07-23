@@ -65,7 +65,7 @@ class CompiledMotionV3(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     compiler_version: Literal["motion-compiler-v3"] = Field(alias="compilerVersion")
-    operations: list[AddAnimationOperation] = Field(max_length=24)
+    operations: list[AddAnimationOperation] = Field(max_length=32)
     entry_motion_ms: int = Field(alias="entryMotionMs", ge=0)
     max_click_step_motion_ms: int = Field(alias="maxClickStepMotionMs", ge=0)
     total_motion_ms: int = Field(alias="totalMotionMs", ge=0)
@@ -206,8 +206,8 @@ def compile_narrative_motion_v3(
         for unit in selected_units
         for element_id in unit.animation_element_ids
     }
-    if len(plan_animation_ids) > 24:
-        raise MotionCompileError("compiled motion allows at most 24 animation elements")
+    if len(plan_animation_ids) > 32:
+        raise MotionCompileError("compiled motion allows at most 32 animation elements")
     if not allow_existing_targets and plan_animation_ids & existing_target_ids:
         raise MotionCompileError(
             "existing animation targets require the merge-and-safety stage"
