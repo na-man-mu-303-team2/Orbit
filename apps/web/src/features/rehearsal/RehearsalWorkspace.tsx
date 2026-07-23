@@ -99,6 +99,11 @@ import {
   readPreparedRehearsalSlideSnapshots,
 } from "./rehearsalSlideSnapshots";
 import { requestRehearsalMicrophoneStream } from "../presenter-shell/microphoneSettings";
+import {
+  closePresenterCompanionSession,
+  ensurePresenterCompanionSession,
+  type PresenterCompanionSessionIdentity,
+} from "../presentation/presentationApi";
 export {
   getRehearsalMicrophoneAudioConstraints,
   isLiveSttRawMicDebugEnabled,
@@ -2099,6 +2104,12 @@ export function RehearsalWorkspace(props: {
   );
   const pendingP3SlideIndexRef = useRef<number | null>(null);
   const finishAfterReportRef = useRef(false);
+  const companionSessionRef =
+    useRef<PresenterCompanionSessionIdentity | null>(null);
+  const companionSessionPromiseRef =
+    useRef<Promise<PresenterCompanionSessionIdentity> | null>(null);
+  const companionSessionPromiseKeyRef = useRef<string | null>(null);
+  const closeCompanionSessionPromiseRef = useRef<Promise<void> | null>(null);
   const slideWindowRef = useRef<SlideWindowRef | null>(null);
   const reattachAudienceStreamRef = useRef<() => boolean>(() => true);
   const stopAudienceStreamRef = useRef<() => void>(() => undefined);
@@ -2265,6 +2276,13 @@ export function RehearsalWorkspace(props: {
   useEffect(() => {
     deckRef.current = deck;
   }, [deck]);
+
+  useEffect(() => {
+    if (!deck || props.presenterWindow) {
+      return;
+    }
+    void ensureRehearsalCompanionSession().catch(() => undefined);
+  }, [deck?.deckId, deck?.version, props.presenterWindow]);
 
   useEffect(() => {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
@@ -4417,6 +4435,7 @@ export function RehearsalWorkspace(props: {
   };
   const finishRehearsal = () => {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
+    void closeRehearsalCompanionSession().catch(() => undefined);
 
     if (phase === "recording") {
       setHasLocalCompletion(true);
@@ -4444,17 +4463,88 @@ export function RehearsalWorkspace(props: {
       return;
     }
 
-    navigateToPath(getRehearsalFinishPath(projectId, run));
+    void leaveRehearsal(getRehearsalFinishPath(projectId, run));
   };
   const finishCompletedRehearsal = () => {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;
     setIsCompletionModalOpen(false);
-    navigateToPath(
+    void leaveRehearsal(
       run?.runId
         ? getRehearsalReportPath(projectId, run.runId)
-        : getRehearsalFinishPath(projectId, run),
+        : getRehearsalFinishPath(projectId, run)
     );
   };
+
+  function ensureRehearsalCompanionSession() {
+    const sessionKey = deck ? `${deck.deckId}:${deck.version}` : null;
+    if (
+      companionSessionRef.current &&
+      deck &&
+      companionSessionRef.current.deckId === deck.deckId &&
+      companionSessionRef.current.deckVersion === deck.version
+    ) {
+      return Promise.resolve(companionSessionRef.current);
+    }
+    if (
+      companionSessionPromiseRef.current &&
+      companionSessionPromiseKeyRef.current === sessionKey
+    ) {
+      return companionSessionPromiseRef.current;
+    }
+    if (!deck) {
+      return Promise.reject(new Error("리허설 자료가 준비되지 않았습니다."));
+    }
+    companionSessionRef.current = null;
+    companionSessionPromiseKeyRef.current = sessionKey;
+    const promise = ensurePresenterCompanionSession({
+      deckId: deck.deckId,
+      projectId: deck.projectId,
+      sessionPurpose: "rehearsal",
+    })
+      .then((session) => {
+        if (companionSessionPromiseKeyRef.current === sessionKey) {
+          companionSessionRef.current = session;
+        }
+        return session;
+      })
+      .finally(() => {
+        if (companionSessionPromiseKeyRef.current === sessionKey) {
+          companionSessionPromiseRef.current = null;
+          companionSessionPromiseKeyRef.current = null;
+        }
+      });
+    companionSessionPromiseRef.current = promise;
+    return promise;
+  }
+
+  function closeRehearsalCompanionSession() {
+    if (closeCompanionSessionPromiseRef.current) {
+      return closeCompanionSessionPromiseRef.current;
+    }
+    const session = companionSessionRef.current;
+    if (!session || !deck) {
+      return Promise.resolve();
+    }
+    const promise = closePresenterCompanionSession({
+      projectId: deck.projectId,
+      sessionId: session.sessionId,
+    })
+      .then(() => {
+        if (companionSessionRef.current?.sessionId === session.sessionId) {
+          companionSessionRef.current = null;
+        }
+      })
+      .finally(() => {
+        closeCompanionSessionPromiseRef.current = null;
+      });
+    closeCompanionSessionPromiseRef.current = promise;
+    return promise;
+  }
+
+  async function leaveRehearsal(path: string) {
+    await closeRehearsalCompanionSession().catch(() => undefined);
+    navigateToPath(path);
+  }
   const resetSlideDisplayToBeginning = () => {
     presenterStepIndexRef.current = 0;
     currentSlideIndexRef.current = 0;
@@ -5100,10 +5190,12 @@ export function RehearsalWorkspace(props: {
         <RehearsalCompletionScreen
           hasReportTarget={Boolean(run?.runId)}
           isReportPending={phase === "uploading" || phase === "processing"}
-          onClose={() => navigateToPath("/")}
-          onGoHome={() => navigateToPath("/")}
+          onClose={() => void leaveRehearsal("/")}
+          onGoHome={() => void leaveRehearsal("/")}
           onOpenProject={() =>
-            navigateToPath(`/project/${encodeURIComponent(deck.projectId)}`)
+            void leaveRehearsal(
+              `/project/${encodeURIComponent(deck.projectId)}`
+            )
           }
           onPrimaryAction={handleCompletionPrimaryAction}
           onPracticeAgain={handleCompletionPracticeAgain}

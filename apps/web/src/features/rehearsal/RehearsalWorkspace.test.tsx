@@ -145,6 +145,17 @@ vi.mock("react-konva", () => {
 });
 
 describe("RehearsalWorkspace", () => {
+  it("isolates a rehearsal-purpose companion session from rehearsal runs", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("ensurePresenterCompanionSession");
+    expect(source).toContain('sessionPurpose: "rehearsal"');
+    expect(source).toContain("closeRehearsalCompanionSession");
+    expect(source).not.toContain(
+      "startPresentationRuntime({\n      projectId: deck.projectId",
+    );
+  });
+
   it("measures the presenter stage before painting the slide at an incorrect scale", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const hookStart = source.indexOf("function usePresenterStageScale");
