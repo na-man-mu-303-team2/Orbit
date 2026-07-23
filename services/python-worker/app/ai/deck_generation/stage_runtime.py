@@ -315,7 +315,7 @@ def run_slide_compose_stage(
     if repair_attempted:
         repair_started = time.perf_counter()
         try:
-            detailed = compose_slide_detail_with_llm(
+            repaired_detail = compose_slide_detail_with_llm(
                 scoped_raw_input,
                 detailed,
                 resolve_style_prompt_context(scoped_raw_input),
@@ -324,6 +324,15 @@ def run_slide_compose_stage(
                 api_key=api_key,
                 content_item_range=(composition.min_items, composition.max_items),
                 repair_issue_codes=tuple(issue.code for issue in fact_issues),
+            )
+            detailed = (
+                compose_agenda_detail(
+                    scoped_raw_input,
+                    repaired_detail,
+                    stage_input.content_plan.slide_plans,
+                )
+                if target.slide_type == "agenda"
+                else repaired_detail
             )
             repair_succeeded = True
         except DeckContentGenerationError:

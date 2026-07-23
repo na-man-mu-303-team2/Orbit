@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 import app.ai.deck_generation.design_planning as design_planning_module
+import app.ai.deck_generation.stage_runtime as stage_runtime_module
 from app.ai.design_program import DeckDesignProgram
 from app.ai.deck_generation.content_planning import (
     compose_cover_detail,
@@ -17,10 +18,12 @@ from app.ai.deck_generation.design_planning import resolve_style_prompt_context
 from app.ai.deck_generation.diagnostics import assemble_generation_diagnostics
 from app.ai.deck_generation.models import (
     ContentPlan,
+    ContentFactIssue,
     CoverContent,
     GenerationDiagnosticsInput,
     GenerationDiagnosticsResult,
     GenerateDeckRequest,
+    GeneratedContentItem,
     PythonQualityInput,
     PythonQualityResult,
     SourceGroundingResult,
@@ -324,3 +327,69 @@ def test_planning_stage_runtime_preserves_typed_stage_boundaries(
     ]
     assert body_titles
     assert all(title in agenda_text for title in body_titles[:6])
+
+    content.raw_input.fact_repair_eligible_slide_orders = [2]
+    validated_items: list[list[str]] = []
+
+    def validate_agenda_detail(
+        _raw_input: Any,
+        target: SlidePlan,
+        _all_slides: list[SlidePlan],
+    ) -> tuple[list[ContentFactIssue], int]:
+        validated_items.append([item.text for item in target.content_items])
+        if len(validated_items) == 1:
+            return (
+                [
+                    ContentFactIssue(
+                        code="FACT_REPAIR_REQUIRED",
+                        message="repair required",
+                        slideOrder=2,
+                        priority=2,
+                    )
+                ],
+                1,
+            )
+        return [], 1
+
+    def compose_incorrect_agenda(
+        _raw_input: Any,
+        target: SlidePlan,
+        _style_context: Any,
+        **_kwargs: Any,
+    ) -> SlidePlan:
+        return target.model_copy(
+            deep=True,
+            update={
+                "content_items": [
+                    GeneratedContentItem(
+                        contentItemId="incorrect-agenda",
+                        text="LLM이 임의 생성한 항목",
+                    )
+                ]
+            },
+        )
+
+    monkeypatch.setattr(
+        stage_runtime_module,
+        "validate_slide_detail",
+        validate_agenda_detail,
+    )
+    monkeypatch.setattr(
+        stage_runtime_module,
+        "compose_slide_detail_with_llm",
+        compose_incorrect_agenda,
+    )
+
+    repaired_agenda = run_slide_compose_stage(
+        SlideComposeStageInput(
+            rawInput=content.raw_input,
+            contentPlan=content.content_plan,
+            designPlan=design.design_plan,
+            sourceOrder=agenda_manifest.source_order,
+            order=agenda_manifest.order,
+            slideId=agenda_manifest.slide_id,
+        )
+    )
+
+    assert repaired_agenda.fact_diagnostics.repair_attempted is True
+    assert validated_items[1] == body_titles[:6]
