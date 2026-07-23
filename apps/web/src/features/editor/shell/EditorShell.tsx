@@ -647,6 +647,8 @@ export function EditorShell(props: { projectId?: string }) {
   const slideRehearsalConfirmedOccurrenceIdsRef = useRef<string[]>([]);
   const slideRehearsalPreviousTranscriptRef = useRef("");
   const slideRehearsalDetectedKeywordIdsRef = useRef<string[]>([]);
+  const [slideRehearsalTerminalActionMessage, setSlideRehearsalTerminalActionMessage] =
+    useState<string | null>(null);
 
   const resetSlideRehearsalAnimationPlayback = useCallback(() => {
     slideRehearsalStepIndexRef.current = 0;
@@ -655,6 +657,7 @@ export function EditorShell(props: { projectId?: string }) {
     slideRehearsalConfirmedOccurrenceIdsRef.current = [];
     slideRehearsalPreviousTranscriptRef.current = "";
     slideRehearsalDetectedKeywordIdsRef.current = [];
+    setSlideRehearsalTerminalActionMessage(null);
     setSlideRehearsalStepIndex(0);
   }, []);
 
@@ -746,6 +749,11 @@ export function EditorShell(props: { projectId?: string }) {
     );
     if (queuedOccurrencePlayback.update) {
       applySlideRehearsalPlaybackUpdate(queuedOccurrencePlayback.update);
+      if (queuedOccurrencePlayback.update.shouldAdvanceSlide) {
+        setSlideRehearsalTerminalActionMessage(
+          "다음 장표 트리거를 인식했습니다. 부분 리허설에서는 현재 장표를 유지합니다."
+        );
+      }
     }
 
     const previousKeywordIds = new Set(
@@ -2564,7 +2572,10 @@ export function EditorShell(props: { projectId?: string }) {
             {isSlideRehearsalActive && rehearsalSlide ? (
               <EditorSlideRehearsalBottomPanel
                 elapsedMs={slidePracticeSession.elapsedMs}
-                message={slidePracticeSession.message}
+                message={
+                  slideRehearsalTerminalActionMessage ??
+                  slidePracticeSession.message
+                }
                 nextAnimationDisabled={
                   !slideRehearsalAnimationPlan ||
                   slideRehearsalStepIndex >=
