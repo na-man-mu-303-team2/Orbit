@@ -103,6 +103,9 @@ const rehearsalWorkspaceSourcePath = fileURLToPath(
 const rehearsalWorkspaceCssPath = fileURLToPath(
   new URL("./rehearsal-workspace-orbit.css", import.meta.url),
 );
+const globalStylesPath = fileURLToPath(
+  new URL("../../styles.css", import.meta.url),
+);
 const editorTopbarSourcePath = fileURLToPath(
   new URL("../editor/shell/components/EditorTopbar.tsx", import.meta.url),
 );
@@ -845,6 +848,14 @@ describe("RehearsalWorkspace", () => {
 
     expect(source).toContain("const isRehearsalCompletionVisible =");
     expect(keyboardBody).toContain("!isRehearsalCompletionVisible");
+  });
+
+  it("uses the neutral scrim behind report generation progress", () => {
+    const css = fs.readFileSync(globalStylesPath, "utf8");
+
+    expect(css).toMatch(
+      /\.rehearsal-completion-modal-backdrop \{[^}]*background: var\(--redesign-color-scrim\);/s,
+    );
   });
 
   it("restarts a completed rehearsal from the beginning without showing preflight", () => {

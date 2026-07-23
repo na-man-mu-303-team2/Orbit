@@ -2435,7 +2435,7 @@
 
 .rehearsal-completion-modal-backdrop {
   align-items: center;
-  background: color-mix(in srgb, var(--redesign-color-primary) 46%, transparent);
+  background: var(--redesign-color-scrim);
   display: flex;
   inset: 0;
   justify-content: center;
