@@ -3891,8 +3891,7 @@
 }
 
 .presenter-remote-preview-title span,
-.presenter-remote-preview-title strong,
-.presenter-remote-preview p {
+.presenter-remote-preview-title strong {
   color: var(--redesign-color-on-dark);
 }
 
@@ -4076,6 +4075,13 @@
   color: var(--redesign-color-on-dark);
 }
 
+.presenter-remote-shell
+  .presenter-remote-cue-sidebar
+  .rehearsal-side-timing-progress-meta
+  > :is(strong, span) {
+  color: var(--redesign-color-on-dark);
+}
+
 .presenter-remote-cue-sidebar .rehearsal-side-timing-progress-track {
   background: var(--redesign-color-dark-surface-high);
 }
@@ -4103,6 +4109,21 @@
   :is(.rehearsal-panel-empty, .activity-presenter-metrics > div)
   > * {
   color: inherit;
+}
+
+.presenter-remote-cue-sidebar
+  .rehearsal-panel-top-grid
+  .rehearsal-panel-section-heading
+  > *,
+.presenter-remote-cue-sidebar .activity-presenter-panel-heading strong {
+  color: var(--redesign-color-on-dark);
+}
+
+.presenter-remote-shell
+  .presenter-remote-cue-sidebar
+  .activity-presenter-secondary-command
+  > span {
+  color: var(--redesign-color-primary-fixed-dim);
 }
 
 .presenter-remote-cue-panel {
