@@ -25,6 +25,7 @@ from app.ai.deck_generation.content_planning import (
     clear_deck_content_plan_cache,
     compact_dense_speaker_notes,
     compact_program_v2_content_items,
+    compose_slide_detail_with_llm,
     content_plan_repair_reasons,
     deck_content_prompt,
     deck_content_response_format_for,
@@ -966,7 +967,7 @@ def test_presentation_rule_prompt_is_compact_and_profile_specific() -> None:
     assert len(rules) <= 10
     assert rules[0] == "Presentation profile: product-launch"
     assert "release information" in rules[1]
-    assert any("concrete next action" in rule for rule in rules)
+    assert all("concrete next action" not in rule for rule in rules)
     assert "Presentation profile: product-launch" in deck_content_prompt(
         raw_input,
         style_prompt_context(raw_input),
@@ -1297,6 +1298,59 @@ def test_profile_fallback_closing_is_thank_you_only(
     closing = response.deck["slides"][-1]
     assert closing["title"] == "감사합니다"
     assert all(element.get("role") not in {"body", "highlight"} for element in closing["elements"])
+    assert "CTA_MISSING" not in {
+        issue.code for issue in response.validation.presentation_issues
+    }
+
+
+def test_agenda_detail_uses_llm_generated_content_items() -> None:
+    raw_input = analyze_input(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            prompt="ORBIT 소개 자료를 만들어줘",
+        )
+    )
+    target = SlidePlan(
+        order=2,
+        slide_type="agenda",
+        title="목차",
+        message="발표 순서",
+        speaker_notes="",
+        keywords=[],
+        evidence=[],
+        content_items=[],
+    )
+    client = FakeOpenAIClient(
+        {
+            "title": "ORBIT",
+            "slides": [
+                slide_payload(
+                    "목차",
+                    "발표 순서",
+                    "발표 순서를 안내합니다.",
+                    slide_type="agenda",
+                    content_items=["시장 문제", "해결 전략"],
+                )
+            ],
+        }
+    )
+
+    detailed = compose_slide_detail_with_llm(
+        raw_input,
+        target,
+        style_prompt_context(raw_input),
+        client=client,
+    )
+
+    assert [item.text for item in detailed.content_items] == [
+        "시장 문제",
+        "해결 전략",
+    ]
+    assert [item.content_item_id for item in detailed.content_items] == [
+        "content_2_1",
+        "content_2_2",
+    ]
 
 
 def test_release_nouns_do_not_count_as_product_launch_closing_action() -> None:
@@ -1332,7 +1386,7 @@ def test_release_nouns_do_not_count_as_product_launch_closing_action() -> None:
     assert design_pack_source_ledgers(raw_input, closing)[0]["claim"] == closing.message
 
 
-def test_presentation_validation_detects_missing_profile_closing_action() -> None:
+def test_presentation_validation_allows_thank_you_closing_without_action() -> None:
     deck = generate_deck(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -1351,10 +1405,10 @@ def test_presentation_validation_detects_missing_profile_closing_action() -> Non
 
     codes = {issue.code for issue in validate_presentation(deck)}
 
-    assert "CTA_MISSING" in codes
+    assert "CTA_MISSING" not in codes
 
 
-def test_presentation_validation_rejects_release_nouns_without_action() -> None:
+def test_presentation_validation_allows_product_thank_you_closing_without_action() -> None:
     deck = generate_deck(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -1373,7 +1427,7 @@ def test_presentation_validation_rejects_release_nouns_without_action() -> None:
 
     codes = {issue.code for issue in validate_presentation(deck)}
 
-    assert "CTA_MISSING" in codes
+    assert "CTA_MISSING" not in codes
 
 
 def test_presentation_validation_detects_typography_rule_violations() -> None:

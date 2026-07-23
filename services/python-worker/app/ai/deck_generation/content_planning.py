@@ -3030,8 +3030,6 @@ def compose_slide_detail_with_llm(
     ]
     if target.slide_type in {"cover", "closing"}:
         content_items: list[GeneratedContentItem] = []
-    elif target.slide_type == "agenda":
-        content_items = list(target.content_items)
     else:
         content_items = generated_content_items or content_items_from_message(
             target.message,
@@ -3559,9 +3557,9 @@ def uses_conversational_design_flow(raw_input: RawInput) -> bool:
 
 
 PRESENTATION_PROFILE_BEATS: dict[PresentationProfile, tuple[str, ...]] = {
-    "proposal": ("context", "problem", "question", "solution", "evidence", "execution", "CTA"),
-    "executive-report": ("conclusion", "evidence", "impact", "risk", "decision request"),
-    "product-launch": ("anticipation", "differentiator", "experience", "evidence", "release information", "CTA"),
+    "proposal": ("context", "problem", "question", "solution", "evidence", "execution"),
+    "executive-report": ("conclusion", "evidence", "impact", "risk"),
+    "product-launch": ("anticipation", "differentiator", "experience", "evidence", "release information"),
     "education": ("objective", "concept", "example", "application", "summary", "questions"),
     "technical": ("problem", "principle", "architecture", "flow", "trade-off", "result"),
     "research": ("research question", "method", "result", "interpretation", "limitation", "conclusion"),
@@ -3580,7 +3578,7 @@ def presentation_rule_prompt(raw_input: RawInput) -> list[str]:
         "Keep body content within six rendered lines and move detail into speakerNotes.",
         "Always use slide 1 as cover, slide 2 as agenda, and the final slide as closing; use every slide between them for body content.",
         "The cover contains only a title and concise subtitle. The agenda contains 1-6 labels copied from actual body slide titles.",
-        "The closing title is '감사합니다' and may contain only a short thank-you subtitle; place every CTA, question, contact detail, summary, statistic, bullet, profile-specific decision, concrete next action, or release detail in body slides before it.",
+        "The closing title is '감사합니다' and may contain only a short thank-you subtitle.",
         "merge adjacent beats for short decks, expand evidence, examples, or execution for long decks, and never repeat a message to fill slide count.",
         "Ground every factual claim and number in the supplied sources.",
     ]
