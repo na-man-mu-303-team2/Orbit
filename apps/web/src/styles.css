@@ -3903,6 +3903,7 @@
   border: 0;
   border-radius: var(--redesign-radius-lg);
   color: var(--redesign-color-on-dark);
+  display: flex;
   grid-column: 1;
   grid-row: 1;
   overflow: hidden;
@@ -3912,6 +3913,7 @@
 .presenter-remote-script > .rehearsal-teleprompter-band {
   background: transparent;
   border: 0;
+  flex: 1;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -3929,6 +3931,21 @@
   scroll-padding-block: clamp(var(--redesign-space-6), 5vw, var(--redesign-space-24));
   scrollbar-color: color-mix(in srgb, var(--redesign-color-on-dark) 34%, transparent) transparent;
   scrollbar-width: thin;
+}
+
+.presenter-remote-script
+  .rehearsal-teleprompter-lyrics:has(
+    > .rehearsal-teleprompter-line:only-child
+  ) {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+}
+
+.presenter-remote-script
+  .rehearsal-teleprompter-lyrics
+  > .rehearsal-teleprompter-line:only-child {
+  margin-bottom: 0;
 }
 
 .presenter-remote-script .rehearsal-teleprompter-line {
