@@ -469,6 +469,16 @@ describe("presentationChannel", () => {
     ).toBe(false);
   });
 
+  it("validates presenter remote finish commands", () => {
+    const message = createPresenterCommandMessage({
+      command: { action: "finish" },
+      identity,
+      sentAt: 90,
+    });
+
+    expect(isPresentationChannelMessage(message)).toBe(true);
+  });
+
   it("validates audience output commands and rejects unknown modes", () => {
     const message = createPresenterCommandMessage({
       command: { action: "set-audience-output", mode: "screen-share" },

@@ -76,6 +76,8 @@ describe("PresentationWorkspace", () => {
     expect(source).toContain("runtimeRef.current = null");
     expect(source).toContain('sessionPurpose: "presentation"');
     expect(source).toContain("마이크 없이 시작");
+    expect(source).toContain('case "finish":');
+    expect(source).toContain("void finishPresentation()");
     expect(source).not.toContain("/rehearsals/runs");
     expect(source).not.toContain("createRehearsalRun");
     expect(source).not.toContain("completeRehearsalAudioUpload");

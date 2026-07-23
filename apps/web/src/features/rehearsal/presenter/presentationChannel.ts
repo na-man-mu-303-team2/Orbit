@@ -106,6 +106,7 @@ export type PresenterRemoteHeartbeatMessage = {
 };
 
 export type PresenterRemoteCommand =
+  | { action: "finish" }
   | { action: "goto"; slideIndex: number; stepIndex?: number }
   | { action: "next-step" }
   | { action: "prev" }
@@ -760,6 +761,7 @@ function isPresenterRemoteCommand(
   }
 
   if (
+    value.action === "finish" ||
     value.action === "next-step" ||
     value.action === "prev" ||
     value.action === "timer-pause" ||

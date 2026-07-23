@@ -1323,6 +1323,9 @@ export function PresentationWorkspace(props: {
 
   function handlePresenterRemoteCommand(command: PresenterRemoteCommand) {
     switch (command.action) {
+      case "finish":
+        void finishPresentation();
+        return;
       case "next-step":
         handleNextPresenterStep();
         return;

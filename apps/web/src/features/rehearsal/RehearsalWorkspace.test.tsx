@@ -724,6 +724,8 @@ describe("RehearsalWorkspace", () => {
     expect(commandBody).toContain("pauseActiveRehearsal()");
     expect(commandBody).toContain('command.action === "timer-reset"');
     expect(commandBody).toContain("resetRehearsalTimerState");
+    expect(commandBody).toContain('command.action === "finish"');
+    expect(commandBody).toContain("finishRehearsal()");
     expect(stateBody).toContain("timing:");
     expect(stateBody).toContain("currentSlideTargetSeconds");
     expect(stateBody).toContain("isLiveSttActive");

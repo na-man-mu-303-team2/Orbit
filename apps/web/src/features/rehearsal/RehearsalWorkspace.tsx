@@ -2410,6 +2410,10 @@ export function RehearsalWorkspace(props: {
   }
 
   function handlePresenterRemoteCommand(command: PresenterRemoteCommand) {
+    if (command.action === "finish") {
+      finishRehearsal();
+      return;
+    }
     const deckSnapshot = deckRef.current;
     if (!deckSnapshot) {
       return;
