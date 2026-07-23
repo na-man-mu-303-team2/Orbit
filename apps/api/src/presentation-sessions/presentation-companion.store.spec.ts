@@ -50,12 +50,35 @@ describe("PresentationCompanionStore", () => {
     const redis = new FakeCompanionRedis();
     const store = new PresentationCompanionStore(redis, "store-secret");
 
-    await expect(store.issueGeneration("session_1", 60)).resolves.toBe(1);
-    await expect(store.issueGeneration("session_1", 60)).resolves.toBe(2);
+    await expect(store.issueGeneration("session_1", 60)).resolves.toEqual({
+      generation: 1,
+      previousGeneration: null,
+    });
+    await expect(store.issueGeneration("session_1", 60)).resolves.toEqual({
+      generation: 2,
+      previousGeneration: 1,
+    });
     await expect(store.getLatestGeneration("session_1")).resolves.toBe(2);
 
     await store.revokeSession("session_1");
     await expect(store.getLatestGeneration("session_1")).resolves.toBeNull();
+  });
+
+  it("returns each immediately preceding generation under concurrent issuance", async () => {
+    const redis = new FakeCompanionRedis();
+    const store = new PresentationCompanionStore(redis, "store-secret");
+
+    await expect(
+      Promise.all([
+        store.issueGeneration("session_1", 60),
+        store.issueGeneration("session_1", 60),
+        store.issueGeneration("session_1", 60),
+      ]),
+    ).resolves.toEqual([
+      { generation: 1, previousGeneration: null },
+      { generation: 2, previousGeneration: 1 },
+      { generation: 3, previousGeneration: 2 },
+    ]);
   });
 
   it("replaces and revokes pending pairing keys without storing raw codes", async () => {
@@ -246,9 +269,13 @@ class FakeCompanionRedis implements PresentationCompanionRedis {
       return 1;
     }
     if (script.includes("companion:issue-generation")) {
-      const current = Number((await this.get(key)) ?? "0") + 1;
-      await this.set(key, String(current), "EX", Number(args[1]));
-      return current;
+      const previous = Number(this.read(key) ?? "0");
+      const current = previous + 1;
+      this.values.set(key, {
+        expiresAtMs: this.nowMs + Number(args[1]) * 1_000,
+        value: String(current),
+      });
+      return [String(previous), String(current)];
     }
     if (script.includes("companion:claim-authority")) {
       const epoch = String(args[1]);

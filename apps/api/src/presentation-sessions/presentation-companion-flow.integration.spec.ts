@@ -232,9 +232,10 @@ class FlowCompanionStore {
   }
 
   async issueGeneration(sessionId: string) {
-    const generation = (this.generations.get(sessionId) ?? 0) + 1;
+    const previousGeneration = this.generations.get(sessionId) ?? null;
+    const generation = (previousGeneration ?? 0) + 1;
     this.generations.set(sessionId, generation);
-    return generation;
+    return { generation, previousGeneration };
   }
 
   async getLatestGeneration(sessionId: string) {

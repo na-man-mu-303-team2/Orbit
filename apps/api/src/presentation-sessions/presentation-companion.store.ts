@@ -23,6 +23,10 @@ const presenceSchema = z
 
 export type PresentationCompanionPairing = z.infer<typeof pairingSchema>;
 export type PresentationCompanionPresence = z.infer<typeof presenceSchema>;
+export type PresentationCompanionGenerationIssue = {
+  generation: number;
+  previousGeneration: number | null;
+};
 
 export interface PresentationCompanionRedis {
   status: string;
@@ -82,9 +86,10 @@ return 1
 
 const issueGenerationScript = `
 -- companion:issue-generation
+local previous = redis.call("GET", KEYS[1])
 local generation = redis.call("INCR", KEYS[1])
 redis.call("EXPIRE", KEYS[1], ARGV[1])
-return generation
+return { previous or "0", tostring(generation) }
 `;
 
 const claimAuthorityScript = `
@@ -166,7 +171,7 @@ export class PresentationCompanionStore {
   async issueGeneration(
     sessionId: string,
     ttlSeconds: number,
-  ): Promise<number> {
+  ): Promise<PresentationCompanionGenerationIssue> {
     assertTtl(ttlSeconds);
     const value = await this.redis.eval(
       issueGenerationScript,
@@ -174,11 +179,25 @@ export class PresentationCompanionStore {
       this.key("generation", sessionId),
       ttlSeconds,
     );
-    const generation = Number(value);
+    if (!Array.isArray(value) || value.length !== 2) {
+      throw new Error("Companion generation unavailable");
+    }
+    const previousGeneration = Number(value[0]);
+    const generation = Number(value[1]);
+    if (
+      !Number.isSafeInteger(previousGeneration) ||
+      previousGeneration < 0
+    ) {
+      throw new Error("Companion generation unavailable");
+    }
     if (!Number.isSafeInteger(generation) || generation <= 0) {
       throw new Error("Companion generation unavailable");
     }
-    return generation;
+    return {
+      generation,
+      previousGeneration:
+        previousGeneration === 0 ? null : previousGeneration,
+    };
   }
 
   async getLatestGeneration(sessionId: string): Promise<number | null> {

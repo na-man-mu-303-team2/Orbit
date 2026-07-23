@@ -56,8 +56,9 @@ function createFixture() {
       };
     }),
     issueGeneration: vi.fn(async () => {
+      const previousGeneration = generation > 0 ? generation : null;
       generation += 1;
-      return generation;
+      return { generation, previousGeneration };
     }),
     getLatestGeneration: vi.fn(async () =>
       generation > 0 ? generation : null,
@@ -283,6 +284,43 @@ describe("PresentationCompanionService", () => {
         now,
       ),
     ).resolves.toMatchObject({ pairingGeneration: 2 });
+  });
+
+  it("revokes the preceding generation when pairing exchanges race", async () => {
+    const fixture = createFixture();
+    const firstPairing = await fixture.service.createPairing(
+      "project_1",
+      "session_1",
+      now,
+    );
+    const secondPairing = await fixture.service.createPairing(
+      "project_1",
+      "session_1",
+      now,
+    );
+
+    const exchanges = await Promise.all([
+      fixture.service.exchangePairing(
+        firstPairing.code,
+        "iPad Safari",
+        now,
+      ),
+      fixture.service.exchangePairing(
+        secondPairing.code,
+        "iPad Safari",
+        now,
+      ),
+    ]);
+
+    expect(
+      exchanges.map(({ credential }) => credential.pairingGeneration),
+    ).toEqual([1, 2]);
+    expect(fixture.publisher.revokeGeneration).toHaveBeenCalledTimes(1);
+    expect(fixture.publisher.revokeGeneration).toHaveBeenCalledWith(
+      "session_1",
+      1,
+      "replaced",
+    );
   });
 
   it("records only bounded identifiers and reason enums for operations", () => {

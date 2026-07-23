@@ -120,13 +120,8 @@ export class PresentationCompanionService {
     if (ttlSeconds < 1) {
       throw companionUnavailable();
     }
-    const previousGeneration = await this.store.getLatestGeneration(
-      pairing.sessionId,
-    );
-    const pairingGeneration = await this.store.issueGeneration(
-      pairing.sessionId,
-      ttlSeconds,
-    );
+    const { generation: pairingGeneration, previousGeneration } =
+      await this.store.issueGeneration(pairing.sessionId, ttlSeconds);
     if (previousGeneration !== null) {
       await this.publisher?.revokeGeneration(
         pairing.sessionId,
