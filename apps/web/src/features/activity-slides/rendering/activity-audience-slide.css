@@ -129,7 +129,8 @@
   padding: var(--redesign-space-8);
 }
 
-.activity-audience-qr-frame img { display: block; height: auto; width: 100%; }
+.activity-audience-qr-frame img,
+.activity-audience-preview-qr { display: block; height: auto; width: 100%; }
 
 .activity-audience-participation-copy {
   align-content: center;

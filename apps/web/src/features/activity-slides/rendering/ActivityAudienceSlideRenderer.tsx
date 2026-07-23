@@ -97,6 +97,7 @@ export function ActivityAudienceRuntime(props: {
 export function ActivityAudienceSlideRenderer(props: {
   activity: ActivityDefinition;
   audienceUrl: string | null;
+  previewQr?: boolean;
   publicResult: ActivityPublicResult | null;
   scale?: number;
   slideStyle?: ActivitySlide["style"];
@@ -176,7 +177,9 @@ export function ActivityAudienceSlideRenderer(props: {
         ) : (
           <section className="activity-audience-participation" aria-live="polite">
             <div className="activity-audience-qr-frame">
-              {qrDataUrl ? (
+              {props.previewQr ? (
+                <ActivityPreviewQr />
+              ) : qrDataUrl ? (
                 <img alt="참여 페이지 QR 코드" src={qrDataUrl} />
               ) : (
                 <IconQrcode aria-hidden="true" size={160} stroke={1.4} />
@@ -193,6 +196,25 @@ export function ActivityAudienceSlideRenderer(props: {
         )}
       </section>
     </div>
+  );
+}
+
+function ActivityPreviewQr() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="activity-audience-preview-qr"
+      shapeRendering="crispEdges"
+      viewBox="0 0 29 29"
+    >
+      <rect fill="#fff" height="29" width="29" />
+      <path
+        d="M2 2h7v7H2zm18 0h7v7h-7zM2 20h7v7H2zM11 2h2v2h-2zm4 0h3v2h-3zm-4 4h2v3h-2zm4-1h3v2h-3zm-4 6h3v2h-3zm5-2h2v4h-2zm4 2h2v3h-2zm4-1h3v2h-3zM2 11h2v3H2zm4 0h3v2H6zm-4 5h3v2H2zm5-1h2v3H7zm4 0h2v2h-2zm3 1h4v2h-4zm6 0h2v3h-2zm4-1h3v3h-3zM11 20h2v3h-2zm4-1h3v2h-3zm5 2h3v2h-3zm4-1h3v4h-3zm-13 5h4v2h-4zm6-1h2v3h-2zm4 2h2v1h-2zm4 0h2v1h-2z"
+        fill="#09090b"
+      />
+      <path d="M3 3h5v5H3zm18 0h5v5h-5zM3 21h5v5H3z" fill="#fff" />
+      <path d="M4 4h3v3H4zm18 0h3v3h-3zM4 22h3v3H4z" fill="#09090b" />
+    </svg>
   );
 }
 
