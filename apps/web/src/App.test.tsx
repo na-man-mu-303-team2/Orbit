@@ -243,6 +243,24 @@ describe("App shell routing", () => {
     expect(shouldRenderAppFrame(capture)).toBe(false);
   });
 
+  it("keeps pairing and authenticated companion routes public and frameless", () => {
+    expect(getRoute("/companion/pair/code%2Fprivate")).toEqual({
+      name: "companion-pair",
+      code: "code/private",
+    });
+    expect(getRoute("/companion/session%2F1")).toEqual({
+      name: "companion",
+      sessionId: "session/1",
+    });
+    for (const route of [
+      { name: "companion-pair", code: "code" } as const,
+      { name: "companion", sessionId: "session_1" } as const,
+    ]) {
+      expect(shouldWaitForAuthResolution(route)).toBe(false);
+      expect(shouldRenderAppFrame(route)).toBe(false);
+    }
+  });
+
   it("parses the standalone activity audience preview route", () => {
     expect(
       getRoute("/project/project_demo_1/activity-preview/activity_pre_question_1")

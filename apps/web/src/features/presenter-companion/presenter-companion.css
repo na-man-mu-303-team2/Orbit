@@ -1,0 +1,92 @@
+.presenter-companion-setup,
+.presenter-companion-status {
+  border: var(--redesign-border-width) solid
+    var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  background: var(--redesign-color-surface);
+  color: var(--redesign-color-on-surface);
+  padding: var(--redesign-space-3);
+}
+
+.presenter-companion-heading,
+.presenter-companion-status {
+  display: flex;
+  align-items: center;
+  gap: var(--redesign-space-3);
+}
+
+.presenter-companion-heading > div,
+.presenter-companion-status > div {
+  display: grid;
+  margin-right: auto;
+}
+
+.presenter-companion-heading span,
+.presenter-companion-status span,
+.presenter-companion-device-check small,
+.presenter-companion-pairing small {
+  color: var(--redesign-color-on-surface-variant);
+}
+
+.presenter-companion-pairing {
+  display: flex;
+  align-items: center;
+  gap: var(--redesign-space-4);
+  margin-top: var(--redesign-space-3);
+}
+
+.presenter-companion-pairing img {
+  width: 140px;
+  height: 140px;
+}
+
+.presenter-companion-device-check {
+  display: grid;
+  gap: var(--redesign-space-2);
+  margin-top: var(--redesign-space-3);
+}
+
+.presenter-companion-device-check canvas {
+  width: min(100%, 320px);
+  height: 72px;
+  border: var(--redesign-border-width) dashed var(--redesign-color-outline);
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface-container-low);
+  touch-action: none;
+}
+
+.presenter-companion-status {
+  position: relative;
+}
+
+.presenter-companion-status .presenter-companion-setup {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + var(--redesign-space-2));
+  right: 0;
+  width: min(440px, 90vw);
+  box-shadow: var(--redesign-shadow-overlay);
+}
+
+.presenter-companion-page {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--redesign-color-dark-surface);
+  color: var(--redesign-color-on-dark);
+  padding: max(var(--redesign-space-5), env(safe-area-inset-top))
+    max(var(--redesign-space-5), env(safe-area-inset-right))
+    max(var(--redesign-space-5), env(safe-area-inset-bottom))
+    max(var(--redesign-space-5), env(safe-area-inset-left));
+}
+
+.presenter-companion-page > header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--redesign-space-3);
+}
+
+.presenter-companion-page > section {
+  place-self: center;
+  text-align: center;
+}

@@ -83,6 +83,10 @@ import {
 } from "./features/presenter-companion/spike/CompanionSpikePage";
 import { CompanionSpikeHostPanel } from "./features/presenter-companion/spike/CompanionSpikeHostPanel";
 import { isCompanionSpikeEnabled } from "./features/presenter-companion/spike/companionSpike";
+import {
+  CompanionPage,
+  CompanionPairingPage,
+} from "./features/presenter-companion/CompanionPage";
 
 export type Route =
   | { name: "design-system" }
@@ -107,6 +111,8 @@ export type Route =
   | { name: "companion-spike"; spikeId: string }
   | { name: "companion-spike-audience"; spikeId: string }
   | { name: "companion-spike-capture"; spikeId: string }
+  | { name: "companion-pair"; code: string }
+  | { name: "companion"; sessionId: string }
   | {
       name: "presentation";
       presenterInitialSlideIndex?: number;
@@ -464,6 +470,24 @@ export function getRoute(pathname?: string, search?: string): Route {
       return {
         name: "companion-spike",
         spikeId: decodeURIComponent(companionSpikeMatch[1]),
+      };
+    }
+
+    const companionPairMatch = normalized.match(
+      /^\/companion\/pair\/([^/]+)$/,
+    );
+    if (companionPairMatch) {
+      return {
+        name: "companion-pair",
+        code: decodeURIComponent(companionPairMatch[1]),
+      };
+    }
+
+    const companionMatch = normalized.match(/^\/companion\/([^/]+)$/);
+    if (companionMatch) {
+      return {
+        name: "companion",
+        sessionId: decodeURIComponent(companionMatch[1]),
       };
     }
 
@@ -836,6 +860,8 @@ export function shouldWaitForAuthResolution(route: Route) {
     "companion-spike",
     "companion-spike-audience",
     "companion-spike-capture",
+    "companion-pair",
+    "companion",
     "present",
     "deck-render",
     "not-found",
@@ -859,6 +885,8 @@ export function shouldRenderAppFrame(route: Route) {
     route.name !== "companion-spike" &&
     route.name !== "companion-spike-audience" &&
     route.name !== "companion-spike-capture" &&
+    route.name !== "companion-pair" &&
+    route.name !== "companion" &&
     route.name !== "deck-render"
   );
 }
@@ -991,6 +1019,12 @@ function renderRoute(route: Route, user?: AuthUser) {
   }
   if (route.name === "companion-spike-capture") {
     return <CompanionSpikeCapturePage spikeId={route.spikeId} />;
+  }
+  if (route.name === "companion-pair") {
+    return <CompanionPairingPage code={route.code} />;
+  }
+  if (route.name === "companion") {
+    return <CompanionPage sessionId={route.sessionId} />;
   }
   if (route.name === "presentation") {
     return (
