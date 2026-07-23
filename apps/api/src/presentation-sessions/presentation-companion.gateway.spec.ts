@@ -1,10 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Socket } from "socket.io";
+
+const { configState } = vi.hoisted(() => ({
+  configState: { enabled: true },
+}));
 
 vi.mock("@orbit/config", () => ({
   loadOrbitConfig: () => ({
     COOKIE_SECRET: "companion-gateway-cookie-secret",
-    IPAD_PRESENTER_COMPANION_ENABLED: true,
+    get IPAD_PRESENTER_COMPANION_ENABLED() {
+      return configState.enabled;
+    },
     SESSION_SECRET: "companion-gateway-session-secret",
     WEB_ORIGIN: "https://present.orbit.example",
   }),
@@ -21,6 +27,9 @@ import { companionAccessCookieName } from "./companion-access-cookie";
 import { PresentationCompanionGateway } from "./presentation-companion.gateway";
 
 describe("PresentationCompanionGateway", () => {
+  beforeEach(() => {
+    configState.enabled = true;
+  });
   it("does not accept an ordinary audience cookie for companion join", async () => {
     const fixture = createFixture();
     const client = socket({
@@ -59,6 +68,11 @@ describe("PresentationCompanionGateway", () => {
       authorityEpochId: "epoch_1",
     });
     await fixture.gateway.joinCompanion(companion, {
+      sessionId: "session_1",
+    });
+    expect(fixture.companion.recordConnected).toHaveBeenCalledWith({
+      companionId: "companion_opaque_1",
+      pairingGeneration: 2,
       sessionId: "session_1",
     });
     const command = annotationCommand();
@@ -207,6 +221,19 @@ describe("PresentationCompanionGateway", () => {
     expect(fixture.server.to).toHaveBeenLastCalledWith(
       "presentation:session_1:companion-authority:epoch_1",
     );
+    await fixture.gateway.relaySignal(companion, {
+      authorityEpochId: answer.authorityEpochId,
+      kind: "end",
+      reason: "failed",
+      sessionId: answer.sessionId,
+      shareEpochId: answer.shareEpochId,
+      signalId: answer.signalId,
+      targetGeneration: answer.targetGeneration,
+    });
+    expect(fixture.companion.recordWebRtcFailed).toHaveBeenCalledWith({
+      pairingGeneration: 2,
+      sessionId: "session_1",
+    });
   });
 
   it("clears only matching presence on abrupt disconnect and keeps generation", async () => {
@@ -227,6 +254,10 @@ describe("PresentationCompanionGateway", () => {
       2,
     );
     expect(fixture.companion.revokeSession).not.toHaveBeenCalled();
+    expect(fixture.companion.recordDisconnected).toHaveBeenCalledWith({
+      pairingGeneration: 2,
+      sessionId: "session_1",
+    });
     expect(fixture.publisher.publishPresence).toHaveBeenLastCalledWith(
       "session_1",
       {
@@ -236,6 +267,48 @@ describe("PresentationCompanionGateway", () => {
         rttBucket: null,
       },
     );
+  });
+
+  it("revokes an active companion on the next heartbeat after flag rollback", async () => {
+    const fixture = createFixture();
+    const companion = socket({
+      cookie: `${companionAccessCookieName}=valid-companion-token`,
+      id: "socket_companion",
+    });
+    await fixture.gateway.joinCompanion(companion, {
+      sessionId: "session_1",
+    });
+    configState.enabled = false;
+
+    await expect(
+      fixture.gateway.heartbeatCompanion(companion, {
+        sessionId: "session_1",
+      }),
+    ).resolves.toMatchObject({
+      data: { payload: { code: "SESSION_UNAVAILABLE" } },
+    });
+    expect(fixture.companion.revokeSession).toHaveBeenCalledWith(
+      "session_1",
+      "disconnected",
+    );
+  });
+
+  it("does not mutate session state for an unauthenticated rollback heartbeat", async () => {
+    const fixture = createFixture();
+    const audience = socket({
+      cookie: "orbit_presentation_audience=valid-audience-token",
+      id: "socket_audience",
+    });
+    configState.enabled = false;
+
+    await expect(
+      fixture.gateway.heartbeatCompanion(audience, {
+        sessionId: "session_1",
+      }),
+    ).resolves.toMatchObject({
+      data: { payload: { code: "SESSION_UNAVAILABLE" } },
+    });
+    expect(fixture.companion.revokeSession).not.toHaveBeenCalled();
   });
 });
 
@@ -258,6 +331,10 @@ function createFixture() {
     getLatestGeneration: vi.fn().mockResolvedValue(2),
     heartbeatAuthority: vi.fn().mockResolvedValue(true),
     renewPresence: vi.fn().mockResolvedValue(undefined),
+    recordCommandRejected: vi.fn(),
+    recordConnected: vi.fn(),
+    recordDisconnected: vi.fn(),
+    recordWebRtcFailed: vi.fn(),
     revokeSession: vi.fn(),
     verifyCredential: vi.fn(
       async (

@@ -104,6 +104,7 @@ function createFixture() {
   } as unknown as PresentationCompanionProjectionService;
   const logger = {
     info: vi.fn(),
+    warn: vi.fn(),
   };
   const publisher = {
     revokeCurrent: vi.fn().mockResolvedValue(undefined),
@@ -153,6 +154,9 @@ describe("PresentationCompanionService", () => {
         presentationSessionId: "session_1",
       }),
       expect.any(String),
+    );
+    expect(JSON.stringify(fixture.logger.info.mock.calls)).not.toContain(
+      result.code,
     );
   });
 
@@ -215,6 +219,10 @@ describe("PresentationCompanionService", () => {
       pairingGeneration: 1,
       expiresAt: "2026-07-23T04:00:00.000Z",
     });
+    const serializedLogs = JSON.stringify(fixture.logger.info.mock.calls);
+    expect(serializedLogs).not.toContain(code);
+    expect(serializedLogs).not.toContain(exchange.token);
+    expect(serializedLogs).not.toContain("iPad Safari");
     await expect(
       fixture.service.exchangePairing(code, "iPad Safari", now),
     ).rejects.toMatchObject({
@@ -249,6 +257,15 @@ describe("PresentationCompanionService", () => {
       1,
       "replaced",
     );
+    expect(fixture.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "presentation_companion.replaced",
+        presentationSessionId: "session_1",
+        previousGeneration: 1,
+        pairingGeneration: 2,
+      }),
+      expect.any(String),
+    );
 
     await expect(
       fixture.service.verifyCredential(
@@ -266,6 +283,43 @@ describe("PresentationCompanionService", () => {
         now,
       ),
     ).resolves.toMatchObject({ pairingGeneration: 2 });
+  });
+
+  it("records only bounded identifiers and reason enums for operations", () => {
+    const fixture = createFixture();
+
+    fixture.service.recordConnected({
+      companionId: "companion_opaque_1",
+      pairingGeneration: 2,
+      sessionId: "session_1",
+    });
+    fixture.service.recordDisconnected({
+      pairingGeneration: 2,
+      sessionId: "session_1",
+    });
+    fixture.service.recordCommandRejected({
+      reasonCode: "RATE_LIMITED",
+      sessionId: "session_1",
+    });
+    fixture.service.recordWebRtcFailed({
+      pairingGeneration: 2,
+      sessionId: "session_1",
+    });
+
+    const serialized = JSON.stringify({
+      info: fixture.logger.info.mock.calls,
+      warn: fixture.logger.warn.mock.calls,
+    });
+    expect(serialized).toContain("presentation_companion.connected");
+    expect(serialized).toContain(
+      "presentation_companion.command_rejected",
+    );
+    expect(serialized).toContain(
+      "presentation_companion.webrtc_failed",
+    );
+    expect(serialized).not.toMatch(
+      /cookie|token|sdp|candidate|points|speakerNotes|transcript/i,
+    );
   });
 
   it("fails closed for another user-agent, ended session, and revoke", async () => {

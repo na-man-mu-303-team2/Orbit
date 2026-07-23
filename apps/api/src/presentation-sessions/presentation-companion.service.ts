@@ -76,7 +76,6 @@ export class PresentationCompanionService {
         event: "presentation_companion.pairing_created",
         projectId,
         presentationSessionId: sessionId,
-        expiresAt: result.expiresAt,
       },
       "presentation companion pairing created",
     );
@@ -134,6 +133,16 @@ export class PresentationCompanionService {
         previousGeneration,
         "replaced",
       );
+      this.logger.info(
+        {
+          event: "presentation_companion.replaced",
+          presentationSessionId: pairing.sessionId,
+          previousGeneration,
+          pairingGeneration,
+          reasonCode: "new-pairing-exchanged",
+        },
+        "presentation companion replaced",
+      );
     }
     const token = createCompanionAccessToken(
       this.config,
@@ -163,7 +172,6 @@ export class PresentationCompanionService {
         projectId: credential.projectId,
         presentationSessionId: credential.sessionId,
         pairingGeneration: credential.pairingGeneration,
-        expiresAt: credential.expiresAt,
       },
       "presentation companion pairing exchanged",
     );
@@ -219,8 +227,70 @@ export class PresentationCompanionService {
       {
         event: "presentation_companion.revoked",
         presentationSessionId: sessionId,
+        reasonCode: reason,
       },
       "presentation companion credential revoked",
+    );
+  }
+
+  recordConnected(input: {
+    companionId: string;
+    pairingGeneration: number;
+    sessionId: string;
+  }): void {
+    this.logger.info(
+      {
+        event: "presentation_companion.connected",
+        companionId: input.companionId,
+        pairingGeneration: input.pairingGeneration,
+        presentationSessionId: input.sessionId,
+      },
+      "presentation companion connected",
+    );
+  }
+
+  recordDisconnected(input: {
+    pairingGeneration: number;
+    sessionId: string;
+  }): void {
+    this.logger.info(
+      {
+        event: "presentation_companion.disconnected",
+        pairingGeneration: input.pairingGeneration,
+        presentationSessionId: input.sessionId,
+        reasonCode: "socket-disconnected",
+      },
+      "presentation companion disconnected",
+    );
+  }
+
+  recordCommandRejected(input: {
+    reasonCode: "NOT_AUTHORITY" | "RATE_LIMITED" | "STALE_GENERATION";
+    sessionId: string;
+  }): void {
+    this.logger.warn(
+      {
+        event: "presentation_companion.command_rejected",
+        presentationSessionId: input.sessionId,
+        reasonCode: input.reasonCode,
+      },
+      "presentation companion command rejected",
+    );
+  }
+
+  recordWebRtcFailed(input: {
+    pairingGeneration: number;
+    sessionId: string;
+  }): void {
+    this.logger.warn(
+      {
+        event: "presentation_companion.webrtc_failed",
+        elapsedBucket: "unknown",
+        pairingGeneration: input.pairingGeneration,
+        presentationSessionId: input.sessionId,
+        webrtcState: "failed",
+      },
+      "presentation companion WebRTC failed",
     );
   }
 

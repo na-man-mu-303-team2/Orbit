@@ -105,6 +105,10 @@ export class PresentationCompanionGateway
       generation,
     );
     if (!cleared) return;
+    this.companion.recordDisconnected?.({
+      pairingGeneration: generation,
+      sessionId,
+    });
     this.publisher.publishPresence(sessionId, {
       connected: false,
       pairingGeneration:
@@ -253,6 +257,11 @@ export class PresentationCompanionGateway
       connectedAt,
       rttBucket: "unknown",
     });
+    this.companion.recordConnected?.({
+      companionId: credential.companionId,
+      pairingGeneration: credential.pairingGeneration,
+      sessionId: parsed.data.sessionId,
+    });
     this.publisher.publishPresence(parsed.data.sessionId, {
       connected: true,
       pairingGeneration: credential.pairingGeneration,
@@ -285,7 +294,26 @@ export class PresentationCompanionGateway
   ) {
     const parsed =
       presentationCompanionHeartbeatPayloadSchema.safeParse(body);
-    if (!this.enabled() || !parsed.success) {
+    if (!this.enabled()) {
+      if (parsed.success) {
+        const credential = await this.requireCompanionSocket(
+          client,
+          parsed.data.sessionId,
+        );
+        if (credential) {
+          await this.companion.revokeSession(
+            parsed.data.sessionId,
+            "disconnected",
+          );
+        }
+      }
+      return emitError(
+        client,
+        sessionIdFrom(body),
+        "SESSION_UNAVAILABLE",
+      );
+    }
+    if (!parsed.success) {
       return emitError(client, sessionIdFrom(body), "INVALID_PAYLOAD");
     }
     const credential = await this.requireCompanionSocket(
@@ -375,6 +403,10 @@ export class PresentationCompanionGateway
     try {
       await this.rateLimit.consumeDrawing(credential.companionId);
     } catch {
+      this.companion.recordCommandRejected?.({
+        reasonCode: "RATE_LIMITED",
+        sessionId: parsed.data.sessionId,
+      });
       return emitError(
         client,
         parsed.data.sessionId,
@@ -474,6 +506,10 @@ export class PresentationCompanionGateway
     try {
       await this.rateLimit.consumeLaser(client.id);
     } catch {
+      this.companion.recordCommandRejected?.({
+        reasonCode: "RATE_LIMITED",
+        sessionId: parsed.data.sessionId,
+      });
       return emitError(
         client,
         parsed.data.sessionId,
@@ -547,6 +583,10 @@ export class PresentationCompanionGateway
     try {
       await this.rateLimit.consumeDrawing(client.id);
     } catch {
+      this.companion.recordCommandRejected?.({
+        reasonCode: "RATE_LIMITED",
+        sessionId: parsed.data.sessionId,
+      });
       return emitError(
         client,
         parsed.data.sessionId,
@@ -560,6 +600,12 @@ export class PresentationCompanionGateway
           parsed.data.sessionId,
           "NOT_AUTHORITY",
         );
+      }
+      if (parsed.data.kind === "end" && parsed.data.reason === "failed") {
+        this.companion.recordWebRtcFailed?.({
+          pairingGeneration: generation,
+          sessionId: parsed.data.sessionId,
+        });
       }
       return this.emitToGeneration(
         client,
@@ -584,6 +630,12 @@ export class PresentationCompanionGateway
         parsed.data.sessionId,
         "NOT_AUTHORITY",
       );
+    }
+    if (parsed.data.kind === "end" && parsed.data.reason === "failed") {
+      this.companion.recordWebRtcFailed?.({
+        pairingGeneration: generation,
+        sessionId: parsed.data.sessionId,
+      });
     }
     const roomId = presentationCompanionAuthorityRoomId(
       parsed.data.sessionId,
