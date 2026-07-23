@@ -29,6 +29,13 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 
 `API_TRUST_PROXY_HOPS`는 API 앞에서 신뢰할 reverse proxy hop 수다. 직접 접속하는 local/test는 `0`, ALB 또는 단일 Nginx 뒤의 staging/production은 `1`을 사용한다. 실제 proxy 수보다 크게 설정하면 외부 `X-Forwarded-For`를 신뢰하게 되므로 배포 topology와 정확히 맞춰야 한다.
 
+`IPAD_PRESENTER_COMPANION_ENABLED=true | false`는 발표자 iPad companion의
+pairing API와 Web 진입점을 함께 제어한다. 기본값은 `true`다. `false`이면
+pairing 관련 API는 fail-closed하고 Web은 연결 UI를 표시하지 않으며, 기존 발표,
+리허설, 청중 출력은 계속 동작한다. 브라우저 runtime config에는
+`ipadPresenterCompanionEnabled` boolean만 노출하고 Redis 주소, credential
+수명, signing secret은 노출하지 않는다.
+
 ## driver 값
 
 ```txt
