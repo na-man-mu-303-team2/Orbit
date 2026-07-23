@@ -5,15 +5,18 @@
 - 구현 상태: staging 실험 하네스 구현 완료
 - 로컬 정적 검증: `git diff --check` 통과
 - 자동 테스트/타입 검사: 통과
-- 물리 기기 검증: 대기
-- Checkpoint 0: **판정 보류**
+- 물리 기기 검증: 단일 iPad/리허설 host 부분 측정 완료
+- Checkpoint 0: **조건부 진행 — 미측정 매트릭스는 후속 QA**
 
 `corepack pnpm install --frozen-lockfile`로 lockfile 변경 없이 workspace
-의존성을 설치했다. API와 Web 전체 테스트 및 typecheck를 통과했다. staging
-배포는 별도 승인과 물리 기기 준비가 필요하므로 수행하지 않았다.
+의존성을 설치했다. API와 Web 전체 테스트 및 typecheck를 통과했다. 초기
+구현 시점에는 staging과 물리 기기 검증을 보류했고, 이후 배포된 staging에서
+단일 iPad 탐색 측정을 추가했다.
 
 이 문서의 수치 표는 실제 HTTPS staging과 물리 iPad에서 측정한 값만
-기록한다. 비어 있는 칸은 실패나 0이 아니라 `미측정`을 뜻한다.
+기록한다. 비어 있는 칸은 실패나 0이 아니라 `미측정`을 뜻한다. 2026-07-23
+Task 0 종료 결정에 따라 단일 기기에서 핵심 경로의 사용 가능성을 확인한 뒤
+나머지 기기/OS/host 조합은 후속 QA로 이관했다.
 
 ## 목적
 
@@ -100,14 +103,14 @@ TURN이 없는 동일 네트워크 조건의 go/no-go 근거다.
 
 | 항목 | 값 |
 | --- | --- |
-| staging origin | 미측정 |
+| staging origin | `https://photo-archive.cloud` |
 | staging build/commit | 미측정 |
 | desktop OS | 미측정 |
 | Chrome Stable version | 미측정 |
 | Wi-Fi/AP | 미측정 |
 | NAT/firewall 특이사항 | 미측정 |
-| 측정자 | 미측정 |
-| 측정 일시 | 미측정 |
+| 측정자 | 사용자(iPad 조작), Codex(host 계측) |
+| 측정 일시 | 2026-07-23 |
 
 필수 기기:
 
@@ -146,10 +149,14 @@ desktop audience canvas 적용 ack를 다시 iPad가 받을 때까지다. 10분 
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 미측정 | 미측정 | touch | 미측정 | 미측정 | 미측정 | 해당 없음 | 미측정 | 미측정 |
 | 미측정 | 미측정 | Pencil, hover 미지원 | 미측정 | 미측정 | 미측정 | no 예상 | 미측정 | 미측정 |
-| 미측정 | 미측정 | Pencil, hover 지원 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 |
+| 기종 미기록 | 버전 미기록 | Pencil, hover 지원 | yes | yes | yes | yes | 미측정 | 오류/경고 없음 |
 
 pressure 미지원/미관측 입력은 `buttons > 0`일 때 0.5를 사용한다. 이 fallback의
 선 두께가 손가락과 구형 Pencil에서 읽기 쉬운지 별도로 기록한다.
+
+관측한 Pencil pressure는 `0..0.566` 범위에서 변화했다. 절전 복귀 직후에는
+capability가 `Pointer yes / coalesced no / pressure no / hover no`로
+초기화됐지만 Pencil 입력 후 모두 `yes`로 다시 관측됐다.
 
 ## Media와 latency 결과
 
@@ -161,6 +168,14 @@ pressure 미지원/미관측 입력은 `buttons > 0`일 때 0.5를 사용한다.
 | 실전 발표 | surface swap | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 |
 | 리허설 | slide-window | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 |
 | 리허설 | surface swap | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 | 미측정 |
+
+10분 연속 조건을 충족하지 않은 탐색 측정은 판정용 표와 분리한다.
+
+| host | mode | 구간 | video/신호 | ink count | p50 ms | p95 ms | max ms | 메모 |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |
+| 리허설 | slide-window | 293.5초 누적 | offer→answer 129ms, host preview 5120×2820/readyState 4 | 8,760 | 33.54 | 147.26 | 517.04 | 안정 구간 p95는 후보 기준 300ms 이하 |
+| 리허설 | slide-window | iPad reload 후 28.3초 | offline gap 1.02초, video 자동 복구 | 1,338 | 30.72 | 364.34 | 555.02 | 재연결 warm-up p95는 후보 기준 초과 |
+| 리허설 | surface swap | 탐색 확인 | 사용자 화면 공유 후 host WebRTC connected 유지 | 미측정 | 미측정 | 미측정 | 미측정 | 정밀 재협상 측정은 후속 QA |
 
 ## 복구 결과
 
@@ -175,6 +190,12 @@ pressure 미지원/미관측 입력은 `buttons > 0`일 때 0.5를 사용한다.
 화면 capture는 브라우저 보안 정책 때문에 사용자 gesture 재선택이 필요할 수
 있으며, 이를 연결 실패와 구분한다.
 
+단일 리허설 탐색에서는 iPad reload 뒤 host의 offline 구간이 약 `1.02초`였고
+QR 재스캔 없이 WebRTC video와 Pencil capability가 자동 복구됐다. 1분
+sleep/wake도 QR 재스캔 없이 자동 복귀했지만, 사용자가 실제로 화면을 깨운
+시점을 계측하지 못해 복구 시간은 `미측정`으로 남긴다. Wi-Fi off/on과 host
+reload는 후속 QA로 이관했다.
+
 ## 구현 상수 확정표
 
 | 상수 | spike 후보값 | 실제 확정값 | 근거 |
@@ -188,8 +209,20 @@ pressure 미지원/미관측 입력은 `buttons > 0`일 때 0.5를 사용한다.
 
 ## Checkpoint 0 판정
 
-현재 판정은 **보류**다. 다음 항목이 모두 실제 값으로 채워지기 전에는 Task 1로
-진행하지 않는다.
+현재 판정은 **조건부 진행**이다. 2026-07-23 사용자 결정으로 단일 iPad와
+리허설 host에서 핵심 경로가 쓸 수 있는 수준임을 확인하고 Task 1 진행을
+허용한다. 이는 출시 승인이나 전체 호환성 `GO`를 의미하지 않는다.
+
+확인한 근거:
+
+- Pointer/coalesced/pressure/hover 관측 및 실제 pressure 변화
+- TURN 없는 `slide-window` WebRTC 연결과 영상 수신
+- `surface swap` 화면 공유 동작 사용자 육안 확인
+- 안정 구간 ink p95 `147.26ms`
+- iPad reload와 sleep/wake 뒤 QR 재스캔 없는 자동 복귀
+- 측정 중 host Chrome console 오류/경고 없음
+
+다음 항목은 Task 1을 막지 않는 후속 QA로 이관한다.
 
 - current/previous stable Safari 모두 touch drawing과 WebRTC receive 성공
 - hover 지원/미지원 기기의 pressure fallback 결과 기록
@@ -198,6 +231,9 @@ pressure 미지원/미관측 입력은 `buttons > 0`일 때 0.5를 사용한다.
 - reload/sleep 복구 방식과 시간 기록
 - media profile, batch cadence, TTL 최종값 확정
 - 브라우저 console error 검토
+
+제품 출시 전에는 위 매트릭스를 완료하고, 특히 reload 직후 warm-up p95
+`364.34ms`가 일시적 현상인지 장기 표본으로 재확인한다.
 
 다음 중 하나라도 확인되면 `NO-GO`로 표시하고
 `docs/ideas/ipad-presenter-companion.md`의 전송/렌더링 전략을 다시 검토한다.
@@ -225,8 +261,8 @@ pnpm --filter @orbit/web typecheck
 | API 전체 테스트 | 통과 — 620 passed, 1 integration test skipped |
 | Web 전체 테스트 | 통과 — 1,857 passed |
 | API/Web typecheck | 통과 |
-| HTTPS staging | 미실행 — 배포 승인 없음 |
-| 물리 iPad QA | 미실행 — staging/기기 필요 |
+| HTTPS staging | 부분 통과 — 리허설 host 핵심 경로 확인 |
+| 물리 iPad QA | 부분 통과 — 단일 기기 측정, 전체 매트릭스는 후속 QA |
 
 ## 종료와 제거
 

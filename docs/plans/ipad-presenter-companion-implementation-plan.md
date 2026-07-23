@@ -10,7 +10,7 @@
 - 대상: 실전 발표 또는 리허설을 실행하는 Desktop Chrome Stable 발표자 +
   신뢰하는 iPad 1대
 - 물리 기기 경로: 같은 네트워크에서 staging/production HTTPS origin 사용
-- 예상 전달 단위: 7개 PR, 6개 검증 checkpoint
+- 예상 전달 단위: 로컬 구현 브랜치 1개, 최종 PR 1개, 6개 검증 checkpoint
 
 이 문서는 승인된 제품 방향을 코드 변경 단위로 분해한 실행 계획이다.
 구현자는 각 checkpoint의 승인 조건을 통과한 뒤 다음 단계로 진행한다.
@@ -61,6 +61,7 @@ Apple Pencil 또는 손가락으로 그린 임시 주석을 메인 청중 화면
 
 - iPad 여러 대 또는 청중 공동 그리기
 - iPad에서 슬라이드 이동, 타이머, 발표자 노트, STT 제어
+- Safari/PWA에서 Apple Pencil hardware double tap 감지
 - 주석 영구 저장, Deck patch, PPTX export, 발표 report 포함
 - 도형, 텍스트, lasso, 이미지 삽입, stroke 일부 지우기
 - 일반 슬라이드의 video streaming
@@ -68,6 +69,11 @@ Apple Pencil 또는 손가락으로 그린 임시 주석을 메인 청중 화면
 - TURN 보장, 인터넷 원격 companion
 - `orbit.local`, Bonjour/mDNS, 로컬 인증서 배포
 - 물리 iPad에서 로컬 Docker Compose에 직접 접속하는 개발 경로
+
+Apple Pencil hardware double tap은 native iPad app의
+`UIPencilInteraction`이 필요하므로 이번 browser 구현 범위에서 제외한다.
+화면을 Pencil tip으로 두 번 누르는 gesture도 drawing과 충돌하므로
+fallback으로 사용하지 않는다.
 
 ## 3. 현재 저장소 기준선과 선행 격차
 
@@ -109,6 +115,7 @@ safe projection, annotation, WebRTC 경로를 사용하되 별도의
 | D11 | no-TURN 정책을 유지한다. WebRTC 실패는 iPad screen-share surface만 비활성화한다. |
 | D12 | runtime feature flag가 꺼져 있으면 pairing endpoint는 fail-closed하고 UI entry point는 보이지 않는다. 기존 발표와 청중 기능은 그대로 동작한다. |
 | D13 | `PresentationSession.sessionPurpose`는 `presentation | rehearsal`이다. 기존 row와 audience/activity session은 `presentation`, 리허설 companion test는 `rehearsal`이며 active session uniqueness와 close/reuse도 purpose별로 분리한다. |
+| D14 | Apple Pencil hardware double tap은 Safari/PWA의 지원 capability로 간주하지 않는다. web Pointer Events나 `dblclick`을 hardware gesture의 대체 계약으로 사용하지 않는다. |
 
 ## 5. 전체 구조
 
@@ -1080,22 +1087,21 @@ flowchart TD
   T16 --> T17
 ```
 
-## 10. PR 전달 순서
+## 10. 로컬 구현과 최종 PR 전달
 
-| PR | 포함 작업 | 수직 결과 |
-| --- | --- | --- |
-| PR 0 | Task 0 | 실제 기기 go/no-go와 상수 확정 |
-| PR 1 | Task 1~3 | purpose별 session, audience opt-in, 두 모드 lifecycle |
-| PR 2 | Task 4~8 | safe bootstrap, pairing auth, multi-process realtime |
-| PR 3 | Task 9~11 | 실전 발표·리허설 공통 iPad read-only 미러 |
-| PR 4 | Task 12~14 | slide annotation 전체 MVP와 reconnect |
-| PR 5 | Task 15~16 | screen-share video와 share annotation |
-| PR 6 | Task 17 | 보안·관측·E2E·runbook·release gate |
+Task 0 이후 Task 1~17은 최신 `develop`에서 만든 하나의 feature branch에서
+끝까지 구현한다. 각 Task와 checkpoint마다 관련 테스트를 통과시키고
+독립적으로 검토 가능한 단위로 자주 커밋하되, 중간 PR을 만들거나
+`develop`에 병합하지 않는다.
 
-각 PR은 해당 범위 테스트가 통과한 상태로 merge한다. 공통 계약을 바꾸는
-PR 1과 PR 2는 `docs/contracts.md`와 shared schema를 같은 PR에 포함한다.
-feature flag 기본값은 `true`이므로 PR 0~PR 6 전체가 release checkpoint를
-통과하기 전 중간 상태를 운영에 배포하지 않는다. 긴급 rollback은 운영
+모든 Task의 Acceptance와 Verification, Checkpoint 1~5, 최종 자기 리뷰가
+완료된 뒤에만 branch를 push하고 `develop` 대상 PR 하나를 생성한다. 이
+최종 PR에는 공통 계약 변경, `packages/shared` schema, 소비 코드, migration,
+테스트, `docs/contracts.md`, 운영·QA 문서를 함께 포함한다. PR 생성 후
+자동·수동 merge는 수행하지 않고 리뷰 가능한 open 상태로 인계한다.
+
+feature flag 기본값은 `true`이므로 전체 release checkpoint를 통과하기 전
+중간 상태를 staging이나 운영에 배포하지 않는다. 긴급 rollback은 운영
 환경에서 flag를 `false`로 덮어써 pairing UI/API만 즉시 닫는다.
 
 ## 11. 테스트 전략
@@ -1211,8 +1217,8 @@ video로 교차 확인한다. 원시 point나 전체 sample history는 서버로
 
 1. 기본 flag `true`로 구현하고 승인된 staging에서 실전 발표와 리허설
    경로를 모두 검증한다.
-2. PR 0~PR 6와 Checkpoint 5가 완료되기 전에는 중간 구현을 운영에 배포하지
-   않는다.
+2. Task 0~17의 필수 checkpoint와 최종 PR 준비가 완료되기 전에는 중간
+   구현을 staging이나 운영에 배포하지 않는다.
 3. 운영 배포 전 purpose/audience migration과 Redis adapter readiness를
    확인한다.
 4. 제한 rollout 중 pairing failure, command reject, WebRTC failure,

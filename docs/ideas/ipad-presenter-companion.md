@@ -240,6 +240,19 @@ Apple recommends hover for non-destructive preview rather than committing an
 action. The laser therefore uses a separate transient channel and never creates
 or persists a stroke.
 
+### Apple Pencil Hardware Double Tap
+
+Apple Pencil side double tap is outside this implementation scope. Apple exposes
+the hardware gesture to native iPad apps through `UIPencilInteraction`, while
+Pointer Events available to Safari web content do not define an equivalent
+event. Supporting it would therefore require a separately built and distributed
+native iPad app, which this browser companion project does not include.
+
+The Safari companion does not expose slide or animation control through this
+gesture. Two Pencil-tip contacts may be inferred from web pointer events, but
+that is a different gesture and conflicts with drawing, so it is not used as a
+fallback.
+
 ## Key Assumptions to Validate
 
 - [ ] **Pencil input:** actual iPad Safari and Apple Pencil combinations provide
@@ -331,6 +344,11 @@ Suggested implementation boundaries:
   temporary live-annotation assumption.
 - **Slide navigation, timer, speaker notes, or STT controls on iPad** — turns the
   companion into a second presenter console and expands its privacy boundary.
+- **Apple Pencil hardware double tap in Safari/PWA** — no documented web API
+  exposes this gesture, and a native iPad app is outside this implementation
+  scope.
+- **Pencil-tip double tap as a hardware-gesture fallback** — conflicts with
+  drawing and is not equivalent to the side double tap.
 - **Shapes, text, lasso, image insertion, or segment erasing** — requires an
   editor-grade vector model rather than a live annotation model.
 - **Internet-wide connectivity and guaranteed TURN relay** — validate the same
@@ -357,6 +375,9 @@ Suggested implementation boundaries:
 - **WebRTC fallback:** no TURN in the MVP; a failed screen-share connection is
   isolated to iPad video while slide mirroring and annotation recover
   automatically on the next slide surface.
+- **Apple Pencil double tap:** Safari/PWA remains drawing-only. Hardware
+  double-tap presentation control is excluded because it requires a native iPad
+  app.
 
 ## Deferred Questions After the Hardware Spike
 
@@ -378,6 +399,8 @@ These are measurement-driven implementation choices, not product blockers:
 - [WebRTC: Real-Time Communication in Browsers](https://www.w3.org/TR/webrtc/)
 - [WebKit Features in Safari 16.1 — Apple Pencil hover](https://webkit.org/blog/13399/webkit-features-in-safari-16-1/)
 - [Apple Pencil and Scribble — Hover guidance](https://developer.apple.com/design/human-interface-guidelines/apple-pencil-and-scribble)
+- [Handling double taps from Apple Pencil](https://developer.apple.com/documentation/applepencil/handling-double-taps-from-apple-pencil)
+- [`UIPencilInteraction`](https://developer.apple.com/documentation/uikit/uipencilinteraction)
 - `docs/plans/presenter-audience-screen-share-mvp.md`
 - `docs/plans/audience-mobile-access.md`
 - `docs/contracts.md`
