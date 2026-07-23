@@ -6,10 +6,8 @@ import {
   ChevronRight,
   Circle,
   ListChecks,
-  Maximize2,
   PauseCircle,
   PlayCircle,
-  Power,
   RotateCcw,
   X,
 } from "lucide-react";
@@ -181,13 +179,6 @@ export function PresenterRemoteWindow(props: {
     }
   };
 
-  const requestRemoteFullscreen = () => {
-    const request = document.documentElement.requestFullscreen?.();
-    if (request) {
-      void request.catch(() => undefined);
-    }
-  };
-
   const updateAudienceOutputMode = (mode: PresenterSlideshowState["audienceOutputMode"]) => {
     pendingAudienceOutputModeRef.current = { mode, sentAt: Date.now() };
     setState((current) => ({ ...current, audienceOutputMode: mode }));
@@ -224,7 +215,7 @@ export function PresenterRemoteWindow(props: {
     () => getPresenterRemoteSlideContext(deck, state),
     [deck, state],
   );
-  const { nextSlide, slide, slideNumber } = slideContext;
+  const { nextSlide, previousSlide, slide, slideNumber } = slideContext;
   const notes = slide?.speakerNotes?.trim() || "발표자 노트가 없습니다.";
   const noteSentences = useMemo(
     () => splitPresenterRemoteNotes(notes),
@@ -281,7 +272,6 @@ export function PresenterRemoteWindow(props: {
       : "시작";
   const timerProgressPercent = getPresenterRemoteTimerProgressPercent(timing);
   const previewScale = getPresenterRemotePreviewScale(deck);
-  const visibleSlides = getPresenterRemoteVisibleSlides(deck, state.slideIndex);
   const cueProgressCurrent =
     noteSentences.length > 0
       ? Math.min(currentSentenceIndex + 1, noteSentences.length)
@@ -307,24 +297,6 @@ export function PresenterRemoteWindow(props: {
 
   return (
     <main className="presenter-remote-shell" aria-label="발표자 제어 창">
-      <header className="presenter-remote-topbar">
-        <button
-          className="presenter-remote-header-action"
-          type="button"
-          onClick={requestRemoteFullscreen}
-        >
-          <Maximize2 size={16} />
-          전체 화면
-        </button>
-        <button
-          className="presenter-remote-header-action presenter-remote-header-action--danger"
-          type="button"
-          onClick={() => window.close()}
-        >
-          <Power size={16} />
-          발표 종료
-        </button>
-      </header>
       {visibleCapabilityItems.map((item) =>
         item.key === dismissedCapabilityKey ? null : (
           <section
@@ -355,14 +327,18 @@ export function PresenterRemoteWindow(props: {
         </section>
       ) : null}
 
-      {slide?.kind === "activity" ? (
-        <ActivityPresenterPanel
-          deckId={deck.deckId}
-          deckVersion={deck.version}
-          projectId={deck.projectId}
-          slide={slide}
-        />
-      ) : null}
+      <AudienceOutputControls
+        collapsible
+        connected={isAudienceSurfaceConnected}
+        error={audienceScreenShare.error}
+        onEndPresentation={() => window.close()}
+        onReturnToSlide={audienceScreenShare.returnToSlide}
+        onShowBlack={audienceScreenShare.showBlack}
+        onStartMonitor={audienceScreenShare.startMonitor}
+        onStartTabOrWindow={audienceScreenShare.startTabOrWindow}
+        outputMode={state.audienceOutputMode}
+        status={audienceScreenShare.status}
+      />
 
       <section
         className="presenter-remote-stage"
@@ -372,6 +348,24 @@ export function PresenterRemoteWindow(props: {
           className="presenter-remote-preview-rail"
           aria-label="슬라이드 미리보기"
         >
+          <button
+            aria-label="이전 슬라이드"
+            className="presenter-remote-preview-control"
+            disabled={state.slideIndex <= 0}
+            type="button"
+            onClick={() => sendCommand({ action: "prev" })}
+          >
+            <ChevronLeft aria-hidden="true" size={20} />
+            <span>이전</span>
+          </button>
+          <PresenterSlidePreview
+            deck={deck}
+            label="이전 슬라이드"
+            previewScale={previewScale}
+            slide={previousSlide}
+            slideNumber={previousSlide ? slideNumber - 1 : null}
+            stepIndex={0}
+          />
           <PresenterSlidePreview
             deck={deck}
             label="현재 슬라이드"
@@ -388,24 +382,16 @@ export function PresenterRemoteWindow(props: {
             slideNumber={nextSlide ? slideNumber + 1 : null}
             stepIndex={0}
           />
-          <nav
-            className="presenter-remote-slide-list"
-            aria-label="슬라이드 이동"
+          <button
+            aria-label="다음 슬라이드"
+            className="presenter-remote-preview-control"
+            disabled={!nextSlide}
+            type="button"
+            onClick={() => sendCommand({ action: "next-step" })}
           >
-            {visibleSlides.map(({ slide: candidate, index }) => (
-              <button
-                aria-current={index === state.slideIndex ? "true" : undefined}
-                key={candidate.slideId}
-                type="button"
-                onClick={() =>
-                  sendCommand({ action: "goto", slideIndex: index })
-                }
-              >
-                <span>{index + 1}</span>
-                {candidate.title || `Slide ${index + 1}`}
-              </button>
-            ))}
-          </nav>
+            <span>다음</span>
+            <ChevronRight aria-hidden="true" size={20} />
+          </button>
         </aside>
 
         <section
@@ -541,38 +527,17 @@ export function PresenterRemoteWindow(props: {
             </ul>
           </section>
 
+          {slide?.kind === "activity" ? (
+            <ActivityPresenterPanel
+              deckId={deck.deckId}
+              deckVersion={deck.version}
+              projectId={deck.projectId}
+              slide={slide}
+            />
+          ) : null}
+
         </aside>
       </section>
-
-      <AudienceOutputControls
-        connected={isAudienceSurfaceConnected}
-        error={audienceScreenShare.error}
-        onReturnToSlide={audienceScreenShare.returnToSlide}
-        onShowBlack={audienceScreenShare.showBlack}
-        onStartMonitor={audienceScreenShare.startMonitor}
-        onStartTabOrWindow={audienceScreenShare.startTabOrWindow}
-        outputMode={state.audienceOutputMode}
-        status={audienceScreenShare.status}
-      />
-
-      <div className="presenter-remote-command-dock" aria-label="발표 제어">
-        <button
-          className="presenter-remote-command"
-          type="button"
-          onClick={() => sendCommand({ action: "prev" })}
-        >
-          <ChevronLeft size={17} />
-          이전
-        </button>
-        <button
-          className="presenter-remote-command presenter-remote-command--primary"
-          type="button"
-          onClick={() => sendCommand({ action: "next-step" })}
-        >
-          다음
-          <ChevronRight size={17} />
-        </button>
-      </div>
       {state.speech && shouldShowSemanticDebugPanel ? (
         <SemanticSpeechDebugPanel
           semanticMatchingEnabled={state.speech.semanticMatchingEnabled}
@@ -743,6 +708,7 @@ export function getPresenterRemoteSlideContext(
 
   return {
     nextSlide: deck.slides[normalizedSlideIndex + 1],
+    previousSlide: deck.slides[normalizedSlideIndex - 1],
     slide,
     slideNumber: deck.slides.length > 0 ? normalizedSlideIndex + 1 : 0,
   };
@@ -948,20 +914,6 @@ function getPresenterRemoteTimerProgressPercent(
         100,
     ),
   );
-}
-
-function getPresenterRemoteVisibleSlides(
-  deck: Deck,
-  currentSlideIndex: number,
-) {
-  const start = Math.max(
-    0,
-    Math.min(currentSlideIndex - 2, deck.slides.length - 5),
-  );
-  return deck.slides.slice(start, start + 5).map((slide, offset) => ({
-    index: start + offset,
-    slide,
-  }));
 }
 
 function getPresenterRemotePreviewScale(deck: Deck) {

@@ -57,11 +57,12 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("첫 문장입니다");
     expect(html).toContain("이전");
     expect(html).toContain("다음");
-    expect(html).toContain("웹·실습 보여주기");
+    expect(html).toContain("애플리케이션 공유하기");
     expect(html).toContain("청중 화면 가리기");
     expect(html).toContain("발표 종료");
-    expect(html).toContain('class="presenter-remote-topbar"');
-    expect(html).toContain('class="presenter-remote-header-action"');
+    expect(html).not.toContain('class="presenter-remote-topbar"');
+    expect(html).not.toContain("presenter-remote-header-action");
+    expect(html).toContain("audience-output-controls--collapsible");
     expect(html).not.toContain("Partial transcript");
     expect(html).not.toContain("rawAudio");
   });

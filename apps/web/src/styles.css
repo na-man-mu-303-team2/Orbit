@@ -3745,14 +3745,266 @@
   color: var(--redesign-color-on-dark);
 }
 
+.presenter-remote-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--redesign-space-3);
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.presenter-remote-shell > .audience-output-controls {
+  align-self: center;
+  flex: 0 0 auto;
+  margin: 0;
+  max-width: min(760px, 100%);
+  padding: var(--redesign-space-2);
+  width: auto;
+}
+
+.presenter-remote-shell > .audience-output-controls--collapsible {
+  background: transparent;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  height: 32px;
+  padding: 0;
+  position: relative;
+  width: min(760px, 100%);
+  z-index: 10;
+}
+
+.presenter-remote-shell
+  > .audience-output-controls--collapsible
+  .audience-output-controls-panel {
+  background: var(--redesign-color-surface-container-lowest);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
+  display: grid;
+  gap: var(--redesign-space-2);
+  order: 1;
+  padding: var(--redesign-space-2);
+  width: 100%;
+}
+
+.presenter-remote-shell
+  > .audience-output-controls--collapsible
+  .audience-output-controls-panel[hidden] {
+  display: none;
+}
+
+.presenter-remote-shell
+  > .audience-output-controls--collapsible
+  .audience-output-controls-toggle {
+  align-self: center;
+  background: var(--redesign-color-on-surface);
+  border: 0;
+  border-radius: 0 0 var(--redesign-radius) var(--redesign-radius);
+  color: var(--redesign-color-surface-container-lowest);
+  min-height: 32px;
+  order: 2;
+  padding: 0;
+  width: 80px;
+}
+
+.presenter-remote-shell
+  > .audience-output-controls
+  .audience-output-controls-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(138px, 1fr));
+}
+
+.presenter-remote-shell
+  > .audience-output-controls--collapsible
+  .audience-output-controls-row
+  button {
+  border-radius: var(--redesign-radius);
+  flex-direction: column;
+  justify-content: center;
+  min-height: 64px;
+}
+
+.presenter-remote-shell
+  > .audience-output-controls--collapsible
+  .audience-output-end-presentation {
+  color: var(--redesign-color-error);
+}
+
+.presenter-remote-shell
+  > .audience-output-controls
+  .audience-output-control-status {
+  font-size: var(--redesign-type-label-sm-size);
+  text-align: left;
+}
+
+.presenter-remote-stage {
+  align-self: center;
+  grid-template-columns: minmax(0, 1fr) clamp(240px, 20vw, 300px);
+  grid-template-rows: minmax(0, 1fr) clamp(128px, 16dvh, 176px);
+  max-width: min(100%, calc((100dvh - 170px) * 16 / 9 + 336px));
+  width: 100%;
+}
+
+.presenter-remote-current-slide {
+  display: none;
+}
+
+.presenter-remote-preview-rail {
+  align-items: center;
+  display: grid;
+  grid-column: 1;
+  grid-row: 2;
+  grid-template-columns: 44px minmax(132px, 0.78fr) minmax(154px, 1fr) minmax(132px, 0.78fr) 44px;
+  overflow: hidden;
+  padding: var(--redesign-space-3);
+}
+
+.presenter-remote-preview {
+  align-content: center;
+  gap: var(--redesign-space-1);
+  min-width: 0;
+}
+
+.presenter-remote-preview-control {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--redesign-radius-full);
+  color: var(--redesign-color-on-surface-variant);
+  display: inline-flex;
+  height: 44px;
+  justify-content: center;
+  justify-self: center;
+  padding: 0;
+  width: 44px;
+}
+
+.presenter-remote-preview-control span {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.presenter-remote-preview-control:not(:disabled):hover {
+  background: color-mix(in srgb, var(--redesign-color-light-surface) 12%, transparent);
+  color: var(--redesign-color-on-dark);
+}
+
+.presenter-remote-preview-control:disabled {
+  cursor: not-allowed;
+  opacity: 0.28;
+}
+
+.presenter-remote-preview-frame {
+  border-radius: var(--redesign-radius);
+}
+
+.presenter-remote-slide-list {
+  display: none;
+}
+
+.presenter-remote-script {
+  align-content: center;
+  background: var(--redesign-color-dark-surface);
+  border: 0;
+  border-radius: var(--redesign-radius-lg);
+  color: var(--redesign-color-on-dark);
+  display: grid;
+  grid-column: 1;
+  grid-row: 1;
+  justify-items: center;
+  overflow: hidden;
+  padding: clamp(var(--redesign-space-6), 5vw, 92px);
+}
+
+.presenter-remote-script > .presenter-remote-section-heading {
+  display: none;
+}
+
+.presenter-remote-script .presenter-script-list {
+  align-content: center;
+  gap: clamp(var(--redesign-space-4), 4vh, var(--redesign-space-8));
+  height: 100%;
+  justify-items: center;
+  overflow: hidden;
+  width: min(82%, 980px);
+}
+
+.presenter-remote-script .presenter-script-row {
+  background: transparent;
+  border: 0;
+  color: color-mix(in srgb, var(--redesign-color-on-dark) 46%, transparent);
+  display: block;
+  min-height: 0;
+  padding: 0;
+  text-align: center;
+}
+
+.presenter-remote-script .presenter-script-row > span,
+.presenter-remote-script .presenter-script-row em {
+  display: none;
+}
+
+.presenter-remote-script .presenter-script-row p {
+  font-size: clamp(22px, 2.8vw, 46px);
+  font-weight: 900;
+  line-height: 1.28;
+}
+
+.presenter-remote-script .presenter-script-row--current {
+  color: var(--redesign-color-on-dark);
+}
+
+.presenter-remote-script .presenter-script-row--current p {
+  font-size: clamp(30px, 3.7vw, 64px);
+  font-weight: 950;
+}
+
+.presenter-remote-script .presenter-script-row--covered {
+  opacity: 0.38;
+}
+
+.presenter-remote-cue-sidebar {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.presenter-remote-cue-sidebar > .activity-presenter-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.presenter-remote-timer-panel {
+  background: var(--redesign-color-primary);
+  border: 0;
+  border-radius: var(--redesign-radius-lg);
+  color: var(--redesign-color-light-surface);
+  overflow: hidden;
+}
+
+.presenter-remote-cue-panel {
+  border-radius: var(--redesign-radius-lg);
+}
+
+.presenter-remote-command-dock {
+  display: none;
+}
+
 @media (max-width: 1120px) {
   .presenter-remote-stage {
-    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) clamp(220px, 28vw, 280px);
+    max-width: 100%;
   }
 
   .presenter-remote-cue-sidebar {
-    grid-column: 1 / -1;
-    grid-template-columns: 1fr 1fr;
+    grid-column: 2;
+    grid-template-columns: 1fr;
   }
 }
 
