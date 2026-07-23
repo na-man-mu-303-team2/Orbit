@@ -43,6 +43,28 @@ const publicAssetContentPurposes = new Set<FilePurpose>([
   "rehearsal-slide-snapshot",
   "design-asset",
 ]);
+const companionRenderableAssetPurposes = new Set<FilePurpose>([
+  "thumbnail",
+  "pptx-import",
+  "reference-material",
+  "rehearsal-slide-snapshot",
+  "design-asset",
+]);
+
+export type OpenedAssetContent =
+  | {
+      status: "not-modified";
+      cacheControl: string;
+      etag: string;
+    }
+  | {
+      status: "ok";
+      body: Readable;
+      cacheControl: string;
+      contentLength: number;
+      contentType: string;
+      etag: string;
+    };
 
 @Injectable()
 export class FilesService {
@@ -483,28 +505,36 @@ export class FilesService {
     projectId: string,
     fileId: string,
     ifNoneMatch?: string,
-  ): Promise<
-    | {
-        status: "not-modified";
-        cacheControl: string;
-        etag: string;
-      }
-    | {
-        status: "ok";
-        body: Readable;
-        cacheControl: string;
-        contentLength: number;
-        contentType: string;
-        etag: string;
-      }
-  > {
+  ): Promise<OpenedAssetContent> {
     const asset = await this.getUploadedAsset(projectId, fileId);
     const assetPurpose = filePurposeSchema.parse(asset.purpose);
 
     if (!publicAssetContentPurposes.has(assetPurpose)) {
       throw new NotFoundException(`Asset content unavailable: ${fileId}`);
     }
+    return this.openStoredAssetContent(asset, ifNoneMatch);
+  }
 
+  async openCompanionRenderableAssetContent(
+    projectId: string,
+    fileId: string,
+    ifNoneMatch?: string,
+  ): Promise<OpenedAssetContent> {
+    const asset = await this.getUploadedAsset(projectId, fileId);
+    const assetPurpose = filePurposeSchema.parse(asset.purpose);
+    if (
+      !companionRenderableAssetPurposes.has(assetPurpose) ||
+      !asset.mimeType.startsWith("image/")
+    ) {
+      throw new NotFoundException(`Asset content unavailable: ${fileId}`);
+    }
+    return this.openStoredAssetContent(asset, ifNoneMatch);
+  }
+
+  private async openStoredAssetContent(
+    asset: ProjectAssetEntity,
+    ifNoneMatch?: string,
+  ): Promise<OpenedAssetContent> {
     const etag = createAssetContentEtag(asset);
     if (matchesIfNoneMatch(ifNoneMatch, etag)) {
       return {
