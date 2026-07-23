@@ -116,6 +116,7 @@ function projectSlide(input: {
     animations: input.slide.animations.filter((animation) =>
       elementIds.has(animation.elementId),
     ),
+    triggerAnimationIds: getTriggerAnimationIds(input.slide, elementIds),
   };
 
   if (input.slide.kind === "activity") {
@@ -129,6 +130,27 @@ function projectSlide(input: {
     };
   }
   return { ...base, kind: "content" as const };
+}
+
+function getTriggerAnimationIds(
+  slide: Slide,
+  projectedElementIds: ReadonlySet<string>,
+) {
+  const projectedAnimationIds = new Set(
+    slide.animations
+      .filter((animation) => projectedElementIds.has(animation.elementId))
+      .map((animation) => animation.animationId),
+  );
+  return Array.from(
+    new Set(
+      slide.actions.flatMap((action) =>
+        action.effect.kind === "play-animation" &&
+        projectedAnimationIds.has(action.effect.animationId)
+          ? [action.effect.animationId]
+          : [],
+      ),
+    ),
+  );
 }
 
 function projectElement(input: {

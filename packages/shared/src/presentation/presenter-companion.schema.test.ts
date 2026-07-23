@@ -37,6 +37,7 @@ const safeSnapshot = {
         },
       ],
       animations: [],
+      triggerAnimationIds: [],
     },
   ],
 };
@@ -77,6 +78,20 @@ describe("companionDeckSnapshotSchema", () => {
         metadata: {
           createdFrom: { topic: "PRIVATE_GENERATION_PROMPT" },
         },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects trigger animation ids outside the projected animations", () => {
+    expect(
+      companionDeckSnapshotSchema.safeParse({
+        ...safeSnapshot,
+        slides: [
+          {
+            ...safeSnapshot.slides[0],
+            triggerAnimationIds: ["anim_private_missing"],
+          },
+        ],
       }).success,
     ).toBe(false);
   });

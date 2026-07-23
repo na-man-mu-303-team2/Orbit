@@ -16,13 +16,26 @@ export function materializeCompanionDeck(
     targetDurationMinutes: 10,
     canvas: snapshot.canvas,
     theme: snapshot.theme,
-    slides: snapshot.slides.map((slide) => ({
-      ...slide,
-      title: "",
-      speakerNotes: "",
-      keywords: [],
-      semanticCues: [],
-      actions: [],
-    })),
+    slides: snapshot.slides.map(
+      ({ triggerAnimationIds: _triggerAnimationIds, ...slide }) => ({
+        ...slide,
+        title: "",
+        speakerNotes: "",
+        keywords: [],
+        semanticCues: [],
+        actions: [],
+      }),
+    ),
   });
+}
+
+export function resolveCompanionTriggerAnimationIds(
+  snapshot: CompanionDeckSnapshot,
+  slideId: string,
+  slideIndex: number,
+) {
+  return (
+    snapshot.slides.find((slide) => slide.slideId === slideId) ??
+    snapshot.slides[slideIndex]
+  )?.triggerAnimationIds ?? [];
 }

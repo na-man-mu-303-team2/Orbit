@@ -14,7 +14,11 @@ import {
   slideTransitionSchema,
 } from "../deck/deck.schema";
 import { deckElementSchema } from "../deck/slide-object.schema";
-import { deckIdSchema, deckSlideIdSchema } from "../deck/id.schema";
+import {
+  deckAnimationIdSchema,
+  deckIdSchema,
+  deckSlideIdSchema,
+} from "../deck/id.schema";
 import { themeSchema } from "../deck/theme.schema";
 import { isoDateTimeSchema } from "../common/time.schema";
 import { presentationSessionPurposeSchema } from "./presentation.schema";
@@ -39,6 +43,7 @@ const companionSlideBaseFields = {
   importRenderMode: slideImportRenderModeSchema.optional(),
   elements: z.array(deckElementSchema),
   animations: z.array(animationSchema),
+  triggerAnimationIds: z.array(deckAnimationIdSchema),
 };
 
 export const companionContentSlideSchema = z
@@ -68,7 +73,20 @@ export const companionSlideSchema = z.discriminatedUnion("kind", [
   companionContentSlideSchema,
   companionActivitySlideSchema,
   companionActivityResultSlideSchema,
-]);
+]).superRefine((slide, context) => {
+  const animationIds = new Set(
+    slide.animations.map((animation) => animation.animationId),
+  );
+  for (const [index, animationId] of slide.triggerAnimationIds.entries()) {
+    if (!animationIds.has(animationId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["triggerAnimationIds", index],
+        message: "trigger animation must reference a projected animation",
+      });
+    }
+  }
+});
 
 export const companionDeckSnapshotSchema = z
   .object({

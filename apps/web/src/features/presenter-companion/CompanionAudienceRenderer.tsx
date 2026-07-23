@@ -5,7 +5,10 @@ import type {
 import { useEffect, useMemo, useState } from "react";
 import { AudienceOutputRenderer } from "../rehearsal/presenter/AudienceOutputRenderer";
 import type { PresenterSlideshowState } from "../rehearsal/presenter/presenterStateStore";
-import { materializeCompanionDeck } from "./companionDeckAdapter";
+import {
+  materializeCompanionDeck,
+  resolveCompanionTriggerAnimationIds,
+} from "./companionDeckAdapter";
 import {
   calculateContainRect,
   type SurfaceRect,
@@ -77,6 +80,11 @@ export function CompanionAudienceRenderer(props: {
     slideIndex: props.output.slideIndex,
     stepIndex: props.output.animationStep,
   };
+  const triggerAnimationIds = resolveCompanionTriggerAnimationIds(
+    props.deck,
+    props.output.slideId,
+    props.output.slideIndex,
+  );
 
   return (
     <section
@@ -104,7 +112,7 @@ export function CompanionAudienceRenderer(props: {
         scale={scale}
         state={state}
         stream={props.stream}
-        triggerAnimationIds={[]}
+        triggerAnimationIds={triggerAnimationIds}
       />
     </section>
   );

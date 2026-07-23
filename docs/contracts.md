@@ -448,10 +448,10 @@ GET    /api/v1/presentation-companion/:sessionId/assets/:fileId/content
 - `CompanionDeckSnapshot`은 Deck alias가 아닌 strict allowlist다. 포함 field는
   `deckId`, `projectId`, `version`, `canvas`, `theme`와 slide의 audience
   rendering용 `slideId`, `kind`, `order`, `thumbnailUrl`, `transition`,
-  `style`, `importRenderMode`, `elements`, `animations`, 공개 activity
-  projection뿐이다. `speakerNotes`, `keywords`, `semanticCues`, `actions`,
-  `aiNotes`, Deck metadata, transcript, raw audio, script, run/report는
-  포함하지 않는다.
+  `style`, `importRenderMode`, `elements`, `animations`, action 원문 없이
+  파생한 `triggerAnimationIds`, 공개 activity projection뿐이다.
+  `speakerNotes`, `keywords`, `semanticCues`, `actions`, `aiNotes`, Deck
+  metadata, transcript, raw audio, script, run/report는 포함하지 않는다.
 - 내부 render asset URL은 companion asset endpoint로 치환한다. 현재 exact
   Deck의 allowlisted render field가 실제 참조한 같은 project image만 읽을 수
   있다. canonical 상대 asset path와 configured `WEB_ORIGIN` 또는

@@ -30,6 +30,20 @@ describe("presentation companion projection", () => {
             `/api/v1/projects/${source.projectId}/assets/file_thumbnail/content`,
           speakerNotes: privateMarker,
           aiNotes: { emphasisPoints: [privateMarker] },
+          actions: [
+            ...firstSlide.actions,
+            {
+              actionId: "act_companion_animation",
+              trigger: {
+                kind: "cue",
+                cue: privateMarker,
+              },
+              effect: {
+                kind: "play-animation",
+                animationId: "anim_companion_trigger",
+              },
+            },
+          ],
           style: {
             ...firstSlide.style,
             backgroundImage: {
@@ -88,6 +102,12 @@ describe("presentation companion projection", () => {
           animations: [
             ...firstSlide.animations,
             {
+              animationId: "anim_companion_trigger",
+              elementId: firstSlide.elements[0]!.elementId,
+              type: "appear",
+              order: 998,
+            },
+            {
               animationId: "anim_companion_unsafe",
               elementId: "el_companion_unsafe",
               type: "appear",
@@ -135,6 +155,9 @@ describe("presentation companion projection", () => {
         (animation) => animation.animationId === "anim_companion_unsafe",
       ),
     ).toBe(false);
+    expect(projection.deck.slides[0]?.triggerAnimationIds).toEqual([
+      "anim_companion_trigger",
+    ]);
   });
 
   it("drops cross-project internal URLs and non-HTTPS schemes", () => {

@@ -8,7 +8,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { p0AnimationDeck } from "../rehearsal/presenter/__fixtures__/animationDeck";
 import { CompanionAudienceRenderer } from "./CompanionAudienceRenderer";
-import { materializeCompanionDeck } from "./companionDeckAdapter";
+import {
+  materializeCompanionDeck,
+  resolveCompanionTriggerAnimationIds,
+} from "./companionDeckAdapter";
 
 vi.mock("react-konva", () => {
   const createNode = (name: string) =>
@@ -61,6 +64,10 @@ const safeDeck = companionDeckSnapshotSchema.parse({
       ...slide
     }) => ({
       ...slide,
+      triggerAnimationIds:
+        slide.slideId === p0AnimationDeck.slides[0]?.slideId
+          ? ["anim_body_appear"]
+          : [],
       ...(thumbnailUrl ? { thumbnailUrl } : {}),
       elements: slide.elements.map((element) =>
         element.type === "image"
@@ -98,6 +105,14 @@ describe("materializeCompanionDeck", () => {
       },
     });
     expect(JSON.stringify(deck)).not.toContain("첫 문장입니다");
+    expect(deck.slides[0]).not.toHaveProperty("triggerAnimationIds");
+    expect(
+      resolveCompanionTriggerAnimationIds(
+        safeDeck,
+        safeDeck.slides[0]!.slideId,
+        0,
+      ),
+    ).toEqual(["anim_body_appear"]);
   });
 
   it("renders the safe slide and animation step through the audience renderer", () => {

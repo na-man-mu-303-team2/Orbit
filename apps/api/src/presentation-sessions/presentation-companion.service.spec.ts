@@ -97,6 +97,7 @@ function createFixture() {
             style: {},
             elements: [],
             animations: [],
+            triggerAnimationIds: [],
           },
         ],
       },
