@@ -31,7 +31,7 @@ export function useCompanionWebRtc(input: {
     [input.subscribeSignal],
   );
   useEffect(() => {
-    controllerRef.current.setExpectedShareEpoch(input.shareEpochId);
+    void controllerRef.current.setExpectedShareEpoch(input.shareEpochId);
   }, [input.shareEpochId]);
   useEffect(
     () => () => {

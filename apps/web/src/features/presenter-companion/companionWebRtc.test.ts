@@ -1,6 +1,7 @@
 import type { PresentationCompanionSignal } from "@orbit/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
+  companionPendingIceLimit,
   createPresenterCompanionWebRtcController,
   createReceiverCompanionWebRtcController,
   type CompanionWebRtcPeerPort,
@@ -117,6 +118,68 @@ describe("presenter companion WebRTC controller", () => {
 });
 
 describe("iPad companion WebRTC controller", () => {
+  it("buffers an offer and bounded early ICE until the output epoch is expected", async () => {
+    const peer = createPeer();
+    const controller =
+      createReceiverCompanionWebRtcController({
+        createPeer: () => peer.port,
+        sendSignal: () => true,
+      });
+
+    for (let index = 0; index < companionPendingIceLimit + 1; index += 1) {
+      await controller.handleSignal(
+        incoming({
+          candidate: `candidate:${index}`,
+          kind: "ice",
+          sdpMid: "0",
+          sdpMLineIndex: 0,
+          signalId: "signal_early",
+        }),
+      );
+    }
+    await controller.handleSignal(
+      incoming({
+        kind: "offer",
+        sdp: "early-offer",
+        signalId: "signal_early",
+      }),
+    );
+
+    expect(peer.setRemoteDescription).not.toHaveBeenCalled();
+
+    await controller.setExpectedShareEpoch("share_1");
+
+    expect(peer.setRemoteDescription).toHaveBeenCalledWith({
+      sdp: "early-offer",
+      type: "offer",
+    });
+    expect(peer.addIceCandidate).toHaveBeenCalledTimes(
+      companionPendingIceLimit,
+    );
+  });
+
+  it("discards a buffered negotiation when another output epoch becomes current", async () => {
+    const peer = createPeer();
+    const controller =
+      createReceiverCompanionWebRtcController({
+        createPeer: () => peer.port,
+        sendSignal: () => true,
+      });
+
+    await controller.handleSignal(
+      incoming({
+        kind: "offer",
+        sdp: "stale-offer",
+        shareEpochId: "share_stale",
+        signalId: "signal_stale",
+      }),
+    );
+    await controller.setExpectedShareEpoch("share_current");
+    await controller.setExpectedShareEpoch("share_stale");
+
+    expect(peer.setRemoteDescription).not.toHaveBeenCalled();
+  });
+
   it("answers one expected epoch and exposes a video receiver", async () => {
     const peer = createPeer();
     const sent: SignalInput[] = [];
@@ -130,7 +193,7 @@ describe("iPad companion WebRTC controller", () => {
           return true;
         },
       });
-    controller.setExpectedShareEpoch("share_1");
+    await controller.setExpectedShareEpoch("share_1");
 
     await controller.handleSignal(
       incoming({
@@ -174,7 +237,7 @@ describe("iPad companion WebRTC controller", () => {
         createPeer: () => peer.port,
         sendSignal: () => true,
       });
-    controller.setExpectedShareEpoch("share_current");
+    await controller.setExpectedShareEpoch("share_current");
     await controller.handleSignal(
       incoming({
         kind: "offer",

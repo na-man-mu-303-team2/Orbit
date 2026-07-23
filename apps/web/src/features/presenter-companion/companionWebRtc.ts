@@ -77,6 +77,7 @@ type ControllerOptions = {
 };
 
 const connectionTimeoutMs = 2_000;
+export const companionPendingIceLimit = 64;
 
 export function createPresenterCompanionWebRtcController(
   options: ControllerOptions,
@@ -309,6 +310,14 @@ export function createReceiverCompanionWebRtcController(
     options.clearTimeout ??
     ((timerId) => globalThis.clearTimeout(timerId));
   let expectedShareEpochId: string | null = null;
+  type OfferSignal = Extract<
+    PresentationCompanionSignal,
+    { kind: "offer" }
+  >;
+  type IceSignal = Extract<
+    PresentationCompanionSignal,
+    { kind: "ice" }
+  >;
   let active:
     | {
         peer: CompanionWebRtcPeerPort;
@@ -316,6 +325,14 @@ export function createReceiverCompanionWebRtcController(
         shareEpochId: string;
         signalId: string;
         timerId: number;
+      }
+    | null = null;
+  let pending:
+    | {
+        ice: IceSignal[];
+        offer: OfferSignal | null;
+        shareEpochId: string;
+        signalId: string;
       }
     | null = null;
   let disposed = false;
@@ -339,7 +356,8 @@ export function createReceiverCompanionWebRtcController(
   };
 
   const acceptOffer = async (
-    signal: Extract<PresentationCompanionSignal, { kind: "offer" }>,
+    signal: OfferSignal,
+    initialIce: IceSignal[] = [],
   ) => {
     closeActive();
     let peer: CompanionWebRtcPeerPort;
@@ -351,7 +369,7 @@ export function createReceiverCompanionWebRtcController(
     }
     const current = {
       peer,
-      pendingIce: [] as RTCIceCandidateInit[],
+      pendingIce: initialIce.map(toIceCandidate),
       shareEpochId: signal.shareEpochId,
       signalId: signal.signalId,
       timerId: 0,
@@ -418,18 +436,82 @@ export function createReceiverCompanionWebRtcController(
     }
   };
 
+  const bufferOffer = (signal: OfferSignal) => {
+    const currentPending = pending;
+    const ice =
+      currentPending?.shareEpochId === signal.shareEpochId &&
+      currentPending.signalId === signal.signalId
+        ? currentPending.ice
+        : [];
+    pending = {
+      ice,
+      offer: signal,
+      shareEpochId: signal.shareEpochId,
+      signalId: signal.signalId,
+    };
+  };
+  const bufferIce = (signal: IceSignal) => {
+    const currentPending = pending;
+    if (
+      !currentPending ||
+      currentPending.shareEpochId !== signal.shareEpochId ||
+      currentPending.signalId !== signal.signalId
+    ) {
+      pending = {
+        ice: [signal],
+        offer: null,
+        shareEpochId: signal.shareEpochId,
+        signalId: signal.signalId,
+      };
+      return;
+    }
+    if (currentPending.ice.length < companionPendingIceLimit) {
+      currentPending.ice.push(signal);
+    }
+  };
+  const takePendingOffer = (
+    shareEpochId: string,
+  ): { ice: IceSignal[]; offer: OfferSignal } | null => {
+    if (!pending || pending.shareEpochId !== shareEpochId) {
+      pending = null;
+      return null;
+    }
+    if (!pending.offer) return null;
+    const buffered = { ice: pending.ice, offer: pending.offer };
+    pending = null;
+    return buffered;
+  };
+
   const handleSignal = async (signal: PresentationCompanionSignal) => {
     if (
       !expectedShareEpochId ||
       signal.shareEpochId !== expectedShareEpochId
     ) {
+      if (signal.kind === "offer") bufferOffer(signal);
+      else if (signal.kind === "ice") bufferIce(signal);
+      else if (
+        pending?.shareEpochId === signal.shareEpochId &&
+        pending.signalId === signal.signalId
+      ) {
+        pending = null;
+      }
       return;
     }
     if (signal.kind === "offer") {
-      await acceptOffer(signal);
+      const bufferedIce =
+        pending?.shareEpochId === signal.shareEpochId &&
+        pending.signalId === signal.signalId
+          ? pending.ice
+          : [];
+      pending = null;
+      await acceptOffer(signal, bufferedIce);
       return;
     }
     const current = active;
+    if (!current && signal.kind === "ice") {
+      bufferIce(signal);
+      return;
+    }
     if (
       !current ||
       signal.shareEpochId !== current.shareEpochId ||
@@ -441,7 +523,9 @@ export function createReceiverCompanionWebRtcController(
       if (signal.kind === "ice") {
         const candidate = toIceCandidate(signal);
         if (!current.peer.hasRemoteDescription()) {
-          current.pendingIce.push(candidate);
+          if (current.pendingIce.length < companionPendingIceLimit) {
+            current.pendingIce.push(candidate);
+          }
         } else {
           await current.peer.addIceCandidate(candidate);
         }
@@ -458,15 +542,26 @@ export function createReceiverCompanionWebRtcController(
     dispose: () => {
       if (disposed) return;
       closeActive();
+      pending = null;
       disposed = true;
     },
     handleSignal,
     setExpectedShareEpoch: (shareEpochId: string | null) => {
       disposed = false;
-      if (expectedShareEpochId === shareEpochId) return;
+      if (expectedShareEpochId === shareEpochId) {
+        return Promise.resolve();
+      }
       expectedShareEpochId = shareEpochId;
       closeActive();
       setStatus(shareEpochId ? "connecting" : "idle");
+      if (!shareEpochId) {
+        pending = null;
+        return Promise.resolve();
+      }
+      const buffered = takePendingOffer(shareEpochId);
+      return buffered
+        ? acceptOffer(buffered.offer, buffered.ice)
+        : Promise.resolve();
     },
   };
 }
