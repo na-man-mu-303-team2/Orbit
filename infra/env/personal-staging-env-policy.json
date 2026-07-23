@@ -153,6 +153,10 @@
       "source": "repo-default",
       "delivery": "code-default"
     },
+    "IPAD_PRESENTER_COMPANION_ENABLED": {
+      "source": "repo-default",
+      "delivery": "compose"
+    },
     "JOB_QUEUE_DRIVER": {
       "source": "repo-default",
       "delivery": "compose"

@@ -211,6 +211,7 @@ export const orbitEnvSchema = z.object({
   PRIVATE_EVIDENCE_REDIS_URL: requiredString("PRIVATE_EVIDENCE_REDIS_URL").default(
     localDefaults.PRIVATE_EVIDENCE_REDIS_URL
   ),
+  IPAD_PRESENTER_COMPANION_ENABLED: booleanStringSchema.default(true),
   ADAPTIVE_REHEARSAL_COACH_ENABLED: booleanStringSchema.default(false),
   FOCUSED_PRACTICE_ENABLED: booleanStringSchema.default(false),
   CHALLENGE_QNA_ENABLED: booleanStringSchema.default(false),
