@@ -31,6 +31,22 @@ class FakeClient:
         self.responses = FakeResponses(payload)
 
 
+class SequencedFakeResponses:
+    def __init__(self, payloads: list[dict[str, Any]]) -> None:
+        self.payloads = payloads
+        self.calls: list[dict[str, Any]] = []
+
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        self.calls.append(kwargs)
+        payload = self.payloads[len(self.calls) - 1]
+        return SimpleNamespace(output_text=json.dumps(payload))
+
+
+class SequencedFakeClient:
+    def __init__(self, payloads: list[dict[str, Any]]) -> None:
+        self.responses = SequencedFakeResponses(payloads)
+
+
 def process_extraction() -> MotionPromptInputV3:
     units = [
         motion_unit("title", "title", 1),
@@ -131,6 +147,34 @@ def test_v3_hydrates_server_pattern_and_hides_member_ids_from_llm() -> None:
     assert "memberElementIds" not in prompt_input
     assert "elementId" not in prompt_input
     assert "pattern" not in response_schema["properties"]
+
+
+def test_v3_retries_when_five_step_process_moves_first_card_to_entry() -> None:
+    invalid = copy.deepcopy(valid_process_draft())
+    first_card = invalid["beats"][1]["targets"][0]
+    conclusion = invalid["beats"][-1]["targets"].pop()
+    invalid["beats"][0]["targets"].append(first_card)
+    for index in range(1, len(invalid["beats"]) - 1):
+        invalid["beats"][index]["targets"] = invalid["beats"][index + 1]["targets"]
+    invalid["beats"][-1]["targets"] = [conclusion]
+    client = SequencedFakeClient([invalid, valid_process_draft()])
+
+    result = plan_narrative_motion_v3(
+        process_extraction(),
+        model="motion-snapshot",
+        api_key=None,
+        client=client,
+    )
+
+    assert result.attempt_count == 2
+    assert result.plan.beats[0].target_unit_ids == ["motion_unit_title"]
+    assert result.plan.beats[-1].target_unit_ids == [
+        "motion_unit_card_5",
+        "motion_unit_conclusion",
+    ]
+    instructions = client.responses.calls[0]["instructions"]
+    assert "MUST NOT contain a card" in instructions
+    assert "Never create a separate click beat" in " ".join(instructions.split())
 
 
 def test_v3_six_step_process_places_first_card_on_entry() -> None:

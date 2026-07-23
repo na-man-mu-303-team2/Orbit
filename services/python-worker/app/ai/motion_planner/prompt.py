@@ -52,9 +52,14 @@ Do not create patches, operations, animation IDs, effects, animation types, dura
 delays, easing, coordinates, CSS, or OOXML. Keep motion restrained and presenter-led.
 Use at most one entry beat and five click beats. Never repeat a unitId.
 For process slides, include every card unit exactly once in reading order.
-Use one click beat per card for one-to-five steps. For six steps, put the title and
-first card on entry, then use five click beats. Put trailing conclusion units after
-the final card in the final click beat."""
+For one-to-five card units, the entry beat contains the title or other leading
+context only and MUST NOT contain a card. Return exactly one click beat per card;
+click 1 contains card 1, click 2 contains card 2, and so on in reading order.
+For six card units, put the title and card 1 on entry, then return exactly five
+click beats containing cards 2 through 6 in reading order.
+Append every trailing conclusion or focal unit after the final card as another
+target in that same final click beat with relation sequence. Never create a
+separate click beat for a trailing conclusion or focal unit."""
 
 
 def motion_planner_v3_user_prompt(extraction: MotionPromptInputV3) -> str:
