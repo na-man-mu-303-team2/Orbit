@@ -123,6 +123,33 @@ describe("PresentationSessionRepository", () => {
     expect(query.mock.calls[0]?.[1]).toEqual(["session_scheduled", now]);
   });
 
+  it("finds an unexpired companion session without requiring audience access", async () => {
+    const query = vi.fn().mockResolvedValue([
+      {
+        session_id: "session_companion",
+        audience_access_enabled: false,
+        status: "live",
+      },
+    ]);
+    const repository = new PresentationSessionRepository({
+      query,
+    } as unknown as DataSource);
+    const now = new Date("2026-07-17T01:00:00.000Z");
+
+    await expect(
+      repository.findActiveCompanionSession("session_companion", now),
+    ).resolves.toMatchObject({
+      audience_access_enabled: false,
+      status: "live",
+    });
+
+    const sql = String(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("status IN ('draft', 'live')");
+    expect(sql).toContain("expires_at > $2");
+    expect(sql).not.toContain("audience_access_enabled = true");
+    expect(query.mock.calls[0]?.[1]).toEqual(["session_companion", now]);
+  });
+
   it("sets the natural-expiry retention deadline when creating and updating sessions", async () => {
     const inserted = { session_id: "session_1", status: "draft" };
     const query = vi.fn().mockResolvedValue([inserted]);

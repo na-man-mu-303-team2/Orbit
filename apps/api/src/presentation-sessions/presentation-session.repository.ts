@@ -159,6 +159,26 @@ export class PresentationSessionRepository {
     return rows[0] ?? null;
   }
 
+  async findActiveCompanionSession(
+    sessionId: string,
+    now = new Date(),
+  ): Promise<PresentationSessionRow | null> {
+    const rows = await this.dataSource.query<PresentationSessionRow[]>(
+      `
+        SELECT ${sessionColumns}
+        FROM presentation_sessions
+        WHERE session_id = $1
+          AND status IN ('draft', 'live')
+          AND expires_at > $2
+          AND deck_id IS NOT NULL
+          AND deck_version IS NOT NULL
+        LIMIT 1
+      `,
+      [sessionId, now],
+    );
+    return rows[0] ?? null;
+  }
+
   async registerAudience(
     projectId: string,
     sessionId: string,

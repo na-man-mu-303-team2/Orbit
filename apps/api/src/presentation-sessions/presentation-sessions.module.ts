@@ -22,6 +22,7 @@ import {
   PresentationRunsService,
 } from "./presentation-runs.service";
 import { PresentationCompanionSpikeGateway } from "./presentation-companion-spike.gateway";
+import { PresentationCompanionProjectionService } from "./presentation-companion-projection.service";
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { PresentationCompanionSpikeGateway } from "./presentation-companion-spik
     PresentationSessionsService,
     PresentationRunsService,
     PresentationCompanionSpikeGateway,
+    PresentationCompanionProjectionService,
     {
       provide: PRESENTATION_ANALYSIS_ENQUEUE_JOB,
       useValue: enqueuePresentationAnalysisJob,
@@ -54,6 +56,7 @@ import { PresentationCompanionSpikeGateway } from "./presentation-companion-spik
     AudienceRateLimitService,
     PresentationSessionsService,
     PresentationRunsService,
+    PresentationCompanionProjectionService,
   ],
 })
 export class PresentationSessionsModule {}
