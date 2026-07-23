@@ -14,10 +14,16 @@ import {
   type LiveSttBiasPhrase,
   type LiveSttEngineId,
   type LiveSttPort,
+  type LiveSttResult,
   normalizeLiveSttBiasPhrases
 } from "../../../rehearsal/stt/liveSttPort";
 import { fetchLiveSttRuntimeConfig } from "../../../rehearsal/stt/liveSttRuntimeConfig";
 import { normalizeLiveTranscriptText } from "../../../rehearsal/stt/liveTranscriptText";
+import {
+  applyTranscriptRevision,
+  createTranscriptRevisionState,
+  type TranscriptRevisionState
+} from "../../../rehearsal/speech/transcriptRevisionState";
 
 export type EditorSlideRehearsalStatus =
   | "idle"
@@ -37,6 +43,16 @@ export type EditorSlideRehearsalState = {
   interimTranscript: string;
   speechTrackerSnapshot: SpeechTrackerSnapshot | null;
   status: EditorSlideRehearsalStatus;
+};
+
+export type EditorSlideRehearsalSpeechResult = {
+  finalTranscript: string;
+  hitKeywordIds: string[];
+  interimTranscript: string;
+  result: LiveSttResult;
+  slide: Slide;
+  transcript: string;
+  newSegment: string;
 };
 
 export type EditorSlideRehearsalStartOptions = {
@@ -63,7 +79,10 @@ const microphoneAudioConstraints: MediaTrackConstraints = {
   noiseSuppression: true
 };
 
-export function useEditorSlideRehearsal(args: { projectId: string }) {
+export function useEditorSlideRehearsal(args: {
+  onSpeechResult?: (event: EditorSlideRehearsalSpeechResult) => void;
+  projectId: string;
+}) {
   const [state, setState] = useState<EditorSlideRehearsalState>(initialState);
   const portRef = useRef<LiveSttPort | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -71,8 +90,13 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
   const unsubscribeRef = useRef<Array<() => void>>([]);
   const sessionRef = useRef(0);
   const committedTranscriptRef = useRef("");
+  const transcriptRevisionRef = useRef<TranscriptRevisionState>(
+    createTranscriptRevisionState()
+  );
   const activeSlideRef = useRef<Slide | null>(null);
+  const onSpeechResultRef = useRef(args.onSpeechResult);
   const speechTrackerRef = useRef<SpeechTracker | null>(null);
+  onSpeechResultRef.current = args.onSpeechResult;
 
   const releaseResources = useCallback(async (flushFinalResults = false) => {
     const port = portRef.current;
@@ -111,6 +135,7 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
       activeSlideRef.current = slide;
       speechTrackerRef.current = createEditorSlideRehearsalSpeechTracker(slide);
       committedTranscriptRef.current = "";
+      transcriptRevisionRef.current = createTranscriptRevisionState();
       setState({
         ...initialState,
         activeSlideId: slide.slideId,
@@ -156,6 +181,12 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
         unsubscribeRef.current = [
           port.onResult((result) => {
             if (sessionRef.current !== sessionId) return;
+            const transcriptRevision = applyTranscriptRevision(
+              transcriptRevisionRef.current,
+              result
+            );
+            if (transcriptRevision.isStale) return;
+            transcriptRevisionRef.current = transcriptRevision.state;
 
             if (result.isFinal) {
               committedTranscriptRef.current = appendTranscript(
@@ -165,23 +196,33 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
             }
             const finalTranscript = committedTranscriptRef.current;
             const interimTranscript = result.isFinal ? "" : result.text.trim();
-            const transcript = appendTranscript(
-              finalTranscript,
-              interimTranscript
-            );
+            const transcript = transcriptRevision.currentTranscript;
             const activeSlide = activeSlideRef.current;
             const speechTracker = speechTrackerRef.current;
             speechTracker?.acceptResult(result);
             const speechTrackerSnapshot = speechTracker?.snapshot() ?? null;
+            const hitKeywordIds =
+              speechTrackerSnapshot?.hitKeywordIds ??
+              (activeSlide
+                ? getHitSlideKeywordIds(activeSlide, transcript)
+                : []);
+
+            if (activeSlide) {
+              onSpeechResultRef.current?.({
+                finalTranscript,
+                hitKeywordIds,
+                interimTranscript,
+                result,
+                slide: activeSlide,
+                transcript,
+                newSegment: transcriptRevision.newSegment
+              });
+            }
 
             setState((current) => ({
               ...current,
               finalTranscript,
-              hitKeywordIds:
-                speechTrackerSnapshot?.hitKeywordIds ??
-                (activeSlide
-                  ? getHitSlideKeywordIds(activeSlide, transcript)
-                  : []),
+              hitKeywordIds,
               interimTranscript,
               speechTrackerSnapshot
             }));
@@ -232,6 +273,7 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
       activeSlideRef.current = slide;
       speechTrackerRef.current = createEditorSlideRehearsalSpeechTracker(slide);
       committedTranscriptRef.current = "";
+      transcriptRevisionRef.current = createTranscriptRevisionState();
       setState({
         ...initialState,
         activeSlideId: slide.slideId,
@@ -265,6 +307,7 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
     activeSlideRef.current = null;
     speechTrackerRef.current = null;
     committedTranscriptRef.current = "";
+    transcriptRevisionRef.current = createTranscriptRevisionState();
     setState(initialState);
   }, [releaseResources]);
 

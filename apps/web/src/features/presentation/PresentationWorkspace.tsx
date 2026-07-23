@@ -1,5 +1,6 @@
 import {
   createSlidePlaybackState,
+  getPresentationSequenceReviewSlideIds,
   type SlidePlaybackState,
 } from "@orbit/editor-core";
 import type {
@@ -25,7 +26,10 @@ import {
   createPresentationRecordingSession,
   type PresentationRecordingSession,
 } from "./presentationRecording";
-import { usePresentationSpeech } from "./usePresentationSpeech";
+import {
+  usePresentationSpeech,
+  type PresentationSpeechTranscriptEvent,
+} from "./usePresentationSpeech";
 import { getPresentationHighlightedKeywordOccurrences } from "./presentationKeywordOccurrences";
 import { getPresentationFailureCopy } from "./presentationFailureCopy";
 import {
@@ -48,10 +52,9 @@ import { createSlideshowAnimationPlan } from "../rehearsal/presenter/slideshowSt
 import { usePresenterKeyboard } from "../rehearsal/presenter/usePresenterKeyboard";
 import {
   getTriggerAnimationIdsForSlide,
-  getKeywordOccurrenceTriggerIdsForSlide,
   restoreSlidePlaybackAtStep,
   resolveManualAnimationPlaybackUpdate,
-  resolveKeywordOccurrenceTriggeredActions,
+  resolveQueuedKeywordOccurrencePlayback,
   resolveKeywordTriggeredActions,
   resolveTriggeredActionPlaybackUpdate,
 } from "../rehearsal/playback/triggeredActionPlayback";
@@ -70,9 +73,10 @@ import {
 } from "../rehearsal/advance/advanceController";
 import { createDefaultPhraseExtractor } from "../rehearsal/speech/phraseExtractor";
 import {
-  estimateScriptProgressOffset,
-  matchKeywordOccurrenceTriggers,
-} from "../rehearsal/speech/keywordOccurrenceRuntime";
+  getExpectedKeywordOccurrenceStep,
+  matchExpectedKeywordOccurrenceStep,
+} from "../rehearsal/speech/keywordOccurrenceStepResolver";
+import { dispatchKeywordOccurrencePlayback } from "../rehearsal/speech/keywordOccurrencePlaybackDispatcher";
 import type { SpeechTrackerSnapshot } from "../rehearsal/speech/speechTrackingEvents";
 import {
   PresenterStatusShell,
@@ -84,6 +88,23 @@ type PresentationPhase = "loading" | "ready" | "failed";
 type PresentationKeywordOccurrenceState = {
   slideId: string;
   confirmedOccurrenceIds: string[];
+};
+
+type PresentationAnimationExecutionSource =
+  | "approval"
+  | "click"
+  | "generic-keyword"
+  | "speech";
+
+type PresentationAnimationExecutionHistoryEntry = {
+  animationIds: string[];
+  atMs: number;
+  consumedOccurrenceIds: string[];
+  id: number;
+  newSegment: string | null;
+  source: PresentationAnimationExecutionSource;
+  stepAfter: number;
+  stepBefore: number;
 };
 export function PresentationWorkspace(props: {
   fallbackDeck?: Deck;
@@ -155,6 +176,25 @@ export function PresentationWorkspace(props: {
   const previousHitKeywordIdsRef = useRef<Set<string>>(new Set());
   const keywordOccurrenceStateRef =
     useRef<PresentationKeywordOccurrenceState | null>(null);
+  const pendingKeywordOccurrenceIdsRef = useRef<{
+    occurrenceIds: string[];
+    slideId: string;
+  } | null>(null);
+  const presentationSpeechEventHandlerRef = useRef<
+    ((event: PresentationSpeechTranscriptEvent) => void) | null
+  >(null);
+  const currentSlideRef = useRef<Slide | null>(null);
+  const slideshowAnimationPlanRef = useRef<ReturnType<
+    typeof createSlideshowAnimationPlan
+  > | null>(null);
+  const presenterStepIndexRef = useRef(presenterStepIndex);
+  const runtimePhaseRef = useRef(runtimePhase);
+  const [pendingKeywordOccurrenceIds, setPendingKeywordOccurrenceIds] =
+    useState<string[]>([]);
+  const [animationExecutionHistory, setAnimationExecutionHistory] = useState<
+    PresentationAnimationExecutionHistoryEntry[]
+  >([]);
+  const animationExecutionHistoryIdRef = useRef(0);
   const pendingFlowRestoreRef = useRef<{
     slideId: string;
     stepIndex: number;
@@ -169,8 +209,6 @@ export function PresentationWorkspace(props: {
       createInitialAdvanceControllerState(),
     );
   const [autoAdvanceNowMs, setAutoAdvanceNowMs] = useState(0);
-  const speech = usePresentationSpeech(props.projectId);
-
   useEffect(() => {
     if (props.initialDeck) {
       return;
@@ -287,6 +325,14 @@ export function PresentationWorkspace(props: {
         : null,
     [currentSlide, triggerAnimationIds],
   );
+  currentSlideRef.current = currentSlide;
+  slideshowAnimationPlanRef.current = slideshowAnimationPlan;
+  presenterStepIndexRef.current = presenterStepIndex;
+  runtimePhaseRef.current = runtimePhase;
+  const speech = usePresentationSpeech(
+    props.projectId,
+    (event) => presentationSpeechEventHandlerRef.current?.(event),
+  );
   const animationTriggerDebugEnabled =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("animationDebug") === "1";
@@ -295,24 +341,25 @@ export function PresentationWorkspace(props: {
       return null;
     }
 
-    const targetOccurrenceIds = getKeywordOccurrenceTriggerIdsForSlide(
-      currentSlide,
-    );
     const confirmedOccurrenceIds =
       keywordOccurrenceStateRef.current?.slideId === currentSlide.slideId
         ? keywordOccurrenceStateRef.current.confirmedOccurrenceIds
         : [];
-    const transcriptSpan = speech.getSlideTranscriptSpan();
-    const transcript = transcriptSpan.transcript;
+    const transcriptEvent = speech.getSlideTranscriptEvent();
     const confidence = speech.state.latestTranscriptConfidence;
-    const matches = matchKeywordOccurrenceTriggers({
-      slide: currentSlide,
-      targetOccurrenceIds,
-      previousTranscript: transcriptSpan.previousTranscript,
-      transcript,
-      latestTranscript: speech.state.latestTranscript,
+    const expectedStep = slideshowAnimationPlan
+      ? getExpectedKeywordOccurrenceStep({
+          presenterStepIndex,
+          slide: currentSlide,
+          slideAnimationPlan: slideshowAnimationPlan,
+        })
+      : null;
+    const resolution = matchExpectedKeywordOccurrenceStep({
       confidence,
-      confirmedOccurrenceIds,
+      consumedOccurrenceIds: confirmedOccurrenceIds,
+      expectedStep,
+      newSegment: transcriptEvent.newSegment,
+      slide: currentSlide,
     });
     const occurrenceActions = currentSlide.actions.flatMap((action) => {
       if (action.trigger.kind !== "keyword-occurrence") {
@@ -334,31 +381,30 @@ export function PresentationWorkspace(props: {
     return {
       confidence,
       confirmedOccurrenceIds,
-      currentCharOffset: estimateScriptProgressOffset(
-        currentSlide.speakerNotes,
-        transcript,
-      ),
-      previousCharOffset: estimateScriptProgressOffset(
-        currentSlide.speakerNotes,
-        transcriptSpan.previousTranscript,
-      ),
       currentStepAnimationIds:
         currentTriggerStep?.animations.map((animation) => animation.animationId) ??
         [],
       currentStepIndex: presenterStepIndex,
+      expectedOccurrenceIds: expectedStep?.occurrenceIds ?? [],
       latestTranscript: speech.state.latestTranscript,
-      matches,
+      matches: resolution.matches,
+      approvalOccurrenceId:
+        resolution.blocker === "confidence-low" && resolution.candidates.length === 1
+          ? resolution.candidates[0]?.occurrenceId ?? null
+          : null,
+      animationExecutionHistory,
+      newSegment: transcriptEvent.newSegment,
       occurrenceActions,
       playedAnimationIds: playbackStateRef.current.playedAnimationIds,
+      resolutionBlocker: resolution.blocker,
       speechStatus: speech.state.status,
-      targetOccurrenceIds,
-      transcript,
+      transcript: transcriptEvent.transcript,
     };
   }, [
+    animationExecutionHistory,
     currentSlide,
     presenterStepIndex,
     slideshowAnimationPlan,
-    speech,
     speech.state.latestTranscript,
     speech.state.latestTranscriptConfidence,
     speech.state.status,
@@ -468,6 +514,7 @@ export function PresentationWorkspace(props: {
 
   const goPrevious = useCallback(() => {
     cancelAutoAdvanceForManualCommand();
+    presenterStepIndexRef.current = 0;
     setPresenterStepIndex(0);
     setCurrentSlideIndex((current) => Math.max(0, current - 1));
   }, [cancelAutoAdvanceForManualCommand]);
@@ -478,19 +525,56 @@ export function PresentationWorkspace(props: {
     }
 
     cancelAutoAdvanceForManualCommand();
+    presenterStepIndexRef.current = 0;
     setPresenterStepIndex(0);
     setCurrentSlideIndex((current) =>
       Math.min(deck.slides.length - 1, current + 1),
     );
   }, [cancelAutoAdvanceForManualCommand, deck]);
 
+  const appendAnimationExecutionHistory = useCallback(
+    (entry: Omit<PresentationAnimationExecutionHistoryEntry, "atMs" | "id">) => {
+      animationExecutionHistoryIdRef.current += 1;
+      const nextEntry: PresentationAnimationExecutionHistoryEntry = {
+        ...entry,
+        atMs: Date.now(),
+        id: animationExecutionHistoryIdRef.current,
+      };
+      setAnimationExecutionHistory((current) => [...current, nextEntry].slice(-20));
+    },
+    [],
+  );
+
   const applyPlaybackUpdate = useCallback(
     (args: {
       consumedOccurrenceIds?: readonly string[];
+      newSegment?: string | null;
       slide: Slide;
+      source?: PresentationAnimationExecutionSource;
       update: ReturnType<typeof resolveTriggeredActionPlaybackUpdate>;
     }) => {
+      const stepBefore = presenterStepIndexRef.current;
+      const previouslyPlayedAnimationIds = new Set(
+        playbackStateRef.current.playedAnimationIds,
+      );
       playbackStateRef.current = args.update.playbackState;
+      const newlyPlayedAnimationIds = args.update.playbackState.playedAnimationIds.filter(
+        (animationId) => !previouslyPlayedAnimationIds.has(animationId),
+      );
+      if (
+        newlyPlayedAnimationIds.length > 0 ||
+        args.consumedOccurrenceIds?.length ||
+        args.update.shouldAdvanceSlide
+      ) {
+        appendAnimationExecutionHistory({
+          animationIds: newlyPlayedAnimationIds,
+          consumedOccurrenceIds: [...(args.consumedOccurrenceIds ?? [])],
+          newSegment: args.newSegment ?? null,
+          source: args.source ?? "click",
+          stepAfter: args.update.presenterStepIndex,
+          stepBefore,
+        });
+      }
 
       if (args.consumedOccurrenceIds?.length) {
         const currentOccurrenceState =
@@ -506,6 +590,17 @@ export function PresentationWorkspace(props: {
             ]),
           ],
         };
+        if (pendingKeywordOccurrenceIdsRef.current?.slideId === args.slide.slideId) {
+          pendingKeywordOccurrenceIdsRef.current = {
+            occurrenceIds: pendingKeywordOccurrenceIdsRef.current.occurrenceIds.filter(
+              (occurrenceId) => !args.consumedOccurrenceIds?.includes(occurrenceId),
+            ),
+            slideId: args.slide.slideId,
+          };
+          setPendingKeywordOccurrenceIds(
+            pendingKeywordOccurrenceIdsRef.current.occurrenceIds,
+          );
+        }
       }
 
       if (args.update.shouldAdvanceSlide) {
@@ -513,13 +608,85 @@ export function PresentationWorkspace(props: {
         return;
       }
 
+      presenterStepIndexRef.current = args.update.presenterStepIndex;
       setPresenterStepIndex(args.update.presenterStepIndex);
     },
-    [goNext],
+    [appendAnimationExecutionHistory, goNext],
   );
 
-  const handleNextPresenterStep = useCallback(() => {
+  presentationSpeechEventHandlerRef.current = (event) => {
+    const slide = event.slide;
+    const slideAnimationPlan = slideshowAnimationPlanRef.current;
+    if (
+      !slideAnimationPlan ||
+      currentSlideRef.current?.slideId !== slide.slideId ||
+      runtimePhaseRef.current !== "active"
+    ) {
+      return;
+    }
+    const occurrenceState =
+      keywordOccurrenceStateRef.current?.slideId === slide.slideId
+        ? keywordOccurrenceStateRef.current
+        : { slideId: slide.slideId, confirmedOccurrenceIds: [] };
+    const pendingOccurrenceIds =
+      pendingKeywordOccurrenceIdsRef.current?.slideId === slide.slideId
+        ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
+        : [];
+    const dispatched = dispatchKeywordOccurrencePlayback({
+      confidence: event.result.confidence ?? null,
+      consumedOccurrenceIds: occurrenceState.confirmedOccurrenceIds,
+      newSegment: event.newSegment,
+      pendingOccurrenceIds,
+      playbackState: playbackStateRef.current,
+      presenterStepIndex: presenterStepIndexRef.current,
+      slide,
+      slideAnimationPlan,
+    });
+    pendingKeywordOccurrenceIdsRef.current = {
+      occurrenceIds: dispatched.queuedPlayback.pendingOccurrenceIds,
+      slideId: slide.slideId,
+    };
+    setPendingKeywordOccurrenceIds(dispatched.queuedPlayback.pendingOccurrenceIds);
+    if (dispatched.queuedPlayback.update) {
+      applyPlaybackUpdate({
+        consumedOccurrenceIds: dispatched.queuedPlayback.consumedOccurrenceIds,
+        newSegment: event.newSegment,
+        slide,
+        source: "speech",
+        update: dispatched.queuedPlayback.update,
+      });
+    }
+  };
+
+  const handleNextPresenterStep = useCallback((source: PresentationAnimationExecutionSource = "click") => {
     if (!currentSlide || !slideshowAnimationPlan) {
+      return;
+    }
+
+    const queued = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId: new Map(),
+      matchedOccurrenceIds: [],
+      pendingOccurrenceIds:
+        pendingKeywordOccurrenceIdsRef.current?.slideId === currentSlide.slideId
+          ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
+          : [],
+      playbackState: playbackStateRef.current,
+      presenterStepIndex,
+      slide: currentSlide,
+      slideAnimationPlan: slideshowAnimationPlan,
+    });
+    pendingKeywordOccurrenceIdsRef.current = {
+      occurrenceIds: queued.pendingOccurrenceIds,
+      slideId: currentSlide.slideId,
+    };
+    setPendingKeywordOccurrenceIds(queued.pendingOccurrenceIds);
+    if (queued.update) {
+      applyPlaybackUpdate({
+        consumedOccurrenceIds: queued.consumedOccurrenceIds,
+        slide: currentSlide,
+        source,
+        update: queued.update,
+      });
       return;
     }
 
@@ -532,9 +699,29 @@ export function PresentationWorkspace(props: {
     applyPlaybackUpdate({
       consumedOccurrenceIds: update.consumedOccurrenceIds,
       slide: currentSlide,
+      source,
       update,
     });
   }, [applyPlaybackUpdate, currentSlide, presenterStepIndex, slideshowAnimationPlan]);
+
+  const approvePresentationKeywordOccurrence = useCallback(
+    (occurrenceId: string) => {
+      if (!currentSlide) return;
+      const pendingOccurrenceIds = new Set(
+        pendingKeywordOccurrenceIdsRef.current?.slideId === currentSlide.slideId
+          ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
+          : [],
+      );
+      pendingOccurrenceIds.add(occurrenceId);
+      pendingKeywordOccurrenceIdsRef.current = {
+        occurrenceIds: [...pendingOccurrenceIds],
+        slideId: currentSlide.slideId,
+      };
+      setPendingKeywordOccurrenceIds([...pendingOccurrenceIds]);
+      handleNextPresenterStep("approval");
+    },
+    [currentSlide, handleNextPresenterStep],
+  );
 
   const restorePresentationPlaybackAtStep = useCallback(
     (slide: Slide, stepIndex: number) => {
@@ -552,6 +739,11 @@ export function PresentationWorkspace(props: {
         confirmedOccurrenceIds: restored.consumedOccurrenceIds,
         slideId: slide.slideId,
       };
+      pendingKeywordOccurrenceIdsRef.current = {
+        occurrenceIds: [],
+        slideId: slide.slideId,
+      };
+      setPendingKeywordOccurrenceIds([]);
       finalSentenceCommittedAtMsRef.current = null;
       finalSentenceSpokenAtMsRef.current = null;
       const nextAdvanceState = resetAdvanceControllerForSlide(slide.slideId);
@@ -616,6 +808,12 @@ export function PresentationWorkspace(props: {
     keywordOccurrenceStateRef.current = currentSlide
       ? { slideId: currentSlide.slideId, confirmedOccurrenceIds: [] }
       : null;
+    pendingKeywordOccurrenceIdsRef.current = currentSlide
+      ? { occurrenceIds: [], slideId: currentSlide.slideId }
+      : null;
+    setPendingKeywordOccurrenceIds([]);
+    animationExecutionHistoryIdRef.current = 0;
+    setAnimationExecutionHistory([]);
     playbackStateRef.current = createSlidePlaybackState();
     finalSentenceCommittedAtMsRef.current = null;
     finalSentenceSpokenAtMsRef.current = null;
@@ -721,64 +919,6 @@ export function PresentationWorkspace(props: {
   ]);
 
   useEffect(() => {
-    if (
-      !currentSlide ||
-      !slideshowAnimationPlan ||
-      runtimePhase !== "active" ||
-      speech.state.status !== "listening" ||
-      !speech.state.latestTranscript.trim()
-    ) {
-      return;
-    }
-
-    const currentState =
-      keywordOccurrenceStateRef.current?.slideId === currentSlide.slideId
-        ? keywordOccurrenceStateRef.current
-        : { slideId: currentSlide.slideId, confirmedOccurrenceIds: [] };
-    const transcriptSpan = speech.getSlideTranscriptSpan();
-    const matches = matchKeywordOccurrenceTriggers({
-      slide: currentSlide,
-      targetOccurrenceIds: getKeywordOccurrenceTriggerIdsForSlide(currentSlide),
-      previousTranscript: transcriptSpan.previousTranscript,
-      transcript: transcriptSpan.transcript,
-      latestTranscript: speech.state.latestTranscript,
-      confidence: speech.state.latestTranscriptConfidence,
-      confirmedOccurrenceIds: currentState.confirmedOccurrenceIds,
-    });
-    if (matches.length === 0) {
-      return;
-    }
-
-    const update = resolveTriggeredActionPlaybackUpdate({
-      actions: matches.flatMap((match) =>
-        resolveKeywordOccurrenceTriggeredActions(
-          currentSlide,
-          match.keywordId,
-          match.occurrenceId,
-        ),
-      ),
-      playbackState: playbackStateRef.current,
-      presenterStepIndex,
-      slide: currentSlide,
-      slideAnimationPlan: slideshowAnimationPlan,
-    });
-    applyPlaybackUpdate({
-      consumedOccurrenceIds: matches.map((match) => match.occurrenceId),
-      slide: currentSlide,
-      update,
-    });
-  }, [
-    applyPlaybackUpdate,
-    currentSlide,
-    presenterStepIndex,
-    runtimePhase,
-    slideshowAnimationPlan,
-    speech.state.latestTranscript,
-    speech.state.latestTranscriptConfidence,
-    speech.state.status,
-  ]);
-
-  useEffect(() => {
     if (!currentSlide || !slideshowAnimationPlan || runtimePhase !== "active") {
       return;
     }
@@ -801,7 +941,11 @@ export function PresentationWorkspace(props: {
         slide: currentSlide,
         slideAnimationPlan: slideshowAnimationPlan,
       });
-      applyPlaybackUpdate({ slide: currentSlide, update });
+      applyPlaybackUpdate({
+        slide: currentSlide,
+        source: "generic-keyword",
+        update,
+      });
       if (update.shouldAdvanceSlide) {
         return;
       }
@@ -842,6 +986,11 @@ export function PresentationWorkspace(props: {
     const promise = (async () => {
       if (!deck || !currentSlide || !props.projectId) {
         throw new Error("발표 자료가 준비되지 않았습니다.");
+      }
+      if (getPresentationSequenceReviewSlideIds(deck).length > 0) {
+        throw new Error(
+          "대본 키워드 순서가 변경되었습니다. 에디터의 발표 순서에서 검토를 저장한 뒤 발표를 시작하세요.",
+        );
       }
       setRuntimePhase("starting");
       setRuntimeError("");
@@ -1197,7 +1346,10 @@ export function PresentationWorkspace(props: {
         adviceState={adviceState}
         animationTriggerDebug={
           animationTriggerDebugEnabled && animationTriggerDebug ? (
-            <PresentationAnimationTriggerDebug data={animationTriggerDebug} />
+            <PresentationAnimationTriggerDebug
+              data={animationTriggerDebug}
+              onApprove={approvePresentationKeywordOccurrence}
+            />
           ) : undefined
         }
         autoAdvanceStatus={
@@ -1252,6 +1404,7 @@ export function PresentationWorkspace(props: {
           });
         }}
         panelSnapshot={panelSnapshot}
+        pendingKeywordOccurrenceIds={pendingKeywordOccurrenceIds}
         presentationSession={runtimeRef.current ?? undefined}
         presenterScale={presenterScale}
         presenterStageRef={presenterStageRef}
@@ -1376,20 +1529,23 @@ function createEmptySpeechTrackerSnapshot(options: {
 
 function PresentationAnimationTriggerDebug(props: {
   data: {
+    animationExecutionHistory: PresentationAnimationExecutionHistoryEntry[];
     confidence: number | null;
+    approvalOccurrenceId: string | null;
     confirmedOccurrenceIds: string[];
-    currentCharOffset: number;
-    previousCharOffset: number;
     currentStepAnimationIds: string[];
     currentStepIndex: number;
+    expectedOccurrenceIds: string[];
     latestTranscript: string;
     matches: Array<{ occurrenceId: string }>;
+    newSegment: string;
     occurrenceActions: Array<{ animationId: string; occurrenceId: string }>;
     playedAnimationIds: string[];
+    resolutionBlocker: string | null;
     speechStatus: string;
-    targetOccurrenceIds: string[];
     transcript: string;
   };
+  onApprove: (occurrenceId: string) => void;
 }) {
   const { data } = props;
   const blocker = getAnimationTriggerBlocker(data);
@@ -1417,8 +1573,12 @@ function PresentationAnimationTriggerDebug(props: {
           <dd>{data.confidence?.toFixed(2) ?? "브라우저 미제공"}</dd>
         </div>
         <div>
-          <dt>대본 위치</dt>
-          <dd>{data.previousCharOffset} → {data.currentCharOffset}</dd>
+          <dt>새 전사 구간</dt>
+          <dd>{data.newSegment || "-"}</dd>
+        </div>
+        <div>
+          <dt>현재 step occurrence</dt>
+          <dd>{formatDebugValues(data.expectedOccurrenceIds)}</dd>
         </div>
         <div>
           <dt>매칭 occurrence</dt>
@@ -1442,9 +1602,17 @@ function PresentationAnimationTriggerDebug(props: {
       <p className="presentation-animation-trigger-debug-blocker">
         판정: {blocker}
       </p>
+      {data.approvalOccurrenceId ? (
+        <button
+          type="button"
+          onClick={() => props.onApprove(data.approvalOccurrenceId ?? "")}
+        >
+          이 키워드 효과 실행
+        </button>
+      ) : null}
       <details>
         <summary>연결 데이터 보기</summary>
-        <p>트리거 occurrence: {formatDebugValues(data.targetOccurrenceIds)}</p>
+        <p>현재 step occurrence: {formatDebugValues(data.expectedOccurrenceIds)}</p>
         <p>
           action 연결: {" "}
           {formatDebugValues(
@@ -1453,10 +1621,53 @@ function PresentationAnimationTriggerDebug(props: {
             ),
           )}
         </p>
-        <p>위치 계산 대본: {data.transcript || "-"}</p>
+        <p>누적 전사: {data.transcript || "-"}</p>
       </details>
+      <section className="presentation-animation-trigger-history">
+        <strong>애니메이션 실행 이력</strong>
+        {data.animationExecutionHistory.length > 0 ? (
+          <ol>
+            {data.animationExecutionHistory.map((entry) => (
+              <li key={entry.id}>
+                <span>{formatAnimationExecutionTime(entry.atMs)}</span>
+                <strong>{getAnimationExecutionSourceLabel(entry.source)}</strong>
+                <span>step {entry.stepBefore} → {entry.stepAfter}</span>
+                <span>효과: {formatDebugValues(entry.animationIds)}</span>
+                <span>occurrence: {formatDebugValues(entry.consumedOccurrenceIds)}</span>
+                {entry.newSegment ? <span>전사: {entry.newSegment}</span> : null}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p>아직 실행된 애니메이션이 없습니다.</p>
+        )}
+      </section>
     </aside>
   );
+}
+
+function getAnimationExecutionSourceLabel(
+  source: PresentationAnimationExecutionSource,
+) {
+  switch (source) {
+    case "speech":
+      return "STT";
+    case "approval":
+      return "수동 승인";
+    case "generic-keyword":
+      return "일반 키워드";
+    case "click":
+      return "클릭";
+  }
+}
+
+function formatAnimationExecutionTime(atMs: number) {
+  return new Date(atMs).toLocaleTimeString("ko-KR", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function getAnimationTriggerBlocker(data: {
@@ -1466,7 +1677,8 @@ function getAnimationTriggerBlocker(data: {
   matches: Array<{ occurrenceId: string }>;
   occurrenceActions: Array<{ animationId: string; occurrenceId: string }>;
   speechStatus: string;
-  targetOccurrenceIds: string[];
+  expectedOccurrenceIds: string[];
+  resolutionBlocker: string | null;
 }) {
   if (data.speechStatus !== "listening") {
     return "음성 인식이 listening 상태가 아닙니다.";
@@ -1477,22 +1689,24 @@ function getAnimationTriggerBlocker(data: {
   if (data.confidence !== null && data.confidence < 0.7) {
     return "confidence가 0.70 미만이라 자동 실행을 막았습니다.";
   }
-  if (data.targetOccurrenceIds.length === 0) {
-    return "현재 슬라이드에 keyword-occurrence action이 없습니다.";
-  }
   if (data.occurrenceActions.length === 0) {
     return "occurrence action 연결을 찾지 못했습니다.";
   }
   if (
-    data.targetOccurrenceIds.length > 0 &&
-    data.targetOccurrenceIds.every((occurrenceId) =>
+    data.expectedOccurrenceIds.length > 0 &&
+    data.expectedOccurrenceIds.every((occurrenceId) =>
       data.confirmedOccurrenceIds.includes(occurrenceId),
     )
   ) {
     return "해당 occurrence는 이미 처리되어 중복 실행하지 않습니다.";
   }
+  if (!data.expectedOccurrenceIds.length) {
+    return "현재 step은 키워드 애니메이션 단계가 아닙니다.";
+  }
   if (data.matches.length === 0) {
-    return "대본 위치·키워드·미소비 조건 중 하나가 일치하지 않습니다.";
+    return data.resolutionBlocker === "confidence-low"
+      ? "confidence가 0.70 미만이라 자동 실행을 막았습니다."
+      : `현재 step occurrence와 새 전사 구간이 일치하지 않습니다. (${data.resolutionBlocker ?? "unknown"})`;
   }
   return "매칭 성공: 다음 렌더에서 action 실행·step 전진을 확인하세요.";
 }

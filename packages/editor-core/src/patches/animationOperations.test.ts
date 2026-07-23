@@ -8,6 +8,7 @@ import {
   createDefaultAnimation,
   createDeleteAnimationPatch,
   createDeleteAnimationTimelineRootPatch,
+  createReorderSlideAnimationsPatch,
   createUpdateAnimationPatch,
   getElementAnimations,
   getNextAnimationOrder,
@@ -148,6 +149,25 @@ describe("animation operations", () => {
     const deck = createDemoDeck();
 
     expect(createAnimationId(deck)).toBe("anim_4");
+  });
+
+  it("rewrites every animation order as a dense permutation", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const patch = createReorderSlideAnimationsPatch(deck, slide.slideId, [
+      "anim_2",
+      "anim_1",
+    ]);
+    const result = applyDeckPatch(deck, patch);
+
+    if (!result.ok) throw new Error(JSON.stringify(result.error));
+    expect(result.deck.slides[0]?.animations.map((animation) => [
+      animation.animationId,
+      animation.order,
+    ])).toEqual([
+      ["anim_2", 1],
+      ["anim_1", 2],
+    ]);
   });
 
   it("creates default animations with authoring defaults", () => {

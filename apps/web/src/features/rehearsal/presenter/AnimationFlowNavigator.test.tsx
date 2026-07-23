@@ -55,12 +55,12 @@ describe("AnimationFlowNavigator", () => {
       slideIndex: 0,
       title: deck.slides[0]?.title,
     });
-    expect(model[0]?.entryEffectsLabel).toContain("나타나기");
+    expect(model[0]?.entryEffects.map((effect) => effect.label).join(" · ")).toContain("나타나기");
     expect(model[0]?.steps.map((step) => step.stepIndex)).toEqual([1, 2]);
     expect(model[0]?.steps[0]).toMatchObject({
-      effectsLabel: expect.stringContaining("확대"),
       triggerLabel: expect.stringContaining("발화"),
     });
+    expect(model[0]?.steps[0]?.effects.map((effect) => effect.label).join(" · ")).toContain("확대");
   });
 
   it("shows separate timeline rows for relative effects with different occurrence triggers", () => {

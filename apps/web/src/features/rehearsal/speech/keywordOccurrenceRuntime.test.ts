@@ -130,6 +130,50 @@ describe("matchKeywordOccurrenceTriggers", () => {
     ]);
   });
 
+  it("skips a consumed repeated occurrence when matching the next trigger", () => {
+    const repeatedSlide = {
+      ...slide,
+      slideId: "slide_repeated",
+      speakerNotes: "트리는 연결된 구조입니다. 트리는 사이클이 없습니다.",
+      keywords: [
+        {
+          keywordId: "kw_tree",
+          text: "트리는",
+          synonyms: [],
+          abbreviations: [],
+          required: true
+        }
+      ]
+    };
+    const firstOccurrenceId = "kwo_slide_repeated_kw_tree_0_3";
+    const secondOccurrenceId = "kwo_slide_repeated_kw_tree_15_18";
+
+    const firstMatches = matchKeywordOccurrenceTriggers({
+      slide: repeatedSlide,
+      targetOccurrenceIds: [firstOccurrenceId, secondOccurrenceId],
+      previousTranscript: "",
+      transcript: "트리는",
+      latestTranscript: "트리는",
+      confidence: 0.95
+    });
+    const secondMatches = matchKeywordOccurrenceTriggers({
+      slide: repeatedSlide,
+      targetOccurrenceIds: [firstOccurrenceId, secondOccurrenceId],
+      previousTranscript: "트리는",
+      transcript: repeatedSlide.speakerNotes,
+      latestTranscript: "트리는",
+      confidence: 0.95,
+      confirmedOccurrenceIds: [firstOccurrenceId]
+    });
+
+    expect(firstMatches.map((match) => match.occurrenceId)).toEqual([
+      firstOccurrenceId
+    ]);
+    expect(secondMatches.map((match) => match.occurrenceId)).toEqual([
+      secondOccurrenceId
+    ]);
+  });
+
   it("does not match an occurrence that was already confirmed in the slide session", () => {
     const matches = matchKeywordOccurrenceTriggers({
       slide,

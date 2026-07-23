@@ -2905,6 +2905,17 @@
   overflow: hidden;
 }
 
+.editor-slide-rehearsal-stage {
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+.editor-slide-rehearsal-stage .slideshow-renderer {
+  width: 100%;
+  height: 100%;
+}
+
 .orbit-stage-shell.is-image-drop-target {
   box-shadow: var(--redesign-shadow-image-drop-target);
 }
@@ -5465,6 +5476,71 @@
   font-weight: 900;
   line-height: 1;
   white-space: nowrap;
+}
+
+.animation-sequence-list {
+  display: grid;
+  gap: var(--redesign-space-2);
+}
+
+.animation-sequence-review {
+  display: grid;
+  gap: var(--redesign-space-2);
+}
+
+.animation-sequence-review-save {
+  justify-self: start;
+}
+
+.animation-sequence-step {
+  display: grid;
+  gap: var(--redesign-space-1);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-md);
+  background: var(--redesign-color-surface-container-low);
+  padding: var(--redesign-space-2);
+}
+
+.animation-sequence-step.manual {
+  cursor: grab;
+}
+
+.animation-sequence-step.locked {
+  background: var(--redesign-color-surface-container);
+}
+
+.animation-sequence-step-header {
+  display: flex;
+  align-items: center;
+  gap: var(--redesign-space-1);
+  color: var(--redesign-color-on-surface);
+  min-width: 0;
+}
+
+.animation-sequence-step-header strong {
+  font-size: var(--redesign-type-label-md-size);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.animation-sequence-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--redesign-radius-full);
+  background: var(--redesign-color-primary-container);
+  color: var(--redesign-color-on-primary-container);
+  font-size: var(--redesign-type-label-sm-size);
+  font-weight: 800;
+}
+
+.animation-sequence-effect {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-label-sm-size);
+  padding-left: calc(var(--redesign-space-5) + var(--redesign-space-1));
 }
 
 .animation-panel-form-card {

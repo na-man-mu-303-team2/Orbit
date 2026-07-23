@@ -57,6 +57,7 @@ export type AnimationTimelinePlan = {
 
 export function createAnimationTimeline(input: {
   actionTriggerKeys?: ReadonlyMap<string, string>;
+  animationOrderById?: ReadonlyMap<string, number>;
   animations: readonly TimelineAnimationInput[];
   legacyOnClickAnimationIds?: Iterable<string>;
   targetElementIds?: Iterable<string>;
@@ -73,7 +74,9 @@ export function createAnimationTimeline(input: {
   );
   const sortedAnimations = input.animations
     .map((animation, sourceIndex) => ({ animation, sourceIndex }))
-    .sort(compareTimelineSourceAnimations);
+    .sort((left, right) =>
+      compareTimelineSourceAnimations(left, right, input.animationOrderById)
+    );
   const legacyModes = inferLegacyStartModes(
     sortedAnimations,
     legacyOnClickAnimationIds
@@ -291,7 +294,15 @@ function inferActionTriggerBoundaryModes(
       authoredStartMode === "after-previous";
     const needsIndependentRoot =
       triggerKey !== null && isRelative && triggerKey !== currentRootTriggerKey;
-    const startMode = needsIndependentRoot ? "on-click" : authoredStartMode;
+    const joinsSameKeywordStep =
+      triggerKey !== null &&
+      authoredStartMode === "on-click" &&
+      triggerKey === currentRootTriggerKey;
+    const startMode = needsIndependentRoot
+      ? "on-click"
+      : joinsSameKeywordStep
+        ? "with-previous"
+        : authoredStartMode;
     const startsRoot = startMode === "on-slide-enter" || startMode === "on-click";
 
     if (needsIndependentRoot) {
@@ -308,8 +319,18 @@ function inferActionTriggerBoundaryModes(
 
 function compareTimelineSourceAnimations(
   left: { animation: TimelineAnimationInput; sourceIndex: number },
-  right: { animation: TimelineAnimationInput; sourceIndex: number }
+  right: { animation: TimelineAnimationInput; sourceIndex: number },
+  animationOrderById?: ReadonlyMap<string, number>
 ) {
+  const leftPresentationOrder = animationOrderById?.get(left.animation.animationId);
+  const rightPresentationOrder = animationOrderById?.get(right.animation.animationId);
+  if (
+    leftPresentationOrder !== undefined &&
+    rightPresentationOrder !== undefined &&
+    leftPresentationOrder !== rightPresentationOrder
+  ) {
+    return leftPresentationOrder - rightPresentationOrder;
+  }
   if (left.animation.order !== right.animation.order) {
     return left.animation.order - right.animation.order;
   }

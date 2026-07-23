@@ -23,6 +23,78 @@ export type RestoredSlidePlayback = {
   presenterStepIndex: number;
 };
 
+export type QueuedKeywordOccurrencePlaybackUpdate = {
+  consumedOccurrenceIds: string[];
+  pendingOccurrenceIds: string[];
+  update: TriggeredActionPlaybackUpdate | null;
+};
+
+/**
+ * Only the current animation step may run from speech; later matches wait for
+ * click fallback. An occurrence-only next-slide action is the terminal step,
+ * so it may run only after every animation step has settled.
+ */
+export function resolveQueuedKeywordOccurrencePlayback(args: {
+  actionsByOccurrenceId: ReadonlyMap<string, DeckSlideAction[]>;
+  pendingOccurrenceIds: readonly string[];
+  matchedOccurrenceIds: readonly string[];
+  playbackState: SlidePlaybackState;
+  presenterStepIndex: number;
+  slide: Slide;
+  slideAnimationPlan: SlideshowAnimationPlan;
+}): QueuedKeywordOccurrencePlaybackUpdate {
+  const currentStep = args.slideAnimationPlan.triggerSteps[args.presenterStepIndex];
+  const currentAnimationIds = new Set(
+    currentStep?.animations.map((animation) => animation.animationId) ?? []
+  );
+  const canAdvanceSlide =
+    args.presenterStepIndex >= args.slideAnimationPlan.maxStepIndex;
+  const pendingOccurrenceIds = new Set(args.pendingOccurrenceIds);
+  args.matchedOccurrenceIds.forEach((occurrenceId) => pendingOccurrenceIds.add(occurrenceId));
+  const executableActionsByOccurrenceId = new Map(
+    Array.from(pendingOccurrenceIds).flatMap((occurrenceId) => {
+      const actions = (
+        args.actionsByOccurrenceId.get(occurrenceId) ??
+        args.slide.actions.filter(
+          (action) =>
+            action.trigger.kind === "keyword-occurrence" &&
+            action.trigger.occurrenceId === occurrenceId
+        )
+      ).filter(
+        (action) =>
+          (action.effect.kind === "play-animation" &&
+            currentAnimationIds.has(action.effect.animationId)) ||
+          (action.effect.kind === "go-to-next-slide" && canAdvanceSlide)
+      );
+      return actions.length > 0 ? [[occurrenceId, actions] as const] : [];
+    })
+  );
+  const executableOccurrenceIds = [...executableActionsByOccurrenceId.keys()];
+  if (executableOccurrenceIds.length === 0) {
+    return {
+      consumedOccurrenceIds: [],
+      pendingOccurrenceIds: [...pendingOccurrenceIds],
+      update: null,
+    };
+  }
+  const update = resolveTriggeredActionPlaybackUpdate({
+    actions: executableOccurrenceIds.flatMap(
+      (occurrenceId) =>
+        executableActionsByOccurrenceId.get(occurrenceId) ?? []
+    ),
+    playbackState: args.playbackState,
+    presenterStepIndex: args.presenterStepIndex,
+    slide: args.slide,
+    slideAnimationPlan: args.slideAnimationPlan
+  });
+  executableOccurrenceIds.forEach((occurrenceId) => pendingOccurrenceIds.delete(occurrenceId));
+  return {
+    consumedOccurrenceIds: executableOccurrenceIds,
+    pendingOccurrenceIds: [...pendingOccurrenceIds],
+    update,
+  };
+}
+
 export function getTriggerAnimationIdsForSlide(slide: Slide) {
   const validAnimationIds = new Set(
     slide.animations.map((animation) => animation.animationId)

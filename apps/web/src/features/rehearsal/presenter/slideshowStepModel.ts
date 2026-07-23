@@ -1,5 +1,6 @@
 import {
   createAnimationTimeline,
+  buildSlidePresentationSequence,
   getAnimationActionTriggerKeys,
   type AnimationTimelineDiagnostic,
   type PlannedAnimationTimelineEffect
@@ -47,8 +48,10 @@ export function createSlideshowAnimationPlan(
   input: SlideshowModelInput
 ): SlideshowAnimationPlan {
   const triggerAnimationIds = [...(input.triggerAnimationIds ?? [])];
+  const sequence = buildSlidePresentationSequence(input.slide);
   const timeline = createAnimationTimeline({
     actionTriggerKeys: getAnimationActionTriggerKeys(input.slide),
+    animationOrderById: sequence.animationOrderById,
     animations: input.slide.animations,
     legacyOnClickAnimationIds: triggerAnimationIds,
     targetElementIds: input.slide.elements.map((element) => element.elementId),

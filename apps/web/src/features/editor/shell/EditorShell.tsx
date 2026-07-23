@@ -1,5 +1,6 @@
 import {
   createDemoDeck,
+  createSlidePlaybackState,
   createDuplicateSlidePatch,
   createUpdateActivityDefinitionPatch,
   createUpdateActivityResultDefinitionPatch,
@@ -183,8 +184,25 @@ import {
 } from "./hooks/useSpeakerNotesPanelLayout";
 import { useEditorSlideCommands } from "./hooks/useEditorSlideCommands";
 import { useEditorPresentationActions } from "./hooks/useEditorPresentationActions";
-import { useEditorSlideRehearsal } from "./hooks/useEditorSlideRehearsal";
+import {
+  type EditorSlideRehearsalSpeechResult,
+  useEditorSlideRehearsal
+} from "./hooks/useEditorSlideRehearsal";
 import { useSlidePracticeSession } from "../practice/useSlidePracticeSession";
+import {
+  getTriggerAnimationIdsForSlide,
+  resolveKeywordTriggeredActions,
+  resolveManualAnimationPlaybackUpdate,
+  resolveQueuedKeywordOccurrencePlayback,
+  resolveTriggeredActionPlaybackUpdate,
+  type TriggeredActionPlaybackUpdate
+} from "../../rehearsal/playback/triggeredActionPlayback";
+import { SlideshowRenderer } from "../../rehearsal/presenter/SlideshowRenderer";
+import {
+  createSlideshowAnimationPlan,
+  type SlideshowAnimationPlan
+} from "../../rehearsal/presenter/slideshowStepModel";
+import { dispatchKeywordOccurrencePlayback } from "../../rehearsal/speech/keywordOccurrencePlaybackDispatcher";
 import { useAutoSlideQuestionGuides } from "../practice/useAutoSlideQuestionGuides";
 import { useShapeMenuPlacement } from "./hooks/useShapeMenuPlacement";
 import { createSelectionNudgePatch } from "./utils/selectionNudge";
@@ -599,12 +617,196 @@ export function EditorShell(props: { projectId?: string }) {
     start: startSlideRehearsal,
     state: slideRehearsalState,
     stop: stopSlideRehearsal
-  } = useEditorSlideRehearsal({ projectId });
+  } = useEditorSlideRehearsal({
+    onSpeechResult: handleSlideRehearsalSpeechResult,
+    projectId
+  });
   const isSlideRehearsalActive = Boolean(slideRehearsalState.activeSlideId);
   const rehearsalSlide =
     deck.slides.find(
       (slide) => slide.slideId === slideRehearsalState.activeSlideId
     ) ?? currentSlide;
+  const slideRehearsalTriggerAnimationIds = useMemo(
+    () =>
+      rehearsalSlide ? getTriggerAnimationIdsForSlide(rehearsalSlide) : [],
+    [rehearsalSlide]
+  );
+  const slideRehearsalAnimationPlan = useMemo(
+    () =>
+      rehearsalSlide
+        ? createSlideshowAnimationPlan({
+            slide: rehearsalSlide,
+            triggerAnimationIds: slideRehearsalTriggerAnimationIds
+          })
+        : null,
+    [rehearsalSlide, slideRehearsalTriggerAnimationIds]
+  );
+  const [slideRehearsalStepIndex, setSlideRehearsalStepIndex] = useState(0);
+  const slideRehearsalStepIndexRef = useRef(0);
+  const slideRehearsalPlaybackStateRef = useRef(createSlidePlaybackState());
+  const slideRehearsalPendingOccurrenceIdsRef = useRef<string[]>([]);
+  const slideRehearsalConfirmedOccurrenceIdsRef = useRef<string[]>([]);
+  const slideRehearsalDetectedKeywordIdsRef = useRef<string[]>([]);
+  const [slideRehearsalTerminalActionMessage, setSlideRehearsalTerminalActionMessage] =
+    useState<string | null>(null);
+  const [slideRehearsalAnimationDebug, setSlideRehearsalAnimationDebug] =
+    useState<{
+      approvalOccurrenceId: string | null;
+      blocker: string | null;
+      confidence: number | null;
+      consumedOccurrenceIds: string[];
+      expectedOccurrenceIds: string[];
+      matchedOccurrenceIds: string[];
+      newSegment: string;
+      pendingOccurrenceIds: string[];
+    } | null>(null);
+
+  const resetSlideRehearsalAnimationPlayback = useCallback(() => {
+    slideRehearsalStepIndexRef.current = 0;
+    slideRehearsalPlaybackStateRef.current = createSlidePlaybackState();
+    slideRehearsalPendingOccurrenceIdsRef.current = [];
+    slideRehearsalConfirmedOccurrenceIdsRef.current = [];
+    slideRehearsalDetectedKeywordIdsRef.current = [];
+    setSlideRehearsalTerminalActionMessage(null);
+    setSlideRehearsalAnimationDebug(null);
+    setSlideRehearsalStepIndex(0);
+  }, []);
+
+  function applySlideRehearsalPlaybackUpdate(
+    playbackUpdate: TriggeredActionPlaybackUpdate,
+    animationPlan: SlideshowAnimationPlan | null = slideRehearsalAnimationPlan
+  ) {
+    const maxStepIndex = animationPlan?.maxStepIndex ?? 0;
+    const nextStepIndex = Math.min(
+      Math.max(0, playbackUpdate.presenterStepIndex),
+      maxStepIndex
+    );
+    slideRehearsalPlaybackStateRef.current = playbackUpdate.playbackState;
+    slideRehearsalStepIndexRef.current = nextStepIndex;
+    setSlideRehearsalStepIndex(nextStepIndex);
+  }
+
+  function consumeSlideRehearsalOccurrences(occurrenceIds: readonly string[]) {
+    if (occurrenceIds.length === 0) return;
+    const consumed = new Set(slideRehearsalConfirmedOccurrenceIdsRef.current);
+    occurrenceIds.forEach((occurrenceId) => consumed.add(occurrenceId));
+    slideRehearsalConfirmedOccurrenceIdsRef.current = [...consumed];
+    slideRehearsalPendingOccurrenceIdsRef.current =
+      slideRehearsalPendingOccurrenceIdsRef.current.filter(
+        (occurrenceId) => !consumed.has(occurrenceId)
+      );
+  }
+
+  function handleNextSlideRehearsalAnimation() {
+    if (!rehearsalSlide || !slideRehearsalAnimationPlan) return;
+    const queuedOccurrencePlayback = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId: new Map(),
+      matchedOccurrenceIds: [],
+      pendingOccurrenceIds: slideRehearsalPendingOccurrenceIdsRef.current,
+      playbackState: slideRehearsalPlaybackStateRef.current,
+      presenterStepIndex: slideRehearsalStepIndexRef.current,
+      slide: rehearsalSlide,
+      slideAnimationPlan: slideRehearsalAnimationPlan
+    });
+    slideRehearsalPendingOccurrenceIdsRef.current =
+      queuedOccurrencePlayback.pendingOccurrenceIds;
+    if (queuedOccurrencePlayback.update) {
+      consumeSlideRehearsalOccurrences(
+        queuedOccurrencePlayback.consumedOccurrenceIds
+      );
+      applySlideRehearsalPlaybackUpdate(queuedOccurrencePlayback.update);
+      return;
+    }
+    const playbackUpdate = resolveManualAnimationPlaybackUpdate({
+      playbackState: slideRehearsalPlaybackStateRef.current,
+      presenterStepIndex: slideRehearsalStepIndexRef.current,
+      slide: rehearsalSlide,
+      slideAnimationPlan: slideRehearsalAnimationPlan
+    });
+    consumeSlideRehearsalOccurrences(playbackUpdate.consumedOccurrenceIds);
+    applySlideRehearsalPlaybackUpdate(playbackUpdate);
+  }
+
+  useEffect(() => {
+    resetSlideRehearsalAnimationPlayback();
+  }, [resetSlideRehearsalAnimationPlayback, slideRehearsalState.activeSlideId]);
+
+  function handleSlideRehearsalSpeechResult(
+    event: EditorSlideRehearsalSpeechResult
+  ) {
+    const eventSlide = event.slide;
+    const eventSlideAnimationPlan = createSlideshowAnimationPlan({
+      slide: eventSlide,
+      triggerAnimationIds: getTriggerAnimationIdsForSlide(eventSlide)
+    });
+    const dispatchedOccurrencePlayback = dispatchKeywordOccurrencePlayback({
+      confidence: event.result.confidence ?? null,
+      consumedOccurrenceIds: slideRehearsalConfirmedOccurrenceIdsRef.current,
+      newSegment: event.newSegment,
+      pendingOccurrenceIds: slideRehearsalPendingOccurrenceIdsRef.current,
+      playbackState: slideRehearsalPlaybackStateRef.current,
+      presenterStepIndex: slideRehearsalStepIndexRef.current,
+      slide: eventSlide,
+      slideAnimationPlan: eventSlideAnimationPlan
+    });
+    const occurrenceMatches = dispatchedOccurrencePlayback.matches;
+    const queuedOccurrencePlayback = dispatchedOccurrencePlayback.queuedPlayback;
+    slideRehearsalPendingOccurrenceIdsRef.current =
+      queuedOccurrencePlayback.pendingOccurrenceIds;
+    setSlideRehearsalAnimationDebug({
+      approvalOccurrenceId:
+        dispatchedOccurrencePlayback.resolution.blocker === "confidence-low" &&
+        dispatchedOccurrencePlayback.resolution.candidates.length === 1
+          ? dispatchedOccurrencePlayback.resolution.candidates[0]?.occurrenceId ?? null
+          : null,
+      blocker: dispatchedOccurrencePlayback.resolution.blocker,
+      confidence: event.result.confidence ?? null,
+      consumedOccurrenceIds: [
+        ...slideRehearsalConfirmedOccurrenceIdsRef.current,
+        ...queuedOccurrencePlayback.consumedOccurrenceIds
+      ],
+      expectedOccurrenceIds: dispatchedOccurrencePlayback.expectedStepOccurrenceIds,
+      matchedOccurrenceIds: occurrenceMatches.map(
+        (occurrenceMatch) => occurrenceMatch.occurrenceId
+      ),
+      newSegment: event.newSegment,
+      pendingOccurrenceIds: queuedOccurrencePlayback.pendingOccurrenceIds
+    });
+    consumeSlideRehearsalOccurrences(
+      queuedOccurrencePlayback.consumedOccurrenceIds
+    );
+    if (queuedOccurrencePlayback.update) {
+      applySlideRehearsalPlaybackUpdate(
+        queuedOccurrencePlayback.update,
+        eventSlideAnimationPlan
+      );
+      if (queuedOccurrencePlayback.update.shouldAdvanceSlide) {
+        setSlideRehearsalTerminalActionMessage(
+          "다음 장표 트리거를 인식했습니다. 부분 리허설에서는 현재 장표를 유지합니다."
+        );
+      }
+    }
+
+    const previousKeywordIds = new Set(
+      slideRehearsalDetectedKeywordIdsRef.current
+    );
+    const newlyDetectedKeywordIds = event.hitKeywordIds.filter(
+      (keywordId) => !previousKeywordIds.has(keywordId)
+    );
+    slideRehearsalDetectedKeywordIdsRef.current = [
+      ...event.hitKeywordIds
+    ];
+    for (const keywordId of newlyDetectedKeywordIds) {
+      const playbackUpdate = resolveTriggeredActionPlaybackUpdate({
+        actions: resolveKeywordTriggeredActions(eventSlide, keywordId),
+        playbackState: slideRehearsalPlaybackStateRef.current,
+        presenterStepIndex: slideRehearsalStepIndexRef.current,
+        slide: eventSlide,
+        slideAnimationPlan: eventSlideAnimationPlan
+      });
+      applySlideRehearsalPlaybackUpdate(playbackUpdate, eventSlideAnimationPlan);
+    }
+  }
   const slidePracticeSession = useSlidePracticeSession({
     beforeStart: flushAndGetPersistedDeck,
     projectId,
@@ -686,6 +888,7 @@ export function EditorShell(props: { projectId?: string }) {
     speakerNotesEditorActions.closeAssistant();
     setCurrentSlideId(slideId);
     slidePracticeSession.reset();
+    resetSlideRehearsalAnimationPlayback();
     enterSlideRehearsal(nextSlide);
   }
   const {
@@ -1037,6 +1240,7 @@ export function EditorShell(props: { projectId?: string }) {
   const handleThemeChange = editorSlideActions.changeTheme;
   const handleDeleteAnimation = editorSlideActions.deleteAnimation;
   const handleDeleteSelectedKeyword = editorSlideActions.deleteSelectedKeyword;
+  const handleReorderSlideAnimations = editorSlideActions.reorderSlideAnimations;
   const handleSpeakerNotesKeywordSelection =
     editorSlideActions.selectSpeakerNotesKeyword;
   const handleSelectKeyword = editorSlideActions.selectKeyword;
@@ -1636,6 +1840,7 @@ export function EditorShell(props: { projectId?: string }) {
     const previousPanelState = panelStateBeforeRehearsalRef.current;
     panelStateBeforeRehearsalRef.current = null;
     await exitSlideRehearsal();
+    resetSlideRehearsalAnimationPlayback();
 
     if (previousPanelState) {
       setIsSlidesPaneCollapsed(previousPanelState.isSlidesPaneCollapsed);
@@ -1645,6 +1850,7 @@ export function EditorShell(props: { projectId?: string }) {
 
   function beginSlideRehearsalMode(slide: Slide) {
     slidePracticeSession.reset();
+    resetSlideRehearsalAnimationPlayback();
     panelStateBeforeRehearsalRef.current = {
       isRightPanelOpen,
       isSlidesPaneCollapsed
@@ -2372,6 +2578,22 @@ export function EditorShell(props: { projectId?: string }) {
                 placement
               );
             }}
+            onRehearsalAdvance={
+              isSlideRehearsalActive
+                ? handleNextSlideRehearsalAnimation
+                : undefined
+            }
+            rehearsalRenderer={
+              isSlideRehearsalActive && rehearsalSlide ? (
+                <SlideshowRenderer
+                  deck={deck}
+                  scale={stageScale}
+                  slideId={rehearsalSlide.slideId}
+                  stepIndex={slideRehearsalStepIndex}
+                  triggerAnimationIds={slideRehearsalTriggerAnimationIds}
+                />
+              ) : undefined
+            }
             renderingDeck={renderingDeck}
             slideRenderStageRefs={slideRenderStageRefs}
             stageScale={stageScale}
@@ -2380,8 +2602,35 @@ export function EditorShell(props: { projectId?: string }) {
 
             {isSlideRehearsalActive && rehearsalSlide ? (
               <EditorSlideRehearsalBottomPanel
+                animationDebug={
+                  typeof window !== "undefined" &&
+                  new URLSearchParams(window.location.search).get("animationDebug") ===
+                    "1"
+                    ? slideRehearsalAnimationDebug
+                    : null
+                }
                 elapsedMs={slidePracticeSession.elapsedMs}
-                message={slidePracticeSession.message}
+                message={
+                  slideRehearsalTerminalActionMessage ??
+                  slidePracticeSession.message
+                }
+                nextAnimationDisabled={
+                  !slideRehearsalAnimationPlan ||
+                  slideRehearsalStepIndex >=
+                    slideRehearsalAnimationPlan.maxStepIndex
+                }
+                onNextAnimation={handleNextSlideRehearsalAnimation}
+                onApproveAnimationTrigger={(occurrenceId) => {
+                  if (!rehearsalSlide) return;
+                  const pendingOccurrenceIds = new Set(
+                    slideRehearsalPendingOccurrenceIdsRef.current
+                  );
+                  pendingOccurrenceIds.add(occurrenceId);
+                  slideRehearsalPendingOccurrenceIdsRef.current = [
+                    ...pendingOccurrenceIds
+                  ];
+                  handleNextSlideRehearsalAnimation();
+                }}
                 onNextSentence={moveSlideRehearsalToNextSentence}
                 onPreviousSentence={moveSlideRehearsalToPreviousSentence}
                 onRetryRuntimeConfig={slidePracticeSession.retryRuntimeConfig}
@@ -2530,6 +2779,7 @@ export function EditorShell(props: { projectId?: string }) {
               selectedKeywordOccurrenceId={selectedKeywordOccurrenceKey}
               slideAnimations={currentSlideAnimations}
               slideElements={currentSlide?.elements ?? []}
+              slide={currentSlide}
               onAddAnimation={(draft, keywordId, keywordOccurrenceId) => {
                 if (!currentSlide || !selectedAnimationPanelElement) {
                   return;
@@ -2549,6 +2799,11 @@ export function EditorShell(props: { projectId?: string }) {
                 }
               }}
               onRequestKeywordOccurrence={handleRequestKeywordOccurrence}
+              onReorderSlideAnimations={(animationIds) => {
+                if (currentSlide) {
+                  handleReorderSlideAnimations(currentSlide.slideId, animationIds);
+                }
+              }}
               onSelectSlideAnimation={handleSelectSlideAnimationFromPanel}
               onUpdateAnimation={(animationId, animation) => {
                 if (currentSlide) {

@@ -7,6 +7,7 @@ import {
   getKeywordOccurrenceTriggerIdsForSlide,
   restoreSlidePlaybackAtStep,
   resolveManualAnimationPlaybackUpdate,
+  resolveQueuedKeywordOccurrencePlayback,
   resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions
 } from "./triggeredActionPlayback";
@@ -110,6 +111,130 @@ describe("triggeredActionPlayback", () => {
     expect(firstUpdate.playbackState.playedAnimationIds).toEqual(["anim_manual"]);
     expect(firstUpdate.shouldAdvanceSlide).toBe(false);
     expect(finalUpdate.shouldAdvanceSlide).toBe(true);
+  });
+
+  it("queues a future keyword occurrence until click progression reaches its step", () => {
+    const slide = createSlide();
+    const slideAnimationPlan = createSlideshowAnimationPlan({
+      slide,
+      triggerAnimationIds: getTriggerAnimationIdsForSlide(slide),
+    });
+    const occurrenceId = "kwo_slide_1_kw_ai_47_49";
+    const queued = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId: new Map([
+        [
+          occurrenceId,
+          resolveKeywordOccurrenceTriggeredActions(slide, "kw_ai", occurrenceId),
+        ],
+      ]),
+      matchedOccurrenceIds: [occurrenceId],
+      pendingOccurrenceIds: [],
+      playbackState: { playedAnimationIds: [] },
+      presenterStepIndex: 0,
+      slide,
+      slideAnimationPlan,
+    });
+
+    expect(queued.update).toBeNull();
+    expect(queued.pendingOccurrenceIds).toEqual([occurrenceId]);
+    const firstClick = resolveManualAnimationPlaybackUpdate({
+      playbackState: { playedAnimationIds: [] },
+      presenterStepIndex: 0,
+      slide,
+      slideAnimationPlan,
+    });
+    const secondClick = resolveManualAnimationPlaybackUpdate({
+      playbackState: firstClick.playbackState,
+      presenterStepIndex: firstClick.presenterStepIndex,
+      slide,
+      slideAnimationPlan,
+    });
+
+    expect(firstClick.playbackState.playedAnimationIds).toContain("anim_legacy");
+    expect(secondClick.playbackState.playedAnimationIds).toContain("anim_occurrence");
+    expect(secondClick.consumedOccurrenceIds).toEqual([occurrenceId]);
+  });
+
+  it("re-resolves a pending occurrence action when click reaches its step", () => {
+    const slide = createSlide();
+    const slideAnimationPlan = createSlideshowAnimationPlan({
+      slide,
+      triggerAnimationIds: getTriggerAnimationIdsForSlide(slide),
+    });
+    const occurrenceId = "kwo_slide_1_kw_ai_47_49";
+
+    const queued = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId: new Map(),
+      matchedOccurrenceIds: [],
+      pendingOccurrenceIds: [occurrenceId],
+      playbackState: { playedAnimationIds: ["anim_legacy"] },
+      presenterStepIndex: 1,
+      slide,
+      slideAnimationPlan,
+    });
+
+    expect(queued.consumedOccurrenceIds).toEqual([occurrenceId]);
+    expect(queued.pendingOccurrenceIds).toEqual([]);
+    expect(queued.update?.playbackState.playedAnimationIds).toContain(
+      "anim_occurrence",
+    );
+  });
+
+  it("runs an occurrence next-slide action only after all animation steps", () => {
+    const baseSlide = createSlide();
+    const occurrenceId = "kwo_slide_1_kw_ai_47_49";
+    const slide = {
+      ...baseSlide,
+      actions: [
+        ...baseSlide.actions,
+        {
+          actionId: "act_occurrence_advance",
+          trigger: {
+            kind: "keyword-occurrence" as const,
+            keywordId: "kw_ai",
+            occurrenceId
+          },
+          effect: { kind: "go-to-next-slide" as const }
+        }
+      ]
+    };
+    const slideAnimationPlan = createSlideshowAnimationPlan({
+      slide,
+      triggerAnimationIds: getTriggerAnimationIdsForSlide(slide)
+    });
+    const actionsByOccurrenceId = new Map([
+      [
+        occurrenceId,
+        resolveKeywordOccurrenceTriggeredActions(slide, "kw_ai", occurrenceId)
+      ]
+    ]);
+
+    const queued = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId,
+      matchedOccurrenceIds: [occurrenceId],
+      pendingOccurrenceIds: [],
+      playbackState: { playedAnimationIds: [] },
+      presenterStepIndex: 0,
+      slide,
+      slideAnimationPlan
+    });
+    const advanced = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId,
+      matchedOccurrenceIds: [occurrenceId],
+      pendingOccurrenceIds: queued.pendingOccurrenceIds,
+      playbackState: {
+        playedAnimationIds: ["anim_legacy", "anim_occurrence"]
+      },
+      presenterStepIndex: slideAnimationPlan.maxStepIndex,
+      slide,
+      slideAnimationPlan
+    });
+
+    expect(queued.update).toBeNull();
+    expect(queued.pendingOccurrenceIds).toEqual([occurrenceId]);
+    expect(advanced.pendingOccurrenceIds).toEqual([]);
+    expect(advanced.consumedOccurrenceIds).toEqual([occurrenceId]);
+    expect(advanced.update?.shouldAdvanceSlide).toBe(true);
   });
 
   it("reconstructs played animations and consumed occurrences for a recovery step", () => {

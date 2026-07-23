@@ -6,6 +6,7 @@ import {
   createDeleteAnimationPatch,
   createDeleteAnimationTimelineRootPatch,
   createKeyword,
+  createReorderSlideAnimationsPatch,
   createReplaceKeywordsPatch,
   createUpdateAnimationPatch,
   createUpdateElementPropsPatch,
@@ -273,6 +274,13 @@ export function useEditorSlideCommands(args: {
     );
   }
 
+  function reorderSlideAnimations(slideId: string, animationIds: string[]) {
+    if (!allowMotionMutation(slideId, "animation")) return;
+    args.commitPatch((deck) =>
+      createReorderSlideAnimationsPatch(deck, slideId, animationIds)
+    );
+  }
+
   function allowMotionMutation(
     slideId: string,
     scope: "animation" | "transition"
@@ -297,6 +305,7 @@ export function useEditorSlideCommands(args: {
     clearSelectedKeyword,
     deleteAnimation,
     deleteSelectedKeyword,
+    reorderSlideAnimations,
     selectKeyword,
     selectSpeakerNotesKeyword,
     toggleAdvanceSlideKeyword,

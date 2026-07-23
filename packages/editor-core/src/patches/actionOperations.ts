@@ -7,7 +7,7 @@ import type {
   Keyword,
   Slide
 } from "@orbit/shared";
-import { keywordSchema } from "@orbit/shared";
+import { deriveKeywordOccurrences, keywordSchema } from "@orbit/shared";
 
 export type DerivedKeywordUsage = {
   advancesSlide: boolean;
@@ -95,15 +95,29 @@ export function createAddAnimationWithKeywordTriggerPatch(
   keywordId: string,
   occurrenceId?: string | null
 ): DeckPatch {
+  const slide = findSlide(deck, slideId);
+  const insertion = slide
+    ? resolveKeywordAnimationInsertion(slide, animation, occurrenceId)
+    : { animation, shiftedAnimationIds: [] };
   return {
     deckId: deck.deckId,
     baseVersion: deck.version,
     source: "user",
     operations: [
+      ...insertion.shiftedAnimationIds.map((animationId) => ({
+        type: "update_animation" as const,
+        slideId,
+        animationId,
+        animation: {
+          order:
+            (slide?.animations.find((candidate) => candidate.animationId === animationId)
+              ?.order ?? 0) + 1
+        }
+      })),
       {
         type: "add_animation",
         slideId,
-        animation
+        animation: insertion.animation
       },
       {
         type: "add_slide_action",
@@ -113,11 +127,64 @@ export function createAddAnimationWithKeywordTriggerPatch(
           trigger: createKeywordActionTrigger(keywordId, occurrenceId),
           effect: {
             kind: "play-animation",
-            animationId: animation.animationId
+            animationId: insertion.animation.animationId
           }
         }
       }
     ]
+  };
+}
+
+function resolveKeywordAnimationInsertion(
+  slide: Slide,
+  animation: DeckAnimation,
+  occurrenceId?: string | null
+) {
+  if (!occurrenceId) {
+    return { animation, shiftedAnimationIds: [] as string[] };
+  }
+  const occurrences = new Map(
+    deriveKeywordOccurrences(slide).map((occurrence) => [occurrence.occurrenceId, occurrence])
+  );
+  const target = occurrences.get(occurrenceId);
+  if (!target) {
+    return { animation, shiftedAnimationIds: [] as string[] };
+  }
+  const linked = slide.actions.flatMap((action) =>
+    action.trigger.kind === "keyword-occurrence" &&
+    action.effect.kind === "play-animation"
+      ? [{ animationId: action.effect.animationId, occurrenceId: action.trigger.occurrenceId }]
+      : []
+  );
+  const sameOccurrenceIds = linked
+    .filter((item) => item.occurrenceId === occurrenceId)
+    .map((item) => item.animationId);
+  const sameOccurrenceOrders = slide.animations
+    .filter((candidate) => sameOccurrenceIds.includes(candidate.animationId))
+    .map((candidate) => candidate.order);
+  const nextKeywordOrder = linked
+    .map((item) => ({
+      animation: slide.animations.find((candidate) => candidate.animationId === item.animationId),
+      occurrence: occurrences.get(item.occurrenceId)
+    }))
+    .filter((item): item is { animation: DeckAnimation; occurrence: NonNullable<typeof target> } =>
+      Boolean(item.animation && item.occurrence && item.occurrence.start > target.start)
+    )
+    .sort((left, right) => left.occurrence.start - right.occurrence.start || left.animation.order - right.animation.order)[0]
+    ?.animation.order;
+  const insertionOrder =
+    sameOccurrenceOrders.length > 0
+      ? Math.max(...sameOccurrenceOrders) + 1
+      : nextKeywordOrder ?? Math.max(0, ...slide.animations.map((candidate) => candidate.order)) + 1;
+  return {
+    animation: {
+      ...animation,
+      order: insertionOrder,
+      startMode: sameOccurrenceOrders.length > 0 ? "with-previous" : animation.startMode
+    },
+    shiftedAnimationIds: slide.animations
+      .filter((candidate) => candidate.order >= insertionOrder)
+      .map((candidate) => candidate.animationId)
   };
 }
 

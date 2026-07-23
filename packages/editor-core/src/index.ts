@@ -53,6 +53,7 @@ export {
   createDefaultAnimation,
   createDeleteAnimationPatch,
   createDeleteAnimationTimelineRootPatch,
+  createReorderSlideAnimationsPatch,
   createUpdateAnimationPatch,
   getElementAnimations,
   getNextAnimationOrder,
@@ -133,6 +134,16 @@ export type {
   TimelineAnimationInput
 } from "./playback/animationTimeline";
 export { getAnimationActionTriggerKeys } from "./playback/slidePlayback";
+export {
+  buildSlidePresentationSequence,
+  getPresentationSequenceReviewSlideIds,
+  getSlideAnimationById
+} from "./playback/presentationSequence";
+export type {
+  PresentationSequenceStep,
+  PresentationSequenceStepKind,
+  SlidePresentationSequence
+} from "./playback/presentationSequence";
 export { normalizeLegacyAnimationStartModes } from "./patches/legacyAnimationStartModeMigration";
 export {
   createActivityResultsSlide,

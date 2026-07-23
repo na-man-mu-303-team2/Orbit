@@ -4926,7 +4926,8 @@
 
 .presentation-animation-trigger-debug header,
 .presentation-animation-trigger-debug dl,
-.presentation-animation-trigger-debug details {
+.presentation-animation-trigger-debug details,
+.presentation-animation-trigger-history {
   display: grid;
   gap: var(--redesign-space-2);
 }
@@ -4956,6 +4957,32 @@
   background: color-mix(in srgb, var(--redesign-color-warning) 22%, transparent);
   border-radius: var(--redesign-radius-sm);
   padding: var(--redesign-space-2);
+}
+
+.presentation-animation-trigger-history {
+  border-top: 1px solid color-mix(in srgb, var(--redesign-color-light-surface) 24%, transparent);
+  padding-top: var(--redesign-space-2);
+}
+
+.presentation-animation-trigger-history ol {
+  display: grid;
+  gap: var(--redesign-space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.presentation-animation-trigger-history li {
+  background: color-mix(in srgb, var(--redesign-color-light-surface) 9%, transparent);
+  border-radius: var(--redesign-radius-sm);
+  display: grid;
+  gap: 2px;
+  padding: var(--redesign-space-2);
+}
+
+.presentation-animation-trigger-history li > span:first-child {
+  color: color-mix(in srgb, var(--redesign-color-light-surface) 68%, transparent);
+  font-variant-numeric: tabular-nums;
 }
 
 .rehearsal-side-timer-card {

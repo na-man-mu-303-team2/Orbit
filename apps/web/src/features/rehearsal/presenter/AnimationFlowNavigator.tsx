@@ -21,13 +21,14 @@ export type AnimationFlowNavigation = {
 };
 
 export type AnimationFlowStep = {
-  effectsLabel: string;
+  effects: Array<{ animationId: string; label: string; targetLabel: string }>;
+  occurrenceId: string | null;
   stepIndex: number;
   triggerLabel: string;
 };
 
 export type AnimationFlowSlide = {
-  entryEffectsLabel: string | null;
+  entryEffects: Array<{ animationId: string; label: string; targetLabel: string }>;
   isActivity: boolean;
   slideId: string;
   slideIndex: number;
@@ -39,7 +40,7 @@ export function createAnimationFlowModel(deck: Deck): AnimationFlowSlide[] {
   return deck.slides.map((slide, slideIndex) => {
     if (slide.kind === "activity" || slide.kind === "activity-results") {
       return {
-        entryEffectsLabel: null,
+        entryEffects: [],
         isActivity: true,
         slideId: slide.slideId,
         slideIndex,
@@ -54,12 +55,15 @@ export function createAnimationFlowModel(deck: Deck): AnimationFlowSlide[] {
     });
 
     return {
-      entryEffectsLabel: formatEffects(animationPlan.entryAnimations),
+      entryEffects: animationPlan.entryAnimations.map((animation) =>
+        toFlowEffect(slide, animation)
+      ),
       isActivity: false,
       slideId: slide.slideId,
       slideIndex,
       steps: animationPlan.triggerSteps.map((step, index) => ({
-        effectsLabel: formatEffects(step.animations) ?? "효과",
+        effects: step.animations.map((animation) => toFlowEffect(slide, animation)),
+        occurrenceId: getTriggerOccurrenceId(slide, step.animations),
         stepIndex: index + 1,
         triggerLabel: getTriggerLabel(slide, step.animations),
       })),
@@ -74,6 +78,7 @@ export function AnimationFlowNavigator(props: {
   deck: Deck | null;
   navigationPending?: boolean;
   onNavigate: (navigation: AnimationFlowNavigation) => void;
+  pendingOccurrenceIds?: readonly string[];
   placement?: "drawer" | "side";
 }) {
   const placement = props.placement ?? "side";
@@ -241,55 +246,72 @@ export function AnimationFlowNavigator(props: {
                     <p className="animation-flow-empty">운영 상태를 유지한 채 장표만 이동합니다.</p>
                   ) : (
                     <>
-                      {slide.entryEffectsLabel ? (
+                      {slide.entryEffects.length > 0 ? (
                         <div className="animation-flow-entry">
-                          <span>슬라이드 시작</span>
-                          <strong>{slide.entryEffectsLabel}</strong>
+                          {slide.entryEffects.map((effect) => (
+                            <button
+                              key={effect.animationId}
+                              disabled={props.navigationPending}
+                              type="button"
+                              onClick={() => props.onNavigate({
+                                kind: "slide",
+                                stepIndex: 0,
+                                targetSlideIndex: slide.slideIndex,
+                              })}
+                            >
+                              <span>슬라이드 시작</span>
+                              <strong>{effect.label} · {effect.targetLabel}</strong>
+                            </button>
+                          ))}
                         </div>
                       ) : null}
                       {slide.steps.length === 0 ? (
                         <p className="animation-flow-empty">애니메이션 없음</p>
                       ) : (
-                        slide.steps.map((step) => (
-                          <button
-                            className={`animation-flow-step ${getStepState({
+                        slide.steps.flatMap((step) =>
+                          step.effects.map((effect) => {
+                            const stepState = getStepState({
                               currentSlideIndex: props.currentSlideIndex,
                               currentStepIndex: props.currentStepIndex,
+                              occurrenceId: step.occurrenceId,
+                              pendingOccurrenceIds: props.pendingOccurrenceIds,
                               slideIndex: slide.slideIndex,
                               stepIndex: step.stepIndex,
-                            })}`}
-                            disabled={props.navigationPending}
-                            key={`${slide.slideId}-${step.stepIndex}`}
-                            type="button"
-                            onClick={() =>
-                              props.onNavigate({
-                                kind: "animation-step",
-                                stepIndex: step.stepIndex,
-                                targetSlideIndex: slide.slideIndex,
-                              })
-                            }
-                          >
-                            <span className="animation-flow-step-index">{step.stepIndex}</span>
-                            <span>
-                              <strong>{step.triggerLabel}</strong>
-                              <small>{step.effectsLabel}</small>
-                            </span>
-                            {isCurrentSlide ? (
-                              <em>
-                                {getStepState({
-                                  currentSlideIndex: props.currentSlideIndex,
-                                  currentStepIndex: props.currentStepIndex,
-                                  slideIndex: slide.slideIndex,
-                                  stepIndex: step.stepIndex,
-                                }) === "current"
-                                  ? "현재"
-                                  : step.stepIndex < props.currentStepIndex
-                                    ? "완료"
-                                    : "예정"}
-                              </em>
-                            ) : null}
-                          </button>
-                        ))
+                            });
+                            return (
+                              <button
+                                className={`animation-flow-step ${stepState}`}
+                                disabled={props.navigationPending}
+                                key={`${slide.slideId}-${step.stepIndex}-${effect.animationId}`}
+                                type="button"
+                                onClick={() =>
+                                  props.onNavigate({
+                                    kind: "animation-step",
+                                    stepIndex: step.stepIndex,
+                                    targetSlideIndex: slide.slideIndex,
+                                  })
+                                }
+                              >
+                                <span className="animation-flow-step-index">{step.stepIndex}</span>
+                                <span>
+                                  <strong>{step.triggerLabel}</strong>
+                                  <small>{effect.label} · {effect.targetLabel}</small>
+                                </span>
+                                {isCurrentSlide ? (
+                                  <em>
+                                    {stepState === "current"
+                                      ? "현재"
+                                      : stepState === "pending"
+                                        ? "대기"
+                                        : step.stepIndex < props.currentStepIndex
+                                          ? "완료"
+                                          : "예정"}
+                                  </em>
+                                ) : null}
+                              </button>
+                            );
+                          }),
+                        )
                       )}
                     </>
                   )}
@@ -330,11 +352,37 @@ function getTriggerLabel(
   return keyword ? `“${keyword.text}” 발화` : "키워드 발화";
 }
 
-function formatEffects(animations: readonly PlannedSlideshowAnimation[]) {
-  const labels = Array.from(
-    new Set(animations.map((animation) => formatAnimationType(animation.type))),
+function getTriggerOccurrenceId(
+  slide: Slide,
+  animations: readonly PlannedSlideshowAnimation[],
+) {
+  const animationIds = new Set(animations.map((animation) => animation.animationId));
+  const action = slide.actions.find(
+    (candidate) =>
+      candidate.trigger.kind === "keyword-occurrence" &&
+      candidate.effect.kind === "play-animation" &&
+      animationIds.has(candidate.effect.animationId),
   );
-  return labels.length > 0 ? labels.join(" · ") : null;
+  return action?.trigger.kind === "keyword-occurrence"
+    ? action.trigger.occurrenceId
+    : null;
+}
+
+function toFlowEffect(slide: Slide, animation: PlannedSlideshowAnimation) {
+  const target = slide.elements.find((element) => element.elementId === animation.elementId);
+  return {
+    animationId: animation.animationId,
+    label: formatAnimationType(animation.type),
+    targetLabel: target ? getElementLabel(target.type) : "대상 요소 없음"
+  };
+}
+
+function getElementLabel(type: Slide["elements"][number]["type"]) {
+  const labels: Partial<Record<Slide["elements"][number]["type"], string>> = {
+    chart: "차트", customShape: "도형", group: "그룹", image: "이미지",
+    line: "선", rect: "도형", table: "표", text: "텍스트"
+  };
+  return labels[type] ?? "요소";
 }
 
 function formatAnimationType(type: PlannedSlideshowAnimation["type"]) {
@@ -353,10 +401,18 @@ function formatAnimationType(type: PlannedSlideshowAnimation["type"]) {
 function getStepState(input: {
   currentSlideIndex: number;
   currentStepIndex: number;
+  occurrenceId?: string | null;
+  pendingOccurrenceIds?: readonly string[];
   slideIndex: number;
   stepIndex: number;
 }) {
   if (input.slideIndex !== input.currentSlideIndex) return "available";
+  if (
+    input.occurrenceId &&
+    input.pendingOccurrenceIds?.includes(input.occurrenceId)
+  ) {
+    return "pending";
+  }
   if (input.stepIndex === input.currentStepIndex) return "current";
   return input.stepIndex < input.currentStepIndex ? "completed" : "upcoming";
 }

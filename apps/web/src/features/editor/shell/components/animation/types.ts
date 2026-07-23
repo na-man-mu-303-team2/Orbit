@@ -1,7 +1,8 @@
 import type {
   DeckAnimation,
   DeckAnimationStartMode,
-  DeckElement
+  DeckElement,
+  Slide
 } from "@orbit/shared";
 import type { AnimationKeywordTriggerOption } from "./models";
 
@@ -37,6 +38,7 @@ export type AnimationEditorPanelProps = {
   selectedKeywordOccurrenceId?: string | null;
   slideAnimations: DeckAnimation[];
   slideElements: DeckElement[];
+  slide?: Slide | null;
   onAddAnimation: (
     draft: AnimationDraftInput,
     keywordId?: string | null,
@@ -44,6 +46,7 @@ export type AnimationEditorPanelProps = {
   ) => void;
   onDeleteAnimation: (animationId: string) => void;
   onRequestKeywordOccurrence: () => void;
+  onReorderSlideAnimations?: (animationIds: string[]) => void;
   onSelectSlideAnimation: (animation: DeckAnimation) => void;
   onUpdateAnimation: (
     animationId: string,

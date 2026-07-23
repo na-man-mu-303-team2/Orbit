@@ -717,6 +717,14 @@ main.rehearsal-presenter-shell {
   color: var(--redesign-color-primary);
 }
 
+.rehearsal-presenter-shell .animation-flow-step-pending {
+  background: var(--redesign-color-warning-subtle);
+}
+
+.rehearsal-presenter-shell .animation-flow-step-pending em {
+  color: var(--redesign-color-warning);
+}
+
 .rehearsal-presenter-shell .animation-flow-step-completed .animation-flow-step-index {
   background: var(--redesign-color-success-container);
   color: var(--redesign-color-success);

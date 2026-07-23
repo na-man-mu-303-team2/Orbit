@@ -88,6 +88,31 @@ describe("EditorSlideRehearsal", () => {
     expect(html).toContain("연습 시작");
   });
 
+  it("부분 리허설에서 다음 애니메이션 효과 진행 버튼을 제공한다", () => {
+    const slide = createDemoDeck().slides[0]!;
+    const html = renderToStaticMarkup(
+      <EditorSlideRehearsalBottomPanel
+        elapsedMs={0}
+        message=""
+        nextAnimationDisabled={false}
+        onNextAnimation={vi.fn()}
+        onNextSentence={vi.fn(() => null)}
+        onPreviousSentence={vi.fn(() => null)}
+        onRetryRuntimeConfig={vi.fn()}
+        onSkipSentence={vi.fn(() => null)}
+        onStart={vi.fn()}
+        onStop={vi.fn()}
+        practiceState="idle"
+        runtimeState="enabled"
+        slide={slide}
+        state={{ ...listeningState, activeSlideId: slide.slideId }}
+      />
+    );
+
+    expect(html).toContain('aria-label="다음 애니메이션 효과"');
+    expect(html).toContain("다음 효과");
+  });
+
   it("서버 분석 중에는 시작 버튼을 잠그고 진행 메시지를 표시한다", () => {
     const slide = createDemoDeck().slides[0]!;
     const html = renderToStaticMarkup(

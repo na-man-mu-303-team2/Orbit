@@ -87,17 +87,26 @@ describe("PresentationWorkspace", () => {
     expect(source).toContain("rehearsal: false");
   });
 
-  it("resolves exact speaker-note keyword occurrences during live presentation", () => {
+  it("dispatches each presentation STT event through the shared occurrence runtime", () => {
     const source = fs.readFileSync(presentationWorkspaceSourcePath, "utf8");
 
-    expect(source).toContain("matchKeywordOccurrenceTriggers");
-    expect(source).toContain("resolveKeywordOccurrenceTriggeredActions");
-    expect(source).toContain("getKeywordOccurrenceTriggerIdsForSlide");
+    expect(source).toContain("dispatchKeywordOccurrencePlayback");
+    expect(source).toContain("presentationSpeechEventHandlerRef");
+    expect(source).toContain("usePresentationSpeech(");
     expect(source).toContain("resolveManualAnimationPlaybackUpdate");
     expect(source).toContain("applyPlaybackUpdate");
     expect(source).toContain("confirmedOccurrenceIds");
-    expect(source).toContain("getSlideTranscriptSpan");
-    expect(source).toContain("previousTranscript: transcriptSpan.previousTranscript");
+    expect(source).not.toContain("resolvedSpeechEventRef");
+  });
+
+  it("keeps a bounded animation execution history in presentation debug mode", () => {
+    const source = fs.readFileSync(presentationWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("애니메이션 실행 이력");
+    expect(source).toContain("appendAnimationExecutionHistory");
+    expect(source).toContain("slice(-20)");
+    expect(source).toContain('source: "speech"');
+    expect(source).toContain('source: "generic-keyword"');
   });
 
   it("renders the auto-start presenter controls for an Activity slide", () => {
