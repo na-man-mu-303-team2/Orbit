@@ -663,7 +663,8 @@ describe("RehearsalWorkspace", () => {
     expect(html).toContain("대본");
     expect(html).toContain("현재 슬라이드");
     expect(html).toContain("다음 슬라이드");
-    expect(html).toContain("핵심 키워드");
+    expect(html).toContain('aria-label="발표 진행 패널"');
+    expect(html).toContain('aria-label="키워드 체크리스트"');
     expect(html).toContain("타이머");
     expect(html).not.toContain("슬라이드 목표");
     expect(html).toContain("첫 문장입니다");

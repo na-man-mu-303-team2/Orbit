@@ -36,6 +36,25 @@ final result: passed
 
 ---
 
+# Presenter slide controller design QA (2026-07-23)
+
+- Reference: `C:\Users\Runner\AppData\Local\Temp\codex-clipboard-717a61a0-1b0d-49d5-925f-cbbd87a925a5.png`
+- Implementation: `.tmp/presenter-current.png`
+- Combined comparison: `.tmp/presenter-design-compare.png`
+- Viewport: 1421 × 874
+
+## Verification
+
+- The previous, current, and next slide previews remain fully visible in the initial viewport.
+- The controller row has a bounded responsive height and no longer clips its preview content.
+- The current slide remains visually emphasized while adjacent previews remain subordinate.
+- Presenter tests: 25 passed.
+- Web TypeScript check and `git diff --check`: passed.
+
+final result: passed
+
+---
+
 # PPTX 백그라운드 처리 카드 및 작업 트레이 design QA (2026-07-22)
 
 - Source visual truth: `/Users/donghyunkim/Documents/Orbit-pptx-import-fidelity-speaker-notes/prototypes/orbit-pptx-background-processing/design-qa-final.png`.
