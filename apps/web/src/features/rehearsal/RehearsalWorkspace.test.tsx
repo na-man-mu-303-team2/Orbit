@@ -100,6 +100,9 @@ const createdAt = "2026-06-29T00:00:00.000Z";
 const rehearsalWorkspaceSourcePath = fileURLToPath(
   new URL("./RehearsalWorkspace.tsx", import.meta.url),
 );
+const livePresentationOutputSourcePath = fileURLToPath(
+  new URL("../presentation/useLivePresentationOutput.ts", import.meta.url),
+);
 const rehearsalWorkspaceCssPath = fileURLToPath(
   new URL("./rehearsal-workspace-orbit.css", import.meta.url),
 );
@@ -775,15 +778,13 @@ describe("RehearsalWorkspace", () => {
 
   it("wires audience output state, popup reattach, and receiver failure cleanup", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const hostSource = fs.readFileSync(livePresentationOutputSourcePath, "utf8");
     const publisherStart = source.indexOf(
-      "const presentationChannel = usePresentationChannelPublisher",
-    );
-    const controllerStart = source.indexOf(
-      "const audienceScreenShare = useAudienceScreenShare",
+      "const livePresentationOutput = useLivePresentationOutput",
     );
     const controllerEnd = source.indexOf(
       "const displayManager = useMemo",
-      controllerStart,
+      publisherStart,
     );
     const integrationBody = source.slice(publisherStart, controllerEnd);
 
@@ -793,7 +794,7 @@ describe("RehearsalWorkspace", () => {
     expect(integrationBody).toContain("stopAudienceStreamRef.current()");
     expect(integrationBody).toContain("slideWindowRef.current");
     expect(integrationBody).toContain("setAudienceOutputMode");
-    expect(integrationBody).toContain("handlePeerUnavailable");
+    expect(hostSource).toContain("screenShare.handlePeerUnavailable()");
   });
 
   it("supports Surface Swap fullscreen before opening the presenter remote popup", () => {
@@ -804,7 +805,7 @@ describe("RehearsalWorkspace", () => {
       surfaceStart,
     );
     const publisherStart = source.indexOf(
-      "const presentationChannel = usePresentationChannelPublisher",
+      "const livePresentationOutput = useLivePresentationOutput",
     );
     const publisherBody = source.slice(
       publisherStart,

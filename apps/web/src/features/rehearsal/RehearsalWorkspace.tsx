@@ -191,8 +191,7 @@ import {
   createSlideWindowDeckSnapshot,
   type PresenterRemoteCommand,
 } from "./presenter/presentationChannel";
-import { usePresentationChannelPublisher } from "./presenter/usePresentationChannelPublisher";
-import { useAudienceScreenShare } from "./presenter/useAudienceScreenShare";
+import { useLivePresentationOutput } from "../presentation/useLivePresentationOutput";
 import type { AudienceStreamBridgeWindow } from "./presenter/audienceStreamBridge";
 import { usePresenterKeyboard } from "./presenter/usePresenterKeyboard";
 import { AutoAdvanceSettings } from "./advance/AutoAdvanceSettings";
@@ -2695,59 +2694,38 @@ export function RehearsalWorkspace(props: {
       timerDurationSeconds,
     ],
   );
-  const presentationChannel = usePresentationChannelPublisher({
+  const livePresentationOutput = useLivePresentationOutput({
+    audienceWindowConnected: Boolean(
+      slideWindowRef.current && !slideWindowRef.current.closed,
+    ),
     deck,
+    displayRole,
     enabled:
       !props.presenterWindow &&
       (displayRole === "presenter" ||
         displayRole === "slide-receiver" ||
         displayRole === "slide-surface"),
+    getAudienceWindow: () =>
+      slideWindowRef.current as unknown as AudienceStreamBridgeWindow | null,
+    localWindowSessionId: props.presenterSessionId,
     onCommand: handlePresenterRemoteCommand,
+    onOutputModeChange: setAudienceOutputMode,
     onPeerReady: (peer) => {
       if (peer === "slide-window") reattachAudienceStreamRef.current();
     },
     onScreenShareEnded: () => stopAudienceStreamRef.current(),
-    sessionId: props.presenterSessionId,
+    outputMode: audienceOutputMode,
+    persistedSessionId: companionSessionRef.current?.sessionId,
     state: presentationChannelState,
     triggerAnimationIds,
   });
-  const audienceScreenShareIdentity = useMemo(
-    () => ({
-      deckId: deck?.deckId ?? "pending-deck",
-      sessionId: presentationChannel.sessionId,
-    }),
-    [deck?.deckId, presentationChannel.sessionId],
-  );
-  const audienceScreenShare = useAudienceScreenShare({
-    connected:
-      displayRole === "presenter" &&
-      presentationChannel.status === "connected" &&
-      Boolean(slideWindowRef.current && !slideWindowRef.current.closed),
-    getTargetWindow: () =>
-      slideWindowRef.current as unknown as AudienceStreamBridgeWindow | null,
-    identity: audienceScreenShareIdentity,
-    onOutputModeChange: setAudienceOutputMode,
-    outputMode: audienceOutputMode,
-  });
+  const presentationChannel = livePresentationOutput.localChannel;
+  const audienceScreenShareIdentity =
+    livePresentationOutput.hostIdentity.localChannel;
+  const audienceScreenShare = livePresentationOutput.screenShare;
   reattachAudienceStreamRef.current = audienceScreenShare.reattach;
   stopAudienceStreamRef.current = () =>
     audienceScreenShare.stopSharing({ returnToSlide: true });
-
-  useEffect(() => {
-    if (
-      presentationChannel.status === "stale" ||
-      presentationChannel.status === "closed" ||
-      presentationChannel.status === "failed"
-    ) {
-      audienceScreenShare.handlePeerUnavailable();
-    }
-  }, [presentationChannel.status]);
-
-  useEffect(() => {
-    if (displayRole !== "presenter") {
-      audienceScreenShare.handlePeerUnavailable();
-    }
-  }, [displayRole]);
   const displayManager = useMemo(() => createDisplayManager(), []);
   const slideshowAnimationPlan = currentSlide
     ? createSlideshowAnimationPlan({

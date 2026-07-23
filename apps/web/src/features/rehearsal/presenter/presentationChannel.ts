@@ -11,6 +11,25 @@ export type PresentationChannelIdentity = {
   sessionId: string;
 };
 
+export type LivePresentationHostIdentity = {
+  localChannel: PresentationChannelIdentity;
+  persistedSessionId: string | null;
+};
+
+export function createLivePresentationHostIdentity(input: {
+  deckId: string;
+  localWindowSessionId: string;
+  persistedSessionId?: string | null;
+}): LivePresentationHostIdentity {
+  return {
+    localChannel: {
+      deckId: input.deckId,
+      sessionId: input.localWindowSessionId,
+    },
+    persistedSessionId: input.persistedSessionId ?? null,
+  };
+}
+
 export type SlideWindowDeckSnapshot = Deck;
 
 export type PresenterSnapshotMessage = {

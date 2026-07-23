@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import { createPresenterSlideshowState } from "./presenterStateStore";
 import {
+  createLivePresentationHostIdentity,
   createPresenterCommandMessage,
   createPresenterHeartbeatMessage,
   createPresenterRemoteHeartbeatMessage,
@@ -28,6 +29,37 @@ const isPresentationChannelMessage = (value: unknown) =>
   parsePresentationChannelMessage(value) !== null;
 
 describe("presentationChannel", () => {
+  it("keeps the local window channel separate from the persisted server session", () => {
+    const hostIdentity = createLivePresentationHostIdentity({
+      deckId: p0AnimationDeck.deckId,
+      localWindowSessionId: "local-window-session",
+      persistedSessionId: "persisted-pairing-session",
+    });
+
+    expect(hostIdentity).toEqual({
+      localChannel: {
+        deckId: p0AnimationDeck.deckId,
+        sessionId: "local-window-session",
+      },
+      persistedSessionId: "persisted-pairing-session",
+    });
+    expect(getPresentationChannelName(hostIdentity.localChannel)).not.toContain(
+      hostIdentity.persistedSessionId,
+    );
+  });
+
+  it("does not promote a URL-local session into a server pairing identity", () => {
+    expect(
+      createLivePresentationHostIdentity({
+        deckId: p0AnimationDeck.deckId,
+        localWindowSessionId: "session-from-url",
+      }),
+    ).toMatchObject({
+      localChannel: { sessionId: "session-from-url" },
+      persistedSessionId: null,
+    });
+  });
+
   it("creates deterministic session-scoped channel names", () => {
     expect(getPresentationChannelName(identity)).toBe(
       "orbit:presenter-screen:deck_p0_animation:session-presenter-1",
