@@ -1,4 +1,10 @@
-import type { Deck } from "@orbit/shared";
+import {
+  presentationCompanionAnnotationCommandSchema,
+  presentationCompanionAnnotationSnapshotSchema,
+  type Deck,
+  type PresentationCompanionAnnotationCommand,
+  type PresentationCompanionAnnotationSnapshot,
+} from "@orbit/shared";
 import type {
   AudienceOutputMode,
   PresenterSlideshowState,
@@ -128,6 +134,23 @@ export type ScreenShareEndedMessage = {
   type: "screen-share-ended";
 };
 
+export type PresenterAnnotationSnapshotMessage = {
+  annotation: PresentationCompanionAnnotationSnapshot;
+  deckId: string;
+  sentAt: number;
+  sessionId: string;
+  type: "presenter-annotation-snapshot";
+};
+
+export type PresenterAnnotationDeltaMessage = {
+  command: PresentationCompanionAnnotationCommand;
+  deckId: string;
+  sentAt: number;
+  sessionId: string;
+  surfaceRevision: number;
+  type: "presenter-annotation-delta";
+};
+
 export type PresentationChannelMessage =
   | PresenterSnapshotMessage
   | PresenterStateMessage
@@ -139,7 +162,9 @@ export type PresentationChannelMessage =
   | PresenterRemoteReadyMessage
   | PresenterRemoteHeartbeatMessage
   | PresenterCommandMessage
-  | ScreenShareEndedMessage;
+  | ScreenShareEndedMessage
+  | PresenterAnnotationSnapshotMessage
+  | PresenterAnnotationDeltaMessage;
 
 export function createPresentationSessionId() {
   if (
@@ -281,6 +306,32 @@ export function parsePresentationChannelMessage(
       return isScreenShareEndedReason(value.reason)
         ? (value as unknown as ScreenShareEndedMessage)
         : null;
+    case "presenter-annotation-snapshot": {
+      const annotation =
+        presentationCompanionAnnotationSnapshotSchema.safeParse(
+          value.annotation,
+        );
+      return annotation.success
+        ? ({
+            ...value,
+            annotation: annotation.data,
+          } as PresenterAnnotationSnapshotMessage)
+        : null;
+    }
+    case "presenter-annotation-delta": {
+      const command =
+        presentationCompanionAnnotationCommandSchema.safeParse(
+          value.command,
+        );
+      return command.success &&
+        Number.isSafeInteger(value.surfaceRevision) &&
+        Number(value.surfaceRevision) >= 0
+        ? ({
+            ...value,
+            command: command.data,
+          } as PresenterAnnotationDeltaMessage)
+        : null;
+    }
     default:
       return null;
   }
@@ -456,6 +507,41 @@ export function createScreenShareEndedMessage(args: {
     sentAt: args.sentAt ?? Date.now(),
     sessionId: args.identity.sessionId,
     type: "screen-share-ended",
+  };
+}
+
+export function createPresenterAnnotationSnapshotMessage(args: {
+  annotation: PresentationCompanionAnnotationSnapshot;
+  identity: PresentationChannelIdentity;
+  sentAt?: number;
+}): PresenterAnnotationSnapshotMessage {
+  return {
+    annotation:
+      presentationCompanionAnnotationSnapshotSchema.parse(
+        args.annotation,
+      ),
+    deckId: args.identity.deckId,
+    sentAt: args.sentAt ?? Date.now(),
+    sessionId: args.identity.sessionId,
+    type: "presenter-annotation-snapshot",
+  };
+}
+
+export function createPresenterAnnotationDeltaMessage(args: {
+  command: PresentationCompanionAnnotationCommand;
+  identity: PresentationChannelIdentity;
+  sentAt?: number;
+  surfaceRevision: number;
+}): PresenterAnnotationDeltaMessage {
+  return {
+    command: presentationCompanionAnnotationCommandSchema.parse(
+      args.command,
+    ),
+    deckId: args.identity.deckId,
+    sentAt: args.sentAt ?? Date.now(),
+    sessionId: args.identity.sessionId,
+    surfaceRevision: args.surfaceRevision,
+    type: "presenter-annotation-delta",
   };
 }
 

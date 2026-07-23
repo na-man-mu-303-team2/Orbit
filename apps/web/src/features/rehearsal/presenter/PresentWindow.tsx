@@ -1,4 +1,7 @@
-import type { Deck } from "@orbit/shared";
+import type {
+  Deck,
+  PresentationCompanionAnnotationSnapshot,
+} from "@orbit/shared";
 import {
   IconArrowsMaximize,
   IconChevronLeft,
@@ -11,6 +14,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import orbitLogoWhite from "../../../assets/orbit-logo-white.png";
 import "../../presentation/orbit-live-presentation.css";
 import { AudienceOutputRenderer } from "./AudienceOutputRenderer";
+import { AudienceAnnotationOverlay } from "./AudienceAnnotationOverlay";
+import {
+  applyAnnotationCommand,
+  createAnnotationSnapshot,
+  restoreAnnotationSurface,
+} from "../../presenter-companion/annotationReducer";
 import {
   registerAudienceStreamBridge,
   type AudienceStreamBridgeRegistration,
@@ -33,6 +42,7 @@ import {
 } from "./presentationChannel";
 
 export type PresentWindowSnapshot = {
+  annotation?: PresentationCompanionAnnotationSnapshot | null;
   deck: Deck;
   state: PresenterSlideshowState;
   triggerAnimationIds: string[];
@@ -163,12 +173,17 @@ export function PresentWindowReceiver(props: {
         return;
       }
 
-      setSnapshot((current) => {
-        const next = applyPresentWindowMessage(current, message);
-        snapshotRef.current = next;
-        hasSnapshotRef.current = Boolean(next);
-        return next;
-      });
+      const current = snapshotRef.current;
+      const next = applyPresentWindowMessage(current, message);
+      if (
+        message.type === "presenter-annotation-delta" &&
+        next === current
+      ) {
+        channel.postMessage(createSlideWindowReadyMessage(identity));
+      }
+      snapshotRef.current = next;
+      hasSnapshotRef.current = Boolean(next);
+      setSnapshot(next);
       if (
         message.type === "presenter-heartbeat" ||
         message.type === "presenter-snapshot" ||
@@ -374,6 +389,12 @@ export function PresentWindowContent(props: {
           stream={stream}
           triggerAnimationIds={snapshot.triggerAnimationIds}
         />
+        <AudienceAnnotationOverlay
+          canvas={snapshot.deck.canvas}
+          mode={snapshot.state.audienceOutputMode}
+          scale={scale}
+          snapshot={snapshot.annotation}
+        />
       </div>
       {!isBlackOutput &&
       (!isFullscreen ||
@@ -472,6 +493,49 @@ export function applyPresentWindowMessage(
       ...current,
       state: message.state,
       triggerAnimationIds: message.triggerAnimationIds,
+    };
+  }
+
+  if (message.type === "presenter-annotation-snapshot" && current) {
+    const previous = current.annotation;
+    if (
+      previous &&
+      previous.surfaceId === message.annotation.surfaceId &&
+      previous.surfaceRevision > message.annotation.surfaceRevision
+    ) {
+      return current;
+    }
+    return { ...current, annotation: message.annotation };
+  }
+
+  if (message.type === "presenter-annotation-delta" && current) {
+    const previous = current.annotation;
+    if (
+      !previous ||
+      previous.authorityEpochId !== message.command.authorityEpochId ||
+      previous.surfaceId !== message.command.surfaceId ||
+      previous.surfaceRevision !== message.command.baseRevision ||
+      message.surfaceRevision !== previous.surfaceRevision + 1
+    ) {
+      return current;
+    }
+    const applied = applyAnnotationCommand(
+      restoreAnnotationSurface(previous),
+      message.command,
+    );
+    if (
+      !applied.accepted ||
+      applied.surfaceRevision !== message.surfaceRevision
+    ) {
+      return current;
+    }
+    return {
+      ...current,
+      annotation: createAnnotationSnapshot({
+        authorityEpochId: previous.authorityEpochId,
+        sessionId: previous.sessionId,
+        state: applied.state,
+      }),
     };
   }
 

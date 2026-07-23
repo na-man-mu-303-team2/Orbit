@@ -18,6 +18,8 @@ import {
 } from "./PresentWindow";
 import { createPresenterSlideshowState } from "./presenterStateStore";
 import {
+  createPresenterAnnotationDeltaMessage,
+  createPresenterAnnotationSnapshotMessage,
   createPresenterSnapshotMessage,
   createPresenterStateMessage,
 } from "./presentationChannel";
@@ -536,6 +538,65 @@ describe("PresentWindow", () => {
     expect(isPresentWindowPresenterStale(null, 6001)).toBe(false);
     expect(isPresentWindowPresenterStale(1000, 6000)).toBe(false);
     expect(isPresentWindowPresenterStale(1000, 6001)).toBe(true);
+  });
+
+  it("applies ordered annotation delta and rejects a reordered delta", () => {
+    const state = createPresenterSlideshowState(p0AnimationDeck);
+    const presenterSnapshot = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      state,
+    });
+    const initial = applyPresentWindowMessage(null, presenterSnapshot);
+    const annotationMessage = createPresenterAnnotationSnapshotMessage({
+      annotation: {
+        sessionId: "persisted_session_1",
+        authorityEpochId: "epoch_1",
+        surfaceId: "surface_1",
+        surfaceRevision: 0,
+        strokes: [],
+      },
+      identity,
+    });
+    const withAnnotation = applyPresentWindowMessage(
+      initial,
+      annotationMessage,
+    );
+    const delta = createPresenterAnnotationDeltaMessage({
+      command: {
+        sessionId: "persisted_session_1",
+        authorityEpochId: "epoch_1",
+        surfaceId: "surface_1",
+        clientOperationId: "op_1",
+        baseRevision: 0,
+        sequence: 0,
+        kind: "stroke-begin",
+        strokeId: "stroke_1",
+        tool: "pen",
+        color: "ink-blue",
+        width: 0.01,
+        point: { x: 0.1, y: 0.2, pressure: 0.5, t: 0 },
+      },
+      identity,
+      surfaceRevision: 1,
+    });
+    const accepted = applyPresentWindowMessage(withAnnotation, delta);
+
+    expect(accepted?.annotation).toMatchObject({
+      surfaceRevision: 1,
+      strokes: [{ strokeId: "stroke_1" }],
+    });
+    expect(
+      applyPresentWindowMessage(accepted, {
+        ...delta,
+        command: {
+          ...delta.command,
+          clientOperationId: "op_gap",
+          baseRevision: 4,
+        },
+        surfaceRevision: 5,
+      }),
+    ).toBe(accepted);
   });
 
   it("handles blocked fullscreen requests without leaking a rejected promise", async () => {

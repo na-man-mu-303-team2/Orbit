@@ -3,6 +3,8 @@ import { p0AnimationDeck } from "./__fixtures__/animationDeck";
 import { createPresenterSlideshowState } from "./presenterStateStore";
 import {
   createLivePresentationHostIdentity,
+  createPresenterAnnotationDeltaMessage,
+  createPresenterAnnotationSnapshotMessage,
   createPresenterCommandMessage,
   createPresenterHeartbeatMessage,
   createPresenterRemoteHeartbeatMessage,
@@ -29,6 +31,53 @@ const isPresentationChannelMessage = (value: unknown) =>
   parsePresentationChannelMessage(value) !== null;
 
 describe("presentationChannel", () => {
+  it("validates annotation snapshots and deltas at the local channel boundary", () => {
+    const annotation = {
+      sessionId: "persisted_session_1",
+      authorityEpochId: "epoch_1",
+      surfaceId: "surface_1",
+      surfaceRevision: 0,
+      strokes: [],
+    };
+    const snapshot = createPresenterAnnotationSnapshotMessage({
+      annotation,
+      identity,
+      sentAt: 10,
+    });
+    const delta = createPresenterAnnotationDeltaMessage({
+      command: {
+        sessionId: "persisted_session_1",
+        authorityEpochId: "epoch_1",
+        surfaceId: "surface_1",
+        clientOperationId: "op_1",
+        baseRevision: 0,
+        sequence: 0,
+        kind: "clear-surface",
+      },
+      identity,
+      sentAt: 11,
+      surfaceRevision: 1,
+    });
+
+    expect(parsePresentationChannelMessage(snapshot)).toEqual(snapshot);
+    expect(parsePresentationChannelMessage(delta)).toEqual(delta);
+    expect(
+      parsePresentationChannelMessage({
+        ...delta,
+        command: { ...delta.command, baseRevision: -1 },
+      }),
+    ).toBeNull();
+    expect(
+      parsePresentationChannelMessage({
+        ...snapshot,
+        annotation: {
+          ...snapshot.annotation,
+          strokes: [{ strokeId: "malformed" }],
+        },
+      }),
+    ).toBeNull();
+  });
+
   it("keeps the local window channel separate from the persisted server session", () => {
     const hostIdentity = createLivePresentationHostIdentity({
       deckId: p0AnimationDeck.deckId,
