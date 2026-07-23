@@ -35,6 +35,11 @@ The first version succeeds when:
 - no speaker notes, transcript, raw audio, presenter script, or presenter debug
   state reaches the companion API, WebSocket payload, DOM, or logs.
 
+After the browser MVP, an optional native iPad companion may also let the
+presenter double-tap a supported Apple Pencil to execute the same **next-step**
+command as the desktop presenter: reveal the next animation step when one
+remains, otherwise move to the next slide.
+
 ## Recommended Direction
 
 Use a **desktop-authoritative hybrid companion**.
@@ -240,6 +245,51 @@ Apple recommends hover for non-destructive preview rather than committing an
 action. The laser therefore uses a separate transient channel and never creates
 or persists a stroke.
 
+### Apple Pencil Double-Tap Presentation Control
+
+“Apple Pencil double tap” means the hardware gesture made on the side of a
+supported Apple Pencil, not tapping the Pencil tip on the screen twice.
+
+The hardware gesture is feasible, but not in the Safari/PWA-only companion.
+Apple exposes it to native iPad apps through `UIPencilInteraction` and
+`pencilInteraction(_:didReceiveTap:)`. Pointer Events exposed to web content
+cover contact, buttons, pressure, tilt, and related pointer data, but do not
+define an Apple Pencil hardware double-tap event. Safari must therefore be
+treated as **unsupported** unless Apple later ships a documented web API;
+observing incidental DOM events on one OS/device combination is not a supported
+contract.
+
+The recommended extension is a thin native iPad shell that hosts the existing
+companion route in `WKWebView` and bridges only one allowlisted native event,
+`next-step`, into the existing authenticated companion control path. The
+desktop authority, not the native shell or iPad web view, computes the result:
+
+- if the current slide has another animation step, reveal that step;
+- otherwise, move to the next slide at step `0`;
+- at the final step of the final slide, acknowledge without changing output.
+
+This must reuse the desktop presenter's existing next-step behavior rather than
+introduce a second slide-navigation algorithm.
+
+The custom gesture behavior is opt-in and off by default. The iPad shell must
+show a discoverable `Apple Pencil 더블 탭으로 다음 단계 실행` setting, honor the
+system `ignore` preference, and never silently replace the user's configured
+drawing-tool behavior. The companion credential receives a separate
+`advance-presentation` scope only when the presenter enables this capability
+for the pairing.
+
+The command is accepted only while the paired companion and desktop authority
+are connected, the output is `slide`, navigation is not already pending, and
+no Pencil stroke is active. It uses a unique command ID, duplicate suppression,
+an acknowledgement, and a small rate limit so a repeated gesture cannot skip
+multiple steps. Rejection or timeout leaves the current slide unchanged and
+shows non-blocking feedback on the iPad.
+
+Two tip contacts may be inferred in web code from `pointerdown`/`pointerup` or
+`dblclick`, but that gesture conflicts with drawing and palm rejection and is
+not equivalent to the hardware double tap. It is not used as an automatic
+fallback.
+
 ## Key Assumptions to Validate
 
 - [ ] **Pencil input:** actual iPad Safari and Apple Pencil combinations provide
@@ -263,6 +313,10 @@ or persists a stroke.
 - [ ] **Progressive input:** current and previous stable iPadOS Safari support
       touch drawing and WebRTC receive; Pencil pressure and hover degrade
       independently through capability detection.
+- [ ] **Double-tap boundary:** physical-device testing confirms that Safari
+      exposes no supported Apple Pencil hardware double-tap API and that a
+      native `UIPencilInteraction` prototype produces exactly one
+      `next-step` intent per recognized gesture on supported hardware.
 - [ ] **Failure isolation:** a failed screen-share peer connection disables only
       the unavailable video surface on iPad and never ends the companion,
       desktop capture, or presentation.
@@ -282,6 +336,10 @@ or persists a stroke.
 - connection health UI that never blocks the main presenter controls;
 - strict shared Zod schemas and the common WebSocket envelope;
 - desktop Chrome + physical iPad Safari integration and E2E coverage.
+
+The Apple Pencil hardware double-tap control is not part of this browser MVP.
+It is an optional native-shell extension after the browser companion passes its
+release checkpoint.
 
 Suggested implementation boundaries:
 
@@ -329,8 +387,14 @@ Suggested implementation boundaries:
   job.
 - **Permanent Deck storage, PPTX export, or report inclusion** — contradicts the
   temporary live-annotation assumption.
-- **Slide navigation, timer, speaker notes, or STT controls on iPad** — turns the
-  companion into a second presenter console and expands its privacy boundary.
+- **General slide-navigation UI, timer, speaker notes, or STT controls on iPad**
+  — turns the companion into a second presenter console and expands its privacy
+  boundary. The opt-in native Apple Pencil `next-step` gesture is the only
+  planned navigation exception.
+- **Apple Pencil hardware double tap in Safari/PWA** — no documented web API
+  exposes this gesture. A native shell is required.
+- **Pencil-tip double tap as a hardware-gesture fallback** — conflicts with
+  drawing and is not equivalent to the side double tap.
 - **Shapes, text, lasso, image insertion, or segment erasing** — requires an
   editor-grade vector model rather than a live annotation model.
 - **Internet-wide connectivity and guaranteed TURN relay** — validate the same
@@ -357,6 +421,9 @@ Suggested implementation boundaries:
 - **WebRTC fallback:** no TURN in the MVP; a failed screen-share connection is
   isolated to iPad video while slide mirroring and annotation recover
   automatically on the next slide surface.
+- **Apple Pencil double tap:** Safari/PWA remains drawing-only. A later native
+  iPad shell may offer an off-by-default, explicitly scoped `next-step`
+  gesture that reveals the next animation step before advancing the slide.
 
 ## Deferred Questions After the Hardware Spike
 
@@ -371,6 +438,8 @@ These are measurement-driven implementation choices, not product blockers:
   TURN in a later release;
 - whether demand for physical local-LAN testing justifies an `orbit.local` and
   trusted development-certificate runbook.
+- how the optional native companion is distributed and updated
+  (TestFlight/App Store, private distribution, or managed internal devices).
 
 ## References
 
@@ -378,6 +447,8 @@ These are measurement-driven implementation choices, not product blockers:
 - [WebRTC: Real-Time Communication in Browsers](https://www.w3.org/TR/webrtc/)
 - [WebKit Features in Safari 16.1 — Apple Pencil hover](https://webkit.org/blog/13399/webkit-features-in-safari-16-1/)
 - [Apple Pencil and Scribble — Hover guidance](https://developer.apple.com/design/human-interface-guidelines/apple-pencil-and-scribble)
+- [Handling double taps from Apple Pencil](https://developer.apple.com/documentation/applepencil/handling-double-taps-from-apple-pencil)
+- [`UIPencilInteraction`](https://developer.apple.com/documentation/uikit/uipencilinteraction)
 - `docs/plans/presenter-audience-screen-share-mvp.md`
 - `docs/plans/audience-mobile-access.md`
 - `docs/contracts.md`
