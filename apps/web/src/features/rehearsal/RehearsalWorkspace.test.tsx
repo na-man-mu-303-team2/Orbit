@@ -870,6 +870,10 @@ describe("RehearsalWorkspace", () => {
     expect(practiceAgainBody).toContain(
       "void startRecording({ allowDuringReport: true })",
     );
+    expect(practiceAgainBody).toContain(
+      'shouldAutoStartRef.current = "starting"',
+    );
+    expect(practiceAgainBody).toContain("shouldAutoStartRef.current = null");
 
     const resetStart = source.indexOf(
       "const resetRehearsalAttemptToBeginning =",

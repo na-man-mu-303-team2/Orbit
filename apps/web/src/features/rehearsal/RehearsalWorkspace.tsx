@@ -4908,7 +4908,10 @@ export function RehearsalWorkspace(props: {
       return;
     }
 
-    void startRecording({ allowDuringReport: true });
+    shouldAutoStartRef.current = "starting";
+    void startRecording({ allowDuringReport: true }).finally(() => {
+      shouldAutoStartRef.current = null;
+    });
   };
   const handleCompletionPrimaryAction = () => {
     persistCurrentPracticeSummary();
