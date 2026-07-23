@@ -27,6 +27,17 @@ AUTHORED_RASTER_ELEMENT_TYPES = frozenset(
 MAX_RASTER_DIMENSION = 4096
 MAX_RASTER_PIXELS = 16_000_000
 DEFAULT_RASTER_SCALE = 2.0
+MAX_EMBEDDED_SVG_DEPTH = 4
+SAFE_RASTER_DATA_URL_MIME_TYPES = frozenset(
+    {
+        "image/apng",
+        "image/avif",
+        "image/gif",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+    }
+)
 DEFAULT_CHART_COLORS = (
     "#2563EB",
     "#7C3AED",
@@ -165,8 +176,8 @@ def _element_markup(
             defs.append(marker)
             marker_attr = ' marker-end="url(#arrow-head)"'
         return (
-            f'<line x1="0" y1="0" x2="{_number(width)}" '
-            f'y2="{_number(height)}" {style}{marker_attr}/>'
+            f'<line x1="0" y1="{_number(height / 2)}" x2="{_number(width)}" '
+            f'y2="{_number(height / 2)}" {style}{marker_attr}/>'
         )
     if element_type == "polygon":
         sides = int(_bounded_number(props.get("sides", 6), "sides", 3, 12))
@@ -292,7 +303,9 @@ def _embedded_svg_markup(props: dict[str, Any], width: float, height: float) -> 
     )
 
 
-def _sanitize_svg_data_url(source: str) -> bytes:
+def _sanitize_svg_data_url(source: str, depth: int = 0) -> bytes:
+    if depth > MAX_EMBEDDED_SVG_DEPTH:
+        raise AuthoredElementRasterizationError("SVG_SOURCE_INVALID")
     prefix, separator, payload = source.partition(",")
     if not separator or not prefix.lower().startswith("data:image/svg+xml"):
         raise AuthoredElementRasterizationError("SVG_SOURCE_INVALID")
@@ -314,7 +327,7 @@ def _sanitize_svg_data_url(source: str) -> bytes:
             if name.startswith("on"):
                 raise AuthoredElementRasterizationError("SVG_ACTIVE_CONTENT_UNSAFE")
             if name in {"href", "src"} and not (
-                value.startswith("#") or value.startswith("data:")
+                value.startswith("#") or _is_safe_embedded_data_url(raw_value, depth)
             ):
                 raise AuthoredElementRasterizationError(
                     "SVG_EXTERNAL_REFERENCE_UNSAFE"
@@ -326,6 +339,20 @@ def _sanitize_svg_data_url(source: str) -> bytes:
                     "SVG_EXTERNAL_REFERENCE_UNSAFE"
                 )
     return cast(bytes, ElementTree.tostring(root, encoding="utf-8"))
+
+
+def _is_safe_embedded_data_url(value: str, depth: int) -> bool:
+    source = value.strip()
+    if not source.lower().startswith("data:"):
+        return False
+    prefix, separator, _ = source.partition(",")
+    if not separator:
+        return False
+    mime_type = prefix[5:].split(";", 1)[0].strip().lower()
+    if mime_type == "image/svg+xml":
+        _sanitize_svg_data_url(source, depth + 1)
+        return True
+    return mime_type in SAFE_RASTER_DATA_URL_MIME_TYPES
 
 
 def _chart_markup(

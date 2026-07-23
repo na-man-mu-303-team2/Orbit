@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from io import BytesIO
 
 import pytest
@@ -72,6 +73,21 @@ def test_rasterizes_line_with_transparent_padding_and_stable_placement() -> None
     assert rendered.width > 320
     assert rendered.height > 180
     assert rendered.rotation == 12
+
+
+@pytest.mark.parametrize("element_type", ["line", "arrow"])
+def test_rasterizes_line_and_arrow_horizontally(element_type: str) -> None:
+    rendered = rasterize_authored_element(
+        element(element_type, {"stroke": "#2563EB", "strokeWidth": 8}),
+        THEME,
+    )
+
+    image = Image.open(BytesIO(rendered.png_bytes)).convert("RGBA")
+    bounding_box = image.getbbox()
+    assert bounding_box is not None
+    _, top, _, bottom = bounding_box
+    assert bottom - top < rendered.pixel_height / 4
+    assert abs((top + bottom) / 2 - rendered.pixel_height / 2) < 4
 
 
 @pytest.mark.parametrize(
@@ -166,5 +182,61 @@ def test_rejects_svg_with_external_references() -> None:
     ):
         rasterize_authored_element(
             element("svg", {"src": unsafe_svg, "alt": "unsafe", "fit": "contain"}),
+            THEME,
+        )
+
+
+@pytest.mark.parametrize(
+    ("nested_svg", "error_code"),
+    [
+        (
+            b"<svg xmlns='http://www.w3.org/2000/svg'><script/></svg>",
+            "SVG_ACTIVE_CONTENT_UNSAFE",
+        ),
+        (
+            b"<svg xmlns='http://www.w3.org/2000/svg'><image href='https://example.com/tracker.png'/></svg>",
+            "SVG_EXTERNAL_REFERENCE_UNSAFE",
+        ),
+    ],
+)
+def test_rejects_unsafe_nested_svg_data_urls(
+    nested_svg: bytes,
+    error_code: str,
+) -> None:
+    nested_data_url = "data:image/svg+xml;base64," + base64.b64encode(nested_svg).decode(
+        "ascii"
+    )
+    outer_svg = (
+        "<svg xmlns='http://www.w3.org/2000/svg'>"
+        f"<image href='{nested_data_url}'/>"
+        "</svg>"
+    )
+    source = "data:image/svg+xml;base64," + base64.b64encode(
+        outer_svg.encode("utf-8")
+    ).decode("ascii")
+
+    with pytest.raises(AuthoredElementRasterizationError, match=error_code):
+        rasterize_authored_element(
+            element("svg", {"src": source, "alt": "unsafe", "fit": "contain"}),
+            THEME,
+        )
+
+
+def test_rejects_non_image_nested_data_urls() -> None:
+    outer_svg = (
+        "<svg xmlns='http://www.w3.org/2000/svg'>"
+        "<image href='data:text/html,unsafe'/>"
+        "</svg>"
+    )
+    source = "data:image/svg+xml;base64," + base64.b64encode(
+        outer_svg.encode("utf-8")
+    ).decode("ascii")
+
+    with pytest.raises(
+        AuthoredElementRasterizationError,
+        match="SVG_EXTERNAL_REFERENCE_UNSAFE",
+    ):
+        rasterize_authored_element(
+            element("svg", {"src": source, "alt": "unsafe", "fit": "contain"}),
             THEME,
         )

@@ -967,7 +967,7 @@ function buildAuthoredElementFallbacks(
     }
   }
 
-  const elements = candidateKeys.map((key) => {
+  const elements = candidateKeys.flatMap((key) => {
     const [slideId, elementId] = JSON.parse(key) as [string, string];
     const slide = deck.slides.find(
       (candidate) => candidate.slideId === slideId,
@@ -975,7 +975,10 @@ function buildAuthoredElementFallbacks(
     const element = slide?.elements.find(
       (candidate) => candidate.elementId === elementId,
     );
-    if (!element || !isAuthoredRasterElementType(element.type)) {
+    if (!element) {
+      return [];
+    }
+    if (!isAuthoredRasterElementType(element.type)) {
       throw new UnsupportedOoxmlOperationsError({
         operationType: "update_element_props",
         slideId,
@@ -983,7 +986,7 @@ function buildAuthoredElementFallbacks(
         reasonCode: "AUTHORED_RASTER_FALLBACK_FAILED",
       });
     }
-    return { slideId, element };
+    return [{ slideId, element }];
   });
 
   return authoredElementFallbacksSchema.parse({ theme: deck.theme, elements });
