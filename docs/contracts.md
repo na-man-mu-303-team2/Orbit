@@ -554,9 +554,11 @@ command/ack/snapshot/request, volatile laser, WebRTC signal, revoke,
   presence만 지운다. session close, replacement, presenter disconnect API는
   `revoked`를 generation room에 보낸 뒤 Redis adapter를 통해 해당 socket을
   끊는다.
-- session close와 explicit revoke는 generation, authority, presence와 아직
-  교환되지 않은 session별 pending pairing key를 단일 Redis 연산으로 즉시
-  삭제한다. session expiry는 credential/session TTL, authority 10초,
+- session close와 explicit revoke는 generation을 단조 증가하는 invalidation
+  floor로 올리고 authority, presence와 아직 교환되지 않은 session별 pending
+  pairing key를 단일 Redis 연산으로 즉시 정리한다. generation floor는 기존
+  credential TTL 동안 유지해 같은 번호가 재발급되지 않게 한다. session
+  expiry는 credential/session TTL, authority 10초,
   presence 15초, pending pairing 2분의 상한 안에서 같은 상태를 정리하며
   그 전에도 모든 credential 검증은 fail-closed한다. presenter socket만
   끊기면 authority lease만 만료시키고 companion generation은 credential

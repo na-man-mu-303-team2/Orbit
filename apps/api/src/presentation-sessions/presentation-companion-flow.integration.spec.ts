@@ -106,6 +106,30 @@ describe("presentation companion pairing flow integration", () => {
     ).rejects.toMatchObject({
       message: "Presentation companion unavailable",
     });
+
+    const replacementPairing = await fixture.projectController.createPairing(
+      fixture.projectId,
+      fixture.sessionId,
+      presenterRequest(),
+    );
+    const replacementCookie = await exchange(
+      fixture.publicController,
+      pairingCode(replacementPairing.pairingUrl),
+    );
+    await expect(
+      fixture.publicController.getBootstrap(
+        fixture.sessionId,
+        companionRequest(secondCookie),
+      ),
+    ).rejects.toMatchObject({
+      message: "Presentation companion unavailable",
+    });
+    await expect(
+      fixture.publicController.getBootstrap(
+        fixture.sessionId,
+        companionRequest(replacementCookie),
+      ),
+    ).resolves.toMatchObject({ sessionId: fixture.sessionId });
   });
 });
 
@@ -244,7 +268,10 @@ class FlowCompanionStore {
   }
 
   async revokeSession(sessionId: string) {
-    this.generations.delete(sessionId);
+    const generation = this.generations.get(sessionId);
+    if (generation !== undefined) {
+      this.generations.set(sessionId, generation + 1);
+    }
   }
 
   async getPresence() {

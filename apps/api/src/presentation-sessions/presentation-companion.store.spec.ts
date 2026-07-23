@@ -46,7 +46,7 @@ describe("PresentationCompanionStore", () => {
     expect(redis.values.has(key)).toBe(false);
   });
 
-  it("increments generation and revoke invalidates credential state", async () => {
+  it("keeps a monotonic invalidation floor when a session is revoked", async () => {
     const redis = new FakeCompanionRedis();
     const store = new PresentationCompanionStore(redis, "store-secret");
 
@@ -61,7 +61,11 @@ describe("PresentationCompanionStore", () => {
     await expect(store.getLatestGeneration("session_1")).resolves.toBe(2);
 
     await store.revokeSession("session_1");
-    await expect(store.getLatestGeneration("session_1")).resolves.toBeNull();
+    await expect(store.getLatestGeneration("session_1")).resolves.toBe(3);
+    await expect(store.issueGeneration("session_1", 60)).resolves.toEqual({
+      generation: 4,
+      previousGeneration: 3,
+    });
   });
 
   it("returns each immediately preceding generation under concurrent issuance", async () => {
@@ -105,10 +109,10 @@ describe("PresentationCompanionStore", () => {
     await expect(
       store.consumePairing("second-private-code"),
     ).resolves.toBeNull();
-    await expect(store.getLatestGeneration("session_1")).resolves.toBeNull();
+    await expect(store.getLatestGeneration("session_1")).resolves.toBe(2);
     await expect(store.getAuthority("session_1")).resolves.toBeNull();
     await expect(store.getPresence("session_1")).resolves.toBeNull();
-    expect(redis.values.size).toBe(0);
+    expect(redis.values.size).toBe(1);
   });
 
   it("allows one authority epoch until its lease expires", async () => {
@@ -257,8 +261,15 @@ class FakeCompanionRedis implements PresentationCompanionRedis {
     if (script.includes("companion:revoke-session")) {
       const pairingIndexKey = String(args[3]);
       const pendingPairingKey = await this.get(pairingIndexKey);
+      const generationEntry = this.values.get(key);
+      const generation = this.read(key);
+      if (generationEntry && generation !== null) {
+        this.values.set(key, {
+          ...generationEntry,
+          value: String(Number(generation) + 1),
+        });
+      }
       await this.del(
-        key,
         String(args[1]),
         String(args[2]),
         pairingIndexKey,

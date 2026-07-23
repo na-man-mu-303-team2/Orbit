@@ -77,7 +77,10 @@ return 1
 const revokeSessionScript = `
 -- companion:revoke-session
 local pendingPairingKey = redis.call("GET", KEYS[4])
-redis.call("DEL", KEYS[1], KEYS[2], KEYS[3], KEYS[4])
+if redis.call("GET", KEYS[1]) then
+  redis.call("INCR", KEYS[1])
+end
+redis.call("DEL", KEYS[2], KEYS[3], KEYS[4])
 if pendingPairingKey then
   redis.call("DEL", pendingPairingKey)
 end
