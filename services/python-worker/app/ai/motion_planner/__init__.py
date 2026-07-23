@@ -12,7 +12,9 @@ from app.ai.motion_planner.extractor import (
 )
 from app.ai.motion_planner.llm import (
     MotionPlannerResult,
+    MotionPlannerResultV3,
     plan_narrative_motion,
+    plan_narrative_motion_v3,
 )
 from app.ai.motion_planner.errors import MotionPlannerError, MotionPlannerErrorCode
 from app.ai.motion_planner.fallback import deterministic_fallback_plan
@@ -32,12 +34,17 @@ from app.ai.motion_planner.models import (
     ExtractedMotionContextV3,
     MotionEffectiveTypography,
     MotionPlanMetadata,
+    MotionPlanMetadataV3,
     MotionPlanningContext,
     MotionPlanTarget,
+    MotionPlanUnitTarget,
     MotionTarget,
     MotionUnit,
     NarrativeBeat,
+    NarrativeBeatV3,
     NarrativeMotionPlan,
+    NarrativeMotionPlanDraftV3,
+    NarrativeMotionPlanV3,
 )
 
 __all__ = [
@@ -49,9 +56,12 @@ __all__ = [
     "ExtractedMotionContextV3",
     "MotionEffectiveTypography",
     "MotionPlanMetadata",
+    "MotionPlanMetadataV3",
     "MotionPlanningContext",
     "MotionPlanTarget",
+    "MotionPlanUnitTarget",
     "MotionPlannerResult",
+    "MotionPlannerResultV3",
     "MotionPlannerError",
     "MotionPlannerErrorCode",
     "MotionPromptInput",
@@ -59,11 +69,15 @@ __all__ = [
     "MotionTarget",
     "MotionUnit",
     "NarrativeBeat",
+    "NarrativeBeatV3",
     "NarrativeMotionPlan",
+    "NarrativeMotionPlanDraftV3",
+    "NarrativeMotionPlanV3",
     "deterministic_fallback_plan",
     "extract_motion_context",
     "extract_motion_units",
     "plan_narrative_motion",
+    "plan_narrative_motion_v3",
     "CompiledMotion",
     "MotionCompileError",
     "SemanticMotionResult",
