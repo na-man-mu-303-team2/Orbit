@@ -95,7 +95,14 @@ if [ "${DEPLOY_USE_REGISTRY:-false}" = "true" ]; then
   # per-SHA tag can never be stale: it either matches this commit or is not yet
   # present, in which case we wait briefly for build-images and finally fall back
   # to an on-box build (e.g. a commit that did not trigger build-images at all).
-  IMAGE_TAG="${IMAGE_TAG:-$(git -C "$APP_DIR" rev-parse HEAD)}"
+  #
+  # Prefer the deploying workflow's commit (DEPLOY_COMMIT_SHA) over the on-box
+  # HEAD: the static web bundle in S3 is built from that commit, and the on-box
+  # `git pull` may have advanced HEAD to a newer commit if main moved while this
+  # deploy was queued. Using it keeps the backend images, the migrations (run
+  # from the api image) and the web bundle on the same commit. Fall back to the
+  # checked-out HEAD for manual/local runs that do not set it.
+  IMAGE_TAG="${IMAGE_TAG:-${DEPLOY_COMMIT_SHA:-$(git -C "$APP_DIR" rev-parse HEAD)}}"
   export IMAGE_TAG
   ghcr_user="${GHCR_USERNAME:-orbit-deploy}"
   ghcr_token="${GHCR_TOKEN:-}"
