@@ -7,6 +7,7 @@ import {
   getKeywordOccurrenceTriggerIdsForSlide,
   restoreSlidePlaybackAtStep,
   resolveManualAnimationPlaybackUpdate,
+  resolveQueuedKeywordOccurrencePlayback,
   resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions
 } from "./triggeredActionPlayback";
@@ -110,6 +111,48 @@ describe("triggeredActionPlayback", () => {
     expect(firstUpdate.playbackState.playedAnimationIds).toEqual(["anim_manual"]);
     expect(firstUpdate.shouldAdvanceSlide).toBe(false);
     expect(finalUpdate.shouldAdvanceSlide).toBe(true);
+  });
+
+  it("queues a future keyword occurrence until click progression reaches its step", () => {
+    const slide = createSlide();
+    const slideAnimationPlan = createSlideshowAnimationPlan({
+      slide,
+      triggerAnimationIds: getTriggerAnimationIdsForSlide(slide),
+    });
+    const occurrenceId = "kwo_slide_1_kw_ai_47_49";
+    const queued = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId: new Map([
+        [
+          occurrenceId,
+          resolveKeywordOccurrenceTriggeredActions(slide, "kw_ai", occurrenceId),
+        ],
+      ]),
+      matchedOccurrenceIds: [occurrenceId],
+      pendingOccurrenceIds: [],
+      playbackState: { playedAnimationIds: [] },
+      presenterStepIndex: 0,
+      slide,
+      slideAnimationPlan,
+    });
+
+    expect(queued.update).toBeNull();
+    expect(queued.pendingOccurrenceIds).toEqual([occurrenceId]);
+    const firstClick = resolveManualAnimationPlaybackUpdate({
+      playbackState: { playedAnimationIds: [] },
+      presenterStepIndex: 0,
+      slide,
+      slideAnimationPlan,
+    });
+    const secondClick = resolveManualAnimationPlaybackUpdate({
+      playbackState: firstClick.playbackState,
+      presenterStepIndex: firstClick.presenterStepIndex,
+      slide,
+      slideAnimationPlan,
+    });
+
+    expect(firstClick.playbackState.playedAnimationIds).toContain("anim_legacy");
+    expect(secondClick.playbackState.playedAnimationIds).toContain("anim_occurrence");
+    expect(secondClick.consumedOccurrenceIds).toEqual([occurrenceId]);
   });
 
   it("reconstructs played animations and consumed occurrences for a recovery step", () => {

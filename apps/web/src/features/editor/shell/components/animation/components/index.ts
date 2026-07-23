@@ -11,6 +11,7 @@ export { AnimationPanelFooter } from "./AnimationPanelFooter";
 export { AnimationPanelSection } from "./AnimationPanelSection";
 export { AnimationRangeField } from "./AnimationRangeField";
 export { AnimationSelectionSummary } from "./AnimationSelectionSummary";
+export { AnimationSequencePanel } from "./AnimationSequencePanel";
 export { AnimationSidePanel } from "./AnimationSidePanel";
 export { AnimationSidePanelFrame } from "./AnimationSidePanelFrame";
 export { AnimationSlideOverview } from "./AnimationSlideOverview";
