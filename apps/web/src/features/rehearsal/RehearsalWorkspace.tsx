@@ -2284,11 +2284,16 @@ export function RehearsalWorkspace(props: {
   }, [deck]);
 
   useEffect(() => {
-    if (!deck || props.presenterWindow) {
+    if (!presenterCompanionEnabled || !deck || props.presenterWindow) {
       return;
     }
     void ensureRehearsalCompanionSession().catch(() => undefined);
-  }, [deck?.deckId, deck?.version, props.presenterWindow]);
+  }, [
+    deck?.deckId,
+    deck?.version,
+    presenterCompanionEnabled,
+    props.presenterWindow,
+  ]);
 
   useEffect(() => {
     const projectId = deck?.projectId ?? props.projectId ?? demoIds.projectId;

@@ -159,6 +159,24 @@ describe("RehearsalWorkspace", () => {
     );
   });
 
+  it("does not create a rehearsal companion session while the feature is disabled", () => {
+    const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
+    const effectStart = source.indexOf(
+      "if (!presenterCompanionEnabled || !deck || props.presenterWindow)",
+    );
+    const effectEnd = source.indexOf(
+      "useEffect(() => {",
+      effectStart + 1,
+    );
+    const effect = source.slice(effectStart, effectEnd);
+
+    expect(effectStart).toBeGreaterThan(-1);
+    expect(effect).toContain(
+      "void ensureRehearsalCompanionSession().catch(() => undefined)",
+    );
+    expect(effect).toContain("presenterCompanionEnabled,");
+  });
+
   it("measures the presenter stage before painting the slide at an incorrect scale", () => {
     const source = fs.readFileSync(rehearsalWorkspaceSourcePath, "utf8");
     const hookStart = source.indexOf("function usePresenterStageScale");
