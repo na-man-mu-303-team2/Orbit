@@ -228,6 +228,40 @@ def test_v3_extractor_prefers_explicit_group_over_spatial_cluster() -> None:
     assert unit.member_element_ids == ["el_card", "el_body"]
 
 
+def test_v3_extractor_chooses_smallest_nested_container() -> None:
+    elements = [
+        element("el_outer", "rect", "decoration", 80, 220, 720, 600, 1),
+        element("el_inner", "rect", "decoration", 160, 300, 480, 420, 2),
+        element("el_number", "text", "highlight", 200, 336, 360, 72, 4, "01"),
+        element("el_body", "text", "body", 200, 432, 360, 220, 4, "본문"),
+    ]
+
+    extraction = extract_motion_units(
+        {
+            "slideId": "slide_nested",
+            "order": 2,
+            "title": "중첩 카드",
+            "elements": elements,
+            "semanticCues": [],
+        },
+        planning_context(
+            [
+                item
+                for item in elements
+                if item.get("role") != "decoration"
+            ]
+        ),
+    )
+
+    assert len(extraction.context.units) == 1
+    assert extraction.context.units[0].animation_element_ids == [
+        "el_inner",
+        "el_number",
+        "el_body",
+    ]
+    assert "el_outer" not in extraction.context.units[0].member_element_ids
+
+
 def element(
     element_id: str,
     element_type: str,

@@ -9,17 +9,29 @@ from typing import Any
 from app.ai.motion_planner import (
     MotionImportContext,
     MotionPlanningContext,
+    NarrativeMotionPlanDraftV3,
+    NarrativeMotionPlanV3,
     compile_narrative_motion,
+    compile_narrative_motion_v3,
     deterministic_fallback_plan,
     evaluate_motion_eligibility,
     extract_motion_context,
+    extract_motion_units,
     plan_narrative_motion,
+    plan_narrative_motion_v3,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
 GOLDEN_PATH = ROOT / "tests" / "fixtures" / "motion-golden" / "slide-types.json"
 MANIFEST_PATH = ROOT / "tests" / "fixtures" / "motion-golden" / "eval-manifest.json"
 ELIGIBILITY_PATH = ROOT / "tests" / "fixtures" / "motion-eligibility.json"
+SEMANTIC_PROCESS_PATH = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "motion-golden"
+    / "semantic-process-v3.json"
+)
 SYNTHETIC_NOTES = "Synthetic notes for bounded Motion evaluation only."
 SAFE_EFFECTS = {"appear", "fade-in", "zoom-in"}
 
@@ -90,12 +102,19 @@ def main() -> int:
                 continue
             check_compiled(case, compiled, violations)
 
+    semantic_runs = check_semantic_process(
+        mode=args.mode,
+        api_key=api_key,
+        manifest=manifest,
+        violations=violations,
+    )
+    total_runs += semantic_runs
     check_unsafe_matrix(violations)
     report = {
         "model": manifest["model"],
         "mode": args.mode,
         "fixtureVersion": manifest["fixtureVersion"],
-        "fixtureCount": len(golden["cases"]),
+        "fixtureCount": len(golden["cases"]) + 1,
         "runsPerFixture": manifest["runsPerFixture"],
         "totalRuns": total_runs,
         "fallbackRuns": fallback_runs,
@@ -138,6 +157,92 @@ def check_compiled(
     }
     action_ids = set(case["expected"]["candidateGraph"]["actionAnimationIds"])
     violations["danglingAction"] += len(action_ids - animation_ids)
+
+
+def check_semantic_process(
+    *,
+    mode: str,
+    api_key: str | None,
+    manifest: dict[str, Any],
+    violations: dict[str, int],
+) -> int:
+    fixture = read_json(SEMANTIC_PROCESS_PATH)
+    extraction = extract_motion_units(
+        fixture["slide"],
+        MotionPlanningContext.model_validate(fixture["planningContext"]),
+    )
+    unit_by_id = {unit.unit_id: unit for unit in extraction.context.units}
+    expected_card_ids = [
+        unit.unit_id
+        for unit in extraction.context.units
+        if unit.semantic_role == "card"
+    ]
+    runs = 0
+    for _ in range(manifest["runsPerFixture"]):
+        runs += 1
+        if mode == "offline":
+            draft = NarrativeMotionPlanDraftV3.model_validate(
+                fixture["planDraft"]
+            )
+            plan = NarrativeMotionPlanV3(
+                **draft.model_dump(by_alias=True),
+                pattern="stepwise-process",
+            )
+        else:
+            plan = plan_narrative_motion_v3(
+                extraction,
+                model=manifest["model"],
+                api_key=api_key,
+            ).plan
+        try:
+            compiled = compile_narrative_motion_v3(
+                deck_id="deck_semantic_process",
+                slide_id=fixture["slide"]["slideId"],
+                base_version=1,
+                plan=plan,
+                context=extraction.context,
+            ).model_dump(by_alias=True)
+        except ValueError:
+            violations["compileFailure"] += 1
+            continue
+
+        operation_target_ids = {
+            operation["animation"]["elementId"]
+            for operation in compiled["operations"]
+        }
+        selected_units = [
+            unit_by_id[target.unit_id]
+            for beat in plan.beats
+            for target in beat.targets
+        ]
+        violations["partialCompositeTarget"] += sum(
+            not set(unit.animation_element_ids).issubset(
+                operation_target_ids
+            )
+            for unit in selected_units
+        )
+        planned_card_ids = [
+            target.unit_id
+            for beat in plan.beats
+            for target in beat.targets
+            if target.unit_id in set(expected_card_ids)
+        ]
+        violations["skippedSequentialUnit"] += int(
+            planned_card_ids != expected_card_ids
+        )
+        violations["patternMismatch"] += int(
+            plan.pattern != "stepwise-process"
+        )
+        violations["unsupportedGeneratedEffect"] += sum(
+            operation["animation"]["type"] not in {"appear", "fade-in"}
+            for operation in compiled["operations"]
+        )
+        violations["capViolation"] += int(
+            compiled["entryMotionMs"] > 900
+            or compiled["maxClickStepMotionMs"] > 1_200
+            or compiled["totalMotionMs"] > 6_000
+        )
+    return runs
 
 
 def check_unsafe_matrix(violations: dict[str, int]) -> None:
@@ -192,7 +297,10 @@ def check_unsafe_matrix(violations: dict[str, int]) -> None:
 
 
 def read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"Motion eval fixture must be an object: {path.name}")
+    return payload
 
 
 if __name__ == "__main__":

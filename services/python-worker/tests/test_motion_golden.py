@@ -24,6 +24,16 @@ from app.ai.pptx_motion import (
 ROOT = Path(__file__).resolve().parents[3]
 GOLDEN_PATH = ROOT / "tests" / "fixtures" / "motion-golden" / "slide-types.json"
 ELIGIBILITY_PATH = ROOT / "tests" / "fixtures" / "motion-eligibility.json"
+EVAL_MANIFEST_PATH = (
+    ROOT / "tests" / "fixtures" / "motion-golden" / "eval-manifest.json"
+)
+SEMANTIC_PROCESS_PATH = (
+    ROOT
+    / "tests"
+    / "fixtures"
+    / "motion-golden"
+    / "semantic-process-v3.json"
+)
 SYNTHETIC_NOTES_SENTINEL = "MOTION_GOLDEN_PRIVATE_SENTINEL"
 SAFE_EFFECTS = {"appear", "fade-in", "zoom-in"}
 
@@ -192,6 +202,20 @@ def test_golden_manifest_and_import_matrix_cover_release_axes() -> None:
         "activity slide",
         "activity results slide",
     } <= names
+    eval_manifest = json.loads(EVAL_MANIFEST_PATH.read_text(encoding="utf-8"))
+    assert {
+        "partialCompositeTarget",
+        "skippedSequentialUnit",
+        "patternMismatch",
+    } <= set(eval_manifest["safetyInvariants"])
+    semantic_process = json.loads(
+        SEMANTIC_PROCESS_PATH.read_text(encoding="utf-8")
+    )
+    assert semantic_process["expected"]["invariants"] == {
+        "partialCompositeTarget": 0,
+        "skippedSequentialUnit": 0,
+        "patternMismatch": 0,
+    }
 
 
 def _candidate_graph(animations: list[dict[str, Any]]) -> dict[str, Any]:

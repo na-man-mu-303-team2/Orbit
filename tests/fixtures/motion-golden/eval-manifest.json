@@ -12,6 +12,9 @@
     "unsupportedGeneratedEffect",
     "capViolation",
     "speakerNotesArtifact",
-    "compileFailure"
+    "compileFailure",
+    "partialCompositeTarget",
+    "skippedSequentialUnit",
+    "patternMismatch"
   ]
 }
