@@ -162,28 +162,112 @@ describe("ActivityAudienceSlideRenderer", () => {
     expect(hidden).toContain("LIVE POLL");
     expect(revealed).toContain("activity-public-poll-results");
     expect(revealed).toContain("activity-public-poll-donut");
+    expect(revealed).toContain("실시간 결과");
+    expect(revealed).toContain("총 <strong>2</strong>명 참여");
+    expect(revealed).toContain("activity-public-poll-winner");
+    expect(revealed).toContain("activity-public-poll-winner-highlight");
+    expect(revealed).toContain("activity-public-poll-ranking-list");
+    expect(revealed).toContain("is-winner");
+    expect(revealed).toContain("결과가 실시간으로 생성되었습니다.");
     expect(revealed).toContain(question.prompt);
     expect(revealed).not.toContain("activity-public-result-summary");
     expect(revealed).toContain(
-      '<i><span style="background:color-mix(in srgb, var(--activity-color-accent) 76%, var(--activity-color-on-surface));width:100%">',
+      '<span style="background:color-mix(in srgb, var(--activity-color-accent) 76%, var(--activity-color-on-surface));width:100%">',
     );
     expect(revealed).toContain(
-      '<i><span style="background:color-mix(in srgb, var(--activity-color-secondary) 76%, var(--activity-color-on-surface));width:0%">',
+      '<span style="background:color-mix(in srgb, var(--activity-color-secondary) 76%, var(--activity-color-on-surface));width:0%">',
     );
     expect(revealed).toContain("100%");
     expect(hidden).not.toContain("100%");
   });
 
-  it("uses an even donut and response split for public poll results", () => {
+  it("uses the reference-inspired summary and ranking split for public poll results", () => {
     const css = fs.readFileSync(activityAudienceSlideCssPath, "utf8");
     const pollContentRule = css.match(
       /\.activity-public-poll-content\s*\{([^}]*)\}/,
     )?.[1];
 
     expect(pollContentRule).toContain(
-      "grid-template-columns: repeat(2, minmax(0, 1fr))",
+      "grid-template-columns: minmax(0, 5fr) minmax(0, 7fr)",
     );
     expect(css).toContain(".activity-public-poll-donut::after");
+    expect(css).toContain(".activity-public-poll-winner-highlight");
+    expect(css).toContain(".activity-public-poll-ranking-list li.is-winner");
+  });
+
+  it("starts the poll donut at 12 o'clock with the highest result", () => {
+    const pollSlide = createActivitySlide(createDemoDeck(), "poll");
+    const question = pollSlide.activity.questions[0]!;
+    if (question.type !== "single-choice") throw new Error("poll fixture");
+    const pollResult: ActivityPublicResult = {
+      activityRunId: "activity_run_ranked_poll",
+      activityId: pollSlide.activity.activityId,
+      status: "results",
+      revision: 5,
+      responseCount: 4,
+      aggregates: [{
+        questionId: question.questionId,
+        type: question.type,
+        responseCount: 4,
+        average: null,
+        ratingDistribution: [],
+        choices: question.options.map((option, index) => ({
+          optionId: option.optionId,
+          count: index === 1 ? 3 : 1,
+          ratio: index === 1 ? 0.75 : 0.25
+        }))
+      }],
+      approvedTextEntries: []
+    };
+    const html = renderToStaticMarkup(
+      <ActivityAudienceSlideRenderer
+        activity={pollSlide.activity}
+        audienceUrl="/audience/session_1/a/activity_ranked_poll"
+        publicResult={pollResult}
+        status="results"
+      />
+    );
+
+    expect(html).toContain(
+      "background:conic-gradient(color-mix(in srgb, var(--activity-color-secondary) 76%, var(--activity-color-on-surface)) 0% 75%",
+    );
+  });
+
+  it("emphasizes every tied first-place poll option", () => {
+    const pollSlide = createActivitySlide(createDemoDeck(), "poll");
+    const question = pollSlide.activity.questions[0]!;
+    if (question.type !== "single-choice") throw new Error("poll fixture");
+    const pollResult: ActivityPublicResult = {
+      activityRunId: "activity_run_tied_poll",
+      activityId: pollSlide.activity.activityId,
+      status: "results",
+      revision: 6,
+      responseCount: 4,
+      aggregates: [{
+        questionId: question.questionId,
+        type: question.type,
+        responseCount: 4,
+        average: null,
+        ratingDistribution: [],
+        choices: question.options.map((option) => ({
+          optionId: option.optionId,
+          count: 2,
+          ratio: 0.5
+        }))
+      }],
+      approvedTextEntries: []
+    };
+    const html = renderToStaticMarkup(
+      <ActivityAudienceSlideRenderer
+        activity={pollSlide.activity}
+        audienceUrl="/audience/session_1/a/activity_tied_poll"
+        publicResult={pollResult}
+        status="results"
+      />
+    );
+
+    expect(html.match(/class="is-winner"/g)).toHaveLength(2);
+    expect(html.match(/activity-public-poll-rank">1<\/span>/g)).toHaveLength(2);
   });
 
   it("uses the full result grid width for a single question card", () => {

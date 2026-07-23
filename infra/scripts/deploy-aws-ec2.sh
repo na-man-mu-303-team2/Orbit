@@ -130,6 +130,33 @@ if [ "${DEPLOY_USE_REGISTRY:-false}" = "true" ]; then
   done
   if [ "$pulled" -ne 1 ]; then
     echo "Registry images for ${IMAGE_TAG} unavailable; building on-box as a fallback."
+    # The static web bundle in S3 was built from DEPLOY_COMMIT_SHA, but the
+    # on-box `git pull` may have advanced HEAD past it while this deploy was
+    # queued. Building on-box now would ship backend/migration images from a
+    # different commit than the deployed web bundle. Refuse the mixed-commit
+    # release: the newer commit that moved HEAD triggers its own deploy, so
+    # aborting here self-heals rather than shipping mismatched artifacts. We
+    # fail instead of checking out DEPLOY_COMMIT_SHA because this script lives
+    # in the same repo and rewriting the working tree mid-run would corrupt the
+    # executing shell.
+    if [ -n "${DEPLOY_COMMIT_SHA:-}" ]; then
+      # In AWS production this script runs as root while $APP_DIR is an
+      # `orbit`-owned checkout, so a root `git` call trips Git's dubious
+      # ownership guard and would fail even the same-commit fallback. Run
+      # rev-parse as the checkout owner (matching how the deploy wrapper drives
+      # git) and fall back to a direct call for manual/local runs where the
+      # invoking user already owns the checkout.
+      repo_owner="$(stat -c '%U' "$APP_DIR" 2>/dev/null || true)"
+      if [ -n "$repo_owner" ] && [ "$repo_owner" != "$(id -un)" ]; then
+        on_box_sha="$(sudo -iu "$repo_owner" git -C "$APP_DIR" rev-parse HEAD)"
+      else
+        on_box_sha="$(git -C "$APP_DIR" rev-parse HEAD)"
+      fi
+      if [ "$on_box_sha" != "$DEPLOY_COMMIT_SHA" ]; then
+        echo "On-box HEAD (${on_box_sha}) does not match the deploy commit (${DEPLOY_COMMIT_SHA}); refusing a mixed-commit fallback build."
+        exit 1
+      fi
+    fi
     "${COMPOSE[@]}" build
   fi
 else

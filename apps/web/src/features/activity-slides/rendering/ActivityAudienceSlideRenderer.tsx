@@ -10,7 +10,8 @@ import {
   IconChartBar,
   IconCircleFilled,
   IconGridDots,
-  IconQrcode
+  IconQrcode,
+  IconUsers
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
@@ -234,24 +235,114 @@ export function ActivityPublicResults(props: {
     pollAggregate &&
     (pollQuestion.type === "single-choice" || pollQuestion.type === "multiple-choice")
   ) {
+    const rankedOptions = pollQuestion.options
+      .map((option, index) => {
+        const choice = pollAggregate.choices.find(
+          (candidate) => candidate.optionId === option.optionId
+        );
+        return {
+          color: pollChoiceColor(index),
+          count: choice?.count ?? 0,
+          index,
+          label: option.label,
+          optionId: option.optionId,
+          ratio: choice?.ratio ?? 0
+        };
+      })
+      .sort((left, right) =>
+        right.ratio - left.ratio ||
+        right.count - left.count ||
+        left.index - right.index
+      );
+    const winner = pollAggregate.responseCount > 0 ? rankedOptions[0] : undefined;
+
     return (
       <section
         aria-label="공개 결과"
         className="activity-public-results activity-public-poll-results"
       >
-        <strong className="activity-public-poll-question">{pollQuestion.prompt}</strong>
         <div className="activity-public-poll-content">
-          <div
-            aria-label="선택지 응답 비율 도넛 차트"
-            className="activity-public-poll-donut"
-            role="img"
-            style={{ background: createPollDonutBackground(pollQuestion, pollAggregate) }}
-          />
-          <ActivityChoiceChart
-            aggregate={pollAggregate}
-            colorize
-            question={pollQuestion}
-          />
+          <section className="activity-public-poll-overview">
+            <strong className="activity-public-poll-heading">
+              <IconChartBar aria-hidden="true" size={34} stroke={2.4} />
+              실시간 결과
+            </strong>
+            <div
+              aria-label="선택지 응답 비율 도넛 차트"
+              className="activity-public-poll-donut"
+              role="img"
+              style={{ background: createPollDonutBackground(pollQuestion, pollAggregate) }}
+            >
+              <span
+                aria-hidden="true"
+                className="activity-public-poll-winner-highlight"
+                style={{
+                  background: createPollWinnerHighlightBackground(
+                    rankedOptions,
+                    winner?.ratio
+                  )
+                }}
+              />
+              <div className="activity-public-poll-winner">
+                {winner ? (
+                  <>
+                    <span>1위</span>
+                    <strong>{winner.label}</strong>
+                    <em>{Math.round(winner.ratio * 100)}%</em>
+                  </>
+                ) : (
+                  <>
+                    <strong>응답 대기 중</strong>
+                    <em>0%</em>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="activity-public-poll-participants">
+              <IconUsers aria-hidden="true" size={34} stroke={2} />
+              <span>총 <strong>{pollAggregate.responseCount}</strong>명 참여</span>
+            </div>
+          </section>
+          <section
+            aria-label={pollQuestion.prompt}
+            className="activity-public-poll-ranking"
+          >
+            <strong className="activity-public-poll-question">{pollQuestion.prompt}</strong>
+            <ol className="activity-public-poll-ranking-list">
+              {rankedOptions.map((option, index) => {
+                const displayedRank = winner
+                  ? rankedOptions.findIndex(
+                      (candidate) => candidate.ratio === option.ratio
+                    ) + 1
+                  : index + 1;
+                const isWinner = winner?.ratio === option.ratio;
+                return (
+                  <li
+                    className={isWinner ? "is-winner" : undefined}
+                    key={option.optionId}
+                  >
+                    <span className="activity-public-poll-rank">{displayedRank}</span>
+                    <div>
+                      <strong>{option.label}</strong>
+                      <i>
+                        <span
+                          style={{
+                            background: option.color,
+                            width: `${option.ratio * 100}%`
+                          }}
+                        />
+                      </i>
+                    </div>
+                    <em>{Math.round(option.ratio * 100)}%</em>
+                  </li>
+                );
+              })}
+            </ol>
+            <p className="activity-public-poll-live-status">
+              <span aria-hidden="true" />
+              결과가 실시간으로 생성되었습니다.
+            </p>
+          </section>
         </div>
       </section>
     );
@@ -343,18 +434,41 @@ function createPollDonutBackground(
   aggregate: PublicAggregate
 ) {
   let cursor = 0;
-  const segments = question.options.flatMap((option, index) => {
-    const ratio = aggregate.choices.find(
-      (candidate) => candidate.optionId === option.optionId
-    )?.ratio ?? 0;
-    if (ratio <= 0) return [];
-    const start = cursor;
-    cursor += ratio * 100;
-    return `${pollChoiceColor(index)} ${start}% ${cursor}%`;
-  });
+  const segments = question.options
+    .map((option, index) => ({
+      color: pollChoiceColor(index),
+      index,
+      ratio: aggregate.choices.find(
+        (candidate) => candidate.optionId === option.optionId
+      )?.ratio ?? 0
+    }))
+    .sort((left, right) => right.ratio - left.ratio || left.index - right.index)
+    .flatMap((choice) => {
+      if (choice.ratio <= 0) return [];
+      const start = cursor;
+      cursor += choice.ratio * 100;
+      return `${choice.color} ${start}% ${cursor}%`;
+    });
   return segments.length > 0
     ? `conic-gradient(${segments.join(", ")})`
     : "var(--activity-color-muted)";
+}
+
+function createPollWinnerHighlightBackground(
+  options: Array<{ color: string; ratio: number }>,
+  winnerRatio?: number
+) {
+  if (winnerRatio === undefined) return "transparent";
+
+  let cursor = 0;
+  const segments = options.flatMap((option) => {
+    if (option.ratio !== winnerRatio) return [];
+    const start = cursor;
+    cursor += option.ratio * 100;
+    return `${option.color} ${start}% ${cursor}%`;
+  });
+  if (cursor < 100) segments.push(`transparent ${cursor}% 100%`);
+  return `conic-gradient(${segments.join(", ")})`;
 }
 
 function pollChoiceColor(index: number) {

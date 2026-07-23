@@ -20,6 +20,7 @@ from app.ai.deck_generation.models import (
     GenerateDeckRequest,
     GeneratedContentItem,
     GeneratedDeckContentPlan,
+    GeneratedSlideContent,
     GeneratedStoryPlan,
     GeneratedStoryRepairPlan,
     MediaIntent,
@@ -50,7 +51,7 @@ from app.ai.deck_generation.source_grounding import (
 )
 
 
-DECK_CONTENT_PLAN_CACHE_VERSION = "v3"
+DECK_CONTENT_PLAN_CACHE_VERSION = "v4"
 
 
 SPEAKER_NOTES_CHARS_PER_MINUTE = 400
@@ -71,6 +72,8 @@ Return only JSON that matches the requested schema.
 
 Rules:
 - Return exactly the requested number of slides.
+- Always use this positional structure: slide 1 is cover, slide 2 is agenda,
+  the final slide is closing, and every slide between agenda and closing is body.
 - Analyze the free-form user prompt into purpose, presentationContext,
   presentationType, durationMinutes, and slideCount. Treat explicit duration and
   slide-count wording as authoritative; otherwise return the supplied operational
@@ -78,15 +81,18 @@ Rules:
 - Include a minimal coverContent plus a deck title and, per slide, title, one core
   message, slideType, and verified sourceRefs. coverContent.title and subtitle must
   match the first slide title and message.
-- coverContent may create title, subtitle, kicker, documentLabel, mediaQuery, and
-  speakerNotes. presenterName, presenterRole, organization, dateText, venue, and
-  reportPeriod must be copied from the user prompt or supplied source records; return
-  null when absent. Never invent a presenter identity, affiliation, date, or venue.
+- coverContent may create only title, a concise subtitle, mediaQuery, and
+  speakerNotes. Return null for kicker, documentLabel, presenterName, presenterRole,
+  organization, dateText, venue, reportPeriod, and profileImageAssetId.
 - profileImageAssetId may use only a supplied official asset ID, and only when the
   user or a source explicitly identifies the asset as the presenter's or author's
   profile photo. Otherwise return null. Never request or invent a headshot.
 - Keep the visible cover minimal. Do not put bullets, agenda items, statistics cards,
   or body paragraphs in coverContent.
+- Make slide 2 a concise agenda whose labels correspond to actual later body titles.
+- Make the final slide a closing slide titled "감사합니다" with only an optional
+  short thank-you subtitle. Do not put a CTA, question, contact detail, summary,
+  statistic, bullet, or body paragraph on the closing slide.
 - Keep title and message concrete, concise, and grounded in the supplied topic,
   prompt, and source records.
 - Use only sourceRefs listed in the supplied source records.
@@ -452,6 +458,7 @@ def story_repair_response_format_for(
 SLIDE_TYPES: tuple[SlideType, ...] = (
     "title",
     "cover",
+    "agenda",
     "problem",
     "solution",
     "feature-grid",
@@ -462,11 +469,11 @@ SLIDE_TYPES: tuple[SlideType, ...] = (
     "quote",
     "chart",
     "summary",
+    "closing",
 )
 
 
 SLIDE_TYPE_SEQUENCE: list[SlideType] = [
-    "cover",
     "problem",
     "solution",
     "feature-grid",
@@ -494,6 +501,9 @@ Return only JSON that matches the requested schema.
 
 Rules:
 - Preserve the requested slide count, topic, factual meaning, and source boundaries.
+- Preserve slide 1 as cover, slide 2 as agenda, and the final slide as closing.
+- Keep cover and closing contentItems empty. Keep agenda items synchronized with
+  the actual body slide titles.
 - Repair only slide content planning fields and speakerNotes.
 - speakerNotes must be natural Korean lines that can be read aloud.
 - Count speakerNotes after removing every whitespace character.
@@ -517,7 +527,10 @@ Return only JSON that matches the requested schema.
 
 Rules:
 - Return exactly the requested number of slides.
-- Preserve the topic, presentation profile, cover, closing, factual meaning, and source boundaries.
+- Preserve the topic, presentation profile, factual meaning, and source boundaries.
+- Preserve slide 1 as cover, slide 2 as agenda, and the final slide as closing.
+- Keep cover and closing contentItems empty. Keep agenda labels aligned with the
+  actual body slide titles.
 - Expand missing evidence, examples, application, or execution beats instead of duplicating messages.
 - Keep one core message per slide and keep message distinct from contentItems.
 - Use only sourceRefs listed in the supplied source records.
@@ -653,7 +666,8 @@ def design_pack_content_response_format() -> dict[str, Any]:
     slide_schema = response_format["format"]["schema"]["properties"]["slides"]["items"]
     slide_schema["properties"]["contentItems"] = {
         "type": "array",
-        "minItems": 1,
+        "minItems": 0,
+        "maxItems": 6,
         "items": {
             "type": "object",
             "additionalProperties": False,
@@ -822,8 +836,10 @@ def plan_presentation(raw_input: RawInput) -> DeckOutline:
 def title_for_slide(raw_input: RawInput, order: int, total: int) -> str:
     if order == 1:
         return raw_input.topic
+    if total >= 4 and order == 2:
+        return "목차"
     if order == total:
-        return closing_title_for_profile(raw_input)
+        return "감사합니다"
 
     focus_terms = reference_keywords_for(raw_input.reference_keywords)
     middle_titles = [f"{term}" for term in focus_terms] or [
@@ -837,11 +853,7 @@ def title_for_slide(raw_input: RawInput, order: int, total: int) -> str:
 
 
 def closing_title_for_profile(raw_input: RawInput) -> str:
-    return {
-        "proposal": f"{raw_input.topic}의 다음 실행을 결정하세요",
-        "product-launch": f"{raw_input.topic}의 출시 정보를 확인하세요",
-        "executive-report": f"{raw_input.topic}의 다음 결정을 요청합니다",
-    }.get(raw_input.presentation_profile, f"{raw_input.topic}의 핵심을 정리합니다")
+    return "감사합니다"
 
 
 def plan_slides(raw_input: RawInput, outline: DeckOutline) -> list[SlidePlan]:
@@ -866,7 +878,7 @@ def plan_slides(raw_input: RawInput, outline: DeckOutline) -> list[SlidePlan]:
             )
         )
 
-    return plans
+    return normalize_structural_slide_plans(raw_input, plans)
 
 
 def apply_timing_to_slide_plans(
@@ -1369,6 +1381,8 @@ def unsupported_numeric_claim_reasons(
     )
     reasons: list[str] = []
     for slide in slide_plans:
+        if slide.slide_type in {"agenda", "closing"}:
+            continue
         source_ids = slide.source_refs or default_source_refs(raw_input, slide.order)
         supported_values = {
             value
@@ -1476,10 +1490,12 @@ def content_item_capacity_for_slide(
     slide_plan: SlidePlan,
     total_slides: int,
 ) -> tuple[int, int]:
-    if slide_plan.order == 1 or slide_plan.slide_type in {"title", "cover"}:
-        return 1, 3
-    if slide_plan.order == total_slides:
-        return 2, 3
+    if slide_plan.slide_type == "cover":
+        return 0, 0
+    if slide_plan.slide_type == "agenda":
+        return 1, 6
+    if slide_plan.slide_type == "closing":
+        return 0, 0
     if slide_plan.slide_type in {"process", "architecture"}:
         return 3, 6
     if slide_plan.slide_type == "comparison":
@@ -1495,6 +1511,16 @@ def compact_program_v2_content_items(
     total_slides = len(slide_plans)
     compacted_plans: list[SlidePlan] = []
     for slide_plan in slide_plans:
+        if slide_plan.slide_type in {"cover", "closing"}:
+            normalized = slide_plan.model_copy(deep=True)
+            normalized.content_items = []
+            compacted_plans.append(normalized)
+            continue
+        if slide_plan.slide_type == "agenda":
+            normalized = slide_plan.model_copy(deep=True)
+            normalized.content_items = normalized.content_items[:6]
+            compacted_plans.append(normalized)
+            continue
         if slide_plan.slide_type == "chart" and not numeric_values(
             " ".join(
                 [
@@ -1579,7 +1605,8 @@ def normalize_program_v2_action_titles(
         if (
             slide_plan.order == 1
             or slide_plan.order == total_slides
-            or slide_plan.slide_type in {"title", "cover", "quote", "summary"}
+            or slide_plan.slide_type
+            in {"title", "cover", "agenda", "quote", "summary", "closing"}
             or not action_title_requires_attention(slide_plan.title)
         ):
             normalized_plans.append(slide_plan)
@@ -1857,17 +1884,22 @@ def repair_short_speaker_notes_with_llm(
 def slide_type_for(order: int, total: int) -> SlideType:
     if order == 1:
         return "cover"
+    if total >= 4 and order == 2:
+        return "agenda"
     if order == total:
-        return "summary"
-    return SLIDE_TYPE_SEQUENCE[(order - 1) % (len(SLIDE_TYPE_SEQUENCE) - 1)]
+        return "closing"
+    body_offset = 3 if total >= 4 else 2
+    return SLIDE_TYPE_SEQUENCE[(order - body_offset) % len(SLIDE_TYPE_SEQUENCE)]
 
 
 def message_for(raw_input: RawInput, slide_type: SlideType, title: str) -> str:
     focus = keyword_phrase(raw_input)
     if slide_type == "cover":
         return f"{raw_input.topic}를 {focus} 중심으로 소개합니다."
-    if slide_type == "summary":
-        return f"{raw_input.topic}에서 기억할 핵심은 {focus}입니다."
+    if slide_type == "agenda":
+        return "발표 순서"
+    if slide_type == "closing":
+        return "경청해 주셔서 감사합니다."
     if title in reference_keywords_for(raw_input.reference_keywords):
         return f"{title}가 {raw_input.topic}에서 어떤 의미를 갖는지 설명합니다."
 
@@ -1930,16 +1962,14 @@ def slide_plans_from_generated_content(
         slide_keywords = merge_keywords(keyword_pool, slide.keywords)
         fallback_type = slide_type_for(index, raw_input.slide_count)
         slide_type = normalize_slide_type(slide.slide_type, fallback_type)
-        if slide_type == "cover" and fallback_type != "cover":
+        if fallback_type in {"cover", "agenda", "closing"}:
             slide_type = fallback_type
-        if (
-            slide_type == "summary"
-            and fallback_type != "summary"
-            and raw_input.slide_count > 1
-        ):
+        elif slide_type in {"cover", "agenda", "closing"}:
             slide_type = fallback_type
         content_items = list(slide.content_items)
-        if not content_items:
+        if slide_type in {"cover", "closing"}:
+            content_items = []
+        elif not content_items:
             content_items = content_items_from_message(slide.message, index)
         else:
             content_items = [
@@ -1980,7 +2010,7 @@ def slide_plans_from_generated_content(
                 + ", ".join(sorted(set(unknown_source_refs)))
             )
         message = slide.message
-        if content_items:
+        if content_items and slide_type not in {"agenda"}:
             message = "\n".join(item.text for item in content_items)
         slide_plans.append(
             SlidePlan(
@@ -1998,7 +2028,7 @@ def slide_plans_from_generated_content(
             )
         )
 
-    return slide_plans
+    return normalize_structural_slide_plans(raw_input, slide_plans)
 
 
 def content_items_from_message(
@@ -2015,6 +2045,44 @@ def content_items_from_message(
         for index, part in enumerate(parts, start=1)
         if part
     ]
+
+
+def normalize_short_deck_floor_plan(
+    raw_input: RawInput,
+    plan: GeneratedDeckContentPlan,
+) -> GeneratedDeckContentPlan:
+    slides = [slide.model_copy(deep=True) for slide in plan.slides]
+    while len(slides) < 4:
+        order = len(slides) + 1
+        slide_type = slide_type_for(order, 4)
+        title = title_for_slide(raw_input, order, 4)
+        message = message_for(raw_input, slide_type, title)
+        slides.append(
+            GeneratedSlideContent(
+                title=title,
+                message=message,
+                speakerNotes=speaker_notes_for(
+                    raw_input,
+                    title,
+                    message,
+                    order,
+                ),
+                keywords=reference_keywords_for(raw_input.reference_keywords)[:6],
+                slideType=slide_type,
+                contentItems=(
+                    []
+                    if slide_type in {"cover", "agenda", "closing"}
+                    else [
+                        GeneratedContentItem(
+                            contentItemId=f"content_{order}_1",
+                            text=message,
+                        )
+                    ]
+                ),
+                sourceRefs=default_source_refs(raw_input, order),
+            )
+        )
+    return GeneratedDeckContentPlan(title=plan.title, slides=slides)
 
 
 def merge_keywords(primary: list[str], secondary: list[str]) -> list[str]:
@@ -2049,6 +2117,87 @@ def normalize_design_pack_slide_title(title: str, slide_type: SlideType) -> str:
         flags=re.IGNORECASE,
     ).strip()
     return normalized or title
+
+
+def concise_cover_subtitle(value: str | None, *, maximum: int = 90) -> str | None:
+    normalized = " ".join((value or "").split()).strip()
+    if not normalized:
+        return None
+    first_sentence = re.split(r"(?<=[.!?。！？])\s+", normalized, maxsplit=1)[0]
+    if len(first_sentence) <= maximum:
+        return first_sentence
+    return first_sentence[: maximum - 1].rstrip() + "…"
+
+
+def agenda_body_slides(slide_plans: list[SlidePlan]) -> list[SlidePlan]:
+    return [
+        slide
+        for slide in slide_plans
+        if 2 < slide.order < len(slide_plans)
+        and slide.slide_type not in {"cover", "agenda", "closing"}
+    ]
+
+
+def agenda_section_slides(slide_plans: list[SlidePlan]) -> list[SlidePlan]:
+    body_slides = agenda_body_slides(slide_plans)
+    if len(body_slides) <= 6:
+        return body_slides
+    last_index = len(body_slides) - 1
+    indices = [round(step * last_index / 5) for step in range(6)]
+    return [body_slides[index] for index in dict.fromkeys(indices)]
+
+
+def normalize_structural_slide_plans(
+    raw_input: RawInput,
+    slide_plans: list[SlidePlan],
+    *,
+    populate_agenda: bool = True,
+) -> list[SlidePlan]:
+    if not slide_plans:
+        return []
+
+    normalized = [slide.model_copy(deep=True) for slide in slide_plans]
+    total = len(normalized)
+    for order, slide in enumerate(normalized, start=1):
+        expected_type = slide_type_for(order, total)
+        slide.order = order
+        if expected_type in {"cover", "agenda", "closing"}:
+            slide.slide_type = expected_type
+        elif slide.slide_type in {"cover", "agenda", "closing"}:
+            slide.slide_type = expected_type
+
+        if slide.slide_type == "cover":
+            slide.content_items = []
+            slide.message = concise_cover_subtitle(slide.message) or raw_input.topic
+        elif slide.slide_type == "agenda":
+            slide.title = "목차"
+            slide.message = "발표 순서"
+            slide.media_intent = MediaIntent()
+        elif slide.slide_type == "closing":
+            slide.title = "감사합니다"
+            slide.message = "경청해 주셔서 감사합니다."
+            slide.content_items = []
+            slide.media_intent = MediaIntent()
+            slide.obligation_refs = []
+
+    agenda = normalized[1] if len(normalized) >= 2 else None
+    if populate_agenda and agenda is not None and agenda.slide_type == "agenda":
+        sections = agenda_section_slides(normalized)
+        agenda.content_items = [
+            GeneratedContentItem(
+                contentItemId=f"content_{agenda.order}_agenda_{index}",
+                text=section.title,
+            )
+            for index, section in enumerate(sections, start=1)
+        ]
+        agenda.source_refs = list(
+            dict.fromkeys(
+                source_ref
+                for section in sections
+                for source_ref in section.source_refs
+            )
+        )
+    return normalized
 
 
 def has_any(text: str, candidates: Sequence[str]) -> bool:
@@ -2208,6 +2357,14 @@ Return only JSON that matches the requested schema.
 
 Rules:
 - Ground the deck in the topic, user prompt, reference keywords, and reference excerpts.
+- Always use slide 1 as cover, slide 2 as agenda, the final slide as closing,
+  and every slide between agenda and closing as body.
+- Cover contentItems must be empty and visible cover copy is limited to a title and
+  concise subtitle. Agenda contentItems must be 1-6 labels that match actual body
+  slide titles. Closing contentItems must be empty, its title must be "감사합니다",
+  and its optional subtitle may only be a short thank-you phrase.
+- Never put a CTA, question, contact detail, summary, statistic, bullet, or body
+  paragraph on the closing slide. Put those narrative beats in a body slide instead.
 - Design instructions describe visual style only.
 - Do not write design instructions into slide title, message, or speakerNotes.
 - Reflect design instructions through visualIntent.paletteHint, emphasisStyle,
@@ -2355,6 +2512,7 @@ def plan_deck_content(
 
     outline = plan_presentation(raw_input)
     slide_plans = plan_slides(raw_input, outline)
+    slide_plans = normalize_structural_slide_plans(raw_input, slide_plans)
     slide_plans = apply_timing_to_slide_plans(raw_input, slide_plans)
     slide_plans = compact_program_v2_content_items(slide_plans)
     slide_plans = normalize_program_v2_action_titles(slide_plans)
@@ -2668,11 +2826,9 @@ def plan_story_content(
             source_refs = story_source_refs or default_source_refs(raw_input, order)
             fallback_type = slide_type_for(order, raw_input.slide_count)
             slide_type = normalize_slide_type(story_slide.slide_type, fallback_type)
-            if order == 1:
-                slide_type = "cover"
-            elif slide_type == "cover":
+            if fallback_type in {"cover", "agenda", "closing"}:
                 slide_type = fallback_type
-            if slide_type == "summary" and order != raw_input.slide_count:
+            elif slide_type in {"cover", "agenda", "closing"}:
                 slide_type = fallback_type
             slide_plans.append(
                 SlidePlan(
@@ -2691,10 +2847,20 @@ def plan_story_content(
                     coverContent=cover_content if order == 1 else None,
                 )
             )
+        slide_plans = normalize_structural_slide_plans(
+            raw_input,
+            slide_plans,
+            populate_agenda=False,
+        )
         outline = DeckOutline(
             title=deck_title_for_topic(raw_input.topic, generated.title),
             slide_titles=[slide.title for slide in slide_plans],
         )
+    slide_plans = normalize_structural_slide_plans(
+        raw_input,
+        slide_plans,
+        populate_agenda=False,
+    )
     slide_plans = apply_timing_to_slide_plans(raw_input, slide_plans)
     return ContentPlan(
         outline=outline,
@@ -2712,79 +2878,21 @@ def normalize_cover_content(
     first_slide: Any,
 ) -> CoverContent:
     title = str(first_slide.title).strip() or raw_input.topic
-    subtitle = str(first_slide.message).strip() or None
-    source_texts = [
-        source.content
-        for source in story_source_records(raw_input)
-        if source.content.strip()
-    ]
-    normalized_sources = [
-        normalize_structural_content_text(value) for value in source_texts
-    ]
-
-    def grounded(value: str | None) -> str | None:
-        if not value:
-            return None
-        normalized = normalize_structural_content_text(value)
-        if len(normalized) < 2:
-            return None
-        return value if any(normalized in source for source in normalized_sources) else None
-
     candidate = cover_content or CoverContent(
         title=title,
-        subtitle=subtitle,
-        speakerNotes=speaker_notes_for(raw_input, title, subtitle or title, 1),
+        subtitle=concise_cover_subtitle(str(first_slide.message)),
+        speakerNotes=speaker_notes_for(
+            raw_input,
+            title,
+            str(first_slide.message),
+            1,
+        ),
     )
-    presenter_name = grounded(candidate.presenter_name)
-    profile_markers = (
-        "프로필사진",
-        "프로필이미지",
-        "발표자사진",
-        "저자사진",
-        "headshot",
-        "profilephoto",
-        "authorphoto",
-    )
-    profile_image_asset_id = candidate.profile_image_asset_id
-    normalized_profile_asset_id = normalize_structural_content_text(
-        profile_image_asset_id or ""
-    )
-
-    def source_labels_profile_asset(source: str) -> bool:
-        asset_index = source.find(normalized_profile_asset_id)
-        if not normalized_profile_asset_id or asset_index < 0:
-            return False
-        return any(
-            (marker_index := source.find(marker)) >= 0
-            and abs(marker_index - asset_index) <= 80
-            for marker in profile_markers
-        )
-
-    explicitly_labeled_profile_asset = any(
-        source_labels_profile_asset(source)
-        for source in normalized_sources
-    )
-    if not (
-        presenter_name
-        and profile_image_asset_id
-        and raw_input.official_asset_file_ids
-        and profile_image_asset_id == raw_input.official_asset_file_ids[0]
-        and explicitly_labeled_profile_asset
-    ):
-        profile_image_asset_id = None
+    subtitle = concise_cover_subtitle(str(first_slide.message))
     return CoverContent(
         title=title,
         subtitle=subtitle,
-        kicker=candidate.kicker,
-        presenterName=presenter_name,
-        presenterRole=grounded(candidate.presenter_role),
-        organization=grounded(candidate.organization),
-        dateText=grounded(candidate.date_text),
-        venue=grounded(candidate.venue),
-        reportPeriod=grounded(candidate.report_period),
-        documentLabel=candidate.document_label,
         mediaQuery=candidate.media_query,
-        profileImageAssetId=profile_image_asset_id,
         speakerNotes=(
             candidate.speaker_notes
             or speaker_notes_for(raw_input, title, subtitle or title, 1)
@@ -2913,13 +3021,22 @@ def compose_slide_detail_with_llm(
         raise DeckContentGenerationError(
             f"LLM slide composition failed: {error}"
         ) from error
-    content_items = [
+    generated_content_items = [
         GeneratedContentItem(
             contentItemId=f"content_{target.order}_{index}",
             text=item.text,
         )
         for index, item in enumerate(generated.content_items, start=1)
-    ] or content_items_from_message(target.message, target.order)
+    ]
+    if target.slide_type in {"cover", "closing"}:
+        content_items: list[GeneratedContentItem] = []
+    elif target.slide_type == "agenda":
+        content_items = list(target.content_items)
+    else:
+        content_items = generated_content_items or content_items_from_message(
+            target.message,
+            target.order,
+        )
     return target.model_copy(
         deep=True,
         update={
@@ -2929,7 +3046,11 @@ def compose_slide_detail_with_llm(
                 generated.keywords,
             )[:6],
             "visual_intent": generated.visual_intent,
-            "media_intent": generated.media_intent,
+            "media_intent": (
+                MediaIntent()
+                if target.slide_type in {"agenda", "closing"}
+                else generated.media_intent
+            ),
             "content_items": content_items,
         },
     )
@@ -2950,6 +3071,7 @@ def plan_content(
         model=model,
         api_key=api_key,
     )
+    slide_plans = normalize_structural_slide_plans(raw_input, slide_plans)
     if slide_plans:
         cover = slide_plans[0]
         cover.slide_type = "cover"
@@ -3073,8 +3195,9 @@ def generate_content_plan_with_llm(
             model=resolved_model,
             instructions=(
                 DECK_CONTENT_INSTRUCTIONS
-                + "\n- For every design-pack slide, provide contentItems with stable unique IDs "
-                "and sourceRefs containing only IDs listed in Source records."
+                + "\n- For body and agenda slides, provide contentItems with stable unique IDs. "
+                "Return an empty contentItems array for cover and closing. For every "
+                "slide, sourceRefs may contain only IDs listed in Source records."
             ),
             input=prompt,
             text=deck_content_response_format_for(raw_input),
@@ -3097,6 +3220,9 @@ def generate_content_plan_with_llm(
         ) from error
 
     actual_slide_count = len(plan.slides)
+    if raw_input.requested_max_slide_count < 4 and actual_slide_count < 4:
+        plan = normalize_short_deck_floor_plan(raw_input, plan)
+        actual_slide_count = len(plan.slides)
     exact_count_requested = raw_input.min_slide_count == raw_input.max_slide_count
     needs_count_repair = actual_slide_count < raw_input.min_slide_count or (
         exact_count_requested
@@ -3353,11 +3479,12 @@ def ensure_profile_closing_action(
     raw_input: RawInput,
     slide_plans: list[SlidePlan],
 ) -> None:
-    if not slide_plans or raw_input.presentation_profile not in {
-        "proposal",
-        "product-launch",
-        "executive-report",
-    }:
+    if (
+        not slide_plans
+        or slide_plans[-1].slide_type == "closing"
+        or raw_input.presentation_profile
+        not in {"proposal", "product-launch", "executive-report"}
+    ):
         return
     closing = slide_plans[-1]
     closing_text = " ".join(
@@ -3445,27 +3572,17 @@ PRESENTATION_PROFILE_BEATS: dict[PresentationProfile, tuple[str, ...]] = {
 def presentation_rule_prompt(raw_input: RawInput) -> list[str]:
     profile = raw_input.presentation_profile
     beats = " -> ".join(PRESENTATION_PROFILE_BEATS[profile])
-    agenda = (
-        "Include an agenda only when useful for 8+ slide report, education, technical, or research decks."
-        if raw_input.slide_count >= 8
-        and profile in {"executive-report", "education", "technical", "research"}
-        else "Do not add an agenda unless the user explicitly requested one."
-    )
-    closing = {
-        "proposal": "End with a concrete next action.",
-        "product-launch": "End with release information and a concrete next action.",
-        "executive-report": "End with a decision or approval request.",
-    }.get(profile, "End with a concise summary or question appropriate to the profile.")
     return [
         f"Presentation profile: {profile}",
         f"Required narrative beats: {beats}",
         "Use one core message per slide and make each body title state its conclusion.",
         "Use 1-5 supporting content items per body slide; process slides may use up to 6.",
         "Keep body content within six rendered lines and move detail into speakerNotes.",
-        "Preserve cover and closing; merge adjacent beats for short decks, expand evidence, examples, or execution for long decks, and never repeat a message to fill slide count.",
+        "Always use slide 1 as cover, slide 2 as agenda, and the final slide as closing; use every slide between them for body content.",
+        "The cover contains only a title and concise subtitle. The agenda contains 1-6 labels copied from actual body slide titles.",
+        "The closing title is '감사합니다' and may contain only a short thank-you subtitle; place every CTA, question, contact detail, summary, statistic, bullet, profile-specific decision, concrete next action, or release detail in body slides before it.",
+        "merge adjacent beats for short decks, expand evidence, examples, or execution for long decks, and never repeat a message to fill slide count.",
         "Ground every factual claim and number in the supplied sources.",
-        agenda,
-        closing,
     ]
 
 

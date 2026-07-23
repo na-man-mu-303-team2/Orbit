@@ -1042,6 +1042,94 @@ def test_sync_pptx_ooxml_reuses_existing_notes_master_for_new_page(
     )
 
 
+def test_sync_pptx_ooxml_creates_multiple_notes_pages_sharing_new_master(
+    tmp_path: Path,
+) -> None:
+    pptx_path = tmp_path / "two-notesless-slides.pptx"
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333333)
+    presentation.slide_height = Inches(7.5)
+    presentation.slides.add_slide(presentation.slide_layouts[6])
+    presentation.slides.add_slide(presentation.slide_layouts[6])
+    presentation.save(pptx_path)
+
+    generated = generate_pptx_ooxml(pptx_path, "file_two_notes", render=False)
+    assert generated.template_blueprint["slides"][0]["notesPage"]["status"] == (
+        "absent"
+    )
+    assert generated.template_blueprint["slides"][1]["notesPage"]["status"] == (
+        "absent"
+    )
+
+    result = sync_pptx_ooxml(
+        pptx_path,
+        template_blueprint=generated.template_blueprint,
+        deck_canvas=generated.canvas,
+        synced_deck_version=2,
+        render=False,
+        operations=[
+            {
+                "type": "update_speaker_notes",
+                "slideId": template_slide_id(generated, 0),
+                "speakerNotes": "첫 번째 슬라이드 발표 메모",
+            },
+            {
+                "type": "update_speaker_notes",
+                "slideId": template_slide_id(generated, 1),
+                "speakerNotes": "두 번째 슬라이드 발표 메모",
+            },
+        ],
+    )
+    synced_bytes = current_package_bytes(result.assets)
+
+    # The first operation creates the notes master (in added_entries) and the
+    # second must reuse it instead of failing NOTES_MASTER_CAPABILITY_UNSAFE.
+    assert result.unsupported_operations == []
+    notes_pages = [item.model_dump(by_alias=True) for item in result.notes_pages]
+    assert len(notes_pages) == 2
+    assert {
+        page["notesPage"]["sourceNotesMasterPart"] for page in notes_pages
+    } == {"ppt/notesMasters/notesMaster1.xml"}
+
+    with zipfile.ZipFile(BytesIO(synced_bytes), "r") as package:
+        names = set(package.namelist())
+        assert "ppt/notesSlides/notesSlide1.xml" in names
+        assert "ppt/notesSlides/notesSlide2.xml" in names
+        assert sorted(
+            name
+            for name in names
+            if name.startswith("ppt/notesMasters/notesMaster")
+            and name.endswith(".xml")
+        ) == ["ppt/notesMasters/notesMaster1.xml"]
+        assert notes_relationship_targets(
+            package.read("ppt/notesSlides/_rels/notesSlide2.xml.rels")
+        ) == [
+            ("notesMaster", "../notesMasters/notesMaster1.xml"),
+            ("slide", "../slides/slide2.xml"),
+        ]
+
+    synced_path = tmp_path / "two-created-notes.pptx"
+    synced_path.write_bytes(synced_bytes)
+    reopened = Presentation(synced_path)
+    assert reopened.slides[0].notes_slide.notes_text_frame.text == (
+        "첫 번째 슬라이드 발표 메모"
+    )
+    assert reopened.slides[1].notes_slide.notes_text_frame.text == (
+        "두 번째 슬라이드 발표 메모"
+    )
+    reimported = generate_pptx_ooxml(
+        synced_path,
+        "file_two_notes_reimport",
+        render=False,
+    )
+    assert reimported.blueprint["slides"][0]["speakerNotes"] == (
+        "첫 번째 슬라이드 발표 메모"
+    )
+    assert reimported.blueprint["slides"][1]["speakerNotes"] == (
+        "두 번째 슬라이드 발표 메모"
+    )
+
+
 def test_sync_pptx_ooxml_rejects_unsafe_minimal_notes_master_atomically(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -23,7 +23,17 @@ export const deckCompositionIdSchema = z.enum([
   "diagram-orbit",
   "bento-focus",
   "editorial-media-band",
-  "cta-closing"
+  "cta-closing",
+  "agenda-numbered-list",
+  "agenda-two-column",
+  "agenda-chapter-grid",
+  "agenda-vertical-rail",
+  "agenda-editorial-index",
+  "closing-centered-minimal",
+  "closing-editorial-frame",
+  "closing-split-accent",
+  "closing-vertical-mark",
+  "closing-soft-panel"
 ]);
 
 export const deckCompositionBackgroundModeSchema = z.enum([
