@@ -1,3 +1,4 @@
+import { loadOrbitConfig } from "@orbit/config";
 import { Injectable, NotFoundException } from "@nestjs/common";
 
 import { DecksService } from "../decks/decks.service";
@@ -16,11 +17,19 @@ import {
 
 @Injectable()
 export class PresentationCompanionProjectionService {
+  private readonly trustedAssetOrigins: ReadonlySet<string>;
+
   constructor(
     private readonly sessions: PresentationSessionRepository,
     private readonly decks: DecksService,
     private readonly files: FilesService,
-  ) {}
+  ) {
+    const config = loadOrbitConfig(process.env, { service: "api" });
+    this.trustedAssetOrigins = new Set([
+      config.WEB_ORIGIN,
+      config.API_BASE_URL,
+    ]);
+  }
 
   async getDeckProjection(
     sessionId: string,
@@ -30,6 +39,7 @@ export class PresentationCompanionProjectionService {
     return createPresentationCompanionProjection({
       deck: context.deck,
       sessionId,
+      trustedAssetOrigins: this.trustedAssetOrigins,
     });
   }
 
@@ -43,6 +53,7 @@ export class PresentationCompanionProjectionService {
     const projection = createPresentationCompanionProjection({
       deck: context.deck,
       sessionId,
+      trustedAssetOrigins: this.trustedAssetOrigins,
     });
     if (!projection.referencedAssetIds.has(fileId)) {
       throw companionAssetUnavailable();

@@ -14,6 +14,7 @@ export type PresentationCompanionProjection = {
 export function createPresentationCompanionProjection(input: {
   deck: Deck;
   sessionId: string;
+  trustedAssetOrigins?: ReadonlySet<string>;
 }): PresentationCompanionProjection {
   const referencedAssetIds = new Set<string>();
   const slides = input.deck.slides.map((slide) =>
@@ -22,6 +23,7 @@ export function createPresentationCompanionProjection(input: {
       referencedAssetIds,
       sessionId: input.sessionId,
       slide,
+      trustedAssetOrigins: input.trustedAssetOrigins,
     }),
   );
 
@@ -43,6 +45,7 @@ function projectSlide(input: {
   referencedAssetIds: Set<string>;
   sessionId: string;
   slide: Slide;
+  trustedAssetOrigins?: ReadonlySet<string>;
 }) {
   const elements = input.slide.elements.flatMap((element) => {
     const projected = projectElement({
@@ -50,6 +53,7 @@ function projectSlide(input: {
       projectId: input.projectId,
       referencedAssetIds: input.referencedAssetIds,
       sessionId: input.sessionId,
+      trustedAssetOrigins: input.trustedAssetOrigins,
     });
     return projected ? [projected] : [];
   });
@@ -73,6 +77,7 @@ function projectSlide(input: {
         referencedAssetIds: input.referencedAssetIds,
         sessionId: input.sessionId,
         source: input.slide.style.backgroundImage.src,
+        trustedAssetOrigins: input.trustedAssetOrigins,
       })
     : null;
   const styleWithoutBackground = { ...input.slide.style };
@@ -83,6 +88,7 @@ function projectSlide(input: {
         referencedAssetIds: input.referencedAssetIds,
         sessionId: input.sessionId,
         source: input.slide.thumbnailUrl,
+        trustedAssetOrigins: input.trustedAssetOrigins,
       })
     : null;
 
@@ -130,6 +136,7 @@ function projectElement(input: {
   projectId: string;
   referencedAssetIds: Set<string>;
   sessionId: string;
+  trustedAssetOrigins?: ReadonlySet<string>;
 }): DeckElement | null {
   if (input.element.type !== "image" && input.element.type !== "svg") {
     return input.element;
@@ -139,6 +146,7 @@ function projectElement(input: {
     referencedAssetIds: input.referencedAssetIds,
     sessionId: input.sessionId,
     source: input.element.props.src,
+    trustedAssetOrigins: input.trustedAssetOrigins,
   });
   if (!src) {
     return null;
@@ -154,8 +162,15 @@ function projectImageSource(input: {
   referencedAssetIds: Set<string>;
   sessionId: string;
   source: string;
+  trustedAssetOrigins?: ReadonlySet<string>;
 }): string | null {
-  const internal = parseProjectAssetUrl(input.source);
+  if (input.source.startsWith("//")) {
+    return null;
+  }
+  const internal = parseProjectAssetUrl(
+    input.source,
+    input.trustedAssetOrigins,
+  );
   if (internal) {
     if (internal.projectId !== input.projectId) {
       return null;
@@ -178,11 +193,28 @@ function projectImageSource(input: {
 
 export function parseProjectAssetUrl(
   source: string,
+  trustedAssetOrigins: ReadonlySet<string> = new Set(),
 ): { fileId: string; projectId: string } | null {
+  if (source.startsWith("//")) return null;
+  const placeholderOrigin = "https://orbit.invalid";
   let parsed: URL;
   try {
-    parsed = new URL(source, "https://orbit.invalid");
+    parsed = new URL(source, placeholderOrigin);
   } catch {
+    return null;
+  }
+  const isCanonicalRelative =
+    source.startsWith("/") && parsed.origin === placeholderOrigin;
+  const isTrustedAbsolute =
+    parsed.origin !== placeholderOrigin &&
+    [...trustedAssetOrigins].some((candidate) => {
+      try {
+        return new URL(candidate).origin === parsed.origin;
+      } catch {
+        return false;
+      }
+    });
+  if (!isCanonicalRelative && !isTrustedAbsolute) {
     return null;
   }
   const match = parsed.pathname.match(

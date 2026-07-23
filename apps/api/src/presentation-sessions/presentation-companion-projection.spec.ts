@@ -102,6 +102,7 @@ describe("presentation companion projection", () => {
     const projection = createPresentationCompanionProjection({
       deck,
       sessionId: "session_companion_1",
+      trustedAssetOrigins: new Set(["https://orbit.test"]),
     });
     const serialized = JSON.stringify(projection.deck);
 
@@ -168,7 +169,7 @@ describe("presentation companion projection", () => {
     expect(referencedAssetIds.size).toBe(0);
   });
 
-  it("extracts only exact protected project asset paths", () => {
+  it("extracts only exact project asset paths from relative or trusted origins", () => {
     expect(
       parseProjectAssetUrl(
         "/api/v1/projects/project_1/assets/file_1/content",
@@ -176,9 +177,106 @@ describe("presentation companion projection", () => {
     ).toEqual({ projectId: "project_1", fileId: "file_1" });
     expect(
       parseProjectAssetUrl(
+        "https://present.orbit.example/api/v1/projects/project_1/assets/file_1/content",
+        new Set(["https://present.orbit.example"]),
+      ),
+    ).toEqual({ projectId: "project_1", fileId: "file_1" });
+    expect(
+      parseProjectAssetUrl(
         "/api/v1/projects/project_1/assets/file_1/content/extra",
       ),
     ).toBeNull();
+    expect(
+      parseProjectAssetUrl(
+        "https://evil.example/api/v1/projects/project_1/assets/file_1/content",
+        new Set(["https://present.orbit.example"]),
+      ),
+    ).toBeNull();
+    expect(
+      parseProjectAssetUrl(
+        "//present.orbit.example/api/v1/projects/project_1/assets/file_1/content",
+        new Set(["https://present.orbit.example"]),
+      ),
+    ).toBeNull();
+    expect(
+      parseProjectAssetUrl(
+        "/api/v1/projects/project_1/assets/%E0%A4%A/content",
+      ),
+    ).toBeNull();
     expect(parseProjectAssetUrl("https://cdn.example.test/image.png")).toBeNull();
+  });
+
+  it("keeps an external HTTPS URL with an internal-looking path external", () => {
+    const source = createDemoDeck();
+    const external =
+      `https://evil.example/api/v1/projects/${source.projectId}/assets/file_hidden/content`;
+    const deck = deckSchema.parse({
+      ...source,
+      slides: source.slides.map((slide, index) =>
+        index === 0
+          ? {
+              ...slide,
+              elements: [
+                ...slide.elements,
+                {
+                  elementId: "el_external_internal_path",
+                  type: "image",
+                  x: 10,
+                  y: 10,
+                  width: 100,
+                  height: 100,
+                  props: { src: external },
+                },
+              ],
+            }
+          : slide,
+      ),
+    });
+
+    const projection = createPresentationCompanionProjection({
+      deck,
+      sessionId: "session_companion_1",
+      trustedAssetOrigins: new Set(["https://present.orbit.example"]),
+    });
+
+    expect(JSON.stringify(projection.deck)).toContain(external);
+    expect(projection.referencedAssetIds).not.toContain("file_hidden");
+  });
+
+  it("drops protocol-relative project asset URLs", () => {
+    const source = createDemoDeck();
+    const protocolRelative =
+      `//present.orbit.example/api/v1/projects/${source.projectId}/assets/file_hidden/content`;
+    const deck = deckSchema.parse({
+      ...source,
+      slides: source.slides.map((slide, index) =>
+        index === 0
+          ? {
+              ...slide,
+              elements: [
+                ...slide.elements,
+                {
+                  elementId: "el_protocol_relative",
+                  type: "image",
+                  x: 10,
+                  y: 10,
+                  width: 100,
+                  height: 100,
+                  props: { src: protocolRelative },
+                },
+              ],
+            }
+          : slide,
+      ),
+    });
+
+    const projection = createPresentationCompanionProjection({
+      deck,
+      sessionId: "session_companion_1",
+      trustedAssetOrigins: new Set(["https://present.orbit.example"]),
+    });
+
+    expect(JSON.stringify(projection.deck)).not.toContain(protocolRelative);
+    expect(projection.referencedAssetIds).not.toContain("file_hidden");
   });
 });

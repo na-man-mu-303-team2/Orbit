@@ -454,8 +454,11 @@ GET    /api/v1/presentation-companion/:sessionId/assets/:fileId/content
   포함하지 않는다.
 - 내부 render asset URL은 companion asset endpoint로 치환한다. 현재 exact
   Deck의 allowlisted render field가 실제 참조한 같은 project image만 읽을 수
-  있다. 미참조 파일, owner-only purpose, audio, PDF는 404다. 기존 external
-  HTTPS image는 그대로 허용하지만 server-side fetch proxy는 제공하지 않으며
+  있다. canonical 상대 asset path와 configured `WEB_ORIGIN` 또는
+  `API_BASE_URL`의 absolute URL만 내부 asset으로 인정한다. 같은 pathname을
+  가진 다른 origin은 external URL로 유지하며 asset allowlist에 넣지 않는다.
+  미참조 파일, owner-only purpose, audio, PDF는 404다. 기존 external HTTPS
+  image는 그대로 허용하지만 server-side fetch proxy는 제공하지 않으며
   `data:`, `blob:`, `javascript:` 및 알 수 없는 scheme은 projection에서
   제거한다.
 

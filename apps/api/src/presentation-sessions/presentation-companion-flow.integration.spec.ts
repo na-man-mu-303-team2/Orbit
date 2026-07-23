@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@orbit/config", () => ({
   loadOrbitConfig: () => ({
+    API_BASE_URL: "https://api.orbit.example",
     IPAD_PRESENTER_COMPANION_ENABLED: true,
     SESSION_SECRET: "companion-flow-integration-secret",
     WEB_ORIGIN: "https://present.orbit.example",

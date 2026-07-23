@@ -8,6 +8,13 @@ import type { FilesService } from "../files/files.service";
 import type { PresentationSessionRepository } from "./presentation-session.repository";
 import { PresentationCompanionProjectionService } from "./presentation-companion-projection.service";
 
+vi.mock("@orbit/config", () => ({
+  loadOrbitConfig: () => ({
+    API_BASE_URL: "https://api.orbit.example",
+    WEB_ORIGIN: "https://present.orbit.example",
+  }),
+}));
+
 const privateMarker = "PRIVATE_BOOTSTRAP_MARKER_b12c";
 
 function createFixture(options: {
@@ -28,12 +35,12 @@ function createFixture(options: {
             ...slide,
             speakerNotes: privateMarker,
             thumbnailUrl:
-              `/api/v1/projects/${source.projectId}/assets/file_thumbnail/content`,
+              `https://present.orbit.example/api/v1/projects/${source.projectId}/assets/file_thumbnail/content`,
             style: {
               ...slide.style,
               backgroundImage: {
                 src:
-                  `/api/v1/projects/${source.projectId}/assets/file_background/content`,
+                  `https://api.orbit.example/api/v1/projects/${source.projectId}/assets/file_background/content`,
               },
             },
             elements: [
