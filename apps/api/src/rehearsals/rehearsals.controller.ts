@@ -15,6 +15,7 @@ import type { Response } from "express";
 import { AuthService } from "../auth/auth.service";
 import { getCurrentUser, type SignedCookieRequest } from "../auth/current-user";
 import { ProjectsService } from "../projects/projects.service";
+import { RequiresAsyncJobAdmission } from "../common/async-job-admission.guard";
 import { RehearsalsService } from "./rehearsals.service";
 
 @Controller()
@@ -48,6 +49,7 @@ export class RehearsalsController {
   }
 
   @Post("api/v1/rehearsals/:runId/audio/complete")
+  @RequiresAsyncJobAdmission()
   async completeAudioUpload(
     @Param("runId") runId: string,
     @Body() body: unknown,
@@ -69,6 +71,7 @@ export class RehearsalsController {
   }
 
   @Post("api/v1/rehearsals/:runId/semantic-evaluation/retry")
+  @RequiresAsyncJobAdmission()
   async retrySemanticEvaluation(
     @Param("runId") runId: string,
     @Req() request: SignedCookieRequest,

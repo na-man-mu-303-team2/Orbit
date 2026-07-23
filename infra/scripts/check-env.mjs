@@ -41,11 +41,14 @@ const requiredKeys = [
   "S3_ENDPOINT",
   "S3_PUBLIC_ENDPOINT",
   "S3_BUCKET",
+  "S3_ASSETS_BUCKET",
+  "S3_PRIVATE_AUDIO_BUCKET",
   "S3_REGION",
   "S3_ACCESS_KEY_ID",
   "S3_SECRET_ACCESS_KEY",
   "S3_FORCE_PATH_STYLE",
   "JOB_QUEUE_DRIVER",
+  "ASYNC_JOB_ADMISSION_MODE",
   "AI_DECK_EXECUTION_MODE",
   "AI_DECK_WORKER_QUEUE",
   "AI_DECK_WORKER_CONCURRENCY",
@@ -123,7 +126,15 @@ const commonAllowedEmptyKeys = [
 ];
 
 const allowedEmptyKeysByFile = new Map([
-  [".env.example", new Set([...commonAllowedEmptyKeys, "OPENAI_API_KEY"])],
+  [
+    ".env.example",
+    new Set([
+      ...commonAllowedEmptyKeys,
+      "OPENAI_API_KEY",
+      "S3_ASSETS_BUCKET",
+      "S3_PRIVATE_AUDIO_BUCKET",
+    ]),
+  ],
   [".env.staging.example", new Set(commonAllowedEmptyKeys)],
   [".env.production.example", new Set(commonAllowedEmptyKeys)],
 ]);

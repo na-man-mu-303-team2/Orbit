@@ -845,3 +845,15 @@
 - Rationale: 시각 변경과 다른 슬라이드 편집으로 녹음·질문 생성을 잃지 않으면서, 실제 발표 텍스트나 대본이 바뀐 경우에는 오래된 입력으로 분석하지 않는다. DB migration이나 raw slide 원문 로그 없이 기존 frozen snapshot과 provenance 계약을 유지한다.
 - Affected files: `packages/shared/src/slide-practice`, `apps/api/src/slide-practice`, `apps/api/src/slide-question-guides`, `apps/web/src/features/editor/practice`, `apps/web/src/features/editor/shell`, `docs/contracts.md`, 관련 테스트.
 - Follow-up review notes: 다른 slide/visual-only edit 뒤 연습 종료와 QnA 생성이 성공하는지, target speaker notes 변경은 upload·Job 생성 전에 한국어 안내로 중단되는지, 로그에 원문 없이 requested/resolved version과 freshness resolution만 남는지 확인한다.
+
+## ORBIT ECS cutover runtime compatibility
+
+- Context: 현재 EC2 단일 인스턴스에서 ECS 다중 task로 전환할 때 Socket.IO broadcast, private audio storage, 신규 비동기 Job 접수, SIGTERM 종료 순서가 단일 프로세스 전제에 묶여 있다. 기존 assets bucket에는 이미 private audio object가 있어 한 번에 위치를 바꾸면 rollback과 과거 리포트 재생이 깨진다.
+- Options considered:
+  - ECS 전환과 동시에 기존 object를 일괄 이동하고 `S3_BUCKET` 계약을 제거한다.
+  - 기존 bucket을 계속 모든 목적에 사용하고 네트워크 계층만 ECS로 바꾼다.
+  - 새 쓰기만 purpose별 bucket으로 분리하고 읽기·삭제에 한시적 legacy 호환을 두며, 신규 Job admission과 process shutdown을 독립 제어한다.
+- Final decision: `S3_ASSETS_BUCKET`은 한 릴리스 동안 누락 시 `S3_BUCKET`으로 fallback한다. `S3_PRIVATE_AUDIO_BUCKET`이 설정된 환경의 private audio 새 쓰기는 전용 bucket으로 보내고 모든 object 읽기는 private bucket 우선, legacy assets bucket 차선으로 해석한다. 삭제는 두 위치 모두에 적용한다. API는 `ASYNC_JOB_ADMISSION_MODE=drain`에서 표시된 비동기 Job 생성 endpoint만 503으로 거부하고 조회와 기존 Job 처리는 유지한다. API와 Worker는 Nest shutdown hook을 활성화하며 Worker는 SIGTERM 시 BullMQ 신규 claim을 pause한 뒤 진행 중 Job과 PostgreSQL stage runner를 종료한다. Socket.IO는 Redis adapter를 사용하고 ALB/CloudFront 계층의 cookie stickiness를 함께 요구한다.
+- Rationale: additive migration과 EC2 rollback window 동안 데이터 위치와 실행 위치를 독립적으로 전환할 수 있다. 신규 접수 중단과 graceful drain은 중복 실행 위험을 줄이고, Redis adapter와 stickiness 조합은 polling transport를 포함한 다중 API task 연결을 유지한다.
+- Affected files: `packages/config`, `packages/storage`, `apps/api`, `apps/worker`, `services/python-worker`, 환경 예시와 `docs/conventions/environment.md`.
+- Follow-up review notes: ECS candidate에서 private audio의 새 bucket write와 legacy fallback read를 모두 확인한다. `drain` 전환 후 표시된 endpoint만 503인지 확인하고, SIGTERM 중 active BullMQ Job이 완료된 뒤 task가 종료되는지 검증한다. legacy fallback 제거는 기존 private audio migration과 7일 EC2 rollback window 종료 후 별도 PR로 결정한다.

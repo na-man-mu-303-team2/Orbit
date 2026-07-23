@@ -17,6 +17,7 @@ import {
   type SignedCookieRequest
 } from "../auth/current-user";
 import { parseRequest } from "../common/zod-request";
+import { RequiresAsyncJobAdmission } from "../common/async-job-admission.guard";
 import { ProjectsService } from "../projects/projects.service";
 import { ExtractService } from "./extract.service";
 
@@ -52,6 +53,7 @@ export class ExtractController {
   ) {}
 
   @Post()
+  @RequiresAsyncJobAdmission()
   @UseInterceptors(FilesInterceptor("files"))
   async extract(
     @UploadedFiles() files: UploadedExtractFile[] | undefined,

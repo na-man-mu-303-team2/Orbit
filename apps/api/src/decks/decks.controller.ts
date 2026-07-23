@@ -12,6 +12,7 @@ import type { Request } from "express";
 import { authSessionCookieName } from "../auth/auth.constants";
 import { AuthService } from "../auth/auth.service";
 import { ProjectsService } from "../projects/projects.service";
+import { RequiresAsyncJobAdmission } from "../common/async-job-admission.guard";
 import { DecksService } from "./decks.service";
 
 type SignedCookieRequest = Request & {
@@ -80,6 +81,7 @@ export class DecksController {
   }
 
   @Post("deck/exports")
+  @RequiresAsyncJobAdmission()
   async createExport(
     @Param("projectId") projectId: string,
     @Body() body: unknown,
@@ -101,6 +103,7 @@ export class DecksController {
   }
 
   @Post("deck/ooxml-sync/retry")
+  @RequiresAsyncJobAdmission()
   async retryOoxmlSync(
     @Param("projectId") projectId: string,
     @Req() request: SignedCookieRequest,
@@ -111,6 +114,7 @@ export class DecksController {
   }
 
   @Post("deck/semantic-cues")
+  @RequiresAsyncJobAdmission()
   async createSemanticCueExtractionJob(
     @Param("projectId") projectId: string,
     @Body() body: unknown,
@@ -122,6 +126,7 @@ export class DecksController {
   }
 
   @Post("deck/speaker-notes/suggestions")
+  @RequiresAsyncJobAdmission()
   async createSpeakerNotesSuggestionJob(
     @Param("projectId") projectId: string,
     @Body() body: unknown,

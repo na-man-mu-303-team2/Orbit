@@ -7,6 +7,7 @@ import {
   type SignedCookieRequest,
 } from "../auth/current-user";
 import { ProjectsService } from "../projects/projects.service";
+import { RequiresAsyncJobAdmission } from "../common/async-job-admission.guard";
 import { JobsService } from "./jobs.service";
 
 const createJobSchema = z.object({
@@ -24,6 +25,7 @@ export class JobsController {
   ) {}
 
   @Post()
+  @RequiresAsyncJobAdmission()
   async createJob(
     @Body() body: unknown,
     @Req() request: SignedCookieRequest,

@@ -1,6 +1,10 @@
 import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { LocalMinioStorage } from "./index";
+import {
+  LocalMinioStorage,
+  PurposeRoutingStorage,
+  type StoragePort,
+} from "./index";
 
 describe("ORBIT-93 S3-compatible storage presign", () => {
   it("creates a browser-facing MinIO PUT URL without contacting the bucket", async () => {
@@ -18,6 +22,7 @@ describe("ORBIT-93 S3-compatible storage presign", () => {
       key: "projects/project_1/assets/file_1/report.pdf",
       contentType: "application/pdf",
       expiresInSeconds: 900,
+      purpose: "report-result",
     });
     const url = new URL(upload.url);
 
@@ -119,5 +124,85 @@ describe("ORBIT-93 S3-compatible storage presign", () => {
         metadata: { "orbit-sha256": "a".repeat(64) },
       },
     );
+  });
+});
+
+describe("PurposeRoutingStorage", () => {
+  const createStore = (name: string, presentKeys: string[] = []) => {
+    const present = new Set(presentKeys);
+    return {
+      putObject: vi.fn(async (input) => ({
+        key: input.key,
+        url: `${name}:${input.key}`,
+        contentType: input.contentType,
+        purpose: input.purpose,
+        size: typeof input.body === "string" ? input.body.length : input.body.byteLength,
+      })),
+      createUploadUrl: vi.fn(async (input) => ({
+        key: input.key,
+        url: `${name}:${input.key}`,
+        method: "PUT" as const,
+        headers: { "content-type": input.contentType },
+        expiresAt: new Date(0).toISOString(),
+      })),
+      getObject: vi.fn(async (key) => ({
+        body: new TextEncoder().encode(`${name}:${key}`),
+        contentType: "application/octet-stream",
+      })),
+      getObjectStream: vi.fn(),
+      getSignedReadUrl: vi.fn(async (key) => `${name}:${key}`),
+      removeObject: vi.fn(async () => undefined),
+      headObject: vi.fn(async (key) =>
+        present.has(key)
+          ? { contentLength: 1, contentType: "application/octet-stream" }
+          : null,
+      ),
+    } satisfies StoragePort;
+  };
+
+  it("routes private audio writes to the private store and assets elsewhere", async () => {
+    const assets = createStore("assets");
+    const privateAudio = createStore("private");
+    const storage = new PurposeRoutingStorage(assets, privateAudio);
+
+    await storage.createUploadUrl({
+      key: "raw/rehearsals/audio.webm",
+      contentType: "audio/webm",
+      expiresInSeconds: 900,
+      purpose: "rehearsal-audio",
+    });
+    await storage.createUploadUrl({
+      key: "projects/p/assets/deck.pptx",
+      contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      expiresInSeconds: 900,
+      purpose: "pptx-import",
+    });
+
+    expect(privateAudio.createUploadUrl).toHaveBeenCalledOnce();
+    expect(assets.createUploadUrl).toHaveBeenCalledOnce();
+  });
+
+  it("reads private first and falls back to the legacy assets store", async () => {
+    const assets = createStore("assets", ["legacy.webm"]);
+    const privateAudio = createStore("private", ["new.webm"]);
+    const storage = new PurposeRoutingStorage(assets, privateAudio);
+
+    await expect(storage.getSignedReadUrl("new.webm")).resolves.toBe(
+      "private:new.webm",
+    );
+    await expect(storage.getSignedReadUrl("legacy.webm")).resolves.toBe(
+      "assets:legacy.webm",
+    );
+  });
+
+  it("deletes both private and legacy copies", async () => {
+    const assets = createStore("assets");
+    const privateAudio = createStore("private");
+    const storage = new PurposeRoutingStorage(assets, privateAudio);
+
+    await storage.removeObject("audio.webm");
+
+    expect(privateAudio.removeObject).toHaveBeenCalledWith("audio.webm");
+    expect(assets.removeObject).toHaveBeenCalledWith("audio.webm");
   });
 });

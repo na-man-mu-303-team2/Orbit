@@ -115,8 +115,9 @@ def validate_storage_read_url(
 
     hostname = parsed.hostname or ""
     if config.storage_driver == "s3" and hostname.endswith(".amazonaws.com"):
-        bucket_in_host = hostname.startswith(f"{config.s3_bucket}.")
-        bucket_in_path = parsed.path.startswith(f"/{config.s3_bucket}/")
+        assets_bucket = config.s3_assets_bucket or config.s3_bucket
+        bucket_in_host = hostname.startswith(f"{assets_bucket}.")
+        bucket_in_path = parsed.path.startswith(f"/{assets_bucket}/")
         if bucket_in_host or bucket_in_path:
             return
     raise ValueError(f"OOXML locator host is not allowed: {locator.locator_id}")

@@ -34,6 +34,7 @@ API, worker, web, Python worker는 시작 시 환경변수를 검증한다.
 ```txt
 STORAGE_DRIVER=minio | s3
 JOB_QUEUE_DRIVER=bullmq
+ASYNC_JOB_ADMISSION_MODE=enabled | drain
 AI_DECK_EXECUTION_MODE=monolith | bullmq | pg
 AI_DECK_WORKER_QUEUE=all | reference-extract | research-content | design-layout | image | qa-finalize
 AI_DECK_WORKER_CONCURRENCY=1..32
@@ -46,6 +47,16 @@ LLM_PROVIDER=openai
 ```
 
 현재 `.env.example`, `.env.staging.example`, `.env.production.example` 템플릿은 다른 비동기 Job의 transport로 `JOB_QUEUE_DRIVER=bullmq`를 사용한다. AI Deck stage transport는 `AI_DECK_EXECUTION_MODE`가 별도로 결정한다. `JOB_QUEUE_DRIVER=sqs`는 지원하지 않으며 Worker startup이 실패한다.
+
+`S3_ASSETS_BUCKET`은 일반 asset과 Python OOXML asset의 저장 위치다. 전환
+호환 기간에는 누락 시 `S3_BUCKET`을 사용한다. `S3_PRIVATE_AUDIO_BUCKET`이
+설정되면 private audio purpose의 새 object만 전용 bucket에 쓰고, 읽기는
+전용 bucket을 먼저 확인한 뒤 기존 assets bucket을 확인한다.
+
+`ASYNC_JOB_ADMISSION_MODE=drain`은 ECS/EC2 전환 시 표시된 HTTP endpoint의
+신규 AI, STT, OCR 및 export Job 접수를 503
+`ASYNC_JOB_ADMISSION_DRAINING`으로 중단한다. 조회와 기존 Worker Job 처리는
+유지한다.
 
 `AI_DECK_EXECUTION_MODE`의 코드 fallback은 `bullmq`지만 로컬 `.env.example`의 명시적 기본값은 `pg`, `AI_DECK_WORKER_QUEUE`의 기본값은 `all`이다. `AI_DECK_WORKER_CONCURRENCY`와 `AI_DECK_USER_CONCURRENCY`는 각각 5가 기본값이며 `pg`에서만 AI Deck 실행 상한으로 사용한다. 로컬 `docker-compose.yml`의 API와 Worker는 이 값을 별도 `environment` 항목으로 덮어쓰지 않고 `.env.local`에서 읽는다. `.env.staging.example`과 `.env.production.example`은 별도 cutover 전까지 명시적 `monolith`/`all`을 유지하므로 코드 배포가 staging·production을 `pg`로 자동 전환하지 않는다.
 

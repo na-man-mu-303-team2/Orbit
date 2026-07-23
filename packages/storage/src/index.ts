@@ -1,4 +1,4 @@
-import { FilePurpose } from "@orbit/shared";
+import { FilePurpose, privateAudioPurposes } from "@orbit/shared";
 import { Readable } from "node:stream";
 import {
   DeleteObjectCommand,
@@ -22,6 +22,7 @@ export interface StorageUploadUrlInput {
   key: string;
   contentType: string;
   expiresInSeconds: number;
+  purpose: FilePurpose;
 }
 
 export interface StorageUploadUrl {
@@ -275,5 +276,75 @@ export class LocalMinioStorage extends S3CompatibleStorage {
 export class S3Storage extends S3CompatibleStorage {
   constructor(options: S3CompatibleStorageOptions) {
     super(options);
+  }
+}
+
+/**
+ * Routes new private-audio writes to their dedicated store while keeping
+ * read/delete compatibility with objects written to the legacy assets store.
+ */
+export class PurposeRoutingStorage implements StoragePort {
+  constructor(
+    private readonly assets: StoragePort,
+    private readonly privateAudio: StoragePort,
+  ) {}
+
+  putObject(input: StoragePutInput): Promise<StorageObject> {
+    return this.writeTarget(input.purpose).putObject(input);
+  }
+
+  createUploadUrl(input: StorageUploadUrlInput): Promise<StorageUploadUrl> {
+    return this.writeTarget(input.purpose).createUploadUrl(input);
+  }
+
+  async getObject(key: string): Promise<StorageReadResult> {
+    return (await this.readTarget(key)).getObject(key);
+  }
+
+  async getObjectStream(key: string): Promise<StorageStreamReadResult> {
+    return (await this.readTarget(key)).getObjectStream(key);
+  }
+
+  async getSignedReadUrl(
+    key: string,
+    expiresInSeconds?: number,
+  ): Promise<string> {
+    return (await this.readTarget(key)).getSignedReadUrl(
+      key,
+      expiresInSeconds,
+    );
+  }
+
+  async removeObject(key: string): Promise<void> {
+    if (this.assets === this.privateAudio) {
+      await this.assets.removeObject(key);
+      return;
+    }
+
+    await Promise.all([
+      this.privateAudio.removeObject(key),
+      this.assets.removeObject(key),
+    ]);
+  }
+
+  async headObject(key: string): Promise<StorageHeadResult | null> {
+    return (
+      (await this.privateAudio.headObject(key)) ??
+      (await this.assets.headObject(key))
+    );
+  }
+
+  private writeTarget(purpose: FilePurpose): StoragePort {
+    return privateAudioPurposes.has(purpose) ? this.privateAudio : this.assets;
+  }
+
+  private async readTarget(key: string): Promise<StoragePort> {
+    if (this.assets === this.privateAudio) {
+      return this.assets;
+    }
+
+    return (await this.privateAudio.headObject(key))
+      ? this.privateAudio
+      : this.assets;
   }
 }

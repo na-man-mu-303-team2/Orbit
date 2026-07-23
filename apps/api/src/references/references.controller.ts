@@ -9,6 +9,7 @@ import {
   type SignedCookieRequest,
 } from "../auth/current-user";
 import { ProjectsService } from "../projects/projects.service";
+import { RequiresAsyncJobAdmission } from "../common/async-job-admission.guard";
 import { referenceSearchRequestSchema } from "./references.schema";
 import { ReferencesService } from "./references.service";
 
@@ -35,6 +36,7 @@ export class ReferencesController {
   }
 
   @Post("extractions")
+  @RequiresAsyncJobAdmission()
   async extractReferences(
     @Param("projectId") projectId: string,
     @Body() body: unknown,

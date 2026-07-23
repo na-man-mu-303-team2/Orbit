@@ -680,6 +680,14 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     if (this.storageDeletionTimer) clearInterval(this.storageDeletionTimer);
     if (this.activityRetentionTimer) clearInterval(this.activityRetentionTimer);
     if (this.aiDeckMaintenanceTimer) clearInterval(this.aiDeckMaintenanceTimer);
+    this.logger.info(
+      {
+        event: "worker.draining",
+        queueNames: this.queueNames,
+      },
+      "Worker is pausing new job claims.",
+    );
+    await Promise.all(this.workers.map((worker) => worker.pause()));
     await this.aiDeckPostgresRunner?.stop();
     await Promise.all(this.workers.map((worker) => worker.close()));
     await this.aiDeckMaintenanceInFlight;

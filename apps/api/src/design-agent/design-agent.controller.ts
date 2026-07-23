@@ -8,6 +8,7 @@ import { Body, Controller, Param, Post, Req } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
 import { getCurrentUser, type SignedCookieRequest } from "../auth/current-user";
 import { parseRequest } from "../common/zod-request";
+import { RequiresAsyncJobAdmission } from "../common/async-job-admission.guard";
 import { ProjectsService } from "../projects/projects.service";
 import { DesignAgentService } from "./design-agent.service";
 import { DesignImageGenerationService } from "./design-image-generation.service";
@@ -37,6 +38,7 @@ export class DesignAgentController {
   }
 
   @Post("image-generations")
+  @RequiresAsyncJobAdmission()
   async createImageGeneration(
     @Param("projectId") projectId: string,
     @Body() body: unknown,
