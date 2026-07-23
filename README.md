@@ -1,5 +1,8 @@
 <div align="center">
-  <img src="./apps/web/src/assets/orbit-logo.png" alt="ORBIT 로고" width="156" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/readme/orbit-logo-dark.png" />
+    <img src="./docs/assets/readme/orbit-logo-light.png" alt="ORBIT 로고" width="200" />
+  </picture>
   <h1>ORBIT</h1>
   <p><strong>발표를 만드는 순간부터, 무대에 오르는 순간까지.</strong></p>
   <p>
@@ -26,7 +29,7 @@
 <p align="center">
   <img
     src="./docs/assets/readme/orbit-product-hero.jpg"
-    alt="최근 프로젝트와 AI 발표자료 만들기, 리허설 시작하기가 보이는 ORBIT 작업 공간"
+    alt="내 프로젝트 목록과 AI 발표자료 만들기, 최근 프로젝트 카드가 보이는 ORBIT 작업 공간"
     width="100%"
   />
 </p>
@@ -54,22 +57,22 @@ flowchart LR
     <td width="50%" valign="top">
       <img
         src="./docs/assets/readme/orbit-create-flow.jpg"
-        alt="발표 주제, 목적, 청중과 발표 시간을 입력한 ORBIT AI 발표자료 생성 화면"
+        alt="발표 주제, 타깃 청중, 상세 내용과 대본 톤을 입력한 ORBIT AI 발표자료 생성 화면"
         width="100%"
       />
       <br />
       <strong>AI 발표자료 생성</strong><br />
-      발표 목적, 청중, 핵심 메시지와 참고자료를 입력하고 Design Pack 기반의 Deck을 생성합니다.
+      발표 목적, 청중, 핵심 메시지와 참고자료를 입력해 Design Pack 기반의 Deck을 생성합니다. 기존 PPTX 가져오기나 빈 프로젝트로 시작할 수도 있습니다.
     </td>
     <td width="50%" valign="top">
       <img
         src="./docs/assets/readme/orbit-editor.jpg"
-        alt="슬라이드 목록, Canvas와 AI 도구 패널로 구성된 ORBIT 에디터"
+        alt="슬라이드 목록, Canvas와 AI 어시스턴트 패널로 구성된 ORBIT 에디터"
         width="100%"
       />
       <br />
       <strong>Canvas 편집</strong><br />
-      Konva 기반 에디터에서 슬라이드를 다듬고 AI 코치, 디자인, 발표 메모를 같은 작업 공간에서 관리합니다.
+      Konva 기반 에디터에서 슬라이드를 다듬고 AI 코치, 디자인, 발표 메모를 같은 작업 공간에서 관리합니다. 완성한 Deck은 PPTX로 내보낼 수 있습니다.
     </td>
   </tr>
   <tr>
@@ -96,7 +99,7 @@ flowchart LR
   </tr>
 </table>
 
-준비가 끝난 Deck은 발표자 화면과 청중 화면에 동기화해 실전 발표로 이어집니다.
+준비가 끝난 Deck은 발표자 화면과 청중 화면에 동기화하고, QR로 입장한 청중과 실시간 투표·평점·자유 응답 같은 활동 슬라이드로 상호작용하며 실전 발표로 이어집니다. 만든 Deck은 커뮤니티 템플릿으로 공유하거나 갤러리에서 다른 사용자의 템플릿을 가져와 시작할 수 있습니다.
 
 ### 로컬 우선으로 설계했습니다
 
