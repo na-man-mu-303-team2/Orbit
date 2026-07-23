@@ -3814,7 +3814,7 @@
   grid-template-columns: minmax(0, 1fr) clamp(240px, 20vw, 300px);
   grid-template-rows: minmax(0, 1fr) clamp(232px, 27dvh, 248px);
   max-width: 100%;
-  padding: var(--redesign-space-1);
+  padding: 8px;
   width: 100%;
 }
 
