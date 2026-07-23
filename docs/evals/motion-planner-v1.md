@@ -75,7 +75,7 @@ binary byte equality는 요구하지 않는다. presenter preview는 Web의 `cre
 
 ## rollout과 중단 조건
 
-1. `AI_MOTION_PLANNER_MODE=shadow`: authored와 imported 결과를 저장하지 않고 bounded count/reason/safety만 확인한다.
+1. `AI_MOTION_PLANNER_MODE=on`: eligibility와 coverage gate를 통과한 authored와 imported proposal에 compiler 결과를 사용하고 bounded count/reason/safety를 확인한다.
 2. internal/demo: authored content만 `on`으로 운영한다.
 3. 사람 평가와 live 5회 안전 평가 통과 후 authored 5%로 시작한다.
 4. authored 25% → 100%는 safety invariant와 신고율을 확인하며 단계적으로 진행한다.
