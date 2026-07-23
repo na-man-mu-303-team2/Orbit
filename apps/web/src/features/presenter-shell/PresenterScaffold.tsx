@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, Pause, Play, RotateCcw } from "lucide-react";
 import type { ReactNode } from "react";
+import { shouldAdvancePresentationFromClick } from "./presentationClickAdvance";
 
 export type PresenterTimeMode = "stopwatch" | "timer";
 
@@ -137,14 +138,17 @@ export function PresenterStageSection(props: {
   currentIndex: number;
   currentSlideTitle?: string;
   emptyStageLabel: string;
+  leftPanel?: ReactNode;
   navigationPending?: boolean;
   nextHint: string;
   nextSlideContent?: ReactNode;
   nextSlideTitle: string;
   onNext: () => void;
   onPrevious: () => void;
+  onStageAdvance?: () => void;
   previousDisabled: boolean;
   renderStage: ReactNode | null;
+  stageAdvanceDisabled?: boolean;
   stageIndexLabel?: string;
   stageRef?: (node: HTMLDivElement | null) => void;
   totalSlides: number;
@@ -159,7 +163,23 @@ export function PresenterStageSection(props: {
           <>
             <span className="rehearsal-stage-label">현재</span>
             <div className="rehearsal-stage-viewport" ref={props.stageRef}>
-              <div className="rehearsal-stage-surface">{props.renderStage}</div>
+              <div
+                className="rehearsal-stage-surface"
+                onClick={(event) => {
+                  if (
+                    !props.onStageAdvance ||
+                    props.navigationPending ||
+                    props.stageAdvanceDisabled ||
+                    event.defaultPrevented ||
+                    !shouldAdvancePresentationFromClick(event.target)
+                  ) {
+                    return;
+                  }
+                  props.onStageAdvance();
+                }}
+              >
+                {props.renderStage}
+              </div>
             </div>
             {props.stageIndexLabel ? (
               <span className="rehearsal-stage-index">{props.stageIndexLabel}</span>
@@ -191,10 +211,7 @@ export function PresenterStageSection(props: {
           <button
             type="button"
             onClick={props.onNext}
-            disabled={
-              props.navigationPending ||
-              props.currentIndex >= props.totalSlides - 1
-            }
+            disabled={props.navigationPending}
             aria-label="다음 슬라이드"
             title="다음 슬라이드"
           >
@@ -213,6 +230,7 @@ export function PresenterStageSection(props: {
           <p>{props.nextHint}</p>
         </div>
       </section>
+      {props.leftPanel}
     </section>
   );
 }

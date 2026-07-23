@@ -90,6 +90,15 @@ describe("PresenterStageSection", () => {
     expect(html).toContain("슬라이드 준비 중…");
     expect(html.match(/disabled=""/g)).toHaveLength(2);
   });
+
+  it("routes a normal stage click through the supplied next-step command", () => {
+    const source = fs.readFileSync(presenterScaffoldSourcePath, "utf8");
+
+    expect(source).toContain("onStageAdvance?: () => void;");
+    expect(source).toContain("shouldAdvancePresentationFromClick(event.target)");
+    expect(source).toContain("props.onStageAdvance();");
+    expect(source).not.toContain("props.currentIndex >= props.totalSlides - 1");
+  });
 });
 
 describe("PresenterTimerCard", () => {

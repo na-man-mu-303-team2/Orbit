@@ -1,4 +1,5 @@
 import type { DeckAnimation } from "@orbit/shared";
+import { IconTrash } from "@tabler/icons-react";
 
 import { AnimationPanelSection } from "./AnimationPanelSection";
 import {
@@ -8,14 +9,20 @@ import {
 
 export function AnimationExistingList(props: {
   animations: DeckAnimation[];
+  deleteDisabledReason?: string | null;
+  deleteNoticeByAnimationId?: Record<string, string | undefined>;
   ordinalLabelByAnimationId: Record<string, string>;
   selectedAnimationId: string | null;
+  onDeleteAnimation: (animationId: string) => void;
   onSelectAnimation: (animationId: string) => void;
 }) {
   const {
     animations,
+    deleteDisabledReason = null,
+    deleteNoticeByAnimationId = {},
     ordinalLabelByAnimationId,
     selectedAnimationId,
+    onDeleteAnimation,
     onSelectAnimation
   } = props;
 
@@ -32,9 +39,11 @@ export function AnimationExistingList(props: {
         {animations.map((animation) => {
           const isSelected = animation.animationId === selectedAnimationId;
 
+          const deleteNotice = deleteNoticeByAnimationId[animation.animationId];
+
           return (
+            <div className="animation-panel-existing-row" key={animation.animationId}>
             <button
-              key={animation.animationId}
               className={`animation-panel-existing-item${isSelected ? " selected" : ""}`}
               type="button"
               onClick={() => onSelectAnimation(animation.animationId)}
@@ -50,6 +59,17 @@ export function AnimationExistingList(props: {
                 {ordinalLabelByAnimationId[animation.animationId] ?? "미정"}
               </span>
             </button>
+            <button
+              aria-label={`${getAnimationTypeLabel(animation.type)} 애니메이션 삭제`}
+              className="animation-panel-existing-delete"
+              disabled={Boolean(deleteDisabledReason)}
+              title={deleteDisabledReason ?? deleteNotice}
+              type="button"
+              onClick={() => onDeleteAnimation(animation.animationId)}
+            >
+              <IconTrash aria-hidden="true" size={15} />
+            </button>
+          </div>
           );
         })}
       </div>

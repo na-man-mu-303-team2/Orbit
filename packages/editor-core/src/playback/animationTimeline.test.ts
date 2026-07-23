@@ -9,6 +9,23 @@ import {
 } from "./animationTimeline";
 
 describe("animationTimeline", () => {
+  it("splits relative effects when keyword occurrence triggers differ", () => {
+    const plan = createAnimationTimeline({
+      actionTriggerKeys: new Map([
+        ["anim_1", "keyword-occurrence:kw_first:kwo_first"],
+        ["anim_2", "keyword-occurrence:kw_second:kwo_second"]
+      ]),
+      animations: [
+        createAnimation("anim_1", { order: 1, startMode: "on-click" }),
+        createAnimation("anim_2", { order: 2, startMode: "with-previous" })
+      ]
+    });
+
+    expect(
+      plan.clickSteps.map((step) => step.effects.map((effect) => effect.animationId))
+    ).toEqual([["anim_1"], ["anim_2"]]);
+  });
+
   it("stable-sorts logical order without treating duplicate order as concurrency", () => {
     const plan = createAnimationTimeline({
       animations: [
