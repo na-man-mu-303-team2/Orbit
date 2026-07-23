@@ -120,7 +120,7 @@ type SpikeSession = {
   createdAtMs: number;
   expiresAtMs: number;
   hostKind: "presentation" | "rehearsal";
-  hostSocketId: string;
+  hostSocketId: string | null;
   projectId: string;
   spikeId: string;
 };
@@ -196,6 +196,59 @@ export class PresentationCompanionSpikeGateway
     };
   }
 
+  @SubscribeMessage(`${spikeEventPrefix}:resume`)
+  async resumeSession(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown
+  ) {
+    if (config.APP_ENV === "production") {
+      return spikeError("SPIKE_DISABLED", "Companion spike is disabled.");
+    }
+
+    const parsed = joinSpikeSessionSchema.safeParse(body);
+    const authSessionId = readSignedCookie(client, authSessionCookieName);
+    if (!parsed.success || !authSessionId) {
+      return spikeError("SPIKE_AUTH_REQUIRED", "Presenter access required.");
+    }
+    const session = this.getActiveSession(parsed.data.spikeId);
+    if (!session) {
+      return spikeError("SPIKE_UNAVAILABLE", "Spike session is unavailable.");
+    }
+    if (session.hostSocketId && session.hostSocketId !== client.id) {
+      return spikeError("SPIKE_HOST_ACTIVE", "Spike host is already active.");
+    }
+
+    try {
+      const { user } = await this.authService.me(authSessionId);
+      await this.projectsService.assertCanWriteProject(
+        session.projectId,
+        user.userId
+      );
+    } catch {
+      return spikeError("SPIKE_AUTH_REQUIRED", "Presenter access required.");
+    }
+
+    session.hostSocketId = client.id;
+    await client.join(hostRoom(session.spikeId));
+    client.data.companionSpikeId = session.spikeId;
+    client.data.companionSpikeRole = "host";
+    if (session.companionSocketId) {
+      this.server
+        .to(session.companionSocketId)
+        .emit(`${spikeEventPrefix}:presence`, {
+          connected: true,
+          reason: "host-resumed",
+          spikeId: session.spikeId
+        });
+    }
+    return {
+      expiresAt: new Date(session.expiresAtMs).toISOString(),
+      hostKind: session.hostKind,
+      resumed: true,
+      spikeId: session.spikeId
+    };
+  }
+
   @SubscribeMessage(`${spikeEventPrefix}:join`)
   async joinCompanion(
     @ConnectedSocket() client: Socket,
@@ -207,7 +260,7 @@ export class PresentationCompanionSpikeGateway
     }
 
     const session = this.getActiveSession(parsed.data.spikeId);
-    if (!session) {
+    if (!session || !session.hostSocketId) {
       return spikeError("SPIKE_UNAVAILABLE", "Spike session is unavailable.");
     }
 
@@ -361,7 +414,7 @@ export class PresentationCompanionSpikeGateway
     if (!session) return;
 
     if (session.hostSocketId === client.id) {
-      this.sessions.delete(spikeId);
+      session.hostSocketId = null;
       if (session.companionSocketId) {
         this.server
           .to(session.companionSocketId)
@@ -376,18 +429,22 @@ export class PresentationCompanionSpikeGateway
 
     if (session.companionSocketId === client.id) {
       session.companionSocketId = null;
-      this.server.to(session.hostSocketId).emit(`${spikeEventPrefix}:presence`, {
-        connected: false,
-        reason: "companion-disconnected",
-        spikeId
-      });
+      if (session.hostSocketId) {
+        this.server
+          .to(session.hostSocketId)
+          .emit(`${spikeEventPrefix}:presence`, {
+            connected: false,
+            reason: "companion-disconnected",
+            spikeId
+          });
+      }
     }
   }
 
   private relay<T extends { spikeId: string }>(
     client: Socket,
     body: unknown,
-    schema: z.ZodType<T>,
+    schema: z.ZodType<T, z.ZodTypeDef, unknown>,
     sourceRole: "companion" | "host",
     targetRole: "companion" | "host",
     eventSuffix: string

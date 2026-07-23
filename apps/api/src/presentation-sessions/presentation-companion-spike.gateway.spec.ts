@@ -219,4 +219,31 @@ describe("PresentationCompanionSpikeGateway", () => {
       target: "host_socket"
     });
   });
+
+  it("lets an authorized host resume the same session after reload", async () => {
+    const { companion, instance, socketServer, host, spikeId } =
+      await joinedClients();
+    instance.handleDisconnect(host);
+    const resumedHost = client(
+      "resumed_host_socket",
+      signedCookie(authSessionCookieName, "auth_session_1")
+    );
+
+    await expect(
+      instance.resumeSession(resumedHost, { spikeId })
+    ).resolves.toMatchObject({
+      hostKind: "presentation",
+      resumed: true,
+      spikeId
+    });
+    expect(socketServer.emissions).toContainEqual({
+      event: "presentation-companion-spike:presence",
+      payload: {
+        connected: true,
+        reason: "host-resumed",
+        spikeId
+      },
+      target: companion.id
+    });
+  });
 });
