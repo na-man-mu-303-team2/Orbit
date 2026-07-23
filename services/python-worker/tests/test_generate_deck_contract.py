@@ -1380,7 +1380,7 @@ def test_release_nouns_do_not_count_as_product_launch_closing_action() -> None:
     assert design_pack_source_ledgers(raw_input, closing)[0]["claim"] == closing.message
 
 
-def test_presentation_validation_allows_thank_you_closing_without_action() -> None:
+def test_presentation_validation_rejects_stale_thank_you_closing_metadata() -> None:
     deck = generate_deck(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -1399,10 +1399,44 @@ def test_presentation_validation_allows_thank_you_closing_without_action() -> No
 
     codes = {issue.code for issue in validate_presentation(deck)}
 
+    assert "CTA_MISSING" in codes
+
+
+@pytest.mark.parametrize(
+    "closing_copy",
+    [
+        "고맙습니다",
+        "Thank you",
+        "이상으로 발표를 마치겠습니다",
+        "발표를 마칩니다",
+        "마무리",
+    ],
+)
+def test_presentation_validation_allows_short_closing_copy_without_action(
+    closing_copy: str,
+) -> None:
+    deck = generate_deck(
+        GenerateDeckRequest(
+            projectId="project_demo_1",
+            topic="ORBIT",
+            design={"profile": "startup-pitch"},
+        )
+    ).deck
+    closing = deck["slides"][-1]
+    closing["title"] = closing_copy
+    for element in closing["elements"]:
+        if element.get("type") == "text" and element.get("role") not in {
+            "caption",
+            "footer",
+        }:
+            element["props"]["text"] = closing_copy
+
+    codes = {issue.code for issue in validate_presentation(deck)}
+
     assert "CTA_MISSING" not in codes
 
 
-def test_presentation_validation_allows_product_thank_you_closing_without_action() -> None:
+def test_presentation_validation_rejects_stale_product_closing_metadata() -> None:
     deck = generate_deck(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -1421,7 +1455,7 @@ def test_presentation_validation_allows_product_thank_you_closing_without_action
 
     codes = {issue.code for issue in validate_presentation(deck)}
 
-    assert "CTA_MISSING" not in codes
+    assert "CTA_MISSING" in codes
 
 
 def test_presentation_validation_detects_typography_rule_violations() -> None:
