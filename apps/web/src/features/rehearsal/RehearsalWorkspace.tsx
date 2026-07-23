@@ -291,6 +291,7 @@ import {
   type KeywordOccurrenceRuntimeMatch,
 } from "./speech/keywordOccurrenceRuntime";
 import {
+  getPresenterTimingProgress,
   PresenterStageSection,
   PresenterTimerCard,
   PresenterTopbar,
@@ -2777,11 +2778,11 @@ export function RehearsalWorkspace(props: {
         currentSlideTargetSeconds: 0,
         currentSlideOvertime: false,
       };
-  const totalTimingProgress = getRehearsalTimingProgress(
+  const totalTimingProgress = getPresenterTimingProgress(
     p3TimingSnapshot.elapsedSeconds,
     p3TimingSnapshot.deckTargetSeconds,
   );
-  const slideTimingProgress = getRehearsalTimingProgress(
+  const slideTimingProgress = getPresenterTimingProgress(
     p3TimingSnapshot.currentSlideElapsedSeconds,
     p3TimingSnapshot.currentSlideTargetSeconds,
   );
@@ -7373,27 +7374,7 @@ function getSlideTargetSeconds(deck: Deck, slide: Slide) {
   );
 }
 
-export function getRehearsalTimingProgress(
-  elapsedSeconds: number,
-  targetSeconds: number,
-  toleranceSeconds = 5,
-): { percent: number; tone: "default" | "warning" | "danger" } {
-  if (targetSeconds <= 0) {
-    return { percent: 0, tone: "default" };
-  }
-
-  const percent = Math.min(
-    100,
-    Math.max(0, (elapsedSeconds / targetSeconds) * 100),
-  );
-  if (elapsedSeconds > targetSeconds + toleranceSeconds) {
-    return { percent, tone: "danger" };
-  }
-  if (elapsedSeconds >= Math.max(0, targetSeconds - toleranceSeconds)) {
-    return { percent, tone: "warning" };
-  }
-  return { percent, tone: "default" };
-}
+export const getRehearsalTimingProgress = getPresenterTimingProgress;
 
 
 function formatClock(totalSeconds: number) {
