@@ -1,6 +1,13 @@
 import { loadOrbitConfig } from "@orbit/config";
+import {
+  presentationCompanionBootstrapSchema,
+  presentationCompanionStatusSchema,
+  type PresentationCompanionBootstrap,
+  type PresentationCompanionStatus,
+} from "@orbit/shared";
 import { randomBytes } from "node:crypto";
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { InjectPinoLogger, PinoLogger } from "nestjs-pino";
 
 import {
   companionAccessScopes,
@@ -26,6 +33,8 @@ export class PresentationCompanionService {
     private readonly store: PresentationCompanionStore,
     private readonly sessions: PresentationSessionRepository,
     private readonly projection: PresentationCompanionProjectionService,
+    @InjectPinoLogger(PresentationCompanionService.name)
+    private readonly logger: PinoLogger,
   ) {}
 
   async createPairing(
@@ -51,12 +60,22 @@ export class PresentationCompanionService {
       },
       pairingTtlSeconds,
     );
-    return {
+    const result = {
       code,
       expiresAt: new Date(
         now.getTime() + pairingTtlSeconds * 1_000,
       ).toISOString(),
     };
+    this.logger.info(
+      {
+        event: "presentation_companion.pairing_created",
+        projectId,
+        presentationSessionId: sessionId,
+        expiresAt: result.expiresAt,
+      },
+      "presentation companion pairing created",
+    );
+    return result;
   }
 
   async exchangePairing(
@@ -123,6 +142,16 @@ export class PresentationCompanionService {
     if (!credential) {
       throw companionUnavailable();
     }
+    this.logger.info(
+      {
+        event: "presentation_companion.pairing_exchanged",
+        projectId: credential.projectId,
+        presentationSessionId: credential.sessionId,
+        pairingGeneration: credential.pairingGeneration,
+        expiresAt: credential.expiresAt,
+      },
+      "presentation companion pairing exchanged",
+    );
     return { token, credential };
   }
 
@@ -167,15 +196,83 @@ export class PresentationCompanionService {
 
   async revokeSession(sessionId: string): Promise<void> {
     await this.store.revokeSession(sessionId);
+    this.logger.info(
+      {
+        event: "presentation_companion.revoked",
+        presentationSessionId: sessionId,
+      },
+      "presentation companion credential revoked",
+    );
   }
 
-  async getStatus(sessionId: string) {
-    const [generation, authorityEpochId, presence] = await Promise.all([
+  async disconnect(
+    projectId: string,
+    sessionId: string,
+    now = new Date(),
+  ): Promise<void> {
+    await this.requireActiveSession(sessionId, projectId, now);
+    await this.revokeSession(sessionId);
+  }
+
+  async getStatus(
+    projectId: string,
+    sessionId: string,
+    now = new Date(),
+  ): Promise<PresentationCompanionStatus> {
+    await this.requireActiveSession(sessionId, projectId, now);
+    const [generation, presence] = await Promise.all([
       this.store.getLatestGeneration(sessionId),
-      this.store.getAuthority(sessionId),
       this.store.getPresence(sessionId),
     ]);
-    return { generation, authorityEpochId, presence };
+    const connected =
+      generation !== null &&
+      presence !== null &&
+      presence.generation === generation;
+    return presentationCompanionStatusSchema.parse({
+      connected,
+      pairingGeneration: generation,
+      connectedAt: connected ? presence.connectedAt : null,
+      rttBucket: connected ? presence.rttBucket : null,
+    });
+  }
+
+  async getBootstrap(
+    token: string,
+    userAgent: string,
+    sessionId: string,
+    now = new Date(),
+  ): Promise<PresentationCompanionBootstrap> {
+    const credential = await this.verifyCredential(
+      token,
+      userAgent,
+      sessionId,
+      now,
+    );
+    if (!credential) {
+      throw companionUnavailable();
+    }
+    const session = await this.requireActiveSession(
+      sessionId,
+      credential.projectId,
+      now,
+    );
+    if (
+      session.deck_id !== credential.deckId ||
+      session.deck_version !== credential.deckVersion
+    ) {
+      throw companionUnavailable();
+    }
+    const projection = await this.projection.getDeckProjection(
+      sessionId,
+      now,
+    );
+    return presentationCompanionBootstrapSchema.parse({
+      sessionId,
+      sessionPurpose: session.session_purpose,
+      expiresAt: credential.expiresAt,
+      scopes: credential.scopes,
+      deck: projection.deck,
+    });
   }
 
   claimAuthority(

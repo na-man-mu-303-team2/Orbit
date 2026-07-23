@@ -77,16 +77,42 @@ function createFixture() {
   } as unknown as PresentationSessionRepository;
   const projection = {
     getDeckProjection: vi.fn().mockResolvedValue({
-      deck: { deckId: "deck_1", version: 4 },
+      deck: {
+        deckId: "deck_1",
+        projectId: "project_1",
+        version: 4,
+        canvas: {
+          preset: "wide-16-9",
+          width: 1920,
+          height: 1080,
+          aspectRatio: "16:9",
+        },
+        theme: {},
+        slides: [
+          {
+            slideId: "slide_1",
+            kind: "content",
+            order: 1,
+            style: {},
+            elements: [],
+            animations: [],
+          },
+        ],
+      },
       referencedAssetIds: new Set(),
     }),
   } as unknown as PresentationCompanionProjectionService;
+  const logger = {
+    info: vi.fn(),
+  };
   return {
+    logger,
     projection,
     service: new PresentationCompanionService(
       store,
       sessions,
       projection,
+      logger as never,
     ),
     sessions,
     store,
@@ -115,6 +141,54 @@ describe("PresentationCompanionService", () => {
       },
       120,
     );
+    expect(fixture.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "presentation_companion.pairing_created",
+        presentationSessionId: "session_1",
+      }),
+      expect.any(String),
+    );
+  });
+
+  it("returns only safe bootstrap fields and fail-closed status", async () => {
+    const fixture = createFixture();
+    const pairing = await fixture.service.createPairing(
+      "project_1",
+      "session_1",
+      now,
+    );
+    const exchange = await fixture.service.exchangePairing(
+      pairing.code,
+      "iPad Safari",
+      now,
+    );
+
+    await expect(
+      fixture.service.getBootstrap(
+        exchange.token,
+        "iPad Safari",
+        "session_1",
+        now,
+      ),
+    ).resolves.toMatchObject({
+      sessionId: "session_1",
+      sessionPurpose: "presentation",
+      scopes: ["view-audience-output", "write-annotation"],
+      deck: { deckId: "deck_1", version: 4 },
+    });
+    await expect(
+      fixture.service.getStatus("project_1", "session_1", now),
+    ).resolves.toEqual({
+      connected: false,
+      pairingGeneration: 1,
+      connectedAt: null,
+      rttBucket: null,
+    });
+    await expect(
+      fixture.service.getStatus("project_other", "session_1", now),
+    ).rejects.toMatchObject({
+      message: "Presentation companion unavailable",
+    });
   });
 
   it("consumes a pairing once and caps credential expiry at four hours", async () => {

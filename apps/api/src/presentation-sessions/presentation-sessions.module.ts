@@ -25,6 +25,11 @@ import { PresentationCompanionSpikeGateway } from "./presentation-companion-spik
 import { PresentationCompanionProjectionService } from "./presentation-companion-projection.service";
 import { PresentationCompanionService } from "./presentation-companion.service";
 import {
+  ProjectPresentationCompanionController,
+  PublicPresentationCompanionController,
+} from "./presentation-companion.controller";
+import { PresentationCompanionRateLimitService } from "./presentation-companion-request-security";
+import {
   createRedisPresentationCompanionStore,
   PresentationCompanionStore,
 } from "./presentation-companion.store";
@@ -41,6 +46,8 @@ import {
   ],
   controllers: [
     AudienceSessionsController,
+    ProjectPresentationCompanionController,
+    PublicPresentationCompanionController,
     PresentationSessionsController,
     PresentationRunsController,
     ProjectPresentationRunsController,
@@ -52,6 +59,7 @@ import {
     PresentationRunsService,
     PresentationCompanionSpikeGateway,
     PresentationCompanionProjectionService,
+    PresentationCompanionRateLimitService,
     PresentationCompanionService,
     {
       provide: PresentationCompanionStore,
@@ -67,6 +75,7 @@ import {
     PresentationSessionsService,
     PresentationRunsService,
     PresentationCompanionProjectionService,
+    PresentationCompanionRateLimitService,
     PresentationCompanionService,
     PresentationCompanionStore,
   ],
