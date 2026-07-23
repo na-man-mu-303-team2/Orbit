@@ -111,7 +111,7 @@ class PythonWorkerConfig(BaseModel):
         min_length=1,
     )
     ai_motion_planner_mode: Literal["off", "shadow", "on"] = Field(
-        default="shadow",
+        default="on",
         alias="AI_MOTION_PLANNER_MODE",
     )
     ai_ppt_visual_qa_model: str | None = Field(

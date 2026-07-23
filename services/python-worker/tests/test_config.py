@@ -54,10 +54,10 @@ def test_openai_model_defaults_are_loaded_from_env() -> None:
 def test_motion_planner_mode_and_snapshot_contract() -> None:
     config = load_config(VALID_ENV)
     assert config.openai_motion_planner_model == "gpt-4.1-mini-2025-04-14"
-    assert config.ai_motion_planner_mode == "shadow"
+    assert config.ai_motion_planner_mode == "on"
 
-    enabled = load_config({**VALID_ENV, "AI_MOTION_PLANNER_MODE": "on"})
-    assert enabled.ai_motion_planner_mode == "on"
+    shadow = load_config({**VALID_ENV, "AI_MOTION_PLANNER_MODE": "shadow"})
+    assert shadow.ai_motion_planner_mode == "shadow"
 
     with pytest.raises(ConfigError, match="AI_MOTION_PLANNER_MODE"):
         load_config({**VALID_ENV, "AI_MOTION_PLANNER_MODE": "preview"})

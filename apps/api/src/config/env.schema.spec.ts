@@ -195,18 +195,22 @@ describe("ORBIT env validation", () => {
   });
 
   it("validates Motion Planner mode and production snapshot pinning", () => {
+    expect(loadOrbitConfig(validEnv, { service: "api" })).toMatchObject({
+      OPENAI_MOTION_PLANNER_MODEL: "gpt-4.1-mini-2025-04-14",
+      AI_MOTION_PLANNER_MODE: "on",
+    });
     expect(
       loadOrbitConfig(
         {
           ...validEnv,
           OPENAI_MOTION_PLANNER_MODEL: "gpt-4.1-mini-2025-04-14",
-          AI_MOTION_PLANNER_MODE: "on",
+          AI_MOTION_PLANNER_MODE: "shadow",
         },
         { service: "api" },
       ),
     ).toMatchObject({
       OPENAI_MOTION_PLANNER_MODEL: "gpt-4.1-mini-2025-04-14",
-      AI_MOTION_PLANNER_MODE: "on",
+      AI_MOTION_PLANNER_MODE: "shadow",
     });
     expect(() =>
       loadOrbitConfig(
