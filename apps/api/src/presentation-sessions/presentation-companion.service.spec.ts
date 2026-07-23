@@ -408,4 +408,41 @@ describe("PresentationCompanionService", () => {
       ),
     ).resolves.toBeNull();
   });
+
+  it("keeps Deck projection validation out of realtime credential checks", async () => {
+    const fixture = createFixture();
+    const pairing = await fixture.service.createPairing(
+      "project_1",
+      "session_1",
+      now,
+    );
+    const exchange = await fixture.service.exchangePairing(
+      pairing.code,
+      "iPad Safari",
+      now,
+    );
+    vi.mocked(fixture.projection.getDeckProjection).mockClear();
+
+    await expect(
+      fixture.service.verifyCredential(
+        exchange.token,
+        "iPad Safari",
+        "session_1",
+        now,
+      ),
+    ).resolves.toMatchObject({
+      deckId: "deck_1",
+      deckVersion: 4,
+      pairingGeneration: 1,
+    });
+    expect(fixture.projection.getDeckProjection).not.toHaveBeenCalled();
+
+    await fixture.service.getBootstrap(
+      exchange.token,
+      "iPad Safari",
+      "session_1",
+      now,
+    );
+    expect(fixture.projection.getDeckProjection).toHaveBeenCalledTimes(1);
+  });
 });

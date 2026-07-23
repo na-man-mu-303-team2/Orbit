@@ -204,12 +204,7 @@ export class PresentationCompanionService {
     ) {
       return null;
     }
-    try {
-      await this.projection.getDeckProjection(credential.sessionId, now);
-      return credential;
-    } catch {
-      return null;
-    }
+    return credential;
   }
 
   async revokeSession(
