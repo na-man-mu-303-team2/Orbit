@@ -1,14 +1,8 @@
 import type { Deck } from "@orbit/shared";
 import {
   AlertCircle,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Circle,
-  ListChecks,
-  PauseCircle,
-  PlayCircle,
-  RotateCcw,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -17,9 +11,17 @@ import {
   ActivitySlidePreview,
 } from "../../activity-slides";
 import {
+  getPresenterTimingProgress,
+  PresenterTimerCard,
+  type PresenterTimingProgressItem,
+} from "../../presenter-shell/PresenterScaffold";
+import {
   SemanticSpeechDebugPanel,
   shouldShowSemanticSpeechDebugPanel,
 } from "../panel/SemanticSpeechDebugPanel";
+import {
+  RehearsalPanelTopGrid,
+} from "../panel/RehearsalPanel";
 import { splitSpeakerNotesIntoSentences } from "../speech/phraseExtractor";
 import {
   createPresenterCommandMessage,
@@ -262,6 +264,19 @@ export function PresenterRemoteWindow(props: {
     () => getPresenterRemoteKeywordRows(slide, state.stepIndex),
     [slide, state.stepIndex],
   );
+  const panelKeywords = useMemo(
+    () => (slide?.keywords ?? []).slice(0, 5),
+    [slide],
+  );
+  const hitKeywordIds = useMemo(
+    () =>
+      new Set(
+        keywordRows
+          .filter((keyword) => keyword.status === "done")
+          .map((keyword) => keyword.keywordId),
+      ),
+    [keywordRows],
+  );
   const timing = getPresenterRemoteTimingState(deck, slide, state);
   const isTimerActive = timing.isRunning || timing.isLiveSttActive;
   const timerPrimaryAction = isTimerActive ? "timer-pause" : "timer-start";
@@ -270,7 +285,30 @@ export function PresenterRemoteWindow(props: {
     : isTimerActive
       ? "일시정지"
       : "시작";
-  const timerProgressPercent = getPresenterRemoteTimerProgressPercent(timing);
+  const totalTimingProgress = getPresenterTimingProgress(
+    timing.elapsedSeconds,
+    timing.timerDurationSeconds,
+  );
+  const slideTimingProgress = getPresenterTimingProgress(
+    timing.currentSlideElapsedSeconds,
+    timing.currentSlideTargetSeconds,
+  );
+  const timerProgressItems: PresenterTimingProgressItem[] = [
+    {
+      currentLabel: `현재 ${formatPresenterRemoteDuration(timing.elapsedSeconds)}`,
+      label: "총 발표 시간",
+      percent: totalTimingProgress.percent,
+      targetLabel: `예상 ${formatPresenterRemoteDuration(timing.timerDurationSeconds)}`,
+      tone: totalTimingProgress.tone,
+    },
+    {
+      currentLabel: `현재 ${formatPresenterRemoteDuration(timing.currentSlideElapsedSeconds)}`,
+      label: "현재 슬라이드",
+      percent: slideTimingProgress.percent,
+      targetLabel: `예상 ${formatPresenterRemoteDuration(timing.currentSlideTargetSeconds)}`,
+      tone: slideTimingProgress.tone,
+    },
+  ];
   const previewScale = getPresenterRemotePreviewScale(deck);
   const cueProgressCurrent =
     noteSentences.length > 0
@@ -451,91 +489,48 @@ export function PresenterRemoteWindow(props: {
           className="presenter-remote-cue-sidebar"
           aria-label="키워드 및 큐 상태"
         >
-          <section
-            className="presenter-remote-timer-panel"
-            aria-label="타이머 및 음성인식 제어"
-          >
-            <div className="presenter-remote-section-heading">
-              <span>타이머</span>
-              {timing.isPaused ? (
-                <strong>일시정지됨</strong>
-              ) : timing.isLiveSttActive ? (
-                <strong>음성인식 중</strong>
-              ) : null}
-            </div>
-            <strong
-              className="presenter-remote-timer-display"
-              aria-live="polite"
-            >
-              {formatPresenterRemoteDuration(timing.displayedSeconds)}
-            </strong>
-            <div className="presenter-remote-timer-progress" aria-hidden="true">
-              <span style={{ width: `${timerProgressPercent}%` }} />
-            </div>
-            <div className="presenter-remote-timer-actions">
-              <button
-                type="button"
-                aria-label={`리허설 ${timerPrimaryLabel}`}
-                onClick={() => sendCommand({ action: timerPrimaryAction })}
-              >
-                {isTimerActive ? (
-                  <PauseCircle size={16} />
-                ) : (
-                  <PlayCircle size={16} />
-                )}
-                {timerPrimaryLabel}
-              </button>
-              <button
-                type="button"
-                onClick={() => sendCommand({ action: "timer-reset" })}
-              >
-                <RotateCcw size={15} />
-                리셋
-              </button>
-            </div>
-          </section>
+          <PresenterTimerCard
+            ariaLabel="리허설 타이머"
+            currentTimeLabel="경과 발표 시간"
+            meterPercent={0}
+            onPrimaryAction={() =>
+              sendCommand({ action: timerPrimaryAction })
+            }
+            onReset={() => sendCommand({ action: "timer-reset" })}
+            onTimeInputBlur={() => undefined}
+            onTimeInputChange={() => undefined}
+            onTimeInputFocus={() => undefined}
+            primaryActionAriaLabel={`리허설 ${timerPrimaryLabel}`}
+            primaryActionRunning={isTimerActive}
+            progressItems={timerProgressItems}
+            progressPercent={totalTimingProgress.percent}
+            resetAriaLabel="스톱워치 초기화"
+            timeInputValue={formatPresenterRemoteDuration(
+              timing.displayedSeconds,
+            )}
+            timeMetaLeft=""
+            timeMetaRight=""
+            timeReadOnly
+            title="발표 스톱워치"
+          />
 
-          <section
-            className="presenter-remote-cue-panel"
-            aria-label="핵심 키워드"
-          >
-            <div className="presenter-remote-section-heading">
-              <span>핵심 키워드</span>
-              <strong>
-                <ListChecks size={15} />
-                {
-                  keywordRows.filter((keyword) => keyword.status === "done")
-                    .length
-                }
-                /{keywordRows.length}
-              </strong>
-            </div>
-            <ul className="presenter-remote-keyword-list">
-              {keywordRows.map((keyword) => (
-                <li
-                  className={`presenter-remote-keyword-row presenter-remote-keyword-row--${keyword.status}`}
-                  key={keyword.keywordId}
-                >
-                  {keyword.status === "done" ? (
-                    <CheckCircle2 aria-hidden="true" size={17} />
-                  ) : (
-                    <Circle aria-hidden="true" size={17} />
-                  )}
-                  <span>{keyword.text}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          {slide?.kind === "activity" ? (
-            <ActivityPresenterPanel
-              deckId={deck.deckId}
-              deckVersion={deck.version}
-              projectId={deck.projectId}
-              slide={slide}
+          <section className="rehearsal-panel" aria-label="발표 진행 패널">
+            <RehearsalPanelTopGrid
+              hitKeywordIds={hitKeywordIds}
+              keywords={panelKeywords}
+              liveSlot={
+                slide?.kind === "activity" ? (
+                  <ActivityPresenterPanel
+                    deckId={deck.deckId}
+                    deckVersion={deck.version}
+                    projectId={deck.projectId}
+                    slide={slide}
+                  />
+                ) : undefined
+              }
+              provisionalMissingKeywordIds={new Set()}
             />
-          ) : null}
-
+          </section>
         </aside>
       </section>
       {state.speech && shouldShowSemanticDebugPanel ? (
@@ -886,34 +881,6 @@ export function getPresenterRemoteTimingState(
       Math.round((deck.targetDurationMinutes ?? 0) * 60),
     ),
   };
-}
-
-function getPresenterRemoteTimerProgressPercent(
-  timing: PresenterRemoteTimingState,
-) {
-  if (timing.mode === "timer") {
-    if (timing.timerDurationSeconds <= 0) {
-      return 0;
-    }
-
-    return Math.min(
-      100,
-      Math.max(0, (timing.elapsedSeconds / timing.timerDurationSeconds) * 100),
-    );
-  }
-
-  if (timing.currentSlideTargetSeconds <= 0) {
-    return 0;
-  }
-
-  return Math.min(
-    100,
-    Math.max(
-      0,
-      (timing.currentSlideElapsedSeconds / timing.currentSlideTargetSeconds) *
-        100,
-    ),
-  );
 }
 
 function getPresenterRemotePreviewScale(deck: Deck) {

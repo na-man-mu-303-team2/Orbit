@@ -46,10 +46,15 @@ describe("PresenterRemoteWindow", () => {
     expect(html).toContain("대본");
     expect(html).toContain("현재 슬라이드");
     expect(html).toContain("다음 슬라이드");
-    expect(html).toContain("타이머");
+    expect(html).toContain('class="rehearsal-side-timer-card"');
+    expect(html).toContain("발표 스톱워치");
+    expect(html).toContain("총 발표 시간");
+    expect(html).toContain("현재 슬라이드");
     expect(html).toContain("시작");
-    expect(html).toContain("리셋");
-    expect(html).toContain("핵심 키워드");
+    expect(html).toContain('aria-label="스톱워치 초기화"');
+    expect(html).toContain('aria-label="발표 진행 패널"');
+    expect(html).toContain('aria-label="키워드 체크리스트"');
+    expect(html).toContain("rehearsal-panel-top-grid");
     expect(html).not.toContain("음성인식 대기");
     expect(html).not.toContain('<header class="presenter-remote-header"');
     expect(html).not.toContain("슬라이드 목표");
@@ -199,8 +204,9 @@ describe("PresenterRemoteWindow", () => {
     expect(html).not.toContain("슬라이드 목표");
     expect(html).not.toContain("현재 큐");
     expect(html).not.toContain("발표 시간 상태");
-    expect(html).toContain("음성인식 중");
-    expect(html).toContain("일시정지");
+    expect(html).toContain("총 발표 시간");
+    expect(html).toContain("현재 0:25");
+    expect(html).toContain('aria-label="리허설 일시정지"');
   });
 
   it("renders paused remote timer controls as resume", () => {
@@ -228,8 +234,7 @@ describe("PresenterRemoteWindow", () => {
       />,
     );
 
-    expect(html).toContain("일시정지됨");
-    expect(html).toContain("다시 시작");
+    expect(html).toContain('aria-label="리허설 다시 시작"');
   });
 
   it("renders semantic debug panel from owner presenter speech state", () => {
