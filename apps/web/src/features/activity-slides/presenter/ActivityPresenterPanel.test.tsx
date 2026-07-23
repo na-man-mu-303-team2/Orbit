@@ -122,6 +122,34 @@ describe("ActivityPresenterPanel", () => {
     );
   });
 
+  it("requires explicit audience enablement for a companion-only presentation session", async () => {
+    const slide = createActivitySlide(createDemoDeck(), "poll");
+    vi.spyOn(activityApi, "getCurrentSession").mockResolvedValue({
+      audienceUrl: null,
+      session: {
+        ...presentationSession(),
+        audienceAccessEnabled: false
+      }
+    });
+    const createSession = vi.spyOn(activityApi, "createSession");
+    const ensureRun = vi.spyOn(activityApi, "ensureRun");
+
+    await expect(loadActivityPresenterRuntime({
+      activityId: slide.activity.activityId,
+      autoStart: true,
+      deckId: "deck_demo",
+      deckVersion: 1,
+      presentationSession: {
+        audienceUrl: null,
+        sessionId: "session_1"
+      },
+      projectId: "project_demo"
+    })).resolves.toBeNull();
+
+    expect(createSession).not.toHaveBeenCalled();
+    expect(ensureRun).not.toHaveBeenCalled();
+  });
+
   it("replaces a stale session when the current Deck adds the requested Activity", async () => {
     const slide = createActivitySlide(createDemoDeck(), "pre-question");
     const draftRun = activityRun(slide, "draft", 0);

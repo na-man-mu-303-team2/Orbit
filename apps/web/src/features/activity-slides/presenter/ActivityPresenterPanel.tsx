@@ -37,7 +37,7 @@ export function ActivityPresenterPanel(props: {
   deckId: string;
   deckVersion: number;
   presentationSession?: {
-    audienceUrl: string;
+    audienceUrl: string | null;
     sessionId: string;
   };
   projectId: string;
@@ -79,7 +79,9 @@ export function ActivityPresenterPanel(props: {
         if (!nextRuntime) {
           if (!cancelled) {
             setRuntime(null);
-            setError("청중 링크에서 발표 세션을 먼저 시작해주세요.");
+            setError(
+              "Activity를 시작하려면 청중 링크/QR에서 청중 접근을 활성화해주세요."
+            );
           }
           return;
         }
@@ -257,14 +259,14 @@ export async function loadActivityPresenterRuntime(input: {
   deckVersion: number;
   finishInitialSessionCreation?: () => void;
   presentationSession?: {
-    audienceUrl: string;
+    audienceUrl: string | null;
     sessionId: string;
   };
   projectId: string;
   tryInitialSessionCreation?: () => boolean;
   tryStaleSessionReplacement?: () => boolean;
 }): Promise<ActivityPresenterRuntime | null> {
-  const current = input.presentationSession
+  const current = input.presentationSession?.audienceUrl
     ? {
         session: {
           sessionId: input.presentationSession.sessionId,
@@ -275,7 +277,10 @@ export async function loadActivityPresenterRuntime(input: {
     : await activityApi.getCurrentSession(input.projectId, input.deckId);
   let session = current.session;
   let audienceUrl = current.audienceUrl;
-  if (!session || !audienceUrl) {
+  if (session && !audienceUrl) {
+    return null;
+  }
+  if (!session) {
     if (!input.autoStart || input.tryInitialSessionCreation?.() === false) {
       return null;
     }
