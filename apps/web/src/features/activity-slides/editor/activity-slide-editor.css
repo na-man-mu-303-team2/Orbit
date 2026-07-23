@@ -350,6 +350,22 @@
   min-height: 56.25cqw;
 }
 
+.activity-presentation-preview {
+  align-items: center;
+  aspect-ratio: 16 / 9;
+  background: var(--activity-color-background, var(--redesign-color-surface-container-lowest));
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-xl);
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  width: 100%;
+}
+
+.activity-presentation-preview .activity-audience-slide-viewport {
+  flex: none;
+}
+
 .editor-design-panel:has(> .activity-slide-inspector) {
   background: var(--redesign-color-surface-container-lowest) !important;
   padding: 0 !important;
