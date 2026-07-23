@@ -511,6 +511,10 @@ command/ack/snapshot/request, volatile laser, WebRTC signal, revoke,
   `0..120000ms`, point batch는 64개, stroke는 4,096 points로 제한한다.
 - surface snapshot은 500 strokes와 총 50,000 points를 넘을 수 없다.
   color는 제품 palette enum, normalized width는 `0.001..0.05`만 허용한다.
+- Socket.IO message buffer는 위 bounded surface snapshot을 수용하도록 8MiB로
+  제한한다. iPad annotation command queue는 최대 256개이며 한 번에 하나만
+  ack 대기 상태로 전송한다. 1.5초 ack timeout, queue overflow, rejected ack는
+  pending command를 폐기하고 current surface snapshot 재동기화로 전환한다.
 - annotation command JSON은 UTF-8 32KiB 이하이며 socket별 Redis token
   bucket은 초당 120개, burst 180개다. laser는 초당 60개, burst 60개다.
 - SDP는 32KiB, ICE candidate는 4KiB 이하의 strict union이다. signaling,
