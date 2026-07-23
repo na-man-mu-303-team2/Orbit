@@ -121,8 +121,11 @@ def extract_motion_units(
         element
         for element in slide.get("elements", [])
         if isinstance(element, dict)
-        and str(element.get("elementId", "")) in allowed_ids
         and _is_visible_unlocked(element)
+        and (
+            str(element.get("elementId", "")) in allowed_ids
+            or _is_semantic_container_seed(element)
+        )
     ]
     by_id = {str(element["elementId"]): element for element in elements}
     typography = {
@@ -440,6 +443,13 @@ def _is_visible_unlocked(element: dict[str, Any]) -> bool:
         element.get("visible") is not False
         and float(element.get("opacity", 1)) > 0
         and element.get("locked") is not True
+    )
+
+
+def _is_semantic_container_seed(element: dict[str, Any]) -> bool:
+    return bool(
+        element.get("type") == "group"
+        or _is_spatial_container(element)
     )
 
 

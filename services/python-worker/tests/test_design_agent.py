@@ -20,6 +20,7 @@ from app.ai.motion_planner import (
     MotionImportContext,
     MotionPlannerError,
     MotionPlanningContext,
+    extract_motion_units,
 )
 
 
@@ -148,6 +149,39 @@ def proposal_payload(*, x: float = 1200) -> dict[str, Any]:
         ],
         "affectedElementIds": ["el_image"],
         "warnings": [],
+    }
+
+
+def authored_motion_plan(
+    request: DesignAgentRequest,
+    *,
+    pacing: str = "balanced",
+    trigger: str = "entry",
+    motion_intent: str = "focus",
+) -> dict[str, Any]:
+    assert request.motion_planning_context is not None
+    extraction = extract_motion_units(
+        request.context.slide,
+        request.motion_planning_context,
+    )
+    assert len(extraction.context.units) == 1
+    return {
+        "schemaVersion": 3,
+        "pacing": pacing,
+        "beats": [
+            {
+                "beatId": "beat_focus",
+                "purpose": "emphasize",
+                "trigger": trigger,
+                "relation": "together",
+                "targets": [
+                    {
+                        "unitId": extraction.context.units[0].unit_id,
+                        "motionIntent": motion_intent,
+                    }
+                ],
+            }
+        ],
     }
 
 
@@ -703,22 +737,7 @@ def test_animation_recommendation_runs_semantic_planner_in_shadow_only() -> None
         "notesPresent": True,
         "notesTruncated": False,
     })
-    client = FakeClient({
-        "schemaVersion": 2,
-        "pattern": "hero-then-support",
-        "pacing": "balanced",
-        "beats": [
-            {
-                "beatId": "beat_entry",
-                "purpose": "orient",
-                "trigger": "entry",
-                    "relation": "together",
-                    "targets": [
-                        {"elementId": "el_image", "motionIntent": "focus"}
-                    ],
-            }
-        ],
-    })
+    client = FakeClient(authored_motion_plan(request))
 
     result = generate_design_proposal(
         request,
@@ -747,22 +766,7 @@ def test_animation_recommendation_compiles_semantic_plan_in_on_mode() -> None:
         "notesPresent": False,
         "notesTruncated": False,
     })
-    plan = {
-        "schemaVersion": 2,
-        "pattern": "hero-then-support",
-        "pacing": "balanced",
-        "beats": [
-            {
-                "beatId": "beat_entry",
-                "purpose": "orient",
-                "trigger": "entry",
-                "relation": "together",
-                "targets": [
-                    {"elementId": "el_image", "motionIntent": "focus"}
-                ],
-            }
-        ],
-    }
+    plan = authored_motion_plan(request)
 
     first = generate_design_proposal(
         request,
@@ -784,15 +788,15 @@ def test_animation_recommendation_compiles_semantic_plan_in_on_mode() -> None:
     assert first.model_dump(by_alias=True) == second.model_dump(by_alias=True)
     assert [operation.type for operation in first.operations] == ["add_animation"]
     animation = first.operations[0].animation
-    assert animation.type == "zoom-in"
-    assert animation.duration_ms == 450
+    assert animation.type == "fade-in"
+    assert animation.duration_ms == 400
     assert animation.start_mode == "on-slide-enter"
     assert animation.animation_id.startswith("anim_motion_")
     assert first.motion_plan is not None
     assert first.motion_plan.source == "llm"
     assert first.motion_plan.model == "motion-snapshot"
     assert first.motion_plan.attempt_count == 1
-    assert first.motion_plan.compiler_version == "motion-compiler-v2"
+    assert first.motion_plan.compiler_version == "motion-compiler-v3"
 
 
 def test_animation_recommendation_allows_safe_existing_animation_update() -> None:
@@ -824,25 +828,9 @@ def test_animation_recommendation_allows_safe_existing_animation_update() -> Non
         motion_planner_model="motion-snapshot",
         motion_planner_mode="on",
         api_key=None,
-        client=FakeClient({
-            "schemaVersion": 2,
-            "pattern": "hero-then-support",
-            "pacing": "balanced",
-            "beats": [
-                {
-                    "beatId": "beat_entry",
-                    "purpose": "orient",
-                    "trigger": "entry",
-                    "relation": "together",
-                    "targets": [
-                        {
-                            "elementId": "el_image",
-                            "motionIntent": "introduce",
-                        }
-                    ],
-                }
-            ],
-        }),
+        client=FakeClient(
+            authored_motion_plan(request, motion_intent="introduce")
+        ),
     )
 
     assert len(result.operations) == 1
@@ -888,20 +876,11 @@ def test_animation_recommendation_persists_second_attempt_provenance() -> None:
         "notesPresent": False,
         "notesTruncated": False,
     })
-    valid = {
-        "schemaVersion": 2,
-        "pattern": "hero-then-support",
-        "pacing": "brisk",
-        "beats": [
-            {
-                "beatId": "beat_focus",
-                "purpose": "emphasize",
-                "trigger": "click",
-                "relation": "together",
-                "targets": [{"elementId": "el_image", "motionIntent": "focus"}],
-            }
-        ],
-    }
+    valid = authored_motion_plan(
+        request,
+        pacing="brisk",
+        trigger="click",
+    )
     invalid = {**valid, "schemaVersion": 1}
     client = SequenceClient([invalid, valid])
 
@@ -944,20 +923,7 @@ def test_animation_recommendation_retries_compile_then_fails_closed() -> None:
         }
         for index in (1, 2)
     ]
-    valid = {
-        "schemaVersion": 2,
-        "pattern": "hero-then-support",
-        "pacing": "balanced",
-        "beats": [
-            {
-                "beatId": "beat_focus",
-                "purpose": "emphasize",
-                "trigger": "click",
-                "relation": "together",
-                "targets": [{"elementId": "el_image", "motionIntent": "focus"}],
-            }
-        ],
-    }
+    valid = authored_motion_plan(request, trigger="click")
     client = SequenceClient([valid, valid])
 
     with pytest.raises(MotionPlannerError) as error:

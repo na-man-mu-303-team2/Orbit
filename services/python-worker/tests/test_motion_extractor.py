@@ -160,7 +160,13 @@ def test_v3_extractor_groups_five_flat_process_cards_without_connectors() -> Non
                 "compositionPlan": {"compositionId": "process-horizontal"},
             },
         },
-        planning_context(elements),
+        planning_context(
+            [
+                element
+                for element in elements
+                if element.get("role") != "decoration"
+            ]
+        ),
     )
     card_units = [
         unit for unit in extraction.context.units if unit.semantic_role == "card"
@@ -205,7 +211,14 @@ def test_v3_extractor_prefers_explicit_group_over_spatial_cluster() -> None:
             "elements": elements,
             "semanticCues": [],
         },
-        planning_context(elements),
+        planning_context(
+            [
+                element
+                for element in elements
+                if element.get("role") != "decoration"
+                and element.get("type") != "group"
+            ]
+        ),
     )
 
     assert len(extraction.context.units) == 1

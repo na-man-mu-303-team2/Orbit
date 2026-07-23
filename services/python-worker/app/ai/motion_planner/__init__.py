@@ -26,7 +26,11 @@ from app.ai.motion_planner.compiler import (
     compile_narrative_motion_v3,
 )
 from app.ai.motion_planner.service import SemanticMotionResult, plan_and_compile_motion
-from app.ai.motion_planner.merge import MergedMotion, merge_narrative_motion
+from app.ai.motion_planner.merge import (
+    MergedMotion,
+    merge_narrative_motion,
+    merge_narrative_motion_v3,
+)
 from app.ai.motion_planner.validation import (
     MotionMergeValidationError,
     validate_existing_motion_graph,
@@ -90,5 +94,6 @@ __all__ = [
     "MergedMotion",
     "MotionMergeValidationError",
     "merge_narrative_motion",
+    "merge_narrative_motion_v3",
     "validate_existing_motion_graph",
 ]
