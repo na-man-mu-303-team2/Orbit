@@ -220,8 +220,19 @@ export class PresentationCompanionGateway
     @MessageBody() body: unknown,
   ) {
     const parsed = presentationCompanionJoinPayloadSchema.safeParse(body);
-    if (!this.enabled() || !parsed.success) {
+    if (!parsed.success) {
       return emitError(client, sessionIdFrom(body), "INVALID_PAYLOAD");
+    }
+    if (!this.enabled()) {
+      await this.revokeAuthenticatedCompanion(
+        client,
+        parsed.data.sessionId,
+      );
+      return emitError(
+        client,
+        parsed.data.sessionId,
+        "SESSION_UNAVAILABLE",
+      );
     }
     const credential = await this.authenticateCompanion(
       client,
@@ -296,16 +307,10 @@ export class PresentationCompanionGateway
       presentationCompanionHeartbeatPayloadSchema.safeParse(body);
     if (!this.enabled()) {
       if (parsed.success) {
-        const credential = await this.requireCompanionSocket(
+        await this.revokeAuthenticatedCompanion(
           client,
           parsed.data.sessionId,
         );
-        if (credential) {
-          await this.companion.revokeSession(
-            parsed.data.sessionId,
-            "disconnected",
-          );
-        }
       }
       return emitError(
         client,
@@ -781,6 +786,15 @@ export class PresentationCompanionGateway
       readUserAgent(client),
       sessionId,
     );
+  }
+
+  private async revokeAuthenticatedCompanion(
+    client: Socket,
+    sessionId: string,
+  ): Promise<void> {
+    const credential = await this.authenticateCompanion(client, sessionId);
+    if (!credential) return;
+    await this.companion.revokeSession(sessionId, "disconnected");
   }
 
   private async requireCompanionSocket(

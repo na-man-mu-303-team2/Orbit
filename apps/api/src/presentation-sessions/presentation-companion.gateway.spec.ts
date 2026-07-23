@@ -293,6 +293,29 @@ describe("PresentationCompanionGateway", () => {
     );
   });
 
+  it("revokes a current credential when it reconnects to a flag-off instance", async () => {
+    const fixture = createFixture();
+    const reconnectingCompanion = socket({
+      cookie: `${companionAccessCookieName}=valid-companion-token`,
+      id: "socket_reconnecting_companion",
+    });
+    configState.enabled = false;
+
+    await expect(
+      fixture.gateway.joinCompanion(reconnectingCompanion, {
+        sessionId: "session_1",
+      }),
+    ).resolves.toMatchObject({
+      data: { payload: { code: "SESSION_UNAVAILABLE" } },
+    });
+    expect(fixture.companion.verifyCredential).toHaveBeenCalled();
+    expect(fixture.companion.revokeSession).toHaveBeenCalledWith(
+      "session_1",
+      "disconnected",
+    );
+    expect(reconnectingCompanion.join).not.toHaveBeenCalled();
+  });
+
   it("does not mutate session state for an unauthenticated rollback heartbeat", async () => {
     const fixture = createFixture();
     const audience = socket({
