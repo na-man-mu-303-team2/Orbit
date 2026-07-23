@@ -155,6 +155,31 @@ describe("triggeredActionPlayback", () => {
     expect(secondClick.consumedOccurrenceIds).toEqual([occurrenceId]);
   });
 
+  it("re-resolves a pending occurrence action when click reaches its step", () => {
+    const slide = createSlide();
+    const slideAnimationPlan = createSlideshowAnimationPlan({
+      slide,
+      triggerAnimationIds: getTriggerAnimationIdsForSlide(slide),
+    });
+    const occurrenceId = "kwo_slide_1_kw_ai_47_49";
+
+    const queued = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId: new Map(),
+      matchedOccurrenceIds: [],
+      pendingOccurrenceIds: [occurrenceId],
+      playbackState: { playedAnimationIds: ["anim_legacy"] },
+      presenterStepIndex: 1,
+      slide,
+      slideAnimationPlan,
+    });
+
+    expect(queued.consumedOccurrenceIds).toEqual([occurrenceId]);
+    expect(queued.pendingOccurrenceIds).toEqual([]);
+    expect(queued.update?.playbackState.playedAnimationIds).toContain(
+      "anim_occurrence",
+    );
+  });
+
   it("runs an occurrence next-slide action only after all animation steps", () => {
     const baseSlide = createSlide();
     const occurrenceId = "kwo_slide_1_kw_ai_47_49";

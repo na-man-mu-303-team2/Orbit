@@ -19,6 +19,11 @@ import {
 } from "../../../rehearsal/stt/liveSttPort";
 import { fetchLiveSttRuntimeConfig } from "../../../rehearsal/stt/liveSttRuntimeConfig";
 import { normalizeLiveTranscriptText } from "../../../rehearsal/stt/liveTranscriptText";
+import {
+  applyTranscriptRevision,
+  createTranscriptRevisionState,
+  type TranscriptRevisionState
+} from "../../../rehearsal/speech/transcriptRevisionState";
 
 export type EditorSlideRehearsalStatus =
   | "idle"
@@ -47,6 +52,7 @@ export type EditorSlideRehearsalSpeechResult = {
   result: LiveSttResult;
   slide: Slide;
   transcript: string;
+  newSegment: string;
 };
 
 export type EditorSlideRehearsalStartOptions = {
@@ -84,6 +90,9 @@ export function useEditorSlideRehearsal(args: {
   const unsubscribeRef = useRef<Array<() => void>>([]);
   const sessionRef = useRef(0);
   const committedTranscriptRef = useRef("");
+  const transcriptRevisionRef = useRef<TranscriptRevisionState>(
+    createTranscriptRevisionState()
+  );
   const activeSlideRef = useRef<Slide | null>(null);
   const onSpeechResultRef = useRef(args.onSpeechResult);
   const speechTrackerRef = useRef<SpeechTracker | null>(null);
@@ -126,6 +135,7 @@ export function useEditorSlideRehearsal(args: {
       activeSlideRef.current = slide;
       speechTrackerRef.current = createEditorSlideRehearsalSpeechTracker(slide);
       committedTranscriptRef.current = "";
+      transcriptRevisionRef.current = createTranscriptRevisionState();
       setState({
         ...initialState,
         activeSlideId: slide.slideId,
@@ -171,6 +181,12 @@ export function useEditorSlideRehearsal(args: {
         unsubscribeRef.current = [
           port.onResult((result) => {
             if (sessionRef.current !== sessionId) return;
+            const transcriptRevision = applyTranscriptRevision(
+              transcriptRevisionRef.current,
+              result
+            );
+            if (transcriptRevision.isStale) return;
+            transcriptRevisionRef.current = transcriptRevision.state;
 
             if (result.isFinal) {
               committedTranscriptRef.current = appendTranscript(
@@ -180,10 +196,7 @@ export function useEditorSlideRehearsal(args: {
             }
             const finalTranscript = committedTranscriptRef.current;
             const interimTranscript = result.isFinal ? "" : result.text.trim();
-            const transcript = appendTranscript(
-              finalTranscript,
-              interimTranscript
-            );
+            const transcript = transcriptRevision.currentTranscript;
             const activeSlide = activeSlideRef.current;
             const speechTracker = speechTrackerRef.current;
             speechTracker?.acceptResult(result);
@@ -201,7 +214,8 @@ export function useEditorSlideRehearsal(args: {
                 interimTranscript,
                 result,
                 slide: activeSlide,
-                transcript
+                transcript,
+                newSegment: transcriptRevision.newSegment
               });
             }
 
@@ -259,6 +273,7 @@ export function useEditorSlideRehearsal(args: {
       activeSlideRef.current = slide;
       speechTrackerRef.current = createEditorSlideRehearsalSpeechTracker(slide);
       committedTranscriptRef.current = "";
+      transcriptRevisionRef.current = createTranscriptRevisionState();
       setState({
         ...initialState,
         activeSlideId: slide.slideId,
@@ -292,6 +307,7 @@ export function useEditorSlideRehearsal(args: {
     activeSlideRef.current = null;
     speechTrackerRef.current = null;
     committedTranscriptRef.current = "";
+    transcriptRevisionRef.current = createTranscriptRevisionState();
     setState(initialState);
   }, [releaseResources]);
 

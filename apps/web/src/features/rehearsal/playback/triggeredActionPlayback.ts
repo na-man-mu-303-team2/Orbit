@@ -53,7 +53,14 @@ export function resolveQueuedKeywordOccurrencePlayback(args: {
   args.matchedOccurrenceIds.forEach((occurrenceId) => pendingOccurrenceIds.add(occurrenceId));
   const executableActionsByOccurrenceId = new Map(
     Array.from(pendingOccurrenceIds).flatMap((occurrenceId) => {
-      const actions = (args.actionsByOccurrenceId.get(occurrenceId) ?? []).filter(
+      const actions = (
+        args.actionsByOccurrenceId.get(occurrenceId) ??
+        args.slide.actions.filter(
+          (action) =>
+            action.trigger.kind === "keyword-occurrence" &&
+            action.trigger.occurrenceId === occurrenceId
+        )
+      ).filter(
         (action) =>
           (action.effect.kind === "play-animation" &&
             currentAnimationIds.has(action.effect.animationId)) ||

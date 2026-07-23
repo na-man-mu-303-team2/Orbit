@@ -283,9 +283,15 @@ import {
 } from "./speech/pauseDetector";
 import { defaultSpeechTrackingConfig } from "./speech/speechTrackingConfig";
 import {
-  matchKeywordOccurrenceTriggers,
-  type KeywordOccurrenceRuntimeMatch,
-} from "./speech/keywordOccurrenceRuntime";
+  findFutureKeywordOccurrenceMatches,
+  getExpectedKeywordOccurrenceStep,
+  matchExpectedKeywordOccurrenceStep,
+} from "./speech/keywordOccurrenceStepResolver";
+import {
+  applyTranscriptRevision,
+  createTranscriptRevisionState,
+  type TranscriptRevisionState,
+} from "./speech/transcriptRevisionState";
 import {
   PresenterStageSection,
   PresenterTimerCard,
@@ -393,6 +399,20 @@ export type OccurrenceTriggerProgress = {
   targetOccurrenceIds: string[];
   confirmedOccurrenceIds: string[];
   coverage: number;
+};
+
+type AnimationTriggerDebugSnapshot = {
+  approvalOccurrenceId: string | null;
+  blocker: string | null;
+  confidence: number | null;
+  consumedOccurrenceIds: string[];
+  expectedOccurrenceIds: string[];
+  isFinal: boolean;
+  matchedOccurrenceIds: string[];
+  newSegment: string;
+  pendingOccurrenceIds: string[];
+  resultRevision?: number;
+  utteranceId?: string;
 };
 
 type LiveTranscriptBuffer = {
@@ -1551,7 +1571,13 @@ export function evaluateLiveTranscript(
 }
 
 export function createKeywordOccurrenceAnimationCueEvent(args: {
-  match: KeywordOccurrenceRuntimeMatch;
+  match: {
+    currentCharOffset?: number;
+    keywordId: string;
+    matchedScriptOffset?: number;
+    occurrenceId: string;
+    text: string;
+  };
   slideId: string;
 }): LiveSttAnimationCueEvent {
   return {
@@ -1584,7 +1610,7 @@ export function getLiveKeywordOccurrenceStateForSlide(
 
 export function confirmKeywordOccurrenceMatches(
   state: LiveKeywordOccurrenceState,
-  matches: readonly Pick<KeywordOccurrenceRuntimeMatch, "occurrenceId">[],
+  matches: readonly Pick<{ occurrenceId: string }, "occurrenceId">[],
 ): LiveKeywordOccurrenceState {
   const confirmedOccurrenceIds = new Set(state.confirmedOccurrenceIds);
 
@@ -1985,6 +2011,8 @@ export function RehearsalWorkspace(props: {
   const [liveDebugPcmRecording, setLiveDebugPcmRecording] =
     useState<LiveSttDebugPcmRecording | null>(null);
   const [liveCue, setLiveCue] = useState<LiveSttAnimationCueEvent | null>(null);
+  const [liveAnimationTriggerDebug, setLiveAnimationTriggerDebug] =
+    useState<AnimationTriggerDebugSnapshot | null>(null);
   const [liveSlideAdvance, setLiveSlideAdvance] =
     useState<LiveSttSlideAdvanceEvent | null>(null);
   const [p3SessionState, setP3SessionState] =
@@ -2112,6 +2140,9 @@ export function RehearsalWorkspace(props: {
   );
   const liveSessionTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
     createLiveTranscriptBuffer(),
+  );
+  const liveOccurrenceTranscriptRevisionRef = useRef<TranscriptRevisionState>(
+    createTranscriptRevisionState(),
   );
   const slideTranscriptSnapshotsRef = useRef<SlideTranscriptSnapshot[]>([]);
   const slideTranscriptVisitVersionsRef = useRef(new Map<string, number>());
@@ -3945,10 +3976,13 @@ export function RehearsalWorkspace(props: {
       transcript: result.text,
       isFinal: result.isFinal,
       confidence: result.confidence ?? null,
-    });
+    }, result);
   }
 
-  function handleLivePartialTranscript(event: LiveSttPartialTranscriptEvent) {
+  function handleLivePartialTranscript(
+    event: LiveSttPartialTranscriptEvent,
+    sttResult?: LiveSttResult,
+  ) {
     if (rehearsalRuntimeStatusRef.current === "paused") {
       return;
     }
@@ -3960,9 +3994,6 @@ export function RehearsalWorkspace(props: {
       return;
     }
 
-    const previousTranscript = renderLiveTranscriptBuffer(
-      liveTranscriptBufferRef.current,
-    );
     const nextBuffer = applyLiveTranscriptEvent(
       liveTranscriptBufferRef.current,
       event,
@@ -3982,9 +4013,6 @@ export function RehearsalWorkspace(props: {
     const matchingTranscript = shouldUseLiveSttPostprocessBias(biasMode)
       ? applyLiveTranscriptBias(transcript, biasContext)
       : transcript;
-    const previousMatchingTranscript = shouldUseLiveSttPostprocessBias(biasMode)
-      ? applyLiveTranscriptBias(previousTranscript, biasContext)
-      : previousTranscript;
     const analysis = evaluateLiveTranscript(
       slide,
       matchingTranscript,
@@ -3999,20 +4027,39 @@ export function RehearsalWorkspace(props: {
       slide,
       triggerAnimationIds: slideTriggerAnimationIds,
     });
-    const targetOccurrenceIds = getKeywordOccurrenceTriggerIdsForSlide(slide);
     const occurrenceState = getLiveKeywordOccurrenceStateForSlide(
       liveKeywordOccurrenceStateRef.current,
       slide.slideId,
     );
-    const occurrenceMatches = matchKeywordOccurrenceTriggers({
+    const transcriptRevision = applyTranscriptRevision(
+      liveOccurrenceTranscriptRevisionRef.current,
+      sttResult ?? { isFinal: event.isFinal, text: event.transcript },
+    );
+    if (transcriptRevision.isStale) return;
+    liveOccurrenceTranscriptRevisionRef.current = transcriptRevision.state;
+    const expectedStep = getExpectedKeywordOccurrenceStep({
+      presenterStepIndex: presenterStepIndexRef.current,
       slide,
-      targetOccurrenceIds,
-      previousTranscript: previousMatchingTranscript,
-      transcript: matchingTranscript,
-      latestTranscript: event.transcript,
-      confidence: event.confidence,
-      confirmedOccurrenceIds: occurrenceState.confirmedOccurrenceIds,
+      slideAnimationPlan,
     });
+    const occurrenceResolution = matchExpectedKeywordOccurrenceStep({
+      confidence: event.confidence,
+      consumedOccurrenceIds: occurrenceState.confirmedOccurrenceIds,
+      expectedStep,
+      newSegment: transcriptRevision.newSegment,
+      slide,
+    });
+    const occurrenceMatches = [
+      ...occurrenceResolution.matches,
+      ...findFutureKeywordOccurrenceMatches({
+        confidence: event.confidence,
+        consumedOccurrenceIds: occurrenceState.confirmedOccurrenceIds,
+        newSegment: transcriptRevision.newSegment,
+        presenterStepIndex: presenterStepIndexRef.current,
+        slide,
+        slideAnimationPlan,
+      }),
+    ];
 
     for (const occurrenceMatch of occurrenceMatches) {
       setLiveCue(
@@ -4054,6 +4101,26 @@ export function RehearsalWorkspace(props: {
       slideId: slide.slideId,
     };
     setPendingKeywordOccurrenceIds(queuedOccurrencePlayback.pendingOccurrenceIds);
+    setLiveAnimationTriggerDebug({
+      approvalOccurrenceId:
+        occurrenceResolution.blocker === "confidence-low" &&
+        occurrenceResolution.candidates.length === 1
+          ? occurrenceResolution.candidates[0]?.occurrenceId ?? null
+          : null,
+      blocker: occurrenceResolution.blocker,
+      confidence: event.confidence,
+      consumedOccurrenceIds: [
+        ...occurrenceState.confirmedOccurrenceIds,
+        ...queuedOccurrencePlayback.consumedOccurrenceIds,
+      ],
+      expectedOccurrenceIds: expectedStep?.occurrenceIds ?? [],
+      isFinal: event.isFinal,
+      matchedOccurrenceIds: occurrenceMatches.map((match) => match.occurrenceId),
+      newSegment: transcriptRevision.newSegment,
+      pendingOccurrenceIds: queuedOccurrencePlayback.pendingOccurrenceIds,
+      resultRevision: sttResult?.resultRevision,
+      utteranceId: sttResult?.utteranceId,
+    });
     if (queuedOccurrencePlayback.update) {
       applyTriggeredPlaybackUpdate(
         queuedOccurrencePlayback.update,
@@ -4177,6 +4244,7 @@ export function RehearsalWorkspace(props: {
     const nextKeywordState = slide ? evaluateLiveTranscript(slide, "") : null;
 
     liveTranscriptBufferRef.current = nextBuffer;
+    liveOccurrenceTranscriptRevisionRef.current = createTranscriptRevisionState();
     liveKeywordStateRef.current = nextKeywordState;
     liveKeywordOccurrenceStateRef.current = slide
       ? createLiveKeywordOccurrenceState(slide.slideId)
@@ -4185,6 +4253,7 @@ export function RehearsalWorkspace(props: {
       ? { occurrenceIds: [], slideId: slide.slideId }
       : null;
     setPendingKeywordOccurrenceIds([]);
+    setLiveAnimationTriggerDebug(null);
     liveCommandConfirmationRef.current =
       createRehearsalCommandConfirmationState();
     setLiveKeywordState(nextKeywordState);
@@ -4467,7 +4536,7 @@ export function RehearsalWorkspace(props: {
     });
   };
   const applyManualPlaybackRuntimeState = (
-    playbackUpdate: ReturnType<typeof resolveManualAnimationPlaybackUpdate>,
+    playbackUpdate: ReturnType<typeof resolveTriggeredActionPlaybackUpdate>,
   ) => {
     slidePlaybackStateRef.current = playbackUpdate.playbackState;
     setSlidePlaybackState(playbackUpdate.playbackState);
@@ -4475,6 +4544,42 @@ export function RehearsalWorkspace(props: {
   const handleNextPresenterStep = () => {
     if (!deck || !currentSlide || !slideshowAnimationPlan) return;
     cancelAutoAdvanceForManualCommand();
+    const queued = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId: new Map(),
+      matchedOccurrenceIds: [],
+      pendingOccurrenceIds:
+        pendingKeywordOccurrenceIdsRef.current?.slideId === currentSlide.slideId
+          ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
+          : [],
+      playbackState: slidePlaybackStateRef.current,
+      presenterStepIndex,
+      slide: currentSlide,
+      slideAnimationPlan: slideshowAnimationPlan,
+    });
+    pendingKeywordOccurrenceIdsRef.current = {
+      occurrenceIds: queued.pendingOccurrenceIds,
+      slideId: currentSlide.slideId,
+    };
+    setPendingKeywordOccurrenceIds(queued.pendingOccurrenceIds);
+    if (queued.update) {
+      const occurrenceState = getLiveKeywordOccurrenceStateForSlide(
+        liveKeywordOccurrenceStateRef.current,
+        currentSlide.slideId,
+      );
+      liveKeywordOccurrenceStateRef.current = confirmKeywordOccurrenceMatches(
+        occurrenceState,
+        queued.consumedOccurrenceIds.map((occurrenceId) => ({ occurrenceId })),
+      );
+      applyManualPlaybackRuntimeState(queued.update);
+      void requestPreparedSlideChange({
+        source: "manual",
+        stepIndex: queued.update.presenterStepIndex,
+        targetSlideIndex: queued.update.shouldAdvanceSlide
+          ? currentSlideIndex + 1
+          : currentSlideIndex,
+      });
+      return;
+    }
     const playbackUpdate = resolveManualAnimationPlaybackUpdate({
       playbackState: slidePlaybackStateRef.current,
       presenterStepIndex,
@@ -5188,6 +5293,9 @@ export function RehearsalWorkspace(props: {
     locationSearch:
       typeof window === "undefined" ? "" : window.location.search,
   });
+  const showAnimationTriggerDebugPanel =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("animationDebug") === "1";
 
   function copySemanticCueDebugJson(json: string) {
     void navigator.clipboard?.writeText(json);
@@ -5633,6 +5741,50 @@ export function RehearsalWorkspace(props: {
                       <p>현재 슬라이드에서 키워드를 감지했습니다.</p>
                     </div>
                   )}
+
+                  {showAnimationTriggerDebugPanel && liveAnimationTriggerDebug ? (
+                    <details className="rehearsal-animation-trigger-debug" open>
+                      <summary>애니메이션 트리거 디버그</summary>
+                      <p>
+                        새 전사 구간: {liveAnimationTriggerDebug.newSegment || "-"}
+                      </p>
+                      <p>
+                        현재 step occurrence: {liveAnimationTriggerDebug.expectedOccurrenceIds.join(", ") || "-"}
+                      </p>
+                      <p>
+                        매칭/대기/소비: {liveAnimationTriggerDebug.matchedOccurrenceIds.join(", ") || "-"} / {liveAnimationTriggerDebug.pendingOccurrenceIds.join(", ") || "-"} / {liveAnimationTriggerDebug.consumedOccurrenceIds.join(", ") || "-"}
+                      </p>
+                      <p>
+                        STT: {liveAnimationTriggerDebug.isFinal ? "final" : "partial"} · confidence {liveAnimationTriggerDebug.confidence?.toFixed(2) ?? "-"} · utterance {liveAnimationTriggerDebug.utteranceId ?? "-"} · revision {liveAnimationTriggerDebug.resultRevision ?? "-"}
+                      </p>
+                      <p>판정: {liveAnimationTriggerDebug.blocker ?? "현재 step 매칭"}</p>
+                      {liveAnimationTriggerDebug.approvalOccurrenceId ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const occurrenceId =
+                              liveAnimationTriggerDebug.approvalOccurrenceId;
+                            if (!occurrenceId || !currentSlide) return;
+                            const pendingOccurrenceIds = new Set(
+                              pendingKeywordOccurrenceIdsRef.current?.slideId ===
+                                currentSlide.slideId
+                                ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
+                                : [],
+                            );
+                            pendingOccurrenceIds.add(occurrenceId);
+                            pendingKeywordOccurrenceIdsRef.current = {
+                              occurrenceIds: [...pendingOccurrenceIds],
+                              slideId: currentSlide.slideId,
+                            };
+                            setPendingKeywordOccurrenceIds([...pendingOccurrenceIds]);
+                            handleNextPresenterStep();
+                          }}
+                        >
+                          이 키워드 효과 실행
+                        </button>
+                      ) : null}
+                    </details>
+                  ) : null}
 
                   {liveSlideAdvance && (
                     <div className="project-status-message project-status-success">

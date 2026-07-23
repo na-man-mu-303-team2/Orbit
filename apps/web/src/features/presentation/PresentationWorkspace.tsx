@@ -49,7 +49,6 @@ import { createSlideshowAnimationPlan } from "../rehearsal/presenter/slideshowSt
 import { usePresenterKeyboard } from "../rehearsal/presenter/usePresenterKeyboard";
 import {
   getTriggerAnimationIdsForSlide,
-  getKeywordOccurrenceTriggerIdsForSlide,
   restoreSlidePlaybackAtStep,
   resolveManualAnimationPlaybackUpdate,
   resolveQueuedKeywordOccurrencePlayback,
@@ -72,9 +71,10 @@ import {
 } from "../rehearsal/advance/advanceController";
 import { createDefaultPhraseExtractor } from "../rehearsal/speech/phraseExtractor";
 import {
-  estimateScriptProgressOffset,
-  matchKeywordOccurrenceTriggers,
-} from "../rehearsal/speech/keywordOccurrenceRuntime";
+  findFutureKeywordOccurrenceMatches,
+  getExpectedKeywordOccurrenceStep,
+  matchExpectedKeywordOccurrenceStep,
+} from "../rehearsal/speech/keywordOccurrenceStepResolver";
 import type { SpeechTrackerSnapshot } from "../rehearsal/speech/speechTrackingEvents";
 import {
   PresenterStatusShell,
@@ -159,6 +159,10 @@ export function PresentationWorkspace(props: {
     useRef<PresentationKeywordOccurrenceState | null>(null);
   const pendingKeywordOccurrenceIdsRef = useRef<{
     occurrenceIds: string[];
+    slideId: string;
+  } | null>(null);
+  const resolvedSpeechEventRef = useRef<{
+    sequence: number;
     slideId: string;
   } | null>(null);
   const [pendingKeywordOccurrenceIds, setPendingKeywordOccurrenceIds] =
@@ -303,24 +307,25 @@ export function PresentationWorkspace(props: {
       return null;
     }
 
-    const targetOccurrenceIds = getKeywordOccurrenceTriggerIdsForSlide(
-      currentSlide,
-    );
     const confirmedOccurrenceIds =
       keywordOccurrenceStateRef.current?.slideId === currentSlide.slideId
         ? keywordOccurrenceStateRef.current.confirmedOccurrenceIds
         : [];
-    const transcriptSpan = speech.getSlideTranscriptSpan();
-    const transcript = transcriptSpan.transcript;
+    const transcriptEvent = speech.getSlideTranscriptEvent();
     const confidence = speech.state.latestTranscriptConfidence;
-    const matches = matchKeywordOccurrenceTriggers({
-      slide: currentSlide,
-      targetOccurrenceIds,
-      previousTranscript: transcriptSpan.previousTranscript,
-      transcript,
-      latestTranscript: speech.state.latestTranscript,
+    const expectedStep = slideshowAnimationPlan
+      ? getExpectedKeywordOccurrenceStep({
+          presenterStepIndex,
+          slide: currentSlide,
+          slideAnimationPlan: slideshowAnimationPlan,
+        })
+      : null;
+    const resolution = matchExpectedKeywordOccurrenceStep({
       confidence,
-      confirmedOccurrenceIds,
+      consumedOccurrenceIds: confirmedOccurrenceIds,
+      expectedStep,
+      newSegment: transcriptEvent.newSegment,
+      slide: currentSlide,
     });
     const occurrenceActions = currentSlide.actions.flatMap((action) => {
       if (action.trigger.kind !== "keyword-occurrence") {
@@ -342,31 +347,28 @@ export function PresentationWorkspace(props: {
     return {
       confidence,
       confirmedOccurrenceIds,
-      currentCharOffset: estimateScriptProgressOffset(
-        currentSlide.speakerNotes,
-        transcript,
-      ),
-      previousCharOffset: estimateScriptProgressOffset(
-        currentSlide.speakerNotes,
-        transcriptSpan.previousTranscript,
-      ),
       currentStepAnimationIds:
         currentTriggerStep?.animations.map((animation) => animation.animationId) ??
         [],
       currentStepIndex: presenterStepIndex,
+      expectedOccurrenceIds: expectedStep?.occurrenceIds ?? [],
       latestTranscript: speech.state.latestTranscript,
-      matches,
+      matches: resolution.matches,
+      approvalOccurrenceId:
+        resolution.blocker === "confidence-low" && resolution.candidates.length === 1
+          ? resolution.candidates[0]?.occurrenceId ?? null
+          : null,
+      newSegment: transcriptEvent.newSegment,
       occurrenceActions,
       playedAnimationIds: playbackStateRef.current.playedAnimationIds,
+      resolutionBlocker: resolution.blocker,
       speechStatus: speech.state.status,
-      targetOccurrenceIds,
-      transcript,
+      transcript: transcriptEvent.transcript,
     };
   }, [
     currentSlide,
     presenterStepIndex,
     slideshowAnimationPlan,
-    speech,
     speech.state.latestTranscript,
     speech.state.latestTranscriptConfidence,
     speech.state.status,
@@ -542,6 +544,32 @@ export function PresentationWorkspace(props: {
       return;
     }
 
+    const queued = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId: new Map(),
+      matchedOccurrenceIds: [],
+      pendingOccurrenceIds:
+        pendingKeywordOccurrenceIdsRef.current?.slideId === currentSlide.slideId
+          ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
+          : [],
+      playbackState: playbackStateRef.current,
+      presenterStepIndex,
+      slide: currentSlide,
+      slideAnimationPlan: slideshowAnimationPlan,
+    });
+    pendingKeywordOccurrenceIdsRef.current = {
+      occurrenceIds: queued.pendingOccurrenceIds,
+      slideId: currentSlide.slideId,
+    };
+    setPendingKeywordOccurrenceIds(queued.pendingOccurrenceIds);
+    if (queued.update) {
+      applyPlaybackUpdate({
+        consumedOccurrenceIds: queued.consumedOccurrenceIds,
+        slide: currentSlide,
+        update: queued.update,
+      });
+      return;
+    }
+
     const update = resolveManualAnimationPlaybackUpdate({
       playbackState: playbackStateRef.current,
       presenterStepIndex,
@@ -554,6 +582,25 @@ export function PresentationWorkspace(props: {
       update,
     });
   }, [applyPlaybackUpdate, currentSlide, presenterStepIndex, slideshowAnimationPlan]);
+
+  const approvePresentationKeywordOccurrence = useCallback(
+    (occurrenceId: string) => {
+      if (!currentSlide) return;
+      const pendingOccurrenceIds = new Set(
+        pendingKeywordOccurrenceIdsRef.current?.slideId === currentSlide.slideId
+          ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
+          : [],
+      );
+      pendingOccurrenceIds.add(occurrenceId);
+      pendingKeywordOccurrenceIdsRef.current = {
+        occurrenceIds: [...pendingOccurrenceIds],
+        slideId: currentSlide.slideId,
+      };
+      setPendingKeywordOccurrenceIds([...pendingOccurrenceIds]);
+      handleNextPresenterStep();
+    },
+    [currentSlide, handleNextPresenterStep],
+  );
 
   const restorePresentationPlaybackAtStep = useCallback(
     (slide: Slide, stepIndex: number) => {
@@ -763,16 +810,41 @@ export function PresentationWorkspace(props: {
       keywordOccurrenceStateRef.current?.slideId === currentSlide.slideId
         ? keywordOccurrenceStateRef.current
         : { slideId: currentSlide.slideId, confirmedOccurrenceIds: [] };
-    const transcriptSpan = speech.getSlideTranscriptSpan();
-    const matches = matchKeywordOccurrenceTriggers({
+    const transcriptEvent = speech.getSlideTranscriptEvent();
+    if (
+      transcriptEvent.sequence === 0 ||
+      (resolvedSpeechEventRef.current?.slideId === currentSlide.slideId &&
+        resolvedSpeechEventRef.current.sequence >= transcriptEvent.sequence)
+    ) {
+      return;
+    }
+    resolvedSpeechEventRef.current = {
+      sequence: transcriptEvent.sequence,
+      slideId: currentSlide.slideId,
+    };
+    const expectedStep = getExpectedKeywordOccurrenceStep({
+      presenterStepIndex,
       slide: currentSlide,
-      targetOccurrenceIds: getKeywordOccurrenceTriggerIdsForSlide(currentSlide),
-      previousTranscript: transcriptSpan.previousTranscript,
-      transcript: transcriptSpan.transcript,
-      latestTranscript: speech.state.latestTranscript,
-      confidence: speech.state.latestTranscriptConfidence,
-      confirmedOccurrenceIds: currentState.confirmedOccurrenceIds,
+      slideAnimationPlan: slideshowAnimationPlan,
     });
+    const resolution = matchExpectedKeywordOccurrenceStep({
+      confidence: speech.state.latestTranscriptConfidence,
+      consumedOccurrenceIds: currentState.confirmedOccurrenceIds,
+      expectedStep,
+      newSegment: transcriptEvent.newSegment,
+      slide: currentSlide,
+    });
+    const matches = [
+      ...resolution.matches,
+      ...findFutureKeywordOccurrenceMatches({
+        confidence: speech.state.latestTranscriptConfidence,
+        consumedOccurrenceIds: currentState.confirmedOccurrenceIds,
+        newSegment: transcriptEvent.newSegment,
+        presenterStepIndex,
+        slide: currentSlide,
+        slideAnimationPlan: slideshowAnimationPlan,
+      }),
+    ];
     if (matches.length === 0) {
       return;
     }
@@ -1249,7 +1321,10 @@ export function PresentationWorkspace(props: {
         adviceState={adviceState}
         animationTriggerDebug={
           animationTriggerDebugEnabled && animationTriggerDebug ? (
-            <PresentationAnimationTriggerDebug data={animationTriggerDebug} />
+            <PresentationAnimationTriggerDebug
+              data={animationTriggerDebug}
+              onApprove={approvePresentationKeywordOccurrence}
+            />
           ) : undefined
         }
         autoAdvanceStatus={
@@ -1430,19 +1505,21 @@ function createEmptySpeechTrackerSnapshot(options: {
 function PresentationAnimationTriggerDebug(props: {
   data: {
     confidence: number | null;
+    approvalOccurrenceId: string | null;
     confirmedOccurrenceIds: string[];
-    currentCharOffset: number;
-    previousCharOffset: number;
     currentStepAnimationIds: string[];
     currentStepIndex: number;
+    expectedOccurrenceIds: string[];
     latestTranscript: string;
     matches: Array<{ occurrenceId: string }>;
+    newSegment: string;
     occurrenceActions: Array<{ animationId: string; occurrenceId: string }>;
     playedAnimationIds: string[];
+    resolutionBlocker: string | null;
     speechStatus: string;
-    targetOccurrenceIds: string[];
     transcript: string;
   };
+  onApprove: (occurrenceId: string) => void;
 }) {
   const { data } = props;
   const blocker = getAnimationTriggerBlocker(data);
@@ -1470,8 +1547,12 @@ function PresentationAnimationTriggerDebug(props: {
           <dd>{data.confidence?.toFixed(2) ?? "브라우저 미제공"}</dd>
         </div>
         <div>
-          <dt>대본 위치</dt>
-          <dd>{data.previousCharOffset} → {data.currentCharOffset}</dd>
+          <dt>새 전사 구간</dt>
+          <dd>{data.newSegment || "-"}</dd>
+        </div>
+        <div>
+          <dt>현재 step occurrence</dt>
+          <dd>{formatDebugValues(data.expectedOccurrenceIds)}</dd>
         </div>
         <div>
           <dt>매칭 occurrence</dt>
@@ -1495,9 +1576,17 @@ function PresentationAnimationTriggerDebug(props: {
       <p className="presentation-animation-trigger-debug-blocker">
         판정: {blocker}
       </p>
+      {data.approvalOccurrenceId ? (
+        <button
+          type="button"
+          onClick={() => props.onApprove(data.approvalOccurrenceId ?? "")}
+        >
+          이 키워드 효과 실행
+        </button>
+      ) : null}
       <details>
         <summary>연결 데이터 보기</summary>
-        <p>트리거 occurrence: {formatDebugValues(data.targetOccurrenceIds)}</p>
+        <p>현재 step occurrence: {formatDebugValues(data.expectedOccurrenceIds)}</p>
         <p>
           action 연결: {" "}
           {formatDebugValues(
@@ -1506,7 +1595,7 @@ function PresentationAnimationTriggerDebug(props: {
             ),
           )}
         </p>
-        <p>위치 계산 대본: {data.transcript || "-"}</p>
+        <p>누적 전사: {data.transcript || "-"}</p>
       </details>
     </aside>
   );
@@ -1519,7 +1608,8 @@ function getAnimationTriggerBlocker(data: {
   matches: Array<{ occurrenceId: string }>;
   occurrenceActions: Array<{ animationId: string; occurrenceId: string }>;
   speechStatus: string;
-  targetOccurrenceIds: string[];
+  expectedOccurrenceIds: string[];
+  resolutionBlocker: string | null;
 }) {
   if (data.speechStatus !== "listening") {
     return "음성 인식이 listening 상태가 아닙니다.";
@@ -1530,22 +1620,24 @@ function getAnimationTriggerBlocker(data: {
   if (data.confidence !== null && data.confidence < 0.7) {
     return "confidence가 0.70 미만이라 자동 실행을 막았습니다.";
   }
-  if (data.targetOccurrenceIds.length === 0) {
-    return "현재 슬라이드에 keyword-occurrence action이 없습니다.";
-  }
   if (data.occurrenceActions.length === 0) {
     return "occurrence action 연결을 찾지 못했습니다.";
   }
   if (
-    data.targetOccurrenceIds.length > 0 &&
-    data.targetOccurrenceIds.every((occurrenceId) =>
+    data.expectedOccurrenceIds.length > 0 &&
+    data.expectedOccurrenceIds.every((occurrenceId) =>
       data.confirmedOccurrenceIds.includes(occurrenceId),
     )
   ) {
     return "해당 occurrence는 이미 처리되어 중복 실행하지 않습니다.";
   }
+  if (!data.expectedOccurrenceIds.length) {
+    return "현재 step은 키워드 애니메이션 단계가 아닙니다.";
+  }
   if (data.matches.length === 0) {
-    return "대본 위치·키워드·미소비 조건 중 하나가 일치하지 않습니다.";
+    return data.resolutionBlocker === "confidence-low"
+      ? "confidence가 0.70 미만이라 자동 실행을 막았습니다."
+      : `현재 step occurrence와 새 전사 구간이 일치하지 않습니다. (${data.resolutionBlocker ?? "unknown"})`;
   }
   return "매칭 성공: 다음 렌더에서 action 실행·step 전진을 확인하세요.";
 }

@@ -10,6 +10,11 @@ import { createLiveSttPort } from "../rehearsal/stt/liveSttEngineRegistry";
 import type { LiveSttPort } from "../rehearsal/stt/liveSttPort";
 import { normalizeLiveSttBiasPhrases } from "../rehearsal/stt/liveSttPort";
 import { fetchLiveSttRuntimeConfig } from "../rehearsal/stt/liveSttRuntimeConfig";
+import {
+  applyTranscriptRevision,
+  createTranscriptRevisionState,
+  type TranscriptRevisionState,
+} from "../rehearsal/speech/transcriptRevisionState";
 
 type PresentationSpeechState = {
   error: string | null;
@@ -46,6 +51,11 @@ export function usePresentationSpeech(projectId?: string) {
   const inFlightSlideTranscriptRef = useRef("");
   const latestSlideTranscriptBeforeRef = useRef("");
   const latestSlideTranscriptAfterRef = useRef("");
+  const latestSlideTranscriptSegmentRef = useRef("");
+  const latestSlideTranscriptSequenceRef = useRef(0);
+  const slideTranscriptRevisionRef = useRef<TranscriptRevisionState>(
+    createTranscriptRevisionState(),
+  );
   const unsubscribersRef = useRef<Array<() => void>>([]);
 
   const enterSlide = useCallback((slide: Slide) => {
@@ -54,6 +64,9 @@ export function usePresentationSpeech(projectId?: string) {
     inFlightSlideTranscriptRef.current = "";
     latestSlideTranscriptBeforeRef.current = "";
     latestSlideTranscriptAfterRef.current = "";
+    latestSlideTranscriptSegmentRef.current = "";
+    latestSlideTranscriptSequenceRef.current = 0;
+    slideTranscriptRevisionRef.current = createTranscriptRevisionState();
     trackerRef.current = createSpeechTracker({
       keywords: slide.keywords,
       slideId: slide.slideId,
@@ -105,10 +118,16 @@ export function usePresentationSpeech(projectId?: string) {
           const tracker = trackerRef.current;
           if (!tracker) return;
           const transcriptActivityAtMs = Date.now();
-          latestSlideTranscriptBeforeRef.current = getSlideTranscriptText({
-            committedTranscript: slideTranscriptRef.current,
-            draftTranscript: inFlightSlideTranscriptRef.current,
-          });
+          const transcriptRevision = applyTranscriptRevision(
+            slideTranscriptRevisionRef.current,
+            result,
+          );
+          if (transcriptRevision.isStale) return;
+          slideTranscriptRevisionRef.current = transcriptRevision.state;
+          latestSlideTranscriptBeforeRef.current = transcriptRevision.previousTranscript;
+          latestSlideTranscriptAfterRef.current = transcriptRevision.currentTranscript;
+          latestSlideTranscriptSegmentRef.current = transcriptRevision.newSegment;
+          latestSlideTranscriptSequenceRef.current += 1;
           tracker.acceptResult(result);
           if (result.isFinal) {
             const finalText = result.text.trim();
@@ -130,10 +149,6 @@ export function usePresentationSpeech(projectId?: string) {
           } else {
             inFlightSlideTranscriptRef.current = result.text.trim();
           }
-          latestSlideTranscriptAfterRef.current = getSlideTranscriptText({
-            committedTranscript: slideTranscriptRef.current,
-            draftTranscript: inFlightSlideTranscriptRef.current,
-          });
           const activeListeningMs =
             accumulatedListeningMsRef.current +
             Math.max(transcriptActivityAtMs - startedAtRef.current, 0);
@@ -246,6 +261,12 @@ export function usePresentationSpeech(projectId?: string) {
       previousTranscript: latestSlideTranscriptBeforeRef.current,
       transcript: latestSlideTranscriptAfterRef.current,
     }),
+    getSlideTranscriptEvent: () => ({
+      newSegment: latestSlideTranscriptSegmentRef.current,
+      previousTranscript: latestSlideTranscriptBeforeRef.current,
+      sequence: latestSlideTranscriptSequenceRef.current,
+      transcript: latestSlideTranscriptAfterRef.current,
+    }),
     getTranscript: () => transcriptRef.current,
     pause,
     resume,
@@ -253,15 +274,6 @@ export function usePresentationSpeech(projectId?: string) {
     state,
     stop,
   };
-}
-
-function getSlideTranscriptText(input: {
-  committedTranscript: string;
-  draftTranscript: string;
-}) {
-  return [input.committedTranscript, input.draftTranscript]
-    .filter(Boolean)
-    .join(" ");
 }
 
 function buildPresentationBiasPhrases(slide: Slide) {

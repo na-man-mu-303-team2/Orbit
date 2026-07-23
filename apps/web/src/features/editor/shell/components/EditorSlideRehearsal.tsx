@@ -29,6 +29,17 @@ type EditorSlideRehearsalSummaryProps = {
 
 export function EditorSlideRehearsalBottomPanel(
   props: EditorSlideRehearsalSummaryProps & {
+    animationDebug?: {
+      approvalOccurrenceId: string | null;
+      blocker: string | null;
+      confidence: number | null;
+      consumedOccurrenceIds: string[];
+      expectedOccurrenceIds: string[];
+      matchedOccurrenceIds: string[];
+      newSegment: string;
+      pendingOccurrenceIds: string[];
+    } | null;
+    onApproveAnimationTrigger?: (occurrenceId: string) => void;
     elapsedMs: number;
     message: string;
     nextAnimationDisabled?: boolean;
@@ -203,6 +214,34 @@ export function EditorSlideRehearsalBottomPanel(
           )}
         </div>
       </header>
+      {props.animationDebug ? (
+        <details className="editor-slide-rehearsal-animation-debug" open>
+          <summary>애니메이션 트리거 디버그</summary>
+          <p>새 전사 구간: {props.animationDebug.newSegment || "-"}</p>
+          <p>
+            현재 step occurrence: {props.animationDebug.expectedOccurrenceIds.join(", ") || "-"}
+          </p>
+          <p>
+            매칭/대기/소비: {props.animationDebug.matchedOccurrenceIds.join(", ") || "-"} / {props.animationDebug.pendingOccurrenceIds.join(", ") || "-"} / {props.animationDebug.consumedOccurrenceIds.join(", ") || "-"}
+          </p>
+          <p>
+            confidence {props.animationDebug.confidence?.toFixed(2) ?? "-"} · 판정 {props.animationDebug.blocker ?? "현재 step 매칭"}
+          </p>
+          {props.animationDebug.approvalOccurrenceId &&
+          props.onApproveAnimationTrigger ? (
+            <button
+              type="button"
+              onClick={() =>
+                props.onApproveAnimationTrigger?.(
+                  props.animationDebug?.approvalOccurrenceId ?? ""
+                )
+              }
+            >
+              이 키워드 효과 실행
+            </button>
+          ) : null}
+        </details>
+      ) : null}
       <RehearsalScriptTeleprompter
         focusScopeId={props.slide.slideId}
         onWheelNavigate={(direction) => {
