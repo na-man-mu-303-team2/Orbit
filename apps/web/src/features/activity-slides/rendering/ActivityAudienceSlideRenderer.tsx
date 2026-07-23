@@ -222,6 +222,41 @@ export function ActivityPublicResults(props: {
   activity: ActivityDefinition;
   result: ActivityPublicResult;
 }) {
+  const pollQuestion = props.activity.template === "poll"
+    ? props.activity.questions[0]
+    : undefined;
+  const pollAggregate = pollQuestion
+    ? props.result.aggregates.find((candidate) => candidate.questionId === pollQuestion.questionId)
+    : undefined;
+
+  if (
+    pollQuestion &&
+    pollAggregate &&
+    (pollQuestion.type === "single-choice" || pollQuestion.type === "multiple-choice")
+  ) {
+    return (
+      <section
+        aria-label="공개 결과"
+        className="activity-public-results activity-public-poll-results"
+      >
+        <strong className="activity-public-poll-question">{pollQuestion.prompt}</strong>
+        <div className="activity-public-poll-content">
+          <div
+            aria-label="선택지 응답 비율 도넛 차트"
+            className="activity-public-poll-donut"
+            role="img"
+            style={{ background: createPollDonutBackground(pollQuestion, pollAggregate) }}
+          />
+          <ActivityChoiceChart
+            aggregate={pollAggregate}
+            colorize
+            question={pollQuestion}
+          />
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="activity-public-results" aria-label="공개 결과">
       <div className="activity-public-result-summary">
@@ -247,18 +282,7 @@ export function ActivityPublicResults(props: {
                   <ActivityRatingDistribution items={aggregate.ratingDistribution} />
                 </div>
               ) : question.type === "single-choice" || question.type === "multiple-choice" ? (
-                <ul className="activity-public-choice-chart">
-                  {question.options.map((option) => {
-                    const choice = aggregate.choices.find((candidate) => candidate.optionId === option.optionId);
-                    const ratio = choice?.ratio ?? 0;
-                    return (
-                      <li key={option.optionId}>
-                        <span><b>{option.label}</b><em>{Math.round(ratio * 100)}%</em></span>
-                        <i><span style={{ width: `${ratio * 100}%` }} /></i>
-                      </li>
-                    );
-                  })}
-                </ul>
+                <ActivityChoiceChart aggregate={aggregate} question={question} />
               ) : (
                 <strong>{aggregate.responseCount}<small>개 의견</small></strong>
               )}
@@ -275,6 +299,73 @@ export function ActivityPublicResults(props: {
       ) : null}
     </section>
   );
+}
+
+type ChoiceQuestion = Extract<
+  ActivityDefinition["questions"][number],
+  { type: "single-choice" | "multiple-choice" }
+>;
+
+type PublicAggregate = ActivityPublicResult["aggregates"][number];
+
+function ActivityChoiceChart(props: {
+  aggregate: PublicAggregate;
+  colorize?: boolean;
+  question: ChoiceQuestion;
+}) {
+  return (
+    <ul className="activity-public-choice-chart">
+      {props.question.options.map((option, index) => {
+        const choice = props.aggregate.choices.find(
+          (candidate) => candidate.optionId === option.optionId
+        );
+        const ratio = choice?.ratio ?? 0;
+        return (
+          <li key={option.optionId}>
+            <span><b>{option.label}</b><em>{Math.round(ratio * 100)}%</em></span>
+            <i>
+              <span
+                style={{
+                  background: props.colorize ? pollChoiceColor(index) : undefined,
+                  width: `${ratio * 100}%`
+                }}
+              />
+            </i>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function createPollDonutBackground(
+  question: ChoiceQuestion,
+  aggregate: PublicAggregate
+) {
+  let cursor = 0;
+  const segments = question.options.flatMap((option, index) => {
+    const ratio = aggregate.choices.find(
+      (candidate) => candidate.optionId === option.optionId
+    )?.ratio ?? 0;
+    if (ratio <= 0) return [];
+    const start = cursor;
+    cursor += ratio * 100;
+    return `${pollChoiceColor(index)} ${start}% ${cursor}%`;
+  });
+  return segments.length > 0
+    ? `conic-gradient(${segments.join(", ")})`
+    : "var(--activity-color-muted)";
+}
+
+function pollChoiceColor(index: number) {
+  const colors = [
+    "color-mix(in srgb, var(--activity-color-accent) 76%, var(--activity-color-on-surface))",
+    "color-mix(in srgb, var(--activity-color-secondary) 76%, var(--activity-color-on-surface))",
+    "var(--activity-color-on-surface)",
+    "color-mix(in srgb, var(--activity-color-accent) 44%, var(--activity-color-on-surface))",
+    "color-mix(in srgb, var(--activity-color-secondary) 44%, var(--activity-color-on-surface))"
+  ];
+  return colors[index % colors.length];
 }
 
 export function ActivityRatingDistribution(props: {
