@@ -519,6 +519,16 @@ command/ack/snapshot/request, volatile laser, WebRTC signal, revoke,
   bucket은 초당 120개, burst 180개다. laser는 초당 60개, burst 60개다.
 - SDP는 32KiB, ICE candidate는 4KiB 이하의 strict union이다. signaling,
   annotation, laser payload는 로그에 남기지 않는다.
+- `screen-share` output은 capture마다 새 opaque `shareEpochId`를 반드시
+  포함하고, `slide`와 `black` output에는 이를 포함하지 않는다. 같은
+  `shareEpochId`의 signaling은 offer, answer, ICE, end가 하나의
+  `signalId`를 공유하며 다른 epoch 또는 negotiation ID는 폐기한다.
+- screen-share media는 same-origin audience stream bridge가 현재 capture를
+  desktop authority에 전달하고 WebRTC sender에는 첫 video track만
+  추가한다. audio track은 전송하지 않으며 `RTCPeerConnection`은 TURN
+  server 없이 생성한다. peer 연결이 2초 안에 완료되지 않거나 실패해도
+  desktop capture와 main audience output은 유지하고 iPad의 해당 share
+  surface 쓰기만 비활성화한다.
 - annotation과 companion signaling은 body `sessionId`, 최신 generation,
   active `authorityEpochId`를 relay 직전에 다시 확인한다. annotation
   command는 presenter room 전체가 아니라 authority epoch room 하나에만

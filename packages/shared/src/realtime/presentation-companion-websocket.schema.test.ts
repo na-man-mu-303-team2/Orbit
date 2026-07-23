@@ -8,6 +8,7 @@ import {
   presentationCompanionMaxIceCandidateLength,
   presentationCompanionMaxPointBatch,
   presentationCompanionMaxSdpLength,
+  presentationCompanionOutputStateSchema,
   presentationCompanionPointSchema,
   presentationCompanionSignalSchema
 } from "./websocket.schema";
@@ -90,6 +91,7 @@ describe("presentation companion websocket contract", () => {
       sessionId: "session_1",
       authorityEpochId: "epoch_1",
       targetGeneration: 1,
+      shareEpochId: "share_1",
       signalId: "signal_1"
     };
     expect(
@@ -123,6 +125,47 @@ describe("presentation companion websocket contract", () => {
         x: 0.2,
         y: 0.8,
         rawPointerEvent: "PRIVATE_POINTER"
+      }).success
+    ).toBe(false);
+  });
+
+  it("requires a share epoch only for screen-share output and every signal", () => {
+    const output = {
+      sessionId: "session_1",
+      authorityEpochId: "epoch_1",
+      outputRevision: 1,
+      surfaceRevision: 0,
+      surfaceId: "surface_1",
+      outputMode: "screen-share",
+      slideId: "slide_1",
+      slideIndex: 0,
+      animationStep: 0
+    };
+    expect(
+      presentationCompanionOutputStateSchema.safeParse(output).success
+    ).toBe(false);
+    expect(
+      presentationCompanionOutputStateSchema.safeParse({
+        ...output,
+        shareEpochId: "share_1"
+      }).success
+    ).toBe(true);
+    expect(
+      presentationCompanionOutputStateSchema.safeParse({
+        ...output,
+        outputMode: "slide",
+        shareEpochId: "share_1"
+      }).success
+    ).toBe(false);
+
+    expect(
+      presentationCompanionSignalSchema.safeParse({
+        sessionId: "session_1",
+        authorityEpochId: "epoch_1",
+        targetGeneration: 1,
+        signalId: "signal_1",
+        kind: "end",
+        reason: "closed"
       }).success
     ).toBe(false);
   });

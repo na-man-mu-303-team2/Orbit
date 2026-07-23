@@ -296,7 +296,20 @@ export const presentationCompanionOutputStateSchema = z
     animationStep: z.number().int().nonnegative(),
     shareEpochId: companionOpaqueIdSchema.optional()
   })
-  .strict();
+  .strict()
+  .superRefine((output, context) => {
+    if (
+      (output.outputMode === "screen-share") !==
+      (output.shareEpochId !== undefined)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "shareEpochId is required only for screen-share output",
+        path: ["shareEpochId"]
+      });
+    }
+  });
 
 export const presentationCompanionAnnotationAckSchema = z
   .object({
@@ -413,6 +426,7 @@ const signalBase = {
   sessionId: companionSessionIdSchema,
   authorityEpochId: companionOpaqueIdSchema,
   targetGeneration: companionGenerationSchema,
+  shareEpochId: companionOpaqueIdSchema,
   signalId: companionOpaqueIdSchema
 };
 
