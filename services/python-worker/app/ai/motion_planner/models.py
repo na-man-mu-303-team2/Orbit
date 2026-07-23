@@ -21,6 +21,15 @@ SlideType = Literal[
 NarrativeIntent = Literal[
     "orient", "sequence", "contrast", "explain-data", "emphasize", "summarize"
 ]
+MotionIntent = Literal[
+    "introduce",
+    "reveal",
+    "focus",
+    "support",
+    "compare",
+    "connect",
+    "conclude",
+]
 MotionSemanticRole = Literal[
     "title",
     "subtitle",
@@ -84,6 +93,13 @@ class ExtractedMotionContext(BaseModel):
     notes_truncated: bool = Field(alias="notesTruncated")
 
 
+class MotionPlanTarget(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    element_id: str = Field(alias="elementId", min_length=1)
+    motion_intent: MotionIntent = Field(alias="motionIntent")
+
+
 class NarrativeBeat(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -92,22 +108,25 @@ class NarrativeBeat(BaseModel):
         "orient", "reveal", "connect", "contrast", "emphasize", "conclude"
     ]
     trigger: Literal["entry", "click"]
-    target_element_ids: list[str] = Field(
-        alias="targetElementIds", min_length=1, max_length=4
-    )
     relation: Literal["together", "sequence"]
+    targets: list[MotionPlanTarget] = Field(min_length=1, max_length=4)
 
     @model_validator(mode="after")
     def reject_duplicate_targets(self) -> Self:
-        if len(set(self.target_element_ids)) != len(self.target_element_ids):
-            raise ValueError("NarrativeBeat targetElementIds must be unique")
+        target_ids = self.target_element_ids
+        if len(set(target_ids)) != len(target_ids):
+            raise ValueError("NarrativeBeat target IDs must be unique")
         return self
+
+    @property
+    def target_element_ids(self) -> list[str]:
+        return [target.element_id for target in self.targets]
 
 
 class NarrativeMotionPlan(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    schema_version: Literal[1] = Field(alias="schemaVersion")
+    schema_version: Literal[2] = Field(alias="schemaVersion")
     pattern: Literal[
         "hero-then-support",
         "stepwise-process",
@@ -116,6 +135,7 @@ class NarrativeMotionPlan(BaseModel):
         "cluster-reveal",
         "summary-recap",
     ]
+    pacing: Literal["deliberate", "balanced", "brisk"]
     beats: list[NarrativeBeat] = Field(min_length=1, max_length=6)
 
     @model_validator(mode="after")

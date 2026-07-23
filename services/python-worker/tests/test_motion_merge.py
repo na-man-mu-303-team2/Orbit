@@ -43,22 +43,30 @@ def context() -> ExtractedMotionContext:
 def plan() -> NarrativeMotionPlan:
     return NarrativeMotionPlan.model_validate(
         {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "pattern": "hero-then-support",
+            "pacing": "balanced",
             "beats": [
                 {
                     "beatId": "beat_entry",
                     "purpose": "orient",
                     "trigger": "entry",
-                    "targetElementIds": ["el_existing"],
                     "relation": "together",
+                    "targets": [
+                        {
+                            "elementId": "el_existing",
+                            "motionIntent": "introduce",
+                        }
+                    ],
                 },
                 {
                     "beatId": "beat_click_1",
                     "purpose": "reveal",
                     "trigger": "click",
-                    "targetElementIds": ["el_new"],
                     "relation": "together",
+                    "targets": [
+                        {"elementId": "el_new", "motionIntent": "reveal"}
+                    ],
                 },
             ],
         }

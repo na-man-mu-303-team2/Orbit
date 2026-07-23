@@ -48,22 +48,28 @@ def extraction_fixture():
 
 def valid_plan() -> dict[str, Any]:
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "pattern": "hero-then-support",
+        "pacing": "balanced",
         "beats": [
             {
                 "beatId": "beat_entry",
                 "purpose": "orient",
                 "trigger": "entry",
-                "targetElementIds": ["el_title"],
                 "relation": "together",
+                "targets": [
+                    {"elementId": "el_title", "motionIntent": "introduce"}
+                ],
             },
             {
                 "beatId": "beat_click_1",
                 "purpose": "emphasize",
                 "trigger": "click",
-                "targetElementIds": ["el_body", "el_focal"],
                 "relation": "sequence",
+                "targets": [
+                    {"elementId": "el_body", "motionIntent": "support"},
+                    {"elementId": "el_focal", "motionIntent": "focus"},
+                ],
             },
         ],
     }
@@ -88,8 +94,8 @@ def test_accepts_strict_semantic_plan_without_patch_fields() -> None:
     [
         lambda plan: plan.update({"operations": []}),
         lambda plan: plan["beats"][0].update({"durationMs": 400}),
-        lambda plan: plan["beats"][0].update(
-            {"targetElementIds": ["el_not_allowed"]}
+        lambda plan: plan["beats"][0]["targets"][0].update(
+            {"elementId": "el_not_allowed"}
         ),
         lambda plan: plan.update(
             {
@@ -98,8 +104,13 @@ def test_accepts_strict_semantic_plan_without_patch_fields() -> None:
                         "beatId": f"beat_click_{index}",
                         "purpose": "reveal",
                         "trigger": "click",
-                        "targetElementIds": [f"el_{index}"],
                         "relation": "sequence",
+                        "targets": [
+                            {
+                                "elementId": f"el_{index}",
+                                "motionIntent": "reveal",
+                            }
+                        ],
                     }
                     for index in range(7)
                 ]

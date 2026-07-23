@@ -4,7 +4,13 @@ from typing import Any, Literal
 
 from app.ai.motion_planner.extractor import MotionPromptInput
 from app.ai.motion_planner.library import narrative_pattern_for_slide_type
-from app.ai.motion_planner.models import NarrativeBeat, NarrativeMotionPlan, SlideType
+from app.ai.motion_planner.models import (
+    MotionIntent,
+    MotionPlanTarget,
+    NarrativeBeat,
+    NarrativeMotionPlan,
+    SlideType,
+)
 
 BeatPurpose = Literal[
     "orient", "reveal", "connect", "contrast", "emphasize", "conclude"
@@ -40,8 +46,11 @@ def deterministic_fallback_plan(
             beatId="beat_entry",
             purpose="orient",
             trigger="entry",
-            targetElementIds=entry_ids,
             relation="together",
+            targets=[
+                MotionPlanTarget(elementId=element_id, motionIntent="introduce")
+                for element_id in entry_ids
+            ],
         )
     ]
     grouped = _bounded_fallback_groups(_fallback_groups(slide_type, remaining))
@@ -51,17 +60,26 @@ def deterministic_fallback_plan(
                 beatId=f"beat_click_{index}",
                 purpose=_click_purpose(slide_type, index, len(grouped)),
                 trigger="click",
-                targetElementIds=[target.element_id for target in group],
                 relation=(
                     "together"
                     if slide_type in {"comparison", "feature-grid"}
                     else "sequence"
                 ),
+                targets=[
+                    MotionPlanTarget(
+                        elementId=target.element_id,
+                        motionIntent=_fallback_motion_intent(
+                            _click_purpose(slide_type, index, len(grouped))
+                        ),
+                    )
+                    for target in group
+                ],
             )
         )
     return NarrativeMotionPlan(
-        schemaVersion=1,
+        schemaVersion=2,
         pattern=narrative_pattern_for_slide_type(slide_type),
+        pacing="balanced",
         beats=beats,
     )
 
@@ -93,3 +111,13 @@ def _click_purpose(
     if slide_type == "summary" and index == total:
         return "conclude"
     return "reveal"
+
+
+def _fallback_motion_intent(purpose: BeatPurpose) -> MotionIntent:
+    if purpose == "orient":
+        return "introduce"
+    if purpose == "contrast":
+        return "compare"
+    if purpose == "emphasize":
+        return "focus"
+    return purpose

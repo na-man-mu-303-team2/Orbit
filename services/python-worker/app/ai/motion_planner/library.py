@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from app.ai.motion_planner.models import MotionTarget, SlideType
+from app.ai.motion_planner.models import MotionIntent, MotionTarget, SlideType
 
-COMPILER_VERSION: Literal["motion-compiler-v1"] = "motion-compiler-v1"
+COMPILER_VERSION: Literal["motion-compiler-v2"] = "motion-compiler-v2"
 MAX_ENTRY_MOTION_MS = 900
 MAX_CLICK_STEP_MOTION_MS = 1_200
 MAX_TOTAL_MOTION_MS = 6_000
@@ -41,9 +41,27 @@ def narrative_pattern_for_slide_type(slide_type: SlideType) -> NarrativePattern:
     return patterns.get(slide_type, "hero-then-support")
 
 
-def effect_spec_for_target(target: MotionTarget) -> MotionEffectSpec:
-    if target.semantic_role in {"focal", "media", "data"}:
-        return MotionEffectSpec(effect="zoom-in", duration_ms=450)
-    if target.semantic_role in {"title", "subtitle"}:
-        return MotionEffectSpec(effect="fade-in", duration_ms=400)
-    return MotionEffectSpec(effect="appear", duration_ms=300)
+def effect_spec_for_target(
+    target: MotionTarget,
+    motion_intent: MotionIntent,
+    pacing: Literal["deliberate", "balanced", "brisk"],
+) -> MotionEffectSpec:
+    emphasis_roles = {"focal", "media", "data"}
+    if motion_intent == "introduce":
+        effect: AnimationEffect = "fade-in"
+    elif motion_intent == "reveal":
+        effect = "zoom-in" if target.semantic_role in emphasis_roles else "appear"
+    elif motion_intent == "focus":
+        effect = "zoom-in"
+    elif motion_intent == "compare":
+        effect = "fade-in"
+    elif motion_intent in {"support", "connect"}:
+        effect = "appear"
+    else:
+        effect = "zoom-in" if target.semantic_role in emphasis_roles else "fade-in"
+    durations = {
+        "deliberate": {"appear": 400, "fade-in": 500, "zoom-in": 550},
+        "balanced": {"appear": 300, "fade-in": 400, "zoom-in": 450},
+        "brisk": {"appear": 200, "fade-in": 300, "zoom-in": 350},
+    }
+    return MotionEffectSpec(effect=effect, duration_ms=durations[pacing][effect])

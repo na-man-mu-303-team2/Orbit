@@ -167,8 +167,8 @@ def test_golden_manifest_and_import_matrix_cover_release_axes() -> None:
     assert manifest == {
         **manifest,
         "fixtureVersion": 1,
-        "plannerSchemaVersion": 1,
-        "compilerVersion": "motion-compiler-v1",
+        "plannerSchemaVersion": 2,
+        "compilerVersion": "motion-compiler-v2",
         "syntheticNotesOnly": True,
     }
     assert [case["expected"]["slideType"] for case in manifest["cases"]] == [

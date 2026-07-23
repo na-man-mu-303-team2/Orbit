@@ -50,22 +50,31 @@ def context() -> ExtractedMotionContext:
 def plan() -> NarrativeMotionPlan:
     return NarrativeMotionPlan.model_validate(
         {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "pattern": "hero-then-support",
+            "pacing": "balanced",
             "beats": [
                 {
                     "beatId": "beat_entry",
                     "purpose": "orient",
                     "trigger": "entry",
-                    "targetElementIds": ["el_title"],
                     "relation": "together",
+                    "targets": [
+                        {
+                            "elementId": "el_title",
+                            "motionIntent": "introduce",
+                        }
+                    ],
                 },
                 {
                     "beatId": "beat_click_1",
                     "purpose": "reveal",
                     "trigger": "click",
-                    "targetElementIds": ["el_body", "el_media"],
                     "relation": "sequence",
+                    "targets": [
+                        {"elementId": "el_body", "motionIntent": "support"},
+                        {"elementId": "el_media", "motionIntent": "reveal"},
+                    ],
                 },
             ],
         }
@@ -122,17 +131,18 @@ def test_compiler_rejects_click_step_over_1200ms_without_partial_operations() ->
     )
     over_budget_plan = NarrativeMotionPlan.model_validate(
         {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "pattern": "cluster-reveal",
+            "pacing": "deliberate",
             "beats": [
                 {
                     "beatId": "beat_click_1",
                     "purpose": "reveal",
                     "trigger": "click",
-                    "targetElementIds": [
-                        "el_media",
-                        "el_media_2",
-                        "el_media_3",
+                    "targets": [
+                        {"elementId": "el_media", "motionIntent": "focus"},
+                        {"elementId": "el_media_2", "motionIntent": "focus"},
+                        {"elementId": "el_media_3", "motionIntent": "focus"},
                     ],
                     "relation": "sequence",
                 }
@@ -148,6 +158,35 @@ def test_compiler_rejects_click_step_over_1200ms_without_partial_operations() ->
             plan=over_budget_plan,
             context=over_budget_context,
         )
+
+
+def test_compiler_uses_ai_intent_and_pacing_for_slide_specific_motion() -> None:
+    deliberate = plan().model_copy(deep=True)
+    deliberate.pacing = "deliberate"
+    deliberate.beats[1].targets[0].motion_intent = "focus"
+    brisk = deliberate.model_copy(deep=True)
+    brisk.pacing = "brisk"
+    brisk.beats[1].targets[0].motion_intent = "connect"
+
+    deliberate_result = compile_narrative_motion(
+        deck_id="deck_1",
+        slide_id="slide_1",
+        base_version=7,
+        plan=deliberate,
+        context=context(),
+    )
+    brisk_result = compile_narrative_motion(
+        deck_id="deck_1",
+        slide_id="slide_1",
+        base_version=7,
+        plan=brisk,
+        context=context(),
+    )
+
+    assert deliberate_result.operations[1].animation.type == "zoom-in"
+    assert deliberate_result.operations[1].animation.duration_ms == 550
+    assert brisk_result.operations[1].animation.type == "appear"
+    assert brisk_result.operations[1].animation.duration_ms == 200
 
 
 def test_compiler_fails_closed_when_merge_is_required() -> None:

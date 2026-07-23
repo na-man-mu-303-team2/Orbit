@@ -46,7 +46,7 @@ class AddAnimationOperation(BaseModel):
 class CompiledMotion(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    compiler_version: Literal["motion-compiler-v1"] = Field(alias="compilerVersion")
+    compiler_version: Literal["motion-compiler-v2"] = Field(alias="compilerVersion")
     operations: list[AddAnimationOperation]
     entry_motion_ms: int = Field(alias="entryMotionMs", ge=0)
     max_click_step_motion_ms: int = Field(alias="maxClickStepMotionMs", ge=0)
@@ -89,11 +89,16 @@ def compile_narrative_motion(
 
     for beat_index, beat in enumerate(plan.beats):
         durations: list[int] = []
-        for target_index, element_id in enumerate(beat.target_element_ids):
+        for target_index, planned_target in enumerate(beat.targets):
+            element_id = planned_target.element_id
             target = targets.get(element_id)
             if target is None:
                 raise MotionCompileError("plan target is absent from extracted context")
-            spec = effect_spec_for_target(target)
+            spec = effect_spec_for_target(
+                target,
+                planned_target.motion_intent,
+                plan.pacing,
+            )
             durations.append(spec.duration_ms)
             animation_id = _stable_animation_id(
                 deck_id=deck_id,

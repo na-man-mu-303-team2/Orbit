@@ -53,8 +53,19 @@ def test_all_twelve_slide_types_use_the_bounded_pattern_library() -> None:
 
 def test_effect_library_only_emits_serializer_safe_entrance_effects() -> None:
     specs = {
-        role: effect_spec_for_target(target(role))
-        for role in ("title", "subtitle", "body", "label", "focal", "media", "data")
+        "introduce": effect_spec_for_target(
+            target("body"), "introduce", "balanced"
+        ),
+        "reveal-body": effect_spec_for_target(target("body"), "reveal", "balanced"),
+        "reveal-media": effect_spec_for_target(
+            target("media"), "reveal", "balanced"
+        ),
+        "focus": effect_spec_for_target(target("body"), "focus", "balanced"),
+        "compare": effect_spec_for_target(target("data"), "compare", "balanced"),
+        "connect": effect_spec_for_target(target("media"), "connect", "balanced"),
+        "conclude-media": effect_spec_for_target(
+            target("media"), "conclude", "balanced"
+        ),
     }
 
     assert {spec.effect for spec in specs.values()} == {
@@ -62,10 +73,35 @@ def test_effect_library_only_emits_serializer_safe_entrance_effects() -> None:
         "fade-in",
         "zoom-in",
     }
-    assert specs["title"].duration_ms == 400
-    assert specs["body"].duration_ms == 300
-    assert specs["media"].duration_ms == 450
+    assert specs["introduce"].effect == "fade-in"
+    assert specs["reveal-body"].effect == "appear"
+    assert specs["reveal-media"].effect == "zoom-in"
+    assert specs["focus"].effect == "zoom-in"
+    assert specs["compare"].effect == "fade-in"
+    assert specs["connect"].effect == "appear"
+    assert specs["conclude-media"].effect == "zoom-in"
+    assert specs["introduce"].duration_ms == 400
+    assert specs["reveal-body"].duration_ms == 300
+    assert specs["reveal-media"].duration_ms == 450
     assert all(spec.easing == "ease-out" for spec in specs.values())
+
+
+@pytest.mark.parametrize(
+    ("pacing", "expected"),
+    [
+        ("deliberate", (400, 500, 550)),
+        ("balanced", (300, 400, 450)),
+        ("brisk", (200, 300, 350)),
+    ],
+)
+def test_pacing_maps_to_bounded_durations(
+    pacing: str, expected: tuple[int, int, int]
+) -> None:
+    assert (
+        effect_spec_for_target(target("body"), "support", pacing).duration_ms,
+        effect_spec_for_target(target("body"), "introduce", pacing).duration_ms,
+        effect_spec_for_target(target("body"), "focus", pacing).duration_ms,
+    ) == expected
 
 
 def test_all_twelve_golden_types_exclude_decoration_footer_background_and_connectors() -> None:

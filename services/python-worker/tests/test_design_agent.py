@@ -685,15 +685,18 @@ def test_animation_recommendation_runs_semantic_planner_in_shadow_only() -> None
         "notesTruncated": False,
     })
     client = FakeClient({
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "pattern": "hero-then-support",
+        "pacing": "balanced",
         "beats": [
             {
                 "beatId": "beat_entry",
                 "purpose": "orient",
                 "trigger": "entry",
-                "targetElementIds": ["el_image"],
-                "relation": "together",
+                    "relation": "together",
+                    "targets": [
+                        {"elementId": "el_image", "motionIntent": "focus"}
+                    ],
             }
         ],
     })
@@ -726,15 +729,18 @@ def test_animation_recommendation_compiles_semantic_plan_in_on_mode() -> None:
         "notesTruncated": False,
     })
     plan = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "pattern": "hero-then-support",
+        "pacing": "balanced",
         "beats": [
             {
                 "beatId": "beat_entry",
                 "purpose": "orient",
                 "trigger": "entry",
-                "targetElementIds": ["el_image"],
                 "relation": "together",
+                "targets": [
+                    {"elementId": "el_image", "motionIntent": "focus"}
+                ],
             }
         ],
     }
@@ -800,8 +806,8 @@ def test_animation_recommendation_fallback_allows_safe_existing_animation_update
     update = result.operations[0]
     assert update.type == "update_animation"
     assert update.animation_id == "anim_existing"
-    assert update.animation.type == "zoom-in"
-    assert update.animation.duration_ms == 450
+    assert update.animation.type == "fade-in"
+    assert update.animation.duration_ms == 400
 
 
 def test_animation_recommendation_compiles_deterministic_fallback_on_llm_failure() -> None:
