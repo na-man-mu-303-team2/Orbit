@@ -134,7 +134,7 @@ def test_staged_story_plan_uses_one_llm_call_without_slide_details() -> None:
     assert all(not slide.content_items for slide in content.slide_plans)
 
 
-def test_cover_content_keeps_only_grounded_facts_and_verified_profile_asset() -> None:
+def test_cover_content_keeps_only_title_and_subtitle() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -177,13 +177,13 @@ def test_cover_content_keeps_only_grounded_facts_and_verified_profile_asset() ->
 
     assert cover.title == first_slide.title
     assert cover.subtitle == first_slide.message
-    assert cover.presenter_name == "김민지"
-    assert cover.organization == "ORBIT 연구소"
+    assert cover.presenter_name is None
+    assert cover.organization is None
     assert cover.date_text is None
     assert cover.venue is None
-    assert cover.profile_image_asset_id == "asset-profile"
+    assert cover.profile_image_asset_id is None
     assert detailed.content_items == []
-    assert detailed.media_intent.kind == "provided"
+    assert detailed.media_intent.kind == "none"
 
 
 def test_quality_and_diagnostics_stage_entrypoints_use_pydantic_boundaries() -> None:

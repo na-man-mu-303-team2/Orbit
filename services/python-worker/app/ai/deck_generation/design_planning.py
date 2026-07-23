@@ -597,10 +597,15 @@ def program_v2_slide_summary(
     content_items = [
         item.model_dump(by_alias=True) for item in slide_plan.content_items
     ]
-    if not content_items and slide_plan.order != 1 and slide_plan.slide_type != "cover":
+    if (
+        not content_items
+        and slide_plan.order != 1
+        and slide_plan.slide_type not in {"cover", "closing"}
+    ):
         estimated_count = {
             "cover": 1,
             "title": 1,
+            "agenda": 1,
             "problem": 2,
             "solution": 2,
             "feature-grid": 3,
@@ -611,6 +616,7 @@ def program_v2_slide_summary(
             "comparison": 2,
             "quote": 1,
             "summary": 1,
+            "closing": 0,
         }.get(slide_plan.slide_type, 1)
         content_items = [
             {

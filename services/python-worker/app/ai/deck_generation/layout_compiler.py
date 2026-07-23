@@ -43,6 +43,19 @@ def without_canvas_background_elements(
     ]
 
 
+def unique_keyword_terms(keywords: list[str]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for keyword in keywords:
+        term = keyword.strip()
+        normalized = term.casefold()
+        if not term or normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(term)
+    return unique
+
+
 def assemble_program_v2_slide(
     raw_input: RawInput,
     slide_plan: SlidePlan,
@@ -95,7 +108,10 @@ def assemble_program_v2_slide(
                 "synonyms": [],
                 "abbreviations": [],
             }
-            for index, keyword in enumerate(slide_plan.keywords, start=1)
+            for index, keyword in enumerate(
+                unique_keyword_terms(slide_plan.keywords),
+                start=1,
+            )
         ],
         "animations": [],
         "aiNotes": program_v2_ai_notes(
