@@ -3695,6 +3695,7 @@
 }
 
 .presenter-remote-shell {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: var(--redesign-space-3);
@@ -3805,6 +3806,7 @@
 
 .presenter-remote-stage {
   align-self: center;
+  background: var(--redesign-color-dark-surface-raised);
   gap: var(--redesign-space-5) var(--redesign-space-6);
   grid-template-columns: minmax(0, 1fr) clamp(240px, 20vw, 300px);
   grid-template-rows: minmax(0, 1fr) clamp(232px, 27dvh, 248px);
