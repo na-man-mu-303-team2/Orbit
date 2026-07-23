@@ -9,6 +9,7 @@ import {
 } from "./PresenterCompanionSetup";
 import { CompanionAudienceRenderer } from "./CompanionAudienceRenderer";
 import { useCompanionSocket } from "./useCompanionSocket";
+import { CompanionAnnotationCanvas } from "./CompanionAnnotationCanvas";
 import "./presenter-companion.css";
 
 export function CompanionPairingPage(props: { code: string }) {
@@ -120,10 +121,27 @@ function ConnectedCompanionShell(props: {
           <p>{companion.error}</p>
         </section>
       ) : (
-        <CompanionAudienceRenderer
-          deck={props.bootstrap.deck}
-          output={companion.output}
-        />
+        <div className="presenter-companion-stage">
+          <CompanionAudienceRenderer
+            deck={props.bootstrap.deck}
+            output={companion.output}
+          />
+          {companion.output ? (
+            <CompanionAnnotationCanvas
+              annotation={companion.annotation}
+              canWrite={props.bootstrap.scopes.includes(
+                "write-annotation",
+              )}
+              connected={
+                companion.status === "connected" &&
+                Boolean(companion.authorityEpochId)
+              }
+              lastAcknowledgement={companion.lastAnnotationAck}
+              output={companion.output}
+              sendCommand={companion.sendAnnotationCommand}
+            />
+          ) : null}
+        </div>
       )}
     </main>
   );

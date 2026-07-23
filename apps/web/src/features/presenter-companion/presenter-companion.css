@@ -95,8 +95,8 @@
 
 .presenter-companion-output {
   display: grid;
+  grid-area: output;
   place-items: center;
-  width: 100%;
   min-width: 0;
   overflow: hidden;
   touch-action: none;
@@ -108,4 +108,84 @@
 
 .presenter-companion-waiting {
   color: var(--redesign-color-on-dark);
+}
+
+.presenter-companion-stage {
+  align-self: center;
+  display: grid;
+  grid-template-areas: "output";
+  justify-self: center;
+  max-height: calc(100dvh - var(--redesign-space-8));
+  max-width: 100%;
+  position: relative;
+}
+
+.presenter-companion-annotation-canvas {
+  grid-area: output;
+  height: 100%;
+  touch-action: none;
+  width: 100%;
+  z-index: 5;
+}
+
+.presenter-companion-toolbar {
+  align-items: center;
+  backdrop-filter: blur(var(--redesign-blur-overlay));
+  background: color-mix(
+    in srgb,
+    var(--redesign-color-dark-surface-raised) 88%,
+    transparent
+  );
+  border: var(--redesign-border-width) solid
+    var(--redesign-color-inverse-outline);
+  border-radius: var(--redesign-radius-full);
+  bottom: max(var(--redesign-space-3), env(safe-area-inset-bottom));
+  display: flex;
+  gap: var(--redesign-space-2);
+  left: 50%;
+  padding: var(--redesign-space-2);
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 8;
+}
+
+.presenter-companion-toolbar button {
+  min-height: var(--redesign-size-control-sm);
+}
+
+.presenter-companion-toolbar button[aria-pressed="true"] {
+  background: var(--redesign-color-primary);
+  color: var(--redesign-color-on-primary);
+}
+
+.presenter-companion-color-tools {
+  display: flex;
+  gap: var(--redesign-space-1);
+}
+
+.presenter-companion-toolbar .presenter-companion-color {
+  border-radius: var(--redesign-radius-full);
+  min-height: var(--redesign-space-6);
+  min-width: var(--redesign-space-6);
+  padding: 0;
+}
+
+.presenter-companion-color--ink-black {
+  background: var(--redesign-color-on-surface);
+}
+
+.presenter-companion-color--ink-blue {
+  background: var(--redesign-color-info);
+}
+
+.presenter-companion-color--ink-red {
+  background: var(--redesign-color-error);
+}
+
+.presenter-companion-color--ink-green {
+  background: var(--redesign-color-success);
+}
+
+.presenter-companion-color--ink-yellow {
+  background: var(--redesign-color-warning);
 }

@@ -1,0 +1,51 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import { CompanionAnnotationCanvas } from "./CompanionAnnotationCanvas";
+
+const output = {
+  sessionId: "session_1",
+  authorityEpochId: "epoch_1",
+  outputRevision: 1,
+  surfaceRevision: 0,
+  surfaceId: "surface_1",
+  outputMode: "slide" as const,
+  slideId: "slide_1",
+  slideIndex: 0,
+  animationStep: 0,
+};
+
+describe("CompanionAnnotationCanvas", () => {
+  it("renders touch canvas and disables tools while read-only", () => {
+    const html = renderToStaticMarkup(
+      <CompanionAnnotationCanvas
+        annotation={null}
+        canWrite
+        connected={false}
+        lastAcknowledgement={null}
+        output={output}
+        sendCommand={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain('aria-label="iPad 주석 입력"');
+    expect(html).toContain('aria-label="iPad 주석 도구"');
+    expect(html).toContain("disabled");
+    expect(html).not.toContain("speakerNotes");
+    expect(html).not.toContain("transcript");
+  });
+
+  it("removes drawing and toolbar surfaces in black mode", () => {
+    const html = renderToStaticMarkup(
+      <CompanionAnnotationCanvas
+        annotation={null}
+        canWrite
+        connected
+        lastAcknowledgement={null}
+        output={{ ...output, outputMode: "black" }}
+        sendCommand={vi.fn()}
+      />,
+    );
+
+    expect(html).toBe("");
+  });
+});

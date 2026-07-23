@@ -43,6 +43,10 @@ export function CompanionAudienceRenderer(props: {
         props.output.outputMode === "black" ? "true" : "false"
       }
       data-output-revision={props.output.outputRevision}
+      style={{
+        height: deck.canvas.height * scale,
+        width: deck.canvas.width * scale,
+      }}
     >
       <AudienceOutputRenderer
         deck={deck}
