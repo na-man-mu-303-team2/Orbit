@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.ai.composition_library import COMPOSITION_SPECS
 from app.ai.deck_generation.content_planning import (
+    compose_agenda_detail,
     compose_cover_detail,
     compose_slide_detail_with_llm,
     plan_story_content,
@@ -283,6 +284,12 @@ def run_slide_compose_stage(
     detailed = (
         compose_cover_detail(scoped_raw_input, target)
         if target.order == 1
+        else compose_agenda_detail(
+            scoped_raw_input,
+            target,
+            stage_input.content_plan.slide_plans,
+        )
+        if target.slide_type == "agenda"
         else compose_slide_detail_with_llm(
             scoped_raw_input,
             target,

@@ -2147,6 +2147,36 @@ def agenda_section_slides(slide_plans: list[SlidePlan]) -> list[SlidePlan]:
     return [body_slides[index] for index in dict.fromkeys(indices)]
 
 
+def compose_agenda_detail(
+    raw_input: RawInput,
+    target: SlidePlan,
+    slide_plans: list[SlidePlan],
+) -> SlidePlan:
+    sections = agenda_section_slides(slide_plans)
+    return target.model_copy(
+        deep=True,
+        update={
+            "speaker_notes": (
+                target.speaker_notes
+                or speaker_notes_for(
+                    raw_input,
+                    target.title,
+                    target.message,
+                    target.order,
+                )
+            ),
+            "content_items": [
+                GeneratedContentItem(
+                    contentItemId=f"content_{target.order}_agenda_{index}",
+                    text=section.title,
+                )
+                for index, section in enumerate(sections, start=1)
+            ],
+            "media_intent": MediaIntent(),
+        },
+    )
+
+
 def normalize_structural_slide_plans(
     raw_input: RawInput,
     slide_plans: list[SlidePlan],

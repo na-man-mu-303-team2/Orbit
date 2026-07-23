@@ -25,7 +25,7 @@ from app.ai.deck_generation.content_planning import (
     clear_deck_content_plan_cache,
     compact_dense_speaker_notes,
     compact_program_v2_content_items,
-    compose_slide_detail_with_llm,
+    compose_agenda_detail,
     content_plan_repair_reasons,
     deck_content_prompt,
     deck_content_response_format_for,
@@ -1303,7 +1303,7 @@ def test_profile_fallback_closing_is_thank_you_only(
     }
 
 
-def test_agenda_detail_uses_llm_generated_content_items() -> None:
+def test_agenda_detail_uses_planned_body_titles() -> None:
     raw_input = analyze_input(
         GenerateDeckRequest(
             projectId="project_demo_1",
@@ -1311,36 +1311,30 @@ def test_agenda_detail_uses_llm_generated_content_items() -> None:
             prompt="ORBIT 소개 자료를 만들어줘",
         )
     )
-    target = SlidePlan(
-        order=2,
-        slide_type="agenda",
-        title="목차",
-        message="발표 순서",
-        speaker_notes="",
-        keywords=[],
-        evidence=[],
-        content_items=[],
-    )
-    client = FakeOpenAIClient(
-        {
-            "title": "ORBIT",
-            "slides": [
-                slide_payload(
-                    "목차",
-                    "발표 순서",
-                    "발표 순서를 안내합니다.",
-                    slide_type="agenda",
-                    content_items=["시장 문제", "해결 전략"],
-                )
-            ],
-        }
-    )
+    slides = [
+        SlidePlan(
+            order=order,
+            slide_type=slide_type,
+            title=title,
+            message=message,
+            speaker_notes="",
+            keywords=[],
+            evidence=[],
+            content_items=[],
+        )
+        for order, slide_type, title, message in [
+            (1, "cover", "ORBIT", "소개"),
+            (2, "agenda", "목차", "발표 순서"),
+            (3, "problem", "시장 문제", "시장 문제를 설명합니다."),
+            (4, "solution", "해결 전략", "해결 전략을 설명합니다."),
+            (5, "closing", "감사합니다", "경청해 주셔서 감사합니다."),
+        ]
+    ]
 
-    detailed = compose_slide_detail_with_llm(
+    detailed = compose_agenda_detail(
         raw_input,
-        target,
-        style_prompt_context(raw_input),
-        client=client,
+        slides[1],
+        slides,
     )
 
     assert [item.text for item in detailed.content_items] == [
@@ -1348,8 +1342,8 @@ def test_agenda_detail_uses_llm_generated_content_items() -> None:
         "해결 전략",
     ]
     assert [item.content_item_id for item in detailed.content_items] == [
-        "content_2_1",
-        "content_2_2",
+        "content_2_agenda_1",
+        "content_2_agenda_2",
     ]
 
 

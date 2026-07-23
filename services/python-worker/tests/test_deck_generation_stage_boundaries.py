@@ -34,10 +34,12 @@ from app.ai.deck_generation.stage_runtime import (
     ContentPlanningStageInput,
     DesignPlanningStageInput,
     LayoutCompileStageInput,
+    SlideComposeStageInput,
     SourceGroundingStageInput,
     run_content_planning_stage,
     run_design_planning_stage,
     run_layout_compile_stage,
+    run_slide_compose_stage,
     run_source_grounding_stage,
 )
 
@@ -298,3 +300,27 @@ def test_planning_stage_runtime_preserves_typed_stage_boundaries(
         for order in range(1, content.content_plan.slide_count + 1)
     ]
     assert "slides" not in layout.deck_shell
+
+    agenda_manifest = layout.slides[1]
+    agenda = run_slide_compose_stage(
+        SlideComposeStageInput(
+            rawInput=content.raw_input,
+            contentPlan=content.content_plan,
+            designPlan=design.design_plan,
+            sourceOrder=agenda_manifest.source_order,
+            order=agenda_manifest.order,
+            slideId=agenda_manifest.slide_id,
+        )
+    )
+    agenda_text = " ".join(
+        str(element.get("props", {}).get("text", ""))
+        for element in agenda.slide["elements"]
+        if element.get("type") == "text"
+    )
+    body_titles = [
+        slide.title
+        for slide in content.content_plan.slide_plans
+        if 2 < slide.order < content.content_plan.slide_count
+    ]
+    assert body_titles
+    assert all(title in agenda_text for title in body_titles[:6])
