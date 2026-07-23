@@ -5,6 +5,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 import {
   getRehearsalMicrophoneAudioConstraints,
@@ -21,6 +22,7 @@ type PermissionState =
   | "unsupported";
 
 export function PresentationMicCheckModal(props: {
+  companionSetup?: ReactNode;
   onClose: () => void;
   onStart: () => void;
   onStartWithoutMicrophone: () => void;
@@ -258,6 +260,7 @@ export function PresentationMicCheckModal(props: {
               />
             </div>
           </div>
+          {props.companionSetup}
           <footer>
             <button
               disabled={permission !== "granted"}

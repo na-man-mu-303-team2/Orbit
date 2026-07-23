@@ -77,6 +77,9 @@ import {
 import { PresenterRemoteWindow } from "../rehearsal/presenter/PresenterRemoteWindow";
 import type { AudienceStreamBridgeWindow } from "../rehearsal/presenter/audienceStreamBridge";
 import { useLivePresentationOutput } from "./useLivePresentationOutput";
+import { PresenterCompanionSetup } from "../presenter-companion/PresenterCompanionSetup";
+import { PresenterCompanionStatus } from "../presenter-companion/PresenterCompanionStatus";
+import { usePresenterCompanionFeatureFlag } from "../presenter-companion/usePresenterCompanionFeatureFlag";
 import {
   getTriggerAnimationIdsForSlide,
   getKeywordOccurrenceTriggerIdsForSlide,
@@ -175,6 +178,8 @@ export function PresentationWorkspace(props: {
   const runtimeRef = useRef<PresentationRuntimeIdentity | null>(null);
   const presenterSessionRef =
     useRef<PresenterCompanionSessionIdentity | null>(null);
+  const [presenterSession, setPresenterSession] =
+    useState<PresenterCompanionSessionIdentity | null>(null);
   const presenterSessionPromiseRef =
     useRef<Promise<PresenterCompanionSessionIdentity> | null>(null);
   const presenterSessionPromiseKeyRef = useRef<string | null>(null);
@@ -219,6 +224,7 @@ export function PresentationWorkspace(props: {
     );
   const [autoAdvanceNowMs, setAutoAdvanceNowMs] = useState(0);
   const speech = usePresentationSpeech(props.projectId);
+  const presenterCompanionEnabled = usePresenterCompanionFeatureFlag();
 
   useEffect(() => {
     if (props.initialDeck) {
@@ -1003,6 +1009,7 @@ export function PresentationWorkspace(props: {
       .then((session) => {
         if (presenterSessionPromiseKeyRef.current === sessionKey) {
           presenterSessionRef.current = session;
+          setPresenterSession(session);
         }
         return session;
       })
@@ -1031,6 +1038,7 @@ export function PresentationWorkspace(props: {
       .then(() => {
         if (presenterSessionRef.current?.sessionId === session.sessionId) {
           presenterSessionRef.current = null;
+          setPresenterSession(null);
         }
       })
       .finally(() => {
@@ -1743,6 +1751,13 @@ export function PresentationWorkspace(props: {
               outputMode={audienceOutputMode}
               status={audienceScreenShare.status}
             />
+            {presenterCompanionEnabled && presenterSession ? (
+              <PresenterCompanionStatus
+                projectId={deck?.projectId ?? props.projectId ?? ""}
+                sessionId={presenterSession.sessionId}
+                sessionPurpose={presenterSession.sessionPurpose}
+              />
+            ) : null}
           </>
         }
         elapsedTimeInput={elapsedTimeInput}
@@ -1817,6 +1832,15 @@ export function PresentationWorkspace(props: {
       />
       {runtimePhase === "preflight" ? (
         <PresentationMicCheckModal
+          companionSetup={
+            presenterCompanionEnabled && presenterSession && deck ? (
+              <PresenterCompanionSetup
+                projectId={deck.projectId}
+                sessionId={presenterSession.sessionId}
+                sessionPurpose={presenterSession.sessionPurpose}
+              />
+            ) : undefined
+          }
           onClose={() => void leavePresentation()}
           onStart={() => void startPresentation("microphone")}
           onStartWithoutMicrophone={() => void startPresentation("none")}

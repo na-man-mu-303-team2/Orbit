@@ -192,6 +192,9 @@ import {
   type PresenterRemoteCommand,
 } from "./presenter/presentationChannel";
 import { useLivePresentationOutput } from "../presentation/useLivePresentationOutput";
+import { PresenterCompanionSetup } from "../presenter-companion/PresenterCompanionSetup";
+import { PresenterCompanionStatus } from "../presenter-companion/PresenterCompanionStatus";
+import { usePresenterCompanionFeatureFlag } from "../presenter-companion/usePresenterCompanionFeatureFlag";
 import type { AudienceStreamBridgeWindow } from "./presenter/audienceStreamBridge";
 import { usePresenterKeyboard } from "./presenter/usePresenterKeyboard";
 import { AutoAdvanceSettings } from "./advance/AutoAdvanceSettings";
@@ -2105,6 +2108,8 @@ export function RehearsalWorkspace(props: {
   const finishAfterReportRef = useRef(false);
   const companionSessionRef =
     useRef<PresenterCompanionSessionIdentity | null>(null);
+  const [companionSession, setCompanionSession] =
+    useState<PresenterCompanionSessionIdentity | null>(null);
   const companionSessionPromiseRef =
     useRef<Promise<PresenterCompanionSessionIdentity> | null>(null);
   const companionSessionPromiseKeyRef = useRef<string | null>(null);
@@ -2112,6 +2117,7 @@ export function RehearsalWorkspace(props: {
   const slideWindowRef = useRef<SlideWindowRef | null>(null);
   const reattachAudienceStreamRef = useRef<() => boolean>(() => true);
   const stopAudienceStreamRef = useRef<() => void>(() => undefined);
+  const presenterCompanionEnabled = usePresenterCompanionFeatureFlag();
   const deckRef = useRef<Deck | null>(props.initialDeck ?? null);
   const currentSlideIndexRef = useRef(0);
   const liveTranscriptBufferRef = useRef<LiveTranscriptBuffer>(
@@ -4482,6 +4488,7 @@ export function RehearsalWorkspace(props: {
       .then((session) => {
         if (companionSessionPromiseKeyRef.current === sessionKey) {
           companionSessionRef.current = session;
+          setCompanionSession(session);
         }
         return session;
       })
@@ -4510,6 +4517,7 @@ export function RehearsalWorkspace(props: {
       .then(() => {
         if (companionSessionRef.current?.sessionId === session.sessionId) {
           companionSessionRef.current = null;
+          setCompanionSession(null);
         }
       })
       .finally(() => {
@@ -5125,6 +5133,15 @@ export function RehearsalWorkspace(props: {
     return (
       <RehearsalPreflightScreen
         canStart={canRecord}
+        companionSetup={
+          presenterCompanionEnabled && companionSession ? (
+            <PresenterCompanionSetup
+              projectId={deck.projectId}
+              sessionId={companionSession.sessionId}
+              sessionPurpose={companionSession.sessionPurpose}
+            />
+          ) : undefined
+        }
         comparisonModel={comparisonModel}
         createLiveSttPort={(engineId) =>
           createDefaultLiveSttPort({
@@ -5319,6 +5336,13 @@ export function RehearsalWorkspace(props: {
                 onRequestDisplayScreens={requestDisplayScreens}
                 onRequestSlideWindowFullscreen={requestSlideWindowFullscreen}
               />
+              {presenterCompanionEnabled && companionSession ? (
+                <PresenterCompanionStatus
+                  projectId={deck.projectId}
+                  sessionId={companionSession.sessionId}
+                  sessionPurpose={companionSession.sessionPurpose}
+                />
+              ) : null}
             </div>
           ) : null
         }
@@ -5698,6 +5722,7 @@ export function RehearsalFailureScreen(props: {
 
 function RehearsalPreflightScreen(props: {
   canStart: boolean;
+  companionSetup?: ReactNode;
   comparisonModel: RehearsalRunComparisonViewModel | null;
   createLiveSttPort: (engineId: LiveSttEngineId) => LiveSttPort;
   deck: Deck;
@@ -6077,6 +6102,8 @@ function RehearsalPreflightScreen(props: {
             value={triggerStatus.value}
           />
         </div>
+
+        {props.companionSetup}
 
         <div className="rehearsal-preflight-actions">
           <span
