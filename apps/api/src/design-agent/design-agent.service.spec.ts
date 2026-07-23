@@ -11,7 +11,10 @@ import type { SmartArtLayoutEntity } from "../smart-art-layouts/smart-art-layout
 import type { SmartArtLayoutsService } from "../smart-art-layouts/smart-art-layouts.service";
 import { DesignAgentMessageEntity } from "./design-agent-message.entity";
 import { DesignAgentProposalEntity } from "./design-agent-proposal.entity";
-import type { DesignAgentPythonClient } from "./design-agent-python.client";
+import {
+  DesignAgentPythonError,
+  type DesignAgentPythonClient,
+} from "./design-agent-python.client";
 import {
   allowsUnselectedSmartArtSources,
   DesignAgentService,
@@ -1298,6 +1301,12 @@ describe("DesignAgentService motion eligibility", () => {
         },
       }),
     ).rejects.toThrow("DELETE_NOT_EXPLICIT");
+    expect(
+      [...harness.savedMessages.values()].filter(
+        (message) => message.role === "assistant",
+      ),
+    ).toEqual([]);
+    expect(harness.savedProposals).toEqual([]);
   });
 
   it("accepts a dry-run validated animation add proposal", async () => {
@@ -1336,6 +1345,31 @@ describe("DesignAgentService motion eligibility", () => {
       ],
       affectedElementIds: [target.elementId],
       warnings: [],
+      motionPlan: {
+        source: "llm",
+        model: "gpt-4.1-mini-2025-04-14",
+        attemptCount: 1,
+        compilerVersion: "motion-compiler-v2",
+        plan: {
+          schemaVersion: 2,
+          pattern: "hero-then-support",
+          pacing: "balanced",
+          beats: [
+            {
+              beatId: "beat_focus",
+              purpose: "emphasize",
+              trigger: "click",
+              relation: "together",
+              targets: [
+                {
+                  elementId: target.elementId,
+                  motionIntent: "focus",
+                },
+              ],
+            },
+          ],
+        },
+      },
       smartArtRequest: null,
       uiAction: null,
     });
@@ -1358,6 +1392,60 @@ describe("DesignAgentService motion eligibility", () => {
     );
 
     expect(response.proposal?.operations).toHaveLength(1);
+    expect(response.proposal?.motionPlan).toMatchObject({
+      source: "llm",
+      attemptCount: 1,
+      compilerVersion: "motion-compiler-v2",
+      plan: { pacing: "balanced" },
+    });
+    expect(harness.savedProposals[0]?.motionPlan).toEqual(
+      response.proposal?.motionPlan,
+    );
+    expect(JSON.stringify(harness.logger.info.mock.calls)).toContain(
+      "motion_planner.completed",
+    );
+  });
+
+  it("preserves a bounded motion error code without creating assistant output", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const harness = createMotionMessageHarness(deck, null);
+    harness.propose.mockRejectedValueOnce(
+      new DesignAgentPythonError(
+        "MOTION_AI_INVALID_PLAN",
+        "AI 모션 분석 결과가 올바르지 않습니다.",
+      ),
+    );
+
+    const error = await harness.service
+      .createMessage(deck.projectId, "user_demo_1", {
+        content: "애니메이션을 추천해 주세요.",
+        intentPreset: "recommend-animation",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(DesignAgentPythonError);
+    expect(error).toMatchObject({ code: "MOTION_AI_INVALID_PLAN" });
+    expect((error as DesignAgentPythonError).getStatus()).toBe(503);
+    const messages = [...harness.savedMessages.values()];
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      role: "user",
+      status: "failed",
+      errorCode: "MOTION_AI_INVALID_PLAN",
+    });
+    expect(harness.savedProposals).toEqual([]);
+    expect(JSON.stringify(harness.logger.warn.mock.calls)).toContain(
+      "motion_planner.completed",
+    );
   });
 });
 
@@ -1379,12 +1467,16 @@ function createMotionMessageHarness(
     }),
     find: vi.fn(async () => []),
   } as unknown as Repository<DesignAgentMessageEntity>;
+  const savedProposals: DesignAgentProposalEntity[] = [];
   const proposalsRepository = {
     create: vi.fn(
       (value: Partial<DesignAgentProposalEntity>) =>
         value as DesignAgentProposalEntity,
     ),
-    save: vi.fn(async (value: DesignAgentProposalEntity) => value),
+    save: vi.fn(async (value: DesignAgentProposalEntity) => {
+      savedProposals.push(value);
+      return value;
+    }),
   } as unknown as Repository<DesignAgentProposalEntity>;
   const decksService = {
     getDeck: vi.fn(async () => ({
@@ -1418,7 +1510,13 @@ function createMotionMessageHarness(
     } as unknown as SmartArtLayoutsService,
     logger as never,
   );
-  return { service, propose, savedMessages, logger };
+  return {
+    service,
+    propose,
+    savedMessages,
+    savedProposals,
+    logger,
+  };
 }
 
 function createRedesignMessageHarness(

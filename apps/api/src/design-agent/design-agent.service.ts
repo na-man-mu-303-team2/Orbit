@@ -44,7 +44,10 @@ import { SmartArtLayoutEntity } from "../smart-art-layouts/smart-art-layout.enti
 import { SmartArtLayoutsService } from "../smart-art-layouts/smart-art-layouts.service";
 import { DesignAgentMessageEntity } from "./design-agent-message.entity";
 import { DesignAgentProposalEntity } from "./design-agent-proposal.entity";
-import { DesignAgentPythonClient } from "./design-agent-python.client";
+import {
+  DesignAgentPythonClient,
+  DesignAgentPythonError,
+} from "./design-agent-python.client";
 import {
   buildMotionPlanningContext,
   sanitizeSlideForMotionWorker,
@@ -163,6 +166,8 @@ export class DesignAgentService {
         updatedAt: now,
       }),
     );
+    const motionPlannerStartedAt =
+      input.intentPreset === "recommend-animation" ? Date.now() : null;
 
     try {
       if (motionGate && motionGate.eligibility.outcome !== "applicable") {
@@ -244,30 +249,6 @@ export class DesignAgentService {
         );
       }
       const responseNow = new Date();
-      const responseMessage = await this.messagesRepository.save(
-        this.messagesRepository.create({
-          messageId: `design_message_${randomUUID()}`,
-          sessionId,
-          projectId,
-          actorUserId,
-          deckId: input.context.deckId,
-          slideId: input.context.slide.slideId,
-          role: "assistant",
-          content: aiResult.message,
-          status: "succeeded",
-          contextJson: aiResult.paletteOptions
-            ? { paletteOptions: aiResult.paletteOptions }
-            : null,
-          errorCode: null,
-          errorMessage: null,
-          createdAt: responseNow,
-          updatedAt: responseNow,
-        }),
-      );
-
-      requestMessage.status = "succeeded";
-      requestMessage.updatedAt = responseNow;
-      await this.messagesRepository.save(requestMessage);
 
       const smartArtOperations = aiResult.smartArtRequest
         ? await this.expandSmartArtRequest(
@@ -347,6 +328,30 @@ export class DesignAgentService {
           }),
         ]),
       );
+      const responseMessage = await this.messagesRepository.save(
+        this.messagesRepository.create({
+          messageId: `design_message_${randomUUID()}`,
+          sessionId,
+          projectId,
+          actorUserId,
+          deckId: input.context.deckId,
+          slideId: input.context.slide.slideId,
+          role: "assistant",
+          content: aiResult.message,
+          status: "succeeded",
+          contextJson: aiResult.paletteOptions
+            ? { paletteOptions: aiResult.paletteOptions }
+            : null,
+          errorCode: null,
+          errorMessage: null,
+          createdAt: responseNow,
+          updatedAt: responseNow,
+        }),
+      );
+
+      requestMessage.status = "succeeded";
+      requestMessage.updatedAt = responseNow;
+      await this.messagesRepository.save(requestMessage);
 
       const proposal =
         operations.length > 0
@@ -365,6 +370,7 @@ export class DesignAgentService {
                 interpretedIntent: aiResult.interpretedIntent,
                 affectedElementIds,
                 warnings: aiResult.warnings,
+                motionPlan: aiResult.motionPlan ?? null,
                 status: "pending",
                 appliedChangeId: null,
                 rejectedReason: null,
@@ -389,6 +395,29 @@ export class DesignAgentService {
         },
         "Design agent response completed.",
       );
+      if (aiResult.motionPlan && motionPlannerStartedAt !== null) {
+        this.logger.info(
+          {
+            event: "motion_planner.completed",
+            mode: "on",
+            source: aiResult.motionPlan.source,
+            model: aiResult.motionPlan.model,
+            attemptCount: aiResult.motionPlan.attemptCount,
+            outcome: "succeeded",
+            reasonCode: null,
+            latencyMs: Date.now() - motionPlannerStartedAt,
+            pattern: aiResult.motionPlan.plan.pattern,
+            pacing: aiResult.motionPlan.plan.pacing,
+            beatCount: aiResult.motionPlan.plan.beats.length,
+            clickCount: aiResult.motionPlan.plan.beats.filter(
+              (beat) => beat.trigger === "click",
+            ).length,
+            operationCount: motionOperations.length,
+            compilerVersion: aiResult.motionPlan.compilerVersion,
+          },
+          "Motion planner completed.",
+        );
+      }
 
       return createDesignAgentMessageResponseSchema.parse({
         sessionId,
@@ -402,7 +431,10 @@ export class DesignAgentService {
       });
     } catch (error) {
       requestMessage.status = "failed";
-      requestMessage.errorCode = "DESIGN_AGENT_REQUEST_FAILED";
+      requestMessage.errorCode =
+        error instanceof DesignAgentPythonError
+          ? error.code
+          : "DESIGN_AGENT_REQUEST_FAILED";
       requestMessage.errorMessage = toSafeErrorMessage(error);
       requestMessage.updatedAt = new Date();
       await this.messagesRepository.save(requestMessage);
@@ -418,6 +450,30 @@ export class DesignAgentService {
         },
         "Design agent request failed.",
       );
+      if (
+        error instanceof DesignAgentPythonError &&
+        motionPlannerStartedAt !== null
+      ) {
+        this.logger.warn(
+          {
+            event: "motion_planner.completed",
+            mode: "on",
+            source: "llm",
+            model: null,
+            attemptCount: null,
+            outcome: "failed",
+            reasonCode: error.code,
+            latencyMs: Date.now() - motionPlannerStartedAt,
+            pattern: null,
+            pacing: null,
+            beatCount: 0,
+            clickCount: 0,
+            operationCount: 0,
+            compilerVersion: "motion-compiler-v2",
+          },
+          "Motion planner failed.",
+        );
+      }
       throw error;
     }
   }
