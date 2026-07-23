@@ -12,6 +12,7 @@ import {
   isMotionOnlyProposal,
 } from "./motionProposalPreviewModel";
 import { MotionProposalPreview } from "./MotionProposalPreview";
+import { MotionProposalSummary } from "./MotionProposalSummary";
 
 vi.mock("../../../slides/rendering", () => ({
   ReadOnlySlideCanvas: (props: {
@@ -214,5 +215,12 @@ describe("MotionProposalPreview", () => {
     expect(html).toContain(
       `data-highlights="${memberIds.slice(0, 2).join(",")}"`,
     );
+    const summaryHtml = renderToStaticMarkup(
+      <MotionProposalSummary motionPlan={motionPlan} slide={slide} />,
+    );
+    expect(summaryHtml).toContain(
+      "자동 진입 1 · 클릭 1 · 모션 단위 2개 · 요소 3개",
+    );
+    expect(summaryHtml).not.toContain("대상 3개");
   });
 });
