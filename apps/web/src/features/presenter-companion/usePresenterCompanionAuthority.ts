@@ -1,13 +1,19 @@
 import {
   presentationCompanionAuthorityChangedEventSchema,
+  presentationCompanionAnnotationCommandEventSchema,
   presentationCompanionPresenceEventSchema,
   presentationCompanionSnapshotRequestEventSchema,
   presentationCompanionOutputStateSchema,
   type PresentationCompanionOutputState,
+  type PresentationCompanionAnnotationSnapshot,
 } from "@orbit/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import type { PresenterSlideshowState } from "../rehearsal/presenter/presenterStateStore";
+import {
+  AnnotationAuthority,
+  type AcceptedAnnotationDelta,
+} from "./annotationAuthority";
 
 type PresenterCompanionSocket = Pick<
   Socket,
@@ -21,6 +27,13 @@ export function usePresenterCompanionAuthority(input: {
   sessionId: string | null | undefined;
   state: PresenterSlideshowState | null;
   createSocket?: () => PresenterCompanionSocket;
+  onAnnotationDelta?: (
+    delta: AcceptedAnnotationDelta,
+    snapshot: PresentationCompanionAnnotationSnapshot,
+  ) => void;
+  onAnnotationSnapshot?: (
+    snapshot: PresentationCompanionAnnotationSnapshot,
+  ) => void;
 }) {
   const [status, setStatus] = useState<AuthorityStatus>("disabled");
   const authorityEpochIdRef = useRef("");
@@ -29,7 +42,15 @@ export function usePresenterCompanionAuthority(input: {
   const stateRef = useRef(input.state);
   const latestOutputRef =
     useRef<PresentationCompanionOutputState | null>(null);
+  const annotationAuthorityRef = useRef<AnnotationAuthority | null>(null);
+  const currentSurfaceIdRef = useRef("");
+  const annotationDeltaHandlerRef = useRef(input.onAnnotationDelta);
+  const annotationSnapshotHandlerRef = useRef(
+    input.onAnnotationSnapshot,
+  );
   stateRef.current = input.state;
+  annotationDeltaHandlerRef.current = input.onAnnotationDelta;
+  annotationSnapshotHandlerRef.current = input.onAnnotationSnapshot;
 
   const publishCurrentOutput = useCallback(() => {
     const socket = socketRef.current;
@@ -47,7 +68,10 @@ export function usePresenterCompanionAuthority(input: {
       sessionId,
       authorityEpochId: authorityEpochIdRef.current,
       outputRevision: Math.max(0, outputRevisionRef.current),
-      surfaceRevision: 0,
+      surfaceRevision:
+        annotationAuthorityRef.current?.getSnapshot(
+          createCompanionSurfaceId(state.slideId),
+        ).surfaceRevision ?? 0,
       surfaceId: createCompanionSurfaceId(state.slideId),
       outputMode: state.audienceOutputMode,
       slideId: state.slideId,
@@ -55,8 +79,20 @@ export function usePresenterCompanionAuthority(input: {
       animationStep: state.stepIndex,
     });
     latestOutputRef.current = output;
+    currentSurfaceIdRef.current = output.surfaceId;
     socket.emit("presentation:companion:output-state", output);
   }, [input.sessionId]);
+
+  const publishAnnotationSnapshot = useCallback(() => {
+    const socket = socketRef.current;
+    const authority = annotationAuthorityRef.current;
+    const surfaceId = currentSurfaceIdRef.current;
+    if (!socket || !authority || !surfaceId) return null;
+    const snapshot = authority.getSnapshot(surfaceId);
+    socket.emit("presentation:companion:annotation-snapshot", snapshot);
+    annotationSnapshotHandlerRef.current?.(snapshot);
+    return snapshot;
+  }, []);
 
   useEffect(() => {
     if (!input.enabled || !input.sessionId || !input.state) {
@@ -70,6 +106,13 @@ export function usePresenterCompanionAuthority(input: {
     authorityEpochIdRef.current = createAuthorityEpochId();
     outputRevisionRef.current = -1;
     latestOutputRef.current = null;
+    currentSurfaceIdRef.current = createCompanionSurfaceId(
+      input.state.slideId,
+    );
+    annotationAuthorityRef.current = new AnnotationAuthority(
+      sessionId,
+      authorityEpochIdRef.current,
+    );
 
     const claim = () => {
       setStatus("claiming");
@@ -112,6 +155,42 @@ export function usePresenterCompanionAuthority(input: {
         parsed.data.payload.connected
       ) {
         publishCurrentOutput();
+        publishAnnotationSnapshot();
+      }
+    };
+    const handleAnnotationCommand = (value: unknown) => {
+      const parsed =
+        presentationCompanionAnnotationCommandEventSchema.safeParse(
+          value,
+        );
+      const authority = annotationAuthorityRef.current;
+      if (
+        !parsed.success ||
+        parsed.data.sessionId !== sessionId ||
+        !authority ||
+        !currentSurfaceIdRef.current
+      ) {
+        return;
+      }
+      const result = authority.consume(
+        parsed.data.payload,
+        currentSurfaceIdRef.current,
+      );
+      socket.emit(
+        "presentation:companion:annotation-ack",
+        result.acknowledgement,
+      );
+      if (result.delta) {
+        annotationDeltaHandlerRef.current?.(
+          result.delta,
+          result.snapshot,
+        );
+      } else if (!result.acknowledgement.accepted) {
+        socket.emit(
+          "presentation:companion:annotation-snapshot",
+          result.snapshot,
+        );
+        annotationSnapshotHandlerRef.current?.(result.snapshot);
       }
     };
     const handleSnapshotRequest = (value: unknown) => {
@@ -124,6 +203,7 @@ export function usePresenterCompanionAuthority(input: {
           authorityEpochIdRef.current
       ) {
         publishCurrentOutput();
+        publishAnnotationSnapshot();
       }
     };
 
@@ -134,6 +214,10 @@ export function usePresenterCompanionAuthority(input: {
       handleAuthorityChanged,
     );
     socket.on("presentation:companion:presence", handlePresence);
+    socket.on(
+      "presentation:companion:annotation-command",
+      handleAnnotationCommand,
+    );
     socket.on(
       "presentation:companion:snapshot-request",
       handleSnapshotRequest,
@@ -156,12 +240,17 @@ export function usePresenterCompanionAuthority(input: {
       );
       socket.off("presentation:companion:presence", handlePresence);
       socket.off(
+        "presentation:companion:annotation-command",
+        handleAnnotationCommand,
+      );
+      socket.off(
         "presentation:companion:snapshot-request",
         handleSnapshotRequest,
       );
       socket.disconnect();
       socketRef.current = null;
       latestOutputRef.current = null;
+      annotationAuthorityRef.current = null;
     };
   }, [
     input.createSocket,
@@ -169,12 +258,14 @@ export function usePresenterCompanionAuthority(input: {
     input.sessionId,
     Boolean(input.state),
     publishCurrentOutput,
+    publishAnnotationSnapshot,
   ]);
 
   useEffect(() => {
     if (!input.enabled || !input.state || status !== "active") return;
     outputRevisionRef.current += 1;
     publishCurrentOutput();
+    publishAnnotationSnapshot();
   }, [
     input.enabled,
     input.state?.audienceOutputMode,
@@ -182,11 +273,19 @@ export function usePresenterCompanionAuthority(input: {
     input.state?.slideIndex,
     input.state?.stepIndex,
     publishCurrentOutput,
+    publishAnnotationSnapshot,
     status,
   ]);
 
   return {
     authorityEpochId: authorityEpochIdRef.current || null,
+    getAnnotationSnapshot: () => {
+      const authority = annotationAuthorityRef.current;
+      const surfaceId = currentSurfaceIdRef.current;
+      return authority && surfaceId
+        ? authority.getSnapshot(surfaceId)
+        : null;
+    },
     publishCurrentOutput,
     status,
   };

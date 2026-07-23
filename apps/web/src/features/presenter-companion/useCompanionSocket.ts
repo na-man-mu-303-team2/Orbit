@@ -1,10 +1,14 @@
 import {
   presentationCompanionAuthorityChangedEventSchema,
+  presentationCompanionAnnotationAckEventSchema,
+  presentationCompanionAnnotationSnapshotEventSchema,
   presentationCompanionErrorEventSchema,
   presentationCompanionJoinedEventSchema,
   presentationCompanionOutputStateEventSchema,
   presentationCompanionRevokedEventSchema,
   type PresentationCompanionOutputState,
+  type PresentationCompanionAnnotationAck,
+  type PresentationCompanionAnnotationSnapshot,
   type PresentationCompanionSnapshotRequest,
 } from "@orbit/shared";
 import { useEffect, useRef, useState } from "react";
@@ -77,6 +81,10 @@ export function useCompanionSocket(
   );
   const [output, setOutput] =
     useState<PresentationCompanionOutputState | null>(null);
+  const [annotation, setAnnotation] =
+    useState<PresentationCompanionAnnotationSnapshot | null>(null);
+  const [lastAnnotationAck, setLastAnnotationAck] =
+    useState<PresentationCompanionAnnotationAck | null>(null);
   const cursorRef = useRef<CompanionOutputCursor>({
     output: null,
     snapshotPending: false,
@@ -128,6 +136,8 @@ export function useCompanionSocket(
           snapshotPending: false,
         };
         setOutput(null);
+        setAnnotation(null);
+        setLastAnnotationAck(null);
         return;
       }
       const currentOutput = cursorRef.current.output;
@@ -163,10 +173,41 @@ export function useCompanionSocket(
       cursorRef.current = consumed.cursor;
       if (outputChanged) {
         setOutput(consumed.cursor.output);
+        const nextSurfaceId = consumed.cursor.output?.surfaceId;
+        setAnnotation((current) =>
+          current && current.surfaceId !== nextSurfaceId ? null : current,
+        );
       }
       if (consumed.requestSnapshot) {
         requestSnapshot(incoming);
       }
+    };
+    const handleAnnotationAck = (value: unknown) => {
+      const parsed =
+        presentationCompanionAnnotationAckEventSchema.safeParse(value);
+      if (
+        parsed.success &&
+        parsed.data.sessionId === sessionId &&
+        parsed.data.payload.authorityEpochId ===
+          authorityEpochRef.current
+      ) {
+        setLastAnnotationAck(parsed.data.payload);
+      }
+    };
+    const handleAnnotationSnapshot = (value: unknown) => {
+      const parsed =
+        presentationCompanionAnnotationSnapshotEventSchema.safeParse(
+          value,
+        );
+      if (!parsed.success || parsed.data.sessionId !== sessionId) return;
+      setAnnotation((current) =>
+        consumeCompanionAnnotationSnapshot({
+          authorityEpochId: authorityEpochRef.current,
+          current,
+          incoming: parsed.data.payload,
+          surfaceId: cursorRef.current.output?.surfaceId ?? null,
+        }),
+      );
     };
     const handleRevoked = (value: unknown) => {
       const parsed =
@@ -197,6 +238,14 @@ export function useCompanionSocket(
       handleAuthorityChanged,
     );
     socket.on("presentation:companion:output-state", handleOutput);
+    socket.on(
+      "presentation:companion:annotation-ack",
+      handleAnnotationAck,
+    );
+    socket.on(
+      "presentation:companion:annotation-snapshot",
+      handleAnnotationSnapshot,
+    );
     socket.on("presentation:companion:revoked", handleRevoked);
     socket.on("presentation:error", handleError);
     if (socket.connected) join();
@@ -226,11 +275,48 @@ export function useCompanionSocket(
         handleAuthorityChanged,
       );
       socket.off("presentation:companion:output-state", handleOutput);
+      socket.off(
+        "presentation:companion:annotation-ack",
+        handleAnnotationAck,
+      );
+      socket.off(
+        "presentation:companion:annotation-snapshot",
+        handleAnnotationSnapshot,
+      );
       socket.off("presentation:companion:revoked", handleRevoked);
       socket.off("presentation:error", handleError);
       socket.disconnect();
     };
   }, [createSocket, sessionId]);
 
-  return { authorityEpochId, error, output, status };
+  return {
+    annotation,
+    authorityEpochId,
+    error,
+    lastAnnotationAck,
+    output,
+    status,
+  };
+}
+
+export function consumeCompanionAnnotationSnapshot(input: {
+  authorityEpochId: string | null;
+  current: PresentationCompanionAnnotationSnapshot | null;
+  incoming: PresentationCompanionAnnotationSnapshot;
+  surfaceId: string | null;
+}): PresentationCompanionAnnotationSnapshot | null {
+  if (
+    !input.authorityEpochId ||
+    input.incoming.authorityEpochId !== input.authorityEpochId ||
+    (input.surfaceId && input.incoming.surfaceId !== input.surfaceId)
+  ) {
+    return input.current;
+  }
+  if (
+    input.current?.surfaceId === input.incoming.surfaceId &&
+    input.current.surfaceRevision > input.incoming.surfaceRevision
+  ) {
+    return input.current;
+  }
+  return input.incoming;
 }

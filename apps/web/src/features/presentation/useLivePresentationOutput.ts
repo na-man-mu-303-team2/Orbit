@@ -1,5 +1,8 @@
-import type { Deck } from "@orbit/shared";
-import { useEffect, useMemo } from "react";
+import type {
+  Deck,
+  PresentationCompanionAnnotationSnapshot,
+} from "@orbit/shared";
+import { useEffect, useMemo, useRef } from "react";
 import type { AudienceStreamBridgeWindow } from "../rehearsal/presenter/audienceStreamBridge";
 import {
   createLivePresentationHostIdentity,
@@ -36,9 +39,12 @@ export function useLivePresentationOutput(input: {
   state: PresenterSlideshowState | null;
   triggerAnimationIds: string[];
 }) {
+  const annotationSnapshotRef =
+    useRef<PresentationCompanionAnnotationSnapshot | null>(null);
   const localChannel = usePresentationChannelPublisher({
     deck: input.deck,
     enabled: input.enabled ?? true,
+    getAnnotationSnapshot: () => annotationSnapshotRef.current,
     onCommand: input.onCommand,
     onPeerReady: input.onPeerReady,
     onScreenShareEnded: input.onScreenShareEnded,
@@ -66,7 +72,20 @@ export function useLivePresentationOutput(input: {
       input.displayRole === "presenter",
     sessionId: input.persistedSessionId,
     state: input.state,
+    onAnnotationDelta: (delta, snapshot) => {
+      annotationSnapshotRef.current = snapshot;
+      localChannel.publishAnnotationDelta(delta);
+    },
+    onAnnotationSnapshot: (snapshot) => {
+      annotationSnapshotRef.current = snapshot;
+      localChannel.publishAnnotationSnapshot(snapshot);
+    },
   });
+  useEffect(() => {
+    if (!input.companionEnabled || !input.persistedSessionId) {
+      annotationSnapshotRef.current = null;
+    }
+  }, [input.companionEnabled, input.persistedSessionId]);
   const screenShare = useAudienceScreenShare({
     connected:
       input.displayRole === "presenter" &&

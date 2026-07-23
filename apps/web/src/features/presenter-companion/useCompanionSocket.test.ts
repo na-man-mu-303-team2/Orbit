@@ -2,6 +2,7 @@ import type { PresentationCompanionOutputState } from "@orbit/shared";
 import { describe, expect, it } from "vitest";
 import {
   consumeCompanionOutputState,
+  consumeCompanionAnnotationSnapshot,
   type CompanionOutputCursor,
 } from "./useCompanionSocket";
 
@@ -69,6 +70,55 @@ describe("consumeCompanionOutputState", () => {
       authorityEpochId: "epoch_2",
       outputRevision: 0,
     });
+  });
+});
+
+describe("consumeCompanionAnnotationSnapshot", () => {
+  const current = {
+    sessionId: "session_1",
+    authorityEpochId: "epoch_1",
+    surfaceId: "surface_1",
+    surfaceRevision: 3,
+    strokes: [],
+  };
+
+  it("ignores another authority, surface, and lower revision", () => {
+    expect(
+      consumeCompanionAnnotationSnapshot({
+        authorityEpochId: "epoch_1",
+        current,
+        incoming: { ...current, authorityEpochId: "epoch_2" },
+        surfaceId: "surface_1",
+      }),
+    ).toBe(current);
+    expect(
+      consumeCompanionAnnotationSnapshot({
+        authorityEpochId: "epoch_1",
+        current,
+        incoming: { ...current, surfaceId: "surface_2" },
+        surfaceId: "surface_1",
+      }),
+    ).toBe(current);
+    expect(
+      consumeCompanionAnnotationSnapshot({
+        authorityEpochId: "epoch_1",
+        current,
+        incoming: { ...current, surfaceRevision: 2 },
+        surfaceId: "surface_1",
+      }),
+    ).toBe(current);
+  });
+
+  it("accepts an authoritative correction snapshot", () => {
+    const incoming = { ...current, surfaceRevision: 5 };
+    expect(
+      consumeCompanionAnnotationSnapshot({
+        authorityEpochId: "epoch_1",
+        current,
+        incoming,
+        surfaceId: "surface_1",
+      }),
+    ).toBe(incoming);
   });
 });
 
