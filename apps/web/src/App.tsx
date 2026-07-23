@@ -107,7 +107,14 @@ export type Route =
   | { name: "companion-spike"; spikeId: string }
   | { name: "companion-spike-audience"; spikeId: string }
   | { name: "companion-spike-capture"; spikeId: string }
-  | { name: "presentation"; projectId: string }
+  | {
+      name: "presentation";
+      presenterInitialSlideIndex?: number;
+      presenterInitialStepIndex?: number;
+      presenterSessionId?: string;
+      presenterWindow?: boolean;
+      projectId: string;
+    }
   | {
       name: "presentation-report";
       projectId: string;
@@ -491,8 +498,26 @@ export function getRoute(pathname?: string, search?: string): Route {
 
     const presentationMatch = normalized.match(/^\/presentation\/([^/]+)$/);
     if (presentationMatch) {
+      const searchParams = new URLSearchParams(currentSearch);
+      const presenterInitialSlideIndex = parseRouteNonNegativeInteger(
+        searchParams.get("slideIndex"),
+      );
+      const presenterInitialStepIndex = parseRouteNonNegativeInteger(
+        searchParams.get("stepIndex"),
+      );
+      const presenterSessionId =
+        searchParams.get("presenterSessionId") ?? undefined;
+      const presenterWindow = searchParams.get("presenterWindow") === "1";
       return {
         name: "presentation",
+        ...(presenterInitialSlideIndex === undefined
+          ? {}
+          : { presenterInitialSlideIndex }),
+        ...(presenterInitialStepIndex === undefined
+          ? {}
+          : { presenterInitialStepIndex }),
+        ...(presenterSessionId ? { presenterSessionId } : {}),
+        ...(presenterWindow ? { presenterWindow: true } : {}),
         projectId: decodeURIComponent(presentationMatch[1]),
       };
     }
@@ -974,6 +999,10 @@ function renderRoute(route: Route, user?: AuthUser) {
           fallbackDeck={
             route.projectId === demoIds.projectId ? demoDeck : undefined
           }
+          initialSlideIndex={route.presenterInitialSlideIndex}
+          initialStepIndex={route.presenterInitialStepIndex}
+          localWindowSessionId={route.presenterSessionId}
+          presenterWindow={route.presenterWindow}
           projectId={route.projectId}
         />
         {isCompanionSpikeEnabled() ? (

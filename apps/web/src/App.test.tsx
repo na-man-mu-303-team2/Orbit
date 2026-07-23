@@ -341,6 +341,19 @@ describe("App shell routing", () => {
     });
     expect(
       getRoute(
+        "/presentation/project_demo_1",
+        "?presenterSessionId=local-window-1&presenterWindow=1&slideIndex=2&stepIndex=1"
+      )
+    ).toEqual({
+      name: "presentation",
+      presenterInitialSlideIndex: 2,
+      presenterInitialStepIndex: 1,
+      presenterSessionId: "local-window-1",
+      presenterWindow: true,
+      projectId: "project_demo_1"
+    });
+    expect(
+      getRoute(
         "/presentation/project_demo_1/report/session_demo_1",
         "?runId=presentation_run_1"
       )
