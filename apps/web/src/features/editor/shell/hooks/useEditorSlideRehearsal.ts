@@ -14,6 +14,7 @@ import {
   type LiveSttBiasPhrase,
   type LiveSttEngineId,
   type LiveSttPort,
+  type LiveSttResult,
   normalizeLiveSttBiasPhrases
 } from "../../../rehearsal/stt/liveSttPort";
 import { fetchLiveSttRuntimeConfig } from "../../../rehearsal/stt/liveSttRuntimeConfig";
@@ -37,6 +38,15 @@ export type EditorSlideRehearsalState = {
   interimTranscript: string;
   speechTrackerSnapshot: SpeechTrackerSnapshot | null;
   status: EditorSlideRehearsalStatus;
+};
+
+export type EditorSlideRehearsalSpeechResult = {
+  finalTranscript: string;
+  hitKeywordIds: string[];
+  interimTranscript: string;
+  result: LiveSttResult;
+  slide: Slide;
+  transcript: string;
 };
 
 export type EditorSlideRehearsalStartOptions = {
@@ -63,7 +73,10 @@ const microphoneAudioConstraints: MediaTrackConstraints = {
   noiseSuppression: true
 };
 
-export function useEditorSlideRehearsal(args: { projectId: string }) {
+export function useEditorSlideRehearsal(args: {
+  onSpeechResult?: (event: EditorSlideRehearsalSpeechResult) => void;
+  projectId: string;
+}) {
   const [state, setState] = useState<EditorSlideRehearsalState>(initialState);
   const portRef = useRef<LiveSttPort | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -72,7 +85,9 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
   const sessionRef = useRef(0);
   const committedTranscriptRef = useRef("");
   const activeSlideRef = useRef<Slide | null>(null);
+  const onSpeechResultRef = useRef(args.onSpeechResult);
   const speechTrackerRef = useRef<SpeechTracker | null>(null);
+  onSpeechResultRef.current = args.onSpeechResult;
 
   const releaseResources = useCallback(async (flushFinalResults = false) => {
     const port = portRef.current;
@@ -173,15 +188,27 @@ export function useEditorSlideRehearsal(args: { projectId: string }) {
             const speechTracker = speechTrackerRef.current;
             speechTracker?.acceptResult(result);
             const speechTrackerSnapshot = speechTracker?.snapshot() ?? null;
+            const hitKeywordIds =
+              speechTrackerSnapshot?.hitKeywordIds ??
+              (activeSlide
+                ? getHitSlideKeywordIds(activeSlide, transcript)
+                : []);
+
+            if (activeSlide) {
+              onSpeechResultRef.current?.({
+                finalTranscript,
+                hitKeywordIds,
+                interimTranscript,
+                result,
+                slide: activeSlide,
+                transcript
+              });
+            }
 
             setState((current) => ({
               ...current,
               finalTranscript,
-              hitKeywordIds:
-                speechTrackerSnapshot?.hitKeywordIds ??
-                (activeSlide
-                  ? getHitSlideKeywordIds(activeSlide, transcript)
-                  : []),
+              hitKeywordIds,
               interimTranscript,
               speechTrackerSnapshot
             }));

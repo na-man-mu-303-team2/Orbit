@@ -35,6 +35,8 @@ type EditorCanvasStageProps = {
   imageDropEnabled: boolean;
   imageTransferMessage: { kind: "error" | "status"; message: string } | null;
   onImageFilesDrop: (files: File[], placement: ImageInsertPlacement) => void;
+  onRehearsalAdvance?: () => void;
+  rehearsalRenderer?: ReactNode;
   renderingDeck: Deck | null;
   slideRenderStageRefs: MutableRefObject<Map<string, Konva.Stage>>;
   stageScale: number;
@@ -131,7 +133,15 @@ export function EditorCanvasStage(props: EditorCanvasStageProps) {
               ...buildSlideBackgroundStyle(props.currentSlide, props.deck)
             }}
           >
-            {props.currentSlide.kind === "activity" ? (
+            {props.rehearsalRenderer ? (
+              <div
+                aria-label="부분 리허설 슬라이드"
+                className="editor-slide-rehearsal-stage"
+                onClick={props.onRehearsalAdvance}
+              >
+                {props.rehearsalRenderer}
+              </div>
+            ) : props.currentSlide.kind === "activity" ? (
               <div aria-label="잠긴 시스템 레이어" className="activity-editor-system-layer">
                 <ActivitySlidePreview
                   role="audience"

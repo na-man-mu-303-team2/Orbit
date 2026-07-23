@@ -31,6 +31,8 @@ export function EditorSlideRehearsalBottomPanel(
   props: EditorSlideRehearsalSummaryProps & {
     elapsedMs: number;
     message: string;
+    nextAnimationDisabled?: boolean;
+    onNextAnimation?: () => void;
     onNextSentence: () => SpeechTrackerSnapshot | null;
     onPreviousSentence: () => SpeechTrackerSnapshot | null;
     onRetryRuntimeConfig: () => void;
@@ -146,6 +148,17 @@ export function EditorSlideRehearsalBottomPanel(
           <span className="editor-slide-rehearsal-time">
             {formatRehearsalTime(Math.floor(props.elapsedMs / 1_000))}
           </span>
+          {props.onNextAnimation ? (
+            <button
+              aria-label="다음 애니메이션 효과"
+              className="editor-slide-rehearsal-restart"
+              disabled={props.nextAnimationDisabled}
+              type="button"
+              onClick={props.onNextAnimation}
+            >
+              다음 효과
+            </button>
+          ) : null}
           {props.runtimeState === "unavailable" ? (
             <button
               aria-label="슬라이드 연습 설정 다시 확인"
