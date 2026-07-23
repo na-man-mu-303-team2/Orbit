@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from app.ai.motion_planner import (
@@ -260,6 +261,153 @@ def test_v3_extractor_chooses_smallest_nested_container() -> None:
         "el_body",
     ]
     assert "el_outer" not in extraction.context.units[0].member_element_ids
+
+
+def test_v3_extractor_resolves_alternating_five_step_timeline() -> None:
+    elements = [
+        element(
+            "el_4_program_v2_title",
+            "text",
+            "title",
+            120,
+            96,
+            1680,
+            120,
+            5,
+            "90일 실행 로드맵",
+        ),
+        element(
+            "el_4_program_v2_timeline_line",
+            "rect",
+            "decoration",
+            120,
+            579,
+            1680,
+            10,
+            2,
+        ),
+    ]
+    for index in range(1, 6):
+        x = 120 + (index - 1) * 340
+        above = index % 2 == 1
+        elements.extend(
+            [
+                element(
+                    f"el_4_program_v2_timeline_{index}_index",
+                    "text",
+                    "highlight",
+                    x,
+                    292 if above else 668,
+                    316,
+                    56,
+                    5,
+                    f"{index:02d}",
+                ),
+                element(
+                    f"el_4_program_v2_timeline_{index}",
+                    "text",
+                    "body",
+                    x,
+                    360 if above else 736,
+                    316,
+                    168,
+                    5,
+                    f"{index}단계 전체 본문",
+                ),
+                element(
+                    f"el_4_program_v2_timeline_stem_{index}",
+                    "rect",
+                    "decoration",
+                    x + 154,
+                    536 if above else 616,
+                    8,
+                    32,
+                    2,
+                ),
+                element(
+                    f"el_4_program_v2_timeline_marker_{index}",
+                    "rect",
+                    "decoration",
+                    x + 126,
+                    552,
+                    64,
+                    64,
+                    4,
+                ),
+                element(
+                    f"el_4_program_v2_timeline_marker_label_{index}",
+                    "text",
+                    "highlight",
+                    x + 126,
+                    560,
+                    64,
+                    48,
+                    5,
+                    str(index),
+                ),
+            ]
+        )
+    elements.append(
+        element(
+            "el_4_program_v2_timeline_message",
+            "text",
+            "highlight",
+            120,
+            920,
+            1680,
+            64,
+            5,
+            "단계별 실행으로 AI 도입을 완성합니다",
+        )
+    )
+
+    extraction = extract_motion_units(
+        {
+            "slideId": "slide_4",
+            "order": 4,
+            "title": "90일 실행 로드맵",
+            "elements": elements,
+            "semanticCues": [],
+            "aiNotes": {
+                "visualPlan": {"visualType": "process"},
+                "compositionPlan": {"compositionId": "timeline"},
+            },
+        },
+        planning_context(
+            [
+                item
+                for item in elements
+                if item.get("role") != "decoration"
+            ]
+        ),
+    )
+
+    assert extraction.context.structure_family == "timeline"
+    assert len(extraction.context.units) == 7
+    timeline_units = [
+        unit for unit in extraction.context.units if unit.semantic_role == "card"
+    ]
+    assert len(timeline_units) == 5
+    assert all(len(unit.animation_element_ids) == 4 for unit in timeline_units)
+    assert [
+        next(
+            element_id
+            for element_id in unit.member_element_ids
+            if re.search(r"_timeline_\d+$", element_id)
+        )
+        for unit in timeline_units
+    ] == [
+        f"el_4_program_v2_timeline_{index}" for index in range(1, 6)
+    ]
+    assert sum(
+        len(unit.animation_element_ids) for unit in extraction.context.units
+    ) == 22
+    assert all(
+        "timeline_line" not in element_id
+        and "timeline_stem" not in element_id
+        for unit in extraction.context.units
+        for element_id in unit.member_element_ids
+    )
 
 
 def element(
