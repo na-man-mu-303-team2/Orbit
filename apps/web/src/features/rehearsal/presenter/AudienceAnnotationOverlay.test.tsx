@@ -99,4 +99,23 @@ describe("AudienceAnnotationOverlay", () => {
       ),
     ).toBe("");
   });
+
+  it("places screen-share ink inside the source contain rect", () => {
+    const html = renderToStaticMarkup(
+      <AudienceAnnotationOverlay
+        canvas={p0AnimationDeck.canvas}
+        containerSize={{ height: 900, width: 1600 }}
+        contentSize={{ height: 768, width: 1024 }}
+        mode="screen-share"
+        scale={1}
+        snapshot={snapshot}
+      />,
+    );
+
+    expect(html).toContain('width="1200"');
+    expect(html).toContain('height="900"');
+    expect(html).toContain("left:200px");
+    expect(html).toContain("top:0");
+    expect(html).toContain("transform:none");
+  });
 });

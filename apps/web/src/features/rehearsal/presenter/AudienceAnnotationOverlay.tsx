@@ -5,9 +5,15 @@ import type {
   PresentationCompanionStroke,
 } from "@orbit/shared";
 import type { AudienceOutputMode } from "./presenterStateStore";
+import {
+  calculateContainRect,
+  type SurfaceSize,
+} from "../../presenter-companion/surfaceGeometry";
 
 export function AudienceAnnotationOverlay(props: {
   canvas: Deck["canvas"];
+  containerSize?: SurfaceSize;
+  contentSize?: SurfaceSize | null;
   mode: AudienceOutputMode;
   laser?: PresentationCompanionLaser | null;
   scale: number;
@@ -19,10 +25,22 @@ export function AudienceAnnotationOverlay(props: {
   if (
     props.mode === "black" ||
     !props.snapshot ||
+    (props.mode === "screen-share" && !props.contentSize) ||
     (props.snapshot.strokes.length === 0 && !hasVisibleLaser)
   ) {
     return null;
   }
+  const slideSize = {
+    height: props.canvas.height * props.scale,
+    width: props.canvas.width * props.scale,
+  };
+  const screenShareRect =
+    props.mode === "screen-share" &&
+    props.containerSize &&
+    props.contentSize
+      ? calculateContainRect(props.containerSize, props.contentSize)
+      : null;
+  const overlaySize = screenShareRect ?? slideSize;
 
   return (
     <svg
@@ -30,10 +48,20 @@ export function AudienceAnnotationOverlay(props: {
       className="audience-annotation-overlay"
       data-surface-id={props.snapshot.surfaceId}
       data-surface-revision={props.snapshot.surfaceRevision}
-      height={props.canvas.height * props.scale}
+      height={overlaySize.height}
       preserveAspectRatio="none"
       viewBox="0 0 1 1"
-      width={props.canvas.width * props.scale}
+      style={
+        screenShareRect
+          ? {
+              inset: "auto",
+              left: screenShareRect.x,
+              top: screenShareRect.y,
+              transform: "none",
+            }
+          : undefined
+      }
+      width={overlaySize.width}
     >
       {props.snapshot.strokes.map((stroke) => (
         <path

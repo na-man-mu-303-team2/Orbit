@@ -6,9 +6,15 @@ import { useEffect, useMemo, useState } from "react";
 import { AudienceOutputRenderer } from "../rehearsal/presenter/AudienceOutputRenderer";
 import type { PresenterSlideshowState } from "../rehearsal/presenter/presenterStateStore";
 import { materializeCompanionDeck } from "./companionDeckAdapter";
+import {
+  calculateContainRect,
+  type SurfaceRect,
+  type SurfaceSize,
+} from "./surfaceGeometry";
 
 export function CompanionAudienceRenderer(props: {
   deck: CompanionDeckSnapshot;
+  onSurfaceRectChange?: (rect: SurfaceRect | null) => void;
   output: PresentationCompanionOutputState | null;
   stream?: MediaStream | null;
 }) {
@@ -17,6 +23,42 @@ export function CompanionAudienceRenderer(props: {
     [props.deck],
   );
   const scale = useCompanionRendererScale(deck.canvas);
+  const [screenShareMedia, setScreenShareMedia] = useState<{
+    shareEpochId: string;
+    size: SurfaceSize;
+  } | null>(null);
+  const activeShareEpochId =
+    props.output?.outputMode === "screen-share"
+      ? (props.output.shareEpochId ?? null)
+      : null;
+
+  useEffect(() => {
+    if (
+      props.output?.outputMode !== "screen-share" ||
+      !activeShareEpochId ||
+      screenShareMedia?.shareEpochId !== activeShareEpochId
+    ) {
+      props.onSurfaceRectChange?.(null);
+      return;
+    }
+    props.onSurfaceRectChange?.(
+      calculateContainRect(
+        {
+          height: deck.canvas.height * scale,
+          width: deck.canvas.width * scale,
+        },
+        screenShareMedia.size,
+      ),
+    );
+  }, [
+    deck.canvas.height,
+    deck.canvas.width,
+    props.onSurfaceRectChange,
+    activeShareEpochId,
+    props.output?.outputMode,
+    scale,
+    screenShareMedia,
+  ]);
 
   if (!props.output) {
     return (
@@ -51,6 +93,13 @@ export function CompanionAudienceRenderer(props: {
     >
       <AudienceOutputRenderer
         deck={deck}
+        onScreenShareContentSizeChange={(size) => {
+          setScreenShareMedia(
+            size && activeShareEpochId
+              ? { shareEpochId: activeShareEpochId, size }
+              : null,
+          );
+        }}
         scale={scale}
         state={state}
         stream={props.stream}

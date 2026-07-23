@@ -16,6 +16,7 @@ import orbitLogoWhite from "../../../assets/orbit-logo-white.png";
 import "../../presentation/orbit-live-presentation.css";
 import { AudienceOutputRenderer } from "./AudienceOutputRenderer";
 import { AudienceAnnotationOverlay } from "./AudienceAnnotationOverlay";
+import type { SurfaceSize } from "../../presenter-companion/surfaceGeometry";
 import {
   applyAnnotationCommand,
   createAnnotationSnapshot,
@@ -322,6 +323,8 @@ export function PresentWindowContent(props: {
     stream = null,
   } = props;
   const rootRef = useRef<HTMLDivElement>(null);
+  const [screenShareContentSize, setScreenShareContentSize] =
+    useState<SurfaceSize | null>(null);
   const liveViewport = usePresentWindowViewport();
   const liveIsFullscreen = usePresentWindowFullscreenState();
   const isFullscreen = props.isFullscreen ?? liveIsFullscreen;
@@ -329,6 +332,7 @@ export function PresentWindowContent(props: {
     snapshot.deck,
     props.viewport ?? liveViewport,
   );
+  const viewport = props.viewport ?? liveViewport;
   const actionMessages = [
     fullscreenMessage,
     isPresenterStale
@@ -385,6 +389,7 @@ export function PresentWindowContent(props: {
       >
         <AudienceOutputRenderer
           deck={snapshot.deck}
+          onScreenShareContentSizeChange={setScreenShareContentSize}
           onScreenShareFailure={onScreenShareFailure}
           scale={scale}
           state={snapshot.state}
@@ -393,6 +398,8 @@ export function PresentWindowContent(props: {
         />
         <AudienceAnnotationOverlay
           canvas={snapshot.deck.canvas}
+          containerSize={viewport}
+          contentSize={screenShareContentSize}
           mode={snapshot.state.audienceOutputMode}
           laser={snapshot.laser}
           scale={scale}

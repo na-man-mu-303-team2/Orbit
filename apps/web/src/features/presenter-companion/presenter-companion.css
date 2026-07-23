@@ -106,6 +106,12 @@
   align-self: stretch;
 }
 
+.presenter-companion-output .audience-output-screen-share,
+.presenter-companion-output .audience-output-screen-share video {
+  height: 100%;
+  width: 100%;
+}
+
 .presenter-companion-waiting {
   color: var(--redesign-color-on-dark);
 }

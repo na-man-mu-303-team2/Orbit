@@ -11,6 +11,7 @@ import { CompanionAudienceRenderer } from "./CompanionAudienceRenderer";
 import { useCompanionSocket } from "./useCompanionSocket";
 import { CompanionAnnotationCanvas } from "./CompanionAnnotationCanvas";
 import { useCompanionWebRtc } from "./useCompanionWebRtc";
+import type { SurfaceRect } from "./surfaceGeometry";
 import "./presenter-companion.css";
 
 export function CompanionPairingPage(props: { code: string }) {
@@ -106,6 +107,9 @@ function ConnectedCompanionShell(props: {
   bootstrap: PresentationCompanionBootstrap;
 }) {
   const companion = useCompanionSocket(props.bootstrap.sessionId);
+  const [surfaceRect, setSurfaceRect] = useState<SurfaceRect | null>(
+    null,
+  );
   const webRtc = useCompanionWebRtc({
     sendSignal: companion.sendSignal,
     shareEpochId:
@@ -116,7 +120,7 @@ function ConnectedCompanionShell(props: {
   });
   const screenShareWritable =
     companion.output?.outputMode !== "screen-share" ||
-    webRtc.status === "connected";
+    (webRtc.status === "connected" && Boolean(surfaceRect));
 
   return (
     <main className="presenter-companion-page">
@@ -147,6 +151,7 @@ function ConnectedCompanionShell(props: {
           ) : null}
           <CompanionAudienceRenderer
             deck={props.bootstrap.deck}
+            onSurfaceRectChange={setSurfaceRect}
             output={companion.output}
             stream={webRtc.stream}
           />
@@ -166,6 +171,7 @@ function ConnectedCompanionShell(props: {
               output={companion.output}
               sendCommand={companion.sendAnnotationCommand}
               sendLaser={companion.sendLaser}
+              surfaceRect={surfaceRect}
             />
           ) : null}
         </div>

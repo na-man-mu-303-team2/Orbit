@@ -25,6 +25,7 @@ import {
   type CompanionInkColor,
 } from "./CompanionToolbar";
 import type { CompanionAnnotationCommandInput } from "./useCompanionSocket";
+import type { SurfaceRect } from "./surfaceGeometry";
 
 type ActiveStroke = {
   frameId: number | null;
@@ -47,6 +48,7 @@ export function CompanionAnnotationCanvas(props: {
       | { kind: "hide" }
       | { kind: "move"; x: number; y: number },
   ) => boolean;
+  surfaceRect?: SurfaceRect | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const activeStrokeRef = useRef<ActiveStroke | null>(null);
@@ -372,19 +374,47 @@ export function CompanionAnnotationCanvas(props: {
       <canvas
         aria-label="iPad 주석 입력"
         className="presenter-companion-annotation-canvas"
+        data-content-rect={
+          props.output.outputMode === "screen-share" &&
+          props.surfaceRect
+            ? "contain"
+            : "slide"
+        }
         onPointerCancel={finishPointer}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={finishPointer}
         ref={canvasRef}
+        style={
+          props.output.outputMode === "screen-share" &&
+          props.surfaceRect
+            ? {
+                height: props.surfaceRect.height,
+                left: props.surfaceRect.x,
+                position: "absolute",
+                top: props.surfaceRect.y,
+                width: props.surfaceRect.width,
+              }
+            : undefined
+        }
       />
       {laserPoint ? (
         <span
           aria-hidden="true"
           className="presenter-companion-local-laser"
           style={{
-            left: `${laserPoint.x * 100}%`,
-            top: `${laserPoint.y * 100}%`,
+            left:
+              props.output.outputMode === "screen-share" &&
+              props.surfaceRect
+                ? props.surfaceRect.x +
+                  laserPoint.x * props.surfaceRect.width
+                : `${laserPoint.x * 100}%`,
+            top:
+              props.output.outputMode === "screen-share" &&
+              props.surfaceRect
+                ? props.surfaceRect.y +
+                  laserPoint.y * props.surfaceRect.height
+                : `${laserPoint.y * 100}%`,
           }}
         />
       ) : null}
