@@ -10,7 +10,8 @@ import {
   IconChartBar,
   IconCircleFilled,
   IconGridDots,
-  IconQrcode
+  IconQrcode,
+  IconUsers
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
@@ -234,24 +235,92 @@ export function ActivityPublicResults(props: {
     pollAggregate &&
     (pollQuestion.type === "single-choice" || pollQuestion.type === "multiple-choice")
   ) {
+    const rankedOptions = pollQuestion.options
+      .map((option, index) => {
+        const choice = pollAggregate.choices.find(
+          (candidate) => candidate.optionId === option.optionId
+        );
+        return {
+          color: pollChoiceColor(index),
+          count: choice?.count ?? 0,
+          index,
+          label: option.label,
+          optionId: option.optionId,
+          ratio: choice?.ratio ?? 0
+        };
+      })
+      .sort((left, right) =>
+        right.ratio - left.ratio ||
+        right.count - left.count ||
+        left.index - right.index
+      );
+    const winner = pollAggregate.responseCount > 0 ? rankedOptions[0] : undefined;
+
     return (
       <section
         aria-label="공개 결과"
         className="activity-public-results activity-public-poll-results"
       >
-        <strong className="activity-public-poll-question">{pollQuestion.prompt}</strong>
         <div className="activity-public-poll-content">
-          <div
-            aria-label="선택지 응답 비율 도넛 차트"
-            className="activity-public-poll-donut"
-            role="img"
-            style={{ background: createPollDonutBackground(pollQuestion, pollAggregate) }}
-          />
-          <ActivityChoiceChart
-            aggregate={pollAggregate}
-            colorize
-            question={pollQuestion}
-          />
+          <section className="activity-public-poll-overview">
+            <strong className="activity-public-poll-heading">
+              <IconChartBar aria-hidden="true" size={34} stroke={2.4} />
+              실시간 결과
+            </strong>
+            <div
+              aria-label="선택지 응답 비율 도넛 차트"
+              className="activity-public-poll-donut"
+              role="img"
+              style={{ background: createPollDonutBackground(pollQuestion, pollAggregate) }}
+            >
+              <div className="activity-public-poll-winner">
+                {winner ? (
+                  <>
+                    <span>1위</span>
+                    <strong>{winner.label}</strong>
+                    <em>{Math.round(winner.ratio * 100)}%</em>
+                  </>
+                ) : (
+                  <>
+                    <strong>응답 대기 중</strong>
+                    <em>0%</em>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="activity-public-poll-participants">
+              <IconUsers aria-hidden="true" size={34} stroke={2} />
+              <span>총 <strong>{pollAggregate.responseCount}</strong>명 참여</span>
+            </div>
+          </section>
+          <section
+            aria-label={pollQuestion.prompt}
+            className="activity-public-poll-ranking"
+          >
+            <strong className="activity-public-poll-question">{pollQuestion.prompt}</strong>
+            <ol className="activity-public-poll-ranking-list">
+              {rankedOptions.map((option, rank) => (
+                <li
+                  className={rank === 0 && winner ? "is-winner" : undefined}
+                  key={option.optionId}
+                >
+                  <span className="activity-public-poll-rank">{rank + 1}</span>
+                  <div>
+                    <strong>{option.label}</strong>
+                    <i>
+                      <span
+                        style={{
+                          background: option.color,
+                          width: `${option.ratio * 100}%`
+                        }}
+                      />
+                    </i>
+                  </div>
+                  <em>{Math.round(option.ratio * 100)}%</em>
+                </li>
+              ))}
+            </ol>
+          </section>
         </div>
       </section>
     );

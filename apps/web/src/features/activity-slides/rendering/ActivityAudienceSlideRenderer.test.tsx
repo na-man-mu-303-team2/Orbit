@@ -162,28 +162,34 @@ describe("ActivityAudienceSlideRenderer", () => {
     expect(hidden).toContain("LIVE POLL");
     expect(revealed).toContain("activity-public-poll-results");
     expect(revealed).toContain("activity-public-poll-donut");
+    expect(revealed).toContain("실시간 결과");
+    expect(revealed).toContain("총 <strong>2</strong>명 참여");
+    expect(revealed).toContain("activity-public-poll-winner");
+    expect(revealed).toContain("activity-public-poll-ranking-list");
+    expect(revealed).toContain("is-winner");
     expect(revealed).toContain(question.prompt);
     expect(revealed).not.toContain("activity-public-result-summary");
     expect(revealed).toContain(
-      '<i><span style="background:color-mix(in srgb, var(--activity-color-accent) 76%, var(--activity-color-on-surface));width:100%">',
+      '<span style="background:color-mix(in srgb, var(--activity-color-accent) 76%, var(--activity-color-on-surface));width:100%">',
     );
     expect(revealed).toContain(
-      '<i><span style="background:color-mix(in srgb, var(--activity-color-secondary) 76%, var(--activity-color-on-surface));width:0%">',
+      '<span style="background:color-mix(in srgb, var(--activity-color-secondary) 76%, var(--activity-color-on-surface));width:0%">',
     );
     expect(revealed).toContain("100%");
     expect(hidden).not.toContain("100%");
   });
 
-  it("uses an even donut and response split for public poll results", () => {
+  it("uses the reference-inspired summary and ranking split for public poll results", () => {
     const css = fs.readFileSync(activityAudienceSlideCssPath, "utf8");
     const pollContentRule = css.match(
       /\.activity-public-poll-content\s*\{([^}]*)\}/,
     )?.[1];
 
     expect(pollContentRule).toContain(
-      "grid-template-columns: repeat(2, minmax(0, 1fr))",
+      "grid-template-columns: minmax(0, 5fr) minmax(0, 7fr)",
     );
     expect(css).toContain(".activity-public-poll-donut::after");
+    expect(css).toContain(".activity-public-poll-ranking-list li.is-winner");
   });
 
   it("uses the full result grid width for a single question card", () => {
