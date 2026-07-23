@@ -99,6 +99,16 @@ describe("PresentationWorkspace", () => {
     expect(source).not.toContain("resolvedSpeechEventRef");
   });
 
+  it("keeps a bounded animation execution history in presentation debug mode", () => {
+    const source = fs.readFileSync(presentationWorkspaceSourcePath, "utf8");
+
+    expect(source).toContain("애니메이션 실행 이력");
+    expect(source).toContain("appendAnimationExecutionHistory");
+    expect(source).toContain("slice(-20)");
+    expect(source).toContain('source: "speech"');
+    expect(source).toContain('source: "generic-keyword"');
+  });
+
   it("renders the auto-start presenter controls for an Activity slide", () => {
     const deck = createDemoDeck();
     const activitySlide = createActivitySlide(deck, "pre-question");
