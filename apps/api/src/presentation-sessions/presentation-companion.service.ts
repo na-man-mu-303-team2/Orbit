@@ -21,6 +21,10 @@ import {
   PresentationCompanionStore,
   type PresentationCompanionPresence,
 } from "./presentation-companion.store";
+import {
+  PresentationCompanionPublisher,
+  type PresentationCompanionRevokeReason,
+} from "./presentation-companion.publisher";
 
 const pairingTtlSeconds = 2 * 60;
 const credentialTtlMs = 4 * 60 * 60 * 1_000;
@@ -35,6 +39,7 @@ export class PresentationCompanionService {
     private readonly projection: PresentationCompanionProjectionService,
     @InjectPinoLogger(PresentationCompanionService.name)
     private readonly logger: PinoLogger,
+    private readonly publisher?: PresentationCompanionPublisher,
   ) {}
 
   async createPairing(
@@ -116,10 +121,20 @@ export class PresentationCompanionService {
     if (ttlSeconds < 1) {
       throw companionUnavailable();
     }
+    const previousGeneration = await this.store.getLatestGeneration(
+      pairing.sessionId,
+    );
     const pairingGeneration = await this.store.issueGeneration(
       pairing.sessionId,
       ttlSeconds,
     );
+    if (previousGeneration !== null) {
+      await this.publisher?.revokeGeneration(
+        pairing.sessionId,
+        previousGeneration,
+        "replaced",
+      );
+    }
     const token = createCompanionAccessToken(
       this.config,
       {
@@ -194,7 +209,11 @@ export class PresentationCompanionService {
     }
   }
 
-  async revokeSession(sessionId: string): Promise<void> {
+  async revokeSession(
+    sessionId: string,
+    reason: PresentationCompanionRevokeReason = "disconnected",
+  ): Promise<void> {
+    await this.publisher?.revokeCurrent(sessionId, reason);
     await this.store.revokeSession(sessionId);
     this.logger.info(
       {
@@ -211,7 +230,7 @@ export class PresentationCompanionService {
     now = new Date(),
   ): Promise<void> {
     await this.requireActiveSession(sessionId, projectId, now);
-    await this.revokeSession(sessionId);
+    await this.revokeSession(sessionId, "disconnected");
   }
 
   async getStatus(
@@ -296,8 +315,19 @@ export class PresentationCompanionService {
     return this.store.renewPresence(sessionId, presence);
   }
 
-  clearPresence(sessionId: string): Promise<void> {
-    return this.store.clearPresence(sessionId);
+  clearPresence(
+    sessionId: string,
+    expectedGeneration: number,
+  ): Promise<boolean> {
+    return this.store.clearPresence(sessionId, expectedGeneration);
+  }
+
+  async getLatestGeneration(sessionId: string): Promise<number | null> {
+    return this.store.getLatestGeneration(sessionId);
+  }
+
+  async getAuthority(sessionId: string): Promise<string | null> {
+    return this.store.getAuthority(sessionId);
   }
 
   private async requireActiveSession(

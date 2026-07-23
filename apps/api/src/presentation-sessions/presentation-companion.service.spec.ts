@@ -105,14 +105,20 @@ function createFixture() {
   const logger = {
     info: vi.fn(),
   };
+  const publisher = {
+    revokeCurrent: vi.fn().mockResolvedValue(undefined),
+    revokeGeneration: vi.fn().mockResolvedValue(undefined),
+  };
   return {
     logger,
+    publisher,
     projection,
     service: new PresentationCompanionService(
       store,
       sessions,
       projection,
       logger as never,
+      publisher as never,
     ),
     sessions,
     store,
@@ -238,6 +244,11 @@ describe("PresentationCompanionService", () => {
       "iPad Safari",
       now,
     );
+    expect(fixture.publisher.revokeGeneration).toHaveBeenCalledWith(
+      "session_1",
+      1,
+      "replaced",
+    );
 
     await expect(
       fixture.service.verifyCredential(
@@ -292,6 +303,10 @@ describe("PresentationCompanionService", () => {
     ).resolves.toBeNull();
 
     await fixture.service.revokeSession("session_1");
+    expect(fixture.publisher.revokeCurrent).toHaveBeenCalledWith(
+      "session_1",
+      "disconnected",
+    );
     await expect(
       fixture.service.verifyCredential(
         exchange.token,

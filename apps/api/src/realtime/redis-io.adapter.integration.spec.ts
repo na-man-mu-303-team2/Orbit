@@ -10,7 +10,7 @@ const redisUrl = process.env.REDIS_IO_INTEGRATION_URL;
 describe.skipIf(!redisUrl)(
   "RedisIoAdapter multi-instance integration",
   () => {
-    it("relays one room event between two Socket.IO server instances", async () => {
+    it("relays and revokes one room across two Socket.IO server instances", async () => {
       const first = await createServerInstance(redisUrl!);
       const second = await createServerInstance(redisUrl!);
       const firstClient = await connectClient(first.port);
@@ -31,6 +31,29 @@ describe.skipIf(!redisUrl)(
         await expect(received).resolves.toEqual({
           source: "first-api",
         });
+
+        const revoked = new Promise<unknown>((resolve) => {
+          secondClient.once(
+            "presentation:companion:revoked",
+            resolve,
+          );
+        });
+        const disconnected = new Promise<void>((resolve) => {
+          secondClient.once("disconnect", () => resolve());
+        });
+        first.io
+          .to("room_cross_process")
+          .emit("presentation:companion:revoked", {
+            reason: "session-ended",
+          });
+        first.io
+          .in("room_cross_process")
+          .disconnectSockets(true);
+
+        await expect(revoked).resolves.toEqual({
+          reason: "session-ended",
+        });
+        await expect(disconnected).resolves.toBeUndefined();
       } finally {
         firstClient.disconnect();
         secondClient.disconnect();

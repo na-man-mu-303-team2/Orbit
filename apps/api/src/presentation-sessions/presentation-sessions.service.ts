@@ -33,6 +33,7 @@ import {
 } from "./presentation-session.repository";
 import { AudienceRateLimitService } from "./audience-rate-limit.service";
 import { PresentationCompanionStore } from "./presentation-companion.store";
+import { PresentationCompanionPublisher } from "./presentation-companion.publisher";
 
 const defaultAccessDays = 14;
 const companionSessionHours = 4;
@@ -46,6 +47,8 @@ export class PresentationSessionsService {
     private readonly logger: PinoLogger,
     @Optional() private readonly audienceRateLimit?: AudienceRateLimitService,
     @Optional() private readonly companionStore?: PresentationCompanionStore,
+    @Optional()
+    private readonly companionPublisher?: PresentationCompanionPublisher,
   ) {}
 
   async create(
@@ -122,9 +125,13 @@ export class PresentationSessionsService {
     });
 
     await Promise.all(
-      result.closedSessionIds.map((closedSessionId) =>
-        this.companionStore?.revokeSession(closedSessionId),
-      ),
+      result.closedSessionIds.map(async (closedSessionId) => {
+        await this.companionPublisher?.revokeCurrent(
+          closedSessionId,
+          "session-ended",
+        );
+        await this.companionStore?.revokeSession(closedSessionId);
+      }),
     );
     result.closedSessionIds.forEach((closedSessionId) => {
       this.logger.info(
@@ -231,6 +238,10 @@ export class PresentationSessionsService {
       this.repository.close(manager, projectId, sessionId, new Date())
     );
     if (!row) throw new NotFoundException("Presentation session not found");
+    await this.companionPublisher?.revokeCurrent(
+      sessionId,
+      "session-ended",
+    );
     await this.companionStore?.revokeSession(sessionId);
     this.logger.info(
       { event: "presentation_session.closed", projectId, presentationSessionId: sessionId },

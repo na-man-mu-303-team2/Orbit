@@ -74,6 +74,18 @@ redis.call("EXPIRE", KEYS[1], ARGV[2])
 return 1
 `;
 
+const clearPresenceScript = `
+-- companion:clear-presence
+local value = redis.call("GET", KEYS[1])
+if not value then return 0 end
+local ok, presence = pcall(cjson.decode, value)
+if not ok or tonumber(presence.generation) ~= tonumber(ARGV[1]) then
+  return 0
+end
+redis.call("DEL", KEYS[1])
+return 1
+`;
+
 export class PresentationCompanionStore {
   constructor(
     private readonly redis: PresentationCompanionRedis,
@@ -218,8 +230,26 @@ export class PresentationCompanionStore {
     }
   }
 
-  async clearPresence(sessionId: string): Promise<void> {
-    await this.redis.del(this.key("presence", sessionId));
+  async clearPresence(
+    sessionId: string,
+    expectedGeneration: number,
+  ): Promise<boolean> {
+    if (
+      !Number.isSafeInteger(expectedGeneration) ||
+      expectedGeneration <= 0
+    ) {
+      return false;
+    }
+    return (
+      Number(
+        await this.redis.eval(
+          clearPresenceScript,
+          1,
+          this.key("presence", sessionId),
+          expectedGeneration,
+        ),
+      ) === 1
+    );
   }
 
   async revokeSession(sessionId: string): Promise<void> {

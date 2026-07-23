@@ -29,6 +29,9 @@ import {
   PublicPresentationCompanionController,
 } from "./presentation-companion.controller";
 import { PresentationCompanionRateLimitService } from "./presentation-companion-request-security";
+import { PresentationCompanionGateway } from "./presentation-companion.gateway";
+import { PresentationCompanionPublisher } from "./presentation-companion.publisher";
+import { PresentationCompanionCommandRateLimitService } from "./presentation-companion-rate-limit.service";
 import {
   createRedisPresentationCompanionStore,
   PresentationCompanionStore,
@@ -59,8 +62,11 @@ import {
     PresentationRunsService,
     PresentationCompanionSpikeGateway,
     PresentationCompanionProjectionService,
+    PresentationCompanionPublisher,
+    PresentationCompanionCommandRateLimitService,
     PresentationCompanionRateLimitService,
     PresentationCompanionService,
+    PresentationCompanionGateway,
     {
       provide: PresentationCompanionStore,
       useFactory: createRedisPresentationCompanionStore,
@@ -75,6 +81,7 @@ import {
     PresentationSessionsService,
     PresentationRunsService,
     PresentationCompanionProjectionService,
+    PresentationCompanionPublisher,
     PresentationCompanionRateLimitService,
     PresentationCompanionService,
     PresentationCompanionStore,

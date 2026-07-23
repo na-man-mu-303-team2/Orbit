@@ -35,6 +35,7 @@ export const websocketEventTypeSchema = z.enum([
   "presentation:companion:annotation-command",
   "presentation:companion:annotation-ack",
   "presentation:companion:annotation-snapshot",
+  "presentation:companion:snapshot-request",
   "presentation:companion:laser",
   "presentation:companion:signal",
   "presentation:companion:revoked",
@@ -313,7 +314,19 @@ export const presentationCompanionAnnotationAckSchema = z
       ]),
     surfaceRevision: companionRevisionSchema
   })
-  .strict();
+  .strict()
+  .superRefine((acknowledgement, context) => {
+    if (
+      acknowledgement.accepted !==
+      (acknowledgement.reason === "accepted")
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["reason"],
+        message: "annotation acknowledgement reason is inconsistent"
+      });
+    }
+  });
 
 export const presentationCompanionStrokeSchema = z
   .object({
@@ -531,6 +544,12 @@ export const presentationCompanionAnnotationSnapshotEventSchema =
     presentationCompanionAnnotationSnapshotSchema
   );
 
+export const presentationCompanionSnapshotRequestEventSchema =
+  companionEventSchema(
+    "presentation:companion:snapshot-request",
+    presentationCompanionSnapshotRequestSchema
+  );
+
 export const presentationCompanionLaserEventSchema =
   companionEventSchema(
     "presentation:companion:laser",
@@ -592,6 +611,7 @@ export const presentationCompanionEventSchema =
     presentationCompanionAnnotationCommandEventSchema,
     presentationCompanionAnnotationAckEventSchema,
     presentationCompanionAnnotationSnapshotEventSchema,
+    presentationCompanionSnapshotRequestEventSchema,
     presentationCompanionLaserEventSchema,
     presentationCompanionSignalEventSchema,
     presentationCompanionRevokedEventSchema,

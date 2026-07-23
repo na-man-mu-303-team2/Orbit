@@ -97,6 +97,23 @@ describe("PresentationCompanionStore", () => {
     await expect(store.getPresence("session_1")).resolves.toBeNull();
     await expect(store.getLatestGeneration("session_1")).resolves.toBe(1);
   });
+
+  it("does not let a stale socket clear newer generation presence", async () => {
+    const redis = new FakeCompanionRedis();
+    const store = new PresentationCompanionStore(redis, "store-secret");
+    await store.renewPresence("session_1", {
+      generation: 2,
+      connectedAt: "2026-07-23T00:00:00.000Z",
+      rttBucket: "fast",
+    });
+
+    await expect(store.clearPresence("session_1", 1)).resolves.toBe(false);
+    await expect(store.getPresence("session_1")).resolves.toMatchObject({
+      generation: 2,
+    });
+    await expect(store.clearPresence("session_1", 2)).resolves.toBe(true);
+    await expect(store.getPresence("session_1")).resolves.toBeNull();
+  });
 });
 
 class FakeCompanionRedis implements PresentationCompanionRedis {
@@ -174,6 +191,15 @@ class FakeCompanionRedis implements PresentationCompanionRedis {
       const current = await this.get(key);
       if (!current || current !== epoch) return 0;
       await this.set(key, epoch, "EX", Number(args[2]));
+      return 1;
+    }
+    if (script.includes("companion:clear-presence")) {
+      const expectedGeneration = Number(args[1]);
+      const value = this.read(key);
+      if (!value) return 0;
+      const presence = JSON.parse(value) as { generation?: unknown };
+      if (presence.generation !== expectedGeneration) return 0;
+      this.values.delete(key);
       return 1;
     }
     throw new Error("unsupported fake eval script");

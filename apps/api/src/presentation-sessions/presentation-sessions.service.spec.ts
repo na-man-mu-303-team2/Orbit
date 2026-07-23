@@ -4,6 +4,7 @@ import type { DecksService } from "../decks/decks.service";
 import type { PresentationSessionRepository } from "./presentation-session.repository";
 import { PresentationSessionsService } from "./presentation-sessions.service";
 import type { PresentationCompanionStore } from "./presentation-companion.store";
+import type { PresentationCompanionPublisher } from "./presentation-companion.publisher";
 
 const sessionRow = {
   session_id: "session_existing",
@@ -35,6 +36,7 @@ function createService(
   audienceRateLimit?: { consumeJoin: ReturnType<typeof vi.fn> },
   deckOverrides: Partial<DecksService> = {},
   companionStore?: Partial<PresentationCompanionStore>,
+  companionPublisher?: Partial<PresentationCompanionPublisher>,
 ) {
   const manager = {} as never;
   const repository = {
@@ -75,6 +77,7 @@ function createService(
       logger,
       audienceRateLimit as never,
       companionStore as PresentationCompanionStore,
+      companionPublisher as PresentationCompanionPublisher,
     )
   };
 }
@@ -98,6 +101,7 @@ describe("PresentationSessionsService", () => {
 
   it("closes an active session and reads deckVersion from the materialized Deck", async () => {
     const companionStore = { revokeSession: vi.fn() };
+    const companionPublisher = { revokeCurrent: vi.fn() };
     const { decksService, repository, service } = createService(
       {
         closeActive: vi.fn().mockResolvedValue(["session_previous"]),
@@ -105,6 +109,7 @@ describe("PresentationSessionsService", () => {
       undefined,
       {},
       companionStore,
+      companionPublisher,
     );
 
     await expect(
@@ -129,6 +134,10 @@ describe("PresentationSessionsService", () => {
     );
     expect(companionStore.revokeSession).toHaveBeenCalledWith(
       "session_previous",
+    );
+    expect(companionPublisher.revokeCurrent).toHaveBeenCalledWith(
+      "session_previous",
+      "session-ended",
     );
     expect(repository.insert).toHaveBeenCalledWith(
       expect.anything(),
@@ -296,11 +305,13 @@ describe("PresentationSessionsService", () => {
 
   it("closes a session idempotently through the repository transaction", async () => {
     const companionStore = { revokeSession: vi.fn() };
+    const companionPublisher = { revokeCurrent: vi.fn() };
     const { repository, service } = createService(
       {},
       undefined,
       {},
       companionStore,
+      companionPublisher,
     );
 
     await expect(service.close("project_1", "session_existing")).resolves.toMatchObject({
@@ -314,6 +325,10 @@ describe("PresentationSessionsService", () => {
     );
     expect(companionStore.revokeSession).toHaveBeenCalledWith(
       "session_existing",
+    );
+    expect(companionPublisher.revokeCurrent).toHaveBeenCalledWith(
+      "session_existing",
+      "session-ended",
     );
   });
 

@@ -16,4 +16,17 @@ describe("API logging redaction", () => {
       ])
     );
   });
+
+  it("redacts companion WebRTC and annotation payload fields", () => {
+    expect(redactedPaths).toEqual(
+      expect.arrayContaining([
+        "sdp",
+        "candidate",
+        "points",
+        "*.sdp",
+        "*.candidate",
+        "*.points",
+      ]),
+    );
+  });
 });

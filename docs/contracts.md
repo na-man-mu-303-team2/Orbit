@@ -487,9 +487,42 @@ presentation WebSocket room은 다음처럼 project room과 분리한다.
 ```text
 presentation:{sessionId}:presenter
 presentation:{sessionId}:audience
+presentation:{sessionId}:companion-authority:{authorityEpochId}
+presentation:{sessionId}:companion:{pairingGeneration}
 ```
 
 추가 event는 `active-activity-changed`, `activity-state-changed`, `activity-results-updated`다. 응답 write는 HTTP transaction에서 수행하고, WebSocket은 commit 후 `revision`, refetch marker, 공개 가능한 aggregate와 승인된 익명 text만 전달한다. audience event의 `userId`는 raw audience ID 대신 `system`을 사용한다.
+
+Companion room은 일반 audience room과 cookie를 공유하지 않는다. presenter는
+project write 권한을 확인한 뒤 10초 Redis authority lease를 얻은 tab 하나만
+authority room에 들어간다. iPad는 companion cookie의 최신 generation을
+확인한 뒤 해당 generation room 하나에 들어간다. server는 client payload의
+room, role, `userId`를 신뢰하지 않고 인증된 socket state로 덮어쓴다.
+
+Companion server event는 공통 strict envelope
+`{ type, roomId, sessionId, userId, payload, sentAt }`을 사용한다.
+`userId`는 `system`, HMAC pseudonym인 `presenter:<opaque>`,
+`companion:<companionId>` 중 하나다. 주요 event는 authority
+claim/change, join/heartbeat/presence, output state, annotation
+command/ack/snapshot/request, volatile laser, WebRTC signal, revoke,
+고정 `presentation:error`다.
+
+- annotation normalized coordinate와 pressure는 `0..1`, relative time은
+  `0..120000ms`, point batch는 64개, stroke는 4,096 points로 제한한다.
+- surface snapshot은 500 strokes와 총 50,000 points를 넘을 수 없다.
+  color는 제품 palette enum, normalized width는 `0.001..0.05`만 허용한다.
+- annotation command JSON은 UTF-8 32KiB 이하이며 socket별 Redis token
+  bucket은 초당 120개, burst 180개다. laser는 초당 60개, burst 60개다.
+- SDP는 32KiB, ICE candidate는 4KiB 이하의 strict union이다. signaling,
+  annotation, laser payload는 로그에 남기지 않는다.
+- annotation과 companion signaling은 body `sessionId`, 최신 generation,
+  active `authorityEpochId`를 relay 직전에 다시 확인한다. annotation
+  command는 presenter room 전체가 아니라 authority epoch room 하나에만
+  전달한다.
+- companion socket disconnect는 generation을 유지하고 matching generation의
+  presence만 지운다. session close, replacement, presenter disconnect API는
+  `revoked`를 generation room에 보낸 뒤 Redis adapter를 통해 해당 socket을
+  끊는다.
 
 구현 위치:
 
