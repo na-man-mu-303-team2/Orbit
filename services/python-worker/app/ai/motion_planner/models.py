@@ -41,6 +41,19 @@ MotionSemanticRole = Literal[
     "supporting",
     "other",
 ]
+MotionUnitKind = Literal["element", "explicit-group", "spatial-cluster"]
+MotionUnitSemanticRole = Literal[
+    "title",
+    "subtitle",
+    "body",
+    "card",
+    "focal",
+    "media",
+    "data",
+    "label",
+    "supporting",
+    "other",
+]
 
 
 class MotionEffectiveTypography(BaseModel):
@@ -88,6 +101,44 @@ class ExtractedMotionContext(BaseModel):
     slide_type: SlideType = Field(alias="slideType")
     narrative_intent: NarrativeIntent = Field(alias="narrativeIntent")
     targets: list[MotionTarget] = Field(max_length=8)
+    approved_cue_count: int = Field(alias="approvedCueCount", ge=0, le=100)
+    notes_present: bool = Field(alias="notesPresent")
+    notes_truncated: bool = Field(alias="notesTruncated")
+
+
+class MotionUnit(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    unit_id: str = Field(alias="unitId", pattern=r"^motion_unit_[a-z0-9_-]{1,160}$")
+    kind: MotionUnitKind
+    animation_element_ids: list[str] = Field(
+        alias="animationElementIds", min_length=1, max_length=4
+    )
+    member_element_ids: list[str] = Field(
+        alias="memberElementIds", min_length=1, max_length=8
+    )
+    semantic_role: MotionUnitSemanticRole = Field(alias="semanticRole")
+    reading_order: int = Field(alias="readingOrder", ge=1, le=200)
+    emphasis: Literal["primary", "secondary", "supporting"]
+    geometry_bucket: Literal["top", "left", "center", "right", "bottom"] = Field(
+        alias="geometryBucket"
+    )
+
+    @model_validator(mode="after")
+    def reject_duplicate_elements(self) -> Self:
+        if len(set(self.animation_element_ids)) != len(self.animation_element_ids):
+            raise ValueError("MotionUnit animation element IDs must be unique")
+        if len(set(self.member_element_ids)) != len(self.member_element_ids):
+            raise ValueError("MotionUnit member element IDs must be unique")
+        return self
+
+
+class ExtractedMotionContextV3(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    slide_type: SlideType = Field(alias="slideType")
+    narrative_intent: NarrativeIntent = Field(alias="narrativeIntent")
+    units: list[MotionUnit] = Field(max_length=8)
     approved_cue_count: int = Field(alias="approvedCueCount", ge=0, le=100)
     notes_present: bool = Field(alias="notesPresent")
     notes_truncated: bool = Field(alias="notesTruncated")

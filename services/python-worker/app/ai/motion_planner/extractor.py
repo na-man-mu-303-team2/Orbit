@@ -1,21 +1,40 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from app.ai.motion_planner.models import (
     ExtractedMotionContext,
+    ExtractedMotionContextV3,
     MotionPlanningContext,
     MotionSemanticRole,
     MotionTarget,
+    MotionUnit,
+    MotionUnitSemanticRole,
     NarrativeIntent,
     SlideType,
 )
+
+CANVAS_WIDTH = 1920
+CANVAS_HEIGHT = 1080
+MAX_SPATIAL_CONTAINER_AREA_RATIO = 0.35
+MIN_CHILD_OVERLAP_RATIO = 0.8
+CONTAINER_TYPES = {"rect", "ellipse", "polygon", "star", "ring", "customShape"}
+CONTENT_TYPES = {"text", "image", "svg", "chart", "table"}
+EXCLUDED_ROLES = {"background", "footer"}
 
 
 @dataclass(frozen=True)
 class MotionPromptInput:
     context: ExtractedMotionContext
+    target_labels: dict[str, str]
+    speaker_notes: str
+
+
+@dataclass(frozen=True)
+class MotionPromptInputV3:
+    context: ExtractedMotionContextV3
     target_labels: dict[str, str]
     speaker_notes: str
 
@@ -91,6 +110,411 @@ def extract_motion_context(
         },
         speaker_notes=planning_context.speaker_notes,
     )
+
+
+def extract_motion_units(
+    slide: dict[str, Any],
+    planning_context: MotionPlanningContext,
+) -> MotionPromptInputV3:
+    allowed_ids = set(planning_context.allowed_target_element_ids)
+    elements = [
+        element
+        for element in slide.get("elements", [])
+        if isinstance(element, dict)
+        and str(element.get("elementId", "")) in allowed_ids
+        and _is_visible_unlocked(element)
+    ]
+    by_id = {str(element["elementId"]): element for element in elements}
+    typography = {
+        item.element_id: item for item in planning_context.effective_typography
+    }
+    approved_cues = [
+        cue
+        for cue in slide.get("semanticCues", [])
+        if isinstance(cue, dict)
+        and cue.get("reviewStatus") == "approved"
+        and cue.get("freshness") == "current"
+    ]
+    cue_importance = _cue_importance(approved_cues, allowed_ids)
+    focal_id = _primary_focal_id(slide, allowed_ids)
+
+    candidates: list[tuple[MotionUnit, dict[str, Any], str]] = []
+    claimed_ids: set[str] = set()
+    for group in sorted(
+        (element for element in elements if element.get("type") == "group"),
+        key=_frame_order_key,
+    ):
+        group_id = str(group["elementId"])
+        props = group.get("props")
+        child_ids = (
+            [str(child_id) for child_id in props.get("childElementIds", [])]
+            if isinstance(props, dict)
+            else []
+        )
+        members = [
+            by_id[child_id]
+            for child_id in child_ids
+            if child_id in by_id and child_id not in claimed_ids
+        ]
+        if not members or len(members) > 8:
+            continue
+        candidates.append(
+            (
+                _build_unit(
+                    kind="explicit-group",
+                    animation_element_ids=[group_id],
+                    member_elements=members,
+                    frame_element=group,
+                    focal_id=focal_id,
+                    cue_importance=cue_importance,
+                    typography=typography,
+                ),
+                group,
+                _unit_label(members),
+            )
+        )
+        claimed_ids.update(str(member["elementId"]) for member in members)
+        claimed_ids.add(group_id)
+
+    containers = sorted(
+        (
+            element
+            for element in elements
+            if _is_spatial_container(element)
+            and str(element["elementId"]) not in claimed_ids
+        ),
+        key=lambda element: (_frame_area(element), *_frame_order_key(element)),
+    )
+    for container in containers:
+        container_id = str(container["elementId"])
+        children = [
+            element
+            for element in elements
+            if str(element["elementId"]) not in claimed_ids
+            and str(element["elementId"]) != container_id
+            and _is_spatial_content(element)
+            and _is_contained_child(container, element)
+        ]
+        if not children or len(children) > 3:
+            continue
+        children.sort(key=lambda element: _reading_key(element, typography))
+        members = [container, *children]
+        candidates.append(
+            (
+                _build_unit(
+                    kind="spatial-cluster",
+                    animation_element_ids=[
+                        str(member["elementId"]) for member in members
+                    ],
+                    member_elements=members,
+                    frame_element=container,
+                    focal_id=focal_id,
+                    cue_importance=cue_importance,
+                    typography=typography,
+                ),
+                container,
+                _unit_label(children),
+            )
+        )
+        claimed_ids.update(str(member["elementId"]) for member in members)
+
+    for element in elements:
+        element_id = str(element["elementId"])
+        if (
+            element_id in claimed_ids
+            or element.get("type") == "group"
+            or str(element.get("role") or "")
+            in {"background", "decoration", "footer"}
+            or element.get("type") in {"line", "arrow", "activity-qr"}
+        ):
+            continue
+        candidates.append(
+            (
+                _build_unit(
+                    kind="element",
+                    animation_element_ids=[element_id],
+                    member_elements=[element],
+                    frame_element=element,
+                    focal_id=focal_id,
+                    cue_importance=cue_importance,
+                    typography=typography,
+                ),
+                element,
+                _target_label(element),
+            )
+        )
+
+    ordered = sorted(
+        candidates,
+        key=lambda item: _unit_reading_key(item[0], item[1]),
+    )[:8]
+    units: list[MotionUnit] = []
+    target_labels: dict[str, str] = {}
+    for index, (unit, _frame, label) in enumerate(ordered, start=1):
+        hydrated = unit.model_copy(update={"reading_order": index})
+        units.append(hydrated)
+        target_labels[hydrated.unit_id] = label
+    slide_type = _slide_type_for_units(slide, units, approved_cues)
+    return MotionPromptInputV3(
+        context=ExtractedMotionContextV3(
+            slideType=slide_type,
+            narrativeIntent=_narrative_intent(slide_type),
+            units=units,
+            approvedCueCount=len(approved_cues),
+            notesPresent=planning_context.notes_present,
+            notesTruncated=planning_context.notes_truncated,
+        ),
+        target_labels=target_labels,
+        speaker_notes=planning_context.speaker_notes,
+    )
+
+
+def _cue_importance(
+    approved_cues: list[dict[str, Any]], allowed_ids: set[str]
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for cue in approved_cues:
+        importance = str(cue.get("importance", "supporting"))
+        for element_id in cue.get("targetElementIds", []):
+            target_id = str(element_id)
+            if target_id in allowed_ids:
+                result[target_id] = _stronger_importance(
+                    result.get(target_id), importance
+                )
+    return result
+
+
+def _build_unit(
+    *,
+    kind: Literal["element", "explicit-group", "spatial-cluster"],
+    animation_element_ids: list[str],
+    member_elements: list[dict[str, Any]],
+    frame_element: dict[str, Any],
+    focal_id: str | None,
+    cue_importance: dict[str, str],
+    typography: dict[str, Any],
+) -> MotionUnit:
+    member_ids = [str(element["elementId"]) for element in member_elements]
+    semantic_roles = [
+        _semantic_role(
+            element,
+            focal_id=focal_id,
+            cue_importance=cue_importance,
+            typography=typography,
+        )
+        for element in member_elements
+    ]
+    emphasis_values = [
+        _emphasis(element_id, focal_id, cue_importance)
+        for element_id in member_ids
+    ]
+    return MotionUnit(
+        unitId=_stable_unit_id(kind, animation_element_ids, member_ids),
+        kind=kind,
+        animationElementIds=animation_element_ids,
+        memberElementIds=member_ids,
+        semanticRole=_unit_semantic_role(kind, semantic_roles),
+        readingOrder=1,
+        emphasis=(
+            "primary"
+            if "primary" in emphasis_values
+            else "secondary"
+            if "secondary" in emphasis_values
+            else "supporting"
+        ),
+        geometryBucket=_geometry_bucket(frame_element),
+    )
+
+
+def _stable_unit_id(
+    kind: str, animation_element_ids: list[str], member_element_ids: list[str]
+) -> str:
+    source = "\0".join(
+        [kind, *sorted(animation_element_ids), "|", *sorted(member_element_ids)]
+    )
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]
+    return f"motion_unit_{kind.replace('-', '_')}_{digest}"
+
+
+def _unit_semantic_role(
+    kind: str, roles: list[MotionSemanticRole]
+) -> MotionUnitSemanticRole:
+    if kind != "element":
+        if "data" in roles:
+            return "data"
+        if "media" in roles and not any(
+            role in {"title", "subtitle", "body", "focal", "supporting"}
+            for role in roles
+        ):
+            return "media"
+        return "card"
+    return roles[0] if roles else "other"
+
+
+def _unit_reading_key(
+    unit: MotionUnit, frame_element: dict[str, Any]
+) -> tuple[int, float, float, str]:
+    role_rank = {
+        "title": 0,
+        "subtitle": 1,
+        "focal": 2,
+        "card": 2,
+        "body": 3,
+        "data": 3,
+        "media": 4,
+        "supporting": 4,
+        "label": 5,
+        "other": 6,
+    }
+    return (
+        role_rank.get(unit.semantic_role, 6),
+        float(frame_element.get("y", 0)),
+        float(frame_element.get("x", 0)),
+        unit.unit_id,
+    )
+
+
+def _slide_type_for_units(
+    slide: dict[str, Any],
+    units: list[MotionUnit],
+    approved_cues: list[dict[str, Any]],
+) -> SlideType:
+    ai_notes = slide.get("aiNotes")
+    if isinstance(ai_notes, dict):
+        visual_plan = ai_notes.get("visualPlan")
+        visual_type = (
+            str(visual_plan.get("visualType", ""))
+            if isinstance(visual_plan, dict)
+            else ""
+        )
+        visual_type_map: dict[str, SlideType] = {
+            "cover": "cover",
+            "title": "title",
+            "problem": "problem",
+            "solution": "solution",
+            "feature-grid": "feature-grid",
+            "process": "process",
+            "architecture": "architecture",
+            "data": "data",
+            "chart": "chart",
+            "comparison": "comparison",
+            "quote": "quote",
+            "summary": "summary",
+        }
+        if visual_type in visual_type_map:
+            return visual_type_map[visual_type]
+        composition = ai_notes.get("compositionPlan")
+        composition_id = (
+            str(composition.get("compositionId", ""))
+            if isinstance(composition, dict)
+            else ""
+        )
+        if composition_id in {"process-horizontal", "timeline"}:
+            return "process"
+    cue_types = {str(cue.get("cueType", "")) for cue in approved_cues}
+    title = str(slide.get("title", "")).lower()
+    if "closing" in cue_types or any(token in title for token in ("summary", "요약")):
+        return "summary"
+    if "problem" in cue_types:
+        return "problem"
+    if "solution" in cue_types:
+        return "solution"
+    if any(token in title for token in ("vs", "비교", "comparison")):
+        return "comparison"
+    if any(token in title for token in ("process", "프로세스", "단계")):
+        return "process"
+    if any(token in title for token in ("architecture", "아키텍처", "구조")):
+        return "architecture"
+    if any(unit.semantic_role == "data" for unit in units):
+        return "data"
+    if sum(unit.semantic_role == "card" for unit in units) >= 2:
+        return "feature-grid"
+    roles = {unit.semantic_role for unit in units}
+    if roles <= {"title", "subtitle", "supporting"} and len(units) <= 2:
+        return "title"
+    return "solution" if "focal" in roles else "title"
+
+
+def _is_visible_unlocked(element: dict[str, Any]) -> bool:
+    return bool(
+        element.get("visible") is not False
+        and float(element.get("opacity", 1)) > 0
+        and element.get("locked") is not True
+    )
+
+
+def _is_spatial_container(element: dict[str, Any]) -> bool:
+    area = _frame_area(element)
+    return bool(
+        element.get("type") in CONTAINER_TYPES
+        and str(element.get("role") or "") not in EXCLUDED_ROLES
+        and area > 0
+        and area
+        <= CANVAS_WIDTH * CANVAS_HEIGHT * MAX_SPATIAL_CONTAINER_AREA_RATIO
+    )
+
+
+def _is_spatial_content(element: dict[str, Any]) -> bool:
+    return bool(
+        element.get("type") in CONTENT_TYPES
+        and str(element.get("role") or "")
+        not in {"background", "decoration", "footer"}
+    )
+
+
+def _is_contained_child(
+    container: dict[str, Any], child: dict[str, Any]
+) -> bool:
+    child_area = _frame_area(child)
+    if child_area <= 0 or float(child.get("zIndex", 0)) <= float(
+        container.get("zIndex", 0)
+    ):
+        return False
+    left = max(float(container.get("x", 0)), float(child.get("x", 0)))
+    top = max(float(container.get("y", 0)), float(child.get("y", 0)))
+    right = min(
+        float(container.get("x", 0)) + float(container.get("width", 0)),
+        float(child.get("x", 0)) + float(child.get("width", 0)),
+    )
+    bottom = min(
+        float(container.get("y", 0)) + float(container.get("height", 0)),
+        float(child.get("y", 0)) + float(child.get("height", 0)),
+    )
+    intersection = max(0.0, right - left) * max(0.0, bottom - top)
+    child_center_x = float(child.get("x", 0)) + float(child.get("width", 0)) / 2
+    child_center_y = float(child.get("y", 0)) + float(child.get("height", 0)) / 2
+    return bool(
+        float(container.get("x", 0))
+        <= child_center_x
+        <= float(container.get("x", 0)) + float(container.get("width", 0))
+        and float(container.get("y", 0))
+        <= child_center_y
+        <= float(container.get("y", 0)) + float(container.get("height", 0))
+        and intersection / child_area >= MIN_CHILD_OVERLAP_RATIO
+    )
+
+
+def _frame_area(element: dict[str, Any]) -> float:
+    return max(0.0, float(element.get("width", 0))) * max(
+        0.0, float(element.get("height", 0))
+    )
+
+
+def _frame_order_key(element: dict[str, Any]) -> tuple[float, float, str]:
+    return (
+        float(element.get("y", 0)),
+        float(element.get("x", 0)),
+        str(element.get("elementId", "")),
+    )
+
+
+def _unit_label(elements: list[dict[str, Any]]) -> str:
+    labels = [
+        _target_label(element)
+        for element in elements
+        if element.get("type") == "text"
+    ]
+    return " · ".join(label for label in labels if label)[:160] or "복합 요소"
 
 
 def _semantic_role(
