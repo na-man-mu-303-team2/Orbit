@@ -35,8 +35,7 @@ import {
   type PresenterRemoteCommand,
 } from "./presentationChannel";
 import type { PresenterSlideshowState } from "./presenterStateStore";
-import { PresenterScriptList, type PresenterScriptListRow } from "./PresenterScriptList";
-import { getRehearsalTeleprompterScrollBehavior } from "./RehearsalScriptTeleprompter";
+import { RehearsalScriptTeleprompter } from "./RehearsalScriptTeleprompter";
 import { SlideshowRenderer } from "./SlideshowRenderer";
 import { usePresenterKeyboard } from "./usePresenterKeyboard";
 import { getPresenterAidPolicy } from "./presenterAidPolicy";
@@ -103,11 +102,6 @@ export function PresenterRemoteWindow(props: {
   const channelRef = useRef<ChannelLike | null>(null);
   const commandRetryTimersRef = useRef<number[]>([]);
   const lastOwnerSeenAtRef = useRef<number | null>(null);
-  const scriptViewportRef = useRef<HTMLElement | null>(null);
-  const currentScriptRowRef = useRef<HTMLLIElement | null>(null);
-  const previousScriptFocusKeyRef = useRef<string | null | undefined>(
-    undefined,
-  );
   const pendingAudienceOutputModeRef = useRef<PendingAudienceOutputMode | null>(
     null,
   );
@@ -227,34 +221,6 @@ export function PresenterRemoteWindow(props: {
     noteSentences,
     state,
   );
-  const currentScriptFocusKey =
-    slide && currentSentenceIndex >= 0
-      ? `${slide.slideId}:${getPresenterRemoteSentenceId(currentSentenceIndex)}`
-      : null;
-
-  useEffect(() => {
-    const scrollBehavior = getRehearsalTeleprompterScrollBehavior(
-      previousScriptFocusKeyRef.current,
-      currentScriptFocusKey,
-    );
-    previousScriptFocusKeyRef.current = currentScriptFocusKey;
-    if (!scrollBehavior) {
-      return;
-    }
-
-    const viewport = scriptViewportRef.current;
-    const currentRow = currentScriptRowRef.current;
-    if (!viewport || !currentRow) {
-      return;
-    }
-
-    scrollPresenterRemoteScriptRowIntoView(
-      viewport,
-      currentRow,
-      scrollBehavior,
-    );
-  }, [currentScriptFocusKey]);
-
   const nextSentenceIndex = getPresenterRemoteNextSentenceIndex(
     noteSentences,
     state,
@@ -432,24 +398,13 @@ export function PresenterRemoteWindow(props: {
           </button>
         </aside>
 
-        <section
-          className="presenter-remote-script"
-          aria-label="발표자 대본"
-          data-auto-scroll="true"
-          ref={scriptViewportRef}
-        >
-          <div className="presenter-remote-section-heading">
-            <span>대본</span>
-            <strong>
-              현재 문장 {cueProgressCurrent} / {cueProgressTotal}
-            </strong>
-          </div>
-          <PresenterScriptList
-            emptyLabel="대본 없음"
-            getRowRef={(row) =>
-              row.status === "current" ? currentScriptRowRef : undefined
-            }
-            rows={noteSentences.map((sentence, index): PresenterScriptListRow => {
+        <section className="presenter-remote-script" aria-label="발표자 대본">
+          <RehearsalScriptTeleprompter
+            focusScopeId={slide?.slideId ?? "presenter-remote"}
+            progressPercent={Math.round(
+              (cueProgressCurrent / cueProgressTotal) * 100,
+            )}
+            rows={noteSentences.map((sentence, index) => {
               const sentenceId = getPresenterRemoteSentenceId(index);
               const covered = Boolean(
                 state.speech?.coveredSentenceIds.includes(sentenceId),
@@ -462,14 +417,8 @@ export function PresenterRemoteWindow(props: {
               const matchKind =
                 state.speech?.coveredSentenceMatchKinds[sentenceId];
               return {
-                content: sentence,
                 id: sentenceId,
-                label:
-                  committed
-                    ? "체크됨"
-                    : matchKind === "paraphrased"
-                    ? "의미 전달"
-                    : undefined,
+                isFocusTarget: index === currentSentenceIndex,
                 status:
                   index === currentSentenceIndex
                     ? "current"
@@ -480,6 +429,7 @@ export function PresenterRemoteWindow(props: {
                       : index === nextSentenceIndex
                         ? "next"
                         : "pending",
+                text: sentence,
               };
             })}
           />

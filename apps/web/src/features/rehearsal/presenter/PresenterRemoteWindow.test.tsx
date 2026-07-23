@@ -330,8 +330,8 @@ describe("PresenterRemoteWindow", () => {
     );
 
     expect(getPresenterRemoteCurrentSentenceIndex(sentences, state)).toBe(1);
-    expect(html).toContain("presenter-script-row--covered");
-    expect(html).toContain("presenter-script-row--current");
+    expect(html).toContain("rehearsal-teleprompter-line-covered");
+    expect(html).toContain("rehearsal-teleprompter-line-current");
   });
 
   it("keeps remote current and next cues on committed prompter progress", () => {
@@ -370,7 +370,7 @@ describe("PresenterRemoteWindow", () => {
 
     expect(getPresenterRemoteCurrentSentenceIndex(sentences, state)).toBe(0);
     expect(getPresenterRemoteNextSentenceIndex(sentences, state, 0)).toBe(1);
-    expect(html).not.toContain("presenter-script-row--covered");
+    expect(html).not.toContain("rehearsal-teleprompter-line-covered");
   });
 
   it("shows a leading display-only cue until lexical evidence reaches tracking", () => {
@@ -460,8 +460,7 @@ describe("PresenterRemoteWindow", () => {
       />,
     );
 
-    expect(html).toContain("presenter-script-row--paraphrased");
-    expect(html).toContain("체크됨");
+    expect(html).toContain("rehearsal-teleprompter-line-paraphrased");
   });
 
   it("retries idempotent remote timer pause commands across transient channel races", () => {
