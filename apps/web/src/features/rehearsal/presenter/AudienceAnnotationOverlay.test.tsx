@@ -62,4 +62,41 @@ describe("AudienceAnnotationOverlay", () => {
       ),
     ).toBe("");
   });
+
+  it("renders an ephemeral laser without a persisted stroke and hides it in black mode", () => {
+    const laser = {
+      sessionId: "session_1",
+      authorityEpochId: "epoch_1",
+      surfaceId: "surface_1",
+      sequence: 3,
+      kind: "move" as const,
+      x: 0.25,
+      y: 0.75,
+    };
+    const emptySnapshot = { ...snapshot, strokes: [] };
+    const html = renderToStaticMarkup(
+      <AudienceAnnotationOverlay
+        canvas={p0AnimationDeck.canvas}
+        laser={laser}
+        mode="slide"
+        scale={1}
+        snapshot={emptySnapshot}
+      />,
+    );
+
+    expect(html).toContain("audience-laser-point");
+    expect(html).toContain('cx="0.25"');
+    expect(html).toContain('cy="0.75"');
+    expect(
+      renderToStaticMarkup(
+        <AudienceAnnotationOverlay
+          canvas={p0AnimationDeck.canvas}
+          laser={laser}
+          mode="black"
+          scale={1}
+          snapshot={emptySnapshot}
+        />,
+      ),
+    ).toBe("");
+  });
 });

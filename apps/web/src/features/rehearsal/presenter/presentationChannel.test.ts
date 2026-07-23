@@ -7,6 +7,7 @@ import {
   createPresenterAnnotationSnapshotMessage,
   createPresenterCommandMessage,
   createPresenterHeartbeatMessage,
+  createPresenterLaserMessage,
   createPresenterRemoteHeartbeatMessage,
   createPresenterRemoteReadyMessage,
   createPresenterRemoteSnapshotMessage,
@@ -74,6 +75,48 @@ describe("presentationChannel", () => {
           ...snapshot.annotation,
           strokes: [{ strokeId: "malformed" }],
         },
+      }),
+    ).toBeNull();
+  });
+
+  it("validates ephemeral laser events at the local channel boundary", () => {
+    const move = createPresenterLaserMessage({
+      identity,
+      laser: {
+        sessionId: "persisted_session_1",
+        authorityEpochId: "epoch_1",
+        surfaceId: "surface_1",
+        sequence: 4,
+        kind: "move",
+        x: 0.25,
+        y: 0.75,
+      },
+      sentAt: 12,
+    });
+    const hide = createPresenterLaserMessage({
+      identity,
+      laser: {
+        sessionId: "persisted_session_1",
+        authorityEpochId: "epoch_1",
+        surfaceId: "surface_1",
+        sequence: 5,
+        kind: "hide",
+      },
+      sentAt: 13,
+    });
+
+    expect(parsePresentationChannelMessage(move)).toEqual(move);
+    expect(parsePresentationChannelMessage(hide)).toEqual(hide);
+    expect(
+      parsePresentationChannelMessage({
+        ...move,
+        laser: { ...move.laser, x: 1.1 },
+      }),
+    ).toBeNull();
+    expect(
+      parsePresentationChannelMessage({
+        ...hide,
+        laser: { ...hide.laser, secret: "must-not-pass" },
       }),
     ).toBeNull();
   });

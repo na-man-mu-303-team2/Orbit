@@ -96,6 +96,91 @@ describe.skipIf(!runIntegration)(
       },
       10_000,
     );
+
+    it(
+      "rejoins after a short disconnect and resumes output, laser, and annotation without duplicate delivery",
+      async () => {
+        const fixture = await createGatewayServer();
+        const presenter = await connectClient(
+          fixture.port,
+          "orbit_session=valid-auth-session",
+        );
+        let companion = await connectClient(
+          fixture.port,
+          `${companionAccessCookieName}=valid-companion-token`,
+        );
+
+        try {
+          await emitWithAck(
+            presenter,
+            "presentation:companion:authority-claim",
+            {
+              sessionId: "session_1",
+              authorityEpochId: "epoch_1",
+            },
+          );
+          await emitWithAck(companion, "presentation:companion:join", {
+            sessionId: "session_1",
+          });
+
+          const disconnectedAt = Date.now();
+          companion.disconnect();
+          companion = await connectClient(
+            fixture.port,
+            `${companionAccessCookieName}=valid-companion-token`,
+          );
+          await emitWithAck(companion, "presentation:companion:join", {
+            sessionId: "session_1",
+          });
+          expect(Date.now() - disconnectedAt).toBeLessThan(3_000);
+
+          const output = onceEvent(
+            companion,
+            "presentation:companion:output-state",
+          );
+          presenter.emit(
+            "presentation:companion:output-state",
+            outputState(),
+          );
+          await expect(output).resolves.toMatchObject({
+            payload: outputState(),
+          });
+
+          const laser = onceEvent(
+            presenter,
+            "presentation:companion:laser",
+          );
+          companion.emit("presentation:companion:laser", laserMove());
+          await expect(laser).resolves.toMatchObject({
+            payload: laserMove(),
+          });
+
+          const annotationDeliveries = vi.fn();
+          presenter.on(
+            "presentation:companion:annotation-command",
+            annotationDeliveries,
+          );
+          const annotation = onceEvent(
+            presenter,
+            "presentation:companion:annotation-command",
+          );
+          companion.emit(
+            "presentation:companion:annotation-command",
+            annotationCommand(),
+          );
+          await expect(annotation).resolves.toMatchObject({
+            payload: annotationCommand(),
+          });
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          expect(annotationDeliveries).toHaveBeenCalledTimes(1);
+        } finally {
+          presenter.disconnect();
+          companion.disconnect();
+          await fixture.io.close();
+        }
+      },
+      10_000,
+    );
   },
 );
 
@@ -177,6 +262,12 @@ async function createGatewayServer() {
       "presentation:companion:annotation-command",
       (body) => gateway.relayAnnotationCommand(socket, body),
     );
+    bind(socket, "presentation:companion:output-state", (body) =>
+      gateway.relayOutputState(socket, body),
+    );
+    bind(socket, "presentation:companion:laser", (body) =>
+      gateway.relayLaser(socket, body),
+    );
     socket.on("disconnect", () => {
       void gateway.handleDisconnect(socket);
     });
@@ -238,6 +329,32 @@ function onceEvent(
   return new Promise((resolve) => {
     socket.once(event, resolve);
   });
+}
+
+function outputState() {
+  return {
+    sessionId: "session_1",
+    authorityEpochId: "epoch_1",
+    outputRevision: 4,
+    surfaceRevision: 2,
+    surfaceId: "surface_1",
+    outputMode: "slide",
+    slideId: "slide_1",
+    slideIndex: 0,
+    animationStep: 1,
+  };
+}
+
+function laserMove() {
+  return {
+    sessionId: "session_1",
+    authorityEpochId: "epoch_1",
+    surfaceId: "surface_1",
+    sequence: 8,
+    kind: "move",
+    x: 0.25,
+    y: 0.75,
+  };
 }
 
 function annotationCommand() {

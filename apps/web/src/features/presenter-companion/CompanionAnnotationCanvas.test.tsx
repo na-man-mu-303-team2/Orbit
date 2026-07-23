@@ -24,6 +24,7 @@ describe("CompanionAnnotationCanvas", () => {
         lastAcknowledgement={null}
         output={output}
         sendCommand={vi.fn()}
+        sendLaser={vi.fn()}
       />,
     );
 
@@ -43,6 +44,7 @@ describe("CompanionAnnotationCanvas", () => {
         lastAcknowledgement={null}
         output={{ ...output, outputMode: "black" }}
         sendCommand={vi.fn()}
+        sendLaser={vi.fn()}
       />,
     );
 

@@ -20,6 +20,7 @@ import { createPresenterSlideshowState } from "./presenterStateStore";
 import {
   createPresenterAnnotationDeltaMessage,
   createPresenterAnnotationSnapshotMessage,
+  createPresenterLaserMessage,
   createPresenterSnapshotMessage,
   createPresenterStateMessage,
 } from "./presentationChannel";
@@ -597,6 +598,63 @@ describe("PresentWindow", () => {
         surfaceRevision: 5,
       }),
     ).toBe(accepted);
+  });
+
+  it("applies only the latest laser sequence and removes a hidden laser", () => {
+    const presenterSnapshot = createPresenterSnapshotMessage({
+      deck: p0AnimationDeck,
+      identity,
+      state: createPresenterSlideshowState(p0AnimationDeck),
+    });
+    const initial = applyPresentWindowMessage(null, presenterSnapshot);
+    const move = createPresenterLaserMessage({
+      identity,
+      laser: {
+        sessionId: "persisted_session_1",
+        authorityEpochId: "epoch_1",
+        surfaceId: "surface_1",
+        sequence: 2,
+        kind: "move",
+        x: 0.2,
+        y: 0.4,
+      },
+    });
+    const withLaser = applyPresentWindowMessage(initial, move);
+
+    expect(withLaser?.laser).toEqual(move.laser);
+    expect(
+      applyPresentWindowMessage(
+        withLaser,
+        createPresenterLaserMessage({
+          identity,
+          laser: {
+            sessionId: "persisted_session_1",
+            authorityEpochId: "epoch_1",
+            surfaceId: "surface_1",
+            sequence: 1,
+            kind: "move",
+            x: 0.9,
+            y: 0.4,
+          },
+        }),
+      ),
+    ).toBe(withLaser);
+
+    const hidden = applyPresentWindowMessage(
+      withLaser,
+      createPresenterLaserMessage({
+        identity,
+        laser: {
+          sessionId: "persisted_session_1",
+          authorityEpochId: "epoch_1",
+          surfaceId: "surface_1",
+          sequence: 3,
+          kind: "hide",
+        },
+      }),
+    );
+
+    expect(hidden?.laser).toBeNull();
   });
 
   it("handles blocked fullscreen requests without leaking a rejected promise", async () => {
