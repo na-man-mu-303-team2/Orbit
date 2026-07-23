@@ -514,17 +514,6 @@ export function PresentationWorkspace(props: {
             ]),
           ],
         };
-        if (pendingKeywordOccurrenceIdsRef.current?.slideId === args.slide.slideId) {
-          pendingKeywordOccurrenceIdsRef.current = {
-            occurrenceIds: pendingKeywordOccurrenceIdsRef.current.occurrenceIds.filter(
-              (occurrenceId) => !args.consumedOccurrenceIds?.includes(occurrenceId),
-            ),
-            slideId: args.slide.slideId,
-          };
-          setPendingKeywordOccurrenceIds(
-            pendingKeywordOccurrenceIdsRef.current.occurrenceIds,
-          );
-        }
       }
 
       if (args.update.shouldAdvanceSlide) {
@@ -539,6 +528,33 @@ export function PresentationWorkspace(props: {
 
   const handleNextPresenterStep = useCallback(() => {
     if (!currentSlide || !slideshowAnimationPlan) {
+      return;
+    }
+
+    const pendingOccurrenceIds =
+      pendingKeywordOccurrenceIdsRef.current?.slideId === currentSlide.slideId
+        ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
+        : [];
+    const queuedOccurrencePlayback = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId: new Map(),
+      matchedOccurrenceIds: [],
+      pendingOccurrenceIds,
+      playbackState: playbackStateRef.current,
+      presenterStepIndex,
+      slide: currentSlide,
+      slideAnimationPlan: slideshowAnimationPlan,
+    });
+    pendingKeywordOccurrenceIdsRef.current = {
+      occurrenceIds: queuedOccurrencePlayback.pendingOccurrenceIds,
+      slideId: currentSlide.slideId,
+    };
+    setPendingKeywordOccurrenceIds(queuedOccurrencePlayback.pendingOccurrenceIds);
+    if (queuedOccurrencePlayback.update) {
+      applyPlaybackUpdate({
+        consumedOccurrenceIds: queuedOccurrencePlayback.consumedOccurrenceIds,
+        slide: currentSlide,
+        update: queuedOccurrencePlayback.update,
+      });
       return;
     }
 

@@ -212,6 +212,67 @@ describe("triggeredActionPlayback", () => {
     expect(advanced.update?.shouldAdvanceSlide).toBe(true);
   });
 
+  it("retains a next-slide action until its shared occurrence animation finishes", () => {
+    const baseSlide = createSlide();
+    const occurrenceId = "kwo_slide_1_kw_ai_47_49";
+    const slide = {
+      ...baseSlide,
+      actions: [
+        ...baseSlide.actions,
+        {
+          actionId: "act_occurrence_advance",
+          trigger: {
+            kind: "keyword-occurrence" as const,
+            keywordId: "kw_ai",
+            occurrenceId,
+          },
+          effect: { kind: "go-to-next-slide" as const },
+        },
+      ],
+    };
+    const slideAnimationPlan = createSlideshowAnimationPlan({
+      slide,
+      triggerAnimationIds: getTriggerAnimationIdsForSlide(slide),
+    });
+    const actionsByOccurrenceId = new Map([
+      [
+        occurrenceId,
+        resolveKeywordOccurrenceTriggeredActions(slide, "kw_ai", occurrenceId),
+      ],
+    ]);
+
+    const animationUpdate = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId,
+      matchedOccurrenceIds: [occurrenceId],
+      pendingOccurrenceIds: [],
+      playbackState: { playedAnimationIds: ["anim_legacy"] },
+      presenterStepIndex: 1,
+      slide,
+      slideAnimationPlan,
+    });
+
+    expect(animationUpdate.consumedOccurrenceIds).toEqual([occurrenceId]);
+    expect(animationUpdate.pendingOccurrenceIds).toEqual([occurrenceId]);
+    expect(animationUpdate.update).toMatchObject({
+      presenterStepIndex: 2,
+      shouldAdvanceSlide: false,
+    });
+
+    const advanceUpdate = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId: new Map(),
+      matchedOccurrenceIds: [],
+      pendingOccurrenceIds: animationUpdate.pendingOccurrenceIds,
+      playbackState: animationUpdate.update!.playbackState,
+      presenterStepIndex: animationUpdate.update!.presenterStepIndex,
+      slide,
+      slideAnimationPlan,
+    });
+
+    expect(advanceUpdate.consumedOccurrenceIds).toEqual([occurrenceId]);
+    expect(advanceUpdate.pendingOccurrenceIds).toEqual([]);
+    expect(advanceUpdate.update?.shouldAdvanceSlide).toBe(true);
+  });
+
   it("reconstructs played animations and consumed occurrences for a recovery step", () => {
     const slide = createSlide();
     const slideAnimationPlan = createSlideshowAnimationPlan({

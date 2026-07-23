@@ -31,8 +31,8 @@ export type QueuedKeywordOccurrencePlaybackUpdate = {
 
 /**
  * Only the current animation step may run from speech; later matches wait for
- * click fallback. An occurrence-only next-slide action is the terminal step,
- * so it may run only after every animation step has settled.
+ * click fallback. A next-slide action is terminal for its occurrence, so it
+ * remains pending until that occurrence's animation actions have settled.
  */
 export function resolveQueuedKeywordOccurrencePlayback(args: {
   actionsByOccurrenceId: ReadonlyMap<string, DeckSlideAction[]>;
@@ -47,45 +47,159 @@ export function resolveQueuedKeywordOccurrencePlayback(args: {
   const currentAnimationIds = new Set(
     currentStep?.animations.map((animation) => animation.animationId) ?? []
   );
-  const canAdvanceSlide =
-    args.presenterStepIndex >= args.slideAnimationPlan.maxStepIndex;
   const pendingOccurrenceIds = new Set(args.pendingOccurrenceIds);
   args.matchedOccurrenceIds.forEach((occurrenceId) => pendingOccurrenceIds.add(occurrenceId));
-  const executableActionsByOccurrenceId = new Map(
-    Array.from(pendingOccurrenceIds).flatMap((occurrenceId) => {
-      const actions = (args.actionsByOccurrenceId.get(occurrenceId) ?? []).filter(
-        (action) =>
-          (action.effect.kind === "play-animation" &&
-            currentAnimationIds.has(action.effect.animationId)) ||
-          (action.effect.kind === "go-to-next-slide" && canAdvanceSlide)
-      );
-      return actions.length > 0 ? [[occurrenceId, actions] as const] : [];
-    })
+  const actionsByOccurrenceId = new Map(
+    [...pendingOccurrenceIds].map((occurrenceId) => [
+      occurrenceId,
+      args.actionsByOccurrenceId.get(occurrenceId) ??
+        getOccurrenceActions(args.slide, occurrenceId),
+    ]),
   );
-  const executableOccurrenceIds = [...executableActionsByOccurrenceId.keys()];
-  if (executableOccurrenceIds.length === 0) {
+  const executablePlayActions = [...actionsByOccurrenceId.values()].flatMap(
+    (actions) =>
+      actions.filter(
+        (action) =>
+          action.effect.kind === "play-animation" &&
+          currentAnimationIds.has(action.effect.animationId) &&
+          !args.playbackState.playedAnimationIds.includes(action.effect.animationId),
+      ),
+  );
+
+  if (executablePlayActions.length > 0) {
+    const update = resolveTriggeredActionPlaybackUpdate({
+      actions: executablePlayActions,
+      playbackState: args.playbackState,
+      presenterStepIndex: args.presenterStepIndex,
+      slide: args.slide,
+      slideAnimationPlan: args.slideAnimationPlan,
+    });
+    const consumedOccurrenceIds = getOccurrenceIdsForActions(
+      actionsByOccurrenceId,
+      executablePlayActions,
+    );
+
+    updatePendingOccurrenceIds({
+      actionsByOccurrenceId,
+      pendingOccurrenceIds,
+      playbackState: update.playbackState,
+      shouldAdvanceSlide: false,
+    });
+
+    return {
+      consumedOccurrenceIds,
+      pendingOccurrenceIds: [...pendingOccurrenceIds],
+      update,
+    };
+  }
+
+  const canAdvanceSlide =
+    args.presenterStepIndex >= args.slideAnimationPlan.maxStepIndex;
+  const executableAdvanceActions = canAdvanceSlide
+    ? [...actionsByOccurrenceId.values()].flatMap((actions) =>
+        actions.filter(
+          (action) =>
+            action.effect.kind === "go-to-next-slide" &&
+            areOccurrenceAnimationsSettled(actions, args.playbackState),
+        ),
+      )
+    : [];
+
+  if (executableAdvanceActions.length === 0) {
+    updatePendingOccurrenceIds({
+      actionsByOccurrenceId,
+      pendingOccurrenceIds,
+      playbackState: args.playbackState,
+      shouldAdvanceSlide: false,
+    });
     return {
       consumedOccurrenceIds: [],
       pendingOccurrenceIds: [...pendingOccurrenceIds],
       update: null,
     };
   }
+
   const update = resolveTriggeredActionPlaybackUpdate({
-    actions: executableOccurrenceIds.flatMap(
-      (occurrenceId) =>
-        executableActionsByOccurrenceId.get(occurrenceId) ?? []
-    ),
+    actions: executableAdvanceActions,
     playbackState: args.playbackState,
     presenterStepIndex: args.presenterStepIndex,
     slide: args.slide,
     slideAnimationPlan: args.slideAnimationPlan
   });
-  executableOccurrenceIds.forEach((occurrenceId) => pendingOccurrenceIds.delete(occurrenceId));
+  updatePendingOccurrenceIds({
+    actionsByOccurrenceId,
+    pendingOccurrenceIds,
+    playbackState: update.playbackState,
+    shouldAdvanceSlide: update.shouldAdvanceSlide,
+  });
   return {
-    consumedOccurrenceIds: executableOccurrenceIds,
+    consumedOccurrenceIds: getOccurrenceIdsForActions(
+      actionsByOccurrenceId,
+      executableAdvanceActions,
+    ),
     pendingOccurrenceIds: [...pendingOccurrenceIds],
     update,
   };
+}
+
+function getOccurrenceActions(slide: Slide, occurrenceId: string) {
+  return slide.actions.filter(
+    (action) =>
+      action.trigger.kind === "keyword-occurrence" &&
+      action.trigger.occurrenceId === occurrenceId,
+  );
+}
+
+function getOccurrenceIdsForActions(
+  actionsByOccurrenceId: ReadonlyMap<string, DeckSlideAction[]>,
+  actions: readonly DeckSlideAction[] | ReadonlySet<string>,
+) {
+  const actionIds =
+    "has" in actions
+      ? actions
+      : new Set(actions.map((action) => action.actionId));
+  return [...actionsByOccurrenceId.entries()].flatMap(([occurrenceId, occurrenceActions]) =>
+    occurrenceActions.some((action) => actionIds.has(action.actionId))
+      ? [occurrenceId]
+      : [],
+  );
+}
+
+function areOccurrenceAnimationsSettled(
+  actions: readonly DeckSlideAction[],
+  playbackState: SlidePlaybackState,
+) {
+  return actions.every(
+    (action) =>
+      action.effect.kind !== "play-animation" ||
+      playbackState.playedAnimationIds.includes(action.effect.animationId),
+  );
+}
+
+function updatePendingOccurrenceIds(args: {
+  actionsByOccurrenceId: ReadonlyMap<string, DeckSlideAction[]>;
+  pendingOccurrenceIds: Set<string>;
+  playbackState: SlidePlaybackState;
+  shouldAdvanceSlide: boolean;
+}) {
+  for (const [occurrenceId, actions] of args.actionsByOccurrenceId) {
+    const hasAdvanceAction = actions.some(
+      (action) => action.effect.kind === "go-to-next-slide",
+    );
+    const animationsSettled = areOccurrenceAnimationsSettled(
+      actions,
+      args.playbackState,
+    );
+
+    if (!hasAdvanceAction && animationsSettled) {
+      args.pendingOccurrenceIds.delete(occurrenceId);
+      continue;
+    }
+
+    if (hasAdvanceAction && args.shouldAdvanceSlide && animationsSettled) {
+      args.pendingOccurrenceIds.delete(occurrenceId);
+    }
+  }
 }
 
 export function getTriggerAnimationIdsForSlide(slide: Slide) {

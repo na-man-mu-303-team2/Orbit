@@ -678,19 +678,52 @@ export function EditorShell(props: { projectId?: string }) {
     setSlideRehearsalStepIndex(nextStepIndex);
   }
 
-  function consumeSlideRehearsalOccurrences(occurrenceIds: readonly string[]) {
-    if (occurrenceIds.length === 0) return;
+  function consumeSlideRehearsalOccurrences(
+    occurrenceIds: readonly string[],
+    pendingOccurrenceIds?: readonly string[]
+  ) {
+    if (occurrenceIds.length === 0) {
+      if (pendingOccurrenceIds) {
+        slideRehearsalPendingOccurrenceIdsRef.current = [...pendingOccurrenceIds];
+      }
+      return;
+    }
     const consumed = new Set(slideRehearsalConfirmedOccurrenceIdsRef.current);
     occurrenceIds.forEach((occurrenceId) => consumed.add(occurrenceId));
     slideRehearsalConfirmedOccurrenceIdsRef.current = [...consumed];
-    slideRehearsalPendingOccurrenceIdsRef.current =
-      slideRehearsalPendingOccurrenceIdsRef.current.filter(
-        (occurrenceId) => !consumed.has(occurrenceId)
-      );
+    slideRehearsalPendingOccurrenceIdsRef.current = pendingOccurrenceIds
+      ? [...pendingOccurrenceIds]
+      : slideRehearsalPendingOccurrenceIdsRef.current.filter(
+          (occurrenceId) => !consumed.has(occurrenceId)
+        );
   }
 
   function handleNextSlideRehearsalAnimation() {
     if (!rehearsalSlide || !slideRehearsalAnimationPlan) return;
+    const queuedOccurrencePlayback = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId: new Map(),
+      matchedOccurrenceIds: [],
+      pendingOccurrenceIds: slideRehearsalPendingOccurrenceIdsRef.current,
+      playbackState: slideRehearsalPlaybackStateRef.current,
+      presenterStepIndex: slideRehearsalStepIndexRef.current,
+      slide: rehearsalSlide,
+      slideAnimationPlan: slideRehearsalAnimationPlan
+    });
+    if (queuedOccurrencePlayback.update) {
+      consumeSlideRehearsalOccurrences(
+        queuedOccurrencePlayback.consumedOccurrenceIds,
+        queuedOccurrencePlayback.pendingOccurrenceIds
+      );
+      applySlideRehearsalPlaybackUpdate(queuedOccurrencePlayback.update);
+      if (queuedOccurrencePlayback.update.shouldAdvanceSlide) {
+        setSlideRehearsalTerminalActionMessage(
+          "다음 장표 트리거를 인식했습니다. 부분 리허설에서는 현재 장표를 유지합니다."
+        );
+      }
+      return;
+    }
+    slideRehearsalPendingOccurrenceIdsRef.current =
+      queuedOccurrencePlayback.pendingOccurrenceIds;
     const playbackUpdate = resolveManualAnimationPlaybackUpdate({
       playbackState: slideRehearsalPlaybackStateRef.current,
       presenterStepIndex: slideRehearsalStepIndexRef.current,
@@ -746,10 +779,9 @@ export function EditorShell(props: { projectId?: string }) {
       slide: eventSlide,
       slideAnimationPlan: eventSlideAnimationPlan
     });
-    slideRehearsalPendingOccurrenceIdsRef.current =
-      queuedOccurrencePlayback.pendingOccurrenceIds;
     consumeSlideRehearsalOccurrences(
-      queuedOccurrencePlayback.consumedOccurrenceIds
+      queuedOccurrencePlayback.consumedOccurrenceIds,
+      queuedOccurrencePlayback.pendingOccurrenceIds
     );
     if (queuedOccurrencePlayback.update) {
       applySlideRehearsalPlaybackUpdate(

@@ -4475,6 +4475,44 @@ export function RehearsalWorkspace(props: {
   const handleNextPresenterStep = () => {
     if (!deck || !currentSlide || !slideshowAnimationPlan) return;
     cancelAutoAdvanceForManualCommand();
+    const pendingOccurrenceIds =
+      pendingKeywordOccurrenceIdsRef.current?.slideId === currentSlide.slideId
+        ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
+        : [];
+    const queuedOccurrencePlayback = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId: new Map(),
+      matchedOccurrenceIds: [],
+      pendingOccurrenceIds,
+      playbackState: slidePlaybackStateRef.current,
+      presenterStepIndex,
+      slide: currentSlide,
+      slideAnimationPlan: slideshowAnimationPlan,
+    });
+    pendingKeywordOccurrenceIdsRef.current = {
+      occurrenceIds: queuedOccurrencePlayback.pendingOccurrenceIds,
+      slideId: currentSlide.slideId,
+    };
+    setPendingKeywordOccurrenceIds(queuedOccurrencePlayback.pendingOccurrenceIds);
+    if (queuedOccurrencePlayback.update) {
+      if (queuedOccurrencePlayback.consumedOccurrenceIds.length > 0) {
+        const occurrenceState = getLiveKeywordOccurrenceStateForSlide(
+          liveKeywordOccurrenceStateRef.current,
+          currentSlide.slideId,
+        );
+        liveKeywordOccurrenceStateRef.current = confirmKeywordOccurrenceMatches(
+          occurrenceState,
+          queuedOccurrencePlayback.consumedOccurrenceIds.map((occurrenceId) => ({
+            occurrenceId,
+          })),
+        );
+      }
+      applyTriggeredPlaybackUpdate(
+        queuedOccurrencePlayback.update,
+        deck.slides.length,
+      );
+      return;
+    }
+
     const playbackUpdate = resolveManualAnimationPlaybackUpdate({
       playbackState: slidePlaybackStateRef.current,
       presenterStepIndex,
@@ -4490,17 +4528,6 @@ export function RehearsalWorkspace(props: {
         occurrenceState,
         playbackUpdate.consumedOccurrenceIds.map((occurrenceId) => ({ occurrenceId })),
       );
-      if (pendingKeywordOccurrenceIdsRef.current?.slideId === currentSlide.slideId) {
-        pendingKeywordOccurrenceIdsRef.current = {
-          occurrenceIds: pendingKeywordOccurrenceIdsRef.current.occurrenceIds.filter(
-            (occurrenceId) => !playbackUpdate.consumedOccurrenceIds.includes(occurrenceId),
-          ),
-          slideId: currentSlide.slideId,
-        };
-        setPendingKeywordOccurrenceIds(
-          pendingKeywordOccurrenceIdsRef.current.occurrenceIds,
-        );
-      }
     }
     applyManualPlaybackRuntimeState(playbackUpdate);
     const fallbackNextState = getNextPresenterStepState({
