@@ -3,6 +3,10 @@ import {
   createAnimationTimeline,
   getAnimationTimelineRoot
 } from "./animationTimeline";
+import {
+  buildSlidePresentationSequence,
+  getAnimationActionTriggerKeys
+} from "./presentationSequence";
 
 export type SlidePlaybackState = {
   playedAnimationIds: string[];
@@ -34,38 +38,7 @@ export function createSlidePlaybackState(): SlidePlaybackState {
   };
 }
 
-export function getAnimationActionTriggerKeys(slide: Slide) {
-  const actionKeysByAnimationId = new Map<string, Set<string>>();
-
-  for (const action of slide.actions) {
-    if (
-      action.effect.kind !== "play-animation" ||
-      action.trigger.kind !== "keyword-occurrence"
-    ) {
-      continue;
-    }
-
-    const actionKeys = actionKeysByAnimationId.get(action.effect.animationId) ?? new Set();
-    actionKeys.add(
-      getActionTriggerKey(
-        action as DeckSlideAction & {
-          trigger: Extract<
-            DeckSlideAction["trigger"],
-            { kind: "keyword-occurrence" }
-          >;
-        }
-      )
-    );
-    actionKeysByAnimationId.set(action.effect.animationId, actionKeys);
-  }
-
-  return new Map(
-    Array.from(actionKeysByAnimationId, ([animationId, keys]) => [
-      animationId,
-      Array.from(keys).sort().join("|"),
-    ])
-  );
-}
+export { getAnimationActionTriggerKeys } from "./presentationSequence";
 
 export function getNextClickAnimation(
   slide: Slide,
@@ -234,8 +207,10 @@ function markAnimationsPlayed(
 }
 
 function createSlideAnimationTimeline(slide: Slide) {
+  const sequence = buildSlidePresentationSequence(slide);
   return createAnimationTimeline({
     actionTriggerKeys: getAnimationActionTriggerKeys(slide),
+    animationOrderById: sequence.animationOrderById,
     animations: slide.animations,
     legacyOnClickAnimationIds: slide.actions.flatMap((action) =>
       action.effect.kind === "play-animation"
@@ -245,14 +220,6 @@ function createSlideAnimationTimeline(slide: Slide) {
     targetElementIds: slide.elements.map((element) => element.elementId),
     transitionDurationMs: slide.transition?.durationMs ?? 0
   });
-}
-
-function getActionTriggerKey(
-  action: DeckSlideAction & {
-    trigger: Extract<DeckSlideAction["trigger"], { kind: "keyword-occurrence" }>;
-  }
-) {
-  return `keyword-occurrence:${action.trigger.keywordId}:${action.trigger.occurrenceId}`;
 }
 
 function getNextClickRoot(slide: Slide, state: SlidePlaybackState) {

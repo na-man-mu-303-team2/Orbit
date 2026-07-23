@@ -1,5 +1,6 @@
 import {
   createSlidePlaybackState,
+  getPresentationSequenceReviewSlideIds,
   type SlidePlaybackState,
 } from "@orbit/editor-core";
 import type {
@@ -51,6 +52,7 @@ import {
   getKeywordOccurrenceTriggerIdsForSlide,
   restoreSlidePlaybackAtStep,
   resolveManualAnimationPlaybackUpdate,
+  resolveQueuedKeywordOccurrencePlayback,
   resolveKeywordOccurrenceTriggeredActions,
   resolveKeywordTriggeredActions,
   resolveTriggeredActionPlaybackUpdate,
@@ -155,6 +157,12 @@ export function PresentationWorkspace(props: {
   const previousHitKeywordIdsRef = useRef<Set<string>>(new Set());
   const keywordOccurrenceStateRef =
     useRef<PresentationKeywordOccurrenceState | null>(null);
+  const pendingKeywordOccurrenceIdsRef = useRef<{
+    occurrenceIds: string[];
+    slideId: string;
+  } | null>(null);
+  const [pendingKeywordOccurrenceIds, setPendingKeywordOccurrenceIds] =
+    useState<string[]>([]);
   const pendingFlowRestoreRef = useRef<{
     slideId: string;
     stepIndex: number;
@@ -506,6 +514,17 @@ export function PresentationWorkspace(props: {
             ]),
           ],
         };
+        if (pendingKeywordOccurrenceIdsRef.current?.slideId === args.slide.slideId) {
+          pendingKeywordOccurrenceIdsRef.current = {
+            occurrenceIds: pendingKeywordOccurrenceIdsRef.current.occurrenceIds.filter(
+              (occurrenceId) => !args.consumedOccurrenceIds?.includes(occurrenceId),
+            ),
+            slideId: args.slide.slideId,
+          };
+          setPendingKeywordOccurrenceIds(
+            pendingKeywordOccurrenceIdsRef.current.occurrenceIds,
+          );
+        }
       }
 
       if (args.update.shouldAdvanceSlide) {
@@ -552,6 +571,11 @@ export function PresentationWorkspace(props: {
         confirmedOccurrenceIds: restored.consumedOccurrenceIds,
         slideId: slide.slideId,
       };
+      pendingKeywordOccurrenceIdsRef.current = {
+        occurrenceIds: [],
+        slideId: slide.slideId,
+      };
+      setPendingKeywordOccurrenceIds([]);
       finalSentenceCommittedAtMsRef.current = null;
       finalSentenceSpokenAtMsRef.current = null;
       const nextAdvanceState = resetAdvanceControllerForSlide(slide.slideId);
@@ -616,6 +640,10 @@ export function PresentationWorkspace(props: {
     keywordOccurrenceStateRef.current = currentSlide
       ? { slideId: currentSlide.slideId, confirmedOccurrenceIds: [] }
       : null;
+    pendingKeywordOccurrenceIdsRef.current = currentSlide
+      ? { occurrenceIds: [], slideId: currentSlide.slideId }
+      : null;
+    setPendingKeywordOccurrenceIds([]);
     playbackStateRef.current = createSlidePlaybackState();
     finalSentenceCommittedAtMsRef.current = null;
     finalSentenceSpokenAtMsRef.current = null;
@@ -749,23 +777,42 @@ export function PresentationWorkspace(props: {
       return;
     }
 
-    const update = resolveTriggeredActionPlaybackUpdate({
-      actions: matches.flatMap((match) =>
+    const actionsByOccurrenceId = new Map<string, Slide["actions"]>();
+    for (const match of matches) {
+      actionsByOccurrenceId.set(
+        match.occurrenceId,
         resolveKeywordOccurrenceTriggeredActions(
           currentSlide,
           match.keywordId,
           match.occurrenceId,
         ),
-      ),
+      );
+    }
+    const pendingOccurrenceIds =
+      pendingKeywordOccurrenceIdsRef.current?.slideId === currentSlide.slideId
+        ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
+        : [];
+    const queued = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId,
+      matchedOccurrenceIds: matches.map((match) => match.occurrenceId),
+      pendingOccurrenceIds,
       playbackState: playbackStateRef.current,
       presenterStepIndex,
       slide: currentSlide,
       slideAnimationPlan: slideshowAnimationPlan,
     });
+    pendingKeywordOccurrenceIdsRef.current = {
+      occurrenceIds: queued.pendingOccurrenceIds,
+      slideId: currentSlide.slideId,
+    };
+    setPendingKeywordOccurrenceIds(queued.pendingOccurrenceIds);
+    if (!queued.update) {
+      return;
+    }
     applyPlaybackUpdate({
-      consumedOccurrenceIds: matches.map((match) => match.occurrenceId),
+      consumedOccurrenceIds: queued.consumedOccurrenceIds,
       slide: currentSlide,
-      update,
+      update: queued.update,
     });
   }, [
     applyPlaybackUpdate,
@@ -842,6 +889,11 @@ export function PresentationWorkspace(props: {
     const promise = (async () => {
       if (!deck || !currentSlide || !props.projectId) {
         throw new Error("발표 자료가 준비되지 않았습니다.");
+      }
+      if (getPresentationSequenceReviewSlideIds(deck).length > 0) {
+        throw new Error(
+          "대본 키워드 순서가 변경되었습니다. 에디터의 발표 순서에서 검토를 저장한 뒤 발표를 시작하세요.",
+        );
       }
       setRuntimePhase("starting");
       setRuntimeError("");
@@ -1252,6 +1304,7 @@ export function PresentationWorkspace(props: {
           });
         }}
         panelSnapshot={panelSnapshot}
+        pendingKeywordOccurrenceIds={pendingKeywordOccurrenceIds}
         presentationSession={runtimeRef.current ?? undefined}
         presenterScale={presenterScale}
         presenterStageRef={presenterStageRef}

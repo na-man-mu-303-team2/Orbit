@@ -4,6 +4,7 @@ import { AnimationExistingList } from "./AnimationExistingList";
 import { AnimationInspectorEmptyState } from "./AnimationInspectorEmptyState";
 import { AnimationPanelComposerEmpty } from "./AnimationPanelComposerEmpty";
 import { AnimationSelectionSummary } from "./AnimationSelectionSummary";
+import { AnimationSequencePanel } from "./AnimationSequencePanel";
 import { AnimationSlideOverview } from "./AnimationSlideOverview";
 import type { AnimationEditorPanelProps } from "../types";
 import { useAnimationInspectorModel } from "../hooks/useAnimationInspectorModel";
@@ -34,6 +35,7 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
     onAddAnimation,
     onDeleteAnimation,
     onRequestKeywordOccurrence,
+    onReorderSlideAnimations,
     onSelectSlideAnimation,
     showIds,
     onUpdateAnimation
@@ -99,6 +101,13 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
   if (!element) {
     return slideAnimations.length > 0 ? (
       <section className="property-panel animation-inspector-panel">
+        {props.slide && onReorderSlideAnimations ? (
+          <AnimationSequencePanel
+            disabled={Boolean(mutationDisabledReason)}
+            slide={props.slide}
+            onReorder={onReorderSlideAnimations}
+          />
+        ) : null}
         <AnimationSlideOverview
           animations={slideAnimations}
           deleteDisabledReason={mutationDisabledReason}
@@ -129,6 +138,14 @@ export function AnimationInspectorPanel(props: AnimationEditorPanelProps) {
         summaryLabel={summary.label}
         summaryTone={summary.tone}
       />
+
+      {props.slide && onReorderSlideAnimations ? (
+        <AnimationSequencePanel
+          disabled={Boolean(mutationDisabledReason)}
+          slide={props.slide}
+          onReorder={onReorderSlideAnimations}
+        />
+      ) : null}
 
       <AnimationExistingList
         animations={animations}

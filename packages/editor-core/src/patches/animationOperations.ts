@@ -83,6 +83,38 @@ export function createDeleteAnimationPatch(
   };
 }
 
+/** Rewrites the whole slide order in one patch so intermediate duplicate orders never leak. */
+export function createReorderSlideAnimationsPatch(
+  deck: Deck,
+  slideId: string,
+  orderedAnimationIds: readonly string[]
+): DeckPatch {
+  const slide = deck.slides.find((candidate) => candidate.slideId === slideId);
+  if (!slide) {
+    throw new Error(`slide not found: ${slideId}`);
+  }
+  const expectedIds = new Set(slide.animations.map((animation) => animation.animationId));
+  if (
+    orderedAnimationIds.length !== expectedIds.size ||
+    orderedAnimationIds.some((animationId) => !expectedIds.delete(animationId)) ||
+    expectedIds.size > 0
+  ) {
+    throw new Error("animation reorder must contain every animation exactly once");
+  }
+
+  return {
+    deckId: deck.deckId,
+    baseVersion: deck.version,
+    source: "user",
+    operations: orderedAnimationIds.map((animationId, index) => ({
+      type: "update_animation" as const,
+      slideId,
+      animationId,
+      animation: { order: index + 1 }
+    }))
+  };
+}
+
 export function createDeleteAnimationTimelineRootPatch(
   deck: Deck,
   slideId: string,

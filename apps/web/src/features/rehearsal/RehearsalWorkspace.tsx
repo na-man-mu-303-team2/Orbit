@@ -1,5 +1,6 @@
 import {
   createSlidePlaybackState,
+  getPresentationSequenceReviewSlideIds,
   type SlidePlaybackState,
 } from "@orbit/editor-core";
 import {
@@ -149,6 +150,8 @@ import {
   resolveKeywordTriggeredActions,
   getTriggerAnimationIdsForSlide,
   restoreSlidePlaybackAtStep,
+  resolveManualAnimationPlaybackUpdate,
+  resolveQueuedKeywordOccurrencePlayback,
   resolveTriggeredActionPlaybackUpdate,
 } from "./playback/triggeredActionPlayback";
 import {
@@ -2121,6 +2124,12 @@ export function RehearsalWorkspace(props: {
   const liveKeywordStateRef = useRef<LiveTranscriptAnalysis | null>(null);
   const liveKeywordOccurrenceStateRef =
     useRef<LiveKeywordOccurrenceState | null>(null);
+  const pendingKeywordOccurrenceIdsRef = useRef<{
+    occurrenceIds: string[];
+    slideId: string;
+  } | null>(null);
+  const [pendingKeywordOccurrenceIds, setPendingKeywordOccurrenceIds] =
+    useState<string[]>([]);
   const liveBiasContextRef = useRef<LiveSttBiasContext | null>(null);
   const liveCommandConfirmationRef = useRef(
     createRehearsalCommandConfirmationState(),
@@ -2920,6 +2929,12 @@ export function RehearsalWorkspace(props: {
 
   async function startRecording() {
     if (!deck || !canRecord) return;
+    if (getPresentationSequenceReviewSlideIds(deck).length > 0) {
+      setError(
+        "대본 키워드 순서가 변경되었습니다. 에디터의 발표 순서에서 검토를 저장한 뒤 리허설을 시작하세요.",
+      );
+      return;
+    }
     const activeDeck = deck;
     setPracticeWithoutVoiceAt(null);
     stopLiveDemo();
@@ -3016,6 +3031,12 @@ export function RehearsalWorkspace(props: {
 
   async function startLiveDemo() {
     if (!deck || !canStartLiveDemo) return;
+    if (getPresentationSequenceReviewSlideIds(deck).length > 0) {
+      setLiveError(
+        "대본 키워드 순서가 변경되었습니다. 에디터의 발표 순서에서 검토를 저장한 뒤 리허설을 시작하세요.",
+      );
+      return;
+    }
 
     setLiveError("");
     setLiveAudioLevel(null);
@@ -4001,20 +4022,49 @@ export function RehearsalWorkspace(props: {
         }),
       );
 
-      applyTriggeredSlideActions(
-        slide,
-        slideAnimationPlan,
+    }
+    const actionsByOccurrenceId = new Map<string, Slide["actions"]>();
+    for (const occurrenceMatch of occurrenceMatches) {
+      actionsByOccurrenceId.set(
+        occurrenceMatch.occurrenceId,
         resolveKeywordOccurrenceTriggeredActions(
           slide,
           occurrenceMatch.keywordId,
           occurrenceMatch.occurrenceId,
         ),
+      );
+    }
+    const pendingOccurrenceIds =
+      pendingKeywordOccurrenceIdsRef.current?.slideId === slide.slideId
+        ? pendingKeywordOccurrenceIdsRef.current.occurrenceIds
+        : [];
+    const queuedOccurrencePlayback = resolveQueuedKeywordOccurrencePlayback({
+      actionsByOccurrenceId,
+      matchedOccurrenceIds: occurrenceMatches.map(
+        (match) => match.occurrenceId,
+      ),
+      pendingOccurrenceIds,
+      playbackState: slidePlaybackStateRef.current,
+      presenterStepIndex: presenterStepIndexRef.current,
+      slide,
+      slideAnimationPlan,
+    });
+    pendingKeywordOccurrenceIdsRef.current = {
+      occurrenceIds: queuedOccurrencePlayback.pendingOccurrenceIds,
+      slideId: slide.slideId,
+    };
+    setPendingKeywordOccurrenceIds(queuedOccurrencePlayback.pendingOccurrenceIds);
+    if (queuedOccurrencePlayback.update) {
+      applyTriggeredPlaybackUpdate(
+        queuedOccurrencePlayback.update,
         deckSnapshot.slides.length,
       );
     }
     liveKeywordOccurrenceStateRef.current = confirmKeywordOccurrenceMatches(
       occurrenceState,
-      occurrenceMatches,
+      occurrenceMatches.filter((match) =>
+        queuedOccurrencePlayback.consumedOccurrenceIds.includes(match.occurrenceId),
+      ),
     );
 
     const previousDetectedIds = new Set(
@@ -4090,6 +4140,14 @@ export function RehearsalWorkspace(props: {
       slideAnimationPlan,
     });
 
+    applyTriggeredPlaybackUpdate(playbackUpdate, slideCount);
+  }
+
+  function applyTriggeredPlaybackUpdate(
+    playbackUpdate: ReturnType<typeof resolveTriggeredActionPlaybackUpdate>,
+    slideCount: number,
+  ) {
+
     if (playbackUpdate.playbackState !== slidePlaybackStateRef.current) {
       slidePlaybackStateRef.current = playbackUpdate.playbackState;
       setSlidePlaybackState(playbackUpdate.playbackState);
@@ -4123,6 +4181,10 @@ export function RehearsalWorkspace(props: {
     liveKeywordOccurrenceStateRef.current = slide
       ? createLiveKeywordOccurrenceState(slide.slideId)
       : null;
+    pendingKeywordOccurrenceIdsRef.current = slide
+      ? { occurrenceIds: [], slideId: slide.slideId }
+      : null;
+    setPendingKeywordOccurrenceIds([]);
     liveCommandConfirmationRef.current =
       createRehearsalCommandConfirmationState();
     setLiveKeywordState(nextKeywordState);
@@ -4207,6 +4269,11 @@ export function RehearsalWorkspace(props: {
       confirmedOccurrenceIds: restored.consumedOccurrenceIds,
       slideId: slide.slideId,
     };
+    pendingKeywordOccurrenceIdsRef.current = {
+      occurrenceIds: [],
+      slideId: slide.slideId,
+    };
+    setPendingKeywordOccurrenceIds([]);
     setLiveSlideAdvance(null);
   }
 
@@ -4399,16 +4466,52 @@ export function RehearsalWorkspace(props: {
       targetSlideIndex: currentSlideIndexRef.current + 1,
     });
   };
+  const applyManualPlaybackRuntimeState = (
+    playbackUpdate: ReturnType<typeof resolveManualAnimationPlaybackUpdate>,
+  ) => {
+    slidePlaybackStateRef.current = playbackUpdate.playbackState;
+    setSlidePlaybackState(playbackUpdate.playbackState);
+  };
   const handleNextPresenterStep = () => {
-    if (!deck || !slideshowAnimationPlan) return;
+    if (!deck || !currentSlide || !slideshowAnimationPlan) return;
     cancelAutoAdvanceForManualCommand();
-
-    const nextState = getNextPresenterStepState({
+    const playbackUpdate = resolveManualAnimationPlaybackUpdate({
+      playbackState: slidePlaybackStateRef.current,
+      presenterStepIndex,
+      slide: currentSlide,
+      slideAnimationPlan: slideshowAnimationPlan,
+    });
+    if (playbackUpdate.consumedOccurrenceIds.length > 0) {
+      const occurrenceState = getLiveKeywordOccurrenceStateForSlide(
+        liveKeywordOccurrenceStateRef.current,
+        currentSlide.slideId,
+      );
+      liveKeywordOccurrenceStateRef.current = confirmKeywordOccurrenceMatches(
+        occurrenceState,
+        playbackUpdate.consumedOccurrenceIds.map((occurrenceId) => ({ occurrenceId })),
+      );
+      if (pendingKeywordOccurrenceIdsRef.current?.slideId === currentSlide.slideId) {
+        pendingKeywordOccurrenceIdsRef.current = {
+          occurrenceIds: pendingKeywordOccurrenceIdsRef.current.occurrenceIds.filter(
+            (occurrenceId) => !playbackUpdate.consumedOccurrenceIds.includes(occurrenceId),
+          ),
+          slideId: currentSlide.slideId,
+        };
+        setPendingKeywordOccurrenceIds(
+          pendingKeywordOccurrenceIdsRef.current.occurrenceIds,
+        );
+      }
+    }
+    applyManualPlaybackRuntimeState(playbackUpdate);
+    const fallbackNextState = getNextPresenterStepState({
       currentSlideIndex,
       currentStepIndex: presenterStepIndex,
       maxStepIndex: slideshowAnimationPlan.maxStepIndex,
       slideCount: deck.slides.length,
     });
+    const nextState = playbackUpdate.shouldAdvanceSlide
+      ? fallbackNextState
+      : { slideIndex: currentSlideIndex, stepIndex: playbackUpdate.presenterStepIndex };
     void requestPreparedSlideChange({
       source: "manual",
       stepIndex: nextState.stepIndex,
@@ -4822,6 +4925,12 @@ export function RehearsalWorkspace(props: {
     }
   };
   const startPracticeWithoutVoice = () => {
+    if (deck && getPresentationSequenceReviewSlideIds(deck).length > 0) {
+      setError(
+        "대본 키워드 순서가 변경되었습니다. 에디터의 발표 순서에서 검토를 저장한 뒤 리허설을 시작하세요.",
+      );
+      return;
+    }
     const disabledAt = Date.now();
     setError("");
     setPhase("idle");
@@ -5292,6 +5401,7 @@ export function RehearsalWorkspace(props: {
               deck={deck}
               navigationPending={isSlidePreparationPending}
               onNavigate={handleAnimationFlowNavigation}
+              pendingOccurrenceIds={pendingKeywordOccurrenceIds}
               placement="drawer"
             />
           }

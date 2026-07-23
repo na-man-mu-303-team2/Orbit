@@ -49,6 +49,7 @@ export function PresentationScreen(props: {
   onReset: () => void;
   onTimeModeChange: (value: PresenterTimeMode) => void;
   panelSnapshot: SpeechTrackerSnapshot;
+  pendingKeywordOccurrenceIds?: readonly string[];
   presentationSession?: {
     audienceUrl: string;
     sessionId: string;
@@ -121,6 +122,7 @@ export function PresentationScreen(props: {
               currentStepIndex={props.presenterStepIndex}
               deck={props.deck}
               onNavigate={props.onAnimationFlowNavigate}
+              pendingOccurrenceIds={props.pendingKeywordOccurrenceIds}
               placement="drawer"
             />
           }

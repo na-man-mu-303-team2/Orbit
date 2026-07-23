@@ -1037,6 +1037,7 @@ export function EditorShell(props: { projectId?: string }) {
   const handleThemeChange = editorSlideActions.changeTheme;
   const handleDeleteAnimation = editorSlideActions.deleteAnimation;
   const handleDeleteSelectedKeyword = editorSlideActions.deleteSelectedKeyword;
+  const handleReorderSlideAnimations = editorSlideActions.reorderSlideAnimations;
   const handleSpeakerNotesKeywordSelection =
     editorSlideActions.selectSpeakerNotesKeyword;
   const handleSelectKeyword = editorSlideActions.selectKeyword;
@@ -2530,6 +2531,7 @@ export function EditorShell(props: { projectId?: string }) {
               selectedKeywordOccurrenceId={selectedKeywordOccurrenceKey}
               slideAnimations={currentSlideAnimations}
               slideElements={currentSlide?.elements ?? []}
+              slide={currentSlide}
               onAddAnimation={(draft, keywordId, keywordOccurrenceId) => {
                 if (!currentSlide || !selectedAnimationPanelElement) {
                   return;
@@ -2549,6 +2551,11 @@ export function EditorShell(props: { projectId?: string }) {
                 }
               }}
               onRequestKeywordOccurrence={handleRequestKeywordOccurrence}
+              onReorderSlideAnimations={(animationIds) => {
+                if (currentSlide) {
+                  handleReorderSlideAnimations(currentSlide.slideId, animationIds);
+                }
+              }}
               onSelectSlideAnimation={handleSelectSlideAnimationFromPanel}
               onUpdateAnimation={(animationId, animation) => {
                 if (currentSlide) {

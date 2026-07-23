@@ -23,6 +23,59 @@ export type RestoredSlidePlayback = {
   presenterStepIndex: number;
 };
 
+export type QueuedKeywordOccurrencePlaybackUpdate = {
+  consumedOccurrenceIds: string[];
+  pendingOccurrenceIds: string[];
+  update: TriggeredActionPlaybackUpdate | null;
+};
+
+/** Only the current timeline step may run from speech; later matches wait for click fallback. */
+export function resolveQueuedKeywordOccurrencePlayback(args: {
+  actionsByOccurrenceId: ReadonlyMap<string, DeckSlideAction[]>;
+  pendingOccurrenceIds: readonly string[];
+  matchedOccurrenceIds: readonly string[];
+  playbackState: SlidePlaybackState;
+  presenterStepIndex: number;
+  slide: Slide;
+  slideAnimationPlan: SlideshowAnimationPlan;
+}): QueuedKeywordOccurrencePlaybackUpdate {
+  const currentStep = args.slideAnimationPlan.triggerSteps[args.presenterStepIndex];
+  const currentAnimationIds = new Set(
+    currentStep?.animations.map((animation) => animation.animationId) ?? []
+  );
+  const pendingOccurrenceIds = new Set(args.pendingOccurrenceIds);
+  args.matchedOccurrenceIds.forEach((occurrenceId) => pendingOccurrenceIds.add(occurrenceId));
+  const executableOccurrenceIds = Array.from(pendingOccurrenceIds).filter((occurrenceId) =>
+    (args.actionsByOccurrenceId.get(occurrenceId) ?? []).some(
+      (action) =>
+        action.effect.kind === "play-animation" &&
+        currentAnimationIds.has(action.effect.animationId)
+    )
+  );
+  if (executableOccurrenceIds.length === 0) {
+    return {
+      consumedOccurrenceIds: [],
+      pendingOccurrenceIds: [...pendingOccurrenceIds],
+      update: null,
+    };
+  }
+  const update = resolveTriggeredActionPlaybackUpdate({
+    actions: executableOccurrenceIds.flatMap(
+      (occurrenceId) => args.actionsByOccurrenceId.get(occurrenceId) ?? []
+    ),
+    playbackState: args.playbackState,
+    presenterStepIndex: args.presenterStepIndex,
+    slide: args.slide,
+    slideAnimationPlan: args.slideAnimationPlan
+  });
+  executableOccurrenceIds.forEach((occurrenceId) => pendingOccurrenceIds.delete(occurrenceId));
+  return {
+    consumedOccurrenceIds: executableOccurrenceIds,
+    pendingOccurrenceIds: [...pendingOccurrenceIds],
+    update,
+  };
+}
+
 export function getTriggerAnimationIdsForSlide(slide: Slide) {
   const validAnimationIds = new Set(
     slide.animations.map((animation) => animation.animationId)
