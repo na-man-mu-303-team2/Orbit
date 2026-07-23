@@ -23,7 +23,6 @@ from app.ai.deck_generation.models import (
     GenerationDiagnosticsInput,
     GenerationDiagnosticsResult,
     GenerateDeckRequest,
-    GeneratedContentItem,
     PythonQualityInput,
     PythonQualityResult,
     SourceGroundingResult,
@@ -135,7 +134,11 @@ def test_staged_story_plan_uses_one_llm_call_without_slide_details() -> None:
     assert responses.calls == 1
     assert content.slide_plans[0].cover_content is not None
     assert content.slide_plans[0].slide_type == "cover"
-    assert all(not slide.speaker_notes for slide in content.slide_plans)
+    assert all(
+        bool(slide.speaker_notes)
+        == (slide.slide_type in {"cover", "agenda", "closing"})
+        for slide in content.slide_plans
+    )
     assert all(not slide.content_items for slide in content.slide_plans)
 
 
@@ -337,19 +340,17 @@ def test_planning_stage_runtime_preserves_typed_stage_boundaries(
         _all_slides: list[SlidePlan],
     ) -> tuple[list[ContentFactIssue], int]:
         validated_items.append([item.text for item in target.content_items])
-        if len(validated_items) == 1:
-            return (
-                [
-                    ContentFactIssue(
-                        code="FACT_REPAIR_REQUIRED",
-                        message="repair required",
-                        slideOrder=2,
-                        priority=2,
-                    )
-                ],
-                1,
-            )
-        return [], 1
+        return (
+            [
+                ContentFactIssue(
+                    code="FACT_REPAIR_REQUIRED",
+                    message="repair required",
+                    slideOrder=2,
+                    priority=2,
+                )
+            ],
+            1,
+        )
 
     def compose_incorrect_agenda(
         _raw_input: Any,
@@ -357,17 +358,7 @@ def test_planning_stage_runtime_preserves_typed_stage_boundaries(
         _style_context: Any,
         **_kwargs: Any,
     ) -> SlidePlan:
-        return target.model_copy(
-            deep=True,
-            update={
-                "content_items": [
-                    GeneratedContentItem(
-                        contentItemId="incorrect-agenda",
-                        text="LLM이 임의 생성한 항목",
-                    )
-                ]
-            },
-        )
+        raise AssertionError("agenda compose must not call the LLM repair path")
 
     monkeypatch.setattr(
         stage_runtime_module,
@@ -380,7 +371,7 @@ def test_planning_stage_runtime_preserves_typed_stage_boundaries(
         compose_incorrect_agenda,
     )
 
-    repaired_agenda = run_slide_compose_stage(
+    validated_agenda = run_slide_compose_stage(
         SlideComposeStageInput(
             rawInput=content.raw_input,
             contentPlan=content.content_plan,
@@ -391,5 +382,25 @@ def test_planning_stage_runtime_preserves_typed_stage_boundaries(
         )
     )
 
-    assert repaired_agenda.fact_diagnostics.repair_attempted is True
-    assert validated_items[1] == body_titles[:6]
+    assert validated_agenda.fact_diagnostics.repair_attempted is False
+    assert validated_items == [body_titles[:6]]
+    assert validated_agenda.slide["aiNotes"]["sourceLedger"] == []
+
+    closing_manifest = layout.slides[-1]
+    validated_closing = run_slide_compose_stage(
+        SlideComposeStageInput(
+            rawInput=content.raw_input,
+            contentPlan=content.content_plan,
+            designPlan=design.design_plan,
+            sourceOrder=closing_manifest.source_order,
+            order=closing_manifest.order,
+            slideId=closing_manifest.slide_id,
+        )
+    )
+
+    assert validated_closing.fact_diagnostics.repair_attempted is False
+    assert validated_closing.slide["aiNotes"]["sourceLedger"] == []
+    assert all(
+        element.get("role") not in {"body", "highlight"}
+        for element in validated_closing.slide["elements"]
+    )

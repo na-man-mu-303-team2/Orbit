@@ -40,6 +40,7 @@ from app.ai.deck_generation.models import (
     ValidationIssue,
     ValidationResult,
 )
+from app.ai.deck_generation.structural_policy import is_structural_slide_type
 
 
 @dataclass(frozen=True)
@@ -799,9 +800,12 @@ def validate_slide_source_ledger(
     slide_index: int,
 ) -> list[ValidationIssue]:
     ai_notes = slide.get("aiNotes", {})
-    if not isinstance(ai_notes, dict) or (
-        "visualPlan" not in ai_notes and "timingPlan" not in ai_notes
-    ):
+    if not isinstance(ai_notes, dict):
+        return []
+    visual_type = str(ai_notes.get("visualPlan", {}).get("visualType", ""))
+    if is_structural_slide_type(visual_type):
+        return []
+    if "visualPlan" not in ai_notes and "timingPlan" not in ai_notes:
         return []
     source_ledger = ai_notes.get("sourceLedger")
     if not isinstance(source_ledger, list) or not source_ledger:
@@ -1459,7 +1463,11 @@ def validate_presentation(deck: dict[str, Any]) -> list[ValidationIssue]:
         visual_type = str(
             slide.get("aiNotes", {}).get("visualPlan", {}).get("visualType", "")
         )
-        if slide_index > 0 and visual_type not in {"cover", "quote", "summary"}:
+        if (
+            slide_index > 0
+            and not is_structural_slide_type(visual_type)
+            and visual_type not in {"quote", "summary"}
+        ):
             if action_title_requires_attention(str(slide.get("title", ""))):
                 issues.append(
                     ValidationIssue(

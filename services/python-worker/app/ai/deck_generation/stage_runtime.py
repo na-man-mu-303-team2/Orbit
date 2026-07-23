@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.ai.composition_library import COMPOSITION_SPECS
 from app.ai.deck_generation.content_planning import (
     compose_agenda_detail,
+    compose_closing_detail,
     compose_cover_detail,
     compose_slide_detail_with_llm,
     plan_story_content,
@@ -42,6 +43,7 @@ from app.ai.deck_generation.quality import (
     finalize_python_quality,
 )
 from app.ai.deck_generation.source_grounding import ground_sources
+from app.ai.deck_generation.structural_policy import is_body_slide_type
 from app.ai.deck_generation.visual_requirements import (
     apply_visual_requirements,
     plan_visual_requirements,
@@ -290,6 +292,12 @@ def run_slide_compose_stage(
             stage_input.content_plan.slide_plans,
         )
         if target.slide_type == "agenda"
+        else compose_closing_detail(
+            scoped_raw_input,
+            target,
+            stage_input.content_plan.slide_plans,
+        )
+        if target.slide_type == "closing"
         else compose_slide_detail_with_llm(
             scoped_raw_input,
             target,
@@ -307,7 +315,7 @@ def run_slide_compose_stage(
     )
     repair_attempted = bool(
         fact_issues
-        and target.order != 1
+        and is_body_slide_type(target.slide_type)
         and target.order in scoped_raw_input.fact_repair_eligible_slide_orders
     )
     repair_succeeded = False
