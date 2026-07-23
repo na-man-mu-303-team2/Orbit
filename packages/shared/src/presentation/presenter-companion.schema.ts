@@ -16,6 +16,18 @@ import {
 import { deckElementSchema } from "../deck/slide-object.schema";
 import { deckIdSchema, deckSlideIdSchema } from "../deck/id.schema";
 import { themeSchema } from "../deck/theme.schema";
+import { isoDateTimeSchema } from "../common/time.schema";
+import { presentationSessionPurposeSchema } from "./presentation.schema";
+
+export const companionAccessScopeSchema = z.enum([
+  "view-audience-output",
+  "write-annotation",
+]);
+
+export const companionAccessScopesSchema = z
+  .array(companionAccessScopeSchema)
+  .min(1)
+  .max(2);
 
 const companionSlideBaseFields = {
   slideId: deckSlideIdSchema,
@@ -72,4 +84,59 @@ export const companionDeckSnapshotSchema = z
 export type CompanionSlide = z.infer<typeof companionSlideSchema>;
 export type CompanionDeckSnapshot = z.infer<
   typeof companionDeckSnapshotSchema
+>;
+
+export const presentationCompanionPairingResponseSchema = z
+  .object({
+    pairingUrl: z
+      .string()
+      .url()
+      .refine((value) => new URL(value).protocol === "https:", {
+        message: "pairingUrl must use HTTPS",
+      }),
+    expiresAt: isoDateTimeSchema,
+  })
+  .strict();
+
+export const presentationCompanionExchangeResponseSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    expiresAt: isoDateTimeSchema,
+    scopes: companionAccessScopesSchema,
+  })
+  .strict();
+
+export const presentationCompanionStatusSchema = z
+  .object({
+    connected: z.boolean(),
+    pairingGeneration: z.number().int().positive().nullable(),
+    connectedAt: isoDateTimeSchema.nullable(),
+    rttBucket: z.enum(["fast", "moderate", "slow", "unknown"]).nullable(),
+  })
+  .strict();
+
+export const presentationCompanionBootstrapSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    sessionPurpose: presentationSessionPurposeSchema,
+    expiresAt: isoDateTimeSchema,
+    scopes: companionAccessScopesSchema,
+    deck: companionDeckSnapshotSchema,
+  })
+  .strict();
+
+export type CompanionAccessScope = z.infer<
+  typeof companionAccessScopeSchema
+>;
+export type PresentationCompanionPairingResponse = z.infer<
+  typeof presentationCompanionPairingResponseSchema
+>;
+export type PresentationCompanionExchangeResponse = z.infer<
+  typeof presentationCompanionExchangeResponseSchema
+>;
+export type PresentationCompanionStatus = z.infer<
+  typeof presentationCompanionStatusSchema
+>;
+export type PresentationCompanionBootstrap = z.infer<
+  typeof presentationCompanionBootstrapSchema
 >;

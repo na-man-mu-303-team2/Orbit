@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { companionDeckSnapshotSchema } from "./presenter-companion.schema";
+import {
+  companionDeckSnapshotSchema,
+  presentationCompanionBootstrapSchema,
+  presentationCompanionPairingResponseSchema,
+} from "./presenter-companion.schema";
 
 const safeSnapshot = {
   deckId: "deck_companion_1",
@@ -73,6 +77,43 @@ describe("companionDeckSnapshotSchema", () => {
         metadata: {
           createdFrom: { topic: "PRIVATE_GENERATION_PROMPT" },
         },
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("presentation companion HTTP schemas", () => {
+  it("accepts only an HTTPS pairing URL without a separate raw code field", () => {
+    expect(
+      presentationCompanionPairingResponseSchema.parse({
+        pairingUrl:
+          "https://present.orbit.example/companion/pair/single-use-code",
+        expiresAt: "2026-07-23T00:02:00.000Z",
+      }),
+    ).not.toHaveProperty("code");
+    expect(
+      presentationCompanionPairingResponseSchema.safeParse({
+        pairingUrl: "http://localhost:5173/companion/pair/private-code",
+        expiresAt: "2026-07-23T00:02:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects private presenter fields in a bootstrap response", () => {
+    const bootstrap = {
+      sessionId: "session_1",
+      sessionPurpose: "presentation" as const,
+      expiresAt: "2026-07-23T04:00:00.000Z",
+      scopes: ["view-audience-output", "write-annotation"] as const,
+      deck: safeSnapshot,
+    };
+    expect(
+      presentationCompanionBootstrapSchema.parse(bootstrap),
+    ).toMatchObject(bootstrap);
+    expect(
+      presentationCompanionBootstrapSchema.safeParse({
+        ...bootstrap,
+        transcript: "PRIVATE_TRANSCRIPT_MARKER",
       }).success,
     ).toBe(false);
   });

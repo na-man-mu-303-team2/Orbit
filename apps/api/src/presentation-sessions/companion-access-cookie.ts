@@ -1,4 +1,5 @@
 import type { OrbitConfig } from "@orbit/config";
+import { companionAccessScopeSchema } from "@orbit/shared";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { CookieOptions } from "express";
 import { z } from "zod";
@@ -18,7 +19,7 @@ const companionAccessTokenPayloadSchema = z
     deckVersion: z.number().int().positive(),
     pairingGeneration: z.number().int().positive(),
     scopes: z
-      .array(z.enum(companionAccessScopes))
+      .array(companionAccessScopeSchema)
       .min(1)
       .max(companionAccessScopes.length),
     expiresAt: z.string().datetime(),

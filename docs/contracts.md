@@ -408,6 +408,57 @@ session 생성 request는 `audienceAccessEnabled`가 없으면 fail-closed인
   켠 presentation audience opt-in을 변경하지 않으며, presentation 종료는
   해당 presentation session의 audience entry도 함께 닫는다.
 
+### iPad presenter companion HTTP 계약
+
+Companion은 일반 audience identity와 분리된 presenter 보조 화면이다. runtime
+flag `IPAD_PRESENTER_COMPANION_ENABLED=false`이면 아래 모든 endpoint는 인증
+상태와 무관하게 고정 404로 닫히고 기존 발표·리허설·audience API에는 영향을
+주지 않는다.
+
+```text
+POST   /api/v1/projects/:projectId/presentation-sessions/:sessionId/companion-pairings
+GET    /api/v1/projects/:projectId/presentation-sessions/:sessionId/companion-status
+DELETE /api/v1/projects/:projectId/presentation-sessions/:sessionId/companion
+POST   /api/v1/presentation-companion/pairings/:code/exchange
+GET    /api/v1/presentation-companion/:sessionId/bootstrap
+GET    /api/v1/presentation-companion/:sessionId/assets/:fileId/content
+```
+
+- presenter endpoint는 project write 권한과 active session의 정확한
+  `projectId`, `deckId`, `deckVersion`을 확인한다. pairing 생성과 disconnect는
+  configured `WEB_ORIGIN`과 정확히 같은 origin에서만 허용한다.
+- pairing 생성은 공개 HTTPS 기본 포트 origin만 허용한다. localhost,
+  `.local`, loopback, link-local, private IP literal, 비기본 port에서는 code를
+  발급하지 않는다. 응답은 `{ pairingUrl, expiresAt }`만 포함하고 raw code를
+  별도 field로 반환하지 않는다.
+- pairing code는 256-bit CSPRNG base64url이며 TTL은 2분이다. Redis key에는
+  `SESSION_SECRET` HMAC digest만 저장하고 Lua GET+DEL로 원자 소비한다.
+- exchange는 exact same-origin `application/json` POST와 trust-proxy 적용 후의
+  client address HMAC rate limit를 통과해야 한다. 성공 시 code는 재사용할 수
+  없고 새 `pairingGeneration`이 이전 companion credential을 즉시 무효화한다.
+- companion credential은 `orbit_presentation_companion` signed HttpOnly,
+  Secure, SameSite=Lax cookie다. payload는 `companionId`, `sessionId`,
+  `projectId`, `deckId`, `deckVersion`, `pairingGeneration`, `scopes`,
+  `expiresAt`, user-agent HMAC을 포함한다. TTL은 4시간과 session expiry 중
+  이른 시점이다.
+- bootstrap과 asset은 매 요청마다 cookie signature와 user-agent,
+  Redis 최신 generation, DB active session, exact Deck version을 모두 다시
+  확인한다. session close, active session replacement, presenter disconnect는
+  generation과 lease를 revoke한다.
+- `CompanionDeckSnapshot`은 Deck alias가 아닌 strict allowlist다. 포함 field는
+  `deckId`, `projectId`, `version`, `canvas`, `theme`와 slide의 audience
+  rendering용 `slideId`, `kind`, `order`, `thumbnailUrl`, `transition`,
+  `style`, `importRenderMode`, `elements`, `animations`, 공개 activity
+  projection뿐이다. `speakerNotes`, `keywords`, `semanticCues`, `actions`,
+  `aiNotes`, Deck metadata, transcript, raw audio, script, run/report는
+  포함하지 않는다.
+- 내부 render asset URL은 companion asset endpoint로 치환한다. 현재 exact
+  Deck의 allowlisted render field가 실제 참조한 같은 project image만 읽을 수
+  있다. 미참조 파일, owner-only purpose, audio, PDF는 404다. 기존 external
+  HTTPS image는 그대로 허용하지만 server-side fetch proxy는 제공하지 않으며
+  `data:`, `blob:`, `javascript:` 및 알 수 없는 scheme은 projection에서
+  제거한다.
+
 실전 발표의 음성 실행 기록은 `presentation_runs`에 저장하며 `presentation_sessions`와 1:1 관계를 가진다. 이 기록은 `rehearsal_runs`, 리허설 비교·요약·집중 연습 계약과 분리한다.
 
 - `recordingMode`는 `microphone | none`이며 마이크 없이 시작한 run도 청중 참여 세션을 그대로 사용한다.
