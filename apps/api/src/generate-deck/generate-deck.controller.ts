@@ -2,6 +2,7 @@ import { Body, Controller, Param, Post, Req } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
 import { getCurrentUser, type SignedCookieRequest } from "../auth/current-user";
 import { ProjectsService } from "../projects/projects.service";
+import { RequiresAsyncJobAdmission } from "../common/async-job-admission.guard";
 import { GenerateDeckService } from "./generate-deck.service";
 
 @Controller("api/v1/projects/:projectId/jobs")
@@ -13,6 +14,7 @@ export class GenerateDeckController {
   ) {}
 
   @Post("generate-deck")
+  @RequiresAsyncJobAdmission()
   async createJob(
     @Param("projectId") projectId: string,
     @Body() body: unknown,
@@ -24,6 +26,7 @@ export class GenerateDeckController {
   }
 
   @Post(":jobId/retry")
+  @RequiresAsyncJobAdmission()
   async retryJob(
     @Param("projectId") projectId: string,
     @Param("jobId") jobId: string,

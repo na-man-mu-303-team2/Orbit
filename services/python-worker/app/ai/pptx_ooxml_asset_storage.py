@@ -159,6 +159,7 @@ def store_assets(
     client_factory: Callable[[PythonWorkerConfig], ObjectStorageClient] | None = None,
 ) -> list[StoredPptxOoxmlAsset]:
     prefix = normalized_storage_prefix(storage_prefix)
+    assets_bucket = config.s3_assets_bucket or config.s3_bucket
     client = (client_factory or create_storage_client)(config)
     stored: list[StoredPptxOoxmlAsset] = []
     uploaded_keys: list[str] = []
@@ -176,7 +177,7 @@ def store_assets(
             file_name = safe_file_name(asset.file_name)
             storage_key = f"{prefix}{digest}-{file_name}"
             client.put_object(
-                Bucket=config.s3_bucket,
+                Bucket=assets_bucket,
                 Key=storage_key,
                 Body=body,
                 ContentType=asset.mime_type,
@@ -198,7 +199,7 @@ def store_assets(
     except Exception:
         for storage_key in reversed(uploaded_keys):
             try:
-                client.delete_object(Bucket=config.s3_bucket, Key=storage_key)
+                client.delete_object(Bucket=assets_bucket, Key=storage_key)
             except Exception:
                 pass
         raise

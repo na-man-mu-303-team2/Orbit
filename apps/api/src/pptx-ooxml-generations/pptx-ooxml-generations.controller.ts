@@ -5,6 +5,7 @@ import {
   type SignedCookieRequest,
 } from "../auth/current-user";
 import { ProjectsService } from "../projects/projects.service";
+import { RequiresAsyncJobAdmission } from "../common/async-job-admission.guard";
 import { PptxOoxmlGenerationsService } from "./pptx-ooxml-generations.service";
 
 @Controller("api/v1/projects/:projectId/pptx-ooxml-generations")
@@ -16,6 +17,7 @@ export class PptxOoxmlGenerationsController {
   ) {}
 
   @Post()
+  @RequiresAsyncJobAdmission()
   async createGeneration(
     @Param("projectId") projectId: string,
     @Body() body: unknown,

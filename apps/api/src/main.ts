@@ -11,6 +11,7 @@ import { resolveAllowedWebOrigins } from "./common/web-origin";
 import { configureHttpTrustProxy } from "./common/http-trust-proxy";
 import { DatabaseReadinessService } from "./database/database-readiness.service";
 import { writeBootstrapError } from "./logging";
+import { RedisIoAdapter } from "./realtime/redis-io.adapter";
 
 async function bootstrap() {
   const config = loadOrbitConfig(process.env, { service: "api" });
@@ -22,7 +23,12 @@ async function bootstrap() {
   const logger = app.get(Logger);
   const databaseReadiness = app.get(DatabaseReadinessService);
   app.useLogger(logger);
+  app.enableShutdownHooks();
   configureHttpTrustProxy(app, config.API_TRUST_PROXY_HOPS);
+
+  const redisIoAdapter = new RedisIoAdapter(app, config.REDIS_URL);
+  await redisIoAdapter.connectToRedis();
+  app.useWebSocketAdapter(redisIoAdapter);
 
   app.useBodyParser("json", { limit: config.API_JSON_BODY_LIMIT_BYTES });
   app.useBodyParser("urlencoded", {

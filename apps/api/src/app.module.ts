@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { LoggerModule } from "nestjs-pino";
 import { AuthModule } from "./auth/auth.module";
@@ -30,6 +31,7 @@ import { ChallengeQnaModule } from "./challenge-qna/challenge-qna.module";
 import { SlidePracticeModule } from "./slide-practice/slide-practice.module";
 import { SlideQuestionGuidesModule } from "./slide-question-guides/slide-question-guides.module";
 import { CommunityTemplatesModule } from "./community-templates/community-templates.module";
+import { AsyncJobAdmissionGuard } from "./common/async-job-admission.guard";
 
 @Module({
   imports: [
@@ -62,6 +64,12 @@ import { CommunityTemplatesModule } from "./community-templates/community-templa
     SlideQuestionGuidesModule,
     CommunityTemplatesModule
   ],
-  providers: [RealtimeGateway]
+  providers: [
+    RealtimeGateway,
+    {
+      provide: APP_GUARD,
+      useClass: AsyncJobAdmissionGuard,
+    },
+  ]
 })
 export class AppModule {}

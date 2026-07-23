@@ -11,6 +11,7 @@ async function bootstrap() {
     bufferLogs: true
   });
   app.useLogger(app.get(Logger));
+  app.enableShutdownHooks();
 }
 
 void bootstrap().catch((error: unknown) => {

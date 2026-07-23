@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
 import { getCurrentUser, type SignedCookieRequest } from "../auth/current-user";
 import { ProjectsService } from "../projects/projects.service";
+import { RequiresAsyncJobAdmission } from "../common/async-job-admission.guard";
 import { SlideQuestionGuidesService } from "./slide-question-guides.service";
 
 @Controller()
@@ -14,6 +15,7 @@ export class SlideQuestionGuidesController {
   ) {}
 
   @Post("api/v1/projects/:projectId/slide-question-guides/auto")
+  @RequiresAsyncJobAdmission()
   async autoCreate(
     @Param("projectId") projectId: string,
     @Body() body: unknown,

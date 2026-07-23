@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
 import { AuthService } from "../auth/auth.service";
 import { getCurrentUser, type SignedCookieRequest } from "../auth/current-user";
+import { RequiresAsyncJobAdmission } from "../common/async-job-admission.guard";
 import { FocusedPracticeService } from "./focused-practice.service";
 
 @Controller()
@@ -30,6 +31,7 @@ export class FocusedPracticeController {
     const user = await getCurrentUser(this.auth, req); return this.focused.createAttempt(id, user.userId, body);
   }
   @Post("api/v1/focused-practice-attempts/:attemptId/audio/complete")
+  @RequiresAsyncJobAdmission()
   async completeAttempt(@Param("attemptId") id: string, @Body() body: unknown, @Req() req: SignedCookieRequest) {
     const user = await getCurrentUser(this.auth, req); return this.focused.completeAttempt(id, user.userId, body);
   }

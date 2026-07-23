@@ -13,6 +13,7 @@ import type { Request } from "express";
 import { authSessionCookieName } from "../auth/auth.constants";
 import { AuthService } from "../auth/auth.service";
 import { ProjectsService } from "../projects/projects.service";
+import { RequiresAsyncJobAdmission } from "../common/async-job-admission.guard";
 import { PresentationRunsService } from "./presentation-runs.service";
 
 type SignedCookieRequest = Request & {
@@ -58,6 +59,7 @@ export class PresentationRunsController {
   }
 
   @Post(":runId/audio-complete")
+  @RequiresAsyncJobAdmission()
   async completeAudio(
     @Param("projectId") projectId: string,
     @Param("sessionId") sessionId: string,
@@ -70,6 +72,7 @@ export class PresentationRunsController {
   }
 
   @Post(":runId/retry-analysis")
+  @RequiresAsyncJobAdmission()
   async retryAnalysis(
     @Param("projectId") projectId: string,
     @Param("sessionId") sessionId: string,

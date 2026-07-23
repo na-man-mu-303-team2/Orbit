@@ -78,6 +78,7 @@ export class FilesService {
       fileId,
       key: storageKey,
       contentType: input.mimeType,
+      purpose: input.purpose,
       expiresInSeconds: uploadUrlExpiresInSeconds,
       requestOrigin,
     });
@@ -540,6 +541,7 @@ export class FilesService {
     fileId: string;
     key: string;
     contentType: string;
+    purpose: FilePurpose;
     expiresInSeconds: number;
     requestOrigin?: string | null;
   }) {

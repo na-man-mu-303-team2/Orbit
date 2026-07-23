@@ -22,6 +22,8 @@ ENV_KEYS = {
     "S3_ENDPOINT",
     "S3_PUBLIC_ENDPOINT",
     "S3_BUCKET",
+    "S3_ASSETS_BUCKET",
+    "S3_PRIVATE_AUDIO_BUCKET",
     "S3_REGION",
     "S3_ACCESS_KEY_ID",
     "S3_SECRET_ACCESS_KEY",
@@ -80,6 +82,10 @@ class PythonWorkerConfig(BaseModel):
     s3_endpoint: str | None = Field(default=None, alias="S3_ENDPOINT")
     s3_public_endpoint: str | None = Field(default=None, alias="S3_PUBLIC_ENDPOINT")
     s3_bucket: str = Field(alias="S3_BUCKET", min_length=1)
+    s3_assets_bucket: str | None = Field(default=None, alias="S3_ASSETS_BUCKET")
+    s3_private_audio_bucket: str | None = Field(
+        default=None, alias="S3_PRIVATE_AUDIO_BUCKET"
+    )
     s3_region: str = Field(alias="S3_REGION", min_length=1)
     s3_access_key_id: str | None = Field(default=None, alias="S3_ACCESS_KEY_ID")
     s3_secret_access_key: str | None = Field(default=None, alias="S3_SECRET_ACCESS_KEY")

@@ -22,6 +22,7 @@ import { WorkerService } from "./worker.service";
 
 const bullMq = vi.hoisted(() => ({
   close: vi.fn(async () => undefined),
+  pause: vi.fn(async () => undefined),
   queues: [] as string[],
   options: new Map<string, Record<string, unknown>>(),
   handlers: new Map<string, (job: FakeBullJob) => Promise<unknown>>(),
@@ -119,6 +120,7 @@ vi.mock("bullmq", () => ({
     }
 
     close = bullMq.close;
+    pause = bullMq.pause;
     on = vi.fn(
       (
         event: string,
@@ -250,6 +252,10 @@ describe("WorkerService queue subscriptions", () => {
 
     await service.onModuleDestroy();
     expect(postgresRunner.stop).toHaveBeenCalledTimes(1);
+    expect(bullMq.pause).toHaveBeenCalledTimes(bullMq.close.mock.calls.length);
+    expect(bullMq.pause.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      bullMq.close.mock.invocationCallOrder[0]!,
+    );
   });
 
   it("registers every active queue in the default all role", async () => {
