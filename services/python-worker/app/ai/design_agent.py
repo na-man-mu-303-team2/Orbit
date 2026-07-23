@@ -17,6 +17,8 @@ from app.ai.motion_planner import (
 )
 
 DECK_ELEMENT_COORDINATE_LIMIT = 1_000_000
+DECK_ELEMENT_HEX_COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
+DECK_ELEMENT_PAINT_STRING_PATTERN = r"^(?:#[0-9a-fA-F]{6}|transparent)$"
 FontWeight = int | Literal["normal", "medium", "semibold", "bold"]
 
 
@@ -206,6 +208,41 @@ class ElementFramePatch(BaseModel):
     visible: bool | None = None
 
 
+DeckElementHexColor = Annotated[
+    str,
+    Field(pattern=DECK_ELEMENT_HEX_COLOR_PATTERN),
+]
+
+
+class DeckElementGradientStop(BaseModel):
+    color: DeckElementHexColor
+    offset: float = Field(ge=0, le=1)
+    opacity: float = Field(default=1, ge=0, le=1)
+
+
+class DeckElementLinearGradientPaint(BaseModel):
+    type: Literal["linear-gradient"]
+    angle: float = 0
+    stops: list[DeckElementGradientStop] = Field(min_length=2)
+
+
+class DeckElementPatternPaint(BaseModel):
+    type: Literal["pattern"]
+    preset: str = Field(default="pct20", min_length=1)
+    foreground: DeckElementHexColor
+    background: DeckElementHexColor = "#FFFFFF"
+
+
+DeckElementPaint = (
+    DeckElementHexColor
+    | Literal["transparent"]
+    | Annotated[
+        DeckElementLinearGradientPaint | DeckElementPatternPaint,
+        Field(discriminator="type"),
+    ]
+)
+
+
 class ElementPropsPatch(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -217,10 +254,10 @@ class ElementPropsPatch(BaseModel):
     font_size: float | None = Field(default=None, alias="fontSize", gt=0)
     font_weight: FontWeight | None = Field(default=None, alias="fontWeight")
     font_family: str | None = Field(default=None, alias="fontFamily", min_length=1)
-    fill: str | None = Field(default=None, min_length=1)
+    fill: DeckElementPaint | None = None
     text: str | None = None
     color: str | None = Field(default=None, min_length=1)
-    stroke: str | None = Field(default=None, min_length=1)
+    stroke: DeckElementPaint | None = None
     stroke_width: float | None = Field(default=None, alias="strokeWidth", ge=0)
     border_radius: float | None = Field(default=None, alias="borderRadius", ge=0)
     line_height: float | None = Field(default=None, alias="lineHeight", gt=0)
@@ -307,8 +344,8 @@ class ShapeElementShadow(BaseModel):
 class ShapeElementProps(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    fill: str | dict[str, Any]
-    stroke: str | dict[str, Any]
+    fill: DeckElementPaint
+    stroke: DeckElementPaint
     stroke_width: float = Field(alias="strokeWidth", ge=0)
     border_radius: float = Field(alias="borderRadius", ge=0)
     sides: int | None = Field(default=None, ge=3, le=12)
@@ -2202,6 +2239,13 @@ def _font_weight_json_schema(*, nullable: bool) -> dict[str, Any]:
     return {"anyOf": variants}
 
 
+def _paint_string_json_schema(*, nullable: bool) -> dict[str, Any]:
+    return {
+        "type": ["string", "null"] if nullable else "string",
+        "pattern": DECK_ELEMENT_PAINT_STRING_PATTERN,
+    }
+
+
 def _frame_operation_json_schema() -> dict[str, Any]:
     roles = [
         "background",
@@ -2256,10 +2300,10 @@ def _props_operation_json_schema() -> dict[str, Any]:
             "fontSize": {"type": ["number", "null"], "exclusiveMinimum": 0},
             "fontWeight": _font_weight_json_schema(nullable=True),
             "fontFamily": {"type": ["string", "null"]},
-            "fill": {"type": ["string", "null"]},
+            "fill": _paint_string_json_schema(nullable=True),
             "text": {"type": ["string", "null"]},
             "color": {"type": ["string", "null"]},
-            "stroke": {"type": ["string", "null"]},
+            "stroke": _paint_string_json_schema(nullable=True),
             "strokeWidth": {"type": ["number", "null"], "minimum": 0},
             "borderRadius": {"type": ["number", "null"], "minimum": 0},
             "lineHeight": {"type": ["number", "null"], "exclusiveMinimum": 0},
@@ -2344,8 +2388,8 @@ def _shape_element_json_schema(
 ) -> dict[str, Any]:
     properties = _element_base_properties(element_type, roles)
     props_properties: dict[str, Any] = {
-        "fill": {"type": "string"},
-        "stroke": {"type": "string"},
+        "fill": _paint_string_json_schema(nullable=False),
+        "stroke": _paint_string_json_schema(nullable=False),
         "strokeWidth": {"type": "number", "minimum": 0},
         "borderRadius": {"type": "number", "minimum": 0},
     }

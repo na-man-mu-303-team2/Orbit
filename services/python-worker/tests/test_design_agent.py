@@ -206,6 +206,15 @@ def test_accepts_media_rect_role() -> None:
     assert result.operations[0].element.role == "media"
 
 
+@pytest.mark.parametrize("field", ["fill", "stroke"])
+def test_rejects_shape_paint_outside_shared_deck_contract(field: str) -> None:
+    payload = add_element_proposal(element_type="rect", role="media")
+    payload["operations"][0]["element"]["props"][field] = "rgba(15, 23, 42, 0.5)"
+
+    with pytest.raises(ValidationError):
+        DesignAgentResponse.model_validate(payload)
+
+
 def test_accepts_capability_v2_image_element() -> None:
     result = DesignAgentResponse.model_validate(
         add_element_proposal(element_type="image", role="media")
@@ -285,6 +294,12 @@ def test_element_json_schema_exposes_aligned_roles_and_font_weights() -> None:
     assert "highlight" in schema_text
     assert "media" in schema_text
     assert "semibold" in schema_text
+
+
+def test_element_json_schema_restricts_shape_paint_to_shared_color_format() -> None:
+    schema_text = json.dumps(DESIGN_AGENT_RESPONSE_FORMAT, ensure_ascii=False)
+
+    assert r"^(?:#[0-9a-fA-F]{6}|transparent)$" in schema_text
 
 
 def test_accepts_background_image_and_layout_slide_style_patch() -> None:
