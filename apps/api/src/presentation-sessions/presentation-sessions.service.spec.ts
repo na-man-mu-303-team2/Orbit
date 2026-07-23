@@ -12,6 +12,8 @@ const sessionRow = {
   presenter_user_id: "user_1",
   created_by: "user_1",
   status: "live" as const,
+  session_purpose: "presentation" as const,
+  audience_access_enabled: true,
   access_mode: "public" as const,
   session_password_hash: null,
   starts_at: "2026-07-17T00:00:00.000Z",
@@ -39,6 +41,7 @@ function createService(
     insert: vi.fn().mockResolvedValue(sessionRow),
     findCurrent: vi.fn().mockResolvedValue(sessionRow),
     findCurrentForUpdate: vi.fn().mockResolvedValue(null),
+    findById: vi.fn().mockResolvedValue(sessionRow),
     list: vi.fn().mockResolvedValue([sessionRow]),
     updateAccess: vi.fn().mockResolvedValue(sessionRow),
     close: vi.fn().mockResolvedValue({
@@ -82,7 +85,11 @@ describe("PresentationSessionsService", () => {
       audienceUrl: "/audience/session_existing"
     });
 
-    expect(repository.findCurrent).toHaveBeenCalledWith("project_1", "deck_1");
+    expect(repository.findCurrent).toHaveBeenCalledWith(
+      "project_1",
+      "deck_1",
+      "presentation",
+    );
     expect(repository.insert).not.toHaveBeenCalled();
   });
 
@@ -94,6 +101,8 @@ describe("PresentationSessionsService", () => {
     await expect(
       service.create("project_1", "user_1", {
         deckId: "deck_1",
+        sessionPurpose: "presentation",
+        audienceAccessEnabled: true,
         accessMode: "public"
       })
     ).resolves.toMatchObject({ session: { deckId: "deck_1", deckVersion: 7 } });
@@ -103,7 +112,12 @@ describe("PresentationSessionsService", () => {
       "project_1",
       "deck_1"
     );
-    expect(repository.closeActive).toHaveBeenCalledWith(expect.anything(), "project_1", expect.any(Date));
+    expect(repository.closeActive).toHaveBeenCalledWith(
+      expect.anything(),
+      "project_1",
+      "presentation",
+      expect.any(Date),
+    );
     expect(repository.insert).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ deckId: "deck_1", deckVersion: 7, userId: "user_1" })
@@ -118,6 +132,8 @@ describe("PresentationSessionsService", () => {
     await expect(
       service.create("project_1", "user_1", {
         deckId: "deck_1",
+        sessionPurpose: "presentation",
+        audienceAccessEnabled: true,
         accessMode: "public",
         reuseCurrent: true
       })
@@ -129,7 +145,8 @@ describe("PresentationSessionsService", () => {
     expect(repository.findCurrentForUpdate).toHaveBeenCalledWith(
       expect.anything(),
       "project_1",
-      "deck_1"
+      "deck_1",
+      "presentation",
     );
     expect(repository.closeActive).not.toHaveBeenCalled();
     expect(repository.insert).not.toHaveBeenCalled();
@@ -145,6 +162,8 @@ describe("PresentationSessionsService", () => {
 
     await service.create("project_1", "user_1", {
       deckId: "deck_1",
+      sessionPurpose: "presentation",
+      audienceAccessEnabled: true,
       accessMode: "public",
       reuseCurrent: true
     });
@@ -164,12 +183,94 @@ describe("PresentationSessionsService", () => {
     await expect(
       service.create("project_1", "user_1", {
         deckId: "deck_1",
+        sessionPurpose: "presentation",
+        audienceAccessEnabled: true,
         accessMode: "public"
       })
     ).rejects.toBe(materializationError);
 
     expect(repository.closeActive).not.toHaveBeenCalled();
     expect(repository.insert).not.toHaveBeenCalled();
+  });
+
+  it("creates a companion-only rehearsal session without closing presentation purpose", async () => {
+    const rehearsalRow = {
+      ...sessionRow,
+      session_id: "session_rehearsal",
+      session_purpose: "rehearsal" as const,
+      audience_access_enabled: false,
+    };
+    const { repository, service } = createService({
+      insert: vi.fn().mockResolvedValue(rehearsalRow),
+    });
+
+    await expect(
+      service.create("project_1", "user_1", {
+        deckId: "deck_1",
+        sessionPurpose: "rehearsal",
+        audienceAccessEnabled: false,
+        reuseCurrent: true,
+      }),
+    ).resolves.toMatchObject({
+      session: {
+        sessionPurpose: "rehearsal",
+        audienceAccessEnabled: false,
+      },
+      audienceUrl: null,
+    });
+
+    expect(repository.closeActive).toHaveBeenCalledWith(
+      expect.anything(),
+      "project_1",
+      "rehearsal",
+      expect.any(Date),
+    );
+    expect(repository.insert).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        sessionPurpose: "rehearsal",
+        audienceAccessEnabled: false,
+        accessMode: "public",
+        passwordHash: null,
+      }),
+    );
+  });
+
+  it("preserves an enabled presentation session during companion-only reuse", async () => {
+    const { repository, service } = createService({
+      findCurrentForUpdate: vi.fn().mockResolvedValue(sessionRow),
+    });
+
+    await expect(
+      service.create("project_1", "user_1", {
+        deckId: "deck_1",
+        sessionPurpose: "presentation",
+        audienceAccessEnabled: false,
+        reuseCurrent: true,
+      }),
+    ).resolves.toMatchObject({
+      session: { audienceAccessEnabled: true },
+      audienceUrl: "/audience/session_existing",
+    });
+
+    expect(repository.closeActive).not.toHaveBeenCalled();
+    expect(repository.insert).not.toHaveBeenCalled();
+  });
+
+  it("returns a current companion-only session without an audience URL", async () => {
+    const { service } = createService({
+      findCurrent: vi.fn().mockResolvedValue({
+        ...sessionRow,
+        audience_access_enabled: false,
+      }),
+    });
+
+    await expect(
+      service.getCurrent("project_1", "deck_1", "presentation"),
+    ).resolves.toMatchObject({
+      session: { audienceAccessEnabled: false },
+      audienceUrl: null,
+    });
   });
 
   it("returns archived sessions for the requested deck", async () => {
@@ -264,6 +365,42 @@ describe("PresentationSessionsService", () => {
     ).rejects.toMatchObject({
       message: "Invalid audience session or passcode"
     });
+  });
+
+  it("does not expose public info for a companion-only session", async () => {
+    const { service } = createService({
+      findAudienceInfo: vi.fn().mockResolvedValue({
+        ...sessionRow,
+        audience_access_enabled: false,
+        project_title: "비공개 발표",
+      }),
+    });
+
+    await expect(
+      service.getAudiencePublicInfo("session_existing"),
+    ).rejects.toMatchObject({ message: "Audience session unavailable" });
+  });
+
+  it("rejects enabling audience access on a rehearsal session", async () => {
+    const { repository, service } = createService({
+      findById: vi.fn().mockResolvedValue({
+        ...sessionRow,
+        session_purpose: "rehearsal",
+        audience_access_enabled: false,
+      }),
+    });
+
+    await expect(
+      service.updateAccess("project_1", "session_existing", {
+        audienceAccessEnabled: true,
+        accessMode: "public",
+        startsAt: "2026-07-17T00:00:00.000Z",
+        expiresAt: "2026-07-18T00:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({
+      message: "Rehearsal sessions cannot enable audience access",
+    });
+    expect(repository.updateAccess).not.toHaveBeenCalled();
   });
 
   it("reports a future session as scheduled without exposing project identity", async () => {
