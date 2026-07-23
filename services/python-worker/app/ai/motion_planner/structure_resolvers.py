@@ -220,6 +220,80 @@ def _resolve_timeline(
     return ResolvedMotionStructure(family=family, slots=tuple(slots))
 
 
+@register_structure_resolver("process-vertical-rail")
+def _resolve_process_vertical_rail(
+    slide: dict[str, Any],
+    elements: list[dict[str, Any]],
+) -> ResolvedMotionStructure:
+    del slide
+    family: MotionStructureFamily = "timeline"
+    markers = _indexed_elements(
+        elements,
+        r"_rail_marker_(\d+)(?:_r\d+)?$",
+        lambda element: element.get("type") in SHAPE_TYPES,
+        family,
+    )
+    labels = _indexed_elements(
+        elements,
+        r"_rail_marker_label_(\d+)(?:_r\d+)?$",
+        _is_text,
+        family,
+    )
+    bodies = _indexed_elements(
+        elements,
+        r"_rail_step_(\d+)(?:_r\d+)?$",
+        lambda element: _is_text(element)
+        and str(element.get("role", "")) == "body",
+        family,
+    )
+    expected_ordinals = list(range(1, len(markers) + 1))
+    if sorted(markers) != expected_ordinals or not 3 <= len(markers) <= 6:
+        raise MotionStructureResolutionError(
+            family,
+            "vertical rail markers must be consecutive with three to six steps",
+        )
+    if sorted(labels) != expected_ordinals:
+        raise MotionStructureResolutionError(
+            family,
+            "every vertical rail step requires one marker label",
+        )
+    if sorted(bodies) != expected_ordinals:
+        raise MotionStructureResolutionError(
+            family,
+            "every vertical rail step requires one body",
+        )
+
+    slots: list[ResolvedMotionSlot] = []
+    member_ids: set[str] = set()
+    for ordinal in expected_ordinals:
+        label = labels[ordinal]
+        if _numeric_text(label) != ordinal:
+            raise MotionStructureResolutionError(
+                family,
+                f"vertical rail marker label {ordinal} must match its ordinal",
+            )
+        marker_id = _element_id(markers[ordinal])
+        label_id = _element_id(label)
+        body_id = _element_id(bodies[ordinal])
+        slot_member_ids = (marker_id, label_id, body_id)
+        if member_ids.intersection(slot_member_ids):
+            raise MotionStructureResolutionError(
+                family,
+                f"vertical rail step {ordinal} reuses a member",
+            )
+        member_ids.update(slot_member_ids)
+        slots.append(
+            ResolvedMotionSlot(
+                slot_id=f"vertical-rail-{ordinal}",
+                order=ordinal,
+                member_element_ids=slot_member_ids,
+                frame_element_id=marker_id,
+                semantic_role="card",
+            )
+        )
+    return ResolvedMotionStructure(family=family, slots=tuple(slots))
+
+
 @register_structure_resolver("feature-comparison")
 def _resolve_feature_comparison(
     slide: dict[str, Any],
@@ -464,6 +538,94 @@ def _resolve_diagram_hub(
         raise MotionStructureResolutionError(
             family,
             "hub node bodies do not map one-to-one to fields",
+        )
+    return ResolvedMotionStructure(family=family, slots=tuple(slots))
+
+
+@register_structure_resolver("diagram-orbit")
+def _resolve_diagram_orbit(
+    slide: dict[str, Any],
+    elements: list[dict[str, Any]],
+) -> ResolvedMotionStructure:
+    del slide
+    family: MotionStructureFamily = "diagram-hub"
+    hub_field = _single_element_by_pattern(
+        elements,
+        r"_orbit_hub_field(?:_r\d+)?$",
+        lambda element: element.get("type") in SHAPE_TYPES,
+        family,
+        "orbit hub field",
+    )
+    hub_text = _single_element_by_pattern(
+        elements,
+        r"_orbit_hub(?:_r\d+)?$",
+        _is_text,
+        family,
+        "orbit hub text",
+    )
+    assert hub_field is not None
+    assert hub_text is not None
+
+    fields = _indexed_elements(
+        elements,
+        r"_orbit_node_(\d+)_field(?:_r\d+)?$",
+        lambda element: element.get("type") in SHAPE_TYPES,
+        family,
+    )
+    bodies = _indexed_elements(
+        elements,
+        r"_orbit_node_(\d+)(?:_r\d+)?$",
+        lambda element: _is_text(element)
+        and str(element.get("role", "")) == "body",
+        family,
+    )
+    expected_ordinals = list(range(1, len(fields) + 1))
+    if sorted(fields) != expected_ordinals or not 3 <= len(fields) <= 6:
+        raise MotionStructureResolutionError(
+            family,
+            "orbit nodes must be consecutive with three to six items",
+        )
+    if sorted(bodies) != expected_ordinals:
+        raise MotionStructureResolutionError(
+            family,
+            "every orbit node requires one body",
+        )
+
+    hub_field_id = _element_id(hub_field)
+    hub_text_id = _element_id(hub_text)
+    member_ids = {hub_field_id, hub_text_id}
+    if len(member_ids) != 2:
+        raise MotionStructureResolutionError(
+            family,
+            "orbit hub members must be distinct",
+        )
+    slots = [
+        ResolvedMotionSlot(
+            slot_id="orbit-hub",
+            order=0,
+            member_element_ids=(hub_field_id, hub_text_id),
+            frame_element_id=hub_field_id,
+            semantic_role="focal",
+        )
+    ]
+    for ordinal in expected_ordinals:
+        field_id = _element_id(fields[ordinal])
+        body_id = _element_id(bodies[ordinal])
+        slot_member_ids = (field_id, body_id)
+        if member_ids.intersection(slot_member_ids):
+            raise MotionStructureResolutionError(
+                family,
+                f"orbit node {ordinal} reuses a member",
+            )
+        member_ids.update(slot_member_ids)
+        slots.append(
+            ResolvedMotionSlot(
+                slot_id=f"orbit-node-{ordinal}",
+                order=ordinal,
+                member_element_ids=slot_member_ids,
+                frame_element_id=field_id,
+                semantic_role="card",
+            )
         )
     return ResolvedMotionStructure(family=family, slots=tuple(slots))
 

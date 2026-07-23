@@ -552,8 +552,14 @@ def _slide_type_for_units(
             if isinstance(composition, dict)
             else ""
         )
-        if composition_id in {"process-horizontal", "timeline"}:
+        if composition_id in {
+            "process-horizontal",
+            "process-vertical-rail",
+            "timeline",
+        }:
             return "process"
+        if composition_id in {"diagram-hub", "diagram-orbit"}:
+            return "architecture"
     cue_types = {str(cue.get("cueType", "")) for cue in approved_cues}
     title = str(slide.get("title", "")).lower()
     if "closing" in cue_types or any(token in title for token in ("summary", "요약")):
