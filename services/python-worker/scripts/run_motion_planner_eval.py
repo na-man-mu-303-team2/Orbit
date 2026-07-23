@@ -10,6 +10,7 @@ from app.ai.motion_planner import (
     MotionImportContext,
     MotionPlanningContext,
     compile_narrative_motion,
+    deterministic_fallback_plan,
     evaluate_motion_eligibility,
     extract_motion_context,
     plan_narrative_motion,
@@ -67,18 +68,21 @@ def main() -> int:
         )
         for _ in range(manifest["runsPerFixture"]):
             total_runs += 1
-            planner = plan_narrative_motion(
-                extraction,
-                model=manifest["model"],
-                api_key=api_key,
-            )
-            fallback_runs += int(planner.fallback_used)
+            if args.mode == "offline":
+                plan = deterministic_fallback_plan(extraction)
+                fallback_runs += 1
+            else:
+                plan = plan_narrative_motion(
+                    extraction,
+                    model=manifest["model"],
+                    api_key=api_key,
+                ).plan
             try:
                 compiled = compile_narrative_motion(
                     deck_id=case["deckId"],
                     slide_id=slide["slideId"],
                     base_version=case["baseVersion"],
-                    plan=planner.plan,
+                    plan=plan,
                     context=extraction.context,
                 ).model_dump(by_alias=True)
             except ValueError:

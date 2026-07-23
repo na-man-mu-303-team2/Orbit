@@ -28,6 +28,7 @@ from app.ai.design_agent import (
     DesignAgentResponse,
     generate_design_proposal,
 )
+from app.ai.motion_planner import MotionPlannerError
 from app.ai.slide_redesign.stage_models import (
     ComposeStageArtifact,
     ComposeStageRequest,
@@ -1097,6 +1098,11 @@ def propose_slide_design(
         )
     except DesignAgentGenerationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+    except MotionPlannerError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail={"code": error.code, "message": str(error)},
+        ) from error
 
 
 @app.post(

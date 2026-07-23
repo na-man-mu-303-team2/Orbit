@@ -168,3 +168,13 @@ class NarrativeMotionPlan(BaseModel):
         if not targets.issubset(allowed_target_element_ids):
             raise ValueError("NarrativeMotionPlan contains a non-allowlisted target")
         return self
+
+
+class MotionPlanMetadata(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    source: Literal["llm"] = "llm"
+    model: str = Field(min_length=1, max_length=200)
+    attempt_count: Literal[1, 2] = Field(alias="attemptCount")
+    compiler_version: Literal["motion-compiler-v2"] = Field(alias="compilerVersion")
+    plan: NarrativeMotionPlan

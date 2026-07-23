@@ -32,7 +32,7 @@ def narrative_motion_response_format() -> dict[str, Any]:
     return {
         "format": {
             "type": "json_schema",
-            "name": "orbit_narrative_motion_plan",
+            "name": "orbit_semantic_motion_plan_v2",
             "strict": True,
             "schema": schema,
         }

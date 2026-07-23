@@ -14,7 +14,6 @@ from app.ai.motion_planner import (
     deterministic_fallback_plan,
     evaluate_motion_eligibility,
     extract_motion_context,
-    plan_narrative_motion,
 )
 from app.ai.pptx_motion import (
     PML_NS,
@@ -99,25 +98,19 @@ def test_authored_golden_matches_extractor_plan_compiler_and_graph(
 
 
 @pytest.mark.parametrize("case", golden_cases(), ids=lambda case: case["fixtureId"])
-def test_pinned_fallback_eval_is_stable_for_five_runs(case: dict[str, Any]) -> None:
+def test_offline_baseline_eval_is_stable_for_five_runs(case: dict[str, Any]) -> None:
     _, extraction, _, _ = evaluate_case(case)
     runs = []
     for _ in range(5):
-        planner = plan_narrative_motion(
-            extraction,
-            model="gpt-4.1-mini-2025-04-14",
-            api_key=None,
-        )
+        plan = deterministic_fallback_plan(extraction)
         compiled = compile_narrative_motion(
             deck_id=case["deckId"],
             slide_id=case["slide"]["slideId"],
             base_version=case["baseVersion"],
-            plan=planner.plan,
+            plan=plan,
             context=extraction.context,
         )
         payload = compiled.model_dump(by_alias=True)
-        assert planner.fallback_used is True
-        assert planner.reason_code == "provider-unavailable"
         assert _safety_violations(case, payload) == []
         runs.append(payload)
 

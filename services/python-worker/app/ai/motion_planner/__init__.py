@@ -9,6 +9,7 @@ from app.ai.motion_planner.llm import (
     MotionPlannerResult,
     plan_narrative_motion,
 )
+from app.ai.motion_planner.errors import MotionPlannerError, MotionPlannerErrorCode
 from app.ai.motion_planner.fallback import deterministic_fallback_plan
 from app.ai.motion_planner.compiler import (
     CompiledMotion,
@@ -24,6 +25,7 @@ from app.ai.motion_planner.validation import (
 from app.ai.motion_planner.models import (
     ExtractedMotionContext,
     MotionEffectiveTypography,
+    MotionPlanMetadata,
     MotionPlanningContext,
     MotionPlanTarget,
     MotionTarget,
@@ -38,9 +40,12 @@ __all__ = [
     "motion_eligibility_message",
     "ExtractedMotionContext",
     "MotionEffectiveTypography",
+    "MotionPlanMetadata",
     "MotionPlanningContext",
     "MotionPlanTarget",
     "MotionPlannerResult",
+    "MotionPlannerError",
+    "MotionPlannerErrorCode",
     "MotionPromptInput",
     "MotionTarget",
     "NarrativeBeat",

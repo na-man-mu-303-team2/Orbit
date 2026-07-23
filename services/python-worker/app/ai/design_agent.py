@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.ai.motion_planner import (
     MotionImportContext,
+    MotionPlanMetadata,
     MotionPlanningContext,
     SemanticMotionResult,
     evaluate_motion_eligibility,
@@ -770,6 +771,7 @@ class DesignAgentResponse(BaseModel):
         max_length=200,
     )
     warnings: list[str] = Field(default_factory=list, max_length=20)
+    motion_plan: MotionPlanMetadata | None = Field(default=None, alias="motionPlan")
     palette_options: list[SlideRedesignPaletteOption] | None = Field(
         default=None,
         alias="paletteOptions",
@@ -949,6 +951,7 @@ def generate_design_proposal(
                 "operations": semantic_motion.operations,
                 "affectedElementIds": semantic_motion.affected_element_ids,
                 "warnings": [],
+                "motionPlan": semantic_motion.motion_plan,
                 "smartArtRequest": None,
             }
         )

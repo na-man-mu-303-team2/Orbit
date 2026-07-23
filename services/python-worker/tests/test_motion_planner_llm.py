@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 
 from app.ai.motion_planner import (
+    MotionPlannerError,
     MotionPlanningContext,
-    deterministic_fallback_plan,
     extract_motion_context,
     plan_narrative_motion,
 )
@@ -36,6 +36,21 @@ class FakeResponses:
 class FakeClient:
     def __init__(self, payload: dict[str, Any]) -> None:
         self.responses = FakeResponses(payload)
+
+
+class SequenceResponses:
+    def __init__(self, output_texts: list[str]) -> None:
+        self.output_texts = output_texts
+        self.calls: list[dict[str, Any]] = []
+
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        self.calls.append(kwargs)
+        return SimpleNamespace(output_text=self.output_texts.pop(0))
+
+
+class SequenceClient:
+    def __init__(self, output_texts: list[str]) -> None:
+        self.responses = SequenceResponses(output_texts)
 
 
 def extraction_fixture():
@@ -83,7 +98,7 @@ def test_accepts_strict_semantic_plan_without_patch_fields() -> None:
         extraction, model="motion-snapshot", api_key=None, client=client
     )
 
-    assert result.fallback_used is False
+    assert result.attempt_count == 1
     assert result.plan.pattern == "hero-then-support"
     assert "speakerNotes" in client.responses.calls[0]["input"]
     assert "durationMs" not in client.responses.calls[0]["instructions"]
@@ -123,26 +138,57 @@ def test_rejects_unknown_patch_timing_allowlist_and_cap_violations(mutation) -> 
     payload = valid_plan()
     mutation(payload)
 
+    client = FakeClient(payload)
+    with pytest.raises(MotionPlannerError) as error:
+        plan_narrative_motion(
+            extraction,
+            model="motion-snapshot",
+            api_key=None,
+            client=client,
+        )
+
+    assert error.value.code == "MOTION_AI_INVALID_PLAN"
+    assert len(client.responses.calls) == 2
+
+
+def test_missing_provider_fails_immediately_without_silent_fallback() -> None:
+    extraction = extraction_fixture()
+
+    with pytest.raises(MotionPlannerError) as error:
+        plan_narrative_motion(extraction, model="motion-snapshot", api_key=None)
+
+    assert error.value.code == "MOTION_AI_PROVIDER_UNAVAILABLE"
+    assert error.value.retryable is False
+
+
+def test_empty_first_response_retries_once_with_same_model() -> None:
+    extraction = extraction_fixture()
+    client = SequenceClient(["", json.dumps(valid_plan())])
+
     result = plan_narrative_motion(
         extraction,
         model="motion-snapshot",
         api_key=None,
-        client=FakeClient(payload),
+        client=client,
     )
 
-    assert result.fallback_used is True
-    assert result.plan == deterministic_fallback_plan(extraction)
+    assert result.attempt_count == 2
+    assert [call["model"] for call in client.responses.calls] == [
+        "motion-snapshot",
+        "motion-snapshot",
+    ]
 
 
-def test_fallback_is_deterministic_for_provider_failure() -> None:
+def test_empty_second_response_returns_bounded_error_code() -> None:
     extraction = extraction_fixture()
 
-    first = plan_narrative_motion(
-        extraction, model="motion-snapshot", api_key=None
-    )
-    second = plan_narrative_motion(
-        extraction, model="motion-snapshot", api_key=None
-    )
+    with pytest.raises(MotionPlannerError) as error:
+        plan_narrative_motion(
+            extraction,
+            model="motion-snapshot",
+            api_key=None,
+            client=SequenceClient(["", ""]),
+        )
 
-    assert first.fallback_used is True
-    assert first.plan.model_dump() == second.plan.model_dump()
+    assert error.value.code == "MOTION_AI_EMPTY_RESPONSE"
+    assert error.value.status_code == 503

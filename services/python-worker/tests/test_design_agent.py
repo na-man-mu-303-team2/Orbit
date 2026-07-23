@@ -16,7 +16,11 @@ from app.ai.design_agent import (
     design_agent_system_prompt,
     generate_design_proposal,
 )
-from app.ai.motion_planner import MotionImportContext, MotionPlanningContext
+from app.ai.motion_planner import (
+    MotionImportContext,
+    MotionPlannerError,
+    MotionPlanningContext,
+)
 
 
 class FakeResponses:
@@ -32,6 +36,21 @@ class FakeResponses:
 class FakeClient:
     def __init__(self, payload: dict[str, Any]) -> None:
         self.responses = FakeResponses(payload)
+
+
+class SequenceResponses:
+    def __init__(self, payloads: list[dict[str, Any]]) -> None:
+        self.payloads = payloads
+        self.calls: list[dict[str, Any]] = []
+
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        self.calls.append(kwargs)
+        return SimpleNamespace(output_text=json.dumps(self.payloads.pop(0)))
+
+
+class SequenceClient:
+    def __init__(self, payloads: list[dict[str, Any]]) -> None:
+        self.responses = SequenceResponses(payloads)
 
 
 def request_payload(*, locked: bool = False) -> DesignAgentRequest:
@@ -769,9 +788,14 @@ def test_animation_recommendation_compiles_semantic_plan_in_on_mode() -> None:
     assert animation.duration_ms == 450
     assert animation.start_mode == "on-slide-enter"
     assert animation.animation_id.startswith("anim_motion_")
+    assert first.motion_plan is not None
+    assert first.motion_plan.source == "llm"
+    assert first.motion_plan.model == "motion-snapshot"
+    assert first.motion_plan.attempt_count == 1
+    assert first.motion_plan.compiler_version == "motion-compiler-v2"
 
 
-def test_animation_recommendation_fallback_allows_safe_existing_animation_update() -> None:
+def test_animation_recommendation_allows_safe_existing_animation_update() -> None:
     request = request_payload()
     request.intent_preset = "recommend-animation"
     request.capabilities.operations.extend(["add_animation", "update_animation"])
@@ -800,6 +824,25 @@ def test_animation_recommendation_fallback_allows_safe_existing_animation_update
         motion_planner_model="motion-snapshot",
         motion_planner_mode="on",
         api_key=None,
+        client=FakeClient({
+            "schemaVersion": 2,
+            "pattern": "hero-then-support",
+            "pacing": "balanced",
+            "beats": [
+                {
+                    "beatId": "beat_entry",
+                    "purpose": "orient",
+                    "trigger": "entry",
+                    "relation": "together",
+                    "targets": [
+                        {
+                            "elementId": "el_image",
+                            "motionIntent": "introduce",
+                        }
+                    ],
+                }
+            ],
+        }),
     )
 
     assert len(result.operations) == 1
@@ -810,7 +853,7 @@ def test_animation_recommendation_fallback_allows_safe_existing_animation_update
     assert update.animation.duration_ms == 400
 
 
-def test_animation_recommendation_compiles_deterministic_fallback_on_llm_failure() -> None:
+def test_animation_recommendation_fails_closed_without_ai_provider() -> None:
     request = request_payload()
     request.intent_preset = "recommend-animation"
     request.capabilities.operations.append("add_animation")
@@ -822,23 +865,114 @@ def test_animation_recommendation_compiles_deterministic_fallback_on_llm_failure
         "notesTruncated": False,
     })
 
-    first = generate_design_proposal(
+    with pytest.raises(MotionPlannerError) as error:
+        generate_design_proposal(
+            request,
+            model="design-model",
+            motion_planner_model="motion-snapshot",
+            motion_planner_mode="on",
+            api_key=None,
+        )
+
+    assert error.value.code == "MOTION_AI_PROVIDER_UNAVAILABLE"
+
+
+def test_animation_recommendation_persists_second_attempt_provenance() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.append("add_animation")
+    request.motion_planning_context = MotionPlanningContext.model_validate({
+        "allowedTargetElementIds": ["el_image"],
+        "effectiveTypography": [],
+        "speakerNotes": "",
+        "notesPresent": False,
+        "notesTruncated": False,
+    })
+    valid = {
+        "schemaVersion": 2,
+        "pattern": "hero-then-support",
+        "pacing": "brisk",
+        "beats": [
+            {
+                "beatId": "beat_focus",
+                "purpose": "emphasize",
+                "trigger": "click",
+                "relation": "together",
+                "targets": [{"elementId": "el_image", "motionIntent": "focus"}],
+            }
+        ],
+    }
+    invalid = {**valid, "schemaVersion": 1}
+    client = SequenceClient([invalid, valid])
+
+    result = generate_design_proposal(
         request,
         model="design-model",
         motion_planner_model="motion-snapshot",
         motion_planner_mode="on",
         api_key=None,
-    )
-    second = generate_design_proposal(
-        request,
-        model="design-model",
-        motion_planner_model="motion-snapshot",
-        motion_planner_mode="on",
-        api_key=None,
+        client=client,
     )
 
-    assert first.model_dump(by_alias=True) == second.model_dump(by_alias=True)
-    assert len(first.operations) == 1
+    assert len(client.responses.calls) == 2
+    assert result.motion_plan is not None
+    assert result.motion_plan.attempt_count == 2
+    assert result.motion_plan.plan.pacing == "brisk"
+
+
+def test_animation_recommendation_retries_compile_then_fails_closed() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.extend(["add_animation", "update_animation"])
+    request.motion_planning_context = MotionPlanningContext.model_validate({
+        "allowedTargetElementIds": ["el_image"],
+        "effectiveTypography": [],
+        "speakerNotes": "",
+        "notesPresent": False,
+        "notesTruncated": False,
+    })
+    request.context.slide["animations"] = [
+        {
+            "animationId": f"anim_existing_{index}",
+            "elementId": "el_image",
+            "type": "fade-in",
+            "order": index,
+            "startMode": "on-click",
+            "durationMs": 300,
+            "delayMs": 0,
+            "easing": "ease-out",
+        }
+        for index in (1, 2)
+    ]
+    valid = {
+        "schemaVersion": 2,
+        "pattern": "hero-then-support",
+        "pacing": "balanced",
+        "beats": [
+            {
+                "beatId": "beat_focus",
+                "purpose": "emphasize",
+                "trigger": "click",
+                "relation": "together",
+                "targets": [{"elementId": "el_image", "motionIntent": "focus"}],
+            }
+        ],
+    }
+    client = SequenceClient([valid, valid])
+
+    with pytest.raises(MotionPlannerError) as error:
+        generate_design_proposal(
+            request,
+            model="design-model",
+            motion_planner_model="motion-snapshot",
+            motion_planner_mode="on",
+            api_key=None,
+            client=client,
+        )
+
+    assert len(client.responses.calls) == 2
+    assert error.value.code == "MOTION_AI_COMPILE_UNSAFE"
+    assert error.value.status_code == 422
 
 
 def test_unknown_intent_preset_falls_back_to_question_interpretation() -> None:
