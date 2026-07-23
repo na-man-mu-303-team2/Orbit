@@ -58,6 +58,36 @@ describe("PresentationCompanionStore", () => {
     await expect(store.getLatestGeneration("session_1")).resolves.toBeNull();
   });
 
+  it("replaces and revokes pending pairing keys without storing raw codes", async () => {
+    const redis = new FakeCompanionRedis();
+    const store = new PresentationCompanionStore(redis, "store-secret");
+
+    await store.putPairing("first-private-code", pairing);
+    await store.putPairing("second-private-code", pairing);
+    expect([...redis.values.keys()].join(" ")).not.toContain(
+      "first-private-code",
+    );
+    await expect(
+      store.consumePairing("first-private-code"),
+    ).resolves.toBeNull();
+    await store.issueGeneration("session_1", 60);
+    await store.claimAuthority("session_1", "epoch_1");
+    await store.renewPresence("session_1", {
+      generation: 1,
+      connectedAt: "2026-07-23T00:00:00.000Z",
+      rttBucket: "fast",
+    });
+
+    await store.revokeSession("session_1");
+    await expect(
+      store.consumePairing("second-private-code"),
+    ).resolves.toBeNull();
+    await expect(store.getLatestGeneration("session_1")).resolves.toBeNull();
+    await expect(store.getAuthority("session_1")).resolves.toBeNull();
+    await expect(store.getPresence("session_1")).resolves.toBeNull();
+    expect(redis.values.size).toBe(0);
+  });
+
   it("allows one authority epoch until its lease expires", async () => {
     const redis = new FakeCompanionRedis();
     const store = new PresentationCompanionStore(redis, "store-secret");
@@ -169,10 +199,51 @@ class FakeCompanionRedis implements PresentationCompanionRedis {
     ...args: Array<string | number>
   ) {
     const key = String(args[0]);
+    if (script.includes("companion:put-pairing")) {
+      const pairingKey = key;
+      const indexKey = String(args[1]);
+      const previous = await this.get(indexKey);
+      if (previous && previous !== pairingKey) {
+        this.values.delete(previous);
+      }
+      await this.set(
+        pairingKey,
+        String(args[2]),
+        "EX",
+        Number(args[3]),
+      );
+      await this.set(
+        indexKey,
+        pairingKey,
+        "EX",
+        Number(args[3]),
+      );
+      return 1;
+    }
     if (script.includes("companion:consume-pairing")) {
       const value = this.read(key);
       if (value !== null) this.values.delete(key);
       return value;
+    }
+    if (script.includes("companion:clear-pairing-index")) {
+      const expectedPairingKey = String(args[1]);
+      if ((await this.get(key)) !== expectedPairingKey) return 0;
+      this.values.delete(key);
+      return 1;
+    }
+    if (script.includes("companion:revoke-session")) {
+      const pairingIndexKey = String(args[3]);
+      const pendingPairingKey = await this.get(pairingIndexKey);
+      await this.del(
+        key,
+        String(args[1]),
+        String(args[2]),
+        pairingIndexKey,
+      );
+      if (pendingPairingKey) {
+        await this.del(pendingPairingKey);
+      }
+      return 1;
     }
     if (script.includes("companion:issue-generation")) {
       const current = Number((await this.get(key)) ?? "0") + 1;

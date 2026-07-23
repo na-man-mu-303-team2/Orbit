@@ -51,6 +51,35 @@ redis.call("DEL", KEYS[1])
 return value
 `;
 
+const putPairingScript = `
+-- companion:put-pairing
+local previous = redis.call("GET", KEYS[2])
+if previous and previous ~= KEYS[1] then
+  redis.call("DEL", previous)
+end
+redis.call("SET", KEYS[1], ARGV[1], "EX", ARGV[2])
+redis.call("SET", KEYS[2], KEYS[1], "EX", ARGV[2])
+return 1
+`;
+
+const clearPairingIndexScript = `
+-- companion:clear-pairing-index
+local current = redis.call("GET", KEYS[1])
+if not current or current ~= ARGV[1] then return 0 end
+redis.call("DEL", KEYS[1])
+return 1
+`;
+
+const revokeSessionScript = `
+-- companion:revoke-session
+local pendingPairingKey = redis.call("GET", KEYS[4])
+redis.call("DEL", KEYS[1], KEYS[2], KEYS[3], KEYS[4])
+if pendingPairingKey then
+  redis.call("DEL", pendingPairingKey)
+end
+return 1
+`;
+
 const issueGenerationScript = `
 -- companion:issue-generation
 local generation = redis.call("INCR", KEYS[1])
@@ -98,10 +127,13 @@ export class PresentationCompanionStore {
     ttlSeconds = 120,
   ): Promise<void> {
     assertTtl(ttlSeconds);
-    await this.redis.set(
-      this.key("pairing", code),
+    const pairingKey = this.key("pairing", code);
+    await this.redis.eval(
+      putPairingScript,
+      2,
+      pairingKey,
+      this.key("pairing-session", pairing.sessionId),
       JSON.stringify(pairingSchema.parse(pairing)),
-      "EX",
       ttlSeconds,
     );
   }
@@ -118,7 +150,14 @@ export class PresentationCompanionStore {
       return null;
     }
     try {
-      return pairingSchema.parse(JSON.parse(value));
+      const pairing = pairingSchema.parse(JSON.parse(value));
+      await this.redis.eval(
+        clearPairingIndexScript,
+        1,
+        this.key("pairing-session", pairing.sessionId),
+        this.key("pairing", code),
+      );
+      return pairing;
     } catch {
       return null;
     }
@@ -253,10 +292,13 @@ export class PresentationCompanionStore {
   }
 
   async revokeSession(sessionId: string): Promise<void> {
-    await this.redis.del(
+    await this.redis.eval(
+      revokeSessionScript,
+      4,
       this.key("generation", sessionId),
       this.key("authority", sessionId),
       this.key("presence", sessionId),
+      this.key("pairing-session", sessionId),
     );
   }
 
