@@ -24,6 +24,7 @@ import {
   type DesignAgentContext,
   type DesignAgentMessage,
   type MotionImportContext,
+  type MotionPlanMetadata,
   type DesignAgentProposal,
   type Slide,
   type SmartArtItem,
@@ -295,6 +296,7 @@ export class DesignAgentService {
           operations,
           allowedTargetElementIds:
             validationGate.eligibility.allowedTargetElementIds,
+          ...motionPlanIntegrityOptions(aiResult.motionPlan),
           explicitReplace: isExplicitMotionReplaceRequest(input.content),
         });
         if (!validation.ok) {
@@ -539,6 +541,7 @@ export class DesignAgentService {
               operations: proposal.operations,
               allowedTargetElementIds:
                 motionGate.eligibility.allowedTargetElementIds,
+              ...motionPlanIntegrityOptions(proposal.motionPlan ?? undefined),
               explicitReplace: requestMessage
                 ? isExplicitMotionReplaceRequest(requestMessage.content)
                 : false,
@@ -760,6 +763,25 @@ function isAnimationOperation(
     operation.type === "update_animation" ||
     operation.type === "delete_animation"
   );
+}
+
+function motionPlanIntegrityOptions(
+  motionPlan: MotionPlanMetadata | undefined,
+): {
+  expectedClickCount?: number;
+  requiredTargetElementIds?: string[];
+} {
+  if (!motionPlan || motionPlan.compilerVersion !== "motion-compiler-v3") {
+    return {};
+  }
+  return {
+    requiredTargetElementIds: motionPlan.units.flatMap(
+      (unit) => unit.animationElementIds,
+    ),
+    expectedClickCount: motionPlan.plan.beats.filter(
+      (beat) => beat.trigger === "click",
+    ).length,
+  };
 }
 
 export function isExplicitMotionReplaceRequest(question: string): boolean {

@@ -257,6 +257,68 @@ describe("validateMotionProposal", () => {
     ).toEqual({ ok: false, reasonCode: "CLICK_BUDGET_EXCEEDED" });
   });
 
+  it("allows five click steps and rejects six", () => {
+    const { deck, slide, first } = fixture();
+    slide.animations = [];
+    slide.actions = [];
+    const clickOperations = Array.from({ length: 6 }, (_, index) => ({
+      type: "add_animation" as const,
+      slideId: slide.slideId,
+      animation: {
+        animationId: `anim_click_${index + 1}`,
+        elementId: first.elementId,
+        type: "appear" as const,
+        order: index + 1,
+        startMode: "on-click" as const,
+        durationMs: 200,
+        delayMs: 0,
+        easing: "ease-out" as const,
+      },
+    }));
+
+    expect(
+      validateMotionProposal({
+        deck,
+        slideId: slide.slideId,
+        operations: clickOperations.slice(0, 5),
+        allowedTargetElementIds: [first.elementId],
+        expectedClickCount: 5,
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateMotionProposal({
+        deck,
+        slideId: slide.slideId,
+        operations: clickOperations,
+        allowedTargetElementIds: [first.elementId],
+      }),
+    ).toEqual({ ok: false, reasonCode: "CLICK_COUNT_EXCEEDED" });
+  });
+
+  it("requires the complete v3 unit expansion exactly once", () => {
+    const { deck, slide, first, second } = fixture();
+    const operation = addOperation(slide.slideId, second.elementId);
+
+    expect(
+      validateMotionProposal({
+        deck,
+        slideId: slide.slideId,
+        operations: [operation],
+        allowedTargetElementIds: [first.elementId],
+        requiredTargetElementIds: [second.elementId],
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateMotionProposal({
+        deck,
+        slideId: slide.slideId,
+        operations: [operation],
+        allowedTargetElementIds: [first.elementId],
+        requiredTargetElementIds: [first.elementId, second.elementId],
+      }),
+    ).toEqual({ ok: false, reasonCode: "UNIT_TARGET_MISMATCH" });
+  });
+
   it("round-trips animation and action state through one-step undo and redo patches", () => {
     const { deck, slide, first, second } = fixture();
     const operation = addOperation(slide.slideId, second.elementId);

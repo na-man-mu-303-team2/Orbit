@@ -273,6 +273,123 @@ describe("DesignAgentService.applyProposal", () => {
     expect(proposal.rejectedReason).toBe("MOTION_DUPLICATE_ANIMATION_ID");
     expect(appendPatch).not.toHaveBeenCalled();
   });
+
+  it("marks a v3 proposal stale when apply-time unit expansion is incomplete", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const [firstTarget, missingTarget] = slide.elements.filter(
+      (element) =>
+        !slide.animations.some(
+          (animation) => animation.elementId === element.elementId,
+        ),
+    );
+    const proposal = {
+      proposalId: "design_proposal_incomplete_unit",
+      projectId: deck.projectId,
+      deckId: deck.deckId,
+      slideId: slide.slideId,
+      requestMessageId: "design_message_incomplete_unit",
+      responseMessageId: "design_message_incomplete_unit_response",
+      baseVersion: deck.version,
+      title: "Motion proposal",
+      summary: "Add partial motion.",
+      operations: [
+        {
+          type: "add_animation",
+          slideId: slide.slideId,
+          animation: {
+            animationId: "anim_motion_partial_unit",
+            elementId: firstTarget!.elementId,
+            type: "appear",
+            order:
+              Math.max(...slide.animations.map(({ order }) => order)) + 1,
+            startMode: "on-click",
+            durationMs: 300,
+            delayMs: 0,
+            easing: "ease-out",
+          },
+        },
+      ],
+      interpretedIntent: null,
+      affectedElementIds: [firstTarget!.elementId],
+      warnings: [],
+      motionPlan: {
+        source: "llm",
+        model: "gpt-4.1-mini-2025-04-14",
+        attemptCount: 1,
+        compilerVersion: "motion-compiler-v3",
+        units: [
+          {
+            unitId: "motion_unit_card",
+            kind: "spatial-cluster",
+            animationElementIds: [
+              firstTarget!.elementId,
+              missingTarget!.elementId,
+            ],
+            memberElementIds: [
+              firstTarget!.elementId,
+              missingTarget!.elementId,
+            ],
+            semanticRole: "card",
+            readingOrder: 1,
+          },
+        ],
+        plan: {
+          schemaVersion: 3,
+          pattern: "cluster-reveal",
+          pacing: "balanced",
+          beats: [
+            {
+              beatId: "beat_click_1",
+              purpose: "reveal",
+              trigger: "click",
+              relation: "together",
+              targets: [
+                {
+                  unitId: "motion_unit_card",
+                  motionIntent: "reveal",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      status: "pending",
+      appliedChangeId: null,
+      rejectedReason: null,
+      createdAt: new Date("2026-07-23T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-23T00:00:00.000Z"),
+    } as unknown as DesignAgentProposalEntity;
+    const proposalsRepository = {
+      findOne: vi.fn(async () => proposal),
+      save: vi.fn(async (value: DesignAgentProposalEntity) => value),
+    } as unknown as Repository<DesignAgentProposalEntity>;
+    const appendPatch = vi.fn();
+    const decksService = {
+      getDeck: vi.fn(async () => ({
+        projectId: deck.projectId,
+        deck,
+        updatedAt: "2026-07-23T00:00:00.000Z",
+      })),
+      getMotionImportContext: vi.fn(async () => null),
+      appendPatch,
+    } as unknown as DecksService;
+    const service = new DesignAgentService(
+      {} as Repository<DesignAgentMessageEntity>,
+      proposalsRepository,
+      decksService,
+      {} as DesignAgentPythonClient,
+      {} as SmartArtLayoutsService,
+      { info: vi.fn(), warn: vi.fn() } as never,
+    );
+
+    await expect(
+      service.applyProposal(deck.projectId, proposal.proposalId, "user_demo_1"),
+    ).rejects.toThrow("no longer safe");
+    expect(proposal.status).toBe("stale");
+    expect(proposal.rejectedReason).toBe("MOTION_UNIT_TARGET_MISMATCH");
+    expect(appendPatch).not.toHaveBeenCalled();
+  });
 });
 
 describe("DesignAgentService.createMessage smart art expansion", () => {
@@ -1404,6 +1521,106 @@ describe("DesignAgentService motion eligibility", () => {
     expect(JSON.stringify(harness.logger.info.mock.calls)).toContain(
       "motion_planner.completed",
     );
+  });
+
+  it("accepts a complete v3 unit expansion for a server-derived shape target", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const target = slide.elements.find(
+      (element) => element.elementId === "el_3",
+    )!;
+    target.role = "decoration";
+    const nextOrder = Math.max(...slide.animations.map(({ order }) => order)) + 1;
+    const harness = createMotionMessageHarness(deck, null);
+    harness.propose.mockResolvedValueOnce({
+      message: "카드 전체 모션을 준비했습니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "semantic-motion-plan",
+        alignment: null,
+      },
+      operations: [
+        {
+          type: "add_animation",
+          slideId: slide.slideId,
+          animation: {
+            animationId: "anim_motion_v3_shape",
+            elementId: target.elementId,
+            type: "appear",
+            order: nextOrder,
+            startMode: "on-click",
+            durationMs: 300,
+            delayMs: 0,
+            easing: "ease-out",
+          },
+        },
+      ],
+      affectedElementIds: [target.elementId],
+      warnings: [],
+      motionPlan: {
+        source: "llm",
+        model: "gpt-4.1-mini-2025-04-14",
+        attemptCount: 1,
+        compilerVersion: "motion-compiler-v3",
+        units: [
+          {
+            unitId: "motion_unit_shape",
+            kind: "spatial-cluster",
+            animationElementIds: [target.elementId],
+            memberElementIds: [target.elementId],
+            semanticRole: "card",
+            readingOrder: 1,
+          },
+        ],
+        plan: {
+          schemaVersion: 3,
+          pattern: "cluster-reveal",
+          pacing: "balanced",
+          beats: [
+            {
+              beatId: "beat_click_1",
+              purpose: "reveal",
+              trigger: "click",
+              relation: "together",
+              targets: [
+                {
+                  unitId: "motion_unit_shape",
+                  motionIntent: "reveal",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    const response = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "애니메이션을 추천해 주세요.",
+        intentPreset: "recommend-animation",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      },
+    );
+
+    expect(response.proposal?.motionPlan).toMatchObject({
+      compilerVersion: "motion-compiler-v3",
+      units: [
+        expect.objectContaining({
+          animationElementIds: [target.elementId],
+        }),
+      ],
+    });
   });
 
   it("preserves a bounded motion error code without creating assistant output", async () => {

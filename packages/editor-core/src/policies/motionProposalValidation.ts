@@ -30,7 +30,9 @@ export type MotionProposalValidationReason =
   | "ENTRY_BUDGET_EXCEEDED"
   | "CLICK_BUDGET_EXCEEDED"
   | "CLICK_COUNT_EXCEEDED"
+  | "CLICK_COUNT_MISMATCH"
   | "TOTAL_BUDGET_EXCEEDED"
+  | "UNIT_TARGET_MISMATCH"
   | "ANIMATION_ID_NOT_PRESERVED"
   | "ACTION_REFERENCE_NOT_PRESERVED";
 
@@ -47,7 +49,9 @@ export function validateMotionProposal(input: {
   allowedTargetElementIds: readonly string[];
   deck: Deck;
   explicitReplace?: boolean;
+  expectedClickCount?: number;
   operations: readonly DeckPatchOperation[];
+  requiredTargetElementIds?: readonly string[];
   slideId: string;
 }): MotionProposalValidationResult {
   const slide = input.deck.slides.find((candidate) => candidate.slideId === input.slideId);
@@ -60,6 +64,23 @@ export function validateMotionProposal(input: {
   if (originalGraphReason) return refused(originalGraphReason);
 
   const allowedTargets = new Set(input.allowedTargetElementIds);
+  const requiredTargets =
+    input.requiredTargetElementIds === undefined
+      ? null
+      : new Set(input.requiredTargetElementIds);
+  const slideElementIds = new Set(
+    slide.elements.map((element) => element.elementId),
+  );
+  if (
+    requiredTargets &&
+    (requiredTargets.size !== input.requiredTargetElementIds!.length ||
+      [...requiredTargets].some((elementId) => !slideElementIds.has(elementId)))
+  ) {
+    return refused("UNIT_TARGET_MISMATCH");
+  }
+  for (const elementId of requiredTargets ?? []) {
+    allowedTargets.add(elementId);
+  }
   const animationsById = new Map(
     slide.animations.map((animation) => [animation.animationId, animation]),
   );
@@ -104,8 +125,30 @@ export function validateMotionProposal(input: {
       return refused("EFFECT_NOT_ALLOWED");
     }
   }
+  if (requiredTargets) {
+    const operationTargets = operations.flatMap((operation) => {
+      if (operation.type === "add_animation") {
+        return [operation.animation.elementId];
+      }
+      if (operation.type === "update_animation") {
+        const existing = animationsById.get(operation.animationId);
+        return existing ? [existing.elementId] : [];
+      }
+      return [];
+    });
+    if (
+      operationTargets.length !== requiredTargets.size ||
+      new Set(operationTargets).size !== operationTargets.length ||
+      operationTargets.some((elementId) => !requiredTargets.has(elementId))
+    ) {
+      return refused("UNIT_TARGET_MISMATCH");
+    }
+  }
   if (operations.length === 0) {
-    const originalTimelineReason = validateTimeline(slide);
+    const originalTimelineReason = validateTimeline(
+      slide,
+      input.expectedClickCount,
+    );
     if (originalTimelineReason) return refused(originalTimelineReason);
     return { ok: true, candidateDeck: input.deck, candidateSlide: slide, operations };
   }
@@ -138,7 +181,10 @@ export function validateMotionProposal(input: {
   if (!sameStrings(actionReferences(slide), actionReferences(candidateSlide))) {
     return refused("ACTION_REFERENCE_NOT_PRESERVED");
   }
-  const timelineReason = validateTimeline(candidateSlide);
+  const timelineReason = validateTimeline(
+    candidateSlide,
+    input.expectedClickCount,
+  );
   if (timelineReason) return refused(timelineReason);
   return {
     ok: true,
@@ -148,7 +194,10 @@ export function validateMotionProposal(input: {
   };
 }
 
-function validateTimeline(slide: Slide): MotionProposalValidationReason | null {
+function validateTimeline(
+  slide: Slide,
+  expectedClickCount?: number,
+): MotionProposalValidationReason | null {
   const diagnostics = validateSlideAnimations(slide);
   if (diagnostics.duplicateOrders.length > 0) {
     return "DUPLICATE_ANIMATION_ORDER";
@@ -163,7 +212,13 @@ function validateTimeline(slide: Slide): MotionProposalValidationReason | null {
     return "TIMELINE_DIAGNOSTIC";
   }
   if (timeline.entryDurationMs > 900) return "ENTRY_BUDGET_EXCEEDED";
-  if (timeline.clickSteps.length > 4) return "CLICK_COUNT_EXCEEDED";
+  if (timeline.clickSteps.length > 5) return "CLICK_COUNT_EXCEEDED";
+  if (
+    expectedClickCount !== undefined &&
+    timeline.clickSteps.length !== expectedClickCount
+  ) {
+    return "CLICK_COUNT_MISMATCH";
+  }
   if (timeline.clickSteps.some((step) => step.durationMs > 1_200)) {
     return "CLICK_BUDGET_EXCEEDED";
   }
