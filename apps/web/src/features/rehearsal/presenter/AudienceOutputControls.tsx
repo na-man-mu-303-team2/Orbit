@@ -26,18 +26,9 @@ export function AudienceOutputControls(props: {
 }) {
   const [isAdvancedOpen, setAdvancedOpen] = useState(false);
   const [isPanelOpen, setPanelOpen] = useState(!props.collapsible);
-  const [isMonitorWarningOpen, setMonitorWarningOpen] = useState(false);
-  const [monitorWarningConfirmed, setMonitorWarningConfirmed] = useState(false);
   const panelId = useId();
   const isAwayFromSlide = props.outputMode !== "slide";
   const controlsDisabled = !props.connected || props.status === "selecting";
-
-  const startMonitor = () => {
-    const startResult = props.onStartMonitor();
-    setMonitorWarningOpen(false);
-    setMonitorWarningConfirmed(false);
-    void startResult;
-  };
 
   return (
     <section
@@ -88,7 +79,7 @@ export function AudienceOutputControls(props: {
               className="audience-output-share-primary"
               disabled={controlsDisabled}
               type="button"
-              onClick={() => setMonitorWarningOpen(true)}
+              onClick={() => void props.onStartMonitor()}
             >
               <IconScreenShare aria-hidden="true" size={18} />
               전체 화면 공유하기
@@ -129,7 +120,7 @@ export function AudienceOutputControls(props: {
             <button
               disabled={controlsDisabled}
               type="button"
-              onClick={() => setMonitorWarningOpen(true)}
+              onClick={() => void props.onStartMonitor()}
             >
               전체 화면 공유
             </button>
@@ -143,49 +134,6 @@ export function AudienceOutputControls(props: {
         </p>
       </div>
 
-      {isMonitorWarningOpen ? (
-        <div
-          aria-label="전체 화면 공유 경고"
-          className="audience-output-warning"
-          role="dialog"
-        >
-          <IconAlertTriangle aria-hidden="true" size={22} />
-          <h2>전체 화면을 공유하시겠습니까?</h2>
-          <p>
-            발표자 노트, 시스템 알림, 브라우저 탭과 개인정보가 청중에게 보일 수
-            있습니다. Orbit 발표자 창은 청중 화면을 선택하면 화면에 반복되어
-            보일 수 있습니다.
-          </p>
-          <label>
-            <input
-              checked={monitorWarningConfirmed}
-              type="checkbox"
-              onChange={(event) =>
-                setMonitorWarningConfirmed(event.currentTarget.checked)
-              }
-            />
-            노출 위험을 확인했습니다
-          </label>
-          <div>
-            <button
-              type="button"
-              onClick={() => {
-                setMonitorWarningOpen(false);
-                setMonitorWarningConfirmed(false);
-              }}
-            >
-              취소
-            </button>
-            <button
-              disabled={!monitorWarningConfirmed}
-              type="button"
-              onClick={startMonitor}
-            >
-              전체 화면 선택
-            </button>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }

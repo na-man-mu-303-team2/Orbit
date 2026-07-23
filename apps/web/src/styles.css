@@ -3810,7 +3810,7 @@
 .presenter-remote-stage {
   align-self: center;
   background: var(--redesign-color-dark-surface-high);
-  gap: var(--redesign-space-5) var(--redesign-space-6);
+  gap: var(--redesign-space-5);
   grid-template-columns: minmax(0, 1fr) clamp(240px, 20vw, 300px);
   grid-template-rows: minmax(0, 1fr) clamp(232px, 27dvh, 248px);
   max-width: 100%;
@@ -3928,12 +3928,18 @@
 }
 
 .presenter-remote-script .rehearsal-teleprompter-lyrics {
-  align-content: center;
   display: grid;
   height: 100%;
   overflow-y: auto;
-  padding: clamp(var(--redesign-space-6), 5vw, var(--redesign-space-24));
-  scroll-padding-block: clamp(var(--redesign-space-6), 5vw, var(--redesign-space-24));
+  padding-block: var(
+    --rehearsal-teleprompter-center-padding,
+    clamp(var(--redesign-space-6), 5vw, var(--redesign-space-24))
+  );
+  padding-inline: clamp(var(--redesign-space-6), 5vw, var(--redesign-space-24));
+  scroll-padding-block: var(
+    --rehearsal-teleprompter-center-padding,
+    clamp(var(--redesign-space-6), 5vw, var(--redesign-space-24))
+  );
   scrollbar-color: color-mix(in srgb, var(--redesign-color-on-dark) 34%, transparent) transparent;
   scrollbar-width: thin;
 }
@@ -3955,11 +3961,16 @@
 
 .presenter-remote-script .rehearsal-teleprompter-line {
   color: color-mix(in srgb, var(--redesign-color-on-dark) 46%, transparent);
-  font-size: clamp(22px, 2.8vw, 46px);
-  font-weight: 900;
-  line-height: 1.28;
+  font-size: clamp(16px, 1.7vw, 28px);
+  font-weight: 400;
+  line-height: 1.5;
   margin: 0 0 clamp(var(--redesign-space-4), 4vh, var(--redesign-space-8));
   text-align: center;
+}
+
+.presenter-remote-script
+  .rehearsal-teleprompter-line:not(.rehearsal-teleprompter-current) {
+  font-weight: 400;
 }
 
 .presenter-remote-script .rehearsal-teleprompter-current {
@@ -3967,6 +3978,11 @@
   font-size: clamp(30px, 3.7vw, 64px);
   font-weight: 950;
   opacity: 1;
+}
+
+.presenter-remote-script .rehearsal-teleprompter-line-next {
+  color: color-mix(in srgb, var(--redesign-color-on-dark) 62%, transparent);
+  font-weight: 400;
 }
 
 .presenter-remote-script .rehearsal-teleprompter-line-covered,
@@ -4121,9 +4137,77 @@
 
 .presenter-remote-shell
   .presenter-remote-cue-sidebar
-  .activity-presenter-secondary-command
+  .rehearsal-panel-keyword,
+.presenter-remote-shell
+  .presenter-remote-cue-sidebar
+  .rehearsal-panel-keyword
+  span {
+  color: var(--redesign-color-on-dark);
+}
+
+.presenter-remote-shell
+  .presenter-remote-cue-sidebar
+  .rehearsal-side-timer-actions
+  button:first-child,
+.presenter-remote-shell
+  .presenter-remote-cue-sidebar
+  .rehearsal-side-timer-actions
+  button:first-child:hover:not(:disabled) {
+  background: var(--redesign-color-light-surface);
+  border-color: var(--redesign-color-light-surface);
+  color: var(--redesign-color-dark-surface);
+}
+
+.presenter-remote-shell
+  .presenter-remote-cue-sidebar
+  .rehearsal-side-timer-actions
+  button:first-child
+  svg {
+  color: currentColor;
+}
+
+.presenter-remote-shell
+  .presenter-remote-cue-sidebar
+  .activity-presenter-panel-heading
+  div
   > span {
   color: var(--redesign-color-primary-fixed-dim);
+}
+
+.presenter-remote-shell
+  .presenter-remote-cue-sidebar
+  .activity-presenter-command-row
+  > .redesign-button {
+  font-size: clamp(10px, 0.9vw, var(--redesign-type-label-md-size));
+  padding-inline: clamp(var(--redesign-space-1), 0.8vw, var(--redesign-space-3));
+  white-space: nowrap;
+}
+
+.presenter-remote-shell
+  .presenter-remote-cue-sidebar
+  .activity-presenter-secondary-command
+  > span,
+.presenter-remote-shell
+  .presenter-remote-cue-sidebar
+  .activity-presenter-panel
+  > a {
+  color: var(--redesign-color-primary-fixed-dim);
+}
+
+.presenter-remote-shell
+  .presenter-remote-cue-sidebar
+  .activity-presenter-secondary-command.redesign-button-secondary {
+  background: transparent;
+  border-color: var(--redesign-color-primary-fixed-dim);
+  color: var(--redesign-color-primary-fixed-dim);
+}
+
+.presenter-remote-shell
+  .presenter-remote-cue-sidebar
+  .activity-presenter-primary-command.redesign-button-primary {
+  background: var(--redesign-color-primary-fixed-dim);
+  border-color: var(--redesign-color-primary-fixed-dim);
+  color: var(--redesign-color-dark-surface);
 }
 
 .presenter-remote-cue-panel {

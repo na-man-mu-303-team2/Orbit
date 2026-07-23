@@ -207,7 +207,6 @@ export function ActivityPresenterPanel(props: {
               aria-describedby="activity-presenter-reopen-help"
               className="activity-presenter-secondary-command"
               disabled={!runtime || pending}
-              icon={<IconPlayerPlay aria-hidden="true" size={18} stroke={1.8} />}
               onClick={() => void updateStatus("open")}
               variant="secondary"
             >
