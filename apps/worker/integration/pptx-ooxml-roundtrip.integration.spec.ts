@@ -1,12 +1,15 @@
 import "reflect-metadata";
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import {
   PPTX_OOXML_SYNC_CAPABILITY_VERSION,
   deckSchema,
+  jobSchema,
+  pptxOoxmlGenerationJobResultSchema,
   templateBlueprintSchema,
   type Deck,
   type DeckElement,
@@ -17,6 +20,7 @@ import type {
   StoragePort,
   StoragePutInput,
 } from "@orbit/storage";
+import { LocalMinioStorage } from "@orbit/storage";
 import { DataSource } from "typeorm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -35,6 +39,9 @@ const databaseUrl =
   "postgresql://orbit:orbit@127.0.0.1:5432/orbit";
 const pythonWorkerUrl =
   process.env.ORBIT_PYTHON_WORKER_URL ?? process.env.PYTHON_WORKER_URL ?? "";
+const importFidelityReferencePath =
+  process.env.PPTX_IMPORT_FIDELITY_REFERENCE_PATH ?? "";
+const itWithImportFidelityReference = importFidelityReferencePath ? it : it.skip;
 
 describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
   let dataSource: DataSource;
@@ -69,17 +76,291 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     if (dataSource?.isInitialized) await dataSource.destroy();
   });
 
+  itWithImportFidelityReference(
+    "persists and reloads reference speaker notes with protected preview file ids",
+    async () => {
+      const projectId = integrationId("project");
+      const sourceFileId = integrationId("file");
+      const sourceStorageKey = `integration/${projectId}/reference.pptx`;
+      const storage = new IntegrationStorage();
+      projectIds.add(projectId);
+
+      await expectPythonWorkerHealthy(pythonWorkerUrl);
+      const sourceBytes = await readFile(importFidelityReferencePath);
+      const importedSource = await importPptxWithPython(
+        pythonWorkerUrl,
+        sourceBytes,
+        projectId,
+        sourceFileId,
+        "editability-first",
+      );
+      const sourceNotes = (importedSource.blueprint.slides ?? []).map(
+        (slide) => slide.speakerNotes ?? "",
+      );
+      expect(sourceNotes.length).toBe(8);
+      expect(sourceNotes.filter((note) => note.length > 0).length).toBe(8);
+      const expectedNoteDigests = sourceNotes.map(noteDigest);
+
+      const appearanceSource = await importPptxWithPython(
+        pythonWorkerUrl,
+        sourceBytes,
+        projectId,
+        integrationId("file"),
+        "appearance-first",
+      );
+      expect(
+        (appearanceSource.blueprint.slides ?? []).map((slide) =>
+          noteDigest(slide.speakerNotes ?? ""),
+        ),
+      ).toEqual(expectedNoteDigests);
+
+      await storage.seed(
+        sourceStorageKey,
+        sourceBytes,
+        pptxMimeType,
+        "pptx-import",
+      );
+      await seedProject(dataSource, projectId);
+      await seedAsset(dataSource, {
+        projectId,
+        fileId: sourceFileId,
+        storageKey: sourceStorageKey,
+        purpose: "pptx-import",
+        body: sourceBytes,
+      });
+
+      const harness = createServiceHarness(dataSource);
+      const importJob = await harness.jobs.create({
+        projectId,
+        type: "pptx-ooxml-generation",
+        payload: { request: { fileId: sourceFileId } },
+      });
+      const completedJob = await processPptxOoxmlGenerationJob(
+        dataSource,
+        storage,
+        pythonWorkerUrl,
+        {
+          jobId: importJob.jobId,
+          projectId,
+          request: { fileId: sourceFileId },
+        },
+      );
+      expect(completedJob.status, JSON.stringify(completedJob.error)).toBe(
+        "succeeded",
+      );
+
+      const persistedDeck = deckSchema.parse(
+        (await harness.decks.getDeck(projectId)).deck,
+      );
+      expect(persistedDeck.slides).toHaveLength(8);
+      expect(persistedDeck.slides.map((slide) => noteDigest(slide.speakerNotes)))
+        .toEqual(expectedNoteDigests);
+
+      const templateBlueprint = await loadTemplateBlueprint(
+        dataSource,
+        projectId,
+        persistedDeck.deckId,
+      );
+      const previewFileIds = templateBlueprint.slides.flatMap((slide) =>
+        slide.notesPage?.status === "rendered" &&
+        slide.notesPage.renderAssetFileId
+          ? [slide.notesPage.renderAssetFileId]
+          : [],
+      );
+      expect(previewFileIds).toHaveLength(8);
+      expect(new Set(previewFileIds).size).toBe(8);
+      const previewAssets = await dataSource.query<
+        Array<{ file_id: string; purpose: string }>
+      >(
+        `SELECT file_id, purpose FROM project_assets
+         WHERE project_id = $1 AND file_id = ANY($2::text[])`,
+        [projectId, previewFileIds],
+      );
+      expect(previewAssets).toHaveLength(8);
+      expect(
+        previewAssets.every((asset) => asset.purpose === "design-asset"),
+      ).toBe(true);
+
+      jobSchema.parse(completedJob);
+      pptxOoxmlGenerationJobResultSchema.parse(completedJob.result);
+      const sidecarPayload = JSON.stringify(templateBlueprint);
+      const jobPayload = JSON.stringify(completedJob.result);
+      expect(sidecarPayload).not.toContain("/content");
+      expect(sidecarPayload).not.toContain("contentBase64");
+      for (const note of sourceNotes) {
+        expect(sidecarPayload.includes(note)).toBe(false);
+        expect(jobPayload.includes(note)).toBe(false);
+      }
+
+      const sourceSlideFourNotes = sourceNotes[3]!;
+      expect(sourceSlideFourNotes.includes("\n\n")).toBe(true);
+      const editedSlideFourNotes =
+        `${sourceSlideFourNotes}\n\nSynthetic checkpoint B edit`;
+      const editedDeck = deckSchema.parse(structuredClone(persistedDeck));
+      editedDeck.slides[3]!.speakerNotes = editedSlideFourNotes;
+      const saved = await harness.decks.putDeck(projectId, {
+        baseVersion: persistedDeck.version,
+        deck: editedDeck,
+      });
+      const syncPayload = await enqueueSync(harness, projectId, {
+        deckId: saved.deck.deckId,
+        changeId: await latestChangeId(
+          dataSource,
+          projectId,
+          saved.deck.version,
+        ),
+        targetDeckVersion: saved.deck.version,
+      });
+      const syncJob = await processPptxOoxmlSyncJob(
+        dataSource,
+        storage,
+        pythonWorkerUrl,
+        syncPayload,
+      );
+      expect(syncJob.status, JSON.stringify(syncJob.error)).toBe("succeeded");
+
+      const syncedBlueprint = await loadTemplateBlueprint(
+        dataSource,
+        projectId,
+        saved.deck.deckId,
+      );
+      const refreshedPreviewFileIds = syncedBlueprint.slides.flatMap((slide) =>
+        slide.notesPage?.status === "rendered" &&
+        slide.notesPage.renderAssetFileId
+          ? [slide.notesPage.renderAssetFileId]
+          : [],
+      );
+      expect(refreshedPreviewFileIds).toHaveLength(8);
+      expect(new Set(refreshedPreviewFileIds).size).toBe(8);
+
+      const exportPayload = await enqueueExport(harness, projectId);
+      const exportedJob = await processDeckExportJob(
+        dataSource,
+        storage,
+        pythonWorkerUrl,
+        exportPayload,
+        { ooxmlReadyAttempts: 2, ooxmlReadyDelayMs: 0 },
+      );
+      expect(exportedJob.status, JSON.stringify(exportedJob.error)).toBe(
+        "succeeded",
+      );
+      const reimported = await importPptxWithPython(
+        pythonWorkerUrl,
+        await jobAssetBytes(dataSource, storage, exportedJob),
+        projectId,
+        integrationId("file"),
+      );
+      const expectedEditedDigests = sourceNotes.map((note, index) =>
+        noteDigest(index === 3 ? editedSlideFourNotes : note),
+      );
+      expect(reimported.blueprint.slides).toHaveLength(8);
+      expect(
+        (reimported.blueprint.slides ?? []).map((slide) =>
+          noteDigest(slide.speakerNotes ?? ""),
+        ),
+      ).toEqual(expectedEditedDigests);
+      expect(editedSlideFourNotes.startsWith(`${sourceSlideFourNotes}\n\n`)).toBe(
+        true,
+      );
+
+      const syncedSidecarPayload = JSON.stringify(syncedBlueprint);
+      const syncJobPayload = JSON.stringify(syncJob.result);
+      for (const note of [...sourceNotes, editedSlideFourNotes]) {
+        expect(syncedSidecarPayload.includes(note)).toBe(false);
+        expect(syncJobPayload.includes(note)).toBe(false);
+      }
+
+      const fallbackProjectId = integrationId("project");
+      const fallbackSourceFileId = integrationId("file");
+      const fallbackStorageKey =
+        `integration/${fallbackProjectId}/reference.pptx`;
+      const previewFailingStorage = new NotesPreviewFailingStorage();
+      projectIds.add(fallbackProjectId);
+      await previewFailingStorage.seed(
+        fallbackStorageKey,
+        sourceBytes,
+        pptxMimeType,
+        "pptx-import",
+      );
+      await seedProject(dataSource, fallbackProjectId);
+      await seedAsset(dataSource, {
+        projectId: fallbackProjectId,
+        fileId: fallbackSourceFileId,
+        storageKey: fallbackStorageKey,
+        purpose: "pptx-import",
+        body: sourceBytes,
+      });
+
+      const fallbackHarness = createServiceHarness(dataSource);
+      const fallbackImportJob = await fallbackHarness.jobs.create({
+        projectId: fallbackProjectId,
+        type: "pptx-ooxml-generation",
+        payload: { request: { fileId: fallbackSourceFileId } },
+      });
+      const fallbackJob = await processPptxOoxmlGenerationJob(
+        dataSource,
+        previewFailingStorage,
+        pythonWorkerUrl,
+        {
+          jobId: fallbackImportJob.jobId,
+          projectId: fallbackProjectId,
+          request: { fileId: fallbackSourceFileId },
+        },
+      );
+      expect(fallbackJob.status, JSON.stringify(fallbackJob.error)).toBe(
+        "succeeded",
+      );
+
+      const fallbackDeck = deckSchema.parse(
+        (await fallbackHarness.decks.getDeck(fallbackProjectId)).deck,
+      );
+      expect(fallbackDeck.slides.map((slide) => noteDigest(slide.speakerNotes)))
+        .toEqual(expectedNoteDigests);
+      const fallbackBlueprint = await loadTemplateBlueprint(
+        dataSource,
+        fallbackProjectId,
+        fallbackDeck.deckId,
+      );
+      expect(
+        fallbackBlueprint.slides.every(
+          (slide) =>
+            slide.notesPage?.status === "render-unavailable" &&
+            slide.notesPage.renderAssetFileId === undefined,
+        ),
+      ).toBe(true);
+      const fallbackResult = pptxOoxmlGenerationJobResultSchema.parse(
+        fallbackJob.result,
+      );
+      expect(fallbackResult.qualityReport.notesDiagnostics).toMatchObject({
+        rendered: 0,
+        warnings: expect.arrayContaining([
+          { code: "PPTX_NOTES_PREVIEW_ASSET_FAILED", count: 8 },
+        ]),
+      });
+      const fallbackJobPayload = JSON.stringify(fallbackResult);
+      for (const note of sourceNotes) {
+        expect(fallbackJobPayload.includes(note)).toBe(false);
+      }
+    },
+    180_000,
+  );
+
   it("imports, saves, syncs, exports, and re-imports edited text and frame", async () => {
     const projectId = integrationId("project");
     const sourceFileId = integrationId("file");
     const sourceStorageKey = `integration/${projectId}/source.pptx`;
-    const storage = new MemoryStorage();
+    const storage = new IntegrationStorage();
     projectIds.add(projectId);
 
     await expectPythonWorkerHealthy(pythonWorkerUrl);
     const sourceDeck = createDeck(projectId, integrationId("deck"), 1);
     const sourceBytes = await exportDeckWithPython(pythonWorkerUrl, sourceDeck);
-    storage.seed(sourceStorageKey, sourceBytes, pptxMimeType, "pptx-import");
+    await storage.seed(
+      sourceStorageKey,
+      sourceBytes,
+      pptxMimeType,
+      "pptx-import",
+    );
     await seedProject(dataSource, projectId);
     await seedAsset(dataSource, {
       projectId,
@@ -110,6 +391,12 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     );
 
     const imported = (await harness.decks.getDeck(projectId)).deck;
+    const importedBlueprint = await loadTemplateBlueprint(
+      dataSource,
+      projectId,
+      imported.deckId,
+    );
+    expect(importedBlueprint.slides[0]?.notesPage?.status).toBe("absent");
     const initialExportPayload = await enqueueExport(harness, projectId);
     const initialExport = await processDeckExportJob(
       dataSource,
@@ -133,12 +420,14 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
       height: sourceText.height + 47,
     };
     const editedText = "Edited through PostgreSQL OOXML round-trip";
+    const editedNotes = "Created through PostgreSQL OOXML notes round-trip";
     const requested = deckSchema.parse(structuredClone(imported));
     const requestedText = findElement(requested, sourceText.elementId);
     Object.assign(requestedText, expectedFrame);
     if (requestedText.type !== "text")
       throw new Error("Expected text element.");
     requestedText.props.text = editedText;
+    requested.slides[0]!.speakerNotes = editedNotes;
 
     const saved = await harness.decks.putDeck(projectId, {
       baseVersion: imported.version,
@@ -158,6 +447,18 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     );
     expect(syncJob.status, JSON.stringify(syncJob.error)).toBe("succeeded");
     expect(syncJob.result).toMatchObject({ syncedDeckVersion: 2 });
+    const syncedBlueprint = await loadTemplateBlueprint(
+      dataSource,
+      projectId,
+      saved.deck.deckId,
+    );
+    expect(syncedBlueprint.slides[0]?.notesPage).toMatchObject({
+      status: "rendered",
+      bodyWritable: true,
+      sourceNotesPart: "ppt/notesSlides/notesSlide1.xml",
+      sourceNotesMasterPart: "ppt/notesMasters/notesMaster1.xml",
+      renderAssetFileId: expect.stringMatching(/^file_/),
+    });
 
     const exportPayload = await enqueueExport(harness, projectId);
     const exportedJob = await processDeckExportJob(
@@ -183,13 +484,14 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     expect(reimportedText.y).toBeCloseTo(expectedFrame.y, 0);
     expect(reimportedText.width).toBeCloseTo(expectedFrame.width, 0);
     expect(reimportedText.height).toBeCloseTo(expectedFrame.height, 0);
+    expect(reimported.blueprint.slides?.[0]?.speakerNotes).toBe(editedNotes);
   }, 120_000);
 
   it("coalesces cumulative reorder and authored line, arrow, and chart fallbacks", async () => {
     const projectId = integrationId("project");
     const sourceFileId = integrationId("file");
     const sourceStorageKey = `integration/${projectId}/source.pptx`;
-    const storage = new MemoryStorage();
+    const storage = new IntegrationStorage();
     projectIds.add(projectId);
 
     await expectPythonWorkerHealthy(pythonWorkerUrl);
@@ -213,7 +515,12 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
       ],
     });
     const sourceBytes = await exportDeckWithPython(pythonWorkerUrl, sourceDeck);
-    storage.seed(sourceStorageKey, sourceBytes, pptxMimeType, "pptx-import");
+    await storage.seed(
+      sourceStorageKey,
+      sourceBytes,
+      pptxMimeType,
+      "pptx-import",
+    );
     await seedProject(dataSource, projectId);
     await seedAsset(dataSource, {
       projectId,
@@ -307,7 +614,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     expect(firstSync.status, JSON.stringify(firstSync.error)).toBe("succeeded");
     expect(firstSync.result).toMatchObject({
       syncedDeckVersion: accumulated.deck.version,
-      syncCapabilityVersion: 2,
+      syncCapabilityVersion: 3,
       rasterizedElements: [
         expect.objectContaining({ elementId: line.elementId, elementType: "line" }),
         expect.objectContaining({ elementId: arrow.elementId, elementType: "arrow" }),
@@ -435,7 +742,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
     const projectId = integrationId("project");
     const sourceFileId = integrationId("file");
     const sourceStorageKey = `integration/${projectId}/source.pptx`;
-    const storage = new MemoryStorage();
+    const storage = new IntegrationStorage();
     projectIds.add(projectId);
 
     await expectPythonWorkerHealthy(pythonWorkerUrl);
@@ -451,7 +758,12 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
       })),
     });
     const sourceBytes = await exportDeckWithPython(pythonWorkerUrl, sourceDeck);
-    storage.seed(sourceStorageKey, sourceBytes, pptxMimeType, "pptx-import");
+    await storage.seed(
+      sourceStorageKey,
+      sourceBytes,
+      pptxMimeType,
+      "pptx-import",
+    );
     await seedProject(dataSource, projectId);
     await seedAsset(dataSource, {
       projectId,
@@ -641,7 +953,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
 
   it("serializes inverted v2/v3 sync jobs and coalesces them to v3", async () => {
     const fixture = await seedFakeImportedFixture(dataSource, projectIds);
-    const fake = await startFakePythonWorker();
+    const fake = await startFakePythonWorker(fixture.storage);
     fakeWorkers.add(fake.server);
 
     await patchText(fixture.harness, fixture.deck, "version 2");
@@ -687,7 +999,7 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
 
   it("re-evaluates the latest deck version while export waits for sync", async () => {
     const fixture = await seedFakeImportedFixture(dataSource, projectIds);
-    const fake = await startFakePythonWorker();
+    const fake = await startFakePythonWorker(fixture.storage);
     fakeWorkers.add(fake.server);
 
     await patchText(fixture.harness, fixture.deck, "version 2");
@@ -760,56 +1072,60 @@ describeIntegration("PPTX OOXML PostgreSQL round-trip", () => {
   });
 });
 
-class MemoryStorage implements Pick<
-  StoragePort,
-  "putObject" | "getSignedReadUrl"
-> {
-  private readonly objects = new Map<
+class IntegrationStorage extends LocalMinioStorage {
+  private readonly objectPurposes = new Map<
     string,
-    { body: Buffer; contentType: string; purpose: StoragePutInput["purpose"] }
+    StoragePutInput["purpose"]
   >();
 
-  seed(
+  constructor() {
+    const endpoint =
+      process.env.PPTX_INTEGRATION_S3_ENDPOINT ?? "http://127.0.0.1:9000";
+    super({
+      endpoint,
+      publicEndpoint: endpoint,
+      bucket: process.env.PPTX_INTEGRATION_S3_BUCKET ?? "orbit-local",
+      region: process.env.PPTX_INTEGRATION_S3_REGION ?? "ap-northeast-2",
+      accessKeyId: process.env.PPTX_INTEGRATION_S3_ACCESS_KEY_ID ?? "orbit",
+      secretAccessKey:
+        process.env.PPTX_INTEGRATION_S3_SECRET_ACCESS_KEY ?? "orbit-password",
+      forcePathStyle: true,
+    });
+  }
+
+  async seed(
     key: string,
     body: Buffer,
     contentType: string,
     purpose: StoragePutInput["purpose"],
-  ): void {
-    this.objects.set(key, { body, contentType, purpose });
+  ): Promise<void> {
+    await this.putObject({ key, body, contentType, purpose });
   }
 
-  async putObject(input: StoragePutInput): Promise<StorageObject> {
-    const body = Buffer.from(input.body);
-    this.objects.set(input.key, {
-      body,
-      contentType: input.contentType,
-      purpose: input.purpose,
-    });
-    return {
-      key: input.key,
-      url: `memory://${input.key}`,
-      contentType: input.contentType,
-      purpose: input.purpose,
-      size: body.byteLength,
-    };
+  override async putObject(input: StoragePutInput): Promise<StorageObject> {
+    const stored = await super.putObject(input);
+    this.objectPurposes.set(input.key, input.purpose);
+    return stored;
   }
 
-  async getSignedReadUrl(key: string): Promise<string> {
-    const object = this.objects.get(key);
-    if (!object) throw new Error(`Storage object not found: ${key}`);
-    return `data:${object.contentType};base64,${object.body.toString("base64")}`;
+  async bytes(key: string): Promise<Buffer> {
+    const object = await this.getObject(key);
+    return Buffer.from(object.body);
   }
 
-  bytes(key: string): Buffer {
-    const object = this.objects.get(key);
-    if (!object) throw new Error(`Storage object not found: ${key}`);
-    return object.body;
+  objectsByPurpose(purpose: StoragePutInput["purpose"]): string[] {
+    return [...this.objectPurposes.entries()]
+      .filter(([, storedPurpose]) => storedPurpose === purpose)
+      .map(([key]) => key);
   }
+}
 
-  objectsByPurpose(purpose: StoragePutInput["purpose"]): Buffer[] {
-    return [...this.objects.values()]
-      .filter((object) => object.purpose === purpose)
-      .map((object) => object.body);
+class NotesPreviewFailingStorage extends IntegrationStorage {
+  override async putObject(input: StoragePutInput): Promise<StorageObject> {
+    if (input.key.includes("notes-")) {
+      throw new Error("Synthetic notes preview storage failure.");
+    }
+    return super.putObject(input);
   }
 }
 
@@ -834,8 +1150,8 @@ async function seedFakeImportedFixture(
   const deck = createDeck(projectId, integrationId("deck"), 1);
   const packageFileId = integrationId("file");
   const packageKey = `integration/${projectId}/current.pptx`;
-  const storage = new MemoryStorage();
-  storage.seed(
+  const storage = new IntegrationStorage();
+  await storage.seed(
     packageKey,
     Buffer.from("fake-package-v1"),
     pptxMimeType,
@@ -990,7 +1306,7 @@ async function enqueueExport(
   return payload;
 }
 
-async function startFakePythonWorker() {
+async function startFakePythonWorker(storage: Pick<StoragePort, "putObject">) {
   const syncedVersions: number[] = [];
   const server = createServer(async (request, response) => {
     if (request.method !== "POST" || request.url !== "/ai/pptx-ooxml-sync") {
@@ -1003,6 +1319,13 @@ async function startFakePythonWorker() {
     const version = Number(
       body.match(/name="synced_deck_version"\r\n\r\n(\d+)/)?.[1] ?? 0,
     );
+    const storagePrefix = body.match(
+      /name="storage_prefix"\r\n\r\n([^\r\n]+)/,
+    )?.[1];
+    if (!storagePrefix) {
+      response.writeHead(400).end("storage_prefix is required");
+      return;
+    }
     const operations = JSON.parse(
       body.match(
         /name="operations_file"; filename="operations.json"\r\nContent-Type: application\/json\r\n\r\n([^\r\n]+)/,
@@ -1014,17 +1337,29 @@ async function startFakePythonWorker() {
       element?: { elementId?: string };
     }>;
     syncedVersions.push(version);
+    const packageBody = Buffer.from(`fake-package-v${version}`);
+    const sha256 = createHash("sha256").update(packageBody).digest("hex");
+    const fileName = `current-v${version}.pptx`;
+    const storageKey = `${storagePrefix}${sha256}-${fileName}`;
+    await storage.putObject({
+      key: storageKey,
+      body: packageBody,
+      contentType: pptxMimeType,
+      purpose: "design-asset",
+      metadata: { "orbit-sha256": sha256 },
+    });
     response.writeHead(200, { "content-type": "application/json" });
     response.end(
       JSON.stringify({
+        assetTransport: "storage-manifest-v1",
         assets: [
           {
             assetId: "current_package",
-            fileName: `current-v${version}.pptx`,
+            fileName,
             mimeType: pptxMimeType,
-            contentBase64: Buffer.from(`fake-package-v${version}`).toString(
-              "base64",
-            ),
+            storageKey,
+            size: packageBody.byteLength,
+            sha256,
           },
         ],
         elementSources: [],
@@ -1070,10 +1405,13 @@ async function importPptxWithPython(
   bytes: Buffer,
   projectId: string,
   fileId: string,
+  importPreference: "appearance-first" | "editability-first" =
+    "editability-first",
 ) {
   const form = new FormData();
   form.append("project_id", projectId);
   form.append("file_ids", fileId);
+  form.append("import_preference", importPreference);
   form.append(
     "files",
     new Blob([bytes], { type: pptxMimeType }),
@@ -1087,9 +1425,16 @@ async function importPptxWithPython(
   if (!response.ok) throw new Error(await response.text());
   return (await response.json()) as {
     blueprint: {
-      slides?: Array<{ elements?: Array<Record<string, unknown>> }>;
+      slides?: Array<{
+        elements?: Array<Record<string, unknown>>;
+        speakerNotes?: string;
+      }>;
     };
   };
+}
+
+function noteDigest(note: string): string {
+  return createHash("sha256").update(note).digest("hex");
 }
 
 function findImportedText(
@@ -1153,7 +1498,7 @@ async function latestChangeId(
 
 async function currentPackageBytes(
   dataSource: DataSource,
-  storage: MemoryStorage,
+  storage: IntegrationStorage,
   projectId: string,
   fileId: string,
 ) {
@@ -1169,7 +1514,7 @@ async function currentPackageBytes(
 
 async function jobAssetBytes(
   dataSource: DataSource,
-  storage: MemoryStorage,
+  storage: IntegrationStorage,
   job: Job,
 ) {
   const fileId = (job.result as { fileId?: string } | null)?.fileId;

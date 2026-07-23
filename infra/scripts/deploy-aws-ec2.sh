@@ -89,11 +89,20 @@ COMPOSE=(docker compose -f "$COMPOSE_FILE")
 # docs/runbooks/deploy-image-registry-migration.md.
 if [ "${DEPLOY_USE_REGISTRY:-false}" = "true" ]; then
   IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io}"
-  # Use the branch tag (e.g. main) rather than the exact commit SHA: commits
-  # that touch only scripts or docs do not trigger build-images, so a per-SHA
-  # tag may not exist, while the branch tag always points at the latest built
-  # app image.
-  IMAGE_TAG="${IMAGE_TAG:-$(git -C "$APP_DIR" rev-parse --abbrev-ref HEAD)}"
+  # Pin the images to the exact deployed commit rather than the branch tag. The
+  # AWS deploy and build-images both trigger on push:main, so the branch tag may
+  # still point at the previous build (stale) when a deploy races ahead. The
+  # per-SHA tag can never be stale: it either matches this commit or is not yet
+  # present, in which case we wait briefly for build-images and finally fall back
+  # to an on-box build (e.g. a commit that did not trigger build-images at all).
+  #
+  # Prefer the deploying workflow's commit (DEPLOY_COMMIT_SHA) over the on-box
+  # HEAD: the static web bundle in S3 is built from that commit, and the on-box
+  # `git pull` may have advanced HEAD to a newer commit if main moved while this
+  # deploy was queued. Using it keeps the backend images, the migrations (run
+  # from the api image) and the web bundle on the same commit. Fall back to the
+  # checked-out HEAD for manual/local runs that do not set it.
+  IMAGE_TAG="${IMAGE_TAG:-${DEPLOY_COMMIT_SHA:-$(git -C "$APP_DIR" rev-parse HEAD)}}"
   export IMAGE_TAG
   ghcr_user="${GHCR_USERNAME:-orbit-deploy}"
   ghcr_token="${GHCR_TOKEN:-}"
@@ -106,7 +115,23 @@ if [ "${DEPLOY_USE_REGISTRY:-false}" = "true" ]; then
     exit 1
   fi
   printf '%s' "$ghcr_token" | docker login "$IMAGE_REGISTRY" -u "$ghcr_user" --password-stdin
-  "${COMPOSE[@]}" pull api worker python-worker
+  # Wait for the per-SHA images (build-images may still be running, since it and
+  # this deploy both start on push:main). Retry briefly, then fall back to an
+  # on-box build so the deploy never blocks indefinitely or ships a stale image.
+  pull_attempts="${REGISTRY_PULL_ATTEMPTS:-10}"
+  pulled=0
+  for attempt in $(seq 1 "$pull_attempts"); do
+    if "${COMPOSE[@]}" pull api worker python-worker; then
+      pulled=1
+      break
+    fi
+    echo "Registry images for ${IMAGE_TAG} not ready (attempt ${attempt}/${pull_attempts}); waiting for build-images..."
+    sleep 30
+  done
+  if [ "$pulled" -ne 1 ]; then
+    echo "Registry images for ${IMAGE_TAG} unavailable; building on-box as a fallback."
+    "${COMPOSE[@]}" build
+  fi
 else
   "${COMPOSE[@]}" build
 fi

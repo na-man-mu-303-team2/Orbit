@@ -2,9 +2,12 @@ from __future__ import annotations
 
 # ruff: noqa: E402
 
+import argparse
 import base64
+import hashlib
 import json
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -32,17 +35,37 @@ PAYLOADS = OUT / "payloads"
 CANDIDATE = OUT / "candidate"
 ASSETS = OUT / "assets"
 TEMP = OUT / "tmp"
+IMPORT_FIDELITY_NOTES_FIXTURE = (
+    ROOT
+    / "services"
+    / "python-worker"
+    / "tests"
+    / "fixtures"
+    / "pptx"
+    / "import-fidelity-notes.pptx"
+)
 
 SLIDE_WIDE = 13.333333
 SLIDE_HIGH = 7.5
 
 
 def main() -> None:
+    args = parse_args()
     for directory in (SAMPLES, GOLDEN, PAYLOADS, CANDIDATE, ASSETS, TEMP):
         directory.mkdir(parents=True, exist_ok=True)
     os.environ["TMP"] = str(TEMP)
     os.environ["TEMP"] = str(TEMP)
     tempfile.tempdir = str(TEMP)
+
+    if args.source_pptx is not None:
+        prepare_source_pptx(
+            args.source_pptx.resolve(),
+            preference_pair=args.preference_pair,
+        )
+        return
+
+    if args.preference_pair:
+        raise SystemExit("--preference-pair requires --source-pptx")
 
     image_assets = create_image_assets()
     builders = [
@@ -61,6 +84,7 @@ def main() -> None:
         ("13_line_chart", sample_line_chart),
         ("14_pie_chart", sample_pie_chart),
         ("15_master_layout_theme", sample_master_layout_theme),
+        ("16_import_fidelity_notes", sample_import_fidelity_notes),
     ]
 
     rows: list[dict[str, Any]] = []
@@ -105,6 +129,7 @@ def main() -> None:
     manifest = {
         "sampleCount": len(rows),
         "threshold": 0.95,
+        "fallbackThreshold": 0.80,
         "route": "/__deck-render",
         "rows": rows,
     }
@@ -113,6 +138,126 @@ def main() -> None:
         encoding="utf-8",
     )
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source-pptx", type=Path)
+    parser.add_argument("--preference-pair", action="store_true")
+    return parser.parse_args()
+
+
+def prepare_source_pptx(source: Path, *, preference_pair: bool = False) -> None:
+    result = generate_pptx_ooxml(source, "konva_reference", render=True)
+    asset_by_id = {asset.asset_id: asset for asset in result.assets}
+    deck, unresolved_assets, _ = build_deck_payload(
+        result.canvas,
+        result.blueprint,
+        result.assets,
+        1,
+    )
+    rows: list[dict[str, Any]] = []
+    for index, slide in enumerate(result.blueprint["slides"], start=1):
+        base_name = f"reference_slide_{index:02d}"
+        golden = asset_by_id[f"slide_render_{index}"]
+        golden_path = GOLDEN / f"{base_name}.png"
+        golden_path.write_bytes(base64.b64decode(golden.content_base64))
+        fallback_objects = sum(
+            1
+            for element in slide.get("elements", [])
+            if str(element.get("props", {}).get("src", "")).startswith(
+                "asset:shape_render_"
+            )
+        )
+        preference_modes: list[tuple[str | None, str | None]] = [(None, None)]
+        if preference_pair:
+            preference_modes = [
+                ("appearance-first", "snapshot"),
+                (
+                    "editability-first",
+                    "hybrid" if fallback_objects > 0 else "editable",
+                ),
+            ]
+
+        for preference, render_mode in preference_modes:
+            name = (
+                f"{base_name}_{preference}"
+                if preference is not None
+                else base_name
+            )
+            payload_path = PAYLOADS / f"{name}.json"
+            slide_deck = json.loads(json.dumps(deck))
+            slide_deck["slides"] = [slide_deck["slides"][index - 1]]
+            selected_slide = slide_deck["slides"][0]
+            selected_slide["order"] = 1
+            if render_mode is not None:
+                selected_slide["importRenderMode"] = render_mode
+                selected_slide["thumbnailUrl"] = data_url(
+                    golden.mime_type,
+                    golden.content_base64,
+                )
+            payload_path.write_text(
+                json.dumps(
+                    {"deck": slide_deck, "slideIndex": 0},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            rows.append(
+                {
+                    "name": name,
+                    "pptxPath": str(source),
+                    "goldenPath": relative_path(golden_path),
+                    "payloadPath": relative_path(payload_path),
+                    "candidatePath": relative_path(CANDIDATE / f"{name}.png"),
+                    "fallbackObjects": fallback_objects,
+                    "fullSlideFallbackUsed": render_mode == "snapshot",
+                    "unresolvedAssets": unresolved_assets,
+                    "warnings": result.warnings,
+                    "modeReasons": preference_mode_reasons(
+                        preference,
+                        render_mode,
+                    ),
+                    "elementCounts": element_counts(slide.get("elements", [])),
+                    **(
+                        {
+                            "importPreference": preference,
+                            "expectedRenderMode": render_mode,
+                            "selectedRenderMode": render_mode,
+                            "recommendedRenderMode": render_mode,
+                        }
+                        if preference is not None
+                        else {}
+                    ),
+                }
+            )
+    manifest = {
+        "sampleCount": len(rows),
+        "threshold": 0.95,
+        "fallbackThreshold": 0.80,
+        "route": "/__deck-render",
+        "preferencePair": preference_pair,
+        "sourceSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "rows": rows,
+    }
+    (OUT / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(json.dumps(manifest, ensure_ascii=False, indent=2))
+
+
+def preference_mode_reasons(
+    preference: str | None,
+    render_mode: str | None,
+) -> list[str]:
+    if preference == "appearance-first" and render_mode == "snapshot":
+        return ["PPTX_RENDER_MODE_APPEARANCE_SNAPSHOT_PIXEL_NOT_EVALUATED"]
+    if preference == "editability-first" and render_mode == "hybrid":
+        return ["PPTX_RENDER_MODE_HYBRID_RASTER_FALLBACK"]
+    if preference == "editability-first" and render_mode == "snapshot":
+        return ["PPTX_RENDER_MODE_SNAPSHOT_DATA_LOSS_RISK"]
+    return []
 
 
 def build_deck_payload(
@@ -429,6 +574,11 @@ def sample_master_layout_theme(path: Path, assets: dict[str, Path]) -> None:
     slide = prs.slides.add_slide(layout)
     add_title(slide, "Master/Layout Decoration")
     prs.save(path)
+
+
+def sample_import_fidelity_notes(path: Path, assets: dict[str, Path]) -> None:
+    del assets
+    shutil.copyfile(IMPORT_FIDELITY_NOTES_FIXTURE, path)
 
 
 def add_title(slide: Any, text: str) -> None:

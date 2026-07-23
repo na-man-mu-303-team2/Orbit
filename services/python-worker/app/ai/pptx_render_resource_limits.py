@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+import signal
+import threading
+import time
+from collections.abc import Callable
+from typing import TypeVar
+
+
+T = TypeVar("T")
+
+
+class PptxRenderResourceLimitError(RuntimeError):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def run_bitmap_decode_with_timeout(
+    operation: Callable[[], T],
+    *,
+    timeout_seconds: float,
+    timeout_code: str,
+) -> T:
+    if timeout_seconds <= 0:
+        raise PptxRenderResourceLimitError(timeout_code)
+
+    started_at = time.monotonic()
+    can_interrupt = (
+        threading.current_thread() is threading.main_thread()
+        and hasattr(signal, "SIGALRM")
+        and hasattr(signal, "setitimer")
+        and signal.getitimer(signal.ITIMER_REAL)[0] == 0
+    )
+    if not can_interrupt:
+        result = operation()
+        if time.monotonic() - started_at > timeout_seconds:
+            raise PptxRenderResourceLimitError(timeout_code)
+        return result
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+
+    def deadline_reached(_signum: int, _frame: object) -> None:
+        raise PptxRenderResourceLimitError(timeout_code)
+
+    signal.signal(signal.SIGALRM, deadline_reached)
+    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+    try:
+        return operation()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
+def validate_rendered_bitmap(
+    content: bytes,
+    *,
+    width: int,
+    height: int,
+    max_dimension: int,
+    max_bytes: int,
+    dimension_code: str,
+    byte_code: str,
+) -> None:
+    if (
+        width <= 0
+        or height <= 0
+        or width > max_dimension
+        or height > max_dimension
+    ):
+        raise PptxRenderResourceLimitError(dimension_code)
+    if not content or len(content) > max_bytes:
+        raise PptxRenderResourceLimitError(byte_code)

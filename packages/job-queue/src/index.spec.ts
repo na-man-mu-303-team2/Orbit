@@ -435,7 +435,10 @@ describe("enqueuePptxOoxmlGenerationJob", () => {
       redisUrl: "redis://localhost:6379",
       jobId: "job-1",
       projectId: "project-a",
-      request: { fileId: "file_1" }
+      request: {
+        fileId: "file_1",
+        importPreference: "appearance-first"
+      }
     });
 
     expect(queueMock.Queue).toHaveBeenCalledWith(pptxOoxmlGenerationQueueName, {
@@ -446,8 +449,20 @@ describe("enqueuePptxOoxmlGenerationJob", () => {
     });
     expect(queueMock.add).toHaveBeenCalledWith(
       pptxOoxmlGenerationJobName,
-      { jobId: "job-1", projectId: "project-a", request: { fileId: "file_1" } },
-      expect.objectContaining({ jobId: "job-1", attempts: 5 })
+      {
+        jobId: "job-1",
+        projectId: "project-a",
+        request: {
+          fileId: "file_1",
+          importPreference: "appearance-first"
+        }
+      },
+      expect.objectContaining({
+        jobId: "job-1",
+        attempts: 5,
+        backoff: { type: "exponential", delay: 2_000 },
+        removeOnFail: false,
+      })
     );
     expect(queueMock.close).toHaveBeenCalled();
   });
@@ -479,7 +494,12 @@ describe("enqueuePptxOoxmlSyncJob", () => {
         targetDeckVersion: 53,
         syncCapabilityVersion: 2,
       },
-      expect.objectContaining({ jobId: "job-sync-1" }),
+      expect.objectContaining({
+        jobId: "job-sync-1",
+        attempts: 5,
+        backoff: { type: "exponential", delay: 2_000 },
+        removeOnFail: false,
+      }),
     );
   });
 });

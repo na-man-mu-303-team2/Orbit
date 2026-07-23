@@ -19,6 +19,8 @@ type AccuracyManifest = {
   };
   rows: Array<{
     candidatePath: string;
+    expectedRenderMode?: "editable" | "hybrid" | "snapshot";
+    modeReasons?: string[];
     name: string;
     payloadPath: string;
   }>;
@@ -70,9 +72,80 @@ test.describe("PPTX Konva accuracy render", () => {
       const payload = fs.readFileSync(rootPath(row.payloadPath), "utf8");
       const candidatePath = rootPath(row.candidatePath);
       fs.mkdirSync(path.dirname(candidatePath), { recursive: true });
+      const parsedPayload = JSON.parse(payload) as {
+        deck?: {
+          slides?: Array<{
+            elements?: unknown[];
+            importRenderMode?: string;
+            thumbnailUrl?: unknown;
+          }>;
+        };
+      };
+      const selectedSlide = parsedPayload.deck?.slides?.[0];
+      if (row.expectedRenderMode) {
+        expect(selectedSlide?.importRenderMode).toBe(row.expectedRenderMode);
+        expect(selectedSlide?.elements?.length ?? 0).toBeGreaterThan(0);
+      }
+      if (row.expectedRenderMode === "snapshot") {
+        expect(selectedSlide?.thumbnailUrl).toEqual(
+          expect.stringMatching(/^data:image\//),
+        );
+        expect(row.modeReasons?.length ?? 0).toBeGreaterThan(0);
+      }
+      if (row.expectedRenderMode === "hybrid") {
+        expect(row.modeReasons).toContain(
+          "PPTX_RENDER_MODE_HYBRID_RASTER_FALLBACK",
+        );
+      }
 
       await page.addInitScript(
-        ({ key, value }) => window.localStorage.setItem(key, value),
+        ({ key, value }) => {
+          const payload = JSON.parse(value) as {
+            deck?: {
+              slides?: Array<{
+                elements?: Array<{ props?: { src?: unknown } }>;
+                style?: { backgroundImage?: { src?: unknown } };
+                thumbnailUrl?: unknown;
+              }>;
+            };
+          };
+          const blobUrlBySource = new Map<string, string>();
+          const toBlobUrl = (source: unknown) => {
+            if (
+              typeof source !== "string" ||
+              !source.startsWith("data:") ||
+              !source.includes(";base64,")
+            ) {
+              return source;
+            }
+            const cached = blobUrlBySource.get(source);
+            if (cached) return cached;
+            const [header, encoded] = source.split(";base64,", 2);
+            const binary = window.atob(encoded);
+            const bytes = Uint8Array.from(binary, (character) =>
+              character.charCodeAt(0),
+            );
+            const blobUrl = URL.createObjectURL(
+              new Blob([bytes], { type: header.slice("data:".length) }),
+            );
+            blobUrlBySource.set(source, blobUrl);
+            return blobUrl;
+          };
+          for (const slide of payload.deck?.slides ?? []) {
+            slide.thumbnailUrl = toBlobUrl(slide.thumbnailUrl);
+            if (slide.style?.backgroundImage) {
+              slide.style.backgroundImage.src = toBlobUrl(
+                slide.style.backgroundImage.src,
+              );
+            }
+            for (const element of slide.elements ?? []) {
+              if (element.props) {
+                element.props.src = toBlobUrl(element.props.src);
+              }
+            }
+          }
+          window.localStorage.setItem(key, JSON.stringify(payload));
+        },
         { key: deckRenderPayloadStorageKey, value: payload },
       );
       await page.goto(manifest.route);
@@ -126,9 +199,13 @@ async function waitForDeterministicSlideRender(
         slides?: Array<{
           elements?: Array<{ props?: { src?: unknown }; type?: unknown }>;
           style?: { backgroundImage?: { src?: unknown } };
+          thumbnailUrl?: unknown;
         }>;
       };
       for (const slide of deck.slides ?? []) {
+        if (typeof slide.thumbnailUrl === "string") {
+          imageSources.push(slide.thumbnailUrl);
+        }
         const backgroundSource = slide.style?.backgroundImage?.src;
         if (typeof backgroundSource === "string") {
           imageSources.push(backgroundSource);

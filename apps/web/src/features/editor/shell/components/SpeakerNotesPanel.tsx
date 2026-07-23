@@ -16,18 +16,25 @@ import { useEffect, useState } from "react";
 import type { AutoSlideQuestionGuideStatus } from "../../practice/useAutoSlideQuestionGuides";
 
 import { SpeakerNotesQnaTab } from "./SpeakerNotesQnaTab";
+import { SpeakerNotesPageTab } from "./SpeakerNotesPageTab";
 import { SpeakerNotesReportTab } from "./SpeakerNotesReportTab";
 import {
   SpeakerNotesScriptTab,
   type SpeakerNotesScriptTabProps,
 } from "./SpeakerNotesScriptTab";
 
-export type SpeakerNotesTab = "script" | "qna" | "report";
+export type SpeakerNotesTab = "script" | "notes-page" | "qna" | "report";
 
-const speakerNotesTabs: Array<{ id: SpeakerNotesTab; label: string }> = [
+const standardSpeakerNotesTabs: Array<{ id: SpeakerNotesTab; label: string }> = [
   { id: "script", label: "대본" },
   { id: "qna", label: "QnA" },
   { id: "report", label: "리포트" }
+];
+
+const importedSpeakerNotesTabs: Array<{ id: SpeakerNotesTab; label: string }> = [
+  standardSpeakerNotesTabs[0]!,
+  { id: "notes-page", label: "노트 페이지" },
+  ...standardSpeakerNotesTabs.slice(1)
 ];
 
 export function SpeakerNotesPanel(props: SpeakerNotesScriptTabProps & {
@@ -56,10 +63,20 @@ export function SpeakerNotesPanel(props: SpeakerNotesScriptTabProps & {
 }) {
   const [activeTab, setActiveTab] = useState<SpeakerNotesTab>("script");
   const notesPreview = (props.currentSlide?.speakerNotes ?? "").trim();
+  const isImportedDeck = props.deck.metadata.sourceType === "import";
+  const speakerNotesTabs = isImportedDeck
+    ? importedSpeakerNotesTabs
+    : standardSpeakerNotesTabs;
 
   useEffect(() => {
     if (props.requestedTab) setActiveTab(props.requestedTab);
   }, [props.requestedTab, props.reportRefreshToken]);
+
+  useEffect(() => {
+    if ((!isImportedDeck && activeTab === "notes-page") || props.isEditing) {
+      setActiveTab("script");
+    }
+  }, [activeTab, isImportedDeck, props.isEditing]);
 
   function selectTab(tab: SpeakerNotesTab) {
     setActiveTab(tab);
@@ -183,6 +200,12 @@ export function SpeakerNotesPanel(props: SpeakerNotesScriptTabProps & {
       <div id="speaker-notes-content" hidden={!props.isExpanded} ref={props.contentRef}>
         {activeTab === "script" ? (
           <SpeakerNotesScriptTab {...props} />
+        ) : null}
+        {activeTab === "notes-page" && isImportedDeck ? (
+          <SpeakerNotesPageTab
+            projectId={props.projectId}
+            slide={props.currentSlide}
+          />
         ) : null}
         {activeTab === "qna" ? (
           <SpeakerNotesQnaTab

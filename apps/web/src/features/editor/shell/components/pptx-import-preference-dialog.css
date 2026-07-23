@@ -1,0 +1,95 @@
+.pptx-import-preference-dialog {
+  width: min(560px, calc(100vw - var(--redesign-space-8)));
+}
+
+.pptx-import-preference-file {
+  overflow: hidden;
+  margin: 0 0 var(--redesign-space-4);
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+  line-height: var(--redesign-type-body-sm-line-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pptx-import-preference-options {
+  display: grid;
+  gap: var(--redesign-space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.pptx-import-preference-options legend {
+  margin-bottom: var(--redesign-space-2);
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-label-md-size);
+  font-weight: var(--redesign-type-label-md-weight);
+  line-height: var(--redesign-type-label-md-line-height);
+}
+
+.pptx-import-preference-options label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--redesign-space-3);
+  align-items: start;
+  padding: var(--redesign-space-4);
+  border: 1px solid var(--redesign-color-outline-variant);
+  border-radius: var(--redesign-radius-lg);
+  background: var(--redesign-color-surface-container-lowest);
+  cursor: pointer;
+}
+
+.pptx-import-preference-options label:hover {
+  border-color: var(--redesign-color-primary-outline);
+  background: var(--redesign-color-primary-subtle);
+}
+
+.pptx-import-preference-options label:focus-within {
+  box-shadow: var(--redesign-shadow-outline-primary-subtle);
+}
+
+.pptx-import-preference-options label.is-selected {
+  border-color: var(--redesign-color-primary);
+  background: var(--redesign-color-primary-subtle);
+}
+
+.pptx-import-preference-options input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--redesign-color-primary);
+}
+
+.pptx-import-preference-options span {
+  display: grid;
+  gap: var(--redesign-space-1);
+}
+
+.pptx-import-preference-options strong {
+  color: var(--redesign-color-on-surface);
+  font-size: var(--redesign-type-body-md-size);
+  line-height: var(--redesign-type-body-md-line-height);
+}
+
+.pptx-import-preference-options small,
+.pptx-import-preference-options em {
+  color: var(--redesign-color-on-surface-variant);
+  font-size: var(--redesign-type-body-sm-size);
+  font-style: normal;
+  line-height: var(--redesign-type-body-sm-line-height);
+}
+
+.pptx-import-preference-options em {
+  color: var(--redesign-color-warning);
+}
+
+@media (max-width: 520px) {
+  .pptx-import-preference-dialog {
+    width: calc(100vw - var(--redesign-space-4));
+  }
+
+  .pptx-import-preference-options label {
+    padding: var(--redesign-space-3);
+  }
+}

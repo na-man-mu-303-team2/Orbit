@@ -52,6 +52,7 @@ import {
 import { ProjectExplorerPage } from "./features/projects/ProjectExplorerPage";
 import { OrbitWorkspaceHome } from "./features/projects/ProjectHub";
 import { ProjectAccessProvider } from "./features/projects/ProjectAccessContext";
+import { PptxImportProvider } from "./features/projects/PptxImportProvider";
 import "./features/projects/orbit-create-deck.css";
 import "./features/projects/orbit-project-access.css";
 import {
@@ -648,6 +649,14 @@ function navigateTo(path: string) {
 }
 
 export function App() {
+  return (
+    <PptxImportProvider>
+      <AppContent />
+    </PptxImportProvider>
+  );
+}
+
+function AppContent() {
   const [route, setRoute] = useState(() => getRoute());
   const [pendingRehearsalPath, setPendingRehearsalPath] = useState<string | null>(null);
 

@@ -8,6 +8,7 @@ import {
   type DeckExportRequest,
   type DeckExportJobResult,
   type OoxmlSyncState,
+  type PptxImportPreference,
   type PptxOoxmlGenerationJobResult
 } from "@orbit/shared";
 import { jobSchema, type Job } from "../../../../../../../packages/shared/src/jobs/job.schema";
@@ -18,6 +19,7 @@ import { getPptxImportValidationMessage } from "../utils/editorFileValidation";
 export async function createPptxOoxmlGenerationJob(
   projectId: string,
   fileId: string,
+  importPreference: PptxImportPreference = "editability-first",
   fetcher: typeof fetch = fetch
 ): Promise<Job> {
   const response = await fetcher(
@@ -25,7 +27,7 @@ export async function createPptxOoxmlGenerationJob(
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ fileId })
+      body: JSON.stringify({ fileId, importPreference })
     }
   );
 
@@ -94,10 +96,14 @@ export async function waitForSemanticCueExtractionJob(
 export async function waitForPptxOoxmlGenerationJob(
   jobId: string,
   fetcher: typeof fetch = fetch,
-  options: { pollIntervalMs?: number; timeoutMs?: number } = {}
+  options: {
+    onJob?: (job: Job) => void;
+    pollIntervalMs?: number;
+    timeoutMs?: number;
+  } = {}
 ): Promise<Job> {
   const pollIntervalMs = options.pollIntervalMs ?? 1200;
-  const timeoutMs = options.timeoutMs ?? 120_000;
+  const timeoutMs = options.timeoutMs ?? 600_000;
   const startedAt = Date.now();
 
   for (;;) {
@@ -110,6 +116,7 @@ export async function waitForPptxOoxmlGenerationJob(
     }
 
     const job = jobSchema.parse(await response.json());
+    options.onJob?.(job);
     if (job.status === "succeeded" || job.status === "failed") {
       return job;
     }
@@ -275,6 +282,8 @@ export async function uploadAndImportPptxTemplate(
   file: File,
   options: {
     fetcher?: typeof fetch;
+    importPreference?: PptxImportPreference;
+    onJob?: (job: Job) => void;
     onPhase?: (phase: "uploading" | "importing") => void;
     pollIntervalMs?: number;
     timeoutMs?: number;
@@ -292,9 +301,12 @@ export async function uploadAndImportPptxTemplate(
   const queuedJob = await createPptxOoxmlGenerationJob(
     projectId,
     uploaded.fileId,
+    options.importPreference,
     fetcher
   );
+  options.onJob?.(queuedJob);
   const job = await waitForPptxOoxmlGenerationJob(queuedJob.jobId, fetcher, {
+    onJob: options.onJob,
     pollIntervalMs: options.pollIntervalMs,
     timeoutMs: options.timeoutMs
   });
@@ -326,6 +338,8 @@ export async function importPptxIntoEditor(
   file: File,
   options: {
     fetcher?: typeof fetch;
+    importPreference?: PptxImportPreference;
+    onJob?: (job: Job) => void;
     onPhase?: (phase: "uploading" | "importing") => void;
     pollIntervalMs?: number;
     timeoutMs?: number;

@@ -140,6 +140,7 @@ import { SlideNavigatorPane } from "./components/SlideNavigatorPane";
 import { EditorUndoToast } from "./components/EditorUndoToast";
 import { EditorContextMenus } from "./components/EditorContextMenus";
 import { EditorModals } from "./components/EditorModals";
+import { PptxImportPreferenceDialog } from "./components/PptxImportPreferenceDialog";
 import { createTargetDurationPatch } from "./targetDurationModel";
 import { EditorCanvasStage } from "./components/EditorCanvasStage";
 import { EditorToolbar } from "./components/EditorToolbar";
@@ -810,6 +811,7 @@ export function EditorShell(props: { projectId?: string }) {
     isPptxExporting,
     pptxExportError,
     pptxExportStatus,
+    pendingPptxImportFile,
     pptxImportState
   } = editorFileTransferState;
   const openImageFilePicker = editorFileTransferActions.openImageFilePicker;
@@ -828,7 +830,8 @@ export function EditorShell(props: { projectId?: string }) {
     isTargetDurationOpen ||
     isPresenceDebugOpen ||
     isSharePanelOpen ||
-    isSpeakerNotesAssistantOpen
+    isSpeakerNotesAssistantOpen ||
+    Boolean(pendingPptxImportFile)
   );
   const {
     activeStartAction: activePresentationAction,
@@ -2130,6 +2133,14 @@ export function EditorShell(props: { projectId?: string }) {
             open: isTargetDurationOpen
           }
         }}
+      />
+      <PptxImportPreferenceDialog
+        fileName={pendingPptxImportFile?.name ?? ""}
+        onCancel={editorFileTransferActions.cancelPptxImport}
+        onConfirm={(preference) => {
+          void editorFileTransferActions.confirmPptxImport(preference);
+        }}
+        open={Boolean(pendingPptxImportFile)}
       />
       <ActivityQrInsertDialog
         deck={deck}

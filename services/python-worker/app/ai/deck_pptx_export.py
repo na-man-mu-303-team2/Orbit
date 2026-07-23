@@ -23,9 +23,6 @@ from app.ai.pptx_motion import apply_generic_slide_motion
 DECK_UNITS_PER_INCH = 144
 POINTS_PER_INCH = 72
 RICH_TEXT_UNSUPPORTED_HYPERLINK = "PPTX_RICH_TEXT_UNSUPPORTED_HYPERLINK"
-RICH_TEXT_UNSUPPORTED_LETTER_SPACING = (
-    "PPTX_RICH_TEXT_UNSUPPORTED_LETTER_SPACING"
-)
 RICH_TEXT_UNSUPPORTED_RUN_PROPERTY = "PPTX_RICH_TEXT_UNSUPPORTED_RUN_PROPERTY"
 TABLE_STRUCTURE_UNSUPPORTED = "PPTX_TABLE_STRUCTURE_UNSUPPORTED"
 TABLE_STYLE_UNSUPPORTED = "PPTX_TABLE_STYLE_UNSUPPORTED"
@@ -37,11 +34,11 @@ SUPPORTED_RUN_PROPERTIES = {
     "fontSize",
     "fontWeight",
     "italic",
+    "letterSpacing",
     "text",
     "underline",
 }
 HYPERLINK_RUN_PROPERTIES = {"href", "hyperlink", "link"}
-LETTER_SPACING_RUN_PROPERTIES = {"letterSpacing"}
 
 
 class DeckPptxExportRequest(BaseModel):
@@ -291,6 +288,30 @@ def add_text(
     text_frame.margin_top = Inches(float(inset.get("top", 0)) / 144)
     text_frame.margin_bottom = Inches(float(inset.get("bottom", 0)) / 144)
     text_frame.vertical_anchor = vertical_anchor(props.get("verticalAlign", "top"))
+    if "autoFit" in props:
+        for child in list(body_pr):
+            if child.tag.rsplit("}", maxsplit=1)[-1] in {
+                "noAutofit",
+                "normAutofit",
+                "spAutoFit",
+            }:
+                body_pr.remove(child)
+        auto_fit = str(props.get("autoFit"))
+        if auto_fit == "none":
+            body_pr.append(OxmlElement("a:noAutofit"))
+        elif auto_fit == "resize-shape":
+            body_pr.append(OxmlElement("a:spAutoFit"))
+        elif auto_fit == "shrink-text":
+            normal_autofit = OxmlElement("a:normAutofit")
+            normal_autofit.set(
+                "fontScale",
+                str(round(float(props.get("fontScale", 1)) * 100000)),
+            )
+            normal_autofit.set(
+                "lnSpcReduction",
+                str(round(float(props.get("lineSpaceReduction", 0)) * 100000)),
+            )
+            body_pr.append(normal_autofit)
 
     paragraphs = props.get("paragraphs")
     element_id = str(element.get("elementId", "unknown"))
@@ -415,6 +436,11 @@ def apply_font(font: Any, props: dict[str, Any], deck: dict[str, Any]) -> None:
         run_properties.set("baseline", "-25000")
     else:
         run_properties.attrib.pop("baseline", None)
+    if "letterSpacing" in props:
+        run_properties.set(
+            "spc",
+            str(round(canvas_units_to_points(props["letterSpacing"]) * 100)),
+        )
 
 
 def append_run_diagnostics(
@@ -430,14 +456,10 @@ def append_run_diagnostics(
     )
     if any(key in run_payload for key in HYPERLINK_RUN_PROPERTIES):
         warnings.append(f"{RICH_TEXT_UNSUPPORTED_HYPERLINK}: {location}")
-    if any(key in run_payload for key in LETTER_SPACING_RUN_PROPERTIES):
-        warnings.append(f"{RICH_TEXT_UNSUPPORTED_LETTER_SPACING}: {location}")
-
     diagnostic_properties = (
         set(run_payload)
         - SUPPORTED_RUN_PROPERTIES
         - HYPERLINK_RUN_PROPERTIES
-        - LETTER_SPACING_RUN_PROPERTIES
     )
     for property_name in sorted(diagnostic_properties):
         warnings.append(

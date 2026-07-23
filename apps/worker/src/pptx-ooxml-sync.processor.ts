@@ -8,6 +8,9 @@ import {
   deckPatchOperationTypeSchema,
   deckSchema,
   ooxmlMotionCapabilitiesSchema,
+  pptxOoxmlAssetTransportVersionSchema,
+  pptxOoxmlReadLocatorSchema,
+  pptxOoxmlStoredAssetSchema,
   pptxOoxmlSyncJobResultSchema,
   recoverTemplateBlueprintSlideIds,
   slideTransitionSchema,
@@ -17,13 +20,19 @@ import {
   type AuthoredElementFallbacks,
   type DeckPatchOperation,
   type Job,
+  type PptxOoxmlReadLocator,
   type RasterizedElement,
   type TemplateBlueprint,
 } from "@orbit/shared";
 import type { StoragePort } from "@orbit/storage";
-import { randomUUID } from "crypto";
 import type { DataSource } from "typeorm";
 import { z } from "zod";
+import {
+  createPptxOoxmlStoragePrefix,
+  pptxOoxmlAssetFileId,
+  registerPptxOoxmlStoredAssets,
+  verifyPptxOoxmlStoredAssets,
+} from "./pptx-ooxml-stored-assets";
 
 const pptxOoxmlSyncPayloadSchema = z.object({
   jobId: z.string().min(1),
@@ -34,13 +43,6 @@ const pptxOoxmlSyncPayloadSchema = z.object({
   syncCapabilityVersion: z.number().int().positive().default(1),
 });
 
-const syncAssetSchema = z.object({
-  assetId: z.string().min(1),
-  fileName: z.string().min(1),
-  mimeType: z.string().min(1),
-  contentBase64: z.string().min(1),
-});
-
 const ooxmlSyncOperationTypeSchema = z.enum([
   "add_slide",
   "delete_slide",
@@ -49,6 +51,7 @@ const ooxmlSyncOperationTypeSchema = z.enum([
   "update_element_props",
   "delete_element",
   "reorder_slides",
+  "update_speaker_notes",
 ]);
 
 const ooxmlUnsupportedReasonCodeSchema = z.enum([
@@ -66,6 +69,11 @@ const ooxmlUnsupportedReasonCodeSchema = z.enum([
   "FRAME_FIELDS_UNSUPPORTED",
   "GROUPED_FRAME_UNSUPPORTED",
   "MOTION_REFERENCE_COVERAGE_UNSAFE",
+  "NOTES_BODY_LOCATOR_UNSAFE",
+  "NOTES_BODY_NOT_WRITABLE",
+  "NOTES_BODY_UPDATE_FAILED",
+  "NOTES_MASTER_CAPABILITY_UNSAFE",
+  "NOTES_PART_MISSING",
   "OPERATION_TYPE_UNSUPPORTED",
   "PROPS_FIELDS_UNSUPPORTED",
   "PROPS_UPDATE_FAILED",
@@ -100,6 +108,37 @@ const ooxmlUnsupportedOperationSchema = z
     reasonCode: ooxmlUnsupportedReasonCodeSchema,
   })
   .strict();
+
+const ooxmlNotesPageUpdateSchema = z
+  .object({
+    slideId: z.string().min(1).max(128),
+    notesPage: z
+      .object({
+        status: z.literal("preserved"),
+        sourceNotesPart: z
+          .string()
+          .regex(/^ppt\/notesSlides\/notesSlide[1-9][0-9]*\.xml$/),
+        sourceNotesMasterPart: z
+          .string()
+          .regex(/^ppt\/notesMasters\/notesMaster[1-9][0-9]*\.xml$/),
+        bodyShapeId: z.string().min(1).max(64),
+        bodyWritable: z.literal(true),
+        notesWidthEmu: z.number().int().positive().max(10_000_000_000),
+        notesHeightEmu: z.number().int().positive().max(10_000_000_000),
+        hasNonBodyContent: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const ooxmlNotesPageUpdatesSchema = z
+  .array(ooxmlNotesPageUpdateSchema)
+  .max(500)
+  .refine(
+    (updates) =>
+      new Set(updates.map((update) => update.slideId)).size === updates.length,
+    "notes page updates must have unique slide ids",
+  );
 
 const slideMotionTouchedSchema = z
   .object({
@@ -149,13 +188,15 @@ const unsupportedSlideMotionSchema = z
   .strict();
 
 const pptxOoxmlSyncWorkerResponseSchema = z.object({
-  assets: z.array(syncAssetSchema).default([]),
+  assetTransport: pptxOoxmlAssetTransportVersionSchema,
+  assets: z.array(pptxOoxmlStoredAssetSchema).default([]),
   elementSources: z.array(templateElementSourceSchema).max(500).default([]),
   appliedOperations: z.array(ooxmlAppliedOperationSchema).max(500).default([]),
   unsupportedOperations: z
     .array(ooxmlUnsupportedOperationSchema)
     .max(500)
     .default([]),
+  notesPages: ooxmlNotesPageUpdatesSchema.default([]),
   appliedSlideMotion: z.array(appliedSlideMotionSchema).max(500).default([]),
   unsupportedSlideMotion: z
     .array(unsupportedSlideMotionSchema)
@@ -177,7 +218,8 @@ type OoxmlSyncOperation = Extract<
       | "update_element_frame"
       | "update_element_props"
       | "delete_element"
-      | "reorder_slides";
+      | "reorder_slides"
+      | "update_speaker_notes";
   }
 >;
 type OoxmlMotionOperation = Extract<
@@ -240,6 +282,7 @@ type SavedSyncAssets = {
   currentPackageFileId: string;
   renderAssetFileIds: string[];
   renderAssetFileIdsByAssetId: Map<string, string>;
+  notesRenderAssetFileIdsByAssetId: Map<string, string>;
 };
 
 type QueryExecutor = Pick<DataSource, "query">;
@@ -248,14 +291,28 @@ type ImageAssetRow = {
   file_id: string;
   project_id: string;
   storage_key: string;
+  original_name: string;
   mime_type: string;
+  size: number;
   status: string;
+};
+
+type EmbeddedSyncOperations = {
+  operations: DeckPatchOperation[];
+  locators: PptxOoxmlReadLocator[];
+};
+
+type EmbeddedAuthoredFallbacks = {
+  fallbacks: AuthoredElementFallbacks;
+  locators: PptxOoxmlReadLocator[];
 };
 
 const pptxMimeType =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const jsonMimeType = "application/json";
 export const ooxmlSyncJsonPartLimits = {
+  source_locator: 16 * 1024,
+  asset_locators: 1024 * 1024,
   template_blueprint: 16 * 1024 * 1024,
   operations: 72 * 1024 * 1024,
   deck_canvas: 4 * 1024,
@@ -277,6 +334,8 @@ const ooxmlSyncTransportErrorDetailSchema = z.object({
     ]),
     field: z.enum([
       "file",
+      "source_locator",
+      "asset_locators",
       "template_blueprint",
       "operations",
       "deck_canvas",
@@ -334,7 +393,7 @@ class RetryableOoxmlSyncError extends Error {
 
 export async function processPptxOoxmlSyncJob(
   dataSource: DataSource,
-  storage: Pick<StoragePort, "getSignedReadUrl" | "putObject">,
+  storage: Pick<StoragePort, "getSignedReadUrl" | "headObject">,
   pythonWorkerUrl: string,
   rawPayload: unknown,
 ): Promise<Job> {
@@ -478,7 +537,7 @@ export async function processPptxOoxmlSyncJob(
       );
       const syncPlan = prepareAuthoredSlideSync(
         blueprintWithLogicalGroups,
-        embeddedOperations,
+        embeddedOperations.operations,
       );
       const authoredElementFallbacks = await embedAuthoredFallbackAssets(
         manager,
@@ -498,11 +557,17 @@ export async function processPptxOoxmlSyncJob(
         syncPlan.templateBlueprint,
         storedDeck,
         syncPlan.operations,
-        authoredElementFallbacks,
+        authoredElementFallbacks.fallbacks,
+        createPptxOoxmlStoragePrefix(payload.projectId, payload.jobId),
+        [...embeddedOperations.locators, ...authoredElementFallbacks.locators],
+      );
+      await verifyPptxOoxmlStoredAssets(
+        storage,
+        createPptxOoxmlStoragePrefix(payload.projectId, payload.jobId),
+        synced.assets,
       );
       const savedAssets = await saveSyncAssets(
         manager,
-        storage,
         payload.projectId,
         synced,
       );
@@ -560,7 +625,8 @@ export async function processPptxOoxmlSyncJob(
         50,
         "PPTX_OOXML_SYNC_UNSUPPORTED_OPERATION",
         error.message,
-        false,
+        error instanceof UnsupportedOoxmlOperationsError &&
+          isRetryableNotesSyncReason(error.operation.reasonCode),
       );
     }
     if (error instanceof OoxmlSyncTransportError) {
@@ -582,6 +648,16 @@ export async function processPptxOoxmlSyncJob(
       isRetryableOoxmlSyncError(error),
     );
   }
+}
+
+function isRetryableNotesSyncReason(
+  reasonCode: z.infer<typeof ooxmlUnsupportedReasonCodeSchema>,
+): boolean {
+  return [
+    "NOTES_BODY_LOCATOR_UNSAFE",
+    "NOTES_BODY_NOT_WRITABLE",
+    "NOTES_PART_MISSING",
+  ].includes(reasonCode);
 }
 
 async function loadTemplateBlueprintRow(
@@ -742,7 +818,7 @@ async function embedProjectImageAssets(
   storage: Pick<StoragePort, "getSignedReadUrl">,
   projectId: string,
   operations: DeckPatchOperation[],
-): Promise<DeckPatchOperation[]> {
+): Promise<EmbeddedSyncOperations> {
   const references = operations.flatMap((operation) => {
     return operationImageSources(operation).flatMap((src) => {
       const reference = parseInternalAssetReference(src);
@@ -755,12 +831,12 @@ async function embedProjectImageAssets(
     });
   });
   const fileIds = [...new Set(references.map((reference) => reference.fileId))];
-  if (fileIds.length === 0) return operations;
+  if (fileIds.length === 0) return { operations, locators: [] };
 
   const rows = readQueryRows<ImageAssetRow>(
     await dataSource.query(
       `
-        SELECT file_id, project_id, storage_key, mime_type, status
+        SELECT file_id, project_id, storage_key, original_name, mime_type, size, status
         FROM project_assets
         WHERE file_id = ANY($1)
       `,
@@ -768,9 +844,10 @@ async function embedProjectImageAssets(
     ),
   );
   const assets = new Map(rows.map((row) => [row.file_id, row]));
-  const dataUrls = new Map<string, string>();
+  const locatorRefs = new Map<string, string>();
+  const locators: PptxOoxmlReadLocator[] = [];
 
-  for (const fileId of fileIds) {
+  for (const [index, fileId] of fileIds.entries()) {
     const asset = assets.get(fileId);
     if (!asset) throw new Error(`OOXML image asset not found: ${fileId}`);
     if (asset.project_id !== projectId) {
@@ -782,69 +859,69 @@ async function embedProjectImageAssets(
     ) {
       throw new Error(`OOXML image asset must be an uploaded image: ${fileId}`);
     }
-    const response = await fetch(
-      await storage.getSignedReadUrl(asset.storage_key),
-    );
-    if (!response.ok) {
-      throw ooxmlHttpError(
-        `OOXML image asset content unavailable: ${fileId}`,
-        response.status,
-      );
-    }
-    const content = Buffer.from(await response.arrayBuffer());
-    const detectedMimeType = detectSupportedRasterImageMimeType(content);
-    if (!detectedMimeType) {
-      throw new Error(`OOXML image asset content is unsupported: ${fileId}`);
-    }
-    dataUrls.set(
-      fileId,
-      `data:${detectedMimeType};base64,${content.toString("base64")}`,
+    const locatorId = `image-${index + 1}`;
+    locatorRefs.set(fileId, `orbit-storage:${locatorId}`);
+    locators.push(
+      pptxOoxmlReadLocatorSchema.parse({
+        locatorId,
+        readUrl: await storage.getSignedReadUrl(asset.storage_key),
+        fileName: asset.original_name,
+        mimeType: asset.mime_type,
+        size: asset.size,
+      }),
     );
   }
 
-  return operations.map((operation) => {
-    if (operation.type === "add_slide") {
-      return deckPatchOperationSchema.parse({
-        ...operation,
-        slide: {
-          ...operation.slide,
-          elements: operation.slide.elements.map((element) => {
-            if (element.type !== "image") return element;
-            const reference = parseInternalAssetReference(element.props.src);
-            const embedded = reference
-              ? dataUrls.get(reference.fileId)
-              : undefined;
-            return embedded
-              ? { ...element, props: { ...element.props, src: embedded } }
-              : element;
-          }),
-        },
-      });
-    }
-    const src = operationImageSources(operation)[0];
-    const reference = src ? parseInternalAssetReference(src) : null;
-    const dataUrl = reference ? dataUrls.get(reference.fileId) : undefined;
-    if (!dataUrl) return operation;
-    if (operation.type === "update_element_props") {
-      return deckPatchOperationSchema.parse({
-        ...operation,
-        props: { ...operation.props, src: dataUrl },
-      });
-    }
-    if (
-      operation.type === "add_element" &&
-      operation.element.type === "image"
-    ) {
-      return deckPatchOperationSchema.parse({
-        ...operation,
-        element: {
-          ...operation.element,
-          props: { ...operation.element.props, src: dataUrl },
-        },
-      });
-    }
-    return operation;
-  });
+  return {
+    operations: operations.map((operation) => {
+      if (operation.type === "add_slide") {
+        return deckPatchOperationSchema.parse({
+          ...operation,
+          slide: {
+            ...operation.slide,
+            elements: operation.slide.elements.map((element) => {
+              if (element.type !== "image") return element;
+              const reference = parseInternalAssetReference(
+                element.props.src,
+              );
+              const embedded = reference
+                ? locatorRefs.get(reference.fileId)
+                : undefined;
+              return embedded
+                ? { ...element, props: { ...element.props, src: embedded } }
+                : element;
+            }),
+          },
+        });
+      }
+      const src = operationImageSources(operation)[0];
+      const reference = src ? parseInternalAssetReference(src) : null;
+      const locatorRef = reference
+        ? locatorRefs.get(reference.fileId)
+        : undefined;
+      if (!locatorRef) return operation;
+      if (operation.type === "update_element_props") {
+        return deckPatchOperationSchema.parse({
+          ...operation,
+          props: { ...operation.props, src: locatorRef },
+        });
+      }
+      if (
+        operation.type === "add_element" &&
+        operation.element.type === "image"
+      ) {
+        return deckPatchOperationSchema.parse({
+          ...operation,
+          element: {
+            ...operation.element,
+            props: { ...operation.element.props, src: locatorRef },
+          },
+        });
+      }
+      return operation;
+    }),
+    locators,
+  };
 }
 
 function buildAuthoredElementFallbacks(
@@ -937,7 +1014,7 @@ async function embedAuthoredFallbackAssets(
   storage: Pick<StoragePort, "getSignedReadUrl">,
   projectId: string,
   fallbacks: AuthoredElementFallbacks,
-): Promise<AuthoredElementFallbacks> {
+): Promise<EmbeddedAuthoredFallbacks> {
   const references = fallbacks.elements.flatMap(({ element }) => {
     if (element.type !== "svg") return [];
     const reference = parseInternalAssetReference(element.props.src);
@@ -949,12 +1026,12 @@ async function embedAuthoredFallbackAssets(
     return reference ? [reference] : [];
   });
   const fileIds = [...new Set(references.map((reference) => reference.fileId))];
-  if (fileIds.length === 0) return fallbacks;
+  if (fileIds.length === 0) return { fallbacks, locators: [] };
 
   const rows = readQueryRows<ImageAssetRow>(
     await dataSource.query(
       `
-        SELECT file_id, project_id, storage_key, mime_type, status
+        SELECT file_id, project_id, storage_key, original_name, mime_type, size, status
         FROM project_assets
         WHERE file_id = ANY($1)
       `,
@@ -962,9 +1039,10 @@ async function embedAuthoredFallbackAssets(
     ),
   );
   const assets = new Map(rows.map((row) => [row.file_id, row]));
-  const dataUrls = new Map<string, string>();
+  const locatorRefs = new Map<string, string>();
+  const locators: PptxOoxmlReadLocator[] = [];
 
-  for (const fileId of fileIds) {
+  for (const [index, fileId] of fileIds.entries()) {
     const asset = assets.get(fileId);
     if (!asset) {
       throw new Error(`OOXML authored fallback asset not found: ${fileId}`);
@@ -979,39 +1057,42 @@ async function embedAuthoredFallbackAssets(
         `OOXML authored fallback asset must be an uploaded SVG: ${fileId}`,
       );
     }
-    const response = await fetch(
-      await storage.getSignedReadUrl(asset.storage_key),
+    const locatorId = `fallback-${index + 1}`;
+    locatorRefs.set(fileId, `orbit-storage:${locatorId}`);
+    locators.push(
+      pptxOoxmlReadLocatorSchema.parse({
+        locatorId,
+        readUrl: await storage.getSignedReadUrl(asset.storage_key),
+        fileName: asset.original_name,
+        mimeType: asset.mime_type,
+        size: asset.size,
+      }),
     );
-    if (!response.ok) {
-      throw ooxmlHttpError(
-        `OOXML authored fallback asset content unavailable: ${fileId}`,
-        response.status,
-      );
-    }
-    const content = Buffer.from(await response.arrayBuffer()).toString(
-      "base64",
-    );
-    dataUrls.set(fileId, `data:${asset.mime_type};base64,${content}`);
   }
 
-  return authoredElementFallbacksSchema.parse({
-    ...fallbacks,
-    elements: fallbacks.elements.map((candidate) => {
-      if (candidate.element.type !== "svg") return candidate;
-      const reference = parseInternalAssetReference(
-        candidate.element.props.src,
-      );
-      const dataUrl = reference ? dataUrls.get(reference.fileId) : undefined;
-      if (!dataUrl) return candidate;
-      return {
-        ...candidate,
-        element: {
-          ...candidate.element,
-          props: { ...candidate.element.props, src: dataUrl },
-        },
-      };
+  return {
+    fallbacks: authoredElementFallbacksSchema.parse({
+      ...fallbacks,
+      elements: fallbacks.elements.map((candidate) => {
+        if (candidate.element.type !== "svg") return candidate;
+        const reference = parseInternalAssetReference(
+          candidate.element.props.src,
+        );
+        const locatorRef = reference
+          ? locatorRefs.get(reference.fileId)
+          : undefined;
+        if (!locatorRef) return candidate;
+        return {
+          ...candidate,
+          element: {
+            ...candidate.element,
+            props: { ...candidate.element.props, src: locatorRef },
+          },
+        };
+      }),
     }),
-  });
+    locators,
+  };
 }
 
 function operationImageSources(operation: DeckPatchOperation): string[] {
@@ -1047,35 +1128,6 @@ function isSupportedImageMimeType(mimeType: string): boolean {
   return ["image/jpeg", "image/png", "image/webp"].includes(mimeType);
 }
 
-function detectSupportedRasterImageMimeType(
-  content: Buffer,
-): "image/jpeg" | "image/png" | "image/webp" | null {
-  if (
-    content.length >= 8 &&
-    content.subarray(0, 8).equals(
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    )
-  ) {
-    return "image/png";
-  }
-  if (
-    content.length >= 3 &&
-    content[0] === 0xff &&
-    content[1] === 0xd8 &&
-    content[2] === 0xff
-  ) {
-    return "image/jpeg";
-  }
-  if (
-    content.length >= 12 &&
-    content.subarray(0, 4).toString("ascii") === "RIFF" &&
-    content.subarray(8, 12).toString("ascii") === "WEBP"
-  ) {
-    return "image/webp";
-  }
-  return null;
-}
-
 async function syncPptxOoxmlWithPython(
   storage: Pick<StoragePort, "getSignedReadUrl">,
   pythonWorkerUrl: string,
@@ -1085,6 +1137,8 @@ async function syncPptxOoxmlWithPython(
   deck: Deck,
   operations: DeckPatchOperation[],
   authoredElementFallbacks: AuthoredElementFallbacks,
+  storagePrefix: string,
+  assetLocators: PptxOoxmlReadLocator[],
 ): Promise<PptxOoxmlSyncWorkerResponse> {
   const slideMotion = buildSlideMotionSyncInput(
     deck,
@@ -1130,25 +1184,30 @@ async function syncPptxOoxmlWithPython(
     "authored_element_fallbacks",
     authoredElementFallbacks,
   );
+  const readUrl = await storage.getSignedReadUrl(asset.storage_key);
+  appendJsonFilePart(
+    form,
+    "source_locator_file",
+    "source-locator.json",
+    "source_locator",
+    pptxOoxmlReadLocatorSchema.parse({
+      locatorId: "source-package",
+      readUrl,
+      fileName: asset.original_name,
+      mimeType: asset.mime_type,
+      size: asset.size,
+    }),
+  );
+  appendJsonFilePart(
+    form,
+    "asset_locators_file",
+    "asset-locators.json",
+    "asset_locators",
+    assetLocators,
+  );
   form.append("synced_deck_version", String(targetDeckVersion));
   form.append("render", "true");
-
-  const readUrl = await storage.getSignedReadUrl(asset.storage_key);
-  const sourceResponse = await fetch(readUrl);
-  if (!sourceResponse.ok) {
-    throw ooxmlHttpError(
-      `PPTX package content unavailable: ${asset.file_id}`,
-      sourceResponse.status,
-    );
-  }
-
-  form.append(
-    "file",
-    new Blob([Buffer.from(await sourceResponse.arrayBuffer())], {
-      type: asset.mime_type,
-    }),
-    asset.original_name,
-  );
+  form.append("storage_prefix", storagePrefix);
 
   const response = await fetch(
     workerUrl(pythonWorkerUrl, "/ai/pptx-ooxml-sync"),
@@ -1422,6 +1481,7 @@ function isOoxmlSyncOperation(
     "add_element",
     "delete_element",
     "reorder_slides",
+    "update_speaker_notes",
   ].includes(operation.type);
 }
 
@@ -1442,7 +1502,6 @@ function isOoxmlPackageNeutralOperation(
   return [
     "update_deck",
     "update_slide",
-    "update_speaker_notes",
     "replace_keywords",
     "replace_semantic_cues",
     "add_slide_action",
@@ -1712,51 +1771,26 @@ function operationIdentity(operation: DeckPatchOperation) {
 
 async function saveSyncAssets(
   dataSource: QueryExecutor,
-  storage: Pick<StoragePort, "putObject">,
   projectId: string,
   synced: PptxOoxmlSyncWorkerResponse,
 ): Promise<SavedSyncAssets> {
   const renderAssetFileIds: string[] = [];
   const renderAssetFileIdsByAssetId = new Map<string, string>();
+  const notesRenderAssetFileIdsByAssetId = new Map<string, string>();
   let currentPackageFileId = "";
 
-  for (const asset of synced.assets) {
-    const fileId = `file_${randomUUID()}`;
-    const originalName = safeStorageName(asset.fileName);
-    const storageKey = `projects/${projectId}/assets/${fileId}-${originalName}`;
-    const body = Buffer.from(asset.contentBase64, "base64");
-    const url = createAssetContentUrl(projectId, fileId);
+  await registerPptxOoxmlStoredAssets(dataSource, projectId, synced.assets);
 
-    await storage.putObject({
-      key: storageKey,
-      body,
-      contentType: asset.mimeType,
-      purpose: "design-asset",
-    });
-    await dataSource.query(
-      `
-        INSERT INTO project_assets (
-          file_id, project_id, storage_key, original_name, mime_type, size, url,
-          purpose, status, created_at, uploaded_at, deleted_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'design-asset', 'uploaded', now(), now(), null)
-      `,
-      [
-        fileId,
-        projectId,
-        storageKey,
-        originalName,
-        asset.mimeType,
-        body.byteLength,
-        url,
-      ],
-    );
+  for (const asset of synced.assets) {
+    const fileId = pptxOoxmlAssetFileId(projectId, asset.storageKey);
 
     if (asset.assetId === "current_package") {
       currentPackageFileId = fileId;
     } else if (asset.assetId.startsWith("slide_render_")) {
       renderAssetFileIds.push(fileId);
       renderAssetFileIdsByAssetId.set(asset.assetId, fileId);
+    } else if (asset.assetId.startsWith("notes_render_")) {
+      notesRenderAssetFileIdsByAssetId.set(asset.assetId, fileId);
     }
   }
 
@@ -1768,6 +1802,7 @@ async function saveSyncAssets(
     currentPackageFileId,
     renderAssetFileIds,
     renderAssetFileIdsByAssetId,
+    notesRenderAssetFileIdsByAssetId,
   };
 }
 
@@ -1794,28 +1829,56 @@ function withSyncResult(
         deckOrderBySlideId.get(left.slideId!)! -
         deckOrderBySlideId.get(right.slideId!)!,
     );
+  const notesPreviewUnavailable = synced.warnings.some((warning) =>
+    warning.startsWith("PPTX_NOTES_PREVIEW_REFRESH_FAILED:"),
+  );
+  const syncedNotesPages = new Map(
+    synced.notesPages.map((update) => [update.slideId, update.notesPage]),
+  );
   return templateBlueprintSchema.parse({
     ...templateBlueprint,
     currentPackageFileId: assets.currentPackageFileId,
     ooxmlSyncedDeckVersion: syncedDeckVersion,
-    slides: currentSlides.map((slide, index) => ({
-      ...slide,
-      slideIndex: index + 1,
-      renderAssetFileId:
-        assets.renderAssetFileIdsByAssetId.get(
-          `slide_render_${slide.sourceSlideIndex}`,
-        ) ??
-        assets.renderAssetFileIds[index] ??
-        slide.renderAssetFileId,
-      elementSources: mergeElementSources(
-        slide.elementSources,
-        synced.elementSources.filter(
-          (source) => source.slidePart === slide.sourceSlidePart,
+    slides: currentSlides.map((slide, index) => {
+      const notesRenderAssetFileId = assets.notesRenderAssetFileIdsByAssetId.get(
+        `notes_render_${index + 1}`,
+      );
+      const notesPage = syncedNotesPages.get(slide.slideId!) ?? slide.notesPage;
+      return {
+        ...slide,
+        slideIndex: index + 1,
+        renderAssetFileId:
+          assets.renderAssetFileIdsByAssetId.get(
+            `slide_render_${slide.sourceSlideIndex}`,
+          ) ??
+          assets.renderAssetFileIds[index] ??
+          slide.renderAssetFileId,
+        notesPage: notesPage
+          ? {
+              ...notesPage,
+              ...(notesRenderAssetFileId
+                ? {
+                    status: "rendered" as const,
+                    renderAssetFileId: notesRenderAssetFileId,
+                  }
+                : notesPreviewUnavailable
+                  ? {
+                      status: "render-unavailable" as const,
+                      renderAssetFileId: undefined,
+                    }
+                  : {}),
+            }
+          : undefined,
+        elementSources: mergeElementSources(
+          slide.elementSources,
+          synced.elementSources.filter(
+            (source) => source.slidePart === slide.sourceSlidePart,
+          ),
+        ).filter((source) =>
+          deckElementIdsBySlideId.get(slide.slideId!)?.has(source.elementId),
         ),
-      ).filter((source) =>
-        deckElementIdsBySlideId.get(slide.slideId!)?.has(source.elementId),
-      ),
-    })),
+      };
+    }),
   });
 }
 
@@ -2173,16 +2236,6 @@ function workerUrl(baseUrl: string, path: string): string {
     path,
     baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`,
   ).toString();
-}
-
-function createAssetContentUrl(projectId: string, fileId: string): string {
-  return `/api/v1/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(
-    fileId,
-  )}/content`;
-}
-
-function safeStorageName(fileName: string): string {
-  return (fileName || "design-asset").replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

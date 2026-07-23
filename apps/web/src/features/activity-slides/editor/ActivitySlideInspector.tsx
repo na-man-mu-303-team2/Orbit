@@ -12,7 +12,7 @@ import {
   OrbitStatus,
   OrbitTextarea
 } from "../../../components/ui";
-import { ActivitySlidePreview } from "./ActivitySlidePreview";
+import { ActivityAudienceSlideRenderer } from "../rendering/ActivityAudienceSlideRenderer";
 import { ActivityEditorOperationsPanel } from "./ActivityEditorOperationsPanel";
 import { ActivityPreQuestionInbox } from "./ActivityPreQuestionInbox";
 import { useActivityEditorRuntime } from "./useActivityEditorRuntime";
@@ -413,10 +413,21 @@ export function ActivitySlideInspector(props: {
       ) : null}
 
       <div className="activity-inspector-section-heading">
-        <strong>발표자 화면 미리보기</strong>
-        <span>발표 중 확인하게 될 응답 상태를 미리 보여줍니다.</span>
+        <strong>발표 화면 미리보기</strong>
+        <span>리허설과 발표 중 청중에게 표시되는 참여 안내 화면입니다.</span>
       </div>
-      <ActivitySlidePreview role="presenter" slide={props.slide} theme={props.theme} />
+      <div className="activity-presentation-preview">
+        <ActivityAudienceSlideRenderer
+          activity={activity}
+          audienceUrl={null}
+          previewQr
+          publicResult={null}
+          scale={0.13}
+          slideStyle={props.slide.style}
+          status="open"
+          theme={props.theme}
+        />
+      </div>
 
       <div aria-label="자동으로 만들어지는 응답 화면" className="activity-system-layer-lock">
         <strong>응답 화면은 자동으로 만들어져요.</strong>
