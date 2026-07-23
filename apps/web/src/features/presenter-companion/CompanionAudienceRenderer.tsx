@@ -10,6 +10,7 @@ import { materializeCompanionDeck } from "./companionDeckAdapter";
 export function CompanionAudienceRenderer(props: {
   deck: CompanionDeckSnapshot;
   output: PresentationCompanionOutputState | null;
+  stream?: MediaStream | null;
 }) {
   const deck = useMemo(
     () => materializeCompanionDeck(props.deck),
@@ -52,6 +53,7 @@ export function CompanionAudienceRenderer(props: {
         deck={deck}
         scale={scale}
         state={state}
+        stream={props.stream}
         triggerAnimationIds={[]}
       />
     </section>

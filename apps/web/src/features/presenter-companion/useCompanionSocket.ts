@@ -8,13 +8,16 @@ import {
   presentationCompanionLaserSchema,
   presentationCompanionOutputStateEventSchema,
   presentationCompanionRevokedEventSchema,
+  presentationCompanionSignalEventSchema,
+  presentationCompanionSignalSchema,
   type PresentationCompanionOutputState,
   type PresentationCompanionAnnotationAck,
   type PresentationCompanionAnnotationSnapshot,
   type PresentationCompanionAnnotationCommand,
   type PresentationCompanionSnapshotRequest,
+  type PresentationCompanionSignal,
 } from "@orbit/shared";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { AnnotationCommandQueue } from "./annotationCommandQueue";
 
@@ -99,6 +102,9 @@ export function useCompanionSocket(
   const [authorityEpochId, setAuthorityEpochId] = useState<string | null>(
     null,
   );
+  const [pairingGeneration, setPairingGeneration] = useState<
+    number | null
+  >(null);
   const [output, setOutput] =
     useState<PresentationCompanionOutputState | null>(null);
   const [annotation, setAnnotation] =
@@ -115,6 +121,10 @@ export function useCompanionSocket(
   const socketRef = useRef<CompanionSocket | null>(null);
   const commandQueueRef = useRef<AnnotationCommandQueue | null>(null);
   const laserSequenceRef = useRef(0);
+  const pairingGenerationRef = useRef<number | null>(null);
+  const signalListenersRef = useRef(
+    new Set<(signal: PresentationCompanionSignal) => void>(),
+  );
 
   useEffect(() => {
     const socket = createSocket();
@@ -166,6 +176,8 @@ export function useCompanionSocket(
     const handleDisconnect = () => {
       queue.pause();
       setAnnotationRecovering(true);
+      pairingGenerationRef.current = null;
+      setPairingGeneration(null);
       setStatus((current) =>
         current === "revoked" ? current : "reconnecting",
       );
@@ -176,6 +188,9 @@ export function useCompanionSocket(
       if (!parsed.success || parsed.data.sessionId !== sessionId) return;
       setStatus("connected");
       setError("");
+      pairingGenerationRef.current =
+        parsed.data.payload.pairingGeneration;
+      setPairingGeneration(parsed.data.payload.pairingGeneration);
     };
     const handleAuthorityChanged = (value: unknown) => {
       const parsed =
@@ -289,8 +304,27 @@ export function useCompanionSocket(
       const parsed =
         presentationCompanionRevokedEventSchema.safeParse(value);
       if (!parsed.success || parsed.data.sessionId !== sessionId) return;
+      pairingGenerationRef.current = null;
+      setPairingGeneration(null);
       setStatus("revoked");
       setError("발표자가 iPad 연결을 종료했습니다.");
+    };
+    const handleSignal = (value: unknown) => {
+      const parsed =
+        presentationCompanionSignalEventSchema.safeParse(value);
+      if (
+        !parsed.success ||
+        parsed.data.sessionId !== sessionId ||
+        parsed.data.payload.targetGeneration !==
+          pairingGenerationRef.current ||
+        parsed.data.payload.authorityEpochId !==
+          authorityEpochRef.current
+      ) {
+        return;
+      }
+      for (const listener of signalListenersRef.current) {
+        listener(parsed.data.payload);
+      }
     };
     const handleError = (value: unknown) => {
       const parsed =
@@ -323,6 +357,7 @@ export function useCompanionSocket(
       handleAnnotationSnapshot,
     );
     socket.on("presentation:companion:revoked", handleRevoked);
+    socket.on("presentation:companion:signal", handleSignal);
     socket.on("presentation:error", handleError);
     if (socket.connected) join();
 
@@ -384,6 +419,7 @@ export function useCompanionSocket(
         handleAnnotationSnapshot,
       );
       socket.off("presentation:companion:revoked", handleRevoked);
+      socket.off("presentation:companion:signal", handleSignal);
       socket.off("presentation:error", handleError);
       socket.disconnect();
       queue.dispose();
@@ -391,6 +427,7 @@ export function useCompanionSocket(
         commandQueueRef.current = null;
       }
       if (socketRef.current === socket) socketRef.current = null;
+      pairingGenerationRef.current = null;
     };
   }, [createSocket, sessionId]);
 
@@ -442,6 +479,39 @@ export function useCompanionSocket(
     return true;
   };
 
+  const sendSignal = useCallback(
+    (signal: CompanionSignalInput): boolean => {
+      const socket = socketRef.current;
+      if (
+        !socket ||
+        status !== "connected" ||
+        !authorityEpochId ||
+        pairingGeneration === null
+      ) {
+        return false;
+      }
+      const parsed = presentationCompanionSignalSchema.safeParse({
+        ...signal,
+        sessionId,
+        authorityEpochId,
+        targetGeneration: pairingGeneration,
+      });
+      if (!parsed.success) return false;
+      socket.emit("presentation:companion:signal", parsed.data);
+      return true;
+    },
+    [authorityEpochId, pairingGeneration, sessionId, status],
+  );
+  const subscribeSignal = useCallback(
+    (listener: (signal: PresentationCompanionSignal) => void) => {
+      signalListenersRef.current.add(listener);
+      return () => {
+        signalListenersRef.current.delete(listener);
+      };
+    },
+    [],
+  );
+
   return {
     annotation,
     annotationRecovering,
@@ -449,11 +519,42 @@ export function useCompanionSocket(
     error,
     lastAnnotationAck,
     output,
+    pairingGeneration,
     sendAnnotationCommand,
     sendLaser,
+    sendSignal,
     status,
+    subscribeSignal,
   };
 }
+
+export type CompanionSignalInput =
+  | {
+      kind: "offer" | "answer";
+      sdp: string;
+      shareEpochId: string;
+      signalId: string;
+    }
+  | {
+      candidate: string;
+      kind: "ice";
+      sdpMid: string | null;
+      sdpMLineIndex: number | null;
+      shareEpochId: string;
+      signalId: string;
+      usernameFragment?: string;
+    }
+  | {
+      kind: "end";
+      reason:
+        | "capture-ended"
+        | "replaced"
+        | "revoked"
+        | "closed"
+        | "failed";
+      shareEpochId: string;
+      signalId: string;
+    };
 
 export function createCompanionAnnotationCommand(
   input: CompanionAnnotationCommandInput,

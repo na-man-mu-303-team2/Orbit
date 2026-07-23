@@ -10,6 +10,7 @@ import {
 import { CompanionAudienceRenderer } from "./CompanionAudienceRenderer";
 import { useCompanionSocket } from "./useCompanionSocket";
 import { CompanionAnnotationCanvas } from "./CompanionAnnotationCanvas";
+import { useCompanionWebRtc } from "./useCompanionWebRtc";
 import "./presenter-companion.css";
 
 export function CompanionPairingPage(props: { code: string }) {
@@ -105,6 +106,17 @@ function ConnectedCompanionShell(props: {
   bootstrap: PresentationCompanionBootstrap;
 }) {
   const companion = useCompanionSocket(props.bootstrap.sessionId);
+  const webRtc = useCompanionWebRtc({
+    sendSignal: companion.sendSignal,
+    shareEpochId:
+      companion.output?.outputMode === "screen-share"
+        ? companion.output.shareEpochId ?? null
+        : null,
+    subscribeSignal: companion.subscribeSignal,
+  });
+  const screenShareWritable =
+    companion.output?.outputMode !== "screen-share" ||
+    webRtc.status === "connected";
 
   return (
     <main className="presenter-companion-page">
@@ -126,9 +138,17 @@ function ConnectedCompanionShell(props: {
         </section>
       ) : (
         <div className="presenter-companion-stage">
+          {companion.output?.outputMode === "screen-share" &&
+          webRtc.status === "failed" ? (
+            <p className="presenter-companion-stream-warning" role="status">
+              iPad 화면 공유 연결을 확인해주세요. 발표자와 청중 화면은 계속
+              진행됩니다.
+            </p>
+          ) : null}
           <CompanionAudienceRenderer
             deck={props.bootstrap.deck}
             output={companion.output}
+            stream={webRtc.stream}
           />
           {companion.output ? (
             <CompanionAnnotationCanvas
@@ -139,7 +159,8 @@ function ConnectedCompanionShell(props: {
               connected={
                 companion.status === "connected" &&
                 Boolean(companion.authorityEpochId) &&
-                !companion.annotationRecovering
+                !companion.annotationRecovering &&
+                screenShareWritable
               }
               lastAcknowledgement={companion.lastAnnotationAck}
               output={companion.output}

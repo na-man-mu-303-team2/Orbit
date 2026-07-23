@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createCompanionSurfaceId } from "./usePresenterCompanionAuthority";
+import {
+  createCompanionShareSurfaceId,
+  createCompanionSurfaceId,
+} from "./usePresenterCompanionAuthority";
 
 describe("createCompanionSurfaceId", () => {
   it("creates a stable bounded opaque surface id", () => {
@@ -18,5 +21,14 @@ describe("createCompanionSurfaceId", () => {
     expect(createCompanionSurfaceId("slide:a")).not.toBe(
       createCompanionSurfaceId("slide/a"),
     );
+  });
+
+  it("isolates screen-share annotation by share epoch", () => {
+    const first = createCompanionShareSurfaceId("share_1");
+    const restarted = createCompanionShareSurfaceId("share_2");
+
+    expect(first).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+    expect(first).not.toBe(restarted);
+    expect(createCompanionShareSurfaceId("share_1")).toBe(first);
   });
 });

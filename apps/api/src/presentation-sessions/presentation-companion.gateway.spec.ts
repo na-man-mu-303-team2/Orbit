@@ -166,6 +166,49 @@ describe("PresentationCompanionGateway", () => {
     );
   });
 
+  it("relays one share-scoped WebRTC negotiation in both directions", async () => {
+    const fixture = createFixture();
+    const presenter = socket({
+      cookie: "orbit_session=valid-auth-session",
+      id: "socket_presenter",
+    });
+    const companion = socket({
+      cookie: `${companionAccessCookieName}=valid-companion-token`,
+      id: "socket_companion",
+    });
+    await fixture.gateway.claimAuthority(presenter, {
+      sessionId: "session_1",
+      authorityEpochId: "epoch_1",
+    });
+    await fixture.gateway.joinCompanion(companion, {
+      sessionId: "session_1",
+    });
+    fixture.server.to.mockClear();
+
+    const offer = companionSignal("offer");
+    await expect(
+      fixture.gateway.relaySignal(presenter, offer),
+    ).resolves.toMatchObject({
+      roomId: "presentation:session_1:companion:2",
+      payload: offer,
+    });
+    expect(fixture.server.to).toHaveBeenLastCalledWith(
+      "presentation:session_1:companion:2",
+    );
+
+    const answer = companionSignal("answer");
+    await expect(
+      fixture.gateway.relaySignal(companion, answer),
+    ).resolves.toMatchObject({
+      roomId:
+        "presentation:session_1:companion-authority:epoch_1",
+      payload: answer,
+    });
+    expect(fixture.server.to).toHaveBeenLastCalledWith(
+      "presentation:session_1:companion-authority:epoch_1",
+    );
+  });
+
   it("clears only matching presence on abrupt disconnect and keeps generation", async () => {
     const fixture = createFixture();
     const companion = socket({
@@ -311,5 +354,17 @@ function annotationCommand() {
         t: 1,
       },
     ],
+  };
+}
+
+function companionSignal(kind: "answer" | "offer") {
+  return {
+    authorityEpochId: "epoch_1",
+    kind,
+    sdp: `${kind}-sdp`,
+    sessionId: "session_1",
+    shareEpochId: "share_1",
+    signalId: "signal_1",
+    targetGeneration: 2,
   };
 }
