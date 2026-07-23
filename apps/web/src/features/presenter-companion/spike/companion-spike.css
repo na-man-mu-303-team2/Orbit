@@ -192,17 +192,11 @@
   z-index: 1;
   background:
     linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    radial-gradient(circle at 50% 30%, #1e293b 0%, #070b14 68%);
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
   background-size:
     32px 32px,
-    32px 32px,
-    auto;
+    32px 32px;
   pointer-events: none;
-}
-
-.companion-spike-page > video:not([src]) + .companion-spike-stage-grid {
-  opacity: 1;
 }
 
 .companion-spike-hud {
