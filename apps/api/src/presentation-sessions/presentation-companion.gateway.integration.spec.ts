@@ -87,6 +87,30 @@ describe.skipIf(!runIntegration)(
           expect(
             fixture.rateLimit.consumeDrawing,
           ).toHaveBeenCalledWith("companion_opaque_1");
+
+          const offered = onceEvent(
+            companion,
+            "presentation:companion:signal",
+          );
+          presenter.emit(
+            "presentation:companion:signal",
+            companionSignal("offer"),
+          );
+          await expect(offered).resolves.toMatchObject({
+            payload: companionSignal("offer"),
+          });
+
+          const answered = onceEvent(
+            presenter,
+            "presentation:companion:signal",
+          );
+          companion.emit(
+            "presentation:companion:signal",
+            companionSignal("answer"),
+          );
+          await expect(answered).resolves.toMatchObject({
+            payload: companionSignal("answer"),
+          });
         } finally {
           presenter.disconnect();
           companion.disconnect();
@@ -268,6 +292,9 @@ async function createGatewayServer() {
     bind(socket, "presentation:companion:laser", (body) =>
       gateway.relayLaser(socket, body),
     );
+    bind(socket, "presentation:companion:signal", (body) =>
+      gateway.relaySignal(socket, body),
+    );
     socket.on("disconnect", () => {
       void gateway.handleDisconnect(socket);
     });
@@ -375,5 +402,17 @@ function annotationCommand() {
         t: 1,
       },
     ],
+  };
+}
+
+function companionSignal(kind: "answer" | "offer") {
+  return {
+    authorityEpochId: "epoch_1",
+    kind,
+    sdp: `${kind}-sdp`,
+    sessionId: "session_1",
+    shareEpochId: "share_1",
+    signalId: "signal_1",
+    targetGeneration: 2,
   };
 }
