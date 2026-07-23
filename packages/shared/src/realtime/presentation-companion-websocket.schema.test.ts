@@ -157,6 +157,23 @@ describe("presentation companion websocket contract", () => {
         shareEpochId: "share_1"
       }).success
     ).toBe(false);
+    expect(
+      presentationCompanionOutputStateSchema.safeParse({
+        sessionId: "session_1",
+        authorityEpochId: "epoch_1",
+        outputRevision: 2,
+        outputMode: "black",
+        slideId: "slide_1",
+        slideIndex: 0,
+        animationStep: 0
+      }).success
+    ).toBe(true);
+    expect(
+      presentationCompanionOutputStateSchema.safeParse({
+        ...output,
+        outputMode: "black"
+      }).success
+    ).toBe(false);
 
     expect(
       presentationCompanionSignalSchema.safeParse({

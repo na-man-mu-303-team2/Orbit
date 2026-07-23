@@ -283,33 +283,45 @@ export const presentationCompanionHeartbeatPayloadSchema = z
   })
   .strict();
 
-export const presentationCompanionOutputStateSchema = z
-  .object({
-    sessionId: companionSessionIdSchema,
-    authorityEpochId: companionOpaqueIdSchema,
-    outputRevision: companionRevisionSchema,
-    surfaceRevision: companionRevisionSchema,
-    surfaceId: companionOpaqueIdSchema,
-    outputMode: z.enum(["slide", "screen-share", "black"]),
-    slideId: deckSlideIdSchema,
-    slideIndex: z.number().int().nonnegative(),
-    animationStep: z.number().int().nonnegative(),
-    shareEpochId: companionOpaqueIdSchema.optional()
-  })
-  .strict()
-  .superRefine((output, context) => {
-    if (
-      (output.outputMode === "screen-share") !==
-      (output.shareEpochId !== undefined)
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "shareEpochId is required only for screen-share output",
-        path: ["shareEpochId"]
-      });
-    }
-  });
+const presentationCompanionOutputStateBase = {
+  sessionId: companionSessionIdSchema,
+  authorityEpochId: companionOpaqueIdSchema,
+  outputRevision: companionRevisionSchema,
+  slideId: deckSlideIdSchema,
+  slideIndex: z.number().int().nonnegative(),
+  animationStep: z.number().int().nonnegative(),
+};
+
+const presentationCompanionDrawableOutputStateBase = {
+  ...presentationCompanionOutputStateBase,
+  surfaceRevision: companionRevisionSchema,
+  surfaceId: companionOpaqueIdSchema
+};
+
+export const presentationCompanionOutputStateSchema = z.discriminatedUnion(
+  "outputMode",
+  [
+    z
+      .object({
+        ...presentationCompanionDrawableOutputStateBase,
+        outputMode: z.literal("slide")
+      })
+      .strict(),
+    z
+      .object({
+        ...presentationCompanionDrawableOutputStateBase,
+        outputMode: z.literal("screen-share"),
+        shareEpochId: companionOpaqueIdSchema
+      })
+      .strict(),
+    z
+      .object({
+        ...presentationCompanionOutputStateBase,
+        outputMode: z.literal("black")
+      })
+      .strict()
+  ]
+);
 
 export const presentationCompanionAnnotationAckSchema = z
   .object({

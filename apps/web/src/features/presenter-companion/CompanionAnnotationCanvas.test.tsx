@@ -42,7 +42,15 @@ describe("CompanionAnnotationCanvas", () => {
         canWrite
         connected
         lastAcknowledgement={null}
-        output={{ ...output, outputMode: "black" }}
+        output={{
+          sessionId: "session_1",
+          authorityEpochId: "epoch_1",
+          outputRevision: 2,
+          outputMode: "black",
+          slideId: "slide_1",
+          slideIndex: 0,
+          animationStep: 0,
+        }}
         sendCommand={vi.fn()}
         sendLaser={vi.fn()}
       />,

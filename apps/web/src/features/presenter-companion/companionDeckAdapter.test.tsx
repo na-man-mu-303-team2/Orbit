@@ -132,8 +132,6 @@ describe("materializeCompanionDeck", () => {
           sessionId: "session_1",
           authorityEpochId: "epoch_1",
           outputRevision: 5,
-          surfaceRevision: 0,
-          surfaceId: "surface_1",
           outputMode: "black",
           slideId: safeDeck.slides[0]!.slideId,
           slideIndex: 0,

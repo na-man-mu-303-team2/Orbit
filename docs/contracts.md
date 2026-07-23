@@ -523,6 +523,9 @@ command/ack/snapshot/request, volatile laser, WebRTC signal, revoke,
   포함하고, `slide`와 `black` output에는 이를 포함하지 않는다. 같은
   `shareEpochId`의 signaling은 offer, answer, ICE, end가 하나의
   `signalId`를 공유하며 다른 epoch 또는 negotiation ID는 폐기한다.
+- `slide`와 `screen-share` output만 `surfaceId`, `surfaceRevision`을
+  포함한다. `black` output에는 drawable surface가 없으며 annotation,
+  snapshot request, laser command를 모두 거부한다.
 - screen-share media는 same-origin audience stream bridge가 현재 capture를
   desktop authority에 전달하고 WebRTC sender에는 첫 video track만
   추가한다. audio track은 전송하지 않으며 `RTCPeerConnection`은 TURN

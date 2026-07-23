@@ -63,6 +63,11 @@ export type CompanionOutputConsumption = {
   requestSnapshot: boolean;
 };
 
+type DrawableCompanionOutput = Exclude<
+  PresentationCompanionOutputState,
+  { outputMode: "black" }
+>;
+
 export function consumeCompanionOutputState(
   cursor: CompanionOutputCursor,
   incoming: PresentationCompanionOutputState,
@@ -82,6 +87,12 @@ export function consumeCompanionOutputState(
     return { cursor, requestSnapshot: false };
   }
   if (incoming.outputRevision === current.outputRevision + 1) {
+    return {
+      cursor: { output: incoming, snapshotPending: false },
+      requestSnapshot: false,
+    };
+  }
+  if (incoming.outputMode === "black") {
     return {
       cursor: { output: incoming, snapshotPending: false },
       requestSnapshot: false,
@@ -133,7 +144,7 @@ export function useCompanionSocket(
     let heartbeatStartedAt = 0;
 
     const requestSnapshot = (
-      current: PresentationCompanionOutputState,
+      current: DrawableCompanionOutput,
     ) => {
       const request: PresentationCompanionSnapshotRequest = {
         sessionId,
@@ -148,7 +159,13 @@ export function useCompanionSocket(
       createCommand: (input, revision, sequence) => {
         const current = cursorRef.current.output;
         const authorityEpochId = authorityEpochRef.current;
-        if (!current || !authorityEpochId) return null;
+        if (
+          !current ||
+          current.outputMode === "black" ||
+          !authorityEpochId
+        ) {
+          return null;
+        }
         return createCompanionAnnotationCommand(input, {
           sessionId,
           authorityEpochId,
@@ -166,7 +183,13 @@ export function useCompanionSocket(
       onReconcile: () => {
         setAnnotationRecovering(true);
         const current = cursorRef.current.output;
-        if (current && socket.connected) requestSnapshot(current);
+        if (
+          current &&
+          current.outputMode !== "black" &&
+          socket.connected
+        ) {
+          requestSnapshot(current);
+        }
       },
     });
     commandQueueRef.current = queue;
@@ -217,7 +240,7 @@ export function useCompanionSocket(
         return;
       }
       const currentOutput = cursorRef.current.output;
-      if (currentOutput) {
+      if (currentOutput && currentOutput.outputMode !== "black") {
         cursorRef.current = {
           ...cursorRef.current,
           snapshotPending: true,
@@ -248,16 +271,26 @@ export function useCompanionSocket(
       const outputChanged =
         consumed.cursor.output !== cursorRef.current.output;
       cursorRef.current = consumed.cursor;
+      if (incoming.outputMode === "black") {
+        queue.pause();
+        setAnnotationRecovering(false);
+        setAnnotation(null);
+      }
       if (outputChanged) {
         setOutput(consumed.cursor.output);
-        const nextSurfaceId = consumed.cursor.output?.surfaceId;
+        const nextSurfaceId =
+          consumed.cursor.output?.outputMode === "black"
+            ? null
+            : consumed.cursor.output?.surfaceId;
         if (
           !previousOutput ||
           previousOutput.authorityEpochId !==
             consumed.cursor.output?.authorityEpochId ||
-          previousOutput.surfaceId !== nextSurfaceId
+          getCompanionOutputSurfaceId(previousOutput) !== nextSurfaceId
         ) {
-          queue.reset(consumed.cursor.output?.surfaceRevision ?? 0);
+          if (consumed.cursor.output?.outputMode !== "black") {
+            queue.reset(consumed.cursor.output?.surfaceRevision ?? 0);
+          }
           laserSequenceRef.current = 0;
         }
         setAnnotation((current) =>
@@ -265,7 +298,7 @@ export function useCompanionSocket(
         );
       }
       if (consumed.requestSnapshot) {
-        requestSnapshot(incoming);
+        if (incoming.outputMode !== "black") requestSnapshot(incoming);
       }
     };
     const handleAnnotationAck = (value: unknown) => {
@@ -292,7 +325,10 @@ export function useCompanionSocket(
           authorityEpochId: authorityEpochRef.current,
           current,
           incoming: parsed.data.payload,
-          surfaceId: cursorRef.current.output?.surfaceId ?? null,
+          surfaceId:
+            cursorRef.current.output?.outputMode === "black"
+              ? null
+              : cursorRef.current.output?.surfaceId ?? null,
         });
         if (next !== current) {
           queue.reset(next?.surfaceRevision ?? 0);
@@ -377,7 +413,11 @@ export function useCompanionSocket(
       }
       join();
       const current = cursorRef.current.output;
-      if (current) requestSnapshot(current);
+      if (current?.outputMode === "black") {
+        setAnnotationRecovering(false);
+      } else if (current) {
+        requestSnapshot(current);
+      }
     };
     window.addEventListener("online", recover);
     window.addEventListener("pageshow", recover);
@@ -566,4 +606,10 @@ export function consumeCompanionAnnotationSnapshot(input: {
     return input.current;
   }
   return input.incoming;
+}
+
+function getCompanionOutputSurfaceId(
+  output: PresentationCompanionOutputState | null,
+): string | null {
+  return output?.outputMode === "black" ? null : output?.surfaceId ?? null;
 }

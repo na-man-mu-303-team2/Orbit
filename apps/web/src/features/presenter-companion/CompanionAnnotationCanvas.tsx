@@ -65,6 +65,8 @@ export function CompanionAnnotationCanvas(props: {
     x: number;
     y: number;
   } | null>(null);
+  const surfaceId =
+    props.output.outputMode === "black" ? null : props.output.surfaceId;
   const disabled =
     !props.canWrite ||
     !props.connected ||
@@ -132,7 +134,7 @@ export function CompanionAnnotationCanvas(props: {
     setHiddenStrokeIds(new Set());
     setClearOptimistic(false);
     setLaserPoint(null);
-  }, [disabled, props.output.surfaceId]);
+  }, [disabled, surfaceId]);
 
   useEffect(
     () => () => {

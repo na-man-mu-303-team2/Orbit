@@ -58,7 +58,7 @@ export function usePresenterCompanionAuthority(input: {
   const latestOutputRef =
     useRef<PresentationCompanionOutputState | null>(null);
   const annotationAuthorityRef = useRef<AnnotationAuthority | null>(null);
-  const currentSurfaceIdRef = useRef("");
+  const currentSurfaceIdRef = useRef<string | null>(null);
   const retainedShareSurfaceIdRef = useRef<string | null>(null);
   const annotationDeltaHandlerRef = useRef(input.onAnnotationDelta);
   const annotationSnapshotHandlerRef = useRef(
@@ -90,26 +90,29 @@ export function usePresenterCompanionAuthority(input: {
       state,
       shareEpochIdRef.current,
     );
-    if (!surface) return;
     const output = presentationCompanionOutputStateSchema.parse({
       sessionId,
       authorityEpochId: authorityEpochIdRef.current,
       outputRevision: Math.max(0, outputRevisionRef.current),
-      surfaceRevision:
-        annotationAuthorityRef.current?.getSnapshot(
-          surface.surfaceId,
-        ).surfaceRevision ?? 0,
-      surfaceId: surface.surfaceId,
       outputMode: state.audienceOutputMode,
       slideId: state.slideId,
       slideIndex: state.slideIndex,
       animationStep: state.stepIndex,
-      ...(surface.shareEpochId
-        ? { shareEpochId: surface.shareEpochId }
+      ...(surface
+        ? {
+            surfaceRevision:
+              annotationAuthorityRef.current?.getSnapshot(
+                surface.surfaceId,
+              ).surfaceRevision ?? 0,
+            surfaceId: surface.surfaceId,
+            ...(surface.shareEpochId
+              ? { shareEpochId: surface.shareEpochId }
+              : {}),
+          }
         : {}),
     });
     latestOutputRef.current = output;
-    currentSurfaceIdRef.current = output.surfaceId;
+    currentSurfaceIdRef.current = surface?.surfaceId ?? null;
     socket.emit("presentation:companion:output-state", output);
   }, [input.sessionId]);
 
@@ -138,9 +141,9 @@ export function usePresenterCompanionAuthority(input: {
     setPairingGeneration(null);
     outputRevisionRef.current = -1;
     latestOutputRef.current = null;
-    currentSurfaceIdRef.current = createCompanionSurfaceId(
-      input.state.slideId,
-    );
+    currentSurfaceIdRef.current =
+      resolveCompanionSurface(input.state, input.shareEpochId)?.surfaceId ??
+      null;
     retainedShareSurfaceIdRef.current = input.shareEpochId
       ? createCompanionShareSurfaceId(input.shareEpochId)
       : null;
@@ -236,17 +239,23 @@ export function usePresenterCompanionAuthority(input: {
           value,
         );
       const authority = annotationAuthorityRef.current;
+      const activeSurfaceId = currentSurfaceIdRef.current;
       if (
         !parsed.success ||
         parsed.data.sessionId !== sessionId ||
         !authority ||
-        !currentSurfaceIdRef.current
+        !activeSurfaceId ||
+        !isCompanionAnnotationSurfaceActive({
+          output: latestOutputRef.current,
+          state: stateRef.current,
+          surfaceId: activeSurfaceId,
+        })
       ) {
         return;
       }
       const result = authority.consume(
         parsed.data.payload,
-        currentSurfaceIdRef.current,
+        activeSurfaceId,
       );
       socket.emit(
         "presentation:companion:annotation-ack",
@@ -268,12 +277,19 @@ export function usePresenterCompanionAuthority(input: {
     const handleLaser = (value: unknown) => {
       const parsed =
         presentationCompanionLaserEventSchema.safeParse(value);
+      const activeSurfaceId = currentSurfaceIdRef.current;
       if (
         parsed.success &&
         parsed.data.sessionId === sessionId &&
+        Boolean(activeSurfaceId) &&
+        isCompanionAnnotationSurfaceActive({
+          output: latestOutputRef.current,
+          state: stateRef.current,
+          surfaceId: activeSurfaceId,
+        }) &&
         parsed.data.payload.authorityEpochId ===
           authorityEpochIdRef.current &&
-        parsed.data.payload.surfaceId === currentSurfaceIdRef.current
+        parsed.data.payload.surfaceId === activeSurfaceId
       ) {
         laserHandlerRef.current?.(parsed.data.payload);
       }
@@ -284,6 +300,7 @@ export function usePresenterCompanionAuthority(input: {
       if (
         parsed.success &&
         parsed.data.sessionId === sessionId &&
+        stateRef.current?.audienceOutputMode !== "black" &&
         parsed.data.payload.authorityEpochId ===
           authorityEpochIdRef.current
       ) {
@@ -536,7 +553,7 @@ export function createCompanionShareSurfaceId(
   return `surface_${safePrefix}_${fnv1a(shareEpochId)}`;
 }
 
-function resolveCompanionSurface(
+export function resolveCompanionSurface(
   state: PresenterSlideshowState,
   shareEpochId: string | null | undefined,
 ):
@@ -550,7 +567,20 @@ function resolveCompanionSurface(
         }
       : null;
   }
+  if (state.audienceOutputMode === "black") return null;
   return { surfaceId: createCompanionSurfaceId(state.slideId) };
+}
+
+export function isCompanionAnnotationSurfaceActive(input: {
+  output: PresentationCompanionOutputState | null;
+  state: PresenterSlideshowState | null;
+  surfaceId: string | null;
+}): boolean {
+  return Boolean(
+    input.surfaceId &&
+      input.state?.audienceOutputMode !== "black" &&
+      input.output?.outputMode !== "black",
+  );
 }
 
 function createAuthorityEpochId(): string {

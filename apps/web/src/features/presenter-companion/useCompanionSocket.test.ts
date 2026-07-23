@@ -56,6 +56,27 @@ describe("consumeCompanionOutputState", () => {
     });
   });
 
+  it("accepts a complete black output across a revision gap without requesting a surface snapshot", () => {
+    const cursor: CompanionOutputCursor = {
+      output: output(4),
+      snapshotPending: false,
+    };
+    const blackOutput: PresentationCompanionOutputState = {
+      sessionId: "session_1",
+      authorityEpochId: "epoch_1",
+      outputRevision: 7,
+      outputMode: "black",
+      slideId: "slide_1",
+      slideIndex: 0,
+      animationStep: 0,
+    };
+
+    expect(consumeCompanionOutputState(cursor, blackOutput)).toEqual({
+      cursor: { output: blackOutput, snapshotPending: false },
+      requestSnapshot: false,
+    });
+  });
+
   it("resets the revision cursor for a new authority epoch", () => {
     const cursor: CompanionOutputCursor = {
       output: output(20),

@@ -4,6 +4,8 @@ import {
   createCompanionShareSurfaceId,
   createCompanionSurfaceId,
   presenterAuthorityHeartbeatIntervalMs,
+  isCompanionAnnotationSurfaceActive,
+  resolveCompanionSurface,
 } from "./usePresenterCompanionAuthority";
 
 describe("createCompanionSurfaceId", () => {
@@ -32,6 +34,34 @@ describe("createCompanionSurfaceId", () => {
     expect(first).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
     expect(first).not.toBe(restarted);
     expect(createCompanionShareSurfaceId("share_1")).toBe(first);
+  });
+
+  it("does not expose a drawable surface for black output", () => {
+    const state = {
+      audienceOutputMode: "black" as const,
+      highlights: [],
+      slideId: "slide_1",
+      slideIndex: 0,
+      stepIndex: 0,
+    };
+    expect(
+      resolveCompanionSurface(state, null),
+    ).toBeNull();
+    expect(
+      isCompanionAnnotationSurfaceActive({
+        output: {
+          sessionId: "session_1",
+          authorityEpochId: "epoch_1",
+          outputRevision: 2,
+          outputMode: "black",
+          slideId: "slide_1",
+          slideIndex: 0,
+          animationStep: 0,
+        },
+        state,
+        surfaceId: "surface_slide_1",
+      }),
+    ).toBe(false);
   });
 });
 
