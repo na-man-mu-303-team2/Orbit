@@ -130,6 +130,9 @@ export function AudienceLinkModal({
           : {}),
         projectId
       });
+      if (!payload.audienceUrl) {
+        throw new Error("청중 링크를 활성화하지 못했습니다.");
+      }
       const nextAudienceUrl = resolveAbsoluteAudienceUrl(payload.audienceUrl);
       setAudienceSession(payload.session);
       setAudienceUrl(nextAudienceUrl);

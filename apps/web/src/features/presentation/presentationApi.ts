@@ -87,9 +87,11 @@ export async function createPresentationRuntime(input: {
   const { audienceUrl, session } = await activityApi.createSession(
     input.projectId,
     {
+      audienceAccessEnabled: true,
       accessMode: "public",
       deckId: input.deckId,
       reuseCurrent: true,
+      sessionPurpose: "presentation",
     },
   );
   const response = await requestJson(
@@ -104,6 +106,9 @@ export async function createPresentationRuntime(input: {
     },
   );
   const { run } = createPresentationRunResponseSchema.parse(response);
+  if (!audienceUrl) {
+    throw new Error("실전 발표 청중 링크를 활성화하지 못했습니다.");
+  }
   return {
     audienceUrl,
     recordingMode: run.recordingMode,

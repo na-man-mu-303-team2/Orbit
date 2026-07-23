@@ -281,8 +281,10 @@ export async function loadActivityPresenterRuntime(input: {
     }
     try {
       const created = await activityApi.createSession(input.projectId, {
+        audienceAccessEnabled: true,
         accessMode: "public",
-        deckId: input.deckId
+        deckId: input.deckId,
+        sessionPurpose: "presentation",
       });
       session = created.session;
       audienceUrl = created.audienceUrl;
@@ -309,8 +311,10 @@ export async function loadActivityPresenterRuntime(input: {
     if (input.tryStaleSessionReplacement?.() === false) throw cause;
 
     const created = await activityApi.createSession(input.projectId, {
+      audienceAccessEnabled: true,
       accessMode: "public",
-      deckId: input.deckId
+      deckId: input.deckId,
+      sessionPurpose: "presentation",
     });
     session = created.session;
     audienceUrl = created.audienceUrl;
@@ -333,6 +337,9 @@ export async function loadActivityPresenterRuntime(input: {
     session.sessionId,
     run.activityRunId
   );
+  if (!audienceUrl) {
+    throw new Error("청중 링크를 활성화하지 못했습니다.");
+  }
   return {
     audienceUrl: canonicalActivityUrl(audienceUrl, input.activityId),
     result,

@@ -49,7 +49,9 @@ describe("ActivityPresenterPanel", () => {
     });
     expect(activityApi.createSession).toHaveBeenCalledWith("project_demo", {
       accessMode: "public",
-      deckId: "deck_demo"
+      audienceAccessEnabled: true,
+      deckId: "deck_demo",
+      sessionPurpose: "presentation",
     });
     expect(activityApi.updateRunStatus).toHaveBeenCalledWith(
       "project_demo",
@@ -372,6 +374,8 @@ function presentationSession() {
     presenterUserId: "user_1",
     createdBy: "user_1",
     status: "live" as const,
+    sessionPurpose: "presentation" as const,
+    audienceAccessEnabled: true,
     accessMode: "public" as const,
     startsAt: "2026-07-18T00:00:00.000Z",
     expiresAt: "2026-07-19T00:00:00.000Z",

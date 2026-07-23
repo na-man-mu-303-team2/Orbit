@@ -41,8 +41,10 @@ export async function createAudienceAccessSession(args: {
     `/api/v1/projects/${encodeURIComponent(args.projectId)}/presentation-sessions`,
     {
       body: JSON.stringify({
+        audienceAccessEnabled: true,
         accessMode: args.accessMode,
         deckId: args.deckId,
+        sessionPurpose: "presentation",
         startsAt: startsAt.toISOString(),
         expiresAt: expiresAt.toISOString(),
         ...(args.accessMode === "passcode" ? { passcode: args.passcode } : {})

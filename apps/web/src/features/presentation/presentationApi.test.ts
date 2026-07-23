@@ -71,9 +71,11 @@ describe("presentationApi", () => {
 
     expect(createSession).toHaveBeenCalledOnce();
     expect(createSession).toHaveBeenCalledWith("project_1", {
+      audienceAccessEnabled: true,
       accessMode: "public",
       deckId: "deck_1",
       reuseCurrent: true,
+      sessionPurpose: "presentation",
     });
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
@@ -450,6 +452,8 @@ function presentationSession() {
     presenterUserId: "user_1",
     createdBy: "user_1",
     status: "live" as const,
+    sessionPurpose: "presentation" as const,
+    audienceAccessEnabled: true,
     accessMode: "public" as const,
     startsAt: now,
     expiresAt: "2026-07-31T00:00:00.000Z",

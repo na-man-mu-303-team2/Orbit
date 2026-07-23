@@ -50,9 +50,11 @@ describe("audienceLinkApi", () => {
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(JSON.parse(String(request.body))).toEqual({
       accessMode: "passcode",
+      audienceAccessEnabled: true,
       deckId: "deck_1",
       expiresAt: "2026-07-31T00:00:00.000Z",
       passcode: "2468",
+      sessionPurpose: "presentation",
       startsAt: now
     });
   });
