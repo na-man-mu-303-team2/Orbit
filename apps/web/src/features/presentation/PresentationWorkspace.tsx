@@ -16,9 +16,12 @@ import { PresentationCompletionDialog } from "./PresentationCompletionDialog";
 import { PresentationMicCheckModal } from "./PresentationMicCheckModal";
 import {
   completePresentationWithoutAudio,
-  createPresentationRuntime,
+  closePresenterCompanionSession,
+  ensurePresenterCompanionSession,
   fetchOrCreatePresentationDeck,
+  startPresentationRuntime,
   uploadPresentationRecording,
+  type PresenterCompanionSessionIdentity,
   type PresentationRuntimeIdentity,
 } from "./presentationApi";
 import {
@@ -32,7 +35,6 @@ import {
   shouldWarnBeforePresentationUnload,
   type PresentationRuntimePhase,
 } from "./presentationLifecycle";
-import { activityApi } from "../activity-slides/api/activityApi";
 import { prepareActivityQrRuns } from "../activity-slides/model/activityQrElements";
 import {
   getRehearsalMicrophoneAudioConstraints,
@@ -133,6 +135,12 @@ export function PresentationWorkspace(props: {
   const [requestedRecordingMode, setRequestedRecordingMode] =
     useState<PresentationRecordingMode>("microphone");
   const runtimeRef = useRef<PresentationRuntimeIdentity | null>(null);
+  const presenterSessionRef =
+    useRef<PresenterCompanionSessionIdentity | null>(null);
+  const presenterSessionPromiseRef =
+    useRef<Promise<PresenterCompanionSessionIdentity> | null>(null);
+  const presenterSessionPromiseKeyRef = useRef<string | null>(null);
+  const closePresenterSessionPromiseRef = useRef<Promise<void> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordingRef = useRef<PresentationRecordingSession | null>(null);
   const recordedFileRef = useRef<File | null>(null);
@@ -219,6 +227,43 @@ export function PresentationWorkspace(props: {
       setTimerDurationInput(formatClock(nextSeconds));
     }
   }, [deck, editingTimeField, hasManualTimerDuration]);
+
+  useEffect(() => {
+    if (!requiresPresentationRuntime || !deck || !props.projectId) {
+      return;
+    }
+
+    let isCancelled = false;
+    setRuntimePhase("starting");
+    setRuntimeError("");
+    setRuntimeFailureOperation(null);
+    void ensurePresentationSession()
+      .then(() => {
+        if (!isCancelled) {
+          setRuntimePhase("preflight");
+        }
+      })
+      .catch((cause) => {
+        if (!isCancelled) {
+          setRuntimeError(
+            cause instanceof Error
+              ? cause.message
+              : "실전 발표 세션을 준비하지 못했습니다.",
+          );
+          setRuntimeFailureOperation("start");
+          setRuntimePhase("failed");
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    deck?.deckId,
+    deck?.version,
+    props.projectId,
+    requiresPresentationRuntime,
+  ]);
 
   useEffect(() => {
     if (!isTimerRunning) {
@@ -834,6 +879,78 @@ export function PresentationWorkspace(props: {
     [],
   );
 
+  function ensurePresentationSession() {
+    const sessionKey = deck ? `${deck.deckId}:${deck.version}` : null;
+    if (
+      presenterSessionRef.current &&
+      deck &&
+      presenterSessionRef.current.deckId === deck.deckId &&
+      presenterSessionRef.current.deckVersion === deck.version
+    ) {
+      return Promise.resolve(presenterSessionRef.current);
+    }
+    if (
+      presenterSessionPromiseRef.current &&
+      presenterSessionPromiseKeyRef.current === sessionKey
+    ) {
+      return presenterSessionPromiseRef.current;
+    }
+    if (!deck || !props.projectId) {
+      return Promise.reject(new Error("발표 자료가 준비되지 않았습니다."));
+    }
+    presenterSessionRef.current = null;
+    presenterSessionPromiseKeyRef.current = sessionKey;
+
+    const promise = ensurePresenterCompanionSession({
+      deckId: deck.deckId,
+      projectId: props.projectId,
+      sessionPurpose: "presentation",
+    })
+      .then((session) => {
+        if (presenterSessionPromiseKeyRef.current === sessionKey) {
+          presenterSessionRef.current = session;
+        }
+        return session;
+      })
+      .finally(() => {
+        if (presenterSessionPromiseKeyRef.current === sessionKey) {
+          presenterSessionPromiseRef.current = null;
+          presenterSessionPromiseKeyRef.current = null;
+        }
+      });
+    presenterSessionPromiseRef.current = promise;
+    return promise;
+  }
+
+  function closePresentationSession() {
+    if (closePresenterSessionPromiseRef.current) {
+      return closePresenterSessionPromiseRef.current;
+    }
+    const session = presenterSessionRef.current;
+    if (!session || !props.projectId) {
+      return Promise.resolve();
+    }
+    const promise = closePresenterCompanionSession({
+      projectId: props.projectId,
+      sessionId: session.sessionId,
+    })
+      .then(() => {
+        if (presenterSessionRef.current?.sessionId === session.sessionId) {
+          presenterSessionRef.current = null;
+        }
+      })
+      .finally(() => {
+        closePresenterSessionPromiseRef.current = null;
+      });
+    closePresenterSessionPromiseRef.current = promise;
+    return promise;
+  }
+
+  async function leavePresentation() {
+    await closePresentationSession().catch(() => undefined);
+    navigateToProject(deck?.projectId ?? props.projectId);
+  }
+
   function startPresentation(recordingMode: PresentationRecordingMode) {
     if (startPromiseRef.current) {
       return startPromiseRef.current;
@@ -848,13 +965,13 @@ export function PresentationWorkspace(props: {
       setRuntimeFailureOperation(null);
       setRequestedRecordingMode(recordingMode);
 
+      const presenterSession = await ensurePresentationSession();
       const runtime =
         runtimeRef.current ??
-        (await createPresentationRuntime({
-          deckId: deck.deckId,
-          deckVersion: deck.version,
+        (await startPresentationRuntime({
           projectId: props.projectId,
           recordingMode,
+          session: presenterSession,
         }));
       runtimeRef.current = runtime;
 
@@ -959,7 +1076,7 @@ export function PresentationWorkspace(props: {
           sessionId: runtime.sessionId,
         });
       }
-      await activityApi.closeSession(props.projectId, runtime.sessionId);
+      await closePresentationSession();
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
       setRuntimePhase("completed");
@@ -1175,9 +1292,7 @@ export function PresentationWorkspace(props: {
                 </OrbitButton>
               ) : null}
               <OrbitButton
-                onClick={() =>
-                  navigateToProject(deck?.projectId ?? props.projectId)
-                }
+                onClick={() => void leavePresentation()}
                 size="prominent"
                 variant="secondary"
               >
@@ -1252,7 +1367,7 @@ export function PresentationWorkspace(props: {
           });
         }}
         panelSnapshot={panelSnapshot}
-        presentationSession={runtimeRef.current ?? undefined}
+        presentationSession={presenterSessionRef.current ?? undefined}
         presenterScale={presenterScale}
         presenterStageRef={presenterStageRef}
         presenterStepIndex={presenterStepIndex}
@@ -1283,7 +1398,7 @@ export function PresentationWorkspace(props: {
       />
       {runtimePhase === "preflight" ? (
         <PresentationMicCheckModal
-          onClose={() => navigateToProject(deck?.projectId ?? props.projectId)}
+          onClose={() => void leavePresentation()}
           onStart={() => void startPresentation("microphone")}
           onStartWithoutMicrophone={() => void startPresentation("none")}
         />

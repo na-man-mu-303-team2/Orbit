@@ -5,10 +5,12 @@ import {
   getDeckResponseSchema,
   getPresentationRunReportResponseSchema,
   getPresentationRunResponseSchema,
+  presentationSessionResponseSchema,
   putDeckResponseSchema,
   type AssetUploadUrlResponse,
   type Deck,
   type PresentationRecordingMode,
+  type PresentationSessionPurpose,
   type SlideTranscriptSnapshot,
 } from "@orbit/shared";
 
@@ -16,7 +18,7 @@ import { activityApi } from "../activity-slides/api/activityApi";
 import { normalizePresentationRecordingFile } from "./presentationRecording";
 
 export type PresentationRuntimeIdentity = {
-  audienceUrl: string;
+  audienceUrl: string | null;
   recordingMode: PresentationRecordingMode;
   runId: string;
   sessionId: string;
@@ -27,6 +29,14 @@ export type PresentationRuntimeIdentity = {
     | "succeeded"
     | "failed"
     | "cancelled";
+};
+
+export type PresenterCompanionSessionIdentity = {
+  audienceUrl: string | null;
+  deckId: string;
+  deckVersion: number;
+  sessionId: string;
+  sessionPurpose: PresentationSessionPurpose;
 };
 
 export async function fetchOrCreatePresentationDeck(input: {
@@ -78,27 +88,39 @@ export async function fetchOrCreatePresentationDeck(input: {
   );
 }
 
-export async function createPresentationRuntime(input: {
+export async function ensurePresenterCompanionSession(input: {
   deckId: string;
-  deckVersion: number;
   projectId: string;
-  recordingMode: PresentationRecordingMode;
-}): Promise<PresentationRuntimeIdentity> {
+  sessionPurpose: PresentationSessionPurpose;
+}): Promise<PresenterCompanionSessionIdentity> {
   const { audienceUrl, session } = await activityApi.createSession(
     input.projectId,
     {
-      audienceAccessEnabled: true,
-      accessMode: "public",
+      audienceAccessEnabled: false,
       deckId: input.deckId,
       reuseCurrent: true,
-      sessionPurpose: "presentation",
+      sessionPurpose: input.sessionPurpose,
     },
   );
+  return {
+    audienceUrl,
+    deckId: session.deckId,
+    deckVersion: session.deckVersion,
+    sessionId: session.sessionId,
+    sessionPurpose: session.sessionPurpose,
+  };
+}
+
+export async function startPresentationRuntime(input: {
+  projectId: string;
+  recordingMode: PresentationRecordingMode;
+  session: PresenterCompanionSessionIdentity;
+}): Promise<PresentationRuntimeIdentity> {
   const response = await requestJson(
-    runsUrl(input.projectId, session.sessionId),
+    runsUrl(input.projectId, input.session.sessionId),
     {
       body: JSON.stringify({
-        expectedDeckVersion: session.deckVersion,
+        expectedDeckVersion: input.session.deckVersion,
         recordingMode: input.recordingMode,
       }),
       headers: { "content-type": "application/json" },
@@ -106,16 +128,28 @@ export async function createPresentationRuntime(input: {
     },
   );
   const { run } = createPresentationRunResponseSchema.parse(response);
-  if (!audienceUrl) {
-    throw new Error("실전 발표 청중 링크를 활성화하지 못했습니다.");
-  }
   return {
-    audienceUrl,
+    audienceUrl: input.session.audienceUrl,
     recordingMode: run.recordingMode,
     runId: run.runId,
-    sessionId: session.sessionId,
+    sessionId: input.session.sessionId,
     status: run.status,
   };
+}
+
+export async function closePresenterCompanionSession(input: {
+  projectId: string;
+  sessionId: string;
+}) {
+  const response = await requestJson(
+    `/api/v1/projects/${segment(input.projectId)}/presentation-sessions/${segment(input.sessionId)}/close`,
+    {
+      body: JSON.stringify({}),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return presentationSessionResponseSchema.parse(response).session;
 }
 
 export async function uploadPresentationRecording(input: {

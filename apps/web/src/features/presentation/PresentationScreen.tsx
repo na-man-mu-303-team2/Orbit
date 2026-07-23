@@ -50,7 +50,7 @@ export function PresentationScreen(props: {
   onTimeModeChange: (value: PresenterTimeMode) => void;
   panelSnapshot: SpeechTrackerSnapshot;
   presentationSession?: {
-    audienceUrl: string;
+    audienceUrl: string | null;
     sessionId: string;
   };
   presenterScale: number;
