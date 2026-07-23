@@ -1,0 +1,52 @@
+let task_definitions = Resources.*[ Type == "AWS::ECS::TaskDefinition" ]
+let buckets = Resources.*[ Type == "AWS::S3::Bucket" ]
+let repositories = Resources.*[ Type == "AWS::ECR::Repository" ]
+let load_balancers = Resources.*[ Type == "AWS::ElasticLoadBalancingV2::LoadBalancer" ]
+
+rule fargate_tasks_are_private_arm64 when %task_definitions !empty {
+  %task_definitions.Properties.NetworkMode == "awsvpc"
+  %task_definitions.Properties.RequiresCompatibilities == ["FARGATE"]
+  %task_definitions.Properties.RuntimePlatform.CpuArchitecture == "ARM64"
+  %task_definitions.Properties.RuntimePlatform.OperatingSystemFamily == "LINUX"
+  %task_definitions.Properties.ExecutionRoleArn exists
+  %task_definitions.Properties.TaskRoleArn exists
+}
+
+rule s3_blocks_public_access when %buckets !empty {
+  %buckets.Properties.PublicAccessBlockConfiguration.BlockPublicAcls == true
+  %buckets.Properties.PublicAccessBlockConfiguration.BlockPublicPolicy == true
+  %buckets.Properties.PublicAccessBlockConfiguration.IgnorePublicAcls == true
+  %buckets.Properties.PublicAccessBlockConfiguration.RestrictPublicBuckets == true
+}
+
+rule ecr_is_immutable_and_scanned when %repositories !empty {
+  %repositories.Properties.ImageTagMutability == "IMMUTABLE"
+  %repositories.Properties.ImageScanningConfiguration.ScanOnPush == true
+  %repositories.DeletionPolicy == "Retain"
+  %repositories.UpdateReplacePolicy == "Retain"
+}
+
+rule alb_drops_invalid_headers when %load_balancers !empty {
+  %load_balancers.Properties.LoadBalancerAttributes[
+    Key == "routing.http.drop_invalid_header_fields.enabled"
+  ].Value == "true"
+}
+
+rule private_audio_is_retained_and_unversioned {
+  Resources.PrivateAudioBucket.DeletionPolicy == "Retain"
+  Resources.PrivateAudioBucket.UpdateReplacePolicy == "Retain"
+  Resources.PrivateAudioBucket.Properties.VersioningConfiguration not exists
+  Resources.PrivateAudioBucket.Properties.BucketEncryption.ServerSideEncryptionConfiguration[0].ServerSideEncryptionByDefault.SSEAlgorithm == "aws:kms"
+}
+
+rule queue_redis_is_retained_and_encrypted {
+  Resources.QueueRedis.DeletionPolicy == "Retain"
+  Resources.QueueRedis.UpdateReplacePolicy == "Retain"
+  Resources.QueueRedis.Properties.AtRestEncryptionEnabled == true
+  Resources.QueueRedis.Properties.TransitEncryptionEnabled == true
+}
+
+rule evidence_redis_is_nonpersistent {
+  Resources.EvidenceRedis.Properties.SnapshotRetentionLimit == 0
+  Resources.EvidenceRedis.Properties.NumCacheClusters == 1
+}

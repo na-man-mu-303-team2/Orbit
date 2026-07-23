@@ -2,6 +2,18 @@
 
 이 문서는 자동 구현 세션에서 생긴 비자명한 정책, 아키텍처, 데이터 보관, 접근제어, 저장 결정의 기록이다.
 
+## ORBIT additive ECS production foundation
+
+- Context: 현재 `main` production은 drifted `orbit-main-production` stack의 EC2, RDS, S3, CloudFront에 의존한다. ECS 목표 구성을 기존 stack 정합화와 함께 적용하면 live stateful resource replacement 위험과 rollback 경계가 섞인다.
+- Options considered:
+  - 기존 bootstrap template을 한 번에 수정한다.
+  - 현재 resource를 새 stack으로 import한 뒤 ECS를 추가한다.
+  - 기존 resource는 parameter로 참조하고 신규 resource만 additive stack이 소유한다.
+- Final decision: `orbit-main-production-ecs`가 신규 subnet/NAT/S3 endpoint, CloudFront-only ALB, blue EC2/green ECS target group, origin certificate, candidate CloudFront, WAF, 두 ElastiCache, KMS private-audio S3, 세 ECR repository, ARM64 Fargate/Service Connect/autoscaling/alarms와 GitHub deploy role을 소유한다. 초기값은 ECS desired count 0, blue 100/green 0, WAF COUNT다. 기존 EC2/RDS/S3/CloudFront는 import하지 않고 primary origin과 weights는 별도 승인 workflow가 변경한다.
+- Rationale: 신규 resource `Add`만 포함한 change set으로 현재 drift와 배포를 분리하고 EC2 rollback을 유지하면서 image, data plane, traffic을 단계별로 검증한다.
+- Affected files: `infra/aws/main-production-ecs.yaml`, ECS candidate/traffic workflows, foundation change-set script, `docs/runbooks/aws-ecs-cutover.md`.
+- Follow-up review notes: 실행 전 `main` template에서 change set을 다시 생성하고 Remove/Replacement 0을 확인한다. 48시간 후 RDS Multi-AZ는 baseline-only change set으로, EC2 stop은 7일 warm rollback window 뒤 별도로 승인한다.
+
 ## kdh home project fixture removal
 
 - Context: 사용자가 `kdh@orbit.com` 홈에 고정으로 떠 있는 10개 발표자료 카드를 `develop`과 `main` 모두에서 제거하도록 요청했다. 두 브랜치의 관련 코드는 동일하다. `ensureKdhHomeProjects()`가 `list()` 호출마다 실행되므로 DB row만 지우면 다음 목록 조회에서 즉시 재생성된다.

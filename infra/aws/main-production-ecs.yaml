@@ -1,0 +1,1415 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Additive ORBIT production ECS foundation. Existing EC2, RDS, S3, and CloudFront resources remain rollback-safe.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PublicSubnetAId:
+    Type: AWS::EC2::Subnet::Id
+  InternetGatewayId:
+    Type: String
+  ExistingRdsSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  ExistingEc2InstanceId:
+    Type: AWS::EC2::Instance::Id
+  ExistingEc2SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  ExistingAssetsBucketName:
+    Type: String
+  ExistingStaticWebBucketName:
+    Type: String
+  ExistingCloudFrontDistributionId:
+    Type: String
+  CloudFrontOriginPrefixListId:
+    Type: String
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+  PrimaryDomainName:
+    Type: String
+    Default: tryorbit.site
+  OriginApiDomainName:
+    Type: String
+    Default: origin-api.tryorbit.site
+  CandidateDomainName:
+    Type: String
+    Default: candidate.tryorbit.site
+  CloudFrontViewerCertificateArn:
+    Type: String
+    AllowedPattern: "^arn:[^:]+:acm:us-east-1:[0-9]{12}:certificate/.+$"
+  GitHubOwner:
+    Type: String
+    Default: na-man-mu-303-team2
+  GitHubRepo:
+    Type: String
+    Default: Orbit
+  GitHubEnvironment:
+    Type: String
+    Default: production
+  ImageTag:
+    Type: String
+    Default: bootstrap-required
+    AllowedPattern: "^[a-zA-Z0-9._-]{1,128}$"
+  CandidateServicesEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  BlueWeight:
+    Type: Number
+    Default: 100
+    MinValue: 0
+    MaxValue: 100
+  GreenWeight:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 100
+  WafMode:
+    Type: String
+    Default: COUNT
+    AllowedValues: [COUNT, BLOCK]
+  ApiDesiredCount:
+    Type: Number
+    Default: 2
+    MinValue: 2
+    MaxValue: 6
+  WorkerDesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 4
+  PythonWorkerDesiredCount:
+    Type: Number
+    Default: 2
+    MinValue: 2
+    MaxValue: 6
+  DatabaseName:
+    Type: String
+    Default: orbit
+  DatabaseUsername:
+    Type: String
+    Default: orbit
+  RdsEndpointAddress:
+    Type: String
+  DbPasswordParameterName:
+    Type: String
+    Default: /orbit/production/db-password
+  OpenAiApiKeyParameterName:
+    Type: String
+    Default: /orbit/production/openai-api-key
+  SessionSecretParameterName:
+    Type: String
+    Default: /orbit/production/session-secret
+  CookieSecretParameterName:
+    Type: String
+    Default: /orbit/production/cookie-secret
+
+Conditions:
+  RunCandidateServices: !Equals [!Ref CandidateServicesEnabled, "true"]
+  CountWafRules: !Equals [!Ref WafMode, COUNT]
+
+Resources:
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcId
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.42.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public-b
+
+  AppPrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcId
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.42.20.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-app-private-a
+
+  AppPrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcId
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.42.21.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-app-private-b
+
+  PublicRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public-b
+
+  PublicRouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGatewayId
+
+  PublicSubnetBAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTableB
+      SubnetId: !Ref PublicSubnetB
+
+  NatEipA:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-nat-a
+
+  NatEipB:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-nat-b
+
+  NatGatewayA:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEipA.AllocationId
+      SubnetId: !Ref PublicSubnetAId
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-nat-a
+
+  NatGatewayB:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEipB.AllocationId
+      SubnetId: !Ref PublicSubnetB
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-nat-b
+
+  AppRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcId
+
+  AppRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcId
+
+  AppDefaultRouteA:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref AppRouteTableA
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayA
+
+  AppDefaultRouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref AppRouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayB
+
+  AppSubnetAAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref AppRouteTableA
+      SubnetId: !Ref AppPrivateSubnetA
+
+  AppSubnetBAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref AppRouteTableB
+      SubnetId: !Ref AppPrivateSubnetB
+
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VpcId
+      VpcEndpointType: Gateway
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      RouteTableIds:
+        - !Ref AppRouteTableA
+        - !Ref AppRouteTableB
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: CloudFront-only HTTPS ingress for ORBIT production ALB
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourcePrefixListId: !Ref CloudFrontOriginPrefixListId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  TaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ORBIT production ECS tasks
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  TaskToPythonIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref TaskSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8000
+      ToPort: 8000
+      SourceSecurityGroupId: !Ref TaskSecurityGroup
+
+  BlueEc2IngressFromAlb:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ExistingEc2SecurityGroupId
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+
+  RdsIngressFromTasks:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ExistingRdsSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref TaskSecurityGroup
+
+  RedisSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ORBIT production Redis from ECS tasks
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref TaskSecurityGroup
+
+  RedisIngressFromRollbackEc2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref RedisSecurityGroup
+      IpProtocol: tcp
+      FromPort: 6379
+      ToPort: 6379
+      SourceSecurityGroupId: !Ref ExistingEc2SecurityGroupId
+
+  OriginCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref OriginApiDomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref OriginApiDomainName
+          HostedZoneId: !Ref HostedZoneId
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      Subnets:
+        - !Ref PublicSubnetAId
+        - !Ref PublicSubnetB
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: "120"
+        - Key: routing.http.drop_invalid_header_fields.enabled
+          Value: "true"
+
+  BlueTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /api/health
+      Matcher:
+        HttpCode: 200-399
+      Targets:
+        - Id: !Ref ExistingEc2InstanceId
+          Port: 80
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "300"
+        - Key: stickiness.enabled
+          Value: "true"
+        - Key: stickiness.type
+          Value: lb_cookie
+
+  GreenTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Port: 3000
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckPath: /api/health
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      HealthCheckIntervalSeconds: 15
+      Matcher:
+        HttpCode: 200-399
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "300"
+        - Key: stickiness.enabled
+          Value: "true"
+        - Key: stickiness.type
+          Value: lb_cookie
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref OriginCertificate
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      DefaultActions:
+        - Type: forward
+          ForwardConfig:
+            TargetGroups:
+              - TargetGroupArn: !Ref BlueTargetGroup
+                Weight: !Ref BlueWeight
+              - TargetGroupArn: !Ref GreenTargetGroup
+                Weight: !Ref GreenWeight
+            TargetGroupStickinessConfig:
+              Enabled: true
+              DurationSeconds: 3600
+
+  OriginApiRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref OriginApiDomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt LoadBalancer.DNSName
+        HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
+
+  WebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub ${AWS::StackName}-waf
+        SampledRequestsEnabled: true
+      Rules:
+        - Name: AWSManagedCommon
+          Priority: 10
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+          OverrideAction: !If
+            - CountWafRules
+            - Count: {}
+            - None: {}
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: aws-common
+            SampledRequestsEnabled: true
+        - Name: AWSManagedKnownBadInputs
+          Priority: 20
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+          OverrideAction: !If
+            - CountWafRules
+            - Count: {}
+            - None: {}
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: aws-known-bad-inputs
+            SampledRequestsEnabled: true
+
+  WebAclAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Ref LoadBalancer
+      WebACLArn: !GetAtt WebAcl.Arn
+
+  CandidateDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - !Ref CandidateDomainName
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        Origins:
+          - Id: orbit-ecs-alb
+            DomainName: !Ref OriginApiDomainName
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              HTTPSPort: 443
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          TargetOriginId: orbit-ecs-alb
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          CachedMethods: [GET, HEAD, OPTIONS]
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+          Compress: true
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CloudFrontViewerCertificateArn
+          MinimumProtocolVersion: TLSv1.2_2021
+          SslSupportMethod: sni-only
+
+  CandidateRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref CandidateDomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CandidateDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+
+  PrivateAudioKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: ORBIT production private audio
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AccountAdministration
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Action: kms:*
+            Resource: "*"
+
+  PrivateAudioKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/${AWS::StackName}-private-audio
+      TargetKeyId: !Ref PrivateAudioKey
+
+  PrivateAudioBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt PrivateAudioKey.Arn
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ["*"]
+            AllowedMethods: [GET, HEAD, PUT]
+            AllowedOrigins:
+              - !Sub https://${PrimaryDomainName}
+              - !Sub https://www.${PrimaryDomainName}
+            ExposedHeaders: [ETag]
+            MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-private-audio
+            Status: Enabled
+            ExpirationInDays: 14
+
+  PrivateAudioBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PrivateAudioBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt PrivateAudioBucket.Arn
+              - !Sub ${PrivateAudioBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  ApiRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: orbit-production-api
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: IMMUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"retain 30 images","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":30},"action":{"type":"expire"}}]}'
+
+  WorkerRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: orbit-production-worker
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: IMMUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"retain 30 images","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":30},"action":{"type":"expire"}}]}'
+
+  PythonWorkerRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: orbit-production-python-worker
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: IMMUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"retain 30 images","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":30},"action":{"type":"expire"}}]}'
+
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: ORBIT production ECS Redis subnets
+      SubnetIds:
+        - !Ref AppPrivateSubnetA
+        - !Ref AppPrivateSubnetB
+
+  QueueRedisParameterGroup:
+    Type: AWS::ElastiCache::ParameterGroup
+    Properties:
+      CacheParameterGroupFamily: redis7
+      Description: BullMQ Redis with no eviction
+      Properties:
+        maxmemory-policy: noeviction
+
+  EvidenceRedisParameterGroup:
+    Type: AWS::ElastiCache::ParameterGroup
+    Properties:
+      CacheParameterGroupFamily: redis7
+      Description: Non-persistent private evidence Redis
+      Properties:
+        appendonly: "no"
+        maxmemory-policy: allkeys-lru
+
+  QueueRedis:
+    Type: AWS::ElastiCache::ReplicationGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ReplicationGroupDescription: ORBIT BullMQ production
+      Engine: redis
+      EngineVersion: "7.1"
+      CacheNodeType: cache.t4g.micro
+      CacheParameterGroupName: !Ref QueueRedisParameterGroup
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      SecurityGroupIds: [!Ref RedisSecurityGroup]
+      NumCacheClusters: 2
+      AutomaticFailoverEnabled: true
+      MultiAZEnabled: true
+      AtRestEncryptionEnabled: true
+      TransitEncryptionEnabled: true
+      SnapshotRetentionLimit: 1
+
+  EvidenceRedis:
+    Type: AWS::ElastiCache::ReplicationGroup
+    Properties:
+      ReplicationGroupDescription: ORBIT private evidence production
+      Engine: redis
+      EngineVersion: "7.1"
+      CacheNodeType: cache.t4g.micro
+      CacheParameterGroupName: !Ref EvidenceRedisParameterGroup
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      SecurityGroupIds: [!Ref RedisSecurityGroup]
+      NumCacheClusters: 1
+      AutomaticFailoverEnabled: false
+      AtRestEncryptionEnabled: true
+      TransitEncryptionEnabled: true
+      SnapshotRetentionLimit: 0
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: orbit-main-production
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  ServiceConnectNamespace:
+    Type: AWS::ServiceDiscovery::HttpNamespace
+    Properties:
+      Name: orbit-production
+
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /orbit/production/ecs/api
+      RetentionInDays: 30
+
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /orbit/production/ecs/worker
+      RetentionInDays: 30
+
+  PythonWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /orbit/production/ecs/python-worker
+      RetentionInDays: 30
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: orbit-production-parameters
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [ssm:GetParameter, ssm:GetParameters]
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DbPasswordParameterName}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OpenAiApiKeyParameterName}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SessionSecretParameterName}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${CookieSecretParameterName}
+
+  GitHubEcsDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-github-deploy
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOwner}/${GitHubRepo}:environment:${GitHubEnvironment}
+      Policies:
+        - PolicyName: orbit-ecs-candidate-deploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                  - ecr:BatchGetImage
+                  - ecr:DescribeImages
+                Resource:
+                  - !GetAtt ApiRepository.Arn
+                  - !GetAtt WorkerRepository.Arn
+                  - !GetAtt PythonWorkerRepository.Arn
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:GetTemplate
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
+                  - ecs:RunTask
+                  - ecs:StopTask
+                  - ecs:UpdateService
+                Resource: "*"
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !GetAtt ExecutionRole.Arn
+                  - !GetAtt TaskRole.Arn
+              - Effect: Allow
+                Action: [s3:ListBucket]
+                Resource: !Sub arn:${AWS::Partition}:s3:::${ExistingStaticWebBucketName}
+              - Effect: Allow
+                Action: [s3:DeleteObject, s3:GetObject, s3:PutObject]
+                Resource: !Sub arn:${AWS::Partition}:s3:::${ExistingStaticWebBucketName}/*
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                  - cloudfront:GetDistribution
+                  - cloudfront:GetDistributionConfig
+                  - cloudfront:UpdateDistribution
+                Resource: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${ExistingCloudFrontDistributionId}
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: orbit-production-runtime
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:ListBucket]
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${ExistingAssetsBucketName}
+                  - !GetAtt PrivateAudioBucket.Arn
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${ExistingAssetsBucketName}/*
+                  - !Sub ${PrivateAudioBucket.Arn}/*
+              - Effect: Allow
+                Action: [kms:Decrypt, kms:Encrypt, kms:GenerateDataKey]
+                Resource: !GetAtt PrivateAudioKey.Arn
+              - Effect: Allow
+                Action:
+                  - transcribe:StartTranscriptionJob
+                  - transcribe:GetTranscriptionJob
+                  - textract:DetectDocumentText
+                  - textract:AnalyzeDocument
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ssmmessages:CreateControlChannel
+                  - ssmmessages:CreateDataChannel
+                  - ssmmessages:OpenControlChannel
+                  - ssmmessages:OpenDataChannel
+                Resource: "*"
+
+  ApiTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: orbit-production-api
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: api
+          Image: !Sub ${ApiRepository.RepositoryUri}:${ImageTag}
+          Essential: true
+          StopTimeout: 120
+          EntryPoint: ["/bin/sh", "-c"]
+          Command:
+            - !Sub >-
+              encoded="$(node -p 'encodeURIComponent(process.env.DB_PASSWORD)')";
+              export DATABASE_URL="postgresql://${DatabaseUsername}:${!encoded}@${!RDS_HOST}:5432/${DatabaseName}";
+              exec pnpm --filter @orbit/api start
+          PortMappings:
+            - Name: http
+              ContainerPort: 3000
+              Protocol: tcp
+              AppProtocol: http
+          Environment:
+            - {Name: NODE_ENV, Value: production}
+            - {Name: APP_ENV, Value: production}
+            - {Name: WEB_PORT, Value: "5173"}
+            - {Name: API_PORT, Value: "3000"}
+            - {Name: WORKER_PORT, Value: "3001"}
+            - {Name: PYTHON_WORKER_PORT, Value: "8000"}
+            - Name: WEB_ORIGIN
+              Value: !Sub https://${PrimaryDomainName}
+            - Name: API_BASE_URL
+              Value: !Sub https://${PrimaryDomainName}
+            - {Name: PYTHON_WORKER_URL, Value: "http://python-worker:8000"}
+            - {Name: RDS_HOST, Value: !Ref RdsEndpointAddress}
+            - Name: REDIS_URL
+              Value: !Sub rediss://${QueueRedis.PrimaryEndPoint.Address}:6379
+            - Name: PRIVATE_EVIDENCE_REDIS_URL
+              Value: !Sub rediss://${EvidenceRedis.PrimaryEndPoint.Address}:6379
+            - {Name: STORAGE_DRIVER, Value: s3}
+            - {Name: S3_BUCKET, Value: !Ref ExistingAssetsBucketName}
+            - {Name: S3_ASSETS_BUCKET, Value: !Ref ExistingAssetsBucketName}
+            - {Name: S3_PRIVATE_AUDIO_BUCKET, Value: !Ref PrivateAudioBucket}
+            - {Name: S3_REGION, Value: !Ref AWS::Region}
+            - {Name: S3_FORCE_PATH_STYLE, Value: "false"}
+            - {Name: JOB_QUEUE_DRIVER, Value: bullmq}
+            - {Name: ASYNC_JOB_ADMISSION_MODE, Value: enabled}
+            - {Name: AI_DECK_EXECUTION_MODE, Value: monolith}
+            - {Name: AI_DECK_WORKER_QUEUE, Value: all}
+            - {Name: LIVE_STT_PROVIDER, Value: sherpa}
+            - {Name: LIVE_STT_ENGINE, Value: web-speech}
+            - {Name: REPORT_STT_PROVIDER, Value: openai}
+            - {Name: REHEARSAL_AUDIO_MAX_BYTES, Value: "25000000"}
+            - {Name: OCR_PROVIDER, Value: python}
+            - {Name: LLM_PROVIDER, Value: openai}
+            - {Name: OPENAI_MODEL, Value: gpt-4.1-mini}
+            - {Name: OPENAI_IMAGE_MODEL, Value: gpt-image-1}
+            - {Name: IMAGE_PROVIDER, Value: openai}
+            - {Name: PUBLIC_IMAGE_PROVIDER, Value: openverse}
+            - {Name: OPENAI_TRANSCRIPTION_MODEL, Value: whisper-1}
+            - {Name: OPENAI_EMBEDDING_MODEL, Value: text-embedding-3-small}
+            - {Name: AWS_REGION, Value: !Ref AWS::Region}
+            - {Name: TRANSCRIBE_LANGUAGE_CODE, Value: ko-KR}
+            - {Name: TEXTRACT_ENABLED, Value: "false"}
+            - {Name: AUTH_COOKIE_SECURE, Value: "true"}
+            - {Name: LOG_LEVEL, Value: info}
+            - {Name: LOG_PRETTY, Value: "false"}
+            - {Name: DEMO_USER_ID, Value: user_demo_1}
+            - {Name: DEMO_WORKSPACE_ID, Value: workspace_demo_1}
+            - {Name: DEMO_PROJECT_ID, Value: project_demo_1}
+            - {Name: DEMO_DECK_ID, Value: deck_demo_1}
+            - {Name: DEMO_SESSION_ID, Value: session_demo_1}
+          Secrets:
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DbPasswordParameterName}
+            - Name: OPENAI_API_KEY
+              ValueFrom: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OpenAiApiKeyParameterName}
+            - Name: SESSION_SECRET
+              ValueFrom: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SessionSecretParameterName}
+            - Name: COOKIE_SECRET
+              ValueFrom: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${CookieSecretParameterName}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ApiLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: api
+
+  WorkerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: orbit-production-worker
+      Cpu: "1024"
+      Memory: "2048"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: worker
+          Image: !Sub ${WorkerRepository.RepositoryUri}:${ImageTag}
+          Essential: true
+          StopTimeout: 120
+          EntryPoint: ["/bin/sh", "-c"]
+          Command:
+            - !Sub >-
+              encoded="$(node -p 'encodeURIComponent(process.env.DB_PASSWORD)')";
+              export DATABASE_URL="postgresql://${DatabaseUsername}:${!encoded}@${!RDS_HOST}:5432/${DatabaseName}";
+              exec node --enable-source-maps apps/worker/dist/main.js
+          Environment:
+            - {Name: NODE_ENV, Value: production}
+            - {Name: APP_ENV, Value: production}
+            - {Name: WEB_PORT, Value: "5173"}
+            - {Name: API_PORT, Value: "3000"}
+            - {Name: WORKER_PORT, Value: "3001"}
+            - {Name: PYTHON_WORKER_PORT, Value: "8000"}
+            - Name: WEB_ORIGIN
+              Value: !Sub https://${PrimaryDomainName}
+            - Name: API_BASE_URL
+              Value: !Sub https://${PrimaryDomainName}
+            - {Name: PYTHON_WORKER_URL, Value: "http://python-worker:8000"}
+            - {Name: RDS_HOST, Value: !Ref RdsEndpointAddress}
+            - Name: REDIS_URL
+              Value: !Sub rediss://${QueueRedis.PrimaryEndPoint.Address}:6379
+            - Name: PRIVATE_EVIDENCE_REDIS_URL
+              Value: !Sub rediss://${EvidenceRedis.PrimaryEndPoint.Address}:6379
+            - {Name: STORAGE_DRIVER, Value: s3}
+            - {Name: S3_BUCKET, Value: !Ref ExistingAssetsBucketName}
+            - {Name: S3_ASSETS_BUCKET, Value: !Ref ExistingAssetsBucketName}
+            - {Name: S3_PRIVATE_AUDIO_BUCKET, Value: !Ref PrivateAudioBucket}
+            - {Name: S3_REGION, Value: !Ref AWS::Region}
+            - {Name: S3_FORCE_PATH_STYLE, Value: "false"}
+            - {Name: JOB_QUEUE_DRIVER, Value: bullmq}
+            - {Name: AI_DECK_EXECUTION_MODE, Value: monolith}
+            - {Name: AI_DECK_WORKER_QUEUE, Value: all}
+            - {Name: LIVE_STT_PROVIDER, Value: sherpa}
+            - {Name: LIVE_STT_ENGINE, Value: web-speech}
+            - {Name: REPORT_STT_PROVIDER, Value: openai}
+            - {Name: REHEARSAL_AUDIO_MAX_BYTES, Value: "25000000"}
+            - {Name: OCR_PROVIDER, Value: python}
+            - {Name: LLM_PROVIDER, Value: openai}
+            - {Name: OPENAI_MODEL, Value: gpt-4.1-mini}
+            - {Name: OPENAI_IMAGE_MODEL, Value: gpt-image-1}
+            - {Name: IMAGE_PROVIDER, Value: openai}
+            - {Name: PUBLIC_IMAGE_PROVIDER, Value: openverse}
+            - {Name: OPENAI_TRANSCRIPTION_MODEL, Value: whisper-1}
+            - {Name: OPENAI_EMBEDDING_MODEL, Value: text-embedding-3-small}
+            - {Name: AWS_REGION, Value: !Ref AWS::Region}
+            - {Name: TRANSCRIBE_LANGUAGE_CODE, Value: ko-KR}
+            - {Name: TEXTRACT_ENABLED, Value: "false"}
+            - {Name: LOG_LEVEL, Value: info}
+            - {Name: LOG_PRETTY, Value: "false"}
+            - {Name: DEMO_USER_ID, Value: user_demo_1}
+            - {Name: DEMO_WORKSPACE_ID, Value: workspace_demo_1}
+            - {Name: DEMO_PROJECT_ID, Value: project_demo_1}
+            - {Name: DEMO_DECK_ID, Value: deck_demo_1}
+            - {Name: DEMO_SESSION_ID, Value: session_demo_1}
+          Secrets:
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DbPasswordParameterName}
+            - Name: OPENAI_API_KEY
+              ValueFrom: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OpenAiApiKeyParameterName}
+            - Name: SESSION_SECRET
+              ValueFrom: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SessionSecretParameterName}
+            - Name: COOKIE_SECRET
+              ValueFrom: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${CookieSecretParameterName}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref WorkerLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: worker
+
+  PythonWorkerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: orbit-production-python-worker
+      Cpu: "2048"
+      Memory: "4096"
+      EphemeralStorage:
+        SizeInGiB: 40
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: python-worker
+          Image: !Sub ${PythonWorkerRepository.RepositoryUri}:${ImageTag}
+          Essential: true
+          StopTimeout: 120
+          EntryPoint: ["/bin/sh", "-c"]
+          Command:
+            - !Sub >-
+              encoded="$(python -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["DB_PASSWORD"], safe=""))')";
+              export DATABASE_URL="postgresql://${DatabaseUsername}:${!encoded}@${!RDS_HOST}:5432/${DatabaseName}";
+              exec uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+          PortMappings:
+            - Name: http
+              ContainerPort: 8000
+              Protocol: tcp
+              AppProtocol: http
+          Environment:
+            - {Name: NODE_ENV, Value: production}
+            - {Name: APP_ENV, Value: production}
+            - {Name: PYTHON_WORKER_PORT, Value: "8000"}
+            - Name: PYTHON_WORKER_URL
+              Value: http://python-worker:8000
+            - Name: API_BASE_URL
+              Value: !Sub https://${PrimaryDomainName}
+            - {Name: RDS_HOST, Value: !Ref RdsEndpointAddress}
+            - Name: REDIS_URL
+              Value: !Sub rediss://${QueueRedis.PrimaryEndPoint.Address}:6379
+            - {Name: STORAGE_DRIVER, Value: s3}
+            - {Name: S3_BUCKET, Value: !Ref ExistingAssetsBucketName}
+            - {Name: S3_ASSETS_BUCKET, Value: !Ref ExistingAssetsBucketName}
+            - {Name: S3_PRIVATE_AUDIO_BUCKET, Value: !Ref PrivateAudioBucket}
+            - {Name: S3_REGION, Value: !Ref AWS::Region}
+            - {Name: S3_FORCE_PATH_STYLE, Value: "false"}
+            - {Name: JOB_QUEUE_DRIVER, Value: bullmq}
+            - {Name: LIVE_STT_PROVIDER, Value: sherpa}
+            - {Name: REPORT_STT_PROVIDER, Value: openai}
+            - {Name: REHEARSAL_AUDIO_MAX_BYTES, Value: "25000000"}
+            - {Name: OCR_PROVIDER, Value: python}
+            - {Name: LLM_PROVIDER, Value: openai}
+            - {Name: OPENAI_MODEL, Value: gpt-4.1-mini}
+            - {Name: OPENAI_TRANSCRIPTION_MODEL, Value: whisper-1}
+            - {Name: OPENAI_EMBEDDING_MODEL, Value: text-embedding-3-small}
+            - {Name: AWS_REGION, Value: !Ref AWS::Region}
+            - {Name: TRANSCRIBE_LANGUAGE_CODE, Value: ko-KR}
+            - {Name: TEXTRACT_ENABLED, Value: "false"}
+          Secrets:
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DbPasswordParameterName}
+            - Name: OPENAI_API_KEY
+              ValueFrom: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OpenAiApiKeyParameterName}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref PythonWorkerLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: python-worker
+
+  MigrationTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: orbit-production-migration
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: migration
+          Image: !Sub ${ApiRepository.RepositoryUri}:${ImageTag}
+          Essential: true
+          EntryPoint: ["/bin/sh", "-c"]
+          Command:
+            - !Sub >-
+              encoded="$(node -p 'encodeURIComponent(process.env.DB_PASSWORD)')";
+              export DATABASE_URL="postgresql://${DatabaseUsername}:${!encoded}@${!RDS_HOST}:5432/${DatabaseName}";
+              exec pnpm --filter @orbit/api migration:run
+          Environment:
+            - {Name: NODE_ENV, Value: production}
+            - {Name: APP_ENV, Value: production}
+            - {Name: RDS_HOST, Value: !Ref RdsEndpointAddress}
+          Secrets:
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DbPasswordParameterName}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ApiLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: migration
+
+  ApiService:
+    Type: AWS::ECS::Service
+    DependsOn: HttpsListener
+    Properties:
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      PlatformVersion: LATEST
+      DesiredCount: !If [RunCandidateServices, !Ref ApiDesiredCount, 0]
+      TaskDefinition: !Ref ApiTaskDefinition
+      EnableExecuteCommand: true
+      HealthCheckGracePeriodSeconds: 120
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups: [!Ref TaskSecurityGroup]
+          Subnets: [!Ref AppPrivateSubnetA, !Ref AppPrivateSubnetB]
+      LoadBalancers:
+        - ContainerName: api
+          ContainerPort: 3000
+          TargetGroupArn: !Ref GreenTargetGroup
+      ServiceConnectConfiguration:
+        Enabled: true
+        Namespace: !GetAtt ServiceConnectNamespace.Arn
+
+  WorkerService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      PlatformVersion: LATEST
+      DesiredCount: !If [RunCandidateServices, !Ref WorkerDesiredCount, 0]
+      TaskDefinition: !Ref WorkerTaskDefinition
+      EnableExecuteCommand: true
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups: [!Ref TaskSecurityGroup]
+          Subnets: [!Ref AppPrivateSubnetA, !Ref AppPrivateSubnetB]
+      ServiceConnectConfiguration:
+        Enabled: true
+        Namespace: !GetAtt ServiceConnectNamespace.Arn
+
+  PythonWorkerService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      PlatformVersion: LATEST
+      DesiredCount: !If [RunCandidateServices, !Ref PythonWorkerDesiredCount, 0]
+      TaskDefinition: !Ref PythonWorkerTaskDefinition
+      EnableExecuteCommand: true
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups: [!Ref TaskSecurityGroup]
+          Subnets: [!Ref AppPrivateSubnetA, !Ref AppPrivateSubnetB]
+      ServiceConnectConfiguration:
+        Enabled: true
+        Namespace: !GetAtt ServiceConnectNamespace.Arn
+        Services:
+          - PortName: http
+            ClientAliases:
+              - Port: 8000
+                DnsName: python-worker
+
+  ApiScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Condition: RunCandidateServices
+    Properties:
+      MinCapacity: 2
+      MaxCapacity: 6
+      ResourceId: !Join ["/", [service, !Ref Cluster, !GetAtt ApiService.Name]]
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  ApiCpuScaling:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Condition: RunCandidateServices
+    Properties:
+      PolicyName: orbit-production-api-cpu
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ApiScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
+
+  WorkerScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Condition: RunCandidateServices
+    Properties:
+      MinCapacity: 1
+      MaxCapacity: 4
+      ResourceId: !Join ["/", [service, !Ref Cluster, !GetAtt WorkerService.Name]]
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  WorkerCpuScaling:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Condition: RunCandidateServices
+    Properties:
+      PolicyName: orbit-production-worker-cpu
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref WorkerScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 65
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
+
+  PythonWorkerScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Condition: RunCandidateServices
+    Properties:
+      MinCapacity: 2
+      MaxCapacity: 6
+      ResourceId: !Join ["/", [service, !Ref Cluster, !GetAtt PythonWorkerService.Name]]
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  PythonWorkerCpuScaling:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Condition: RunCandidateServices
+    Properties:
+      PolicyName: orbit-production-python-worker-cpu
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref PythonWorkerScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
+
+  AlbFiveXxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: ORBIT production ALB 5xx
+      Namespace: AWS/ApplicationELB
+      MetricName: HTTPCode_ELB_5XX_Count
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !GetAtt LoadBalancer.LoadBalancerFullName
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  GreenUnhealthyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: ORBIT green target health
+      Namespace: AWS/ApplicationELB
+      MetricName: UnHealthyHostCount
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !GetAtt LoadBalancer.LoadBalancerFullName
+        - Name: TargetGroup
+          Value: !GetAtt GreenTargetGroup.TargetGroupFullName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  ProductionDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: orbit-main-production-ecs
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "region": "${AWS::Region}",
+                "title": "ALB responses",
+                "metrics": [
+                  ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", "${LoadBalancer.LoadBalancerFullName}"],
+                  [".", "HTTPCode_ELB_5XX_Count", ".", "."]
+                ],
+                "period": 60,
+                "stat": "Sum"
+              }
+            },
+            {
+              "type": "metric",
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "region": "${AWS::Region}",
+                "title": "ECS CPU",
+                "metrics": [
+                  ["AWS/ECS", "CPUUtilization", "ClusterName", "${Cluster}", "ServiceName", "${ApiService.Name}"],
+                  [".", ".", ".", ".", "ServiceName", "${WorkerService.Name}"],
+                  [".", ".", ".", ".", "ServiceName", "${PythonWorkerService.Name}"]
+                ],
+                "period": 60,
+                "stat": "Average"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  ClusterName:
+    Value: !Ref Cluster
+  ApiServiceName:
+    Value: !GetAtt ApiService.Name
+  WorkerServiceName:
+    Value: !GetAtt WorkerService.Name
+  PythonWorkerServiceName:
+    Value: !GetAtt PythonWorkerService.Name
+  MigrationTaskDefinitionArn:
+    Value: !Ref MigrationTaskDefinition
+  AppPrivateSubnetAId:
+    Value: !Ref AppPrivateSubnetA
+  AppPrivateSubnetBId:
+    Value: !Ref AppPrivateSubnetB
+  TaskSecurityGroupId:
+    Value: !Ref TaskSecurityGroup
+  LoadBalancerDnsName:
+    Value: !GetAtt LoadBalancer.DNSName
+  ListenerArn:
+    Value: !Ref HttpsListener
+  BlueTargetGroupArn:
+    Value: !Ref BlueTargetGroup
+  GreenTargetGroupArn:
+    Value: !Ref GreenTargetGroup
+  CandidateUrl:
+    Value: !Sub https://${CandidateDomainName}
+  PrivateAudioBucketName:
+    Value: !Ref PrivateAudioBucket
+  ApiRepositoryUri:
+    Value: !GetAtt ApiRepository.RepositoryUri
+  WorkerRepositoryUri:
+    Value: !GetAtt WorkerRepository.RepositoryUri
+  PythonWorkerRepositoryUri:
+    Value: !GetAtt PythonWorkerRepository.RepositoryUri
+  GitHubEcsDeployRoleArn:
+    Value: !GetAtt GitHubEcsDeployRole.Arn
+  StaticWebBucketName:
+    Value: !Ref ExistingStaticWebBucketName
+  CloudFrontDistributionId:
+    Value: !Ref ExistingCloudFrontDistributionId
+  OriginApiDomainName:
+    Value: !Ref OriginApiDomainName

@@ -1,5 +1,8 @@
 # AWS ECS Fargate 전환 기준
 
+현재 EC2 production을 단계적으로 전환하는 절차는
+[`docs/runbooks/aws-ecs-cutover.md`](runbooks/aws-ecs-cutover.md)를 따른다.
+
 ## 배포 목표
 
 운영 배포는 ECS Fargate를 기준으로 한다. Kubernetes/EKS는 현재 범위에서 제외한다.
