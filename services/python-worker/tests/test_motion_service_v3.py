@@ -388,6 +388,81 @@ def test_authored_six_step_timeline_compiles_26_elements_with_five_clicks() -> N
     assert len(result.affected_element_ids) == 26
 
 
+def test_authored_six_step_vertical_rail_compiles_with_five_clicks() -> None:
+    slide, context = vertical_rail_slide(6)
+    extraction = extract_motion_units(slide, context)
+    title, *middle, conclusion = extraction.context.units
+    cards = [unit for unit in middle if unit.semantic_role == "card"]
+    payload = {
+        "schemaVersion": 3,
+        "pacing": "balanced",
+        "beats": [
+            {
+                "beatId": "beat_entry",
+                "purpose": "orient",
+                "trigger": "entry",
+                "relation": "together",
+                "targets": [
+                    {
+                        "unitId": title.unit_id,
+                        "motionIntent": "introduce",
+                    },
+                    {
+                        "unitId": cards[0].unit_id,
+                        "motionIntent": "reveal",
+                    },
+                ],
+            },
+            *(
+                {
+                    "beatId": f"beat_click_{index}",
+                    "purpose": "reveal",
+                    "trigger": "click",
+                    "relation": "sequence",
+                    "targets": [
+                        {
+                            "unitId": card.unit_id,
+                            "motionIntent": "reveal",
+                        },
+                        *(
+                            [
+                                {
+                                    "unitId": conclusion.unit_id,
+                                    "motionIntent": "conclude",
+                                }
+                            ]
+                            if index == 6
+                            else []
+                        ),
+                    ],
+                }
+                for index, card in enumerate(cards[1:], start=2)
+            ),
+        ],
+    }
+
+    result = plan_and_compile_motion(
+        deck_id="deck_vertical_rail",
+        base_version=3,
+        slide=slide,
+        planning_context=context,
+        import_context=None,
+        model="motion-snapshot",
+        api_key=None,
+        client=FakeClient(payload),
+    )
+
+    assert result.outcome == "applicable"
+    assert result.click_count == 5
+    assert result.beat_count == 6
+    assert len(result.operations) == 20
+    assert len(result.affected_element_ids) == 20
+    assert all(
+        "vertical_rail" not in element_id and "rail_rule" not in element_id
+        for element_id in result.affected_element_ids
+    )
+
+
 def timeline_slide(
     step_count: int,
 ) -> tuple[dict[str, Any], MotionPlanningContext]:
@@ -499,6 +574,121 @@ def timeline_slide(
         "aiNotes": {
             "visualPlan": {"visualType": "process"},
             "compositionPlan": {"compositionId": "timeline"},
+        },
+    }
+    context = MotionPlanningContext.model_validate(
+        {
+            "allowedTargetElementIds": [
+                element["elementId"]
+                for element in elements
+                if element["role"] != "decoration"
+            ],
+            "effectiveTypography": [],
+            "speakerNotes": "",
+            "notesPresent": False,
+            "notesTruncated": False,
+        }
+    )
+    return slide, context
+
+
+def vertical_rail_slide(
+    step_count: int,
+) -> tuple[dict[str, Any], MotionPlanningContext]:
+    elements: list[dict[str, Any]] = [
+        motion_element(
+            "el_title",
+            "text",
+            "title",
+            120,
+            96,
+            1680,
+            120,
+            5,
+            "단계별 실행 계획",
+        ),
+        motion_element(
+            "el_vertical_rail",
+            "rect",
+            "decoration",
+            286,
+            272,
+            8,
+            560,
+            2,
+        ),
+    ]
+    for index in range(1, step_count + 1):
+        y = 264 + (index - 1) * (520 // max(1, step_count - 1))
+        elements.extend(
+            [
+                motion_element(
+                    f"el_rail_marker_{index}",
+                    "ellipse",
+                    "decoration",
+                    260,
+                    y,
+                    60,
+                    60,
+                    4,
+                ),
+                motion_element(
+                    f"el_rail_marker_label_{index}",
+                    "text",
+                    "highlight",
+                    260,
+                    y + 8,
+                    60,
+                    44,
+                    5,
+                    str(index),
+                ),
+                motion_element(
+                    f"el_rail_rule_{index}",
+                    "rect",
+                    "decoration",
+                    360,
+                    y + 26,
+                    120,
+                    4,
+                    2,
+                ),
+                motion_element(
+                    f"el_rail_step_{index}",
+                    "text",
+                    "body",
+                    520,
+                    y - 8,
+                    1160,
+                    80,
+                    5,
+                    f"{index}단계 전체 본문",
+                ),
+            ]
+        )
+    elements.append(
+        motion_element(
+            "el_rail_message",
+            "text",
+            "highlight",
+            520,
+            900,
+            1160,
+            64,
+            5,
+            "단계별 실행으로 도입을 완성합니다",
+        )
+    )
+    slide = {
+        "slideId": "slide_vertical_rail",
+        "order": 7,
+        "title": "단계별 실행 계획",
+        "elements": elements,
+        "animations": [],
+        "semanticCues": [],
+        "aiNotes": {
+            "visualPlan": {"visualType": "process"},
+            "compositionPlan": {"compositionId": "process-vertical-rail"},
         },
     }
     context = MotionPlanningContext.model_validate(

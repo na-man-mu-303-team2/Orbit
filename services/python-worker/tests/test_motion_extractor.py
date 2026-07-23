@@ -4,10 +4,15 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 from app.ai.motion_planner import (
     MotionPlanningContext,
     extract_motion_context,
     extract_motion_units,
+)
+from app.ai.motion_planner.structure_resolvers import (
+    MotionStructureResolutionError,
 )
 
 FIXTURE = (
@@ -653,6 +658,236 @@ def test_v3_extractor_resolves_six_node_diagram_hub() -> None:
     )
 
 
+@pytest.mark.parametrize("step_count", [3, 5, 6])
+def test_v3_extractor_resolves_vertical_rail_steps(
+    step_count: int,
+) -> None:
+    elements = vertical_rail_elements(step_count)
+    extraction = extract_motion_units(
+        authored_slide(
+            "process-vertical-rail",
+            "process",
+            elements,
+        ),
+        planning_context(
+            [
+                item
+                for item in elements
+                if item.get("role") != "decoration"
+            ]
+        ),
+    )
+    card_units = [
+        unit for unit in extraction.context.units if unit.semantic_role == "card"
+    ]
+
+    assert extraction.context.structure_family == "timeline"
+    assert extraction.context.slide_type == "process"
+    assert len(extraction.context.units) == step_count + 2
+    assert len(card_units) == step_count
+    assert [
+        unit.member_element_ids for unit in card_units
+    ] == [
+        [
+            f"el_7_program_v2_rail_marker_{index}",
+            f"el_7_program_v2_rail_marker_label_{index}",
+            f"el_7_program_v2_rail_step_{index}",
+        ]
+        for index in range(1, step_count + 1)
+    ]
+    assert all(
+        "vertical_rail" not in element_id and "rail_rule" not in element_id
+        for unit in extraction.context.units
+        for element_id in unit.member_element_ids
+    )
+
+
+@pytest.mark.parametrize("node_count", [3, 6])
+def test_v3_extractor_resolves_diagram_orbit_nodes(
+    node_count: int,
+) -> None:
+    elements = diagram_orbit_elements(node_count)
+    extraction = extract_motion_units(
+        authored_slide("diagram-orbit", "architecture", elements),
+        planning_context(
+            [
+                item
+                for item in elements
+                if item.get("role") != "decoration"
+            ]
+        ),
+    )
+    focal_units = [
+        unit for unit in extraction.context.units if unit.semantic_role == "focal"
+    ]
+    node_units = [
+        unit for unit in extraction.context.units if unit.semantic_role == "card"
+    ]
+
+    assert extraction.context.structure_family == "diagram-hub"
+    assert extraction.context.slide_type == "architecture"
+    assert len(extraction.context.units) == node_count + 2
+    assert len(focal_units) == 1
+    assert focal_units[0].member_element_ids == [
+        "el_5_program_v2_orbit_hub_field",
+        "el_5_program_v2_orbit_hub",
+    ]
+    assert [
+        unit.member_element_ids for unit in node_units
+    ] == [
+        [
+            f"el_5_program_v2_orbit_node_{index}_field",
+            f"el_5_program_v2_orbit_node_{index}",
+        ]
+        for index in range(1, node_count + 1)
+    ]
+    assert all(
+        "orbit_connector" not in element_id
+        for unit in extraction.context.units
+        for element_id in unit.member_element_ids
+    )
+
+
+@pytest.mark.parametrize(
+    ("composition_id", "visual_type", "missing_id"),
+    [
+        (
+            "process-vertical-rail",
+            "process",
+            "el_7_program_v2_rail_marker_label_2",
+        ),
+        (
+            "process-vertical-rail",
+            "process",
+            "el_7_program_v2_rail_step_2",
+        ),
+        (
+            "diagram-orbit",
+            "architecture",
+            "el_5_program_v2_orbit_hub_field",
+        ),
+        (
+            "diagram-orbit",
+            "architecture",
+            "el_5_program_v2_orbit_node_2",
+        ),
+    ],
+)
+def test_v3_structure_resolvers_fail_closed_for_incomplete_atomic_units(
+    composition_id: str,
+    visual_type: str,
+    missing_id: str,
+) -> None:
+    elements = (
+        vertical_rail_elements(3)
+        if composition_id == "process-vertical-rail"
+        else diagram_orbit_elements(3)
+    )
+    incomplete = [
+        item for item in elements if item["elementId"] != missing_id
+    ]
+
+    with pytest.raises(MotionStructureResolutionError):
+        extract_motion_units(
+            authored_slide(composition_id, visual_type, incomplete),
+            planning_context(
+                [
+                    item
+                    for item in incomplete
+                    if item.get("role") != "decoration"
+                ]
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("composition_id", "visual_type", "ordinal_ids"),
+    [
+        (
+            "process-vertical-rail",
+            "process",
+            {
+                "el_7_program_v2_rail_marker_2",
+                "el_7_program_v2_rail_marker_label_2",
+                "el_7_program_v2_rail_rule_2",
+                "el_7_program_v2_rail_step_2",
+            },
+        ),
+        (
+            "diagram-orbit",
+            "architecture",
+            {
+                "el_5_program_v2_orbit_connector_2",
+                "el_5_program_v2_orbit_node_2_field",
+                "el_5_program_v2_orbit_node_2",
+            },
+        ),
+    ],
+)
+def test_v3_structure_resolvers_reject_nonconsecutive_ordinals(
+    composition_id: str,
+    visual_type: str,
+    ordinal_ids: set[str],
+) -> None:
+    elements = (
+        vertical_rail_elements(3)
+        if composition_id == "process-vertical-rail"
+        else diagram_orbit_elements(3)
+    )
+    discontinuous = [
+        item
+        for item in elements
+        if item["elementId"] not in ordinal_ids
+    ]
+
+    with pytest.raises(MotionStructureResolutionError):
+        extract_motion_units(
+            authored_slide(composition_id, visual_type, discontinuous),
+            planning_context(
+                [
+                    item
+                    for item in discontinuous
+                    if item.get("role") != "decoration"
+                ]
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("composition_id", "expected_slide_type"),
+    [
+        ("process-vertical-rail", "process"),
+        ("diagram-orbit", "architecture"),
+    ],
+)
+def test_v3_extractor_maps_new_compositions_without_visual_type(
+    composition_id: str,
+    expected_slide_type: str,
+) -> None:
+    elements = (
+        vertical_rail_elements(3)
+        if composition_id == "process-vertical-rail"
+        else diagram_orbit_elements(3)
+    )
+    slide = authored_slide(composition_id, "", elements)
+    slide["aiNotes"] = {
+        "compositionPlan": {"compositionId": composition_id}
+    }
+
+    extraction = extract_motion_units(
+        slide,
+        planning_context(
+            [
+                item
+                for item in elements
+                if item.get("role") != "decoration"
+            ]
+        ),
+    )
+
+    assert extraction.context.slide_type == expected_slide_type
+
+
 def test_structure_resolver_preserves_explicit_group_priority() -> None:
     first_members = [
         element(
@@ -828,3 +1063,191 @@ def planning_context(elements: list[dict[str, object]]) -> MotionPlanningContext
             "notesTruncated": False,
         }
     )
+
+
+def authored_slide(
+    composition_id: str,
+    visual_type: str,
+    elements: list[dict[str, object]],
+) -> dict[str, object]:
+    return {
+        "slideId": f"slide_{composition_id}",
+        "order": 5,
+        "title": "구조 장표",
+        "elements": elements,
+        "semanticCues": [],
+        "aiNotes": {
+            "visualPlan": {"visualType": visual_type},
+            "compositionPlan": {"compositionId": composition_id},
+        },
+    }
+
+
+def vertical_rail_elements(step_count: int) -> list[dict[str, object]]:
+    elements = [
+        element(
+            "el_7_program_v2_title",
+            "text",
+            "title",
+            120,
+            96,
+            1680,
+            120,
+            5,
+            "단계별 실행 계획",
+        ),
+        element(
+            "el_7_program_v2_vertical_rail",
+            "rect",
+            "decoration",
+            286,
+            272,
+            8,
+            560,
+            2,
+        ),
+    ]
+    for index in range(1, step_count + 1):
+        y = 264 + (index - 1) * (520 // max(1, step_count - 1))
+        elements.extend(
+            [
+                element(
+                    f"el_7_program_v2_rail_marker_{index}",
+                    "ellipse",
+                    "decoration",
+                    260,
+                    y,
+                    60,
+                    60,
+                    4,
+                ),
+                element(
+                    f"el_7_program_v2_rail_marker_label_{index}",
+                    "text",
+                    "highlight",
+                    260,
+                    y + 8,
+                    60,
+                    44,
+                    5,
+                    str(index),
+                ),
+                element(
+                    f"el_7_program_v2_rail_rule_{index}",
+                    "rect",
+                    "decoration",
+                    360,
+                    y + 26,
+                    120,
+                    4,
+                    2,
+                ),
+                element(
+                    f"el_7_program_v2_rail_step_{index}",
+                    "text",
+                    "body",
+                    520,
+                    y - 8,
+                    1160,
+                    80,
+                    5,
+                    f"{index}단계 전체 본문",
+                ),
+            ]
+        )
+    elements.append(
+        element(
+            "el_7_program_v2_rail_message",
+            "text",
+            "highlight",
+            520,
+            900,
+            1160,
+            64,
+            5,
+            "단계별 실행으로 도입을 완성합니다",
+        )
+    )
+    return elements
+
+
+def diagram_orbit_elements(node_count: int) -> list[dict[str, object]]:
+    elements = [
+        element(
+            "el_5_program_v2_title",
+            "text",
+            "title",
+            120,
+            96,
+            1680,
+            120,
+            5,
+            "AI 운영 생태계",
+        ),
+        element(
+            "el_5_program_v2_orbit_hub_field",
+            "ellipse",
+            "decoration",
+            740,
+            352,
+            440,
+            320,
+            4,
+        ),
+        element(
+            "el_5_program_v2_orbit_hub",
+            "text",
+            "highlight",
+            784,
+            396,
+            352,
+            232,
+            5,
+            "통합 운영 허브",
+        ),
+    ]
+    positions = [
+        (120, 272),
+        (1420, 272),
+        (120, 680),
+        (1420, 680),
+        (520, 792),
+        (1040, 792),
+    ]
+    for index, (x, y) in enumerate(positions[:node_count], start=1):
+        elements.extend(
+            [
+                element(
+                    f"el_5_program_v2_orbit_connector_{index}",
+                    "rect",
+                    "decoration",
+                    920,
+                    508,
+                    320,
+                    6,
+                    2,
+                ),
+                element(
+                    f"el_5_program_v2_orbit_node_{index}_field",
+                    "ellipse",
+                    "decoration",
+                    x,
+                    y,
+                    380,
+                    144,
+                    3,
+                ),
+                element(
+                    f"el_5_program_v2_orbit_node_{index}",
+                    "text",
+                    "body",
+                    x + 36,
+                    y + 20,
+                    308,
+                    104,
+                    5,
+                    f"{index}번 노드 전체 본문",
+                ),
+            ]
+        )
+    return elements
