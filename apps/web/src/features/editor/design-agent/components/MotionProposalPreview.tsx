@@ -57,9 +57,21 @@ export function MotionProposalPreview(props: {
     stepIndex === 0
       ? model.slideshowPlan.entryAnimations
       : model.slideshowPlan.triggerSteps[stepIndex - 1]?.animations ?? [];
-  const currentTargetIds = [...new Set(
+  const timelineTargetIds = [...new Set(
     currentAnimations.map((animation) => animation.elementId),
   )];
+  const currentUnits =
+    props.motionPlan?.compilerVersion === "motion-compiler-v3"
+      ? unitsForStep(props.motionPlan, stepIndex)
+      : [];
+  const currentTargetIds =
+    currentUnits.length > 0
+      ? [
+          ...new Set(
+            currentUnits.flatMap((unit) => unit.animationElementIds),
+          ),
+        ]
+      : timelineTargetIds;
   const scale = Math.min(0.44, 560 / props.deck.canvas.width);
   const currentLabel =
     stepIndex === 0
@@ -89,7 +101,7 @@ export function MotionProposalPreview(props: {
       <header className="motion-proposal-preview-header">
         <div>
           <strong>Motion 흐름 미리보기</strong>
-          <span>{formatMotionProposalSummary(model)}</span>
+          <span>{formatMotionProposalSummary(model, props.motionPlan)}</span>
         </div>
         <span className="motion-proposal-step" aria-live="polite">
           {currentLabel}
@@ -162,8 +174,12 @@ export function MotionProposalPreview(props: {
       </div>
 
       <p className="motion-proposal-targets" aria-live="polite">
-        {currentTargetIds.length > 0
-          ? `현재 대상 ${currentTargetIds.length}개`
+        {currentUnits.length > 0
+          ? `현재 모션 단위 ${currentUnits.length}개 · 요소 ${new Set(
+              currentUnits.flatMap((unit) => unit.memberElementIds),
+            ).size}개`
+          : currentTargetIds.length > 0
+            ? `현재 대상 ${currentTargetIds.length}개`
           : "현재 beat에 표시할 대상이 없습니다."}
         {systemReducedMotion
           ? " 시스템의 동작 줄이기 설정을 따릅니다."
@@ -173,6 +189,29 @@ export function MotionProposalPreview(props: {
       </p>
     </section>
   );
+}
+
+function unitsForStep(
+  motionPlan: Extract<
+    MotionPlanMetadata,
+    { compilerVersion: "motion-compiler-v3" }
+  >,
+  stepIndex: number,
+) {
+  const beat =
+    stepIndex === 0
+      ? motionPlan.plan.beats.find((candidate) => candidate.trigger === "entry")
+      : motionPlan.plan.beats.filter(
+          (candidate) => candidate.trigger === "click",
+        )[stepIndex - 1];
+  if (!beat) return [];
+  const unitsById = new Map(
+    motionPlan.units.map((unit) => [unit.unitId, unit]),
+  );
+  return beat.targets.flatMap((target) => {
+    const unit = unitsById.get(target.unitId);
+    return unit ? [unit] : [];
+  });
 }
 
 function MotionPreviewCanvas(props: {

@@ -1,5 +1,9 @@
 import { createAnimationTimeline, createDemoDeck } from "@orbit/editor-core";
-import type { DeckPatchOperation, Slide } from "@orbit/shared";
+import type {
+  DeckPatchOperation,
+  MotionPlanMetadata,
+  Slide,
+} from "@orbit/shared";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -119,5 +123,96 @@ describe("MotionProposalPreview", () => {
     expect(html).toContain('aria-pressed="false"');
     expect(html).toContain("현재 대상 1개");
     expect(html).toContain(`data-highlights="${slide.elements[0]!.elementId}"`);
+  });
+
+  it("summarizes and highlights v3 semantic units instead of raw targets", () => {
+    const deck = createDemoDeck();
+    const sourceSlide = createMotionSlide();
+    const slide = {
+      ...sourceSlide,
+      animations: sourceSlide.animations.map((animation, index) => ({
+        ...animation,
+        startMode:
+          index === 0
+            ? "on-slide-enter" as const
+            : index === 1
+              ? "with-previous" as const
+              : "on-click" as const,
+      })),
+    };
+    const memberIds = slide.elements.slice(0, 3).map(
+      (element) => element.elementId,
+    );
+    const motionPlan: MotionPlanMetadata = {
+      source: "llm",
+      model: "gpt-4.1-mini-2025-04-14",
+      attemptCount: 1,
+      compilerVersion: "motion-compiler-v3",
+      units: [
+        {
+          unitId: "motion_unit_card",
+          kind: "spatial-cluster",
+          animationElementIds: memberIds.slice(0, 2),
+          memberElementIds: memberIds.slice(0, 2),
+          semanticRole: "card",
+          readingOrder: 1,
+        },
+        {
+          unitId: "motion_unit_conclusion",
+          kind: "element",
+          animationElementIds: [memberIds[2]!],
+          memberElementIds: [memberIds[2]!],
+          semanticRole: "focal",
+          readingOrder: 2,
+        },
+      ],
+      plan: {
+        schemaVersion: 3,
+        pattern: "cluster-reveal",
+        pacing: "balanced",
+        beats: [
+          {
+            beatId: "beat_entry",
+            purpose: "reveal",
+            trigger: "entry",
+            relation: "together",
+            targets: [
+              {
+                unitId: "motion_unit_card",
+                motionIntent: "reveal",
+              },
+            ],
+          },
+          {
+            beatId: "beat_click_1",
+            purpose: "conclude",
+            trigger: "click",
+            relation: "together",
+            targets: [
+              {
+                unitId: "motion_unit_conclusion",
+                motionIntent: "conclude",
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      <MotionProposalPreview
+        deck={{ ...deck, slides: [slide, ...deck.slides.slice(1)] }}
+        motionPlan={motionPlan}
+        slide={slide}
+      />,
+    );
+
+    expect(html).toContain(
+      "자동 진입 1 · 클릭 1 · 모션 단위 2개 · 요소 3개",
+    );
+    expect(html).toContain("현재 모션 단위 1개 · 요소 2개");
+    expect(html).toContain(
+      `data-highlights="${memberIds.slice(0, 2).join(",")}"`,
+    );
   });
 });

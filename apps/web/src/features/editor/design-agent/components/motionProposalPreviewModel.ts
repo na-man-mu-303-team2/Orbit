@@ -1,5 +1,9 @@
 import { createAnimationTimeline } from "@orbit/editor-core";
-import type { DeckPatchOperation, Slide } from "@orbit/shared";
+import type {
+  DeckPatchOperation,
+  MotionPlanMetadata,
+  Slide,
+} from "@orbit/shared";
 import {
   createSlideshowAnimationPlan,
   type SlideshowAnimationPlan,
@@ -64,6 +68,19 @@ export function createMotionProposalPreviewModel(
 
 export function formatMotionProposalSummary(
   model: MotionProposalPreviewModel,
+  motionPlan?: MotionPlanMetadata,
 ): string {
+  if (motionPlan?.compilerVersion === "motion-compiler-v3") {
+    const elementCount = new Set(
+      motionPlan.units.flatMap((unit) => unit.memberElementIds),
+    ).size;
+    const entryCount = motionPlan.plan.beats
+      .filter((beat) => beat.trigger === "entry")
+      .reduce((count, beat) => count + beat.targets.length, 0);
+    const clickCount = motionPlan.plan.beats.filter(
+      (beat) => beat.trigger === "click",
+    ).length;
+    return `자동 진입 ${entryCount} · 클릭 ${clickCount} · 모션 단위 ${motionPlan.units.length}개 · 요소 ${elementCount}개`;
+  }
   return `자동 진입 ${model.entryCount} · 클릭 ${model.clickCount} · 대상 ${model.targetCount}개 · 예상 ${(model.totalDurationMs / 1_000).toFixed(1)}초`;
 }
