@@ -15,6 +15,11 @@ from app.ai.motion_planner.models import (
     NarrativeIntent,
     SlideType,
 )
+from app.ai.motion_planner.structure_resolvers import (
+    MotionStructureResolutionError,
+    ResolvedMotionStructure,
+    resolve_motion_structure,
+)
 
 CANVAS_WIDTH = 1920
 CANVAS_HEIGHT = 1080
@@ -37,6 +42,14 @@ class MotionPromptInputV3:
     context: ExtractedMotionContextV3
     target_labels: dict[str, str]
     speaker_notes: str
+
+
+@dataclass(frozen=True)
+class _UnitCandidate:
+    unit: MotionUnit
+    frame: dict[str, Any]
+    label: str
+    structured_order: int | None = None
 
 
 def extract_motion_context(
@@ -141,8 +154,9 @@ def extract_motion_units(
     cue_importance = _cue_importance(approved_cues, allowed_ids)
     focal_id = _primary_focal_id(slide, allowed_ids)
 
-    candidates: list[tuple[MotionUnit, dict[str, Any], str]] = []
+    candidates: list[_UnitCandidate] = []
     claimed_ids: set[str] = set()
+    explicit_group_by_member: dict[str, str] = {}
     for group in sorted(
         (element for element in elements if element.get("type") == "group"),
         key=_frame_order_key,
@@ -161,9 +175,7 @@ def extract_motion_units(
         ]
         if not members or len(members) > 8:
             continue
-        candidates.append(
-            (
-                _build_unit(
+        unit = _build_unit(
                     kind="explicit-group",
                     animation_element_ids=[group_id],
                     member_elements=members,
@@ -171,13 +183,32 @@ def extract_motion_units(
                     focal_id=focal_id,
                     cue_importance=cue_importance,
                     typography=typography,
-                ),
-                group,
-                _unit_label(members),
+                )
+        candidates.append(
+            _UnitCandidate(
+                unit=unit,
+                frame=group,
+                label=_unit_label(members),
             )
         )
-        claimed_ids.update(str(member["elementId"]) for member in members)
+        for member in members:
+            member_id = str(member["elementId"])
+            explicit_group_by_member[member_id] = unit.unit_id
+            claimed_ids.add(member_id)
         claimed_ids.add(group_id)
+
+    structure = resolve_motion_structure(slide, elements)
+    if structure is not None:
+        candidates, claimed_ids = _apply_resolved_structure(
+            structure=structure,
+            candidates=candidates,
+            claimed_ids=claimed_ids,
+            explicit_group_by_member=explicit_group_by_member,
+            by_id=by_id,
+            focal_id=focal_id,
+            cue_importance=cue_importance,
+            typography=typography,
+        )
 
     containers = sorted(
         (
@@ -203,8 +234,8 @@ def extract_motion_units(
         children.sort(key=lambda element: _reading_key(element, typography))
         members = [container, *children]
         candidates.append(
-            (
-                _build_unit(
+            _UnitCandidate(
+                unit=_build_unit(
                     kind="spatial-cluster",
                     animation_element_ids=[
                         str(member["elementId"]) for member in members
@@ -215,8 +246,8 @@ def extract_motion_units(
                     cue_importance=cue_importance,
                     typography=typography,
                 ),
-                container,
-                _unit_label(children),
+                frame=container,
+                label=_unit_label(children),
             )
         )
         claimed_ids.update(str(member["elementId"]) for member in members)
@@ -232,8 +263,8 @@ def extract_motion_units(
         ):
             continue
         candidates.append(
-            (
-                _build_unit(
+            _UnitCandidate(
+                unit=_build_unit(
                     kind="element",
                     animation_element_ids=[element_id],
                     member_elements=[element],
@@ -242,26 +273,34 @@ def extract_motion_units(
                     cue_importance=cue_importance,
                     typography=typography,
                 ),
-                element,
-                _target_label(element),
+                frame=element,
+                label=_target_label(element),
             )
         )
 
     ordered = sorted(
         candidates,
-        key=lambda item: _unit_reading_key(item[0], item[1]),
-    )[:8]
+        key=lambda item: _candidate_reading_key(item, structure),
+    )
+    if structure is None:
+        ordered = ordered[:8]
+    elif len(ordered) > 8:
+        raise MotionStructureResolutionError(
+            structure.family,
+            "resolved structure exceeds eight motion units",
+        )
     units: list[MotionUnit] = []
     target_labels: dict[str, str] = {}
-    for index, (unit, _frame, label) in enumerate(ordered, start=1):
-        hydrated = unit.model_copy(update={"reading_order": index})
+    for index, candidate in enumerate(ordered, start=1):
+        hydrated = candidate.unit.model_copy(update={"reading_order": index})
         units.append(hydrated)
-        target_labels[hydrated.unit_id] = label
+        target_labels[hydrated.unit_id] = candidate.label
     slide_type = _slide_type_for_units(slide, units, approved_cues)
     return MotionPromptInputV3(
         context=ExtractedMotionContextV3(
             slideType=slide_type,
             narrativeIntent=_narrative_intent(slide_type),
+            structureFamily=structure.family if structure is not None else None,
             units=units,
             approvedCueCount=len(approved_cues),
             notesPresent=planning_context.notes_present,
@@ -270,6 +309,86 @@ def extract_motion_units(
         target_labels=target_labels,
         speaker_notes=planning_context.speaker_notes,
     )
+
+
+def _apply_resolved_structure(
+    *,
+    structure: ResolvedMotionStructure,
+    candidates: list[_UnitCandidate],
+    claimed_ids: set[str],
+    explicit_group_by_member: dict[str, str],
+    by_id: dict[str, dict[str, Any]],
+    focal_id: str | None,
+    cue_importance: dict[str, str],
+    typography: dict[str, Any],
+) -> tuple[list[_UnitCandidate], set[str]]:
+    candidate_by_unit_id = {
+        candidate.unit.unit_id: candidate for candidate in candidates
+    }
+    structured_candidates = list(candidates)
+    updated_claimed_ids = set(claimed_ids)
+
+    for slot in structure.slots:
+        member_ids = list(slot.member_element_ids)
+        missing_ids = [element_id for element_id in member_ids if element_id not in by_id]
+        if missing_ids:
+            raise MotionStructureResolutionError(
+                structure.family,
+                f"{slot.slot_id} references unavailable members",
+            )
+        group_unit_ids = {
+            explicit_group_by_member[element_id]
+            for element_id in member_ids
+            if element_id in explicit_group_by_member
+        }
+        claimed_members = [
+            element_id for element_id in member_ids if element_id in claimed_ids
+        ]
+        if claimed_members:
+            if len(claimed_members) != len(member_ids) or len(group_unit_ids) != 1:
+                raise MotionStructureResolutionError(
+                    structure.family,
+                    f"{slot.slot_id} is partially claimed by explicit groups",
+                )
+            group_unit_id = next(iter(group_unit_ids))
+            existing = candidate_by_unit_id[group_unit_id]
+            replacement = _UnitCandidate(
+                unit=existing.unit,
+                frame=existing.frame,
+                label=existing.label,
+                structured_order=slot.order,
+            )
+            structured_candidates = [
+                replacement
+                if candidate.unit.unit_id == group_unit_id
+                else candidate
+                for candidate in structured_candidates
+            ]
+            candidate_by_unit_id[group_unit_id] = replacement
+            continue
+
+        members = [by_id[element_id] for element_id in member_ids]
+        frame = by_id[slot.frame_element_id]
+        unit = _build_unit(
+            kind="spatial-cluster",
+            animation_element_ids=member_ids,
+            member_elements=members,
+            frame_element=frame,
+            focal_id=focal_id,
+            cue_importance=cue_importance,
+            typography=typography,
+        ).model_copy(update={"semantic_role": slot.semantic_role})
+        structured_candidates.append(
+            _UnitCandidate(
+                unit=unit,
+                frame=frame,
+                label=_unit_label(members),
+                structured_order=slot.order,
+            )
+        )
+        updated_claimed_ids.update(member_ids)
+
+    return structured_candidates, updated_claimed_ids
 
 
 def _cue_importance(
@@ -375,6 +494,27 @@ def _unit_reading_key(
         float(frame_element.get("x", 0)),
         unit.unit_id,
     )
+
+
+def _candidate_reading_key(
+    candidate: _UnitCandidate,
+    structure: ResolvedMotionStructure | None,
+) -> tuple[int, int, int, float, float, str]:
+    unit_key = _unit_reading_key(candidate.unit, candidate.frame)
+    if structure is None:
+        return (1, 0, *unit_key)
+    if candidate.structured_order is not None:
+        return (1, candidate.structured_order, *unit_key)
+
+    frame_top = float(candidate.frame.get("y", 0))
+    frame_bottom = frame_top + float(candidate.frame.get("height", 0))
+    if candidate.unit.semantic_role in {"title", "subtitle"}:
+        phase = 0
+    elif candidate.unit.geometry_bucket == "bottom":
+        phase = 2
+    else:
+        phase = 0 if frame_bottom <= CANVAS_HEIGHT / 3 else 2
+    return (phase, 0, *unit_key)
 
 
 def _slide_type_for_units(

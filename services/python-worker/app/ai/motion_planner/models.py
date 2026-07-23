@@ -42,6 +42,11 @@ MotionSemanticRole = Literal[
     "other",
 ]
 MotionUnitKind = Literal["element", "explicit-group", "spatial-cluster"]
+MotionStructureFamily = Literal[
+    "timeline",
+    "feature-comparison",
+    "diagram-hub",
+]
 MotionUnitSemanticRole = Literal[
     "title",
     "subtitle",
@@ -138,6 +143,10 @@ class ExtractedMotionContextV3(BaseModel):
 
     slide_type: SlideType = Field(alias="slideType")
     narrative_intent: NarrativeIntent = Field(alias="narrativeIntent")
+    structure_family: MotionStructureFamily | None = Field(
+        default=None,
+        alias="structureFamily",
+    )
     units: list[MotionUnit] = Field(max_length=8)
     approved_cue_count: int = Field(alias="approvedCueCount", ge=0, le=100)
     notes_present: bool = Field(alias="notesPresent")
