@@ -130,6 +130,20 @@ if [ "${DEPLOY_USE_REGISTRY:-false}" = "true" ]; then
   done
   if [ "$pulled" -ne 1 ]; then
     echo "Registry images for ${IMAGE_TAG} unavailable; building on-box as a fallback."
+    # The static web bundle in S3 was built from DEPLOY_COMMIT_SHA, but the
+    # on-box `git pull` may have advanced HEAD past it while this deploy was
+    # queued. Building on-box now would ship backend/migration images from a
+    # different commit than the deployed web bundle. Refuse the mixed-commit
+    # release: the newer commit that moved HEAD triggers its own deploy, so
+    # aborting here self-heals rather than shipping mismatched artifacts. We
+    # fail instead of checking out DEPLOY_COMMIT_SHA because this script lives
+    # in the same repo and rewriting the working tree mid-run would corrupt the
+    # executing shell.
+    on_box_sha="$(git -C "$APP_DIR" rev-parse HEAD)"
+    if [ -n "${DEPLOY_COMMIT_SHA:-}" ] && [ "$on_box_sha" != "$DEPLOY_COMMIT_SHA" ]; then
+      echo "On-box HEAD (${on_box_sha}) does not match the deploy commit (${DEPLOY_COMMIT_SHA}); refusing a mixed-commit fallback build."
+      exit 1
+    fi
     "${COMPOSE[@]}" build
   fi
 else
