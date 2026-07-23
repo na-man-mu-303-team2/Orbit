@@ -12,6 +12,7 @@ import type {
 } from "../rehearsal/presenter/presenterStateStore";
 import { useAudienceScreenShare } from "../rehearsal/presenter/useAudienceScreenShare";
 import { usePresentationChannelPublisher } from "../rehearsal/presenter/usePresentationChannelPublisher";
+import { usePresenterCompanionAuthority } from "../presenter-companion/usePresenterCompanionAuthority";
 
 export type LivePresentationDisplayRole =
   | "presenter"
@@ -20,6 +21,7 @@ export type LivePresentationDisplayRole =
 
 export function useLivePresentationOutput(input: {
   audienceWindowConnected: boolean;
+  companionEnabled?: boolean;
   deck: Deck | null;
   displayRole: LivePresentationDisplayRole;
   enabled?: boolean;
@@ -57,6 +59,14 @@ export function useLivePresentationOutput(input: {
       localChannel.sessionId,
     ],
   );
+  const companionAuthority = usePresenterCompanionAuthority({
+    enabled:
+      Boolean(input.companionEnabled) &&
+      (input.enabled ?? true) &&
+      input.displayRole === "presenter",
+    sessionId: input.persistedSessionId,
+    state: input.state,
+  });
   const screenShare = useAudienceScreenShare({
     connected:
       input.displayRole === "presenter" &&
@@ -85,6 +95,7 @@ export function useLivePresentationOutput(input: {
   }, [input.displayRole]);
 
   return {
+    companionAuthority,
     hostIdentity,
     localChannel,
     screenShare,

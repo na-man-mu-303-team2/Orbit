@@ -1359,6 +1359,7 @@ export function PresentationWorkspace(props: {
     audienceWindowConnected: Boolean(
       slideWindowRef.current && !slideWindowRef.current.closed,
     ),
+    companionEnabled: presenterCompanionEnabled,
     deck,
     displayRole,
     enabled:
@@ -1378,7 +1379,7 @@ export function PresentationWorkspace(props: {
     },
     onScreenShareEnded: () => stopAudienceStreamRef.current(),
     outputMode: audienceOutputMode,
-    persistedSessionId: presenterSessionRef.current?.sessionId,
+    persistedSessionId: presenterSession?.sessionId,
     state: presentationOutputState,
     triggerAnimationIds,
   });
