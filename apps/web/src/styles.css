@@ -3751,6 +3751,7 @@
   gap: var(--redesign-space-3);
   height: 100dvh;
   overflow: hidden;
+  padding-block-start: 0;
 }
 
 .presenter-remote-shell > .audience-output-controls {
@@ -3796,11 +3797,15 @@
 .presenter-remote-shell
   > .audience-output-controls--collapsible
   .audience-output-controls-toggle {
+  align-items: center;
   align-self: center;
   background: var(--redesign-color-on-surface);
   border: 0;
   border-radius: 0 0 var(--redesign-radius) var(--redesign-radius);
   color: var(--redesign-color-surface-container-lowest);
+  display: flex;
+  justify-content: center;
+  margin-inline: auto;
   min-height: 32px;
   order: 2;
   padding: 0;
@@ -4010,7 +4015,7 @@
 
 @media (max-width: 760px) {
   .presenter-remote-shell {
-    padding-block: var(--redesign-space-3);
+    padding-block: 0 var(--redesign-space-3);
     padding-inline: var(--redesign-space-4);
   }
 
