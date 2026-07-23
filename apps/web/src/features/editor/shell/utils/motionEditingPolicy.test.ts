@@ -24,7 +24,14 @@ describe("motionEditingPolicy", () => {
     const deck = createDemoDeck();
     deck.metadata.sourceType = "import";
     const slide = deck.slides[0]!;
+    slide.importRenderMode = "editable";
     slide.ooxmlSourceSlidePart = "ppt/slides/slide1.xml";
+    slide.elements[0]!.ooxmlEditCapabilities = {
+      richText: "full",
+      crop: "none",
+      tableCellText: false,
+      frame: true
+    };
     slide.ooxmlMotionCapabilities = {
       transitionWritable: true,
       importedMainSequenceCoverage: "complete"
@@ -43,6 +50,7 @@ describe("motionEditingPolicy", () => {
     const deck = createDemoDeck();
     deck.metadata.sourceType = "import";
     const slide = deck.slides[0]!;
+    slide.importRenderMode = "editable";
     slide.ooxmlMotionCapabilities = {
       transitionWritable: true,
       importedMainSequenceCoverage: "absent"
@@ -54,5 +62,23 @@ describe("motionEditingPolicy", () => {
     expect(getAnimationMutationDisabledReason(deck, slide)).toContain(
       "위치 정보"
     );
+  });
+
+  it("fails closed for snapshot and special slides", () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+
+    expect(
+      getAnimationMutationDisabledReason(deck, {
+        ...slide,
+        importRenderMode: "snapshot"
+      })
+    ).toContain("이미지로 가져온");
+    expect(
+      getAnimationMutationDisabledReason(deck, {
+        ...slide,
+        kind: "activity"
+      } as never)
+    ).toContain("참여 장표");
   });
 });

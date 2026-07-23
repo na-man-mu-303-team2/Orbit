@@ -42,6 +42,8 @@ describe("createAlignSelectionPatch", () => {
   ] as const)("aligns selection to %s", (alignment, coordinate, expected) => {
     const deck = createDemoDeck();
     const slide = deck.slides[0]!;
+    slide.actions = [];
+    slide.animations = [];
     slide.elements = [
       rect("el_a", { x: 100, y: 80, width: 100, height: 80 }),
       rect("el_b", { x: 300, y: 240, width: 200, height: 160 }),
@@ -66,6 +68,8 @@ describe("createAlignSelectionPatch", () => {
   it("moves grouped children by the same alignment delta", () => {
     const deck = createDemoDeck();
     const slide = deck.slides[0]!;
+    slide.actions = [];
+    slide.animations = [];
     const child = rect("el_child", {
       x: 430,
       y: 180,

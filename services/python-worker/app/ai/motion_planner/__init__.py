@@ -1,0 +1,101 @@
+from app.ai.motion_planner.eligibility import (
+    MotionEligibility,
+    MotionImportContext,
+    evaluate_motion_eligibility,
+    motion_eligibility_message,
+)
+from app.ai.motion_planner.extractor import (
+    MotionPromptInput,
+    MotionPromptInputV3,
+    extract_motion_context,
+    extract_motion_units,
+)
+from app.ai.motion_planner.llm import (
+    MotionPlannerResult,
+    MotionPlannerResultV3,
+    plan_narrative_motion,
+    plan_narrative_motion_v3,
+)
+from app.ai.motion_planner.errors import MotionPlannerError, MotionPlannerErrorCode
+from app.ai.motion_planner.fallback import deterministic_fallback_plan
+from app.ai.motion_planner.compiler import (
+    CompiledMotion,
+    CompiledMotionV3,
+    MotionCompileError,
+    compile_narrative_motion,
+    compile_narrative_motion_v3,
+)
+from app.ai.motion_planner.service import SemanticMotionResult, plan_and_compile_motion
+from app.ai.motion_planner.merge import (
+    MergedMotion,
+    merge_narrative_motion,
+    merge_narrative_motion_v3,
+)
+from app.ai.motion_planner.validation import (
+    MotionMergeValidationError,
+    validate_existing_motion_graph,
+)
+from app.ai.motion_planner.models import (
+    ExtractedMotionContext,
+    ExtractedMotionContextV3,
+    MotionEffectiveTypography,
+    MotionPlanMetadata,
+    MotionPlanMetadataV3,
+    MotionPlanningContext,
+    MotionPlanTarget,
+    MotionPlanUnit,
+    MotionPlanUnitTarget,
+    MotionTarget,
+    MotionUnit,
+    NarrativeBeat,
+    NarrativeBeatV3,
+    NarrativeMotionPlan,
+    NarrativeMotionPlanDraftV3,
+    NarrativeMotionPlanV3,
+)
+
+__all__ = [
+    "MotionEligibility",
+    "MotionImportContext",
+    "evaluate_motion_eligibility",
+    "motion_eligibility_message",
+    "ExtractedMotionContext",
+    "ExtractedMotionContextV3",
+    "MotionEffectiveTypography",
+    "MotionPlanMetadata",
+    "MotionPlanMetadataV3",
+    "MotionPlanningContext",
+    "MotionPlanTarget",
+    "MotionPlanUnit",
+    "MotionPlanUnitTarget",
+    "MotionPlannerResult",
+    "MotionPlannerResultV3",
+    "MotionPlannerError",
+    "MotionPlannerErrorCode",
+    "MotionPromptInput",
+    "MotionPromptInputV3",
+    "MotionTarget",
+    "MotionUnit",
+    "NarrativeBeat",
+    "NarrativeBeatV3",
+    "NarrativeMotionPlan",
+    "NarrativeMotionPlanDraftV3",
+    "NarrativeMotionPlanV3",
+    "deterministic_fallback_plan",
+    "extract_motion_context",
+    "extract_motion_units",
+    "plan_narrative_motion",
+    "plan_narrative_motion_v3",
+    "CompiledMotion",
+    "CompiledMotionV3",
+    "MotionCompileError",
+    "SemanticMotionResult",
+    "compile_narrative_motion",
+    "compile_narrative_motion_v3",
+    "plan_and_compile_motion",
+    "MergedMotion",
+    "MotionMergeValidationError",
+    "merge_narrative_motion",
+    "merge_narrative_motion_v3",
+    "validate_existing_motion_graph",
+]

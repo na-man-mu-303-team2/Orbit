@@ -219,6 +219,8 @@ describe("createSafeTextOverflowRepair", () => {
 
 function createOverflowDeck(): Deck {
   const deck = createDemoDeck();
+  deck.slides[0]!.actions = [];
+  deck.slides[0]!.animations = [];
   deck.metadata.presentationProfile = "proposal";
   return deck;
 }

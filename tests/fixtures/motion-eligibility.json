@@ -1,0 +1,150 @@
+{
+  "cases": [
+    {
+      "name": "authored content",
+      "deckSourceType": "manual",
+      "slideKind": "content",
+      "elements": [
+        { "elementId": "el_title", "role": "title" },
+        { "elementId": "el_footer", "role": "footer" }
+      ],
+      "expected": {
+        "outcome": "applicable",
+        "allowedTargetElementIds": ["el_title"],
+        "source": "authored"
+      }
+    },
+    {
+      "name": "snapshot import",
+      "deckSourceType": "import",
+      "slideKind": "content",
+      "importRenderMode": "snapshot",
+      "sourceSlidePartPresent": true,
+      "importedMainSequenceCoverage": "complete",
+      "elements": [{ "elementId": "el_body", "role": "body", "frameCapable": true }],
+      "expected": { "outcome": "refused-unsafe", "reasonCode": "SNAPSHOT_SLIDE" }
+    },
+    {
+      "name": "legacy import without render mode",
+      "deckSourceType": "import",
+      "slideKind": "content",
+      "sourceSlidePartPresent": true,
+      "importedMainSequenceCoverage": "complete",
+      "elements": [{ "elementId": "el_body", "role": "body", "frameCapable": true }],
+      "expected": { "outcome": "refused-unsafe", "reasonCode": "IMPORT_RENDER_MODE_UNKNOWN" }
+    },
+    {
+      "name": "import without source locator",
+      "deckSourceType": "import",
+      "slideKind": "content",
+      "importRenderMode": "editable",
+      "importedMainSequenceCoverage": "complete",
+      "elements": [{ "elementId": "el_body", "role": "body", "frameCapable": true }],
+      "stableTargetElementIds": ["el_body"],
+      "expected": { "outcome": "refused-unsafe", "reasonCode": "IMPORT_SOURCE_MISSING" }
+    },
+    {
+      "name": "partial imported main sequence",
+      "deckSourceType": "import",
+      "slideKind": "content",
+      "importRenderMode": "editable",
+      "sourceSlidePartPresent": true,
+      "importedMainSequenceCoverage": "partial",
+      "elements": [{ "elementId": "el_body", "role": "body", "frameCapable": true }],
+      "stableTargetElementIds": ["el_body"],
+      "expected": { "outcome": "refused-unsafe", "reasonCode": "IMPORT_COVERAGE_UNSAFE" }
+    },
+    {
+      "name": "unknown imported main sequence",
+      "deckSourceType": "import",
+      "slideKind": "content",
+      "importRenderMode": "hybrid",
+      "sourceSlidePartPresent": true,
+      "importedMainSequenceCoverage": "unknown",
+      "elements": [{ "elementId": "el_body", "role": "body", "frameCapable": true }],
+      "stableTargetElementIds": ["el_body"],
+      "expected": { "outcome": "refused-unsafe", "reasonCode": "IMPORT_COVERAGE_UNSAFE" }
+    },
+    {
+      "name": "missing imported main sequence coverage",
+      "deckSourceType": "import",
+      "slideKind": "content",
+      "importRenderMode": "editable",
+      "sourceSlidePartPresent": true,
+      "elements": [{ "elementId": "el_body", "role": "body", "frameCapable": true }],
+      "stableTargetElementIds": ["el_body"],
+      "expected": { "outcome": "refused-unsafe", "reasonCode": "IMPORT_COVERAGE_UNSAFE" }
+    },
+    {
+      "name": "editable import with authoritative target",
+      "deckSourceType": "import",
+      "slideKind": "content",
+      "importRenderMode": "editable",
+      "sourceSlidePartPresent": true,
+      "importedMainSequenceCoverage": "absent",
+      "elements": [
+        { "elementId": "el_body", "role": "body", "frameCapable": true },
+        { "elementId": "el_decoration", "role": "decoration", "frameCapable": true }
+      ],
+      "stableTargetElementIds": ["el_body", "el_decoration"],
+      "expected": {
+        "outcome": "applicable",
+        "allowedTargetElementIds": ["el_body"],
+        "source": "imported-editable"
+      }
+    },
+    {
+      "name": "hybrid import filters unstable targets",
+      "deckSourceType": "import",
+      "slideKind": "content",
+      "importRenderMode": "hybrid",
+      "sourceSlidePartPresent": true,
+      "importedMainSequenceCoverage": "complete",
+      "elements": [
+        { "elementId": "el_stable", "role": "body", "frameCapable": true },
+        { "elementId": "el_unstable", "role": "body" }
+      ],
+      "stableTargetElementIds": ["el_stable"],
+      "expected": {
+        "outcome": "applicable",
+        "allowedTargetElementIds": ["el_stable"],
+        "source": "imported-hybrid"
+      }
+    },
+    {
+      "name": "import without stable targets",
+      "deckSourceType": "import",
+      "slideKind": "content",
+      "importRenderMode": "editable",
+      "sourceSlidePartPresent": true,
+      "importedMainSequenceCoverage": "complete",
+      "elements": [{ "elementId": "el_body", "role": "body" }],
+      "stableTargetElementIds": [],
+      "expected": { "outcome": "refused-unsafe", "reasonCode": "NO_STABLE_TARGETS" }
+    },
+    {
+      "name": "activity slide",
+      "deckSourceType": "manual",
+      "slideKind": "activity",
+      "elements": [{ "elementId": "el_body", "role": "body" }],
+      "expected": { "outcome": "refused-unsafe", "reasonCode": "SPECIAL_SLIDE" }
+    },
+    {
+      "name": "activity results slide",
+      "deckSourceType": "manual",
+      "slideKind": "activity-results",
+      "elements": [{ "elementId": "el_body", "role": "body" }],
+      "expected": { "outcome": "refused-unsafe", "reasonCode": "SPECIAL_SLIDE" }
+    },
+    {
+      "name": "no visible content targets",
+      "deckSourceType": "manual",
+      "slideKind": "content",
+      "elements": [
+        { "elementId": "el_footer", "role": "footer" },
+        { "elementId": "el_hidden", "role": "body", "visible": false }
+      ],
+      "expected": { "outcome": "not-needed", "reasonCode": "NO_VISIBLE_CONTENT_TARGETS" }
+    }
+  ]
+}

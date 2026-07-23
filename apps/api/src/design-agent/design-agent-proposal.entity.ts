@@ -1,6 +1,7 @@
 import type {
   DeckPatchOperation,
   DesignAgentProposalStatus,
+  MotionPlanMetadata,
 } from "@orbit/shared";
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from "typeorm";
 import { ProjectEntity } from "../projects/project.entity";
@@ -45,6 +46,9 @@ export class DesignAgentProposalEntity {
 
   @Column({ type: "jsonb" })
   warnings!: string[];
+
+  @Column({ name: "motion_plan_json", nullable: true, type: "jsonb" })
+  motionPlan!: MotionPlanMetadata | null;
 
   @Column({ type: "text" })
   status!: DesignAgentProposalStatus;

@@ -5,9 +5,31 @@ import math
 import re
 from typing import Annotated, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.ai.motion_planner import (
+    MotionImportContext,
+    MotionPlanMetadata,
+    MotionPlanMetadataV3,
+    MotionPlanningContext,
+    SemanticMotionResult,
+    evaluate_motion_eligibility,
+    motion_eligibility_message,
+    plan_and_compile_motion,
+)
 
 DECK_ELEMENT_COORDINATE_LIMIT = 1_000_000
+DECK_ELEMENT_HEX_COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
+DECK_ELEMENT_PAINT_STRING_PATTERN = r"^(?:#[0-9a-fA-F]{6}|transparent)$"
+FontWeight = int | Literal["normal", "medium", "semibold", "bold"]
+
+
+def _validate_font_weight(value: FontWeight | None) -> FontWeight | None:
+    if isinstance(value, int) and not 100 <= value <= 900:
+        raise ValueError("fontWeight must be between 100 and 900")
+    return value
+
+
 DesignAgentIntentPreset = Literal[
     "redesign-slide",
     "tidy-layout",
@@ -52,7 +74,7 @@ class DesignAgentContext(BaseModel):
 class DesignAgentCapabilities(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    version: Literal["1"] = "1"
+    version: Literal["1", "2"] = "2"
     operations: list[
         Literal[
             "add_element",
@@ -65,12 +87,39 @@ class DesignAgentCapabilities(BaseModel):
             "delete_animation",
         ]
     ]
-    addable_element_types: list[Literal["text", "rect", "chart", "table"]] = Field(
-        alias="addableElementTypes"
-    )
+    addable_element_types: list[
+        Literal[
+            "text",
+            "rect",
+            "ellipse",
+            "line",
+            "polygon",
+            "image",
+            "chart",
+            "table",
+        ]
+    ] = Field(alias="addableElementTypes")
     can_edit_text_content: bool = Field(alias="canEditTextContent")
     can_generate_images: bool = Field(alias="canGenerateImages")
     can_modify_locked_elements: bool = Field(alias="canModifyLockedElements")
+
+
+class SlideRedesignPalette(BaseModel):
+    dominant: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    surface: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    text: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    focal: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    secondary: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class SlideRedesignPaletteOption(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    option_id: str = Field(alias="optionId", min_length=1)
+    name: str = Field(min_length=1)
+    is_current_theme: bool = Field(alias="isCurrentTheme")
+    palette: SlideRedesignPalette
+    rationale: str = Field(default="", max_length=500)
 
 
 class AvailableSmartArtLayout(BaseModel):
@@ -103,6 +152,14 @@ class DesignAgentRequest(BaseModel):
         max_length=100,
     )
     context: DesignAgentContext
+    motion_import_context: MotionImportContext | None = Field(
+        default=None,
+        alias="motionImportContext",
+    )
+    motion_planning_context: MotionPlanningContext | None = Field(
+        default=None,
+        alias="motionPlanningContext",
+    )
     history: list[DesignAgentHistoryItem] = Field(default_factory=list, max_length=10)
     available_smart_art_layouts: list[AvailableSmartArtLayout] = Field(
         default_factory=list,
@@ -110,6 +167,11 @@ class DesignAgentRequest(BaseModel):
         max_length=200,
     )
     capabilities: DesignAgentCapabilities
+    request_palette_options: bool = Field(default=False, alias="requestPaletteOptions")
+    selected_palette_option: SlideRedesignPaletteOption | None = Field(
+        default=None,
+        alias="selectedPaletteOption",
+    )
 
 
 class ElementFramePatch(BaseModel):
@@ -148,6 +210,41 @@ class ElementFramePatch(BaseModel):
     visible: bool | None = None
 
 
+DeckElementHexColor = Annotated[
+    str,
+    Field(pattern=DECK_ELEMENT_HEX_COLOR_PATTERN),
+]
+
+
+class DeckElementGradientStop(BaseModel):
+    color: DeckElementHexColor
+    offset: float = Field(ge=0, le=1)
+    opacity: float = Field(default=1, ge=0, le=1)
+
+
+class DeckElementLinearGradientPaint(BaseModel):
+    type: Literal["linear-gradient"]
+    angle: float = 0
+    stops: list[DeckElementGradientStop] = Field(min_length=2)
+
+
+class DeckElementPatternPaint(BaseModel):
+    type: Literal["pattern"]
+    preset: str = Field(default="pct20", min_length=1)
+    foreground: DeckElementHexColor
+    background: DeckElementHexColor = "#FFFFFF"
+
+
+DeckElementPaint = (
+    DeckElementHexColor
+    | Literal["transparent"]
+    | Annotated[
+        DeckElementLinearGradientPaint | DeckElementPatternPaint,
+        Field(discriminator="type"),
+    ]
+)
+
+
 class ElementPropsPatch(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -157,22 +254,50 @@ class ElementPropsPatch(BaseModel):
         alias="verticalAlign",
     )
     font_size: float | None = Field(default=None, alias="fontSize", gt=0)
-    font_weight: int | None = Field(default=None, alias="fontWeight", ge=100, le=900)
+    font_weight: FontWeight | None = Field(default=None, alias="fontWeight")
     font_family: str | None = Field(default=None, alias="fontFamily", min_length=1)
-    fill: str | None = Field(default=None, min_length=1)
+    fill: DeckElementPaint | None = None
     text: str | None = None
     color: str | None = Field(default=None, min_length=1)
-    stroke: str | None = Field(default=None, min_length=1)
+    stroke: DeckElementPaint | None = None
     stroke_width: float | None = Field(default=None, alias="strokeWidth", ge=0)
     border_radius: float | None = Field(default=None, alias="borderRadius", ge=0)
     line_height: float | None = Field(default=None, alias="lineHeight", gt=0)
     corner_radius: float | None = Field(default=None, alias="cornerRadius", ge=0)
     fit: Literal["cover", "contain", "stretch"] | None = None
 
+    @field_validator("font_weight")
+    @classmethod
+    def validate_font_weight(cls, value: FontWeight | None) -> FontWeight | None:
+        return _validate_font_weight(value)
+
+
+class SlideBackgroundImagePatch(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    src: str = Field(min_length=1)
+    alt: str = ""
+    fit: Literal["contain", "cover", "stretch"] = "cover"
+    opacity: float = Field(default=1, ge=0, le=1)
+
 
 class SlideStylePatch(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    layout: (
+        Literal[
+            "title",
+            "title-content",
+            "section",
+            "two-column",
+            "image-left",
+            "image-right",
+            "chart-focus",
+            "quote",
+            "closing",
+        ]
+        | None
+    ) = None
     font_family: str | None = Field(default=None, alias="fontFamily", min_length=1)
     background_color: str | None = Field(
         default=None,
@@ -181,6 +306,9 @@ class SlideStylePatch(BaseModel):
     )
     text_color: str | None = Field(default=None, alias="textColor", min_length=1)
     accent_color: str | None = Field(default=None, alias="accentColor", min_length=1)
+    background_image: SlideBackgroundImagePatch | None = Field(
+        default=None, alias="backgroundImage"
+    )
 
 
 class TextElementProps(BaseModel):
@@ -189,7 +317,7 @@ class TextElementProps(BaseModel):
     text: str
     font_family: str | None = Field(default=None, alias="fontFamily")
     font_size: float = Field(alias="fontSize", gt=0)
-    font_weight: int = Field(alias="fontWeight", ge=100, le=900)
+    font_weight: FontWeight = Field(alias="fontWeight")
     color: str
     align: Literal["left", "center", "right", "justify"]
     vertical_align: Literal["top", "middle", "bottom"] = Field(
@@ -197,14 +325,57 @@ class TextElementProps(BaseModel):
     )
     line_height: float = Field(alias="lineHeight", gt=0)
 
+    @field_validator("font_weight")
+    @classmethod
+    def validate_font_weight(cls, value: FontWeight) -> FontWeight:
+        validated = _validate_font_weight(value)
+        assert validated is not None
+        return validated
 
-class RectElementProps(BaseModel):
+
+class ShapeElementShadow(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    fill: str
-    stroke: str
+    color: str
+    blur: float = Field(ge=0)
+    offset_x: float = Field(alias="offsetX")
+    offset_y: float = Field(alias="offsetY")
+    opacity: float = Field(ge=0, le=1)
+
+
+class ShapeElementProps(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    fill: DeckElementPaint
+    stroke: DeckElementPaint
     stroke_width: float = Field(alias="strokeWidth", ge=0)
     border_radius: float = Field(alias="borderRadius", ge=0)
+    sides: int | None = Field(default=None, ge=3, le=12)
+    dash: list[float] | None = None
+    line_cap: Literal["butt", "round", "square"] | None = Field(
+        default=None, alias="lineCap"
+    )
+    line_join: Literal["miter", "round", "bevel"] | None = Field(
+        default=None, alias="lineJoin"
+    )
+    shadow: ShapeElementShadow | None = None
+
+    @field_validator("dash")
+    @classmethod
+    def validate_dash(cls, value: list[float] | None) -> list[float] | None:
+        if value is not None and any(item <= 0 for item in value):
+            raise ValueError("dash values must be positive")
+        return value
+
+
+class ImageElementProps(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    src: str = Field(min_length=1)
+    alt: str = ""
+    fit: Literal["contain", "cover", "stretch"] = "contain"
+    focus_x: float = Field(default=0.5, alias="focusX", ge=0, le=1)
+    focus_y: float = Field(default=0.5, alias="focusY", ge=0, le=1)
 
 
 class ChartDatum(BaseModel):
@@ -273,7 +444,7 @@ class TextElement(BaseModel):
 
     element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
     type: Literal["text"]
-    role: Literal["title", "subtitle", "body", "caption", "footer"]
+    role: Literal["title", "subtitle", "body", "caption", "footer", "highlight"]
     x: float = Field(ge=0)
     y: float = Field(ge=0)
     width: float = Field(gt=0)
@@ -291,6 +462,24 @@ class RectElement(BaseModel):
 
     element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
     type: Literal["rect"]
+    role: Literal["background", "decoration", "highlight", "media"]
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float
+    opacity: float = Field(ge=0, le=1)
+    z_index: int = Field(alias="zIndex", ge=0)
+    locked: bool
+    visible: bool
+    props: ShapeElementProps
+
+
+class EllipseElement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["ellipse"]
     role: Literal["background", "decoration", "highlight"]
     x: float = Field(ge=0)
     y: float = Field(ge=0)
@@ -301,7 +490,68 @@ class RectElement(BaseModel):
     z_index: int = Field(alias="zIndex", ge=0)
     locked: bool
     visible: bool
-    props: RectElementProps
+    props: ShapeElementProps
+
+
+class LineElement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["line"]
+    role: Literal["decoration"]
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float
+    opacity: float = Field(ge=0, le=1)
+    z_index: int = Field(alias="zIndex", ge=0)
+    locked: bool
+    visible: bool
+    props: ShapeElementProps
+
+
+class PolygonElement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["polygon"]
+    role: Literal["decoration"]
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float
+    opacity: float = Field(ge=0, le=1)
+    z_index: int = Field(alias="zIndex", ge=0)
+    locked: bool
+    visible: bool
+    props: ShapeElementProps
+
+    @field_validator("props")
+    @classmethod
+    def require_sides(cls, value: ShapeElementProps) -> ShapeElementProps:
+        if value.sides is None:
+            raise ValueError("polygon props.sides is required")
+        return value
+
+
+class ImageElement(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    element_id: str = Field(alias="elementId", pattern=r"^el_[A-Za-z0-9_-]+$")
+    type: Literal["image"]
+    role: Literal["media"]
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float
+    opacity: float = Field(ge=0, le=1)
+    z_index: int = Field(alias="zIndex", ge=0)
+    locked: bool
+    visible: bool
+    props: ImageElementProps
 
 
 class ChartElement(BaseModel):
@@ -341,7 +591,14 @@ class TableElement(BaseModel):
 
 
 AddableElement = Annotated[
-    TextElement | RectElement | ChartElement | TableElement,
+    TextElement
+    | RectElement
+    | EllipseElement
+    | LineElement
+    | PolygonElement
+    | ImageElement
+    | ChartElement
+    | TableElement,
     Field(discriminator="type"),
 ]
 
@@ -515,6 +772,15 @@ class DesignAgentResponse(BaseModel):
         max_length=200,
     )
     warnings: list[str] = Field(default_factory=list, max_length=20)
+    motion_plan: MotionPlanMetadata | MotionPlanMetadataV3 | None = Field(
+        default=None, alias="motionPlan"
+    )
+    palette_options: list[SlideRedesignPaletteOption] | None = Field(
+        default=None,
+        alias="paletteOptions",
+        min_length=3,
+        max_length=3,
+    )
     smart_art_request: SmartArtRequest | None = Field(
         default=None, alias="smartArtRequest"
     )
@@ -662,11 +928,80 @@ def generate_design_proposal(
     model: str,
     api_key: str | None,
     client: Any | None = None,
+    motion_planner_model: str | None = None,
+    motion_planner_mode: Literal["off", "shadow", "on"] = "off",
 ) -> DesignAgentResponse:
+    if _known_intent_preset(request) == "recommend-animation" and motion_planner_mode == "on":
+        if "add_animation" not in request.capabilities.operations:
+            return _animation_recommendation_unavailable(
+                request,
+                "현재 편집 환경에서는 애니메이션 추가를 지원하지 않습니다.",
+            )
+        semantic_motion = _run_semantic_motion_planner(
+            request,
+            model=motion_planner_model or model,
+            api_key=api_key,
+            client=client,
+        )
+        semantic_response = DesignAgentResponse.model_validate(
+            {
+                "message": semantic_motion.message,
+                "interpretedIntent": {
+                    "target": "current-slide",
+                    "action": "semantic-motion-plan",
+                    "alignment": None,
+                },
+                "operations": semantic_motion.operations,
+                "affectedElementIds": semantic_motion.affected_element_ids,
+                "warnings": [],
+                "motionPlan": semantic_motion.motion_plan,
+                "smartArtRequest": None,
+            }
+        )
+        return validate_design_proposal(
+            request, normalize_design_proposal(request, semantic_response)
+        )
+    if _known_intent_preset(request) == "recommend-animation" and motion_planner_mode == "shadow":
+        _run_motion_planner_shadow(
+            request,
+            model=motion_planner_model or model,
+            api_key=api_key,
+            client=client,
+        )
     deterministic_animation = _build_deterministic_animation_proposal(request)
     if deterministic_animation is not None:
         return validate_design_proposal(
             request, normalize_design_proposal(request, deterministic_animation)
+        )
+
+    from app.ai.slide_redesign.pipeline import redesign_slide
+
+    redesign = redesign_slide(
+        request,
+        model=model,
+        api_key=api_key,
+        client=client,
+    )
+    if redesign.outcome == "applicable":
+        assert redesign.response is not None
+        return validate_design_proposal(
+            request,
+            normalize_design_proposal(request, redesign.response),
+        )
+    if redesign.outcome == "refused-unsafe":
+        return DesignAgentResponse(
+            message=redesign.reason
+            or "현재 요소의 동작과 참조를 안전하게 보존할 수 없어 리디자인하지 않았습니다.",
+            interpretedIntent=DesignAgentIntent(
+                target="current-slide",
+                action="refused",
+                alignment=None,
+            ),
+            operations=[],
+            affectedElementIds=[],
+            warnings=[],
+            smartArtRequest=None,
+            uiAction=None,
         )
 
     if client is None and not api_key:
@@ -700,6 +1035,43 @@ def generate_design_proposal(
         raise
     except Exception as error:
         raise DesignAgentGenerationError("Design proposal generation failed.") from error
+
+
+def _run_motion_planner_shadow(
+    request: DesignAgentRequest,
+    *,
+    model: str,
+    api_key: str | None,
+    client: Any | None,
+) -> None:
+    try:
+        _run_semantic_motion_planner(
+            request,
+            model=model,
+            api_key=api_key,
+            client=client,
+        )
+    except Exception:
+        return
+
+
+def _run_semantic_motion_planner(
+    request: DesignAgentRequest,
+    *,
+    model: str,
+    api_key: str | None,
+    client: Any | None,
+) -> SemanticMotionResult:
+    return plan_and_compile_motion(
+        deck_id=request.context.deck_id,
+        base_version=request.context.base_version,
+        slide=request.context.slide,
+        planning_context=request.motion_planning_context,
+        import_context=request.motion_import_context,
+        model=model,
+        api_key=api_key,
+        client=client,
+    )
 
 
 def _build_deterministic_preset_proposal(
@@ -1114,23 +1486,17 @@ def _build_animation_recommendation(
     request: DesignAgentRequest,
 ) -> DesignAgentResponse:
     slide = request.context.slide
-    if slide.get("ooxmlOrigin") == "imported":
-        if not slide.get("ooxmlSourceSlidePart"):
-            return _animation_recommendation_unavailable(
-                request,
-                "가져온 슬라이드의 안정적인 OOXML 위치 정보가 없어 애니메이션을 추천할 수 없습니다.",
-            )
-        motion_capabilities = slide.get("ooxmlMotionCapabilities")
-        coverage = (
-            motion_capabilities.get("importedMainSequenceCoverage")
-            if isinstance(motion_capabilities, dict)
-            else None
+    eligibility = evaluate_motion_eligibility(
+        slide,
+        import_context=request.motion_import_context,
+    )
+    if eligibility.outcome != "applicable":
+        assert eligibility.reason_code is not None
+        return _animation_recommendation_unavailable(
+            request,
+            motion_eligibility_message(eligibility.reason_code),
         )
-        if coverage not in {"absent", "complete"}:
-            return _animation_recommendation_unavailable(
-                request,
-                "가져온 슬라이드의 애니메이션 구조를 완전하게 보존할 수 없어 추천을 적용할 수 없습니다.",
-            )
+    allowed_target_ids = set(eligibility.allowed_target_element_ids)
 
     if "add_animation" not in request.capabilities.operations:
         return _animation_recommendation_unavailable(
@@ -1158,6 +1524,7 @@ def _build_animation_recommendation(
             and element.get("visible") is not False
             and element.get("role") not in excluded_roles
             and element.get("type") != "group"
+            and str(element.get("elementId")) in allowed_target_ids
             and str(element.get("elementId")) not in animated_element_ids
         ),
         key=lambda element: (
@@ -1713,17 +2080,31 @@ def _validate_intent_preset_policy(
                 )
     if intent_preset == "recommend-animation":
         for operation in response.operations:
-            if not isinstance(operation, AddAnimationOperation):
+            if not isinstance(
+                operation, (AddAnimationOperation, UpdateAnimationOperation)
+            ):
                 raise DesignAgentGenerationError(
-                    "recommend-animation may only add animations."
+                    "recommend-animation may only add or update animations."
                 )
-            if operation.animation.type not in {"appear", "fade-in", "zoom-in"}:
+            if (
+                operation.animation.type is not None
+                and operation.animation.type not in {"appear", "fade-in", "zoom-in"}
+            ):
                 raise DesignAgentGenerationError(
                     "recommend-animation uses only export-compatible effects."
                 )
-            if operation.animation.start_mode is None:
+            if isinstance(operation, AddAnimationOperation):
+                if operation.animation.start_mode is None:
+                    raise DesignAgentGenerationError(
+                        "recommend-animation requires an explicit startMode."
+                    )
+                continue
+            if (
+                operation.animation.order is not None
+                or operation.animation.start_mode is not None
+            ):
                 raise DesignAgentGenerationError(
-                    "recommend-animation requires an explicit startMode."
+                    "recommend-animation must preserve existing order and startMode."
                 )
 
 
@@ -1851,6 +2232,26 @@ def _nullable_properties(properties: dict[str, dict[str, Any]]) -> dict[str, Any
     }
 
 
+def _font_weight_json_schema(*, nullable: bool) -> dict[str, Any]:
+    variants: list[dict[str, Any]] = [
+        {
+            "type": "string",
+            "enum": ["normal", "medium", "semibold", "bold"],
+        },
+        {"type": "integer", "minimum": 100, "maximum": 900},
+    ]
+    if nullable:
+        variants.append({"type": "null"})
+    return {"anyOf": variants}
+
+
+def _paint_string_json_schema(*, nullable: bool) -> dict[str, Any]:
+    return {
+        "type": ["string", "null"] if nullable else "string",
+        "pattern": DECK_ELEMENT_PAINT_STRING_PATTERN,
+    }
+
+
 def _frame_operation_json_schema() -> dict[str, Any]:
     roles = [
         "background",
@@ -1903,16 +2304,12 @@ def _props_operation_json_schema() -> dict[str, Any]:
                 "enum": ["top", "middle", "bottom", None],
             },
             "fontSize": {"type": ["number", "null"], "exclusiveMinimum": 0},
-            "fontWeight": {
-                "type": ["integer", "null"],
-                "minimum": 100,
-                "maximum": 900,
-            },
+            "fontWeight": _font_weight_json_schema(nullable=True),
             "fontFamily": {"type": ["string", "null"]},
-            "fill": {"type": ["string", "null"]},
+            "fill": _paint_string_json_schema(nullable=True),
             "text": {"type": ["string", "null"]},
             "color": {"type": ["string", "null"]},
-            "stroke": {"type": ["string", "null"]},
+            "stroke": _paint_string_json_schema(nullable=True),
             "strokeWidth": {"type": ["number", "null"], "minimum": 0},
             "borderRadius": {"type": ["number", "null"], "minimum": 0},
             "lineHeight": {"type": ["number", "null"], "exclusiveMinimum": 0},
@@ -1945,7 +2342,7 @@ def _element_base_properties(element_type: str, roles: list[str]) -> dict[str, A
 
 def _text_element_json_schema() -> dict[str, Any]:
     properties = _element_base_properties(
-        "text", ["title", "subtitle", "body", "caption", "footer"]
+        "text", ["title", "subtitle", "body", "caption", "footer", "highlight"]
     )
     properties["props"] = {
         "type": "object",
@@ -1954,7 +2351,7 @@ def _text_element_json_schema() -> dict[str, Any]:
             "text": {"type": "string"},
             "fontFamily": {"type": ["string", "null"]},
             "fontSize": {"type": "number", "exclusiveMinimum": 0},
-            "fontWeight": {"type": "integer", "minimum": 100, "maximum": 900},
+            "fontWeight": _font_weight_json_schema(nullable=False),
             "color": {"type": "string"},
             "align": {
                 "type": "string",
@@ -1986,19 +2383,59 @@ def _text_element_json_schema() -> dict[str, Any]:
 
 
 def _rect_element_json_schema() -> dict[str, Any]:
-    properties = _element_base_properties(
-        "rect", ["background", "decoration", "highlight"]
+    return _shape_element_json_schema(
+        "rect", ["background", "decoration", "highlight", "media"]
     )
+
+
+def _shape_element_json_schema(
+    element_type: Literal["rect", "ellipse", "line", "polygon"],
+    roles: list[str],
+) -> dict[str, Any]:
+    properties = _element_base_properties(element_type, roles)
+    props_properties: dict[str, Any] = {
+        "fill": _paint_string_json_schema(nullable=False),
+        "stroke": _paint_string_json_schema(nullable=False),
+        "strokeWidth": {"type": "number", "minimum": 0},
+        "borderRadius": {"type": "number", "minimum": 0},
+    }
+    if element_type == "polygon":
+        props_properties["sides"] = {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 12,
+        }
     properties["props"] = {
         "type": "object",
         "additionalProperties": False,
-        "properties": {
-            "fill": {"type": "string"},
-            "stroke": {"type": "string"},
-            "strokeWidth": {"type": "number", "minimum": 0},
-            "borderRadius": {"type": "number", "minimum": 0},
+        "properties": props_properties,
+        "required": list(props_properties),
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": list(properties),
+    }
+
+
+def _image_element_json_schema() -> dict[str, Any]:
+    properties = _element_base_properties("image", ["media"])
+    props_properties = {
+        "src": {"type": "string", "minLength": 1},
+        "alt": {"type": "string"},
+        "fit": {
+            "type": "string",
+            "enum": ["contain", "cover", "stretch"],
         },
-        "required": ["fill", "stroke", "strokeWidth", "borderRadius"],
+        "focusX": {"type": "number", "minimum": 0, "maximum": 1},
+        "focusY": {"type": "number", "minimum": 0, "maximum": 1},
+    }
+    properties["props"] = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": props_properties,
+        "required": list(props_properties),
     }
     return {
         "type": "object",
@@ -2124,6 +2561,12 @@ def _add_element_operation_json_schema() -> dict[str, Any]:
                 "anyOf": [
                     _text_element_json_schema(),
                     _rect_element_json_schema(),
+                    _shape_element_json_schema(
+                        "ellipse", ["background", "decoration", "highlight"]
+                    ),
+                    _shape_element_json_schema("line", ["decoration"]),
+                    _shape_element_json_schema("polygon", ["decoration"]),
+                    _image_element_json_schema(),
                     _chart_element_json_schema(),
                     _table_element_json_schema(),
                 ]
@@ -2147,12 +2590,42 @@ def _delete_element_operation_json_schema() -> dict[str, Any]:
 
 
 def _slide_style_operation_json_schema() -> dict[str, Any]:
+    background_image = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "src": {"type": "string", "minLength": 1},
+            "alt": {"type": "string"},
+            "fit": {
+                "type": "string",
+                "enum": ["contain", "cover", "stretch"],
+            },
+            "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+        },
+        "required": ["src", "alt", "fit", "opacity"],
+    }
     style = _nullable_properties(
         {
+            "layout": {
+                "type": ["string", "null"],
+                "enum": [
+                    "title",
+                    "title-content",
+                    "section",
+                    "two-column",
+                    "image-left",
+                    "image-right",
+                    "chart-focus",
+                    "quote",
+                    "closing",
+                    None,
+                ],
+            },
             "fontFamily": {"type": ["string", "null"]},
             "backgroundColor": {"type": ["string", "null"]},
             "textColor": {"type": ["string", "null"]},
             "accentColor": {"type": ["string", "null"]},
+            "backgroundImage": {"anyOf": [background_image, {"type": "null"}]},
         }
     )
     return {

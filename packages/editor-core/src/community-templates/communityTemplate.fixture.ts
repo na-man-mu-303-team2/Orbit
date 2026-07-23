@@ -333,6 +333,7 @@ export function createPrivateCommunityTemplateDeck(): Deck {
             ],
     },
   }));
+  secondSlide.animations = [];
 
   return deckSchema.parse(source);
 }

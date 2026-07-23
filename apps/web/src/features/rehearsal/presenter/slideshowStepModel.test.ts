@@ -113,6 +113,53 @@ describe("slideshowStepModel", () => {
     expect(states.el_group_label).toMatchObject({ visible: false, opacity: 0 });
   });
 
+  it("preserves the semantic tuple for a group-targeted reveal", () => {
+    const groupSlide = {
+      ...slide,
+      animations: [
+        {
+          animationId: "anim_group_semantic_reveal",
+          elementId: "el_group",
+          type: "fade-in",
+          order: 1,
+          startMode: "on-click",
+          durationMs: 300,
+          delayMs: 0,
+          easing: "ease-out"
+        }
+      ]
+    } satisfies typeof slide;
+
+    const plan = createSlideshowAnimationPlan({ slide: groupSlide });
+    const semanticTuples = plan.triggerSteps.flatMap((step) =>
+      step.animations.map((animation) => [
+        animation.elementId,
+        animation.type,
+        animation.startMode,
+        animation.durationMs,
+        animation.delayMs
+      ])
+    );
+
+    expect(semanticTuples).toEqual([
+      ["el_group", "fade-in", "on-click", 300, 0]
+    ]);
+    expect(
+      computeSettledElementStates({
+        deck: p0AnimationDeck,
+        slide: groupSlide,
+        stepIndex: 0
+      }).el_group
+    ).toMatchObject({ visible: false, opacity: 0 });
+    expect(
+      computeSettledElementStates({
+        deck: p0AnimationDeck,
+        slide: groupSlide,
+        stepIndex: 1
+      }).el_group
+    ).toMatchObject({ visible: true, opacity: 1 });
+  });
+
   it("restores base opacity when an element re-enters after an exit step", () => {
     const slideWithReentry = {
       ...slide,

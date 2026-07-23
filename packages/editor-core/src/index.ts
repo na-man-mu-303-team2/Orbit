@@ -76,6 +76,8 @@ export {
   getRichTextSemanticText,
   normalizeRichTextProps
 } from "./text/richTextOperations";
+export { resolveEffectiveTypography } from "./text/effectiveTypography";
+export type { EffectiveTypography } from "./text/effectiveTypography";
 export type {
   RichTextCharacterStylePatch,
   RichTextParagraphStylePatch,
@@ -123,6 +125,19 @@ export {
   createAnimationTimeline,
   getAnimationTimelineRoot
 } from "./playback/animationTimeline";
+export {
+  evaluateMotionEligibility,
+  getMotionEligibilityReasonMessage,
+  motionReasonCodes,
+  type MotionEligibility,
+  type MotionEligibilityOptions,
+  type MotionReasonCode,
+} from "./policies/motionEligibility";
+export { validateMotionProposal } from "./policies/motionProposalValidation";
+export type {
+  MotionProposalValidationReason,
+  MotionProposalValidationResult
+} from "./policies/motionProposalValidation";
 export type {
   AnimationStartMode,
   AnimationTimelineBaseReference,

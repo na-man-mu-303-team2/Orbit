@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { applyDeckPatch } from "@orbit/editor-core";
+import {
+  applyDeckPatch,
+  evaluateMotionEligibility,
+  getMotionEligibilityReasonMessage,
+  validateMotionProposal,
+  type MotionEligibility,
+} from "@orbit/editor-core";
 import {
   applyDesignAgentProposalResponseSchema,
   createDesignAgentMessageResponseSchema,
@@ -7,6 +13,7 @@ import {
   designAgentMessageSchema,
   designAgentCapabilities,
   designAgentProposalSchema,
+  slideRedesignPaletteOptionsSchema,
   type ApplyDesignAgentProposalResponse,
   type CreateDesignAgentMessageRequest,
   type CreateDesignAgentMessageResponse,
@@ -16,10 +23,13 @@ import {
   type DeckPatchOperation,
   type DesignAgentContext,
   type DesignAgentMessage,
+  type MotionImportContext,
+  type MotionPlanMetadata,
   type DesignAgentProposal,
   type Slide,
   type SmartArtItem,
   type SmartArtRequest,
+  type SlideRedesignPaletteOption,
 } from "@orbit/shared";
 import {
   BadRequestException,
@@ -35,7 +45,14 @@ import { SmartArtLayoutEntity } from "../smart-art-layouts/smart-art-layout.enti
 import { SmartArtLayoutsService } from "../smart-art-layouts/smart-art-layouts.service";
 import { DesignAgentMessageEntity } from "./design-agent-message.entity";
 import { DesignAgentProposalEntity } from "./design-agent-proposal.entity";
-import { DesignAgentPythonClient } from "./design-agent-python.client";
+import {
+  DesignAgentPythonClient,
+  DesignAgentPythonError,
+} from "./design-agent-python.client";
+import {
+  buildMotionPlanningContext,
+  sanitizeSlideForMotionWorker,
+} from "./motion-context.builder";
 
 @Injectable()
 export class DesignAgentService {
@@ -57,9 +74,69 @@ export class DesignAgentService {
     input: CreateDesignAgentMessageRequest,
   ): Promise<CreateDesignAgentMessageResponse> {
     const currentDeck = await this.assertCurrentContext(projectId, input.context);
+    const currentSlide = currentDeck.slides.find(
+      (slide) => slide.slideId === input.context.slide.slideId,
+    )!;
+    const motionGate =
+      input.intentPreset === "recommend-animation"
+        ? await this.getAuthoritativeMotionEligibility(
+            projectId,
+            currentDeck,
+            currentSlide,
+          )
+        : null;
+    const workerContext = motionGate
+      ? buildAuthoritativeMotionContext(
+          input.context,
+          currentDeck,
+          currentSlide,
+          motionGate.eligibility.outcome === "applicable"
+            ? motionGate.eligibility.allowedTargetElementIds
+            : [],
+        )
+      : input.context;
+    const motionPlanningContext =
+      motionGate?.eligibility.outcome === "applicable"
+        ? buildMotionPlanningContext(
+            currentSlide,
+            motionGate.eligibility.allowedTargetElementIds,
+          )
+        : null;
 
     const sessionId = input.sessionId ?? `design_session_${randomUUID()}`;
-    const history = await this.loadHistory(projectId, actorUserId, sessionId);
+    const sessionMessages = await this.loadSessionMessages(
+      projectId,
+      actorUserId,
+      sessionId,
+    );
+    const history = [...sessionMessages].reverse().map((message) => ({
+      role: message.role,
+      content: message.content,
+    }));
+    const paletteSelectionRequested = input.selectedPaletteOptionId === null;
+    if (
+      input.selectedPaletteOptionId !== undefined &&
+      input.intentPreset !== "redesign-slide"
+    ) {
+      throw new BadRequestException(
+        "Palette selection is only available for redesign-slide requests.",
+      );
+    }
+    const selectedPaletteOption =
+      typeof input.selectedPaletteOptionId === "string"
+        ? findStoredPaletteOption(
+            sessionMessages,
+            input.selectedPaletteOptionId,
+          )
+        : undefined;
+    if (
+      typeof input.selectedPaletteOptionId === "string" &&
+      selectedPaletteOption === undefined
+    ) {
+      throw new BadRequestException(
+        "selectedPaletteOptionId does not match this design agent session.",
+      );
+    }
     const now = new Date();
     const requestMessage = await this.messagesRepository.save(
       this.messagesRepository.create({
@@ -72,15 +149,71 @@ export class DesignAgentService {
         role: "user",
         content: input.content,
         status: "pending",
-        contextJson: input.context,
+        contextJson: motionGate
+          ? {
+              motion: {
+                deckId: workerContext.deckId,
+                baseVersion: workerContext.baseVersion,
+                slideId: workerContext.slide.slideId,
+                selectedElementIds: workerContext.selectedElementIds,
+                speakerNotesPresent: Boolean(currentSlide.speakerNotes.trim()),
+                importContext: motionGate.importContext,
+              },
+            }
+          : input.context,
         errorCode: null,
         errorMessage: null,
         createdAt: now,
         updatedAt: now,
       }),
     );
+    const motionPlannerStartedAt =
+      input.intentPreset === "recommend-animation" ? Date.now() : null;
 
     try {
+      if (motionGate && motionGate.eligibility.outcome !== "applicable") {
+        const responseNow = new Date();
+        const reasonCode = motionGate.eligibility.reasonCode;
+        const responseMessage = await this.messagesRepository.save(
+          this.messagesRepository.create({
+            messageId: `design_message_${randomUUID()}`,
+            sessionId,
+            projectId,
+            actorUserId,
+            deckId: currentDeck.deckId,
+            slideId: currentSlide.slideId,
+            role: "assistant",
+            content: getMotionEligibilityReasonMessage(reasonCode),
+            status: "succeeded",
+            contextJson: null,
+            errorCode: null,
+            errorMessage: null,
+            createdAt: responseNow,
+            updatedAt: responseNow,
+          }),
+        );
+        requestMessage.status = "succeeded";
+        requestMessage.updatedAt = responseNow;
+        await this.messagesRepository.save(requestMessage);
+        this.logger.info(
+          {
+            event: "design_agent.motion.refused",
+            projectId,
+            deckId: currentDeck.deckId,
+            slideId: currentSlide.slideId,
+            sessionId,
+            reasonCode,
+          },
+          "Motion recommendation refused by eligibility policy.",
+        );
+        return createDesignAgentMessageResponseSchema.parse({
+          sessionId,
+          requestMessage: toMessageDto(requestMessage),
+          responseMessage: toMessageDto(responseMessage),
+          uiAction: null,
+        });
+      }
+
       const availableSmartArtLayouts = (
         await this.smartArtLayoutsService.listActiveCatalog()
       ).map((layout) => ({
@@ -95,34 +228,28 @@ export class DesignAgentService {
         sessionId,
         question: input.content,
         ...(input.intentPreset ? { intentPreset: input.intentPreset } : {}),
-        context: input.context,
+        context: workerContext,
+        ...(motionGate?.importContext
+          ? { motionImportContext: motionGate.importContext }
+          : {}),
+        ...(motionPlanningContext ? { motionPlanningContext } : {}),
         history,
         availableSmartArtLayouts,
         capabilities: designAgentCapabilities,
+        requestPaletteOptions: paletteSelectionRequested,
+        ...(selectedPaletteOption ? { selectedPaletteOption } : {}),
       });
+      if (paletteSelectionRequested && aiResult.paletteOptions === undefined) {
+        throw new BadRequestException(
+          "Design agent did not return palette options for the selection step.",
+        );
+      }
+      if (!paletteSelectionRequested && aiResult.paletteOptions !== undefined) {
+        throw new BadRequestException(
+          "Design agent returned unexpected palette options.",
+        );
+      }
       const responseNow = new Date();
-      const responseMessage = await this.messagesRepository.save(
-        this.messagesRepository.create({
-          messageId: `design_message_${randomUUID()}`,
-          sessionId,
-          projectId,
-          actorUserId,
-          deckId: input.context.deckId,
-          slideId: input.context.slide.slideId,
-          role: "assistant",
-          content: aiResult.message,
-          status: "succeeded",
-          contextJson: null,
-          errorCode: null,
-          errorMessage: null,
-          createdAt: responseNow,
-          updatedAt: responseNow,
-        }),
-      );
-
-      requestMessage.status = "succeeded";
-      requestMessage.updatedAt = responseNow;
-      await this.messagesRepository.save(requestMessage);
 
       const smartArtOperations = aiResult.smartArtRequest
         ? await this.expandSmartArtRequest(
@@ -149,6 +276,35 @@ export class DesignAgentService {
       }
 
       const operations = [...aiResult.operations, ...smartArtOperations];
+      const motionOperations = operations.filter(isAnimationOperation);
+      if (motionOperations.length > 0) {
+        const validationGate =
+          motionGate ??
+          (await this.getAuthoritativeMotionEligibility(
+            projectId,
+            currentDeck,
+            currentSlide,
+          ));
+        if (validationGate.eligibility.outcome !== "applicable") {
+          throw new BadRequestException(
+            `Design agent motion proposal is unsafe: ${validationGate.eligibility.reasonCode}`,
+          );
+        }
+        const validation = validateMotionProposal({
+          deck: currentDeck,
+          slideId: currentSlide.slideId,
+          operations,
+          allowedTargetElementIds:
+            validationGate.eligibility.allowedTargetElementIds,
+          ...motionPlanIntegrityOptions(aiResult.motionPlan),
+          explicitReplace: isExplicitMotionReplaceRequest(input.content),
+        });
+        if (!validation.ok) {
+          throw new BadRequestException(
+            `Design agent motion proposal is unsafe: ${validation.reasonCode}`,
+          );
+        }
+      }
       if (operations.length > 0) {
         const preview = applyDeckPatch(currentDeck, {
           deckId: input.context.deckId,
@@ -174,6 +330,30 @@ export class DesignAgentService {
           }),
         ]),
       );
+      const responseMessage = await this.messagesRepository.save(
+        this.messagesRepository.create({
+          messageId: `design_message_${randomUUID()}`,
+          sessionId,
+          projectId,
+          actorUserId,
+          deckId: input.context.deckId,
+          slideId: input.context.slide.slideId,
+          role: "assistant",
+          content: aiResult.message,
+          status: "succeeded",
+          contextJson: aiResult.paletteOptions
+            ? { paletteOptions: aiResult.paletteOptions }
+            : null,
+          errorCode: null,
+          errorMessage: null,
+          createdAt: responseNow,
+          updatedAt: responseNow,
+        }),
+      );
+
+      requestMessage.status = "succeeded";
+      requestMessage.updatedAt = responseNow;
+      await this.messagesRepository.save(requestMessage);
 
       const proposal =
         operations.length > 0
@@ -192,6 +372,7 @@ export class DesignAgentService {
                 interpretedIntent: aiResult.interpretedIntent,
                 affectedElementIds,
                 warnings: aiResult.warnings,
+                motionPlan: aiResult.motionPlan ?? null,
                 status: "pending",
                 appliedChangeId: null,
                 rejectedReason: null,
@@ -212,20 +393,50 @@ export class DesignAgentService {
           operationCount: operations.length,
           smartArtLayoutType: aiResult.smartArtRequest?.layoutType ?? null,
           warningCount: aiResult.warnings.length,
+          paletteOptionCount: aiResult.paletteOptions?.length ?? 0,
         },
         "Design agent response completed.",
       );
+      if (aiResult.motionPlan && motionPlannerStartedAt !== null) {
+        this.logger.info(
+          {
+            event: "motion_planner.completed",
+            mode: "on",
+            source: aiResult.motionPlan.source,
+            model: aiResult.motionPlan.model,
+            attemptCount: aiResult.motionPlan.attemptCount,
+            outcome: "succeeded",
+            reasonCode: null,
+            latencyMs: Date.now() - motionPlannerStartedAt,
+            pattern: aiResult.motionPlan.plan.pattern,
+            pacing: aiResult.motionPlan.plan.pacing,
+            beatCount: aiResult.motionPlan.plan.beats.length,
+            clickCount: aiResult.motionPlan.plan.beats.filter(
+              (beat) => beat.trigger === "click",
+            ).length,
+            operationCount: motionOperations.length,
+            compilerVersion: aiResult.motionPlan.compilerVersion,
+          },
+          "Motion planner completed.",
+        );
+      }
 
       return createDesignAgentMessageResponseSchema.parse({
         sessionId,
         requestMessage: toMessageDto(requestMessage),
         responseMessage: toMessageDto(responseMessage),
         ...(proposal ? { proposal: toProposalDto(proposal) } : {}),
+        ...(aiResult.paletteOptions
+          ? { paletteOptions: aiResult.paletteOptions }
+          : {}),
         uiAction: aiResult.uiAction,
       });
     } catch (error) {
       requestMessage.status = "failed";
-      requestMessage.errorCode = "DESIGN_AGENT_REQUEST_FAILED";
+      requestMessage.errorCode =
+        error instanceof DesignAgentPythonError
+          ? error.code
+          : "DESIGN_AGENT_REQUEST_FAILED";
       requestMessage.errorMessage = toSafeErrorMessage(error);
       requestMessage.updatedAt = new Date();
       await this.messagesRepository.save(requestMessage);
@@ -241,6 +452,30 @@ export class DesignAgentService {
         },
         "Design agent request failed.",
       );
+      if (
+        error instanceof DesignAgentPythonError &&
+        motionPlannerStartedAt !== null
+      ) {
+        this.logger.warn(
+          {
+            event: "motion_planner.completed",
+            mode: "on",
+            source: "llm",
+            model: null,
+            attemptCount: null,
+            outcome: "failed",
+            reasonCode: error.code,
+            latencyMs: Date.now() - motionPlannerStartedAt,
+            pattern: null,
+            pacing: null,
+            beatCount: 0,
+            clickCount: 0,
+            operationCount: 0,
+            compilerVersion: "motion-compiler-v2",
+          },
+          "Motion planner failed.",
+        );
+      }
       throw error;
     }
   }
@@ -275,6 +510,56 @@ export class DesignAgentService {
       proposal.updatedAt = new Date();
       await this.proposalsRepository.save(proposal);
       throw new ConflictException("Design agent proposal slide no longer exists.");
+    }
+
+    const motionOperations = proposal.operations.filter(isAnimationOperation);
+    if (motionOperations.length > 0) {
+      const currentSlide = current.deck.slides.find(
+        (slide) => slide.slideId === proposal.slideId,
+      )!;
+      const motionGate = await this.getAuthoritativeMotionEligibility(
+        projectId,
+        current.deck,
+        currentSlide,
+      );
+      const hasDelete = motionOperations.some(
+        (operation) => operation.type === "delete_animation",
+      );
+      const requestMessage = hasDelete
+        ? await this.messagesRepository.findOne({
+            where: {
+              projectId,
+              messageId: proposal.requestMessageId,
+            },
+          })
+        : null;
+      const validation =
+        motionGate.eligibility.outcome === "applicable"
+          ? validateMotionProposal({
+              deck: current.deck,
+              slideId: currentSlide.slideId,
+              operations: proposal.operations,
+              allowedTargetElementIds:
+                motionGate.eligibility.allowedTargetElementIds,
+              ...motionPlanIntegrityOptions(proposal.motionPlan ?? undefined),
+              explicitReplace: requestMessage
+                ? isExplicitMotionReplaceRequest(requestMessage.content)
+                : false,
+            })
+          : null;
+      if (validation === null || !validation.ok) {
+        proposal.status = "stale";
+        proposal.rejectedReason = validation
+          ? `MOTION_${validation.reasonCode}`
+          : motionGate.eligibility.outcome !== "applicable"
+            ? `MOTION_${motionGate.eligibility.reasonCode}`
+            : "MOTION_VALIDATION_UNAVAILABLE";
+        proposal.updatedAt = new Date();
+        await this.proposalsRepository.save(proposal);
+        throw new ConflictException(
+          "Design agent motion proposal is no longer safe to apply.",
+        );
+      }
     }
 
     const applied = await this.decksService.appendPatch(projectId, {
@@ -332,20 +617,57 @@ export class DesignAgentService {
     return current.deck;
   }
 
-  private async loadHistory(
+  private async loadSessionMessages(
     projectId: string,
     actorUserId: string,
     sessionId: string,
   ) {
-    const messages = await this.messagesRepository.find({
+    return this.messagesRepository.find({
       where: { projectId, actorUserId, sessionId, status: "succeeded" },
       order: { createdAt: "DESC" },
       take: 10,
     });
-    return messages.reverse().map((message) => ({
-      role: message.role,
-      content: message.content,
-    }));
+  }
+
+  private async getAuthoritativeMotionEligibility(
+    projectId: string,
+    deck: Deck,
+    slide: Slide,
+  ): Promise<{
+    eligibility: MotionEligibility;
+    importContext: MotionImportContext | null;
+  }> {
+    const importContext = await this.decksService.getMotionImportContext(
+      projectId,
+      deck,
+      slide,
+    );
+    const authoritativeSlide = importContext
+      ? {
+          ...slide,
+          ooxmlSourceSlidePart: importContext.sourceSlidePartPresent
+            ? slide.ooxmlSourceSlidePart
+            : undefined,
+          ooxmlMotionCapabilities: {
+            transitionWritable:
+              slide.ooxmlMotionCapabilities?.transitionWritable ?? false,
+            importedMainSequenceCoverage:
+              importContext.importedMainSequenceCoverage,
+          },
+        }
+      : slide;
+    return {
+      eligibility: evaluateMotionEligibility(deck, authoritativeSlide, {
+        ...(importContext
+          ? {
+              stableTargetElementIds:
+                importContext.stableTargetElementIds,
+            }
+          : {}),
+        requireAuthoritativeImportedTargets: true,
+      }),
+      importContext,
+    };
   }
 
   private async expandSmartArtRequest(
@@ -401,6 +723,78 @@ export class DesignAgentService {
       operations,
     );
   }
+}
+
+type AnimationOperation = Extract<
+  DeckPatchOperation,
+  {
+    type: "add_animation" | "delete_animation" | "update_animation";
+  }
+>;
+
+function buildAuthoritativeMotionContext(
+  clientContext: DesignAgentContext,
+  deck: Deck,
+  slide: Slide,
+  allowedTargetElementIds: readonly string[],
+): DesignAgentContext {
+  const currentElementIds = new Set(
+    slide.elements.map((element) => element.elementId),
+  );
+  const allowedTargetIds = new Set(allowedTargetElementIds);
+  return {
+    deckId: deck.deckId,
+    baseVersion: deck.version,
+    canvas: deck.canvas,
+    slide: sanitizeSlideForMotionWorker(slide),
+    selectedElementIds: clientContext.selectedElementIds.filter(
+      (elementId) =>
+        currentElementIds.has(elementId) && allowedTargetIds.has(elementId),
+    ),
+    theme: deck.theme,
+  };
+}
+
+function isAnimationOperation(
+  operation: DeckPatchOperation,
+): operation is AnimationOperation {
+  return (
+    operation.type === "add_animation" ||
+    operation.type === "update_animation" ||
+    operation.type === "delete_animation"
+  );
+}
+
+function motionPlanIntegrityOptions(
+  motionPlan: MotionPlanMetadata | undefined,
+): {
+  expectedClickCount?: number;
+  requiredTargetElementIds?: string[];
+} {
+  if (!motionPlan || motionPlan.compilerVersion !== "motion-compiler-v3") {
+    return {};
+  }
+  return {
+    requiredTargetElementIds: motionPlan.units.flatMap(
+      (unit) => unit.animationElementIds,
+    ),
+    expectedClickCount: motionPlan.plan.beats.filter(
+      (beat) => beat.trigger === "click",
+    ).length,
+  };
+}
+
+export function isExplicitMotionReplaceRequest(question: string): boolean {
+  const normalized = question.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  const mentionsMotion = /애니메이션|모션|animation|motion/.test(normalized);
+  const explicitReplace =
+    /(?:기존.*)?(?:애니메이션|모션).*(?:교체|초기화|모두 지우|전부 지우|삭제.*다시)/.test(
+      normalized,
+    ) ||
+    /(?:replace|reset|clear|remove all).*(?:existing )?(?:animations?|motion)/.test(
+      normalized,
+    );
+  return mentionsMotion && explicitReplace;
 }
 
 export function allowsUnselectedSmartArtSources(question: string) {
@@ -708,6 +1102,29 @@ function elementBoundsOverlap(first: ElementBounds, second: ElementBounds) {
   return overlapWidth > 0 && overlapHeight > 0;
 }
 
+function findStoredPaletteOption(
+  messages: DesignAgentMessageEntity[],
+  optionId: string,
+): SlideRedesignPaletteOption | undefined {
+  for (const message of messages) {
+    const context = message.contextJson;
+    if (
+      context === null ||
+      typeof context !== "object" ||
+      !("paletteOptions" in context)
+    ) {
+      continue;
+    }
+    const parsed = slideRedesignPaletteOptionsSchema.safeParse(
+      context.paletteOptions,
+    );
+    if (!parsed.success) continue;
+    const selected = parsed.data.find((option) => option.optionId === optionId);
+    if (selected) return selected;
+  }
+  return undefined;
+}
+
 function toMessageDto(entity: DesignAgentMessageEntity): DesignAgentMessage {
   return designAgentMessageSchema.parse({
     messageId: entity.messageId,
@@ -744,6 +1161,7 @@ function toProposalDto(entity: DesignAgentProposalEntity): DesignAgentProposal {
       : {}),
     affectedElementIds: entity.affectedElementIds,
     warnings: entity.warnings,
+    ...(entity.motionPlan ? { motionPlan: entity.motionPlan } : {}),
     status: entity.status,
     ...(entity.appliedChangeId
       ? { appliedChangeId: entity.appliedChangeId }

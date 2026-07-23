@@ -1,0 +1,376 @@
+{
+  "fixtureVersion": 1,
+  "slide": {
+    "slideId": "slide_process",
+    "kind": "content",
+    "order": 3,
+    "title": "안전한 AI 협업 도구 도입 가이드",
+    "elements": [
+      {
+        "elementId": "el_title",
+        "type": "text",
+        "role": "title",
+        "x": 120,
+        "y": 96,
+        "width": 1680,
+        "height": 120,
+        "zIndex": 5,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": { "text": "가이드" }
+      },
+      {
+        "elementId": "el_message",
+        "type": "text",
+        "role": "highlight",
+        "x": 120,
+        "y": 832,
+        "width": 1680,
+        "height": 80,
+        "zIndex": 5,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": { "text": "단계적으로 도입합니다" }
+      },
+      {
+        "elementId": "el_card_1",
+        "type": "rect",
+        "role": "decoration",
+        "x": 120,
+        "y": 304,
+        "width": 316,
+        "height": 496,
+        "zIndex": 3,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": {}
+      },
+      {
+        "elementId": "el_number_1",
+        "type": "text",
+        "role": "highlight",
+        "x": 152,
+        "y": 328,
+        "width": 252,
+        "height": 72,
+        "zIndex": 5,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": { "text": "01" }
+      },
+      {
+        "elementId": "el_body_1",
+        "type": "text",
+        "role": "body",
+        "x": 152,
+        "y": 416,
+        "width": 252,
+        "height": 352,
+        "zIndex": 5,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": { "text": "1단계 본문 전체" }
+      },
+      {
+        "elementId": "el_card_2",
+        "type": "rect",
+        "role": "decoration",
+        "x": 460,
+        "y": 304,
+        "width": 316,
+        "height": 496,
+        "zIndex": 3,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": {}
+      },
+      {
+        "elementId": "el_number_2",
+        "type": "text",
+        "role": "highlight",
+        "x": 492,
+        "y": 328,
+        "width": 252,
+        "height": 72,
+        "zIndex": 5,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": { "text": "02" }
+      },
+      {
+        "elementId": "el_body_2",
+        "type": "text",
+        "role": "body",
+        "x": 492,
+        "y": 416,
+        "width": 252,
+        "height": 352,
+        "zIndex": 5,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": { "text": "2단계 본문 전체" }
+      },
+      {
+        "elementId": "el_card_3",
+        "type": "rect",
+        "role": "decoration",
+        "x": 800,
+        "y": 304,
+        "width": 316,
+        "height": 496,
+        "zIndex": 3,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": {}
+      },
+      {
+        "elementId": "el_number_3",
+        "type": "text",
+        "role": "highlight",
+        "x": 832,
+        "y": 328,
+        "width": 252,
+        "height": 72,
+        "zIndex": 5,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": { "text": "03" }
+      },
+      {
+        "elementId": "el_body_3",
+        "type": "text",
+        "role": "body",
+        "x": 832,
+        "y": 416,
+        "width": 252,
+        "height": 352,
+        "zIndex": 5,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": { "text": "3단계 본문 전체" }
+      },
+      {
+        "elementId": "el_card_4",
+        "type": "rect",
+        "role": "decoration",
+        "x": 1140,
+        "y": 304,
+        "width": 316,
+        "height": 496,
+        "zIndex": 3,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": {}
+      },
+      {
+        "elementId": "el_number_4",
+        "type": "text",
+        "role": "highlight",
+        "x": 1172,
+        "y": 328,
+        "width": 252,
+        "height": 72,
+        "zIndex": 5,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": { "text": "04" }
+      },
+      {
+        "elementId": "el_body_4",
+        "type": "text",
+        "role": "body",
+        "x": 1172,
+        "y": 416,
+        "width": 252,
+        "height": 352,
+        "zIndex": 5,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": { "text": "4단계 본문 전체" }
+      },
+      {
+        "elementId": "el_card_5",
+        "type": "rect",
+        "role": "decoration",
+        "x": 1480,
+        "y": 304,
+        "width": 316,
+        "height": 496,
+        "zIndex": 3,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": {}
+      },
+      {
+        "elementId": "el_number_5",
+        "type": "text",
+        "role": "highlight",
+        "x": 1512,
+        "y": 328,
+        "width": 252,
+        "height": 72,
+        "zIndex": 5,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": { "text": "05" }
+      },
+      {
+        "elementId": "el_body_5",
+        "type": "text",
+        "role": "body",
+        "x": 1512,
+        "y": 416,
+        "width": 252,
+        "height": 352,
+        "zIndex": 5,
+        "visible": true,
+        "locked": false,
+        "opacity": 1,
+        "props": { "text": "5단계 본문 전체" }
+      }
+    ],
+    "semanticCues": [],
+    "aiNotes": {
+      "visualPlan": { "visualType": "process" },
+      "compositionPlan": { "compositionId": "process-horizontal" }
+    }
+  },
+  "planningContext": {
+    "allowedTargetElementIds": [
+      "el_title",
+      "el_message",
+      "el_number_1",
+      "el_body_1",
+      "el_number_2",
+      "el_body_2",
+      "el_number_3",
+      "el_body_3",
+      "el_number_4",
+      "el_body_4",
+      "el_number_5",
+      "el_body_5"
+    ],
+    "effectiveTypography": [],
+    "speakerNotes": "",
+    "notesPresent": false,
+    "notesTruncated": false
+  },
+  "planDraft": {
+    "schemaVersion": 3,
+    "pacing": "balanced",
+    "beats": [
+      {
+        "beatId": "beat_entry",
+        "purpose": "orient",
+        "trigger": "entry",
+        "relation": "together",
+        "targets": [
+          {
+            "unitId": "motion_unit_element_e3216f9b50172ae1",
+            "motionIntent": "introduce"
+          }
+        ]
+      },
+      {
+        "beatId": "beat_click_1",
+        "purpose": "reveal",
+        "trigger": "click",
+        "relation": "sequence",
+        "targets": [
+          {
+            "unitId": "motion_unit_spatial_cluster_6936a5ca794187eb",
+            "motionIntent": "reveal"
+          }
+        ]
+      },
+      {
+        "beatId": "beat_click_2",
+        "purpose": "reveal",
+        "trigger": "click",
+        "relation": "sequence",
+        "targets": [
+          {
+            "unitId": "motion_unit_spatial_cluster_9edccf12d44f2c4b",
+            "motionIntent": "reveal"
+          }
+        ]
+      },
+      {
+        "beatId": "beat_click_3",
+        "purpose": "reveal",
+        "trigger": "click",
+        "relation": "sequence",
+        "targets": [
+          {
+            "unitId": "motion_unit_spatial_cluster_2a4acd79d9d09736",
+            "motionIntent": "reveal"
+          }
+        ]
+      },
+      {
+        "beatId": "beat_click_4",
+        "purpose": "reveal",
+        "trigger": "click",
+        "relation": "sequence",
+        "targets": [
+          {
+            "unitId": "motion_unit_spatial_cluster_8d05a8b0a2103545",
+            "motionIntent": "reveal"
+          }
+        ]
+      },
+      {
+        "beatId": "beat_click_5",
+        "purpose": "conclude",
+        "trigger": "click",
+        "relation": "sequence",
+        "targets": [
+          {
+            "unitId": "motion_unit_spatial_cluster_1bb3cb297dbe4d2a",
+            "motionIntent": "reveal"
+          },
+          {
+            "unitId": "motion_unit_element_ccc5e716b1e6b97e",
+            "motionIntent": "conclude"
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "unitIds": [
+      "motion_unit_element_e3216f9b50172ae1",
+      "motion_unit_spatial_cluster_6936a5ca794187eb",
+      "motion_unit_spatial_cluster_9edccf12d44f2c4b",
+      "motion_unit_spatial_cluster_2a4acd79d9d09736",
+      "motion_unit_spatial_cluster_8d05a8b0a2103545",
+      "motion_unit_spatial_cluster_1bb3cb297dbe4d2a",
+      "motion_unit_element_ccc5e716b1e6b97e"
+    ],
+    "unitCount": 7,
+    "animationElementCount": 17,
+    "memberElementCount": 17,
+    "clickCount": 5,
+    "invariants": {
+      "partialCompositeTarget": 0,
+      "skippedSequentialUnit": 0,
+      "patternMismatch": 0
+    }
+  }
+}

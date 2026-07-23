@@ -25,6 +25,8 @@ import {
   aiDeckQaFinalizeQueueName,
   designImageGenerationJobName,
   designImageGenerationQueueName,
+  slideRedesignJobName,
+  slideRedesignQueueName,
   activityResponseRetentionQueueName,
   enqueueActivityResponseRetentionJob,
 } from "@orbit/job-queue";
@@ -83,6 +85,8 @@ import { deleteExpiredSlidePracticeData } from "./slide-practice-retention";
 import { processDesignImageGenerationJob } from "./design-image-generation.processor";
 import { dispatchDueActivityRetentionJobs } from "./activity-retention.dispatcher";
 import { processActivityResponseRetentionJob } from "./activity-retention.processor";
+import { processSlideRedesignJob } from "./slide-redesign.processor";
+import { SlideRedesignProgressRedisPublisher } from "./slide-redesign-progress.publisher";
 
 @Injectable()
 export class WorkerService implements OnModuleInit, OnModuleDestroy {
@@ -109,6 +113,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     aiDeckImageQueueName,
     aiDeckQaFinalizeQueueName,
     designImageGenerationQueueName,
+    slideRedesignQueueName,
     activityResponseRetentionQueueName,
   ];
   private readonly workerId = `worker-${randomUUID()}`;
@@ -121,6 +126,8 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
   private aiDeckMaintenanceTimer: ReturnType<typeof setInterval> | null = null;
   private aiDeckMaintenanceInFlight: Promise<void> | null = null;
   private aiDeckPostgresRunner: AiDeckPostgresStageRunner | null = null;
+  private slideRedesignProgressPublisher: SlideRedesignProgressRedisPublisher | null =
+    null;
   private aiDeckFailedCoordinatorScanCursor: FailedCoordinatorScanCursor = {
     redisCursor: "0",
     pendingJobIds: [],
@@ -176,6 +183,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.queueNames = this.aiDeckQueueNames();
+    if (this.queueNames.includes(slideRedesignQueueName)) {
+      this.slideRedesignProgressPublisher =
+        new SlideRedesignProgressRedisPublisher(this.config.REDIS_URL);
+    }
     const storage = workerStorage();
     const imageRuntime = createImageAssetRuntime(this.config);
     const reconcileDeletions = () => {
@@ -184,38 +195,41 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         await enqueueExpiredSlidePracticeAudioDeletions(this.dataSource);
         await reconcileStorageDeletionOutbox(this.dataSource, storage);
         const deleted = await deleteExpiredSlidePracticeData(this.dataSource);
-        if (deleted.analysisCount > 0 || deleted.reportCount > 0 || deleted.baselineCount > 0) {
-          this.logger.info({
-            event: "slide_practice.retention_deleted",
-            analysisCount: deleted.analysisCount,
-            reportCount: deleted.reportCount,
-            baselineCount: deleted.baselineCount,
-          }, "Expired slide practice data deleted.");
-        }
-      })().catch(
-        (error) => {
-          this.logger.error(
+        if (
+          deleted.analysisCount > 0 ||
+          deleted.reportCount > 0 ||
+          deleted.baselineCount > 0
+        ) {
+          this.logger.info(
             {
-              event: "storage_deletion.reconcile_failed",
-              error: serializeLogError(error),
+              event: "slide_practice.retention_deleted",
+              analysisCount: deleted.analysisCount,
+              reportCount: deleted.reportCount,
+              baselineCount: deleted.baselineCount,
             },
-            "Storage deletion reconciliation failed.",
+            "Expired slide practice data deleted.",
           );
-        },
-      );
+        }
+      })().catch((error) => {
+        this.logger.error(
+          {
+            event: "storage_deletion.reconcile_failed",
+            error: serializeLogError(error),
+          },
+          "Storage deletion reconciliation failed.",
+        );
+      });
     };
     if (this.config.AI_DECK_WORKER_QUEUE === "all") {
       reconcileDeletions();
       this.storageDeletionTimer = setInterval(reconcileDeletions, 30_000);
       const dispatchRetention = () => {
-        void dispatchDueActivityRetentionJobs(
-          this.dataSource,
-          (payload) =>
-            enqueueActivityResponseRetentionJob({
-              ...payload,
-              driver: this.config.JOB_QUEUE_DRIVER,
-              redisUrl: this.config.REDIS_URL,
-            }),
+        void dispatchDueActivityRetentionJobs(this.dataSource, (payload) =>
+          enqueueActivityResponseRetentionJob({
+            ...payload,
+            driver: this.config.JOB_QUEUE_DRIVER,
+            redisUrl: this.config.REDIS_URL,
+          }),
         )
           .then((result) => {
             if (result.scanned === 0 && result.normalizedExpired === 0) return;
@@ -317,7 +331,10 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             },
             (event) => {
               const level = event.event.endsWith(".failed") ? "error" : "info";
-              this.logger[level](event, "Rehearsal transcript artifacts updated.");
+              this.logger[level](
+                event,
+                "Rehearsal transcript artifacts updated.",
+              );
             },
           ),
       },
@@ -440,6 +457,39 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
         },
       },
       {
+        queueName: slideRedesignQueueName,
+        handler: (job) => {
+          if (job.name !== slideRedesignJobName) {
+            throw new Error(`Unsupported BullMQ job name: ${job.name}`);
+          }
+          return processSlideRedesignJob(
+            this.dataSource,
+            this.config.PYTHON_WORKER_URL,
+            job.data,
+            {
+              publishProgress: (event) =>
+                this.slideRedesignProgressPublisher!.publish(event),
+              imageRuntime,
+              storage,
+              onImageFallback: (diagnostic) =>
+                this.logger.warn(
+                  {
+                    event: "slide_redesign.image.fallback",
+                    bullMqJobId: job.id,
+                    ...diagnostic,
+                  },
+                  "Slide redesign image fallback retained.",
+                ),
+              imageEventLogger: (event, fields) =>
+                this.logger.info(
+                  { event, bullMqJobId: job.id, ...fields },
+                  "Slide redesign image event.",
+                ),
+            },
+          );
+        },
+      },
+      {
         queueName: aiDeckQaFinalizeQueueName,
         handler: (job) => {
           if (
@@ -539,10 +589,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
             job.data,
             (event) => {
               const level = event.status === "unavailable" ? "warn" : "info";
-              this.logger[level](
-                event,
-                "Slide practice coaching completed.",
-              );
+              this.logger[level](event, "Slide practice coaching completed.");
             },
           ),
       },
@@ -685,6 +732,7 @@ export class WorkerService implements OnModuleInit, OnModuleDestroy {
     await this.aiDeckMaintenanceInFlight;
     await this.transcriptCache?.close();
     await this.challengeQnaEvidenceCache?.close();
+    await this.slideRedesignProgressPublisher?.close();
     this.logger.info(
       {
         event: "worker.stopped",

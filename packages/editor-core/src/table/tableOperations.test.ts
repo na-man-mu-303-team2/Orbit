@@ -46,6 +46,7 @@ function createTableDeck(
   },
 ): Deck {
   const deck = createDemoDeck();
+  deck.slides[0]!.animations = [];
   deck.slides[0]!.elements = [
     {
       elementId: "el_table",

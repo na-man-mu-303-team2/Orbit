@@ -5,13 +5,22 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from app.ai.design_agent import (
+    DESIGN_AGENT_RESPONSE_FORMAT,
     DesignAgentGenerationError,
     DesignAgentRequest,
+    DesignAgentResponse,
     _build_deterministic_preset_proposal,
     design_agent_system_prompt,
     generate_design_proposal,
+)
+from app.ai.motion_planner import (
+    MotionImportContext,
+    MotionPlannerError,
+    MotionPlanningContext,
+    extract_motion_units,
 )
 
 
@@ -28,6 +37,21 @@ class FakeResponses:
 class FakeClient:
     def __init__(self, payload: dict[str, Any]) -> None:
         self.responses = FakeResponses(payload)
+
+
+class SequenceResponses:
+    def __init__(self, payloads: list[dict[str, Any]]) -> None:
+        self.payloads = payloads
+        self.calls: list[dict[str, Any]] = []
+
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        self.calls.append(kwargs)
+        return SimpleNamespace(output_text=json.dumps(self.payloads.pop(0)))
+
+
+class SequenceClient:
+    def __init__(self, payloads: list[dict[str, Any]]) -> None:
+        self.responses = SequenceResponses(payloads)
 
 
 def request_payload(*, locked: bool = False) -> DesignAgentRequest:
@@ -128,6 +152,285 @@ def proposal_payload(*, x: float = 1200) -> dict[str, Any]:
     }
 
 
+def authored_motion_plan(
+    request: DesignAgentRequest,
+    *,
+    pacing: str = "balanced",
+    trigger: str = "entry",
+    motion_intent: str = "focus",
+) -> dict[str, Any]:
+    assert request.motion_planning_context is not None
+    extraction = extract_motion_units(
+        request.context.slide,
+        request.motion_planning_context,
+    )
+    assert len(extraction.context.units) == 1
+    return {
+        "schemaVersion": 3,
+        "pacing": pacing,
+        "beats": [
+            {
+                "beatId": "beat_focus",
+                "purpose": "emphasize",
+                "trigger": trigger,
+                "relation": "together",
+                "targets": [
+                    {
+                        "unitId": extraction.context.units[0].unit_id,
+                        "motionIntent": motion_intent,
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def add_element_proposal(
+    *, element_type: str, role: str, font_weight: str | int = 600
+) -> dict[str, Any]:
+    payload = proposal_payload()
+    props: dict[str, Any]
+    if element_type == "text":
+        props = {
+            "text": "강조 문구",
+            "fontFamily": None,
+            "fontSize": 32,
+            "fontWeight": font_weight,
+            "color": "#111827",
+            "align": "left",
+            "verticalAlign": "middle",
+            "lineHeight": 1.2,
+        }
+    elif element_type == "image":
+        props = {
+            "src": "https://example.com/image.png",
+            "alt": "제품 이미지",
+            "fit": "cover",
+            "focusX": 0.5,
+            "focusY": 0.5,
+        }
+    else:
+        props = {
+            "fill": "#E5E7EB",
+            "stroke": "#CBD5E1",
+            "strokeWidth": 1,
+            "borderRadius": 16,
+        }
+        if element_type == "polygon":
+            props["sides"] = 5
+    payload["operations"] = [
+        {
+            "type": "add_element",
+            "slideId": "slide_1",
+            "element": {
+                "elementId": f"el_{element_type}_alignment",
+                "type": element_type,
+                "role": role,
+                "x": 120,
+                "y": 160,
+                "width": 720,
+                "height": 240,
+                "rotation": 0,
+                "opacity": 1,
+                "zIndex": 3,
+                "locked": False,
+                "visible": True,
+                "props": props,
+            },
+        }
+    ]
+    payload["affectedElementIds"] = [f"el_{element_type}_alignment"]
+    return payload
+
+
+def test_accepts_highlight_text_role() -> None:
+    result = DesignAgentResponse.model_validate(
+        add_element_proposal(element_type="text", role="highlight")
+    )
+
+    assert result.operations[0].element.role == "highlight"
+
+
+def test_accepts_media_rect_role() -> None:
+    result = DesignAgentResponse.model_validate(
+        add_element_proposal(element_type="rect", role="media")
+    )
+
+    assert result.operations[0].element.role == "media"
+
+
+@pytest.mark.parametrize("field", ["fill", "stroke"])
+def test_rejects_shape_paint_outside_shared_deck_contract(field: str) -> None:
+    payload = add_element_proposal(element_type="rect", role="media")
+    payload["operations"][0]["element"]["props"][field] = "rgba(15, 23, 42, 0.5)"
+
+    with pytest.raises(ValidationError):
+        DesignAgentResponse.model_validate(payload)
+
+
+def test_accepts_capability_v2_image_element() -> None:
+    result = DesignAgentResponse.model_validate(
+        add_element_proposal(element_type="image", role="media")
+    )
+
+    operation = result.operations[0]
+    assert operation.type == "add_element"
+    assert operation.element.type == "image"
+    assert operation.element.props.fit == "cover"
+
+
+@pytest.mark.parametrize("element_type", ["ellipse", "line", "polygon"])
+def test_accepts_capability_v2_shape_elements(element_type: str) -> None:
+    result = DesignAgentResponse.model_validate(
+        add_element_proposal(element_type=element_type, role="decoration")
+    )
+
+    operation = result.operations[0]
+    assert operation.type == "add_element"
+    assert operation.element.type == element_type
+
+
+@pytest.mark.parametrize("font_weight", ["semibold", 600])
+def test_accepts_shared_font_weights(font_weight: str | int) -> None:
+    result = DesignAgentResponse.model_validate(
+        add_element_proposal(
+            element_type="text", role="highlight", font_weight=font_weight
+        )
+    )
+
+    assert result.operations[0].element.props.font_weight == font_weight
+
+
+def test_rejects_out_of_range_add_element_font_weight() -> None:
+    with pytest.raises(ValidationError, match="fontWeight must be between"):
+        DesignAgentResponse.model_validate(
+            add_element_proposal(
+                element_type="text", role="highlight", font_weight=950
+            )
+        )
+
+
+def test_accepts_string_update_element_font_weight() -> None:
+    payload = proposal_payload()
+    payload["operations"] = [
+        {
+            "type": "update_element_props",
+            "slideId": "slide_1",
+            "elementId": "el_image",
+            "props": {"fontWeight": "bold"},
+        }
+    ]
+
+    result = DesignAgentResponse.model_validate(payload)
+
+    assert result.operations[0].props.font_weight == "bold"
+
+
+def test_rejects_out_of_range_update_element_font_weight() -> None:
+    payload = proposal_payload()
+    payload["operations"] = [
+        {
+            "type": "update_element_props",
+            "slideId": "slide_1",
+            "elementId": "el_image",
+            "props": {"fontWeight": 950},
+        }
+    ]
+
+    with pytest.raises(ValidationError, match="fontWeight must be between"):
+        DesignAgentResponse.model_validate(payload)
+
+
+def test_element_json_schema_exposes_aligned_roles_and_font_weights() -> None:
+    schema_text = json.dumps(DESIGN_AGENT_RESPONSE_FORMAT, ensure_ascii=False)
+
+    assert "highlight" in schema_text
+    assert "media" in schema_text
+    assert "semibold" in schema_text
+
+
+def test_element_json_schema_restricts_shape_paint_to_shared_color_format() -> None:
+    schema_text = json.dumps(DESIGN_AGENT_RESPONSE_FORMAT, ensure_ascii=False)
+
+    assert r"^(?:#[0-9a-fA-F]{6}|transparent)$" in schema_text
+
+
+def test_accepts_background_image_and_layout_slide_style_patch() -> None:
+    payload = proposal_payload()
+    payload["operations"] = [
+        {
+            "type": "update_slide_style",
+            "slideId": "slide_1",
+            "style": {
+                "layout": "image-right",
+                "backgroundImage": {
+                    "src": "https://assets.example/background.png",
+                    "alt": "추상적인 배경",
+                    "fit": "cover",
+                    "opacity": 0.7,
+                },
+            },
+        }
+    ]
+
+    result = DesignAgentResponse.model_validate(payload)
+    style = result.operations[0].style
+
+    assert style.layout == "image-right"
+    assert style.background_image is not None
+    assert style.background_image.src.endswith("background.png")
+
+
+def test_slide_style_json_schema_exposes_layout_and_background_image() -> None:
+    schema_text = json.dumps(DESIGN_AGENT_RESPONSE_FORMAT, ensure_ascii=False)
+
+    assert "backgroundImage" in schema_text
+    assert "image-right" in schema_text
+
+
+@pytest.mark.parametrize("element_type", ["ellipse", "line", "polygon"])
+def test_design_agent_json_schema_exposes_capability_v2_shapes(
+    element_type: str,
+) -> None:
+    schema_text = json.dumps(DESIGN_AGENT_RESPONSE_FORMAT, ensure_ascii=False)
+
+    assert f'"const": "{element_type}"' in schema_text
+
+
+def test_design_agent_json_schema_exposes_capability_v2_image() -> None:
+    schema_text = json.dumps(DESIGN_AGENT_RESPONSE_FORMAT, ensure_ascii=False)
+
+    assert '"const": "image"' in schema_text
+
+
+def test_design_agent_capability_version_one_request_remains_supported() -> None:
+    capabilities = request_payload().capabilities
+
+    assert capabilities.version == "1"
+    assert capabilities.addable_element_types == ["text", "rect", "chart", "table"]
+
+
+@pytest.mark.parametrize("version", ["1", "2"])
+def test_design_agent_capability_reads_and_writes_supported_versions(
+    version: str,
+) -> None:
+    payload = request_payload().model_dump(by_alias=True)
+    payload["capabilities"]["version"] = version
+
+    request = DesignAgentRequest.model_validate(payload)
+
+    assert request.capabilities.version == version
+    assert request.model_dump(by_alias=True)["capabilities"]["version"] == version
+
+
+def test_design_agent_capability_rejects_unknown_version() -> None:
+    payload = request_payload().model_dump(by_alias=True)
+    payload["capabilities"]["version"] = "3"
+
+    with pytest.raises(ValidationError):
+        DesignAgentRequest.model_validate(payload)
+
+
 def test_generates_and_validates_design_operations() -> None:
     client = FakeClient(proposal_payload())
     request = request_payload()
@@ -147,7 +450,6 @@ def test_generates_and_validates_design_operations() -> None:
 @pytest.mark.parametrize(
     "intent_preset",
     [
-        "redesign-slide",
         "tidy-layout",
         "emphasize-message",
     ],
@@ -171,6 +473,75 @@ def test_routes_known_intent_preset_separately_from_visible_question(
     assert prompt["question"] == "이미지를 오른쪽으로 옮겨줘"
     assert prompt["intentPreset"] == intent_preset
     assert intent_preset in client.responses.calls[0]["instructions"]
+
+
+def test_refuses_whole_slide_chart_redesign_before_provider_call() -> None:
+    request = request_payload()
+    request.question = "이 슬라이드를 예쁘게 해줘"
+    request.intent_preset = "redesign-slide"
+    request.context.selected_element_ids = []
+    request.context.slide["elements"] = [
+        {
+            "elementId": "el_chart",
+            "type": "chart",
+            "visible": True,
+            "locked": False,
+        }
+    ]
+    client = FakeClient(proposal_payload())
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=client,
+    )
+
+    assert result.operations == []
+    assert result.interpreted_intent.action == "refused"
+    assert client.responses.calls == []
+
+
+def test_allows_local_chart_edit_through_existing_provider_path() -> None:
+    request = request_payload()
+    request.question = "차트 제목 색만 바꿔줘"
+    request.intent_preset = None
+    request.context.selected_element_ids = ["el_chart"]
+    request.context.slide["elements"] = [
+        {
+            "elementId": "el_chart",
+            "type": "chart",
+            "visible": True,
+            "locked": False,
+        }
+    ]
+    payload = proposal_payload()
+    payload["message"] = "차트 제목 색상 변경안을 준비했습니다."
+    payload["interpretedIntent"] = {
+        "target": "selected-elements",
+        "action": "차트 제목 색상 변경",
+        "alignment": None,
+    }
+    payload["operations"] = [
+        {
+            "type": "update_element_props",
+            "slideId": "slide_1",
+            "elementId": "el_chart",
+            "props": {"color": "#2563EB"},
+        }
+    ]
+    payload["affectedElementIds"] = ["el_chart"]
+    client = FakeClient(payload)
+
+    result = generate_design_proposal(
+        request,
+        model="test-model",
+        api_key=None,
+        client=client,
+    )
+
+    assert result.operations[0].type == "update_element_props"
+    assert client.responses.calls
 
 
 def test_recommends_export_compatible_animation_timeline_without_llm() -> None:
@@ -282,10 +653,17 @@ def test_recommends_export_compatible_animation_timeline_without_llm() -> None:
 @pytest.mark.parametrize(
     ("slide_patch", "expected_message"),
     [
-        ({"ooxmlOrigin": "imported"}, "위치 정보"),
         (
             {
                 "ooxmlOrigin": "imported",
+                "importRenderMode": "editable",
+            },
+            "위치 정보",
+        ),
+        (
+            {
+                "ooxmlOrigin": "imported",
+                "importRenderMode": "editable",
                 "ooxmlSourceSlidePart": "ppt/slides/slide1.xml",
                 "ooxmlMotionCapabilities": {
                     "importedMainSequenceCoverage": "partial",
@@ -323,10 +701,17 @@ def test_animation_recommendation_allows_safe_imported_slide() -> None:
     request.capabilities.operations.append("add_animation")
     request.context.slide.update({
         "ooxmlOrigin": "imported",
+        "importRenderMode": "editable",
         "ooxmlSourceSlidePart": "ppt/slides/slide1.xml",
         "ooxmlMotionCapabilities": {
             "importedMainSequenceCoverage": "complete",
         },
+    })
+    request.motion_import_context = MotionImportContext.model_validate({
+        "renderMode": "editable",
+        "sourceSlidePartPresent": True,
+        "importedMainSequenceCoverage": "complete",
+        "stableTargetElementIds": ["el_image"],
     })
 
     result = generate_design_proposal(
@@ -339,6 +724,233 @@ def test_animation_recommendation_allows_safe_imported_slide() -> None:
     assert len(result.operations) == 1
     assert result.operations[0].animation.type == "zoom-in"
     assert result.operations[0].animation.start_mode == "on-click"
+
+
+def test_animation_recommendation_runs_semantic_planner_in_shadow_only() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.append("add_animation")
+    request.motion_planning_context = MotionPlanningContext.model_validate({
+        "allowedTargetElementIds": ["el_image"],
+        "effectiveTypography": [],
+        "speakerNotes": "MOTION_TRANSIENT_NOTE",
+        "notesPresent": True,
+        "notesTruncated": False,
+    })
+    client = FakeClient(authored_motion_plan(request))
+
+    result = generate_design_proposal(
+        request,
+        model="design-model",
+        motion_planner_model="motion-snapshot",
+        motion_planner_mode="shadow",
+        api_key=None,
+        client=client,
+    )
+
+    assert len(client.responses.calls) == 1
+    assert client.responses.calls[0]["model"] == "motion-snapshot"
+    assert "MOTION_TRANSIENT_NOTE" in client.responses.calls[0]["input"]
+    assert len(result.operations) == 1
+    assert result.operations[0].animation.type == "zoom-in"
+
+
+def test_animation_recommendation_compiles_semantic_plan_in_on_mode() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.append("add_animation")
+    request.motion_planning_context = MotionPlanningContext.model_validate({
+        "allowedTargetElementIds": ["el_image"],
+        "effectiveTypography": [],
+        "speakerNotes": "",
+        "notesPresent": False,
+        "notesTruncated": False,
+    })
+    plan = authored_motion_plan(request)
+
+    first = generate_design_proposal(
+        request,
+        model="design-model",
+        motion_planner_model="motion-snapshot",
+        motion_planner_mode="on",
+        api_key=None,
+        client=FakeClient(plan),
+    )
+    second = generate_design_proposal(
+        request,
+        model="design-model",
+        motion_planner_model="motion-snapshot",
+        motion_planner_mode="on",
+        api_key=None,
+        client=FakeClient(plan),
+    )
+
+    assert first.model_dump(by_alias=True) == second.model_dump(by_alias=True)
+    assert [operation.type for operation in first.operations] == ["add_animation"]
+    animation = first.operations[0].animation
+    assert animation.type == "fade-in"
+    assert animation.duration_ms == 400
+    assert animation.start_mode == "on-slide-enter"
+    assert animation.animation_id.startswith("anim_motion_")
+    assert first.motion_plan is not None
+    assert first.motion_plan.source == "llm"
+    assert first.motion_plan.model == "motion-snapshot"
+    assert first.motion_plan.attempt_count == 1
+    assert first.motion_plan.compiler_version == "motion-compiler-v3"
+    serialized_motion_plan = first.model_dump(by_alias=True)["motionPlan"]
+    assert all(
+        set(unit) == {
+            "unitId",
+            "kind",
+            "animationElementIds",
+            "memberElementIds",
+            "semanticRole",
+            "readingOrder",
+        }
+        for unit in serialized_motion_plan["units"]
+    )
+
+
+def test_animation_recommendation_allows_safe_existing_animation_update() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.extend(["add_animation", "update_animation"])
+    request.context.slide["animations"] = [
+        {
+            "animationId": "anim_existing",
+            "elementId": "el_image",
+            "type": "fade-in",
+            "order": 1,
+            "startMode": "on-slide-enter",
+            "durationMs": 300,
+            "delayMs": 0,
+            "easing": "ease-out",
+        }
+    ]
+    request.motion_planning_context = MotionPlanningContext.model_validate({
+        "allowedTargetElementIds": ["el_image"],
+        "effectiveTypography": [],
+        "speakerNotes": "",
+        "notesPresent": False,
+        "notesTruncated": False,
+    })
+    result = generate_design_proposal(
+        request,
+        model="design-model",
+        motion_planner_model="motion-snapshot",
+        motion_planner_mode="on",
+        api_key=None,
+        client=FakeClient(
+            authored_motion_plan(request, motion_intent="introduce")
+        ),
+    )
+
+    assert len(result.operations) == 1
+    update = result.operations[0]
+    assert update.type == "update_animation"
+    assert update.animation_id == "anim_existing"
+    assert update.animation.type == "fade-in"
+    assert update.animation.duration_ms == 400
+
+
+def test_animation_recommendation_fails_closed_without_ai_provider() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.append("add_animation")
+    request.motion_planning_context = MotionPlanningContext.model_validate({
+        "allowedTargetElementIds": ["el_image"],
+        "effectiveTypography": [],
+        "speakerNotes": "",
+        "notesPresent": False,
+        "notesTruncated": False,
+    })
+
+    with pytest.raises(MotionPlannerError) as error:
+        generate_design_proposal(
+            request,
+            model="design-model",
+            motion_planner_model="motion-snapshot",
+            motion_planner_mode="on",
+            api_key=None,
+        )
+
+    assert error.value.code == "MOTION_AI_PROVIDER_UNAVAILABLE"
+
+
+def test_animation_recommendation_persists_second_attempt_provenance() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.append("add_animation")
+    request.motion_planning_context = MotionPlanningContext.model_validate({
+        "allowedTargetElementIds": ["el_image"],
+        "effectiveTypography": [],
+        "speakerNotes": "",
+        "notesPresent": False,
+        "notesTruncated": False,
+    })
+    valid = authored_motion_plan(
+        request,
+        pacing="brisk",
+        trigger="click",
+    )
+    invalid = {**valid, "schemaVersion": 1}
+    client = SequenceClient([invalid, valid])
+
+    result = generate_design_proposal(
+        request,
+        model="design-model",
+        motion_planner_model="motion-snapshot",
+        motion_planner_mode="on",
+        api_key=None,
+        client=client,
+    )
+
+    assert len(client.responses.calls) == 2
+    assert result.motion_plan is not None
+    assert result.motion_plan.attempt_count == 2
+    assert result.motion_plan.plan.pacing == "brisk"
+
+
+def test_animation_recommendation_retries_compile_then_fails_closed() -> None:
+    request = request_payload()
+    request.intent_preset = "recommend-animation"
+    request.capabilities.operations.extend(["add_animation", "update_animation"])
+    request.motion_planning_context = MotionPlanningContext.model_validate({
+        "allowedTargetElementIds": ["el_image"],
+        "effectiveTypography": [],
+        "speakerNotes": "",
+        "notesPresent": False,
+        "notesTruncated": False,
+    })
+    request.context.slide["animations"] = [
+        {
+            "animationId": f"anim_existing_{index}",
+            "elementId": "el_image",
+            "type": "fade-in",
+            "order": index,
+            "startMode": "on-click",
+            "durationMs": 300,
+            "delayMs": 0,
+            "easing": "ease-out",
+        }
+        for index in (1, 2)
+    ]
+    valid = authored_motion_plan(request, trigger="click")
+    client = SequenceClient([valid, valid])
+
+    with pytest.raises(MotionPlannerError) as error:
+        generate_design_proposal(
+            request,
+            model="design-model",
+            motion_planner_model="motion-snapshot",
+            motion_planner_mode="on",
+            api_key=None,
+            client=client,
+        )
+
+    assert len(client.responses.calls) == 2
+    assert error.value.code == "MOTION_AI_COMPILE_UNSAFE"
+    assert error.value.status_code == 422
 
 
 def test_unknown_intent_preset_falls_back_to_question_interpretation() -> None:

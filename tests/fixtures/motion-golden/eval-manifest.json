@@ -1,0 +1,20 @@
+{
+  "model": "gpt-4.1-mini-2025-04-14",
+  "plannerSchemaVersion": 2,
+  "compilerVersion": "motion-compiler-v2",
+  "fixtureVersion": 1,
+  "runsPerFixture": 5,
+  "safetyInvariants": [
+    "invalidTarget",
+    "unsafeSlideProposal",
+    "excludedTarget",
+    "danglingAction",
+    "unsupportedGeneratedEffect",
+    "capViolation",
+    "speakerNotesArtifact",
+    "compileFailure",
+    "partialCompositeTarget",
+    "skippedSequentialUnit",
+    "patternMismatch"
+  ]
+}

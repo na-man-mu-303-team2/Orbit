@@ -49,6 +49,35 @@ const validEnv = {
 };
 
 describe("RealtimeGateway", () => {
+  it("publishes validated redesign progress only to the project room", async () => {
+    Object.assign(process.env, validEnv);
+    const { RealtimeGateway } = await import("./realtime.gateway");
+    const gateway = new RealtimeGateway(
+      {} as AuthService,
+      {} as ProjectsService,
+    );
+    const emit = vi.fn();
+    const to = vi.fn(() => ({ emit }));
+    gateway.server = { to } as unknown as Server;
+    const event = {
+      roomId: "project-1",
+      sessionId: "session-1",
+      userId: "system" as const,
+      sentAt: "2026-07-22T00:00:00.000Z",
+      payload: {
+        jobId: "job-redesign-1",
+        projectId: "project-1",
+        sessionId: "session-1",
+        stage: "interpreting" as const,
+        completedStages: [],
+      },
+    };
+
+    expect(gateway.publishSlideRedesignProgress(event)).toEqual(event);
+    expect(to).toHaveBeenCalledWith("project:project-1");
+    expect(emit).toHaveBeenCalledWith("job-progressed", event);
+  });
+
   it("does not expose IP or raw user agent details in the global user list", async () => {
     Object.assign(process.env, validEnv);
     const { RealtimeGateway } = await import("./realtime.gateway");

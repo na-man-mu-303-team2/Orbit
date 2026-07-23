@@ -1,6 +1,6 @@
 import { deckSchema, type Deck } from "@orbit/shared";
 
-export const p0AnimationDeck: Deck = deckSchema.parse({
+const validP0AnimationDeck = deckSchema.parse({
   deckId: "deck_p0_animation",
   projectId: "project_p0",
   title: "P0 슬라이드쇼 렌더러 검증 덱",
@@ -286,15 +286,6 @@ export const p0AnimationDeck: Deck = deckSchema.parse({
           durationMs: 500,
           delayMs: 0,
           easing: "ease-out"
-        },
-        {
-          animationId: "anim_missing",
-          elementId: "el_missing",
-          type: "fade-in",
-          order: 10,
-          durationMs: 300,
-          delayMs: 0,
-          easing: "ease-out"
         }
       ]
     },
@@ -328,3 +319,26 @@ export const p0AnimationDeck: Deck = deckSchema.parse({
     }
   ]
 });
+
+export const p0AnimationDeck: Deck = {
+  ...validP0AnimationDeck,
+  slides: validP0AnimationDeck.slides.map((slide, index) =>
+    index === 0
+      ? {
+          ...slide,
+          animations: [
+            ...slide.animations,
+            {
+              animationId: "anim_missing",
+              elementId: "el_missing",
+              type: "fade-in",
+              order: 10,
+              durationMs: 300,
+              delayMs: 0,
+              easing: "ease-out",
+            },
+          ],
+        }
+      : slide,
+  ),
+};

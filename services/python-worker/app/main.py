@@ -28,6 +28,21 @@ from app.ai.design_agent import (
     DesignAgentResponse,
     generate_design_proposal,
 )
+from app.ai.motion_planner import MotionPlannerError
+from app.ai.slide_redesign.stage_models import (
+    ComposeStageArtifact,
+    ComposeStageRequest,
+    InterpretStageArtifact,
+    InterpretStageRequest,
+    SlideRedesignStageRequest,
+    VerifyStageArtifact,
+    VerifyStageRequest,
+)
+from app.ai.slide_redesign.stages import (
+    run_compose_stage,
+    run_interpret_stage,
+    run_verify_stage,
+)
 from app.ai.generate_deck import (
     DeckContentGenerationError,
     GenerateDeckRequest,
@@ -1184,9 +1199,50 @@ def propose_slide_design(
             payload,
             model=config.openai_model,
             api_key=config.openai_api_key,
+            motion_planner_model=config.openai_motion_planner_model,
+            motion_planner_mode=config.ai_motion_planner_mode,
         )
     except DesignAgentGenerationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+    except MotionPlannerError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail={"code": error.code, "message": str(error)},
+        ) from error
+
+
+@app.post(
+    "/internal/slide-redesign/stage",
+    response_model=InterpretStageArtifact | ComposeStageArtifact | VerifyStageArtifact,
+    response_model_exclude_none=True,
+)
+def run_slide_redesign_stage(
+    payload: SlideRedesignStageRequest,
+    request: Request,
+) -> InterpretStageArtifact | ComposeStageArtifact | VerifyStageArtifact:
+    config = _config(request)
+    try:
+        if isinstance(payload, InterpretStageRequest):
+            return run_interpret_stage(
+                payload.request,
+                model=config.openai_model,
+                api_key=config.openai_api_key,
+            )
+        if isinstance(payload, ComposeStageRequest):
+            return run_compose_stage(
+                payload.request,
+                payload.artifact,
+                model=config.openai_model,
+                api_key=config.openai_api_key,
+            )
+        if isinstance(payload, VerifyStageRequest):
+            return run_verify_stage(payload.request, payload.artifact)
+    except Exception as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Slide redesign stage execution failed.",
+        ) from error
+    raise HTTPException(status_code=422, detail="Unsupported slide redesign stage.")
 
 
 @app.post("/ai/export-deck-pptx", response_model=DeckPptxExportResponse)

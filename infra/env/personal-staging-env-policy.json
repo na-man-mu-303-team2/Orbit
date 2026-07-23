@@ -25,6 +25,10 @@
       "source": "repo-default",
       "delivery": "compose"
     },
+    "AI_MOTION_PLANNER_MODE": {
+      "source": "repo-default",
+      "delivery": "code-default"
+    },
     "AI_PPT_VISUAL_QA_MODEL": {
       "source": "doppler-optional",
       "delivery": "code-default"
@@ -200,6 +204,10 @@
     "OPENAI_MODEL": {
       "source": "repo-default",
       "delivery": "compose"
+    },
+    "OPENAI_MOTION_PLANNER_MODEL": {
+      "source": "repo-default",
+      "delivery": "code-default"
     },
     "OPENAI_REALTIME_CLIENT_SECRET_TTL_SECONDS": {
       "source": "repo-default",

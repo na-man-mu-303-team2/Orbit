@@ -10,6 +10,8 @@ import {
   aiDeckImageQueueName,
   aiDeckQaFinalizeQueueName,
   designImageGenerationQueueName,
+  slideRedesignJobName,
+  slideRedesignQueueName,
   slideQuestionGuideGenerationQueueName,
 } from "@orbit/job-queue";
 import type { Job } from "@orbit/shared";
@@ -33,11 +35,7 @@ const bullMq = vi.hoisted(() => ({
 
 const configState = vi.hoisted(() => ({
   JOB_QUEUE_DRIVER: "bullmq" as "bullmq" | "sqs",
-  AI_DECK_EXECUTION_MODE: "monolith" as
-    | "monolith"
-    | "bullmq"
-    | "pg"
-    | "sqs",
+  AI_DECK_EXECUTION_MODE: "monolith" as "monolith" | "bullmq" | "pg" | "sqs",
   AI_DECK_WORKER_QUEUE: "all" as
     | "all"
     | "reference-extract"
@@ -67,9 +65,18 @@ const processors = vi.hoisted(() => ({
   executionStage: vi.fn<(...args: unknown[]) => Promise<Job | void>>(
     async () => undefined,
   ),
+  slideRedesign: vi.fn<(...args: unknown[]) => Promise<Job>>(async () =>
+    orbitJob("succeeded", "slide-redesign"),
+  ),
   pptxOoxmlGeneration: vi.fn(async () =>
     orbitJob("succeeded", "pptx-ooxml-generation"),
   ),
+}));
+
+const slideRedesignProgress = vi.hoisted(() => ({
+  publish: vi.fn(async () => undefined),
+  close: vi.fn(async () => undefined),
+  urls: [] as string[],
 }));
 
 const maintenance = vi.hoisted(() => ({
@@ -179,6 +186,18 @@ vi.mock("./generate-deck/stage-reconciler", () => ({
 vi.mock("./generate-deck/transport-failure-recovery", () => ({
   recoverAiDeckBullMqFinalFailure: transportRecovery.recover,
 }));
+vi.mock("./slide-redesign.processor", () => ({
+  processSlideRedesignJob: processors.slideRedesign,
+}));
+vi.mock("./slide-redesign-progress.publisher", () => ({
+  SlideRedesignProgressRedisPublisher: class {
+    constructor(redisUrl: string) {
+      slideRedesignProgress.urls.push(redisUrl);
+    }
+    publish = slideRedesignProgress.publish;
+    close = slideRedesignProgress.close;
+  },
+}));
 vi.mock("./pptx-ooxml-generation.processor", () => ({
   processPptxOoxmlGenerationJob: processors.pptxOoxmlGeneration,
 }));
@@ -213,6 +232,7 @@ beforeEach(() => {
   bullMq.handlers.clear();
   bullMq.options.clear();
   bullMq.failedHandlers.clear();
+  slideRedesignProgress.urls.length = 0;
   postgresRunner.options.length = 0;
   vi.clearAllMocks();
   vi.spyOn(globalThis, "setInterval").mockReturnValue(1 as never);
@@ -264,13 +284,74 @@ describe("WorkerService queue subscriptions", () => {
     expect(bullMq.queues).toContain(aiDeckDesignLayoutQueueName);
     expect(bullMq.queues).toContain(aiDeckImageQueueName);
     expect(bullMq.queues).toContain(aiDeckQaFinalizeQueueName);
+    expect(bullMq.queues).toContain(slideRedesignQueueName);
+    expect(slideRedesignProgress.urls).toEqual([configState.REDIS_URL]);
     expect(bullMq.queues).not.toContain("pptx-import");
     expect(bullMq.queues).not.toContain("ai-template-deck-generation");
-    expect(bullMq.options.get(slideQuestionGuideGenerationQueueName)).toMatchObject({
+    expect(
+      bullMq.options.get(slideQuestionGuideGenerationQueueName),
+    ).toMatchObject({
       concurrency: 2,
     });
-    expect(bullMq.options.get(referenceExtractQueueName)).not.toHaveProperty("concurrency");
+    expect(bullMq.options.get(referenceExtractQueueName)).not.toHaveProperty(
+      "concurrency",
+    );
 
+    await service.onModuleDestroy();
+    expect(slideRedesignProgress.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes slide redesign jobs with the Python stage URL and progress publisher", async () => {
+    const { service, logger } = createService();
+    service.onModuleInit();
+    const handler = requiredHandler(slideRedesignQueueName);
+    const payload = { jobId: "job-redesign-1" };
+
+    await handler(bullJob(slideRedesignJobName, payload));
+
+    expect(processors.slideRedesign).toHaveBeenCalledWith(
+      expect.anything(),
+      configState.PYTHON_WORKER_URL,
+      payload,
+      expect.objectContaining({ publishProgress: expect.any(Function) }),
+    );
+    const options = processors.slideRedesign.mock.calls[0]?.[3] as {
+      publishProgress: (event: unknown) => Promise<void>;
+      onImageFallback: (diagnostic: Record<string, unknown>) => void;
+      imageEventLogger: (
+        event: string,
+        fields: Record<string, unknown>,
+      ) => void;
+    };
+    const event = { payload: { stage: "interpreting" } };
+    await options.publishProgress(event);
+    expect(slideRedesignProgress.publish).toHaveBeenCalledWith(event);
+    options.onImageFallback({
+      reasonCode: "IMAGE_PROVIDER_UNAVAILABLE",
+      name: "ProviderError",
+      provider: "openai",
+    });
+    options.imageEventLogger("slide_redesign.image.completed", {
+      resolved: false,
+      warningCount: 1,
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "slide_redesign.image.fallback",
+        reasonCode: "IMAGE_PROVIDER_UNAVAILABLE",
+      }),
+      "Slide redesign image fallback retained.",
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "slide_redesign.image.completed",
+        resolved: false,
+      }),
+      "Slide redesign image event.",
+    );
+    await expect(
+      handler(bullJob("unknown-slide-redesign-job", payload)),
+    ).rejects.toThrow("Unsupported BullMQ job name");
     await service.onModuleDestroy();
   });
 

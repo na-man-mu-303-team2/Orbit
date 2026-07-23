@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from typing import Literal, Self
 from urllib.parse import urlparse
@@ -35,6 +36,8 @@ ENV_KEYS = {
     "AI_SLIDE_IMAGE_REVIEW_MODE",
     "OPENAI_API_KEY",
     "OPENAI_MODEL",
+    "OPENAI_MOTION_PLANNER_MODEL",
+    "AI_MOTION_PLANNER_MODE",
     "AI_PPT_VISUAL_QA_MODEL",
     "OPENAI_TRANSCRIPTION_MODEL",
     "OPENAI_EMBEDDING_MODEL",
@@ -102,6 +105,15 @@ class PythonWorkerConfig(BaseModel):
     )
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_model: str = Field(alias="OPENAI_MODEL", min_length=1)
+    openai_motion_planner_model: str = Field(
+        default="gpt-4.1-mini-2025-04-14",
+        alias="OPENAI_MOTION_PLANNER_MODEL",
+        min_length=1,
+    )
+    ai_motion_planner_mode: Literal["off", "shadow", "on"] = Field(
+        default="on",
+        alias="AI_MOTION_PLANNER_MODE",
+    )
     ai_ppt_visual_qa_model: str | None = Field(
         default=None,
         alias="AI_PPT_VISUAL_QA_MODEL",
@@ -180,6 +192,13 @@ class PythonWorkerConfig(BaseModel):
 
             if not self.openai_api_key:
                 errors.append(f"OPENAI_API_KEY is required in {self.app_env}")
+
+        if self.app_env == "production" and re.search(
+            r"-\d{4}-\d{2}-\d{2}$", self.openai_motion_planner_model
+        ) is None:
+            errors.append(
+                "OPENAI_MOTION_PLANNER_MODEL must use a dated snapshot ID in production"
+            )
 
         if errors:
             raise ValueError("; ".join(errors))

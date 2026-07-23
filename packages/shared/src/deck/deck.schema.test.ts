@@ -551,7 +551,6 @@ describe("deckSchema validation", () => {
         freshness: "stale"
       }
     ];
-
     expectValidDeck(deck);
   });
 
@@ -611,7 +610,6 @@ describe("deckSchema validation", () => {
         }
       }
     ];
-
     expectValidDeck(deck);
   });
 
@@ -1115,6 +1113,8 @@ describe("deckSchema validation", () => {
         }
       }
     ];
+    deck.slides[0].animations = [];
+    deck.slides[0].actions = [];
 
     expectValidDeck(deck);
   });
@@ -1888,6 +1888,23 @@ describe("deckSchema validation", () => {
     const deck = createValidDeck();
 
     deck.slides[0].animations[0].type = "slide-in";
+
+    expectInvalidDeck(deck);
+  });
+
+  it("rejects duplicate animation IDs within a slide", () => {
+    const deck = createValidDeck();
+    deck.slides[0].animations.push({
+      ...deck.slides[0].animations[0],
+      order: 2
+    });
+
+    expectInvalidDeck(deck);
+  });
+
+  it("rejects animation targets missing from the same slide", () => {
+    const deck = createValidDeck();
+    deck.slides[0].animations[0].elementId = "el_missing";
 
     expectInvalidDeck(deck);
   });

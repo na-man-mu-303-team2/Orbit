@@ -98,6 +98,50 @@ corepack pnpm test:smoke
 - PDF, PPTX, DOCX, JPG, PNG, WebP 파일의 upload URL 발급과 complete API가 성공한다.
 - 로컬 MinIO 모드에서는 API upload proxy가 파일을 MinIO bucket에 저장한다.
 
+## 슬라이드 리디자인 M2 검증
+
+비동기 리디자인은 Web, API, Worker, Python worker, PostgreSQL, Redis가 모두 필요하다. 다른 worktree의 Compose stack과 project name 또는 port를 공유하지 않는 격리 환경에서 실행한다. 로컬 메모리가 제한되면 image를 한 번에 병렬 빌드하지 말고 서비스별로 순차 빌드한 뒤 stack을 시작한다.
+
+```bash
+cp -n .env.example .env.local
+docker compose up --build -d
+curl http://localhost:3000/health
+curl http://localhost:3000/health/readiness
+curl http://localhost:8000/health
+docker compose ps
+pnpm test:smoke --grep "slide redesign"
+```
+
+검증 순서는 다음과 같다.
+
+1. palette 3안 중 하나를 선택하고 `slide-redesign` Job이 생성되는지 확인한다.
+2. `interpreting`부터 `verifying`까지 완료된 stage가 중복 없이 순서대로 증가하는지 확인한다. 이미지 슬롯이 없으면 `illustrating` 생략은 정상이다.
+3. intermediate inline/modal preview에 apply action이 없는지 확인한다.
+4. final verified proposal만 적용하고 undo 1회로 원래 Deck이 복구되는지 확인한다.
+5. 요청 후 Deck version을 바꿔 `baseVersion` stale이 적용 전에 거부되는지 확인한다.
+6. optional 이미지 provider 실패를 주입해도 layout proposal이 성공하고 bounded warning만 남는지 확인한다.
+
+realtime event는 현재 `projectId`, `sessionId`, `jobId`와 모두 일치해야 한다. terminal event가 유실되면 인증된 Job 조회 polling이 같은 최종 상태를 반환해야 한다. 업무 로그에서는 Job·project·session ID와 bounded reason code만 확인하고 prompt, slide JSON, transcript, speaker notes, credential, raw provider 오류는 조회하거나 출력하지 않는다.
+
+실제 provider 검증은 자동 fallback smoke와 분리한다. 승인된 test credential과 budget이 있을 때만 격리 환경에서 1회 실행하고 provider request 수, 성공·fallback 결과, end-to-end 지연, 실제 비용을 `docs/qa/slide-redesign-m2-qa.md`에 기록한다. credential 값 자체는 shell history, 문서, 로그에 남기지 않는다.
+
+## Semantic Motion Planner 검증
+
+로컬 기본값은 `AI_MOTION_PLANNER_MODE=on`와 dated `OPENAI_MOTION_PLANNER_MODEL`을 사용한다. 실제 proposal routing은 격리된 internal/demo 환경에서 확인하며 snapshot, activity/activity-results, imported `partial | unknown` coverage의 거부 gate는 변경하지 않는다.
+
+```bash
+cd services/python-worker
+uv run pytest tests/test_motion_golden.py tests/test_motion_merge.py tests/test_design_agent.py tests/test_pptx_motion.py -q
+PYTHONPATH=. uv run python scripts/run_motion_planner_eval.py --mode offline
+cd ../..
+pnpm --filter @orbit/editor-core test -- animationTimeline motionProposalValidation
+pnpm --filter @orbit/web test -- MotionProposalPreview DesignProposalPreview
+```
+
+offline eval은 12 golden × 5회 결과에서 모든 violation이 0이고 `passed=true`여야 한다. 승인된 credential과 예산이 있을 때만 `--mode live`를 실행하며 API key, raw plan, prompt, speaker notes와 provider response를 출력하거나 QA 문서에 복사하지 않는다. 상세 release gate와 사람 blind 평가 기준은 `docs/evals/motion-planner-v1.md`를 따른다.
+
+Motion proposal smoke에서는 생성 전후 animation/action graph, apply→undo→redo deep equality, preview/presenter root 순서, PPTX round-trip target/effect/start-mode를 확인한다. 하나라도 mismatch이면 mode를 `off` 또는 `shadow`로 내리고 quick action을 숨기되 eligibility, notes sanitization과 apply validator는 유지한다.
+
 ## AI Deck staged BullMQ 실행 확인
 
 ### staged BullMQ full-deck smoke

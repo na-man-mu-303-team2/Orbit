@@ -1,5 +1,9 @@
 import { applyDeckPatch, createDemoDeck } from "@orbit/editor-core";
-import { deckElementSchema, type DeckPatch } from "@orbit/shared";
+import {
+  deckElementSchema,
+  type DeckPatch,
+  type DesignAgentWorkerResponse,
+} from "@orbit/shared";
 import type { Repository } from "typeorm";
 import { describe, expect, it, vi } from "vitest";
 import type { DecksService } from "../decks/decks.service";
@@ -7,15 +11,63 @@ import type { SmartArtLayoutEntity } from "../smart-art-layouts/smart-art-layout
 import type { SmartArtLayoutsService } from "../smart-art-layouts/smart-art-layouts.service";
 import { DesignAgentMessageEntity } from "./design-agent-message.entity";
 import { DesignAgentProposalEntity } from "./design-agent-proposal.entity";
-import type { DesignAgentPythonClient } from "./design-agent-python.client";
+import {
+  DesignAgentPythonError,
+  type DesignAgentPythonClient,
+} from "./design-agent-python.client";
 import {
   allowsUnselectedSmartArtSources,
   DesignAgentService,
+  isExplicitMotionReplaceRequest,
 } from "./design-agent.service";
+
+const redesignPaletteOptions = [
+  {
+    optionId: "current-theme",
+    name: "현재 테마 유지",
+    isCurrentTheme: true,
+    palette: {
+      dominant: "#FFFFFF",
+      surface: "#F8FAFC",
+      text: "#111827",
+      focal: "#3B82F6",
+      secondary: "#7C3AED",
+    },
+    rationale: "현재 테마를 유지합니다.",
+  },
+  {
+    optionId: "calm-blue",
+    name: "차분한 블루",
+    isCurrentTheme: false,
+    palette: {
+      dominant: "#EFF6FF",
+      surface: "#FFFFFF",
+      text: "#172554",
+      focal: "#2563EB",
+      secondary: "#0F766E",
+    },
+    rationale: "차분한 인상을 줍니다.",
+  },
+  {
+    optionId: "vivid-coral",
+    name: "선명한 코럴",
+    isCurrentTheme: false,
+    palette: {
+      dominant: "#FFF7ED",
+      surface: "#FFFFFF",
+      text: "#431407",
+      focal: "#EA580C",
+      secondary: "#DB2777",
+    },
+    rationale: "강한 인상을 줍니다.",
+  },
+] as const;
 
 describe("allowsUnselectedSmartArtSources", () => {
   it("allows reconfigure wording to use visible slide elements", () => {
-    expect(allowsUnselectedSmartArtSources("현재 디자인 재구성좀 해줘")).toBe(true);
+    expect(allowsUnselectedSmartArtSources("현재 디자인 재구성좀 해줘")).toBe(
+      true,
+    );
   });
 
   it.each([
@@ -28,7 +80,9 @@ describe("allowsUnselectedSmartArtSources", () => {
   });
 
   it("keeps selection-only requests restricted", () => {
-    expect(allowsUnselectedSmartArtSources("선택한 항목을 스마트아트로 바꿔줘")).toBe(false);
+    expect(
+      allowsUnselectedSmartArtSources("선택한 항목을 스마트아트로 바꿔줘"),
+    ).toBe(false);
   });
 
   it.each([
@@ -36,12 +90,35 @@ describe("allowsUnselectedSmartArtSources", () => {
     "도형도 넣어서 디자인해줘",
     "좀 다른 디자인 없어?",
     "Beautify this content",
-  ])("allows visible slide sources for broad preset requests: %s", (question) => {
-    expect(allowsUnselectedSmartArtSources(question)).toBe(true);
-  });
+  ])(
+    "allows visible slide sources for broad preset requests: %s",
+    (question) => {
+      expect(allowsUnselectedSmartArtSources(question)).toBe(true);
+    },
+  );
 
   it("keeps explicit small edits on the direct edit path", () => {
-    expect(allowsUnselectedSmartArtSources("글자 색상만 바꿔서 꾸며줘")).toBe(false);
+    expect(allowsUnselectedSmartArtSources("글자 색상만 바꿔서 꾸며줘")).toBe(
+      false,
+    );
+  });
+});
+
+describe("isExplicitMotionReplaceRequest", () => {
+  it.each([
+    "기존 애니메이션을 교체해줘",
+    "애니메이션을 초기화하고 다시 구성해줘",
+    "replace existing animations",
+  ])("accepts explicit replacement wording: %s", (question) => {
+    expect(isExplicitMotionReplaceRequest(question)).toBe(true);
+  });
+
+  it.each([
+    "애니메이션을 추천해줘",
+    "이 요소를 페이드해줘",
+    "기존 디자인을 교체해줘",
+  ])("does not infer replacement from ordinary wording: %s", (question) => {
+    expect(isExplicitMotionReplaceRequest(question)).toBe(false);
   });
 });
 
@@ -59,11 +136,13 @@ describe("DesignAgentService.applyProposal", () => {
       baseVersion: deck.version,
       title: "AI design proposal",
       summary: "Move the element.",
-      operations: [{
-        type: "update_slide_style",
-        slideId: slide.slideId,
-        style: { layout: "title-content" },
-      }],
+      operations: [
+        {
+          type: "update_slide_style",
+          slideId: slide.slideId,
+          style: { layout: "title-content" },
+        },
+      ],
       interpretedIntent: null,
       affectedElementIds: [],
       warnings: [],
@@ -79,22 +158,28 @@ describe("DesignAgentService.applyProposal", () => {
     } as unknown as Repository<DesignAgentProposalEntity>;
     const nextDeck = { ...deck, version: deck.version + 1 };
     const decksService = {
-      getDeck: vi.fn(async () => ({ projectId: deck.projectId, deck, updatedAt: "2026-07-11T00:00:00.000Z" })),
-      appendPatch: vi.fn(async (_projectId: string, body: { patch: DeckPatch }) => ({
-        deck: nextDeck,
-        changeRecord: {
-          changeId: "change_design_1",
-          deckId: deck.deckId,
-          beforeVersion: deck.version,
-          afterVersion: nextDeck.version,
-          source: "ai",
-          actorUserId: body.patch.actorUserId,
-          createdAt: "2026-07-11T00:00:01.000Z",
-          operations: body.patch.operations,
-        },
-        snapshot: null,
-        updatedAt: "2026-07-11T00:00:01.000Z",
+      getDeck: vi.fn(async () => ({
+        projectId: deck.projectId,
+        deck,
+        updatedAt: "2026-07-11T00:00:00.000Z",
       })),
+      appendPatch: vi.fn(
+        async (_projectId: string, body: { patch: DeckPatch }) => ({
+          deck: nextDeck,
+          changeRecord: {
+            changeId: "change_design_1",
+            deckId: deck.deckId,
+            beforeVersion: deck.version,
+            afterVersion: nextDeck.version,
+            source: "ai",
+            actorUserId: body.patch.actorUserId,
+            createdAt: "2026-07-11T00:00:01.000Z",
+            operations: body.patch.operations,
+          },
+          snapshot: null,
+          updatedAt: "2026-07-11T00:00:01.000Z",
+        }),
+      ),
     } as unknown as DecksService;
     const service = new DesignAgentService(
       {} as Repository<DesignAgentMessageEntity>,
@@ -105,7 +190,11 @@ describe("DesignAgentService.applyProposal", () => {
       { info: vi.fn(), warn: vi.fn() } as never,
     );
 
-    const result = await service.applyProposal(deck.projectId, proposal.proposalId, "user_demo_1");
+    const result = await service.applyProposal(
+      deck.projectId,
+      proposal.proposalId,
+      "user_demo_1",
+    );
 
     expect(result.deck.version).toBe(deck.version + 1);
     expect(result.proposal.status).toBe("applied");
@@ -121,6 +210,186 @@ describe("DesignAgentService.applyProposal", () => {
       snapshotReason: "patch-applied",
     });
   });
+
+  it("marks a proposal stale when apply-time validation finds a duplicate animation id", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const proposal = {
+      proposalId: "design_proposal_duplicate_motion",
+      projectId: deck.projectId,
+      deckId: deck.deckId,
+      slideId: slide.slideId,
+      requestMessageId: "design_message_duplicate_motion",
+      responseMessageId: "design_message_duplicate_motion_response",
+      baseVersion: deck.version,
+      title: "Motion proposal",
+      summary: "Add motion.",
+      operations: [
+        {
+          type: "add_animation",
+          slideId: slide.slideId,
+          animation: {
+            ...slide.animations[0]!,
+            elementId: slide.elements.at(-1)!.elementId,
+          },
+        },
+      ],
+      interpretedIntent: null,
+      affectedElementIds: [slide.elements.at(-1)!.elementId],
+      warnings: [],
+      status: "pending",
+      appliedChangeId: null,
+      rejectedReason: null,
+      createdAt: new Date("2026-07-23T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-23T00:00:00.000Z"),
+    } as unknown as DesignAgentProposalEntity;
+    const proposalsRepository = {
+      findOne: vi.fn(async () => proposal),
+      save: vi.fn(async (value: DesignAgentProposalEntity) => value),
+    } as unknown as Repository<DesignAgentProposalEntity>;
+    const appendPatch = vi.fn();
+    const decksService = {
+      getDeck: vi.fn(async () => ({
+        projectId: deck.projectId,
+        deck,
+        updatedAt: "2026-07-23T00:00:00.000Z",
+      })),
+      getMotionImportContext: vi.fn(async () => null),
+      appendPatch,
+    } as unknown as DecksService;
+    const service = new DesignAgentService(
+      {} as Repository<DesignAgentMessageEntity>,
+      proposalsRepository,
+      decksService,
+      {} as DesignAgentPythonClient,
+      {} as SmartArtLayoutsService,
+      { info: vi.fn(), warn: vi.fn() } as never,
+    );
+
+    await expect(
+      service.applyProposal(deck.projectId, proposal.proposalId, "user_demo_1"),
+    ).rejects.toThrow("no longer safe");
+    expect(proposal.status).toBe("stale");
+    expect(proposal.rejectedReason).toBe("MOTION_DUPLICATE_ANIMATION_ID");
+    expect(appendPatch).not.toHaveBeenCalled();
+  });
+
+  it("marks a v3 proposal stale when apply-time unit expansion is incomplete", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const [firstTarget, missingTarget] = slide.elements.filter(
+      (element) =>
+        !slide.animations.some(
+          (animation) => animation.elementId === element.elementId,
+        ),
+    );
+    const proposal = {
+      proposalId: "design_proposal_incomplete_unit",
+      projectId: deck.projectId,
+      deckId: deck.deckId,
+      slideId: slide.slideId,
+      requestMessageId: "design_message_incomplete_unit",
+      responseMessageId: "design_message_incomplete_unit_response",
+      baseVersion: deck.version,
+      title: "Motion proposal",
+      summary: "Add partial motion.",
+      operations: [
+        {
+          type: "add_animation",
+          slideId: slide.slideId,
+          animation: {
+            animationId: "anim_motion_partial_unit",
+            elementId: firstTarget!.elementId,
+            type: "appear",
+            order:
+              Math.max(...slide.animations.map(({ order }) => order)) + 1,
+            startMode: "on-click",
+            durationMs: 300,
+            delayMs: 0,
+            easing: "ease-out",
+          },
+        },
+      ],
+      interpretedIntent: null,
+      affectedElementIds: [firstTarget!.elementId],
+      warnings: [],
+      motionPlan: {
+        source: "llm",
+        model: "gpt-4.1-mini-2025-04-14",
+        attemptCount: 1,
+        compilerVersion: "motion-compiler-v3",
+        units: [
+          {
+            unitId: "motion_unit_card",
+            kind: "spatial-cluster",
+            animationElementIds: [
+              firstTarget!.elementId,
+              missingTarget!.elementId,
+            ],
+            memberElementIds: [
+              firstTarget!.elementId,
+              missingTarget!.elementId,
+            ],
+            semanticRole: "card",
+            readingOrder: 1,
+          },
+        ],
+        plan: {
+          schemaVersion: 3,
+          pattern: "cluster-reveal",
+          pacing: "balanced",
+          beats: [
+            {
+              beatId: "beat_click_1",
+              purpose: "reveal",
+              trigger: "click",
+              relation: "together",
+              targets: [
+                {
+                  unitId: "motion_unit_card",
+                  motionIntent: "reveal",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      status: "pending",
+      appliedChangeId: null,
+      rejectedReason: null,
+      createdAt: new Date("2026-07-23T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-23T00:00:00.000Z"),
+    } as unknown as DesignAgentProposalEntity;
+    const proposalsRepository = {
+      findOne: vi.fn(async () => proposal),
+      save: vi.fn(async (value: DesignAgentProposalEntity) => value),
+    } as unknown as Repository<DesignAgentProposalEntity>;
+    const appendPatch = vi.fn();
+    const decksService = {
+      getDeck: vi.fn(async () => ({
+        projectId: deck.projectId,
+        deck,
+        updatedAt: "2026-07-23T00:00:00.000Z",
+      })),
+      getMotionImportContext: vi.fn(async () => null),
+      appendPatch,
+    } as unknown as DecksService;
+    const service = new DesignAgentService(
+      {} as Repository<DesignAgentMessageEntity>,
+      proposalsRepository,
+      decksService,
+      {} as DesignAgentPythonClient,
+      {} as SmartArtLayoutsService,
+      { info: vi.fn(), warn: vi.fn() } as never,
+    );
+
+    await expect(
+      service.applyProposal(deck.projectId, proposal.proposalId, "user_demo_1"),
+    ).rejects.toThrow("no longer safe");
+    expect(proposal.status).toBe("stale");
+    expect(proposal.rejectedReason).toBe("MOTION_UNIT_TARGET_MISMATCH");
+    expect(appendPatch).not.toHaveBeenCalled();
+  });
 });
 
 describe("DesignAgentService.createMessage smart art expansion", () => {
@@ -128,12 +397,17 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     const deck = createDemoDeck();
     const slide = deck.slides[0]!;
     const canvas = deck.canvas;
-    const sourceElementId = slide.elements.find((element) => element.visible)?.elementId;
+    const sourceElementId = slide.elements.find(
+      (element) => element.visible,
+    )?.elementId;
     expect(sourceElementId).toBeTruthy();
 
     const savedMessages: DesignAgentMessageEntity[] = [];
     const messagesRepository = {
-      create: vi.fn((value: Partial<DesignAgentMessageEntity>) => value as DesignAgentMessageEntity),
+      create: vi.fn(
+        (value: Partial<DesignAgentMessageEntity>) =>
+          value as DesignAgentMessageEntity,
+      ),
       save: vi.fn(async (value: DesignAgentMessageEntity) => {
         savedMessages.push(value);
         return value;
@@ -144,7 +418,8 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     let savedProposal: DesignAgentProposalEntity | undefined;
     const proposalsRepository = {
       create: vi.fn(
-        (value: Partial<DesignAgentProposalEntity>) => value as DesignAgentProposalEntity,
+        (value: Partial<DesignAgentProposalEntity>) =>
+          value as DesignAgentProposalEntity,
       ),
       save: vi.fn(async (value: DesignAgentProposalEntity) => {
         savedProposal = value;
@@ -179,7 +454,12 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
           heightFrac: 0.1,
           rotation: 0,
           zIndex: 100,
-          props: { fill: "#F1F1F1", stroke: "#C8C8C6", strokeWidth: 1, borderRadius: 4 },
+          props: {
+            fill: "#F1F1F1",
+            stroke: "#C8C8C6",
+            strokeWidth: 1,
+            borderRadius: 4,
+          },
         },
         {
           elementIdSuffix: "text_0",
@@ -193,7 +473,14 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
           rotation: 0,
           zIndex: 101,
           textField: "title",
-          props: { fontSize: 26, fontWeight: "normal", color: "#222222", align: "left", verticalAlign: "middle", lineHeight: 1.15 },
+          props: {
+            fontSize: 26,
+            fontWeight: "normal",
+            color: "#222222",
+            align: "left",
+            verticalAlign: "middle",
+            lineHeight: 1.15,
+          },
         },
         {
           elementIdSuffix: "text_1",
@@ -207,7 +494,14 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
           rotation: 0,
           zIndex: 102,
           textField: "title",
-          props: { fontSize: 26, fontWeight: "normal", color: "#222222", align: "left", verticalAlign: "middle", lineHeight: 1.15 },
+          props: {
+            fontSize: 26,
+            fontWeight: "normal",
+            color: "#222222",
+            align: "left",
+            verticalAlign: "middle",
+            lineHeight: 1.15,
+          },
         },
       ],
     } as unknown as SmartArtLayoutEntity;
@@ -262,21 +556,43 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
       expect.objectContaining({
         question: "이 목록을 스마트아트로 만들어줘: 1.기획 2.개발",
         intentPreset: "redesign-slide",
+        capabilities: expect.objectContaining({
+          version: "2",
+          addableElementTypes: [
+            "text",
+            "rect",
+            "ellipse",
+            "line",
+            "polygon",
+            "image",
+            "chart",
+            "table",
+          ],
+          canGenerateImages: true,
+        }),
       }),
     );
-    const deletedElementIds = (savedProposal?.operations ?? []).flatMap((operation) =>
-      operation.type === "delete_element" ? [operation.elementId] : [],
+    const deletedElementIds = (savedProposal?.operations ?? []).flatMap(
+      (operation) =>
+        operation.type === "delete_element" ? [operation.elementId] : [],
     );
     expect(deletedElementIds).toContain(sourceElementId);
     expect(
-      (savedProposal?.operations ?? []).filter((operation) => operation.type === "add_element"),
+      (savedProposal?.operations ?? []).filter(
+        (operation) => operation.type === "add_element",
+      ),
     ).toHaveLength(4);
     const texts = savedProposal?.operations
       .filter((op) => op.type === "add_element" && op.element.type === "text")
-      .map((op) => (op.type === "add_element" ? (op.element.props as { text?: string }).text : undefined));
+      .map((op) =>
+        op.type === "add_element"
+          ? (op.element.props as { text?: string }).text
+          : undefined,
+      );
     expect(texts).toEqual(["기획", "개발"]);
     const groupOperation = savedProposal?.operations.find(
-      (operation) => operation.type === "add_element" && operation.element.type === "group",
+      (operation) =>
+        operation.type === "add_element" && operation.element.type === "group",
     );
     expect(groupOperation).toMatchObject({
       type: "add_element",
@@ -286,7 +602,10 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
         props: { childElementIds: expect.arrayContaining([]) },
       },
     });
-    if (groupOperation?.type === "add_element" && groupOperation.element.type === "group") {
+    if (
+      groupOperation?.type === "add_element" &&
+      groupOperation.element.type === "group"
+    ) {
       expect(groupOperation.element.props.childElementIds).toHaveLength(3);
     }
   });
@@ -403,7 +722,10 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     ];
 
     const messagesRepository = {
-      create: vi.fn((value: Partial<DesignAgentMessageEntity>) => value as DesignAgentMessageEntity),
+      create: vi.fn(
+        (value: Partial<DesignAgentMessageEntity>) =>
+          value as DesignAgentMessageEntity,
+      ),
       save: vi.fn(async (value: DesignAgentMessageEntity) => value),
       find: vi.fn(async () => []),
     } as unknown as Repository<DesignAgentMessageEntity>;
@@ -411,7 +733,8 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     let savedProposal: DesignAgentProposalEntity | undefined;
     const proposalsRepository = {
       create: vi.fn(
-        (value: Partial<DesignAgentProposalEntity>) => value as DesignAgentProposalEntity,
+        (value: Partial<DesignAgentProposalEntity>) =>
+          value as DesignAgentProposalEntity,
       ),
       save: vi.fn(async (value: DesignAgentProposalEntity) => {
         savedProposal = value;
@@ -542,7 +865,8 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     expect(deletedElementIds).not.toContain("el_footer");
 
     const groupOperation = operations.find(
-      (operation) => operation.type === "add_element" && operation.element.type === "group",
+      (operation) =>
+        operation.type === "add_element" && operation.element.type === "group",
     );
     expect(groupOperation).toMatchObject({
       type: "add_element",
@@ -551,7 +875,10 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
         props: { childElementIds: expect.any(Array) },
       },
     });
-    if (groupOperation?.type === "add_element" && groupOperation.element.type === "group") {
+    if (
+      groupOperation?.type === "add_element" &&
+      groupOperation.element.type === "group"
+    ) {
       expect(groupOperation.element.props.childElementIds).toHaveLength(8);
     }
 
@@ -582,3 +909,889 @@ describe("DesignAgentService.createMessage smart art expansion", () => {
     }
   });
 });
+
+describe("DesignAgentService.createMessage slide redesign boundary", () => {
+  it("validates a redesign proposal through applyDeckPatch before saving", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const target = slide.elements.find((element) => element.visible);
+    expect(target).toBeTruthy();
+    const operations = [
+      {
+        type: "update_slide_style" as const,
+        slideId: slide.slideId,
+        style: { backgroundColor: "#F8FAFC" },
+      },
+      {
+        type: "update_element_frame" as const,
+        slideId: slide.slideId,
+        elementId: target!.elementId,
+        frame: { x: 160, y: 160, width: 960, height: 240 },
+      },
+    ];
+    const harness = createRedesignMessageHarness(deck, {
+      message: "현재 문구를 유지한 리디자인안을 준비했습니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "redesign-slide",
+        alignment: null,
+      },
+      operations,
+      affectedElementIds: [target!.elementId],
+      warnings: [],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    const result = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "이 슬라이드를 재디자인해줘",
+        intentPreset: "redesign-slide",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      },
+    );
+
+    expect(result.proposal?.operations).toEqual(operations);
+    expect(harness.proposalsRepository.save).toHaveBeenCalledTimes(1);
+    expect(
+      applyDeckPatch(deck, {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        source: "ai",
+        operations: result.proposal!.operations,
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("does not create a proposal for a refused response with empty operations", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const harness = createRedesignMessageHarness(deck, {
+      message: "현재 요소를 안전하게 보존할 수 없어 리디자인하지 않았습니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "refused",
+        alignment: null,
+      },
+      operations: [],
+      affectedElementIds: [],
+      warnings: [],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    const result = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "이 슬라이드를 재디자인해줘",
+        intentPreset: "redesign-slide",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      },
+    );
+
+    expect(result.proposal).toBeUndefined();
+    expect(harness.proposalsRepository.save).not.toHaveBeenCalled();
+  });
+
+  it("returns palette options without creating a proposal", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const harness = createRedesignMessageHarness(deck, {
+      message: "리디자인에 사용할 배색을 골라주세요.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "select-redesign-palette",
+        alignment: null,
+      },
+      operations: [],
+      affectedElementIds: [],
+      warnings: [],
+      paletteOptions: [...redesignPaletteOptions],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    const result = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "이 슬라이드를 재디자인해줘",
+        intentPreset: "redesign-slide",
+        selectedPaletteOptionId: null,
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      },
+    );
+
+    expect(result.paletteOptions).toEqual(redesignPaletteOptions);
+    expect(result.proposal).toBeUndefined();
+    expect(harness.proposalsRepository.save).not.toHaveBeenCalled();
+    expect(harness.propose).toHaveBeenCalledWith(
+      expect.objectContaining({ requestPaletteOptions: true }),
+    );
+  });
+
+  it("uses a palette option stored in the same session for the final proposal", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const harness = createRedesignMessageHarness(deck, {
+      message: "리디자인에 사용할 배색을 골라주세요.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "select-redesign-palette",
+        alignment: null,
+      },
+      operations: [],
+      affectedElementIds: [],
+      warnings: [],
+      paletteOptions: [...redesignPaletteOptions],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+    const first = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "이 슬라이드를 재디자인해줘",
+        intentPreset: "redesign-slide",
+        selectedPaletteOptionId: null,
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      },
+    );
+    harness.propose.mockResolvedValue({
+      message: "선택한 배색으로 리디자인안을 준비했습니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "redesign-slide",
+        alignment: null,
+      },
+      operations: [
+        {
+          type: "update_slide_style",
+          slideId: slide.slideId,
+          style: { backgroundColor: "#EFF6FF" },
+        },
+      ],
+      affectedElementIds: [],
+      warnings: [],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    const result = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        sessionId: first.sessionId,
+        content: "차분한 블루로 적용해줘",
+        intentPreset: "redesign-slide",
+        selectedPaletteOptionId: "calm-blue",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      },
+    );
+
+    expect(result.proposal).toBeDefined();
+    expect(harness.propose).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        requestPaletteOptions: false,
+        selectedPaletteOption: redesignPaletteOptions[1],
+      }),
+    );
+  });
+
+  it("rejects an option ID that was not stored in the session", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const harness = createRedesignMessageHarness(deck, {
+      message: "리디자인에 사용할 배색을 골라주세요.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "select-redesign-palette",
+        alignment: null,
+      },
+      operations: [],
+      affectedElementIds: [],
+      warnings: [],
+      paletteOptions: [...redesignPaletteOptions],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+    const first = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "이 슬라이드를 재디자인해줘",
+        intentPreset: "redesign-slide",
+        selectedPaletteOptionId: null,
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      },
+    );
+
+    await expect(
+      harness.service.createMessage(deck.projectId, "user_demo_1", {
+        sessionId: first.sessionId,
+        content: "없는 배색을 적용해줘",
+        intentPreset: "redesign-slide",
+        selectedPaletteOptionId: "missing-option",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      }),
+    ).rejects.toThrow(
+      "selectedPaletteOptionId does not match this design agent session.",
+    );
+    expect(harness.propose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("DesignAgentService motion eligibility", () => {
+  it("refuses snapshot before Python and stores no speaker notes text", async () => {
+    const deck = createDemoDeck();
+    deck.metadata.sourceType = "import";
+    const slide = deck.slides[0]!;
+    slide.importRenderMode = "snapshot";
+    slide.ooxmlSourceSlidePart = "ppt/slides/slide1.xml";
+    slide.ooxmlMotionCapabilities = {
+      transitionWritable: true,
+      importedMainSequenceCoverage: "complete",
+    };
+    slide.speakerNotes = "MOTION_PRIVATE_SENTINEL";
+    const harness = createMotionMessageHarness(deck, {
+      renderMode: "snapshot",
+      sourceSlidePartPresent: true,
+      importedMainSequenceCoverage: "complete",
+      stableTargetElementIds: [],
+    });
+
+    const response = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "애니메이션을 추천해 주세요.",
+        intentPreset: "recommend-animation",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide: { ...slide, importRenderMode: undefined },
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      },
+    );
+
+    expect(harness.propose).not.toHaveBeenCalled();
+    expect(response.proposal).toBeUndefined();
+    expect(response.responseMessage.content).toContain("이미지로 가져온");
+    expect(JSON.stringify([...harness.savedMessages.values()])).not.toContain(
+      "MOTION_PRIVATE_SENTINEL",
+    );
+  });
+
+  it("rebuilds the Python context from the current Deck and stable allowlist", async () => {
+    const deck = createDemoDeck();
+    deck.metadata.sourceType = "import";
+    const slide = deck.slides[0]!;
+    const stableElementId = slide.elements[0]!.elementId;
+    slide.speakerNotes = "MOTION_PRIVATE_SENTINEL";
+    slide.importRenderMode = "editable";
+    slide.ooxmlSourceSlidePart = "ppt/slides/slide1.xml";
+    slide.ooxmlMotionCapabilities = {
+      transitionWritable: true,
+      importedMainSequenceCoverage: "absent",
+    };
+    const importContext = {
+      renderMode: "editable" as const,
+      sourceSlidePartPresent: true,
+      importedMainSequenceCoverage: "absent" as const,
+      stableTargetElementIds: [stableElementId],
+    };
+    const harness = createMotionMessageHarness(deck, importContext);
+    const clientSlide = {
+      ...slide,
+      title: "CLIENT_TAMPERED_TITLE",
+      elements: [],
+      animations: [],
+    };
+
+    await harness.service.createMessage(deck.projectId, "user_demo_1", {
+      content: "애니메이션을 추천해 주세요.",
+      intentPreset: "recommend-animation",
+      context: {
+        deckId: deck.deckId,
+        baseVersion: deck.version,
+        canvas: deck.canvas,
+        slide: clientSlide,
+        selectedElementIds: [stableElementId, "el_unknown"],
+        theme: deck.theme,
+      },
+    });
+
+    expect(harness.propose).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          slide: expect.objectContaining({
+            ...slide,
+            speakerNotes: "",
+          }),
+          selectedElementIds: [stableElementId],
+        }),
+        motionImportContext: importContext,
+        motionPlanningContext: expect.objectContaining({
+          allowedTargetElementIds: [stableElementId],
+          speakerNotes: "MOTION_PRIVATE_SENTINEL",
+          notesPresent: true,
+        }),
+      }),
+    );
+    expect(JSON.stringify([...harness.savedMessages.values()])).not.toContain(
+      "MOTION_PRIVATE_SENTINEL",
+    );
+    expect(JSON.stringify(harness.logger.info.mock.calls)).not.toContain(
+      "MOTION_PRIVATE_SENTINEL",
+    );
+  });
+
+  it("marks an animation proposal stale when apply-time eligibility changes", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const proposal = {
+      proposalId: "design_proposal_motion_1",
+      projectId: deck.projectId,
+      deckId: deck.deckId,
+      slideId: slide.slideId,
+      requestMessageId: "design_message_1",
+      responseMessageId: "design_message_2",
+      baseVersion: deck.version,
+      title: "Motion proposal",
+      summary: "Motion proposal",
+      operations: [
+        {
+          type: "add_animation",
+          slideId: slide.slideId,
+          animation: {
+            animationId: "anim_motion_1",
+            elementId: slide.elements[0]!.elementId,
+            type: "fade-in",
+            order: 1,
+            startMode: "on-slide-enter",
+            durationMs: 400,
+            delayMs: 0,
+            easing: "ease-out",
+          },
+        },
+      ],
+      interpretedIntent: null,
+      affectedElementIds: [slide.elements[0]!.elementId],
+      warnings: [],
+      status: "pending",
+      appliedChangeId: null,
+      rejectedReason: null,
+      createdAt: new Date("2026-07-23T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-23T00:00:00.000Z"),
+    } as unknown as DesignAgentProposalEntity;
+    const proposalsRepository = {
+      findOne: vi.fn(async () => proposal),
+      save: vi.fn(async (value: DesignAgentProposalEntity) => value),
+    } as unknown as Repository<DesignAgentProposalEntity>;
+    const snapshotDeck = {
+      ...deck,
+      metadata: { ...deck.metadata, sourceType: "import" as const },
+      slides: [{ ...slide, importRenderMode: "snapshot" as const }],
+    };
+    const appendPatch = vi.fn();
+    const decksService = {
+      getDeck: vi.fn(async () => ({
+        projectId: deck.projectId,
+        deck: snapshotDeck,
+        updatedAt: "2026-07-23T00:00:00.000Z",
+      })),
+      getMotionImportContext: vi.fn(async () => ({
+        renderMode: "snapshot",
+        sourceSlidePartPresent: false,
+        importedMainSequenceCoverage: "unknown",
+        stableTargetElementIds: [],
+      })),
+      appendPatch,
+    } as unknown as DecksService;
+    const service = new DesignAgentService(
+      {} as Repository<DesignAgentMessageEntity>,
+      proposalsRepository,
+      decksService,
+      {} as DesignAgentPythonClient,
+      {} as SmartArtLayoutsService,
+      { info: vi.fn(), warn: vi.fn() } as never,
+    );
+
+    await expect(
+      service.applyProposal(deck.projectId, proposal.proposalId, "user_demo_1"),
+    ).rejects.toThrow("no longer safe");
+    expect(proposal.status).toBe("stale");
+    expect(proposal.rejectedReason).toBe("MOTION_SNAPSHOT_SLIDE");
+    expect(appendPatch).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-explicit animation deletes before proposal persistence", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const harness = createMotionMessageHarness(deck, null);
+    harness.propose.mockResolvedValueOnce({
+      message: "기존 애니메이션을 삭제합니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "delete animation",
+        alignment: null,
+      },
+      operations: [
+        {
+          type: "delete_animation",
+          slideId: slide.slideId,
+          animationId: slide.animations[0]!.animationId,
+        },
+      ],
+      affectedElementIds: [slide.animations[0]!.elementId],
+      warnings: [],
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    await expect(
+      harness.service.createMessage(deck.projectId, "user_demo_1", {
+        content: "애니메이션을 추천해 주세요.",
+        intentPreset: "recommend-animation",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      }),
+    ).rejects.toThrow("DELETE_NOT_EXPLICIT");
+    expect(
+      [...harness.savedMessages.values()].filter(
+        (message) => message.role === "assistant",
+      ),
+    ).toEqual([]);
+    expect(harness.savedProposals).toEqual([]);
+  });
+
+  it("accepts a dry-run validated animation add proposal", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const target = slide.elements.find(
+      (element) =>
+        !slide.animations.some(
+          (animation) => animation.elementId === element.elementId,
+        ),
+    )!;
+    const nextOrder = Math.max(...slide.animations.map(({ order }) => order)) + 1;
+    const harness = createMotionMessageHarness(deck, null);
+    harness.propose.mockResolvedValueOnce({
+      message: "발표 흐름을 준비했습니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "semantic-motion-plan",
+        alignment: null,
+      },
+      operations: [
+        {
+          type: "add_animation",
+          slideId: slide.slideId,
+          animation: {
+            animationId: "anim_motion_api_safe",
+            elementId: target.elementId,
+            type: "fade-in",
+            order: nextOrder,
+            startMode: "on-click",
+            durationMs: 400,
+            delayMs: 0,
+            easing: "ease-out",
+          },
+        },
+      ],
+      affectedElementIds: [target.elementId],
+      warnings: [],
+      motionPlan: {
+        source: "llm",
+        model: "gpt-4.1-mini-2025-04-14",
+        attemptCount: 1,
+        compilerVersion: "motion-compiler-v2",
+        plan: {
+          schemaVersion: 2,
+          pattern: "hero-then-support",
+          pacing: "balanced",
+          beats: [
+            {
+              beatId: "beat_focus",
+              purpose: "emphasize",
+              trigger: "click",
+              relation: "together",
+              targets: [
+                {
+                  elementId: target.elementId,
+                  motionIntent: "focus",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    const response = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "애니메이션을 추천해 주세요.",
+        intentPreset: "recommend-animation",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      },
+    );
+
+    expect(response.proposal?.operations).toHaveLength(1);
+    expect(response.proposal?.motionPlan).toMatchObject({
+      source: "llm",
+      attemptCount: 1,
+      compilerVersion: "motion-compiler-v2",
+      plan: { pacing: "balanced" },
+    });
+    expect(harness.savedProposals[0]?.motionPlan).toEqual(
+      response.proposal?.motionPlan,
+    );
+    expect(JSON.stringify(harness.logger.info.mock.calls)).toContain(
+      "motion_planner.completed",
+    );
+  });
+
+  it("accepts a complete v3 unit expansion for a server-derived shape target", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const target = slide.elements.find(
+      (element) => element.elementId === "el_3",
+    )!;
+    target.role = "decoration";
+    const nextOrder = Math.max(...slide.animations.map(({ order }) => order)) + 1;
+    const harness = createMotionMessageHarness(deck, null);
+    harness.propose.mockResolvedValueOnce({
+      message: "카드 전체 모션을 준비했습니다.",
+      interpretedIntent: {
+        target: "current-slide",
+        action: "semantic-motion-plan",
+        alignment: null,
+      },
+      operations: [
+        {
+          type: "add_animation",
+          slideId: slide.slideId,
+          animation: {
+            animationId: "anim_motion_v3_shape",
+            elementId: target.elementId,
+            type: "appear",
+            order: nextOrder,
+            startMode: "on-click",
+            durationMs: 300,
+            delayMs: 0,
+            easing: "ease-out",
+          },
+        },
+      ],
+      affectedElementIds: [target.elementId],
+      warnings: [],
+      motionPlan: {
+        source: "llm",
+        model: "gpt-4.1-mini-2025-04-14",
+        attemptCount: 1,
+        compilerVersion: "motion-compiler-v3",
+        units: [
+          {
+            unitId: "motion_unit_shape",
+            kind: "spatial-cluster",
+            animationElementIds: [target.elementId],
+            memberElementIds: [target.elementId],
+            semanticRole: "card",
+            readingOrder: 1,
+          },
+        ],
+        plan: {
+          schemaVersion: 3,
+          pattern: "cluster-reveal",
+          pacing: "balanced",
+          beats: [
+            {
+              beatId: "beat_click_1",
+              purpose: "reveal",
+              trigger: "click",
+              relation: "together",
+              targets: [
+                {
+                  unitId: "motion_unit_shape",
+                  motionIntent: "reveal",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      smartArtRequest: null,
+      uiAction: null,
+    });
+
+    const response = await harness.service.createMessage(
+      deck.projectId,
+      "user_demo_1",
+      {
+        content: "애니메이션을 추천해 주세요.",
+        intentPreset: "recommend-animation",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      },
+    );
+
+    expect(response.proposal?.motionPlan).toMatchObject({
+      compilerVersion: "motion-compiler-v3",
+      units: [
+        expect.objectContaining({
+          animationElementIds: [target.elementId],
+        }),
+      ],
+    });
+  });
+
+  it("preserves a bounded motion error code without creating assistant output", async () => {
+    const deck = createDemoDeck();
+    const slide = deck.slides[0]!;
+    const harness = createMotionMessageHarness(deck, null);
+    harness.propose.mockRejectedValueOnce(
+      new DesignAgentPythonError(
+        "MOTION_AI_INVALID_PLAN",
+        "AI 모션 분석 결과가 올바르지 않습니다.",
+      ),
+    );
+
+    const error = await harness.service
+      .createMessage(deck.projectId, "user_demo_1", {
+        content: "애니메이션을 추천해 주세요.",
+        intentPreset: "recommend-animation",
+        context: {
+          deckId: deck.deckId,
+          baseVersion: deck.version,
+          canvas: deck.canvas,
+          slide,
+          selectedElementIds: [],
+          theme: deck.theme,
+        },
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(DesignAgentPythonError);
+    expect(error).toMatchObject({ code: "MOTION_AI_INVALID_PLAN" });
+    expect((error as DesignAgentPythonError).getStatus()).toBe(503);
+    const messages = [...harness.savedMessages.values()];
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      role: "user",
+      status: "failed",
+      errorCode: "MOTION_AI_INVALID_PLAN",
+    });
+    expect(harness.savedProposals).toEqual([]);
+    expect(JSON.stringify(harness.logger.warn.mock.calls)).toContain(
+      "motion_planner.completed",
+    );
+  });
+});
+
+function createMotionMessageHarness(
+  deck: ReturnType<typeof createDemoDeck>,
+  importContext: Awaited<
+    ReturnType<DecksService["getMotionImportContext"]>
+  >,
+) {
+  const savedMessages = new Map<string, DesignAgentMessageEntity>();
+  const messagesRepository = {
+    create: vi.fn(
+      (value: Partial<DesignAgentMessageEntity>) =>
+        value as DesignAgentMessageEntity,
+    ),
+    save: vi.fn(async (value: DesignAgentMessageEntity) => {
+      savedMessages.set(value.messageId, value);
+      return value;
+    }),
+    find: vi.fn(async () => []),
+  } as unknown as Repository<DesignAgentMessageEntity>;
+  const savedProposals: DesignAgentProposalEntity[] = [];
+  const proposalsRepository = {
+    create: vi.fn(
+      (value: Partial<DesignAgentProposalEntity>) =>
+        value as DesignAgentProposalEntity,
+    ),
+    save: vi.fn(async (value: DesignAgentProposalEntity) => {
+      savedProposals.push(value);
+      return value;
+    }),
+  } as unknown as Repository<DesignAgentProposalEntity>;
+  const decksService = {
+    getDeck: vi.fn(async () => ({
+      projectId: deck.projectId,
+      deck,
+      updatedAt: "2026-07-23T00:00:00.000Z",
+    })),
+    getMotionImportContext: vi.fn(async () => importContext),
+  } as unknown as DecksService;
+  const propose = vi.fn(async (): Promise<DesignAgentWorkerResponse> => ({
+    message: "추천할 애니메이션이 없습니다.",
+    interpretedIntent: {
+      target: "current-slide" as const,
+      action: "recommend animation",
+      alignment: null,
+    },
+    operations: [],
+    affectedElementIds: [],
+    warnings: [],
+    smartArtRequest: null,
+    uiAction: null,
+  }));
+  const logger = { info: vi.fn(), warn: vi.fn() };
+  const service = new DesignAgentService(
+    messagesRepository,
+    proposalsRepository,
+    decksService,
+    { propose } as unknown as DesignAgentPythonClient,
+    {
+      listActiveCatalog: vi.fn(async () => []),
+    } as unknown as SmartArtLayoutsService,
+    logger as never,
+  );
+  return {
+    service,
+    propose,
+    savedMessages,
+    savedProposals,
+    logger,
+  };
+}
+
+function createRedesignMessageHarness(
+  deck: ReturnType<typeof createDemoDeck>,
+  aiResult: Awaited<ReturnType<DesignAgentPythonClient["propose"]>>,
+) {
+  const savedMessages = new Map<string, DesignAgentMessageEntity>();
+  const messagesRepository = {
+    create: vi.fn(
+      (value: Partial<DesignAgentMessageEntity>) =>
+        value as DesignAgentMessageEntity,
+    ),
+    save: vi.fn(async (value: DesignAgentMessageEntity) => {
+      savedMessages.set(value.messageId, value);
+      return value;
+    }),
+    find: vi.fn(async () =>
+      [...savedMessages.values()]
+        .filter((message) => message.status === "succeeded")
+        .sort(
+          (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
+        )
+        .slice(0, 10),
+    ),
+  } as unknown as Repository<DesignAgentMessageEntity>;
+  const proposalsRepository = {
+    create: vi.fn(
+      (value: Partial<DesignAgentProposalEntity>) =>
+        value as DesignAgentProposalEntity,
+    ),
+    save: vi.fn(async (value: DesignAgentProposalEntity) => value),
+  } as unknown as Repository<DesignAgentProposalEntity> & {
+    save: ReturnType<typeof vi.fn>;
+  };
+  const decksService = {
+    getDeck: vi.fn(async () => ({
+      projectId: deck.projectId,
+      deck,
+      updatedAt: "2026-07-22T00:00:00.000Z",
+    })),
+  } as unknown as DecksService;
+  const propose = vi.fn(async () => aiResult);
+  const pythonClient = {
+    propose,
+  } as unknown as DesignAgentPythonClient;
+  const smartArtLayoutsService = {
+    listActiveCatalog: vi.fn(async () => []),
+  } as unknown as SmartArtLayoutsService;
+  return {
+    service: new DesignAgentService(
+      messagesRepository,
+      proposalsRepository,
+      decksService,
+      pythonClient,
+      smartArtLayoutsService,
+      { info: vi.fn(), warn: vi.fn() } as never,
+    ),
+    proposalsRepository,
+    propose,
+  };
+}

@@ -22,7 +22,10 @@ describe("jobTypeSchema", () => {
   });
 
   it("keeps legacy job types readable but blocks active and public creation", () => {
-    for (const type of ["pptx-import", "ai-template-deck-generation"] as const) {
+    for (const type of [
+      "pptx-import",
+      "ai-template-deck-generation",
+    ] as const) {
       expect(historicalJobTypeSchema.parse(type)).toBe(type);
       expect(jobTypeSchema.parse(type)).toBe(type);
       expect(activeJobTypeSchema.safeParse(type).success).toBe(false);
@@ -39,7 +42,7 @@ describe("jobTypeSchema", () => {
           error: null,
           createdAt: "2026-07-14T00:00:00.000Z",
           updatedAt: "2026-07-14T00:00:00.000Z",
-        }).type
+        }).type,
       ).toBe(type);
     }
   });
@@ -50,16 +53,17 @@ describe("jobTypeSchema", () => {
 
   it("accepts rehearsal semantic evaluation retry jobs", () => {
     expect(jobTypeSchema.parse("rehearsal-semantic-evaluation")).toBe(
-      "rehearsal-semantic-evaluation"
+      "rehearsal-semantic-evaluation",
     );
   });
 
   it("accepts speaker notes suggestions without exposing generic creation", () => {
     expect(activeJobTypeSchema.parse("speaker-notes-suggestion")).toBe(
-      "speaker-notes-suggestion"
+      "speaker-notes-suggestion",
     );
     expect(
-      publicCreatableJobTypeSchema.safeParse("speaker-notes-suggestion").success
+      publicCreatableJobTypeSchema.safeParse("speaker-notes-suggestion")
+        .success,
     ).toBe(false);
   });
 
@@ -69,6 +73,13 @@ describe("jobTypeSchema", () => {
     );
     expect(
       publicCreatableJobTypeSchema.safeParse("design-image-generation").success,
+    ).toBe(false);
+  });
+
+  it("keeps slide redesign internal to its dedicated API", () => {
+    expect(activeJobTypeSchema.parse("slide-redesign")).toBe("slide-redesign");
+    expect(
+      publicCreatableJobTypeSchema.safeParse("slide-redesign").success,
     ).toBe(false);
   });
 
@@ -85,7 +96,8 @@ describe("jobTypeSchema", () => {
       "activity-response-retention",
     );
     expect(
-      publicCreatableJobTypeSchema.safeParse("activity-response-retention").success,
+      publicCreatableJobTypeSchema.safeParse("activity-response-retention")
+        .success,
     ).toBe(false);
   });
 });

@@ -1,0 +1,125 @@
+[
+  {
+    "id": "cover-title-subtitle",
+    "expectedOutcome": "applicable",
+    "elements": [
+      {"elementId": "el_title", "type": "text", "role": "title", "text": "ORBIT 발표"},
+      {"elementId": "el_subtitle", "type": "text", "role": "subtitle", "text": "더 나은 발표 경험"}
+    ]
+  },
+  {
+    "id": "process-three-items",
+    "expectedOutcome": "applicable",
+    "elements": [
+      {"elementId": "el_title", "type": "text", "role": "title", "text": "진행 단계"},
+      {"elementId": "el_1", "type": "text", "role": "body", "text": "1. 준비"},
+      {"elementId": "el_2", "type": "text", "role": "body", "text": "2. 실행"},
+      {"elementId": "el_3", "type": "text", "role": "body", "text": "3. 검증"}
+    ]
+  },
+  {
+    "id": "timeline-five-items",
+    "expectedOutcome": "applicable",
+    "elements": [
+      {"elementId": "el_title", "type": "text", "role": "title", "text": "로드맵"},
+      {"elementId": "el_1", "type": "text", "role": "body", "text": "2024 조사"},
+      {"elementId": "el_2", "type": "text", "role": "body", "text": "2025 설계"},
+      {"elementId": "el_3", "type": "text", "role": "body", "text": "2026 개발"},
+      {"elementId": "el_4", "type": "text", "role": "body", "text": "2027 출시"},
+      {"elementId": "el_5", "type": "text", "role": "body", "text": "2028 확장"}
+    ]
+  },
+  {
+    "id": "comparison-two-columns",
+    "expectedOutcome": "applicable",
+    "elements": [
+      {"elementId": "el_title", "type": "text", "role": "title", "text": "방식 비교"},
+      {"elementId": "el_a", "type": "text", "role": "body", "text": "기존 방식 vs 수동 처리"},
+      {"elementId": "el_b", "type": "text", "role": "body", "text": "ORBIT 대비 자동 지원"}
+    ]
+  },
+  {
+    "id": "kpi-three-items",
+    "expectedOutcome": "applicable",
+    "elements": [
+      {"elementId": "el_title", "type": "text", "role": "title", "text": "핵심 지표"},
+      {"elementId": "el_1", "type": "text", "role": "body", "text": "전환율 42%"},
+      {"elementId": "el_2", "type": "text", "role": "body", "text": "응답 120건"},
+      {"elementId": "el_3", "type": "text", "role": "body", "text": "만족도 4.8"}
+    ]
+  },
+  {
+    "id": "quote",
+    "expectedOutcome": "applicable",
+    "elements": [
+      {"elementId": "el_title", "type": "text", "role": "title", "text": "사용자 목소리"},
+      {"elementId": "el_quote", "type": "text", "role": "body", "text": "“발표 흐름이 선명해졌습니다.”"}
+    ]
+  },
+  {
+    "id": "single-bullet-five-items",
+    "expectedOutcome": "applicable",
+    "elements": [
+      {"elementId": "el_title", "type": "text", "role": "title", "text": "실행 항목"},
+      {"elementId": "el_body", "type": "text", "role": "body", "text": "• 조사\n• 설계\n• 개발\n• 검증\n• 출시"}
+    ]
+  },
+  {
+    "id": "bullet-with-animation",
+    "expectedOutcome": "refused-unsafe",
+    "elements": [
+      {"elementId": "el_title", "type": "text", "role": "title", "text": "실행 항목"},
+      {"elementId": "el_body", "type": "text", "role": "body", "text": "• 조사\n• 설계\n• 개발"}
+    ],
+    "animations": [
+      {"animationId": "anim_body", "elementId": "el_body", "type": "fade-in", "order": 1}
+    ]
+  },
+  {
+    "id": "long-text",
+    "expectedOutcome": ["applicable", "fallback-allowed"],
+    "elements": [
+      {"elementId": "el_title", "type": "text", "role": "title", "text": "상세 설명"},
+      {"elementId": "el_body", "type": "text", "role": "body", "text": "이 문장은 현재 슬라이드에 담긴 긴 설명을 축약하거나 새 사실을 만들지 않고 그대로 보존하는지 확인하기 위한 충분히 긴 원문입니다."}
+    ]
+  },
+  {
+    "id": "chart-unsafe",
+    "expectedOutcome": "refused-unsafe",
+    "elements": [{"elementId": "el_chart", "type": "chart"}]
+  },
+  {
+    "id": "table-unsafe",
+    "expectedOutcome": "refused-unsafe",
+    "elements": [{"elementId": "el_table", "type": "table"}]
+  },
+  {
+    "id": "image-unsafe-m1",
+    "expectedOutcome": "applicable",
+    "elements": [
+      {"elementId": "el_title", "type": "text", "role": "title", "text": "제품 출시"},
+      {"elementId": "el_body", "type": "text", "role": "body", "text": "빠른 시작"},
+      {"elementId": "el_image", "type": "image"}
+    ]
+  },
+  {
+    "id": "locked-element",
+    "expectedOutcome": "applicable",
+    "elements": [
+      {"elementId": "el_title", "type": "text", "role": "title", "text": "잠금 보존"},
+      {"elementId": "el_1", "type": "text", "role": "body", "text": "1. 준비"},
+      {"elementId": "el_2", "type": "text", "role": "body", "text": "2. 실행"},
+      {"elementId": "el_3", "type": "text", "role": "body", "text": "3. 검증"},
+      {"elementId": "el_locked", "type": "rect", "locked": true}
+    ]
+  },
+  {
+    "id": "canvas-four-three",
+    "expectedOutcome": "fallback-allowed",
+    "canvas": {"width": 1024, "height": 768},
+    "elements": [
+      {"elementId": "el_title", "type": "text", "role": "title", "text": "4대3 슬라이드"},
+      {"elementId": "el_body", "type": "text", "role": "body", "text": "현재 비율 유지"}
+    ]
+  }
+]

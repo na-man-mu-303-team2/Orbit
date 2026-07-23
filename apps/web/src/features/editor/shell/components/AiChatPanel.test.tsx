@@ -170,6 +170,33 @@ describe("AiChatPanel", () => {
     expect(html).toContain("disabled");
   });
 
+  it("keeps general AI design available while disabling unsafe motion", () => {
+    const deck = createDemoDeck();
+    const slide = { ...deck.slides[0]!, importRenderMode: "snapshot" as const };
+    const reason =
+      "이미지로 가져온 슬라이드에는 애니메이션을 안전하게 적용할 수 없습니다.";
+    const html = renderToString(
+      <AiChatPanel
+        onSpeakerNotesAssistantRequest={() => undefined}
+        projectId={deck.projectId}
+        deck={{ ...deck, slides: [slide, ...deck.slides.slice(1)] }}
+        currentSlide={slide}
+        motionRecommendationDisabledReason={reason}
+        selectedElementIds={[]}
+        chatState={createInitialAiChatState(deck.projectId)}
+        onChatStateChange={() => undefined}
+        onProposalApplied={() => undefined}
+        onGeneratedImageInsert={() => true}
+      />
+    );
+
+    expect(html).toContain("슬라이드 다시 디자인");
+    expect(html).toContain(reason);
+    expect(html).toContain(
+      'aria-describedby="design-assistant-action-reason-recommend-animation"'
+    );
+  });
+
   it("renders a selected project image thumbnail for image generation context", () => {
     const deck = createDemoDeck();
     const slide = deck.slides[0]!;

@@ -266,6 +266,8 @@ export const orbitEnvSchema = z.object({
   LLM_PROVIDER: llmProviderSchema,
   OPENAI_API_KEY: optionalString,
   OPENAI_MODEL: requiredString("OPENAI_MODEL"),
+  OPENAI_MOTION_PLANNER_MODEL: defaultedString("gpt-4.1-mini-2025-04-14"),
+  AI_MOTION_PLANNER_MODE: z.enum(["off", "shadow", "on"]).default("on"),
   AI_PPT_VISUAL_QA_MODEL: optionalString,
   OPENAI_IMAGE_MODEL: defaultedString("gpt-image-1"),
   IMAGE_PROVIDER: z.enum(["disabled", "openai"]).default("openai"),
@@ -310,6 +312,16 @@ export const orbitEnvSchema = z.object({
   DEMO_DECK_ID: requiredString("DEMO_DECK_ID"),
   DEMO_SESSION_ID: requiredString("DEMO_SESSION_ID")
 }).superRefine((value, context) => {
+  if (
+    value.APP_ENV === "production" &&
+    !/-\d{4}-\d{2}-\d{2}$/.test(value.OPENAI_MOTION_PLANNER_MODEL)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["OPENAI_MOTION_PLANNER_MODEL"],
+      message: "Production Motion Planner model must use a dated snapshot ID"
+    });
+  }
   if ((value.FOCUSED_PRACTICE_ENABLED || value.CHALLENGE_QNA_ENABLED) && !value.ADAPTIVE_REHEARSAL_COACH_ENABLED) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["ADAPTIVE_REHEARSAL_COACH_ENABLED"], message: "Adaptive coaching core must be enabled before focused practice or Challenge Q&A" });
   }
