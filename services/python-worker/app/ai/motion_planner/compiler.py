@@ -186,7 +186,10 @@ def compile_narrative_motion_v3(
 ) -> CompiledMotionV3:
     units = {unit.unit_id: unit for unit in context.units}
     plan.validate_allowlist(set(units))
-    plan.validate_canonical_structure(context.units)
+    plan.validate_canonical_structure(
+        context.units,
+        context.structure_family,
+    )
     existing = existing_animations or []
     existing_ids = {
         str(animation.get("animationId"))

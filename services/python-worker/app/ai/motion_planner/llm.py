@@ -128,7 +128,10 @@ def plan_narrative_motion_v3(
                 **draft.model_dump(by_alias=True),
                 pattern=pattern,
             )
-            plan.validate_canonical_structure(extraction.context.units)
+            plan.validate_canonical_structure(
+                extraction.context.units,
+                extraction.context.structure_family,
+            )
         except ValueError:
             last_error = MotionPlannerError("MOTION_AI_INVALID_PLAN")
             continue

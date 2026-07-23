@@ -51,6 +51,9 @@ Choose pacing plus beat/unit selection. Do not choose or return a pattern.
 Do not create patches, operations, animation IDs, effects, animation types, durations,
 delays, easing, coordinates, CSS, or OOXML. Keep motion restrained and presenter-led.
 Use at most one entry beat and five click beats. Never repeat a unitId.
+When context.structureFamily is present, include every supplied unit exactly once
+in readingOrder. Keep that flattened unit order across all beats. Beat grouping
+remains your choice within the entry, click, beat, and target caps.
 For process slides, include every card unit exactly once in reading order.
 For one-to-five card units, the entry beat contains the title or other leading
 context only and MUST NOT contain a card. Return exactly one click beat per card;
@@ -68,6 +71,7 @@ def motion_planner_v3_user_prompt(extraction: MotionPromptInputV3) -> str:
         "context": {
             "slideType": context.slide_type,
             "narrativeIntent": context.narrative_intent,
+            "structureFamily": context.structure_family,
             "units": [
                 {
                     "unitId": unit.unit_id,

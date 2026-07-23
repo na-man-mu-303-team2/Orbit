@@ -193,3 +193,277 @@ def test_imported_editable_slide_keeps_v2_planning_path() -> None:
     assert result.outcome == "applicable"
     assert result.motion_plan is not None
     assert result.motion_plan.compiler_version == "motion-compiler-v2"
+
+
+def test_authored_incomplete_timeline_fails_closed_before_llm() -> None:
+    slide = {
+        "slideId": "slide_timeline",
+        "order": 4,
+        "title": "불완전한 타임라인",
+        "elements": [
+            {
+                "elementId": "el_title",
+                "type": "text",
+                "role": "title",
+                "visible": True,
+                "locked": False,
+                "opacity": 1,
+                "x": 120,
+                "y": 96,
+                "width": 1680,
+                "height": 120,
+                "zIndex": 5,
+                "props": {"text": "불완전한 타임라인"},
+            }
+        ],
+        "animations": [],
+        "semanticCues": [],
+        "aiNotes": {
+            "visualPlan": {"visualType": "process"},
+            "compositionPlan": {"compositionId": "timeline"},
+        },
+    }
+    context = MotionPlanningContext.model_validate(
+        {
+            "allowedTargetElementIds": ["el_title"],
+            "effectiveTypography": [],
+            "speakerNotes": "",
+            "notesPresent": False,
+            "notesTruncated": False,
+        }
+    )
+    client = FakeClient({"schemaVersion": 3, "pacing": "balanced", "beats": []})
+
+    result = plan_and_compile_motion(
+        deck_id="deck_1",
+        base_version=3,
+        slide=slide,
+        planning_context=context,
+        import_context=None,
+        model="motion-snapshot",
+        api_key=None,
+        client=client,
+    )
+
+    assert result.outcome == "refused-unsafe"
+    assert result.reason_code == "MOTION_AI_COMPILE_UNSAFE"
+    assert client.responses.calls == []
+
+
+def test_authored_five_step_timeline_compiles_22_elements_and_five_clicks() -> None:
+    slide, context = five_step_timeline()
+    extraction = extract_motion_units(slide, context)
+    title, *middle, conclusion = extraction.context.units
+    cards = [unit for unit in middle if unit.semantic_role == "card"]
+    payload = {
+        "schemaVersion": 3,
+        "pacing": "balanced",
+        "beats": [
+            {
+                "beatId": "beat_entry",
+                "purpose": "orient",
+                "trigger": "entry",
+                "relation": "together",
+                "targets": [
+                    {
+                        "unitId": title.unit_id,
+                        "motionIntent": "introduce",
+                    }
+                ],
+            },
+            *(
+                {
+                    "beatId": f"beat_click_{index}",
+                    "purpose": "reveal",
+                    "trigger": "click",
+                    "relation": "sequence",
+                    "targets": [
+                        {
+                            "unitId": card.unit_id,
+                            "motionIntent": "reveal",
+                        },
+                        *(
+                            [
+                                {
+                                    "unitId": conclusion.unit_id,
+                                    "motionIntent": "conclude",
+                                }
+                            ]
+                            if index == 5
+                            else []
+                        ),
+                    ],
+                }
+                for index, card in enumerate(cards, start=1)
+            ),
+        ],
+    }
+
+    result = plan_and_compile_motion(
+        deck_id="deck_timeline",
+        base_version=3,
+        slide=slide,
+        planning_context=context,
+        import_context=None,
+        model="motion-snapshot",
+        api_key=None,
+        client=FakeClient(payload),
+    )
+
+    assert result.outcome == "applicable"
+    assert result.click_count == 5
+    assert result.beat_count == 6
+    assert len(result.operations) == 22
+    assert len(result.affected_element_ids) == 22
+
+
+def five_step_timeline() -> tuple[dict[str, Any], MotionPlanningContext]:
+    elements: list[dict[str, Any]] = [
+        motion_element(
+            "el_title",
+            "text",
+            "title",
+            120,
+            96,
+            1680,
+            120,
+            5,
+            "90일 실행 로드맵",
+        ),
+        motion_element(
+            "el_timeline_line",
+            "rect",
+            "decoration",
+            120,
+            579,
+            1680,
+            10,
+            2,
+        ),
+    ]
+    for index in range(1, 6):
+        x = 120 + (index - 1) * 340
+        above = index % 2 == 1
+        elements.extend(
+            [
+                motion_element(
+                    f"el_timeline_{index}_index",
+                    "text",
+                    "highlight",
+                    x,
+                    292 if above else 668,
+                    316,
+                    56,
+                    5,
+                    f"{index:02d}",
+                ),
+                motion_element(
+                    f"el_timeline_{index}",
+                    "text",
+                    "body",
+                    x,
+                    360 if above else 736,
+                    316,
+                    168,
+                    5,
+                    f"{index}단계 전체 본문",
+                ),
+                motion_element(
+                    f"el_timeline_stem_{index}",
+                    "rect",
+                    "decoration",
+                    x + 154,
+                    536 if above else 616,
+                    8,
+                    32,
+                    2,
+                ),
+                motion_element(
+                    f"el_timeline_marker_{index}",
+                    "rect",
+                    "decoration",
+                    x + 126,
+                    552,
+                    64,
+                    64,
+                    4,
+                ),
+                motion_element(
+                    f"el_timeline_marker_label_{index}",
+                    "text",
+                    "highlight",
+                    x + 126,
+                    560,
+                    64,
+                    48,
+                    5,
+                    str(index),
+                ),
+            ]
+        )
+    elements.append(
+        motion_element(
+            "el_timeline_message",
+            "text",
+            "highlight",
+            120,
+            920,
+            1680,
+            64,
+            5,
+            "단계별 실행으로 AI 도입을 완성합니다",
+        )
+    )
+    slide = {
+        "slideId": "slide_timeline",
+        "order": 4,
+        "title": "90일 실행 로드맵",
+        "elements": elements,
+        "animations": [],
+        "semanticCues": [],
+        "aiNotes": {
+            "visualPlan": {"visualType": "process"},
+            "compositionPlan": {"compositionId": "timeline"},
+        },
+    }
+    context = MotionPlanningContext.model_validate(
+        {
+            "allowedTargetElementIds": [
+                element["elementId"]
+                for element in elements
+                if element["role"] != "decoration"
+            ],
+            "effectiveTypography": [],
+            "speakerNotes": "",
+            "notesPresent": False,
+            "notesTruncated": False,
+        }
+    )
+    return slide, context
+
+
+def motion_element(
+    element_id: str,
+    element_type: str,
+    role: str,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    z_index: int,
+    text: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "elementId": element_id,
+        "type": element_type,
+        "role": role,
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "zIndex": z_index,
+        "visible": True,
+        "locked": False,
+        "opacity": 1,
+        "props": {"text": text} if text is not None else {},
+    }

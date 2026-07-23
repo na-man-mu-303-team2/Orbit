@@ -349,12 +349,26 @@ class NarrativeMotionPlanV3(NarrativeMotionPlanDraftV3):
     ]
 
     def validate_canonical_structure(
-        self, units: list[MotionUnit]
+        self,
+        units: list[MotionUnit],
+        structure_family: MotionStructureFamily | None = None,
     ) -> NarrativeMotionPlanV3:
+        ordered_units = sorted(units, key=lambda unit: unit.reading_order)
+        if structure_family is not None:
+            selected_ids = [
+                unit_id
+                for beat in self.beats
+                for unit_id in beat.target_unit_ids
+            ]
+            expected_ids = [unit.unit_id for unit in ordered_units]
+            if selected_ids != expected_ids:
+                raise ValueError(
+                    "Structured composition units must appear exactly once "
+                    "in reading order"
+                )
         if self.pattern != "stepwise-process":
             return self
 
-        ordered_units = sorted(units, key=lambda unit: unit.reading_order)
         cards = [unit for unit in ordered_units if unit.semantic_role == "card"]
         if not cards or len(cards) > 6:
             raise ValueError("Process plans require between one and six card units")

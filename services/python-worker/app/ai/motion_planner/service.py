@@ -28,6 +28,9 @@ from app.ai.motion_planner.models import (
     MotionPlanningContext,
     MotionPlanUnit,
 )
+from app.ai.motion_planner.structure_resolvers import (
+    MotionStructureResolutionError,
+)
 
 
 @dataclass(frozen=True)
@@ -71,9 +74,14 @@ def plan_and_compile_motion(
     ) != set(eligibility.allowed_target_element_ids):
         return _unsafe("MOTION_CONTEXT_MISMATCH")
     use_semantic_units = eligibility.source == "authored"
-    extraction_v3 = (
-        extract_motion_units(slide, planning_context) if use_semantic_units else None
-    )
+    try:
+        extraction_v3 = (
+            extract_motion_units(slide, planning_context)
+            if use_semantic_units
+            else None
+        )
+    except MotionStructureResolutionError:
+        return _unsafe("MOTION_AI_COMPILE_UNSAFE")
     extraction_v2 = (
         extract_motion_context(slide, planning_context)
         if not use_semantic_units

@@ -274,3 +274,74 @@ def test_v3_retries_then_rejects_invalid_process_drafts(
 
     assert error.value.code == "MOTION_AI_INVALID_PLAN"
     assert len(client.responses.calls) == 2
+
+
+def test_v3_structured_composition_requires_every_unit_in_order() -> None:
+    units = [
+        motion_unit("title", "title", 1),
+        motion_unit("comparison_1", "card", 2),
+        motion_unit("comparison_2", "card", 3),
+    ]
+    extraction = MotionPromptInputV3(
+        context=ExtractedMotionContextV3(
+            slideType="comparison",
+            narrativeIntent="contrast",
+            structureFamily="feature-comparison",
+            units=units,
+            approvedCueCount=0,
+            notesPresent=False,
+            notesTruncated=False,
+        ),
+        target_labels={unit.unit_id: unit.unit_id for unit in units},
+        speaker_notes="",
+    )
+    invalid = {
+        "schemaVersion": 3,
+        "pacing": "balanced",
+        "beats": [
+            {
+                "beatId": "beat_entry",
+                "purpose": "orient",
+                "trigger": "entry",
+                "relation": "together",
+                "targets": [
+                    {
+                        "unitId": "motion_unit_title",
+                        "motionIntent": "introduce",
+                    }
+                ],
+            },
+            {
+                "beatId": "beat_click_1",
+                "purpose": "contrast",
+                "trigger": "click",
+                "relation": "sequence",
+                "targets": [
+                    {
+                        "unitId": "motion_unit_comparison_2",
+                        "motionIntent": "compare",
+                    },
+                    {
+                        "unitId": "motion_unit_comparison_1",
+                        "motionIntent": "compare",
+                    },
+                ],
+            },
+        ],
+    }
+    client = FakeClient(invalid)
+
+    with pytest.raises(MotionPlannerError) as error:
+        plan_narrative_motion_v3(
+            extraction,
+            model="motion-snapshot",
+            api_key=None,
+            client=client,
+        )
+
+    assert error.value.code == "MOTION_AI_INVALID_PLAN"
+    assert len(client.responses.calls) == 2
+    prompt_input = client.responses.calls[0]["input"]
+    instructions = client.responses.calls[0]["instructions"]
+    assert '"structureFamily": "feature-comparison"' in prompt_input
+    assert "include every supplied unit exactly once" in instructions
