@@ -30,6 +30,16 @@ CompositionId = Literal[
     "bento-focus",
     "editorial-media-band",
     "cta-closing",
+    "agenda-numbered-list",
+    "agenda-two-column",
+    "agenda-chapter-grid",
+    "agenda-vertical-rail",
+    "agenda-editorial-index",
+    "closing-centered-minimal",
+    "closing-editorial-frame",
+    "closing-split-accent",
+    "closing-vertical-mark",
+    "closing-soft-panel",
 ]
 BackgroundMode = Literal["light", "dark", "image"]
 AssetRole = Literal["evidence", "atmosphere", "decoration", "none"]
@@ -58,6 +68,16 @@ COMPOSITION_IDS = (
     "bento-focus",
     "editorial-media-band",
     "cta-closing",
+    "agenda-numbered-list",
+    "agenda-two-column",
+    "agenda-chapter-grid",
+    "agenda-vertical-rail",
+    "agenda-editorial-index",
+    "closing-centered-minimal",
+    "closing-editorial-frame",
+    "closing-split-accent",
+    "closing-vertical-mark",
+    "closing-soft-panel",
 )
 
 COVER_COMPOSITION_IDS: tuple[CompositionId, ...] = (
@@ -93,6 +113,16 @@ bento-focus | product features/KPI/value | 2-4 items | no image | asymmetric ben
 diagram-orbit | architecture/ecosystem/relationships | 3-6 items | no image | radial orbit
 editorial-media-band | narrative/evidence/quote | 1-3 items | optional image | horizontal media band
 cta-closing | CTA/closing | 1-3 items | optional atmosphere image | closing
+agenda-numbered-list | agenda | 1-6 items | no image | numbered vertical list
+agenda-two-column | agenda | 2-6 items | no image | balanced two-column index
+agenda-chapter-grid | agenda | 2-6 items | no image | chapter grid
+agenda-vertical-rail | agenda | 2-6 items | no image | vertical navigation rail
+agenda-editorial-index | agenda | 1-6 items | no image | editorial index
+closing-centered-minimal | closing | 0 items | no image | centered minimal thanks
+closing-editorial-frame | closing | 0 items | no image | framed editorial thanks
+closing-split-accent | closing | 0 items | no image | split accent thanks
+closing-vertical-mark | closing | 0 items | no image | vertical mark thanks
+closing-soft-panel | closing | 0 items | no image | soft panel thanks
 """.strip()
 
 ART_DIRECTOR_INSTRUCTIONS = """
@@ -116,6 +146,9 @@ Use metric-poster or kpi-strip-evidence for metrics and budgets, and
 feature-comparison for comparisons. Keep process-horizontal and diagram-hub as
 compatible fallbacks when their silhouettes better fit the deck. Preserve official
 evidence images when they are the factual proof instead of replacing them.
+Use only agenda-* compositions for agenda slides and only closing-* compositions
+for closing slides. Closing slides contain thank-you copy only and never use
+cta-closing.
 Use the requested media budget across the whole deck, not on every slide.
 Respect forbidden styles and locked design values.
 """.strip()

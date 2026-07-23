@@ -2610,6 +2610,352 @@ def _cta_closing(direction: SlideCompositionDirection, slide: dict[str, Any], st
     return elements, message["elementId"]
 
 
+def _agenda_numbered_list(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    items = _items(slide)
+    row_height = 650 // len(items)
+    elements = [
+        _background(order, style),
+        _title(order, slide, style),
+        _rect(order, "agenda_rule", "decoration", SAFE_X, 228, 180, 8, 2, style.focal, radius=4),
+    ]
+    for index, (identifier, value) in enumerate(items):
+        y = 270 + index * row_height
+        elements.extend(
+            [
+                _text(
+                    order,
+                    f"agenda_index_{index + 1}",
+                    "highlight",
+                    f"{index + 1:02d}",
+                    SAFE_X,
+                    y,
+                    150,
+                    row_height - 12,
+                    4,
+                    style.focal,
+                    max(42, style.title_size),
+                    "bold",
+                    style.heading_font,
+                    vertical="middle",
+                ),
+                _text(
+                    order,
+                    f"agenda_item_{index + 1}",
+                    "body",
+                    value,
+                    SAFE_X + 190,
+                    y,
+                    SAFE_WIDTH - 190,
+                    row_height - 12,
+                    5,
+                    style.text,
+                    max(34, style.body_size + 4),
+                    "semibold",
+                    style.body_font,
+                    vertical="middle",
+                    content_item_ids=[identifier],
+                ),
+            ]
+        )
+        if index < len(items) - 1:
+            elements.append(
+                _rect(
+                    order,
+                    f"agenda_divider_{index + 1}",
+                    "decoration",
+                    SAFE_X + 190,
+                    y + row_height - 4,
+                    SAFE_WIDTH - 190,
+                    2,
+                    2,
+                    style.surface,
+                )
+            )
+    return elements, _id(order, "agenda_item_1")
+
+
+def _agenda_two_column(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    items = _items(slide)
+    split = (len(items) + 1) // 2
+    columns = (items[:split], items[split:])
+    column_width = 780
+    elements = [_background(order, style), _title(order, slide, style)]
+    for column_index, column_items in enumerate(columns):
+        x = SAFE_X + column_index * 900
+        row_height = 620 // max(1, len(column_items))
+        elements.append(
+            _rect(
+                order,
+                f"agenda_column_rule_{column_index + 1}",
+                "decoration",
+                x,
+                270,
+                8,
+                620,
+                2,
+                style.focal if column_index == 0 else style.secondary,
+                radius=4,
+            )
+        )
+        for row_index, (identifier, value) in enumerate(column_items):
+            item_index = column_index * split + row_index
+            y = 270 + row_index * row_height
+            elements.extend(
+                [
+                    _text(
+                        order,
+                        f"agenda_index_{item_index + 1}",
+                        "highlight",
+                        f"{item_index + 1:02d}",
+                        x + 42,
+                        y,
+                        100,
+                        row_height,
+                        4,
+                        style.muted_text,
+                        30,
+                        "bold",
+                        style.heading_font,
+                        vertical="middle",
+                    ),
+                    _text(
+                        order,
+                        f"agenda_item_{item_index + 1}",
+                        "body",
+                        value,
+                        x + 150,
+                        y,
+                        column_width - 150,
+                        row_height,
+                        5,
+                        style.text,
+                        max(32, style.body_size + 2),
+                        "semibold",
+                        style.body_font,
+                        vertical="middle",
+                        content_item_ids=[identifier],
+                    ),
+                ]
+            )
+    return elements, _id(order, "agenda_item_1")
+
+
+def _agenda_chapter_grid(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    items = _items(slide)
+    columns = 2 if len(items) <= 4 else 3
+    rows = (len(items) + columns - 1) // columns
+    gap = 24
+    card_width = (SAFE_WIDTH - gap * (columns - 1)) // columns
+    card_height = (650 - gap * (rows - 1)) // rows
+    elements = [_background(order, style), _title(order, slide, style)]
+    for index, (identifier, value) in enumerate(items):
+        row, column = divmod(index, columns)
+        x = SAFE_X + column * (card_width + gap)
+        y = 260 + row * (card_height + gap)
+        elements.extend(
+            [
+                _rect(
+                    order,
+                    f"agenda_card_{index + 1}",
+                    "decoration",
+                    x,
+                    y,
+                    card_width,
+                    card_height,
+                    2,
+                    style.surface,
+                    stroke=style.focal if index == 0 else style.secondary,
+                    stroke_width=3,
+                    radius=12,
+                ),
+                _text(
+                    order,
+                    f"agenda_index_{index + 1}",
+                    "highlight",
+                    f"{index + 1:02d}",
+                    x + 34,
+                    y + 28,
+                    120,
+                    54,
+                    4,
+                    style.focal,
+                    32,
+                    "bold",
+                    style.heading_font,
+                ),
+                _text(
+                    order,
+                    f"agenda_item_{index + 1}",
+                    "body",
+                    value,
+                    x + 34,
+                    y + 94,
+                    card_width - 68,
+                    card_height - 118,
+                    5,
+                    style.text,
+                    max(30, style.body_size + 2),
+                    "semibold",
+                    style.body_font,
+                    vertical="middle",
+                    content_item_ids=[identifier],
+                ),
+            ]
+        )
+    return elements, _id(order, "agenda_item_1")
+
+
+def _agenda_vertical_rail(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    items = _items(slide)
+    row_height = 620 // len(items)
+    elements = [
+        _background(order, style),
+        _text(order, "title", "title", str(slide.get("title", "")), SAFE_X, 250, 520, 250, 5, style.text, max(64, style.cover_size - 6), "bold", style.heading_font, vertical="middle", line_height=1.05),
+        _rect(order, "agenda_title_rule", "decoration", SAFE_X, 548, 220, 10, 3, style.focal, radius=5),
+        _rect(order, "agenda_rail", "decoration", 760, 272, 6, 620, 2, style.secondary, radius=3),
+    ]
+    for index, (identifier, value) in enumerate(items):
+        y = 272 + index * row_height
+        elements.extend(
+            [
+                _rect(order, f"agenda_node_{index + 1}", "decoration", 742, y + row_height // 2 - 18, 42, 42, 4, style.focal if index == 0 else style.surface, stroke=style.focal, stroke_width=3, radius=21),
+                _text(order, f"agenda_index_{index + 1}", "highlight", f"{index + 1:02d}", 820, y, 90, row_height, 4, style.focal, 30, "bold", style.heading_font, vertical="middle"),
+                _text(order, f"agenda_item_{index + 1}", "body", value, 930, y, 820, row_height, 5, style.text, max(32, style.body_size + 2), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
+            ]
+        )
+    return elements, _id(order, "agenda_item_1")
+
+
+def _agenda_editorial_index(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    items = _items(slide)
+    row_height = 640 // len(items)
+    elements = [
+        _background(order, style),
+        _title(order, slide, style),
+        _rect(order, "agenda_index_field", "decoration", SAFE_X, 250, 360, 650, 2, style.focal, radius=10),
+    ]
+    contrast = _contrasting_text_color(style.focal, style.text)
+    for index, (identifier, value) in enumerate(items):
+        y = 260 + index * row_height
+        elements.extend(
+            [
+                _text(order, f"agenda_index_{index + 1}", "highlight", f"{index + 1:02d}", SAFE_X + 42, y, 276, row_height, 4, contrast, max(46, style.title_size), "bold", style.heading_font, align="right", vertical="middle"),
+                _text(order, f"agenda_item_{index + 1}", "body", value, SAFE_X + 430, y, SAFE_WIDTH - 430, row_height, 5, style.text, max(34, style.body_size + 4), "semibold", style.body_font, vertical="middle", content_item_ids=[identifier]),
+            ]
+        )
+    return elements, _id(order, "agenda_item_1")
+
+
+def _closing_centered_minimal(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    title = _text(order, "title", "title", str(slide.get("title", "감사합니다")), 260, 300, 1400, 250, 5, style.text, max(84, style.cover_size + 12), "bold", style.heading_font, align="center", vertical="middle", line_height=1.05)
+    elements = [
+        _background(order, style),
+        _rect(order, "closing_mark", "decoration", 840, 236, 240, 12, 3, style.focal, radius=6),
+        title,
+        _text(order, "subtitle", "subtitle", str(slide.get("message", "")), 430, 590, 1060, 120, 5, style.muted_text, max(32, style.body_size + 2), "medium", style.body_font, align="center", vertical="middle"),
+    ]
+    return elements, title["elementId"]
+
+
+def _closing_editorial_frame(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    title = _text(order, "title", "title", str(slide.get("title", "감사합니다")), 260, 286, 1400, 270, 5, style.text, max(80, style.cover_size + 8), "bold", style.heading_font, align="center", vertical="middle")
+    elements = [
+        _background(order, style),
+        _rect(order, "closing_frame", "decoration", 150, 120, 1620, 840, 2, "transparent", stroke=style.focal, stroke_width=4, radius=8),
+        _rect(order, "closing_frame_accent", "decoration", 150, 120, 260, 18, 3, style.focal),
+        title,
+        _text(order, "subtitle", "subtitle", str(slide.get("message", "")), 430, 600, 1060, 130, 5, style.muted_text, max(32, style.body_size + 2), "medium", style.body_font, align="center", vertical="middle"),
+    ]
+    return elements, title["elementId"]
+
+
+def _closing_split_accent(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    contrast = _contrasting_text_color(style.focal, style.text)
+    title = _text(order, "title", "title", str(slide.get("title", "감사합니다")), 170, 270, 660, 360, 5, contrast, max(76, style.cover_size + 4), "bold", style.heading_font, vertical="middle", line_height=1.05)
+    elements = [
+        _background(order, style),
+        _rect(order, "closing_accent_panel", "decoration", 0, 0, 940, 1080, 2, style.focal),
+        title,
+        _text(order, "subtitle", "subtitle", str(slide.get("message", "")), 1080, 420, 650, 220, 5, style.text, max(36, style.body_size + 4), "semibold", style.body_font, vertical="middle"),
+        _rect(order, "closing_side_rule", "decoration", 1080, 360, 180, 10, 3, style.secondary, radius=5),
+    ]
+    return elements, title["elementId"]
+
+
+def _closing_vertical_mark(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    title = _text(order, "title", "title", str(slide.get("title", "감사합니다")), 430, 300, 1180, 260, 5, style.text, max(82, style.cover_size + 10), "bold", style.heading_font, vertical="middle")
+    elements = [
+        _background(order, style),
+        _rect(order, "closing_vertical_mark", "decoration", 260, 210, 22, 660, 3, style.focal, radius=11),
+        _rect(order, "closing_vertical_mark_secondary", "decoration", 310, 390, 8, 300, 3, style.secondary, radius=4),
+        title,
+        _text(order, "subtitle", "subtitle", str(slide.get("message", "")), 438, 600, 1020, 150, 5, style.muted_text, max(34, style.body_size + 2), "medium", style.body_font, vertical="middle"),
+    ]
+    return elements, title["elementId"]
+
+
+def _closing_soft_panel(
+    direction: SlideCompositionDirection,
+    slide: dict[str, Any],
+    style: Style,
+) -> tuple[list[Element], str]:
+    order = direction.order
+    title = _text(order, "title", "title", str(slide.get("title", "감사합니다")), 330, 316, 1260, 240, 5, style.text, max(80, style.cover_size + 8), "bold", style.heading_font, align="center", vertical="middle")
+    elements = [
+        _background(order, style),
+        _rect(order, "closing_soft_panel", "decoration", 220, 190, 1480, 700, 2, style.surface, radius=36),
+        _rect(order, "closing_soft_accent", "decoration", 760, 250, 400, 10, 3, style.focal, radius=5),
+        title,
+        _text(order, "subtitle", "subtitle", str(slide.get("message", "")), 470, 612, 980, 130, 5, style.muted_text, max(32, style.body_size + 2), "medium", style.body_font, align="center", vertical="middle"),
+    ]
+    return elements, title["elementId"]
+
+
 COMPOSITION_SPECS: dict[CompositionId, CompositionSpec] = {
     "cover-classic-corporate": CompositionSpec("cover-classic-corporate", ("cover",), 0, 0, "none", ("light", "dark"), "cover-centered-corporate", "title", _cover_classic_corporate),
     "cover-visual-impact": CompositionSpec("cover-visual-impact", ("cover",), 0, 0, "required", ("light", "dark"), "cover-image-right", "cover-image", _cover_visual_impact),
@@ -2634,6 +2980,16 @@ COMPOSITION_SPECS: dict[CompositionId, CompositionSpec] = {
     "bento-focus": CompositionSpec("bento-focus", ("solution", "feature-grid", "data"), 2, 4, "none", ("light", "dark"), "bento-focus", "first-item", _bento_focus),
     "editorial-media-band": CompositionSpec("editorial-media-band", ("problem", "solution", "data", "quote"), 1, 3, "optional", ("light", "dark"), "media-band", "message-or-image", _editorial_media_band),
     "cta-closing": CompositionSpec("cta-closing", ("summary",), 0, 3, "optional", ("light", "dark"), "closing", "cta", _cta_closing),
+    "agenda-numbered-list": CompositionSpec("agenda-numbered-list", ("agenda",), 1, 6, "none", ("light", "dark"), "agenda-numbered", "first-agenda-item", _agenda_numbered_list),
+    "agenda-two-column": CompositionSpec("agenda-two-column", ("agenda",), 2, 6, "none", ("light", "dark"), "agenda-columns", "first-agenda-item", _agenda_two_column),
+    "agenda-chapter-grid": CompositionSpec("agenda-chapter-grid", ("agenda",), 2, 6, "none", ("light", "dark"), "agenda-grid", "first-agenda-item", _agenda_chapter_grid),
+    "agenda-vertical-rail": CompositionSpec("agenda-vertical-rail", ("agenda",), 2, 6, "none", ("light", "dark"), "agenda-rail", "first-agenda-item", _agenda_vertical_rail),
+    "agenda-editorial-index": CompositionSpec("agenda-editorial-index", ("agenda",), 1, 6, "none", ("light", "dark"), "agenda-editorial", "first-agenda-item", _agenda_editorial_index),
+    "closing-centered-minimal": CompositionSpec("closing-centered-minimal", ("closing",), 0, 0, "none", ("light", "dark"), "closing-centered", "title", _closing_centered_minimal),
+    "closing-editorial-frame": CompositionSpec("closing-editorial-frame", ("closing",), 0, 0, "none", ("light", "dark"), "closing-frame", "title", _closing_editorial_frame),
+    "closing-split-accent": CompositionSpec("closing-split-accent", ("closing",), 0, 0, "none", ("light", "dark"), "closing-split", "title", _closing_split_accent),
+    "closing-vertical-mark": CompositionSpec("closing-vertical-mark", ("closing",), 0, 0, "none", ("light", "dark"), "closing-vertical", "title", _closing_vertical_mark),
+    "closing-soft-panel": CompositionSpec("closing-soft-panel", ("closing",), 0, 0, "none", ("light", "dark"), "closing-panel", "title", _closing_soft_panel),
 }
 
 
@@ -2650,6 +3006,20 @@ FALLBACK_COMPOSITIONS: dict[str, tuple[CompositionId, ...]] = {
     "comparison": ("feature-comparison", "editorial-split"),
     "quote": ("statement-poster", "image-evidence", "editorial-media-band"),
     "summary": ("cta-closing", "statement-poster"),
+    "agenda": (
+        "agenda-numbered-list",
+        "agenda-two-column",
+        "agenda-chapter-grid",
+        "agenda-vertical-rail",
+        "agenda-editorial-index",
+    ),
+    "closing": (
+        "closing-centered-minimal",
+        "closing-editorial-frame",
+        "closing-split-accent",
+        "closing-vertical-mark",
+        "closing-soft-panel",
+    ),
 }
 
 
@@ -2750,14 +3120,16 @@ def _select_composition_sequence(
         if not preserve_slide_types:
             if index == 0:
                 slide_type = "cover"
+            elif len(slides) >= 4 and index == 1:
+                slide_type = "agenda"
             elif index == len(slides) - 1:
-                slide_type = "summary"
-        item_count = 0 if index == 0 and slide_type == "cover" else len(_items(slide))
-        preferred = (
-            "cta-closing"
-            if index == len(slides) - 1 and not preserve_slide_types
-            else direction.composition_id
+                slide_type = "closing"
+        item_count = (
+            0
+            if slide_type in {"cover", "closing"}
+            else len(_items(slide))
         )
+        preferred = direction.composition_id
         fallback_candidates = FALLBACK_COMPOSITIONS.get(
             slide_type,
             ("statement-poster",),
@@ -2828,13 +3200,14 @@ def _select_composition_sequence(
 
     selected: list[CompositionId] = []
     usage: Counter[str] = Counter()
-    body_slide_count = max(0, len(slides) - 2)
+    body_start = 2 if len(slides) >= 4 else 1
+    body_slide_count = max(0, len(slides) - body_start - 1)
     validator_unique_target = (
         (body_slide_count * 3 + 3) // 4 if body_slide_count >= 5 else 0
     )
     supported_body_compositions = {
         composition_id
-        for candidates in candidates_by_slide[1:-1]
+        for candidates in candidates_by_slide[body_start:-1]
         for composition_id in candidates
     }
     requested_unique_target = (
@@ -2856,15 +3229,19 @@ def _select_composition_sequence(
         prefer_unused_silhouette: bool = False,
     ) -> bool:
         if index == len(candidates_by_slide):
-            return len(set(selected[1:-1])) >= unique_target
-        selected_body = set(selected[1:])
-        remaining_body = max(0, len(candidates_by_slide) - 1 - max(index, 1))
+            return len(set(selected[body_start:-1])) >= unique_target
+        selected_body = set(selected[body_start:])
+        remaining_body = max(
+            0,
+            len(candidates_by_slide) - 1 - max(index, body_start),
+        )
         if len(selected_body) + remaining_body < unique_target:
             return False
         candidates = candidates_by_slide[index]
-        if 0 < index < len(candidates_by_slide) - 1:
+        if body_start <= index < len(candidates_by_slide) - 1:
             selected_silhouettes = {
-                COMPOSITION_SPECS[candidate].silhouette for candidate in selected[1:]
+                COMPOSITION_SPECS[candidate].silhouette
+                for candidate in selected[body_start:]
             }
             candidates = tuple(
                 sorted(
@@ -2965,6 +3342,34 @@ def _semantic_composition_candidates(
 ) -> tuple[CompositionId, ...]:
     item_count = len(_items(slide))
     candidates: list[CompositionId] = []
+    if slide_type == "agenda":
+        if item_count == 1:
+            return (
+                "agenda-editorial-index"
+                if style_pack_id == "modern-editorial"
+                else "agenda-numbered-list",
+            )
+        agenda_preferences: dict[str, tuple[CompositionId, ...]] = {
+            "modern-editorial": ("agenda-editorial-index", "agenda-two-column"),
+            "product-showcase": ("agenda-chapter-grid", "agenda-numbered-list"),
+            "data-report": ("agenda-two-column", "agenda-vertical-rail"),
+            "technical-system": ("agenda-vertical-rail", "agenda-chapter-grid"),
+        }
+        return agenda_preferences.get(
+            style_pack_id,
+            ("agenda-numbered-list", "agenda-chapter-grid"),
+        )
+    if slide_type == "closing":
+        closing_preferences: dict[str, tuple[CompositionId, ...]] = {
+            "modern-editorial": ("closing-editorial-frame",),
+            "product-showcase": ("closing-split-accent",),
+            "data-report": ("closing-vertical-mark",),
+            "technical-system": ("closing-soft-panel",),
+        }
+        return closing_preferences.get(
+            style_pack_id,
+            ("closing-centered-minimal",),
+        )
     if _looks_like_dated_roadmap(slide):
         candidates.append("timeline")
     elif slide_type == "process" and _looks_like_ordered_process(slide):
@@ -3049,6 +3454,7 @@ def compile_composition(
     item_count = (
         0
         if direction.composition_id in COVER_COMPOSITION_IDS
+        or direction.composition_id.startswith("closing-")
         else len(_items(slide))
     )
     slide_type = str(slide.get("slideType", "summary"))
@@ -3598,7 +4004,13 @@ def _media_caption(slide: dict[str, Any]) -> str:
 def _deck_layout(composition_id: CompositionId, slide_type: str) -> str:
     if composition_id in {"hero-split", "hero-full-bleed", "minimal-cover"}:
         return "title"
-    if composition_id == "cta-closing" or slide_type == "summary":
+    if composition_id.startswith("agenda-") or slide_type == "agenda":
+        return "agenda"
+    if (
+        composition_id == "cta-closing"
+        or composition_id.startswith("closing-")
+        or slide_type in {"summary", "closing"}
+    ):
         return "closing"
     if composition_id in {"editorial-split", "image-evidence", "feature-comparison"}:
         return "two-column"

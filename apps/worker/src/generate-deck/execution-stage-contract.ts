@@ -4,6 +4,7 @@ import {
   generateDeckValidationSchema,
   slideSchema,
   type AiDeckGenerationStage,
+  type GenerateDeckResponse,
   type GenerateDeckJobResult,
 } from "@orbit/shared";
 import { z } from "zod";
@@ -71,7 +72,19 @@ export function isCompletedSlideV2Artifact(
   return completedSlideV2ArtifactPayloadSchema.safeParse(payload).success;
 }
 
-export const qualityArtifactPayloadSchema = z
+export type QualityArtifactPayload = {
+  workerPayload: GenerateDeckResponse;
+};
+
+type QualityArtifactPayloadInput = {
+  workerPayload: z.input<typeof generateDeckResponseSchema>;
+};
+
+export const qualityArtifactPayloadSchema: z.ZodType<
+  QualityArtifactPayload,
+  z.ZodTypeDef,
+  QualityArtifactPayloadInput
+> = z
   .object({
     workerPayload: generateDeckResponseSchema,
   })
@@ -100,7 +113,7 @@ export const executionArtifactPayloadSchemas: Record<
 export type AiDeckExecutionArtifactPayload =
   | z.infer<typeof coverSlideArtifactPayloadSchema>
   | z.infer<typeof imageSlideArtifactPayloadSchema>
-  | z.infer<typeof qualityArtifactPayloadSchema>
+  | QualityArtifactPayload
   | z.infer<typeof publicationArtifactPayloadSchema>;
 
 export function isAiDeckExecutionStage(
