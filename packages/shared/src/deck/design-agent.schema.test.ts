@@ -551,4 +551,112 @@ describe("design agent schema", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("accepts v3 semantic units and five click beats", () => {
+    const units = Array.from({ length: 5 }, (_, index) => ({
+      unitId: `motion_unit_card_${index + 1}`,
+      kind: "spatial-cluster",
+      animationElementIds: [
+        `el_card_${index + 1}`,
+        `el_number_${index + 1}`,
+        `el_body_${index + 1}`,
+      ],
+      memberElementIds: [
+        `el_card_${index + 1}`,
+        `el_number_${index + 1}`,
+        `el_body_${index + 1}`,
+      ],
+      semanticRole: "card",
+      readingOrder: index + 1,
+    }));
+    const result = motionPlanMetadataSchema.safeParse({
+      source: "llm",
+      model: "gpt-4.1-mini-2025-04-14",
+      attemptCount: 1,
+      compilerVersion: "motion-compiler-v3",
+      units,
+      plan: {
+        schemaVersion: 3,
+        pattern: "stepwise-process",
+        pacing: "deliberate",
+        beats: units.map((unit, index) => ({
+          beatId: `beat_step_${index + 1}`,
+          purpose: "reveal",
+          trigger: "click",
+          relation: "together",
+          targets: [{ unitId: unit.unitId, motionIntent: "reveal" }],
+        })),
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects v3 metadata with undeclared, overlapping, or sixth-click units", () => {
+    const baseUnit = {
+      unitId: "motion_unit_card_1",
+      kind: "spatial-cluster",
+      animationElementIds: ["el_card", "el_body"],
+      memberElementIds: ["el_card", "el_body"],
+      semanticRole: "card",
+      readingOrder: 1,
+    } as const;
+    const base = {
+      source: "llm",
+      model: "gpt-4.1-mini-2025-04-14",
+      attemptCount: 1,
+      compilerVersion: "motion-compiler-v3",
+      units: [baseUnit],
+      plan: {
+        schemaVersion: 3,
+        pattern: "stepwise-process",
+        pacing: "balanced",
+        beats: [
+          {
+            beatId: "beat_card",
+            purpose: "reveal",
+            trigger: "click",
+            relation: "together",
+            targets: [
+              { unitId: "motion_unit_missing", motionIntent: "reveal" },
+            ],
+          },
+        ],
+      },
+    } as const;
+
+    expect(motionPlanMetadataSchema.safeParse(base).success).toBe(false);
+    expect(
+      motionPlanMetadataSchema.safeParse({
+        ...base,
+        units: [
+          baseUnit,
+          {
+            ...baseUnit,
+            unitId: "motion_unit_card_2",
+            animationElementIds: ["el_other"],
+            readingOrder: 2,
+          },
+        ],
+        plan: {
+          ...base.plan,
+          beats: Array.from({ length: 6 }, (_, index) => ({
+            beatId: `beat_${index + 1}`,
+            purpose: "reveal",
+            trigger: "click",
+            relation: "together",
+            targets: [
+              {
+                unitId:
+                  index === 0
+                    ? "motion_unit_card_1"
+                    : `motion_unit_extra_${index}`,
+                motionIntent: "reveal",
+              },
+            ],
+          })),
+        },
+      }).success,
+    ).toBe(false);
+  });
 });
