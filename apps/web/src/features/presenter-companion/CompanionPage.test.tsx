@@ -1,6 +1,18 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CompanionShell } from "./CompanionPage";
+
+vi.mock("./CompanionAudienceRenderer", () => ({
+  CompanionAudienceRenderer: () => <div>Companion output</div>,
+}));
+vi.mock("./useCompanionSocket", () => ({
+  useCompanionSocket: () => ({
+    authorityEpochId: null,
+    error: "",
+    output: null,
+    status: "connecting",
+  }),
+}));
 
 describe("CompanionShell", () => {
   it("renders a credential bootstrap loading shell without presenter data", () => {

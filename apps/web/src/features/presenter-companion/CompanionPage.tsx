@@ -6,8 +6,9 @@ import {
 } from "./presenterCompanionApi";
 import {
   getPurposeLabel,
-  PrivateDeviceCheckPad,
 } from "./PresenterCompanionSetup";
+import { CompanionAudienceRenderer } from "./CompanionAudienceRenderer";
+import { useCompanionSocket } from "./useCompanionSocket";
 import "./presenter-companion.css";
 
 export function CompanionPairingPage(props: { code: string }) {
@@ -96,18 +97,34 @@ export function CompanionShell(props: {
       </main>
     );
   }
+  return <ConnectedCompanionShell bootstrap={props.bootstrap} />;
+}
+
+function ConnectedCompanionShell(props: {
+  bootstrap: PresentationCompanionBootstrap;
+}) {
+  const companion = useCompanionSocket(props.bootstrap.sessionId);
+
   return (
     <main className="presenter-companion-page">
       <header>
         <span>{getPurposeLabel(props.bootstrap.sessionPurpose)}</span>
         <strong>iPad 발표 도우미</strong>
+        <span role="status">
+          {companion.status === "connected" ? "연결됨" : "연결 확인 중"}
+        </span>
       </header>
-      <section aria-label="iPad 발표 도우미">
-        <h1>발표 자료</h1>
-        <p>발표자 화면 연결을 기다리고 있습니다.</p>
-        <small>슬라이드 {props.bootstrap.deck.slides.length}장</small>
-        <PrivateDeviceCheckPad />
-      </section>
+      {companion.error ? (
+        <section role="alert">
+          <h1>iPad 연결을 확인해주세요</h1>
+          <p>{companion.error}</p>
+        </section>
+      ) : (
+        <CompanionAudienceRenderer
+          deck={props.bootstrap.deck}
+          output={companion.output}
+        />
+      )}
     </main>
   );
 }

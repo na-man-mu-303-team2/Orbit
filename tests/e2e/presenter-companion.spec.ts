@@ -33,7 +33,7 @@ test.describe("iPad presenter companion pairing", () => {
     await page.goto("/companion/pair/one-time-private-code");
 
     await expect(page.getByRole("heading", { name: "발표 자료" })).toBeVisible();
-    await expect(page.getByLabel("iPad 입력 테스트 패드")).toBeVisible();
+    await expect(page.getByText("발표자 화면 연결을 기다리고 있습니다.")).toBeVisible();
     await expect(page).toHaveURL(/\/companion\/session_companion_1$/);
     expect(page.url()).not.toContain("one-time-private-code");
     expect(exchangeCount).toBe(1);

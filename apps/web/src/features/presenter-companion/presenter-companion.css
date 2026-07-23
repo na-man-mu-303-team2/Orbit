@@ -82,11 +82,30 @@
 
 .presenter-companion-page > header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: var(--redesign-space-3);
+  min-height: 48px;
 }
 
 .presenter-companion-page > section {
   place-self: center;
   text-align: center;
+}
+
+.presenter-companion-output {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.presenter-companion-output[data-output-obscured="true"] {
+  align-self: stretch;
+}
+
+.presenter-companion-waiting {
+  color: var(--redesign-color-on-dark);
 }
