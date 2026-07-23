@@ -519,6 +519,140 @@ def test_v3_extractor_resolves_four_item_feature_comparison_rules() -> None:
     assert "renamed_comparison_body" in comparison_units[2].member_element_ids
 
 
+def test_v3_extractor_resolves_six_node_diagram_hub() -> None:
+    elements = [
+        element(
+            "el_6_program_v2_title",
+            "text",
+            "title",
+            120,
+            96,
+            1680,
+            120,
+            5,
+            "AI 운영 구조",
+        ),
+        element(
+            "el_6_program_v2_hub_field",
+            "rect",
+            "highlight",
+            724,
+            336,
+            472,
+            352,
+            4,
+        ),
+        element(
+            "renamed_hub_text",
+            "text",
+            "highlight",
+            760,
+            384,
+            400,
+            256,
+            5,
+            "통합 운영 허브",
+        ),
+    ]
+    frames = [
+        (120, 288),
+        (1380, 288),
+        (120, 512),
+        (1380, 512),
+        (120, 736),
+        (1380, 736),
+    ]
+    for index, (x, y) in enumerate(frames, start=1):
+        elements.extend(
+            [
+                element(
+                    f"el_6_program_v2_connector_{index}",
+                    "rect",
+                    "decoration",
+                    960,
+                    508,
+                    400,
+                    8,
+                    2,
+                ),
+                element(
+                    f"el_6_program_v2_node_{index}_field",
+                    "rect",
+                    "decoration",
+                    x,
+                    y,
+                    402,
+                    176,
+                    3,
+                ),
+                element(
+                    f"el_6_program_v2_node_{index}_index",
+                    "text",
+                    "highlight",
+                    x + 32,
+                    y + 20,
+                    338,
+                    56,
+                    5,
+                    f"{index:02d}",
+                ),
+                element(
+                    f"el_6_program_v2_node_{index}",
+                    "text",
+                    "body",
+                    x + 32,
+                    y + 80,
+                    338,
+                    72,
+                    5,
+                    f"{index}번 노드 전체 본문",
+                ),
+            ]
+        )
+
+    extraction = extract_motion_units(
+        {
+            "slideId": "slide_hub",
+            "order": 6,
+            "title": "AI 운영 구조",
+            "elements": elements,
+            "semanticCues": [],
+            "aiNotes": {
+                "visualPlan": {"visualType": "architecture"},
+                "compositionPlan": {
+                    "compositionId": "diagram-hub",
+                    "primaryFocalElementId": "renamed_hub_text",
+                },
+            },
+        },
+        planning_context(
+            [
+                item
+                for item in elements
+                if item.get("role") != "decoration"
+            ]
+        ),
+    )
+
+    assert extraction.context.structure_family == "diagram-hub"
+    assert len(extraction.context.units) == 8
+    assert extraction.context.units[1].semantic_role == "focal"
+    assert extraction.context.units[1].member_element_ids == [
+        "el_6_program_v2_hub_field",
+        "renamed_hub_text",
+    ]
+    node_units = [
+        unit for unit in extraction.context.units if unit.semantic_role == "card"
+    ]
+    assert len(node_units) == 6
+    assert all(len(unit.animation_element_ids) == 3 for unit in node_units)
+    assert all(
+        "connector" not in element_id
+        for unit in extraction.context.units
+        for element_id in unit.member_element_ids
+    )
+
+
 def element(
     element_id: str,
     element_type: str,

@@ -334,6 +334,190 @@ def _nearest_comparison_body(
     return ranked[0]
 
 
+@register_structure_resolver("diagram-hub")
+def _resolve_diagram_hub(
+    slide: dict[str, Any],
+    elements: list[dict[str, Any]],
+) -> ResolvedMotionStructure:
+    family: MotionStructureFamily = "diagram-hub"
+    hub_field = _single_element_by_pattern(
+        elements,
+        r"_hub_field(?:_r\d+)?$",
+        lambda element: element.get("type") in SHAPE_TYPES,
+        family,
+        "hub field",
+    )
+    assert hub_field is not None
+    hub_text = _single_element_by_pattern(
+        elements,
+        r"_hub(?:_r\d+)?$",
+        _is_text,
+        family,
+        "hub text",
+        required=False,
+    )
+    if hub_text is None:
+        focal_id = _primary_focal_id(slide)
+        hub_text = next(
+            (
+                element
+                for element in elements
+                if _is_text(element)
+                and (
+                    _element_id(element) == focal_id
+                    or str(element.get("role", "")) == "highlight"
+                )
+                and _center_is_inside(hub_field, element)
+            ),
+            None,
+        )
+    if hub_text is None:
+        raise MotionStructureResolutionError(
+            family,
+            "hub field requires one contained focal text",
+        )
+    assert hub_text is not None
+
+    fields = _indexed_elements(
+        elements,
+        r"_node_(\d+)_field(?:_r\d+)?$",
+        lambda element: element.get("type") in SHAPE_TYPES,
+        family,
+    )
+    indexes = _indexed_elements(
+        elements,
+        r"_node_(\d+)_index(?:_r\d+)?$",
+        _is_text,
+        family,
+    )
+    bodies = _indexed_elements(
+        elements,
+        r"_node_(\d+)(?:_r\d+)?$",
+        lambda element: _is_text(element)
+        and str(element.get("role", "")) == "body",
+        family,
+    )
+    expected_ordinals = list(range(1, len(fields) + 1))
+    if sorted(fields) != expected_ordinals or not 3 <= len(fields) <= 6:
+        raise MotionStructureResolutionError(
+            family,
+            "hub nodes must be consecutive with three to six items",
+        )
+    if sorted(indexes) != expected_ordinals:
+        raise MotionStructureResolutionError(
+            family,
+            "every hub node requires one numeric index",
+        )
+
+    body_candidates = [
+        element
+        for element in elements
+        if _is_text(element) and str(element.get("role", "")) == "body"
+    ]
+    used_body_ids: set[str] = set()
+    slots = [
+        ResolvedMotionSlot(
+            slot_id="hub",
+            order=0,
+            member_element_ids=(
+                _element_id(hub_field),
+                _element_id(hub_text),
+            ),
+            frame_element_id=_element_id(hub_field),
+            semantic_role="focal",
+        )
+    ]
+    for ordinal in expected_ordinals:
+        field = fields[ordinal]
+        body = bodies.get(ordinal) or _single_contained_body(
+            field,
+            [
+                candidate
+                for candidate in body_candidates
+                if _element_id(candidate) not in used_body_ids
+            ],
+            family,
+            f"hub node {ordinal}",
+        )
+        body_id = _element_id(body)
+        if body_id in used_body_ids:
+            raise MotionStructureResolutionError(
+                family,
+                f"hub node {ordinal} reuses a body",
+            )
+        used_body_ids.add(body_id)
+        field_id = _element_id(field)
+        slots.append(
+            ResolvedMotionSlot(
+                slot_id=f"hub-node-{ordinal}",
+                order=ordinal,
+                member_element_ids=(
+                    field_id,
+                    _element_id(indexes[ordinal]),
+                    body_id,
+                ),
+                frame_element_id=field_id,
+                semantic_role="card",
+            )
+        )
+    if len(used_body_ids) != len(body_candidates):
+        raise MotionStructureResolutionError(
+            family,
+            "hub node bodies do not map one-to-one to fields",
+        )
+    return ResolvedMotionStructure(family=family, slots=tuple(slots))
+
+
+def _single_element_by_pattern(
+    elements: list[dict[str, Any]],
+    pattern: str,
+    predicate: Callable[[dict[str, Any]], bool],
+    family: MotionStructureFamily,
+    label: str,
+    *,
+    required: bool = True,
+) -> dict[str, Any] | None:
+    matches = [
+        element
+        for element in elements
+        if re.search(pattern, _element_id(element)) is not None
+        and predicate(element)
+    ]
+    if len(matches) > 1 or required and not matches:
+        raise MotionStructureResolutionError(
+            family,
+            f"{label} must resolve to exactly one element",
+        )
+    return matches[0] if matches else None
+
+
+def _single_contained_body(
+    container: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    family: MotionStructureFamily,
+    label: str,
+) -> dict[str, Any]:
+    matches = [
+        candidate
+        for candidate in candidates
+        if _center_is_inside(container, candidate)
+    ]
+    if len(matches) != 1:
+        raise MotionStructureResolutionError(
+            family,
+            f"{label} must contain exactly one body",
+        )
+    return matches[0]
+
+
+def _primary_focal_id(slide: dict[str, Any]) -> str:
+    ai_notes = slide.get("aiNotes")
+    composition = ai_notes.get("compositionPlan") if isinstance(ai_notes, dict) else None
+    if not isinstance(composition, dict):
+        return ""
+    return str(composition.get("primaryFocalElementId", ""))
+
+
 def _indexed_elements(
     elements: list[dict[str, Any]],
     pattern: str,
