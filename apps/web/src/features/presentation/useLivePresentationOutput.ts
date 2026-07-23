@@ -80,6 +80,9 @@ export function useLivePresentationOutput(input: {
       annotationSnapshotRef.current = snapshot;
       localChannel.publishAnnotationSnapshot(snapshot);
     },
+    onLaser: (laser) => {
+      localChannel.publishLaser(laser);
+    },
   });
   useEffect(() => {
     if (!input.companionEnabled || !input.persistedSessionId) {

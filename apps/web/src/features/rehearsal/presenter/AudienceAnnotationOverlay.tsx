@@ -1,6 +1,7 @@
 import type {
   Deck,
   PresentationCompanionAnnotationSnapshot,
+  PresentationCompanionLaser,
   PresentationCompanionStroke,
 } from "@orbit/shared";
 import type { AudienceOutputMode } from "./presenterStateStore";
@@ -8,13 +9,17 @@ import type { AudienceOutputMode } from "./presenterStateStore";
 export function AudienceAnnotationOverlay(props: {
   canvas: Deck["canvas"];
   mode: AudienceOutputMode;
+  laser?: PresentationCompanionLaser | null;
   scale: number;
   snapshot?: PresentationCompanionAnnotationSnapshot | null;
 }) {
+  const hasVisibleLaser =
+    props.laser?.kind === "move" &&
+    props.laser.surfaceId === props.snapshot?.surfaceId;
   if (
     props.mode === "black" ||
     !props.snapshot ||
-    props.snapshot.strokes.length === 0
+    (props.snapshot.strokes.length === 0 && !hasVisibleLaser)
   ) {
     return null;
   }
@@ -42,6 +47,14 @@ export function AudienceAnnotationOverlay(props: {
           strokeWidth={stroke.width}
         />
       ))}
+      {hasVisibleLaser && props.laser?.kind === "move" ? (
+        <circle
+          className="audience-laser-point"
+          cx={props.laser.x}
+          cy={props.laser.y}
+          r={0.012}
+        />
+      ) : null}
     </svg>
   );
 }

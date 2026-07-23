@@ -2,6 +2,7 @@ import type {
   Deck,
   PresentationCompanionAnnotationCommand,
   PresentationCompanionAnnotationSnapshot,
+  PresentationCompanionLaser,
 } from "@orbit/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PresenterSlideshowState } from "./presenterStateStore";
@@ -10,6 +11,7 @@ import {
   createPresenterAnnotationDeltaMessage,
   createPresenterAnnotationSnapshotMessage,
   createPresenterHeartbeatMessage,
+  createPresenterLaserMessage,
   createPresenterSnapshotMessage,
   createPresenterStateMessage,
   createPresenterRemoteSnapshotMessage,
@@ -294,6 +296,12 @@ export function usePresentationChannelPublisher(args: {
           annotation,
           identity,
         }),
+      );
+    },
+    publishLaser: (laser: PresentationCompanionLaser) => {
+      if (!identity || !channelRef.current) return;
+      channelRef.current.postMessage(
+        createPresenterLaserMessage({ identity, laser }),
       );
     },
     publishSnapshot: () => {

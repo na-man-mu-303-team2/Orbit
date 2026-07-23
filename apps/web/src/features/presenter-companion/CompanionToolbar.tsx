@@ -1,4 +1,8 @@
-export type CompanionDrawingTool = "eraser" | "highlighter" | "pen";
+export type CompanionDrawingTool =
+  | "eraser"
+  | "highlighter"
+  | "laser"
+  | "pen";
 export type CompanionInkColor =
   | "ink-black"
   | "ink-blue"
@@ -19,7 +23,7 @@ export function CompanionToolbar(props: {
 }) {
   return (
     <nav aria-label="iPad 주석 도구" className="presenter-companion-toolbar">
-      {(["pen", "highlighter", "eraser"] as const).map((tool) => (
+      {(["pen", "highlighter", "eraser", "laser"] as const).map((tool) => (
         <button
           aria-pressed={props.tool === tool}
           disabled={props.disabled}
@@ -44,7 +48,11 @@ export function CompanionToolbar(props: {
             aria-label={getColorLabel(color)}
             aria-pressed={props.color === color}
             className={`presenter-companion-color presenter-companion-color--${color}`}
-            disabled={props.disabled || props.tool === "eraser"}
+            disabled={
+              props.disabled ||
+              props.tool === "eraser" ||
+              props.tool === "laser"
+            }
             key={color}
             onClick={() => props.onColorChange(color)}
             type="button"
@@ -82,5 +90,6 @@ function getColorLabel(color: CompanionInkColor): string {
 function getToolLabel(tool: CompanionDrawingTool): string {
   if (tool === "pen") return "펜";
   if (tool === "highlighter") return "형광펜";
+  if (tool === "laser") return "레이저";
   return "지우개";
 }

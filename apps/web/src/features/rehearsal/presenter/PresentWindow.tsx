@@ -1,6 +1,7 @@
 import type {
   Deck,
   PresentationCompanionAnnotationSnapshot,
+  PresentationCompanionLaser,
 } from "@orbit/shared";
 import {
   IconArrowsMaximize,
@@ -46,6 +47,7 @@ export type PresentWindowSnapshot = {
   deck: Deck;
   state: PresenterSlideshowState;
   triggerAnimationIds: string[];
+  laser?: PresentationCompanionLaser | null;
 };
 
 type ViewportSize = {
@@ -392,6 +394,7 @@ export function PresentWindowContent(props: {
         <AudienceAnnotationOverlay
           canvas={snapshot.deck.canvas}
           mode={snapshot.state.audienceOutputMode}
+          laser={snapshot.laser}
           scale={scale}
           snapshot={snapshot.annotation}
         />
@@ -536,6 +539,22 @@ export function applyPresentWindowMessage(
         sessionId: previous.sessionId,
         state: applied.state,
       }),
+    };
+  }
+
+  if (message.type === "presenter-laser" && current) {
+    const previous = current.laser;
+    if (
+      previous &&
+      previous.authorityEpochId === message.laser.authorityEpochId &&
+      previous.surfaceId === message.laser.surfaceId &&
+      message.laser.sequence <= previous.sequence
+    ) {
+      return current;
+    }
+    return {
+      ...current,
+      laser: message.laser.kind === "hide" ? null : message.laser,
     };
   }
 

@@ -5,6 +5,7 @@ import {
   presentationCompanionAnnotationCommandSchema,
   presentationCompanionErrorEventSchema,
   presentationCompanionJoinedEventSchema,
+  presentationCompanionLaserSchema,
   presentationCompanionOutputStateEventSchema,
   presentationCompanionRevokedEventSchema,
   type PresentationCompanionOutputState,
@@ -15,11 +16,14 @@ import {
 } from "@orbit/shared";
 import { useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
+import { AnnotationCommandQueue } from "./annotationCommandQueue";
 
 type CompanionSocket = Pick<
   Socket,
-  "connected" | "disconnect" | "emit" | "off" | "on"
->;
+  "connect" | "connected" | "disconnect" | "emit" | "off" | "on"
+> & {
+  volatile?: Pick<Socket, "emit">;
+};
 
 type AnnotationCommandBaseFields =
   | "authorityEpochId"
@@ -101,14 +105,16 @@ export function useCompanionSocket(
     useState<PresentationCompanionAnnotationSnapshot | null>(null);
   const [lastAnnotationAck, setLastAnnotationAck] =
     useState<PresentationCompanionAnnotationAck | null>(null);
+  const [annotationRecovering, setAnnotationRecovering] =
+    useState(false);
   const cursorRef = useRef<CompanionOutputCursor>({
     output: null,
     snapshotPending: false,
   });
   const authorityEpochRef = useRef<string | null>(null);
   const socketRef = useRef<CompanionSocket | null>(null);
-  const commandRevisionRef = useRef(0);
-  const commandSequenceRef = useRef(0);
+  const commandQueueRef = useRef<AnnotationCommandQueue | null>(null);
+  const laserSequenceRef = useRef(0);
 
   useEffect(() => {
     const socket = createSocket();
@@ -127,11 +133,39 @@ export function useCompanionSocket(
       };
       socket.emit("presentation:companion:snapshot-request", request);
     };
+    const queue = new AnnotationCommandQueue({
+      createCommand: (input, revision, sequence) => {
+        const current = cursorRef.current.output;
+        const authorityEpochId = authorityEpochRef.current;
+        if (!current || !authorityEpochId) return null;
+        return createCompanionAnnotationCommand(input, {
+          sessionId,
+          authorityEpochId,
+          surfaceId: current.surfaceId,
+          baseRevision: revision,
+          sequence,
+        });
+      },
+      emit: (command) => {
+        socket.emit(
+          "presentation:companion:annotation-command",
+          command,
+        );
+      },
+      onReconcile: () => {
+        setAnnotationRecovering(true);
+        const current = cursorRef.current.output;
+        if (current && socket.connected) requestSnapshot(current);
+      },
+    });
+    commandQueueRef.current = queue;
     const join = () => {
       setStatus("connecting");
       socket.emit("presentation:companion:join", { sessionId });
     };
     const handleDisconnect = () => {
+      queue.pause();
+      setAnnotationRecovering(true);
       setStatus((current) =>
         current === "revoked" ? current : "reconnecting",
       );
@@ -151,6 +185,12 @@ export function useCompanionSocket(
       if (authorityEpochRef.current !== nextAuthority) {
         authorityEpochRef.current = nextAuthority;
         setAuthorityEpochId(nextAuthority);
+        queue.pause();
+        laserSequenceRef.current = 0;
+        setAnnotationRecovering(true);
+        if (nextAuthority === null) {
+          return;
+        }
         cursorRef.current = {
           output: null,
           snapshotPending: false,
@@ -158,8 +198,6 @@ export function useCompanionSocket(
         setOutput(null);
         setAnnotation(null);
         setLastAnnotationAck(null);
-        commandRevisionRef.current = 0;
-        commandSequenceRef.current = 0;
         return;
       }
       const currentOutput = cursorRef.current.output;
@@ -190,15 +228,22 @@ export function useCompanionSocket(
         cursorRef.current,
         incoming,
       );
+      const previousOutput = cursorRef.current.output;
       const outputChanged =
         consumed.cursor.output !== cursorRef.current.output;
       cursorRef.current = consumed.cursor;
       if (outputChanged) {
         setOutput(consumed.cursor.output);
         const nextSurfaceId = consumed.cursor.output?.surfaceId;
-        commandRevisionRef.current =
-          consumed.cursor.output?.surfaceRevision ?? 0;
-        commandSequenceRef.current = 0;
+        if (
+          !previousOutput ||
+          previousOutput.authorityEpochId !==
+            consumed.cursor.output?.authorityEpochId ||
+          previousOutput.surfaceId !== nextSurfaceId
+        ) {
+          queue.reset(consumed.cursor.output?.surfaceRevision ?? 0);
+          laserSequenceRef.current = 0;
+        }
         setAnnotation((current) =>
           current && current.surfaceId !== nextSurfaceId ? null : current,
         );
@@ -217,12 +262,7 @@ export function useCompanionSocket(
           authorityEpochRef.current
       ) {
         setLastAnnotationAck(parsed.data.payload);
-        commandRevisionRef.current = parsed.data.payload.accepted
-          ? Math.max(
-              commandRevisionRef.current,
-              parsed.data.payload.surfaceRevision,
-            )
-          : parsed.data.payload.surfaceRevision;
+        queue.acknowledge(parsed.data.payload);
       }
     };
     const handleAnnotationSnapshot = (value: unknown) => {
@@ -239,7 +279,8 @@ export function useCompanionSocket(
           surfaceId: cursorRef.current.output?.surfaceId ?? null,
         });
         if (next !== current) {
-          commandRevisionRef.current = next?.surfaceRevision ?? 0;
+          queue.reset(next?.surfaceRevision ?? 0);
+          setAnnotationRecovering(false);
         }
         return next;
       });
@@ -285,6 +326,27 @@ export function useCompanionSocket(
     socket.on("presentation:error", handleError);
     if (socket.connected) join();
 
+    const recover = (event: Event) => {
+      if (
+        document.visibilityState !== "visible" &&
+        event.type === "visibilitychange"
+      ) {
+        return;
+      }
+      queue.pause();
+      setAnnotationRecovering(true);
+      if (!socket.connected) {
+        socket.connect();
+        return;
+      }
+      join();
+      const current = cursorRef.current.output;
+      if (current) requestSnapshot(current);
+    };
+    window.addEventListener("online", recover);
+    window.addEventListener("pageshow", recover);
+    document.addEventListener("visibilitychange", recover);
+
     const heartbeatId = window.setInterval(() => {
       heartbeatStartedAt = performance.now();
       socket.emit(
@@ -302,6 +364,9 @@ export function useCompanionSocket(
 
     return () => {
       window.clearInterval(heartbeatId);
+      window.removeEventListener("online", recover);
+      window.removeEventListener("pageshow", recover);
+      document.removeEventListener("visibilitychange", recover);
       socket.off("connect", join);
       socket.off("disconnect", handleDisconnect);
       socket.off("presentation:companion:joined", handleJoined);
@@ -321,12 +386,35 @@ export function useCompanionSocket(
       socket.off("presentation:companion:revoked", handleRevoked);
       socket.off("presentation:error", handleError);
       socket.disconnect();
+      queue.dispose();
+      if (commandQueueRef.current === queue) {
+        commandQueueRef.current = null;
+      }
       if (socketRef.current === socket) socketRef.current = null;
     };
   }, [createSocket, sessionId]);
 
   const sendAnnotationCommand = (
     input: CompanionAnnotationCommandInput,
+  ): boolean => {
+    const queue = commandQueueRef.current;
+    if (
+      !queue ||
+      status !== "connected" ||
+      annotationRecovering ||
+      !authorityEpochId ||
+      !output ||
+      output.outputMode === "black"
+    ) {
+      return false;
+    }
+    return queue.enqueue(input);
+  };
+
+  const sendLaser = (
+    input:
+      | { kind: "hide" }
+      | { kind: "move"; x: number; y: number },
   ): boolean => {
     const socket = socketRef.current;
     if (
@@ -338,30 +426,31 @@ export function useCompanionSocket(
     ) {
       return false;
     }
-    const command = createCompanionAnnotationCommand(input, {
+    const parsed = presentationCompanionLaserSchema.safeParse({
+      ...input,
       sessionId,
       authorityEpochId,
       surfaceId: output.surfaceId,
-      baseRevision: commandRevisionRef.current,
-      sequence: commandSequenceRef.current,
+      sequence: laserSequenceRef.current,
     });
-    if (!command) return false;
-    socket.emit(
-      "presentation:companion:annotation-command",
-      command,
+    if (!parsed.success) return false;
+    (socket.volatile ?? socket).emit(
+      "presentation:companion:laser",
+      parsed.data,
     );
-    commandRevisionRef.current += 1;
-    commandSequenceRef.current += 1;
+    laserSequenceRef.current += 1;
     return true;
   };
 
   return {
     annotation,
+    annotationRecovering,
     authorityEpochId,
     error,
     lastAnnotationAck,
     output,
     sendAnnotationCommand,
+    sendLaser,
     status,
   };
 }

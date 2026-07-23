@@ -49,6 +49,7 @@ const config = loadOrbitConfig(process.env, { service: "api" });
     credentials: true,
     origin: resolveAllowedWebOrigins(config.WEB_ORIGIN),
   },
+  maxHttpBufferSize: 8 * 1024 * 1024,
 })
 export class PresentationCompanionGateway
   implements OnGatewayInit, OnGatewayDisconnect

@@ -301,3 +301,9 @@ html:has(.present-window-shell) #root {
 .audience-annotation-stroke--ink-yellow {
   stroke: var(--redesign-color-warning);
 }
+
+.audience-laser-point {
+  fill: var(--redesign-color-error);
+  filter: drop-shadow(0 0 var(--redesign-space-1) var(--redesign-color-error));
+  pointer-events: none;
+}

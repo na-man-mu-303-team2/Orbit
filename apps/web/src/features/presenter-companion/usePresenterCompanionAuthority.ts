@@ -2,10 +2,12 @@ import {
   presentationCompanionAuthorityChangedEventSchema,
   presentationCompanionAnnotationCommandEventSchema,
   presentationCompanionPresenceEventSchema,
+  presentationCompanionLaserEventSchema,
   presentationCompanionSnapshotRequestEventSchema,
   presentationCompanionOutputStateSchema,
   type PresentationCompanionOutputState,
   type PresentationCompanionAnnotationSnapshot,
+  type PresentationCompanionLaser,
 } from "@orbit/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
@@ -34,6 +36,7 @@ export function usePresenterCompanionAuthority(input: {
   onAnnotationSnapshot?: (
     snapshot: PresentationCompanionAnnotationSnapshot,
   ) => void;
+  onLaser?: (laser: PresentationCompanionLaser) => void;
 }) {
   const [status, setStatus] = useState<AuthorityStatus>("disabled");
   const authorityEpochIdRef = useRef("");
@@ -48,9 +51,11 @@ export function usePresenterCompanionAuthority(input: {
   const annotationSnapshotHandlerRef = useRef(
     input.onAnnotationSnapshot,
   );
+  const laserHandlerRef = useRef(input.onLaser);
   stateRef.current = input.state;
   annotationDeltaHandlerRef.current = input.onAnnotationDelta;
   annotationSnapshotHandlerRef.current = input.onAnnotationSnapshot;
+  laserHandlerRef.current = input.onLaser;
 
   const publishCurrentOutput = useCallback(() => {
     const socket = socketRef.current;
@@ -193,6 +198,19 @@ export function usePresenterCompanionAuthority(input: {
         annotationSnapshotHandlerRef.current?.(result.snapshot);
       }
     };
+    const handleLaser = (value: unknown) => {
+      const parsed =
+        presentationCompanionLaserEventSchema.safeParse(value);
+      if (
+        parsed.success &&
+        parsed.data.sessionId === sessionId &&
+        parsed.data.payload.authorityEpochId ===
+          authorityEpochIdRef.current &&
+        parsed.data.payload.surfaceId === currentSurfaceIdRef.current
+      ) {
+        laserHandlerRef.current?.(parsed.data.payload);
+      }
+    };
     const handleSnapshotRequest = (value: unknown) => {
       const parsed =
         presentationCompanionSnapshotRequestEventSchema.safeParse(value);
@@ -218,6 +236,7 @@ export function usePresenterCompanionAuthority(input: {
       "presentation:companion:annotation-command",
       handleAnnotationCommand,
     );
+    socket.on("presentation:companion:laser", handleLaser);
     socket.on(
       "presentation:companion:snapshot-request",
       handleSnapshotRequest,
@@ -243,6 +262,7 @@ export function usePresenterCompanionAuthority(input: {
         "presentation:companion:annotation-command",
         handleAnnotationCommand,
       );
+      socket.off("presentation:companion:laser", handleLaser);
       socket.off(
         "presentation:companion:snapshot-request",
         handleSnapshotRequest,

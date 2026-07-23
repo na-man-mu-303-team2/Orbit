@@ -1,9 +1,11 @@
 import {
   presentationCompanionAnnotationCommandSchema,
   presentationCompanionAnnotationSnapshotSchema,
+  presentationCompanionLaserSchema,
   type Deck,
   type PresentationCompanionAnnotationCommand,
   type PresentationCompanionAnnotationSnapshot,
+  type PresentationCompanionLaser,
 } from "@orbit/shared";
 import type {
   AudienceOutputMode,
@@ -151,6 +153,14 @@ export type PresenterAnnotationDeltaMessage = {
   type: "presenter-annotation-delta";
 };
 
+export type PresenterLaserMessage = {
+  deckId: string;
+  laser: PresentationCompanionLaser;
+  sentAt: number;
+  sessionId: string;
+  type: "presenter-laser";
+};
+
 export type PresentationChannelMessage =
   | PresenterSnapshotMessage
   | PresenterStateMessage
@@ -164,7 +174,8 @@ export type PresentationChannelMessage =
   | PresenterCommandMessage
   | ScreenShareEndedMessage
   | PresenterAnnotationSnapshotMessage
-  | PresenterAnnotationDeltaMessage;
+  | PresenterAnnotationDeltaMessage
+  | PresenterLaserMessage;
 
 export function createPresentationSessionId() {
   if (
@@ -330,6 +341,14 @@ export function parsePresentationChannelMessage(
             ...value,
             command: command.data,
           } as PresenterAnnotationDeltaMessage)
+        : null;
+    }
+    case "presenter-laser": {
+      const laser = presentationCompanionLaserSchema.safeParse(
+        value.laser,
+      );
+      return laser.success
+        ? ({ ...value, laser: laser.data } as PresenterLaserMessage)
         : null;
     }
     default:
@@ -542,6 +561,20 @@ export function createPresenterAnnotationDeltaMessage(args: {
     sessionId: args.identity.sessionId,
     surfaceRevision: args.surfaceRevision,
     type: "presenter-annotation-delta",
+  };
+}
+
+export function createPresenterLaserMessage(args: {
+  identity: PresentationChannelIdentity;
+  laser: PresentationCompanionLaser;
+  sentAt?: number;
+}): PresenterLaserMessage {
+  return {
+    deckId: args.identity.deckId,
+    laser: presentationCompanionLaserSchema.parse(args.laser),
+    sentAt: args.sentAt ?? Date.now(),
+    sessionId: args.identity.sessionId,
+    type: "presenter-laser",
   };
 }
 

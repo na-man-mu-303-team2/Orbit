@@ -30,6 +30,7 @@ type ActiveStroke = {
   frameId: number | null;
   pendingPoints: PresentationCompanionPoint[];
   pointer: ActiveCompanionPointer;
+  mode: "draw" | "laser";
   startedAt: number;
   strokeId: string;
 };
@@ -41,6 +42,11 @@ export function CompanionAnnotationCanvas(props: {
   lastAcknowledgement: PresentationCompanionAnnotationAck | null;
   output: PresentationCompanionOutputState;
   sendCommand: (command: CompanionAnnotationCommandInput) => boolean;
+  sendLaser: (
+    input:
+      | { kind: "hide" }
+      | { kind: "move"; x: number; y: number },
+  ) => boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const activeStrokeRef = useRef<ActiveStroke | null>(null);
@@ -53,6 +59,10 @@ export function CompanionAnnotationCanvas(props: {
     () => new Set(),
   );
   const [clearOptimistic, setClearOptimistic] = useState(false);
+  const [laserPoint, setLaserPoint] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const disabled =
     !props.canWrite ||
     !props.connected ||
@@ -106,6 +116,22 @@ export function CompanionAnnotationCanvas(props: {
     });
   }, [visibleStrokes]);
 
+  useEffect(() => {
+    if (!disabled) return;
+    const active = activeStrokeRef.current;
+    if (active && active.frameId !== null) {
+      cancelAnimationFrame(active.frameId);
+    }
+    if (active?.mode === "laser") {
+      props.sendLaser({ kind: "hide" });
+    }
+    activeStrokeRef.current = null;
+    setLocalStrokes([]);
+    setHiddenStrokeIds(new Set());
+    setClearOptimistic(false);
+    setLaserPoint(null);
+  }, [disabled, props.output.surfaceId]);
+
   useEffect(
     () => () => {
       const active = activeStrokeRef.current;
@@ -122,6 +148,14 @@ export function CompanionAnnotationCanvas(props: {
     const active = activeStrokeRef.current;
     if (!active) return;
     active.frameId = null;
+    if (active.mode === "laser") {
+      const point = active.pendingPoints.at(-1);
+      active.pendingPoints.length = 0;
+      if (point) {
+        props.sendLaser({ kind: "move", x: point.x, y: point.y });
+      }
+      return;
+    }
     while (active.pendingPoints.length > 0) {
       const points = active.pendingPoints.splice(0, 64);
       if (
@@ -178,6 +212,25 @@ export function CompanionAnnotationCanvas(props: {
       }
       return;
     }
+    if (tool === "laser") {
+      if (!props.sendLaser({ kind: "move", x: first.x, y: first.y })) {
+        return;
+      }
+      event.currentTarget.setPointerCapture(event.pointerId);
+      activeStrokeRef.current = {
+        frameId: null,
+        mode: "laser",
+        pendingPoints: [],
+        pointer: {
+          pointerId: event.pointerId,
+          pointerType: event.pointerType,
+        },
+        startedAt,
+        strokeId: "laser",
+      };
+      setLaserPoint({ x: first.x, y: first.y });
+      return;
+    }
 
     const strokeId = createOpaqueId("stroke");
     if (
@@ -196,6 +249,7 @@ export function CompanionAnnotationCanvas(props: {
     event.currentTarget.setPointerCapture(event.pointerId);
     activeStrokeRef.current = {
       frameId: null,
+      mode: "draw",
       pendingPoints: [],
       pointer: {
         pointerId: event.pointerId,
@@ -232,6 +286,13 @@ export function CompanionAnnotationCanvas(props: {
       active.startedAt,
     );
     if (points.length === 0) return;
+    if (active.mode === "laser") {
+      const point = points.at(-1)!;
+      active.pendingPoints = [point];
+      setLaserPoint({ x: point.x, y: point.y });
+      scheduleFlush();
+      return;
+    }
     active.pendingPoints.push(...points);
     setLocalStrokes((current) =>
       current.map((stroke) =>
@@ -247,6 +308,17 @@ export function CompanionAnnotationCanvas(props: {
   ) => {
     const active = activeStrokeRef.current;
     if (!active || active.pointer.pointerId !== event.pointerId) return;
+    if (active.mode === "laser") {
+      if (active.frameId !== null) cancelAnimationFrame(active.frameId);
+      active.pendingPoints.length = 0;
+      props.sendLaser({ kind: "hide" });
+      setLaserPoint(null);
+      activeStrokeRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
     if (active.frameId !== null) cancelAnimationFrame(active.frameId);
     flushPendingPoints();
     send({
@@ -306,6 +378,16 @@ export function CompanionAnnotationCanvas(props: {
         onPointerUp={finishPointer}
         ref={canvasRef}
       />
+      {laserPoint ? (
+        <span
+          aria-hidden="true"
+          className="presenter-companion-local-laser"
+          style={{
+            left: `${laserPoint.x * 100}%`,
+            top: `${laserPoint.y * 100}%`,
+          }}
+        />
+      ) : null}
       <CompanionToolbar
         canClear={visibleStrokes.length > 0}
         canUndo={visibleStrokes.length > 0}

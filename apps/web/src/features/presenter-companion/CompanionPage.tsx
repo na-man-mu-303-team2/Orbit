@@ -112,7 +112,11 @@ function ConnectedCompanionShell(props: {
         <span>{getPurposeLabel(props.bootstrap.sessionPurpose)}</span>
         <strong>iPad 발표 도우미</strong>
         <span role="status">
-          {companion.status === "connected" ? "연결됨" : "연결 확인 중"}
+          {companion.annotationRecovering
+            ? "다시 동기화 중"
+            : companion.status === "connected"
+              ? "연결됨"
+              : "연결 확인 중"}
         </span>
       </header>
       {companion.error ? (
@@ -134,11 +138,13 @@ function ConnectedCompanionShell(props: {
               )}
               connected={
                 companion.status === "connected" &&
-                Boolean(companion.authorityEpochId)
+                Boolean(companion.authorityEpochId) &&
+                !companion.annotationRecovering
               }
               lastAcknowledgement={companion.lastAnnotationAck}
               output={companion.output}
               sendCommand={companion.sendAnnotationCommand}
+              sendLaser={companion.sendLaser}
             />
           ) : null}
         </div>
