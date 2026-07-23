@@ -40,7 +40,9 @@ test.describe("Semantic Motion proposal preview", () => {
       .click();
     const proposalCard = page.getByRole("region", { name: "Motion 제안" });
     await expect(proposalCard).toBeVisible({ timeout: 60_000 });
-    await expect(proposalCard.getByText(/자동 진입 \d+ · 클릭 \d+/)).toBeVisible();
+    await expect(
+      proposalCard.locator(".motion-proposal-summary > span"),
+    ).toHaveText(/자동 진입 \d+ · 클릭 \d+/);
 
     await proposalCard.getByRole("button", { name: "미리보기" }).click();
     const dialog = page.getByRole("dialog", {
