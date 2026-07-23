@@ -3696,6 +3696,7 @@
 
 .presenter-remote-shell {
   background: var(--redesign-color-dark-surface);
+  border-radius: var(--redesign-radius-xl);
   box-sizing: border-box;
   color: var(--redesign-color-on-dark);
   display: flex;
