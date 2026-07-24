@@ -95,7 +95,6 @@ Resources:
 
   PrivateAppDefaultRoute:
     Type: AWS::EC2::Route
-    DependsOn: NatGateway
     Properties:
       RouteTableId: !Ref PrivateAppRouteTable
       DestinationCidrBlock: 0.0.0.0/0
