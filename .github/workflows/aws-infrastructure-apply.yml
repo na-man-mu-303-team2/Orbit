@@ -33,7 +33,7 @@ jobs:
           AWS_INFRA_APPLY_ROLE_ARN: ${{ vars.AWS_INFRA_APPLY_ROLE_ARN }}
         run: |
           set -euo pipefail
-          : "${AWS_INFRA_APPLY_ROLE_ARN:?Production variable AWS_INFRA_APPLY_ROLE_ARN must be configured}"
+          : "${AWS_INFRA_APPLY_ROLE_ARN:?Repository variable AWS_INFRA_APPLY_ROLE_ARN must be configured}"
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ inputs.region }}
