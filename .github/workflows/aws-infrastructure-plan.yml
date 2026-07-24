@@ -65,8 +65,8 @@ jobs:
           set -euo pipefail
           templates=("$TEMPLATE_FILE")
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            # The retained bootstrap stack is outside this additive cutover workflow.
             templates=(
-              infra/aws/main-production-bootstrap.yaml
               infra/aws/shared-services-single-az.yaml
               infra/aws/ecs-compute-single-az.yaml
               infra/aws/edge-waf-count-mode.yaml
