@@ -1,10 +1,8 @@
 import { readFile } from "node:fs/promises";
 
-const [changeSetPath, expectedRoleArn] = process.argv.slice(2);
+const [changeSetPath] = process.argv.slice(2);
 if (!changeSetPath) {
-  console.error(
-    "Usage: node infra/scripts/assert-cfn-change-set-safe.mjs <change-set.json> [expected-role-arn]",
-  );
+  console.error("Usage: node infra/scripts/assert-cfn-change-set-safe.mjs <change-set.json>");
   process.exit(2);
 }
 
@@ -16,20 +14,6 @@ const protectedTypes = new Set([
 ]);
 
 const changeSet = JSON.parse(await readFile(changeSetPath, "utf8"));
-if (expectedRoleArn !== undefined) {
-  if (expectedRoleArn.trim().length === 0) {
-    console.error("Expected CloudFormation execution role ARN must not be empty.");
-    process.exit(2);
-  }
-
-  if (changeSet.RoleARN !== expectedRoleArn) {
-    console.error(
-      "Unsafe CloudFormation change set: execution role does not match the approved role.",
-    );
-    process.exit(1);
-  }
-}
-
 const unsafe = (changeSet.Changes ?? []).filter(({ ResourceChange: change }) =>
   protectedTypes.has(change?.ResourceType) &&
   (

@@ -7,6 +7,7 @@ on:
       - infra/aws/**
       - infra/scripts/assert-cfn-change-set-safe.mjs
       - infra/scripts/assert-cfn-change-set-safe.test.mjs
+      - .github/workflows/aws-infrastructure-apply.yml
       - .github/workflows/aws-infrastructure-plan.yml
   workflow_dispatch:
     inputs:
@@ -113,7 +114,7 @@ jobs:
           set -euo pipefail
           aws cloudformation wait change-set-create-complete --change-set-name "${{ steps.change-set.outputs.id }}" --region "$AWS_REGION"
           aws cloudformation describe-change-set --change-set-name "${{ steps.change-set.outputs.id }}" --region "$AWS_REGION" --output json > change-set.json
-          node infra/scripts/assert-cfn-change-set-safe.mjs change-set.json "$AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN"
+          node infra/scripts/assert-cfn-change-set-safe.mjs change-set.json
       - if: github.event_name == 'workflow_dispatch'
         name: Upload change set evidence
         uses: actions/upload-artifact@v4

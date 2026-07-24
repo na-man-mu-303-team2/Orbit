@@ -10,7 +10,7 @@
 ## Pre-change readiness gate
 
 - Do not create or execute a Change Set with an AWS account root session. Configure separate least-privilege GitHub OIDC roles in repository variable `AWS_INFRA_PLAN_ROLE_ARN` and production environment variable `AWS_INFRA_APPLY_ROLE_ARN`; the apply role remains behind the `production` environment approval.
-- Configure repository variable `AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN` with a dedicated role trusted only by `cloudformation.amazonaws.com`. The Plan workflow must pass this role with `create-change-set --role-arn`, and both Plan and Apply must reject a Change Set whose reported `RoleARN` differs. Do not define an environment-level variable with the same name.
+- Configure repository variable `AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN` with a dedicated role trusted only by `cloudformation.amazonaws.com`. The Plan workflow must pass this role with `create-change-set --role-arn`. `DescribeChangeSet` does not return the role ARN, so the role boundary is enforced at Change Set creation through the Plan role's exact `iam:PassRole` scope, not by parsing the review artifact. Do not define an environment-level variable with the same name.
 - Keep GitHub roles and the CloudFormation execution role separate. The Plan role receives only its required CloudFormation control-plane actions and `iam:PassRole` scoped to the exact execution role with `iam:PassedToService=cloudformation.amazonaws.com`. The Apply role receives only the actions needed to describe and execute the reviewed Change Set and observe completion; resource provisioning permissions belong only to the execution role.
 - Configure repository variable `AWS_ECR_PUBLISH_ROLE_ARN` as a separate main-branch image publishing role. It must not reuse the Plan, Apply, or CloudFormation execution role.
 - Confirm `origin.tryorbit.site` has an issued ACM certificate in `ap-northeast-2`. The existing CloudFront certificate in `us-east-1` cannot terminate the regional ALB listener.
@@ -23,7 +23,7 @@
 ## Required approval evidence
 
 1. Record the current application SHA, RDS manual snapshot ID, CloudFront distribution configuration export, and current stack template in the production change record.
-2. Run `Plan AWS infrastructure`; inspect the generated change set. Confirm its `RoleARN` is the repository `AWS_CLOUDFORMATION_EXECUTION_ROLE_ARN`, and confirm it contains no replacement or deletion of `AWS::RDS::DBInstance`, `AWS::S3::Bucket`, `AWS::CloudFront::Distribution`, or `AWS::EC2::Instance`.
+2. Run `Plan AWS infrastructure`; record the successful workflow run and use only the Change Set ARN produced by that run. Confirm the change set contains no replacement or deletion of `AWS::RDS::DBInstance`, `AWS::S3::Bucket`, `AWS::CloudFront::Distribution`, or `AWS::EC2::Instance`.
    A protected `Modify` is safe only when CloudFormation reports `Replacement: False`; `True`, `Conditional`, and missing replacement evidence are blocked.
 3. Apply a reviewed change set only through `Apply AWS infrastructure`, protected by GitHub environment `production` approval.
 4. Deploy `edge-waf-count-mode.yaml` in `us-east-1`, retain Count mode for at least 24 hours, and verify that WAF logging redacts `cookie`, `authorization`, and the origin verification header before a separate Block-mode PR.
