@@ -1,8 +1,10 @@
 let protected_resources = Resources.*[
-  Type == "AWS::RDS::DBInstance" ||
-  Type == "AWS::S3::Bucket" ||
-  Type == "AWS::CloudFront::Distribution" ||
-  Type == "AWS::EC2::Instance"
+  Type IN [
+    "AWS::RDS::DBInstance",
+    "AWS::S3::Bucket",
+    "AWS::CloudFront::Distribution",
+    "AWS::EC2::Instance"
+  ]
 ]
 
 rule retained_protected_resources when %protected_resources !empty {
