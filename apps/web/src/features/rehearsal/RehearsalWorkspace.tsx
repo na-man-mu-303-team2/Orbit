@@ -2107,6 +2107,7 @@ export function RehearsalWorkspace(props: {
   );
   const pendingP3SlideIndexRef = useRef<number | null>(null);
   const finishAfterReportRef = useRef(false);
+  const recordingSubmissionVersionRef = useRef(0);
   const companionSessionRef =
     useRef<PresenterCompanionSessionIdentity | null>(null);
   const [companionSession, setCompanionSession] =
@@ -2931,9 +2932,12 @@ export function RehearsalWorkspace(props: {
         : "AI가 발표를 분석하는 중";
   const shouldShowCompletionModal = isCompletionModalOpen || isJobActive;
 
-  async function startRecording() {
-    if (!deck || !canRecord) return;
+  async function startRecording(options: { allowDuringReport?: boolean } = {}) {
+    if (!deck || (!options.allowDuringReport && !canRecord)) return;
     const activeDeck = deck;
+    const activeSlide =
+      activeDeck.slides[currentSlideIndexRef.current] ?? null;
+    recordingSubmissionVersionRef.current += 1;
     setPracticeWithoutVoiceAt(null);
     stopLiveDemo();
 
@@ -2947,9 +2951,12 @@ export function RehearsalWorkspace(props: {
     setLiveError("");
     setLiveAudioLevel(null);
     setLiveDebugPcmRecording(null);
+    if (options.allowDuringReport) {
+      setPhase("idle");
+    }
     resetLiveSessionTranscript();
-    resetLivePlaybackForSlide(currentSlide);
-    resetAutoAdvanceRuntimeState(currentSlide?.slideId ?? null);
+    resetLivePlaybackForSlide(activeSlide);
+    resetAutoAdvanceRuntimeState(activeSlide?.slideId ?? null);
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("이 브라우저는 마이크 녹음을 지원하지 않습니다.");
@@ -4249,6 +4256,10 @@ export function RehearsalWorkspace(props: {
   }
 
   async function submitRecording(activeDeck: Deck, audioFile: File) {
+    const submissionVersion = recordingSubmissionVersionRef.current;
+    const isCurrentSubmission = () =>
+      recordingSubmissionVersionRef.current === submissionVersion;
+
     setPhase("uploading");
     setError("");
 
@@ -4264,6 +4275,10 @@ export function RehearsalWorkspace(props: {
           preparedSlideSnapshotsRef.current,
         );
         uploadRun = recovered.run;
+        if (!isCurrentSubmission()) {
+          void cancelRehearsalRun(uploadRun.runId).catch(() => undefined);
+          return;
+        }
         if (recovered.evaluationSnapshotMismatch) {
           setLiveError(
             "발표 자료가 변경되어 이번 회차는 전달 방식만 분석하고 의미 평가는 제외합니다.",
@@ -4286,10 +4301,16 @@ export function RehearsalWorkspace(props: {
         ),
         slideTranscriptSnapshots: slideTranscriptSnapshotsRef.current,
         onJobUpdate: (nextJob) => {
+          if (!isCurrentSubmission()) {
+            return;
+          }
           setJob(nextJob);
           setPhase("processing");
         },
       });
+      if (!isCurrentSubmission()) {
+        return;
+      }
       setRun(result.run);
       activeRunRef.current = result.run;
       setJob(result.job);
@@ -4305,13 +4326,23 @@ export function RehearsalWorkspace(props: {
         return;
       }
 
-      await loadReportForRun(result.run.runId, result.run);
+      await loadReportForRun(
+        result.run.runId,
+        result.run,
+        isCurrentSubmission,
+      );
+      if (!isCurrentSubmission()) {
+        return;
+      }
       setPhase("succeeded");
       setIsCompletionModalOpen(true);
       if (finishAfterReportRef.current) {
         finishAfterReportRef.current = false;
       }
     } catch (cause) {
+      if (!isCurrentSubmission()) {
+        return;
+      }
       setError(toRehearsalFlowMessage(cause));
       setIsCompletionModalOpen(false);
       setPhase("failed");
@@ -4361,12 +4392,20 @@ export function RehearsalWorkspace(props: {
     void cancelRehearsalRun(pendingRun.runId).catch(() => undefined);
   }
 
-  async function loadReportForRun(runId: string, fallbackRun: RehearsalRun) {
+  async function loadReportForRun(
+    runId: string,
+    fallbackRun: RehearsalRun,
+    shouldApply: () => boolean = () => true,
+  ) {
     try {
       const response = await fetchRehearsalReport(runId);
-      setRun(response.run);
+      if (shouldApply()) {
+        setRun(response.run);
+      }
     } catch {
-      setRun(fallbackRun);
+      if (shouldApply()) {
+        setRun(fallbackRun);
+      }
     }
   }
 
@@ -4547,6 +4586,18 @@ export function RehearsalWorkspace(props: {
     currentSlideIndexRef.current = 0;
     setPresenterStepIndex(0);
     setCurrentSlideIndex(0);
+  };
+  const resetRehearsalAttemptToBeginning = () => {
+    const firstSlide = deck?.slides[0] ?? null;
+
+    resetSlideDisplayToBeginning();
+    resetLiveSessionTranscript();
+    resetLivePlaybackForSlide(firstSlide);
+    resetAutoAdvanceRuntimeState(firstSlide?.slideId ?? null);
+    if (deck) {
+      resetSlideTranscriptSnapshots(deck, 0);
+    }
+    setScriptAutoFollowKey((current) => current + 1);
   };
   const publishSlideWindowSnapshot = (deferUntilNextRender: boolean) => {
     if (deferUntilNextRender && typeof window !== "undefined") {
@@ -4932,8 +4983,21 @@ export function RehearsalWorkspace(props: {
     setPreviousPracticeSummary(nextSummary);
   };
   const handleCompletionPracticeAgain = () => {
+    const shouldPracticeWithoutVoice = practiceWithoutVoiceAt !== null;
+
     persistCurrentPracticeSummary();
     returnToPreflight();
+    resetRehearsalAttemptToBeginning();
+
+    if (shouldPracticeWithoutVoice) {
+      startPracticeWithoutVoice();
+      return;
+    }
+
+    shouldAutoStartRef.current = "starting";
+    void startRecording({ allowDuringReport: true }).finally(() => {
+      shouldAutoStartRef.current = null;
+    });
   };
   const handleCompletionPrimaryAction = () => {
     persistCurrentPracticeSummary();
