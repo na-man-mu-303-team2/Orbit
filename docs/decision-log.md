@@ -845,3 +845,27 @@
 - Rationale: 시각 변경과 다른 슬라이드 편집으로 녹음·질문 생성을 잃지 않으면서, 실제 발표 텍스트나 대본이 바뀐 경우에는 오래된 입력으로 분석하지 않는다. DB migration이나 raw slide 원문 로그 없이 기존 frozen snapshot과 provenance 계약을 유지한다.
 - Affected files: `packages/shared/src/slide-practice`, `apps/api/src/slide-practice`, `apps/api/src/slide-question-guides`, `apps/web/src/features/editor/practice`, `apps/web/src/features/editor/shell`, `docs/contracts.md`, 관련 테스트.
 - Follow-up review notes: 다른 slide/visual-only edit 뒤 연습 종료와 QnA 생성이 성공하는지, target speaker notes 변경은 upload·Job 생성 전에 한국어 안내로 중단되는지, 로그에 원문 없이 requested/resolved version과 freshness resolution만 남는지 확인한다.
+
+## ORBIT single-workload-AZ ECS migration foundation
+
+- Context: 기존 production은 하나의 EC2 Compose 경로가 API, Worker, Python Worker와 local Redis를 함께 소유한다. 무중단에 가까운 ECS 전환을 위해서는 기존 CloudFront·EC2·RDS를 즉시 교체하지 않고, Job admission과 Socket.IO presence, 민감 오디오 저장소, digest 기반 배포 및 rollback 경계를 먼저 마련해야 한다.
+- Options considered:
+  - 기존 bootstrap stack에서 EC2를 ECS로 한 번에 교체하고 local Redis 및 assets bucket도 동시에 전환한다.
+  - 별도 ECS 환경을 만든 뒤 DNS를 즉시 ECS 100%로 전환한다.
+  - 기존 리소스를 유지한 채 shared-services, ECS compute, edge WAF를 additive stack으로 만들고 ALB 가중치와 admission drain을 사용해 단계적으로 전환한다.
+- Final decision: production entry CloudFront와 기존 EC2/RDS는 기존 bootstrap stack이 계속 소유한다. 새 stack은 public ALB용 2개 subnet과 단일 workload AZ의 NAT·ECS·Redis를 만들며, 초기 ALB 가중치는 EC2 100/ECS 0으로 고정한다. 신규 비동기 Job은 `ASYNC_JOB_ADMISSION_MODE`로 drain하고, Socket.IO presence는 adapter-wide `fetchSockets()`를 사용한다. private audio는 운영의 기존 storage stack이 소유한 bucket과 IAM policy를 재사용하고 신규 원음은 `raw/`, evidence 파생물은 `evidence/`에 저장한다. prefix 없는 legacy key는 assets bucket에서 계속 읽는다. 기존 SSE-S3를 SSE-KMS로 강화하는 변경은 storage-owning stack의 별도 검토 PR로 분리한다. 이미지와 task definition은 ECR digest로 고정하고, 모든 인프라 변경은 비실행 Change Set 검토와 production environment 승인 후에만 적용한다.
+- Rationale: 기존 서비스와 데이터 경로를 rollback 대상으로 보존하면서 API traffic, Worker ownership, Redis, private storage를 서로 다른 단계로 검증할 수 있다. 운영 bucket의 14일 raw/7일 evidence lifecycle 계약을 그대로 사용해 보존 기간 누락을 막고, 소유권이 다른 stack에서 같은 bucket을 중복 생성하거나 암묵적으로 import하는 위험을 피한다. CloudFormation replacement/delete 방지 검사와 수동 승인 경계가 기존 stateful resource의 우발적 손실을 차단한다.
+- Affected files: `apps/api/src/jobs/async-job-admission.ts`, Deck·slide question guide·realtime·file service와 관련 tests, `apps/worker/src/storage.ts`, `packages/config`, `packages/shared`, `packages/storage`, `infra/aws/*single-az.yaml`, `infra/aws/edge-waf-count-mode.yaml`, AWS infrastructure workflows, environment examples/contracts, `docs/runbooks/ecs-single-az-cutover.md`, `docs/decision-log.md`.
+- Follow-up review notes: AWS account root session에서는 Change Set을 생성하거나 실행하지 않는다. GitHub OIDC plan/apply 역할을 최소 권한으로 분리한 뒤, 실제 적용 전 Change Set에서 기존 `AWS::RDS::DBInstance`, `AWS::S3::Bucket`, `AWS::CloudFront::Distribution`, `AWS::EC2::Instance`의 delete/replace가 없는지 확인한다. storage-owning stack을 저장소의 canonical template로 복구하고 SSE-KMS 전환 영향과 rollback을 별도로 검토한다. candidate smoke test, queue/DB active count 0, raw/evidence 및 legacy audio read, Socket.IO multi-task presence를 확인한 뒤 ECS traffic을 5→25→50→100%로 올린다.
+
+## ORBIT ECS cutover review hardening
+
+- Context: ECS 전환 기반 리뷰에서 CloudFormation의 `Modify` replacement 판정, CloudFront viewer `Host`, 기존 EC2/RDS 보안 그룹, ECS production feature flag, Service Connect namespace가 실제 배포 시 canary와 rollback 경로를 차단할 수 있음이 확인됐다.
+- Options considered:
+  - 기존 bootstrap stack에 ECS/ALB 리소스를 직접 편입하고 보안 그룹 전체 소유권을 옮긴다.
+  - CloudFront viewer `Host`를 ALB에서 public domain wildcard로 허용한다.
+  - 기존 stack 소유권을 유지하고 compute stack이 필요한 cross-stack ingress rule만 추가하며, application origin 사용 시 CloudFront가 origin host를 재생성하게 한다.
+- Final decision: compute stack은 기존 EC2/RDS security group ID를 명시적으로 받아 ALB→EC2 80과 ECS client→RDS 5432 ingress rule만 소유한다. bootstrap stack은 `ApplicationOriginDomainName`이 설정된 경우에만 API/auth/Socket.IO behavior를 `AllViewerExceptHostHeader`로 전환한다. ECS API와 Worker에는 production의 slide practice/QnA flag를 명시하고 Service Connect에는 namespace ARN을 전달한다. protected resource의 `Modify`는 `Replacement: False`가 명시된 경우에만 허용한다. CI의 Guard validator는 unauthenticated GitHub raw installer 대신 AWS가 지원하는 Cargo 경로로 고정 버전 `3.1.2`를 설치한다.
+- Rationale: 기존 stateful resource의 stack 소유권과 direct-EC2 rollback을 유지하면서도 ECS candidate의 DB, legacy target, service discovery, runtime capability를 배포 전에 결정적으로 검증할 수 있다. origin verification header와 CloudFront prefix-list 제한은 그대로 유지한다.
+- Affected files: `infra/scripts/assert-cfn-change-set-safe.mjs`, 관련 test/workflow, `infra/aws/ecs-compute-single-az.yaml`, `infra/aws/main-production-bootstrap.yaml`, `docs/runbooks/ecs-single-az-cutover.md`, `docs/decision-log.md`.
+- Follow-up review notes: 실제 Change Set에서 두 ingress rule이 add-only인지, CloudFront distribution `Modify`가 `Replacement: False`인지, ALB access log의 host가 origin domain인지, ECS runtime config의 두 flag가 `true`인지, Service Connect endpoint가 `python-worker:8000`으로 해석되는지 확인한다.
