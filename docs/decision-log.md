@@ -845,3 +845,15 @@
 - Rationale: 시각 변경과 다른 슬라이드 편집으로 녹음·질문 생성을 잃지 않으면서, 실제 발표 텍스트나 대본이 바뀐 경우에는 오래된 입력으로 분석하지 않는다. DB migration이나 raw slide 원문 로그 없이 기존 frozen snapshot과 provenance 계약을 유지한다.
 - Affected files: `packages/shared/src/slide-practice`, `apps/api/src/slide-practice`, `apps/api/src/slide-question-guides`, `apps/web/src/features/editor/practice`, `apps/web/src/features/editor/shell`, `docs/contracts.md`, 관련 테스트.
 - Follow-up review notes: 다른 slide/visual-only edit 뒤 연습 종료와 QnA 생성이 성공하는지, target speaker notes 변경은 upload·Job 생성 전에 한국어 안내로 중단되는지, 로그에 원문 없이 requested/resolved version과 freshness resolution만 남는지 확인한다.
+
+## ORBIT personal staging app image preflight before container replacement
+
+- Context: Doppler webhook의 `environment-only` 배포에서 `IMAGE_TAG`와 `WEB_IMAGE_TAG`가 설정되지 않아 Compose가 `orbit-web:latest`를 선택했다. 해당 이미지가 없었지만 `docker compose up --force-recreate`가 API 재생성을 먼저 시작한 뒤 Web image 오류로 중단되어 nginx `/api/*`가 지속적으로 502를 반환했다.
+- Options considered:
+  - `orbit-web:latest`를 항상 publish해 기존 환경 재배포를 유지한다.
+  - Web만 `environment-only` 재생성 대상에서 제외한다.
+  - 모든 배포 모드가 동일한 backend branch tag와 Web commit SHA tag를 먼저 확정하고, 앱 이미지 네 개가 로컬에 모두 존재할 때만 pull 없는 컨테이너 교체를 시작한다.
+- Final decision: `deploy-personal-server.sh`는 mode 분기 전에 `IMAGE_TAG=develop`과 `WEB_IMAGE_TAG=<server HEAD>`를 확정한다. `environment-only`는 Compose가 해석한 API, Worker, Python worker, Web image reference 네 개를 `docker image inspect`로 모두 확인하고 schema preflight까지 성공한 뒤에만 `--no-build --pull never --force-recreate`를 실행한다. `full`도 pull 또는 build 뒤 같은 image preflight를 통과하고 최종 `up`에서 추가 pull을 금지한다.
+- Rationale: mutable `latest`에 의존하지 않고 검증된 코드 SHA와 Web bundle을 일치시킨다. 누락 이미지가 있으면 실행 중인 앱 컨테이너를 건드리기 전에 실패하므로 환경변수 재배포 한 번이 전체 API 장애로 확대되지 않는다.
+- Affected files: `infra/scripts/deploy-personal-server.sh`, `infra/scripts/personal-staging-deploy.test.mjs`, `package.json`, `docs/runbooks/personal-server-deployment.md`, `docs/decision-log.md`.
+- Follow-up review notes: 누락 Web image fixture에서 `docker compose up`이 호출되지 않는지, 정상 fixture에서는 네 image inspect 뒤 `--pull never --force-recreate`가 실행되는지 확인한다. 병합 후 새 `environment-only` run과 full run 모두 API/root health check를 통과하는지 검증한다.
