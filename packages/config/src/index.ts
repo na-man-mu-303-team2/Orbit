@@ -186,7 +186,8 @@ const localDefaults = {
   COOKIE_SECRET: "local-cookie-secret-change-me",
   S3_ENDPOINT: "http://localhost:9000",
   S3_PUBLIC_ENDPOINT: "http://localhost:9000",
-  S3_BUCKET: "orbit-local"
+  S3_BUCKET: "orbit-local",
+  S3_ASSETS_BUCKET: "orbit-local",
 } as const;
 
 const defaultApiJsonBodyLimitBytes = 5_000_000;
@@ -212,6 +213,7 @@ export const orbitEnvSchema = z.object({
     localDefaults.PRIVATE_EVIDENCE_REDIS_URL
   ),
   IPAD_PRESENTER_COMPANION_ENABLED: booleanStringSchema.default(true),
+  ASYNC_JOB_ADMISSION_MODE: z.enum(["accept", "drain"]).default("accept"),
   ADAPTIVE_REHEARSAL_COACH_ENABLED: booleanStringSchema.default(false),
   FOCUSED_PRACTICE_ENABLED: booleanStringSchema.default(false),
   CHALLENGE_QNA_ENABLED: booleanStringSchema.default(false),
@@ -237,6 +239,8 @@ export const orbitEnvSchema = z.object({
   S3_ENDPOINT: optionalString,
   S3_PUBLIC_ENDPOINT: optionalString,
   S3_BUCKET: requiredString("S3_BUCKET"),
+  S3_ASSETS_BUCKET: optionalString,
+  S3_PRIVATE_AUDIO_BUCKET: optionalString,
   S3_REGION: requiredString("S3_REGION"),
   S3_ACCESS_KEY_ID: optionalString,
   S3_SECRET_ACCESS_KEY: optionalString,
