@@ -336,7 +336,13 @@ export function PresenterRemoteWindow(props: {
         collapsible
         connected={isAudienceSurfaceConnected}
         error={audienceScreenShare.error}
-        onEndPresentation={() => window.close()}
+        onEndPresentation={() => {
+          if (!window.confirm("발표를 종료할까요?")) {
+            return;
+          }
+          sendCommand({ action: "finish" });
+          window.close();
+        }}
         onReturnToSlide={audienceScreenShare.returnToSlide}
         onShowBlack={audienceScreenShare.showBlack}
         onStartMonitor={audienceScreenShare.startMonitor}
